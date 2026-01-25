@@ -1,3 +1,17 @@
+## 0.5.52 (2026-01-25)
+
+### 🩹 Fixes
+
+- 修复批量生成只执行第一个任务的问题 ([ebca700](https://github.com/ljquan/aitu/commit/ebca700))
+
+### 🔧 Chores
+
+- refactor(task-queue): update resume methods to reuse original LLM API log entries ([d96f066](https://github.com/ljquan/aitu/commit/d96f066))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
 ## 0.5.51 (2026-01-25)
 
 ### 🚀 Features

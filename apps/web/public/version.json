@@ -1,12 +1,8 @@
 {
-  "version": "0.5.51",
-  "buildTime": "2026-01-25T14:54:21.596Z",
+  "version": "0.5.52",
+  "buildTime": "2026-01-25T16:28:59.576Z",
   "gitCommit": "unknown",
   "changelog": [
-    "add alignment, distribution, and boolean operation buttons",
-    "enhance task submission and execution checks",
-    "统一媒体预览组件并优化缩略图展示",
-    "增强文字属性面板样式设置功能",
-    "全面优化多端响应式适配"
+    "修复批量生成只执行第一个任务的问题"
   ]
 }
