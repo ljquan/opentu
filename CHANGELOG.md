@@ -1,3 +1,13 @@
+## 0.5.60 (2026-01-26)
+
+### 🔧 Chores
+
+- docs(claude): 添加新规则 - 工作区初始化自动选择画板 ([9bece83](https://github.com/ljquan/aitu/commit/9bece83))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
 ## 0.5.59 (2026-01-26)
 
 ### 🚀 Features
