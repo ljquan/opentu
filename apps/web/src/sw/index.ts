@@ -1418,6 +1418,24 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
     return;
   }
 
+  // Handle thumbnail generation request from main thread
+  if (event.data && event.data.type === 'GENERATE_THUMBNAIL') {
+    const { url, mediaType, blob: arrayBuffer, mimeType } = event.data;
+    if (url && mediaType && arrayBuffer) {
+      // 将 ArrayBuffer 转换为 Blob
+      const blob = new Blob([arrayBuffer], {
+        type: mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/png'),
+      });
+      
+      // 异步生成预览图
+      (async () => {
+        const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+        generateThumbnailAsync(blob, url, mediaType);
+      })();
+    }
+    return;
+  }
+
   if (event.data && event.data.type === 'SKIP_WAITING') {
     // 主线程请求立即升级（用户主动触发）
     // console.log('Service Worker: 收到主线程的 SKIP_WAITING 请求');
@@ -2919,6 +2937,29 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
     url.pathname.includes('/video/') ||
     /\.(mp4|webm|ogg|mov)$/i.test(url.pathname);
 
+  // 检测是否为预览图请求
+  const isThumbnailRequest = url.searchParams.has('thumbnail');
+  if (isThumbnailRequest) {
+    // 获取预览图尺寸（small 或 large，默认 small）
+    const thumbnailSize = (url.searchParams.get('thumbnail') || 'small') as 'small' | 'large';
+    const originalUrlForCache = new URL(url.toString());
+    originalUrlForCache.searchParams.delete('thumbnail');
+    
+    const { findThumbnailWithFallback, createThumbnailResponse } = await import('./task-queue/utils/thumbnail-utils');
+    const result = await findThumbnailWithFallback(
+      originalUrlForCache.toString(),
+      thumbnailSize,
+      [url.pathname] // 备用 key：pathname
+    );
+    
+    if (result) {
+      const blob = await result.response.blob();
+      return createThumbnailResponse(blob);
+    }
+    
+    // 预览图不存在，回退到原图（继续正常流程）
+  }
+
   try {
     // 从 Cache API 获取
     const cache = await caches.open(IMAGE_CACHE_NAME);
@@ -2933,6 +2974,12 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
 
     if (cachedResponse) {
       const blob = await cachedResponse.blob();
+
+      // 如果是预览图请求且预览图不存在，异步生成预览图（不阻塞响应）
+      if (isThumbnailRequest && !isVideo) {
+        const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+        generateThumbnailAsync(blob, url.pathname, 'image');
+      }
 
       if (isVideo) {
         // 视频请求支持 Range
@@ -2985,6 +3032,27 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
 
   // 使用完整路径作为缓存 key
   const cacheKey = url.pathname;
+  
+  // 检测是否为预览图请求
+  const isThumbnailRequest = url.searchParams.has('thumbnail');
+  if (isThumbnailRequest) {
+    // 获取预览图尺寸（small 或 large，默认 small）
+    const thumbnailSize = (url.searchParams.get('thumbnail') || 'small') as 'small' | 'large';
+    
+    const { findThumbnailWithFallback, createThumbnailResponse } = await import('./task-queue/utils/thumbnail-utils');
+    const result = await findThumbnailWithFallback(
+      cacheKey,
+      thumbnailSize,
+      [cacheKey] // 备用 key：cacheKey（pathname）
+    );
+    
+    if (result) {
+      const blob = await result.response.blob();
+      return createThumbnailResponse(blob);
+    }
+    
+    // 预览图不存在，回退到原图（继续正常流程）
+  }
 
   // console.log(`Service Worker [Asset-${requestId}]: Handling asset library request:`, cacheKey);
 
@@ -2999,6 +3067,12 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
 
       // 检查是否是视频请求
       const isVideo = url.pathname.match(/\.(mp4|webm|ogg|mov)$/i);
+
+      // 如果是预览图请求且预览图不存在，异步生成预览图（不阻塞响应）
+      if (isThumbnailRequest && !isVideo) {
+        const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+        generateThumbnailAsync(blob, cacheKey, 'image');
+      }
 
       if (isVideo && rangeHeader) {
         // 视频请求支持 Range
@@ -3069,11 +3143,29 @@ async function handleVideoRequest(request: Request): Promise<Response> {
       't',
       'retry',
       'rand',
+      'thumbnail', // 也移除 thumbnail 参数，用于构建缓存key
     ];
     cacheBreakingParams.forEach((param) =>
       dedupeUrl.searchParams.delete(param)
     );
     const dedupeKey = dedupeUrl.toString();
+    
+    // 检测是否为预览图请求（在移除参数前检查，因为需要获取尺寸）
+    const isThumbnailRequest = url.searchParams.has('thumbnail');
+    if (isThumbnailRequest) {
+      // 获取预览图尺寸（small 或 large，默认 small）
+      const thumbnailSize = (url.searchParams.get('thumbnail') || 'small') as 'small' | 'large';
+      
+      const { findThumbnailWithFallback, createThumbnailResponse } = await import('./task-queue/utils/thumbnail-utils');
+      const result = await findThumbnailWithFallback(dedupeKey, thumbnailSize);
+      
+      if (result) {
+        const blob = await result.response.blob();
+        return createThumbnailResponse(blob);
+      }
+      
+      // 预览图不存在，回退到原视频（继续正常流程）
+    }
 
     // 检查是否有相同视频正在下载
     const existingEntry = pendingVideoRequests.get(dedupeKey);
@@ -3199,6 +3291,11 @@ async function handleVideoRequest(request: Request): Promise<Response> {
           });
           await cache.put(dedupeKey, cacheResponse);
           // console.log(`Service Worker [Video-${requestId}]: 视频已持久化到 Cache API`);
+          
+          // 异步生成预览图（不阻塞主流程）
+          // 使用与缓存key一致的URL（dedupeKey）作为预览图key
+          const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+          generateThumbnailAsync(videoBlob, dedupeKey, 'video');
         } catch (cacheError) {
           console.warn(
             `Service Worker [Video-${requestId}]: 持久化到 Cache API 失败:`,
@@ -3810,6 +3907,14 @@ async function handleImageRequest(request: Request): Promise<Response> {
 
     // 创建原始URL（不带缓存破坏参数）用于缓存键和去重键
     const originalUrl = new URL(request.url);
+    
+    // 检测是否为预览图请求（需要在移除其他参数之前检查）
+    const isThumbnailRequest = originalUrl.searchParams.has('thumbnail');
+    // 在删除参数之前先获取预览图尺寸
+    const thumbnailSize = isThumbnailRequest 
+      ? (originalUrl.searchParams.get('thumbnail') || 'small')
+      : 'small';
+    
     // 检测是否要求绕过缓存检查（但仍会缓存响应）
     const bypassCache =
       originalUrl.searchParams.has('bypass_sw') ||
@@ -3828,6 +3933,7 @@ async function handleImageRequest(request: Request): Promise<Response> {
       '_force',
       'bypass_sw',
       'direct_fetch',
+      'thumbnail', // 也移除 thumbnail 参数，用于构建缓存key
     ];
     cacheBreakingParams.forEach((param) =>
       originalUrl.searchParams.delete(param)
@@ -3840,6 +3946,25 @@ async function handleImageRequest(request: Request): Promise<Response> {
     });
 
     const dedupeKey = originalUrl.toString();
+    
+    // 如果是预览图请求，在移除参数后查找预览图
+    if (isThumbnailRequest) {
+      const { findThumbnailWithFallback, createThumbnailResponse } = await import('./task-queue/utils/thumbnail-utils');
+      
+      // 尝试使用 dedupeKey 和 originalRequest.url 作为备用 key
+      const result = await findThumbnailWithFallback(
+        dedupeKey,
+        thumbnailSize as 'small' | 'large',
+        [originalRequest.url] // 备用 key：原始请求 URL
+      );
+      
+      if (result) {
+        const blob = await result.response.blob();
+        return createThumbnailResponse(blob);
+      }
+      
+      // 如果都没找到，回退到原图（继续正常流程）
+    }
 
     // 首先检查是否有最近完成的相同请求（内存缓存）
     const completedEntry = completedImageRequests.get(dedupeKey);
@@ -3911,7 +4036,8 @@ async function handleImageRequest(request: Request): Promise<Response> {
       request.url,
       dedupeKey,
       requestId,
-      bypassCache
+      bypassCache,
+      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined
     );
 
     // 将Promise存储到去重字典中，包含时间戳和计数
@@ -3997,7 +4123,8 @@ async function handleImageRequestInternal(
   requestUrl: string,
   dedupeKey: string,
   requestId: string,
-  bypassCache: boolean = false
+  bypassCache: boolean = false,
+  requestedThumbnailSize?: 'small' | 'large'
 ): Promise<Response> {
   try {
     // console.log(`Service Worker [${requestId}]: 开始处理图片请求:`, dedupeKey);
@@ -4006,7 +4133,18 @@ async function handleImageRequestInternal(
 
     // 如果不是绕过模式，先尝试从缓存获取
     if (!bypassCache) {
-      const cachedResponse = await cache.match(originalRequest);
+      // 尝试多种 key 格式匹配（兼容不同的缓存 key 格式）
+      let cachedResponse = await cache.match(originalRequest);
+      
+      // 如果没找到，尝试使用 URL 字符串匹配
+      if (!cachedResponse) {
+        cachedResponse = await cache.match(originalRequest.url);
+      }
+      
+      // 如果还没找到，尝试使用 dedupeKey 匹配
+      if (!cachedResponse) {
+        cachedResponse = await cache.match(dedupeKey);
+      }
 
       if (cachedResponse) {
         // 检查缓存的响应是否有效（blob 不为空）
@@ -4022,6 +4160,12 @@ async function handleImageRequestInternal(
           await cache.delete(originalRequest);
           // 继续执行后面的网络请求逻辑
         } else {
+          // 如果是预览图请求且预览图不存在，异步生成预览图（不阻塞响应）
+          if (requestedThumbnailSize) {
+            const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+            generateThumbnailAsync(blob, originalRequest.url, 'image');
+          }
+          
           const cacheDate = cachedResponse.headers.get('sw-cache-date');
           if (cacheDate) {
             const now = Date.now();
@@ -4093,15 +4237,7 @@ async function handleImageRequestInternal(
     // 尝试多种获取方式，每种方式都支持重试和域名切换
     let response;
     let fetchOptions = [
-      // 1. 优先尝试no-cors模式（可以绕过CORS限制）
-      {
-        method: 'GET',
-        mode: 'no-cors' as RequestMode,
-        cache: 'no-cache' as RequestCache,
-        credentials: 'omit' as RequestCredentials,
-        referrerPolicy: 'no-referrer' as ReferrerPolicy,
-      },
-      // 2. 尝试cors模式
+      // 1. 优先尝试cors模式（可以缓存响应）
       {
         method: 'GET',
         mode: 'cors' as RequestMode,
@@ -4109,10 +4245,18 @@ async function handleImageRequestInternal(
         credentials: 'omit' as RequestCredentials,
         referrerPolicy: 'no-referrer' as ReferrerPolicy,
       },
-      // 3. 最基本的设置
+      // 2. 尝试默认模式（可能支持缓存）
       {
         method: 'GET',
         cache: 'no-cache' as RequestCache,
+      },
+      // 3. 最后尝试no-cors模式（可以绕过CORS限制，但会导致opaque响应无法缓存）
+      {
+        method: 'GET',
+        mode: 'no-cors' as RequestMode,
+        cache: 'no-cache' as RequestCache,
+        credentials: 'omit' as RequestCredentials,
+        referrerPolicy: 'no-referrer' as ReferrerPolicy,
       },
     ];
 
@@ -4371,6 +4515,11 @@ async function handleImageRequestInternal(
           await notifyImageCached(requestUrl, blob.size, blob.type);
           // 检查存储配额
           await checkStorageQuota();
+          
+          // 异步生成预览图（不阻塞主流程）
+          // 使用与缓存key一致的URL（originalRequest.url）作为预览图key
+          const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+          generateThumbnailAsync(blob, originalRequest.url, 'image');
         }
       } catch (cacheError) {
         console.warn(
@@ -4387,6 +4536,10 @@ async function handleImageRequestInternal(
             // console.log(`Service Worker: Normal response cached after cleanup (${imageSizeMB.toFixed(2)}MB)`);
             // 通知主线程图片已缓存
             await notifyImageCached(requestUrl, blob.size, blob.type);
+            
+            // 异步生成预览图（不阻塞主流程）
+            const { generateThumbnailAsync } = await import('./task-queue/utils/thumbnail-utils');
+            generateThumbnailAsync(blob, originalRequest.url, 'image');
           }
         } catch (retryError) {
           console.error(

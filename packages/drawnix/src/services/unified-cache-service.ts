@@ -895,6 +895,31 @@ class UnifiedCacheService {
           },
         });
         await cache.put(url, response);
+        
+        // 异步生成预览图（不阻塞主流程）
+        // 注意：需要在 Service Worker 中执行，通过 postMessage 通知 SW 生成
+        if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+          // 将 Blob 转换为 ArrayBuffer 以便通过 postMessage 传递
+          blob.arrayBuffer().then((arrayBuffer) => {
+            navigator.serviceWorker.ready.then((registration) => {
+              if (registration.active) {
+                registration.active.postMessage({
+                  type: 'GENERATE_THUMBNAIL',
+                  url,
+                  mediaType: type, // 'image' | 'video'
+                  blob: arrayBuffer,
+                  mimeType: blob.type,
+                }).catch((err) => {
+                  console.warn('[UnifiedCache] Failed to request thumbnail generation:', err);
+                });
+              }
+            }).catch(() => {
+              // Service Worker 不可用，静默失败
+            });
+          }).catch((err) => {
+            console.warn('[UnifiedCache] Failed to convert blob to arrayBuffer:', err);
+          });
+        }
       } else {
         console.warn('[UnifiedCache] caches API not available');
       }

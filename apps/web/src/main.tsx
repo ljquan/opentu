@@ -208,7 +208,7 @@ if ('serviceWorker' in navigator) {
   });
   
   // 监听Service Worker消息
-  navigator.serviceWorker.addEventListener('message', event => {
+  navigator.serviceWorker.addEventListener('message', async event => {
     if (event.data && event.data.type === 'SW_UPDATED') {
       // 只有用户主动确认升级后才刷新页面
       if (!userConfirmedUpgrade) {
@@ -243,6 +243,42 @@ if ('serviceWorker' in navigator) {
     } else if (event.data && event.data.type === 'UPGRADE_STATUS') {
       // 升级状态响应
       // console.log('Main: Upgrade status:', event.data);
+    } else if (event.data && event.data.type === 'VIDEO_THUMBNAIL_REQUEST') {
+      // Service Worker 请求生成视频预览图
+      try {
+        const { generateVideoThumbnailFromBlob } = await import('@drawnix/drawnix');
+        const { requestId, blob: arrayBuffer, mimeType, maxSize = 400 } = event.data;
+        
+        // 将 ArrayBuffer 转换为 Blob
+        const videoBlob = new Blob([arrayBuffer], { type: mimeType || 'video/mp4' });
+        
+        // 生成预览图（使用指定尺寸）
+        const thumbnailBlob = await generateVideoThumbnailFromBlob(videoBlob, maxSize);
+        
+        // 将 Blob 转换为 ArrayBuffer 以便通过 postMessage 传递
+        const thumbnailArrayBuffer = await thumbnailBlob.arrayBuffer();
+        
+        // 发送响应回 Service Worker
+        if (event.source && 'postMessage' in event.source) {
+          (event.source as ServiceWorker).postMessage({
+            type: 'VIDEO_THUMBNAIL_RESPONSE',
+            requestId,
+            success: true,
+            blob: thumbnailArrayBuffer,
+          });
+        }
+      } catch (error) {
+        console.warn('[Main] Failed to generate video thumbnail:', error);
+        // 发送失败响应
+        if (event.source && 'postMessage' in event.source) {
+          (event.source as ServiceWorker).postMessage({
+            type: 'VIDEO_THUMBNAIL_RESPONSE',
+            requestId: event.data.requestId,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
     }
   });
   

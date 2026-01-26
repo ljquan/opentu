@@ -7,6 +7,22 @@ import { Play, CheckCircle } from 'lucide-react';
 import type { ThumbnailQueueProps, MediaItem } from './types';
 import './ThumbnailQueue.scss';
 
+/**
+ * 获取预览图 URL（通过添加查询参数）
+ * @param originalUrl 原始 URL
+ * @param size 预览图尺寸（默认 small）
+ */
+function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
+  try {
+    const url = new URL(originalUrl, window.location.origin);
+    url.searchParams.set('thumbnail', size);
+    return url.toString();
+  } catch {
+    const separator = originalUrl.includes('?') ? '&' : '?';
+    return `${originalUrl}${separator}thumbnail=${size}`;
+  }
+}
+
 export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
   items,
   mode,
@@ -73,6 +89,7 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
       const slotNumber = getSlotNumber(index);
       const isDragging = draggedIndex === index;
       const isVideo = item.type === 'video';
+      const thumbnailUrl = getThumbnailUrl(item.url, 'small'); // 缩略图导航使用小尺寸
 
       return (
         <div
@@ -97,12 +114,13 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
           <div className="thumbnail-queue__thumb">
             {isVideo ? (
               <>
-                {/* 视频使用第一帧或默认图标 */}
+                {/* 视频使用预览图作为 poster */}
                 <video
                   src={item.url}
                   className="thumbnail-queue__video"
                   muted
                   preload="metadata"
+                  poster={thumbnailUrl}
                 />
                 <div className="thumbnail-queue__video-icon">
                   <Play size={16} />
@@ -110,10 +128,14 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
               </>
             ) : (
               <img
-                src={item.url}
+                src={thumbnailUrl}
                 alt={item.alt || item.title || ''}
                 className="thumbnail-queue__image"
                 loading="lazy"
+                onError={(e) => {
+                  // 预览图加载失败，回退到原图
+                  (e.target as HTMLImageElement).src = item.url;
+                }}
               />
             )}
           </div>

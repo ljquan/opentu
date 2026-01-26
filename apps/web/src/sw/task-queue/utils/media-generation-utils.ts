@@ -1236,6 +1236,12 @@ async function cacheBase64Image(base64Data: string, mimeType: string = 'image/pn
     });
     await cache.put(virtualPath, response);
 
+    // 异步生成预览图（不阻塞主流程）
+    const { generateImageThumbnail } = await import('./thumbnail-utils');
+    generateImageThumbnail(blob, virtualPath).catch((err) => {
+      console.warn('[MediaUtils] Failed to generate thumbnail for base64 image:', err);
+    });
+
     return virtualPath;
   } catch (error) {
     console.error('[cacheBase64Image] Failed to cache image:', error);

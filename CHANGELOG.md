@@ -1,3 +1,24 @@
+## 0.5.59 (2026-01-26)
+
+### 🚀 Features
+
+- 移动端适配 ([ade6470](https://github.com/ljquan/aitu/commit/ade6470))
+
+### 🔧 Chores
+
+- update deployment scripts and versioning logic; bump version to 0.5.58 ([f7c1cde](https://github.com/ljquan/aitu/commit/f7c1cde))
+- bump version to 0.5.58 ([80fb213](https://github.com/ljquan/aitu/commit/80fb213))
+- bump version to 0.5.57 ([8aff14b](https://github.com/ljquan/aitu/commit/8aff14b))
+- bump version to 0.5.56 ([34917aa](https://github.com/ljquan/aitu/commit/34917aa))
+- bump version to 0.5.55 ([41eb428](https://github.com/ljquan/aitu/commit/41eb428))
+- bump version to 0.5.54 ([c5e23b0](https://github.com/ljquan/aitu/commit/c5e23b0))
+- bump version to 0.5.53 ([c49a324](https://github.com/ljquan/aitu/commit/c49a324))
+- bump version to 0.5.52 ([bc42ff4](https://github.com/ljquan/aitu/commit/bc42ff4))
+
+### ❤️  Thank You
+
+- liquidliang <ljquan@qq.com>
+
 ## 0.5.52 (2026-01-26)
 
 ### 🚀 Features

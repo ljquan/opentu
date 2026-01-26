@@ -19,6 +19,23 @@ import { useDrawnix } from '../../hooks/use-drawnix';
 import type { MediaLibraryInspectorProps } from '../../types/asset.types';
 import './MediaLibraryInspector.scss';
 
+/**
+ * 获取预览图 URL（通过添加查询参数）
+ * @param originalUrl 原始 URL
+ * @param size 预览图尺寸（默认 small）
+ */
+function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
+  try {
+    const url = new URL(originalUrl, window.location.origin);
+    url.searchParams.set('thumbnail', size);
+    return url.toString();
+  } catch {
+    // 如果 URL 解析失败，直接拼接参数
+    const separator = originalUrl.includes('?') ? '&' : '?';
+    return `${originalUrl}${separator}thumbnail=${size}`;
+  }
+}
+
 export function MediaLibraryInspector({
   asset,
   onRename,
@@ -146,15 +163,20 @@ export function MediaLibraryInspector({
       <div className="media-library-inspector__preview">
         {asset.type === 'IMAGE' ? (
           <img
-            src={asset.url}
+            src={getThumbnailUrl(asset.url, 'large')}
             alt={asset.name}
             className="media-library-inspector__image"
+            onError={(e) => {
+              // 预览图加载失败，回退到原图
+              (e.target as HTMLImageElement).src = asset.url;
+            }}
           />
         ) : (
           <video
             src={asset.url}
             controls
             className="media-library-inspector__video"
+            poster={getThumbnailUrl(asset.url, 'large')}
           />
         )}
       </div>

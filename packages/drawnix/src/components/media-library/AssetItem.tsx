@@ -10,6 +10,7 @@ import { Checkbox, Tooltip } from 'tdesign-react';
 import { formatDate, formatFileSize } from '../../utils/asset-utils';
 import { useAssetSize } from '../../hooks/useAssetSize';
 import { LazyImage } from '../lazy-image';
+import { useThumbnailUrl } from '../../hooks/useThumbnailUrl';
 import type { Asset, ViewMode } from '../../types/asset.types';
 import './AssetItem.scss';
 
@@ -28,6 +29,15 @@ export const AssetItem = memo<AssetItemProps>(
     // 获取实际文件大小（支持从缓存获取）
     const displaySize = useAssetSize(asset.id, asset.url, asset.size);
     const [isHovered, setIsHovered] = useState(false);
+    
+    // 根据视图模式选择预览图尺寸
+    // 网格视图（120-180px）使用大尺寸预览图，紧凑/列表视图（60-80px）使用小尺寸预览图
+    const thumbnailSize = viewMode === 'grid' ? 'large' : 'small';
+    const thumbnailUrl = useThumbnailUrl(
+      asset.url,
+      asset.type === 'IMAGE' ? 'image' : 'video',
+      thumbnailSize
+    );
 
     const handleClick = useCallback((e: React.MouseEvent) => {
       onSelect(asset.id, e);
@@ -99,7 +109,7 @@ export const AssetItem = memo<AssetItemProps>(
         <div className="asset-item__thumbnail">
           {asset.type === 'IMAGE' ? (
             <LazyImage
-              src={asset.url}
+              src={thumbnailUrl || asset.url}
               alt={asset.name}
               className="asset-item__image"
               rootMargin="100px"
@@ -110,6 +120,7 @@ export const AssetItem = memo<AssetItemProps>(
               className="asset-item__video"
               muted
               preload="metadata"
+              poster={thumbnailUrl || undefined}
             />
           )}
 

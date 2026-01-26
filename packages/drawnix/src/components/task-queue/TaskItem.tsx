@@ -14,6 +14,7 @@ import { useUnifiedCache } from '../../hooks/useUnifiedCache';
 import { supportsCharacterExtraction, isSora2VideoId } from '../../types/character.types';
 import { RetryImage } from '../retry-image';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
+import { useThumbnailUrl } from '../../hooks/useThumbnailUrl';
 import './task-queue.scss';
 import './task-progress-overlay.scss';
 
@@ -152,6 +153,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
 
   // Use original URL or cached URL (Service Worker handles caching automatically)
   const mediaUrl = task.result?.url;
+  
+  // 获取预览图URL（任务列表使用小尺寸）
+  const thumbnailUrl = useThumbnailUrl(
+    mediaUrl,
+    task.type === TaskType.IMAGE ? 'image' : task.type === TaskType.VIDEO ? 'video' : undefined,
+    'small' // 任务列表使用小尺寸预览图
+  );
 
   // Load image to get actual dimensions
   useEffect(() => {
@@ -257,7 +265,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 {/* 已完成状态：显示实际内容 */}
                 {task.type === TaskType.IMAGE && mediaUrl ? (
                   <RetryImage
-                    src={mediaUrl}
+                    src={thumbnailUrl || mediaUrl}
                     alt="Generated"
                     maxRetries={5}
                     fallback={
@@ -281,7 +289,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   </div>
                 ) : mediaUrl ? (
                   <>
-                    <video src={mediaUrl} muted playsInline />
+                    <video src={mediaUrl} muted playsInline poster={thumbnailUrl || undefined} />
                     {/* 视频播放按钮覆盖层 */}
                     <div className="task-item__video-play-overlay">
                       <PlayCircleIcon size="32px" />
