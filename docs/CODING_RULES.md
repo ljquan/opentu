@@ -2408,6 +2408,71 @@ if (cachedResponse) {
 - 在返回前验证 `blob.size > 0` 可以自动修复历史问题
 - 删除无效缓存后重新获取，确保用户看到正确的内容
 
+### Cache.put() 会消费 Response body，无法重复使用
+
+**场景**: 需要将同一个 Response 对象缓存到多个不同的 key 时
+
+❌ **错误示例**:
+```typescript
+// 错误：Cache.put() 会消费 Response 的 body，后续无法 clone
+const response = new Response(blob, {
+  headers: { 'Content-Type': 'image/jpeg' },
+});
+
+// 第一次 put 消费了 body
+await thumbCache.put(cacheKey1, response);
+
+// 第二次 clone 会失败：Response body is already used
+await thumbCache.put(cacheKey2, response.clone()); // ❌ TypeError
+```
+
+✅ **正确示例**:
+```typescript
+// 正确：为每个缓存 key 创建独立的 Response 对象
+const createResponse = () => new Response(blob, {
+  headers: { 'Content-Type': 'image/jpeg' },
+});
+
+// 每个 put 使用独立的 Response 对象
+await thumbCache.put(cacheKey1, createResponse());
+await thumbCache.put(cacheKey2, createResponse());
+await thumbCache.put(cacheKey3, createResponse());
+```
+
+**原因**:
+- `Cache.put()` 方法会读取并消费 Response 的 body stream
+- 一旦 body 被消费，就无法再次读取或 clone
+- Response 对象本身很轻量（只是包装 Blob），为每个 key 创建新对象是安全的
+- 使用工厂函数 `createResponse()` 可以方便地创建多个独立实例
+
+### fetchOptions 优先级：优先尝试可缓存的模式
+
+**场景**: 在 Service Worker 中获取外部图片时，需要尝试多种 fetch 模式
+
+❌ **错误示例**:
+```typescript
+// 错误：no-cors 模式优先，会导致 opaque 响应无法缓存
+let fetchOptions = [
+  { mode: 'no-cors' },  // ❌ 优先尝试，但无法缓存
+  { mode: 'cors' },     // 可缓存，但优先级低
+];
+```
+
+✅ **正确示例**:
+```typescript
+// 正确：优先尝试 cors 模式（可缓存），最后才尝试 no-cors
+let fetchOptions = [
+  { mode: 'cors' },     // ✅ 优先尝试，可以缓存
+  { mode: 'no-cors' },  // 最后备选，无法缓存但可以绕过 CORS
+];
+```
+
+**原因**:
+- `cors` 模式返回的响应可以被 Service Worker 读取和缓存
+- `no-cors` 模式返回的 `opaque` 响应无法读取 body，无法有效缓存
+- 优先尝试可缓存的模式可以提高后续请求的命中率
+- 只有在 cors 模式失败时才降级到 no-cors 模式
+
 ### CDN 响应必须多重验证后才能缓存
 
 **场景**: Service Worker 从 CDN 获取静态资源并缓存时

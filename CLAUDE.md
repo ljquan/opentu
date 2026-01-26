@@ -142,6 +142,7 @@ Service Worker (后台执行)
 11. **外部 API 调用频率**：低频刷新的外部接口必须使用单例控制调用频率
 12. **共享模块设计**：相似功能提取到 `*-core.ts` 核心模块，通过配置类型区分行为
 13. **同名模块隔离**：多个同名模块有独立全局状态，确保从正确的模块路径导入
+14. **工作区初始化**：`getCurrentBoard()` 返回 `null` 但 `hasBoards()` 为 `true` 时，必须自动选择第一个画板，不能只在 "无画板" 时创建新画板
 
 ### Service Worker 规则
 
@@ -152,6 +153,8 @@ Service Worker (后台执行)
 5. SW 枚举值使用小写（`'completed'`、`'image'`、`'video'`），读取 SW 数据时注意匹配
 6. 无效配置下创建的任务不应在后续被执行，首次初始化时应清除"孤儿任务"
 7. 跨层数据转换必须传递所有字段，特别是 `options`、`metadata` 等可选字段，遗漏会导致功能静默失败
+8. **Cache.put() 会消费 Response body**：需要缓存到多个 key 时，为每个 key 创建独立的 Response 对象，不要复用后 clone
+9. **fetchOptions 优先级**：优先尝试 `cors` 模式（可缓存），最后才尝试 `no-cors` 模式（无法缓存）
 
 ### React 规则
 
@@ -171,6 +174,7 @@ Service Worker (后台执行)
 1. IndexedDB 元数据必须验证 Cache Storage 实际数据存在
 2. 本地缓存图片只存 Cache Storage，不存 IndexedDB 元数据
 3. Cache API 返回前必须验证响应有效性（`blob.size > 0`）
+4. **Cache.put() 会消费 Response body**：需要缓存到多个 key 时，为每个 key 创建独立的 Response 对象
 
 ---
 

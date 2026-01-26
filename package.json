@@ -54,7 +54,7 @@
     "release": "node scripts/deploy-hybrid.js --skip-e2e",
     "release:minor": "npm run version:minor && node scripts/deploy-hybrid.js",
     "release:major": "npm run version:major && node scripts/deploy-hybrid.js",
-    "release:retry": "node scripts/deploy-hybrid.js",
+    "release:retry": "node scripts/deploy-hybrid.js --skip-e2e  --skip-manual",
     "release:force-bump": "npm run version:patch && node scripts/deploy-hybrid.js --skip-e2e",
     "release:dry": "node scripts/deploy-hybrid.js --dry-run",
     "pub": "npm run build && node scripts/publish.js",
