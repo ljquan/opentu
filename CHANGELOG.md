@@ -1,3 +1,15 @@
+## 0.5.82 (2026-02-07)
+
+### 🚀 Features
+
+- enhance session replay management and error handling ([8a190371](https://github.com/ljquan/aitu/commit/8a190371))
+- improve Service Worker channel validation for streaming API calls ([8f81e6ef](https://github.com/ljquan/aitu/commit/8f81e6ef))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- liquidliang <ljquan@qq.com>
+
 ## 0.5.81 (2026-02-07)
 
 ### 🚀 Features

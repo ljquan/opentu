@@ -1,8 +1,8 @@
 {
-  "version": "0.5.81",
-  "buildTime": "2026-02-07T02:22:44.229Z",
+  "version": "0.5.82",
+  "buildTime": "2026-02-07T02:44:20.964Z",
   "gitCommit": "unknown",
   "changelog": [
-    "unify Service Worker availability checks and enforce main thread executor in fallback scenarios"
+    "improve Service Worker channel validation for streaming API calls"
   ]
 }

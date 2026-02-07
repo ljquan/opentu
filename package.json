@@ -1,6 +1,6 @@
 {
   "name": "@aitu/source",
-  "version": "0.5.81",
+  "version": "0.5.82",
   "license": "MIT",
   "packageManager": "pnpm@10.21.0",
   "description": "Opentu - An open-source whiteboard tool with AI-powered image/video creation, mind mapping, flowcharts, and freehand drawing",
