@@ -1,3 +1,24 @@
+## 0.5.85 (2026-02-07)
+
+### 🚀 Features
+
+- add batch clear failed tasks button in generation task list ([e303baf8](https://github.com/ljquan/aitu/commit/e303baf8))
+
+### 🩹 Fixes
+
+- guard video model config lookups ([16473751](https://github.com/ljquan/aitu/commit/16473751))
+- 修复视频 API 请求格式错误 ([0262697f](https://github.com/ljquan/aitu/commit/0262697f))
+
+### 🔧 Chores
+
+- bump version to 0.5.84 ([fd194ee7](https://github.com/ljquan/aitu/commit/fd194ee7))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- liangyufeng <l.yfeng@qq.com>
+- gongchengtu <1817063960@qq.com>
+
 ## 0.5.84 (2026-02-07)
 
 ### 🔧 Chores
