@@ -1,3 +1,13 @@
+## 0.5.84 (2026-02-07)
+
+### 🔧 Chores
+
+- update version to 0.5.82 and adjust build time ([87a5198d](https://github.com/ljquan/aitu/commit/87a5198d))
+
+### ❤️  Thank You
+
+- liquidliang <ljquan@qq.com>
+
 ## 0.5.83 (2026-02-07)
 
 ### 🚀 Features
