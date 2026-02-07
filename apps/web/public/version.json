@@ -1,9 +1,8 @@
 {
-  "version": "0.5.85",
-  "buildTime": "2026-02-07T04:08:21.124Z",
+  "version": "0.5.86",
+  "buildTime": "2026-02-07T04:21:33.976Z",
   "gitCommit": "unknown",
   "changelog": [
-    "add batch clear failed tasks button in generation task list",
-    "修复视频 API 请求格式错误"
+    "improve fallback engine handling and logging in workflow submission service"
   ]
 }

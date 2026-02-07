@@ -1,3 +1,23 @@
+## 0.5.86 (2026-02-07)
+
+### 🚀 Features
+
+- improve fallback engine handling and logging in workflow submission service ([88a7199e](https://github.com/ljquan/aitu/commit/88a7199e))
+
+### 🩹 Fixes
+
+- update DelegatedOperation type usage in workflow submission service ([ac40be77](https://github.com/ljquan/aitu/commit/ac40be77))
+
+### 🔧 Chores
+
+- bump version to 0.5.85 ([694d1ca6](https://github.com/ljquan/aitu/commit/694d1ca6))
+- bump version to 0.5.84 ([9e307468](https://github.com/ljquan/aitu/commit/9e307468))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- liquidliang <ljquan@qq.com>
+
 ## 0.5.85 (2026-02-07)
 
 ### 🚀 Features
