@@ -1,3 +1,50 @@
+## 0.6.3 (2026-02-27)
+
+### 🚀 Features
+
+- 重构版本相关菜单与页面，优化样式与交互体验 ([e40635b9](https://github.com/ljquan/aitu/commit/e40635b9))
+- 升级版本至0.6.1，优化部署与生成流程，集成多模型适配器 ([784c58a8](https://github.com/ljquan/aitu/commit/784c58a8))
+- 为 ImageGenerationParams 新增 params 字段支持模型特定参数 ([ac10ed55](https://github.com/ljquan/aitu/commit/ac10ed55))
+- 版本日志菜单 + CHANGELOG.md 自动同步到 changelog.json ([51bb033e](https://github.com/ljquan/aitu/commit/51bb033e))
+- 新增多个系统技能常量定义 ([f30c3ab6](https://github.com/ljquan/aitu/commit/f30c3ab6))
+- 支持双击卡片打开知识库并关联笔记 ([8301bce3](https://github.com/ljquan/aitu/commit/8301bce3))
+- 为卡片元素添加复制文本功能 ([f1a06a9a](https://github.com/ljquan/aitu/commit/f1a06a9a))
+- 实现 Markdown 粘贴和知识库集成的 Card 标签贴元素 ([7b590d30](https://github.com/ljquan/aitu/commit/7b590d30))
+- 统一系统与自定义Skill执行路径并支持角色扮演模式 ([58204689](https://github.com/ljquan/aitu/commit/58204689))
+- 新增Skill工作流DSL解析与知识库集成 ([f0df843c](https://github.com/ljquan/aitu/commit/f0df843c))
+- 新增知识提取与同步功能 ([093dd25d](https://github.com/ljquan/aitu/commit/093dd25d))
+- 集成 Milkdown Markdown 编辑器并优化幻灯片播放 ([9e66bf4c](https://github.com/ljquan/aitu/commit/9e66bf4c))
+
+### 🩹 Fixes
+
+- 修复 GitHub Actions CI 配置以支持 pnpm ([582b46cc](https://github.com/ljquan/aitu/commit/582b46cc))
+- 修复视频时长解析空值NaN并同步版本与更新说明 ([e1e4137c](https://github.com/ljquan/aitu/commit/e1e4137c))
+- 移除视频创作技能 ([33fe21bc](https://github.com/ljquan/aitu/commit/33fe21bc))
+- 修复卡片标题重复显示和交互事件问题 ([f7409839](https://github.com/ljquan/aitu/commit/f7409839))
+- 修复删除上传图片后 hover 预览大图未消失的问题 ([f9e3ee4f](https://github.com/ljquan/aitu/commit/f9e3ee4f))
+- 修复 Seedream 5.0 lite 模型 ID、3K 比例参数及底部输入栏参数丢失问题 ([98912c16](https://github.com/ljquan/aitu/commit/98912c16))
+- 修复上下文菜单z-index硬编码问题 ([3373b168](https://github.com/ljquan/aitu/commit/3373b168))
+- 提高上下文菜单的z-index以解决遮挡问题 ([853f7868](https://github.com/ljquan/aitu/commit/853f7868))
+
+### 🔧 Chores
+
+- 多文件禁用缓存确保版本与日志数据实时更新 ([099d8807](https://github.com/ljquan/aitu/commit/099d8807))
+- 升级版本至0.6.2并更新构建时间与版本信息 ([f3b13616](https://github.com/ljquan/aitu/commit/f3b13616))
+- bump version to 0.6.2 ([499797ca](https://github.com/ljquan/aitu/commit/499797ca))
+- update build artifacts for version 0.5.95 ([ef974603](https://github.com/ljquan/aitu/commit/ef974603))
+- refactor: 模型命名重构与功能增强 ([1bd8048a](https://github.com/ljquan/aitu/commit/1bd8048a))
+- refactor(web): 优化类型定义和构建配置 refactor(sw): 增强类型安全处理 refactor(dawnix): 完善类型导入和配置 ([84285d9e](https://github.com/ljquan/aitu/commit/84285d9e))
+- docs: 新增知识库、命令面板和任务队列文档并更新相关内容 ([4b3aedf8](https://github.com/ljquan/aitu/commit/4b3aedf8))
+- docs(settings): 在API Key说明中添加演示视频链接 ([d4e24da5](https://github.com/ljquan/aitu/commit/d4e24da5))
+- refactor(knowledge-base): 统一默认目录并简化目录类型映射 ([bf7a367d](https://github.com/ljquan/aitu/commit/bf7a367d))
+- 知识库 ([5b8f2bdb](https://github.com/ljquan/aitu/commit/5b8f2bdb))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+- liquidliang <ljquan@qq.com>
+- liquid <ljquan@qq.com>
+
 ## 0.6.2 (2026-02-27)
 
 ### 🚀 Features
