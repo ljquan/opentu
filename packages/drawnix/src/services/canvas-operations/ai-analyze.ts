@@ -5,9 +5,15 @@
  */
 
 import type { MCPExecuteOptions, AgentExecutionContext, WorkflowStepInfo } from '../../mcp/types';
-import { getModelType, IMAGE_MODELS } from '../../constants/model-config';
+import {
+  getDefaultImageModel,
+  getDefaultTextModel,
+  getDefaultVideoModel,
+  getModelType,
+} from '../../constants/model-config';
 import { agentExecutor } from '../agent';
 import { geminiSettings } from '../../utils/settings-manager';
+import { getPreferredModels } from '../../utils/runtime-model-discovery';
 
 /**
  * AI 分析参数
@@ -71,8 +77,9 @@ export async function analyzeWithAI(
   const generatedSteps: WorkflowStepInfo[] = [];
 
   try {
+    const settings = geminiSettings.get();
     const result = await agentExecutor.execute(context, {
-      model: context.model.id,
+      model: context.model.id || settings.textModelName || getPreferredModels('text')[0]?.id || getDefaultTextModel(),
       onChunk: (chunk) => {
         options?.onChunk?.(chunk);
       },
@@ -84,11 +91,12 @@ export async function analyzeWithAI(
         if (generationTools.includes(toolCall.name)) {
           const specifiedModel = toolArgs.model as string | undefined;
           const isVideoTool = toolCall.name === 'generate_video';
-          const settings = geminiSettings.get();
 
           // 获取用户设置的默认模型
-          const defaultImageModel = settings.imageModelName || IMAGE_MODELS[0]?.id || 'gemini-2.5-flash-image-vip';
-          const defaultVideoModel = settings.videoModelName || 'veo3';
+          const defaultImageModel =
+            settings.imageModelName || getPreferredModels('image')[0]?.id || getDefaultImageModel();
+          const defaultVideoModel =
+            settings.videoModelName || getPreferredModels('video')[0]?.id || getDefaultVideoModel();
 
           if (specifiedModel) {
             // AI 指定了模型，检查类型是否匹配

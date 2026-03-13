@@ -143,6 +143,13 @@ export const geminiVideoAdapter: VideoModelAdapter = {
   label: 'Gemini Video',
   kind: 'video',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchPredicate(modelConfig) {
+    if (modelConfig.type !== 'video') {
+      return false;
+    }
+    const lowerId = modelConfig.id.toLowerCase();
+    return !lowerId.includes('kling') && !lowerId.includes('seedance');
+  },
   supportedModels: videoModelIds,
   defaultModel: DEFAULT_VIDEO_MODEL_ID,
   async generateVideo(_context, request: VideoGenerationRequest) {

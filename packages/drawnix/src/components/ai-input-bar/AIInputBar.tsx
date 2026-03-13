@@ -40,15 +40,13 @@ import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { ParametersDropdown } from './ParametersDropdown';
 import { PromptHistoryPopover } from './PromptHistoryPopover';
 import { usePromptHistory } from '../../hooks/usePromptHistory';
+import { usePreferredModels } from '../../hooks/use-runtime-models';
 import {
   getDefaultImageModel,
-  IMAGE_MODELS,
-  VIDEO_MODELS,
-  TEXT_MODELS,
   getModelConfig,
   getDefaultSizeForModel,
   getDefaultVideoModel,
-  DEFAULT_TEXT_MODEL,
+  getDefaultTextModel,
   getCompatibleParams,
 } from '../../constants/model-config';
 import { BUILT_IN_TOOLS } from '../../constants/built-in-tools';
@@ -340,6 +338,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(({ className, is
   // console.log('[AIInputBar] Component rendering');
 
   const { language } = useI18n();
+  const imageModels = usePreferredModels('image');
+  const videoModels = usePreferredModels('video');
+  const textModels = usePreferredModels('text');
 
   const chatDrawerControl = useChatDrawerControl();
   const workflowControl = useWorkflowControl();
@@ -365,6 +366,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(({ className, is
   // 当前 WorkZone 元素 ID（用于在画布上显示工作流进度）
   const currentWorkZoneIdRef = useRef<string | null>(null);
 
+  const resolvePreferredModelId = useCallback((type: GenerationType): string => {
+    const settings = geminiSettings.get();
+    const preferredModels =
+      type === 'video' ? videoModels : type === 'text' ? textModels : imageModels;
+    const configuredModelId =
+      type === 'video'
+        ? settings.videoModelName
+        : type === 'text'
+          ? settings.textModelName
+          : settings.imageModelName;
+    const fallbackModelId =
+      type === 'video'
+        ? getDefaultVideoModel()
+        : type === 'text'
+          ? getDefaultTextModel()
+          : getDefaultImageModel();
+
+    if (configuredModelId && preferredModels.some((model) => model.id === configuredModelId)) {
+      return configuredModelId;
+    }
+
+    return preferredModels[0]?.id || fallbackModelId;
+  }, [imageModels, textModels, videoModels]);
+
   // State
   const [prompt, setPrompt] = useState('');
   const [selectedContent, setSelectedContent] = useState<SelectedContent[]>([]); // 画布选中内容
@@ -378,12 +403,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(({ className, is
   // 当前选中的 Skill ID（仅在 Agent/text 模式下有效）
   const [selectedSkillId, setSelectedSkillId] = useState<string>(SKILL_AUTO_ID);
   // 当前选中的图片/视频/文本模型
-  const [selectedModel, setSelectedModel] = useState(getDefaultImageModel);
+  const [selectedModel, setSelectedModel] = useState(() => resolvePreferredModelId('image'));
   // 当前选中的参数映射 (id -> value)
   const [selectedParams, setSelectedParams] = useState<Record<string, string>>(() => ({
-    ...(getDefaultImageModel().startsWith('mj')
+    ...(resolvePreferredModelId('image').startsWith('mj')
       ? {}
-      : { size: getDefaultSizeForModel(getDefaultImageModel()) })
+      : { size: getDefaultSizeForModel(resolvePreferredModelId('image')) })
   }));
   const selectedParamsRef = useRef<Record<string, string>>(selectedParams);
   useEffect(() => {
@@ -440,23 +465,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(({ className, is
 
   // 监听生成类型变化，自动切换模型和尺寸
   useEffect(() => {
-    let defaultModelId: string;
-    if (generationType === 'video') {
-      defaultModelId = getDefaultVideoModel();
-    } else if (generationType === 'text') {
-      defaultModelId = DEFAULT_TEXT_MODEL;
-    } else {
-      defaultModelId = getDefaultImageModel();
+    const modelsForType =
+      generationType === 'video' ? videoModels : generationType === 'text' ? textModels : imageModels;
+    const nextModelId = modelsForType.some((model) => model.id === selectedModel)
+      ? selectedModel
+      : resolvePreferredModelId(generationType);
+
+    if (nextModelId !== selectedModel) {
+      setSelectedModel(nextModelId);
     }
-    
-    setSelectedModel(defaultModelId);
-    if (defaultModelId.startsWith('mj')) {
-      setSelectedParams({});
-    } else {
-      setSelectedParams({
-        size: getDefaultSizeForModel(defaultModelId)
-      });
-    }
+
     // 切换离开 text 模式时重置 Skill 选择
     if (generationType !== 'text') {
       setSelectedSkillId(SKILL_AUTO_ID);
@@ -465,14 +483,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(({ className, is
     if (generationType === 'text') {
       setSelectedCount(1);
     }
-  }, [generationType]);
+  }, [generationType, imageModels, resolvePreferredModelId, selectedModel, textModels, videoModels]);
 
   // 根据当前生成类型获取模型列表
   const currentModels = useMemo(() => {
-    if (generationType === 'video') return VIDEO_MODELS;
-    if (generationType === 'text') return TEXT_MODELS;
-    return IMAGE_MODELS;
-  }, [generationType]);
+    if (generationType === 'video') return videoModels;
+    if (generationType === 'text') return textModels;
+    return imageModels;
+  }, [generationType, imageModels, textModels, videoModels]);
 
   // 预计算当前模型的可用参数，避免子组件内部 stale 计算
   const compatibleParams = useMemo(() => {

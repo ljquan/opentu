@@ -31,7 +31,7 @@ import { LS_KEYS } from '../../constants/storage-keys';
 import type { VideoModel, UploadedVideoImage, StoryboardScene } from '../../types/video.types';
 import { ModelDropdown } from '../ai-input-bar/ModelDropdown';
 import { ParametersDropdown } from '../ai-input-bar/ParametersDropdown';
-import { VIDEO_MODELS, getCompatibleParams } from '../../constants/model-config';
+import { getCompatibleParams } from '../../constants/model-config';
 import {
   getVideoModelConfig,
   getDefaultModelParams,
@@ -45,6 +45,7 @@ import {
   isStoryboardPrompt,
   validateSceneDurations,
 } from '../../utils/storyboard-utils';
+import { usePreferredModels } from '../../hooks/use-runtime-models';
 
 
 
@@ -71,6 +72,7 @@ const AIVideoGeneration = ({
   selectedModel,
   onModelChange
 }: AIVideoGenerationProps = {}) => {
+  const videoModels = usePreferredModels('video');
   const [prompt, setPrompt] = useState(initialPrompt);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,8 +84,11 @@ const AIVideoGeneration = ({
   // Video model parameters - use state to support dynamic updates
   const [currentModel, setCurrentModel] = useState<VideoModel>(() => {
     const settings = geminiSettings.get();
-    const preferred = initialModel || settings.videoModelName || 'veo3';
-    return normalizeVideoModel(preferred);
+    const preferred = initialModel || settings.videoModelName;
+    if (preferred && videoModels.some((model) => model.id === preferred)) {
+      return preferred;
+    }
+    return videoModels[0]?.id || normalizeVideoModel('veo3');
   });
 
   // Use useMemo to ensure modelConfig and defaultParams update when currentModel changes
@@ -194,7 +199,7 @@ const AIVideoGeneration = ({
     const handleSettingsChange = (newSettings: any) => {
       const newModel = newSettings.videoModelName || 'veo3';
       if (newModel !== currentModel) {
-        setCurrentModel(newModel as VideoModel);
+        setCurrentModel(newModel);
         setVideoSelectedParams({});
       }
     };
@@ -202,13 +207,20 @@ const AIVideoGeneration = ({
     return () => geminiSettings.removeListener(handleSettingsChange);
   }, [currentModel]);
 
+  useEffect(() => {
+    if (videoModels.length === 0) return;
+    if (!videoModels.some((model) => model.id === currentModel)) {
+      setCurrentModel(videoModels[0].id);
+    }
+  }, [currentModel, videoModels]);
+
   // Sync model from selectedModel prop (from parent component)
   useEffect(() => {
     if (selectedModel && selectedModel !== currentModel) {
       // console.log('AIVideoGeneration - syncing model from prop:', selectedModel);
-      setCurrentModel(selectedModel as VideoModel);
+      setCurrentModel(selectedModel);
     }
-  }, [selectedModel]);
+  }, [currentModel, selectedModel]);
 
   // Track if we're in manual edit mode (from handleEditTask) to prevent props from overwriting
   const [isManualEdit, setIsManualEdit] = useState(false);
@@ -419,7 +431,7 @@ const AIVideoGeneration = ({
     // 更新模型选择（通过本地 state 和全局设置）- 先设置模型
     if (task.params.model) {
       // console.log('Updating model to:', task.params.model);
-      setCurrentModel(task.params.model as VideoModel);
+      setCurrentModel(task.params.model);
       const settings = geminiSettings.get();
       geminiSettings.update({
         ...settings,
@@ -470,7 +482,7 @@ const AIVideoGeneration = ({
       // 保存原始图片
       setAllSelectedImages(task.params.uploadedImages);
       // 按当前模型过滤显示（这里使用任务中的模型配置）
-      const taskModel = task.params.model as VideoModel || currentModel;
+      const taskModel = task.params.model || currentModel;
       const taskModelConfig = getVideoModelConfig(taskModel);
       const maxCount = taskModelConfig.imageUpload.maxCount;
       const labels = taskModelConfig.imageUpload.labels || [];
@@ -660,7 +672,7 @@ const AIVideoGeneration = ({
                     selectedModel={selectedModel}
                     onSelect={(value) => onModelChange(value)}
                     language={language}
-                    models={VIDEO_MODELS}
+                    models={videoModels}
                     placement="down"
                     variant="form"
                     placeholder={language === 'zh' ? '选择视频模型' : 'Select Video Model'}

@@ -8,16 +8,14 @@ import { Tooltip, Checkbox } from 'tdesign-react';
 import { InfoCircleIcon } from 'tdesign-icons-react';
 import { LS_KEYS } from '../../constants/storage-keys';
 import { ModelDropdown } from '../ai-input-bar/ModelDropdown';
+import { ModelDiscoveryDialog } from './model-discovery-dialog';
 import {
-  IMAGE_MODEL_GROUPED_SELECT_OPTIONS,
-  VIDEO_MODEL_SELECT_OPTIONS,
-  TEXT_MODEL_SELECT_OPTIONS,
   getDefaultImageModel,
   getDefaultVideoModel,
   getDefaultTextModel,
-  VIDEO_MODELS,
-  TEXT_MODELS,
 } from '../../constants/model-config';
+import { usePreferredModels, useRuntimeModelDiscoveryState } from '../../hooks/use-runtime-models';
+import { normalizeModelApiBaseUrl, runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
 // 为了向后兼容，重新导出这些常量
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
@@ -35,6 +33,20 @@ export const SettingsDialog = ({
   const [videoModelName, setVideoModelName] = useState('');
   const [textModelName, setTextModelName] = useState('');
   const [showWorkZoneCard, setShowWorkZoneCard] = useState(true);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [discoveryDialogOpen, setDiscoveryDialogOpen] = useState(false);
+  const runtimeState = useRuntimeModelDiscoveryState();
+  const imageModels = usePreferredModels('image');
+  const videoModels = usePreferredModels('video');
+  const textModels = usePreferredModels('text');
+  const addedImageModels = runtimeState.models.filter((model) => model.type === 'image');
+  const addedVideoModels = runtimeState.models.filter((model) => model.type === 'video');
+  const addedTextModels = runtimeState.models.filter((model) => model.type === 'text');
+  const addedModelGroups = [
+    { title: '图片模型', models: addedImageModels },
+    { title: '视频模型', models: addedVideoModels },
+    { title: '文本模型', models: addedTextModels },
+  ];
 
   // 加载当前配置
   useEffect(() => {
@@ -50,15 +62,19 @@ export const SettingsDialog = ({
       } catch {
         setShowWorkZoneCard(true);
       }
+      setSyncMessage(null);
+      setDiscoveryDialogOpen(false);
     }
   }, [appState.openSettings]);
 
   const handleSave = async () => {
     const trimmedApiKey = apiKey.trim();
-    const trimmedBaseUrl = baseUrl.trim() || 'https://api.tu-zi.com/v1';
-    const trimmedImageModel = imageModelName.trim() || getDefaultImageModel();
-    const trimmedVideoModel = videoModelName.trim() || getDefaultVideoModel();
-    const trimmedTextModel = textModelName.trim() || getDefaultTextModel();
+    const trimmedBaseUrl = normalizeModelApiBaseUrl(baseUrl.trim() || 'https://api.tu-zi.com/v1');
+    const trimmedImageModel = imageModelName.trim() || imageModels[0]?.id || getDefaultImageModel();
+    const trimmedVideoModel = videoModelName.trim() || videoModels[0]?.id || getDefaultVideoModel();
+    const trimmedTextModel = textModelName.trim() || textModels[0]?.id || getDefaultTextModel();
+
+    runtimeModelDiscovery.invalidateIfConfigChanged(trimmedBaseUrl, trimmedApiKey);
     
     // 使用全局设置管理器更新配置（必须等待完成）
     await geminiSettings.update({
@@ -87,10 +103,75 @@ export const SettingsDialog = ({
     setAppState({ ...appState, openSettings: false });
   };
 
+  const handleFetchModels = async () => {
+    const trimmedApiKey = apiKey.trim();
+    const normalizedBaseUrl = normalizeModelApiBaseUrl(baseUrl.trim() || 'https://api.tu-zi.com/v1');
+
+    if (!trimmedApiKey) {
+      setSyncMessage('请先填写 API Key');
+      return;
+    }
+
+    try {
+      const discovered = await runtimeModelDiscovery.discover(normalizedBaseUrl, trimmedApiKey);
+      setBaseUrl(normalizedBaseUrl);
+      setSyncMessage(`已获取 ${discovered.length} 个模型，请选择需要添加的模型`);
+      setDiscoveryDialogOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '模型同步失败';
+      runtimeModelDiscovery.setError(message);
+      setSyncMessage(message);
+    }
+  };
+
+  const handleApplySelectedModels = (selectedModelIds: string[]) => {
+    const selectedModels = runtimeModelDiscovery.applySelection(selectedModelIds);
+    const nextImageModels = selectedModels.filter((model) => model.type === 'image');
+    const nextVideoModels = selectedModels.filter((model) => model.type === 'video');
+    const nextTextModels = selectedModels.filter((model) => model.type === 'text');
+    const discoveredImageIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'image')
+      .map((model) => model.id);
+    const discoveredVideoIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'video')
+      .map((model) => model.id);
+    const discoveredTextIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'text')
+      .map((model) => model.id);
+
+    if (!nextImageModels.some((model) => model.id === imageModelName) && discoveredImageIds.includes(imageModelName)) {
+      setImageModelName(nextImageModels[0]?.id || getDefaultImageModel());
+    }
+    if (!nextVideoModels.some((model) => model.id === videoModelName) && discoveredVideoIds.includes(videoModelName)) {
+      setVideoModelName(nextVideoModels[0]?.id || getDefaultVideoModel());
+    }
+    if (!nextTextModels.some((model) => model.id === textModelName) && discoveredTextIds.includes(textModelName)) {
+      setTextModelName(nextTextModels[0]?.id || getDefaultTextModel());
+    }
+
+    setSyncMessage(
+      selectedModels.length > 0
+        ? `已添加 ${selectedModels.length} 个模型`
+        : '已清空添加模型，当前仍使用内置模型'
+    );
+    setDiscoveryDialogOpen(false);
+  };
+
+  const handleRemoveAddedModel = (modelId: string) => {
+    handleApplySelectedModels(runtimeState.selectedModelIds.filter((id) => id !== modelId));
+  };
+
+  const handleClearAddedModels = () => {
+    handleApplySelectedModels([]);
+  };
+
   return (
     <Dialog
       open={appState.openSettings}
       onOpenChange={(open) => {
+        if (!open && discoveryDialogOpen) {
+          return;
+        }
         setAppState({ ...appState, openSettings: open });
       }}
     >
@@ -156,13 +237,81 @@ export const SettingsDialog = ({
           </div>
           <div className="settings-dialog__field">
             <label className="settings-dialog__label">Base URL</label>
-            <input
-              type="text"
-              className="settings-dialog__input"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.tu-zi.com/v1"
-            />
+            <div className="settings-dialog__stack">
+              <input
+                type="text"
+                className="settings-dialog__input"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://api.tu-zi.com/v1"
+              />
+              <div className="settings-dialog__helper-row">
+                <button
+                  type="button"
+                  className="settings-dialog__button settings-dialog__button--save"
+                  onClick={handleFetchModels}
+                  disabled={runtimeState.status === 'loading'}
+                  style={{ minWidth: 104 }}
+                >
+                  {runtimeState.status === 'loading' ? '获取中...' : '获取模型'}
+                </button>
+                <span className="settings-dialog__helper-text">
+                  {syncMessage ||
+                    (runtimeState.discoveredAt
+                      ? `已添加 ${runtimeState.models.length} / 已获取 ${runtimeState.discoveredModels.length}`
+                      : '支持从 /v1/models 获取模型列表')}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="settings-dialog__field settings-dialog__field--top">
+            <label className="settings-dialog__label">已添加</label>
+            <div className="settings-dialog__stack">
+              {runtimeState.models.length > 0 ? (
+                <>
+                  <div className="settings-dialog__added-summary">
+                    <span>图片 {addedImageModels.length}</span>
+                    <span>视频 {addedVideoModels.length}</span>
+                    <span>文本 {addedTextModels.length}</span>
+                    <button
+                      type="button"
+                      className="settings-dialog__link-button"
+                      onClick={handleClearAddedModels}
+                    >
+                      清空全部
+                    </button>
+                  </div>
+                  {addedModelGroups.map(({ title, models }) =>
+                    models.length > 0 ? (
+                      <div key={title} className="settings-dialog__added-group">
+                        <div className="settings-dialog__added-group-title">{title}</div>
+                        <div className="settings-dialog__added-list">
+                          {models.map((model) => (
+                            <span key={model.id} className="settings-dialog__added-chip">
+                              <span className="settings-dialog__added-chip-label">
+                                {model.shortLabel || model.label}
+                              </span>
+                              <button
+                                type="button"
+                                className="settings-dialog__added-chip-remove"
+                                onClick={() => handleRemoveAddedModel(model.id)}
+                                aria-label={`移除 ${model.id}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null
+                  )}
+                </>
+              ) : (
+                <div className="settings-dialog__empty-state">
+                  还没有添加模型，当前仍使用系统内置模型。
+                </div>
+              )}
+            </div>
           </div>
           <div className="settings-dialog__field">
             <div className="settings-dialog__label-with-tooltip">
@@ -181,6 +330,7 @@ export const SettingsDialog = ({
                 selectedModel={imageModelName}
                 onSelect={(value) => setImageModelName(value)}
                 language={language}
+                models={imageModels}
                 placement="down"
                 variant="form"
               />
@@ -203,7 +353,7 @@ export const SettingsDialog = ({
                 selectedModel={videoModelName}
                 onSelect={(value) => setVideoModelName(value)}
                 language={language}
-                models={VIDEO_MODELS}
+                models={videoModels}
                 placement="down"
                 variant="form"
               />
@@ -226,7 +376,7 @@ export const SettingsDialog = ({
                 selectedModel={textModelName}
                 onSelect={(value) => setTextModelName(value)}
                 language={language}
-                models={TEXT_MODELS}
+                models={textModels}
                 placement="down"
                 variant="form"
               />
@@ -262,6 +412,14 @@ export const SettingsDialog = ({
           </button>
         </div>
       </DialogContent>
+      <ModelDiscoveryDialog
+        open={discoveryDialogOpen}
+        container={container}
+        models={runtimeState.discoveredModels}
+        selectedModelIds={runtimeState.selectedModelIds}
+        onClose={() => setDiscoveryDialogOpen(false)}
+        onConfirm={handleApplySelectedModels}
+      />
     </Dialog>
   );
 };

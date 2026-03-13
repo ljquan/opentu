@@ -27,6 +27,7 @@ export enum ModelVendor {
   ANTHROPIC = 'ANTHROPIC',
   GOOGLE = 'GOOGLE',
   DOUBAO = 'DOUBAO',
+  OTHER = 'OTHER',
 }
 
 /**
@@ -44,6 +45,7 @@ export const VENDOR_NAMES: Record<ModelVendor, string> = {
   [ModelVendor.ANTHROPIC]: 'Anthropic',
   [ModelVendor.GOOGLE]: 'Google',
   [ModelVendor.DOUBAO]: '即梦',
+  [ModelVendor.OTHER]: '其它',
 };
 
 /**
@@ -781,6 +783,39 @@ export const ALL_MODELS: ModelConfig[] = [
   ...TEXT_MODELS,
 ];
 
+let runtimeModels: ModelConfig[] = [];
+
+function mergeModels(staticModels: ModelConfig[], discoveredModels: ModelConfig[]): ModelConfig[] {
+  const merged = [...discoveredModels];
+  const seen = new Set(discoveredModels.map((model) => model.id));
+  for (const model of staticModels) {
+    if (!seen.has(model.id)) {
+      merged.push(model);
+    }
+  }
+  return merged;
+}
+
+export function setRuntimeModelConfigs(models: ModelConfig[]): void {
+  runtimeModels = Array.isArray(models) ? [...models] : [];
+}
+
+export function clearRuntimeModelConfigs(): void {
+  runtimeModels = [];
+}
+
+export function getRuntimeModelConfigs(type?: ModelType): ModelConfig[] {
+  return type ? runtimeModels.filter((model) => model.type === type) : [...runtimeModels];
+}
+
+export function getStaticModelsByType(type: ModelType): ModelConfig[] {
+  return ALL_MODELS.filter((model) => model.type === type);
+}
+
+export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
+  return ALL_MODELS.find((model) => model.id === modelId);
+}
+
 // ============================================
 // 辅助函数
 // ============================================
@@ -789,14 +824,14 @@ export const ALL_MODELS: ModelConfig[] = [
  * 根据类型获取模型列表
  */
 export function getModelsByType(type: ModelType): ModelConfig[] {
-  return ALL_MODELS.filter((model) => model.type === type);
+  return mergeModels(getStaticModelsByType(type), getRuntimeModelConfigs(type));
 }
 
 /**
  * 获取模型配置
  */
 export function getModelConfig(modelId: string): ModelConfig | undefined {
-  return ALL_MODELS.find((model) => model.id === modelId);
+  return runtimeModels.find((model) => model.id === modelId) || getStaticModelConfig(modelId);
 }
 
 /**
@@ -810,7 +845,9 @@ export function getModelType(modelId: string): ModelType | undefined {
  * 获取模型 ID 列表
  */
 export function getModelIds(type?: ModelType): string[] {
-  const models = type ? getModelsByType(type) : ALL_MODELS;
+  const models = type
+    ? getModelsByType(type)
+    : mergeModels(ALL_MODELS, getRuntimeModelConfigs());
   return models.map((model) => model.id);
 }
 

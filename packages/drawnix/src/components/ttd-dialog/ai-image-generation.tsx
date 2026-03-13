@@ -37,6 +37,7 @@ import { geminiSettings } from '../../utils/settings-manager';
 import { promptForApiKey } from '../../utils/gemini-api';
 import { buildMJPromptSuffix } from '../../utils/mj-params';
 import { getCompatibleParams, getSizeOptionsForModel } from '../../constants/model-config';
+import { usePreferredModels } from '../../hooks/use-runtime-models';
 
 interface AIImageGenerationProps {
   initialPrompt?: string;
@@ -65,13 +66,17 @@ const AIImageGeneration = ({
   selectedModel,
   onModelChange,
 }: AIImageGenerationProps = {}) => {
+  const imageModels = usePreferredModels('image');
   const [prompt, setPrompt] = useState(initialPrompt);
   const [mjSelectedParams, setMjSelectedParams] = useState<
     Record<string, string>
   >({});
   const [currentModel, setCurrentModel] = useState(() => {
     const settings = geminiSettings.get();
-    return settings.imageModelName || 'gemini-2.5-flash-image-vip';
+    if (settings.imageModelName && imageModels.some((model) => model.id === settings.imageModelName)) {
+      return settings.imageModelName;
+    }
+    return imageModels[0]?.id || 'gemini-2.5-flash-image-vip';
   });
   const [width, setWidth] = useState<number | string>(initialWidth || 1024);
   const [height, setHeight] = useState<number | string>(initialHeight || 1024);
@@ -206,14 +211,21 @@ const AIImageGeneration = ({
   useEffect(() => {
     const handleSettingsChange = (newSettings: any) => {
       const nextModel =
-        newSettings.imageModelName || 'gemini-2.5-flash-image-vip';
+        newSettings.imageModelName || imageModels[0]?.id || 'gemini-2.5-flash-image-vip';
       if (nextModel !== currentModel) {
         setCurrentModel(nextModel);
       }
     };
     geminiSettings.addListener(handleSettingsChange);
     return () => geminiSettings.removeListener(handleSettingsChange);
-  }, [currentModel]);
+  }, [currentModel, imageModels]);
+
+  useEffect(() => {
+    if (imageModels.length === 0) return;
+    if (!imageModels.some((model) => model.id === currentModel)) {
+      setCurrentModel(imageModels[0].id);
+    }
+  }, [currentModel, imageModels]);
 
   // Keep local模型状态与头部下拉（受控 selectedModel）同步，避免展示过期的参数列表
   useEffect(() => {
@@ -569,6 +581,7 @@ const AIImageGeneration = ({
                     selectedModel={selectedModel}
                     onSelect={(value) => onModelChange(value)}
                     language={language}
+                    models={imageModels}
                     placement="down"
                     variant="form"
                     disabled={isGenerating}

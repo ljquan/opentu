@@ -40,6 +40,7 @@ import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import { LS_KEYS_TO_MIGRATE } from '../../constants/storage-keys';
 import { kvStorageService } from '../../services/kv-storage-service';
 import { useDeviceType } from '../../hooks/useDeviceType';
+import { usePreferredModels } from '../../hooks/use-runtime-models';
 import './batch-image-generation.scss';
 import { trackMemory } from '../../utils/common';
 
@@ -110,6 +111,7 @@ interface BatchImageGenerationProps {
 
 const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({ onSwitchToSingle }) => {
   const { language } = useI18n();
+  const imageModels = usePreferredModels('image');
   const { createTask, tasks: queueTasks } = useTaskQueue();
   const { addAsset, assets: libraryAssets, loadAssets } = useAssets();
   const { isMobile, isTablet } = useDeviceType();
@@ -234,7 +236,10 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({ onSwitchToS
   // 模型选择
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const settings = geminiSettings.get();
-    return settings.imageModelName || 'gemini-2.5-flash-image-vip';
+    if (settings.imageModelName && imageModels.some((model) => model.id === settings.imageModelName)) {
+      return settings.imageModelName;
+    }
+    return imageModels[0]?.id || 'gemini-2.5-flash-image-vip';
   });
   const modelSizeOptions = useMemo(() => {
     const options = getSizeOptionsForModel(selectedModel).map((option) => option.value);
@@ -255,6 +260,13 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({ onSwitchToS
       )
     );
   }, [defaultModelSize, modelSizeOptionSet]);
+
+  useEffect(() => {
+    if (imageModels.length === 0) return;
+    if (!imageModels.some((model) => model.id === selectedModel)) {
+      setSelectedModel(imageModels[0].id);
+    }
+  }, [imageModels, selectedModel]);
 
   // 图片预览（使用 MediaViewer）
   const { openViewer, viewerProps } = useMediaViewer();
@@ -2291,6 +2303,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({ onSwitchToS
                 selectedModel={selectedModel}
                 onSelect={(value) => setSelectedModel(value)}
                 language={language}
+                models={imageModels}
                 placement="down"
                 variant="form"
                 disabled={isSubmitting}

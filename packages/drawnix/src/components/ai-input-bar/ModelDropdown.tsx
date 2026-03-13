@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import {
   IMAGE_MODELS,
   getModelConfig,
@@ -85,7 +85,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   // 确保高亮项可见
   useEffect(() => {
     if (isOpen && listRef.current) {
-      const highlightedElement = listRef.current.children[highlightedIndex] as HTMLElement;
+      const highlightedElement = listRef.current.querySelector(
+        `[data-model-index="${highlightedIndex}"]`
+      ) as HTMLElement | null;
       if (highlightedElement) {
         const listContainer = listRef.current;
         const itemTop = highlightedElement.offsetTop;
@@ -151,9 +153,28 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     return [...baseModels].sort((a, b) => {
       const priorityDiff = getPriority(a) - getPriority(b);
       if (priorityDiff !== 0) return priorityDiff;
+      const sourceDiff = Number(!a.tags?.includes('runtime')) - Number(!b.tags?.includes('runtime'));
+      if (sourceDiff !== 0) return sourceDiff;
       return (modelOrderMap.get(a.id) ?? 0) - (modelOrderMap.get(b.id) ?? 0);
     });
   }, [models, searchQuery, activeVendor, modelOrderMap]);
+
+  const groupedModels = useMemo(() => {
+    const sections = [
+      {
+        key: 'added',
+        label: language === 'zh' ? '已添加模型' : 'Added Models',
+        models: filteredModels.filter((model) => model.tags?.includes('runtime')),
+      },
+      {
+        key: 'system',
+        label: language === 'zh' ? '系统模型' : 'System Models',
+        models: filteredModels.filter((model) => !model.tags?.includes('runtime')),
+      },
+    ];
+
+    return sections.filter((section) => section.models.length > 0);
+  }, [filteredModels, language]);
 
   // 计算厂商标签列表
   const vendorTabs = useMemo((): VendorTab[] => {
@@ -368,44 +389,56 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
             >
               <div className="model-dropdown__list" ref={listRef}>
                 {filteredModels.length > 0 ? (
-                  filteredModels.map((model, index) => {
-                  const isSelected = model.id === selectedModel;
-                  const isHighlighted = index === highlightedIndex;
-                  return (
-                    <div
-                      key={model.id}
-                      className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''} ${isHighlighted ? 'model-dropdown__item--highlighted' : ''}`}
-                      onClick={() => handleSelect(model.id)}
-                      onMouseEnter={() => setHighlightedIndex(index)}
-                      role="option"
-                      aria-selected={isSelected}
-                    >
-                      <div className="model-dropdown__item-content">
-                        <div className="model-dropdown__item-name">
-                          <span className="model-dropdown__item-code">#{model.shortCode}</span>
-                          <span className="model-dropdown__item-label">
-                            {model.shortLabel || model.label}
-                          </span>
-                          {model.isVip && (
-                            <span className="model-dropdown__item-vip">VIP</span>
-                          )}
-                          {model.tags?.includes('new') && (
-                            <span className="model-dropdown__item-new">NEW</span>
-                          )}
-                          <ModelHealthBadge modelId={model.id} />
-                        </div>
-                        {model.description && (
-                          <div className="model-dropdown__item-desc">
-                            {model.description}
+                  groupedModels.map((section) => (
+                    <div key={section.key} className="model-dropdown__section">
+                      <div className="model-dropdown__section-title">{section.label}</div>
+                      {section.models.map((model) => {
+                        const index = filteredModels.findIndex((item) => item.id === model.id);
+                        const isSelected = model.id === selectedModel;
+                        const isHighlighted = index === highlightedIndex;
+                        return (
+                          <div
+                            key={model.id}
+                            data-model-index={index}
+                            className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''} ${isHighlighted ? 'model-dropdown__item--highlighted' : ''}`}
+                            onClick={() => handleSelect(model.id)}
+                            onMouseEnter={() => setHighlightedIndex(index)}
+                            role="option"
+                            aria-selected={isSelected}
+                          >
+                            <div className="model-dropdown__item-content">
+                              <div className="model-dropdown__item-name">
+                                <span className="model-dropdown__item-code">#{model.shortCode}</span>
+                                <span className="model-dropdown__item-label">
+                                  {model.shortLabel || model.label}
+                                </span>
+                                {model.tags?.includes('runtime') && (
+                                  <span className="model-dropdown__item-added">
+                                    {language === 'zh' ? '已添加' : 'Added'}
+                                  </span>
+                                )}
+                                {model.isVip && (
+                                  <span className="model-dropdown__item-vip">VIP</span>
+                                )}
+                                {model.tags?.includes('new') && (
+                                  <span className="model-dropdown__item-new">NEW</span>
+                                )}
+                                <ModelHealthBadge modelId={model.id} />
+                              </div>
+                              {model.description && (
+                                <div className="model-dropdown__item-desc">
+                                  {model.description}
+                                </div>
+                              )}
+                            </div>
+                            {isSelected && (
+                              <Check size={16} className="model-dropdown__item-check" />
+                            )}
                           </div>
-                        )}
-                      </div>
-                      {isSelected && (
-                        <Check size={16} className="model-dropdown__item-check" />
-                      )}
+                        );
+                      })}
                     </div>
-                  );
-                })
+                  ))
               ) : (
                 <div className="model-dropdown__empty">
                   {language === 'zh' ? '未找到匹配的模型' : 'No matching models'}

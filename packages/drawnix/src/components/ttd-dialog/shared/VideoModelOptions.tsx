@@ -48,7 +48,7 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
     if (!validSize) {
       onSizeChange(defaults.size);
     }
-  }, [model]);
+  }, [config, duration, model, onDurationChange, onSizeChange, size]);
 
   // Convert duration options to RadioGroup format
   const durationRadioOptions = config.durationOptions.map(opt => ({
