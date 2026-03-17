@@ -2,11 +2,29 @@
  * Gemini API 服务函数
  */
 
-import { ImageInput, GeminiMessage, VideoGenerationOptions, ProcessedContent, GeminiResponse } from './types';
-import { DEFAULT_CONFIG, VIDEO_DEFAULT_CONFIG, shouldUseNonStreamMode } from './config';
+import {
+  ImageInput,
+  GeminiMessage,
+  VideoGenerationOptions,
+  ProcessedContent,
+  GeminiResponse,
+} from './types';
+import {
+  DEFAULT_CONFIG,
+  VIDEO_DEFAULT_CONFIG,
+  shouldUseNonStreamMode,
+} from './config';
 import { prepareImageData, processMixedContent } from './utils';
-import { callApiWithRetry, callApiStreamRaw, callVideoApiStreamRaw } from './apiCalls';
-import { geminiSettings, settingsManager } from '../settings-manager';
+import {
+  callApiWithRetry,
+  callApiStreamRaw,
+  callVideoApiStreamRaw,
+} from './apiCalls';
+import {
+  resolveInvocationRoute,
+  settingsManager,
+  type ModelRef,
+} from '../settings-manager';
 import { validateAndEnsureConfig } from './auth';
 import {
   startLLMApiLog,
@@ -27,18 +45,20 @@ export async function generateImageWithGemini(
     response_format?: 'url' | 'b64_json';
     quality?: '1k' | '2k' | '4k';
     model?: string; // 支持指定模型
+    modelRef?: ModelRef | null;
   } = {}
 ): Promise<any> {
   // 等待设置管理器初始化完成
   await settingsManager.waitForInitialization();
 
-  // 直接从设置中获取配置
-  const globalSettings = geminiSettings.get();
-  
-  // 优先使用传入的 model 参数，其次使用全局设置
-  const modelName = options.model || globalSettings.imageModelName || DEFAULT_CONFIG.modelName || 'gemini-3-pro-image-preview-vip';
+  const routeModel = options.modelRef || options.model;
+  const route = resolveInvocationRoute('image', routeModel);
+  const modelName =
+    route.modelId ||
+    DEFAULT_CONFIG.modelName ||
+    'gemini-3-pro-image-preview-vip';
 
-  return generateImageDirect(prompt, options, modelName);
+  return generateImageDirect(prompt, options, modelName, routeModel);
 }
 
 // generateImageViaSW 已移除 - 不再依赖 SW 任务队列
@@ -54,15 +74,19 @@ async function generateImageDirect(
     response_format?: 'url' | 'b64_json';
     quality?: '1k' | '2k' | '4k';
     model?: string;
+    modelRef?: ModelRef | null;
   },
-  modelName: string
+  modelName: string,
+  routeModel?: string | ModelRef | null
 ): Promise<any> {
-  const globalSettings = geminiSettings.get();
+  const route = resolveInvocationRoute('image', routeModel || modelName);
   const startTime = Date.now();
-  
+
   // 开始记录 LLM API 调用（降级模式）
-  const referenceImages = options.image 
-    ? (Array.isArray(options.image) ? options.image : [options.image])
+  const referenceImages = options.image
+    ? Array.isArray(options.image)
+      ? options.image
+      : [options.image]
     : undefined;
   const logId = startLLMApiLog({
     endpoint: '/images/generations',
@@ -72,17 +96,18 @@ async function generateImageDirect(
     hasReferenceImages: referenceImages && referenceImages.length > 0,
     referenceImageCount: referenceImages?.length,
   });
-  
+
   const config = {
     ...DEFAULT_CONFIG,
-    ...globalSettings,
+    apiKey: route.apiKey,
+    baseUrl: route.baseUrl,
     modelName,
   };
-  
+
   try {
     const validatedConfig = await validateAndEnsureConfig(config);
     const headers = {
-      'Authorization': `Bearer ${validatedConfig.apiKey}`,
+      Authorization: `Bearer ${validatedConfig.apiKey}`,
       'Content-Type': 'application/json',
     };
 
@@ -115,7 +140,9 @@ async function generateImageDirect(
       method: 'POST',
       headers,
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(validatedConfig.timeout || DEFAULT_CONFIG.timeout!),
+      signal: AbortSignal.timeout(
+        validatedConfig.timeout || DEFAULT_CONFIG.timeout!
+      ),
     });
 
     if (!response.ok) {
@@ -127,7 +154,9 @@ async function generateImageDirect(
         duration,
         errorMessage: errorText.substring(0, 500),
       });
-      const error = new Error(`图片生成请求失败: ${response.status} - ${errorText}`);
+      const error = new Error(
+        `图片生成请求失败: ${response.status} - ${errorText}`
+      );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
       throw error;
@@ -135,10 +164,10 @@ async function generateImageDirect(
 
     const result = await response.json();
     const duration = Date.now() - startTime;
-    
+
     // 提取结果 URL
     const resultUrl = result.data?.[0]?.url || result.data?.[0]?.b64_json;
-    
+
     completeLLMApiLog(logId, {
       httpStatus: response.status,
       duration,
@@ -146,7 +175,7 @@ async function generateImageDirect(
       resultCount: result.data?.length || 1,
       resultUrl: resultUrl?.substring(0, 200),
     });
-    
+
     return result;
   } catch (error: any) {
     const duration = Date.now() - startTime;
@@ -174,13 +203,12 @@ export async function generateVideoWithGemini(
 }> {
   // 等待设置管理器初始化完成
   await settingsManager.waitForInitialization();
-  
-  // 直接从设置中获取配置
-  const globalSettings = geminiSettings.get();
+  const route = resolveInvocationRoute('video');
   const config = {
     ...VIDEO_DEFAULT_CONFIG,
-    ...globalSettings,
-    modelName: globalSettings.videoModelName || VIDEO_DEFAULT_CONFIG.modelName,
+    apiKey: route.apiKey,
+    baseUrl: route.baseUrl,
+    modelName: route.modelId || VIDEO_DEFAULT_CONFIG.modelName,
   };
   const validatedConfig = await validateAndEnsureConfig(config);
 
@@ -206,19 +234,15 @@ export async function generateVideoWithGemini(
   }
 
   // 构建视频生成专用的提示词（根据是否有图片使用不同提示词）
-  const videoPrompt = image 
+  const videoPrompt = image
     ? `Generate a video based on this image and description: "${prompt}"`
     : `Generate a video based on this description: "${prompt}"`;
 
   // 构建消息内容（只有在有图片时才包含图片）
-  const contentList = image && imageContent
-    ? [
-        { type: 'text' as const, text: videoPrompt },
-        imageContent,
-      ]
-    : [
-        { type: 'text' as const, text: videoPrompt },
-      ];
+  const contentList =
+    image && imageContent
+      ? [{ type: 'text' as const, text: videoPrompt }, imageContent]
+      : [{ type: 'text' as const, text: videoPrompt }];
 
   const messages: GeminiMessage[] = [
     {
@@ -230,7 +254,11 @@ export async function generateVideoWithGemini(
   // console.log('开始调用视频生成API...');
 
   // 使用专用的视频生成流式调用
-  const response = await callVideoApiStreamRaw(validatedConfig, messages, options);
+  const response = await callVideoApiStreamRaw(
+    validatedConfig,
+    messages,
+    options
+  );
 
   // 处理响应内容
   const responseContent = response.choices[0]?.message?.content || '';
@@ -255,13 +283,12 @@ export async function chatWithGemini(
 }> {
   // 等待设置管理器初始化完成
   await settingsManager.waitForInitialization();
-  
-  // 直接从设置中获取配置
-  const globalSettings = geminiSettings.get();
+  const route = resolveInvocationRoute(images.length > 0 ? 'image' : 'text');
   const config = {
     ...DEFAULT_CONFIG,
-    ...globalSettings,
-    modelName: globalSettings.imageModelName || DEFAULT_CONFIG.modelName,
+    apiKey: route.apiKey,
+    baseUrl: route.baseUrl,
+    modelName: route.modelId || DEFAULT_CONFIG.modelName,
   };
   const validatedConfig = await validateAndEnsureConfig(config);
 
@@ -334,34 +361,44 @@ export async function chatWithGemini(
  * @param messages 消息列表
  * @param onChunk 流式回调
  * @param signal 取消信号
- * @param temporaryModel 临时模型（仅在当前会话中使用，不影响全局设置）
+ * @param temporaryModel 临时模型引用（仅在当前会话中使用，不影响全局设置）
  */
 export async function sendChatWithGemini(
   messages: GeminiMessage[],
   onChunk?: (content: string) => void,
   signal?: AbortSignal,
-  temporaryModel?: string
+  temporaryModel?: string | ModelRef | null
 ): Promise<GeminiResponse> {
   console.log('[sendChatWithGemini] 开始, temporaryModel:', temporaryModel);
 
   // 等待设置管理器初始化完成
   const t0 = Date.now();
   await settingsManager.waitForInitialization();
-  console.log('[sendChatWithGemini] settingsManager 初始化完成, 耗时:', Date.now() - t0, 'ms');
-  
-  // 直接从设置中获取配置
-  const globalSettings = geminiSettings.get();
+  console.log(
+    '[sendChatWithGemini] settingsManager 初始化完成, 耗时:',
+    Date.now() - t0,
+    'ms'
+  );
+  const route = resolveInvocationRoute('text', temporaryModel);
   const config = {
     ...DEFAULT_CONFIG,
-    ...globalSettings,
-    // 优先使用临时模型，其次使用全局 chatModel 设置
-    modelName: temporaryModel || globalSettings.chatModel || 'gpt-4o-mini',
+    apiKey: route.apiKey,
+    baseUrl: route.baseUrl,
+    modelName: route.modelId || 'gpt-4o-mini',
   };
-  console.log('[sendChatWithGemini] 配置:', { modelName: config.modelName, hasApiKey: !!config.apiKey, baseUrl: config.baseUrl });
+  console.log('[sendChatWithGemini] 配置:', {
+    modelName: config.modelName,
+    hasApiKey: !!config.apiKey,
+    baseUrl: config.baseUrl,
+  });
 
   const t1 = Date.now();
   const validatedConfig = await validateAndEnsureConfig(config);
-  console.log('[sendChatWithGemini] validateAndEnsureConfig 完成, 耗时:', Date.now() - t1, 'ms');
+  console.log(
+    '[sendChatWithGemini] validateAndEnsureConfig 完成, 耗时:',
+    Date.now() - t1,
+    'ms'
+  );
 
   // Use stream if callback provided
   if (onChunk) {

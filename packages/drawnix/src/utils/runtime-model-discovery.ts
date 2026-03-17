@@ -7,12 +7,23 @@ import {
   DEFAULT_VIDEO_MODEL_ID,
   DEFAULT_TEXT_MODEL_ID,
   getModelsByType,
+  getStaticModelsByType,
   getStaticModelConfig,
   setRuntimeModelConfigs,
 } from '../constants/model-config';
 import { normalizeApiBase } from '../services/media-api/utils';
+import {
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+  providerCatalogsSettings,
+  invocationPresetsSettings,
+  providerProfilesSettings,
+  settingsManager,
+  type ProviderCatalog,
+  type ModelRef,
+  type ProviderProfile,
+} from './settings-manager';
 
-const CACHE_KEY = 'drawnix-runtime-model-discovery';
+const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 
 export interface RemoteModelListItem {
   id: string;
@@ -23,6 +34,7 @@ export interface RemoteModelListItem {
 }
 
 export interface RuntimeModelDiscoveryState {
+  profileId: string;
   status: 'idle' | 'loading' | 'ready' | 'error';
   sourceBaseUrl: string;
   signature: string;
@@ -33,7 +45,7 @@ export interface RuntimeModelDiscoveryState {
   error: string | null;
 }
 
-interface PersistedRuntimeModelDiscoveryState {
+interface LegacyPersistedRuntimeModelDiscoveryState {
   sourceBaseUrl: string;
   signature: string;
   discoveredAt: number;
@@ -41,16 +53,19 @@ interface PersistedRuntimeModelDiscoveryState {
   selectedModelIds: string[];
 }
 
-const DEFAULT_STATE: RuntimeModelDiscoveryState = {
-  status: 'idle',
-  sourceBaseUrl: '',
-  signature: '',
-  discoveredAt: null,
-  discoveredModels: [],
-  selectedModelIds: [],
-  models: [],
-  error: null,
-};
+function createDefaultState(profileId: string): RuntimeModelDiscoveryState {
+  return {
+    profileId,
+    status: 'idle',
+    sourceBaseUrl: '',
+    signature: '',
+    discoveredAt: null,
+    discoveredModels: [],
+    selectedModelIds: [],
+    models: [],
+    error: null,
+  };
+}
 
 function hashString(input: string): string {
   let hash = 5381;
@@ -80,7 +95,8 @@ function buildDiscoverySignature(baseUrl: string, apiKey: string): string {
 function inferVendorByKeywords(modelId: string): ModelVendor {
   const lowerId = modelId.toLowerCase();
   if (lowerId.includes('flux')) return ModelVendor.FLUX;
-  if (lowerId.startsWith('mj') || lowerId.includes('midjourney')) return ModelVendor.MIDJOURNEY;
+  if (lowerId.startsWith('mj') || lowerId.includes('midjourney'))
+    return ModelVendor.MIDJOURNEY;
   if (lowerId.includes('claude')) return ModelVendor.ANTHROPIC;
   if (lowerId.includes('deepseek')) return ModelVendor.DEEPSEEK;
   if (lowerId.includes('kling')) return ModelVendor.KLING;
@@ -93,16 +109,10 @@ function inferVendorByKeywords(modelId: string): ModelVendor {
   ) {
     return ModelVendor.DOUBAO;
   }
-  if (
-    lowerId.includes('gpt') ||
-    lowerId.includes('openai')
-  ) {
+  if (lowerId.includes('gpt') || lowerId.includes('openai')) {
     return ModelVendor.GPT;
   }
-  if (
-    lowerId.includes('gemini') ||
-    lowerId.includes('banana')
-  ) {
+  if (lowerId.includes('gemini') || lowerId.includes('banana')) {
     return ModelVendor.GEMINI;
   }
   if (lowerId.includes('google')) return ModelVendor.GOOGLE;
@@ -114,12 +124,18 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
   if (owner === 'openai') return ModelVendor.GPT;
   if (owner === 'deepseek') return ModelVendor.DEEPSEEK;
   if (owner === 'anthropic' || owner === 'claude') return ModelVendor.ANTHROPIC;
-  if (owner === 'volcengine' || owner === 'doubao-video' || owner === 'doubao') {
+  if (
+    owner === 'volcengine' ||
+    owner === 'doubao-video' ||
+    owner === 'doubao'
+  ) {
     return ModelVendor.DOUBAO;
   }
   if (owner === 'google') return ModelVendor.GOOGLE;
   if (owner === 'vertex-ai') {
-    return model.id.toLowerCase().startsWith('gemini') ? ModelVendor.GEMINI : ModelVendor.GOOGLE;
+    return model.id.toLowerCase().startsWith('gemini')
+      ? ModelVendor.GEMINI
+      : ModelVendor.GOOGLE;
   }
   if (owner === 'custom') {
     return inferVendorByKeywords(model.id);
@@ -128,7 +144,9 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
 }
 
 function inferModelType(model: RemoteModelListItem): ModelType {
-  const endpointHints = (model.supported_endpoint_types || []).join(' ').toLowerCase();
+  const endpointHints = (model.supported_endpoint_types || [])
+    .join(' ')
+    .toLowerCase();
   const lowerId = model.id.toLowerCase();
 
   const isVideo =
@@ -179,20 +197,30 @@ function buildFallbackConfig(model: RemoteModelListItem): ModelConfig {
   const vendorLabel = VENDOR_NAMES[vendor];
   const supportsTools =
     type === 'text' &&
-    (model.supported_endpoint_types || []).some((item) => item.toLowerCase().includes('openai-chat'));
+    (model.supported_endpoint_types || []).some((item) =>
+      item.toLowerCase().includes('openai-chat')
+    );
 
   return {
     id: model.id,
     label: model.id,
     shortLabel: model.id,
     shortCode: buildShortCode(model.id, type),
-    description: `${vendorLabel} ${type === 'image' ? '图片模型' : type === 'video' ? '视频模型' : '文本模型'}`,
+    description: `${vendorLabel} ${
+      type === 'image' ? '图片模型' : type === 'video' ? '视频模型' : '文本模型'
+    }`,
     type,
     vendor,
     supportsTools,
     tags: ['runtime'],
-    imageDefaults: type === 'image' ? { aspectRatio: 'auto', width: 1024, height: 1024 } : undefined,
-    videoDefaults: type === 'video' ? { duration: '8', size: '1280x720', aspectRatio: '16:9' } : undefined,
+    imageDefaults:
+      type === 'image'
+        ? { aspectRatio: 'auto', width: 1024, height: 1024 }
+        : undefined,
+    videoDefaults:
+      type === 'video'
+        ? { duration: '8', size: '1280x720', aspectRatio: '16:9' }
+        : undefined,
   };
 }
 
@@ -212,71 +240,347 @@ function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
   return buildFallbackConfig(model);
 }
 
-function persistState(state: RuntimeModelDiscoveryState): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const payload: PersistedRuntimeModelDiscoveryState = {
-      sourceBaseUrl: state.sourceBaseUrl,
-      signature: state.signature,
-      discoveredAt: state.discoveredAt || Date.now(),
-      discoveredModels: state.discoveredModels,
-      selectedModelIds: state.selectedModelIds,
-    };
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-  } catch {
-    // ignore cache persistence errors
-  }
+function normalizeSelectedModelIds(
+  discoveredModels: ModelConfig[],
+  modelIds: string[]
+): string[] {
+  const knownIds = new Set(discoveredModels.map((model) => model.id));
+  return Array.from(
+    new Set(modelIds.filter((modelId) => knownIds.has(modelId)))
+  );
 }
 
-function loadPersistedState(): RuntimeModelDiscoveryState {
-  if (typeof window === 'undefined') return DEFAULT_STATE;
+function buildSelectedModels(
+  discoveredModels: ModelConfig[],
+  selectedModelIds: string[]
+): ModelConfig[] {
+  return discoveredModels.filter((model) =>
+    selectedModelIds.includes(model.id)
+  );
+}
+
+function mergeModels(
+  staticModels: ModelConfig[],
+  runtimeModels: ModelConfig[]
+): ModelConfig[] {
+  const merged = [...runtimeModels];
+  const seen = new Set(runtimeModels.map((model) => model.id));
+  for (const model of staticModels) {
+    if (!seen.has(model.id)) {
+      merged.push(model);
+    }
+  }
+  return merged;
+}
+
+function ensureRuntimeTag(tags?: string[]): string[] {
+  const nextTags = Array.isArray(tags) ? [...tags] : [];
+  if (!nextTags.includes('runtime')) {
+    nextTags.push('runtime');
+  }
+  return nextTags;
+}
+
+function buildSelectionKey(
+  profileId: string | null | undefined,
+  modelId: string
+): string {
+  return profileId ? `${profileId}::${modelId}` : modelId;
+}
+
+function getProfileById(profileId: string): ProviderProfile | null {
+  return (
+    providerProfilesSettings
+      .get()
+      .find((profile) => profile.id === profileId) || null
+  );
+}
+
+function isProfileEnabled(profileId: string): boolean {
+  if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+    return true;
+  }
+
+  return getProfileById(profileId)?.enabled !== false;
+}
+
+function attachRuntimeSource(
+  profileId: string,
+  model: ModelConfig
+): ModelConfig {
+  const profileName = getProfileById(profileId)?.name || null;
+  return {
+    ...model,
+    tags: ensureRuntimeTag(model.tags),
+    sourceProfileId: profileId,
+    sourceProfileName: profileName,
+    selectionKey: buildSelectionKey(profileId, model.id),
+  };
+}
+
+function decorateRuntimeModels(
+  profileId: string,
+  models: ModelConfig[]
+): ModelConfig[] {
+  return models.map((model) => attachRuntimeSource(profileId, model));
+}
+
+function decorateStaticModels(models: ModelConfig[]): ModelConfig[] {
+  return models.map((model) => ({
+    ...model,
+    selectionKey: model.selectionKey || buildSelectionKey(null, model.id),
+  }));
+}
+
+function createPinnedRuntimeModel(
+  profileId: string,
+  modelId: string,
+  type: ModelType
+): ModelConfig {
+  const profileName = getProfileById(profileId)?.name || '供应商模型';
+  return attachRuntimeSource(profileId, {
+    id: modelId,
+    label: modelId,
+    shortLabel: modelId,
+    shortCode: buildShortCode(modelId, type),
+    description: `${profileName} · ${modelId}`,
+    type,
+    vendor: ModelVendor.OTHER,
+  });
+}
+
+function createStateFromCatalog(
+  catalog: ProviderCatalog
+): RuntimeModelDiscoveryState {
+  const discoveredModels = decorateRuntimeModels(
+    catalog.profileId,
+    Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : []
+  );
+  const selectedModelIds = normalizeSelectedModelIds(
+    discoveredModels,
+    Array.isArray(catalog.selectedModelIds) ? catalog.selectedModelIds : []
+  );
+  const models = buildSelectedModels(discoveredModels, selectedModelIds);
+
+  return {
+    profileId: catalog.profileId,
+    status: catalog.error
+      ? 'error'
+      : discoveredModels.length > 0
+      ? 'ready'
+      : 'idle',
+    sourceBaseUrl: catalog.sourceBaseUrl || '',
+    signature: catalog.signature || '',
+    discoveredAt: Number.isFinite(catalog.discoveredAt)
+      ? catalog.discoveredAt
+      : null,
+    discoveredModels,
+    selectedModelIds,
+    models,
+    error: catalog.error || null,
+  };
+}
+
+function toCatalog(state: RuntimeModelDiscoveryState): ProviderCatalog {
+  return {
+    profileId: state.profileId,
+    discoveredAt: state.discoveredAt,
+    discoveredModels: state.discoveredModels,
+    selectedModelIds: state.selectedModelIds,
+    sourceBaseUrl: state.sourceBaseUrl || undefined,
+    signature: state.signature || undefined,
+    error: state.error,
+  };
+}
+
+function loadLegacyPersistedState(): RuntimeModelDiscoveryState | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return DEFAULT_STATE;
-    const parsed = JSON.parse(raw) as PersistedRuntimeModelDiscoveryState;
-    if (!parsed || !Array.isArray(parsed.discoveredModels)) return DEFAULT_STATE;
-    const selectedModelIds = Array.isArray(parsed.selectedModelIds)
-      ? parsed.selectedModelIds.filter((item): item is string => typeof item === 'string')
-      : [];
-    const models = parsed.discoveredModels.filter((model) => selectedModelIds.includes(model.id));
+    const raw = window.localStorage.getItem(LEGACY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LegacyPersistedRuntimeModelDiscoveryState;
+    if (!parsed || !Array.isArray(parsed.discoveredModels)) return null;
+
+    const discoveredModels = decorateRuntimeModels(
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+      parsed.discoveredModels
+    );
+    const selectedModelIds = normalizeSelectedModelIds(
+      discoveredModels,
+      Array.isArray(parsed.selectedModelIds) ? parsed.selectedModelIds : []
+    );
+
     return {
+      profileId: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
       status: 'ready',
       sourceBaseUrl: parsed.sourceBaseUrl || '',
       signature: parsed.signature || '',
-      discoveredAt: Number.isFinite(parsed.discoveredAt) ? parsed.discoveredAt : Date.now(),
-      discoveredModels: parsed.discoveredModels,
+      discoveredAt: Number.isFinite(parsed.discoveredAt)
+        ? parsed.discoveredAt
+        : Date.now(),
+      discoveredModels,
       selectedModelIds,
-      models,
+      models: buildSelectedModels(discoveredModels, selectedModelIds),
       error: null,
     };
   } catch {
-    return DEFAULT_STATE;
+    return null;
+  }
+}
+
+function removeLegacyPersistedState(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LEGACY_CACHE_KEY);
+  } catch {
+    // ignore cache cleanup errors
   }
 }
 
 class RuntimeModelDiscoveryStore {
-  private state: RuntimeModelDiscoveryState = loadPersistedState();
+  private catalogStates = new Map<string, RuntimeModelDiscoveryState>();
   private listeners = new Set<() => void>();
 
   constructor() {
-    if (this.state.models.length > 0) {
-      setRuntimeModelConfigs(this.state.models);
-    }
+    this.catalogStates = this.loadCatalogStatesFromSettings();
+    this.migrateLegacyCacheIfNeeded();
+    this.syncRuntimeModelConfigs();
+
+    providerCatalogsSettings.addListener(this.handleCatalogSettingsChange);
+    invocationPresetsSettings.addListener(this.handlePresetSettingsChange);
+    settingsManager.addListener(
+      'activePresetId',
+      this.handleActivePresetIdChange
+    );
   }
 
-  private emit() {
+  private loadCatalogStatesFromSettings(): Map<
+    string,
+    RuntimeModelDiscoveryState
+  > {
+    const states = new Map<string, RuntimeModelDiscoveryState>();
+    for (const catalog of providerCatalogsSettings.get()) {
+      states.set(catalog.profileId, createStateFromCatalog(catalog));
+    }
+    if (!states.has(LEGACY_DEFAULT_PROVIDER_PROFILE_ID)) {
+      states.set(
+        LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+        createDefaultState(LEGACY_DEFAULT_PROVIDER_PROFILE_ID)
+      );
+    }
+    return states;
+  }
+
+  private migrateLegacyCacheIfNeeded(): void {
+    const legacyState = loadLegacyPersistedState();
+    if (!legacyState) {
+      return;
+    }
+
+    const currentState = this.catalogStates.get(
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID
+    );
+    const hasCatalogData =
+      !!currentState &&
+      (currentState.discoveredModels.length > 0 ||
+        currentState.selectedModelIds.length > 0);
+
+    if (hasCatalogData) {
+      removeLegacyPersistedState();
+      return;
+    }
+
+    this.catalogStates.set(LEGACY_DEFAULT_PROVIDER_PROFILE_ID, legacyState);
+    void this.persistCatalogs();
+    removeLegacyPersistedState();
+  }
+
+  private emit(): void {
     for (const listener of this.listeners) {
       listener();
     }
   }
 
-  private setState(next: RuntimeModelDiscoveryState) {
-    this.state = next;
-    setRuntimeModelConfigs(next.models);
-    if (next.status === 'ready' && next.discoveredModels.length > 0) {
-      persistState(next);
+  private handleCatalogSettingsChange = (catalogs: ProviderCatalog[]): void => {
+    const nextStates = new Map<string, RuntimeModelDiscoveryState>();
+    for (const catalog of catalogs) {
+      nextStates.set(catalog.profileId, createStateFromCatalog(catalog));
+    }
+    if (!nextStates.has(LEGACY_DEFAULT_PROVIDER_PROFILE_ID)) {
+      nextStates.set(
+        LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+        createDefaultState(LEGACY_DEFAULT_PROVIDER_PROFILE_ID)
+      );
+    }
+    this.catalogStates = nextStates;
+    this.syncRuntimeModelConfigs();
+    this.emit();
+  };
+
+  private handlePresetSettingsChange = (): void => {
+    this.syncRuntimeModelConfigs();
+    this.emit();
+  };
+
+  private handleActivePresetIdChange = (): void => {
+    this.syncRuntimeModelConfigs();
+    this.emit();
+  };
+
+  private async persistCatalogs(): Promise<void> {
+    const catalogs = Array.from(this.catalogStates.values()).map(toCatalog);
+    await providerCatalogsSettings.update(catalogs);
+  }
+
+  private setCatalogState(
+    profileId: string,
+    state: RuntimeModelDiscoveryState,
+    persist = true
+  ): void {
+    this.catalogStates.set(profileId, {
+      ...state,
+      profileId,
+      selectedModelIds: normalizeSelectedModelIds(
+        state.discoveredModels,
+        state.selectedModelIds
+      ),
+      models: buildSelectedModels(
+        state.discoveredModels,
+        normalizeSelectedModelIds(
+          state.discoveredModels,
+          state.selectedModelIds
+        )
+      ),
+    });
+
+    this.syncRuntimeModelConfigs();
+    if (persist) {
+      void this.persistCatalogs();
     }
     this.emit();
+  }
+
+  private getCatalogState(profileId: string): RuntimeModelDiscoveryState {
+    return this.catalogStates.get(profileId) || createDefaultState(profileId);
+  }
+
+  private resolveRuntimeModels(): ModelConfig[] {
+    const seen = new Set<string>();
+    const models: ModelConfig[] = [];
+
+    for (const catalogState of this.catalogStates.values()) {
+      for (const model of catalogState.models) {
+        if (seen.has(model.id)) continue;
+        seen.add(model.id);
+        models.push(model);
+      }
+    }
+
+    return models;
+  }
+
+  private syncRuntimeModelConfigs(): void {
+    setRuntimeModelConfigs(this.resolveRuntimeModels());
   }
 
   subscribe(listener: () => void): () => void {
@@ -284,45 +588,145 @@ class RuntimeModelDiscoveryStore {
     return () => this.listeners.delete(listener);
   }
 
-  getState(): RuntimeModelDiscoveryState {
-    return this.state;
+  getState(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID
+  ): RuntimeModelDiscoveryState {
+    return this.getCatalogState(profileId);
   }
 
-  getDiscoveredModels(type?: ModelType): ModelConfig[] {
+  getDiscoveredModels(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    type?: ModelType
+  ): ModelConfig[] {
+    const state = this.getCatalogState(profileId);
     return type
-      ? this.state.discoveredModels.filter((model) => model.type === type)
-      : this.state.discoveredModels;
+      ? state.discoveredModels.filter((model) => model.type === type)
+      : state.discoveredModels;
   }
 
-  getSelectedModelIds(): string[] {
-    return [...this.state.selectedModelIds];
+  getSelectedModelIds(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID
+  ): string[] {
+    return [...this.getCatalogState(profileId).selectedModelIds];
   }
 
   getPreferredModels(type: ModelType): ModelConfig[] {
     return getModelsByType(type);
   }
 
-  invalidateIfConfigChanged(baseUrl: string, apiKey: string): void {
-    const signature = buildDiscoverySignature(baseUrl, apiKey);
-    if (!this.state.signature || this.state.signature === signature) {
-      return;
+  getSelectableModels(type: ModelType): ModelConfig[] {
+    const runtimeModels: ModelConfig[] = [];
+    for (const state of this.catalogStates.values()) {
+      if (!isProfileEnabled(state.profileId)) {
+        continue;
+      }
+      runtimeModels.push(
+        ...state.models.filter((model) => model.type === type)
+      );
     }
-    this.clear();
+
+    return [
+      ...runtimeModels,
+      ...decorateStaticModels(getStaticModelsByType(type)),
+    ];
   }
 
-  applySelection(modelIds: string[]): ModelConfig[] {
-    const selectedModelIds = Array.from(
-      new Set(
-        modelIds.filter((modelId) =>
-          this.state.discoveredModels.some((model) => model.id === modelId)
-        )
-      )
-    );
-    const models = this.state.discoveredModels.filter((model) => selectedModelIds.includes(model.id));
+  getPinnedSelectableModel(
+    type: ModelType,
+    modelId?: string | null,
+    modelRef?: ModelRef | null
+  ): ModelConfig | null {
+    if (!modelId) {
+      return null;
+    }
 
-    this.setState({
-      ...this.state,
-      status: this.state.discoveredModels.length > 0 ? 'ready' : this.state.status,
+    const profileId = modelRef?.profileId || null;
+    const expectedSelectionKey = buildSelectionKey(profileId, modelId);
+
+    if (profileId) {
+      const state = this.catalogStates.get(profileId);
+      const directMatch =
+        state?.models.find(
+          (model) =>
+            model.type === type &&
+            (model.selectionKey || buildSelectionKey(profileId, model.id)) ===
+              expectedSelectionKey
+        ) ||
+        state?.discoveredModels.find(
+          (model) =>
+            model.type === type &&
+            (model.selectionKey || buildSelectionKey(profileId, model.id)) ===
+              expectedSelectionKey
+        );
+
+      if (directMatch) {
+        return directMatch;
+      }
+
+      return createPinnedRuntimeModel(profileId, modelId, type);
+    }
+
+    const staticMatch = getStaticModelConfig(modelId);
+    if (staticMatch && staticMatch.type === type) {
+      return decorateStaticModels([staticMatch])[0];
+    }
+
+    for (const state of this.catalogStates.values()) {
+      const fallbackMatch =
+        state.models.find(
+          (model) => model.type === type && model.id === modelId
+        ) ||
+        state.discoveredModels.find(
+          (model) => model.type === type && model.id === modelId
+        );
+
+      if (fallbackMatch) {
+        return fallbackMatch;
+      }
+    }
+
+    return null;
+  }
+
+  getProfilePreferredModels(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    type: ModelType
+  ): ModelConfig[] {
+    const state = this.getCatalogState(profileId);
+    const runtimeModels = state.models.filter((model) => model.type === type);
+    return mergeModels(getStaticModelsByType(type), runtimeModels);
+  }
+
+  invalidateIfConfigChanged(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    baseUrl: string,
+    apiKey: string
+  ): void {
+    const state = this.getCatalogState(profileId);
+    const signature = buildDiscoverySignature(baseUrl, apiKey);
+    if (!state.signature || state.signature === signature) {
+      return;
+    }
+    this.clear(profileId);
+  }
+
+  applySelection(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    modelIds: string[]
+  ): ModelConfig[] {
+    const state = this.getCatalogState(profileId);
+    const selectedModelIds = normalizeSelectedModelIds(
+      state.discoveredModels,
+      modelIds
+    );
+    const models = buildSelectedModels(
+      state.discoveredModels,
+      selectedModelIds
+    );
+
+    this.setCatalogState(profileId, {
+      ...state,
+      status: state.discoveredModels.length > 0 ? 'ready' : state.status,
       selectedModelIds,
       models,
       error: null,
@@ -331,33 +735,38 @@ class RuntimeModelDiscoveryStore {
     return models;
   }
 
-  clear(): void {
-    this.setState({ ...DEFAULT_STATE });
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.removeItem(CACHE_KEY);
-      } catch {
-        // ignore
-      }
+  clear(profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID): void {
+    this.setCatalogState(profileId, createDefaultState(profileId));
+    if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+      removeLegacyPersistedState();
     }
   }
 
-  async discover(baseUrl: string, apiKey: string): Promise<ModelConfig[]> {
+  async discover(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    baseUrl: string,
+    apiKey: string
+  ): Promise<ModelConfig[]> {
     const trimmedApiKey = apiKey.trim();
     if (!trimmedApiKey) {
       throw new Error('缺少 API Key');
     }
 
+    const state = this.getCatalogState(profileId);
     const normalizedBaseUrl = normalizeModelApiBaseUrl(baseUrl);
     const signature = buildDiscoverySignature(normalizedBaseUrl, trimmedApiKey);
 
-    this.setState({
-      ...this.state,
-      status: 'loading',
-      sourceBaseUrl: normalizedBaseUrl,
-      signature,
-      error: null,
-    });
+    this.setCatalogState(
+      profileId,
+      {
+        ...state,
+        status: 'loading',
+        sourceBaseUrl: normalizedBaseUrl,
+        signature,
+        error: null,
+      },
+      false
+    );
 
     const response = await fetch(`${normalizedBaseUrl}/models`, {
       headers: {
@@ -382,22 +791,29 @@ class RuntimeModelDiscoveryStore {
       throw new Error('模型列表接口缺少 data 数组');
     }
 
-    const adaptedModels = data
-      .map((item) => adaptRuntimeModel(item as RemoteModelListItem))
-      .filter((item): item is ModelConfig => !!item);
+    const adaptedModels: ModelConfig[] = [];
+    const seen = new Set<string>();
+    for (const item of data) {
+      const adapted = adaptRuntimeModel(item as RemoteModelListItem);
+      if (!adapted || seen.has(adapted.id)) {
+        continue;
+      }
+      seen.add(adapted.id);
+      adaptedModels.push(attachRuntimeSource(profileId, adapted));
+    }
 
     if (adaptedModels.length === 0) {
       throw new Error('模型列表为空');
     }
 
-    const selectedModelIds = this.state.signature === signature
-      ? this.state.selectedModelIds.filter((modelId) =>
-          adaptedModels.some((model) => model.id === modelId)
-        )
-      : [];
-    const models = adaptedModels.filter((model) => selectedModelIds.includes(model.id));
+    const selectedModelIds =
+      state.signature === signature
+        ? normalizeSelectedModelIds(adaptedModels, state.selectedModelIds)
+        : [];
+    const models = buildSelectedModels(adaptedModels, selectedModelIds);
 
-    const nextState: RuntimeModelDiscoveryState = {
+    this.setCatalogState(profileId, {
+      profileId,
       status: 'ready',
       sourceBaseUrl: normalizedBaseUrl,
       signature,
@@ -406,14 +822,18 @@ class RuntimeModelDiscoveryStore {
       selectedModelIds,
       models,
       error: null,
-    };
-    this.setState(nextState);
+    });
+
     return adaptedModels;
   }
 
-  setError(error: string): void {
-    this.setState({
-      ...this.state,
+  setError(
+    profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    error: string
+  ): void {
+    const state = this.getCatalogState(profileId);
+    this.setCatalogState(profileId, {
+      ...state,
       status: 'error',
       error,
     });
@@ -424,6 +844,29 @@ export const runtimeModelDiscovery = new RuntimeModelDiscoveryStore();
 
 export function getPreferredModels(type: ModelType): ModelConfig[] {
   return runtimeModelDiscovery.getPreferredModels(type);
+}
+
+export function getSelectableModels(type: ModelType): ModelConfig[] {
+  return runtimeModelDiscovery.getSelectableModels(type);
+}
+
+export function getPinnedSelectableModel(
+  type: ModelType,
+  modelId?: string | null,
+  modelRef?: ModelRef | null
+): ModelConfig | null {
+  return runtimeModelDiscovery.getPinnedSelectableModel(
+    type,
+    modelId,
+    modelRef
+  );
+}
+
+export function getProfilePreferredModels(
+  profileId: string,
+  type: ModelType
+): ModelConfig[] {
+  return runtimeModelDiscovery.getProfilePreferredModels(profileId, type);
 }
 
 export function getFallbackDefaultModelId(type: ModelType): string {

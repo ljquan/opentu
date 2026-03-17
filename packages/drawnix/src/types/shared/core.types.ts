@@ -48,7 +48,7 @@ export enum TaskStatus {
   /** Task failed */
   FAILED = 'failed',
   /** Task was cancelled by the user */
-  CANCELLED = 'cancelled'
+  CANCELLED = 'cancelled',
 }
 
 /**
@@ -78,7 +78,7 @@ export enum TaskExecutionPhase {
   /** Task submitted, polling for completion (video only) */
   POLLING = 'polling',
   /** Task completed, downloading result */
-  DOWNLOADING = 'downloading'
+  DOWNLOADING = 'downloading',
 }
 
 // ============================================================================
@@ -89,6 +89,8 @@ export enum TaskExecutionPhase {
  * Generation parameters interface
  * Contains all parameters needed for AI content generation
  */
+import type { ModelRef } from '../../utils/settings-manager';
+
 export interface GenerationParams {
   /** Text prompt describing the desired content */
   prompt: string;
@@ -104,6 +106,8 @@ export interface GenerationParams {
   style?: string;
   /** AI model to use (e.g., 'veo3', 'sora-2') */
   model?: string;
+  /** 运行时模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** Random seed for reproducible generation */
   seed?: number;
   /** Source video task ID for character extraction */

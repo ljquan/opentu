@@ -4,6 +4,8 @@
  * Chat 相关类型定义
  */
 
+import type { ModelRef } from '../../../utils/settings-manager';
+
 // ============================================================================
 // 实体类型
 // ============================================================================
@@ -39,7 +41,7 @@ export interface ChatStartParams {
   messages: ChatMessage[];
   newContent: string;
   attachments?: ChatAttachment[];
-  temporaryModel?: string;
+  temporaryModel?: string | ModelRef | null;
   systemPrompt?: string;
 }
 

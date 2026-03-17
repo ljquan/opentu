@@ -1,3 +1,6 @@
+import type { ModelConfig, ModelVendor } from '../../constants/model-config';
+import type { ModelRef } from '../../utils/settings-manager';
+
 export type ModelKind = 'image' | 'video' | 'chat';
 
 export interface AdapterContext {
@@ -26,6 +29,7 @@ export interface AdapterMetadata {
 export interface ImageGenerationRequest {
   prompt: string;
   model?: string;
+  modelRef?: ModelRef | null;
   size?: string;
   referenceImages?: string[];
   params?: Record<string, unknown>;
@@ -44,6 +48,7 @@ export interface ImageGenerationResult {
 export interface VideoGenerationRequest {
   prompt: string;
   model?: string;
+  modelRef?: ModelRef | null;
   size?: string;
   duration?: number;
   referenceImages?: string[];
@@ -76,4 +81,3 @@ export interface VideoModelAdapter extends AdapterMetadata {
 }
 
 export type ModelAdapter = ImageModelAdapter | VideoModelAdapter;
-import type { ModelConfig, ModelVendor } from '../../constants/model-config';

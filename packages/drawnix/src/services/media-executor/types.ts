@@ -1,3 +1,5 @@
+import type { ModelRef } from '../../utils/settings-manager';
+
 /**
  * Media Executor Types
  *
@@ -16,6 +18,8 @@ export interface ImageGenerationParams {
   prompt: string;
   /** 模型名称 */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 图片尺寸 (如 "1024x1024", "16:9") */
   size?: string;
   /** 参考图片 URL 列表 */
@@ -41,6 +45,8 @@ export interface VideoGenerationParams {
   prompt: string;
   /** 模型名称 (如 "veo3", "sora-2") */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 视频时长 (秒) */
   duration?: string;
   /** 视频尺寸 */
@@ -78,6 +84,8 @@ export interface AIAnalyzeParams {
   referenceImages?: string[];
   /** 模型名称 */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 用户选择的文本模型（优先于系统配置） */
   textModel?: string;
   /** 系统提示词（仅在使用 prompt 时有效） */

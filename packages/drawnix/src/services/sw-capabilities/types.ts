@@ -3,6 +3,7 @@
  */
 
 import type { PlaitBoard, Point } from '@plait/core';
+import type { ModelRef } from '../../utils/settings-manager';
 
 /**
  * Delegated operation types
@@ -161,6 +162,7 @@ export interface AIAnalyzeParams {
     };
   };
   textModel?: string;
+  modelRef?: ModelRef | null;
 }
 
 /**

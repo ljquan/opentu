@@ -5,11 +5,20 @@
  * 提交任务后通过轮询查询结果，返回图片下载链接。
  */
 
-import { geminiSettings } from '../utils/settings-manager';
-import { getFileExtension } from '@aitu/utils';
+import {
+  resolveInvocationRoute,
+  type ModelRef,
+} from '../utils/settings-manager';
+
+function getFileExtension(url: string): string | null {
+  const pathname = url.split('?')[0] || '';
+  const match = pathname.match(/\.([a-z0-9]+)$/i);
+  return match?.[1]?.toLowerCase() || null;
+}
 
 export interface AsyncImageGenerationParams {
   model: string;
+  modelRef?: ModelRef | null;
   prompt: string;
   size?: string; // 接口的尺寸/比例字段（枚举 1:1、4:5 等）
   // TODO: 支持参考图/多图提交，如有需求可补充 input_reference
@@ -42,20 +51,19 @@ interface PollingOptions {
   maxAttempts?: number;
   onProgress?: (progress: number, status: string) => void;
   onSubmitted?: (taskId: string) => void;
+  routeModel?: string | ModelRef | null;
 }
 
 class AsyncImageAPIService {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = 'https://api.tu-zi.com';
-  }
-
   private async submit(
     params: AsyncImageGenerationParams
   ): Promise<AsyncImageSubmitResponse> {
-    const settings = geminiSettings.get();
-    const apiKey = settings.apiKey;
+    const route = resolveInvocationRoute(
+      'image',
+      params.modelRef || params.model
+    );
+    const apiKey = route.apiKey;
+    const baseUrl = route.baseUrl.replace(/\/v1\/?$/, '');
 
     if (!apiKey) {
       throw new Error('API Key 未配置');
@@ -68,7 +76,7 @@ class AsyncImageAPIService {
       formData.append('size', params.size);
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/videos`, {
+    const response = await fetch(`${baseUrl}/v1/videos`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -89,15 +97,19 @@ class AsyncImageAPIService {
     return response.json();
   }
 
-  private async query(id: string): Promise<AsyncImageQueryResponse> {
-    const settings = geminiSettings.get();
-    const apiKey = settings.apiKey;
+  private async query(
+    id: string,
+    routeModel?: string | ModelRef | null
+  ): Promise<AsyncImageQueryResponse> {
+    const route = resolveInvocationRoute('image', routeModel);
+    const apiKey = route.apiKey;
+    const baseUrl = route.baseUrl.replace(/\/v1\/?$/, '');
 
     if (!apiKey) {
       throw new Error('API Key 未配置');
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/videos/${id}`, {
+    const response = await fetch(`${baseUrl}/v1/videos/${id}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -150,6 +162,7 @@ class AsyncImageAPIService {
       interval,
       maxAttempts,
       onProgress,
+      routeModel: params.modelRef || params.model,
     });
   }
 
@@ -159,7 +172,7 @@ class AsyncImageAPIService {
   ): Promise<AsyncImageQueryResponse> {
     const { onProgress } = options;
 
-    const immediate = await this.query(id);
+    const immediate = await this.query(id, options.routeModel);
     const immediateProgress =
       immediate.progress ??
       (immediate.status === 'failed'
@@ -183,7 +196,12 @@ class AsyncImageAPIService {
     id: string,
     options: PollingOptions = {}
   ): Promise<AsyncImageQueryResponse> {
-    const { interval = 5000, maxAttempts = 1080, onProgress } = options;
+    const {
+      interval = 5000,
+      maxAttempts = 1080,
+      onProgress,
+      routeModel,
+    } = options;
 
     let attempts = 0;
     let consecutiveErrors = 0;
@@ -194,7 +212,7 @@ class AsyncImageAPIService {
       attempts += 1;
 
       try {
-        const status = await this.query(id);
+        const status = await this.query(id, routeModel);
         const progress =
           status.progress ??
           (status.status === 'failed'

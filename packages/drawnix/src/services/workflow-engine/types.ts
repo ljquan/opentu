@@ -4,6 +4,8 @@
  * 主线程工作流引擎的类型定义。
  */
 
+import type { ModelRef } from '../../utils/settings-manager';
+
 // ============================================================================
 // 工作流步骤
 // ============================================================================
@@ -17,7 +19,13 @@
  * - skipped: 跳过
  * - pending_main_thread: 等待主线程执行（需要访问 Canvas/DOM 的工具）
  */
-export type WorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'pending_main_thread';
+export type WorkflowStepStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  | 'pending_main_thread';
 
 export interface WorkflowStepOptions {
   /** 执行模式 */
@@ -59,13 +67,20 @@ export interface WorkflowStep {
 // 工作流定义
 // ============================================================================
 
-export type WorkflowStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type WorkflowStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export interface WorkflowContext {
   /** 用户输入 */
   userInput?: string;
   /** 模型名称 */
   model?: string;
+  /** 模型来源引用 */
+  modelRef?: ModelRef | null;
   /** 生成参数 */
   params?: {
     count?: number;

@@ -1,21 +1,34 @@
 /**
  * Task Queue Service
- * 
+ *
  * Core service for managing the task queue lifecycle.
  * Implements singleton pattern and uses RxJS for event-driven architecture.
- * 
+ *
  * In fallback mode (SW disabled), this service directly writes to IndexedDB
  * via taskStorageWriter to ensure data persistence.
  */
 
 import { Subject, Observable } from 'rxjs';
-import { Task, TaskStatus, TaskType, TaskEvent, GenerationParams, TaskExecutionPhase } from '../types/task.types';
+import {
+  Task,
+  TaskStatus,
+  TaskType,
+  TaskEvent,
+  GenerationParams,
+  TaskExecutionPhase,
+} from '../types/task.types';
 import { generateTaskId, isTaskActive } from '../utils/task-utils';
-import { validateGenerationParams, sanitizeGenerationParams } from '../utils/validation-utils';
-import { taskStorageWriter, type SWTask } from './media-executor/task-storage-writer';
+import {
+  validateGenerationParams,
+  sanitizeGenerationParams,
+} from '../utils/validation-utils';
+import {
+  taskStorageWriter,
+  type SWTask,
+} from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
-import { geminiSettings } from '../utils/settings-manager';
+import { hasInvocationRouteCredentials } from '../utils/settings-manager';
 
 /**
  * Task Queue Service
@@ -71,7 +84,10 @@ class TaskQueueService {
    */
   private persistDelete(taskId: string): void {
     taskStorageWriter.deleteTask(taskId).catch((error) => {
-      console.error('[TaskQueueService] Failed to delete task from storage:', error);
+      console.error(
+        '[TaskQueueService] Failed to delete task from storage:',
+        error
+      );
     });
     // Invalidate reader cache after delete
     taskStorageReader.invalidateCache();
@@ -84,9 +100,16 @@ class TaskQueueService {
   private async executeTask(task: Task): Promise<void> {
     try {
       // Check API configuration
-      const settings = geminiSettings.get();
-      if (!settings.apiKey || !settings.baseUrl) {
-        console.warn('[TaskQueueService] No API configuration, cannot execute task');
+      const routeType = task.type === TaskType.VIDEO ? 'video' : 'image';
+      if (
+        !hasInvocationRouteCredentials(
+          routeType,
+          task.params.modelRef || task.params.model
+        )
+      ) {
+        console.warn(
+          '[TaskQueueService] No API configuration, cannot execute task'
+        );
         this.updateTaskStatus(task.id, TaskStatus.FAILED, {
           error: { code: 'NO_API_KEY', message: '未配置 API Key' },
         });
@@ -108,7 +131,9 @@ class TaskQueueService {
               ...localTask,
               progress: progress.progress,
               updatedAt: Date.now(),
-              ...(progress.phase && { executionPhase: progress.phase as Task['executionPhase'] }),
+              ...(progress.phase && {
+                executionPhase: progress.phase as Task['executionPhase'],
+              }),
             };
             this.tasks.set(task.id, updatedTask);
             this.emitEvent('taskUpdated', updatedTask);
@@ -118,47 +143,65 @@ class TaskQueueService {
 
       // Execute based on task type
       switch (task.type) {
-        case TaskType.IMAGE:
+        case TaskType.IMAGE: {
           // 从 params.params 中提取额外参数（如 quality）
           const extraParams = (task.params as any).params || {};
-          await executor.generateImage({
-            taskId: task.id,
-            prompt: task.params.prompt,
-            model: task.params.model,
-            size: task.params.size,
-            referenceImages: task.params.referenceImages as string[] | undefined,
-            count: task.params.count as number | undefined,
-            uploadedImages: task.params.uploadedImages as Array<{ url?: string }> | undefined,
-            quality: extraParams.quality as '1k' | '2k' | '4k' | undefined,
-            params: extraParams,
-          }, executionOptions);
+          await executor.generateImage(
+            {
+              taskId: task.id,
+              prompt: task.params.prompt,
+              model: task.params.model,
+              modelRef: task.params.modelRef || null,
+              size: task.params.size,
+              referenceImages: task.params.referenceImages as
+                | string[]
+                | undefined,
+              count: task.params.count as number | undefined,
+              uploadedImages: task.params.uploadedImages as
+                | Array<{ url?: string }>
+                | undefined,
+              quality: extraParams.quality as '1k' | '2k' | '4k' | undefined,
+              params: extraParams,
+            },
+            executionOptions
+          );
           break;
+        }
         case TaskType.VIDEO: {
           // 从 uploadedImages（UI 层传入的 UploadedVideoImage[]）中提取 URL
-          const uploaded = task.params.uploadedImages as Array<{ url?: string }> | undefined;
+          const uploaded = task.params.uploadedImages as
+            | Array<{ url?: string }>
+            | undefined;
           const uploadedUrls = uploaded
             ?.map((img) => img.url)
             .filter((url): url is string => !!url);
           // 兼容旧字段 referenceImages / inputReference
           const refImages = task.params.referenceImages as string[] | undefined;
-          const inputRef = (task.params as { inputReference?: string }).inputReference;
+          const inputRef = (task.params as { inputReference?: string })
+            .inputReference;
           const finalRefs =
             uploadedUrls && uploadedUrls.length > 0
               ? uploadedUrls
               : refImages && refImages.length > 0
-                ? refImages
-                : inputRef
-                  ? [inputRef]
-                  : undefined;
-          await executor.generateVideo({
-            taskId: task.id,
-            prompt: task.params.prompt,
-            model: task.params.model,
-            duration: (task.params.duration ?? task.params.seconds)?.toString(),
-            size: task.params.size,
-            referenceImages: finalRefs,
-            params: (task.params as any).params,
-          }, executionOptions);
+              ? refImages
+              : inputRef
+              ? [inputRef]
+              : undefined;
+          await executor.generateVideo(
+            {
+              taskId: task.id,
+              prompt: task.params.prompt,
+              model: task.params.model,
+              modelRef: task.params.modelRef || null,
+              duration: (
+                task.params.duration ?? task.params.seconds
+              )?.toString(),
+              size: task.params.size,
+              referenceImages: finalRefs,
+              params: (task.params as any).params,
+            },
+            executionOptions
+          );
           break;
         }
         default:
@@ -181,7 +224,9 @@ class TaskQueueService {
               updatedAt: Date.now(),
               ...(updatedTask.result && { result: updatedTask.result }),
               ...(updatedTask.error && { error: updatedTask.error }),
-              ...(updatedTask.completedAt && { completedAt: updatedTask.completedAt }),
+              ...(updatedTask.completedAt && {
+                completedAt: updatedTask.completedAt,
+              }),
             };
             this.tasks.set(task.id, newTask);
             this.emitEvent('taskUpdated', newTask);
@@ -241,7 +286,7 @@ class TaskQueueService {
 
   /**
    * Creates a new task and adds it to the queue
-   * 
+   *
    * @param params - Generation parameters
    * @param type - Task type (image or video)
    * @returns The created task
@@ -292,7 +337,7 @@ class TaskQueueService {
 
   /**
    * Updates a task's status
-   * 
+   *
    * @param taskId - The task ID
    * @param status - New status
    * @param updates - Additional fields to update
@@ -306,7 +351,9 @@ class TaskQueueService {
     if (!task) {
       // Task not in memory — create a minimal entry so the event is still emitted.
       // This can happen after page refresh if restoreTasks hasn't run yet.
-      console.warn(`[TaskQueueService] Task ${taskId} not in memory, creating stub for status update`);
+      console.warn(
+        `[TaskQueueService] Task ${taskId} not in memory, creating stub for status update`
+      );
       const now = Date.now();
       task = {
         id: taskId,
@@ -330,7 +377,10 @@ class TaskQueueService {
     // Set timestamps based on status
     if (status === TaskStatus.PROCESSING && !updatedTask.startedAt) {
       updatedTask.startedAt = now;
-    } else if (status === TaskStatus.COMPLETED || status === TaskStatus.FAILED) {
+    } else if (
+      status === TaskStatus.COMPLETED ||
+      status === TaskStatus.FAILED
+    ) {
       updatedTask.completedAt = now;
     }
 
@@ -343,7 +393,9 @@ class TaskQueueService {
 
     // console.log(`[TaskQueueService] Updated task ${taskId} to ${status}`);
     if (status === TaskStatus.FAILED || status === TaskStatus.COMPLETED) {
-      console.debug(`[TaskQueueService] Task ${taskId} → ${status}, event emitted`);
+      console.debug(
+        `[TaskQueueService] Task ${taskId} → ${status}, event emitted`
+      );
     }
   }
 
@@ -386,7 +438,7 @@ class TaskQueueService {
 
   /**
    * Gets all tasks
-   * 
+   *
    * @returns Array of all tasks
    */
   getAllTasks(): Task[] {
@@ -395,17 +447,17 @@ class TaskQueueService {
 
   /**
    * Gets tasks by status
-   * 
+   *
    * @param status - The status to filter by
    * @returns Array of tasks with the specified status
    */
   getTasksByStatus(status: TaskStatus): Task[] {
-    return this.getAllTasks().filter(task => task.status === status);
+    return this.getAllTasks().filter((task) => task.status === status);
   }
 
   /**
    * Gets active tasks (pending, processing, retrying)
-   * 
+   *
    * @returns Array of active tasks
    */
   getActiveTasks(): Task[] {
@@ -414,7 +466,7 @@ class TaskQueueService {
 
   /**
    * Cancels a task
-   * 
+   *
    * @param taskId - The task ID to cancel
    */
   cancelTask(taskId: string): void {
@@ -425,7 +477,9 @@ class TaskQueueService {
     }
 
     if (!isTaskActive(task)) {
-      console.warn(`[TaskQueueService] Task ${taskId} is not active, cannot cancel`);
+      console.warn(
+        `[TaskQueueService] Task ${taskId} is not active, cannot cancel`
+      );
       return;
     }
 
@@ -445,8 +499,13 @@ class TaskQueueService {
       return;
     }
 
-    if (task.status !== TaskStatus.FAILED && task.status !== TaskStatus.CANCELLED) {
-      console.warn(`[TaskQueueService] Task ${taskId} is not failed or cancelled, cannot retry`);
+    if (
+      task.status !== TaskStatus.FAILED &&
+      task.status !== TaskStatus.CANCELLED
+    ) {
+      console.warn(
+        `[TaskQueueService] Task ${taskId} is not failed or cancelled, cannot retry`
+      );
       return;
     }
 
@@ -454,9 +513,9 @@ class TaskQueueService {
     const now = Date.now();
     this.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
       error: undefined,
-      startedAt: now,  // Set new start time
+      startedAt: now, // Set new start time
       completedAt: undefined, // Clear completion time
-      remoteId: undefined,   // Clear remote ID for fresh submission
+      remoteId: undefined, // Clear remote ID for fresh submission
       executionPhase: TaskExecutionPhase.SUBMITTING,
       progress: task.type === TaskType.VIDEO ? 0 : undefined, // Reset progress for video
     });
@@ -474,7 +533,7 @@ class TaskQueueService {
 
   /**
    * Deletes a task from the queue
-   * 
+   *
    * @param taskId - The task ID to delete
    */
   deleteTask(taskId: string): void {
@@ -499,7 +558,7 @@ class TaskQueueService {
    */
   clearCompletedTasks(): void {
     const completedTasks = this.getTasksByStatus(TaskStatus.COMPLETED);
-    completedTasks.forEach(task => this.deleteTask(task.id));
+    completedTasks.forEach((task) => this.deleteTask(task.id));
     // console.log(`[TaskQueueService] Cleared ${completedTasks.length} completed tasks`);
   }
 
@@ -508,7 +567,7 @@ class TaskQueueService {
    */
   clearFailedTasks(): void {
     const failedTasks = this.getTasksByStatus(TaskStatus.FAILED);
-    failedTasks.forEach(task => this.deleteTask(task.id));
+    failedTasks.forEach((task) => this.deleteTask(task.id));
     // console.log(`[TaskQueueService] Cleared ${failedTasks.length} failed tasks`);
   }
 
@@ -533,16 +592,24 @@ class TaskQueueService {
   syncTaskFromStorage(taskId: string, storageTask: Partial<Task>): void {
     const task = this.tasks.get(taskId);
     if (!task) return;
-    if (task.status === storageTask.status && task.progress === storageTask.progress) return;
+    if (
+      task.status === storageTask.status &&
+      task.progress === storageTask.progress
+    )
+      return;
 
-    const updatedTask: Task = { ...task, ...storageTask, updatedAt: Date.now() };
+    const updatedTask: Task = {
+      ...task,
+      ...storageTask,
+      updatedAt: Date.now(),
+    };
     this.tasks.set(taskId, updatedTask);
     this.emitEvent('taskUpdated', updatedTask);
   }
 
   /**
    * Restores tasks from storage
-   * 
+   *
    * Uses merge strategy: only restores tasks that don't already exist in memory,
    * or whose in-memory version is older than the stored version.
    * This prevents overwriting active tasks whose status has been updated
@@ -552,7 +619,7 @@ class TaskQueueService {
    */
   restoreTasks(tasks: Task[]): void {
     let restoredCount = 0;
-    tasks.forEach(task => {
+    tasks.forEach((task) => {
       const existing = this.tasks.get(task.id);
 
       // Skip if in-memory task is newer or at a more advanced status
@@ -564,16 +631,19 @@ class TaskQueueService {
       }
 
       // Ensure video tasks have progress field (for backward compatibility)
-      const restoredTask: Task = task.type === TaskType.VIDEO && task.progress === undefined
-        ? { ...task, progress: 0 }
-        : task;
+      const restoredTask: Task =
+        task.type === TaskType.VIDEO && task.progress === undefined
+          ? { ...task, progress: 0 }
+          : task;
 
       this.tasks.set(restoredTask.id, restoredTask);
       restoredCount++;
     });
 
     // Emit a single batch update event instead of per-task events
-    console.warn(`[TaskQueueService] restoreTasks: ${restoredCount}/${tasks.length} restored, total in memory: ${this.tasks.size}`);
+    console.warn(
+      `[TaskQueueService] restoreTasks: ${restoredCount}/${tasks.length} restored, total in memory: ${this.tasks.size}`
+    );
     if (restoredCount > 0) {
       // Use the first task to emit a generic update that triggers UI refresh
       const allTasks = Array.from(this.tasks.values());

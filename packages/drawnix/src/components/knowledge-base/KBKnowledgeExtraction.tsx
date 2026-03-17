@@ -6,10 +6,29 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Download, StopCircle, FileText, Copy, NotebookPen } from 'lucide-react';
-import { extractKnowledgeStream, chatWithKnowledgeStream } from '../../services/kb-knowledge-extraction/extraction-service';
-import { getChatSession, saveChatSession } from '../../services/kb-knowledge-extraction/chat-storage';
-import { exportKnowledge, downloadExport } from '../../services/kb-knowledge-extraction/export-service';
+import {
+  Sparkles,
+  Send,
+  Bot,
+  User,
+  Download,
+  StopCircle,
+  FileText,
+  Copy,
+  NotebookPen,
+} from 'lucide-react';
+import {
+  extractKnowledgeStream,
+  chatWithKnowledgeStream,
+} from '../../services/kb-knowledge-extraction/extraction-service';
+import {
+  getChatSession,
+  saveChatSession,
+} from '../../services/kb-knowledge-extraction/chat-storage';
+import {
+  exportKnowledge,
+  downloadExport,
+} from '../../services/kb-knowledge-extraction/export-service';
 import {
   type KnowledgeExtractionResult,
   type ChatMessage,
@@ -21,28 +40,42 @@ import './knowledge-base-extraction.scss';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { ModelSelector } from '../chat-drawer';
 import MarkdownEditor from '../MarkdownEditor';
+import { createModelRef, type ModelRef } from '../../utils/settings-manager';
 
 // 默认使用的模型，避免使用 gpt-5.1 导致 500 错误
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 
-function formatExtractionResultToMarkdown(result: KnowledgeExtractionResult): string {
+function formatExtractionResultToMarkdown(
+  result: KnowledgeExtractionResult
+): string {
   const lines: string[] = [];
   // Skip header and metadata as requested by user ("don't want checkbox" and "don't want # title ...")
-  
-  const typeOrder: KnowledgeType[] = ['concept', 'definition', 'step', 'summary'];
+
+  const typeOrder: KnowledgeType[] = [
+    'concept',
+    'definition',
+    'step',
+    'summary',
+  ];
   for (const type of typeOrder) {
     const grouped = result.knowledgePoints.filter((p) => p.type === type);
     if (grouped.length === 0) continue;
-    
+
     lines.push(`## ${KNOWLEDGE_TYPE_LABELS[type]}`);
     lines.push('');
     for (const p of grouped) {
       lines.push(`### ${p.title}`);
       lines.push('');
       lines.push(p.content);
-      if (p.sourceContext) { lines.push(''); lines.push(`> ${p.sourceContext}`); }
+      if (p.sourceContext) {
+        lines.push('');
+        lines.push(`> ${p.sourceContext}`);
+      }
       // Tags are optional but useful, keeping them simple
-      if (p.tags && p.tags.length > 0) { lines.push(''); lines.push(`**标签**: ${p.tags.map((t) => `\`${t}\``).join(' ')}`); }
+      if (p.tags && p.tags.length > 0) {
+        lines.push('');
+        lines.push(`**标签**: ${p.tags.map((t) => `\`${t}\``).join(' ')}`);
+      }
       lines.push('');
     }
   }
@@ -67,8 +100,12 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [selectedModelRef, setSelectedModelRef] = useState<ModelRef | null>(
+    () => createModelRef(null, DEFAULT_MODEL)
+  );
   const [isLoading, setIsLoading] = useState(false);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -78,7 +115,7 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
     const loadHistory = async () => {
       // 切换笔记时先清空消息，避免闪烁
       setMessages([]);
-      
+
       try {
         const session = await getChatSession(noteId);
         if (active) {
@@ -90,7 +127,8 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
               {
                 id: 'init',
                 role: 'model',
-                content: '我已经阅读了这篇笔记。你可以让我提取摘要、关键点，或者直接与我讨论笔记内容。',
+                content:
+                  '我已经阅读了这篇笔记。你可以让我提取摘要、关键点，或者直接与我讨论笔记内容。',
                 type: 'text',
                 timestamp: Date.now(),
               },
@@ -101,9 +139,11 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
         console.error('Failed to load chat history', e);
       }
     };
-    
+
     loadHistory();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [noteId]);
 
   // 保存聊天记录
@@ -124,7 +164,10 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+      textareaRef.current.style.height = `${Math.min(
+        textareaRef.current.scrollHeight,
+        120
+      )}px`;
     }
   }, [input]);
 
@@ -133,15 +176,18 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       abortController.abort();
       setAbortController(null);
       setIsLoading(false);
-      
+
       // 添加一个系统消息提示已停止
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'model',
-        content: '🚫 已停止生成',
-        type: 'text',
-        timestamp: Date.now()
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          content: '🚫 已停止生成',
+          type: 'text',
+          timestamp: Date.now(),
+        },
+      ]);
     }
   }, [abortController]);
 
@@ -178,19 +224,18 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       // 如果是第一条用户消息（history[1]），附带笔记上下文
       // 注意：history[0] 是 init message (model)
       // history[1] 是第一条 user message
-      if (history.length <= 2) { 
-         // 替换第一条用户消息的内容，加上上下文
-         // 使用更明确的 Prompt 结构
-         const contextPrompt = `Context:\n${noteContent}\n\nTask: ${userMsg.content}`;
-         // 找到最后一条消息（即当前用户的输入）并修改
-         const lastMsgIndex = history.length - 1;
-         history[lastMsgIndex].content = [{ type: 'text', text: contextPrompt }];
+      if (history.length <= 2) {
+        // 替换第一条用户消息的内容，加上上下文
+        // 使用更明确的 Prompt 结构
+        const contextPrompt = `Context:\n${noteContent}\n\nTask: ${userMsg.content}`;
+        // 找到最后一条消息（即当前用户的输入）并修改
+        const lastMsgIndex = history.length - 1;
+        history[lastMsgIndex].content = [{ type: 'text', text: contextPrompt }];
       } else {
         // 对于多轮对话，为了确保模型始终记得上下文，
         // 我们可以把上下文作为一个 System Message 或者放在最开始的 User Message
         // 这里我们采用将 Context 注入到本次请求的 System Instruction 或者首条消息中
         // 简单起见，我们插入一条 System 消息到开头（如果 API 支持）或者 User 消息
-        
         // 策略：在 history 头部插入一条包含 Context 的 User 消息
         // 但为了避免重复，我们只在第一轮做。
         // 如果是多轮，模型应该有记忆。如果模型遗忘，可以在 prompt 里再次强调。
@@ -211,7 +256,7 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       ]);
 
       await chatWithKnowledgeStream(history, {
-        model: selectedModel,
+        model: selectedModelRef || selectedModel,
         onProgress: (text) => {
           setMessages((prev) =>
             prev.map((msg) =>
@@ -221,7 +266,6 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
         },
         signal: controller.signal,
       });
-
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         setMessages((prev) => [
@@ -239,12 +283,19 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       setIsLoading(false);
       setAbortController(null);
     }
-  }, [input, isLoading, messages, noteContent]);
+  }, [
+    input,
+    isLoading,
+    messages,
+    noteContent,
+    selectedModel,
+    selectedModelRef,
+  ]);
 
   const handleQuickExtract = useCallback(async () => {
     if (isLoading) return;
     setIsLoading(true);
-    
+
     // 添加用户指令消息
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -274,30 +325,29 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
     try {
       const result = await extractKnowledgeStream(noteContent, {
         title: noteTitle,
-        model: selectedModel,
+        model: selectedModelRef || selectedModel,
         signal: controller.signal,
       });
 
       // 替换占位消息为结果消息
-      setMessages((prev) => 
-        prev.map(msg => 
-          msg.id === aiMsgId 
-            ? { 
-                ...msg, 
-                content: '知识点提取完成：', 
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? {
+                ...msg,
+                content: '知识点提取完成：',
                 type: 'extraction-result',
-                data: result 
-              } 
+                data: result,
+              }
             : msg
         )
       );
-
     } catch (e: any) {
       if (e.name !== 'AbortError') {
-        setMessages((prev) => 
-          prev.map(msg => 
-            msg.id === aiMsgId 
-              ? { ...msg, content: `提取失败: ${e.message}` } 
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === aiMsgId
+              ? { ...msg, content: `提取失败: ${e.message}` }
               : msg
           )
         );
@@ -306,7 +356,7 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       setIsLoading(false);
       setAbortController(null);
     }
-  }, [isLoading, noteContent, noteTitle]);
+  }, [isLoading, noteContent, noteTitle, selectedModel, selectedModelRef]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -320,11 +370,14 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
       MessagePlugin.warning('没有可复制的内容');
       return;
     }
-    navigator.clipboard.writeText(text).then(() => {
-      MessagePlugin.success('复制成功');
-    }).catch(() => {
-      MessagePlugin.error('复制失败');
-    });
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        MessagePlugin.success('复制成功');
+      })
+      .catch(() => {
+        MessagePlugin.error('复制失败');
+      });
   }, []);
 
   const getMessageText = useCallback((msg: ChatMessage) => {
@@ -343,9 +396,13 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
         const exportResult = exportKnowledge(msg.data, {
           format: 'markdown',
           includeSource: true,
-          includeTags: true
+          includeTags: true,
         });
-        downloadExport(exportResult.content, exportResult.filename, exportResult.mimeType);
+        downloadExport(
+          exportResult.content,
+          exportResult.filename,
+          exportResult.mimeType
+        );
       } catch (e) {
         console.error('Failed to export', e);
         MessagePlugin.error('导出失败');
@@ -364,10 +421,7 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
 
       <div className="kb-extraction-chat__messages" ref={scrollRef}>
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`kb-message kb-message--${msg.role}`}
-          >
+          <div key={msg.id} className={`kb-message kb-message--${msg.role}`}>
             <div className="kb-message__avatar">
               {msg.role === 'user' ? <User /> : <Bot />}
             </div>
@@ -431,14 +485,18 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
           <div className="kb-extraction-chat__model-selector">
             <ModelSelector
               value={selectedModel}
-              onChange={setSelectedModel}
+              valueRef={selectedModelRef}
+              onChange={(modelId, modelRef) => {
+                setSelectedModel(modelId);
+                setSelectedModelRef(modelRef || createModelRef(null, modelId));
+              }}
               variant="capsule"
             />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button 
-              className="kb-extraction-chat__icon-btn" 
+            <button
+              className="kb-extraction-chat__icon-btn"
               onClick={handleQuickExtract}
               title="一键提取知识点"
               disabled={isLoading}
@@ -447,10 +505,14 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
             </button>
 
             <button
-              className={`kb-extraction-chat__send-btn ${input.trim() || isLoading ? 'kb-extraction-chat__send-btn--active' : ''}`}
+              className={`kb-extraction-chat__send-btn ${
+                input.trim() || isLoading
+                  ? 'kb-extraction-chat__send-btn--active'
+                  : ''
+              }`}
               onClick={isLoading ? stopGeneration : handleSendMessage}
               disabled={!input.trim() && !isLoading}
-              title={isLoading ? "停止生成" : "发送"}
+              title={isLoading ? '停止生成' : '发送'}
             >
               {isLoading ? <StopCircle size={18} /> : <Send size={18} />}
             </button>
@@ -464,8 +526,11 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
 const ExtractionResultView: React.FC<{
   result: KnowledgeExtractionResult;
 }> = ({ result }) => {
-  const markdown = React.useMemo(() => formatExtractionResultToMarkdown(result), [result]);
-  
+  const markdown = React.useMemo(
+    () => formatExtractionResultToMarkdown(result),
+    [result]
+  );
+
   return (
     <div className="kb-extraction-result-view">
       <MarkdownEditor

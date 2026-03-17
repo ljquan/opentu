@@ -6,7 +6,13 @@
  * 2. form: 表单下拉框风格，支持输入搜索过滤
  */
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import {
@@ -28,8 +34,12 @@ import { KeyboardDropdown } from './KeyboardDropdown';
 export interface ModelDropdownProps {
   /** 当前选中的模型 ID */
   selectedModel: string;
+  /** 当前选中的唯一选择键（支持区分同模型不同供应商来源） */
+  selectedSelectionKey?: string | null;
   /** 选择模型回调 */
   onSelect: (modelId: string) => void;
+  /** 选择完整模型配置回调 */
+  onSelectModel?: (model: ModelConfig) => void;
   /** 语言 */
   language?: 'zh' | 'en';
   /** 模型列表（可选，默认为图片模型） */
@@ -55,7 +65,9 @@ export interface ModelDropdownProps {
  */
 export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   selectedModel,
+  selectedSelectionKey,
   onSelect,
+  onSelectModel,
   language = 'zh',
   models = IMAGE_MODELS,
   placement = 'up',
@@ -78,8 +90,16 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const triggerInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const modelOrderMap = useMemo(
-    () => new Map(models.map((model, index) => [model.id, index])),
+    () =>
+      new Map(
+        models.map((model, index) => [model.selectionKey || model.id, index])
+      ),
     [models]
+  );
+
+  const getModelKey = useCallback(
+    (model: ModelConfig) => model.selectionKey || model.id,
+    []
   );
 
   // 确保高亮项可见
@@ -102,16 +122,23 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         } else if (itemTop - containerPaddingTop < containerScrollTop) {
           // 在上方不可见
           listContainer.scrollTop = itemTop - containerPaddingTop;
-        } else if (itemTop + itemHeight > containerScrollTop + containerHeight) {
+        } else if (
+          itemTop + itemHeight >
+          containerScrollTop + containerHeight
+        ) {
           // 在下方不可见
-          listContainer.scrollTop = itemTop + itemHeight - containerHeight + containerPaddingTop;
+          listContainer.scrollTop =
+            itemTop + itemHeight - containerHeight + containerPaddingTop;
         }
       }
     }
   }, [highlightedIndex, isOpen]);
 
   // 获取当前模型配置
-  const currentModel = getModelConfig(selectedModel);
+  const currentModel =
+    models.find(
+      (model) => getModelKey(model) === (selectedSelectionKey || selectedModel)
+    ) || getModelConfig(selectedModel);
   // 使用 shortCode 或默认简写
   const shortCode = currentModel?.shortCode || 'img';
 
@@ -130,16 +157,17 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
     // 搜索时跨厂商过滤
     if (isSearching) {
-      baseModels = models.filter(m =>
-        m.id.toLowerCase().includes(query) ||
-        m.label.toLowerCase().includes(query) ||
-        m.shortLabel?.toLowerCase().includes(query) ||
-        m.shortCode?.toLowerCase().includes(query) ||
-        m.description?.toLowerCase().includes(query)
+      baseModels = models.filter(
+        (m) =>
+          m.id.toLowerCase().includes(query) ||
+          m.label.toLowerCase().includes(query) ||
+          m.shortLabel?.toLowerCase().includes(query) ||
+          m.shortCode?.toLowerCase().includes(query) ||
+          m.description?.toLowerCase().includes(query)
       );
     } else if (activeVendor) {
       // 无搜索时按 activeVendor 过滤
-      baseModels = models.filter(m => m.vendor === activeVendor);
+      baseModels = models.filter((m) => m.vendor === activeVendor);
     } else {
       baseModels = models;
     }
@@ -153,23 +181,32 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     return [...baseModels].sort((a, b) => {
       const priorityDiff = getPriority(a) - getPriority(b);
       if (priorityDiff !== 0) return priorityDiff;
-      const sourceDiff = Number(!a.tags?.includes('runtime')) - Number(!b.tags?.includes('runtime'));
+      const sourceDiff =
+        Number(!a.tags?.includes('runtime')) -
+        Number(!b.tags?.includes('runtime'));
       if (sourceDiff !== 0) return sourceDiff;
-      return (modelOrderMap.get(a.id) ?? 0) - (modelOrderMap.get(b.id) ?? 0);
+      return (
+        (modelOrderMap.get(getModelKey(a)) ?? 0) -
+        (modelOrderMap.get(getModelKey(b)) ?? 0)
+      );
     });
-  }, [models, searchQuery, activeVendor, modelOrderMap]);
+  }, [models, searchQuery, activeVendor, modelOrderMap, getModelKey]);
 
   const groupedModels = useMemo(() => {
     const sections = [
       {
         key: 'added',
         label: language === 'zh' ? '已添加模型' : 'Added Models',
-        models: filteredModels.filter((model) => model.tags?.includes('runtime')),
+        models: filteredModels.filter((model) =>
+          model.tags?.includes('runtime')
+        ),
       },
       {
         key: 'system',
         label: language === 'zh' ? '系统模型' : 'System Models',
-        models: filteredModels.filter((model) => !model.tags?.includes('runtime')),
+        models: filteredModels.filter(
+          (model) => !model.tags?.includes('runtime')
+        ),
       },
     ];
 
@@ -180,7 +217,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const vendorTabs = useMemo((): VendorTab[] => {
     const vendorMap = getModelsByVendor(models);
     const order = getVendorOrder(models);
-    return order.map(vendor => ({
+    return order.map((vendor) => ({
       vendor,
       count: vendorMap.get(vendor)?.length ?? 0,
     }));
@@ -199,80 +236,100 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   }, [filteredModels]);
 
   // 切换下拉菜单
-  const handleToggle = useCallback((e?: React.MouseEvent) => {
-    e?.preventDefault(); // 阻止触发输入框失焦
-    if (disabled) return;
-    const next = !isOpen;
-    if (next) {
-      // 打开时初始化 activeVendor 为当前选中模型的厂商
-      setActiveVendor(currentModel?.vendor ?? null);
-    }
-    if (variant === 'form') {
+  const handleToggle = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.preventDefault(); // 阻止触发输入框失焦
+      if (disabled) return;
+      const next = !isOpen;
       if (next) {
-        // 打开时清空搜索，展示全部模型
-        setSearchQuery('');
-      } else {
-        // 关闭时恢复当前模型标签
-        setSearchQuery(currentModel?.label || selectedModel);
+        // 打开时初始化 activeVendor 为当前选中模型的厂商
+        setActiveVendor(currentModel?.vendor ?? null);
       }
-    }
-    setIsOpen(next);
-  }, [disabled, isOpen, setIsOpen, variant, currentModel, selectedModel]);
+      if (variant === 'form') {
+        if (next) {
+          // 打开时清空搜索，展示全部模型
+          setSearchQuery('');
+        } else {
+          // 关闭时恢复当前模型标签
+          setSearchQuery(currentModel?.label || selectedModel);
+        }
+      }
+      setIsOpen(next);
+    },
+    [disabled, isOpen, setIsOpen, variant, currentModel, selectedModel]
+  );
 
   // 选择模型
-  const handleSelect = useCallback((modelId: string) => {
-    const model = getModelConfig(modelId);
-    onSelect(modelId);
-    setIsOpen(false);
-    if (variant === 'form') {
-      setSearchQuery(model?.label || modelId);
-    } else {
-      setSearchQuery('');
-    }
-  }, [onSelect, variant]);
-
-  const handleOpenKey = useCallback((key: string) => {
-    if (key === 'Escape') {
+  const handleSelect = useCallback(
+    (model: ModelConfig) => {
+      onSelect(model.id);
+      onSelectModel?.(model);
       setIsOpen(false);
       if (variant === 'form') {
-        setSearchQuery(currentModel?.label || selectedModel);
+        setSearchQuery(model.label || model.id);
+      } else {
+        setSearchQuery('');
       }
-      return true;
-    }
+    },
+    [onSelect, onSelectModel, setIsOpen, variant]
+  );
 
-    if (key === 'ArrowDown') {
-      if (filteredModels.length > 0) {
-        setHighlightedIndex(prev =>
-          prev < filteredModels.length - 1 ? prev + 1 : 0
-        );
-      }
-      return true;
-    }
-
-    if (key === 'ArrowUp') {
-      if (filteredModels.length > 0) {
-        setHighlightedIndex(prev =>
-          prev > 0 ? prev - 1 : filteredModels.length - 1
-        );
-      }
-      return true;
-    }
-
-    if (key === 'Enter' || key === 'Tab') {
-      const targetModel = filteredModels[highlightedIndex];
-      if (targetModel) {
-        handleSelect(targetModel.id);
+  const handleOpenKey = useCallback(
+    (key: string) => {
+      if (key === 'Escape') {
+        setIsOpen(false);
+        if (variant === 'form') {
+          setSearchQuery(currentModel?.label || selectedModel);
+        }
         return true;
       }
-      if (variant === 'form' && searchQuery.trim()) {
-        // 如果是表单变体且有输入，但没有匹配的模型，则使用输入的内容
-        handleSelect(searchQuery.trim());
+
+      if (key === 'ArrowDown') {
+        if (filteredModels.length > 0) {
+          setHighlightedIndex((prev) =>
+            prev < filteredModels.length - 1 ? prev + 1 : 0
+          );
+        }
         return true;
       }
-    }
 
-    return false;
-  }, [filteredModels, highlightedIndex, handleSelect, variant, currentModel, selectedModel, searchQuery]);
+      if (key === 'ArrowUp') {
+        if (filteredModels.length > 0) {
+          setHighlightedIndex((prev) =>
+            prev > 0 ? prev - 1 : filteredModels.length - 1
+          );
+        }
+        return true;
+      }
+
+      if (key === 'Enter' || key === 'Tab') {
+        const targetModel = filteredModels[highlightedIndex];
+        if (targetModel) {
+          handleSelect(targetModel);
+          return true;
+        }
+        if (variant === 'form' && searchQuery.trim()) {
+          // 如果是表单变体且有输入，但没有匹配的模型，则使用输入的内容
+          onSelect(searchQuery.trim());
+          setIsOpen(false);
+          return true;
+        }
+      }
+
+      return false;
+    },
+    [
+      filteredModels,
+      highlightedIndex,
+      handleSelect,
+      variant,
+      currentModel,
+      onSelect,
+      searchQuery,
+      selectedModel,
+      setIsOpen,
+    ]
+  );
 
   // 自动聚焦
   useEffect(() => {
@@ -282,30 +339,43 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     }
   }, [isOpen, variant]);
 
-  const renderTrigger = (handleTriggerKeyDown: (event: React.KeyboardEvent) => void) => {
+  const renderTrigger = (
+    handleTriggerKeyDown: (event: React.KeyboardEvent) => void
+  ) => {
     if (variant === 'minimal') {
       return (
         <button
-          className={`model-dropdown__trigger model-dropdown__trigger--minimal ${isOpen ? 'model-dropdown__trigger--open' : ''}`}
+          className={`model-dropdown__trigger model-dropdown__trigger--minimal ${
+            isOpen ? 'model-dropdown__trigger--open' : ''
+          }`}
           onMouseDown={handleToggle}
           onKeyDown={handleTriggerKeyDown}
           type="button"
           aria-haspopup="listbox"
           aria-expanded={isOpen}
-          title={`${currentModel?.shortLabel || currentModel?.label || selectedModel} (↑↓ Tab)`}
+          title={`${
+            currentModel?.shortLabel || currentModel?.label || selectedModel
+          } (↑↓ Tab)`}
           disabled={disabled}
         >
           <span className="model-dropdown__at">#</span>
           <span className="model-dropdown__code">{shortCode}</span>
           <ModelHealthBadge modelId={selectedModel} />
-          <ChevronDown size={14} className={`model-dropdown__chevron ${isOpen ? 'model-dropdown__chevron--open' : ''}`} />
+          <ChevronDown
+            size={14}
+            className={`model-dropdown__chevron ${
+              isOpen ? 'model-dropdown__chevron--open' : ''
+            }`}
+          />
         </button>
       );
     }
 
     return (
       <div
-        className={`model-dropdown__trigger model-dropdown__trigger--form ${isOpen ? 'model-dropdown__trigger--open' : ''}`}
+        className={`model-dropdown__trigger model-dropdown__trigger--form ${
+          isOpen ? 'model-dropdown__trigger--open' : ''
+        }`}
         onMouseDown={(e) => {
           e.preventDefault();
           if (!isOpen) {
@@ -326,13 +396,18 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
               setSearchQuery(e.target.value);
               if (!isOpen) setIsOpen(true);
             }}
-            placeholder={placeholder || (language === 'zh' ? '选择或输入模型' : 'Select or enter model')}
+            placeholder={
+              placeholder ||
+              (language === 'zh' ? '选择或输入模型' : 'Select or enter model')
+            }
             disabled={disabled}
           />
         </div>
         <ChevronDown
           size={16}
-          className={`model-dropdown__chevron ${isOpen ? 'model-dropdown__chevron--open' : ''}`}
+          className={`model-dropdown__chevron ${
+            isOpen ? 'model-dropdown__chevron--open' : ''
+          }`}
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -351,30 +426,49 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       disabled={disabled}
       openKeys={['Enter', ' ']}
       onOpenKey={handleOpenKey}
-      trackPosition={variant === 'form' || placement === 'down' || placement === 'up'}
+      trackPosition={
+        variant === 'form' || placement === 'down' || placement === 'up'
+      }
     >
       {({ containerRef, menuRef, portalPosition, handleTriggerKeyDown }) => {
-        const isPortalled = variant === 'form' || placement === 'down' || placement === 'up';
+        const isPortalled =
+          variant === 'form' || placement === 'down' || placement === 'up';
 
         const menu = (
           <div
-            className={`model-dropdown__menu model-dropdown__menu--${placement} ${variant === 'form' ? 'model-dropdown__menu--form' : ''} ${isPortalled ? 'model-dropdown__menu--portalled' : ''} ${ATTACHED_ELEMENT_CLASS_NAME}`}
+            className={`model-dropdown__menu model-dropdown__menu--${placement} ${
+              variant === 'form' ? 'model-dropdown__menu--form' : ''
+            } ${
+              isPortalled ? 'model-dropdown__menu--portalled' : ''
+            } ${ATTACHED_ELEMENT_CLASS_NAME}`}
             ref={menuRef}
             role="listbox"
             aria-label={language === 'zh' ? '选择模型' : 'Select Model'}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            style={isPortalled ? {
-              position: 'fixed',
-              zIndex: Z_INDEX.DROPDOWN_PORTAL,
-              left: portalPosition.left,
-              width: variant === 'form' ? Math.max(portalPosition.width, 420) : 'auto',
-              top: placement === 'down' ? portalPosition.bottom + 4 : 'auto',
-              bottom: placement === 'up' ? window.innerHeight - portalPosition.top + 4 : 'auto',
-              visibility: portalPosition.width === 0 ? 'hidden' : 'visible',
-            } : {
-              zIndex: 1000,
-            }}
+            style={
+              isPortalled
+                ? {
+                    position: 'fixed',
+                    zIndex: Z_INDEX.DROPDOWN_PORTAL,
+                    left: portalPosition.left,
+                    width:
+                      variant === 'form'
+                        ? Math.max(portalPosition.width, 420)
+                        : 'auto',
+                    top:
+                      placement === 'down' ? portalPosition.bottom + 4 : 'auto',
+                    bottom:
+                      placement === 'up'
+                        ? window.innerHeight - portalPosition.top + 4
+                        : 'auto',
+                    visibility:
+                      portalPosition.width === 0 ? 'hidden' : 'visible',
+                  }
+                : {
+                    zIndex: 1000,
+                  }
+            }
           >
             {header && variant === 'minimal' && !searchQuery && (
               <div className="model-dropdown__header">{header}</div>
@@ -391,37 +485,56 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 {filteredModels.length > 0 ? (
                   groupedModels.map((section) => (
                     <div key={section.key} className="model-dropdown__section">
-                      <div className="model-dropdown__section-title">{section.label}</div>
+                      <div className="model-dropdown__section-title">
+                        {section.label}
+                      </div>
                       {section.models.map((model) => {
-                        const index = filteredModels.findIndex((item) => item.id === model.id);
-                        const isSelected = model.id === selectedModel;
+                        const modelKey = getModelKey(model);
+                        const index = filteredModels.findIndex(
+                          (item) => getModelKey(item) === modelKey
+                        );
+                        const isSelected =
+                          modelKey === (selectedSelectionKey || selectedModel);
                         const isHighlighted = index === highlightedIndex;
                         return (
                           <div
-                            key={model.id}
+                            key={modelKey}
                             data-model-index={index}
-                            className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''} ${isHighlighted ? 'model-dropdown__item--highlighted' : ''}`}
-                            onClick={() => handleSelect(model.id)}
+                            className={`model-dropdown__item ${
+                              isSelected ? 'model-dropdown__item--selected' : ''
+                            } ${
+                              isHighlighted
+                                ? 'model-dropdown__item--highlighted'
+                                : ''
+                            }`}
+                            onClick={() => handleSelect(model)}
                             onMouseEnter={() => setHighlightedIndex(index)}
                             role="option"
                             aria-selected={isSelected}
                           >
                             <div className="model-dropdown__item-content">
                               <div className="model-dropdown__item-name">
-                                <span className="model-dropdown__item-code">#{model.shortCode}</span>
+                                <span className="model-dropdown__item-code">
+                                  #{model.shortCode}
+                                </span>
                                 <span className="model-dropdown__item-label">
                                   {model.shortLabel || model.label}
                                 </span>
                                 {model.tags?.includes('runtime') && (
                                   <span className="model-dropdown__item-added">
-                                    {language === 'zh' ? '已添加' : 'Added'}
+                                    {model.sourceProfileName ||
+                                      (language === 'zh' ? '已添加' : 'Added')}
                                   </span>
                                 )}
                                 {model.isVip && (
-                                  <span className="model-dropdown__item-vip">VIP</span>
+                                  <span className="model-dropdown__item-vip">
+                                    VIP
+                                  </span>
                                 )}
                                 {model.tags?.includes('new') && (
-                                  <span className="model-dropdown__item-new">NEW</span>
+                                  <span className="model-dropdown__item-new">
+                                    NEW
+                                  </span>
                                 )}
                                 <ModelHealthBadge modelId={model.id} />
                               </div>
@@ -432,26 +545,33 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                               )}
                             </div>
                             {isSelected && (
-                              <Check size={16} className="model-dropdown__item-check" />
+                              <Check
+                                size={16}
+                                className="model-dropdown__item-check"
+                              />
                             )}
                           </div>
                         );
                       })}
                     </div>
                   ))
-              ) : (
-                <div className="model-dropdown__empty">
-                  {language === 'zh' ? '未找到匹配的模型' : 'No matching models'}
-                </div>
-              )}
-            </div>
+                ) : (
+                  <div className="model-dropdown__empty">
+                    {language === 'zh'
+                      ? '未找到匹配的模型'
+                      : 'No matching models'}
+                  </div>
+                )}
+              </div>
             </VendorTabPanel>
           </div>
         );
 
         return (
           <div
-            className={`model-dropdown model-dropdown--variant-${variant} ${disabled ? 'model-dropdown--disabled' : ''}`}
+            className={`model-dropdown model-dropdown--variant-${variant} ${
+              disabled ? 'model-dropdown--disabled' : ''
+            }`}
             ref={containerRef}
             data-testid="model-selector"
           >

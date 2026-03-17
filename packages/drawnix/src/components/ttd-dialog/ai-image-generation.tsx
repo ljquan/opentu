@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import './ttd-dialog.scss';
 import './ai-image-generation.scss';
 import { useI18n } from '../../i18n';
@@ -33,11 +39,27 @@ import {
 } from '../../constants/image-aspect-ratios';
 import { DialogTaskList } from '../task-queue/DialogTaskList';
 import { LS_KEYS } from '../../constants/storage-keys';
-import { geminiSettings } from '../../utils/settings-manager';
+import {
+  geminiSettings,
+  hasInvocationRouteCredentials,
+  resolveInvocationRoute,
+  createModelRef,
+  type ModelRef,
+} from '../../utils/settings-manager';
 import { promptForApiKey } from '../../utils/gemini-api';
 import { buildMJPromptSuffix } from '../../utils/mj-params';
-import { getCompatibleParams, getSizeOptionsForModel } from '../../constants/model-config';
-import { usePreferredModels } from '../../hooks/use-runtime-models';
+import {
+  getCompatibleParams,
+  getSizeOptionsForModel,
+  type ModelConfig,
+} from '../../constants/model-config';
+import { useSelectableModels } from '../../hooks/use-runtime-models';
+import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
+import {
+  findMatchingSelectableModel,
+  getModelRefFromConfig,
+  getSelectionKey,
+} from '../../utils/model-selection';
 
 interface AIImageGenerationProps {
   initialPrompt?: string;
@@ -50,7 +72,9 @@ interface AIImageGenerationProps {
   targetFrameId?: string;
   targetFrameDimensions?: { width: number; height: number };
   selectedModel?: string;
+  selectedModelRef?: ModelRef | null;
   onModelChange?: (value: string) => void;
+  onModelRefChange?: (value: ModelRef | null) => void;
 }
 
 const AIImageGeneration = ({
@@ -64,23 +88,58 @@ const AIImageGeneration = ({
   targetFrameId,
   targetFrameDimensions,
   selectedModel,
+  selectedModelRef,
   onModelChange,
+  onModelRefChange,
 }: AIImageGenerationProps = {}) => {
-  const imageModels = usePreferredModels('image');
+  const imageModels = useSelectableModels('image');
   const [prompt, setPrompt] = useState(initialPrompt);
   const [mjSelectedParams, setMjSelectedParams] = useState<
     Record<string, string>
   >({});
-  const [currentModel, setCurrentModel] = useState(() => {
-    const settings = geminiSettings.get();
-    if (settings.imageModelName && imageModels.some((model) => model.id === settings.imageModelName)) {
-      return settings.imageModelName;
+  const initialRoute = resolveInvocationRoute('image');
+  const initialMatchedModel =
+    findMatchingSelectableModel(
+      imageModels,
+      initialRoute.modelId,
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
+    ) ||
+    getPinnedSelectableModel(
+      'image',
+      initialRoute.modelId,
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
+    );
+  const [currentModel, setCurrentModel] = useState(
+    initialMatchedModel?.id ||
+      imageModels[0]?.id ||
+      'gemini-2.5-flash-image-vip'
+  );
+  const [currentModelRef, setCurrentModelRef] = useState<ModelRef | null>(
+    getModelRefFromConfig(initialMatchedModel) ||
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
+  );
+  const visibleImageModels = useMemo(() => {
+    const currentMatch = findMatchingSelectableModel(
+      imageModels,
+      currentModel,
+      currentModelRef
+    );
+    if (currentMatch || !currentModel) {
+      return imageModels;
     }
-    return imageModels[0]?.id || 'gemini-2.5-flash-image-vip';
-  });
+
+    const pinnedModel = getPinnedSelectableModel(
+      'image',
+      currentModel,
+      currentModelRef
+    );
+    return pinnedModel ? [pinnedModel, ...imageModels] : imageModels;
+  }, [currentModel, currentModelRef, imageModels]);
   const [width, setWidth] = useState<number | string>(initialWidth || 1024);
   const [height, setHeight] = useState<number | string>(initialHeight || 1024);
-  const [aspectRatio, setAspectRatio] = useState<string>(initialAspectRatio || DEFAULT_ASPECT_RATIO);
+  const [aspectRatio, setAspectRatio] = useState<string>(
+    initialAspectRatio || DEFAULT_ASPECT_RATIO
+  );
   const [error, setError] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] =
     useState<ReferenceImage[]>(initialImages);
@@ -105,13 +164,16 @@ const AIImageGeneration = ({
     const sizeOptions = getSizeOptionsForModel(currentModel);
     if (sizeOptions.length === 0) return ASPECT_RATIO_OPTIONS;
 
-    const byValue = new Map(ASPECT_RATIO_OPTIONS.map((option) => [option.value, option]));
+    const byValue = new Map(
+      ASPECT_RATIO_OPTIONS.map((option) => [option.value, option])
+    );
     const mapped: AspectRatioOption[] = [];
 
     sizeOptions.forEach((sizeOption) => {
-      const normalized = sizeOption.value === 'auto'
-        ? 'auto'
-        : sizeOption.value.replace('x', ':');
+      const normalized =
+        sizeOption.value === 'auto'
+          ? 'auto'
+          : sizeOption.value.replace('x', ':');
       const option = byValue.get(normalized);
       if (option && !mapped.some((item) => item.value === option.value)) {
         mapped.push(option);
@@ -125,7 +187,7 @@ const AIImageGeneration = ({
     const params = getCompatibleParams(currentModel);
     // MJ 模型所有参数都走 dropdown；非 MJ 模型排除 size（已有 AspectRatioSelector）
     if (isMJModel) return params.length > 0;
-    return params.some(p => p.id !== 'size');
+    return params.some((p) => p.id !== 'size');
   }, [currentModel, isMJModel]);
 
   // 模型切换时清空已选参数，避免跨模型残留不兼容配置
@@ -211,28 +273,63 @@ const AIImageGeneration = ({
   useEffect(() => {
     const handleSettingsChange = (newSettings: any) => {
       const nextModel =
-        newSettings.imageModelName || imageModels[0]?.id || 'gemini-2.5-flash-image-vip';
+        newSettings.imageModelName ||
+        visibleImageModels[0]?.id ||
+        'gemini-2.5-flash-image-vip';
       if (nextModel !== currentModel) {
         setCurrentModel(nextModel);
+        const matchedModel = findMatchingSelectableModel(
+          visibleImageModels,
+          nextModel,
+          currentModelRef
+        );
+        setCurrentModelRef(getModelRefFromConfig(matchedModel) || null);
       }
     };
     geminiSettings.addListener(handleSettingsChange);
     return () => geminiSettings.removeListener(handleSettingsChange);
-  }, [currentModel, imageModels]);
+  }, [currentModel, currentModelRef, visibleImageModels]);
 
   useEffect(() => {
-    if (imageModels.length === 0) return;
-    if (!imageModels.some((model) => model.id === currentModel)) {
-      setCurrentModel(imageModels[0].id);
+    if (visibleImageModels.length === 0) return;
+    const matchedModel = findMatchingSelectableModel(
+      visibleImageModels,
+      currentModel,
+      currentModelRef
+    );
+    if (!matchedModel) {
+      setCurrentModel(visibleImageModels[0].id);
+      setCurrentModelRef(getModelRefFromConfig(visibleImageModels[0]));
     }
-  }, [currentModel, imageModels]);
+  }, [currentModel, currentModelRef, visibleImageModels]);
 
   // Keep local模型状态与头部下拉（受控 selectedModel）同步，避免展示过期的参数列表
   useEffect(() => {
-    if (selectedModel && selectedModel !== currentModel) {
-      setCurrentModel(selectedModel);
+    if (!selectedModel) {
+      return;
     }
-  }, [selectedModel, currentModel]);
+
+    const currentSelectionKey = getSelectionKey(currentModel, currentModelRef);
+    const nextSelectionKey = getSelectionKey(selectedModel, selectedModelRef);
+
+    if (currentSelectionKey !== nextSelectionKey) {
+      setCurrentModel(selectedModel);
+      const matchedModel = findMatchingSelectableModel(
+        visibleImageModels,
+        selectedModel,
+        selectedModelRef
+      );
+      setCurrentModelRef(
+        getModelRefFromConfig(matchedModel) || selectedModelRef || null
+      );
+    }
+  }, [
+    currentModel,
+    currentModelRef,
+    selectedModel,
+    selectedModelRef,
+    visibleImageModels,
+  ]);
 
   useEffect(() => {
     if (!hasCompatibleParams && Object.keys(mjSelectedParams).length > 0) {
@@ -242,7 +339,9 @@ const AIImageGeneration = ({
 
   useEffect(() => {
     if (isMJModel || modelAspectRatioOptions.length === 0) return;
-    const supportedValues = new Set(modelAspectRatioOptions.map((option) => option.value));
+    const supportedValues = new Set(
+      modelAspectRatioOptions.map((option) => option.value)
+    );
     if (!supportedValues.has(aspectRatio)) {
       const nextValue = supportedValues.has('auto')
         ? 'auto'
@@ -313,6 +412,8 @@ const AIImageGeneration = ({
 
     // 更新模型选择（通过全局设置）
     if (task.params.model) {
+      setCurrentModel(task.params.model);
+      setCurrentModelRef((task.params.modelRef as ModelRef | null) || null);
       // console.log('Updating image model to:', task.params.model);
       const settings = geminiSettings.get();
       // console.log('Current settings:', settings);
@@ -359,7 +460,7 @@ const AIImageGeneration = ({
     );
   };
 
-  const handleGenerate = async (count: number = 1) => {
+  const handleGenerate = async (count = 1) => {
     if (!prompt || !prompt.trim()) {
       setError(
         language === 'zh' ? '请输入图像描述' : 'Please enter image description'
@@ -368,8 +469,9 @@ const AIImageGeneration = ({
     }
 
     // 先检查 API Key，没有则弹窗获取（只弹一次，避免批量生成时多次弹窗）
-    const settings = geminiSettings.get();
-    if (!settings.apiKey) {
+    if (
+      !hasInvocationRouteCredentials('image', currentModelRef || currentModel)
+    ) {
       const newApiKey = await promptForApiKey();
       if (!newApiKey) {
         setError(
@@ -398,10 +500,8 @@ const AIImageGeneration = ({
         const batchTaskIds: string[] = [];
         const batchId = `batch_${Date.now()}`;
 
-        // Get current image model from settings
-        const settings = geminiSettings.get();
         const currentImageModel =
-          settings.imageModelName || 'gemini-3-pro-image-preview-vip';
+          currentModel || resolveInvocationRoute('image').modelId;
 
         const finalPrompt = currentImageModel.startsWith('mj')
           ? [prompt.trim(), buildMJPromptSuffix(mjSelectedParams)]
@@ -410,9 +510,11 @@ const AIImageGeneration = ({
           : (prompt || '').trim();
 
         // 非 MJ 模型的额外参数（如 seedream_quality）透传给 adapter
-        const extraParams = !currentImageModel.startsWith('mj') && Object.keys(mjSelectedParams).length > 0
-          ? mjSelectedParams
-          : undefined;
+        const extraParams =
+          !currentImageModel.startsWith('mj') &&
+          Object.keys(mjSelectedParams).length > 0
+            ? mjSelectedParams
+            : undefined;
 
         // 如果参数中有 size，优先使用参数中的 size
         const finalSize = extraParams?.size
@@ -427,11 +529,14 @@ const AIImageGeneration = ({
             aspectRatio,
             size: finalSize,
             model: currentImageModel,
+            modelRef: currentModelRef || null,
             uploadedImages: convertedImages,
             batchId,
             batchIndex: i + 1,
             batchTotal: count,
-            autoInsertToCanvas: getAutoInsertValue(LS_KEYS.AI_IMAGE_AUTO_INSERT),
+            autoInsertToCanvas: getAutoInsertValue(
+              LS_KEYS.AI_IMAGE_AUTO_INSERT
+            ),
             targetFrameId,
             targetFrameDimensions,
             ...(extraParams ? { params: extraParams } : {}),
@@ -467,9 +572,8 @@ const AIImageGeneration = ({
       // 单个任务生成
 
       // Get current image model from settings
-      const settings = geminiSettings.get();
       const currentImageModel =
-        settings.imageModelName || 'gemini-2.5-flash-image-vip';
+        currentModel || resolveInvocationRoute('image').modelId;
 
       const finalPrompt = currentImageModel.startsWith('mj')
         ? [prompt.trim(), buildMJPromptSuffix(mjSelectedParams)]
@@ -478,9 +582,11 @@ const AIImageGeneration = ({
         : (prompt || '').trim();
 
       // 非 MJ 模型的额外参数（如 seedream_quality）透传给 adapter
-      const extraParams = !currentImageModel.startsWith('mj') && Object.keys(mjSelectedParams).length > 0
-        ? mjSelectedParams
-        : undefined;
+      const extraParams =
+        !currentImageModel.startsWith('mj') &&
+        Object.keys(mjSelectedParams).length > 0
+          ? mjSelectedParams
+          : undefined;
 
       // 如果参数中有 size，优先使用参数中的 size
       const finalSize = extraParams?.size
@@ -495,6 +601,7 @@ const AIImageGeneration = ({
         aspectRatio,
         size: finalSize,
         model: currentImageModel,
+        modelRef: currentModelRef || null,
         // 保存上传的图片（已转换为可序列化的格式）
         uploadedImages: convertedImages,
         autoInsertToCanvas: getAutoInsertValue(LS_KEYS.AI_IMAGE_AUTO_INSERT),
@@ -578,10 +685,26 @@ const AIImageGeneration = ({
               <div className="form-header-row">
                 <div className="model-selector-wrapper">
                   <ModelDropdown
-                    selectedModel={selectedModel}
-                    onSelect={(value) => onModelChange(value)}
+                    selectedModel={currentModel}
+                    selectedSelectionKey={getSelectionKey(
+                      currentModel,
+                      currentModelRef
+                    )}
+                    onSelect={(value) => {
+                      setCurrentModel(value);
+                      setCurrentModelRef(null);
+                      onModelChange(value);
+                      onModelRefChange?.(null);
+                    }}
+                    onSelectModel={(model: ModelConfig) => {
+                      setCurrentModel(model.id);
+                      const nextModelRef = getModelRefFromConfig(model);
+                      setCurrentModelRef(nextModelRef);
+                      onModelChange(model.id);
+                      onModelRefChange?.(nextModelRef);
+                    }}
                     language={language}
-                    models={imageModels}
+                    models={visibleImageModels}
                     placement="down"
                     variant="form"
                     disabled={isGenerating}

@@ -49,7 +49,13 @@ const extractImageUrl = (
   ) {
     const imageData = response.data[0];
     const urls = response.data
-      .map((item: any) => item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : undefined))
+      .map(
+        (item: any) =>
+          item?.url ||
+          (item?.b64_json
+            ? `data:image/png;base64,${item.b64_json}`
+            : undefined)
+      )
       .filter(Boolean) as string[];
     if (imageData.url) {
       return { url: imageData.url, urls, format: 'png', raw: response };
@@ -103,6 +109,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
       const result = await asyncImageAPIService.generateWithPolling(
         {
           model,
+          modelRef: request.modelRef || null,
           prompt: request.prompt,
           size: request.size,
         },
@@ -132,6 +139,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
       response_format: responseFormat || 'url',
       quality,
       model,
+      modelRef: request.modelRef || null,
     });
 
     return extractImageUrl(result, request.prompt);
@@ -159,16 +167,17 @@ export const geminiVideoAdapter: VideoModelAdapter = {
     const seconds = durationEncoded
       ? undefined
       : request.duration
-        ? String(request.duration)
-        : model?.toString().startsWith('sora')
-          ? '10'
-          : '8';
+      ? String(request.duration)
+      : model?.toString().startsWith('sora')
+      ? '10'
+      : '8';
     const size = request.size || '1280x720';
     const inputReferences = toUploadedVideoImages(request.referenceImages);
 
     const result = await videoAPIService.generateVideoWithPolling(
       {
         model,
+        modelRef: request.modelRef || null,
         prompt: request.prompt,
         seconds,
         size,

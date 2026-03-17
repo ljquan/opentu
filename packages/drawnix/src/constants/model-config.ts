@@ -131,6 +131,12 @@ export interface ModelConfig {
   videoDefaults?: VideoModelDefaults;
   /** 模型标签（用于参数兼容匹配的非硬编码方式） */
   tags?: string[];
+  /** 运行时来源供应商 ID（仅动态模型选择场景使用） */
+  sourceProfileId?: string | null;
+  /** 运行时来源供应商名称（仅动态模型选择场景使用） */
+  sourceProfileName?: string | null;
+  /** 选择器中用于区分同名模型来源的唯一键 */
+  selectionKey?: string;
 }
 
 // ============================================
@@ -785,7 +791,10 @@ export const ALL_MODELS: ModelConfig[] = [
 
 let runtimeModels: ModelConfig[] = [];
 
-function mergeModels(staticModels: ModelConfig[], discoveredModels: ModelConfig[]): ModelConfig[] {
+function mergeModels(
+  staticModels: ModelConfig[],
+  discoveredModels: ModelConfig[]
+): ModelConfig[] {
   const merged = [...discoveredModels];
   const seen = new Set(discoveredModels.map((model) => model.id));
   for (const model of staticModels) {
@@ -805,7 +814,9 @@ export function clearRuntimeModelConfigs(): void {
 }
 
 export function getRuntimeModelConfigs(type?: ModelType): ModelConfig[] {
-  return type ? runtimeModels.filter((model) => model.type === type) : [...runtimeModels];
+  return type
+    ? runtimeModels.filter((model) => model.type === type)
+    : [...runtimeModels];
 }
 
 export function getStaticModelsByType(type: ModelType): ModelConfig[] {
@@ -831,7 +842,10 @@ export function getModelsByType(type: ModelType): ModelConfig[] {
  * 获取模型配置
  */
 export function getModelConfig(modelId: string): ModelConfig | undefined {
-  return runtimeModels.find((model) => model.id === modelId) || getStaticModelConfig(modelId);
+  return (
+    runtimeModels.find((model) => model.id === modelId) ||
+    getStaticModelConfig(modelId)
+  );
 }
 
 /**
@@ -1135,7 +1149,11 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: '720x1280', label: '竖屏 9:16 (720x1280)' },
     ],
     defaultValue: '1280x720',
-    compatibleModels: [...VEO_MODEL_IDS, ...SORA_2_MODEL_IDS, ...SORA_2_FIXED_MODEL_IDS],
+    compatibleModels: [
+      ...VEO_MODEL_IDS,
+      ...SORA_2_MODEL_IDS,
+      ...SORA_2_FIXED_MODEL_IDS,
+    ],
     modelType: 'video',
   },
   // Veo 4K 尺寸参数（4K 分辨率）
@@ -1334,7 +1352,10 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: '4k', label: '4K' },
     ],
     defaultValue: '2k',
-    compatibleModels: ['doubao-seedream-4-0-250828', 'doubao-seedream-4-5-251128'],
+    compatibleModels: [
+      'doubao-seedream-4-0-250828',
+      'doubao-seedream-4-5-251128',
+    ],
     modelType: 'image',
   },
   // Seedream 5.0 lite 图片质量（2K/3K）
@@ -1362,10 +1383,13 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     options: [
       { value: '1k', label: '1K' },
       { value: '2k', label: '2K' },
-      { value: '4k', label: '4K' }
+      { value: '4k', label: '4K' },
     ],
     defaultValue: '1k',
-    compatibleModels: ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'],
+    compatibleModels: [
+      'gemini-3.1-flash-image-preview',
+      'gemini-3-pro-image-preview',
+    ],
     modelType: 'image',
   },
   {
@@ -1501,7 +1525,8 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   if (modelConfig.vendor) modelTags.add(modelConfig.vendor.toLowerCase());
   const idLower = modelConfig.id.toLowerCase();
   if (idLower.includes('seedream')) modelTags.add('seedream');
-  if (idLower.startsWith('mj') || idLower.includes('midjourney')) modelTags.add('mj');
+  if (idLower.startsWith('mj') || idLower.includes('midjourney'))
+    modelTags.add('mj');
   if (idLower.includes('gemini')) modelTags.add('gemini');
   if (idLower.includes('gpt')) modelTags.add('gpt');
   if (idLower.includes('flux')) modelTags.add('flux');

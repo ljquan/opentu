@@ -230,7 +230,6 @@ $drawer-input-height: 160px;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
 
   &:hover {
-
     background: var(--td-bg-color-container-hover);
   }
 
@@ -242,8 +241,6 @@ $drawer-input-height: 160px;
   &--active {
     // right 由 JS 动态设置
     transform: translateY(-50%) scaleX(-1);
-
-
   }
 }
 
@@ -292,7 +289,7 @@ $drawer-input-height: 160px;
     flex-direction: row-reverse;
 
     .message-item__bubble {
-      background: linear-gradient(135deg, #F39C12 0%, #E67E22 100%);
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
       color: white;
       border-radius: $border-radius $border-radius 4px $border-radius;
       box-shadow: 0 4px 12px rgba(243, 156, 18, 0.2);
@@ -397,7 +394,6 @@ $drawer-input-height: 160px;
     border-radius: $border-radius;
     border: 1px solid var(--td-component-border);
     transition: border-color 0.2s ease;
-
   }
 
   &__textarea {
@@ -449,7 +445,7 @@ $drawer-input-height: 160px;
     }
 
     &--send {
-      background: linear-gradient(135deg, #F39C12 0%, #E67E22 100%);
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
       color: white;
 
       &:hover:not(:disabled) {
@@ -760,7 +756,9 @@ $drawer-input-height: 160px;
     }
 
     &__content {
-      height: calc(100vh - #{$drawer-header-height} - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      height: calc(
+        100vh - #{$drawer-header-height} - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+      );
     }
   }
 
@@ -974,7 +972,7 @@ $drawer-input-height: 160px;
   flex-direction: column;
   height: calc(100vh - #{$drawer-header-height} - #{$drawer-input-height});
   overflow: hidden;
-  padding: 0!important;
+  padding: 0 !important;
 }
 
 .chat-messages {
@@ -982,7 +980,7 @@ $drawer-input-height: 160px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 0!important;
+  padding: 0 !important;
 }
 
 .chat-messages-list {
@@ -1000,14 +998,14 @@ $drawer-input-height: 160px;
   flex-wrap: wrap;
   gap: $spacing-md;
   max-width: 90%;
-  padding: 0!important;
+  padding: 0 !important;
 
   &--user {
     flex-direction: row-reverse;
     align-self: flex-end;
 
     .chat-message-content {
-      background: linear-gradient(135deg, #F39C12 0%, #E67E22 100%);
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
       color: white;
       border-radius: $border-radius $border-radius 4px $border-radius;
       border: none;
@@ -1136,10 +1134,9 @@ $drawer-input-height: 160px;
   .chat-message--user & {
     margin-left: 0;
     justify-content: flex-end;
-    
 
-    .chat-message-content{
-      padding: 0!important;
+    .chat-message-content {
+      padding: 0 !important;
     }
   }
 
@@ -1235,10 +1232,9 @@ $drawer-input-height: 160px;
     box-shadow: 0 4px 20px rgba(90, 79, 207, 0.15);
   }
 
-
-    &textarea:focus {
-      border: none!important;
-    }
+  &textarea:focus {
+    border: none !important;
+  }
 }
 
 .chat-input-field {
@@ -1340,7 +1336,8 @@ $drawer-input-height: 160px;
       transform: scale(1.05);
     }
 
-    img, video {
+    img,
+    video {
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -1348,11 +1345,11 @@ $drawer-input-height: 160px;
     }
 
     &--graphics {
-      border: 1px solid #F39C12;
+      border: 1px solid #f39c12;
     }
 
     &--video {
-      border: 2px solid #3B82F6;
+      border: 2px solid #3b82f6;
     }
 
     &--text {
@@ -1361,8 +1358,8 @@ $drawer-input-height: 160px;
       min-width: 64px;
       max-width: 180px;
       padding: 8px 12px;
-      background: #EFF6FF;
-      border: 1px solid #BFDBFE;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
       display: flex;
       align-items: center;
       justify-content: flex-start;
@@ -1473,29 +1470,29 @@ $drawer-input-height: 160px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #F3F4F6;
+    background: #f3f4f6;
     border: none;
     border-radius: 50%;
-    color: #9CA3AF;
+    color: #9ca3af;
     cursor: not-allowed;
     transition: all 0.2s ease;
     flex-shrink: 0;
 
     &--active {
-      background: #F59E0B;
+      background: #f59e0b;
       color: #fff;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
 
       &:hover {
-        background: #D97706;
+        background: #d97706;
         transform: scale(1.05);
       }
     }
 
     &:disabled {
-      background: #F3F4F6;
-      color: #9CA3AF;
+      background: #f3f4f6;
+      color: #9ca3af;
       cursor: not-allowed;
       box-shadow: none;
     }
@@ -1913,21 +1910,26 @@ $drawer-input-height: 160px;
     }
 
     &--active {
-      background: rgba(243, 156, 18, 0.1); // 明确使用品牌橙色的透明版本，禁止任何紫色
+      background: rgba(
+        243,
+        156,
+        18,
+        0.1
+      ); // 明确使用品牌橙色的透明版本，禁止任何紫色
       border-color: rgba(243, 156, 18, 0.2);
 
       .model-selector__item-name {
-        color: #D97706; // 深橙色，确保对比度
+        color: #d97706; // 深橙色，确保对比度
         font-weight: 600;
       }
 
       .model-selector__item-desc {
-        color: #D97706;
+        color: #d97706;
         opacity: 0.7;
       }
 
       .model-selector__check {
-        color: #F39C12; // 品牌橙
+        color: #f39c12; // 品牌橙
       }
 
       .model-selector__item-icon {
@@ -1941,6 +1943,17 @@ $drawer-input-height: 160px;
     width: 24px;
     height: 24px;
     border-radius: 50%;
+
+    &--text {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #f3f4f6;
+      color: #4b5563;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
   }
 
   &__item-content {
@@ -1985,35 +1998,36 @@ $drawer-input-height: 160px;
     white-space: nowrap;
     letter-spacing: 0.2px;
 
-    &.badge-new, &.badge-pro {
+    &.badge-new,
+    &.badge-pro {
       background: rgba(243, 156, 18, 0.1);
-      color: #D97706;
+      color: #d97706;
       border: 1px solid rgba(243, 156, 18, 0.2);
       text-transform: uppercase;
     }
 
     &.badge-fast {
-      background: #ECFDF5;
+      background: #ecfdf5;
       color: #059669;
-      border: 1px solid #A7F3D0;
+      border: 1px solid #a7f3d0;
     }
 
     &.badge-multimodal {
-      background: #EFF6FF;
-      color: #2563EB;
-      border: 1px solid #BFDBFE;
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
     }
 
     &.badge-reasoning {
-      background: #FFF7ED;
-      color: #EA580C;
-      border: 1px solid #FFEDD5;
+      background: #fff7ed;
+      color: #ea580c;
+      border: 1px solid #ffedd5;
     }
 
     &.badge-economic {
-      background: #F0FDF4;
-      color: #16A34A;
-      border: 1px solid #BBF7D0;
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1px solid #bbf7d0;
     }
   }
 

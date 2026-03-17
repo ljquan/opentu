@@ -8,7 +8,7 @@
  * 4. 输入内容包含其他内容 -> 走 Agent 流程
  */
 
-import { geminiSettings } from './settings-manager';
+import { geminiSettings, type ModelRef } from './settings-manager';
 import {
   getModelConfig,
   getImageModelDefaults,
@@ -98,6 +98,8 @@ export interface ParsedGenerationParams {
   generationType: GenerationType;
   /** 使用的模型 ID */
   modelId: string;
+  /** 使用的模型来源引用 */
+  modelRef?: ModelRef | null;
   /** 是否为用户显式选择的模型 */
   isModelExplicit: boolean;
   /** 最终生成用的提示词（选中文本 + 默认 prompt） */
@@ -195,6 +197,8 @@ function normalizeSize(size: string): string {
 export interface ParseAIInputOptions {
   /** 指定使用的模型 ID（来自下拉选择器） */
   modelId?: string;
+  /** 指定使用的模型引用（来自供应商感知的选择器） */
+  modelRef?: ModelRef | null;
   /** 指定使用的尺寸（来自尺寸选择器，'auto' 表示不传尺寸参数） */
   size?: string;
   /** 指定生成类型（来自下拉选择器） */
@@ -403,6 +407,7 @@ export function parseAIInput(
     scenario,
     generationType,
     modelId,
+    modelRef: options?.modelRef || null,
     isModelExplicit,
     prompt,
     userInstruction,
