@@ -6,21 +6,22 @@
  */
 
 import React, { useCallback } from 'react';
-import { ModelVendor, VENDOR_NAMES } from '../../constants/model-config';
 import './vendor-tab-panel.scss';
 
 export interface VendorTab {
-  vendor: ModelVendor;
+  id: string;
+  label: string;
   count: number;
+  icon?: React.ReactNode;
 }
 
 export interface VendorTabPanelProps {
   /** 厂商标签列表 */
   tabs: VendorTab[];
   /** 当前激活的厂商 */
-  activeVendor: ModelVendor | null;
+  activeTab: string | null;
   /** 切换厂商回调 */
-  onVendorChange: (vendor: ModelVendor) => void;
+  onTabChange: (tabId: string) => void;
   /** 搜索关键词（非空时标签无激活态，点击清除搜索并切换） */
   searchQuery?: string;
   /** 右侧内容 */
@@ -31,8 +32,8 @@ export interface VendorTabPanelProps {
 
 export const VendorTabPanel: React.FC<VendorTabPanelProps> = ({
   tabs,
-  activeVendor,
-  onVendorChange,
+  activeTab,
+  onTabChange,
   searchQuery,
   children,
   compact = false,
@@ -40,33 +41,40 @@ export const VendorTabPanel: React.FC<VendorTabPanelProps> = ({
   const isSearching = !!searchQuery?.trim();
 
   const handleTabClick = useCallback(
-    (vendor: ModelVendor) => {
-      onVendorChange(vendor);
+    (tabId: string) => {
+      onTabChange(tabId);
     },
-    [onVendorChange]
+    [onTabChange]
   );
 
   return (
-    <div className={`vendor-tab-panel ${compact ? 'vendor-tab-panel--compact' : ''}`}>
+    <div
+      className={`vendor-tab-panel ${
+        compact ? 'vendor-tab-panel--compact' : ''
+      }`}
+    >
       <div className="vendor-tab-panel__tabs">
-        {tabs.map(({ vendor, count }) => {
-          const isActive = !isSearching && activeVendor === vendor;
+        {tabs.map(({ id, label, count, icon }) => {
+          const isActive = !isSearching && activeTab === id;
           return (
             <button
-              key={vendor}
-              className={`vendor-tab-panel__tab ${isActive ? 'vendor-tab-panel__tab--active' : ''}`}
-              onClick={() => handleTabClick(vendor)}
+              key={id}
+              className={`vendor-tab-panel__tab ${
+                isActive ? 'vendor-tab-panel__tab--active' : ''
+              }`}
+              onClick={() => handleTabClick(id)}
               type="button"
             >
-              {VENDOR_NAMES[vendor]}
+              {icon ? (
+                <span className="vendor-tab-panel__tab-icon">{icon}</span>
+              ) : null}
+              <span className="vendor-tab-panel__tab-label">{label}</span>
               <span className="vendor-tab-panel__tab-count">{count}</span>
             </button>
           );
         })}
       </div>
-      <div className="vendor-tab-panel__content">
-        {children}
-      </div>
+      <div className="vendor-tab-panel__content">{children}</div>
     </div>
   );
 };

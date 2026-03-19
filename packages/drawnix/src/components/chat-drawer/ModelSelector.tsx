@@ -22,6 +22,7 @@ import {
   type ModelVendor,
   VENDOR_NAMES,
 } from '../../constants/model-config';
+import { ModelVendorMark } from '../shared/ModelVendorBrand';
 import { VendorTabPanel, type VendorTab } from '../shared/VendorTabPanel';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { Z_INDEX } from '../../constants/z-index';
@@ -80,7 +81,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
 
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [activeVendor, setActiveVendor] = useState<ModelVendor | null>(null);
+    const [activeVendor, setActiveVendor] = useState<string | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -194,13 +195,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
         vendorMap.set(model.vendor, (vendorMap.get(model.vendor) ?? 0) + 1);
       });
       return order.map((vendor) => ({
-        vendor,
+        id: vendor,
+        label: VENDOR_NAMES[vendor],
         count: vendorMap.get(vendor) ?? 0,
+        icon: <ModelVendorMark vendor={vendor} size={14} />,
       }));
     }, [selectableModels]);
 
-    const handleVendorChange = useCallback((vendor: ModelVendor) => {
-      setActiveVendor(vendor);
+    const handleVendorChange = useCallback((vendorId: string) => {
+      setActiveVendor(vendorId);
     }, []);
 
     const filteredModels = useMemo(() => {
@@ -317,8 +320,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
 
           <VendorTabPanel
             tabs={vendorTabs}
-            activeVendor={activeVendor}
-            onVendorChange={handleVendorChange}
+            activeTab={activeVendor}
+            onTabChange={handleVendorChange}
             searchQuery={searchQuery}
             compact
           >

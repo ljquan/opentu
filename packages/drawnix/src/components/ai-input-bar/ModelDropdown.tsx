@@ -18,8 +18,6 @@ import { Check, ChevronDown } from 'lucide-react';
 import {
   IMAGE_MODELS,
   getModelConfig,
-  getModelsByVendor,
-  getVendorOrder,
   type ModelConfig,
   type ModelVendor,
 } from '../../constants/model-config';
@@ -27,6 +25,13 @@ import { VendorTabPanel, type VendorTab } from '../shared/VendorTabPanel';
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import { Z_INDEX } from '../../constants/z-index';
 import { useControllableState } from '../../hooks/useControllableState';
+import { useProviderProfiles } from '../../hooks/use-provider-profiles';
+import {
+  DISCOVERY_VENDOR_ORDER,
+  ModelVendorMark,
+  getDiscoveryVendorLabel,
+} from '../shared/ModelVendorBrand';
+import { ModelSourceIcon } from '../shared/ModelSourceIcon';
 import './model-dropdown.scss';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { KeyboardDropdown } from './KeyboardDropdown';
@@ -86,9 +91,15 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [activeVendor, setActiveVendor] = useState<ModelVendor | null>(null);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [activeSectionKey, setActiveSectionKey] = useState<string | null>(null);
   const triggerInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const providerProfiles = useProviderProfiles();
+  const providerProfileMap = useMemo(
+    () => new Map(providerProfiles.map((profile) => [profile.id, profile])),
+    [providerProfiles]
+  );
   const modelOrderMap = useMemo(
     () =>
       new Map(
@@ -100,6 +111,30 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const getModelKey = useCallback(
     (model: ModelConfig) => model.selectionKey || model.id,
     []
+  );
+
+  const getModelGroupKey = useCallback(
+    (model: ModelConfig) =>
+      model.sourceProfileId
+        ? `profile:${model.sourceProfileId}`
+        : `vendor:${model.vendor}`,
+    []
+  );
+
+  const getModelProfile = useCallback(
+    (model: ModelConfig) =>
+      model.sourceProfileId
+        ? providerProfileMap.get(model.sourceProfileId) || null
+        : null,
+    [providerProfileMap]
+  );
+
+  const getModelGroupLabel = useCallback(
+    (model: ModelConfig) =>
+      getModelProfile(model)?.name ||
+      model.sourceProfileName ||
+      getDiscoveryVendorLabel(model.vendor),
+    [getModelProfile]
   );
 
   // 确保高亮项可见
@@ -139,8 +174,13 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     models.find(
       (model) => getModelKey(model) === (selectedSelectionKey || selectedModel)
     ) || getModelConfig(selectedModel);
+  const currentProfile = useMemo(
+    () => (currentModel ? getModelProfile(currentModel) : null),
+    [currentModel, getModelProfile]
+  );
   // 使用 shortCode 或默认简写
   const shortCode = currentModel?.shortCode || 'img';
+  const isSearching = Boolean(searchQuery.trim());
 
   // 当外部选中的模型变化时，同步搜索框内容（仅 form 变体）
   useEffect(() => {
@@ -163,11 +203,12 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           m.label.toLowerCase().includes(query) ||
           m.shortLabel?.toLowerCase().includes(query) ||
           m.shortCode?.toLowerCase().includes(query) ||
-          m.description?.toLowerCase().includes(query)
+          m.description?.toLowerCase().includes(query) ||
+          m.sourceProfileName?.toLowerCase().includes(query) ||
+          getDiscoveryVendorLabel(m.vendor).toLowerCase().includes(query)
       );
-    } else if (activeVendor) {
-      // 无搜索时按 activeVendor 过滤
-      baseModels = models.filter((m) => m.vendor === activeVendor);
+    } else if (activeTabId) {
+      baseModels = models.filter((m) => getModelGroupKey(m) === activeTabId);
     } else {
       baseModels = models;
     }
@@ -190,50 +231,144 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         (modelOrderMap.get(getModelKey(b)) ?? 0)
       );
     });
-  }, [models, searchQuery, activeVendor, modelOrderMap, getModelKey]);
+  }, [
+    models,
+    searchQuery,
+    activeTabId,
+    modelOrderMap,
+    getModelKey,
+    getModelGroupKey,
+  ]);
 
-  const groupedModels = useMemo(() => {
-    const sections = [
+  const vendorSections = useMemo(() => {
+    const sections = new Map<
+      ModelVendor,
       {
-        key: 'added',
-        label: language === 'zh' ? '已添加模型' : 'Added Models',
-        models: filteredModels.filter((model) =>
-          model.tags?.includes('runtime')
-        ),
-      },
-      {
-        key: 'system',
-        label: language === 'zh' ? '系统模型' : 'System Models',
-        models: filteredModels.filter(
-          (model) => !model.tags?.includes('runtime')
-        ),
-      },
-    ];
+        key: string;
+        label: string;
+        vendor: ModelVendor;
+        models: ModelConfig[];
+      }
+    >();
 
-    return sections.filter((section) => section.models.length > 0);
-  }, [filteredModels, language]);
+    filteredModels.forEach((model) => {
+      const existing = sections.get(model.vendor);
+      if (existing) {
+        existing.models.push(model);
+        return;
+      }
+
+      sections.set(model.vendor, {
+        key: `vendor:${model.vendor}`,
+        label: getDiscoveryVendorLabel(model.vendor),
+        vendor: model.vendor,
+        models: [model],
+      });
+    });
+
+    const priorityMap = new Map(
+      DISCOVERY_VENDOR_ORDER.map((vendor, index) => [vendor, index])
+    );
+
+    return Array.from(sections.values()).sort((left, right) => {
+      const leftPriority =
+        priorityMap.get(left.vendor) ?? Number.MAX_SAFE_INTEGER;
+      const rightPriority =
+        priorityMap.get(right.vendor) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+
+      return right.models.length - left.models.length;
+    });
+  }, [filteredModels]);
+
+  const activeSection = useMemo(
+    () =>
+      vendorSections.find((section) => section.key === activeSectionKey) ||
+      vendorSections[0] ||
+      null,
+    [vendorSections, activeSectionKey]
+  );
+
+  const displayedModels = useMemo(
+    () => (isSearching ? filteredModels : activeSection?.models || []),
+    [isSearching, filteredModels, activeSection]
+  );
+  const showCategoryTabs = !isSearching && vendorSections.length > 1;
 
   // 计算厂商标签列表
   const vendorTabs = useMemo((): VendorTab[] => {
-    const vendorMap = getModelsByVendor(models);
-    const order = getVendorOrder(models);
-    return order.map((vendor) => ({
-      vendor,
-      count: vendorMap.get(vendor)?.length ?? 0,
-    }));
-  }, [models]);
+    const tabs = new Map<string, VendorTab>();
+
+    models.forEach((model) => {
+      const tabId = getModelGroupKey(model);
+      const profile = getModelProfile(model);
+      const existing = tabs.get(tabId);
+
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+
+      tabs.set(tabId, {
+        id: tabId,
+        label: getModelGroupLabel(model),
+        count: 1,
+        icon: model.sourceProfileId ? (
+          <ModelSourceIcon
+            vendor={model.vendor}
+            profileName={profile?.name || model.sourceProfileName}
+            iconUrl={profile?.iconUrl}
+            size={16}
+          />
+        ) : (
+          <ModelVendorMark vendor={model.vendor} size={16} />
+        ),
+      });
+    });
+
+    return Array.from(tabs.values());
+  }, [models, getModelGroupKey, getModelGroupLabel, getModelProfile]);
 
   // 切换厂商
-  const handleVendorChange = useCallback((vendor: ModelVendor) => {
-    setActiveVendor(vendor);
+  const handleVendorChange = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
     setSearchQuery('');
+    setActiveSectionKey(null);
+    setHighlightedIndex(0);
+  }, []);
+
+  const handleSectionChange = useCallback((sectionKey: string) => {
+    setActiveSectionKey(sectionKey);
     setHighlightedIndex(0);
   }, []);
 
   // 当过滤结果变化时，重置高亮索引
   useEffect(() => {
     setHighlightedIndex(0);
-  }, [filteredModels]);
+  }, [displayedModels]);
+
+  useEffect(() => {
+    if (isSearching) {
+      return;
+    }
+
+    if (vendorSections.length === 0) {
+      if (activeSectionKey) {
+        setActiveSectionKey(null);
+      }
+      return;
+    }
+
+    if (
+      !activeSectionKey ||
+      !vendorSections.some((section) => section.key === activeSectionKey)
+    ) {
+      setActiveSectionKey(vendorSections[0].key);
+    }
+  }, [vendorSections, activeSectionKey, isSearching]);
 
   // 切换下拉菜单
   const handleToggle = useCallback(
@@ -242,8 +377,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       if (disabled) return;
       const next = !isOpen;
       if (next) {
-        // 打开时初始化 activeVendor 为当前选中模型的厂商
-        setActiveVendor(currentModel?.vendor ?? null);
+        setActiveTabId(currentModel ? getModelGroupKey(currentModel) : null);
+        setActiveSectionKey(
+          currentModel ? `vendor:${currentModel.vendor}` : null
+        );
       }
       if (variant === 'form') {
         if (next) {
@@ -256,7 +393,15 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       }
       setIsOpen(next);
     },
-    [disabled, isOpen, setIsOpen, variant, currentModel, selectedModel]
+    [
+      disabled,
+      isOpen,
+      setIsOpen,
+      variant,
+      currentModel,
+      selectedModel,
+      getModelGroupKey,
+    ]
   );
 
   // 选择模型
@@ -285,25 +430,25 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       }
 
       if (key === 'ArrowDown') {
-        if (filteredModels.length > 0) {
+        if (displayedModels.length > 0) {
           setHighlightedIndex((prev) =>
-            prev < filteredModels.length - 1 ? prev + 1 : 0
+            prev < displayedModels.length - 1 ? prev + 1 : 0
           );
         }
         return true;
       }
 
       if (key === 'ArrowUp') {
-        if (filteredModels.length > 0) {
+        if (displayedModels.length > 0) {
           setHighlightedIndex((prev) =>
-            prev > 0 ? prev - 1 : filteredModels.length - 1
+            prev > 0 ? prev - 1 : displayedModels.length - 1
           );
         }
         return true;
       }
 
       if (key === 'Enter' || key === 'Tab') {
-        const targetModel = filteredModels[highlightedIndex];
+        const targetModel = displayedModels[highlightedIndex];
         if (targetModel) {
           handleSelect(targetModel);
           return true;
@@ -319,7 +464,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       return false;
     },
     [
-      filteredModels,
+      displayedModels,
       highlightedIndex,
       handleSelect,
       variant,
@@ -358,6 +503,17 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           } (↑↓ Tab)`}
           disabled={disabled}
         >
+          {currentModel ? (
+            <ModelSourceIcon
+              vendor={currentModel.vendor}
+              profileName={
+                currentProfile?.name || currentModel.sourceProfileName
+              }
+              iconUrl={currentProfile?.iconUrl}
+              size={15}
+              className="model-dropdown__trigger-source-icon"
+            />
+          ) : null}
           <span className="model-dropdown__at">#</span>
           <span className="model-dropdown__code">{shortCode}</span>
           <ModelHealthBadge modelId={selectedModel} />
@@ -381,12 +537,24 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           if (!isOpen) {
             setIsOpen(true);
             setSearchQuery('');
-            setActiveVendor(currentModel?.vendor ?? null);
+            setActiveTabId(
+              currentModel ? getModelGroupKey(currentModel) : null
+            );
           }
         }}
       >
         <div className="model-dropdown__form-content">
-          <ModelHealthBadge modelId={selectedModel} />
+          {currentModel ? (
+            <ModelSourceIcon
+              vendor={currentModel.vendor}
+              profileName={
+                currentProfile?.name || currentModel.sourceProfileName
+              }
+              iconUrl={currentProfile?.iconUrl}
+              size={18}
+              className="model-dropdown__trigger-source-icon"
+            />
+          ) : null}
           <input
             ref={triggerInputRef}
             type="text"
@@ -402,6 +570,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
             }
             disabled={disabled}
           />
+          <ModelHealthBadge modelId={selectedModel} />
         </div>
         <ChevronDown
           size={16}
@@ -454,7 +623,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                     left: portalPosition.left,
                     width:
                       variant === 'form'
-                        ? Math.max(portalPosition.width, 420)
+                        ? Math.max(
+                            portalPosition.width,
+                            showCategoryTabs ? 520 : 420
+                          )
                         : 'auto',
                     top:
                       placement === 'down' ? portalPosition.bottom + 4 : 'auto',
@@ -476,23 +648,72 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
             <VendorTabPanel
               tabs={vendorTabs}
-              activeVendor={activeVendor}
-              onVendorChange={handleVendorChange}
+              activeTab={activeTabId}
+              onTabChange={handleVendorChange}
               searchQuery={searchQuery}
               compact
             >
-              <div className="model-dropdown__list" ref={listRef}>
-                {filteredModels.length > 0 ? (
-                  groupedModels.map((section) => (
-                    <div key={section.key} className="model-dropdown__section">
-                      <div className="model-dropdown__section-title">
-                        {section.label}
-                      </div>
-                      {section.models.map((model) => {
+              <div
+                className={`model-dropdown__content-shell ${
+                  showCategoryTabs
+                    ? 'model-dropdown__content-shell--with-category'
+                    : 'model-dropdown__content-shell--single-category'
+                }`}
+              >
+                {showCategoryTabs ? (
+                  <div className="model-dropdown__category-tabs">
+                    {vendorSections.map((section) => {
+                      const isSectionActive =
+                        activeSection?.key === section.key;
+
+                      return (
+                        <button
+                          key={section.key}
+                          type="button"
+                          className={`model-dropdown__category-tab ${
+                            isSectionActive
+                              ? 'model-dropdown__category-tab--active'
+                              : ''
+                          }`}
+                          onClick={() => handleSectionChange(section.key)}
+                        >
+                          <span className="model-dropdown__category-tab-icon">
+                            <ModelVendorMark
+                              vendor={section.vendor}
+                              size={14}
+                            />
+                          </span>
+                          <span className="model-dropdown__category-tab-label">
+                            {section.label}
+                          </span>
+                          <span className="model-dropdown__category-tab-count">
+                            {section.models.length}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                <div className="model-dropdown__list-pane">
+                  {!isSearching && activeSection ? (
+                    <div className="model-dropdown__section-header">
+                      <span className="model-dropdown__section-header-label">
+                        <ModelVendorMark
+                          vendor={activeSection.vendor}
+                          size={14}
+                        />
+                        {activeSection.label}
+                      </span>
+                      <span>{activeSection.models.length}</span>
+                    </div>
+                  ) : null}
+
+                  <div className="model-dropdown__list" ref={listRef}>
+                    {displayedModels.length > 0 ? (
+                      displayedModels.map((model, index) => {
                         const modelKey = getModelKey(model);
-                        const index = filteredModels.findIndex(
-                          (item) => getModelKey(item) === modelKey
-                        );
+                        const profile = getModelProfile(model);
                         const isSelected =
                           modelKey === (selectedSelectionKey || selectedModel);
                         const isHighlighted = index === highlightedIndex;
@@ -514,18 +735,25 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                           >
                             <div className="model-dropdown__item-content">
                               <div className="model-dropdown__item-name">
+                                <span className="model-dropdown__item-source-icon">
+                                  <ModelVendorMark
+                                    vendor={model.vendor}
+                                    size={16}
+                                  />
+                                </span>
                                 <span className="model-dropdown__item-code">
                                   #{model.shortCode}
                                 </span>
                                 <span className="model-dropdown__item-label">
                                   {model.shortLabel || model.label}
                                 </span>
-                                {model.tags?.includes('runtime') && (
-                                  <span className="model-dropdown__item-added">
-                                    {model.sourceProfileName ||
-                                      (language === 'zh' ? '已添加' : 'Added')}
+                                {isSearching ? (
+                                  <span className="model-dropdown__item-group-tag">
+                                    {profile?.name ||
+                                      model.sourceProfileName ||
+                                      getDiscoveryVendorLabel(model.vendor)}
                                   </span>
-                                )}
+                                ) : null}
                                 {model.isVip && (
                                   <span className="model-dropdown__item-vip">
                                     VIP
@@ -552,16 +780,16 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                             )}
                           </div>
                         );
-                      })}
-                    </div>
-                  ))
-                ) : (
-                  <div className="model-dropdown__empty">
-                    {language === 'zh'
-                      ? '未找到匹配的模型'
-                      : 'No matching models'}
+                      })
+                    ) : (
+                      <div className="model-dropdown__empty">
+                        {language === 'zh'
+                          ? '未找到匹配的模型'
+                          : 'No matching models'}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </VendorTabPanel>
           </div>
