@@ -83,6 +83,7 @@ export async function analyzeWithAI(
     const settings = geminiSettings.get();
     const result = await agentExecutor.execute(context, {
       model: context.model.id || settings.textModelName || getPreferredModels('text')[0]?.id || getDefaultTextModel(),
+      modelRef: modelRef || null,
       onChunk: (chunk) => {
         options?.onChunk?.(chunk);
       },

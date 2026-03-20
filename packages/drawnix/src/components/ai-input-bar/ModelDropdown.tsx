@@ -754,11 +754,6 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                                       getDiscoveryVendorLabel(model.vendor)}
                                   </span>
                                 ) : null}
-                                {model.isVip && (
-                                  <span className="model-dropdown__item-vip">
-                                    VIP
-                                  </span>
-                                )}
                                 {model.tags?.includes('new') && (
                                   <span className="model-dropdown__item-new">
                                     NEW

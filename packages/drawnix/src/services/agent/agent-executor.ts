@@ -6,11 +6,21 @@
 
 import { defaultGeminiClient } from '../../utils/gemini-api';
 import type { GeminiMessage } from '../../utils/gemini-api/types';
+import {
+  appendImagePartsToLastUserMessage,
+  buildImagePartsFromUrls,
+  hasImageParts,
+} from '../../utils/gemini-api/message-utils';
 import type { AgentResult, AgentExecuteOptions, ToolCall, AgentExecutionContext } from '../../mcp/types';
 import { generateSystemPrompt, generateReferenceImagesPrompt } from './system-prompts';
 import { parseToolCalls, extractTextContent } from './tool-parser';
 import { geminiSettings } from '../../utils/settings-manager';
 import { analytics } from '../../utils/posthog-analytics';
+import {
+  getTextBindingMaxImageCount,
+  resolveInvocationPlanFromRoute,
+  supportsTextBindingImageInput,
+} from '../provider-routing';
 
 /**
  * 将占位符替换为真实图片 URL
@@ -236,6 +246,7 @@ class AgentExecutor {
   async execute(context: AgentExecutionContext, options: AgentExecuteOptions = {}): Promise<AgentResult> {
     const {
       model,
+      modelRef,
       onChunk,
       onToolCall,
       signal,
@@ -258,6 +269,14 @@ class AgentExecutor {
     try {
       // 收集所有参考图片 URL
       const allReferenceImages = [...context.selection.images, ...context.selection.graphics];
+      const globalSettings = geminiSettings.get();
+      const textRouteModel =
+        modelRef || model || globalSettings.textModelName || context.model.id;
+      const textPlan = resolveInvocationPlanFromRoute('text', textRouteModel);
+      const textSupportsImageInput = supportsTextBindingImageInput(
+        textPlan?.binding
+      );
+      const textMaxImageCount = getTextBindingMaxImageCount(textPlan?.binding);
 
       // 构建消息数组：优先使用外部传入的 messages（Skill 路径 B/C），否则内部生成
       let messages: GeminiMessage[];
@@ -268,7 +287,7 @@ class AgentExecutor {
           role: msg.role,
           content: typeof msg.content === 'string'
             ? [{ type: 'text', text: msg.content }]
-            : msg.content,
+            : (msg.content as GeminiMessage['content']),
         }));
       } else {
         // 默认 Agent 路径：内部生成系统提示词
@@ -301,14 +320,26 @@ class AgentExecutor {
         ];
       }
 
+      if (
+        textSupportsImageInput &&
+        allReferenceImages.length > 0 &&
+        !hasImageParts(messages)
+      ) {
+        const imageParts = await buildImagePartsFromUrls(
+          allReferenceImages,
+          textMaxImageCount
+        );
+        messages = appendImagePartsToLastUserMessage(messages, imageParts);
+      }
+
       // 执行循环
       let iterations = 0;
       let finalResponse = '';
-
-      // 获取全局设置的文本模型
-      const globalSettings = geminiSettings.get();
-      const textModel = globalSettings.textModelName;
-      console.log('[AgentExecutor] 使用文本模型:', textModel, ', hasApiKey:', !!globalSettings.apiKey);
+      const textModelName =
+        (typeof textRouteModel === 'string'
+          ? textRouteModel
+          : textRouteModel?.modelId) || globalSettings.textModelName;
+      console.log('[AgentExecutor] 使用文本模型:', textModelName, ', hasApiKey:', !!globalSettings.apiKey);
 
       while (iterations < maxIterations) {
         iterations++;
@@ -325,7 +356,7 @@ class AgentExecutor {
             onChunk?.(accumulatedContent);
           },
           signal,
-          textModel // 使用全局设置的文本模型
+          textRouteModel // 优先使用当前上下文选择的 provider-aware 文本模型
         );
         console.log(`[AgentExecutor] sendChat 返回, 耗时: ${Date.now() - t0}ms`);
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getTextBindingMaxImageCount,
   inferBindingsForProviderModel,
   InvocationPlanner,
   InvocationPlanningError,
+  supportsTextBindingImageInput,
 } from '../provider-routing';
 import { providerTransport } from '../provider-routing';
 import type {
@@ -322,5 +324,50 @@ describe('provider routing', () => {
       'seedance.video.form-auto',
       'openai.video.form-input-reference',
     ]);
+  });
+
+  it('marks gemini text bindings as image-capable for gemini-family models', () => {
+    const [binding] = inferBindingsForProviderModel(
+      {
+        id: 'provider-gemini',
+        name: 'Gemini Provider',
+        providerType: 'gemini-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'key',
+        authType: 'bearer',
+      },
+      {
+        id: 'gemini-2.5-flash',
+        label: 'Gemini 2.5 Flash',
+        type: 'text',
+        vendor: ModelVendor.GEMINI,
+      }
+    );
+
+    expect(binding?.protocol).toBe('google.generateContent');
+    expect(supportsTextBindingImageInput(binding)).toBe(true);
+    expect(getTextBindingMaxImageCount(binding)).toBe(6);
+  });
+
+  it('defaults openai chat bindings to image-capable input mode', () => {
+    const [binding] = inferBindingsForProviderModel(
+      {
+        id: 'provider-openai',
+        name: 'OpenAI Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'key',
+        authType: 'bearer',
+      },
+      {
+        id: 'deepseek-chat',
+        label: 'DeepSeek Chat',
+        type: 'text',
+        vendor: ModelVendor.DEEPSEEK,
+      }
+    );
+
+    expect(binding?.protocol).toBe('openai.chat.completions');
+    expect(supportsTextBindingImageInput(binding)).toBe(true);
   });
 });

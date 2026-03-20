@@ -32,6 +32,7 @@ import {
 import {
   createModelRef,
   geminiSettings,
+  invocationPresetsSettings,
   resolveInvocationRoute,
   updateActiveInvocationRouteModel,
   type ModelRef,
@@ -73,49 +74,61 @@ const TTDDialogComponent = ({
   const lastPersistedImageSelectionRef = useRef<string | null>(null);
   const lastPersistedVideoSelectionRef = useRef<string | null>(null);
 
-  // 加载当前模型设置
-  useEffect(() => {
-    const config = geminiSettings.get();
+  const syncSelectedModelsFromRoutes = useCallback(() => {
     const imageRoute = resolveInvocationRoute('image');
     const videoRoute = resolveInvocationRoute('video');
-    setSelectedImageModel(
-      imageRoute.modelId ||
-        config.imageModelName ||
-        'gemini-3-pro-image-preview-vip'
+
+    const nextImageModel =
+      imageRoute.modelId || 'gemini-3-pro-image-preview-vip';
+    const nextImageModelRef = createModelRef(
+      imageRoute.profileId,
+      nextImageModel
     );
-    setSelectedImageModelRef(
-      createModelRef(imageRoute.profileId, imageRoute.modelId)
+    const nextVideoModel = videoRoute.modelId || 'veo3';
+    const nextVideoModelRef = createModelRef(
+      videoRoute.profileId,
+      nextVideoModel
     );
-    setSelectedVideoModel(
-      videoRoute.modelId || config.videoModelName || 'veo3'
+
+    setSelectedImageModel((prev) =>
+      prev === nextImageModel ? prev : nextImageModel
     );
-    setSelectedVideoModelRef(
-      createModelRef(videoRoute.profileId, videoRoute.modelId)
+    setSelectedImageModelRef((prev) =>
+      getSelectionKey(nextImageModel, prev) ===
+      getSelectionKey(nextImageModel, nextImageModelRef)
+        ? prev
+        : nextImageModelRef
+    );
+    setSelectedVideoModel((prev) =>
+      prev === nextVideoModel ? prev : nextVideoModel
+    );
+    setSelectedVideoModelRef((prev) =>
+      getSelectionKey(nextVideoModel, prev) ===
+      getSelectionKey(nextVideoModel, nextVideoModelRef)
+        ? prev
+        : nextVideoModelRef
     );
   }, []);
 
+  // 加载当前模型设置
+  useEffect(() => {
+    syncSelectedModelsFromRoutes();
+  }, [syncSelectedModelsFromRoutes]);
+
   // 监听设置变化,同步更新模型选择器
   useEffect(() => {
-    const handleSettingsChange = (newSettings: any) => {
-      // console.log('TTDDialog - settings changed:', newSettings);
-      if (newSettings.imageModelName) {
-        // console.log('Updating selectedImageModel to:', newSettings.imageModelName);
-        setSelectedImageModel(newSettings.imageModelName);
-        setSelectedImageModelRef(
-          createModelRef(null, newSettings.imageModelName)
-        );
-      }
-      if (newSettings.videoModelName) {
-        // console.log('Updating selectedVideoModel to:', newSettings.videoModelName);
-        setSelectedVideoModel(newSettings.videoModelName);
-        setSelectedVideoModelRef(
-          createModelRef(null, newSettings.videoModelName)
-        );
-      }
+    const handleSettingsChange = () => {
+      syncSelectedModelsFromRoutes();
     };
+
     geminiSettings.addListener(handleSettingsChange);
-    return () => geminiSettings.removeListener(handleSettingsChange);
-  }, []);
+    invocationPresetsSettings.addListener(handleSettingsChange);
+
+    return () => {
+      geminiSettings.removeListener(handleSettingsChange);
+      invocationPresetsSettings.removeListener(handleSettingsChange);
+    };
+  }, [syncSelectedModelsFromRoutes]);
 
   // 图片模型变更处理（同步更新到全局设置）
   const handleImageModelChange = (value: string) => {

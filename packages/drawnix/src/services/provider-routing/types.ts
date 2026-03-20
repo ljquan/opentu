@@ -23,6 +23,9 @@ export type ProviderAuthStrategy = 'bearer' | 'header' | 'query' | 'custom';
 export type ProviderBaseUrlStrategy = 'preserve' | 'trim-v1';
 export type ProviderVideoDurationMode = 'request-param' | 'model-alias';
 export type ProviderVideoResultMode = 'inline-url' | 'download-content';
+export type ProviderTextImageInputMode =
+  | 'openai-image_url'
+  | 'google-inline-data';
 
 export interface ProviderVideoBindingMetadata {
   allowedDurations?: string[];
@@ -35,7 +38,16 @@ export interface ProviderVideoBindingMetadata {
   downloadPathTemplate?: string;
 }
 
+export interface ProviderTextBindingMetadata {
+  supportsImageInput?: boolean;
+  imageInputMode?: ProviderTextImageInputMode;
+  maxImageCount?: number;
+  capabilitySource?: ProviderBindingSource | 'heuristic';
+  capabilityConfidence?: ProviderBindingConfidence;
+}
+
 export interface ProviderBindingMetadata {
+  text?: ProviderTextBindingMetadata;
   video?: ProviderVideoBindingMetadata;
   [key: string]: unknown;
 }

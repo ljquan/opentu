@@ -27,15 +27,21 @@ export interface ImageInput {
   url?: string;
 }
 
+export type GeminiMessagePart =
+  | {
+      type: 'text';
+      text?: string;
+    }
+  | {
+      type: 'image_url';
+      image_url?: {
+        url: string;
+      };
+    };
+
 export interface GeminiMessage {
   role: 'user' | 'assistant' | 'system';
-  content: Array<{
-    type: 'text' | 'image_url';
-    text?: string;
-    image_url?: {
-      url: string;
-    };
-  }>;
+  content: GeminiMessagePart[];
 }
 
 export interface VideoGenerationOptions {

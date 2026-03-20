@@ -39,17 +39,26 @@ function getImageCache(): Promise<Cache> {
   return imageCachePromise;
 }
 
+function shouldBypassThumbnailForUrl(originalUrl: string): boolean {
+  return (
+    originalUrl.startsWith('http://') ||
+    originalUrl.startsWith('https://') ||
+    originalUrl.startsWith('data:') ||
+    originalUrl.startsWith('blob:')
+  );
+}
+
 /**
  * 获取预览图 URL（通过添加查询参数）
  * 仅对虚拟路径（/__aitu_cache__/、/asset-library/）追加 thumbnail 参数，
- * 外部 URL（如 TOS 签名 URL）追加参数会破坏签名导致 403，直接返回原 URL。
+ * 外部 URL（如 TOS 签名 URL）或 data/blob URL 追加参数会破坏资源，直接返回原 URL。
  * @param originalUrl 原始 URL
  * @param size 预览图尺寸（默认 small）
  * @returns 预览图 URL（带 ?thumbnail={size} 参数）
  */
 function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
-  // 外部 URL 不追加参数，避免破坏签名
-  if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+  // 外部 URL / data URL / blob URL 不追加参数，避免破坏资源
+  if (shouldBypassThumbnailForUrl(originalUrl)) {
     return originalUrl;
   }
   try {
@@ -111,6 +120,10 @@ async function ensureThumbnailImpl(
   originalUrl: string,
   type: 'image' | 'video'
 ): Promise<void> {
+  if (shouldBypassThumbnailForUrl(originalUrl)) {
+    return;
+  }
+
   // 使用缓存的 Cache 引用，避免重复 caches.open
   const thumbCache = await getThumbCache();
   
@@ -158,6 +171,10 @@ async function ensureThumbnailImpl(
  * @param type 媒体类型
  */
 function ensureThumbnail(originalUrl: string, type: 'image' | 'video'): void {
+  if (shouldBypassThumbnailForUrl(originalUrl)) {
+    return;
+  }
+
   // 检查内存缓存
   const lastCheck = thumbnailCheckCache.get(originalUrl);
   if (lastCheck && Date.now() - lastCheck < CACHE_TTL) {
@@ -204,7 +221,7 @@ export function useThumbnailUrl(
     setThumbnailUrl(url);
 
     // 如果提供了类型，排队检查/生成预览图（非阻塞）
-    if (type) {
+    if (type && !shouldBypassThumbnailForUrl(originalUrl)) {
       ensureThumbnail(originalUrl, type);
     }
   }, [originalUrl, type, size]);

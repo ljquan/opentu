@@ -10,7 +10,6 @@ $gray-light: #f3f4f6;
 $gray-medium: #9ca3af;
 $gray-dark: #6b7280;
 $text-dark: #1f2937;
-$vip-color: #e91e63;
 $green-health: #10b981;
 
 .model-dropdown {
@@ -491,17 +490,6 @@ $green-health: #10b981;
     white-space: nowrap;
   }
 
-  &__item-vip {
-    font-size: 10px;
-    font-weight: 600;
-    color: $vip-color;
-    background: rgba($vip-color, 0.1);
-    border: 1px solid rgba($vip-color, 0.2);
-    padding: 0 4px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
   &__item-new {
     font-size: 10px;
     font-weight: 600;
@@ -693,11 +681,6 @@ $green-health: #10b981;
 
     &__item-desc {
       color: var(--color-gray-50, #999);
-    }
-
-    &__item-vip {
-      background: rgba($vip-color, 0.15);
-      border-color: rgba($vip-color, 0.3);
     }
 
     &__item-new {

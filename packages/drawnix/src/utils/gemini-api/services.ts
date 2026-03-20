@@ -93,13 +93,33 @@ function buildRuntimeConfig(
   };
 }
 
-function normalizeAspectRatio(size?: string): string | undefined {
+export function normalizeAspectRatio(size?: string): string | undefined {
   if (!size || size === 'auto') {
     return undefined;
   }
 
+  const normalizedSize = size.trim();
+
+  const canonicalAspectRatioMap: Record<string, string> = {
+    '1x1': '1:1',
+    '2x3': '2:3',
+    '3x2': '3:2',
+    '3x4': '3:4',
+    '4x3': '4:3',
+    '4x5': '4:5',
+    '5x4': '5:4',
+    '9x16': '9:16',
+    '16x9': '16:9',
+    '21x9': '21:9',
+  };
+
+  const normalizedLower = normalizedSize.toLowerCase();
+  if (canonicalAspectRatioMap[normalizedLower]) {
+    return canonicalAspectRatioMap[normalizedLower];
+  }
+
   if (size.includes(':')) {
-    return size;
+    return normalizedSize;
   }
 
   if (!size.includes('x')) {

@@ -1,4 +1,5 @@
 import type { ModelRef } from '../../utils/settings-manager';
+import type { GeminiMessagePart } from '../../utils/gemini-api/types';
 import type {
   ProviderAuthStrategy,
   ProviderModelBinding,
@@ -81,7 +82,7 @@ export interface AIAnalyzeParams {
   /** 预构建的消息数组（与 prompt 二选一，优先级更高） */
   messages?: Array<{
     role: 'system' | 'user' | 'assistant';
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | GeminiMessagePart[];
   }>;
   /** 待分析的图片 URL 列表 */
   images?: string[];

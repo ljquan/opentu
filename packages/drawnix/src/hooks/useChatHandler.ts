@@ -176,7 +176,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
         await chatService.sendChatMessage(
           history.slice(0, -1), // Exclude the new user message from history
           userContent,
-          [], // Attachments handled separately
+          ourMsg.attachments || [],
           (event) => {
             if (event.type === 'content' && event.content) {
               fullContent += event.content;

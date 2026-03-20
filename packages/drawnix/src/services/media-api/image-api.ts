@@ -26,6 +26,27 @@ import { providerTransport } from '../provider-routing/provider-transport';
 // 重新导出工具函数，方便外部使用
 export { isAsyncImageModel, aspectRatioToSize };
 
+function normalizeImageResultUrl(item: Record<string, unknown>): string | undefined {
+  if (typeof item.url === 'string' && item.url) {
+    return item.url;
+  }
+
+  const b64 = typeof item.b64_json === 'string' ? item.b64_json : '';
+  if (!b64) {
+    return undefined;
+  }
+
+  if (b64.startsWith('data:')) {
+    return b64;
+  }
+
+  const mimeType =
+    typeof item.mime_type === 'string' && item.mime_type
+      ? item.mime_type
+      : 'image/png';
+  return `data:${mimeType};base64,${b64}`;
+}
+
 /**
  * 构建图片生成请求体
  */
@@ -65,7 +86,7 @@ export function parseImageResponse(data: Record<string, unknown>): ImageGenerati
   // 支持多种响应格式
   if (data.data && Array.isArray(data.data)) {
     const urls = data.data
-      .map((item: Record<string, unknown>) => item.url || item.b64_json)
+      .map((item: Record<string, unknown>) => normalizeImageResultUrl(item))
       .filter(Boolean) as string[];
 
     if (urls.length === 0) {

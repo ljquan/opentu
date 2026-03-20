@@ -14,6 +14,7 @@ import type { MCPTool, MCPResult, MCPExecuteOptions, AgentExecutionContext, Work
 import { getModelType, IMAGE_MODELS } from '../types';
 import { agentExecutor } from '../../services/agent';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
+import type { GeminiMessagePart } from '../../utils/gemini-api/types';
 
 /**
  * AI 分析参数
@@ -32,7 +33,7 @@ export interface AIAnalyzeParams {
    */
   messages?: Array<{
     role: 'system' | 'user' | 'assistant';
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | GeminiMessagePart[];
   }>;
 }
 
@@ -111,6 +112,7 @@ export const aiAnalyzeTool: MCPTool = {
 
       const result = await agentExecutor.execute(context, {
         model: textModel || context.model.id,
+        modelRef: modelRef || null,
         messages: messages as AgentExecuteOptions['messages'],
         onChunk: (chunk) => {
           // console.log('[AIAnalyzeTool] Chunk:', chunk);

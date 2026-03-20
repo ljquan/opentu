@@ -118,11 +118,53 @@ function isOfficialOpenAIProfile(profile: ProviderProfileSnapshot): boolean {
   return profile.baseUrl.toLowerCase().includes('api.openai.com');
 }
 
+function hasAnyTag(model: ModelConfig, candidates: string[]): boolean {
+  const tags = normalizeModelTags(model);
+  return candidates.some((candidate) => tags.includes(candidate));
+}
+
+function isLikelyVisionCapableTextModel(model: ModelConfig): boolean {
+  const lowerId = model.id.toLowerCase();
+
+  if (
+    hasAnyTag(model, [
+      'vision',
+      'multimodal',
+      'vl',
+      'image-input',
+      'image-understanding',
+    ])
+  ) {
+    return true;
+  }
+
+  return matchesAny(lowerId, [
+    'gemini',
+    'gpt-4o',
+    'gpt-4.1',
+    'gpt-4.5',
+    'qwen-vl',
+    'llava',
+    'internvl',
+    'minicpm-v',
+    'glm-4v',
+    'yi-vl',
+    'vision',
+    'multimodal',
+  ]);
+}
+
 function inferTextBindings(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
 ): ProviderModelBinding[] {
   const bindings: ProviderModelBinding[] = [];
+  const supportsImageInput =
+    profile.providerType === 'gemini-compatible' ||
+    profile.providerType === 'openai-compatible' ||
+    profile.providerType === 'custom'
+      ? true
+      : isLikelyVisionCapableTextModel(model);
 
   if (profile.providerType === 'gemini-compatible' && isGeminiFamilyModel(model)) {
     bindings.push(
@@ -132,6 +174,17 @@ function inferTextBindings(
         responseSchema: 'google.generate-content.candidates',
         submitPath: '/v1beta/models/{model}:generateContent',
         baseUrlStrategy: 'trim-v1',
+        metadata: {
+          text: {
+            supportsImageInput,
+            imageInputMode: supportsImageInput
+              ? 'google-inline-data'
+              : undefined,
+            maxImageCount: supportsImageInput ? 6 : undefined,
+            capabilitySource: supportsImageInput ? 'template' : 'heuristic',
+            capabilityConfidence: supportsImageInput ? 'high' : 'low',
+          },
+        },
         priority: 400,
         confidence: 'high',
         source: 'template',
@@ -146,6 +199,17 @@ function inferTextBindings(
         requestSchema: 'openai.chat.messages',
         responseSchema: 'openai.chat.choices',
         submitPath: '/chat/completions',
+        metadata: {
+          text: {
+            supportsImageInput,
+            imageInputMode: supportsImageInput
+              ? 'openai-image_url'
+              : undefined,
+            maxImageCount: supportsImageInput ? 6 : undefined,
+            capabilitySource: supportsImageInput ? 'template' : 'heuristic',
+            capabilityConfidence: supportsImageInput ? 'medium' : 'low',
+          },
+        },
         priority: 300,
         confidence: 'high',
         source: 'template',
@@ -160,6 +224,17 @@ function inferTextBindings(
         requestSchema: 'openai.chat.messages',
         responseSchema: 'openai.chat.choices',
         submitPath: '/chat/completions',
+        metadata: {
+          text: {
+            supportsImageInput,
+            imageInputMode: supportsImageInput
+              ? 'openai-image_url'
+              : undefined,
+            maxImageCount: supportsImageInput ? 6 : undefined,
+            capabilitySource: supportsImageInput ? 'template' : 'heuristic',
+            capabilityConfidence: supportsImageInput ? 'medium' : 'low',
+          },
+        },
         priority: 120,
         confidence: 'medium',
         source: 'template',

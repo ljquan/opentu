@@ -558,6 +558,7 @@ export async function convertSkillFlowToWorkflow(
         userInstruction,
         rawInput,
         modelId,
+        modelRef,
         isModelExplicit,
         count,
         size,
@@ -692,6 +693,7 @@ export async function convertSkillFlowToWorkflow(
           referenceImages:
             allReferenceImages.length > 0 ? allReferenceImages : undefined,
           textModel: modelId,
+          modelRef,
         },
         options: { mode: 'async' },
         description: `AI 分析用户意图（Skill: ${skillName}）`,
@@ -759,6 +761,7 @@ export async function convertSkillFlowToWorkflow(
         referenceImages:
           allReferenceImages.length > 0 ? allReferenceImages : undefined,
         textModel: modelId,
+        modelRef,
       },
       options: { mode: 'async' },
       description: `AI 以「${skillName}」角色回复`,
@@ -779,6 +782,7 @@ export async function convertSkillFlowToWorkflow(
       userInstruction,
       rawInput,
       modelId,
+      modelRef,
       isModelExplicit,
       count,
       size,

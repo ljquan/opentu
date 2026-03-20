@@ -7,10 +7,21 @@
 
 import { defaultGeminiClient } from '../utils/gemini-api';
 import type { GeminiMessage } from '../utils/gemini-api/types';
-import type { ChatMessage, StreamEvent } from '../types/chat.types';
+import {
+  buildImagePartsFromAttachmentInputs,
+  buildImagePartsFromChatAttachments,
+  countImageAttachmentInputs,
+  countImageParts,
+} from '../utils/gemini-api/message-utils';
+import type { Attachment, ChatMessage, StreamEvent } from '../types/chat.types';
 import { MessageRole } from '../types/chat.types';
 import { analytics } from '../utils/posthog-analytics';
 import type { ModelRef } from '../utils/settings-manager';
+import {
+  getTextBindingMaxImageCount,
+  resolveInvocationPlanFromRoute,
+  supportsTextBindingImageInput,
+} from './provider-routing';
 
 // Current abort controller for cancellation
 let currentAbortController: AbortController | null = null;
@@ -103,23 +114,51 @@ function restoreMediaUrls(content: string, urlMap: MediaUrlMap): string {
 }
 
 /** Convert ChatMessage to GeminiMessage format */
-function convertToGeminiMessages(messages: ChatMessage[]): {
+async function convertToGeminiMessages(
+  messages: ChatMessage[],
+  options: {
+    includeImageAttachments?: boolean;
+    maxImageCount?: number;
+  } = {}
+): Promise<{
   geminiMessages: GeminiMessage[];
   urlMap: MediaUrlMap;
-} {
+}> {
   const combinedUrlMap: MediaUrlMap = {};
+  let remainingImageSlots = options.maxImageCount ?? Number.POSITIVE_INFINITY;
 
-  const geminiMessages = messages
-    .filter((m) => m.status === 'success' || m.status === 'streaming')
-    .map((m) => {
+  const geminiMessages = await Promise.all(
+    messages
+      .filter((m) => m.status === 'success' || m.status === 'streaming')
+      .map(async (m) => {
       const { sanitized, urlMap } = extractAndReplaceMediaUrls(m.content);
       // 合并 URL 映射
       Object.assign(combinedUrlMap, urlMap);
+      const content: GeminiMessage['content'] = [
+        { type: 'text', text: sanitized },
+      ];
+
+      if (
+        options.includeImageAttachments &&
+        m.role === MessageRole.USER &&
+        m.attachments &&
+        m.attachments.length > 0 &&
+        remainingImageSlots > 0
+      ) {
+        const imageParts = await buildImagePartsFromChatAttachments(
+          m.attachments,
+          remainingImageSlots
+        );
+        remainingImageSlots -= imageParts.length;
+        content.push(...imageParts);
+      }
+
       return {
         role: m.role === MessageRole.USER ? 'user' : 'assistant',
-        content: [{ type: 'text', text: sanitized }],
+        content,
       };
-    });
+      })
+  );
 
   return {
     geminiMessages: geminiMessages as GeminiMessage[],
@@ -131,7 +170,7 @@ function convertToGeminiMessages(messages: ChatMessage[]): {
 export async function sendChatMessage(
   messages: ChatMessage[],
   newContent: string,
-  attachments: File[] = [],
+  attachments: Array<File | Attachment> = [],
   onStream: (event: StreamEvent) => void,
   temporaryModel?: string | ModelRef | null,
   systemPrompt?: string
@@ -150,7 +189,7 @@ export async function sendChatMessage(
 async function sendChatMessageDirect(
   messages: ChatMessage[],
   newContent: string,
-  attachments: File[] = [],
+  attachments: Array<File | Attachment> = [],
   onStream: (event: StreamEvent) => void,
   temporaryModel?: string | ModelRef | null,
   systemPrompt?: string
@@ -185,8 +224,17 @@ async function sendChatMessageDirect(
     });
 
     // Build history with URL extraction
+    const textPlan = resolveInvocationPlanFromRoute('text', temporaryModel);
+    const supportsImageInput = supportsTextBindingImageInput(textPlan?.binding);
+    const maxImageCount = getTextBindingMaxImageCount(textPlan?.binding);
+    const currentImageCount = countImageAttachmentInputs(attachments);
+    const maxHistoryImageCount = Math.max(maxImageCount - currentImageCount, 0);
+
     const { geminiMessages: history, urlMap: historyUrlMap } =
-      convertToGeminiMessages(messages);
+      await convertToGeminiMessages(messages, {
+        includeImageAttachments: supportsImageInput,
+        maxImageCount: maxHistoryImageCount,
+      });
 
     // Process current message content
     const { sanitized: sanitizedContent, urlMap: currentUrlMap } =
@@ -195,13 +243,23 @@ async function sendChatMessageDirect(
     // 合并所有 URL 映射
     const allUrlMap: MediaUrlMap = { ...historyUrlMap, ...currentUrlMap };
 
-    // Prepare current message content (文本模型不需要附件图片)
+    const historyImageCount = countImageParts(history);
+    const remainingCurrentImageSlots = Math.max(
+      maxImageCount - historyImageCount,
+      0
+    );
+
     const currentMessageContent: GeminiMessage['content'] = [
       { type: 'text', text: sanitizedContent },
     ];
 
-    // 注意：对于文本模型，不发送 attachments 中的图片
-    // 如果需要图片理解功能，应该使用多模态模型
+    if (supportsImageInput && attachments.length > 0 && remainingCurrentImageSlots > 0) {
+      const imageParts = await buildImagePartsFromAttachmentInputs(
+        attachments,
+        remainingCurrentImageSlots
+      );
+      currentMessageContent.push(...imageParts);
+    }
 
     // Combine into full message list
     const geminiMessages: GeminiMessage[] = [];
