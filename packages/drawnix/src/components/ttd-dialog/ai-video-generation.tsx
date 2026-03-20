@@ -3,6 +3,7 @@ import './ttd-dialog.scss';
 import './ai-video-generation.scss';
 import { useI18n } from '../../i18n';
 import { type Language } from '../../constants/prompts';
+import { useDeviceType } from '../../hooks/useDeviceType';
 import { useGenerationHistory } from '../../hooks/useGenerationHistory';
 import {
   useGenerationState,
@@ -102,7 +103,10 @@ const AIVideoGeneration = ({
   const [taskListWidth, setTaskListWidth] = useState(() =>
     loadSavedWidth('video')
   );
+  const [mobilePanel, setMobilePanel] = useState<'config' | 'tasks'>('config');
   const containerRef = useRef<HTMLDivElement>(null);
+  const { viewportWidth } = useDeviceType();
+  const isCompactLayout = viewportWidth <= 768;
 
   // Video model parameters - use state to support dynamic updates
   const initialRoute = resolveInvocationRoute('video');
@@ -150,10 +154,7 @@ const AIVideoGeneration = ({
   const [videoSelectedParams, setVideoSelectedParams] = useState<
     Record<string, string>
   >(() =>
-    getDefaultVideoExtraParams(
-      currentModel,
-      currentModelRef || currentModel
-    )
+    getDefaultVideoExtraParams(currentModel, currentModelRef || currentModel)
   );
   const compatibleVideoParams = React.useMemo(
     () =>
@@ -510,6 +511,7 @@ const AIVideoGeneration = ({
     setAllSelectedImages([]); // 清空原始图片
     setUploadedImages([]);
     setError(null);
+    setMobilePanel('config');
     // Reset duration and size to defaults
     setDuration(defaultParams.duration);
     setSize(defaultParams.size);
@@ -520,10 +522,7 @@ const AIVideoGeneration = ({
     setStoryboardScenes([]);
     // Clear extra params
     setVideoSelectedParams(
-      getDefaultVideoExtraParams(
-        currentModel,
-        currentModelRef || currentModel
-      )
+      getDefaultVideoExtraParams(currentModel, currentModelRef || currentModel)
     );
     window.dispatchEvent(new CustomEvent('ai-video-clear'));
   };
@@ -588,6 +587,7 @@ const AIVideoGeneration = ({
 
     // 标记为手动编辑模式,防止 props 的 useEffect 覆盖我们的更改
     setIsManualEdit(true);
+    setMobilePanel('config');
 
     // 标记为编辑模式,防止模型变化时重置参数
     setIsEditMode(true);
@@ -808,6 +808,7 @@ const AIVideoGeneration = ({
         setStoryboardEnabled(false);
         setStoryboardScenes([]);
         setError(null);
+        setMobilePanel('tasks');
         // Clear manual edit mode after generating
         setIsManualEdit(false);
       } else {
@@ -854,9 +855,47 @@ const AIVideoGeneration = ({
 
   return (
     <div className="ai-video-generation-container">
-      <div className="main-content" ref={containerRef}>
+      {isCompactLayout ? (
+        <div className="ai-generation-mobile-switcher" role="tablist">
+          <button
+            type="button"
+            className={`ai-generation-mobile-switcher__tab ${
+              mobilePanel === 'config'
+                ? 'ai-generation-mobile-switcher__tab--active'
+                : ''
+            }`}
+            onClick={() => setMobilePanel('config')}
+          >
+            生成设置
+          </button>
+          <button
+            type="button"
+            className={`ai-generation-mobile-switcher__tab ${
+              mobilePanel === 'tasks'
+                ? 'ai-generation-mobile-switcher__tab--active'
+                : ''
+            }`}
+            onClick={() => setMobilePanel('tasks')}
+          >
+            生成任务
+          </button>
+        </div>
+      ) : null}
+
+      <div
+        className={`main-content ${
+          isCompactLayout ? 'main-content--mobile-panels' : ''
+        }`}
+        ref={containerRef}
+      >
         {/* AI 视频生成表单 */}
-        <div className="ai-image-generation-section">
+        <div
+          className={`ai-image-generation-section ${
+            isCompactLayout && mobilePanel !== 'config'
+              ? 'ai-generation-mobile-panel--hidden'
+              : ''
+          }`}
+        >
           <div className="ai-image-generation-form">
             {/* 模型选择器 */}
             {selectedModel !== undefined && onModelChange && (
@@ -1007,21 +1046,32 @@ const AIVideoGeneration = ({
           />
         </div>
 
-        {/* 可拖动分隔条 */}
-        <ResizableDivider
-          isRightPanelVisible={isTaskListVisible}
-          onToggleRightPanel={handleToggleTaskList}
-          onWidthChange={handleWidthChange}
-          rightPanelWidth={taskListWidth}
-          language={language}
-          storageKey="video"
-        />
+        {!isCompactLayout ? (
+          <ResizableDivider
+            isRightPanelVisible={isTaskListVisible}
+            onToggleRightPanel={handleToggleTaskList}
+            onWidthChange={handleWidthChange}
+            rightPanelWidth={taskListWidth}
+            language={language}
+            storageKey="video"
+          />
+        ) : null}
 
         {/* 任务列表侧栏 */}
-        {isTaskListVisible && (
+        {(isCompactLayout || isTaskListVisible) && (
           <div
-            className="task-sidebar"
-            style={{ width: taskListWidth, flexShrink: 0 }}
+            className={`task-sidebar ${
+              isCompactLayout ? 'task-sidebar--mobile-panel' : ''
+            } ${
+              isCompactLayout && mobilePanel !== 'tasks'
+                ? 'ai-generation-mobile-panel--hidden'
+                : ''
+            }`}
+            style={
+              isCompactLayout
+                ? undefined
+                : { width: taskListWidth, flexShrink: 0 }
+            }
           >
             <DialogTaskList
               taskType={TaskType.VIDEO}

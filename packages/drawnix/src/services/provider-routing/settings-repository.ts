@@ -9,6 +9,8 @@ import {
 } from '../../constants/model-config';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+  TUZI_DEFAULT_PROVIDER_NAME,
+  TUZI_PROVIDER_DEFAULT_BASE_URL,
   createModelRef,
   geminiSettings,
   providerCatalogsSettings,
@@ -78,7 +80,13 @@ function inferAuthType(
 function toProviderProfileSnapshot(
   profile: Pick<
     ProviderProfile,
-    'id' | 'name' | 'providerType' | 'baseUrl' | 'apiKey' | 'authType' | 'extraHeaders'
+    | 'id'
+    | 'name'
+    | 'providerType'
+    | 'baseUrl'
+    | 'apiKey'
+    | 'authType'
+    | 'extraHeaders'
   >
 ): ProviderProfileSnapshot {
   return {
@@ -87,7 +95,11 @@ function toProviderProfileSnapshot(
     providerType: profile.providerType,
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,
-    authType: inferAuthType(profile.baseUrl, profile.providerType, profile.authType),
+    authType: inferAuthType(
+      profile.baseUrl,
+      profile.providerType,
+      profile.authType
+    ),
     extraHeaders: profile.extraHeaders,
   };
 }
@@ -128,10 +140,7 @@ function buildFallbackModelConfig(
   };
 }
 
-function getLegacyModelConfig(
-  modelId: string,
-  type: ModelType
-): ModelConfig {
+function getLegacyModelConfig(modelId: string, type: ModelType): ModelConfig {
   const staticModel = getModelConfig(modelId);
   if (staticModel) {
     return staticModel;
@@ -141,16 +150,28 @@ function getLegacyModelConfig(
 
 function buildLegacyProfileSnapshot(): ProviderProfileSnapshot {
   const gemini = geminiSettings.get();
-  const baseUrl = gemini.baseUrl?.trim() || 'https://api.tu-zi.com/v1';
-  const providerType = inferProviderTypeFromBaseUrl(baseUrl);
+  const existingLegacyProfile = providerProfilesSettings
+    .get()
+    .find((profile) => profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID);
+  const baseUrl = gemini.baseUrl?.trim() || TUZI_PROVIDER_DEFAULT_BASE_URL;
+  const providerType =
+    existingLegacyProfile?.providerType === 'openai-compatible' ||
+    existingLegacyProfile?.providerType === 'gemini-compatible' ||
+    existingLegacyProfile?.providerType === 'custom'
+      ? existingLegacyProfile.providerType
+      : inferProviderTypeFromBaseUrl(baseUrl);
 
   return {
     id: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
-    name: '默认供应商',
+    name: TUZI_DEFAULT_PROVIDER_NAME,
     providerType,
     baseUrl,
     apiKey: gemini.apiKey?.trim() || '',
-    authType: inferAuthType(baseUrl, providerType),
+    authType: inferAuthType(
+      baseUrl,
+      providerType,
+      existingLegacyProfile?.authType
+    ),
   };
 }
 
@@ -174,7 +195,7 @@ function buildLegacyBindings(
       modelId: gemini.videoModelName?.trim() || getDefaultVideoModel(),
       type: 'video',
     },
-  ].filter((entry) => Boolean(entry.modelId));
+  ];
 
   return inferBindingsForProviderCatalog(
     profile,
@@ -203,6 +224,7 @@ export function listSettingsProviderProfiles(
   const profiles = providerProfilesSettings
     .get()
     .filter((profile) => profile.enabled !== false)
+    .filter((profile) => profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID)
     .map((profile) => toProviderProfileSnapshot(profile));
 
   if (options.includeLegacyProfile !== false) {
@@ -217,15 +239,13 @@ export function listSettingsModelBindings(
 ): ProviderModelBinding[] {
   const profiles = listSettingsProviderProfiles(options);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
-  const catalogBindings = providerCatalogsSettings
-    .get()
-    .flatMap((catalog) => {
-      const profile = profileById.get(catalog.profileId);
-      if (!profile) {
-        return [];
-      }
-      return inferBindingsForProviderCatalog(profile, catalog.discoveredModels);
-    });
+  const catalogBindings = providerCatalogsSettings.get().flatMap((catalog) => {
+    const profile = profileById.get(catalog.profileId);
+    if (!profile) {
+      return [];
+    }
+    return inferBindingsForProviderCatalog(profile, catalog.discoveredModels);
+  });
   const legacyBindings =
     options.includeLegacyProfile === false
       ? []
@@ -235,11 +255,13 @@ export function listSettingsModelBindings(
         );
 
   const deduped = new Map<string, ProviderModelBinding>();
-  [...catalogBindings, ...legacyBindings, ...(options.manualBindings || [])].forEach(
-    (binding) => {
-      deduped.set(binding.id, binding);
-    }
-  );
+  [
+    ...catalogBindings,
+    ...legacyBindings,
+    ...(options.manualBindings || []),
+  ].forEach((binding) => {
+    deduped.set(binding.id, binding);
+  });
 
   return Array.from(deduped.values());
 }
@@ -256,10 +278,14 @@ export function createSettingsInvocationPlannerRepositories(
       );
     },
     getModelBindings(modelRef: NormalizedModelRef, operation: ModelType) {
-      const groupedBindings = groupBindingsByModel(listSettingsModelBindings(options));
-      return groupedBindings.get(
-        `${modelRef.profileId}:${modelRef.modelId}:${operation}`
-      ) || [];
+      const groupedBindings = groupBindingsByModel(
+        listSettingsModelBindings(options)
+      );
+      return (
+        groupedBindings.get(
+          `${modelRef.profileId}:${modelRef.modelId}:${operation}`
+        ) || []
+      );
     },
   };
 }

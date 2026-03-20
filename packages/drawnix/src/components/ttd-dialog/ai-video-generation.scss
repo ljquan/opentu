@@ -1,10 +1,26 @@
 /* AI Video Generation Container - aligned with AI Image Generation */
+@keyframes ai-generation-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .ai-video-generation-container {
   display: flex;
   flex-direction: column;
   height: 80vh;
   overflow: hidden;
   position: relative;
+}
+
+.ai-generation-mobile-switcher {
+  display: none;
 }
 
 .main-content {
@@ -28,23 +44,23 @@
   overflow-x: hidden;
   // 右侧内边距，避免滚动条遮挡内容
   padding-right: 8px;
-  
+
   /* 隐藏滚动条但保持滚动功能 */
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
-  
+
   &::-webkit-scrollbar {
     width: 4px;
   }
-  
+
   &::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   &::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.15);
     border-radius: 2px;
-    
+
     &:hover {
       background: rgba(0, 0, 0, 0.25);
     }
@@ -98,23 +114,23 @@
   border-radius: 10px;
   padding: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  
+
   /* 优化滚动条样式 */
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
-  
+
   &::-webkit-scrollbar {
     width: 4px;
   }
-  
+
   &::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   &::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.15);
     border-radius: 2px;
-    
+
     &:hover {
       background: rgba(0, 0, 0, 0.25);
     }
@@ -124,7 +140,6 @@
 /* Canvas video component styles */
 .video-origin {
   border-radius: 6px;
-
 
   &--focus {
     outline: 2px solid var(--td-brand-color, #0052d9);
@@ -138,8 +153,6 @@
   &::-webkit-media-controls {
     border-radius: 6px;
   }
-
-
 }
 
 /* Responsive adjustments - 移动端统一使用垂直布局，单一滚动条 */
@@ -153,18 +166,53 @@
     display: flex !important;
     flex-direction: column !important;
   }
-  
+
+  .ai-generation-mobile-switcher {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 4px;
+    padding: 4px;
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    background: #f5f7fb;
+    border: 1px solid #e8edf3;
+    border-radius: 16px;
+    margin: 4px 0 12px;
+
+    &__tab {
+      min-height: 42px;
+      border: none;
+      border-radius: 12px;
+      background: transparent;
+      color: #64748b;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.18s ease, color 0.18s ease,
+        box-shadow 0.18s ease, transform 0.18s ease;
+    }
+
+    &__tab--active {
+      background: #ffffff;
+      color: #111827;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
+    }
+  }
+
   /* 主内容区域 - 使用后代选择器确保匹配 */
   .ai-video-generation-container .main-content {
     display: flex !important;
     flex-direction: column !important;
-    gap: 12px !important;
+    gap: 0 !important;
     min-height: auto !important;
     height: auto !important;
     flex: none !important;
     overflow: visible !important;
   }
-  
+
   /* 表单区域 - 确保显示 */
   .ai-video-generation-container .ai-image-generation-section {
     display: flex !important;
@@ -177,7 +225,7 @@
     overflow: visible !important;
     order: 1 !important;
   }
-  
+
   /* 任务侧栏 - 全宽显示 */
   .ai-video-generation-container .task-sidebar {
     display: block !important;
@@ -189,7 +237,20 @@
     overflow: visible !important;
     padding: 8px !important;
     order: 2 !important;
-    margin-top: 8px !important;
+    margin-top: 0 !important;
+  }
+
+  .ai-video-generation-container .task-sidebar--mobile-panel {
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .ai-video-generation-container
+    .main-content--mobile-panels
+    > *:not(.ai-generation-mobile-panel--hidden) {
+    animation: ai-generation-panel-enter 0.2s ease;
   }
 
   /* 操作按钮区域 */
@@ -206,6 +267,13 @@
   .task-list {
     max-height: none !important;
     overflow: visible !important;
+  }
+
+  .ai-video-generation-container
+    .ai-image-generation-section.ai-generation-mobile-panel--hidden,
+  .ai-video-generation-container
+    .task-sidebar.ai-generation-mobile-panel--hidden {
+    display: none !important;
   }
 }
 

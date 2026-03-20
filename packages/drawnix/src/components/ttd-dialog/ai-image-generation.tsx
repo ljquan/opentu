@@ -9,6 +9,7 @@ import './ttd-dialog.scss';
 import './ai-image-generation.scss';
 import { useI18n } from '../../i18n';
 import { type Language } from '../../constants/prompts';
+import { useDeviceType } from '../../hooks/useDeviceType';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import { TaskType } from '../../types/task.types';
 import { MessagePlugin } from 'tdesign-react';
@@ -149,7 +150,10 @@ const AIImageGeneration = ({
   const [taskListWidth, setTaskListWidth] = useState(() =>
     loadSavedWidth('image')
   );
+  const [mobilePanel, setMobilePanel] = useState<'config' | 'tasks'>('config');
   const containerRef = useRef<HTMLDivElement>(null);
+  const { viewportWidth } = useDeviceType();
+  const isCompactLayout = viewportWidth <= 768;
 
   // Use generation history from task queue
   const { imageHistory } = useGenerationHistory();
@@ -368,6 +372,7 @@ const AIImageGeneration = ({
     setUploadedImages([]);
     setError(null);
     setAspectRatio(DEFAULT_ASPECT_RATIO); // 重置比例
+    setMobilePanel('config');
     // Clear manual edit mode
     setIsManualEdit(false);
     // 触发Footer组件更新
@@ -395,6 +400,7 @@ const AIImageGeneration = ({
 
     // 标记为手动编辑模式,防止 props 的 useEffect 覆盖我们的更改
     setIsManualEdit(true);
+    setMobilePanel('config');
 
     // 直接更新表单状态
     setPrompt(task.params.prompt || '');
@@ -557,6 +563,7 @@ const AIImageGeneration = ({
 
           savePromptToHistory(finalPrompt);
           setError(null);
+          setMobilePanel('tasks');
           // Clear manual edit mode after batch generating
           setIsManualEdit(false);
         } else {
@@ -630,6 +637,7 @@ const AIImageGeneration = ({
 
         // 只清除预览和错误，保留表单数据（prompt和参考图）
         setError(null);
+        setMobilePanel('tasks');
         // Clear manual edit mode after generating
         setIsManualEdit(false);
       } else {
@@ -676,9 +684,47 @@ const AIImageGeneration = ({
 
   return (
     <div className="ai-image-generation-container">
-      <div className="main-content" ref={containerRef}>
+      {isCompactLayout ? (
+        <div className="ai-generation-mobile-switcher" role="tablist">
+          <button
+            type="button"
+            className={`ai-generation-mobile-switcher__tab ${
+              mobilePanel === 'config'
+                ? 'ai-generation-mobile-switcher__tab--active'
+                : ''
+            }`}
+            onClick={() => setMobilePanel('config')}
+          >
+            生成设置
+          </button>
+          <button
+            type="button"
+            className={`ai-generation-mobile-switcher__tab ${
+              mobilePanel === 'tasks'
+                ? 'ai-generation-mobile-switcher__tab--active'
+                : ''
+            }`}
+            onClick={() => setMobilePanel('tasks')}
+          >
+            生成任务
+          </button>
+        </div>
+      ) : null}
+
+      <div
+        className={`main-content ${
+          isCompactLayout ? 'main-content--mobile-panels' : ''
+        }`}
+        ref={containerRef}
+      >
         {/* AI 图片生成表单 */}
-        <div className="ai-image-generation-section">
+        <div
+          className={`ai-image-generation-section ${
+            isCompactLayout && mobilePanel !== 'config'
+              ? 'ai-generation-mobile-panel--hidden'
+              : ''
+          }`}
+        >
           <div className="ai-image-generation-form">
             {/* 模型选择器 */}
             {selectedModel !== undefined && onModelChange && (
@@ -782,21 +828,32 @@ const AIImageGeneration = ({
           />
         </div>
 
-        {/* 可拖动分隔条 */}
-        <ResizableDivider
-          isRightPanelVisible={isTaskListVisible}
-          onToggleRightPanel={handleToggleTaskList}
-          onWidthChange={handleWidthChange}
-          rightPanelWidth={taskListWidth}
-          language={language}
-          storageKey="image"
-        />
+        {!isCompactLayout ? (
+          <ResizableDivider
+            isRightPanelVisible={isTaskListVisible}
+            onToggleRightPanel={handleToggleTaskList}
+            onWidthChange={handleWidthChange}
+            rightPanelWidth={taskListWidth}
+            language={language}
+            storageKey="image"
+          />
+        ) : null}
 
         {/* 任务列表侧栏 */}
-        {isTaskListVisible && (
+        {(isCompactLayout || isTaskListVisible) && (
           <div
-            className="task-sidebar"
-            style={{ width: taskListWidth, flexShrink: 0 }}
+            className={`task-sidebar ${
+              isCompactLayout ? 'task-sidebar--mobile-panel' : ''
+            } ${
+              isCompactLayout && mobilePanel !== 'tasks'
+                ? 'ai-generation-mobile-panel--hidden'
+                : ''
+            }`}
+            style={
+              isCompactLayout
+                ? undefined
+                : { width: taskListWidth, flexShrink: 0 }
+            }
           >
             <DialogTaskList
               taskType={TaskType.IMAGE}

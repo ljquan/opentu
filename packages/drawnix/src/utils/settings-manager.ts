@@ -103,6 +103,11 @@ export interface ResolvedInvocationRoute {
 
 export const LEGACY_DEFAULT_PROVIDER_PROFILE_ID = 'legacy-default';
 export const DEFAULT_INVOCATION_PRESET_ID = 'default';
+export const TUZI_ORIGINAL_PROVIDER_PROFILE_ID = 'tuzi-origin';
+export const TUZI_PROVIDER_ICON_URL = '/logo-tuzi.png';
+export const TUZI_PROVIDER_DEFAULT_BASE_URL = 'https://api.tu-zi.com/v1';
+export const TUZI_DEFAULT_PROVIDER_NAME = '兔子 AI';
+export const TUZI_ORIGINAL_PROVIDER_NAME = '兔子 原价';
 
 const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   supportsModelsEndpoint: true,
@@ -116,7 +121,7 @@ const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
 const DEFAULT_SETTINGS: AppSettings = {
   gemini: {
     apiKey: '',
-    baseUrl: 'https://api.tu-zi.com/v1',
+    baseUrl: TUZI_PROVIDER_DEFAULT_BASE_URL,
     chatModel: 'gpt-5',
     imageModelName: 'gemini-3-pro-image-preview-vip',
     videoModelName: 'veo3.1',
@@ -331,6 +336,38 @@ class SettingsManager {
     return 'bearer';
   }
 
+  private normalizeProviderType(
+    baseUrl: string,
+    providerType?: ProviderType | string | null
+  ): ProviderType {
+    if (
+      providerType === 'openai-compatible' ||
+      providerType === 'gemini-compatible' ||
+      providerType === 'custom'
+    ) {
+      return providerType;
+    }
+
+    return this.inferProviderType(baseUrl);
+  }
+
+  private normalizeProviderAuthType(
+    baseUrl: string,
+    providerType: ProviderType,
+    authType?: ProviderAuthType | string | null
+  ): ProviderAuthType {
+    if (
+      authType === 'header' ||
+      authType === 'query' ||
+      authType === 'custom' ||
+      authType === 'bearer'
+    ) {
+      return authType;
+    }
+
+    return this.inferProviderAuthType(baseUrl, providerType);
+  }
+
   private normalizeCapabilities(value: unknown): ProviderCapabilities {
     const capabilities =
       value && typeof value === 'object'
@@ -361,22 +398,59 @@ class SettingsManager {
     return Object.keys(result).length > 0 ? result : undefined;
   }
 
-  private buildLegacyDefaultProfile(gemini: GeminiSettings): ProviderProfile {
-    const providerType = this.inferProviderType(
-      gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl
+  private buildLegacyDefaultProfile(
+    gemini: GeminiSettings,
+    profile?: Partial<ProviderProfile>
+  ): ProviderProfile {
+    const baseUrl = gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl;
+    const providerType = this.normalizeProviderType(
+      baseUrl,
+      profile?.providerType
     );
     return {
       id: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
-      name: '默认供应商',
+      name: TUZI_DEFAULT_PROVIDER_NAME,
+      iconUrl: TUZI_PROVIDER_ICON_URL,
       providerType,
-      baseUrl: gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl,
+      baseUrl,
       apiKey: gemini.apiKey || '',
-      authType: this.inferProviderAuthType(
-        gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl,
-        providerType
+      authType: this.normalizeProviderAuthType(
+        baseUrl,
+        providerType,
+        profile?.authType
       ),
       enabled: true,
       capabilities: { ...DEFAULT_PROVIDER_CAPABILITIES },
+    };
+  }
+
+  private buildTuziOriginalProfile(
+    profile?: Partial<ProviderProfile>
+  ): ProviderProfile {
+    const baseUrl =
+      typeof profile?.baseUrl === 'string' && profile.baseUrl.trim()
+        ? profile.baseUrl
+        : TUZI_PROVIDER_DEFAULT_BASE_URL;
+    const providerType = this.normalizeProviderType(
+      baseUrl,
+      profile?.providerType
+    );
+
+    return {
+      id: TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
+      name: TUZI_ORIGINAL_PROVIDER_NAME,
+      iconUrl: TUZI_PROVIDER_ICON_URL,
+      providerType,
+      baseUrl,
+      apiKey: typeof profile?.apiKey === 'string' ? profile.apiKey : '',
+      authType: this.normalizeProviderAuthType(
+        baseUrl,
+        providerType,
+        profile?.authType
+      ),
+      extraHeaders: this.normalizeStringRecord(profile?.extraHeaders),
+      enabled: profile?.enabled !== false,
+      capabilities: this.normalizeCapabilities(profile?.capabilities),
     };
   }
 
@@ -426,13 +500,12 @@ class SettingsManager {
         }
         usedIds.add(id);
 
-        const providerType: ProviderType =
-          profile.providerType === 'gemini-compatible' ||
-          profile.providerType === 'custom'
-            ? profile.providerType
-            : 'openai-compatible';
         const baseUrl =
           typeof profile.baseUrl === 'string' ? profile.baseUrl : '';
+        const providerType = this.normalizeProviderType(
+          baseUrl,
+          profile.providerType
+        );
 
         return {
           id,
@@ -444,13 +517,11 @@ class SettingsManager {
           providerType,
           baseUrl,
           apiKey: typeof profile.apiKey === 'string' ? profile.apiKey : '',
-          authType:
-            profile.authType === 'header' ||
-            profile.authType === 'query' ||
-            profile.authType === 'custom' ||
-            profile.authType === 'bearer'
-              ? profile.authType
-              : this.inferProviderAuthType(baseUrl, providerType),
+          authType: this.normalizeProviderAuthType(
+            baseUrl,
+            providerType,
+            profile.authType
+          ),
           extraHeaders: this.normalizeStringRecord(profile.extraHeaders),
           enabled: profile.enabled !== false,
           capabilities: this.normalizeCapabilities(profile.capabilities),
@@ -604,24 +675,36 @@ class SettingsManager {
   }
 
   private ensureLegacyCompatibility(settings: AppSettings): AppSettings {
-    const legacyProfile = this.buildLegacyDefaultProfile(settings.gemini);
-    const legacyPreset = this.buildLegacyDefaultPreset(settings.gemini);
-
-    const providerProfiles = [...settings.providerProfiles];
-    const legacyProfileIndex = providerProfiles.findIndex(
+    const existingLegacyProfile = settings.providerProfiles.find(
       (profile) => profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID
     );
-    if (legacyProfileIndex >= 0) {
-      const existingProfile = providerProfiles[legacyProfileIndex];
-      providerProfiles[legacyProfileIndex] = {
-        ...existingProfile,
-        ...legacyProfile,
-        name: existingProfile.name || legacyProfile.name,
-        extraHeaders: existingProfile.extraHeaders,
-      };
-    } else {
-      providerProfiles.unshift(legacyProfile);
-    }
+    const existingTuziOriginProfile = settings.providerProfiles.find(
+      (profile) => profile.id === TUZI_ORIGINAL_PROVIDER_PROFILE_ID
+    );
+
+    const legacyProfile = {
+      ...this.buildLegacyDefaultProfile(settings.gemini, existingLegacyProfile),
+      extraHeaders: this.normalizeStringRecord(
+        existingLegacyProfile?.extraHeaders
+      ),
+      capabilities: this.normalizeCapabilities(
+        existingLegacyProfile?.capabilities
+      ),
+    };
+    const tuziOriginProfile = this.buildTuziOriginalProfile(
+      existingTuziOriginProfile
+    );
+    const legacyPreset = this.buildLegacyDefaultPreset(settings.gemini);
+
+    const providerProfiles = [
+      legacyProfile,
+      tuziOriginProfile,
+      ...settings.providerProfiles.filter(
+        (profile) =>
+          profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
+          profile.id !== TUZI_ORIGINAL_PROVIDER_PROFILE_ID
+      ),
+    ];
 
     const validProfileIds = new Set(
       providerProfiles.map((profile) => profile.id)
@@ -647,6 +730,21 @@ class SettingsManager {
         discoveredModels: [],
         selectedModelIds: [],
         sourceBaseUrl: legacyProfile.baseUrl,
+        error: null,
+      });
+    }
+
+    if (
+      !providerCatalogs.some(
+        (catalog) => catalog.profileId === TUZI_ORIGINAL_PROVIDER_PROFILE_ID
+      )
+    ) {
+      providerCatalogs.push({
+        profileId: TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
+        discoveredAt: null,
+        discoveredModels: [],
+        selectedModelIds: [],
+        sourceBaseUrl: tuziOriginProfile.baseUrl,
         error: null,
       });
     }

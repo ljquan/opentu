@@ -1,14 +1,23 @@
 import { useDrawnix } from '../../hooks/use-drawnix';
+import { useDeviceType } from '../../hooks/useDeviceType';
 import './settings-dialog.scss';
 import {
   useDeferredValue,
   useEffect,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react';
 import { MessagePlugin, Tooltip, Switch } from 'tdesign-react';
 import { InfoCircleIcon } from 'tdesign-icons-react';
-import { AlertTriangle, Loader2, Search, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Search,
+  X,
+} from 'lucide-react';
 import { LS_KEYS } from '../../constants/storage-keys';
 import { ModelDiscoveryDialog } from './model-discovery-dialog';
 import {
@@ -38,6 +47,8 @@ import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   providerCatalogsSettings,
   providerProfilesSettings,
+  TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
+  TUZI_PROVIDER_DEFAULT_BASE_URL,
   type InvocationPreset,
   type ModelRef,
   type ProviderProfile,
@@ -55,6 +66,7 @@ export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } fro
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
 
 type SettingsView = 'providers' | 'presets' | 'canvas';
+type CompactPanelMode = 'catalog' | 'detail';
 
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
   { value: 'providers', label: '供应商' },
@@ -261,6 +273,13 @@ function inferAuthTypeForProviderType(
   return 'bearer';
 }
 
+function isManagedProviderProfile(profileId: string): boolean {
+  return (
+    profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID ||
+    profileId === TUZI_ORIGINAL_PROVIDER_PROFILE_ID
+  );
+}
+
 const ProviderAvatar = ({
   profile,
   size = 'regular',
@@ -388,6 +407,11 @@ export const SettingsDialog = ({
   container: HTMLElement | null;
 }) => {
   const { appState, setAppState } = useDrawnix();
+  const {
+    isMobile: isMobileDevice,
+    viewportWidth,
+    viewportHeight,
+  } = useDeviceType();
 
   const [activeView, setActiveView] = useState<SettingsView>('providers');
   const [selectedProfileId, setSelectedProfileId] = useState(
@@ -410,6 +434,10 @@ export const SettingsDialog = ({
   const [discoveryDialogOpen, setDiscoveryDialogOpen] = useState(false);
   const [initialDraftSignature, setInitialDraftSignature] = useState('');
   const [isPersisting, setIsPersisting] = useState(false);
+  const [compactProviderMode, setCompactProviderMode] =
+    useState<CompactPanelMode>('catalog');
+  const [compactPresetMode, setCompactPresetMode] =
+    useState<CompactPanelMode>('catalog');
 
   const selectedProfile =
     profilesDraft.find((profile) => profile.id === selectedProfileId) ||
@@ -438,6 +466,7 @@ export const SettingsDialog = ({
   );
 
   const enabledProfiles = profilesDraft.filter((profile) => profile.enabled);
+  const isCompactLayout = isMobileDevice || viewportWidth <= 980;
   const canManageModels = !!selectedProfile && !!selectedProfile.apiKey.trim();
   const currentDraftSignature = createSettingsDraftSignature({
     profiles: profilesDraft,
@@ -450,6 +479,38 @@ export const SettingsDialog = ({
   });
   const hasPendingChanges =
     appState.openSettings && currentDraftSignature !== initialDraftSignature;
+
+  const handleViewChange = (nextView: SettingsView) => {
+    setActiveView(nextView);
+
+    if (!isCompactLayout) {
+      return;
+    }
+
+    if (nextView === 'providers') {
+      setCompactProviderMode('catalog');
+    }
+
+    if (nextView === 'presets') {
+      setCompactPresetMode('catalog');
+    }
+  };
+
+  const handleSelectProfile = (profileId: string) => {
+    setSelectedProfileId(profileId);
+
+    if (isCompactLayout) {
+      setCompactProviderMode('detail');
+    }
+  };
+
+  const handleSelectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+
+    if (isCompactLayout) {
+      setCompactPresetMode('detail');
+    }
+  };
 
   const readPersistedWorkZoneCard = () => {
     try {
@@ -524,6 +585,8 @@ export const SettingsDialog = ({
     setShowWorkZoneCard(nextShowWorkZoneCard);
 
     setActiveView('providers');
+    setCompactProviderMode('catalog');
+    setCompactPresetMode('catalog');
     setModelSearchQuery('');
     setDiscoveryDialogOpen(false);
     setInitialDraftSignature(
@@ -700,10 +763,14 @@ export const SettingsDialog = ({
     setProfilesDraft((current) => [...current, nextProfile]);
     setSelectedProfileId(nextProfile.id);
     setActiveView('providers');
+
+    if (isCompactLayout) {
+      setCompactProviderMode('detail');
+    }
   };
 
   const handleDeleteProfile = (profileId: string) => {
-    if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+    if (isManagedProviderProfile(profileId)) {
       return;
     }
 
@@ -719,6 +786,10 @@ export const SettingsDialog = ({
         remainingProfiles[0]?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID
       );
     }
+
+    if (isCompactLayout) {
+      setCompactProviderMode('catalog');
+    }
   };
 
   const handleAddPreset = () => {
@@ -731,6 +802,10 @@ export const SettingsDialog = ({
     setPresetsDraft((current) => [...current, nextPreset]);
     setSelectedPresetId(nextPreset.id);
     setActiveView('presets');
+
+    if (isCompactLayout) {
+      setCompactPresetMode('detail');
+    }
   };
 
   const handleDeletePreset = (presetId: string) => {
@@ -752,6 +827,10 @@ export const SettingsDialog = ({
       setSelectedPresetId(
         remainingPresets[0]?.id || DEFAULT_INVOCATION_PRESET_ID
       );
+    }
+
+    if (isCompactLayout) {
+      setCompactPresetMode('catalog');
     }
   };
 
@@ -790,7 +869,7 @@ export const SettingsDialog = ({
 
     const trimmedApiKey = selectedProfile.apiKey.trim();
     const normalizedBaseUrl = normalizeModelApiBaseUrl(
-      selectedProfile.baseUrl.trim() || 'https://api.tu-zi.com/v1'
+      selectedProfile.baseUrl.trim() || TUZI_PROVIDER_DEFAULT_BASE_URL
     );
 
     if (!trimmedApiKey) {
@@ -947,7 +1026,7 @@ export const SettingsDialog = ({
         ) || normalizedProfiles[0];
 
       const normalizedLegacyBaseUrl = normalizeModelApiBaseUrl(
-        legacyProfile?.baseUrl || 'https://api.tu-zi.com/v1'
+        legacyProfile?.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL
       );
       const normalizedImageModel =
         imageModelName.trim() ||
@@ -971,7 +1050,7 @@ export const SettingsDialog = ({
       normalizedProfiles.forEach((profile) => {
         runtimeModelDiscovery.invalidateIfConfigChanged(
           profile.id,
-          profile.baseUrl || 'https://api.tu-zi.com/v1',
+          profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL,
           profile.apiKey || ''
         );
       });
@@ -1064,9 +1143,25 @@ export const SettingsDialog = ({
   const renderProviderList = () => (
     <div className="settings-dialog__sidebar-shell settings-dialog__sidebar-shell--catalog">
       <div className="settings-dialog__sidebar-summary">
-        <span className="settings-dialog__sidebar-summary-title">
-          供应商目录
-        </span>
+        <div className="settings-dialog__sidebar-summary-row">
+          <span className="settings-dialog__sidebar-summary-title">
+            供应商目录
+          </span>
+          {isCompactLayout ? (
+            <button
+              type="button"
+              className="settings-dialog__sidebar-summary-action"
+              onClick={handleAddProfile}
+            >
+              新增供应商
+            </button>
+          ) : null}
+        </div>
+        {isCompactLayout ? (
+          <span className="settings-dialog__sidebar-summary-text">
+            先从列表里选择供应商，再进入对应的配置页面。
+          </span>
+        ) : null}
       </div>
 
       <div className="settings-dialog__sidebar-list">
@@ -1085,25 +1180,45 @@ export const SettingsDialog = ({
               <button
                 type="button"
                 className="settings-dialog__provider-select"
-                onClick={() => setSelectedProfileId(profile.id)}
+                onClick={() => handleSelectProfile(profile.id)}
                 aria-pressed={isSelected}
               >
-                <ProviderAvatar profile={profile} />
-                <span className="settings-dialog__provider-copy">
-                  <span className="settings-dialog__provider-name-row">
-                    <span className="settings-dialog__provider-name">
-                      {profile.name}
+                <span className="settings-dialog__provider-select-main">
+                  <ProviderAvatar profile={profile} />
+                  <span className="settings-dialog__provider-copy">
+                    <span className="settings-dialog__provider-name-row">
+                      <span className="settings-dialog__provider-name">
+                        {profile.name}
+                      </span>
+                      {profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID ? (
+                        <span className="settings-dialog__provider-tag">
+                          默认
+                        </span>
+                      ) : null}
                     </span>
-                    {profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID ? (
-                      <span className="settings-dialog__provider-tag">
-                        默认
+                    {isCompactLayout ? (
+                      <span className="settings-dialog__provider-meta">
+                        <span>
+                          {PROVIDER_TYPE_META[profile.providerType].label}
+                        </span>
+                        <span>{profile.enabled ? '启用' : '停用'}</span>
                       </span>
                     ) : null}
                   </span>
                 </span>
+                {isCompactLayout ? (
+                  <ChevronRight
+                    size={16}
+                    className="settings-dialog__provider-arrow"
+                    aria-hidden="true"
+                  />
+                ) : null}
               </button>
 
               <div className="settings-dialog__provider-switch">
+                <span className="settings-dialog__provider-switch-copy">
+                  {profile.enabled ? '启用' : '停用'}
+                </span>
                 <Switch
                   size="small"
                   value={profile.enabled}
@@ -1121,21 +1236,41 @@ export const SettingsDialog = ({
         })}
       </div>
 
-      <button
-        type="button"
-        className="settings-dialog__sidebar-add"
-        onClick={handleAddProfile}
-      >
-        <span className="settings-dialog__sidebar-add-icon">+</span>
-        <span>新增供应商</span>
-      </button>
+      {!isCompactLayout ? (
+        <button
+          type="button"
+          className="settings-dialog__sidebar-add"
+          onClick={handleAddProfile}
+        >
+          <span className="settings-dialog__sidebar-add-icon">+</span>
+          <span>新增供应商</span>
+        </button>
+      ) : null}
     </div>
   );
 
   const renderPresetList = () => (
     <div className="settings-dialog__sidebar-shell">
       <div className="settings-dialog__sidebar-summary">
-        <span className="settings-dialog__sidebar-summary-title">默认模型</span>
+        <div className="settings-dialog__sidebar-summary-row">
+          <span className="settings-dialog__sidebar-summary-title">
+            默认模型
+          </span>
+          {isCompactLayout ? (
+            <button
+              type="button"
+              className="settings-dialog__sidebar-summary-action"
+              onClick={handleAddPreset}
+            >
+              新增预设
+            </button>
+          ) : null}
+        </div>
+        {isCompactLayout ? (
+          <span className="settings-dialog__sidebar-summary-text">
+            先选中一个预设，再进入详情页调整默认路由。
+          </span>
+        ) : null}
       </div>
 
       <div className="settings-dialog__sidebar-list">
@@ -1151,37 +1286,61 @@ export const SettingsDialog = ({
               className={`settings-dialog__sidebar-item ${
                 isSelected ? 'settings-dialog__sidebar-item--active' : ''
               }`}
-              onClick={() => setSelectedPresetId(preset.id)}
+              onClick={() => handleSelectPreset(preset.id)}
             >
-              <div className="settings-dialog__sidebar-item-top">
-                <span>{preset.name}</span>
-                {isActive ? (
-                  <span className="settings-dialog__sidebar-badge settings-dialog__sidebar-badge--accent">
-                    当前
-                  </span>
+              <div className="settings-dialog__sidebar-item-head">
+                <div className="settings-dialog__sidebar-item-top">
+                  <span>{preset.name}</span>
+                  {isActive ? (
+                    <span className="settings-dialog__sidebar-badge settings-dialog__sidebar-badge--accent">
+                      当前
+                    </span>
+                  ) : null}
+                </div>
+                {isCompactLayout ? (
+                  <ChevronRight
+                    size={16}
+                    className="settings-dialog__sidebar-item-arrow"
+                    aria-hidden="true"
+                  />
                 ) : null}
               </div>
 
               <div className="settings-dialog__sidebar-item-meta">
                 <span>{configuredRouteCount}/3 已配置</span>
+                {isCompactLayout ? (
+                  <span>{isActive ? '正在生效' : '点击查看详情'}</span>
+                ) : null}
               </div>
             </button>
           );
         })}
       </div>
 
-      <button
-        type="button"
-        className="settings-dialog__sidebar-add"
-        onClick={handleAddPreset}
-      >
-        <span className="settings-dialog__sidebar-add-icon">+</span>
-        <span>新增预设</span>
-      </button>
+      {!isCompactLayout ? (
+        <button
+          type="button"
+          className="settings-dialog__sidebar-add"
+          onClick={handleAddPreset}
+        >
+          <span className="settings-dialog__sidebar-add-icon">+</span>
+          <span>新增预设</span>
+        </button>
+      ) : null}
     </div>
   );
 
-  const renderProviderForm = () => {
+  const renderCompactCatalog = (stageKey: string, content: ReactNode) => (
+    <div className="settings-dialog__workspace settings-dialog__workspace--single">
+      <div className="settings-dialog__content-panel settings-dialog__content-panel--compact">
+        <div key={stageKey} className="settings-dialog__mobile-stage">
+          {content}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderProviderForm = (compactMode = false) => {
     if (!selectedProfile) {
       return (
         <div className="settings-dialog__empty-panel">请选择一个供应商。</div>
@@ -1194,7 +1353,32 @@ export const SettingsDialog = ({
       selectedCounts.image + selectedCounts.video + selectedCounts.text;
 
     return (
-      <div className="settings-dialog__content-panel settings-dialog__content-panel--providers">
+      <div
+        key={compactMode ? `provider-detail-${selectedProfile.id}` : undefined}
+        className={`settings-dialog__content-panel settings-dialog__content-panel--providers ${
+          compactMode ? 'settings-dialog__content-panel--detail' : ''
+        }`}
+      >
+        {compactMode ? (
+          <div className="settings-dialog__compact-stage-header">
+            <button
+              type="button"
+              className="settings-dialog__compact-back"
+              onClick={() => setCompactProviderMode('catalog')}
+            >
+              <ChevronLeft size={16} />
+              <span>返回供应商目录</span>
+            </button>
+            <div className="settings-dialog__compact-stage-copy">
+              <span className="settings-dialog__compact-stage-eyebrow">
+                供应商配置
+              </span>
+              <p className="settings-dialog__compact-stage-text">
+                进入详情后再编辑接口信息、密钥和模型同步配置。
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="settings-dialog__section settings-dialog__section--compact">
           <div className="settings-dialog__panel-header">
             <div className="settings-dialog__profile-hero">
@@ -1213,7 +1397,7 @@ export const SettingsDialog = ({
                 </div>
               </div>
             </div>
-            {selectedProfile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID ? (
+            {!isManagedProviderProfile(selectedProfile.id) ? (
               <button
                 type="button"
                 className="settings-dialog__danger-button"
@@ -1362,7 +1546,7 @@ export const SettingsDialog = ({
                     baseUrl: event.target.value,
                   }))
                 }
-                placeholder="https://api.tu-zi.com/v1"
+                placeholder={TUZI_PROVIDER_DEFAULT_BASE_URL}
               />
             </div>
 
@@ -1702,7 +1886,7 @@ export const SettingsDialog = ({
     );
   };
 
-  const renderPresetManagement = () => {
+  const renderPresetManagement = (compactMode = false) => {
     if (!selectedPreset) {
       return (
         <div className="settings-dialog__empty-panel">
@@ -1715,7 +1899,32 @@ export const SettingsDialog = ({
     const isActive = selectedPreset.id === activePresetIdDraft;
 
     return (
-      <div className="settings-dialog__content-panel">
+      <div
+        key={compactMode ? `preset-detail-${selectedPreset.id}` : undefined}
+        className={`settings-dialog__content-panel ${
+          compactMode ? 'settings-dialog__content-panel--detail' : ''
+        }`}
+      >
+        {compactMode ? (
+          <div className="settings-dialog__compact-stage-header">
+            <button
+              type="button"
+              className="settings-dialog__compact-back"
+              onClick={() => setCompactPresetMode('catalog')}
+            >
+              <ChevronLeft size={16} />
+              <span>返回模型预设</span>
+            </button>
+            <div className="settings-dialog__compact-stage-copy">
+              <span className="settings-dialog__compact-stage-eyebrow">
+                模型预设
+              </span>
+              <p className="settings-dialog__compact-stage-text">
+                在这里设置图片、视频和文本模型的默认路由。
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="settings-dialog__section">
           <div className="settings-dialog__panel-header">
             <div>
@@ -1791,7 +2000,19 @@ export const SettingsDialog = ({
   const renderCanvasSettings = () => (
     <div className="settings-dialog__workspace settings-dialog__workspace--single">
       <div className="settings-dialog__content-panel settings-dialog__content-panel--canvas">
-        <div className="settings-dialog__section">
+        {isCompactLayout ? (
+          <div className="settings-dialog__compact-stage-header">
+            <div className="settings-dialog__compact-stage-copy">
+              <span className="settings-dialog__compact-stage-eyebrow">
+                画布显示
+              </span>
+              <p className="settings-dialog__compact-stage-text">
+                手机上会以更集中的卡片形式展示，方便快速切换画布相关开关。
+              </p>
+            </div>
+          </div>
+        ) : null}
+        <div className="settings-dialog__section settings-dialog__section--canvas-card">
           <div className="settings-dialog__section-header">
             <div>
               <h3 className="settings-dialog__section-title">画布显示配置</h3>
@@ -1834,7 +2055,7 @@ export const SettingsDialog = ({
                     ? 'settings-dialog__nav-item--active'
                     : ''
                 }`}
-                onClick={() => setActiveView(item.value)}
+                onClick={() => handleViewChange(item.value)}
               >
                 <span className="settings-dialog__nav-item-title">
                   {item.label}
@@ -1853,6 +2074,12 @@ export const SettingsDialog = ({
     }
 
     if (activeView === 'presets') {
+      if (isCompactLayout) {
+        return compactPresetMode === 'catalog'
+          ? renderCompactCatalog('presets-catalog', renderPresetList())
+          : renderPresetManagement(true);
+      }
+
       return (
         <div className="settings-dialog__workspace">
           <aside className="settings-dialog__sidebar">
@@ -1861,6 +2088,12 @@ export const SettingsDialog = ({
           {renderPresetManagement()}
         </div>
       );
+    }
+
+    if (isCompactLayout) {
+      return compactProviderMode === 'catalog'
+        ? renderCompactCatalog('providers-catalog', renderProviderList())
+        : renderProviderForm(true);
     }
 
     return (
@@ -1879,20 +2112,29 @@ export const SettingsDialog = ({
         visible={appState.openSettings}
         title="设置"
         onClose={handleWindowClose}
-        width="88%"
-        height="88%"
-        minWidth={1080}
-        minHeight={680}
+        width={isCompactLayout ? '100%' : '88%'}
+        height={isCompactLayout ? '100%' : '88%'}
+        minWidth={
+          isCompactLayout
+            ? Math.max(320, Math.min(viewportWidth - 16, 640))
+            : 1080
+        }
+        minHeight={
+          isCompactLayout
+            ? Math.max(520, Math.min(viewportHeight - 16, 820))
+            : 680
+        }
         x="center"
         y="center"
         maximizable={true}
         minimizable={false}
-        resizable={true}
-        movable={true}
+        resizable={!isCompactLayout}
+        movable={!isCompactLayout}
         modal={false}
         className="winbox-ai-generation winbox-tool-window winbox-settings-window"
         container={container}
         background="#ffffff"
+        autoMaximize={isCompactLayout}
       >
         <div className="settings-dialog" data-testid="settings-dialog">
           <div className="settings-dialog__layout">
