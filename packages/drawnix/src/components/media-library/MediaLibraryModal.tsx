@@ -15,7 +15,7 @@ import type {
   Asset,
 } from '../../types/asset.types';
 import { AssetType, AssetSource, SelectionMode } from '../../types/asset.types';
-import { downloadFile } from '@aitu/utils';
+import { downloadFile, normalizeImageDataUrl } from '@aitu/utils';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { removeElementsByAssetId, removeElementsByAssetUrl, isCacheUrl } from '../../utils/asset-cleanup';
 import { isZipFile, extractMediaFromZip } from '../../utils/zip-utils';
@@ -318,7 +318,11 @@ export function MediaLibraryModal({
                 onRename={renameAsset}
                 onDelete={handleRemoveAsset}
                 onDownload={(asset) => {
-                  downloadFile(asset.url, asset.name);
+                  const downloadUrl =
+                    asset.type === AssetType.IMAGE
+                      ? normalizeImageDataUrl(asset.url)
+                      : asset.url;
+                  downloadFile(downloadUrl, asset.name);
                 }}
                 onSelect={showSelectButton ? handleUseAsset : undefined}
                 showSelectButton={showSelectButton}
@@ -345,7 +349,11 @@ export function MediaLibraryModal({
             onRename={renameAsset}
             onDelete={handleRemoveAsset}
             onDownload={(asset) => {
-              downloadFile(asset.url, asset.name);
+              const downloadUrl =
+                asset.type === AssetType.IMAGE
+                  ? normalizeImageDataUrl(asset.url)
+                  : asset.url;
+              downloadFile(downloadUrl, asset.name);
             }}
             onSelect={showSelectButton ? handleUseAsset : undefined}
             showSelectButton={showSelectButton}

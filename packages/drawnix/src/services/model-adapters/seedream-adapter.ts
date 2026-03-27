@@ -4,6 +4,8 @@ import type {
   ImageModelAdapter,
 } from './types';
 import { registerModelAdapter } from './registry';
+import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
+import { sendAdapterRequest } from './context';
 
 const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';
 const SEEDREAM_MODELS = [
@@ -112,19 +114,13 @@ const resolveBaseUrl = (context: AdapterContext): string => {
   return context.baseUrl.replace(/\/$/, '');
 };
 
-const resolveFetcher = (context: AdapterContext): typeof fetch => {
-  return context.fetcher || fetch;
-};
-
-const buildAuthHeader = (context: AdapterContext): Record<string, string> => {
-  return context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : {};
-};
-
 export const seedreamImageAdapter: ImageModelAdapter = {
   id: 'seedream-image-adapter',
   label: 'Seedream Image',
   kind: 'image',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchProtocols: ['openai.images.generations'],
+  matchRequestSchemas: ['openai.image.seedream-json'],
   matchTags: ['seedream'],
   supportedModels: SEEDREAM_MODELS,
   defaultModel: DEFAULT_SEEDREAM_MODEL,
@@ -153,16 +149,17 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     }
 
     const baseUrl = resolveBaseUrl(context);
-    const response = await resolveFetcher(context)(
-      `${baseUrl}/images/generations`,
+    const response = await sendAdapterRequest(
+      context,
       {
+        path: '/images/generations',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...buildAuthHeader(context),
         },
         body: JSON.stringify(body),
-      }
+      },
+      baseUrl
     );
 
     if (!response.ok) {
@@ -182,15 +179,23 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     if (result?.data && Array.isArray(result.data) && result.data.length > 0) {
       const urls = result.data
         .map((item: any) => {
-          if (item.url) return item.url;
-          if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+          const rawValue = item.url || item.b64_json;
+          if (typeof rawValue === 'string') {
+            return normalizeImageDataUrl(rawValue);
+          }
           return undefined;
         })
         .filter(Boolean) as string[];
 
       const first = urls[0];
       if (first) {
-        return { url: first, urls, format: 'png', raw: result };
+        const format = getFileExtension(first);
+        return {
+          url: first,
+          urls,
+          format: format === 'bin' ? 'png' : format,
+          raw: result,
+        };
       }
     }
 

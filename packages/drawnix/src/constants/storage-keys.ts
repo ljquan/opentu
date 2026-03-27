@@ -35,6 +35,12 @@ export const LS_KEYS = {
   AI_IMAGE_AUTO_INSERT: 'aitu_image_auto_insert_canvas',
   /** 视频生成后是否自动插入画布 */
   AI_VIDEO_AUTO_INSERT: 'aitu_video_auto_insert_canvas',
+  /** 底部 AI 输入栏参数偏好 */
+  AI_INPUT_PREFERENCES: 'aitu_ai_input_preferences',
+  /** AI 图片工具参数偏好 */
+  AI_IMAGE_TOOL_PREFERENCES: 'aitu_ai_image_tool_preferences',
+  /** AI 视频工具参数偏好 */
+  AI_VIDEO_TOOL_PREFERENCES: 'aitu_ai_video_tool_preferences',
   /** 是否显示画布上的 WorkZone 进度卡片 */
   WORKZONE_CARD_VISIBLE: 'aitu_workzone_card_visible',
 

@@ -11,8 +11,12 @@ import { chatService } from '../services/chat-service';
 import { MessageStatus, MessageRole } from '../types/chat.types';
 import type { ChatMessage, WorkflowMessageData } from '../types/chat.types';
 import type { ChatHandler, Message } from '@llamaindex/chat-ui';
+import type { ModelRef } from '../utils/settings-manager';
 import { generateSystemPrompt } from '../services/agent';
-import { parseToolCalls, extractTextContent } from '../services/agent/tool-parser';
+import {
+  parseToolCalls,
+  extractTextContent,
+} from '../services/agent/tool-parser';
 import { mcpRegistry, initializeMCP } from '../mcp';
 import type { ToolCall, MCPTaskResult } from '../mcp/types';
 import {
@@ -39,7 +43,7 @@ interface ToolCallResult {
 interface UseChatHandlerOptions {
   sessionId: string | null;
   /** 临时模型（仅在当前会话中使用，不影响全局设置） */
-  temporaryModel?: string;
+  temporaryModel?: string | ModelRef | null;
   /** 工具调用回调 - 当 AI 响应中包含工具调用时触发 */
   onToolCalls?: (
     toolCalls: ToolCall[],
@@ -54,8 +58,14 @@ interface UseChatHandlerOptions {
 
 export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   isLoading: boolean;
-  setMessagesWithRaw: (newMessages: Message[], rawChatMessages?: ChatMessage[]) => void;
-  updateRawMessageWorkflow: (messageId: string, workflow: WorkflowMessageData) => void;
+  setMessagesWithRaw: (
+    newMessages: Message[],
+    rawChatMessages?: ChatMessage[]
+  ) => void;
+  updateRawMessageWorkflow: (
+    messageId: string,
+    workflow: WorkflowMessageData
+  ) => void;
 } {
   const { sessionId, temporaryModel, onToolCalls, onWorkflowUpdate } = options;
 
@@ -110,10 +120,12 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   const sendMessage = useCallback(
     async (msg: Message) => {
       if (!sessionId) return;
-      
+
       // 防止重复发送
       if (isSendingRef.current) {
-        console.warn('[useChatHandler] Message already being sent, ignoring duplicate call');
+        console.warn(
+          '[useChatHandler] Message already being sent, ignoring duplicate call'
+        );
         return;
       }
       isSendingRef.current = true;
@@ -164,7 +176,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
         await chatService.sendChatMessage(
           history.slice(0, -1), // Exclude the new user message from history
           userContent,
-          [], // Attachments handled separately
+          ourMsg.attachments || [],
           (event) => {
             if (event.type === 'content' && event.content) {
               fullContent += event.content;
@@ -178,18 +190,23 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
             } else if (event.type === 'done') {
               // 解析工具调用
               const toolCalls = parseToolCalls(fullContent);
-              const textContent = extractTextContent(fullContent) || fullContent;
+              const textContent =
+                extractTextContent(fullContent) || fullContent;
 
               if (toolCalls.length > 0 && onToolCallsRef.current) {
                 // 为生成工具注入正确的模型
-                const processedToolCalls = toolCalls.map((tc) => injectModelForGenerationTool(tc));
+                const processedToolCalls = toolCalls.map((tc) =>
+                  injectModelForGenerationTool(tc)
+                );
 
                 // 有工具调用，创建执行函数
                 const executeTools = async (): Promise<ToolCallResult[]> => {
                   const results: ToolCallResult[] = [];
                   for (const toolCall of processedToolCalls) {
                     try {
-                      const result = await mcpRegistry.executeTool(toolCall) as MCPTaskResult;
+                      const result = (await mcpRegistry.executeTool(
+                        toolCall
+                      )) as MCPTaskResult;
                       results.push({
                         toolCall: toolCall as ToolCall,
                         success: result.success,
@@ -213,13 +230,23 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMsgId
-                      ? { ...m, parts: [{ type: 'text', text: workflowMessageContent }] }
+                      ? {
+                          ...m,
+                          parts: [
+                            { type: 'text', text: workflowMessageContent },
+                          ],
+                        }
                       : m
                   )
                 );
 
                 // 触发回调，让 ChatDrawer 处理工具执行和 UI 显示
-                onToolCallsRef.current(processedToolCalls as ToolCall[], assistantMsgId, executeTools, textContent);
+                onToolCallsRef.current(
+                  processedToolCalls as ToolCall[],
+                  assistantMsgId,
+                  executeTools,
+                  textContent
+                );
               }
 
               setStatus('ready');
@@ -230,13 +257,22 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
                 id: assistantMsgId,
                 sessionId,
                 role: MessageRole.ASSISTANT,
-                content: toolCalls.length > 0 ? `${WORKFLOW_MESSAGE_PREFIX}${assistantMsgId}` : fullContent,
+                content:
+                  toolCalls.length > 0
+                    ? `${WORKFLOW_MESSAGE_PREFIX}${assistantMsgId}`
+                    : fullContent,
                 timestamp: Date.now(),
-                status: toolCalls.length > 0 ? MessageStatus.STREAMING : MessageStatus.SUCCESS,
+                status:
+                  toolCalls.length > 0
+                    ? MessageStatus.STREAMING
+                    : MessageStatus.SUCCESS,
               };
               chatStorageService.addMessage(assistantChatMsg);
               // Update rawMessagesRef with the assistant message
-              rawMessagesRef.current = [...rawMessagesRef.current, assistantChatMsg];
+              rawMessagesRef.current = [
+                ...rawMessagesRef.current,
+                assistantChatMsg,
+              ];
               chatStorageService.updateSession(sessionId, {
                 updatedAt: Date.now(),
                 messageCount: (session?.messageCount || 0) + 2,
@@ -270,7 +306,10 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
               };
               chatStorageService.addMessage(errorChatMsg);
               // Update rawMessagesRef with the error message
-              rawMessagesRef.current = [...rawMessagesRef.current, errorChatMsg];
+              rawMessagesRef.current = [
+                ...rawMessagesRef.current,
+                errorChatMsg,
+              ];
 
               currentAssistantMsgRef.current = null;
               // 重置发送锁
@@ -370,25 +409,25 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   );
 
   // 同时设置 UI 消息和原始消息（用于工作流场景）
-  const setMessagesWithRaw = useCallback((
-    newMessages: Message[],
-    rawChatMessages?: ChatMessage[]
-  ) => {
-    setMessages(newMessages);
-    if (rawChatMessages) {
-      rawMessagesRef.current = rawChatMessages;
-    }
-  }, []);
+  const setMessagesWithRaw = useCallback(
+    (newMessages: Message[], rawChatMessages?: ChatMessage[]) => {
+      setMessages(newMessages);
+      if (rawChatMessages) {
+        rawMessagesRef.current = rawChatMessages;
+      }
+    },
+    []
+  );
 
   // 更新原始消息中的工作流数据（用于工作流更新场景）
-  const updateRawMessageWorkflow = useCallback((
-    messageId: string,
-    workflow: WorkflowMessageData
-  ) => {
-    rawMessagesRef.current = rawMessagesRef.current.map(msg =>
-      msg.id === messageId ? { ...msg, workflow } : msg
-    );
-  }, []);
+  const updateRawMessageWorkflow = useCallback(
+    (messageId: string, workflow: WorkflowMessageData) => {
+      rawMessagesRef.current = rawMessagesRef.current.map((msg) =>
+        msg.id === messageId ? { ...msg, workflow } : msg
+      );
+    },
+    []
+  );
 
   return {
     messages,

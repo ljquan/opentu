@@ -1,75 +1,97 @@
 /**
  * ModelSelector Component
  *
- * A modern dropdown component for selecting the chat model.
- * Features: search, grouping by provider, and badges.
- * 
- * Note: This selector manages a temporary/session-level model selection
- * that does NOT affect global settings. The global text model is configured
- * in the settings dialog.
+ * A provider-aware dropdown component for selecting the chat model.
+ * Features: search, vendor grouping, and provider-backed runtime model routing.
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useLayoutEffect,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from 'tdesign-react';
 import { ChevronDownIcon, SearchIcon } from 'tdesign-icons-react';
 import {
-  CHAT_MODELS,
-  DEFAULT_CHAT_MODEL_ID,
-  getChatModelById,
-  ModelProvider,
-  PROVIDER_NAMES,
-  type ModelBadge,
-} from '../../constants/CHAT_MODELS';
-import { ModelVendor } from '../../constants/model-config';
+  DEFAULT_TEXT_MODEL_ID,
+  type ModelConfig,
+  type ModelVendor,
+  VENDOR_NAMES,
+} from '../../constants/model-config';
+import { ModelVendorMark } from '../shared/ModelVendorBrand';
 import { VendorTabPanel, type VendorTab } from '../shared/VendorTabPanel';
-import { ProviderIcon } from './ProviderIcon';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { Z_INDEX } from '../../constants/z-index';
+import { useSelectableModels } from '../../hooks/use-runtime-models';
+import {
+  findMatchingSelectableModel,
+  getSelectionKey,
+  getSelectionKeyForModel,
+} from '../../utils/model-selection';
+import { createModelRef, type ModelRef } from '../../utils/settings-manager';
+import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 
 export interface ModelSelectorProps {
   className?: string;
   /** Current selected model ID (controlled mode) */
   value?: string;
+  /** Current selected model ref (controlled mode) */
+  valueRef?: ModelRef | null;
   /** Callback when model changes - does NOT save to global settings */
-  onChange?: (modelId: string) => void;
+  onChange?: (modelId: string, modelRef?: ModelRef | null) => void;
   /** Display variant: 'capsule' (default for chat drawer) or 'form' (for settings) */
   variant?: 'capsule' | 'form';
 }
 
-/** Badge color mapping */
-const BADGE_COLORS: Record<ModelBadge, string> = {
-  NEW: 'badge-new',
-  Fast: 'badge-fast',
-  Multimodal: 'badge-multimodal',
-  Reasoning: 'badge-reasoning',
-  Pro: 'badge-pro',
-  Economic: 'badge-economic',
-};
+function getProviderLabel(model: ModelConfig): string {
+  return model.sourceProfileName || VENDOR_NAMES[model.vendor] || model.id;
+}
 
-/** Map ModelProvider to ModelVendor */
-function providerToVendor(provider: ModelProvider): ModelVendor {
-  switch (provider) {
-    case ModelProvider.OPENAI: return ModelVendor.GPT;
-    case ModelProvider.ANTHROPIC: return ModelVendor.ANTHROPIC;
-    case ModelProvider.DEEPSEEK: return ModelVendor.DEEPSEEK;
-    case ModelProvider.GOOGLE: return ModelVendor.GOOGLE;
+function getItemDescription(model: ModelConfig): string {
+  const providerLabel = getProviderLabel(model);
+  const description = model.description?.trim();
+  if (!description) {
+    return providerLabel;
   }
+  if (description.includes(providerLabel)) {
+    return description;
+  }
+  return `${providerLabel} · ${description}`;
+}
+
+function getItemInitial(model: ModelConfig): string {
+  return getProviderLabel(model).trim().slice(0, 1).toUpperCase() || 'M';
 }
 
 export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
-  ({ className, value, onChange, variant = 'capsule' }) => {
-    // Use controlled value if provided, otherwise use internal state
-    const [internalModel, setInternalModel] = useState<string>(DEFAULT_CHAT_MODEL_ID);
+  ({ className, value, valueRef, onChange, variant = 'capsule' }) => {
+    const baseSelectableModels = useSelectableModels('text');
+    const defaultModelId = baseSelectableModels[0]?.id || DEFAULT_TEXT_MODEL_ID;
+    const [internalModel, setInternalModel] = useState<string>(defaultModelId);
+    const [internalModelRef, setInternalModelRef] = useState<ModelRef | null>(
+      () => createModelRef(null, defaultModelId)
+    );
     const selectedModel = value ?? internalModel;
-    
+    const selectedModelRef =
+      valueRef === undefined ? internalModelRef : valueRef;
+
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [activeVendor, setActiveVendor] = useState<ModelVendor | null>(null);
+    const [activeVendor, setActiveVendor] = useState<string | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
 
-    // Close dropdown when clicking outside
+    useEffect(() => {
+      if (!value && defaultModelId && internalModel !== defaultModelId) {
+        setInternalModel(defaultModelId);
+        setInternalModelRef(createModelRef(null, defaultModelId));
+      }
+    }, [defaultModelId, internalModel, value]);
+
     useEffect(() => {
       if (!isOpen) return;
 
@@ -86,7 +108,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
         }
       };
 
-      // Small delay to avoid immediate closing
       const timer = setTimeout(() => {
         document.addEventListener('mousedown', handleClickOutside);
       }, 100);
@@ -97,148 +118,195 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
       };
     }, [isOpen]);
 
-    // Handle model selection - only updates local state, does NOT save to global settings
+    const currentSelectionKey = useMemo(() => {
+      if (!selectedModel) {
+        return null;
+      }
+      return getSelectionKey(selectedModel, selectedModelRef);
+    }, [selectedModel, selectedModelRef]);
+
+    const selectableModels = useMemo(() => {
+      const currentMatch = findMatchingSelectableModel(
+        baseSelectableModels,
+        selectedModel,
+        selectedModelRef
+      );
+      if (currentMatch || !selectedModel) {
+        return baseSelectableModels;
+      }
+
+      const pinnedModel = getPinnedSelectableModel(
+        'text',
+        selectedModel,
+        selectedModelRef
+      );
+      return pinnedModel
+        ? [pinnedModel, ...baseSelectableModels]
+        : baseSelectableModels;
+    }, [baseSelectableModels, selectedModel, selectedModelRef]);
+
+    const currentModel = useMemo(
+      () =>
+        findMatchingSelectableModel(
+          selectableModels,
+          selectedModel,
+          selectedModelRef
+        ) || selectableModels.find((model) => model.id === selectedModel),
+      [selectableModels, selectedModel, selectedModelRef]
+    );
+
     const handleSelectModel = useCallback(
-      (modelId: string) => {
+      (model: ModelConfig) => {
+        const modelRef = createModelRef(
+          model.sourceProfileId || null,
+          model.id
+        );
         if (value === undefined) {
-          // Uncontrolled mode: update internal state
-          setInternalModel(modelId);
+          setInternalModel(model.id);
         }
-        // Always notify parent
-        onChange?.(modelId);
+        if (valueRef === undefined) {
+          setInternalModelRef(modelRef);
+        }
+        onChange?.(model.id, modelRef);
         setIsOpen(false);
         setSearchQuery('');
       },
-      [value, onChange]
+      [value, valueRef, onChange]
     );
 
-    // Toggle dropdown
     const handleToggle = useCallback(() => {
       const next = !isOpen;
       setIsOpen(next);
       if (next) {
-        // Initialize activeVendor to current model's vendor
-        const current = getChatModelById(selectedModel);
-        setActiveVendor(current ? providerToVendor(current.provider) : null);
+        setActiveVendor(currentModel?.vendor || null);
       } else {
         setSearchQuery('');
       }
-    }, [isOpen, selectedModel]);
+    }, [currentModel?.vendor, isOpen]);
 
-    // Compute vendor tabs from all chat models
     const vendorTabs = useMemo((): VendorTab[] => {
       const vendorMap = new Map<ModelVendor, number>();
       const order: ModelVendor[] = [];
-      CHAT_MODELS.forEach((model) => {
-        const vendor = providerToVendor(model.provider);
-        if (!vendorMap.has(vendor)) {
-          order.push(vendor);
-          vendorMap.set(vendor, 0);
+      selectableModels.forEach((model) => {
+        if (!vendorMap.has(model.vendor)) {
+          order.push(model.vendor);
+          vendorMap.set(model.vendor, 0);
         }
-        vendorMap.set(vendor, (vendorMap.get(vendor) ?? 0) + 1);
+        vendorMap.set(model.vendor, (vendorMap.get(model.vendor) ?? 0) + 1);
       });
-      return order.map(vendor => ({ vendor, count: vendorMap.get(vendor) ?? 0 }));
+      return order.map((vendor) => ({
+        id: vendor,
+        label: VENDOR_NAMES[vendor],
+        count: vendorMap.get(vendor) ?? 0,
+        icon: <ModelVendorMark vendor={vendor} size={14} />,
+      }));
+    }, [selectableModels]);
+
+    const handleVendorChange = useCallback((vendorId: string) => {
+      setActiveVendor(vendorId);
     }, []);
 
-    const handleVendorChange = useCallback((vendor: ModelVendor) => {
-      setActiveVendor(vendor);
-    }, []);
-
-    // Filter models: search → cross-vendor, no search → by activeVendor
     const filteredModels = useMemo(() => {
       const query = searchQuery.toLowerCase().trim();
       if (query) {
-        return CHAT_MODELS.filter(
-          (model) =>
-            model.name.toLowerCase().includes(query) ||
-            model.description.toLowerCase().includes(query) ||
-            PROVIDER_NAMES[model.provider].toLowerCase().includes(query)
-        );
+        return selectableModels.filter((model) => {
+          const providerLabel = getProviderLabel(model).toLowerCase();
+          return (
+            model.id.toLowerCase().includes(query) ||
+            model.label.toLowerCase().includes(query) ||
+            model.shortLabel?.toLowerCase().includes(query) ||
+            model.description?.toLowerCase().includes(query) ||
+            providerLabel.includes(query)
+          );
+        });
       }
       if (activeVendor) {
-        return CHAT_MODELS.filter(
-          (model) => providerToVendor(model.provider) === activeVendor
+        return selectableModels.filter(
+          (model) => model.vendor === activeVendor
         );
       }
-      return CHAT_MODELS;
-    }, [searchQuery, activeVendor]);
+      return selectableModels;
+    }, [searchQuery, activeVendor, selectableModels]);
 
-    const currentModel = getChatModelById(selectedModel);
-
-    const [portalPosition, setPortalPosition] = useState({ 
-      top: 0, 
-      left: 0, 
-      width: 0, 
-      bottom: 0, 
+    const [portalPosition, setPortalPosition] = useState({
+      top: 0,
+      left: 0,
+      width: 0,
+      bottom: 0,
       placement: 'bottom' as 'top' | 'bottom',
-      maxHeight: 480
+      maxHeight: 480,
     });
 
     useLayoutEffect(() => {
-      if (isOpen) {
-        const updatePosition = () => {
-          if (!triggerRef.current) return;
-          const rect = triggerRef.current.getBoundingClientRect();
-          const windowHeight = window.innerHeight;
-          const spaceBelow = windowHeight - rect.bottom;
-          const spaceAbove = rect.top;
-          
-          // If space below is less than 400px and space above is larger, flip to top
-          const placement = (spaceBelow < 400 && spaceAbove > spaceBelow) ? 'top' : 'bottom';
+      if (!isOpen) {
+        return undefined;
+      }
 
-          // Calculate max height based on available space
-          // Leave some padding (e.g. 16px) from viewport edges
-          const availableHeight = placement === 'top' 
-            ? spaceAbove - 16 
+      const updatePosition = () => {
+        if (!triggerRef.current) return;
+        const rect = triggerRef.current.getBoundingClientRect();
+        const windowHeight = window.innerHeight;
+        const spaceBelow = windowHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        const placement =
+          spaceBelow < 400 && spaceAbove > spaceBelow ? 'top' : 'bottom';
+        const availableHeight =
+          placement === 'top'
+            ? spaceAbove - 16
             : windowHeight - rect.bottom - 16;
 
-          setPortalPosition({
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            bottom: rect.bottom,
-            placement,
-            maxHeight: Math.min(Math.max(availableHeight, 200), 600) // Min 200px, Max 600px
-          });
-        };
+        setPortalPosition({
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          bottom: rect.bottom,
+          placement,
+          maxHeight: Math.min(Math.max(availableHeight, 200), 600),
+        });
+      };
 
-        updatePosition();
-        window.addEventListener('resize', updatePosition);
-        window.addEventListener('scroll', updatePosition, true);
+      updatePosition();
+      window.addEventListener('resize', updatePosition);
+      window.addEventListener('scroll', updatePosition, true);
 
-        return () => {
-          window.removeEventListener('resize', updatePosition);
-          window.removeEventListener('scroll', updatePosition, true);
-        };
-      }
-      return undefined;
+      return () => {
+        window.removeEventListener('resize', updatePosition);
+        window.removeEventListener('scroll', updatePosition, true);
+      };
     }, [isOpen]);
 
     const renderMenu = () => {
       if (!isOpen) return null;
 
       const menu = (
-        <div 
-          ref={dropdownRef} 
+        <div
+          ref={dropdownRef}
           className="model-selector__dropdown"
           style={{
             position: 'fixed',
             zIndex: Z_INDEX.DROPDOWN_PORTAL,
             left: portalPosition.left,
-            top: portalPosition.placement === 'bottom' ? portalPosition.bottom + 8 : 'auto',
-            bottom: portalPosition.placement === 'top' ? (window.innerHeight - portalPosition.top + 8) : 'auto',
+            top:
+              portalPosition.placement === 'bottom'
+                ? portalPosition.bottom + 8
+                : 'auto',
+            bottom:
+              portalPosition.placement === 'top'
+                ? window.innerHeight - portalPosition.top + 8
+                : 'auto',
             minWidth: 360,
             width: variant === 'form' ? portalPosition.width : 'auto',
             maxHeight: portalPosition.maxHeight,
             visibility: portalPosition.width === 0 ? 'hidden' : 'visible',
-            // Add transform origin for animation if needed, though simple positioning is key here
-            transformOrigin: portalPosition.placement === 'bottom' ? 'top left' : 'bottom left',
+            transformOrigin:
+              portalPosition.placement === 'bottom'
+                ? 'top left'
+                : 'bottom left',
             display: 'flex',
             flexDirection: 'column',
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Search input */}
           <div className="model-selector__search">
             <Input
               value={searchQuery}
@@ -250,11 +318,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
             />
           </div>
 
-          {/* Model list with vendor tabs */}
           <VendorTabPanel
             tabs={vendorTabs}
-            activeVendor={activeVendor}
-            onVendorChange={handleVendorChange}
+            activeTab={activeVendor}
+            onTabChange={handleVendorChange}
             searchQuery={searchQuery}
             compact
           >
@@ -262,63 +329,55 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
               {filteredModels.length === 0 ? (
                 <div className="model-selector__empty">未找到匹配的模型</div>
               ) : (
-                filteredModels.map((model) => (
-                  <button
-                    key={model.id}
-                    className={`model-selector__item ${
-                      model.id === selectedModel
-                        ? 'model-selector__item--active'
-                        : ''
-                    }`}
-                    data-track="chat_click_model_select"
-                    onClick={() => handleSelectModel(model.id)}
-                  >
-                    <ProviderIcon
-                      provider={model.provider}
-                      className="model-selector__item-icon"
-                    />
-                    <div className="model-selector__item-content">
-                      <div className="model-selector__item-header">
-                        <span className="model-selector__item-name">
-                          {model.name}
-                        </span>
-                        <ModelHealthBadge modelId={model.id} />
-                        {model.badges && model.badges.length > 0 && (
-                          <div className="model-selector__badges">
-                            {model.badges.map((badge) => (
-                              <span
-                                key={badge}
-                                className={`model-selector__badge ${BADGE_COLORS[badge]}`}
-                              >
-                                {badge === 'NEW' ? 'VIP' : badge}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="model-selector__item-desc">
-                        {model.description}
-                      </div>
-                    </div>
-                    {model.id === selectedModel && (
-                      <svg
-                        className="model-selector__check"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 16 16"
-                        fill="none"
+                filteredModels.map((model) => {
+                  const modelKey = getSelectionKeyForModel(model);
+                  const isActive = modelKey === currentSelectionKey;
+                  return (
+                    <button
+                      key={modelKey}
+                      className={`model-selector__item ${
+                        isActive ? 'model-selector__item--active' : ''
+                      }`}
+                      data-track="chat_click_model_select"
+                      onClick={() => handleSelectModel(model)}
+                    >
+                      <span
+                        className="model-selector__item-icon model-selector__item-icon--text"
+                        aria-hidden="true"
                       >
-                        <path
-                          d="M13.3334 4L6.00002 11.3333L2.66669 8"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ))
+                        {getItemInitial(model)}
+                      </span>
+                      <div className="model-selector__item-content">
+                        <div className="model-selector__item-header">
+                          <span className="model-selector__item-name">
+                            {model.shortLabel || model.label}
+                          </span>
+                          <ModelHealthBadge modelId={model.id} />
+                        </div>
+                        <div className="model-selector__item-desc">
+                          {getItemDescription(model)}
+                        </div>
+                      </div>
+                      {isActive && (
+                        <svg
+                          className="model-selector__check"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                        >
+                          <path
+                            d="M13.3334 4L6.00002 11.3333L2.66669 8"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })
               )}
             </div>
           </VendorTabPanel>
@@ -329,24 +388,35 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
     };
 
     return (
-      <div className={`model-selector ${className || ''} model-selector--variant-${variant}`}>
+      <div
+        className={`model-selector ${
+          className || ''
+        } model-selector--variant-${variant}`}
+      >
         <button
           ref={triggerRef}
-          className={`model-selector__trigger ${isOpen ? 'model-selector__trigger--active' : ''}`}
+          className={`model-selector__trigger ${
+            isOpen ? 'model-selector__trigger--active' : ''
+          }`}
           data-track="chat_click_model_selector"
           onClick={handleToggle}
           aria-label="选择模型"
           aria-expanded={isOpen}
         >
           <div className="model-selector__trigger-content">
-            <ModelHealthBadge modelId={selectedModel} className="model-selector__trigger-health" />
+            <ModelHealthBadge
+              modelId={currentModel?.id || selectedModel}
+              className="model-selector__trigger-health"
+            />
             <span className="model-selector__trigger-text">
-              {currentModel?.name || '选择模型'}
+              {currentModel?.shortLabel || currentModel?.label || '选择模型'}
             </span>
           </div>
           <ChevronDownIcon
             size={16}
-            className={`model-selector__trigger-icon ${isOpen ? 'model-selector__trigger-icon--open' : ''}`}
+            className={`model-selector__trigger-icon ${
+              isOpen ? 'model-selector__trigger-icon--open' : ''
+            }`}
           />
         </button>
 

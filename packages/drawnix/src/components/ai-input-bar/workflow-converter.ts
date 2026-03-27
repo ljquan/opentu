@@ -9,7 +9,12 @@
  * 场景4: 输入内容包含其他内容 -> 走 Agent 流程（调用文本模型获取工作流）
  */
 
-import type { ParsedGenerationParams, GenerationType, SelectionInfo } from '../../utils/ai-input-parser';
+import type {
+  ParsedGenerationParams,
+  GenerationType,
+  SelectionInfo,
+} from '../../utils/ai-input-parser';
+import type { ModelRef } from '../../utils/settings-manager';
 import { cleanLLMResponse } from '../../services/agent/tool-parser';
 import {
   generateSystemPrompt,
@@ -18,7 +23,11 @@ import {
 } from '../../services/agent';
 import { mcpRegistry } from '../../mcp/registry';
 import type { SystemSkill } from '../../constants/skills';
-import { SKILL_AUTO_ID, isSystemSkillId, findSystemSkillById } from '../../constants/skills';
+import {
+  SKILL_AUTO_ID,
+  isSystemSkillId,
+  findSystemSkillById,
+} from '../../constants/skills';
 import { SkillDSLParser } from './skill-dsl-parser';
 import { SkillLLMParser } from './skill-llm-parser';
 import type { SkillDSLVariables } from './skill-dsl.types';
@@ -96,6 +105,8 @@ export interface WorkflowDefinition {
     rawInput: string;
     /** 模型 ID */
     modelId: string;
+    /** 模型来源引用 */
+    modelRef?: ModelRef | null;
     /** 是否为用户显式选择的模型 */
     isModelExplicit: boolean;
     /** 生成数量 */
@@ -119,6 +130,7 @@ export interface WorkflowDefinition {
   context?: {
     userInput?: string;
     model?: string;
+    modelRef?: ModelRef | null;
     referenceImages?: string[];
   };
   /** 错误信息（失败时） */
@@ -127,7 +139,7 @@ export interface WorkflowDefinition {
 
 /**
  * 生成唯一的工作流 ID
- * 
+ *
  * 注意：之前使用基于内容哈希的 ID 来实现幂等性，但这会导致用户无法用相同提示词重复生成。
  * 防重复逻辑应该在 AI 输入框层面做（让用户确认），而不是在 SW 层面静默跳过。
  * 现在改为使用时间戳 + 随机字符串，确保每次提交都是唯一的工作流。
@@ -149,6 +161,7 @@ export function convertDirectGenerationToWorkflow(
   const {
     generationType,
     modelId,
+    modelRef,
     isModelExplicit,
     prompt,
     userInstruction,
@@ -187,6 +200,7 @@ export function convertDirectGenerationToWorkflow(
       const imageArgs: Record<string, unknown> = {
         prompt,
         model: modelId,
+        modelRef,
         // 批量生成参数直接放在 args 中
         batchId,
         batchIndex: i + 1,
@@ -218,6 +232,7 @@ export function convertDirectGenerationToWorkflow(
       const videoArgs: Record<string, unknown> = {
         prompt,
         model: modelId,
+        modelRef,
         seconds: duration || '5',
         // 批量生成参数直接放在 args 中
         batchId,
@@ -250,7 +265,9 @@ export function convertDirectGenerationToWorkflow(
   return {
     id: workflowId,
     name: generationType === 'image' ? '图片生成' : '视频生成',
-    description: `使用 ${modelId} 模型${count > 1 ? `生成 ${count} 个` : '生成'}${generationType === 'image' ? '图片' : '视频'}`,
+    description: `使用 ${modelId} 模型${
+      count > 1 ? `生成 ${count} 个` : '生成'
+    }${generationType === 'image' ? '图片' : '视频'}`,
     scenarioType: 'direct_generation',
     generationType,
     steps,
@@ -259,6 +276,7 @@ export function convertDirectGenerationToWorkflow(
       userInstruction,
       rawInput,
       modelId,
+      modelRef,
       isModelExplicit,
       count,
       size,
@@ -284,6 +302,7 @@ export function convertAgentFlowToWorkflow(
   const {
     generationType,
     modelId,
+    modelRef,
     isModelExplicit,
     prompt,
     userInstruction,
@@ -354,9 +373,11 @@ export function convertAgentFlowToWorkflow(
         // 传递预构建的 messages（SW 直接使用，不重复生成提示词）
         messages,
         // 传递参考图片 URL（用于占位符替换）
-        referenceImages: allReferenceImages.length > 0 ? allReferenceImages : undefined,
+        referenceImages:
+          allReferenceImages.length > 0 ? allReferenceImages : undefined,
         // 传递用户选择的文本模型（优先于系统配置）
         textModel: modelId,
+        modelRef,
       },
       options: {
         mode: 'async',
@@ -378,6 +399,7 @@ export function convertAgentFlowToWorkflow(
       userInstruction,
       rawInput,
       modelId,
+      modelRef,
       isModelExplicit,
       count,
       size,
@@ -416,18 +438,26 @@ function generateFilteredToolsDescription(toolNames: string[]): string {
         const details: string[] = [];
         if (schema.type) details.push(`类型: ${schema.type}`);
         if (schema.enum && Array.isArray(schema.enum)) {
-          details.push(`可选值: ${schema.enum.map((v: unknown) => `"${v}"`).join(' | ')}`);
+          details.push(
+            `可选值: ${schema.enum.map((v: unknown) => `"${v}"`).join(' | ')}`
+          );
         }
-        if (schema.default !== undefined) details.push(`默认: "${schema.default}"`);
+        if (schema.default !== undefined)
+          details.push(`默认: "${schema.default}"`);
         const detailStr = details.length > 0 ? ` [${details.join(', ')}]` : '';
         const paramGuidance = guidance?.parameterGuidance?.[pName];
         const guidanceStr = paramGuidance ? `\n    💡 ${paramGuidance}` : '';
-        return `  - **${pName}**${reqStr}: ${schema.description || '无描述'}${detailStr}${guidanceStr}`;
+        return `  - **${pName}**${reqStr}: ${
+          schema.description || '无描述'
+        }${detailStr}${guidanceStr}`;
       })
       .join('\n');
 
-    let toolDesc = `### ${tool.name}\n${tool.description}\n\n**参数:**\n${paramDescriptions || '  无参数'}`;
-    if (guidance?.whenToUse) toolDesc += `\n\n**使用场景:** ${guidance.whenToUse}`;
+    let toolDesc = `### ${tool.name}\n${tool.description}\n\n**参数:**\n${
+      paramDescriptions || '  无参数'
+    }`;
+    if (guidance?.whenToUse)
+      toolDesc += `\n\n**使用场景:** ${guidance.whenToUse}`;
     descriptions.push(toolDesc);
   }
 
@@ -455,13 +485,22 @@ function generateFilteredToolsDescription(toolNames: string[]): string {
  */
 export async function convertSkillFlowToWorkflow(
   params: ParsedGenerationParams,
-  skill: SystemSkill | { id: string; name: string; type: 'user' | 'external'; content: string; outputType?: 'image' | 'text' | 'video' | 'ppt' },
+  skill:
+    | SystemSkill
+    | {
+        id: string;
+        name: string;
+        type: 'user' | 'external';
+        content: string;
+        outputType?: 'image' | 'text' | 'video' | 'ppt';
+      },
   referenceImages: string[] = [],
   onLLMParsing?: () => void
 ): Promise<WorkflowDefinition> {
   const {
     generationType,
     modelId,
+    modelRef,
     isModelExplicit,
     prompt,
     userInstruction,
@@ -477,9 +516,17 @@ export async function convertSkillFlowToWorkflow(
   // 统一获取 Skill 内容：系统 Skill 使用 description，自定义/外部 Skill 使用 content
   const skillId = skill.id;
   const skillName = skill.name;
-  const skillContent = skill.type === 'system'
-    ? (skill as SystemSkill).description
-    : (skill as { id: string; name: string; type: 'user' | 'external'; content: string }).content;
+  const skillContent =
+    skill.type === 'system'
+      ? (skill as SystemSkill).description
+      : (
+          skill as {
+            id: string;
+            name: string;
+            type: 'user' | 'external';
+            content: string;
+          }
+        ).content;
 
   // 用户输入文本（用于自动注入到工具的主要文本参数）
   const userInputText = userInstruction || prompt || rawInput;
@@ -494,7 +541,12 @@ export async function convertSkillFlowToWorkflow(
 
   // ─── 路径 A：正则解析（SkillDSLParser）───────────────────────────────────
   // 传入 userInputText，解析器会自动将其注入到缺失的主要文本参数（theme/prompt 等）
-  const regexResult = SkillDSLParser.parse(skillContent, dslVariables, workflowId, userInputText);
+  const regexResult = SkillDSLParser.parse(
+    skillContent,
+    dslVariables,
+    workflowId,
+    userInputText
+  );
   if (regexResult) {
     return {
       id: workflowId,
@@ -509,11 +561,13 @@ export async function convertSkillFlowToWorkflow(
         userInstruction,
         rawInput,
         modelId,
+        modelRef,
         isModelExplicit,
         count,
         size,
         duration,
-        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+        referenceImages:
+          referenceImages.length > 0 ? referenceImages : undefined,
         selection,
         parseMethod: 'regex',
       },
@@ -545,25 +599,42 @@ export async function convertSkillFlowToWorkflow(
   const isUserSkill = skill.type === 'user';
 
   // 确定 outputType：优先使用显式配置
-  const skillOutputType = (skill as { outputType?: 'image' | 'text' | 'video' | 'ppt' }).outputType;
-  const externalOutputType: 'image' | 'text' = skillOutputType === 'image' ? 'image' : 'text';
+  const skillOutputType = (
+    skill as { outputType?: 'image' | 'text' | 'video' | 'ppt' }
+  ).outputType;
+  const externalOutputType: 'image' | 'text' =
+    skillOutputType === 'image' ? 'image' : 'text';
 
   // 用户 Skill 配置了 outputType 时，也需要进行内容预处理（用户复制外部 Skill 内容时，需要适配 aitu 环境）
-  const needsPreprocess = isExternalSkill || (isUserSkill && externalOutputType === 'image');
+  const needsPreprocess =
+    isExternalSkill || (isUserSkill && externalOutputType === 'image');
   const processedSkillContent = needsPreprocess
     ? preprocessExternalSkillContent(skillContent, externalOutputType)
     : skillContent;
 
-  console.log(`[SkillFlow] Skill="${skillName}" type=${skill.type} outputType=${externalOutputType} isExternal=${isExternalSkill} contentLen=${processedSkillContent?.length || 0}`);
+  console.log(
+    `[SkillFlow] Skill="${skillName}" type=${
+      skill.type
+    } outputType=${externalOutputType} isExternal=${isExternalSkill} contentLen=${
+      processedSkillContent?.length || 0
+    }`
+  );
 
   // 从 Skill 笔记中提取工具名引用，用于判断走路径 B 还是路径 C
-  const referencedToolNames = SkillDSLParser.extractToolNamesFromContent(processedSkillContent);
+  const referencedToolNames = SkillDSLParser.extractToolNamesFromContent(
+    processedSkillContent
+  );
   // 过滤出在 registry 中实际存在的工具名
-  const validToolNames = referencedToolNames.filter(name => mcpRegistry.hasTool(name));
+  const validToolNames = referencedToolNames.filter((name) =>
+    mcpRegistry.hasTool(name)
+  );
 
   // 图片类 Skill 强制注入 generate_image 工具，确保走路径 B
   if (externalOutputType === 'image') {
-    if (!validToolNames.includes('generate_image') && mcpRegistry.hasTool('generate_image')) {
+    if (
+      !validToolNames.includes('generate_image') &&
+      mcpRegistry.hasTool('generate_image')
+    ) {
       validToolNames.push('generate_image');
     }
   }
@@ -571,7 +642,15 @@ export async function convertSkillFlowToWorkflow(
   // 判断是否包含 generate_image（用于后续路径 B/C 的图片生成指引）
   const hasGenerateImage = validToolNames.includes('generate_image');
 
-  console.log(`[SkillFlow] referencedTools=[${referencedToolNames.join(',')}] validTools=[${validToolNames.join(',')}] hasGenerateImage=${hasGenerateImage} → 路径${validToolNames.length > 0 ? 'B' : 'C'}`);
+  console.log(
+    `[SkillFlow] referencedTools=[${referencedToolNames.join(
+      ','
+    )}] validTools=[${validToolNames.join(
+      ','
+    )}] hasGenerateImage=${hasGenerateImage} → 路径${
+      validToolNames.length > 0 ? 'B' : 'C'
+    }`
+  );
 
   // ─── 路径 B：Agent 模式，精准注入相关工具描述 ─────────────────────────────
   if (validToolNames.length > 0) {
@@ -614,8 +693,10 @@ export async function convertSkillFlowToWorkflow(
         args: {
           context: agentContext,
           messages,
-          referenceImages: allReferenceImages.length > 0 ? allReferenceImages : undefined,
+          referenceImages:
+            allReferenceImages.length > 0 ? allReferenceImages : undefined,
           textModel: modelId,
+          modelRef,
         },
         options: { mode: 'async' },
         description: `AI 分析用户意图（Skill: ${skillName}）`,
@@ -640,7 +721,8 @@ export async function convertSkillFlowToWorkflow(
         count,
         size,
         duration,
-        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+        referenceImages:
+          referenceImages.length > 0 ? referenceImages : undefined,
         selection,
         parseMethod: 'agent_fallback',
       },
@@ -679,8 +761,10 @@ export async function convertSkillFlowToWorkflow(
       args: {
         context: agentContext,
         messages: roleMessages,
-        referenceImages: allReferenceImages.length > 0 ? allReferenceImages : undefined,
+        referenceImages:
+          allReferenceImages.length > 0 ? allReferenceImages : undefined,
         textModel: modelId,
+        modelRef,
       },
       options: { mode: 'async' },
       description: `AI 以「${skillName}」角色回复`,
@@ -701,6 +785,7 @@ export async function convertSkillFlowToWorkflow(
       userInstruction,
       rawInput,
       modelId,
+      modelRef,
       isModelExplicit,
       count,
       size,
@@ -752,8 +837,9 @@ export function parseAIResponse(
     const cleaned = cleanLLMResponse(response);
 
     // 尝试提取 JSON
-    const jsonMatch = cleaned.match(/\{\s*"content"\s*:[\s\S]*?"next"\s*:[\s\S]*?\}/) ||
-                      cleaned.match(/\{[\s\S]*"content"[\s\S]*"next"[\s\S]*\}/);
+    const jsonMatch =
+      cleaned.match(/\{\s*"content"\s*:[\s\S]*?"next"\s*:[\s\S]*?\}/) ||
+      cleaned.match(/\{[\s\S]*"content"[\s\S]*"next"[\s\S]*\}/);
 
     if (!jsonMatch) {
       return { content: '', steps: [] };
@@ -771,7 +857,10 @@ export function parseAIResponse(
     }
 
     const steps = parsed.next
-      .filter((item: any) => typeof item.mcp === 'string' && typeof item.args === 'object')
+      .filter(
+        (item: any) =>
+          typeof item.mcp === 'string' && typeof item.args === 'object'
+      )
       .map((item: any, index: number) => ({
         id: `step-${existingStepCount + index + 1}`,
         mcp: item.mcp,
@@ -802,7 +891,10 @@ export function parseAIResponseToSteps(
 /**
  * 根据工具名称和参数生成步骤描述
  */
-function getStepDescription(mcp: string, args: Record<string, unknown>): string {
+function getStepDescription(
+  mcp: string,
+  args: Record<string, unknown>
+): string {
   switch (mcp) {
     case 'generate_image':
       return `生成图片: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
@@ -832,7 +924,7 @@ export function updateStepStatus(
 ): WorkflowDefinition {
   return {
     ...workflow,
-    steps: workflow.steps.map(step =>
+    steps: workflow.steps.map((step) =>
       step.id === stepId
         ? {
             ...step,
@@ -855,13 +947,13 @@ export function addStepsToWorkflow(
   newSteps: WorkflowStep[]
 ): WorkflowDefinition {
   // Filter out steps that already exist (by ID)
-  const existingIds = new Set(workflow.steps.map(s => s.id));
-  const uniqueNewSteps = newSteps.filter(step => !existingIds.has(step.id));
-  
+  const existingIds = new Set(workflow.steps.map((s) => s.id));
+  const uniqueNewSteps = newSteps.filter((step) => !existingIds.has(step.id));
+
   if (uniqueNewSteps.length === 0) {
     return workflow; // No new steps to add
   }
-  
+
   return {
     ...workflow,
     steps: [...workflow.steps, ...uniqueNewSteps],
@@ -877,13 +969,19 @@ export function getWorkflowStatus(workflow: WorkflowDefinition): {
   totalSteps: number;
   currentStep?: WorkflowStep;
 } {
-  const completedSteps = workflow.steps.filter(s => s.status === 'completed').length;
-  const failedSteps = workflow.steps.filter(s => s.status === 'failed').length;
-  const runningStep = workflow.steps.find(s => s.status === 'running');
-  const pendingSteps = workflow.steps.filter(s => s.status === 'pending').length;
-  
+  const completedSteps = workflow.steps.filter(
+    (s) => s.status === 'completed'
+  ).length;
+  const failedSteps = workflow.steps.filter(
+    (s) => s.status === 'failed'
+  ).length;
+  const runningStep = workflow.steps.find((s) => s.status === 'running');
+  const pendingSteps = workflow.steps.filter(
+    (s) => s.status === 'pending'
+  ).length;
+
   let status: 'pending' | 'running' | 'completed' | 'failed';
-  
+
   if (failedSteps > 0) {
     status = 'failed';
   } else if (runningStep) {
@@ -893,11 +991,12 @@ export function getWorkflowStatus(workflow: WorkflowDefinition): {
   } else {
     status = 'pending';
   }
-  
+
   return {
     status,
     completedSteps,
     totalSteps: workflow.steps.length,
-    currentStep: runningStep || workflow.steps.find(s => s.status === 'pending'),
+    currentStep:
+      runningStep || workflow.steps.find((s) => s.status === 'pending'),
   };
 }

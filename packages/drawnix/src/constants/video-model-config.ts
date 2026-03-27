@@ -5,13 +5,20 @@
  * This configuration drives the UI for video generation.
  */
 
-import type { VideoModel, VideoModelConfig } from '../types/video.types';
+import type {
+  DurationOption,
+  ImageUploadConfig,
+  SizeOption,
+  VideoModel,
+  VideoModelConfig,
+} from '../types/video.types';
+import { getModelConfig, ModelVendor } from './model-config';
 
 /**
  * Video model configurations
  * Each model has specific duration, size, and image upload options
  */
-export const VIDEO_MODEL_CONFIGS: Record<VideoModel, VideoModelConfig> = {
+export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
   'kling-v1-6': {
     id: 'kling-v1-6',
     label: 'Kling V1.6',
@@ -386,15 +393,64 @@ export const VIDEO_MODEL_CONFIGS: Record<VideoModel, VideoModelConfig> = {
  * Normalize model name to a known config key; fallback to默认模型（veo3）避免崩溃。
  */
 export function normalizeVideoModel(model?: string | null): VideoModel {
-  if (model && (VIDEO_MODEL_CONFIGS as any)[model]) {
-    return model as VideoModel;
+  if (model) {
+    return model;
   }
   return 'veo3';
 }
 
 function getConfigOrDefault(model?: string | null): VideoModelConfig {
   const normalized = normalizeVideoModel(model);
-  return VIDEO_MODEL_CONFIGS[normalized];
+  const builtInConfig = VIDEO_MODEL_CONFIGS[normalized];
+  if (builtInConfig) {
+    return builtInConfig;
+  }
+
+  const runtimeConfig = getModelConfig(normalized);
+  const defaultSize = runtimeConfig?.videoDefaults?.size || '1280x720';
+  const defaultAspectRatio = runtimeConfig?.videoDefaults?.aspectRatio || '16:9';
+  const defaultDuration = runtimeConfig?.videoDefaults?.duration || '8';
+  const lowerId = normalized.toLowerCase();
+
+  const sizeOptions: SizeOption[] = [
+    { label: defaultAspectRatio, value: defaultSize, aspectRatio: defaultAspectRatio },
+  ];
+
+  if (defaultSize !== '1280x720') {
+    sizeOptions.push({ label: '横屏 16:9', value: '1280x720', aspectRatio: '16:9' });
+  }
+  if (defaultSize !== '720x1280') {
+    sizeOptions.push({ label: '竖屏 9:16', value: '720x1280', aspectRatio: '9:16' });
+  }
+
+  const durationOptions: DurationOption[] = [{ label: `${defaultDuration}秒`, value: defaultDuration }];
+  const imageUpload: ImageUploadConfig =
+    lowerId.includes('components')
+      ? { maxCount: 3, mode: 'components', labels: ['参考图1', '参考图2', '参考图3'] }
+      : lowerId.includes('frame')
+        ? { maxCount: 2, mode: 'frames', labels: ['首帧', '尾帧'] }
+        : { maxCount: 1, mode: 'reference', labels: ['参考图'] };
+
+  const provider =
+    runtimeConfig?.vendor === ModelVendor.SORA
+      ? 'sora'
+      : runtimeConfig?.vendor === ModelVendor.KLING
+        ? 'kling'
+        : lowerId.includes('seedance')
+          ? 'seedance'
+          : 'veo';
+
+  return {
+    id: normalized,
+    label: runtimeConfig?.shortLabel || runtimeConfig?.label || normalized,
+    provider,
+    description: runtimeConfig?.description || '运行时发现的视频模型',
+    durationOptions,
+    defaultDuration,
+    sizeOptions,
+    defaultSize,
+    imageUpload,
+  };
 }
 
 /**

@@ -13,7 +13,8 @@
 import type { MCPTool, MCPResult, MCPExecuteOptions, AgentExecutionContext, WorkflowStepInfo, AgentExecuteOptions } from '../types';
 import { getModelType, IMAGE_MODELS } from '../types';
 import { agentExecutor } from '../../services/agent';
-import { geminiSettings } from '../../utils/settings-manager';
+import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
+import type { GeminiMessagePart } from '../../utils/gemini-api/types';
 
 /**
  * AI 分析参数
@@ -23,6 +24,8 @@ export interface AIAnalyzeParams {
   context: AgentExecutionContext;
   /** 使用的文本模型 */
   textModel?: string;
+  /** 当前显式选择的模型来源（用于继承到后续生成步骤） */
+  modelRef?: ModelRef | null;
   /**
    * 预构建的消息数组（优先级高于 agentExecutor 内部生成的 messages）
    * 用于 Skill 路径 B（Agent 精准注入）和路径 C（角色扮演）
@@ -30,7 +33,7 @@ export interface AIAnalyzeParams {
    */
   messages?: Array<{
     role: 'system' | 'user' | 'assistant';
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | GeminiMessagePart[];
   }>;
 }
 
@@ -85,7 +88,8 @@ export const aiAnalyzeTool: MCPTool = {
   supportedModes: ['async'],
 
   execute: async (params: Record<string, unknown>, options?: MCPExecuteOptions): Promise<MCPResult> => {
-    const { context, textModel, messages } = params as unknown as AIAnalyzeParams;
+    const { context, textModel, messages, modelRef } =
+      params as unknown as AIAnalyzeParams;
 
     if (!context) {
       return {
@@ -108,6 +112,7 @@ export const aiAnalyzeTool: MCPTool = {
 
       const result = await agentExecutor.execute(context, {
         model: textModel || context.model.id,
+        modelRef: modelRef || null,
         messages: messages as AgentExecuteOptions['messages'],
         onChunk: (chunk) => {
           // console.log('[AIAnalyzeTool] Chunk:', chunk);
@@ -124,10 +129,21 @@ export const aiAnalyzeTool: MCPTool = {
             const specifiedModel = toolArgs.model as string | undefined;
             const isVideoTool = toolCall.name === 'generate_video';
             const settings = geminiSettings.get();
+            const contextModelType = context.model?.type;
+            const contextModelId = context.model?.id;
+            const preferredContextModelId =
+              contextModelType === (isVideoTool ? 'video' : 'image')
+                ? contextModelId
+                : undefined;
+            const preferredContextModelRef =
+              preferredContextModelId && modelRef?.modelId === preferredContextModelId
+                ? modelRef
+                : null;
 
             // 获取用户设置的默认模型
             const defaultImageModel = settings.imageModelName || IMAGE_MODELS[0]?.id || 'gemini-2.5-flash-image-vip';
             const defaultVideoModel = settings.videoModelName || 'veo3';
+            const fallbackModel = preferredContextModelId || (isVideoTool ? defaultVideoModel : defaultImageModel);
 
             if (specifiedModel) {
               // AI 指定了模型，检查类型是否匹配
@@ -137,13 +153,32 @@ export const aiAnalyzeTool: MCPTool = {
                 : modelType !== 'image';
 
               if (needsCorrection) {
-                const correctModel = isVideoTool ? defaultVideoModel : defaultImageModel;
-                toolArgs.model = correctModel;
+                toolArgs.model = fallbackModel;
+                if (
+                  preferredContextModelRef &&
+                  preferredContextModelRef.modelId === fallbackModel
+                ) {
+                  toolArgs.modelRef = preferredContextModelRef;
+                } else {
+                  delete toolArgs.modelRef;
+                }
+              } else if (
+                preferredContextModelRef &&
+                preferredContextModelRef.modelId === specifiedModel
+              ) {
+                toolArgs.modelRef = preferredContextModelRef;
               }
             } else {
-              // AI 没有指定模型，使用用户设置的默认模型
-              const defaultModel = isVideoTool ? defaultVideoModel : defaultImageModel;
-              toolArgs.model = defaultModel;
+              // AI 没有指定模型，优先沿用当前上下文显式模型，否则回退默认模型
+              toolArgs.model = fallbackModel;
+              if (
+                preferredContextModelRef &&
+                preferredContextModelRef.modelId === fallbackModel
+              ) {
+                toolArgs.modelRef = preferredContextModelRef;
+              } else {
+                delete toolArgs.modelRef;
+              }
             }
           }
 

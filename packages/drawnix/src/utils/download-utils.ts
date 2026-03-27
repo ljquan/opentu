@@ -14,6 +14,7 @@ import {
   downloadFile,
   openInNewTab,
   processBatchWithConcurrency,
+  normalizeImageDataUrl,
 } from '@aitu/utils';
 
 /**
@@ -32,15 +33,17 @@ export async function downloadMediaFile(
   format: string,
   fallbackName: string = 'media'
 ): Promise<{ opened: boolean } | void> {
+  const normalizedUrl = normalizeImageDataUrl(url);
+
   // For Volces domains (火山引擎), open in new tab due to CORS restrictions
-  if (isVolcesDomain(url)) {
-    openInNewTab(url);
+  if (isVolcesDomain(normalizedUrl)) {
+    openInNewTab(normalizedUrl);
     return { opened: true };
   }
 
   const sanitizedPrompt = sanitizeFilename(prompt);
   const filename = `${sanitizedPrompt || fallbackName}.${format}`;
-  return downloadFile(url, filename);
+  return downloadFile(normalizedUrl, filename);
 }
 
 /**
@@ -77,13 +80,15 @@ export async function downloadAsZip(items: BatchDownloadItem[], zipFilename?: st
     items,
     async (item, index) => {
       try {
-        const response = await fetch(item.url, { referrerPolicy: 'no-referrer' });
+        const assetUrl =
+          item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
+        const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });
         if (!response.ok) {
-          console.warn(`Failed to fetch ${item.url}: ${response.status}`);
+          console.warn(`Failed to fetch ${assetUrl}: ${response.status}`);
           return;
         }
         const blob = await response.blob();
-        const ext = getFileExtension(item.url, blob.type);
+        const ext = getFileExtension(assetUrl, blob.type);
 
         const prefix = item.type === 'image' ? 'image' : 'video';
         const filename = item.filename || `${prefix}_${index + 1}.${ext}`;
@@ -115,10 +120,11 @@ export async function smartDownload(items: BatchDownloadItem[], zipFilename?: st
 
   if (items.length === 1) {
     const item = items[0];
+    const assetUrl = item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
     // Use getFileExtension to detect correct extension (handles SVG, PNG, etc.)
-    const ext = getFileExtension(item.url) || (item.type === 'image' ? 'png' : 'mp4');
+    const ext = getFileExtension(assetUrl) || (item.type === 'image' ? 'png' : 'mp4');
     const filename = item.filename || `${item.type}_download.${ext}`;
-    await downloadFile(item.url, filename);
+    await downloadFile(assetUrl, filename);
   } else {
     await downloadAsZip(items, zipFilename);
   }

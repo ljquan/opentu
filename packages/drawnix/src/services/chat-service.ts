@@ -7,9 +7,21 @@
 
 import { defaultGeminiClient } from '../utils/gemini-api';
 import type { GeminiMessage } from '../utils/gemini-api/types';
-import type { ChatMessage, StreamEvent } from '../types/chat.types';
+import {
+  buildImagePartsFromAttachmentInputs,
+  buildImagePartsFromChatAttachments,
+  countImageAttachmentInputs,
+  countImageParts,
+} from '../utils/gemini-api/message-utils';
+import type { Attachment, ChatMessage, StreamEvent } from '../types/chat.types';
 import { MessageRole } from '../types/chat.types';
 import { analytics } from '../utils/posthog-analytics';
+import type { ModelRef } from '../utils/settings-manager';
+import {
+  getTextBindingMaxImageCount,
+  resolveInvocationPlanFromRoute,
+  supportsTextBindingImageInput,
+} from './provider-routing';
 
 // Current abort controller for cancellation
 let currentAbortController: AbortController | null = null;
@@ -23,14 +35,17 @@ interface MediaUrlMap {
  * 替换消息中的图片/视频 URL 为带索引的占位符，并返回映射表
  * 用于发送给文本模型时减少 token 消耗，响应后可替换回原始 URL
  */
-function extractAndReplaceMediaUrls(content: string): { sanitized: string; urlMap: MediaUrlMap } {
+function extractAndReplaceMediaUrls(content: string): {
+  sanitized: string;
+  urlMap: MediaUrlMap;
+} {
   const urlMap: MediaUrlMap = {};
   let imageIndex = 1;
   let videoIndex = 1;
   let mediaIndex = 1;
-  
+
   let result = content;
-  
+
   // 替换 base64 图片
   result = result.replace(
     /data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g,
@@ -41,7 +56,7 @@ function extractAndReplaceMediaUrls(content: string): { sanitized: string; urlMa
       return placeholder;
     }
   );
-  
+
   // 替换 base64 视频
   result = result.replace(
     /data:video\/[^;]+;base64,[A-Za-z0-9+/=]+/g,
@@ -52,18 +67,15 @@ function extractAndReplaceMediaUrls(content: string): { sanitized: string; urlMa
       return placeholder;
     }
   );
-  
+
   // 替换 blob URL
-  result = result.replace(
-    /blob:[^\s"'<>]+/g,
-    (match) => {
-      const placeholder = `[媒体${mediaIndex}]`;
-      urlMap[placeholder] = match;
-      mediaIndex++;
-      return placeholder;
-    }
-  );
-  
+  result = result.replace(/blob:[^\s"'<>]+/g, (match) => {
+    const placeholder = `[媒体${mediaIndex}]`;
+    urlMap[placeholder] = match;
+    mediaIndex++;
+    return placeholder;
+  });
+
   // 替换远程图片 URL (常见图片扩展名)
   result = result.replace(
     /https?:\/\/[^\s"'<>]+\.(png|jpg|jpeg|gif|webp|svg|bmp)(\?[^\s"'<>]*)?/gi,
@@ -74,7 +86,7 @@ function extractAndReplaceMediaUrls(content: string): { sanitized: string; urlMa
       return placeholder;
     }
   );
-  
+
   // 替换远程视频 URL (常见视频扩展名)
   result = result.replace(
     /https?:\/\/[^\s"'<>]+\.(mp4|webm|mov|avi|mkv)(\?[^\s"'<>]*)?/gi,
@@ -85,7 +97,7 @@ function extractAndReplaceMediaUrls(content: string): { sanitized: string; urlMa
       return placeholder;
     }
   );
-  
+
   return { sanitized: result, urlMap };
 }
 
@@ -102,43 +114,84 @@ function restoreMediaUrls(content: string, urlMap: MediaUrlMap): string {
 }
 
 /** Convert ChatMessage to GeminiMessage format */
-function convertToGeminiMessages(messages: ChatMessage[]): { geminiMessages: GeminiMessage[]; urlMap: MediaUrlMap } {
+async function convertToGeminiMessages(
+  messages: ChatMessage[],
+  options: {
+    includeImageAttachments?: boolean;
+    maxImageCount?: number;
+  } = {}
+): Promise<{
+  geminiMessages: GeminiMessage[];
+  urlMap: MediaUrlMap;
+}> {
   const combinedUrlMap: MediaUrlMap = {};
-  
-  const geminiMessages = messages
-    .filter((m) => m.status === 'success' || m.status === 'streaming')
-    .map((m) => {
+  let remainingImageSlots = options.maxImageCount ?? Number.POSITIVE_INFINITY;
+
+  const geminiMessages = await Promise.all(
+    messages
+      .filter((m) => m.status === 'success' || m.status === 'streaming')
+      .map(async (m) => {
       const { sanitized, urlMap } = extractAndReplaceMediaUrls(m.content);
       // 合并 URL 映射
       Object.assign(combinedUrlMap, urlMap);
+      const content: GeminiMessage['content'] = [
+        { type: 'text', text: sanitized },
+      ];
+
+      if (
+        options.includeImageAttachments &&
+        m.role === MessageRole.USER &&
+        m.attachments &&
+        m.attachments.length > 0 &&
+        remainingImageSlots > 0
+      ) {
+        const imageParts = await buildImagePartsFromChatAttachments(
+          m.attachments,
+          remainingImageSlots
+        );
+        remainingImageSlots -= imageParts.length;
+        content.push(...imageParts);
+      }
+
       return {
         role: m.role === MessageRole.USER ? 'user' : 'assistant',
-        content: [{ type: 'text', text: sanitized }],
+        content,
       };
-    });
-  
-  return { geminiMessages: geminiMessages as GeminiMessage[], urlMap: combinedUrlMap };
+      })
+  );
+
+  return {
+    geminiMessages: geminiMessages as GeminiMessage[],
+    urlMap: combinedUrlMap,
+  };
 }
 
 /** Send message and get streaming response */
 export async function sendChatMessage(
   messages: ChatMessage[],
   newContent: string,
-  attachments: File[] = [],
+  attachments: Array<File | Attachment> = [],
   onStream: (event: StreamEvent) => void,
-  temporaryModel?: string,
+  temporaryModel?: string | ModelRef | null,
   systemPrompt?: string
 ): Promise<string> {
-  return sendChatMessageDirect(messages, newContent, attachments, onStream, temporaryModel, systemPrompt);
+  return sendChatMessageDirect(
+    messages,
+    newContent,
+    attachments,
+    onStream,
+    temporaryModel,
+    systemPrompt
+  );
 }
 
 /** Send chat message directly (legacy mode) */
 async function sendChatMessageDirect(
   messages: ChatMessage[],
   newContent: string,
-  attachments: File[] = [],
+  attachments: Array<File | Attachment> = [],
   onStream: (event: StreamEvent) => void,
-  temporaryModel?: string,
+  temporaryModel?: string | ModelRef | null,
   systemPrompt?: string
 ): Promise<string> {
   // Cancel any existing request
@@ -150,9 +203,14 @@ async function sendChatMessageDirect(
   const signal = currentAbortController.signal;
   const taskId = Date.now().toString();
   const startTime = Date.now();
-  
+
   // 确定使用的模型名称（临时模型优先）
-  const modelName = temporaryModel || defaultGeminiClient.getConfig().modelName || 'unknown';
+  const modelName =
+    (typeof temporaryModel === 'string'
+      ? temporaryModel
+      : temporaryModel?.modelId) ||
+    defaultGeminiClient.getConfig().modelName ||
+    'unknown';
 
   try {
     // Track chat start
@@ -166,21 +224,42 @@ async function sendChatMessageDirect(
     });
 
     // Build history with URL extraction
-    const { geminiMessages: history, urlMap: historyUrlMap } = convertToGeminiMessages(messages);
+    const textPlan = resolveInvocationPlanFromRoute('text', temporaryModel);
+    const supportsImageInput = supportsTextBindingImageInput(textPlan?.binding);
+    const maxImageCount = getTextBindingMaxImageCount(textPlan?.binding);
+    const currentImageCount = countImageAttachmentInputs(attachments);
+    const maxHistoryImageCount = Math.max(maxImageCount - currentImageCount, 0);
+
+    const { geminiMessages: history, urlMap: historyUrlMap } =
+      await convertToGeminiMessages(messages, {
+        includeImageAttachments: supportsImageInput,
+        maxImageCount: maxHistoryImageCount,
+      });
 
     // Process current message content
-    const { sanitized: sanitizedContent, urlMap: currentUrlMap } = extractAndReplaceMediaUrls(newContent);
-    
+    const { sanitized: sanitizedContent, urlMap: currentUrlMap } =
+      extractAndReplaceMediaUrls(newContent);
+
     // 合并所有 URL 映射
     const allUrlMap: MediaUrlMap = { ...historyUrlMap, ...currentUrlMap };
-    
-    // Prepare current message content (文本模型不需要附件图片)
+
+    const historyImageCount = countImageParts(history);
+    const remainingCurrentImageSlots = Math.max(
+      maxImageCount - historyImageCount,
+      0
+    );
+
     const currentMessageContent: GeminiMessage['content'] = [
-      { type: 'text', text: sanitizedContent }
+      { type: 'text', text: sanitizedContent },
     ];
 
-    // 注意：对于文本模型，不发送 attachments 中的图片
-    // 如果需要图片理解功能，应该使用多模态模型
+    if (supportsImageInput && attachments.length > 0 && remainingCurrentImageSlots > 0) {
+      const imageParts = await buildImagePartsFromAttachmentInputs(
+        attachments,
+        remainingCurrentImageSlots
+      );
+      currentMessageContent.push(...imageParts);
+    }
 
     // Combine into full message list
     const geminiMessages: GeminiMessage[] = [];
@@ -189,18 +268,15 @@ async function sendChatMessageDirect(
     if (systemPrompt) {
       geminiMessages.push({
         role: 'system',
-        content: [{ type: 'text', text: systemPrompt }]
+        content: [{ type: 'text', text: systemPrompt }],
       });
     }
 
     // 添加历史消息和当前消息
-    geminiMessages.push(
-      ...history,
-      {
-        role: 'user',
-        content: currentMessageContent
-      }
-    );
+    geminiMessages.push(...history, {
+      role: 'user',
+      content: currentMessageContent,
+    });
 
     let fullContent = '';
 
@@ -215,7 +291,7 @@ async function sendChatMessageDirect(
         onStream({ type: 'content', content: restoredContent });
       },
       signal,
-      temporaryModel // 传递临时模型
+      temporaryModel || undefined // 传递临时模型
     );
 
     if (signal.aborted) {
@@ -235,12 +311,15 @@ async function sendChatMessageDirect(
     onStream({ type: 'done' });
     currentAbortController = null;
     return fullContent;
-
   } catch (error: any) {
     currentAbortController = null;
     const duration = Date.now() - startTime;
 
-    if (signal.aborted || error.message === 'Request cancelled' || error.name === 'AbortError') {
+    if (
+      signal.aborted ||
+      error.message === 'Request cancelled' ||
+      error.name === 'AbortError'
+    ) {
       analytics.trackTaskCancellation({
         taskId,
         taskType: 'chat',
@@ -250,8 +329,9 @@ async function sendChatMessageDirect(
       throw new Error('Request cancelled');
     }
 
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+
     analytics.trackModelFailure({
       taskId,
       taskType: 'chat',

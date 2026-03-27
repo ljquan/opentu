@@ -4,6 +4,7 @@ import type {
   VideoModelAdapter,
 } from './types';
 import { registerModelAdapter } from './registry';
+import { sendAdapterRequest } from './context';
 
 type KlingSubmitResponse = {
   code: number;
@@ -42,30 +43,23 @@ const resolveBaseUrl = (context: AdapterContext): string => {
   return normalized.endsWith('/v1') ? normalized.slice(0, -3) : normalized;
 };
 
-const resolveFetcher = (context: AdapterContext): typeof fetch => {
-  return context.fetcher || fetch;
-};
-
-const buildAuthHeader = (context: AdapterContext): Record<string, string> => {
-  return context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : {};
-};
-
 const submitKlingVideo = async (
   context: AdapterContext,
   action2: 'text2video' | 'image2video',
   body: Record<string, unknown>
 ): Promise<KlingSubmitResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/kling/v1/videos/${action2}`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: `/kling/v1/videos/${action2}`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...buildAuthHeader(context),
       },
       body: JSON.stringify(body),
-    }
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -82,12 +76,13 @@ const queryKlingVideo = async (
   taskId: string
 ): Promise<KlingQueryResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/kling/v1/videos/${action2}/${taskId}`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: `/kling/v1/videos/${action2}/${taskId}`,
       method: 'GET',
-      headers: buildAuthHeader(context),
-    }
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -118,6 +113,8 @@ export const klingAdapter: VideoModelAdapter = {
   label: 'Kling Video',
   kind: 'video',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchProtocols: ['kling.video'],
+  matchRequestSchemas: ['kling.video.auto-action-json'],
   supportedModels: ['kling-v1', 'kling-v1-6'],
   defaultModel: 'kling-v1-6',
   async generateVideo(context, request: VideoGenerationRequest) {

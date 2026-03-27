@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { normalizeImageDataUrl } from '@aitu/utils';
 import type { UnifiedMediaViewerProps, CompareLayout, ViewerMode, MediaItem, MediaViewportRef } from './types';
 import { useViewerState } from './useViewerState';
 import { MediaViewport } from './MediaViewport';
@@ -367,7 +368,9 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
     const currentItem = items[currentIndex];
     if (!currentItem) return;
 
-    const url = currentItem.url;
+    const url = currentItem.type === 'image'
+      ? normalizeImageDataUrl(currentItem.url)
+      : currentItem.url;
 
     // 处理 blob: URL（可能是从 IndexedDB 缓存的视频）
     if (url.startsWith('blob:')) {

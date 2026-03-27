@@ -24,6 +24,8 @@ export {
   // 图片加载
   loadImage,
   createCanvasFromImage,
+  parsePixelSize,
+  normalizeImageBlobToSize,
   // 压缩
   getCompressionStrategy,
   compressImageBlob,

@@ -10,7 +10,8 @@ import { GRID_IMAGE_DEFAULTS, GRID_IMAGE_PROMPT_TEMPLATE } from '../../types/pho
 import { taskQueueService } from '../task-queue';
 import { TaskType } from '../../types/task.types';
 import { geminiSettings } from '../../utils/settings-manager';
-import { IMAGE_MODELS } from '../../constants/model-config';
+import { getDefaultImageModel } from '../../constants/model-config';
+import { getPreferredModels } from '../../utils/runtime-model-discovery';
 
 /**
  * 宫格图参数
@@ -39,7 +40,7 @@ export interface GridImageParams {
  */
 function getCurrentImageModel(): string {
   const settings = geminiSettings.get();
-  return settings.imageModelName || IMAGE_MODELS[0]?.id || 'gemini-2.5-flash-image-vip';
+  return settings.imageModelName || getPreferredModels('image')[0]?.id || getDefaultImageModel();
 }
 
 /**

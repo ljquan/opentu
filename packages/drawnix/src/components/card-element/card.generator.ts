@@ -14,6 +14,8 @@ export class CardGenerator {
   private foreignObject: SVGForeignObjectElement | null = null;
   private htmlContainer: HTMLElement | null = null;
   private reactRoot: Root | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  onHeightMeasured?: (height: number) => void;
 
   processDrawing(element: PlaitCard, parentG: SVGGElement): SVGGElement {
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -55,11 +57,12 @@ export class CardGenerator {
       width: 100%;
       height: 100%;
       pointer-events: none;
-      overflow: hidden;
     `;
 
     this.foreignObject.appendChild(this.htmlContainer);
     g.appendChild(this.foreignObject);
+
+    this.setupResizeObserver();
 
     // 延迟渲染 React，确保 DOM 已挂载
     setTimeout(() => this.renderReact(element), 0);
@@ -74,6 +77,21 @@ export class CardGenerator {
     this.foreignObject.setAttribute('height', String(rect.height));
   }
 
+  private setupResizeObserver(): void {
+    if (!this.htmlContainer) return;
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+        if (height > 0) {
+          this.onHeightMeasured?.(height);
+        }
+      }
+    });
+
+    this.resizeObserver.observe(this.htmlContainer);
+  }
+
   private renderReact(element: PlaitCard): void {
     if (!this.htmlContainer) return;
 
@@ -84,9 +102,23 @@ export class CardGenerator {
     this.reactRoot.render(
       React.createElement(CardElement, { element })
     );
+
+    // 兜底：foreignObject 内 ResizeObserver 可能不触发
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (this.htmlContainer && this.onHeightMeasured) {
+          const height = this.htmlContainer.offsetHeight;
+          if (height > 0) {
+            this.onHeightMeasured(height);
+          }
+        }
+      });
+    });
   }
 
   destroy(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     if (this.reactRoot) {
       try {
         this.reactRoot.unmount();

@@ -4,6 +4,9 @@
  * 通用的 API 请求辅助函数，SW 和主线程共用
  */
 
+import type { ApiConfig } from './types';
+import type { ResolvedProviderContext } from '../provider-routing/types';
+
 /**
  * 异步图片模型 ID 列表
  */
@@ -32,6 +35,67 @@ export function normalizeApiBase(url: string): string {
     base = base.slice(0, -3);
   }
   return base;
+}
+
+function inferProviderType(baseUrl: string, explicitProviderType?: string): string {
+  if (explicitProviderType) {
+    return explicitProviderType;
+  }
+
+  const normalized = baseUrl.trim().toLowerCase();
+  if (
+    normalized.includes('generativelanguage.googleapis.com') ||
+    normalized.includes('vertex.googleapis.com')
+  ) {
+    return 'gemini-compatible';
+  }
+  if (
+    normalized.includes('/openai') ||
+    normalized.endsWith('/v1') ||
+    normalized.includes('api.openai.com') ||
+    normalized.includes('api.tu-zi.com')
+  ) {
+    return 'openai-compatible';
+  }
+  return 'custom';
+}
+
+function inferAuthType(config: ApiConfig, providerType: string): ResolvedProviderContext['authType'] {
+  if (
+    config.authType === 'bearer' ||
+    config.authType === 'header' ||
+    config.authType === 'query' ||
+    config.authType === 'custom'
+  ) {
+    return config.authType;
+  }
+
+  return 'bearer';
+}
+
+export function buildProviderContextFromApiConfig(
+  config: ApiConfig,
+  baseUrlOverride?: string
+): ResolvedProviderContext {
+  if (config.provider) {
+    return {
+      ...config.provider,
+      baseUrl: baseUrlOverride || config.provider.baseUrl,
+    };
+  }
+
+  const baseUrl = baseUrlOverride || config.baseUrl;
+  const providerType = inferProviderType(baseUrl, config.providerType);
+
+  return {
+    profileId: 'runtime',
+    profileName: 'Runtime',
+    providerType,
+    baseUrl,
+    apiKey: config.apiKey,
+    authType: inferAuthType(config, providerType),
+    extraHeaders: config.extraHeaders,
+  };
 }
 
 /**

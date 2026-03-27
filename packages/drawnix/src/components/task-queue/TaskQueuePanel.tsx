@@ -15,7 +15,7 @@ import { unifiedCacheService } from '../../services/unified-cache-service';
 import { useDrawnix, DialogType } from '../../hooks/use-drawnix';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
-import { sanitizeFilename, downloadFromBlob } from '@aitu/utils';
+import { sanitizeFilename, downloadFromBlob, normalizeImageDataUrl } from '@aitu/utils';
 import { downloadMediaFile } from '../../utils/download-utils';
 import { BaseDrawer } from '../side-drawer';
 import { CharacterCreateDialog } from '../character/CharacterCreateDialog';
@@ -387,7 +387,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       if (task.type === TaskType.IMAGE) {
         const urls = task.result.urls?.length ? task.result.urls : [task.result.url];
         for (const url of urls) {
-          await insertImageFromUrl(board, url);
+          await insertImageFromUrl(board, normalizeImageDataUrl(url));
         }
         MessagePlugin.success(urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板');
       } else if (task.type === TaskType.VIDEO) {
@@ -477,9 +477,12 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       indexMap.set(task.id, items.length);
 
       for (let i = 0; i < urls.length; i++) {
+        const normalizedUrl = mediaType === 'image'
+          ? normalizeImageDataUrl(urls[i])
+          : urls[i];
         items.push({
           id: urls.length > 1 ? `${task.id}-${i}` : task.id,
-          url: urls[i],
+          url: normalizedUrl,
           type: mediaType,
           title: urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
         });

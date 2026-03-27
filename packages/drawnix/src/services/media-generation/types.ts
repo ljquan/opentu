@@ -6,21 +6,21 @@
  */
 
 // Re-export core types
-export {
-  TaskStatus,
-  TaskType,
-} from '../../types/shared/core.types';
+export { TaskStatus, TaskType } from '../../types/shared/core.types';
 export type {
   Task,
   TaskResult,
   TaskError,
 } from '../../types/shared/core.types';
 
+import type { ModelRef } from '../../utils/settings-manager';
+
 /**
  * 图片生成选项
  */
 export interface ImageGenerationOptions {
   model?: string;
+  modelRef?: ModelRef | null;
   size?: string;
   quality?: '1k' | '2k' | '4k';
   referenceImages?: string[];
@@ -40,6 +40,7 @@ export interface ImageGenerationOptions {
  */
 export interface VideoGenerationOptions {
   model?: string;
+  modelRef?: ModelRef | null;
   duration?: number | string;
   size?: string;
   inputReference?: string;

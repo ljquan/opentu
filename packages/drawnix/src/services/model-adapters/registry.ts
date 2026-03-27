@@ -1,5 +1,11 @@
 import type { ModelAdapter, ModelKind } from './types';
 import { getModelConfig } from '../../constants/model-config';
+import type { ModelType } from '../../constants/model-config';
+import type { ModelRef } from '../../utils/settings-manager';
+import {
+  resolveInvocationPlanFromRoute,
+  type ProviderModelBinding,
+} from '../provider-routing';
 
 const adapterRegistry = new Map<string, ModelAdapter>();
 
@@ -15,9 +21,47 @@ export function hasModelAdapter(adapterId: string): boolean {
   return adapterRegistry.has(adapterId);
 }
 
+export function clearModelAdapters(): void {
+  adapterRegistry.clear();
+}
+
 export function listModelAdapters(kind?: ModelKind): ModelAdapter[] {
   const adapters = Array.from(adapterRegistry.values());
   return kind ? adapters.filter((adapter) => adapter.kind === kind) : adapters;
+}
+
+function scoreAdapterForBinding(
+  adapter: ModelAdapter,
+  binding: ProviderModelBinding
+): number {
+  if (adapter.matchRequestSchemas?.includes(binding.requestSchema)) {
+    return 400;
+  }
+
+  if (adapter.matchProtocols?.includes(binding.protocol)) {
+    return 300;
+  }
+
+  if (adapter.supportedModels?.includes(binding.modelId)) {
+    return 200;
+  }
+
+  return -1;
+}
+
+export function resolveAdapterForBinding(
+  binding: ProviderModelBinding,
+  kind: ModelKind
+): ModelAdapter | undefined {
+  const adapters = listModelAdapters(kind)
+    .map((adapter) => ({
+      adapter,
+      score: scoreAdapterForBinding(adapter, binding),
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score);
+
+  return adapters[0]?.adapter;
 }
 
 export function resolveAdapterForModel(
@@ -61,4 +105,38 @@ export function resolveAdapterForModel(
 
     return false;
   });
+}
+
+function toRouteType(kind: ModelKind): ModelType {
+  switch (kind) {
+    case 'image':
+      return 'image';
+    case 'video':
+      return 'video';
+    case 'chat':
+    default:
+      return 'text';
+  }
+}
+
+export function resolveAdapterForInvocation(
+  kind: ModelKind,
+  modelId?: string | null,
+  modelRef?: ModelRef | null
+): ModelAdapter | undefined {
+  const routeModel = modelRef || modelId || null;
+  const plan = resolveInvocationPlanFromRoute(toRouteType(kind), routeModel);
+
+  if (plan) {
+    const adapter = resolveAdapterForBinding(plan.binding, kind);
+    if (adapter) {
+      return adapter;
+    }
+  }
+
+  if (!modelId) {
+    return undefined;
+  }
+
+  return resolveAdapterForModel(modelId, kind);
 }

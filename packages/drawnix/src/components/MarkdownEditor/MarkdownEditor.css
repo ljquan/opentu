@@ -147,12 +147,18 @@
 
 /* ===== Card 标签贴内嵌 MarkdownEditor 样式 ===== */
 
-/* Card 内嵌 MarkdownEditor：去掉边框和背景，紧凑布局 */
+/* Card 内嵌 MarkdownEditor：去掉边框和背景，紧凑布局，高度由内容撑开，滚动由外层容器控制 */
 .collimind-markdown-editor.card-markdown-viewer {
   border: none;
   border-radius: 0;
   background: transparent;
-  height: 100%;
+  height: auto;
+  overflow-y: visible;
+}
+
+/* Card 模式下 milkdown 不需要 flex 拉伸，跟随内容高度 */
+.collimind-markdown-editor.card-markdown-viewer .milkdown {
+  flex: none;
 }
 
 /* Card 内容区 ProseMirror：减小内边距 */

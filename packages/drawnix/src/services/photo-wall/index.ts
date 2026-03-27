@@ -21,6 +21,7 @@ import { GRID_IMAGE_PROMPT_TEMPLATE, GRID_IMAGE_DEFAULTS as DEFAULTS } from '../
 import { defaultGeminiClient } from '../../utils/gemini-api';
 import { unifiedCacheService } from '../unified-cache-service';
 import { getInsertionPointBelowBottommostElement } from '../../utils/selection-utils';
+import { normalizeImageDataUrl } from '@aitu/utils';
 
 /**
  * GridImageService 类
@@ -78,7 +79,10 @@ export class GridImageService {
         throw new Error('AI 生成图片失败：未返回图片数据');
       }
       
-      const originalImageUrl = imageResult.data[0].url || imageResult.data[0].b64_json;
+      const rawImageUrl = imageResult.data[0].url || imageResult.data[0].b64_json;
+      const originalImageUrl = rawImageUrl
+        ? normalizeImageDataUrl(String(rawImageUrl))
+        : rawImageUrl;
       if (!originalImageUrl) {
         throw new Error('AI 生成图片失败：未返回图片 URL');
       }

@@ -39,7 +39,7 @@
     font-weight: 500;
 
     svg {
-      color: #F59E0B;
+      color: #f59e0b;
     }
   }
 
@@ -87,6 +87,17 @@
       align-items: center;
       gap: 8px;
       margin-bottom: 2px;
+      min-width: 0;
+    }
+
+    &-source-icon {
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-text-secondary, #666666);
+      flex-shrink: 0;
     }
 
     &-id {
@@ -97,11 +108,11 @@
       color: var(--color-text, #333333);
 
       &--image {
-        color: #E53935;
+        color: #e53935;
       }
 
       &--video {
-        color: #FF9800;
+        color: #ff9800;
       }
     }
 
@@ -109,6 +120,11 @@
       font-size: 13px;
       font-weight: 500;
       color: var(--color-text, #333333);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     &-type {
@@ -122,12 +138,12 @@
 
       &--image {
         background-color: rgba(229, 57, 53, 0.1);
-        color: #E53935;
+        color: #e53935;
       }
 
       &--video {
         background-color: rgba(255, 152, 0, 0.1);
-        color: #FF9800;
+        color: #ff9800;
       }
     }
 
@@ -141,7 +157,7 @@
 
     &-check {
       flex-shrink: 0;
-      color: #F59E0B;
+      color: #f59e0b;
       margin-left: 8px;
     }
   }
@@ -177,6 +193,16 @@
     font-weight: 500;
   }
 
+  &__selected-source-icon {
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary, #666666);
+    flex-shrink: 0;
+  }
+
   &__selected-name {
     color: var(--color-text, #333333);
     font-weight: 600;
@@ -184,7 +210,7 @@
   }
 
   &__selected-check {
-    color: #22C55E;
+    color: #22c55e;
   }
 
   &__hint-text {
@@ -227,6 +253,10 @@
         color: var(--color-gray-20, #cccccc);
       }
 
+      &-source-icon {
+        color: var(--color-gray-50, #999999);
+      }
+
       &-desc {
         color: var(--color-gray-50, #888888);
       }
@@ -248,6 +278,10 @@
 
     &__selected-name {
       color: var(--color-gray-20, #cccccc);
+    }
+
+    &__selected-source-icon {
+      color: var(--color-gray-50, #999999);
     }
 
     &__hint-text {

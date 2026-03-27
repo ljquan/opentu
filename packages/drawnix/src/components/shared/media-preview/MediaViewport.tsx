@@ -17,6 +17,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Tooltip, MessagePlugin } from 'tdesign-react';
+import { normalizeImageDataUrl } from '@aitu/utils';
 import { quickInsert } from '../../../services/canvas-operations';
 import type { MediaViewportProps, MediaViewportRef } from './types';
 import './MediaViewport.scss';
@@ -134,6 +135,10 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
   } | null>(toolbarState.position);
   const [isToolbarDragging, setIsToolbarDragging] = useState(false);
   const toolbarDragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+  const isVideo = item?.type === 'video';
+  const mediaUrl = item
+    ? (isVideo ? item.url : normalizeImageDataUrl(item.url))
+    : '';
 
   // 保存工具栏状态到缓存 - 仅单图模式
   useEffect(() => {
@@ -232,7 +237,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
     
     try {
       const contentType = item.type === 'video' ? 'video' : 'image';
-      const result = await quickInsert(contentType, item.url);
+      const result = await quickInsert(contentType, mediaUrl);
       if (result.success) {
         MessagePlugin.success(item.type === 'video' ? '视频已插入到画布' : '图片已插入到画布');
       } else {
@@ -242,7 +247,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
       console.error('Failed to insert to canvas:', error);
       MessagePlugin.error('插入失败');
     }
-  }, [item]);
+  }, [item, mediaUrl]);
 
   // 工具栏方向切换
   const toggleToolbarOrientation = useCallback(() => {
@@ -348,7 +353,6 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
     );
   }
 
-  const isVideo = item.type === 'video';
   const scaleX = flipH ? -localZoom : localZoom;
   const scaleY = flipV ? -localZoom : localZoom;
   const transformStyle = {
@@ -372,7 +376,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
         {isVideo ? (
           <video
             ref={videoRef}
-            src={item.url}
+            src={mediaUrl}
             autoPlay={videoAutoPlay}
             loop={videoLoop}
             controls
@@ -398,7 +402,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
           />
         ) : (
           <img
-            src={item.url}
+            src={mediaUrl}
             alt={item.alt || item.title || ''}
             className="media-viewport__image"
             draggable={false}

@@ -12,6 +12,7 @@ import {
   CheckCircle,
   Copy,
 } from 'lucide-react';
+import { isDataURL, normalizeImageDataUrl } from '@aitu/utils';
 import { formatDate, formatFileSize } from '../../utils/asset-utils';
 import { useAssetSize } from '../../hooks/useAssetSize';
 import { isCacheUrl, countElementsByAssetUrl } from '../../utils/asset-cleanup';
@@ -25,14 +26,24 @@ import './MediaLibraryInspector.scss';
  * @param size 预览图尺寸（默认 small）
  */
 function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
+  const normalizedUrl = normalizeImageDataUrl(originalUrl);
+  if (
+    normalizedUrl.startsWith('http://') ||
+    normalizedUrl.startsWith('https://') ||
+    normalizedUrl.startsWith('blob:') ||
+    isDataURL(normalizedUrl)
+  ) {
+    return normalizedUrl;
+  }
+
   try {
-    const url = new URL(originalUrl, window.location.origin);
+    const url = new URL(normalizedUrl, window.location.origin);
     url.searchParams.set('thumbnail', size);
     return url.toString();
   } catch {
     // 如果 URL 解析失败，直接拼接参数
-    const separator = originalUrl.includes('?') ? '&' : '?';
-    return `${originalUrl}${separator}thumbnail=${size}`;
+    const separator = normalizedUrl.includes('?') ? '&' : '?';
+    return `${normalizedUrl}${separator}thumbnail=${size}`;
   }
 }
 
@@ -109,14 +120,13 @@ export function MediaLibraryInspector({
     setDeleteDialogVisible(true);
   }, []);
 
-  // 确认删除
+  // 确认删除（成功提示由 AssetContext 统一展示，此处不再重复）
   const handleConfirmDelete = useCallback(async () => {
     if (!asset) return;
 
     try {
       await onDelete(asset.id);
       setDeleteDialogVisible(false);
-      MessagePlugin.success('删除成功');
     } catch (error) {
       // 错误已在Context中处理
     }
@@ -157,26 +167,29 @@ export function MediaLibraryInspector({
     );
   }
 
+  const normalizedAssetUrl =
+    asset.type === 'IMAGE' ? normalizeImageDataUrl(asset.url) : asset.url;
+
   return (
     <div className="media-library-inspector">
       {/* 预览 */}
       <div className="media-library-inspector__preview">
         {asset.type === 'IMAGE' ? (
           <img
-            src={getThumbnailUrl(asset.url, 'large')}
+            src={getThumbnailUrl(normalizedAssetUrl, 'large')}
             alt={asset.name}
             className="media-library-inspector__image"
             onError={(e) => {
               // 预览图加载失败，回退到原图
-              (e.target as HTMLImageElement).src = asset.url;
+              (e.target as HTMLImageElement).src = normalizedAssetUrl;
             }}
           />
         ) : (
           <video
-            src={asset.url}
+            src={normalizedAssetUrl}
             controls
             className="media-library-inspector__video"
-            poster={getThumbnailUrl(asset.url, 'large')}
+            poster={getThumbnailUrl(normalizedAssetUrl, 'large')}
           />
         )}
       </div>

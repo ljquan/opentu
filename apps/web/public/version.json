@@ -1,8 +1,10 @@
 {
-  "version": "0.6.9",
-  "buildTime": "2026-03-15T10:37:57.828Z",
+  "version": "0.6.11",
+  "buildTime": "2026-03-18T01:49:47.000Z",
   "gitCommit": "unknown",
   "changelog": [
-    "添加页面刷新后恢复视频任务轮询的功能"
+    "fixed: 兼容base64图片返回",
+    "fixed:修复素材库删除的bug",
+    "fixed:修复部署失败"
   ]
 }

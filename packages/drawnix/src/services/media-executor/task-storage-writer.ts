@@ -8,6 +8,7 @@
  * 此模块仅用于降级场景。
  */
 
+import { normalizeImageDataUrl } from '@aitu/utils';
 import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
 
 // 使用主线程专用数据库
@@ -207,8 +208,23 @@ class TaskStorageWriter {
   async completeTask(taskId: string, result: SWTask['result']): Promise<void> {
     const task = await this.getTask(taskId);
     if (task) {
+      const normalizedResult =
+        task.type === 'image' && result
+          ? {
+              ...result,
+              url: normalizeImageDataUrl(result.url),
+              urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
+              thumbnailUrl: result.thumbnailUrl
+                ? normalizeImageDataUrl(result.thumbnailUrl)
+                : result.thumbnailUrl,
+              thumbnailUrls: result.thumbnailUrls?.map((url) =>
+                normalizeImageDataUrl(url)
+              ),
+            }
+          : result;
+
       task.status = 'completed';
-      task.result = result;
+      task.result = normalizedResult;
       task.completedAt = Date.now();
       task.updatedAt = Date.now();
       task.progress = 100;

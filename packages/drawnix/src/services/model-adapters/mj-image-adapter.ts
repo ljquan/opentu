@@ -4,6 +4,7 @@ import type {
   ImageModelAdapter,
 } from './types';
 import { registerModelAdapter } from './registry';
+import { sendAdapterRequest } from './context';
 
 type MJSubmitResponse = {
   code: number;
@@ -30,14 +31,6 @@ const normalizeBaseUrl = (context: AdapterContext): string => {
   return trimmed.endsWith('/v1') ? trimmed.slice(0, -3) : trimmed;
 };
 
-const resolveFetcher = (context: AdapterContext): typeof fetch => {
-  return context.fetcher || fetch;
-};
-
-const buildAuthHeader = (context: AdapterContext): Record<string, string> => {
-  return context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : {};
-};
-
 const stripDataUrlPrefix = (value: string): string => {
   const match = value.match(/^data:[^;]+;base64,(.*)$/);
   return match ? match[1] : value;
@@ -60,16 +53,17 @@ const submitMJImagine = async (
   body: Record<string, unknown>
 ): Promise<MJSubmitResponse> => {
   const baseUrl = normalizeBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/mj/submit/imagine`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: '/mj/submit/imagine',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...buildAuthHeader(context),
       },
       body: JSON.stringify(body),
-    }
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -85,12 +79,13 @@ const queryMJTask = async (
   taskId: string
 ): Promise<MJQueryResponse> => {
   const baseUrl = normalizeBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/mj/task/${taskId}/fetch`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: `/mj/task/${taskId}/fetch`,
       method: 'GET',
-      headers: buildAuthHeader(context),
-    }
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -106,6 +101,8 @@ export const mjImageAdapter: ImageModelAdapter = {
   label: 'Midjourney Image',
   kind: 'image',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchProtocols: ['mj.imagine'],
+  matchRequestSchemas: ['mj.imagine.base64-array'],
   matchTags: ['mj'],
   supportedModels: ['mj-imagine'],
   defaultModel: 'mj-imagine',

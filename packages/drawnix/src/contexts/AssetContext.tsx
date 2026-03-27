@@ -9,7 +9,6 @@
  */
 
 import {
-  createContext,
   useContext,
   useState,
   useCallback,
@@ -291,9 +290,9 @@ export function AssetProvider({ children }: AssetProviderProps) {
       } else {
         setTimeout(fillMissingSizes, 200);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load assets:', err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : String(err));
       MessagePlugin.error({
         content: '加载素材失败，请刷新页面重试',
         duration: 3000,
@@ -302,6 +301,32 @@ export function AssetProvider({ children }: AssetProviderProps) {
       setLoading(false);
     }
   }, [taskToAsset, getAssetsFromCacheStorage]);
+
+  /**
+   * Check Storage Quota
+   * 检查存储配额
+   */
+  const checkStorageQuota = useCallback(async () => {
+    try {
+      const status = await getStorageStatus();
+      setStorageStatus(status);
+
+      // 如果接近限制，显示警告
+      if (status.isCritical) {
+        MessagePlugin.warning({
+          content: `本地存储空间已使用 ${status.quota.percentUsed.toFixed(1)}%，即将达到上限。请删除一些旧素材。`,
+          duration: 5000,
+        });
+      } else if (status.isNearLimit) {
+        MessagePlugin.info({
+          content: `本地存储空间已使用 ${status.quota.percentUsed.toFixed(1)}%，接近上限。`,
+          duration: 3000,
+        });
+      }
+    } catch (err: unknown) {
+      console.error('Failed to check storage quota:', err);
+    }
+  }, []);
 
   /**
    * Add Asset
@@ -361,21 +386,19 @@ export function AssetProvider({ children }: AssetProviderProps) {
 
         // console.log('[AssetContext] addAsset completed successfully');
         return asset;
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('[AssetContext] Failed to add asset:', err);
-        // console.error('[AssetContext] Error name:', err.name);
-        // console.error('[AssetContext] Error message:', err.message);
-        // console.error('[AssetContext] Error stack:', err.stack);
-        setError(err.message);
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error.message);
 
-        if (err.name === 'QuotaExceededError') {
+        if (error.name === 'QuotaExceededError') {
           MessagePlugin.error({
             content: '本地存储空间不足，请删除一些旧素材',
             duration: 5000,
           });
-        } else if (err.name === 'ValidationError') {
+        } else if (error.name === 'ValidationError') {
           MessagePlugin.error({
-            content: err.message,
+            content: error.message,
             duration: 3000,
           });
         } else {
@@ -390,34 +413,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
         setLoading(false);
       }
     },
-    [],
+    [checkStorageQuota],
   );
-
-  /**
-   * Check Storage Quota
-   * 检查存储配额
-   */
-  const checkStorageQuota = useCallback(async () => {
-    try {
-      const status = await getStorageStatus();
-      setStorageStatus(status);
-
-      // 如果接近限制，显示警告
-      if (status.isCritical) {
-        MessagePlugin.warning({
-          content: `本地存储空间已使用 ${status.quota.percentUsed.toFixed(1)}%，即将达到上限。请删除一些旧素材。`,
-          duration: 5000,
-        });
-      } else if (status.isNearLimit) {
-        MessagePlugin.info({
-          content: `本地存储空间已使用 ${status.quota.percentUsed.toFixed(1)}%，接近上限。`,
-          duration: 3000,
-        });
-      }
-    } catch (err: any) {
-      console.error('Failed to check storage quota:', err);
-    }
-  }, []);
 
   /**
    * Remove Asset
@@ -431,16 +428,21 @@ export function AssetProvider({ children }: AssetProviderProps) {
     setError(null);
 
     try {
-      // 查找素材来源
       const asset = assets.find(a => a.id === id);
 
       if (id.startsWith('unified-cache-')) {
-        // 缓存素材：从 unified-cache 删除
-        const url = id.replace('unified-cache-', '');
-        await unifiedCacheService.deleteCache(url);
+        // 缓存素材：使用素材的实际 URL 删除
+        if (asset) {
+          await unifiedCacheService.deleteCache(asset.url);
+        }
       } else if (asset?.source === AssetSourceEnum.AI_GENERATED) {
-        // AI 生成的素材：从任务队列删除
+        // AI 生成的素材：删除任务 + 清理缓存
         taskQueueService.deleteTask(id);
+        if (asset.url) {
+          await unifiedCacheService.deleteCache(asset.url).catch((e) => {
+            console.debug('[AssetContext] AI asset cache delete skipped:', e);
+          });
+        }
       } else {
         // 本地上传的素材：从 IndexedDB 删除
         await assetStorageService.removeAsset(id);
@@ -514,11 +516,13 @@ export function AssetProvider({ children }: AssetProviderProps) {
         }
       }
 
-      // 删除缓存素材（从 unified-cache）
+      // 删除缓存素材：使用素材的实际 URL
       for (const id of cacheIds) {
         try {
-          const url = id.replace('unified-cache-', '');
-          await unifiedCacheService.deleteCache(url);
+          const asset = assets.find(a => a.id === id);
+          if (asset) {
+            await unifiedCacheService.deleteCache(asset.url);
+          }
           successIds.push(id);
         } catch (err) {
           console.error(`Failed to remove cache asset ${id}:`, err);
@@ -526,10 +530,16 @@ export function AssetProvider({ children }: AssetProviderProps) {
         }
       }
 
-      // 删除 AI 生成的素材（从任务队列）
+      // 删除 AI 生成的素材：删除任务 + 清理缓存
       for (const id of aiIds) {
         try {
+          const asset = assets.find(a => a.id === id);
           taskQueueService.deleteTask(id);
+          if (asset?.url) {
+            await unifiedCacheService.deleteCache(asset.url).catch((e) => {
+              console.debug('[AssetContext] AI asset cache delete skipped:', e);
+            });
+          }
           successIds.push(id);
         } catch (err) {
           console.error(`Failed to remove AI asset ${id}:`, err);
@@ -631,18 +641,19 @@ export function AssetProvider({ children }: AssetProviderProps) {
           content: '重命名成功',
           duration: 2000,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to rename asset:', err);
-        setError(err.message);
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error.message);
 
-        if (err.name === 'NotFoundError') {
+        if (error.name === 'NotFoundError') {
           MessagePlugin.warning({
             content: '素材未找到，可能已被删除',
             duration: 3000,
           });
-        } else if (err.name === 'ValidationError') {
+        } else if (error.name === 'ValidationError') {
           MessagePlugin.error({
-            content: err.message,
+            content: error.message,
             duration: 3000,
           });
         } else {

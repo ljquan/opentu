@@ -27,9 +27,18 @@ import {
   calculateResizedRect,
   getShiftKeyState,
 } from '../utils/resize-utils';
+import { CARD_TITLE_HEIGHT } from '../constants/card-colors';
+import { measureCardBodyContentHeight } from '../components/card-element/CardElement';
 
 /** Card 最小尺寸 */
 const CARD_MIN_SIZE = 120;
+
+/** 记录用户手动调整过尺寸的 Card ID */
+const manuallyResizedCards = new Set<string>();
+
+export function isCardManuallyResized(id: string): boolean {
+  return manuallyResizedCards.has(id);
+}
 
 /**
  * 命中测试辅助函数 - 检测点是否在缩放手柄上
@@ -38,7 +47,7 @@ function getHitRectangleResizeHandleRef(
   board: PlaitBoard,
   rectangle: RectangleClient,
   point: Point,
-  angle: number = 0
+  angle = 0
 ) {
   const centerPoint = RectangleClient.getCenterPoint(rectangle);
   const resizeHandleRefs = getRectangleResizeHandleRefs(
@@ -48,7 +57,7 @@ function getHitRectangleResizeHandleRef(
 
   if (angle) {
     const rotatedPoint = rotatePoint(point, centerPoint, -angle);
-    let result = resizeHandleRefs.find((resizeHandleRef) => {
+    const result = resizeHandleRefs.find((resizeHandleRef) => {
       return RectangleClient.isHit(
         RectangleClient.getRectangleByPoints([rotatedPoint, rotatedPoint]),
         resizeHandleRef.rectangle
@@ -121,6 +130,8 @@ function onResize(
 
   if (!startRectangle) return;
 
+  manuallyResizedCards.add(element.id);
+
   const dx = endPoint[0] - startPoint[0];
   const dy = endPoint[1] - startPoint[1];
 
@@ -132,6 +143,20 @@ function onResize(
     getShiftKeyState(),
     CARD_MIN_SIZE
   );
+
+  const titleHeight = element.title?.trim() ? CARD_TITLE_HEIGHT : 0;
+  const bodyContentH = measureCardBodyContentHeight(element.id);
+  const contentMaxHeight =
+    bodyContentH != null ? titleHeight + bodyContentH : newRect.height;
+  if (newRect.height > contentMaxHeight) {
+    const isTopHandle = [ResizeHandle.nw, ResizeHandle.n, ResizeHandle.ne].includes(
+      handle as ResizeHandle
+    );
+    if (isTopHandle) {
+      newRect.y = newRect.y + newRect.height - contentMaxHeight;
+    }
+    newRect.height = contentMaxHeight;
+  }
 
   const newPoints: [Point, Point] = [
     [newRect.x, newRect.y],

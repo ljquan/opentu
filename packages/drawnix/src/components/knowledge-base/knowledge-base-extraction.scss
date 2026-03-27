@@ -258,6 +258,31 @@
       border-radius: 12px 12px 12px 4px;
       border: 1px solid var(--td-component-border);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      padding-right: 4px; // 右侧留白，使内层滚动条完全落在平直区域内，不被圆角裁切
+    }
+
+    .kb-message__content-scroll {
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 8px; // 滚动条与正文留白
+
+      &::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      &::-webkit-scrollbar-track {
+        background: transparent;
+        margin: 4px 0; // 上下留白，避免被圆角裁切
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background-color: var(--td-scrollbar-color);
+        border-radius: 3px;
+
+        &:hover {
+          background-color: var(--td-scrollbar-color-hover, rgba(0, 0, 0, 0.25));
+        }
+      }
     }
   }
 
@@ -304,6 +329,11 @@
   
   &__text {
     white-space: pre-wrap;
+  }
+
+  &__markdown-wrap {
+    min-width: 0;
+    // overflow 由父级 .kb-message__content 控制，此处不限制以允许在 model 气泡内滚动
   }
 
   &__body {
@@ -419,6 +449,36 @@
   }
 }
 
+// 正在思考：小字号 + 动态省略号
+.kb-message__thinking {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+.kb-message__thinking-text {
+  margin-right: 0;
+}
+
+.kb-message__thinking-dots {
+  display: inline-flex;
+  gap: 1px;
+
+  span {
+    animation: kb-thinking-dot 1.4s ease-in-out infinite both;
+
+    &:nth-child(1) { animation-delay: 0s; }
+    &:nth-child(2) { animation-delay: 0.2s; }
+    &:nth-child(3) { animation-delay: 0.4s; }
+  }
+}
+
+@keyframes kb-thinking-dot {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
 .kb-loading-dots {
   font-style: italic;
   color: var(--td-text-color-secondary);
@@ -463,8 +523,9 @@
     overflow: visible !important;
   }
 
-  // Ensure headings are not too large in chat
-  h1 { font-size: 1.5em; }
-  h2 { font-size: 1.3em; }
-  h3 { font-size: 1.1em; }
+  // 标题字号略小于正文，避免在气泡内过大
+  h1 { font-size: 1.2em; font-weight: 600; }
+  h2 { font-size: 1.1em; font-weight: 600; }
+  h3 { font-size: 1.05em; font-weight: 600; }
+  p, li { font-size: 14px; }
 }

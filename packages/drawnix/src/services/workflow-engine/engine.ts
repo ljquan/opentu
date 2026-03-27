@@ -20,6 +20,7 @@ import type { AIAnalyzeParams } from '../media-executor/types';
 import { workflowStorageWriter } from './workflow-storage-writer';
 import { findExecutableSteps, getFirstError } from './workflow-factory';
 import { generateImage, generateVideo, TaskStatus } from '../media-generation';
+import type { ModelRef } from '../../utils/settings-manager';
 
 /**
  * 主线程工作流引擎
@@ -54,7 +55,12 @@ export class WorkflowEngine {
    * 提交工作流
    */
   async submitWorkflow(workflow: Workflow): Promise<void> {
-    console.log('[WorkflowEngine] submitWorkflow 入口, id:', workflow.id, 'steps:', workflow.steps.length);
+    console.log(
+      '[WorkflowEngine] submitWorkflow 入口, id:',
+      workflow.id,
+      'steps:',
+      workflow.steps.length
+    );
 
     // 保存到内存
     this.workflows.set(workflow.id, workflow);
@@ -64,7 +70,10 @@ export class WorkflowEngine {
       await workflowStorageWriter.saveWorkflow(workflow);
       console.log('[WorkflowEngine] submitWorkflow: IDB 保存完成');
     } catch (e) {
-      console.warn('[WorkflowEngine] submitWorkflow: IDB 保存失败，继续执行:', e);
+      console.warn(
+        '[WorkflowEngine] submitWorkflow: IDB 保存失败，继续执行:',
+        e
+      );
     }
 
     // 创建取消控制器
@@ -74,7 +83,10 @@ export class WorkflowEngine {
     // 异步执行工作流
     console.log('[WorkflowEngine] submitWorkflow: 开始异步执行工作流');
     this.executeWorkflow(workflow.id).catch((error) => {
-      console.error(`[WorkflowEngine] Workflow ${workflow.id} execution error:`, error);
+      console.error(
+        `[WorkflowEngine] Workflow ${workflow.id} execution error:`,
+        error
+      );
     });
   }
 
@@ -127,7 +139,9 @@ export class WorkflowEngine {
     // 检查是否有需要执行的步骤
     const hasPendingSteps = workflow.steps.some((s) => s.status === 'pending');
     const hasRunningSteps = workflow.steps.some((s) => s.status === 'running');
-    const hasPendingMainThreadSteps = workflow.steps.some((s) => s.status === 'pending_main_thread');
+    const hasPendingMainThreadSteps = workflow.steps.some(
+      (s) => s.status === 'pending_main_thread'
+    );
 
     if (!hasPendingSteps && !hasRunningSteps && !hasPendingMainThreadSteps) {
       return;
@@ -148,7 +162,11 @@ export class WorkflowEngine {
 
     // 开始执行
     this.executeWorkflow(workflowId).catch((error) => {
-      console.error('[WorkflowEngine] Resume workflow failed:', workflowId, error);
+      console.error(
+        '[WorkflowEngine] Resume workflow failed:',
+        workflowId,
+        error
+      );
     });
   }
 
@@ -159,7 +177,10 @@ export class WorkflowEngine {
     console.log('[WorkflowEngine] executeWorkflow 开始, id:', workflowId);
     const workflow = this.workflows.get(workflowId);
     if (!workflow) {
-      console.warn('[WorkflowEngine] executeWorkflow: 工作流不存在:', workflowId);
+      console.warn(
+        '[WorkflowEngine] executeWorkflow: 工作流不存在:',
+        workflowId
+      );
       return;
     }
 
@@ -172,7 +193,10 @@ export class WorkflowEngine {
       try {
         await workflowStorageWriter.saveWorkflow(workflow);
       } catch (e) {
-        console.warn('[WorkflowEngine] executeWorkflow: IDB 保存失败，继续:', e);
+        console.warn(
+          '[WorkflowEngine] executeWorkflow: IDB 保存失败，继续:',
+          e
+        );
       }
 
       console.log('[WorkflowEngine] executeWorkflow: 状态已更新为 running');
@@ -236,7 +260,10 @@ export class WorkflowEngine {
   /**
    * 执行工作流步骤
    */
-  private async executeSteps(workflow: Workflow, signal?: AbortSignal): Promise<void> {
+  private async executeSteps(
+    workflow: Workflow,
+    signal?: AbortSignal
+  ): Promise<void> {
     // 循环执行，直到没有可执行的步骤
     let iteration = 0;
     while (true) {
@@ -259,7 +286,6 @@ export class WorkflowEngine {
     }
   }
 
-
   /**
    * 执行单个步骤
    */
@@ -268,7 +294,12 @@ export class WorkflowEngine {
     step: WorkflowStep,
     signal?: AbortSignal
   ): Promise<void> {
-    console.log('[WorkflowEngine] executeStep 开始:', step.mcp, 'stepId:', step.id);
+    console.log(
+      '[WorkflowEngine] executeStep 开始:',
+      step.mcp,
+      'stepId:',
+      step.id
+    );
     const startTime = Date.now();
 
     // 更新步骤状态为 running
@@ -332,32 +363,39 @@ export class WorkflowEngine {
     step: WorkflowStep,
     signal?: AbortSignal
   ): Promise<void> {
-    console.log('[WorkflowEngine] executeToolStep:', step.mcp, 'stepId:', step.id, 'forceFallback:', this.options.forceFallbackExecutor);
+    console.log(
+      '[WorkflowEngine] executeToolStep:',
+      step.mcp,
+      'stepId:',
+      step.id,
+      'forceFallback:',
+      this.options.forceFallbackExecutor
+    );
 
     // 根据工具类型执行
     switch (step.mcp) {
       case 'generate_image': {
         // 使用独立的图片生成服务
-        const result = await generateImage(
-          step.args.prompt as string,
-          {
-            model: step.args.model as string | undefined,
-            size: step.args.size as string | undefined,
-            referenceImages: step.args.referenceImages as string[] | undefined,
-            count: step.args.count as number | undefined,
-            params: step.args.params as Record<string, unknown> | undefined,
-            forceMainThread: this.options.forceFallbackExecutor,
-            signal,
-            onTaskCreated: (taskId) => {
-              // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
-              step.result = { taskId };
-              workflowStorageWriter.saveWorkflow(workflow);
-            },
-          }
-        );
+        const result = await generateImage(step.args.prompt as string, {
+          model: step.args.model as string | undefined,
+          modelRef: (step.args.modelRef as ModelRef | null | undefined) || null,
+          size: step.args.size as string | undefined,
+          referenceImages: step.args.referenceImages as string[] | undefined,
+          count: step.args.count as number | undefined,
+          params: step.args.params as Record<string, unknown> | undefined,
+          forceMainThread: this.options.forceFallbackExecutor,
+          signal,
+          onTaskCreated: (taskId) => {
+            // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
+            step.result = { taskId };
+            workflowStorageWriter.saveWorkflow(workflow);
+          },
+        });
 
         if (result.task.status === TaskStatus.FAILED) {
-          throw new Error(result.task.error?.message || 'Image generation failed');
+          throw new Error(
+            result.task.error?.message || 'Image generation failed'
+          );
         }
 
         step.result = { ...result.task.result, taskId: result.task.id };
@@ -366,29 +404,29 @@ export class WorkflowEngine {
 
       case 'generate_video': {
         // 使用独立的视频生成服务
-        const result = await generateVideo(
-          step.args.prompt as string,
-          {
-            model: step.args.model as string | undefined,
-            duration: (step.args.seconds ?? step.args.duration) as
-              | string
-              | number
-              | undefined,
-            size: step.args.size as string | undefined,
-            referenceImages: step.args.referenceImages as string[] | undefined,
-            params: step.args.params as Record<string, unknown> | undefined,
-            forceMainThread: this.options.forceFallbackExecutor,
-            signal,
-            onTaskCreated: (taskId) => {
-              // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
-              step.result = { taskId };
-              workflowStorageWriter.saveWorkflow(workflow);
-            },
-          }
-        );
+        const result = await generateVideo(step.args.prompt as string, {
+          model: step.args.model as string | undefined,
+          modelRef: (step.args.modelRef as ModelRef | null | undefined) || null,
+          duration: (step.args.seconds ?? step.args.duration) as
+            | string
+            | number
+            | undefined,
+          size: step.args.size as string | undefined,
+          referenceImages: step.args.referenceImages as string[] | undefined,
+          params: step.args.params as Record<string, unknown> | undefined,
+          forceMainThread: this.options.forceFallbackExecutor,
+          signal,
+          onTaskCreated: (taskId) => {
+            // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
+            step.result = { taskId };
+            workflowStorageWriter.saveWorkflow(workflow);
+          },
+        });
 
         if (result.task.status === TaskStatus.FAILED) {
-          throw new Error(result.task.error?.message || 'Video generation failed');
+          throw new Error(
+            result.task.error?.message || 'Video generation failed'
+          );
         }
 
         step.result = { ...result.task.result, taskId: result.task.id };
@@ -403,18 +441,23 @@ export class WorkflowEngine {
         // 强制使用降级执行器，确保结果立即返回
         const fallbackExecutor = executorFactory.getFallbackExecutor();
         const taskId = step.id;
-        const analyzeResult = await fallbackExecutor.aiAnalyze({
-          taskId,
-          // 支持 messages 或 prompt
-          messages: step.args.messages as AIAnalyzeParams['messages'],
-          prompt: step.args.prompt as string | undefined,
-          // 支持 referenceImages 或 images
-          referenceImages: step.args.referenceImages as string[] | undefined,
-          images: step.args.images as string[] | undefined,
-          // 支持 textModel 或 model
-          textModel: step.args.textModel as string | undefined,
-          model: step.args.model as string | undefined,
-        }, { signal });
+        const analyzeResult = await fallbackExecutor.aiAnalyze(
+          {
+            taskId,
+            // 支持 messages 或 prompt
+            messages: step.args.messages as AIAnalyzeParams['messages'],
+            prompt: step.args.prompt as string | undefined,
+            // 支持 referenceImages 或 images
+            referenceImages: step.args.referenceImages as string[] | undefined,
+            images: step.args.images as string[] | undefined,
+            // 支持 textModel 或 model
+            textModel: step.args.textModel as string | undefined,
+            model: step.args.model as string | undefined,
+            modelRef:
+              (step.args.modelRef as ModelRef | null | undefined) || null,
+          },
+          { signal }
+        );
 
         step.result = { content: analyzeResult.content };
 
@@ -422,7 +465,7 @@ export class WorkflowEngine {
         if (analyzeResult.addSteps && analyzeResult.addSteps.length > 0) {
           for (const newStep of analyzeResult.addSteps) {
             // 去重检查
-            if (!workflow.steps.find(s => s.id === newStep.id)) {
+            if (!workflow.steps.find((s) => s.id === newStep.id)) {
               workflow.steps.push({
                 id: newStep.id,
                 mcp: newStep.mcp,
@@ -438,16 +481,18 @@ export class WorkflowEngine {
           this.emitEvent({
             type: 'steps_added',
             workflowId: workflow.id,
-            steps: workflow.steps.filter(s => s.status === 'pending'),
+            steps: workflow.steps.filter((s) => s.status === 'pending'),
           });
         } else if (analyzeResult.content && analyzeResult.content.trim()) {
           // 路径 C（角色扮演模式）：AI 返回纯文本，没有工具调用
           // 自动添加 insert_to_canvas 步骤，将文本以 markdown 方式插入画布
           const insertStepId = `${step.id}-insert-text`;
-          if (!workflow.steps.find(s => s.id === insertStepId)) {
+          if (!workflow.steps.find((s) => s.id === insertStepId)) {
             // 将用户输入的 rawInput 作为一级标题，拼接在 AI 回复内容前面
             const rawInput = (workflow as any).metadata?.rawInput || '';
-            const titlePrefix = rawInput.trim() ? `# ${rawInput.trim()}\n\n` : '';
+            const titlePrefix = rawInput.trim()
+              ? `# ${rawInput.trim()}\n\n`
+              : '';
             const insertStep: WorkflowStep = {
               id: insertStepId,
               mcp: 'insert_to_canvas',
@@ -486,10 +531,15 @@ export class WorkflowEngine {
       case 'canvas_insert':
       case 'insert_to_canvas': {
         if (!this.options.executeMainThreadTool) {
-          throw new Error(`No main thread tool executor configured for: ${step.mcp}`);
+          throw new Error(
+            `No main thread tool executor configured for: ${step.mcp}`
+          );
         }
 
-        const toolResult = await this.options.executeMainThreadTool(step.mcp, step.args);
+        const toolResult = await this.options.executeMainThreadTool(
+          step.mcp,
+          step.args
+        );
 
         if (!toolResult.success) {
           throw new Error(toolResult.error || `${step.mcp} failed`);
@@ -503,7 +553,6 @@ export class WorkflowEngine {
         throw new Error(`Unknown tool: ${step.mcp}`);
     }
   }
-
 
   /**
    * 发送事件

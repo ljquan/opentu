@@ -5,6 +5,7 @@
  * 负责元数据管理、智能图片传递、缓存满处理等功能
  */
 
+import { isDataURL, normalizeImageDataUrl } from '@aitu/utils';
 import { getDataURL } from '../data/blob';
 import { swChannelClient } from './sw-channel/client';
 
@@ -417,6 +418,13 @@ class UnifiedCacheService {
     } = options;
 
     try {
+      const normalizedUrl = normalizeImageDataUrl(url);
+      if (isDataURL(normalizedUrl)) {
+        return { type: 'base64', value: normalizedUrl };
+      }
+
+      url = normalizedUrl;
+
       // 检查是否为虚拟 URL（素材库本地 URL）
       // 虚拟 URL 必须转换为 base64，因为大模型无法访问本地虚拟路径
       const isVirtualUrl = url.startsWith('/asset-library/') || url.startsWith('/__aitu_cache__/');

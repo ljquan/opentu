@@ -5,7 +5,17 @@
  * Uses tu-zi API for video generation.
  */
 
-import { geminiSettings } from '../utils/settings-manager';
+import {
+  providerTransport,
+  resolveInvocationPlanFromRoute,
+  type ProviderModelBinding,
+  type ProviderAuthStrategy,
+  type ResolvedProviderContext,
+} from './provider-routing';
+import {
+  resolveInvocationRoute,
+  type ModelRef,
+} from '../utils/settings-manager';
 import type { VideoModel, UploadedVideoImage } from '../types/video.types';
 import { unifiedCacheService } from './unified-cache-service';
 import {
@@ -14,6 +24,13 @@ import {
   failLLMApiLog,
   updateLLMApiLogMetadata,
 } from './media-executor/llm-api-logger';
+import {
+  downloadVideoContentToLocalUrl,
+  extractInlineVideoUrl,
+  resolveVideoSubmission,
+  shouldDownloadVideoContent,
+} from './video-binding-utils';
+import { prepareVideoReferenceImageBlob } from './video-reference-image-utils';
 
 // Re-export VideoModel for backward compatibility
 export type { VideoModel };
@@ -21,9 +38,11 @@ export type { VideoModel };
 // Video generation request params
 export interface VideoGenerationParams {
   model: VideoModel;
+  modelRef?: ModelRef | null;
   prompt: string;
   seconds?: string;
   size?: string;
+  params?: Record<string, unknown>;
   // Multiple images support for different models
   inputReferences?: UploadedVideoImage[];
   // Legacy single image support (for backward compatibility)
@@ -35,7 +54,13 @@ export interface VideoSubmitResponse {
   id: string;
   object: string;
   model: string;
-  status: 'queued' | 'in_progress' | 'completed' | 'failed';
+  status:
+    | 'queued'
+    | 'in_progress'
+    | 'completed'
+    | 'failed'
+    | 'succeeded'
+    | 'error';
   progress: number;
   created_at: number;
   seconds: string;
@@ -49,7 +74,13 @@ export interface VideoQueryResponse {
   size: string;
   model: string;
   object: string;
-  status: 'queued' | 'in_progress' | 'completed' | 'failed';
+  status:
+    | 'queued'
+    | 'in_progress'
+    | 'completed'
+    | 'failed'
+    | 'succeeded'
+    | 'error';
   seconds: string;
   progress?: number; // Optional - API may not return progress when status is 'queued'
   video_url?: string;
@@ -60,10 +91,47 @@ export interface VideoQueryResponse {
 
 // Polling options
 interface PollingOptions {
-  interval?: number;      // Polling interval in ms (default: 5000)
-  maxAttempts?: number;   // Max polling attempts (default: 1080 = 90min at 5s interval)
+  interval?: number; // Polling interval in ms (default: 5000)
+  maxAttempts?: number; // Max polling attempts (default: 1080 = 90min at 5s interval)
   onProgress?: (progress: number, status: string) => void;
   onSubmitted?: (videoId: string) => void; // Callback when video is submitted (for saving remoteId)
+  routeModel?: string | ModelRef | null;
+}
+
+function inferAuthType(
+  route: ReturnType<typeof resolveInvocationRoute>
+): ProviderAuthStrategy {
+  return 'bearer';
+}
+
+function resolveProviderContext(
+  routeModel?: string | ModelRef | null
+): ResolvedProviderContext {
+  const plan = resolveInvocationPlanFromRoute('video', routeModel);
+  if (plan) {
+    return plan.provider;
+  }
+
+  const route = resolveInvocationRoute('video', routeModel);
+  return {
+    profileId: route.profileId || 'runtime',
+    profileName: route.profileName || 'Runtime',
+    providerType: route.providerType || 'custom',
+    baseUrl: route.baseUrl,
+    apiKey: route.apiKey,
+    authType: inferAuthType(route),
+  };
+}
+
+function resolveVideoPlanContext(routeModel?: string | ModelRef | null): {
+  providerContext: ResolvedProviderContext;
+  binding: ProviderModelBinding | null;
+} {
+  const plan = resolveInvocationPlanFromRoute('video', routeModel);
+  return {
+    providerContext: plan?.provider || resolveProviderContext(routeModel),
+    binding: plan?.binding || null,
+  };
 }
 
 /**
@@ -71,26 +139,24 @@ interface PollingOptions {
  * Manages video generation with async polling
  */
 class VideoAPIService {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = 'https://api.tu-zi.com';
-  }
-
   /**
    * Submit video generation task
    */
-  async submitVideoGeneration(params: VideoGenerationParams): Promise<VideoSubmitResponse> {
-    const settings = geminiSettings.get();
-    const apiKey = settings.apiKey;
+  async submitVideoGeneration(
+    params: VideoGenerationParams
+  ): Promise<VideoSubmitResponse> {
+    const { providerContext, binding } = resolveVideoPlanContext(
+      params.modelRef || params.model
+    );
     const startTime = Date.now();
 
-    if (!apiKey) {
+    if (!providerContext.apiKey) {
       throw new Error('API Key 未配置，请先配置 API Key');
     }
 
     // 开始记录 LLM API 调用（降级模式直接调用）
-    const referenceCount = params.inputReferences?.length || (params.inputReference ? 1 : 0);
+    const referenceCount =
+      params.inputReferences?.length || (params.inputReference ? 1 : 0);
     const logId = startLLMApiLog({
       endpoint: '/v1/videos',
       model: params.model,
@@ -100,12 +166,19 @@ class VideoAPIService {
       referenceImageCount: referenceCount,
     });
 
+    const submission = resolveVideoSubmission(
+      params.model,
+      params.seconds,
+      binding,
+      params.params as Record<string, string> | undefined
+    );
+
     const formData = new FormData();
-    formData.append('model', params.model);
+    formData.append('model', submission.model);
     formData.append('prompt', params.prompt);
 
-    if (params.seconds) {
-      formData.append('seconds', params.seconds);
+    if (submission.duration) {
+      formData.append(submission.durationField, submission.duration);
     }
 
     if (params.size) {
@@ -117,7 +190,9 @@ class VideoAPIService {
     // console.log('[VideoAPI] Processing inputReferences:', params.inputReferences);
     if (params.inputReferences && params.inputReferences.length > 0) {
       // Sort by slot to ensure correct order (slot 0 = first frame, slot 1 = last frame)
-      const sortedImages = [...params.inputReferences].sort((a, b) => a.slot - b.slot);
+      const sortedImages = [...params.inputReferences].sort(
+        (a, b) => a.slot - b.slot
+      );
 
       for (const imageRef of sortedImages) {
         // console.log('[VideoAPI] Processing image:', { slot: imageRef.slot, url: imageRef.url?.substring(0, 50), name: imageRef.name });
@@ -140,17 +215,26 @@ class VideoAPIService {
         if (processedUrl.startsWith('data:')) {
           // console.log('[VideoAPI] Converting data URL to blob...');
           const response = await fetch(processedUrl);
-          const blob = await response.blob();
+          const blob = await prepareVideoReferenceImageBlob(
+            await response.blob(),
+            params.size
+          );
           // console.log('[VideoAPI] Appending blob:', { fieldName, blobSize: blob.size, fileName: imageRef.name || 'image.png' });
           formData.append(fieldName, blob, imageRef.name || 'image.png');
         } else if (processedUrl.startsWith('http')) {
           // console.log('[VideoAPI] Fetching remote URL...');
           const response = await fetch(processedUrl);
-          const blob = await response.blob();
+          const blob = await prepareVideoReferenceImageBlob(
+            await response.blob(),
+            params.size
+          );
           // console.log('[VideoAPI] Appending blob:', { fieldName, blobSize: blob.size, fileName: imageRef.name || 'image.png' });
           formData.append(fieldName, blob, imageRef.name || 'image.png');
         } else {
-          console.warn('[VideoAPI] Unknown URL format after processing, skipping:', processedUrl?.substring(0, 50));
+          console.warn(
+            '[VideoAPI] Unknown URL format after processing, skipping:',
+            processedUrl?.substring(0, 50)
+          );
         }
       }
     }
@@ -158,20 +242,31 @@ class VideoAPIService {
     else if (params.inputReference) {
       // 处理图片：虚拟路径和远程 URL 都需要转换为 base64/blob
       // 使用 getImageForAI 统一处理，它会自动处理虚拟路径和远程 URL
-      const imageData = await unifiedCacheService.getImageForAI(params.inputReference);
+      const imageData = await unifiedCacheService.getImageForAI(
+        params.inputReference
+      );
       const processedUrl = imageData.value;
       // console.log(`[VideoAPI] Legacy image processed: ${imageData.type === 'base64' ? 'converted to base64' : 'using URL'}`);
 
       if (processedUrl.startsWith('data:')) {
         const response = await fetch(processedUrl);
-        const blob = await response.blob();
+        const blob = await prepareVideoReferenceImageBlob(
+          await response.blob(),
+          params.size
+        );
         formData.append('input_reference', blob, 'reference.png');
       } else if (processedUrl.startsWith('http')) {
         const response = await fetch(processedUrl);
-        const blob = await response.blob();
+        const blob = await prepareVideoReferenceImageBlob(
+          await response.blob(),
+          params.size
+        );
         formData.append('input_reference', blob, 'reference.png');
       } else {
-        console.warn('[VideoAPI] Unknown URL format after processing, skipping:', processedUrl?.substring(0, 50));
+        console.warn(
+          '[VideoAPI] Unknown URL format after processing, skipping:',
+          processedUrl?.substring(0, 50)
+        );
       }
     }
 
@@ -180,7 +275,9 @@ class VideoAPIService {
     const formDataEntries: Record<string, string> = {};
     formData.forEach((value, key) => {
       if (value instanceof Blob) {
-        formDataEntries[key] = `[Blob: ${value.size} bytes, type: ${value.type}]`;
+        formDataEntries[
+          key
+        ] = `[Blob: ${value.size} bytes, type: ${value.type}]`;
       } else {
         formDataEntries[key] = String(value);
       }
@@ -188,11 +285,10 @@ class VideoAPIService {
     // console.log('[VideoAPI] FormData entries:', formDataEntries);
     // console.log('[VideoAPI] Sending request to:', `${this.baseUrl}/v1/videos`);
 
-    const response = await fetch(`${this.baseUrl}/v1/videos`, {
+    const response = await providerTransport.send(providerContext, {
+      path: '/videos',
+      baseUrlStrategy: binding?.baseUrlStrategy,
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-      },
       body: formData,
     });
 
@@ -205,7 +301,9 @@ class VideoAPIService {
         duration,
         errorMessage: errorText.substring(0, 500),
       });
-      const error = new Error(`视频生成提交失败: ${response.status} - ${errorText}`);
+      const error = new Error(
+        `视频生成提交失败: ${response.status} - ${errorText}`
+      );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
       throw error;
@@ -213,19 +311,20 @@ class VideoAPIService {
 
     const result = await response.json();
     const duration = Date.now() - startTime;
-    
+
     // 记录视频提交成功（此时视频尚未生成完成，只是提交成功）
     // 使用 updateLLMApiLogMetadata 更新 remoteId，保持 pending 状态
     updateLLMApiLogMetadata(logId, {
       remoteId: result.id,
       httpStatus: response.status,
     });
-    
+
     // 如果提交时已经失败（如内容政策违规）
     if (result.status === 'failed') {
-      const errorMessage = typeof result.error === 'string' 
-        ? result.error 
-        : result.error?.message || 'Video generation failed';
+      const errorMessage =
+        typeof result.error === 'string'
+          ? result.error
+          : result.error?.message || 'Video generation failed';
       failLLMApiLog(logId, {
         httpStatus: response.status,
         duration,
@@ -240,7 +339,7 @@ class VideoAPIService {
         remoteId: result.id,
       });
     }
-    
+
     // console.log('[VideoAPI] Submit response:', JSON.stringify(result, null, 2));
     return result;
   }
@@ -248,25 +347,28 @@ class VideoAPIService {
   /**
    * Query video generation status (with network retry)
    */
-  async queryVideoStatus(videoId: string): Promise<VideoQueryResponse> {
-    const settings = geminiSettings.get();
-    const apiKey = settings.apiKey;
+  async queryVideoStatus(
+    videoId: string,
+    routeModel?: string | ModelRef | null
+  ): Promise<VideoQueryResponse> {
+    const { providerContext, binding } = resolveVideoPlanContext(routeModel);
 
-    if (!apiKey) {
+    if (!providerContext.apiKey) {
       throw new Error('API Key 未配置');
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/videos/${videoId}`, {
+    const response = await providerTransport.send(providerContext, {
+      path: `/videos/${videoId}`,
+      baseUrlStrategy: binding?.baseUrlStrategy,
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-      },
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error('[VideoAPI] Query failed:', response.status, errorText);
-      const error = new Error(`视频状态查询失败: ${response.status} - ${errorText}`);
+      const error = new Error(
+        `视频状态查询失败: ${response.status} - ${errorText}`
+      );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
       throw error;
@@ -314,14 +416,21 @@ class VideoAPIService {
         if (typeof submitResponse.error === 'string') {
           errorMessage = submitResponse.error;
         } else if (typeof submitResponse.error === 'object') {
-          errorMessage = (submitResponse.error as any).message || JSON.stringify(submitResponse.error);
+          errorMessage =
+            (submitResponse.error as any).message ||
+            JSON.stringify(submitResponse.error);
         }
       }
       throw new Error(errorMessage);
     }
 
     // Continue with polling
-    return this.pollUntilComplete(submitResponse.id, { interval, maxAttempts, onProgress });
+    return this.pollUntilComplete(submitResponse.id, {
+      interval,
+      maxAttempts,
+      onProgress,
+      routeModel: params.modelRef || params.model,
+    });
   }
 
   /**
@@ -338,9 +447,17 @@ class VideoAPIService {
 
     // For resumed tasks, check status immediately first (video may already be completed)
     // console.log('[VideoAPI] Checking status immediately for resumed task...');
-    const immediateStatus = await this.queryVideoStatus(videoId);
-    const immediateProgress = immediateStatus.progress ??
-      (immediateStatus.status === 'failed' ? 100 : (immediateStatus.status === 'completed' ? 100 : 0));
+    const immediateStatus = await this.queryVideoStatus(
+      videoId,
+      options.routeModel
+    );
+    const immediateProgress =
+      immediateStatus.progress ??
+      (immediateStatus.status === 'failed'
+        ? 100
+        : immediateStatus.status === 'completed'
+        ? 100
+        : 0);
     // console.log(`[VideoAPI] Immediate check: Status=${immediateStatus.status}, Progress=${immediateProgress}%`);
 
     // Report progress
@@ -349,9 +466,15 @@ class VideoAPIService {
     }
 
     // If already completed, return immediately
-    if (immediateStatus.status === 'completed') {
-      // console.log('[VideoAPI] Video already completed:', immediateStatus.video_url || immediateStatus.url);
-      return immediateStatus;
+    if (
+      immediateStatus.status === 'completed' ||
+      immediateStatus.status === 'succeeded'
+    ) {
+      return this.resolveCompletedVideoStatus(
+        videoId,
+        immediateStatus,
+        options.routeModel
+      );
     }
 
     // If already failed, throw error immediately
@@ -361,7 +484,9 @@ class VideoAPIService {
         if (typeof immediateStatus.error === 'string') {
           errorMessage = immediateStatus.error;
         } else if (typeof immediateStatus.error === 'object') {
-          errorMessage = (immediateStatus.error as any).message || JSON.stringify(immediateStatus.error);
+          errorMessage =
+            (immediateStatus.error as any).message ||
+            JSON.stringify(immediateStatus.error);
         }
       }
       throw new Error(errorMessage);
@@ -379,11 +504,7 @@ class VideoAPIService {
     videoId: string,
     options: PollingOptions = {}
   ): Promise<VideoQueryResponse> {
-    const {
-      interval = 5000,
-      maxAttempts = 1080,
-      onProgress,
-    } = options;
+    const { interval = 5000, maxAttempts = 1080, onProgress } = options;
 
     let attempts = 0;
     let consecutiveErrors = 0;
@@ -398,16 +519,17 @@ class VideoAPIService {
       let isBusinessFailure = false;
 
       try {
-        const status = await this.queryVideoStatus(videoId);
-        
+        const status = await this.queryVideoStatus(videoId, options.routeModel);
+
         // 请求成功，重置连续错误计数
         consecutiveErrors = 0;
-        
+
         // Determine progress based on status and API response
         // - If API returns progress, use it
         // - If status is 'failed', show 100% to indicate task has ended
         // - Otherwise default to 0 (e.g., when status is 'queued')
-        const progress = status.progress ?? (status.status === 'failed' ? 100 : 0);
+        const progress =
+          status.progress ?? (status.status === 'failed' ? 100 : 0);
         // console.log(`[VideoAPI] Poll ${attempts}: Status=${status.status}, Progress=${progress}%`);
 
         // Report progress
@@ -415,9 +537,12 @@ class VideoAPIService {
           onProgress(progress, status.status);
         }
 
-        if (status.status === 'completed') {
-          // console.log('[VideoAPI] Video generation completed:', status.video_url || status.url);
-          return status;
+        if (status.status === 'completed' || status.status === 'succeeded') {
+          return this.resolveCompletedVideoStatus(
+            videoId,
+            status,
+            options.routeModel
+          );
         }
 
         if (status.status === 'failed') {
@@ -428,7 +553,8 @@ class VideoAPIService {
               errorMessage = status.error;
             } else if (typeof status.error === 'object') {
               // Error is an object, extract message
-              errorMessage = (status.error as any).message || JSON.stringify(status.error);
+              errorMessage =
+                (status.error as any).message || JSON.stringify(status.error);
             }
           }
           // Mark as business failure so it won't be retried
@@ -440,17 +566,23 @@ class VideoAPIService {
         if (isBusinessFailure) {
           throw err;
         }
-        
+
         // 轮询接口临时错误（网络错误），增加间隔继续重试
         consecutiveErrors++;
-        console.warn(`[VideoAPI] Status query failed, attempt ${consecutiveErrors}/${maxConsecutiveErrors}:`, err?.message || err);
-        
+        console.warn(
+          `[VideoAPI] Status query failed, attempt ${consecutiveErrors}/${maxConsecutiveErrors}:`,
+          err?.message || err
+        );
+
         if (consecutiveErrors >= maxConsecutiveErrors) {
           throw err;
         }
-        
+
         // 根据连续错误次数增加等待时间（指数退避，最大 60 秒）
-        const backoffInterval = Math.min(interval * Math.pow(1.5, consecutiveErrors), 60000);
+        const backoffInterval = Math.min(
+          interval * Math.pow(1.5, consecutiveErrors),
+          60000
+        );
         await this.sleep(backoffInterval - interval); // 减去已等待的 interval
       }
     }
@@ -462,7 +594,42 @@ class VideoAPIService {
    * Sleep helper
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async resolveCompletedVideoStatus(
+    videoId: string,
+    status: VideoQueryResponse,
+    routeModel?: string | ModelRef | null
+  ): Promise<VideoQueryResponse> {
+    const { providerContext, binding } = resolveVideoPlanContext(
+      routeModel || status.model
+    );
+    const inlineUrl = extractInlineVideoUrl(status as Record<string, any>);
+
+    if (
+      !shouldDownloadVideoContent(
+        status.model,
+        binding,
+        status as Record<string, any>
+      )
+    ) {
+      return inlineUrl ? { ...status, url: inlineUrl } : status;
+    }
+
+    const localUrl = await downloadVideoContentToLocalUrl({
+      videoId,
+      provider: providerContext,
+      binding,
+      modelId: status.model,
+      cacheKey: videoId,
+    });
+
+    return {
+      ...status,
+      url: localUrl,
+      video_url: localUrl,
+    };
   }
 }
 

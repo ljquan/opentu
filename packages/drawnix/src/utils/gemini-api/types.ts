@@ -2,11 +2,23 @@
  * Gemini API 类型定义
  */
 
+import type {
+  ProviderAuthStrategy,
+  ProviderModelBinding,
+  ResolvedProviderContext,
+} from '../../services/provider-routing';
+
 export interface GeminiConfig {
   apiKey: string;
   baseUrl: string;
   modelName?: string;
   timeout?: number;
+  authType?: ProviderAuthStrategy;
+  providerType?: string;
+  extraHeaders?: Record<string, string>;
+  protocol?: string | null;
+  binding?: ProviderModelBinding | null;
+  provider?: ResolvedProviderContext | null;
 }
 
 export interface ImageInput {
@@ -15,15 +27,21 @@ export interface ImageInput {
   url?: string;
 }
 
+export type GeminiMessagePart =
+  | {
+      type: 'text';
+      text?: string;
+    }
+  | {
+      type: 'image_url';
+      image_url?: {
+        url: string;
+      };
+    };
+
 export interface GeminiMessage {
   role: 'user' | 'assistant' | 'system';
-  content: Array<{
-    type: 'text' | 'image_url';
-    text?: string;
-    image_url?: {
-      url: string;
-    };
-  }>;
+  content: GeminiMessagePart[];
 }
 
 export interface VideoGenerationOptions {

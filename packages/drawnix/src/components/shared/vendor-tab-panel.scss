@@ -3,13 +3,13 @@
  * 左右分栏布局：左侧厂商标签栏，右侧内容区
  */
 
-$orange-primary: #F59E0B;
+$orange-primary: #f59e0b;
 $orange-light: rgba(243, 156, 18, 0.12);
 $orange-border: rgba(243, 156, 18, 0.6);
-$gray-light: #F3F4F6;
-$gray-medium: #9CA3AF;
-$gray-dark: #6B7280;
-$text-dark: #1F2937;
+$gray-light: #f3f4f6;
+$gray-medium: #9ca3af;
+$gray-dark: #6b7280;
+$text-dark: #1f2937;
 
 .vendor-tab-panel {
   display: flex;
@@ -18,9 +18,9 @@ $text-dark: #1F2937;
 
   // 左侧厂商标签栏
   &__tabs {
-    width: 100px;
+    width: 116px;
     flex-shrink: 0;
-    border-right: 1px solid #E5E7EB;
+    border-right: 1px solid #e5e7eb;
     overflow-y: auto;
     padding: 4px 0;
 
@@ -33,7 +33,7 @@ $text-dark: #1F2937;
     }
 
     &::-webkit-scrollbar-thumb {
-      background: #E5E7EB;
+      background: #e5e7eb;
       border-radius: 2px;
     }
   }
@@ -41,6 +41,7 @@ $text-dark: #1F2937;
   &__tab {
     display: flex;
     align-items: center;
+    gap: 8px;
     width: 100%;
     padding: 8px 12px;
     font-size: 13px;
@@ -69,12 +70,28 @@ $text-dark: #1F2937;
     }
   }
 
+  &__tab-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: inherit;
+  }
+
+  &__tab-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   &__tab-count {
-    margin-left: auto;
     font-size: 11px;
     font-weight: 400;
     color: $gray-medium;
-    padding-left: 4px;
+    flex-shrink: 0;
   }
 
   // 右侧内容区
@@ -92,14 +109,14 @@ $text-dark: #1F2937;
     }
 
     &::-webkit-scrollbar-thumb {
-      background: #E5E7EB;
+      background: #e5e7eb;
       border-radius: 2px;
     }
   }
 
   // compact 模式
   &--compact &__tabs {
-    width: 96px;
+    width: 108px;
   }
 
   &--compact &__tab {

@@ -2,10 +2,20 @@
  * Gemini API 客户端类
  */
 
-import { GeminiConfig, ImageInput, VideoGenerationOptions, GeminiMessage } from './types';
+import {
+  GeminiConfig,
+  ImageInput,
+  VideoGenerationOptions,
+  GeminiMessage,
+} from './types';
 import { DEFAULT_CONFIG, VIDEO_DEFAULT_CONFIG } from './config';
-import { generateImageWithGemini, generateVideoWithGemini, chatWithGemini, sendChatWithGemini } from './services';
-import { geminiSettings } from '../settings-manager';
+import {
+  generateImageWithGemini,
+  generateVideoWithGemini,
+  chatWithGemini,
+  sendChatWithGemini,
+} from './services';
+import { geminiSettings, type ModelRef } from '../settings-manager';
 
 /**
  * Gemini API 客户端
@@ -13,7 +23,7 @@ import { geminiSettings } from '../settings-manager';
 export class GeminiClient {
   private isVideoClient: boolean;
 
-  constructor(isVideoClient: boolean = false) {
+  constructor(isVideoClient = false) {
     this.isVideoClient = isVideoClient;
   }
 
@@ -22,12 +32,13 @@ export class GeminiClient {
    */
   private getEffectiveConfig(): GeminiConfig {
     const globalSettings = geminiSettings.get();
-    
+
     if (this.isVideoClient) {
       return {
         ...VIDEO_DEFAULT_CONFIG,
         ...globalSettings,
-        modelName: globalSettings.videoModelName || VIDEO_DEFAULT_CONFIG.modelName,
+        modelName:
+          globalSettings.videoModelName || VIDEO_DEFAULT_CONFIG.modelName,
       };
     } else {
       return {
@@ -48,7 +59,9 @@ export class GeminiClient {
       image?: string | string[];
       response_format?: 'url' | 'b64_json';
       quality?: '1k' | '2k' | '4k';
+      count?: number;
       model?: string; // 支持指定模型
+      modelRef?: ModelRef | null;
     } = {}
   ) {
     return generateImageWithGemini(prompt, options);
@@ -57,14 +70,22 @@ export class GeminiClient {
   /**
    * 生成视频
    */
-  async generateVideo(prompt: string, image: ImageInput | null, options: VideoGenerationOptions = {}) {
+  async generateVideo(
+    prompt: string,
+    image: ImageInput | null,
+    options: VideoGenerationOptions = {}
+  ) {
     return generateVideoWithGemini(prompt, image, options);
   }
 
   /**
    * 聊天对话（支持图片输入）
    */
-  async chat(prompt: string, images: ImageInput[] = [], onChunk?: (content: string) => void) {
+  async chat(
+    prompt: string,
+    images: ImageInput[] = [],
+    onChunk?: (content: string) => void
+  ) {
     return chatWithGemini(prompt, images, onChunk);
   }
 
@@ -79,7 +100,7 @@ export class GeminiClient {
     messages: GeminiMessage[],
     onChunk?: (content: string) => void,
     signal?: AbortSignal,
-    temporaryModel?: string
+    temporaryModel?: string | ModelRef | null
   ) {
     return sendChatWithGemini(messages, onChunk, signal, temporaryModel);
   }

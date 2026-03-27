@@ -6,6 +6,8 @@ import {
   getHostname,
   isDataURL,
   isAbsoluteURL,
+  inferImageMimeTypeFromBase64,
+  normalizeImageDataUrl,
 } from './index';
 
 describe('isDomainMatch', () => {
@@ -76,6 +78,11 @@ describe('getFileExtension', () => {
     expect(getFileExtension('data:image/png;base64,iVBORw...')).toBe('png');
     expect(getFileExtension('data:image/jpeg;base64,/9j/4AAQ...')).toBe('jpg');
     expect(getFileExtension('data:image/webp;base64,UklGR...')).toBe('webp');
+  });
+
+  it('should extract extension from raw base64 image payloads', () => {
+    expect(getFileExtension('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ')).toBe('png');
+    expect(getFileExtension('/9j/4AAQSkZJRgABAQEASABIAAD')).toBe('jpg');
   });
 
   it('should handle SVG data URLs specially', () => {
@@ -166,5 +173,36 @@ describe('isAbsoluteURL', () => {
 
   it('should handle data URLs', () => {
     expect(isAbsoluteURL('data:image/png;base64,iVBORw...')).toBe(true);
+  });
+});
+
+describe('inferImageMimeTypeFromBase64', () => {
+  it('should detect common image signatures', () => {
+    expect(inferImageMimeTypeFromBase64('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ')).toBe('image/png');
+    expect(inferImageMimeTypeFromBase64('/9j/4AAQSkZJRgABAQEASABIAAD')).toBe('image/jpeg');
+    expect(inferImageMimeTypeFromBase64('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=')).toBe('image/gif');
+  });
+
+  it('should return undefined for unknown payloads', () => {
+    expect(inferImageMimeTypeFromBase64('SGVsbG8gV29ybGQ=')).toBeUndefined();
+  });
+});
+
+describe('normalizeImageDataUrl', () => {
+  it('should keep existing URLs unchanged', () => {
+    expect(normalizeImageDataUrl('https://example.com/image.png')).toBe('https://example.com/image.png');
+    expect(normalizeImageDataUrl('data:image/png;base64,iVBORw...')).toBe('data:image/png;base64,iVBORw...');
+  });
+
+  it('should convert raw base64 payloads into data URLs', () => {
+    expect(normalizeImageDataUrl('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ')).toBe(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+    );
+  });
+
+  it('should strip whitespace before building the data URL', () => {
+    expect(
+      normalizeImageDataUrl('  iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ  ')
+    ).toBe('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ');
   });
 });

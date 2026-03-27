@@ -1,3 +1,11 @@
+import type { ModelRef } from '../../utils/settings-manager';
+import type { GeminiMessagePart } from '../../utils/gemini-api/types';
+import type {
+  ProviderAuthStrategy,
+  ProviderModelBinding,
+  ResolvedProviderContext,
+} from '../provider-routing';
+
 /**
  * Media Executor Types
  *
@@ -16,6 +24,8 @@ export interface ImageGenerationParams {
   prompt: string;
   /** 模型名称 */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 图片尺寸 (如 "1024x1024", "16:9") */
   size?: string;
   /** 参考图片 URL 列表 */
@@ -41,6 +51,8 @@ export interface VideoGenerationParams {
   prompt: string;
   /** 模型名称 (如 "veo3", "sora-2") */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 视频时长 (秒) */
   duration?: string;
   /** 视频尺寸 */
@@ -70,7 +82,7 @@ export interface AIAnalyzeParams {
   /** 预构建的消息数组（与 prompt 二选一，优先级更高） */
   messages?: Array<{
     role: 'system' | 'user' | 'assistant';
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | GeminiMessagePart[];
   }>;
   /** 待分析的图片 URL 列表 */
   images?: string[];
@@ -78,6 +90,8 @@ export interface AIAnalyzeParams {
   referenceImages?: string[];
   /** 模型名称 */
   model?: string;
+  /** 模型来源引用（用于按供应商路由） */
+  modelRef?: ModelRef | null;
   /** 用户选择的文本模型（优先于系统配置） */
   textModel?: string;
   /** 系统提示词（仅在使用 prompt 时有效） */
@@ -204,12 +218,23 @@ export interface GeminiConfig {
   baseUrl: string;
   modelName: string;
   textModelName?: string;
+  authType?: ProviderAuthStrategy;
+  providerType?: string;
+  extraHeaders?: Record<string, string>;
+  protocol?: string | null;
+  binding?: ProviderModelBinding | null;
+  provider?: ResolvedProviderContext | null;
 }
 
 export interface VideoAPIConfig {
   apiKey: string;
   baseUrl: string;
   model?: string;
+  authType?: ProviderAuthStrategy;
+  providerType?: string;
+  extraHeaders?: Record<string, string>;
+  binding?: ProviderModelBinding | null;
+  provider?: ResolvedProviderContext | null;
 }
 
 export interface ExecutorConfig {

@@ -71,6 +71,10 @@ const ImageSkeleton: React.FC<{ className?: string; style?: React.CSSProperties 
  * Add bypass_sw parameter to URL to skip Service Worker interception
  */
 function addBypassSWParam(url: string): string {
+  if (url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+
   try {
     const urlObj = new URL(url, window.location.origin);
     // 避免重复添加
@@ -92,7 +96,9 @@ function addBypassSWParam(url: string): string {
  * 检测 URL 是否来自缓存（应该立即加载）
  */
 function isCachedUrl(url: string): boolean {
-  return url.includes('/__aitu_cache__/') || 
+  return url.startsWith('data:') ||
+         url.startsWith('blob:') ||
+         url.includes('/__aitu_cache__/') || 
          url.includes('/asset-library/') ||
          url.includes('thumbnail=');
 }
@@ -177,6 +183,13 @@ export const RetryImage: React.FC<RetryImageProps> = ({
 
   // Handle image load error with retry logic
   const handleError = useCallback(async () => {
+    if (src.startsWith('data:')) {
+      setIsLoading(false);
+      setHasError(true);
+      onLoadFailure?.(new Error('Failed to load inline data image'));
+      return;
+    }
+
     if (retryCount < maxRetries) {
       const delay = getRetryDelay(retryCount);
       const nextRetryCount = retryCount + 1;

@@ -1,25 +1,31 @@
 /**
  * 模型选择器组件
- * 
+ *
  * 当用户输入 "#" 时显示模型选择下拉菜单
  * 支持键盘操作：上/下选择，Enter/Tab/空格确认
  * 支持同时选择图片模型和视频模型
  */
 
-import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import React, {
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useState,
+} from 'react';
 import { Bot, Check, Image, Video } from 'lucide-react';
 import {
   IMAGE_VIDEO_MODELS,
   getModelConfig,
   getModelsByVendor,
   getVendorOrder,
+  VENDOR_NAMES,
   type ModelType,
-  type ModelConfig,
-  type ModelVendor,
 } from '../../constants/model-config';
 import './model-selector.scss';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { VendorTabPanel, type VendorTab } from '../shared/VendorTabPanel';
+import { ModelVendorMark } from '../shared/ModelVendorBrand';
 
 export interface ModelSelectorProps {
   /** 是否可见 */
@@ -53,7 +59,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   // console.log('[ModelSelector] render, visible:', visible, 'filterKeyword:', filterKeyword);
   const panelRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [activeVendor, setActiveVendor] = useState<ModelVendor | null>(null);
+  const [activeVendor, setActiveVendor] = useState<string | null>(null);
 
   // 检查是否两种模型都已选择
   const allModelsSelected = !!selectedImageModel && !!selectedVideoModel;
@@ -61,7 +67,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   // 按类型过滤后的模型（用于生成厂商标签）
   const typeFilteredModels = useMemo(() => {
     if (allModelsSelected) return [];
-    return IMAGE_VIDEO_MODELS.filter(model => {
+    return IMAGE_VIDEO_MODELS.filter((model) => {
       if (model.type === 'image' && selectedImageModel) return false;
       if (model.type === 'video' && selectedVideoModel) return false;
       return true;
@@ -72,21 +78,23 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const vendorTabs = useMemo((): VendorTab[] => {
     const vendorMap = getModelsByVendor(typeFilteredModels);
     const order = getVendorOrder(typeFilteredModels);
-    return order.map(vendor => ({
-      vendor,
+    return order.map((vendor) => ({
+      id: vendor,
+      label: VENDOR_NAMES[vendor],
       count: vendorMap.get(vendor)?.length ?? 0,
+      icon: <ModelVendorMark vendor={vendor} size={14} />,
     }));
   }, [typeFilteredModels]);
 
   // 初始化 activeVendor（visible 变化时）
   useEffect(() => {
     if (visible && vendorTabs.length > 0 && !activeVendor) {
-      setActiveVendor(vendorTabs[0].vendor);
+      setActiveVendor(vendorTabs[0].id);
     }
     if (!visible) {
       setActiveVendor(null);
     }
-  }, [visible, vendorTabs]);
+  }, [visible, vendorTabs, activeVendor]);
 
   // 过滤模型列表
   const filteredModels = useMemo(() => {
@@ -95,16 +103,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
     // 搜索时跨厂商过滤
     if (isSearching) {
-      return typeFilteredModels.filter(model =>
-        model.id.toLowerCase().includes(keyword) ||
-        model.label.toLowerCase().includes(keyword) ||
-        (model.shortLabel && model.shortLabel.toLowerCase().includes(keyword))
+      return typeFilteredModels.filter(
+        (model) =>
+          model.id.toLowerCase().includes(keyword) ||
+          model.label.toLowerCase().includes(keyword) ||
+          (model.shortLabel && model.shortLabel.toLowerCase().includes(keyword))
       );
     }
 
     // 无搜索时按 activeVendor 过滤
     if (activeVendor) {
-      return typeFilteredModels.filter(m => m.vendor === activeVendor);
+      return typeFilteredModels.filter((m) => m.vendor === activeVendor);
     }
 
     return typeFilteredModels;
@@ -116,13 +125,16 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [filteredModels.length]);
 
   // 处理模型选择
-  const handleSelect = useCallback((modelId: string) => {
-    onSelect(modelId);
-  }, [onSelect]);
+  const handleSelect = useCallback(
+    (modelId: string) => {
+      onSelect(modelId);
+    },
+    [onSelect]
+  );
 
   // 切换厂商
-  const handleVendorChange = useCallback((vendor: ModelVendor) => {
-    setActiveVendor(vendor);
+  const handleVendorChange = useCallback((vendorId: string) => {
+    setActiveVendor(vendorId);
     setHighlightedIndex(0);
   }, []);
 
@@ -165,14 +177,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         case 'ArrowUp':
           event.preventDefault();
           event.stopPropagation();
-          setHighlightedIndex(prev =>
+          setHighlightedIndex((prev) =>
             prev <= 0 ? filteredModels.length - 1 : prev - 1
           );
           break;
         case 'ArrowDown':
           event.preventDefault();
           event.stopPropagation();
-          setHighlightedIndex(prev =>
+          setHighlightedIndex((prev) =>
             prev >= filteredModels.length - 1 ? 0 : prev + 1
           );
           break;
@@ -202,7 +214,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [visible, filteredModels, highlightedIndex, handleSelect, onClose, allModelsSelected]);
+  }, [
+    visible,
+    filteredModels,
+    highlightedIndex,
+    handleSelect,
+    onClose,
+    allModelsSelected,
+  ]);
 
   // 滚动高亮项到可见区域
   useEffect(() => {
@@ -213,7 +232,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     );
 
     if (highlightedElement) {
-      highlightedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      highlightedElement.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
     }
   }, [highlightedIndex, visible]);
 
@@ -221,6 +243,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   // 如果两种模型都已选择，显示提示信息
   if (allModelsSelected) {
+    const selectedImageConfig = getModelConfig(selectedImageModel);
+    const selectedVideoConfig = getModelConfig(selectedVideoModel);
+
     return (
       <div
         ref={panelRef}
@@ -239,22 +264,42 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         <div className="ai-model-selector__complete-message">
           <div className="ai-model-selector__selected-models">
             <div className="ai-model-selector__selected-item">
+              {selectedImageConfig ? (
+                <span className="ai-model-selector__selected-source-icon">
+                  <ModelVendorMark
+                    vendor={selectedImageConfig.vendor}
+                    size={14}
+                  />
+                </span>
+              ) : null}
               <Image size={14} />
               <span className="ai-model-selector__selected-label">
                 {language === 'zh' ? '图片' : 'Image'}:
               </span>
               <span className="ai-model-selector__selected-name">
-                {getModelConfig(selectedImageModel)?.shortLabel || getModelConfig(selectedImageModel)?.label || selectedImageModel}
+                {selectedImageConfig?.shortLabel ||
+                  selectedImageConfig?.label ||
+                  selectedImageModel}
               </span>
               <Check size={14} className="ai-model-selector__selected-check" />
             </div>
             <div className="ai-model-selector__selected-item">
+              {selectedVideoConfig ? (
+                <span className="ai-model-selector__selected-source-icon">
+                  <ModelVendorMark
+                    vendor={selectedVideoConfig.vendor}
+                    size={14}
+                  />
+                </span>
+              ) : null}
               <Video size={14} />
               <span className="ai-model-selector__selected-label">
                 {language === 'zh' ? '视频' : 'Video'}:
               </span>
               <span className="ai-model-selector__selected-name">
-                {getModelConfig(selectedVideoModel)?.shortLabel || getModelConfig(selectedVideoModel)?.label || selectedVideoModel}
+                {selectedVideoConfig?.shortLabel ||
+                  selectedVideoConfig?.label ||
+                  selectedVideoModel}
               </span>
               <Check size={14} className="ai-model-selector__selected-check" />
             </div>
@@ -303,51 +348,71 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         <Bot size={16} />
         <span>{language === 'zh' ? '选择模型' : 'Select Model'}</span>
         <span className="ai-model-selector__hint">
-          {language === 'zh' ? '↑↓选择 Tab确认' : '↑↓ to select, Tab to confirm'}
+          {language === 'zh'
+            ? '↑↓选择 Tab确认'
+            : '↑↓ to select, Tab to confirm'}
         </span>
       </div>
 
       <VendorTabPanel
         tabs={vendorTabs}
-        activeVendor={activeVendor}
-        onVendorChange={handleVendorChange}
+        activeTab={activeVendor}
+        onTabChange={handleVendorChange}
         searchQuery={filterKeyword}
         compact
       >
         <div className="ai-model-selector__list">
           {filteredModels.map((model, index) => {
-          const isSelected =
-            (model.type === 'image' && selectedImageModel === model.id) ||
-            (model.type === 'video' && selectedVideoModel === model.id);
+            const isSelected =
+              (model.type === 'image' && selectedImageModel === model.id) ||
+              (model.type === 'video' && selectedVideoModel === model.id);
 
-          return (
-            <div
-              key={model.id}
-              className={`ai-model-selector__item ${isSelected ? 'ai-model-selector__item--selected' : ''
-                } ${highlightedIndex === index ? 'ai-model-selector__item--highlighted' : ''}`}
-              onClick={() => handleSelect(model.id)}
-              role="option"
-              aria-selected={isSelected}
-            >
-              <div className="ai-model-selector__item-content">
-                <div className="ai-model-selector__item-name">
-                  <span className={`ai-model-selector__item-id ai-model-selector__item-id--${model.type}`}>#{model.id}</span>
-                  <span className="ai-model-selector__item-label">{model.shortLabel || model.label}</span>
-                  <span className={`ai-model-selector__item-type ai-model-selector__item-type--${model.type}`}>
-                    <TypeIcon type={model.type} />
-                    {getTypeLabel(model.type)}
-                  </span>
-                  <ModelHealthBadge modelId={model.id} />
+            return (
+              <div
+                key={model.id}
+                className={`ai-model-selector__item ${
+                  isSelected ? 'ai-model-selector__item--selected' : ''
+                } ${
+                  highlightedIndex === index
+                    ? 'ai-model-selector__item--highlighted'
+                    : ''
+                }`}
+                onClick={() => handleSelect(model.id)}
+                role="option"
+                aria-selected={isSelected}
+              >
+                <div className="ai-model-selector__item-content">
+                  <div className="ai-model-selector__item-name">
+                    <span className="ai-model-selector__item-source-icon">
+                      <ModelVendorMark vendor={model.vendor} size={14} />
+                    </span>
+                    <span
+                      className={`ai-model-selector__item-id ai-model-selector__item-id--${model.type}`}
+                    >
+                      #{model.id}
+                    </span>
+                    <span className="ai-model-selector__item-label">
+                      {model.shortLabel || model.label}
+                    </span>
+                    <span
+                      className={`ai-model-selector__item-type ai-model-selector__item-type--${model.type}`}
+                    >
+                      <TypeIcon type={model.type} />
+                      {getTypeLabel(model.type)}
+                    </span>
+                    <ModelHealthBadge modelId={model.id} />
+                  </div>
+                  <div className="ai-model-selector__item-desc">
+                    {model.description}
+                  </div>
                 </div>
-                <div className="ai-model-selector__item-desc">{model.description}</div>
+                {isSelected && (
+                  <Check size={16} className="ai-model-selector__item-check" />
+                )}
               </div>
-              {isSelected && (
-                <Check size={16} className="ai-model-selector__item-check" />
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
       </VendorTabPanel>
     </div>
   );

@@ -37,7 +37,7 @@ import {
 import { useAssets } from '../../contexts/AssetContext';
 import { filterAssets, formatFileSize, formatDate } from '../../utils/asset-utils';
 import { useDeviceType } from '../../hooks/useDeviceType';
-import { downloadFile } from '@aitu/utils';
+import { downloadFile, normalizeImageDataUrl } from '@aitu/utils';
 import { VirtualAssetGrid } from './VirtualAssetGrid';
 import { MediaLibraryEmpty } from './MediaLibraryEmpty';
 import { ViewModeToggle } from './ViewModeToggle';
@@ -475,7 +475,11 @@ export function MediaLibraryGrid({
       
       for (const asset of selectedAssets) {
         try {
-          const response = await fetch(asset.url);
+          const assetUrl =
+            asset.type === AssetType.IMAGE
+              ? normalizeImageDataUrl(asset.url)
+              : asset.url;
+          const response = await fetch(assetUrl);
           if (!response.ok) {
             console.warn(`[MediaLibraryGrid] Failed to fetch ${asset.name}: ${response.status}`);
             results.push(null);
@@ -668,7 +672,7 @@ export function MediaLibraryGrid({
   const convertToMediaItems = useCallback((assetList: Asset[]): UnifiedMediaItem[] => {
     return assetList.map(asset => ({
       id: asset.id,
-      url: asset.url,
+      url: asset.type === AssetType.IMAGE ? normalizeImageDataUrl(asset.url) : asset.url,
       type: asset.type === AssetType.VIDEO ? 'video' : 'image',
       title: asset.name,
       alt: asset.name,
@@ -693,7 +697,7 @@ export function MediaLibraryGrid({
   const handleInsertFromViewer = useCallback(async (item: UnifiedMediaItem) => {
     // 优先使用外部回调（如果有）
     if (onDoubleClick) {
-      const asset = filteredResult.assets.find(a => a.url === item.url);
+      const asset = filteredResult.assets.find(a => a.id === item.id);
       if (asset) {
         onDoubleClick(asset);
         return;
@@ -706,7 +710,7 @@ export function MediaLibraryGrid({
         if (item.type === 'video') {
           await insertVideoFromUrl(board, item.url);
         } else {
-          await insertImageFromUrl(board, item.url);
+          await insertImageFromUrl(board, normalizeImageDataUrl(item.url));
         }
         // 插入成功后关闭预览
         setPreviewVisible(false);
@@ -1100,7 +1104,13 @@ export function MediaLibraryGrid({
                 <Tooltip content="下载" theme="light">
                   <button
                     className="media-library-grid__mobile-inspector-btn"
-                    onClick={() => downloadFile(selectedAsset.url, selectedAsset.name)}
+                    onClick={() => {
+                      const downloadUrl =
+                        selectedAsset.type === AssetType.IMAGE
+                          ? normalizeImageDataUrl(selectedAsset.url)
+                          : selectedAsset.url;
+                      downloadFile(downloadUrl, selectedAsset.name);
+                    }}
                     data-track="mobile_download"
                   >
                     <Download size={18} />

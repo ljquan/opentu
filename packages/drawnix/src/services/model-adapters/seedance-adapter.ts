@@ -4,6 +4,7 @@ import type {
   VideoModelAdapter,
 } from './types';
 import { registerModelAdapter } from './registry';
+import { sendAdapterRequest } from './context';
 
 const SEEDANCE_MODELS = [
   'seedance-1.5-pro',
@@ -59,14 +60,6 @@ const resolveBaseUrl = (context: AdapterContext): string => {
   return context.baseUrl.replace(/\/$/, '');
 };
 
-const resolveFetcher = (context: AdapterContext): typeof fetch => {
-  return context.fetcher || fetch;
-};
-
-const buildAuthHeader = (context: AdapterContext): Record<string, string> => {
-  return context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : {};
-};
-
 const extractErrorMessage = (
   error?: string | { code: string; message: string }
 ): string => {
@@ -99,7 +92,6 @@ const submitSeedanceVideo = async (
   }
 ): Promise<SeedanceSubmitResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const fetcher = resolveFetcher(context);
 
   const formData = new FormData();
   formData.append('model', params.model);
@@ -133,11 +125,15 @@ const submitSeedanceVideo = async (
     }
   }
 
-  const response = await fetcher(`${baseUrl}/videos`, {
-    method: 'POST',
-    headers: buildAuthHeader(context),
-    body: formData,
-  });
+  const response = await sendAdapterRequest(
+    context,
+    {
+      path: '/videos',
+      method: 'POST',
+      body: formData,
+    },
+    baseUrl
+  );
 
   if (!response.ok) {
     const data = await response.json().catch(() => null);
@@ -161,12 +157,14 @@ const querySeedanceVideo = async (
   taskId: string
 ): Promise<SeedanceQueryResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const fetcher = resolveFetcher(context);
-
-  const response = await fetcher(`${baseUrl}/videos/${taskId}`, {
-    method: 'GET',
-    headers: buildAuthHeader(context),
-  });
+  const response = await sendAdapterRequest(
+    context,
+    {
+      path: `/videos/${taskId}`,
+      method: 'GET',
+    },
+    baseUrl
+  );
 
   if (!response.ok) {
     const data = await response.json().catch(() => null);
@@ -187,6 +185,8 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
   label: 'Seedance Video',
   kind: 'video',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchProtocols: ['seedance.task'],
+  matchRequestSchemas: ['seedance.video.form-auto'],
   supportedModels: SEEDANCE_MODELS,
   defaultModel: 'seedance-1.5-pro',
 

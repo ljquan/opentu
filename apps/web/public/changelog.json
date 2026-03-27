@@ -1,6 +1,46 @@
 {
   "versions": [
     {
+      "version": "0.6.11",
+      "date": "2026-03-18",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "fixed: 兼容base64图片返回",
+          "fixed:修复部署失败",
+          "fixed:修复素材库删除的bug",
+          "fixed:修复素材库删除的bug"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
+      "version": "0.6.10",
+      "date": "2026-03-16",
+      "changes": {
+        "features": [
+          "修改部署失败的问题",
+          "添加导出ppt的功能",
+          "持久化 AI 生成参数偏好",
+          "添加页面刷新后视频任务恢复和工作流同步机制",
+          "优化画布上插入内容让其可滚动",
+          "优化agent回答文本框",
+          "优化知识库对话ai回答内容将其渲染为对应的markdown格式&优化skill生成的内容让外层文本框高度自适应内容高度"
+        ],
+        "fixes": [
+          "修复切换画板时刷新页面丢失当前画板的问题"
+        ],
+        "improvements": [
+          "更新构建时间戳",
+          "feat：优化文本框高度"
+        ]
+      },
+      "type": "patch",
+      "highlights": "修改部署失败的问题"
+    },
+    {
       "version": "0.6.9",
       "date": "2026-03-08",
       "changes": {

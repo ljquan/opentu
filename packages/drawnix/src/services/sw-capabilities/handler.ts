@@ -652,7 +652,7 @@ export class SWCapabilitiesHandler {
           // Steps will be returned in the result
           // console.log('[AIAnalyze] Add steps:', steps);
         },
-      });
+      }, params.modelRef || null);
 
       return {
         success: result.success,

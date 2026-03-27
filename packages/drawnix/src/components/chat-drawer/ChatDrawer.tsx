@@ -4,12 +4,19 @@
  * Main chat drawer component using @llamaindex/chat-ui.
  */
 
-import React, { useState, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef, useRef, Suspense } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useImperativeHandle,
+  forwardRef,
+  useRef,
+  Suspense,
+} from 'react';
 import { CloseIcon, AddIcon, ViewListIcon } from 'tdesign-icons-react';
 import { Tooltip } from 'tdesign-react';
-import {
-  type ChatHandler,
-} from '@llamaindex/chat-ui';
+import { type ChatHandler } from '@llamaindex/chat-ui';
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import { SessionList } from './SessionList';
 import { ChatDrawerTrigger } from './ChatDrawerTrigger';
@@ -17,10 +24,23 @@ import { ModelSelector } from './ModelSelector';
 import { EnhancedChatInput } from './EnhancedChatInput';
 import { chatStorageService } from '../../services/chat-storage-service';
 import { useChatHandler } from '../../hooks/useChatHandler';
-import { geminiSettings } from '../../utils/settings-manager';
+import {
+  createModelRef,
+  geminiSettings,
+  resolveInvocationRoute,
+  type ModelRef,
+} from '../../utils/settings-manager';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { useChatDrawer } from '../../contexts/ChatDrawerContext';
-import type { ChatDrawerProps, ChatDrawerRef, ChatSession, WorkflowMessageData, WorkflowMessageParams, AgentLogEntry, ChatMessage as ChatMessageType } from '../../types/chat.types';
+import type {
+  ChatDrawerProps,
+  ChatDrawerRef,
+  ChatSession,
+  WorkflowMessageData,
+  WorkflowMessageParams,
+  AgentLogEntry,
+  ChatMessage as ChatMessageType,
+} from '../../types/chat.types';
 import { MessageRole, MessageStatus } from '../../types/chat.types';
 import type { Message } from '@llamaindex/chat-ui';
 import { useTextSelection } from '../../hooks/useTextSelection';
@@ -35,14 +55,26 @@ const WORKFLOW_MESSAGE_PREFIX = '[[WORKFLOW_MESSAGE]]';
 /**
  * 根据工具名称生成描述
  */
-function getToolDescription(toolName: string, args?: Record<string, unknown>): string {
+function getToolDescription(
+  toolName: string,
+  args?: Record<string, unknown>
+): string {
   switch (toolName) {
     case 'generate_image':
-      return `生成图片: ${((args?.prompt as string) || '').substring(0, 30)}...`;
+      return `生成图片: ${((args?.prompt as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'generate_video':
-      return `生成视频: ${((args?.prompt as string) || '').substring(0, 30)}...`;
+      return `生成视频: ${((args?.prompt as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'generate_grid_image':
-      return `生成宫格图: ${((args?.theme as string) || '').substring(0, 30)}...`;
+      return `生成宫格图: ${((args?.theme as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'canvas_insertion':
       return '插入到画布';
     case 'generate_mermaid':
@@ -71,7 +103,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [showSessions, setShowSessions] = useState(false);
-    
+
     // 抽屉宽度状态（从缓存初始化）
     const [drawerWidth, setDrawerWidth] = useState(() => {
       const cached = localStorage.getItem(DRAWER_WIDTH_CACHE_KEY);
@@ -87,23 +119,33 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     const [isDragging, setIsDragging] = useState(false);
     // 拖动手柄 ref
     const resizeHandleRef = useRef<HTMLDivElement>(null);
-    
+
     // 临时模型选择（仅在当前会话中有效，不影响全局设置）
-    // 默认值从全局设置的 textModelName 读取，保持与工作流文本模型一致
+    // 默认值从当前文本路由读取，保留供应商来源信息
     const [sessionModel, setSessionModel] = useState<string | undefined>(() => {
-      return geminiSettings.get().textModelName;
+      return resolveInvocationRoute('text').modelId;
     });
-    
+    const [sessionModelRef, setSessionModelRef] = useState<ModelRef | null>(
+      () => {
+        const route = resolveInvocationRoute('text');
+        return createModelRef(route.profileId, route.modelId);
+      }
+    );
+
     // 工作流消息状态：存储当前会话中的工作流数据
-    const [workflowMessages, setWorkflowMessages] = useState<Map<string, WorkflowMessageData>>(new Map());
+    const [workflowMessages, setWorkflowMessages] = useState<
+      Map<string, WorkflowMessageData>
+    >(new Map());
     // 当前正在更新的工作流消息 ID
     const currentWorkflowMsgIdRef = useRef<string | null>(null);
     // 正在重试的工作流 ID
-    const [retryingWorkflowId, setRetryingWorkflowId] = useState<string | null>(null);
+    const [retryingWorkflowId, setRetryingWorkflowId] = useState<string | null>(
+      null
+    );
 
     // 获取重试执行器和选中内容（从 Context），以及状态同步方法
-    const { 
-      executeRetry, 
+    const {
+      executeRetry,
       selectedContent,
       setIsDrawerOpen: setContextIsOpen,
       setDrawerWidth: setContextDrawerWidth,
@@ -125,14 +167,17 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // Get app state for settings dialog
     const { appState, setAppState } = useDrawnix();
-    
+
     // 处理拖动调整宽度
     useEffect(() => {
       if (!isDragging) return;
 
       const handleMouseMove = (e: MouseEvent) => {
         const newWidth = window.innerWidth - e.clientX;
-        const clampedWidth = Math.max(MIN_DRAWER_WIDTH, Math.min(newWidth, window.innerWidth - 60));
+        const clampedWidth = Math.max(
+          MIN_DRAWER_WIDTH,
+          Math.min(newWidth, window.innerWidth - 60)
+        );
         setDrawerWidth(clampedWidth);
       };
 
@@ -178,15 +223,21 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     // 处理工具调用回调
     const handleToolCalls = useCallback(
       async (
-        toolCalls: Array<{ name: string; arguments: Record<string, unknown>; id?: string }>,
+        toolCalls: Array<{
+          name: string;
+          arguments: Record<string, unknown>;
+          id?: string;
+        }>,
         messageId: string,
-        executeTools: () => Promise<Array<{
-          toolCall: { name: string; arguments: Record<string, unknown> };
-          success: boolean;
-          data?: unknown;
-          error?: string;
-          taskId?: string;
-        }>>,
+        executeTools: () => Promise<
+          Array<{
+            toolCall: { name: string; arguments: Record<string, unknown> };
+            success: boolean;
+            data?: unknown;
+            error?: string;
+            taskId?: string;
+          }>
+        >,
         aiAnalysis?: string
       ) => {
         // console.log('[ChatDrawer] Tool calls received:', toolCalls.length, 'aiAnalysis:', aiAnalysis?.substring(0, 50));
@@ -196,7 +247,9 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         const workflowData: WorkflowMessageData = {
           id: workflowId,
           name: 'AI 智能生成',
-          generationType: toolCalls[0]?.name.includes('video') ? 'video' : 'image',
+          generationType: toolCalls[0]?.name.includes('video')
+            ? 'video'
+            : 'image',
           prompt: aiAnalysis || '',
           aiAnalysis: aiAnalysis,
           count: toolCalls.length,
@@ -223,7 +276,10 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         // 执行工具
         try {
           const results = await executeTools();
-          analytics.track('chat_tool_execution_complete', { success: true, resultCount: results.length });
+          analytics.track('chat_tool_execution_complete', {
+            success: true,
+            resultCount: results.length,
+          });
 
           // 更新步骤状态
           setWorkflowMessages((prev) => {
@@ -236,7 +292,9 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
                   const result = results[idx];
                   return {
                     ...step,
-                    status: result?.success ? 'completed' as const : 'failed' as const,
+                    status: result?.success
+                      ? ('completed' as const)
+                      : ('failed' as const),
                     error: result?.error,
                     result: result?.data,
                   };
@@ -284,7 +342,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     const chatHandler = useChatHandler({
       sessionId: activeSessionId,
-      temporaryModel: sessionModel, // 传递临时模型
+      temporaryModel: sessionModelRef || sessionModel, // 传递临时模型来源
       onToolCalls: handleToolCalls, // 传递工具调用回调
     });
 
@@ -327,7 +385,10 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
             );
             currentWorkflowMsgIdRef.current = runningWorkflow?.id || null;
           } catch (error) {
-            console.error('[ChatDrawer] Failed to load workflow messages:', error);
+            console.error(
+              '[ChatDrawer] Failed to load workflow messages:',
+              error
+            );
           }
         }
       };
@@ -401,127 +462,150 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
       let subscription: { unsubscribe: () => void } | null = null;
 
       const setupWorkflowSync = async () => {
-        const { workflowSubmissionService } = await import('../../services/workflow-submission-service');
-        
-        subscription = workflowSubmissionService.subscribeToAllEvents((event) => {
-          const workflowEvent = event as {
-            type: string;
-            workflowId: string;
-            stepId?: string;
-            status?: string;
-            result?: unknown;
-            error?: string;
-            duration?: number;
-          };
+        const { workflowSubmissionService } = await import(
+          '../../services/workflow-submission-service'
+        );
 
-          // Find workflow in workflowMessages by workflow ID
-          setWorkflowMessages((prev) => {
-            // Find the message ID that contains this workflow
-            let targetMsgId: string | null = null;
-            for (const [msgId, wf] of prev.entries()) {
-              if (wf.id === workflowEvent.workflowId) {
-                targetMsgId = msgId;
-                break;
-              }
-            }
+        subscription = workflowSubmissionService.subscribeToAllEvents(
+          (event) => {
+            const workflowEvent = event as {
+              type: string;
+              workflowId: string;
+              stepId?: string;
+              status?: string;
+              result?: unknown;
+              error?: string;
+              duration?: number;
+            };
 
-            if (!targetMsgId) {
-              return prev;
-            }
-
-            const workflow = prev.get(targetMsgId);
-            if (!workflow) {
-              return prev;
-            }
-
-            const newMap = new Map(prev);
-            let updatedWorkflow: WorkflowMessageData;
-
-            switch (workflowEvent.type) {
-              case 'step': {
-                // Update specific step status
-                updatedWorkflow = {
-                  ...workflow,
-                  steps: workflow.steps.map((step) => {
-                    if (step.id === workflowEvent.stepId) {
-                      return {
-                        ...step,
-                        status: (workflowEvent.status || step.status) as typeof step.status,
-                        result: workflowEvent.result ?? step.result,
-                        error: workflowEvent.error ?? step.error,
-                      };
-                    }
-                    return step;
-                  }),
-                };
-                break;
+            // Find workflow in workflowMessages by workflow ID
+            setWorkflowMessages((prev) => {
+              // Find the message ID that contains this workflow
+              let targetMsgId: string | null = null;
+              for (const [msgId, wf] of prev.entries()) {
+                if (wf.id === workflowEvent.workflowId) {
+                  targetMsgId = msgId;
+                  break;
+                }
               }
 
-              case 'steps_added': {
-                // AI 分析返回了后续步骤，添加到工作流中
-                const stepsAddedEvent = workflowEvent as {
-                  type: string;
-                  workflowId: string;
-                  steps?: Array<{
-                    id: string;
-                    mcp: string;
-                    args: Record<string, unknown>;
-                    description: string;
-                    status: string;
-                  }>;
-                };
-                const newSteps = (stepsAddedEvent.steps || []).map(step => ({
-                  id: step.id,
-                  mcp: step.mcp,
-                  args: step.args,
-                  description: step.description,
-                  status: step.status as 'pending' | 'running' | 'completed' | 'failed' | 'skipped',
-                }));
-                updatedWorkflow = {
-                  ...workflow,
-                  steps: [...workflow.steps, ...newSteps],
-                };
-                break;
-              }
-
-              case 'completed':
-              case 'failed': {
-                // Workflow completed or failed - update all pending/running steps
-                const finalStatus = workflowEvent.type === 'completed' ? 'completed' : 'failed';
-                updatedWorkflow = {
-                  ...workflow,
-                  status: finalStatus,
-                  steps: workflow.steps.map((step) => {
-                    if (step.status === 'running' || step.status === 'pending') {
-                      // For steps with taskId, don't force status change
-                      const stepResult = step.result as { taskId?: string } | undefined;
-                      if (stepResult?.taskId) {
-                        return step;
-                      }
-                      return {
-                        ...step,
-                        status: finalStatus as typeof step.status,
-                        error: workflowEvent.type === 'failed' ? workflowEvent.error : undefined,
-                      };
-                    }
-                    return step;
-                  }),
-                };
-                break;
-              }
-
-              default:
+              if (!targetMsgId) {
                 return prev;
-            }
+              }
 
-            newMap.set(targetMsgId, updatedWorkflow);
+              const workflow = prev.get(targetMsgId);
+              if (!workflow) {
+                return prev;
+              }
 
-            // Persist to local storage
-            chatStorageService.updateMessage(targetMsgId, { workflow: updatedWorkflow });
+              const newMap = new Map(prev);
+              let updatedWorkflow: WorkflowMessageData;
 
-            return newMap;
-          });
-        });
+              switch (workflowEvent.type) {
+                case 'step': {
+                  // Update specific step status
+                  updatedWorkflow = {
+                    ...workflow,
+                    steps: workflow.steps.map((step) => {
+                      if (step.id === workflowEvent.stepId) {
+                        return {
+                          ...step,
+                          status: (workflowEvent.status ||
+                            step.status) as typeof step.status,
+                          result: workflowEvent.result ?? step.result,
+                          error: workflowEvent.error ?? step.error,
+                        };
+                      }
+                      return step;
+                    }),
+                  };
+                  break;
+                }
+
+                case 'steps_added': {
+                  // AI 分析返回了后续步骤，添加到工作流中
+                  const stepsAddedEvent = workflowEvent as {
+                    type: string;
+                    workflowId: string;
+                    steps?: Array<{
+                      id: string;
+                      mcp: string;
+                      args: Record<string, unknown>;
+                      description: string;
+                      status: string;
+                    }>;
+                  };
+                  const newSteps = (stepsAddedEvent.steps || []).map(
+                    (step) => ({
+                      id: step.id,
+                      mcp: step.mcp,
+                      args: step.args,
+                      description: step.description,
+                      status: step.status as
+                        | 'pending'
+                        | 'running'
+                        | 'completed'
+                        | 'failed'
+                        | 'skipped',
+                    })
+                  );
+                  updatedWorkflow = {
+                    ...workflow,
+                    steps: [...workflow.steps, ...newSteps],
+                  };
+                  break;
+                }
+
+                case 'completed':
+                case 'failed': {
+                  // Workflow completed or failed - update all pending/running steps
+                  const finalStatus =
+                    workflowEvent.type === 'completed' ? 'completed' : 'failed';
+                  updatedWorkflow = {
+                    ...workflow,
+                    status: finalStatus,
+                    steps: workflow.steps.map((step) => {
+                      if (
+                        step.status === 'running' ||
+                        step.status === 'pending'
+                      ) {
+                        // For steps with taskId, don't force status change
+                        const stepResult = step.result as
+                          | { taskId?: string }
+                          | undefined;
+                        if (stepResult?.taskId) {
+                          return step;
+                        }
+                        return {
+                          ...step,
+                          status: finalStatus as typeof step.status,
+                          error:
+                            workflowEvent.type === 'failed'
+                              ? workflowEvent.error
+                              : undefined,
+                        };
+                      }
+                      return step;
+                    }),
+                  };
+                  break;
+                }
+
+                default:
+                  return prev;
+              }
+
+              newMap.set(targetMsgId, updatedWorkflow);
+
+              // Persist to local storage
+              chatStorageService.updateMessage(targetMsgId, {
+                workflow: updatedWorkflow,
+              });
+
+              return newMap;
+            });
+          }
+        );
       };
 
       setupWorkflowSync().catch((error) => {
@@ -532,7 +616,6 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         subscription?.unsubscribe();
       };
     }, []);
-
 
     // Handle click outside to close session list
     useEffect(() => {
@@ -671,7 +754,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     const handleSendWrapper = useCallback(
       async (msg: Message) => {
         analytics.track('chat_message_send', {
-          hasImages: msg.parts.some(p => p.type === 'image_url') // Message parts uses image_url usually
+          hasImages: msg.parts.some((p) => p.type === 'image_url'), // Message parts uses image_url usually
         });
         // Check if API key is configured
         const settings = geminiSettings.get();
@@ -729,11 +812,17 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
         // 2. 显示选中的文本元素（作为生成 prompt 的来源）
         if (context.selection.texts.length > 0) {
-          displayParts.push(`\n📝 选中的文本:\n${context.selection.texts.join('\n')}`);
+          displayParts.push(
+            `\n📝 选中的文本:\n${context.selection.texts.join('\n')}`
+          );
         }
 
         // 3. 如果两者都没有，显示 finalPrompt
-        if (context.selection.texts.length === 0 && !context.userInstruction && context.finalPrompt) {
+        if (
+          context.selection.texts.length === 0 &&
+          !context.userInstruction &&
+          context.finalPrompt
+        ) {
           displayParts.push(`\n提示词:\n${context.finalPrompt}`);
         }
 
@@ -768,19 +857,25 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           // 提取冒号后面的内容作为标题
           const colonIndex = context.userInstruction.indexOf(':');
           const chineseColonIndex = context.userInstruction.indexOf('：');
-          const actualColonIndex = colonIndex >= 0 && chineseColonIndex >= 0 
-            ? Math.min(colonIndex, chineseColonIndex)
-            : Math.max(colonIndex, chineseColonIndex);
-          
-          if (actualColonIndex >= 0 && actualColonIndex < context.userInstruction.length - 1) {
-            titleText = context.userInstruction.substring(actualColonIndex + 1).trim();
+          const actualColonIndex =
+            colonIndex >= 0 && chineseColonIndex >= 0
+              ? Math.min(colonIndex, chineseColonIndex)
+              : Math.max(colonIndex, chineseColonIndex);
+
+          if (
+            actualColonIndex >= 0 &&
+            actualColonIndex < context.userInstruction.length - 1
+          ) {
+            titleText = context.userInstruction
+              .substring(actualColonIndex + 1)
+              .trim();
           } else {
             titleText = context.userInstruction;
           }
         } else if (context.model.id) {
           titleText = `模型: ${context.model.id}`;
         }
-        const title = titleText;//.length > 30 ? titleText.slice(0, 30) + '...' : titleText;
+        const title = titleText; //.length > 30 ? titleText.slice(0, 30) + '...' : titleText;
         await chatStorageService.updateSession(newSession.id, { title });
         newSession.title = title;
 
@@ -790,10 +885,15 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         // 创建用户消息（包含图片和视频）
         const timestamp = Date.now();
         const userMsgId = `msg_${timestamp}_user`;
-        const userMsgParts: Message['parts'] = [{ type: 'text', text: userDisplayText }];
+        const userMsgParts: Message['parts'] = [
+          { type: 'text', text: userDisplayText },
+        ];
 
         // 添加参考图片
-        const allImages = [...context.selection.images, ...context.selection.graphics];
+        const allImages = [
+          ...context.selection.images,
+          ...context.selection.graphics,
+        ];
         for (let i = 0; i < allImages.length; i++) {
           userMsgParts.push({
             type: 'data-file',
@@ -828,7 +928,12 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         const workflowMsg: Message = {
           id: workflowMsgId,
           role: 'assistant',
-          parts: [{ type: 'text', text: `${WORKFLOW_MESSAGE_PREFIX}${workflowMsgId}` }],
+          parts: [
+            {
+              type: 'text',
+              text: `${WORKFLOW_MESSAGE_PREFIX}${workflowMsgId}`,
+            },
+          ],
         };
 
         // 存储工作流数据到内存
@@ -848,26 +953,27 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           timestamp: Date.now(),
           status: MessageStatus.SUCCESS,
           aiContext: context, // 保存完整的上下文信息
-          attachments: allImages.length > 0 || context.selection.videos.length > 0
-            ? [
-                ...allImages.map((url, i) => ({
-                  id: `${userMsgId}-img-${i}`,
-                  name: `image-${i + 1}.png`,
-                  type: 'image/png',
-                  size: 0,
-                  data: url,
-                  isBlob: false,
-                })),
-                ...context.selection.videos.map((url, i) => ({
-                  id: `${userMsgId}-vid-${i}`,
-                  name: `video-${i + 1}.mp4`,
-                  type: 'video/mp4',
-                  size: 0,
-                  data: url,
-                  isBlob: false,
-                })),
-              ]
-            : undefined,
+          attachments:
+            allImages.length > 0 || context.selection.videos.length > 0
+              ? [
+                  ...allImages.map((url, i) => ({
+                    id: `${userMsgId}-img-${i}`,
+                    name: `image-${i + 1}.png`,
+                    type: 'image/png',
+                    size: 0,
+                    data: url,
+                    isBlob: false,
+                  })),
+                  ...context.selection.videos.map((url, i) => ({
+                    id: `${userMsgId}-vid-${i}`,
+                    name: `video-${i + 1}.mp4`,
+                    type: 'video/mp4',
+                    size: 0,
+                    data: url,
+                    isBlob: false,
+                  })),
+                ]
+              : undefined,
         };
         await chatStorageService.addMessage(userChatMsg);
 
@@ -897,7 +1003,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     const handleUpdateWorkflowMessage = useCallback(
       async (workflow: WorkflowMessageData) => {
         let msgId = currentWorkflowMsgIdRef.current;
-        
+
         // If no current msgId, try to find existing message by workflow ID
         // This handles page refresh recovery case
         if (!msgId) {
@@ -910,7 +1016,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
             }
           }
         }
-        
+
         if (!msgId) {
           // console.log('[ChatDrawer] No message ID found for workflow update, skipping:', workflow.id);
           return;
@@ -948,7 +1054,9 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
             };
             newMap.set(msgId, updatedWorkflow);
             // 持久化到本地存储
-            chatStorageService.updateMessage(msgId, { workflow: updatedWorkflow });
+            chatStorageService.updateMessage(msgId, {
+              workflow: updatedWorkflow,
+            });
             // 同步更新 chatHandler 中的原始消息
             chatHandler.updateRawMessageWorkflow?.(msgId, updatedWorkflow);
           }
@@ -983,7 +1091,10 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
             if (lastThinkingIndex >= 0) {
               // 更新现有的 thinking 日志
               const updatedLogs = [...logs];
-              const thinkingLog = updatedLogs[lastThinkingIndex] as Extract<AgentLogEntry, { type: 'thinking' }>;
+              const thinkingLog = updatedLogs[lastThinkingIndex] as Extract<
+                AgentLogEntry,
+                { type: 'thinking' }
+              >;
               updatedLogs[lastThinkingIndex] = {
                 ...thinkingLog,
                 content: thinkingLog.content + content,
@@ -1006,7 +1117,9 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
               clearTimeout(thinkingUpdateTimeoutRef.current);
             }
             thinkingUpdateTimeoutRef.current = setTimeout(() => {
-              chatStorageService.updateMessage(msgId, { workflow: updatedWorkflow });
+              chatStorageService.updateMessage(msgId, {
+                workflow: updatedWorkflow,
+              });
               // 同步更新 chatHandler 中的原始消息
               chatHandler.updateRawMessageWorkflow?.(msgId, updatedWorkflow);
             }, 500);
@@ -1019,7 +1132,11 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // 处理工作流重试
     const handleWorkflowRetry = useCallback(
-      async (workflowMsgId: string, workflow: WorkflowMessageData, stepIndex: number) => {
+      async (
+        workflowMsgId: string,
+        workflow: WorkflowMessageData,
+        stepIndex: number
+      ) => {
         if (retryingWorkflowId) return; // 已经在重试中
 
         analytics.track('chat_workflow_retry', { stepIndex });
@@ -1038,53 +1155,74 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     );
 
     // Expose ref API for external control
-    useImperativeHandle(ref, () => ({
-      open: () => {
-        setIsOpen(true);
-        onOpenChange?.(true);
-      },
-      close: () => {
-        setIsOpen(false);
-        onOpenChange?.(false);
-      },
-      toggle: handleToggle,
-      sendMessage: async (content: string) => {
-        // Open drawer first
-        setIsOpen(true);
-        onOpenChange?.(true);
+    useImperativeHandle(
+      ref,
+      () => ({
+        open: () => {
+          setIsOpen(true);
+          onOpenChange?.(true);
+        },
+        close: () => {
+          setIsOpen(false);
+          onOpenChange?.(false);
+        },
+        toggle: handleToggle,
+        sendMessage: async (content: string) => {
+          // Open drawer first
+          setIsOpen(true);
+          onOpenChange?.(true);
 
-        // Create message object
-        const msg: Message = {
-          id: `msg_${Date.now()}`,
-          role: 'user',
-          parts: [{ type: 'text', text: content }],
-        };
+          // Create message object
+          const msg: Message = {
+            id: `msg_${Date.now()}`,
+            role: 'user',
+            parts: [{ type: 'text', text: content }],
+          };
 
-        // Send the message
-        await handleSendWrapper(msg);
-      },
-      sendWorkflowMessage: handleSendWorkflowMessage,
-      updateWorkflowMessage: handleUpdateWorkflowMessage,
-      appendAgentLog: handleAppendAgentLog,
-      updateThinkingContent: handleUpdateThinkingContent,
-      isOpen: () => isOpen,
-      retryWorkflowFromStep: async (workflow: WorkflowMessageData, stepIndex: number) => {
-        // Find the message ID associated with this workflow
-        let targetMsgId: string | null = null;
-        for (const [msgId, wf] of workflowMessages.entries()) {
-          if (wf.id === workflow.id) {
-            targetMsgId = msgId;
-            break;
+          // Send the message
+          await handleSendWrapper(msg);
+        },
+        sendWorkflowMessage: handleSendWorkflowMessage,
+        updateWorkflowMessage: handleUpdateWorkflowMessage,
+        appendAgentLog: handleAppendAgentLog,
+        updateThinkingContent: handleUpdateThinkingContent,
+        isOpen: () => isOpen,
+        retryWorkflowFromStep: async (
+          workflow: WorkflowMessageData,
+          stepIndex: number
+        ) => {
+          // Find the message ID associated with this workflow
+          let targetMsgId: string | null = null;
+          for (const [msgId, wf] of workflowMessages.entries()) {
+            if (wf.id === workflow.id) {
+              targetMsgId = msgId;
+              break;
+            }
           }
-        }
 
-        if (targetMsgId) {
-          await handleWorkflowRetry(targetMsgId, workflow, stepIndex);
-        } else {
-          console.warn('[ChatDrawer] Could not find message ID for workflow retry', workflow.id);
-        }
-      },
-    }), [isOpen, handleToggle, handleSendWrapper, handleSendWorkflowMessage, handleUpdateWorkflowMessage, handleAppendAgentLog, handleUpdateThinkingContent, onOpenChange, workflowMessages, handleWorkflowRetry]);
+          if (targetMsgId) {
+            await handleWorkflowRetry(targetMsgId, workflow, stepIndex);
+          } else {
+            console.warn(
+              '[ChatDrawer] Could not find message ID for workflow retry',
+              workflow.id
+            );
+          }
+        },
+      }),
+      [
+        isOpen,
+        handleToggle,
+        handleSendWrapper,
+        handleSendWorkflowMessage,
+        handleUpdateWorkflowMessage,
+        handleAppendAgentLog,
+        handleUpdateThinkingContent,
+        onOpenChange,
+        workflowMessages,
+        handleWorkflowRetry,
+      ]
+    );
 
     // Wrapped handler for ChatSection
     const wrappedHandler = useMemo(
@@ -1126,15 +1264,18 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     }, [title]);
 
     // 标题输入框按键处理
-    const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleSaveTitle();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        handleCancelEditTitle();
-      }
-    }, [handleSaveTitle, handleCancelEditTitle]);
+    const handleTitleKeyDown = useCallback(
+      (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSaveTitle();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          handleCancelEditTitle();
+        }
+      },
+      [handleSaveTitle, handleCancelEditTitle]
+    );
 
     // 自动聚焦标题输入框
     useEffect(() => {
@@ -1159,10 +1300,16 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     }, [isOpen]);
     return (
       <>
-        <ChatDrawerTrigger isOpen={isOpen} onClick={handleToggle} drawerWidth={drawerWidth} />
+        <ChatDrawerTrigger
+          isOpen={isOpen}
+          onClick={handleToggle}
+          drawerWidth={drawerWidth}
+        />
 
-        <div 
-          className={`chat-drawer ${ATTACHED_ELEMENT_CLASS_NAME} ${isOpen ? 'chat-drawer--open' : ''} ${isDragging ? 'chat-drawer--dragging' : ''}`}
+        <div
+          className={`chat-drawer ${ATTACHED_ELEMENT_CLASS_NAME} ${
+            isOpen ? 'chat-drawer--open' : ''
+          } ${isDragging ? 'chat-drawer--dragging' : ''}`}
           style={{ width: drawerWidth }}
           data-testid="chat-drawer"
         >
@@ -1196,7 +1343,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
                     maxLength={50}
                   />
                 ) : (
-                  <h2 
+                  <h2
                     className="chat-drawer__title chat-drawer__title--editable"
                     onClick={handleStartEditTitle}
                     title="点击编辑标题"
@@ -1208,13 +1355,21 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
               <div className="chat-drawer__header-bottom">
                 <ModelSelector
                   value={sessionModel}
-                  onChange={setSessionModel}
+                  valueRef={sessionModelRef}
+                  onChange={(modelId, modelRef) => {
+                    setSessionModel(modelId);
+                    setSessionModelRef(
+                      modelRef || createModelRef(null, modelId)
+                    );
+                  }}
                 />
                 <div className="chat-drawer__session-actions">
                   <Tooltip content="会话列表" theme="light">
                     <button
                       ref={toggleButtonRef}
-                      className={`chat-drawer__close-btn ${showSessions ? 'chat-drawer__close-btn--active' : ''}`}
+                      className={`chat-drawer__close-btn ${
+                        showSessions ? 'chat-drawer__close-btn--active' : ''
+                      }`}
                       data-track="chat_click_sessions_toggle"
                       onClick={handleToggleSessions}
                       aria-label="会话列表"
@@ -1250,24 +1405,29 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
             )}
 
             <div className="chat-drawer__content">
-               {shouldRenderChat && (
-                 <Suspense fallback={<div className="chat-loading chat-loading--full"><div className="chat-loading__spinner" /></div>}>
-                   <ChatMessagesArea
-                     handler={wrappedHandler}
-                     workflowMessages={workflowMessages}
-                     retryingWorkflowId={retryingWorkflowId}
-                     handleWorkflowRetry={handleWorkflowRetry}
-                   />
-                 </Suspense>
-               )}
- 
-               <EnhancedChatInput
+              {shouldRenderChat && (
+                <Suspense
+                  fallback={
+                    <div className="chat-loading chat-loading--full">
+                      <div className="chat-loading__spinner" />
+                    </div>
+                  }
+                >
+                  <ChatMessagesArea
+                    handler={wrappedHandler}
+                    workflowMessages={workflowMessages}
+                    retryingWorkflowId={retryingWorkflowId}
+                    handleWorkflowRetry={handleWorkflowRetry}
+                  />
+                </Suspense>
+              )}
+
+              <EnhancedChatInput
                 selectedContent={selectedContent}
                 onSend={handleSendWrapper}
                 placeholder="支持连续对话"
               />
             </div>
-
           </div>
         </div>
       </>

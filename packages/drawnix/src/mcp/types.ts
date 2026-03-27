@@ -16,6 +16,8 @@ export {
   getModelIds,
   supportsTools,
 } from '../constants/model-config';
+import type { ModelRef } from '../utils/settings-manager';
+import type { GeminiMessagePart } from '../utils/gemini-api/types';
 
 /**
  * JSON Schema 类型定义
@@ -277,6 +279,8 @@ export interface AgentExecutionContext {
 export interface AgentExecuteOptions {
   /** 指定使用的模型 */
   model?: string;
+  /** 指定使用的供应商模型来源 */
+  modelRef?: ModelRef | null;
   /** 流式输出回调 */
   onChunk?: (content: string) => void;
   /** 工具调用回调 */
@@ -294,6 +298,6 @@ export interface AgentExecuteOptions {
    */
   messages?: Array<{
     role: 'system' | 'user' | 'assistant';
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | GeminiMessagePart[];
   }>;
 }

@@ -8,14 +8,14 @@
  * 4. 输入内容包含其他内容 -> 走 Agent 流程
  */
 
-import { geminiSettings } from './settings-manager';
+import { geminiSettings, type ModelRef } from './settings-manager';
 import {
   getModelConfig,
   getImageModelDefaults,
-  getVideoModelDefaults,
   getDefaultImageModel as getSystemDefaultImageModel,
   getDefaultVideoModel as getSystemDefaultVideoModel,
 } from '../constants/model-config';
+import { getEffectiveVideoDefaultParams } from '../services/video-binding-utils';
 import { buildMJPromptSuffix } from './mj-params';
 import type { ImageDimensions } from '../mcp/types';
 
@@ -98,6 +98,8 @@ export interface ParsedGenerationParams {
   generationType: GenerationType;
   /** 使用的模型 ID */
   modelId: string;
+  /** 使用的模型来源引用 */
+  modelRef?: ModelRef | null;
   /** 是否为用户显式选择的模型 */
   isModelExplicit: boolean;
   /** 最终生成用的提示词（选中文本 + 默认 prompt） */
@@ -195,6 +197,8 @@ function normalizeSize(size: string): string {
 export interface ParseAIInputOptions {
   /** 指定使用的模型 ID（来自下拉选择器） */
   modelId?: string;
+  /** 指定使用的模型引用（来自供应商感知的选择器） */
+  modelRef?: ModelRef | null;
   /** 指定使用的尺寸（来自尺寸选择器，'auto' 表示不传尺寸参数） */
   size?: string;
   /** 指定生成类型（来自下拉选择器） */
@@ -372,16 +376,25 @@ export function parseAIInput(
       // 图片模型使用默认尺寸
       size = '1x1'; // 默认正方形
     } else if (modelConfig?.type === 'video' && modelConfig.videoDefaults) {
-      size = normalizeSize(modelConfig.videoDefaults.size);
+      const defaults = getEffectiveVideoDefaultParams(
+        modelId,
+        options?.modelRef || modelId,
+        options?.params
+      );
+      size = normalizeSize(defaults.size || modelConfig.videoDefaults.size);
       if (!duration) {
-        duration = modelConfig.videoDefaults.duration;
+        duration = defaults.duration || modelConfig.videoDefaults.duration;
       }
     } else {
       // 使用通用默认值
       if (generationType === 'image') {
         size = '1x1';
       } else if (generationType === 'video') {
-        const defaults = getVideoModelDefaults(modelId);
+        const defaults = getEffectiveVideoDefaultParams(
+          modelId,
+          options?.modelRef || modelId,
+          options?.params
+        );
         size = normalizeSize(defaults.size);
         if (!duration) {
           duration = defaults.duration;
@@ -392,7 +405,11 @@ export function parseAIInput(
 
   // 视频模型：如果没有指定时长，使用默认值
   if (!duration && generationType === 'video') {
-    const defaults = getVideoModelDefaults(modelId);
+    const defaults = getEffectiveVideoDefaultParams(
+      modelId,
+      options?.modelRef || modelId,
+      options?.params
+    );
     duration = defaults.duration;
   }
 
@@ -403,6 +420,7 @@ export function parseAIInput(
     scenario,
     generationType,
     modelId,
+    modelRef: options?.modelRef || null,
     isModelExplicit,
     prompt,
     userInstruction,

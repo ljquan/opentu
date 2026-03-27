@@ -7,15 +7,13 @@
 
 import React, { useEffect } from 'react';
 import { Select, Radio } from 'tdesign-react';
-import type { VideoModel } from '../../../types/video.types';
-import {
-  getVideoModelConfig,
-  getDefaultModelParams,
-} from '../../../constants/video-model-config';
+import type { VideoModel, VideoModelConfig } from '../../../types/video.types';
+import { getVideoModelConfig } from '../../../constants/video-model-config';
 import './VideoModelOptions.scss';
 
 interface VideoModelOptionsProps {
   model: VideoModel;
+  configOverride?: VideoModelConfig;
   duration: string;
   size: string;
   onDurationChange: (duration: string) => void;
@@ -25,17 +23,21 @@ interface VideoModelOptionsProps {
 
 export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
   model,
+  configOverride,
   duration,
   size,
   onDurationChange,
   onSizeChange,
   disabled = false,
 }) => {
-  const config = getVideoModelConfig(model);
+  const config = configOverride || getVideoModelConfig(model);
 
   // Reset to default values when model changes
   useEffect(() => {
-    const defaults = getDefaultModelParams(model);
+    const defaults = {
+      duration: config.defaultDuration,
+      size: config.defaultSize,
+    };
 
     // Check if current duration is valid for new model
     const validDuration = config.durationOptions.find(opt => opt.value === duration);
@@ -48,7 +50,7 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
     if (!validSize) {
       onSizeChange(defaults.size);
     }
-  }, [model]);
+  }, [config, duration, model, onDurationChange, onSizeChange, size]);
 
   // Convert duration options to RadioGroup format
   const durationRadioOptions = config.durationOptions.map(opt => ({

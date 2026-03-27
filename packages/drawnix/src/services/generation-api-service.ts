@@ -25,8 +25,9 @@ import {
 } from '../constants/model-config';
 import {
   getAdapterContextFromSettings,
-  resolveAdapterForModel,
+  resolveAdapterForInvocation,
 } from './model-adapters';
+import type { ModelRef } from '../utils/settings-manager';
 
 /**
  * Generation API Service
@@ -249,9 +250,15 @@ class GenerationAPIService {
   ): Promise<TaskResult> {
     try {
       const requestedModel = (params as any).model as string | undefined;
-      const adapter = requestedModel
-        ? resolveAdapterForModel(requestedModel, 'image')
-        : resolveAdapterForModel(DEFAULT_IMAGE_MODEL_ID, 'image');
+      const requestedModelRef = (params as any).modelRef as
+        | ModelRef
+        | null
+        | undefined;
+      const adapter = resolveAdapterForInvocation(
+        'image',
+        requestedModel || DEFAULT_IMAGE_MODEL_ID,
+        requestedModelRef || null
+      );
 
       if (!adapter || adapter.kind !== 'image') {
         throw new Error(`No image adapter for model: ${requestedModel}`);
@@ -269,10 +276,14 @@ class GenerationAPIService {
       }
 
       const result = await adapter.generateImage(
-        getAdapterContextFromSettings(),
+        getAdapterContextFromSettings(
+          'image',
+          requestedModelRef || requestedModel
+        ),
         {
           prompt: params.prompt,
           model: requestedModel,
+          modelRef: requestedModelRef || null,
           size,
           referenceImages:
             referenceImages.length > 0 ? referenceImages : undefined,
@@ -323,7 +334,8 @@ class GenerationAPIService {
    */
   async resumeAsyncImageGeneration(
     taskId: string,
-    remoteId: string
+    remoteId: string,
+    routeModel?: string | ModelRef | null
   ): Promise<TaskResult> {
     const timeout = TASK_TIMEOUT.IMAGE;
 
@@ -335,6 +347,7 @@ class GenerationAPIService {
       const result = await Promise.race([
         asyncImageAPIService.resumePolling(remoteId, {
           interval: 5000,
+          routeModel,
           onProgress: (progress) => {
             taskQueueService.updateTaskProgress(taskId, progress);
           },
@@ -372,9 +385,15 @@ class GenerationAPIService {
   ): Promise<TaskResult> {
     try {
       const requestedModel = (params as any).model as string | undefined;
-      const adapter = requestedModel
-        ? resolveAdapterForModel(requestedModel, 'video')
-        : resolveAdapterForModel('veo3', 'video');
+      const requestedModelRef = (params as any).modelRef as
+        | ModelRef
+        | null
+        | undefined;
+      const adapter = resolveAdapterForInvocation(
+        'video',
+        requestedModel || 'veo3',
+        requestedModelRef || null
+      );
 
       if (!adapter || adapter.kind !== 'video') {
         throw new Error(`No video adapter for model: ${requestedModel}`);
@@ -385,14 +404,17 @@ class GenerationAPIService {
       });
 
       const referenceImages = await this.extractReferenceImages(params);
-      const durationValue =
-        (params as any).duration ?? (params as any).seconds;
+      const durationValue = (params as any).duration ?? (params as any).seconds;
 
       const result = await adapter.generateVideo(
-        getAdapterContextFromSettings(),
+        getAdapterContextFromSettings(
+          'video',
+          requestedModelRef || requestedModel
+        ),
         {
           prompt: params.prompt,
           model: requestedModel,
+          modelRef: requestedModelRef || null,
           size: (params as any).size,
           duration:
             durationValue !== undefined ? Number(durationValue) : undefined,
@@ -404,14 +426,10 @@ class GenerationAPIService {
               taskQueueService.updateTaskProgress(taskId, progress);
             },
             onSubmitted: (videoId: string) => {
-              taskQueueService.updateTaskStatus(
-                taskId,
-                'processing' as any,
-                {
-                  remoteId: videoId,
-                  executionPhase: TaskExecutionPhase.POLLING,
-                }
-              );
+              taskQueueService.updateTaskStatus(taskId, 'processing' as any, {
+                remoteId: videoId,
+                executionPhase: TaskExecutionPhase.POLLING,
+              });
             },
           },
         }
@@ -445,7 +463,8 @@ class GenerationAPIService {
    */
   async resumeVideoGeneration(
     taskId: string,
-    remoteId: string
+    remoteId: string,
+    routeModel?: string | ModelRef | null
   ): Promise<TaskResult> {
     const startTime = Date.now();
 
@@ -475,6 +494,7 @@ class GenerationAPIService {
       // Resume polling
       const pollingPromise = videoAPIService.resumePolling(remoteId, {
         interval: 5000,
+        routeModel,
         onProgress: (progress, status) => {
           // console.log(`[GenerationAPI] Resumed video progress: ${progress}% (${status})`);
           taskQueueService.updateTaskProgress(taskId, progress);

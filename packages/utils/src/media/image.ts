@@ -141,6 +141,37 @@ export async function createCanvasFromImage(
   return { canvas, ctx, img };
 }
 
+export interface PixelSize {
+  width: number;
+  height: number;
+}
+
+export interface NormalizeImageBlobOptions {
+  fit?: 'cover' | 'contain';
+  outputType?: string;
+  quality?: number;
+  backgroundColor?: string;
+}
+
+export function parsePixelSize(size?: string | null): PixelSize | null {
+  if (!size) {
+    return null;
+  }
+
+  const match = size.trim().match(/^(\d+)\s*[xX]\s*(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!width || !height) {
+    return null;
+  }
+
+  return { width, height };
+}
+
 // ==================== 图片压缩 ====================
 
 /**
@@ -211,6 +242,181 @@ function compressImageWithQuality(blob: Blob, quality: number): Promise<Blob> {
   });
 }
 
+type LoadedCanvasSource = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  cleanup: () => void;
+};
+
+async function loadCanvasSourceFromBlob(blob: Blob): Promise<LoadedCanvasSource> {
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(blob);
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      cleanup: () => bitmap.close?.(),
+    };
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Canvas image decoding is not available in this environment');
+  }
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(blob);
+
+    img.onload = () => {
+      resolve({
+        source: img,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        cleanup: () => URL.revokeObjectURL(objectUrl),
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to decode image blob'));
+    };
+    img.src = objectUrl;
+  });
+}
+
+type Canvas2DContext =
+  | CanvasRenderingContext2D
+  | OffscreenCanvasRenderingContext2D;
+
+type CanvasSurface = {
+  ctx: Canvas2DContext;
+  toBlob: (type: string, quality?: number) => Promise<Blob>;
+};
+
+function createCanvasSurface(width: number, height: number): CanvasSurface {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Failed to get offscreen canvas context');
+    }
+
+    return {
+      ctx,
+      toBlob: async (type: string, quality?: number) =>
+        canvas.convertToBlob({ type, quality }),
+    };
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Canvas rendering is not available in this environment');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Failed to get canvas context');
+  }
+
+  return {
+    ctx,
+    toBlob: (type: string, quality?: number) =>
+      new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (output) => {
+            if (output) {
+              resolve(output);
+            } else {
+              reject(new Error('Canvas to Blob failed'));
+            }
+          },
+          type,
+          quality
+        );
+      }),
+  };
+}
+
+function resolveCanvasOutputType(
+  blob: Blob,
+  preferredType?: string
+): string {
+  const candidate = (preferredType || blob.type || '').toLowerCase();
+  if (
+    candidate === 'image/jpeg' ||
+    candidate === 'image/png' ||
+    candidate === 'image/webp'
+  ) {
+    return candidate;
+  }
+  return 'image/png';
+}
+
+export async function normalizeImageBlobToSize(
+  blob: Blob,
+  size?: string | null,
+  options: NormalizeImageBlobOptions = {}
+): Promise<Blob> {
+  if (!blob.type.startsWith('image/')) {
+    return blob;
+  }
+
+  const targetSize = parsePixelSize(size);
+  if (!targetSize) {
+    return blob;
+  }
+
+  const loaded = await loadCanvasSourceFromBlob(blob);
+  try {
+    if (
+      loaded.width === targetSize.width &&
+      loaded.height === targetSize.height
+    ) {
+      return blob;
+    }
+
+    const { fit = 'cover', quality = 0.92 } = options;
+    const outputType = resolveCanvasOutputType(blob, options.outputType);
+    const { ctx, toBlob } = createCanvasSurface(
+      targetSize.width,
+      targetSize.height
+    );
+
+    ctx.clearRect(0, 0, targetSize.width, targetSize.height);
+    ctx.imageSmoothingEnabled = true;
+    (ctx as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
+
+    if (fit === 'contain') {
+      const backgroundColor =
+        options.backgroundColor ||
+        (outputType === 'image/jpeg' ? '#ffffff' : '');
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, targetSize.width, targetSize.height);
+      }
+    }
+
+    const scale =
+      fit === 'contain'
+        ? Math.min(targetSize.width / loaded.width, targetSize.height / loaded.height)
+        : Math.max(targetSize.width / loaded.width, targetSize.height / loaded.height);
+    const drawWidth = loaded.width * scale;
+    const drawHeight = loaded.height * scale;
+    const dx = (targetSize.width - drawWidth) / 2;
+    const dy = (targetSize.height - drawHeight) / 2;
+
+    ctx.drawImage(loaded.source, dx, dy, drawWidth, drawHeight);
+    return await toBlob(
+      outputType,
+      outputType === 'image/png' ? undefined : quality
+    );
+  } finally {
+    loaded.cleanup();
+  }
+}
+
 /**
  * 使用二分查找压缩到目标大小
  */
@@ -270,6 +476,37 @@ export async function compressImageBlob(
   targetSizeMB?: number
 ): Promise<Blob> {
   const fileSizeMB = blob.size / (1024 * 1024);
+
+  // 超过 25MB 拒绝
+  if (fileSizeMB > 25) {
+    throw new Error('Image size exceeds maximum limit of 25MB');
+  }
+
+  if (typeof targetSizeMB === 'number' && targetSizeMB > 0) {
+    const targetBytes = targetSizeMB * 1024 * 1024;
+    if (blob.size <= targetBytes) {
+      return blob;
+    }
+
+    const strategy = getCompressionStrategy(fileSizeMB);
+    const effectiveStrategy: CompressionStrategy = strategy.shouldCompress
+      ? strategy
+      : {
+          shouldCompress: true,
+          targetSizeMB,
+          initialQuality: 0.9,
+          minQuality: 0.35,
+          maxQuality: 0.95,
+        };
+
+    try {
+      return await compressToBinary(blob, targetSizeMB, effectiveStrategy);
+    } catch (error) {
+      console.error('[compressImageBlob] Compression failed:', error);
+      throw new Error('Image compression failed');
+    }
+  }
+
   const strategy = getCompressionStrategy(fileSizeMB);
 
   // 不需要压缩
@@ -277,15 +514,8 @@ export async function compressImageBlob(
     return blob;
   }
 
-  // 超过 25MB 拒绝
-  if (fileSizeMB > 25) {
-    throw new Error('Image size exceeds maximum limit of 25MB');
-  }
-
-  const target = targetSizeMB ?? strategy.targetSizeMB;
-
   try {
-    return await compressToBinary(blob, target, strategy);
+    return await compressToBinary(blob, strategy.targetSizeMB, strategy);
   } catch (error) {
     console.error('[compressImageBlob] Compression failed:', error);
     throw new Error('Image compression failed');

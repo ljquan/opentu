@@ -9,14 +9,23 @@
 import type { ImageGenerationOptions, ImageGenerationResult } from './types';
 import { TaskStatus } from './types';
 import { generateTaskId } from '../../utils/task-utils';
-import { validateGenerationParams, sanitizeGenerationParams } from '../../utils/validation-utils';
+import {
+  validateGenerationParams,
+  sanitizeGenerationParams,
+} from '../../utils/validation-utils';
 import { taskStorageWriter } from '../media-executor/task-storage-writer';
 import { executorFactory, waitForTaskCompletion } from '../media-executor';
-import { settingsManager, geminiSettings } from '../../utils/settings-manager';
+import {
+  hasInvocationRouteCredentials,
+  settingsManager,
+} from '../../utils/settings-manager';
 import { TaskType } from '../../types/shared/core.types';
 import type { ImageGenerationParams } from '../media-executor/types';
 import { taskQueueService } from '../task-queue-service';
-import { TaskStatus as QueueTaskStatus, TaskExecutionPhase } from '../../types/task.types';
+import {
+  TaskStatus as QueueTaskStatus,
+  TaskExecutionPhase,
+} from '../../types/task.types';
 
 /**
  * 生成图片
@@ -39,8 +48,9 @@ export async function generateImage(
 
   // 确保 API Key 已解密
   await settingsManager.waitForInitialization();
-  const settings = geminiSettings.get();
-  if (!settings.apiKey || !settings.baseUrl) {
+  if (
+    !hasInvocationRouteCredentials('image', options.modelRef || options.model)
+  ) {
     throw new Error('未配置 API Key，请在设置中配置');
   }
 
@@ -50,6 +60,7 @@ export async function generateImage(
   await taskStorageWriter.createTask(taskId, 'image', {
     prompt: sanitizedParams.prompt,
     model: options.model,
+    modelRef: options.modelRef || null,
     size: options.size,
   });
 
@@ -58,7 +69,12 @@ export async function generateImage(
     id: taskId,
     type: TaskType.IMAGE,
     status: QueueTaskStatus.PROCESSING,
-    params: { prompt: sanitizedParams.prompt, model: options.model, size: options.size },
+    params: {
+      prompt: sanitizedParams.prompt,
+      model: options.model,
+      modelRef: options.modelRef || null,
+      size: options.size,
+    },
     createdAt: now,
     updatedAt: now,
     startedAt: now,
@@ -73,6 +89,7 @@ export async function generateImage(
     taskId,
     prompt: sanitizedParams.prompt,
     model: options.model,
+    modelRef: options.modelRef || null,
     size: options.size,
     quality: options.quality,
     referenceImages: options.referenceImages,
@@ -98,9 +115,16 @@ export async function generateImage(
 
   if (!result.success || !result.task) {
     const errorTask = result.task || {
-      id: taskId, type: TaskType.IMAGE, status: TaskStatus.FAILED,
-      params: { prompt }, createdAt: Date.now(), updatedAt: Date.now(),
-      error: { code: 'GENERATION_ERROR', message: result.error || '图片生成失败' },
+      id: taskId,
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: { prompt },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      error: {
+        code: 'GENERATION_ERROR',
+        message: result.error || '图片生成失败',
+      },
     };
     return { task: errorTask };
   }

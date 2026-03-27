@@ -1,0 +1,67 @@
+# Mock AITU image-generation responses so we can reproduce models returning raw
+# base64 image payloads instead of normal remote URLs.
+#
+# Recommended usage:
+# 1. Paste this file into Whistle's Rules editor.
+# 2. Keep only the scenario(s) you want enabled.
+# 3. Add the corresponding marker token to the prompt text.
+#
+# Markers:
+# - __mock_b64_single__     => one image, raw base64 in data[0].b64_json
+# - __mock_b64_duplicate__  => two identical images in data[].b64_json
+# - __mock_b64_url_field__  => one image, raw base64 in data[0].url
+#
+# Note:
+# - The app usually posts to /v1/images/generations when Base URL is
+#   https://api.tu-zi.com/v1, but we keep both path variants here.
+# - If you use a different API domain, replace api.tu-zi.com below.
+
+api.tu-zi.com/v1/images/generations file://{mock-image-b64-single.json} lineProps://important includeFilter://b:/__mock_b64_single__/
+api.tu-zi.com/images/generations file://{mock-image-b64-single.json} lineProps://important includeFilter://b:/__mock_b64_single__/
+
+api.tu-zi.com/v1/images/generations file://{mock-image-b64-duplicate.json} lineProps://important includeFilter://b:/__mock_b64_duplicate__/
+api.tu-zi.com/images/generations file://{mock-image-b64-duplicate.json} lineProps://important includeFilter://b:/__mock_b64_duplicate__/
+
+api.tu-zi.com/v1/images/generations file://{mock-image-b64-url-field.json} lineProps://important includeFilter://b:/__mock_b64_url_field__/
+api.tu-zi.com/images/generations file://{mock-image-b64-url-field.json} lineProps://important includeFilter://b:/__mock_b64_url_field__/
+
+# Uncomment these two lines if you want to mock every image request without
+# adding a prompt marker. Leave only one scenario enabled at a time.
+# api.tu-zi.com/v1/images/generations file://{mock-image-b64-single.json} lineProps://important
+# api.tu-zi.com/images/generations file://{mock-image-b64-single.json} lineProps://important
+
+``` mock-image-b64-single.json
+{
+  "created": 1773799200,
+  "data": [
+    {
+      "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    }
+  ]
+}
+```
+
+``` mock-image-b64-duplicate.json
+{
+  "created": 1773799201,
+  "data": [
+    {
+      "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    },
+    {
+      "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    }
+  ]
+}
+```
+
+``` mock-image-b64-url-field.json
+{
+  "created": 1773799202,
+  "data": [
+    {
+      "url": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    }
+  ]
+}
+```

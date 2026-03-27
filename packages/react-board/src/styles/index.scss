@@ -19,6 +19,14 @@
         width: 100%;
         height: 100%;
         overflow: auto;
+        // 空画布也有约 2 倍视口的可滚动区（Plait 最小 viewBox）；隐藏原生条，平移靠滚轮/手掌工具。
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        &::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
     }
 
     &.disabled-scroll {

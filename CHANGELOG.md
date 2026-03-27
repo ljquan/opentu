@@ -1,3 +1,45 @@
+## 0.6.11 (2026-03-18)
+
+### 🔧 Chores
+
+- 更新应用版本至0.6.10并修正调整大小句柄常量 ([4bf18818](https://github.com/ljquan/aitu/commit/4bf18818))
+- fixed: 兼容base64图片返回 ([94d4a81c](https://github.com/ljquan/aitu/commit/94d4a81c))
+- fixed:修复部署失败 ([9ecdebcc](https://github.com/ljquan/aitu/commit/9ecdebcc))
+- fixed:修复素材库删除的bug ([6ac4bf95](https://github.com/ljquan/aitu/commit/6ac4bf95))
+- fixed:修复素材库删除的bug ([c93d449e](https://github.com/ljquan/aitu/commit/c93d449e))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- liangyufeng <l.yfeng@qq.com>
+
+## 0.6.10 (2026-03-16)
+
+### 🚀 Features
+
+- 修改部署失败的问题 ([23533dd2](https://github.com/ljquan/aitu/commit/23533dd2))
+- 添加导出ppt的功能 ([08e4fd52](https://github.com/ljquan/aitu/commit/08e4fd52))
+- 持久化 AI 生成参数偏好 ([dbf42e78](https://github.com/ljquan/aitu/commit/dbf42e78))
+- 添加页面刷新后视频任务恢复和工作流同步机制 ([8daecd7b](https://github.com/ljquan/aitu/commit/8daecd7b))
+- 优化画布上插入内容让其可滚动 ([76024c85](https://github.com/ljquan/aitu/commit/76024c85))
+- 优化agent回答文本框 ([d706c6ed](https://github.com/ljquan/aitu/commit/d706c6ed))
+- 优化知识库对话ai回答内容将其渲染为对应的markdown格式&优化skill生成的内容让外层文本框高度自适应内容高度 ([cb76e4df](https://github.com/ljquan/aitu/commit/cb76e4df))
+
+### 🩹 Fixes
+
+- 修复切换画板时刷新页面丢失当前画板的问题 ([c164a1dc](https://github.com/ljquan/aitu/commit/c164a1dc))
+
+### 🔧 Chores
+
+- 更新构建时间戳 ([431af243](https://github.com/ljquan/aitu/commit/431af243))
+- feat：优化文本框高度 ([435cc865](https://github.com/ljquan/aitu/commit/435cc865))
+
+### ❤️  Thank You
+
+- liangyufeng <l.yfeng@qq.com>
+- gongchengtu <1817063960@qq.com>
+- liquid <ljquan@qq.com>
+
 ## 0.6.9 (2026-03-08)
 
 ### 🚀 Features

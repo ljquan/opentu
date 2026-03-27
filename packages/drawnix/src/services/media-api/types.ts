@@ -4,6 +4,12 @@
  * 用于 SW 和主线程共享的 API 调用类型
  */
 
+import type {
+  ProviderAuthStrategy,
+  ProviderModelBinding,
+  ResolvedProviderContext,
+} from '../provider-routing/types';
+
 /**
  * 基础 API 配置
  */
@@ -12,6 +18,16 @@ export interface ApiConfig {
   baseUrl: string;
   /** 可选：自定义 fetch 实现（用于 SW 中注入 debugFetch） */
   fetchImpl?: typeof fetch;
+  /** 可选：统一供应商上下文 */
+  provider?: ResolvedProviderContext | null;
+  /** 可选：协议绑定 */
+  binding?: ProviderModelBinding | null;
+  /** 可选：鉴权策略 */
+  authType?: ProviderAuthStrategy;
+  /** 可选：供应商类型 */
+  providerType?: string;
+  /** 可选：额外请求头 */
+  extraHeaders?: Record<string, string>;
 }
 
 /**
@@ -60,6 +76,8 @@ export interface VideoGenerationParams {
   size?: string;
   /** 参考图片 */
   referenceImages?: string[];
+  /** 额外参数（如 sora_mode） */
+  params?: Record<string, unknown>;
 }
 
 /**
@@ -95,6 +113,7 @@ export interface VideoGenerationResult {
  */
 export interface VideoStatusResponse {
   id: string;
+  model?: string;
   status: 'queued' | 'in_progress' | 'completed' | 'failed' | 'succeeded' | 'error';
   progress?: number;
   video_url?: string;

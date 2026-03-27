@@ -8,6 +8,7 @@ import {
   isBorderColor,
   isBackgroundPixel,
   isWhiteBorderPixel,
+  parsePixelSize,
 } from './image';
 
 describe('getCompressionStrategy', () => {
@@ -123,6 +124,22 @@ describe('isWhiteBorderPixel', () => {
   it('should respect custom threshold', () => {
     expect(isWhiteBorderPixel(240, 240, 240, 235)).toBe(true);
     expect(isWhiteBorderPixel(230, 230, 230, 225)).toBe(true);
+  });
+});
+
+describe('parsePixelSize', () => {
+  it('parses pixel size tokens', () => {
+    expect(parsePixelSize('1280x720')).toEqual({ width: 1280, height: 720 });
+    expect(parsePixelSize(' 720X1280 ')).toEqual({
+      width: 720,
+      height: 1280,
+    });
+  });
+
+  it('returns null for ratio strings and invalid values', () => {
+    expect(parsePixelSize('16:9')).toBeNull();
+    expect(parsePixelSize('auto')).toBeNull();
+    expect(parsePixelSize('')).toBeNull();
   });
 });
 

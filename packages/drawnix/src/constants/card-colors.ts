@@ -23,8 +23,8 @@ export const CARD_TITLE_HEIGHT = 44;
 /** Card 正文区最小高度（像素） */
 export const CARD_BODY_MIN_HEIGHT = 80;
 
-/** Card 正文区最大高度（像素） */
-export const CARD_BODY_MAX_HEIGHT = 200;
+/** Card 正文区最大高度（像素），超出后正文区可滚动 */
+export const CARD_BODY_MAX_HEIGHT = 400;
 
 /** Card 圆角半径 */
 export const CARD_BORDER_RADIUS = 8;

@@ -20,13 +20,24 @@ export enum ModelVendor {
   FLUX = 'FLUX',
   MIDJOURNEY = 'MIDJOURNEY',
   GPT = 'GPT',
+  GROK = 'GROK',
+  QWEN = 'QWEN',
+  GLM = 'GLM',
+  MINIMAX = 'MINIMAX',
+  MISTRAL = 'MISTRAL',
+  LLAMA = 'LLAMA',
   VEO = 'VEO',
   SORA = 'SORA',
+  RUNWAY = 'RUNWAY',
+  PIKA = 'PIKA',
   KLING = 'KLING',
+  HUNYUAN = 'HUNYUAN',
+  STEPFUN = 'STEPFUN',
   DEEPSEEK = 'DEEPSEEK',
   ANTHROPIC = 'ANTHROPIC',
   GOOGLE = 'GOOGLE',
   DOUBAO = 'DOUBAO',
+  OTHER = 'OTHER',
 }
 
 /**
@@ -37,13 +48,24 @@ export const VENDOR_NAMES: Record<ModelVendor, string> = {
   [ModelVendor.FLUX]: 'Flux',
   [ModelVendor.MIDJOURNEY]: 'Midjourney',
   [ModelVendor.GPT]: 'GPT',
+  [ModelVendor.GROK]: 'Grok',
+  [ModelVendor.QWEN]: 'Qwen',
+  [ModelVendor.GLM]: 'GLM',
+  [ModelVendor.MINIMAX]: 'MiniMax',
+  [ModelVendor.MISTRAL]: 'Mistral',
+  [ModelVendor.LLAMA]: 'Llama',
   [ModelVendor.VEO]: 'Veo',
   [ModelVendor.SORA]: 'Sora',
+  [ModelVendor.RUNWAY]: 'Runway',
+  [ModelVendor.PIKA]: 'Pika',
   [ModelVendor.KLING]: 'Kling',
+  [ModelVendor.HUNYUAN]: 'Hunyuan',
+  [ModelVendor.STEPFUN]: 'StepFun',
   [ModelVendor.DEEPSEEK]: 'DeepSeek',
   [ModelVendor.ANTHROPIC]: 'Anthropic',
   [ModelVendor.GOOGLE]: 'Google',
   [ModelVendor.DOUBAO]: '即梦',
+  [ModelVendor.OTHER]: '其它',
 };
 
 /**
@@ -76,6 +98,8 @@ export interface ParamConfig {
   /** 适用的模型类型 */
   modelType: ModelType;
 }
+
+export const SORA_MODE_PARAM_ID = 'sora_mode';
 
 /**
  * 图片模型默认参数
@@ -129,6 +153,12 @@ export interface ModelConfig {
   videoDefaults?: VideoModelDefaults;
   /** 模型标签（用于参数兼容匹配的非硬编码方式） */
   tags?: string[];
+  /** 运行时来源供应商 ID（仅动态模型选择场景使用） */
+  sourceProfileId?: string | null;
+  /** 运行时来源供应商名称（仅动态模型选择场景使用） */
+  sourceProfileName?: string | null;
+  /** 选择器中用于区分同名模型来源的唯一键 */
+  selectionKey?: string;
 }
 
 // ============================================
@@ -781,6 +811,44 @@ export const ALL_MODELS: ModelConfig[] = [
   ...TEXT_MODELS,
 ];
 
+let runtimeModels: ModelConfig[] = [];
+
+function mergeModels(
+  staticModels: ModelConfig[],
+  discoveredModels: ModelConfig[]
+): ModelConfig[] {
+  const merged = [...discoveredModels];
+  const seen = new Set(discoveredModels.map((model) => model.id));
+  for (const model of staticModels) {
+    if (!seen.has(model.id)) {
+      merged.push(model);
+    }
+  }
+  return merged;
+}
+
+export function setRuntimeModelConfigs(models: ModelConfig[]): void {
+  runtimeModels = Array.isArray(models) ? [...models] : [];
+}
+
+export function clearRuntimeModelConfigs(): void {
+  runtimeModels = [];
+}
+
+export function getRuntimeModelConfigs(type?: ModelType): ModelConfig[] {
+  return type
+    ? runtimeModels.filter((model) => model.type === type)
+    : [...runtimeModels];
+}
+
+export function getStaticModelsByType(type: ModelType): ModelConfig[] {
+  return ALL_MODELS.filter((model) => model.type === type);
+}
+
+export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
+  return ALL_MODELS.find((model) => model.id === modelId);
+}
+
 // ============================================
 // 辅助函数
 // ============================================
@@ -789,14 +857,17 @@ export const ALL_MODELS: ModelConfig[] = [
  * 根据类型获取模型列表
  */
 export function getModelsByType(type: ModelType): ModelConfig[] {
-  return ALL_MODELS.filter((model) => model.type === type);
+  return mergeModels(getStaticModelsByType(type), getRuntimeModelConfigs(type));
 }
 
 /**
  * 获取模型配置
  */
 export function getModelConfig(modelId: string): ModelConfig | undefined {
-  return ALL_MODELS.find((model) => model.id === modelId);
+  return (
+    runtimeModels.find((model) => model.id === modelId) ||
+    getStaticModelConfig(modelId)
+  );
 }
 
 /**
@@ -810,7 +881,9 @@ export function getModelType(modelId: string): ModelType | undefined {
  * 获取模型 ID 列表
  */
 export function getModelIds(type?: ModelType): string[] {
-  const models = type ? getModelsByType(type) : ALL_MODELS;
+  const models = type
+    ? getModelsByType(type)
+    : mergeModels(ALL_MODELS, getRuntimeModelConfigs());
   return models.map((model) => model.id);
 }
 
@@ -1086,6 +1159,20 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     compatibleModels: SORA_2_PRO_MODEL_IDS,
     modelType: 'video',
   },
+  {
+    id: SORA_MODE_PARAM_ID,
+    label: '调用方式',
+    shortLabel: '方式',
+    description: '切换 Sora 的前端时长方案',
+    valueType: 'enum',
+    options: [
+      { value: 'web', label: '网页' },
+      { value: 'api', label: 'API' },
+    ],
+    defaultValue: 'web',
+    compatibleModels: [...SORA_2_MODEL_IDS, ...SORA_2_PRO_MODEL_IDS],
+    modelType: 'video',
+  },
   // Veo 标清和 Sora 2 尺寸参数（720p）
   {
     id: 'size',
@@ -1098,7 +1185,11 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: '720x1280', label: '竖屏 9:16 (720x1280)' },
     ],
     defaultValue: '1280x720',
-    compatibleModels: [...VEO_MODEL_IDS, ...SORA_2_MODEL_IDS, ...SORA_2_FIXED_MODEL_IDS],
+    compatibleModels: [
+      ...VEO_MODEL_IDS,
+      ...SORA_2_MODEL_IDS,
+      ...SORA_2_FIXED_MODEL_IDS,
+    ],
     modelType: 'video',
   },
   // Veo 4K 尺寸参数（4K 分辨率）
@@ -1297,7 +1388,10 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: '4k', label: '4K' },
     ],
     defaultValue: '2k',
-    compatibleModels: ['doubao-seedream-4-0-250828', 'doubao-seedream-4-5-251128'],
+    compatibleModels: [
+      'doubao-seedream-4-0-250828',
+      'doubao-seedream-4-5-251128',
+    ],
     modelType: 'image',
   },
   // Seedream 5.0 lite 图片质量（2K/3K）
@@ -1325,10 +1419,13 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     options: [
       { value: '1k', label: '1K' },
       { value: '2k', label: '2K' },
-      { value: '4k', label: '4K' }
+      { value: '4k', label: '4K' },
     ],
     defaultValue: '1k',
-    compatibleModels: ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'],
+    compatibleModels: [
+      'gemini-3.1-flash-image-preview',
+      'gemini-3-pro-image-preview',
+    ],
     modelType: 'image',
   },
   {
@@ -1464,7 +1561,8 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   if (modelConfig.vendor) modelTags.add(modelConfig.vendor.toLowerCase());
   const idLower = modelConfig.id.toLowerCase();
   if (idLower.includes('seedream')) modelTags.add('seedream');
-  if (idLower.startsWith('mj') || idLower.includes('midjourney')) modelTags.add('mj');
+  if (idLower.startsWith('mj') || idLower.includes('midjourney'))
+    modelTags.add('mj');
   if (idLower.includes('gemini')) modelTags.add('gemini');
   if (idLower.includes('gpt')) modelTags.add('gpt');
   if (idLower.includes('flux')) modelTags.add('flux');

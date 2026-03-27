@@ -5,9 +5,15 @@
  */
 
 import type { MCPExecuteOptions, AgentExecutionContext, WorkflowStepInfo } from '../../mcp/types';
-import { getModelType, IMAGE_MODELS } from '../../constants/model-config';
+import {
+  getDefaultImageModel,
+  getDefaultTextModel,
+  getDefaultVideoModel,
+  getModelType,
+} from '../../constants/model-config';
 import { agentExecutor } from '../agent';
-import { geminiSettings } from '../../utils/settings-manager';
+import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
+import { getPreferredModels } from '../../utils/runtime-model-discovery';
 
 /**
  * AI 分析参数
@@ -17,6 +23,8 @@ export interface AIAnalyzeParams {
   context: AgentExecutionContext;
   /** 使用的文本模型 */
   textModel?: string;
+  /** 当前显式选择的模型来源（用于继承到后续生成步骤） */
+  modelRef?: ModelRef | null;
 }
 
 /**
@@ -59,7 +67,8 @@ function getToolDescription(toolName: string, args?: Record<string, unknown>): s
  */
 export async function analyzeWithAI(
   context: AgentExecutionContext,
-  options?: MCPExecuteOptions
+  options?: MCPExecuteOptions,
+  modelRef?: ModelRef | null
 ): Promise<AIAnalyzeResult> {
   if (!context) {
     return {
@@ -71,8 +80,10 @@ export async function analyzeWithAI(
   const generatedSteps: WorkflowStepInfo[] = [];
 
   try {
+    const settings = geminiSettings.get();
     const result = await agentExecutor.execute(context, {
-      model: context.model.id,
+      model: context.model.id || settings.textModelName || getPreferredModels('text')[0]?.id || getDefaultTextModel(),
+      modelRef: modelRef || null,
       onChunk: (chunk) => {
         options?.onChunk?.(chunk);
       },
@@ -84,11 +95,25 @@ export async function analyzeWithAI(
         if (generationTools.includes(toolCall.name)) {
           const specifiedModel = toolArgs.model as string | undefined;
           const isVideoTool = toolCall.name === 'generate_video';
-          const settings = geminiSettings.get();
+          const contextModelType = context.model?.type;
+          const contextModelId = context.model?.id;
+          const preferredContextModelId =
+            contextModelType === (isVideoTool ? 'video' : 'image')
+              ? contextModelId
+              : undefined;
+          const preferredContextModelRef =
+            preferredContextModelId && modelRef?.modelId === preferredContextModelId
+              ? modelRef
+              : null;
 
           // 获取用户设置的默认模型
-          const defaultImageModel = settings.imageModelName || IMAGE_MODELS[0]?.id || 'gemini-2.5-flash-image-vip';
-          const defaultVideoModel = settings.videoModelName || 'veo3';
+          const defaultImageModel =
+            settings.imageModelName || getPreferredModels('image')[0]?.id || getDefaultImageModel();
+          const defaultVideoModel =
+            settings.videoModelName || getPreferredModels('video')[0]?.id || getDefaultVideoModel();
+          const fallbackModel =
+            preferredContextModelId ||
+            (isVideoTool ? defaultVideoModel : defaultImageModel);
 
           if (specifiedModel) {
             // AI 指定了模型，检查类型是否匹配
@@ -98,13 +123,32 @@ export async function analyzeWithAI(
               : modelType !== 'image';
 
             if (needsCorrection) {
-              const correctModel = isVideoTool ? defaultVideoModel : defaultImageModel;
-              toolArgs.model = correctModel;
+              toolArgs.model = fallbackModel;
+              if (
+                preferredContextModelRef &&
+                preferredContextModelRef.modelId === fallbackModel
+              ) {
+                toolArgs.modelRef = preferredContextModelRef;
+              } else {
+                delete toolArgs.modelRef;
+              }
+            } else if (
+              preferredContextModelRef &&
+              preferredContextModelRef.modelId === specifiedModel
+            ) {
+              toolArgs.modelRef = preferredContextModelRef;
             }
           } else {
-            // AI 没有指定模型，使用用户设置的默认模型
-            const defaultModel = isVideoTool ? defaultVideoModel : defaultImageModel;
-            toolArgs.model = defaultModel;
+            // AI 没有指定模型，优先沿用当前上下文显式模型，否则回退默认模型
+            toolArgs.model = fallbackModel;
+            if (
+              preferredContextModelRef &&
+              preferredContextModelRef.modelId === fallbackModel
+            ) {
+              toolArgs.modelRef = preferredContextModelRef;
+            } else {
+              delete toolArgs.modelRef;
+            }
           }
         }
 

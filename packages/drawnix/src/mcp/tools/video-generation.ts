@@ -14,7 +14,7 @@ import { TaskType } from '../../types/task.types';
 import type { VideoModel } from '../../types/video.types';
 import { VIDEO_MODEL_CONFIGS } from '../../constants/video-model-config';
 import { getDefaultVideoModel } from '../../constants/model-config';
-import { geminiSettings } from '../../utils/settings-manager';
+import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { normalizeToClosestVideoSize } from '../../services/media-api/utils';
 
 /**
@@ -56,6 +56,8 @@ export interface VideoGenerationParams {
   prompt: string;
   /** 视频模型 */
   model?: VideoModel;
+  /** 模型来源引用（用于多供应商路由） */
+  modelRef?: ModelRef | null;
   /** 视频时长（秒） */
   seconds?: string;
   /** 视频尺寸 */
@@ -81,6 +83,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
   const {
     prompt,
     model = 'veo3',
+    modelRef,
     seconds = '8',
     size = '1280x720',
     referenceImages,
@@ -116,6 +119,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
     const result = await videoAPIService.generateVideoWithPolling(
       {
         model: model as VideoModel,
+        modelRef: modelRef || null,
         prompt,
         seconds,
         size,
@@ -177,6 +181,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
 function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions): MCPTaskResult {
   const {
     prompt, model = 'veo3', seconds, size, referenceImages, count = 1,
+    modelRef,
     // 批量参数（可能从工作流步骤传入）
     batchId: paramsBatchId, batchIndex: paramsBatchIndex, batchTotal: paramsBatchTotal, globalIndex: paramsGlobalIndex,
   } = params;
@@ -226,6 +231,7 @@ function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions)
           size: size || '16x9',
           duration: parseInt(seconds || modelConfig.defaultDuration, 10),
           model,
+          modelRef: modelRef || null,
           uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
           referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
           // 使用工作流传入的批量参数
@@ -248,6 +254,7 @@ function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions)
             size: size || '16x9',
             duration: parseInt(seconds || modelConfig.defaultDuration, 10),
             model,
+            modelRef: modelRef || null,
             uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
             referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
             // 批量参数

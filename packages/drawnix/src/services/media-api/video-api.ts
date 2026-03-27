@@ -4,7 +4,6 @@
  * 统一的视频生成接口，SW 和主线程共用
  */
 
-import { compressImageBlob } from '@aitu/utils';
 import type {
   VideoApiConfig,
   VideoGenerationParams,
@@ -12,10 +11,20 @@ import type {
   VideoStatusResponse,
   PollingOptions,
 } from './types';
-import { normalizeApiBase, parseErrorMessage, sleep } from './utils';
-
-/** 参考图转 FormData 时最大体积（1MB），与图片生成一致 */
-const MAX_REFERENCE_IMAGE_BYTES = 1 * 1024 * 1024;
+import {
+  buildProviderContextFromApiConfig,
+  normalizeApiBase,
+  parseErrorMessage,
+  sleep,
+} from './utils';
+import { providerTransport } from '../provider-routing/provider-transport';
+import {
+  downloadVideoContentToLocalUrl,
+  extractInlineVideoUrl,
+  resolveVideoSubmission,
+  shouldDownloadVideoContent,
+} from '../video-binding-utils';
+import { prepareVideoReferenceImageBlob } from '../video-reference-image-utils';
 
 const DURATION_IN_MODEL_PREFIX = 'sora-2-';
 const durationEncodedInModel = (model?: string | null) =>
@@ -47,17 +56,27 @@ export async function submitVideoGeneration(
 ): Promise<string> {
   const fetchFn = config.fetchImpl || fetch;
   const baseUrl = normalizeApiBase(config.baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
   const model = params.model || config.defaultModel || 'veo3';
   // seconds can come from duration (number/string) or explicit seconds
   const secondsParam = params.duration ?? (params as any).seconds;
+  const submission = resolveVideoSubmission(
+    model,
+    secondsParam,
+    config.binding,
+    params.params as Record<string, string> | undefined
+  );
 
   // 构建 FormData
   const formData = new FormData();
-  formData.append('model', model);
+  formData.append('model', submission.model);
   formData.append('prompt', params.prompt);
 
-  if (secondsParam && !durationEncodedInModel(model)) {
-    formData.append('seconds', String(secondsParam));
+  if (
+    submission.duration &&
+    !durationEncodedInModel(submission.model)
+  ) {
+    formData.append(submission.durationField, String(submission.duration));
   }
 
   if (params.size) {
@@ -72,12 +91,7 @@ export async function submitVideoGeneration(
         const response = await fetchFn(refImage, { signal });
         if (response.ok) {
           let blob = await response.blob();
-          if (
-            blob.type.startsWith('image/') &&
-            blob.size > MAX_REFERENCE_IMAGE_BYTES
-          ) {
-            blob = await compressImageBlob(blob, 1);
-          }
+          blob = await prepareVideoReferenceImageBlob(blob, params.size);
           formData.append('input_reference', blob, `reference-${i + 1}.png`);
         } else {
           formData.append('input_reference', refImage);
@@ -88,13 +102,13 @@ export async function submitVideoGeneration(
     }
   }
 
-  const response = await fetchFn(`${baseUrl}/v1/videos`, {
+  const response = await providerTransport.send(providerContext, {
+    path: '/v1/videos',
+    baseUrlStrategy: config.binding?.baseUrlStrategy,
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
     body: formData,
     signal,
+    fetcher: fetchFn,
   });
 
   if (!response.ok) {
@@ -130,13 +144,14 @@ export async function queryVideoStatus(
 ): Promise<VideoStatusResponse> {
   const fetchFn = config.fetchImpl || fetch;
   const baseUrl = normalizeApiBase(config.baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
 
-  const response = await fetchFn(`${baseUrl}/v1/videos/${videoId}`, {
+  const response = await providerTransport.send(providerContext, {
+    path: `/v1/videos/${videoId}`,
+    baseUrlStrategy: config.binding?.baseUrlStrategy,
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
     signal,
+    fetcher: fetchFn,
   });
 
   if (!response.ok) {
@@ -167,6 +182,7 @@ export async function pollVideoUntilComplete(
   } = options;
   const fetchFn = config.fetchImpl || fetch;
   const baseUrl = normalizeApiBase(config.baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
 
   let attempts = 0;
   let consecutiveErrors = 0;
@@ -178,11 +194,11 @@ export async function pollVideoUntilComplete(
     }
 
     try {
-      const response = await fetchFn(`${baseUrl}/v1/videos/${videoId}`, {
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-        },
+      const response = await providerTransport.send(providerContext, {
+        path: `/v1/videos/${videoId}`,
+        baseUrlStrategy: config.binding?.baseUrlStrategy,
         signal,
+        fetcher: fetchFn,
       });
 
       if (!response.ok) {
@@ -284,8 +300,24 @@ export async function generateVideo(
 
   // 轮询等待完成
   const result = await pollVideoUntilComplete(remoteId, config, options);
-
-  const videoUrl = result.video_url || result.url;
+  const videoUrl =
+    extractInlineVideoUrl(result as Record<string, any>) ||
+    (shouldDownloadVideoContent(
+      result.model || params.model,
+      config.binding,
+      result as Record<string, any>
+    )
+      ? await downloadVideoContentToLocalUrl({
+          videoId: remoteId,
+          provider: buildProviderContextFromApiConfig(
+            config,
+            normalizeApiBase(config.baseUrl)
+          ),
+          binding: config.binding,
+          modelId: result.model || params.model,
+          cacheKey: remoteId,
+        })
+      : undefined);
   if (!videoUrl) {
     throw new Error('No video URL in completed response');
   }
@@ -314,8 +346,24 @@ export async function resumeVideoPolling(
   options: PollingOptions = {}
 ): Promise<VideoGenerationResult> {
   const result = await pollVideoUntilComplete(remoteId, config, options);
-
-  const videoUrl = result.video_url || result.url;
+  const videoUrl =
+    extractInlineVideoUrl(result as Record<string, any>) ||
+    (shouldDownloadVideoContent(
+      result.model || config.defaultModel,
+      config.binding,
+      result as Record<string, any>
+    )
+      ? await downloadVideoContentToLocalUrl({
+          videoId: remoteId,
+          provider: buildProviderContextFromApiConfig(
+            config,
+            normalizeApiBase(config.baseUrl)
+          ),
+          binding: config.binding,
+          modelId: result.model || config.defaultModel,
+          cacheKey: remoteId,
+        })
+      : undefined);
   if (!videoUrl) {
     throw new Error('No video URL in completed response');
   }

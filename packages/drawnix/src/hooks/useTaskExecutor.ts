@@ -7,7 +7,10 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { taskQueueService, legacyTaskQueueService } from '../services/task-queue';
+import {
+  taskQueueService,
+  legacyTaskQueueService,
+} from '../services/task-queue';
 import { generationAPIService } from '../services/generation-api-service';
 import { characterAPIService } from '../services/character-api-service';
 import { characterStorageService } from '../services/character-storage-service';
@@ -220,7 +223,8 @@ export function useTaskExecutor(): void {
       try {
         const result = await generationAPIService.resumeAsyncImageGeneration(
           taskId,
-          remoteId
+          remoteId,
+          task.params.modelRef || task.params.model || null
         );
 
         if (!isActive) return;
@@ -304,8 +308,7 @@ export function useTaskExecutor(): void {
             sourceModel: model,
           },
           {
-            onStatusChange: (status: CharacterStatus) => {
-            },
+            onStatusChange: (_status: CharacterStatus) => undefined,
           }
         );
 
@@ -338,7 +341,6 @@ export function useTaskExecutor(): void {
           },
           remoteId: result.characterId,
         });
-
       } catch (error: any) {
         if (!isActive) return;
 
@@ -369,7 +371,6 @@ export function useTaskExecutor(): void {
             details: errorDetails,
           },
         });
-
       } finally {
         onTaskFinished(taskId);
       }
@@ -428,7 +429,6 @@ export function useTaskExecutor(): void {
           result,
         });
 
-
         // Register image/video metadata in unified cache
         if (result.url) {
           try {
@@ -477,7 +477,6 @@ export function useTaskExecutor(): void {
             details: errorDetails,
           },
         });
-
       } finally {
         onTaskFinished(taskId);
       }
@@ -487,7 +486,7 @@ export function useTaskExecutor(): void {
     const enqueueTask = (task: Task) => {
       if (executingTasksRef.current.has(task.id)) return;
       // 避免重复入队
-      if (pendingQueueRef.current.some(t => t.id === task.id)) return;
+      if (pendingQueueRef.current.some((t) => t.id === task.id)) return;
 
       if (executingTasksRef.current.size < MAX_CONCURRENT_TASKS) {
         executeTask(task);
@@ -511,9 +510,9 @@ export function useTaskExecutor(): void {
       const resumableTasks = tasks.filter(
         (task) =>
           task.type === TaskType.IMAGE &&
-            task.remoteId &&
-            task.status === TaskStatus.PROCESSING &&
-            isAsyncImageModel(task.params.model)
+          task.remoteId &&
+          task.status === TaskStatus.PROCESSING &&
+          isAsyncImageModel(task.params.model)
       );
 
       console.warn(

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自定义可拖拽缩放文本框 Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+      color: #0f172a;
+      padding: 40px 20px;
+    }
+
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+
+    p.desc {
+      margin: 0 0 24px;
+      color: #475569;
+      line-height: 1.7;
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.86);
+      border: 1px solid rgba(148,163,184,0.25);
+      border-radius: 20px;
+      box-shadow: 0 18px 50px rgba(15,23,42,0.08);
+      padding: 24px;
+      backdrop-filter: blur(8px);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 18px;
+      color: #334155;
+      font-size: 14px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #eef2ff;
+      border: 1px solid #c7d2fe;
+    }
+
+    .resizable-box {
+      --box-width: 520px;
+      --box-height: 180px;
+      --min-width: 280px;
+      --min-height: 120px;
+
+      position: relative;
+      width: var(--box-width);
+      height: var(--box-height);
+      min-width: var(--min-width);
+      min-height: var(--min-height);
+      max-width: min(92vw, 900px);
+      border: 1px solid #cbd5e1;
+      border-radius: 18px;
+      background: white;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+      transition: box-shadow 0.15s ease;
+      user-select: none;
+    }
+
+    .resizable-box.active {
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.14), 0 18px 40px rgba(15,23,42,0.12);
+    }
+
+    .textbox {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      padding: 18px 20px;
+      outline: none;
+      line-height: 1.8;
+      color: #1e293b;
+      font-size: 15px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .textbox:focus {
+      background: #fcfcff;
+    }
+
+    .handle {
+      position: absolute;
+      z-index: 2;
+      background: transparent;
+    }
+
+    .handle-right {
+      top: 8px;
+      right: 0;
+      width: 14px;
+      height: calc(100% - 24px);
+      cursor: ew-resize;
+    }
+
+    .handle-bottom {
+      left: 8px;
+      bottom: 0;
+      width: calc(100% - 24px);
+      height: 14px;
+      cursor: ns-resize;
+    }
+
+    .handle-corner {
+      right: 0;
+      bottom: 0;
+      width: 18px;
+      height: 18px;
+      cursor: nwse-resize;
+    }
+
+    .handle-corner::before {
+      content: "";
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 10px;
+      height: 10px;
+      border-right: 2px solid #94a3b8;
+      border-bottom: 2px solid #94a3b8;
+      border-bottom-right-radius: 3px;
+    }
+
+    .note {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.7;
+    }
+
+    .stats {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+      color: #334155;
+    }
+
+    .stats span {
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+
+    @media (max-width: 640px) {
+      .resizable-box {
+        width: min(100%, 520px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>自定义可缩放文本框</h1>
+    <p class="desc">
+      文本框创建时有默认高度，内容较多时会出现滚动条。用户可以拖动右侧、底部和右下角来分别进行横向、纵向、对角缩放。
+      纵向放大时，最大高度会自动限制为刚好包住全部文字内容，不会再继续超过内容高度。
+    </p>
+
+    <div class="panel">
+      <div class="toolbar">
+        <span class="badge">默认高度：180px</span>
+        <span class="badge">支持横向拖放</span>
+        <span class="badge">支持纵向拖放</span>
+        <span class="badge">支持对角拖放</span>
+      </div>
+
+      <div class="resizable-box" id="box">
+        <div class="textbox" id="textbox" contenteditable="true">
+这是一个自定义的文本框 demo。你可以直接编辑这里的内容，也可以拖动文本框边缘来调整大小。
+
+需求点包括：
+1. 新建时指定默认高度；
+2. 内容很多时显示滚动条；
+3. 用户既可以放大，也可以缩小；
+4. 支持横向拖动；
+5. 支持纵向拖动；
+6. 支持右下角对角拖动；
+7. 高度向上拖大时，不能超过文字实际内容所需高度。
+
+为了更容易观察效果，这里特意放入了比较多的文字。
+当文本框高度小于内容高度时，内部会出现滚动条；
+当你继续向下拉大文本框时，会在“刚好展示完整内容”的高度停止。
+
+你还可以尝试：
+- 把宽度缩窄，这样文字会自动换行，内容总高度会变大；
+- 再向下拉高文本框，这时最大高度会重新根据当前宽度下的内容高度计算；
+- 修改文字内容后，最大高度也会动态更新。
+
+这类交互常见于富文本编辑器、备注输入框、聊天草稿区和可配置后台表单中。
+        </div>
+        <div class="handle handle-right" data-dir="x"></div>
+        <div class="handle handle-bottom" data-dir="y"></div>
+        <div class="handle handle-corner" data-dir="xy"></div>
+      </div>
+
+      <div class="stats">
+        <span id="sizeInfo">当前尺寸：520 × 180</span>
+        <span id="contentInfo">内容最大高度：--</span>
+      </div>
+
+      <div class="note">
+        提示：这个 demo 没有使用原生 <code>resize</code>，而是自己实现了拖拽逻辑，因此可以精确控制“高度不能超过内容”的规则。
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const box = document.getElementById('box');
+    const textbox = document.getElementById('textbox');
+    const sizeInfo = document.getElementById('sizeInfo');
+    const contentInfo = document.getElementById('contentInfo');
+
+    const MIN_WIDTH = 280;
+    const MIN_HEIGHT = 120;
+    const DEFAULT_WIDTH = 520;
+    const DEFAULT_HEIGHT = 180;
+
+    let state = null;
+
+    function getHorizontalLimit() {
+      const margin = 32;
+      return Math.min(900, window.innerWidth - margin);
+    }
+
+    function getContentMaxHeight() {
+      const prev = textbox.style.height;
+      textbox.style.height = 'auto';
+      const contentHeight = textbox.scrollHeight;
+      textbox.style.height = prev;
+      return Math.max(MIN_HEIGHT, Math.ceil(contentHeight));
+    }
+
+    function applySize(width, height) {
+      const maxWidth = Math.max(MIN_WIDTH, getHorizontalLimit());
+      const maxHeight = getContentMaxHeight();
+
+      const nextWidth = Math.max(MIN_WIDTH, Math.min(width, maxWidth));
+      const nextHeight = Math.max(MIN_HEIGHT, Math.min(height, maxHeight));
+
+      box.style.width = nextWidth + 'px';
+      box.style.height = nextHeight + 'px';
+
+      sizeInfo.textContent = `当前尺寸：${Math.round(nextWidth)} × ${Math.round(nextHeight)}`;
+      contentInfo.textContent = `内容最大高度：${Math.round(maxHeight)}px`;
+    }
+
+    function refresh() {
+      const width = box.getBoundingClientRect().width;
+      const height = box.getBoundingClientRect().height;
+      applySize(width, height);
+    }
+
+    function startResize(e) {
+      const dir = e.target.dataset.dir;
+      if (!dir) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = box.getBoundingClientRect();
+      state = {
+        dir,
+        startX: e.clientX,
+        startY: e.clientY,
+        startWidth: rect.width,
+        startHeight: rect.height,
+      };
+
+      box.classList.add('active');
+      document.body.style.cursor = getCursor(dir);
+      document.body.style.userSelect = 'none';
+    }
+
+    function getCursor(dir) {
+      if (dir === 'x') return 'ew-resize';
+      if (dir === 'y') return 'ns-resize';
+      return 'nwse-resize';
+    }
+
+    function onMove(e) {
+      if (!state) return;
+
+      const dx = e.clientX - state.startX;
+      const dy = e.clientY - state.startY;
+
+      let width = state.startWidth;
+      let height = state.startHeight;
+
+      if (state.dir.includes('x')) width = state.startWidth + dx;
+      if (state.dir.includes('y')) height = state.startHeight + dy;
+
+      applySize(width, height);
+    }
+
+    function stopResize() {
+      if (!state) return;
+      state = null;
+      box.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      refresh();
+    }
+
+    document.querySelectorAll('.handle').forEach(handle => {
+      handle.addEventListener('mousedown', startResize);
+    });
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', stopResize);
+    window.addEventListener('resize', refresh);
+    textbox.addEventListener('input', refresh);
+
+    box.style.width = DEFAULT_WIDTH + 'px';
+    box.style.height = DEFAULT_HEIGHT + 'px';
+    refresh();
+  </script>
+</body>
+</html>

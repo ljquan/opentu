@@ -5,6 +5,7 @@ import type {
 } from './types';
 import { registerModelAdapter } from './registry';
 import { ModelVendor } from '../../constants/model-config';
+import { sendAdapterRequest } from './context';
 
 type FluxSubmitResponse = {
   id: string;
@@ -94,14 +95,6 @@ const resolveBaseUrl = (context: AdapterContext): string => {
   return normalized.endsWith('/v1') ? normalized.slice(0, -3) : normalized;
 };
 
-const resolveFetcher = (context: AdapterContext): typeof fetch => {
-  return context.fetcher || fetch;
-};
-
-const buildAuthHeader = (context: AdapterContext): Record<string, string> => {
-  return context.apiKey ? { Authorization: `Bearer ${context.apiKey}` } : {};
-};
-
 /**
  * 提交 Flux 图片生成任务
  */
@@ -111,16 +104,17 @@ const submitFluxImage = async (
   body: Record<string, unknown>
 ): Promise<FluxSubmitResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/flux/v1/${model}`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: `/flux/v1/${model}`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...buildAuthHeader(context),
       },
       body: JSON.stringify(body),
-    }
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -143,12 +137,16 @@ const queryFluxResult = async (
   taskId: string
 ): Promise<FluxResultResponse> => {
   const baseUrl = resolveBaseUrl(context);
-  const response = await resolveFetcher(context)(
-    `${baseUrl}/flux/v1/get_result?id=${encodeURIComponent(taskId)}`,
+  const response = await sendAdapterRequest(
+    context,
     {
+      path: '/flux/v1/get_result',
       method: 'GET',
-      headers: buildAuthHeader(context),
-    }
+      query: {
+        id: taskId,
+      },
+    },
+    baseUrl
   );
 
   if (!response.ok) {
@@ -168,6 +166,8 @@ export const fluxImageAdapter: ImageModelAdapter = {
   label: 'Flux Image',
   kind: 'image',
   docsUrl: 'https://tuzi-api.apifox.cn',
+  matchProtocols: ['flux.task'],
+  matchRequestSchemas: ['flux.image.polling-json'],
   matchVendors: [ModelVendor.FLUX],
   supportedModels: FLUX_MODELS,
   defaultModel: 'bfl-flux-2-flex',

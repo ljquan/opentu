@@ -5,6 +5,85 @@
  * All functions are framework-agnostic with zero external dependencies.
  */
 
+const BASE64_IMAGE_SIGNATURES: Array<{ prefix: string; mimeType: string }> = [
+  { prefix: 'iVBORw0KGgo', mimeType: 'image/png' },
+  { prefix: '/9j/', mimeType: 'image/jpeg' },
+  { prefix: 'R0lGOD', mimeType: 'image/gif' },
+  { prefix: 'UklGR', mimeType: 'image/webp' },
+  { prefix: 'Qk', mimeType: 'image/bmp' },
+  { prefix: 'PHN2Zy', mimeType: 'image/svg+xml' },
+  { prefix: 'PD94bWwg', mimeType: 'image/svg+xml' },
+  { prefix: 'AAAAIGZ0eXBhdmlm', mimeType: 'image/avif' },
+  { prefix: 'AAAAGGZ0eXBhdmlm', mimeType: 'image/avif' },
+  { prefix: 'AAABAA', mimeType: 'image/x-icon' },
+];
+
+const BASE64_IMAGE_BODY_REGEX = /^[A-Za-z0-9+/=\r\n]+$/;
+
+function sanitizeBase64Payload(base64: string): string {
+  return base64.trim().replace(/\s+/g, '');
+}
+
+/**
+ * Infer image MIME type from a raw base64 payload using common file signatures.
+ *
+ * @param base64 - Raw base64 payload without a data URL prefix
+ * @returns MIME type when the payload looks like a known image format
+ */
+export function inferImageMimeTypeFromBase64(base64: string): string | undefined {
+  const normalized = sanitizeBase64Payload(base64);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const match = BASE64_IMAGE_SIGNATURES.find(({ prefix }) =>
+    normalized.startsWith(prefix)
+  );
+
+  return match?.mimeType;
+}
+
+/**
+ * Normalize a possible raw base64 image payload into a data URL.
+ *
+ * Existing URLs/data URLs are returned unchanged. This is intended for
+ * call sites that already expect an image source.
+ *
+ * @param value - Image URL, data URL, or raw base64 payload
+ * @param fallbackMimeType - MIME type used when signature sniffing is inconclusive
+ * @returns A stable image source string that browsers can render
+ */
+export function normalizeImageDataUrl(
+  value: string,
+  fallbackMimeType = 'image/png'
+): string {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return value;
+  }
+
+  if (
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../')
+  ) {
+    return trimmed;
+  }
+
+  const normalized = sanitizeBase64Payload(trimmed);
+  if (!BASE64_IMAGE_BODY_REGEX.test(normalized) || normalized.length < 32) {
+    return trimmed;
+  }
+
+  const mimeType = inferImageMimeTypeFromBase64(normalized) || fallbackMimeType;
+  return `data:${mimeType};base64,${normalized}`;
+}
+
 /**
  * Check if a URL belongs to a specific domain or domain pattern
  *
@@ -96,6 +175,15 @@ export function isVolcesDomain(url: string): boolean {
  * ```
  */
 export function getFileExtension(url: string, mimeType?: string): string {
+  // Only attempt base64 sniffing on strings long enough to be real payloads,
+  // avoiding false positives on short relative paths (e.g. "/9j/file.txt")
+  if (url.length >= 20) {
+    const inferredBase64MimeType = inferImageMimeTypeFromBase64(url);
+    if (inferredBase64MimeType) {
+      mimeType = mimeType || inferredBase64MimeType;
+    }
+  }
+
   // Try to get extension from URL path
   // Support both absolute URLs and relative paths (e.g., /__aitu_cache__/image/xxx.png)
   try {

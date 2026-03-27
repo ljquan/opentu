@@ -11,6 +11,7 @@
 
 import { Task, TaskStatus, TaskType, GenerationParams } from '../types/task.types';
 import { BaseStorageReader } from './base-storage-reader';
+import { normalizeImageDataUrl } from '@aitu/utils';
 
 import { APP_DB_NAME, APP_DB_STORES, getAppDB } from './app-database';
 
@@ -60,6 +61,21 @@ interface SWTask {
  * 将 SWTask 转换为 Task
  */
 function convertSWTaskToTask(swTask: SWTask): Task {
+  const normalizedResult =
+    swTask.type === TaskType.IMAGE && swTask.result
+      ? {
+          ...swTask.result,
+          url: normalizeImageDataUrl(swTask.result.url),
+          urls: swTask.result.urls?.map((url) => normalizeImageDataUrl(url)),
+          thumbnailUrl: swTask.result.thumbnailUrl
+            ? normalizeImageDataUrl(swTask.result.thumbnailUrl)
+            : swTask.result.thumbnailUrl,
+          thumbnailUrls: swTask.result.thumbnailUrls?.map((url) =>
+            normalizeImageDataUrl(url)
+          ),
+        }
+      : swTask.result;
+
   return {
     id: swTask.id,
     type: swTask.type,
@@ -69,7 +85,7 @@ function convertSWTaskToTask(swTask: SWTask): Task {
     updatedAt: swTask.updatedAt,
     startedAt: swTask.startedAt,
     completedAt: swTask.completedAt,
-    result: swTask.result,
+    result: normalizedResult,
     error: swTask.error,
     progress: swTask.progress,
     remoteId: swTask.remoteId,

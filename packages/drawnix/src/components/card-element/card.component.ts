@@ -11,7 +11,12 @@ import {
   OnContextChanged,
   ACTIVE_STROKE_WIDTH,
   RectangleClient,
+  Transforms,
+  Point,
 } from '@plait/core';
+import { CARD_TITLE_HEIGHT, CARD_BODY_MIN_HEIGHT } from '../../constants/card-colors';
+import { isCardManuallyResized } from '../../plugins/with-card-resize';
+import { measureCardBodyContentHeight } from './CardElement';
 import {
   CommonElementFlavour,
   createActiveGenerator,
@@ -52,6 +57,10 @@ export class CardComponent
     super.initialize();
     this.initializeGenerator();
 
+    this.cardGenerator.onHeightMeasured = () => {
+      this.autoResizeIfNeeded();
+    };
+
     const elementG = this.getElementG();
     this.renderedG = this.cardGenerator.processDrawing(this.element, elementG);
 
@@ -60,6 +69,31 @@ export class CardComponent
       PlaitBoard.getActiveHost(this.board),
       { selected: this.selected }
     );
+  }
+
+  private autoResizeIfNeeded(): void {
+    if (isCardManuallyResized(this.element.id)) return;
+
+    const bodyContentH = measureCardBodyContentHeight(this.element.id);
+    if (bodyContentH == null) return;
+
+    const currentRect = RectangleClient.getRectangleByPoints(this.element.points);
+    const titleHeight = this.element.title?.trim() ? CARD_TITLE_HEIGHT : 0;
+    const minHeight = titleHeight + CARD_BODY_MIN_HEIGHT;
+    const targetHeight = Math.max(titleHeight + bodyContentH, minHeight);
+    const heightDiff = Math.abs(currentRect.height - targetHeight);
+
+    if (heightDiff <= 5) return;
+
+    const newPoints: [Point, Point] = [
+      this.element.points[0],
+      [this.element.points[1][0], this.element.points[0][1] + targetHeight],
+    ];
+
+    const index = this.board.children.findIndex(el => el.id === this.element.id);
+    if (index !== -1) {
+      Transforms.setNode(this.board, { points: newPoints } as any, [index]);
+    }
   }
 
   onContextChanged(

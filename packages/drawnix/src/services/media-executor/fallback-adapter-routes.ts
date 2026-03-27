@@ -5,6 +5,7 @@
  * 保持 LLM 日志、任务存储、认证错误检测等基础设施。
  */
 
+import type { ModelRef } from '../../utils/settings-manager';
 import type { ExecutionOptions } from './types';
 import { taskStorageWriter } from './task-storage-writer';
 import {
@@ -13,11 +14,18 @@ import {
   failLLMApiLog,
   LLMReferenceImage,
 } from './llm-api-logger';
-import { isAuthError, dispatchApiAuthError } from '../../utils/api-auth-error-event';
+import {
+  isAuthError,
+  dispatchApiAuthError,
+} from '../../utils/api-auth-error-event';
 import { unifiedCacheService } from '../unified-cache-service';
 import { getAdapterContextFromSettings } from '../model-adapters';
 import type { ImageModelAdapter, VideoModelAdapter } from '../model-adapters';
-import { ensureBase64ForAI, cacheRemoteUrl, cacheRemoteUrls } from './fallback-utils';
+import {
+  ensureBase64ForAI,
+  cacheRemoteUrl,
+  cacheRemoteUrls,
+} from './fallback-utils';
 
 /**
  * 通过专用 adapter 生成图片（mj-imagine 等非 gemini 模型）
@@ -29,6 +37,7 @@ export async function executeImageViaAdapter(
   params: {
     prompt: string;
     model: string;
+    modelRef?: ModelRef | null;
     size?: string;
     quality?: string;
     count?: number;
@@ -45,10 +54,11 @@ export async function executeImageViaAdapter(
     model: params.model,
     taskType: 'image',
     prompt: params.prompt,
-    hasReferenceImages: !!params.referenceImages && params.referenceImages.length > 0,
+    hasReferenceImages:
+      !!params.referenceImages && params.referenceImages.length > 0,
     referenceImageCount: params.referenceImages?.length,
     referenceImages: params.referenceImages?.map(
-      url => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
+      (url) => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
     ),
     taskId,
   });
@@ -67,10 +77,11 @@ export async function executeImageViaAdapter(
     options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
     const result = await adapter.generateImage(
-      getAdapterContextFromSettings(),
+      getAdapterContextFromSettings('image', params.modelRef || params.model),
       {
         prompt: params.prompt,
         model: params.model,
+        modelRef: params.modelRef || null,
         size: params.size,
         referenceImages: processedImages,
         params: { quality: params.quality, n: params.count, ...params.params },
@@ -131,6 +142,7 @@ export async function executeVideoViaAdapter(
   params: {
     prompt: string;
     model: string;
+    modelRef?: ModelRef | null;
     size?: string;
     duration?: string;
     referenceImages?: string[];
@@ -157,7 +169,7 @@ export async function executeVideoViaAdapter(
     hasReferenceImages: !!refUrls && refUrls.length > 0,
     referenceImageCount: refUrls?.length,
     referenceImages: refUrls?.map(
-      url => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
+      (url) => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
     ),
   });
 
@@ -182,10 +194,11 @@ export async function executeVideoViaAdapter(
       : undefined;
 
     const result = await adapter.generateVideo(
-      getAdapterContextFromSettings(),
+      getAdapterContextFromSettings('video', params.modelRef || params.model),
       {
         prompt: params.prompt,
         model: params.model,
+        modelRef: params.modelRef || null,
         size: params.size,
         duration: durationNum,
         referenceImages: processedImages,
@@ -207,7 +220,12 @@ export async function executeVideoViaAdapter(
 
     // 缓存远程签名 URL 到本地
     const videoFmt = result.format || 'mp4';
-    const cachedVideoUrl = await cacheRemoteUrl(result.url, taskId, 'video', videoFmt);
+    const cachedVideoUrl = await cacheRemoteUrl(
+      result.url,
+      taskId,
+      'video',
+      videoFmt
+    );
 
     await taskStorageWriter.completeTask(taskId, {
       url: cachedVideoUrl,

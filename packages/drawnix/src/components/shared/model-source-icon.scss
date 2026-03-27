@@ -1,0 +1,33 @@
+.model-source-icon {
+  width: var(--model-source-icon-size, 18px);
+  height: var(--model-source-icon-size, 18px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.model-source-icon--vendor {
+  color: var(--model-source-icon-accent, currentColor);
+}
+
+.model-source-icon--avatar {
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--model-source-icon-surface, #f8fafc);
+  border: 1px solid var(--model-source-icon-border, rgba(15, 23, 42, 0.12));
+  color: var(--model-source-icon-accent, #111827);
+}
+
+.model-source-icon__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.model-source-icon__text {
+  font-size: calc(var(--model-source-icon-size, 18px) * 0.5);
+  font-weight: 700;
+  line-height: 1;
+}

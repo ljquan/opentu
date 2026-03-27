@@ -18,7 +18,16 @@ import type {
 import { Task, TaskStatus } from '../../types/task.types';
 import { taskStorageWriter } from './task-storage-writer';
 import { taskStorageReader } from '../task-storage-reader';
-import { geminiSettings } from '../../utils/settings-manager';
+import {
+  resolveInvocationRoute,
+  type ModelRef,
+} from '../../utils/settings-manager';
+import {
+  providerTransport,
+  resolveInvocationPlanFromRoute,
+  type ProviderAuthStrategy,
+  type ResolvedProviderContext,
+} from '../provider-routing';
 import {
   startLLMApiLog,
   completeLLMApiLog,
@@ -26,8 +35,13 @@ import {
   updateLLMApiLogMetadata,
   LLMReferenceImage,
 } from './llm-api-logger';
-import { parseToolCalls, extractTextContent } from '@aitu/utils';
-import { isAuthError, dispatchApiAuthError } from '../../utils/api-auth-error-event';
+import { callApiWithRetry } from '../../utils/gemini-api/apiCalls';
+import type { GeminiMessage as UnifiedGeminiMessage } from '../../utils/gemini-api/types';
+import {
+  isAuthError,
+  dispatchApiAuthError,
+} from '../../utils/api-auth-error-event';
+import { extractTextContent, parseToolCalls } from '../agent/tool-parser';
 import { unifiedCacheService } from '../unified-cache-service';
 import { submitVideoGeneration } from '../media-api';
 import {
@@ -41,17 +55,48 @@ import {
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
-import { resolveAdapterForModel } from '../model-adapters';
+import { resolveAdapterForInvocation } from '../model-adapters';
 import {
   executeImageViaAdapter,
   executeVideoViaAdapter,
 } from './fallback-adapter-routes';
 
+function inferAuthTypeFromRoute(
+  route: ReturnType<typeof resolveInvocationRoute>
+): ProviderAuthStrategy {
+  return 'bearer';
+}
+
+function buildProviderContext(config: {
+  apiKey: string;
+  baseUrl: string;
+  authType?: ProviderAuthStrategy;
+  providerType?: string;
+  extraHeaders?: Record<string, string>;
+  provider?: ResolvedProviderContext | null;
+}): ResolvedProviderContext {
+  return (
+    config.provider || {
+      profileId: 'runtime',
+      profileName: 'Runtime',
+      providerType: config.providerType || 'custom',
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      authType: config.authType || 'bearer',
+      extraHeaders: config.extraHeaders,
+    }
+  );
+}
+
 /** 从 uploadedImages 提取 URL 列表，与 SW ImageHandler 逻辑一致 */
-function extractUrlsFromUploadedImages(uploadedImages: unknown): string[] | undefined {
+function extractUrlsFromUploadedImages(
+  uploadedImages: unknown
+): string[] | undefined {
   if (!uploadedImages || !Array.isArray(uploadedImages)) return undefined;
   const urls = (uploadedImages as Array<{ url?: string }>)
-    .filter((img) => img && typeof img === 'object' && typeof img.url === 'string')
+    .filter(
+      (img) => img && typeof img === 'object' && typeof img.url === 'string'
+    )
     .map((img) => img.url as string);
   return urls.length > 0 ? urls : undefined;
 }
@@ -64,7 +109,7 @@ function extractUrlsFromUploadedImages(uploadedImages: unknown): string[] | unde
  */
 export class FallbackMediaExecutor implements IMediaExecutor {
   readonly name = 'FallbackMediaExecutor';
-  
+
   /**
    * 正在轮询的任务 ID 集合
    * 用于防止同一个任务被重复轮询（例如 resumePendingTasks 被多次调用时）
@@ -86,28 +131,52 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     params: ImageGenerationParams,
     options?: ExecutionOptions
   ): Promise<void> {
-    const { taskId, prompt, model, size, quality, count = 1 } = params;
+    const {
+      taskId,
+      prompt,
+      model,
+      modelRef,
+      size,
+      quality,
+      count = 1,
+    } = params;
     const referenceImages =
       (params.referenceImages && params.referenceImages.length > 0
         ? params.referenceImages
-        : undefined) ||
-      extractUrlsFromUploadedImages(params.uploadedImages);
+        : undefined) || extractUrlsFromUploadedImages(params.uploadedImages);
 
-    const config = this.getConfig();
-    const hasApiKey = Boolean(config.geminiConfig.apiKey);
-    const baseUrl = config.geminiConfig.baseUrl ?? '(default)';
+    const config = this.getConfig({ imageModel: modelRef || model });
 
     // 更新任务状态为 processing
     await taskStorageWriter.updateStatus(taskId, 'processing');
     options?.onProgress?.({ progress: 0, phase: 'submitting' });
 
     const startTime = Date.now();
-    const modelName = model || config.geminiConfig.modelName;
+    const modelName = model || config.imageConfig.modelName;
 
     // 专用 adapter 路由（mj-imagine 等非 gemini 模型）
-    const imageAdapter = resolveAdapterForModel(modelName, 'image');
-    if (imageAdapter && imageAdapter.kind === 'image' && imageAdapter.id !== 'gemini-image-adapter') {
-      return executeImageViaAdapter(taskId, imageAdapter, { prompt, model: modelName, size, quality, count, referenceImages, params: params.params }, options, startTime);
+    const imageAdapter = resolveAdapterForInvocation(
+      'image',
+      modelName,
+      modelRef || null
+    );
+    if (imageAdapter && imageAdapter.kind === 'image') {
+      return executeImageViaAdapter(
+        taskId,
+        imageAdapter,
+        {
+          prompt,
+          model: modelName,
+          modelRef: modelRef || null,
+          size,
+          quality,
+          count,
+          referenceImages,
+          params: params.params,
+        },
+        options,
+        startTime
+      );
     }
 
     // 异步图片模型：使用 /v1/videos 接口（与 SW 模式一致）
@@ -129,7 +198,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       prompt,
       hasReferenceImages: !!referenceImages && referenceImages.length > 0,
       referenceImageCount: referenceImages?.length,
-      referenceImages: referenceImages?.map(url => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)),
+      referenceImages: referenceImages?.map(
+        (url) => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
+      ),
       taskId,
     });
 
@@ -144,7 +215,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             return ensureBase64ForAI(imageData, options?.signal);
           })
         );
-        console.debug('[FallbackMediaExecutor] generateImage: base64 conversion took', Math.round(performance.now() - t0), 'ms for', referenceImages.length, 'images, taskId:', taskId);
+        console.debug(
+          '[FallbackMediaExecutor] generateImage: base64 conversion took',
+          Math.round(performance.now() - t0),
+          'ms for',
+          referenceImages.length,
+          'images, taskId:',
+          taskId
+        );
       }
 
       // 构建请求体
@@ -160,27 +238,37 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
       // 直接调用 API
-      const url = `${config.geminiConfig.baseUrl}/images/generations`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.geminiConfig.apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: options?.signal,
-      });
+      const response = await providerTransport.send(
+        buildProviderContext(config.imageConfig),
+        {
+          path: '/images/generations',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: options?.signal,
+        }
+      );
 
       if (!response.ok) {
         const duration = Date.now() - startTime;
-        const errorBody = await response.text().catch(() => `HTTP ${response.status} ${response.statusText || 'Error'}`);
+        const errorBody = await response
+          .text()
+          .catch(
+            () => `HTTP ${response.status} ${response.statusText || 'Error'}`
+          );
         failLLMApiLog(logId, {
           httpStatus: response.status,
           duration,
           errorMessage: errorBody.substring(0, 500),
         });
-        throw new Error(`Image generation failed: ${response.status} - ${errorBody.substring(0, 200)}`);
+        throw new Error(
+          `Image generation failed: ${response.status} - ${errorBody.substring(
+            0,
+            200
+          )}`
+        );
       }
 
       options?.onProgress?.({ progress: 80, phase: 'downloading' });
@@ -189,7 +277,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       const result = parseImageResponse(data);
       const duration = Date.now() - startTime;
 
-      console.debug('[FallbackMediaExecutor] generateImage: success, duration:', duration, 'ms, taskId:', taskId);
+      console.debug(
+        '[FallbackMediaExecutor] generateImage: success, duration:',
+        duration,
+        'ms, taskId:',
+        taskId
+      );
 
       // 记录成功
       completeLLMApiLog(logId, {
@@ -204,7 +297,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       // 缓存远程 URL 到本地，避免签名 URL 的 Referer 校验问题
       const allImgUrls = result.urls?.length ? result.urls : [result.url];
-      const cachedImgUrls = await cacheRemoteUrls(allImgUrls, taskId, 'image', 'png');
+      const cachedImgUrls = await cacheRemoteUrls(
+        allImgUrls,
+        taskId,
+        'image',
+        'png'
+      );
 
       // 完成任务
       await taskStorageWriter.completeTask(taskId, {
@@ -216,13 +314,21 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     } catch (error: any) {
       const duration = Date.now() - startTime;
       const errorMessage = error.message || 'Image generation failed';
-      console.error('[FallbackMediaExecutor] generateImage failed:', errorMessage, 'taskId:', taskId, 'duration:', duration, 'ms');
+      console.error(
+        '[FallbackMediaExecutor] generateImage failed:',
+        errorMessage,
+        'taskId:',
+        taskId,
+        'duration:',
+        duration,
+        'ms'
+      );
 
       // 检测认证错误，触发设置弹窗
       if (isAuthError(errorMessage)) {
         dispatchApiAuthError({ message: errorMessage, source: 'image' });
       }
-      
+
       // 如果日志还未更新为失败，更新它
       failLLMApiLog(logId, {
         duration,
@@ -248,7 +354,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       size?: string;
       referenceImages?: string[];
     },
-    config: { geminiConfig: GeminiConfig; videoConfig: VideoAPIConfig },
+    config: { imageConfig: GeminiConfig; videoConfig: VideoAPIConfig },
     options?: ExecutionOptions,
     startTime?: number
   ): Promise<void> {
@@ -260,9 +366,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       model: params.model,
       taskType: 'image',
       prompt: params.prompt,
-      hasReferenceImages: params.referenceImages && params.referenceImages.length > 0,
+      hasReferenceImages:
+        params.referenceImages && params.referenceImages.length > 0,
       referenceImageCount: params.referenceImages?.length,
-      referenceImages: params.referenceImages?.map(url => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)),
+      referenceImages: params.referenceImages?.map(
+        (url) => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
+      ),
       taskId,
     });
 
@@ -277,7 +386,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             return ensureBase64ForAI(imageData, options?.signal);
           })
         );
-        console.debug('[FallbackMediaExecutor] generateAsyncImage: base64 conversion took', Math.round(performance.now() - t0), 'ms for', params.referenceImages.length, 'images, taskId:', taskId);
+        console.debug(
+          '[FallbackMediaExecutor] generateAsyncImage: base64 conversion took',
+          Math.round(performance.now() - t0),
+          'ms for',
+          params.referenceImages.length,
+          'images, taskId:',
+          taskId
+        );
       }
 
       // 调用异步图片生成
@@ -288,10 +404,13 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           size: params.size,
           referenceImages: processedImages,
         },
-        config.geminiConfig,
+        config.imageConfig,
         {
           onProgress: (progress) => {
-            options?.onProgress?.({ progress, phase: progress < 10 ? 'submitting' : 'polling' });
+            options?.onProgress?.({
+              progress,
+              phase: progress < 10 ? 'submitting' : 'polling',
+            });
           },
           onSubmitted: async (remoteId) => {
             // 保存 remoteId，用于页面刷新后恢复轮询
@@ -315,7 +434,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       options?.onProgress?.({ progress: 100 });
 
       // 缓存远程 URL 到本地
-      const cachedAsyncUrl = await cacheRemoteUrl(result.url, taskId, 'image', result.format);
+      const cachedAsyncUrl = await cacheRemoteUrl(
+        result.url,
+        taskId,
+        'image',
+        result.format
+      );
 
       // 完成任务
       await taskStorageWriter.completeTask(taskId, {
@@ -326,12 +450,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     } catch (error: any) {
       const duration = Date.now() - logStartTime;
       const errorMessage = error.message || 'Async image generation failed';
-      
+
       // 检测认证错误，触发设置弹窗
       if (isAuthError(errorMessage)) {
         dispatchApiAuthError({ message: errorMessage, source: 'async-image' });
       }
-      
+
       failLLMApiLog(logId, {
         duration,
         errorMessage,
@@ -352,20 +476,47 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     params: VideoGenerationParams,
     options?: ExecutionOptions
   ): Promise<void> {
-    const { taskId, prompt, model = 'veo3', duration, size = '1280x720' } = params;
-    const config = this.getConfig();
+    const {
+      taskId,
+      prompt,
+      model = 'veo3',
+      modelRef,
+      duration,
+      size = '1280x720',
+    } = params;
+    const config = this.getConfig({ videoModel: modelRef || model });
     const startTime = Date.now();
-    const durationEncodedInModel = (m?: string | null) => Boolean(m && m.startsWith('sora-2-'));
+    const durationEncodedInModel = (m?: string | null) =>
+      Boolean(m && m.startsWith('sora-2-'));
     const shouldSkipSeconds = durationEncodedInModel(model);
-    const secondsToSend = shouldSkipSeconds ? undefined : (duration ?? '8');
+    const secondsToSend = shouldSkipSeconds ? undefined : duration ?? '8';
 
     await taskStorageWriter.updateStatus(taskId, 'processing');
     options?.onProgress?.({ progress: 0, phase: 'submitting' });
 
     // 专用 adapter 路由（kling 等非 gemini 模型）
-    const videoAdapter = resolveAdapterForModel(model, 'video');
-    if (videoAdapter && videoAdapter.kind === 'video' && videoAdapter.id !== 'gemini-video-adapter') {
-      return executeVideoViaAdapter(taskId, videoAdapter, { prompt, model, size, duration, referenceImages: params.referenceImages, inputReference: params.inputReference, params: params.params }, options, startTime);
+    const videoAdapter = resolveAdapterForInvocation(
+      'video',
+      model,
+      modelRef || null
+    );
+    if (videoAdapter && videoAdapter.kind === 'video') {
+      return executeVideoViaAdapter(
+        taskId,
+        videoAdapter,
+        {
+          prompt,
+          model,
+          modelRef: modelRef || null,
+          size,
+          duration,
+          referenceImages: params.referenceImages,
+          inputReference: params.inputReference,
+          params: params.params,
+        },
+        options,
+        startTime
+      );
     }
 
     // 收集参考图原始 URL（用于日志记录）
@@ -383,7 +534,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       taskId,
       hasReferenceImages: !!logRefUrls && logRefUrls.length > 0,
       referenceImageCount: logRefUrls?.length,
-      referenceImages: logRefUrls?.map(url => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)),
+      referenceImages: logRefUrls?.map(
+        (url) => ({ url, size: 0, width: 0, height: 0 } as LLMReferenceImage)
+      ),
     });
 
     try {
@@ -407,7 +560,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             return url;
           })
         );
-        console.debug('[FallbackMediaExecutor] generateVideo: ref image processing took', Math.round(performance.now() - t0), 'ms for', refUrls.length, 'images, taskId:', taskId);
+        console.debug(
+          '[FallbackMediaExecutor] generateVideo: ref image processing took',
+          Math.round(performance.now() - t0),
+          'ms for',
+          refUrls.length,
+          'images, taskId:',
+          taskId
+        );
       }
 
       const videoApiConfig = {
@@ -421,6 +581,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           size,
           duration: secondsToSend,
           referenceImages,
+          params: params.params,
         },
         videoApiConfig,
         options?.signal
@@ -456,7 +617,10 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             (progress) => {
               // progress 是 0-1 范围（来自 pollVideoStatus 的 progress/100）
               // 映射到 10-90 范围：10 + (0~1) * 80 = 10~90
-              options?.onProgress?.({ progress: 10 + progress * 80, phase: 'polling' });
+              options?.onProgress?.({
+                progress: 10 + progress * 80,
+                phase: 'polling',
+              });
             },
             options?.signal
           );
@@ -476,7 +640,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           options?.onProgress?.({ progress: 100 });
 
           // 缓存远程 URL 到本地
-          const cachedVidUrl = await cacheRemoteUrl(result.url, taskId, 'video', 'mp4');
+          const cachedVidUrl = await cacheRemoteUrl(
+            result.url,
+            taskId,
+            'video',
+            'mp4'
+          );
 
           // 完成任务
           await taskStorageWriter.completeTask(taskId, {
@@ -489,17 +658,19 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           this.pollingTasks.delete(taskId);
         }
       } else {
-        console.log(`[FallbackMediaExecutor] Task ${taskId} is already being polled, skipping duplicate request.`);
+        console.log(
+          `[FallbackMediaExecutor] Task ${taskId} is already being polled, skipping duplicate request.`
+        );
       }
     } catch (error: any) {
       const elapsedTime = Date.now() - startTime;
       const errorMessage = error.message || 'Video generation failed';
-      
+
       // 检测认证错误，触发设置弹窗
       if (isAuthError(errorMessage)) {
         dispatchApiAuthError({ message: errorMessage, source: 'video' });
       }
-      
+
       failLLMApiLog(logId, {
         duration: elapsedTime,
         errorMessage,
@@ -519,11 +690,23 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     params: AIAnalyzeParams,
     options?: ExecutionOptions
   ): Promise<AIAnalyzeResult> {
-    const { taskId, prompt, messages, images, referenceImages, model, textModel, systemPrompt } = params;
-    const config = this.getConfig();
+    const {
+      taskId,
+      prompt,
+      messages,
+      images,
+      referenceImages,
+      model,
+      textModel,
+      modelRef,
+      systemPrompt,
+    } = params;
+    const config = this.getConfig({
+      textModel: modelRef || textModel || model,
+    });
     const startTime = Date.now();
     // 优先使用用户选择的模型
-    const modelName = textModel || model || config.geminiConfig.textModelName || config.geminiConfig.modelName;
+    const modelName = textModel || model || config.textConfig.modelName;
     // 合并图片参数
     const allImages = referenceImages || images || [];
 
@@ -538,9 +721,11 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       chatMessages = messages;
     } else if (prompt) {
       // 使用 prompt 构建消息
-      const contents: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-        { type: 'text', text: prompt },
-      ];
+      const contents: Array<{
+        type: string;
+        text?: string;
+        image_url?: { url: string };
+      }> = [{ type: 'text', text: prompt }];
 
       // 添加图片
       if (allImages.length > 0) {
@@ -574,44 +759,29 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       taskId,
     });
 
-    const requestBody = {
-      model: modelName,
-      messages: chatMessages,
-    };
-
     try {
       options?.onProgress?.({ progress: 30, phase: 'submitting' });
 
-      const response = await fetch(`${config.geminiConfig.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.geminiConfig.apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: options?.signal,
-      });
+      const unifiedMessages: UnifiedGeminiMessage[] = chatMessages.map(
+        (message) => ({
+          role: message.role as 'system' | 'user' | 'assistant',
+          content:
+            typeof message.content === 'string'
+              ? [{ type: 'text', text: message.content }]
+              : (message.content as UnifiedGeminiMessage['content']),
+        })
+      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        const elapsedTime = Date.now() - startTime;
-        failLLMApiLog(logId, {
-          httpStatus: response.status,
-          duration: elapsedTime,
-          errorMessage: errorText.substring(0, 500),
-        });
-        throw new Error(`AI analyze failed: ${response.status} - ${errorText.substring(0, 200)}`);
-      }
+      const data = await callApiWithRetry(config.textConfig, unifiedMessages);
 
       options?.onProgress?.({ progress: 80 });
 
-      const data = await response.json();
       const fullResponse = data.choices?.[0]?.message?.content || '';
       const elapsedTime = Date.now() - startTime;
 
       // 记录成功
       completeLLMApiLog(logId, {
-        httpStatus: response.status,
+        httpStatus: 200,
         duration: elapsedTime,
         resultType: 'text',
         resultCount: 1,
@@ -626,7 +796,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       // 转换为 addSteps 格式
       const addSteps = toolCalls.map((tc, index) => {
         // 替换图片占位符
-        let processedArgs = { ...tc.arguments };
+        const processedArgs = { ...tc.arguments };
         if (images && images.length > 0 && processedArgs.referenceImages) {
           const refs = processedArgs.referenceImages as string[];
           processedArgs.referenceImages = refs.map((placeholder) => {
@@ -657,12 +827,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     } catch (error: any) {
       const elapsedTime = Date.now() - startTime;
       const errorMessage = error.message || 'AI analyze failed';
-      
+
       // 检测认证错误，触发设置弹窗
       if (isAuthError(errorMessage)) {
         dispatchApiAuthError({ message: errorMessage, source: 'ai-analyze' });
       }
-      
+
       failLLMApiLog(logId, {
         duration: elapsedTime,
         errorMessage,
@@ -679,7 +849,11 @@ export class FallbackMediaExecutor implements IMediaExecutor {
    * @param tasksFromMemory - 可选，从内存中传入的任务列表（避免 IndexedDB 读取竞态）
    */
   async resumePendingTasks(
-    onTaskUpdate?: (taskId: string, status: TaskStatus, updates?: Partial<Task>) => void,
+    onTaskUpdate?: (
+      taskId: string,
+      status: TaskStatus,
+      updates?: Partial<Task>
+    ) => void,
     tasksFromMemory?: Task[]
   ): Promise<void> {
     try {
@@ -687,16 +861,25 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       // 尚未写入 IndexedDB 导致读取到旧状态的竞态问题
       let pendingTasks: Task[];
       if (tasksFromMemory) {
-        pendingTasks = tasksFromMemory.filter(t => t.status === TaskStatus.PROCESSING);
-        console.warn(`[FallbackMediaExecutor] resumePendingTasks: found ${pendingTasks.length} processing tasks from memory`);
+        pendingTasks = tasksFromMemory.filter(
+          (t) => t.status === TaskStatus.PROCESSING
+        );
+        console.warn(
+          `[FallbackMediaExecutor] resumePendingTasks: found ${pendingTasks.length} processing tasks from memory`
+        );
       } else {
-        pendingTasks = await taskStorageReader.getAllTasks({ status: TaskStatus.PROCESSING });
-        console.warn(`[FallbackMediaExecutor] resumePendingTasks: found ${pendingTasks.length} processing tasks from IndexedDB (fallback)`);
+        pendingTasks = await taskStorageReader.getAllTasks({
+          status: TaskStatus.PROCESSING,
+        });
+        console.warn(
+          `[FallbackMediaExecutor] resumePendingTasks: found ${pendingTasks.length} processing tasks from IndexedDB (fallback)`
+        );
       }
 
       // 筛选出有 remoteId 的视频任务
-      const videoTasks = pendingTasks.filter(t =>
-        t.type === 'video' && t.remoteId && t.status === TaskStatus.PROCESSING
+      const videoTasks = pendingTasks.filter(
+        (t) =>
+          t.type === 'video' && t.remoteId && t.status === TaskStatus.PROCESSING
       );
 
       // 日志：列出所有处理中的任务及其筛选结果
@@ -705,7 +888,11 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         const hasRemoteId = !!t.remoteId;
         const willResume = isVideo && hasRemoteId;
         console.warn(
-          `[FallbackMediaExecutor]   task=${t.id} type=${t.type} remoteId=${t.remoteId || 'none'} → ${willResume ? 'RESUME' : 'SKIP'}${!isVideo ? ' (not video)' : ''}${!hasRemoteId ? ' (no remoteId)' : ''}`
+          `[FallbackMediaExecutor]   task=${t.id} type=${t.type} remoteId=${
+            t.remoteId || 'none'
+          } → ${willResume ? 'RESUME' : 'SKIP'}${
+            !isVideo ? ' (not video)' : ''
+          }${!hasRemoteId ? ' (no remoteId)' : ''}`
         );
       }
 
@@ -713,13 +900,20 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         console.warn('[FallbackMediaExecutor] No video tasks to resume');
         return;
       }
-      
-      console.log(`[FallbackMediaExecutor] Resuming ${videoTasks.length} pending video tasks...`);
-      
+
+      console.log(
+        `[FallbackMediaExecutor] Resuming ${videoTasks.length} pending video tasks...`
+      );
+
       // 并行恢复
-      await Promise.all(videoTasks.map(task => this.resumeVideoTask(task, onTaskUpdate)));
+      await Promise.all(
+        videoTasks.map((task) => this.resumeVideoTask(task, onTaskUpdate))
+      );
     } catch (error) {
-      console.error('[FallbackMediaExecutor] Failed to resume pending tasks:', error);
+      console.error(
+        '[FallbackMediaExecutor] Failed to resume pending tasks:',
+        error
+      );
     }
   }
 
@@ -728,22 +922,32 @@ export class FallbackMediaExecutor implements IMediaExecutor {
    */
   private async resumeVideoTask(
     task: Task,
-    onTaskUpdate?: (taskId: string, status: TaskStatus, updates?: Partial<Task>) => void
+    onTaskUpdate?: (
+      taskId: string,
+      status: TaskStatus,
+      updates?: Partial<Task>
+    ) => void
   ): Promise<void> {
     // 如果任务已经在轮询中，直接跳过
     if (this.pollingTasks.has(task.id)) {
-      console.log(`[FallbackMediaExecutor] Task ${task.id} is already being polled, skipping resume.`);
+      console.log(
+        `[FallbackMediaExecutor] Task ${task.id} is already being polled, skipping resume.`
+      );
       return;
     }
 
     const config = this.getConfig();
     const videoId = task.remoteId!;
-    
+
     // 标记为正在轮询
     this.pollingTasks.add(task.id);
 
     try {
-      console.log(`[FallbackMediaExecutor] Resuming video task: ${task.id} (remoteId: ${videoId}, model: ${task.params?.model || 'unknown'})`);
+      console.log(
+        `[FallbackMediaExecutor] Resuming video task: ${
+          task.id
+        } (remoteId: ${videoId}, model: ${task.params?.model || 'unknown'})`
+      );
 
       // 重新开始轮询
       const result = await pollVideoStatus(
@@ -753,19 +957,30 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           // 这里的 progress 是 0-1
           // 视频生成中，polling 阶段通常对应 10%-90%
           const mappedProgress = 10 + progress * 80;
-          
+
           if (onTaskUpdate) {
-            onTaskUpdate(task.id, TaskStatus.PROCESSING, { progress: mappedProgress });
+            onTaskUpdate(task.id, TaskStatus.PROCESSING, {
+              progress: mappedProgress,
+            });
           } else {
             // taskStorageWriter.updateStatus 会写入 storage
-            taskStorageWriter.updateStatus(task.id, TaskStatus.PROCESSING).catch(() => {});
-            taskStorageWriter.updateProgress(task.id, mappedProgress).catch(() => {});
+            taskStorageWriter
+              .updateStatus(task.id, TaskStatus.PROCESSING)
+              .catch(() => undefined);
+            taskStorageWriter
+              .updateProgress(task.id, mappedProgress)
+              .catch(() => undefined);
           }
         }
       );
-      
+
       // 缓存远程 URL
-      const cachedVidUrl = await cacheRemoteUrl(result.url, task.id, 'video', 'mp4');
+      const cachedVidUrl = await cacheRemoteUrl(
+        result.url,
+        task.id,
+        'video',
+        'mp4'
+      );
 
       const duration = task.params.duration as string | undefined;
 
@@ -788,24 +1003,35 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         });
       }
 
-      console.log(`[FallbackMediaExecutor] Resumed video task completed: ${task.id}`);
+      console.log(
+        `[FallbackMediaExecutor] Resumed video task completed: ${task.id}`
+      );
     } catch (error: any) {
-      console.error(`[FallbackMediaExecutor] Failed to resume task ${task.id}:`, error);
+      console.error(
+        `[FallbackMediaExecutor] Failed to resume task ${task.id}:`,
+        error
+      );
 
       const errorInfo = {
         code: error.code || 'RESUME_FAILED',
-        message: error.message || 'Failed to resume task'
+        message: error.message || 'Failed to resume task',
       };
 
       // 始终先写入 IndexedDB，确保持久化
-      await taskStorageWriter.failTask(task.id, errorInfo).catch(() => {});
+      await taskStorageWriter
+        .failTask(task.id, errorInfo)
+        .catch(() => undefined);
 
       // 再通知内存状态同步
       if (onTaskUpdate) {
-        console.debug(`[FallbackMediaExecutor] Calling onTaskUpdate for failed task ${task.id}`);
+        console.debug(
+          `[FallbackMediaExecutor] Calling onTaskUpdate for failed task ${task.id}`
+        );
         onTaskUpdate(task.id, TaskStatus.FAILED, { error: errorInfo });
       } else {
-        console.warn(`[FallbackMediaExecutor] No onTaskUpdate callback for failed task ${task.id}, UI won't update`);
+        console.warn(
+          `[FallbackMediaExecutor] No onTaskUpdate callback for failed task ${task.id}, UI won't update`
+        );
       }
     } finally {
       // 无论成功还是失败，都移除标记
@@ -827,24 +1053,61 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   /**
    * 获取 API 配置
    */
-  private getConfig(): { geminiConfig: GeminiConfig; videoConfig: VideoAPIConfig } {
-    const settings = geminiSettings.get();
-
+  private getConfig(models?: {
+    imageModel?: string | ModelRef | null;
+    textModel?: string | ModelRef | null;
+    videoModel?: string | ModelRef | null;
+  }): {
+    imageConfig: GeminiConfig;
+    textConfig: GeminiConfig;
+    videoConfig: VideoAPIConfig;
+  } {
+    const imageRoute = resolveInvocationRoute('image', models?.imageModel);
+    const textRoute = resolveInvocationRoute('text', models?.textModel);
+    const videoRoute = resolveInvocationRoute('video', models?.videoModel);
+    const imagePlan = resolveInvocationPlanFromRoute('image', models?.imageModel);
+    const textPlan = resolveInvocationPlanFromRoute('text', models?.textModel);
+    const videoPlan = resolveInvocationPlanFromRoute('video', models?.videoModel);
     return {
-      geminiConfig: {
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl || 'https://api.tu-zi.com/v1',
-        modelName: settings.chatModel || 'gemini-2.0-flash',
-        textModelName: settings.textModelName,
+      imageConfig: {
+        apiKey: imageRoute.apiKey,
+        baseUrl: imageRoute.baseUrl || 'https://api.tu-zi.com/v1',
+        modelName: imageRoute.modelId,
+        authType: imagePlan?.provider.authType || inferAuthTypeFromRoute(imageRoute),
+        providerType:
+          imagePlan?.provider.providerType || imageRoute.providerType || 'custom',
+        extraHeaders: imagePlan?.provider.extraHeaders,
+        protocol: imagePlan?.binding.protocol || null,
+        binding: imagePlan?.binding || null,
+        provider: imagePlan?.provider || null,
+      },
+      textConfig: {
+        apiKey: textRoute.apiKey,
+        baseUrl: textRoute.baseUrl || 'https://api.tu-zi.com/v1',
+        modelName: textRoute.modelId,
+        authType: textPlan?.provider.authType || inferAuthTypeFromRoute(textRoute),
+        providerType:
+          textPlan?.provider.providerType || textRoute.providerType || 'custom',
+        extraHeaders: textPlan?.provider.extraHeaders,
+        protocol: textPlan?.binding.protocol || null,
+        binding: textPlan?.binding || null,
+        provider: textPlan?.provider || null,
       },
       videoConfig: {
-        apiKey: settings.apiKey,
+        apiKey: videoRoute.apiKey,
         // 规范化 baseUrl，移除尾部 / 或 /v1，便于拼接 /v1/videos
-        baseUrl: this.normalizeApiBase(settings.baseUrl || 'https://api.tu-zi.com'),
+        baseUrl: this.normalizeApiBase(
+          videoRoute.baseUrl || 'https://api.tu-zi.com'
+        ),
+        authType: videoPlan?.provider.authType || inferAuthTypeFromRoute(videoRoute),
+        providerType:
+          videoPlan?.provider.providerType || videoRoute.providerType || 'custom',
+        extraHeaders: videoPlan?.provider.extraHeaders,
+        binding: videoPlan?.binding || null,
+        provider: videoPlan?.provider || null,
       },
     };
   }
-
 }
 
 /**
