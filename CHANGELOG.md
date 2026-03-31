@@ -1,3 +1,22 @@
+## 0.6.12 (2026-03-31)
+
+### 🚀 Features
+
+- 隐藏原生滚动条 ([15e61dcb](https://github.com/ljquan/aitu/commit/15e61dcb))
+- 重建多供应商模型路由与移动端配置体验 ([78de2528](https://github.com/ljquan/aitu/commit/78de2528))
+
+### 🩹 Fixes
+
+- 修复多供应商分支构建类型错误 ([541000cc](https://github.com/ljquan/aitu/commit/541000cc))
+- 修复缩略图地址钩子语法错误 ([c8883799](https://github.com/ljquan/aitu/commit/c8883799))
+- update app version to 0.6.11 and adjust build time ([8d8ad46a](https://github.com/ljquan/aitu/commit/8d8ad46a))
+
+### ❤️  Thank You
+
+- liangyufeng <l.yfeng@qq.com>
+- gongchengtu <1817063960@qq.com>
+- liquid <ljquan@qq.com>
+
 ## 0.6.11 (2026-03-18)
 
 ### 🔧 Chores

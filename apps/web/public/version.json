@@ -1,10 +1,12 @@
 {
-  "version": "0.6.11",
-  "buildTime": "2026-03-18T01:49:47.000Z",
+  "version": "0.6.12",
+  "buildTime": "2026-03-31T02:41:43.368Z",
   "gitCommit": "unknown",
   "changelog": [
-    "fixed: 兼容base64图片返回",
-    "fixed:修复素材库删除的bug",
-    "fixed:修复部署失败"
+    "update app version to 0.6.11 and adjust build time",
+    "重建多供应商模型路由与移动端配置体验",
+    "修复多供应商分支构建类型错误",
+    "修复缩略图地址钩子语法错误",
+    "隐藏原生滚动条"
   ]
 }

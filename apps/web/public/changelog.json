@@ -1,6 +1,23 @@
 {
   "versions": [
     {
+      "version": "0.6.12",
+      "date": "2026-03-31",
+      "changes": {
+        "features": [
+          "隐藏原生滚动条",
+          "重建多供应商模型路由与移动端配置体验"
+        ],
+        "fixes": [
+          "修复多供应商分支构建类型错误",
+          "修复缩略图地址钩子语法错误"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "隐藏原生滚动条"
+    },
+    {
       "version": "0.6.11",
       "date": "2026-03-18",
       "changes": {
