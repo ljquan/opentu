@@ -1,12 +1,6 @@
 {
-  "version": "0.6.12",
-  "buildTime": "2026-03-31T02:41:43.368Z",
+  "version": "0.6.13",
+  "buildTime": "2026-03-31T02:59:30.874Z",
   "gitCommit": "unknown",
-  "changelog": [
-    "update app version to 0.6.11 and adjust build time",
-    "重建多供应商模型路由与移动端配置体验",
-    "修复多供应商分支构建类型错误",
-    "修复缩略图地址钩子语法错误",
-    "隐藏原生滚动条"
-  ]
+  "changelog": []
 }
