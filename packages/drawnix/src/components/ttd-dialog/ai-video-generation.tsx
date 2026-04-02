@@ -213,6 +213,42 @@ const AIVideoGeneration = ({
     []
   );
 
+  useEffect(() => {
+    const isSameParams = (
+      a: Record<string, string>,
+      b: Record<string, string>
+    ) => {
+      const aKeys = Object.keys(a);
+      const bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) return false;
+      return aKeys.every((key) => a[key] === b[key]);
+    };
+
+    const nextParams = compatibleVideoParams.reduce<Record<string, string>>(
+      (acc, param) => {
+        const prevValue = videoSelectedParams[param.id];
+        const prevValueIsValid =
+          !prevValue ||
+          param.valueType !== 'enum' ||
+          !param.options ||
+          param.options.some((option) => option.value === prevValue);
+
+        if (prevValue && prevValueIsValid) {
+          acc[param.id] = prevValue;
+        } else if (param.defaultValue) {
+          acc[param.id] = param.defaultValue;
+        }
+
+        return acc;
+      },
+      {}
+    );
+
+    if (!isSameParams(videoSelectedParams, nextParams)) {
+      setVideoSelectedParams(nextParams);
+    }
+  }, [compatibleVideoParams, videoSelectedParams]);
+
   // 保存所有原始选中的图片（不受模型切换影响）
   const [allSelectedImages, setAllSelectedImages] = useState<
     UploadedVideoImage[]

@@ -18,11 +18,35 @@ import { useControllableState } from '../../hooks/useControllableState';
 import './parameters-dropdown.scss';
 import { KeyboardDropdown } from './KeyboardDropdown';
 
+function getCompactEnumSummaryLabel(paramId: string, value: string, label: string): string {
+  if (paramId === 'size') {
+    return label.split('(')[0].trim();
+  }
+
+  if (paramId === 'duration') {
+    return `${value}s`;
+  }
+
+  if (paramId === 'klingAction2') {
+    return value === 'image2video' ? '图生' : '文生';
+  }
+
+  if (paramId === 'mode') {
+    return value;
+  }
+
+  return label;
+}
+
 export interface ParametersDropdownProps {
   /** 当前选中的参数值映射 (id -> value) */
   selectedParams: Record<string, string>;
   /** 参数变更回调 */
-  onParamChange: (paramId: string, value: string) => void;
+  onParamChange: (
+    paramId: string,
+    value: string,
+    options?: { keepOpen?: boolean }
+  ) => void;
   /** 预先计算好的兼容参数列表（可选，传入则跳过内部计算） */
   compatibleParams?: ParamConfig[];
   /** 当前选中的模型 ID */
@@ -94,16 +118,16 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     compatibleParams.forEach(param => {
       const value = selectedParams[param.id];
       if (value) {
-        const option = param.options?.find(opt => opt.value === value);
-        if (option) {
-          // 对尺寸等常见参数做特殊精简处理
-          if (param.id === 'size') {
-            summaryParts.push(option.label.split('(')[0].trim());
-          } else if (param.id === 'duration') {
-            summaryParts.push(`${value}s`);
-          } else {
-            summaryParts.push(option.label);
+        if (param.valueType === 'enum') {
+          const option = param.options?.find(opt => opt.value === value);
+          if (option) {
+            summaryParts.push(
+              getCompactEnumSummaryLabel(param.id, value, option.label)
+            );
           }
+        } else {
+          const displayValue = value.length > 10 ? `${value.slice(0, 10)}…` : value;
+          summaryParts.push(`${param.shortLabel || param.label}:${displayValue}`);
         }
       }
     });
@@ -183,6 +207,13 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     onParamChange(paramId, value);
   }, [onParamChange]);
 
+  const handleFieldInput = useCallback(
+    (paramId: string, value: string) => {
+      onParamChange(paramId, value, { keepOpen: true });
+    },
+    [onParamChange]
+  );
+
   if (compatibleParams.length === 0) return null;
 
   return (
@@ -241,29 +272,48 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                       <div className="parameters-dropdown__section-title">
                         {param.label}
                       </div>
-                      <div className="parameters-dropdown__options">
-                        {param.options?.map((option, optionIndex) => {
-                          const isSelected = currentValue === option.value;
-                          const isOptionHighlighted = isParamHighlighted && optionIndex === highlightedOptionIndex;
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={`parameters-dropdown__option ${isSelected ? 'parameters-dropdown__option--selected' : ''} ${isOptionHighlighted ? 'parameters-dropdown__option--highlighted' : ''}`}
-                              onClick={() => handleValueSelect(param.id, option.value)}
-                              onMouseEnter={() => {
-                                setHighlightedParamIndex(paramIndex);
-                                setHighlightedOptionIndex(optionIndex);
-                              }}
-                            >
-                              <span className="parameters-dropdown__option-label">
-                                {option.label.split('(')[0].trim()}
-                              </span>
-                              {isSelected && <Check size={12} className="parameters-dropdown__option-check" />}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {param.valueType === 'enum' ? (
+                        <div className="parameters-dropdown__options">
+                          {param.options?.map((option, optionIndex) => {
+                            const isSelected = currentValue === option.value;
+                            const isOptionHighlighted = isParamHighlighted && optionIndex === highlightedOptionIndex;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`parameters-dropdown__option ${isSelected ? 'parameters-dropdown__option--selected' : ''} ${isOptionHighlighted ? 'parameters-dropdown__option--highlighted' : ''}`}
+                                onClick={() => handleValueSelect(param.id, option.value)}
+                                onMouseEnter={() => {
+                                  setHighlightedParamIndex(paramIndex);
+                                  setHighlightedOptionIndex(optionIndex);
+                                }}
+                              >
+                                <span className="parameters-dropdown__option-label">
+                                  {option.label.split('(')[0].trim()}
+                                </span>
+                                {isSelected && <Check size={12} className="parameters-dropdown__option-check" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="parameters-dropdown__field">
+                          <input
+                            type={param.valueType === 'number' ? 'number' : 'text'}
+                            className="parameters-dropdown__field-input"
+                            value={currentValue || ''}
+                            placeholder={param.description || param.label}
+                            min={param.valueType === 'number' ? param.min : undefined}
+                            max={param.valueType === 'number' ? param.max : undefined}
+                            step={param.valueType === 'number' ? param.step : undefined}
+                            onChange={(event) =>
+                              handleFieldInput(param.id, event.target.value)
+                            }
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}

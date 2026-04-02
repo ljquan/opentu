@@ -1492,7 +1492,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           nextParams.size =
             prevSize && prevSizeIsValid
               ? prevSize
-              : getDefaultSizeForModel(model.id);
+              : sizeParam.defaultValue || getDefaultSizeForModel(model.id);
         }
 
         // 其他参数：沿用同 id 已选值，否则用默认值
@@ -1570,7 +1570,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         nextParams.size =
           prevSize && prevSizeIsValid
             ? prevSize
-            : getDefaultSizeForModel(selectedModel);
+            : sizeParam.defaultValue || getDefaultSizeForModel(selectedModel);
       }
 
       compatibleParams.forEach((p) => {
@@ -1598,21 +1598,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     // 处理参数选择
     const handleParamSelect = useCallback(
-      (paramId: string, value?: string) => {
+      (
+        paramId: string,
+        value?: string,
+        options?: { keepOpen?: boolean }
+      ) => {
         // 清除触发符号
         clearTriggerSymbol();
 
         // 更新参数对象
-        if (value) {
-          setSelectedParams((prev) => ({
-            ...prev,
-            [paramId]: value,
-          }));
-        }
+        setSelectedParams((prev) => {
+          const next = { ...prev };
+          if (value === undefined || value === '') {
+            delete next[paramId];
+          } else {
+            next[paramId] = value;
+          }
+          return next;
+        });
 
         // 关闭下拉菜单并保持焦点
-        setParamsDropdownOpen(false);
-        setTimeout(() => inputRef.current?.focus(), 0);
+        if (!options?.keepOpen) {
+          setParamsDropdownOpen(false);
+          setTimeout(() => inputRef.current?.focus(), 0);
+        }
       },
       [clearTriggerSymbol]
     );

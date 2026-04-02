@@ -22,6 +22,39 @@ import './task-progress-overlay.scss';
 // 弹窗侧栏宽度约 280px-500px，任务队列面板宽度约 300px-600px
 const COMPACT_LAYOUT_THRESHOLD = 500;
 
+function normalizeNestedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isKlingTaskModel(model?: string): boolean {
+  if (!model) {
+    return false;
+  }
+
+  const normalized = model.toLowerCase();
+  return normalized === 'kling_video' || normalized.startsWith('kling-v');
+}
+
+function getKlingActionLabel(action?: string): string | undefined {
+  if (action === 'text2video') {
+    return '文生视频';
+  }
+  if (action === 'image2video') {
+    return '图生视频';
+  }
+  return undefined;
+}
+
+function getKlingModeLabel(mode?: string): string | undefined {
+  if (mode === 'std') {
+    return 'std 高性能';
+  }
+  if (mode === 'pro') {
+    return 'pro 高表现';
+  }
+  return mode;
+}
+
 export interface TaskItemProps {
   /** The task to display */
   task: Task;
@@ -147,6 +180,21 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
 
   // Check if this is a character task
   const isCharacterTask = task.type === TaskType.CHARACTER;
+  const extraParams =
+    task.params.params && typeof task.params.params === 'object'
+      ? (task.params.params as Record<string, unknown>)
+      : null;
+  const isKlingVideoTask =
+    task.type === TaskType.VIDEO && isKlingTaskModel(task.params.model);
+  const klingModelVersion =
+    normalizeNestedString(extraParams?.model_name) ||
+    (task.params.model?.toLowerCase().startsWith('kling-v')
+      ? task.params.model
+      : undefined);
+  const klingMode = getKlingModeLabel(normalizeNestedString(extraParams?.mode));
+  const klingAction = normalizeNestedString(extraParams?.klingAction2);
+  const klingActionLabel = getKlingActionLabel(klingAction);
+  const klingCfgScale = normalizeNestedString(extraParams?.cfg_scale);
 
   // Unified cache hook (skip for character tasks)
   const { isCached } = useUnifiedCache(
@@ -189,6 +237,18 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
         <div><strong>提示词：</strong>{task.params.prompt}</div>
         <div><strong>状态：</strong>{getStatusLabel(task.status)}</div>
         {task.params.model && <div><strong>模型：</strong>{task.params.model}</div>}
+        {isKlingVideoTask && klingModelVersion && (
+          <div><strong>Kling 版本：</strong>{klingModelVersion}</div>
+        )}
+        {isKlingVideoTask && klingMode && (
+          <div><strong>生成模式：</strong>{klingMode}</div>
+        )}
+        {isKlingVideoTask && klingActionLabel && (
+          <div><strong>Kling 类型：</strong>{klingActionLabel}</div>
+        )}
+        {isKlingVideoTask && klingCfgScale && (
+          <div><strong>自由度：</strong>{klingCfgScale}</div>
+        )}
         {displayWidth && displayHeight && (
           <div><strong>尺寸：</strong>{displayWidth}x{displayHeight}</div>
         )}
@@ -351,6 +411,15 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   <Tag variant="outline" className="task-item__model-tag">
                     {task.params.model}
                   </Tag>
+                )}
+                {isKlingVideoTask && klingModelVersion && (
+                  <Tag variant="outline">{klingModelVersion}</Tag>
+                )}
+                {isKlingVideoTask && klingMode && (
+                  <Tag variant="outline">{klingMode}</Tag>
+                )}
+                {isKlingVideoTask && klingActionLabel && (
+                  <Tag variant="outline">{klingActionLabel}</Tag>
                 )}
 
                 {/* Video/Image specific meta as tags */}
