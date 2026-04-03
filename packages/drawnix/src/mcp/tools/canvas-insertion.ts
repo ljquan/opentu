@@ -12,6 +12,12 @@ import { PlaitBoard, Point, getRectangleByElements } from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
+import {
+  AUDIO_CARD_DEFAULT_HEIGHT,
+  AUDIO_CARD_DEFAULT_WIDTH,
+  insertAudioFromUrl,
+  type AudioCardMetadata,
+} from '../../data/audio';
 import { scrollToPointIfNeeded } from '../../utils/selection-utils';
 import { parseMarkdownToCards } from '../../utils/markdown-to-cards';
 import { insertCardsToCanvas } from '../../utils/insert-cards';
@@ -19,7 +25,7 @@ import { insertCardsToCanvas } from '../../utils/insert-cards';
 /**
  * 内容类型
  */
-export type ContentType = 'text' | 'image' | 'video' | 'svg';
+export type ContentType = 'text' | 'image' | 'video' | 'audio' | 'svg';
 
 /**
  * 单个要插入的内容项
@@ -35,6 +41,8 @@ export interface InsertionItem {
   groupId?: string;
   /** 图片/视频尺寸（可选，用于立即插入不等待加载） */
   dimensions?: { width: number; height: number };
+  /** 额外元数据（音频卡片等） */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -271,6 +279,34 @@ async function insertVideoToCanvas(
   return defaultSize;
 }
 
+async function insertAudioToCanvas(
+  board: PlaitBoard,
+  audioUrl: string,
+  point: Point,
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
+): Promise<{ width: number; height: number }> {
+  const size = dimensions || {
+    width: AUDIO_CARD_DEFAULT_WIDTH,
+    height: AUDIO_CARD_DEFAULT_HEIGHT,
+  };
+
+  await insertAudioFromUrl(
+    board,
+    audioUrl,
+    {
+      ...(metadata as AudioCardMetadata | undefined),
+      width: size.width,
+      height: size.height,
+    },
+    point,
+    false,
+    true
+  );
+
+  return size;
+}
+
 /**
  * 将SVG代码转换为Data URL
  */
@@ -401,6 +437,11 @@ async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MC
         } else if (item.type === 'video') {
           // 优先使用传入的尺寸，避免等待视频元数据下载
           itemSize = item.dimensions || { width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE, height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)) };
+        } else if (item.type === 'audio') {
+          itemSize = item.dimensions || {
+            width: AUDIO_CARD_DEFAULT_WIDTH,
+            height: AUDIO_CARD_DEFAULT_HEIGHT,
+          };
         }
 
         const point: Point = [leftX, currentY]; // 左对齐：直接使用 leftX
@@ -418,6 +459,15 @@ async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MC
         } else if (item.type === 'video') {
           await insertVideoToCanvas(board, item.content, point, item.dimensions);
           currentY += itemSize.height + verticalGap;
+        } else if (item.type === 'audio') {
+          const audioSize = await insertAudioToCanvas(
+            board,
+            item.content,
+            point,
+            item.dimensions,
+            item.metadata
+          );
+          currentY += audioSize.height + verticalGap;
         } else if (item.type === 'svg') {
           const svgSize = await insertSvgToCanvas(board, item.content, point);
           currentY += svgSize.height + verticalGap;
@@ -444,6 +494,16 @@ async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MC
             await insertVideoToCanvas(board, item.content, point);
             maxHeight = Math.max(maxHeight, 225);
             currentX += LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE + horizontalGap;
+          } else if (item.type === 'audio') {
+            const audioSize = await insertAudioToCanvas(
+              board,
+              item.content,
+              point,
+              item.dimensions,
+              item.metadata
+            );
+            maxHeight = Math.max(maxHeight, audioSize.height);
+            currentX += audioSize.width + horizontalGap;
           } else if (item.type === 'svg') {
             const svgSize = await insertSvgToCanvas(board, item.content, point);
             maxHeight = Math.max(maxHeight, svgSize.height);
@@ -523,8 +583,8 @@ export const canvasInsertionTool: MCPTool = {
           properties: {
             type: {
               type: 'string',
-              description: '内容类型：text（文本）、image（图片URL）、video（视频URL）、svg（SVG代码）',
-              enum: ['text', 'image', 'video', 'svg'],
+              description: '内容类型：text（文本）、image（图片URL）、video（视频URL）、audio（音频URL）、svg（SVG代码）',
+              enum: ['text', 'image', 'video', 'audio', 'svg'],
             },
             content: {
               type: 'string',
@@ -537,6 +597,10 @@ export const canvasInsertionTool: MCPTool = {
             groupId: {
               type: 'string',
               description: '分组ID，相同groupId的内容会水平排列（可选）',
+            },
+            metadata: {
+              type: 'object',
+              description: '可选元数据（音频卡片标题、封面、时长等）',
             },
           },
           required: ['type', 'content'],
@@ -568,10 +632,11 @@ export async function quickInsert(
   type: ContentType,
   content: string,
   point?: Point,
-  dimensions?: { width: number; height: number }
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   return executeCanvasInsertion({
-    items: [{ type, content, dimensions }],
+    items: [{ type, content, dimensions, metadata }],
     startPoint: point,
   });
 }
@@ -599,7 +664,12 @@ export async function insertImageGroup(
  */
 export async function insertAIFlow(
   prompt: string,
-  results: Array<{ type: 'image' | 'video'; url: string }>,
+  results: Array<{
+    type: 'image' | 'video' | 'audio';
+    url: string;
+    dimensions?: { width: number; height: number };
+    metadata?: Record<string, unknown>;
+  }>,
   point?: Point
 ): Promise<MCPResult> {
   const items: InsertionItem[] = [
@@ -610,6 +680,8 @@ export async function insertAIFlow(
     items.push({
       type: results[0].type,
       content: results[0].url,
+      dimensions: results[0].dimensions,
+      metadata: results[0].metadata,
     });
   } else {
     // 多个结果，水平排列
@@ -619,6 +691,8 @@ export async function insertAIFlow(
         type: r.type,
         content: r.url,
         groupId,
+        dimensions: r.dimensions,
+        metadata: r.metadata,
       });
     });
   }

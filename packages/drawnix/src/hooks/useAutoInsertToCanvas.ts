@@ -16,7 +16,18 @@ import type { Point } from '@plait/core';
 import { getTaskQueueService } from '../services/task-queue';
 import { workflowCompletionService } from '../services/workflow-completion-service';
 import { Task, TaskStatus, TaskType } from '../types/task.types';
-import { getCanvasBoard, insertAIFlow, insertImageGroup, parseSizeToPixels, quickInsert } from '../services/canvas-operations';
+import {
+  executeCanvasInsertion,
+  getCanvasBoard,
+  insertAIFlow,
+  insertImageGroup,
+  parseSizeToPixels,
+  quickInsert,
+} from '../services/canvas-operations';
+import {
+  AUDIO_CARD_DEFAULT_HEIGHT,
+  AUDIO_CARD_DEFAULT_WIDTH,
+} from '../data/audio';
 import { getInsertionPointBelowBottommostElement } from '../utils/selection-utils';
 import { WorkZoneTransforms } from '../plugins/with-workzone';
 import type { PlaitWorkZone } from '../types/workzone.types';
@@ -261,8 +272,41 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
               continue;
             }
 
-            const type = task.type === TaskType.VIDEO ? 'video' : 'image';
-            const dimensions = parseSizeToPixels(task.params.size);
+            const type =
+              task.type === TaskType.VIDEO
+                ? 'video'
+                : task.type === TaskType.AUDIO
+                ? 'audio'
+                : 'image';
+            const dimensions =
+              type === 'audio'
+                ? {
+                    width: AUDIO_CARD_DEFAULT_WIDTH,
+                    height: AUDIO_CARD_DEFAULT_HEIGHT,
+                  }
+                : parseSizeToPixels(task.params.size);
+            const metadata =
+              type === 'audio'
+                ? {
+                    title: task.result?.title || task.params.title,
+                    duration: task.result?.duration,
+                    previewImageUrl: task.result?.previewImageUrl,
+                    tags:
+                      typeof task.params.tags === 'string'
+                        ? task.params.tags
+                        : undefined,
+                    mv:
+                      typeof task.params.mv === 'string'
+                        ? task.params.mv
+                        : undefined,
+                    prompt: task.params.prompt,
+                    providerTaskId:
+                      task.result?.providerTaskId || task.remoteId,
+                    clipId:
+                      task.result?.primaryClipId || task.result?.clipIds?.[0],
+                    clipIds: task.result?.clipIds,
+                  }
+                : undefined;
             // 展开多图：优先使用 urls 数组
             const allUrls = task.result?.urls?.length ? task.result.urls : [url];
 
@@ -270,15 +314,61 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
             const taskFrameId = targetFrameId || (task.params.targetFrameId as string | undefined);
             const taskFrameDims = targetFrameDimensions || (task.params.targetFrameDimensions as { width: number; height: number } | undefined);
 
-            if (taskFrameId && taskFrameDims && board) {
+            if (taskFrameId && taskFrameDims && board && type !== 'audio') {
               // 插入到 Frame 内部，contain 模式等比缩放
               await insertMediaIntoFrame(board, allUrls[0], type, taskFrameId, taskFrameDims, dimensions);
             } else if (mergedConfig.insertPrompt) {
-              await insertAIFlow(task.params.prompt, allUrls.map(u => ({ type, url: u, dimensions })), insertionPoint);
+              await insertAIFlow(
+                task.params.prompt,
+                allUrls.map((u, index) => ({
+                  type,
+                  url: u,
+                  dimensions,
+                  metadata:
+                    type === 'audio'
+                      ? {
+                          ...metadata,
+                          title:
+                            task.result?.clips?.[index]?.title ||
+                            (allUrls.length > 1
+                              ? `${metadata?.title || task.params.title || 'Audio'} ${index + 1}`
+                              : metadata?.title),
+                          clipId:
+                            task.result?.clips?.[index]?.clipId ||
+                            task.result?.clipIds?.[index] ||
+                            metadata?.clipId,
+                        }
+                      : undefined,
+                })),
+                insertionPoint
+              );
             } else if (type === 'image' && allUrls.length > 1) {
               await insertImageGroup(allUrls, insertionPoint, dimensions);
+            } else if (type === 'audio' && allUrls.length > 1) {
+              const groupId = `audio-group-${task.id}`;
+              await executeCanvasInsertion({
+                items: allUrls.map((audioUrl, index) => ({
+                  type: 'audio',
+                  content: audioUrl,
+                  groupId,
+                  dimensions,
+                  metadata: {
+                    ...metadata,
+                    title:
+                      task.result?.clips?.[index]?.title ||
+                      (allUrls.length > 1
+                        ? `${metadata?.title || task.params.title || 'Audio'} ${index + 1}`
+                        : metadata?.title),
+                    clipId:
+                      task.result?.clips?.[index]?.clipId ||
+                      task.result?.clipIds?.[index] ||
+                      metadata?.clipId,
+                  },
+                })),
+                startPoint: insertionPoint,
+              });
             } else {
-              await quickInsert(type, allUrls[0], insertionPoint, dimensions);
+              await quickInsert(type, allUrls[0], insertionPoint, dimensions, metadata);
             }
 
             workflowCompletionService.completePostProcessing(task.id, allUrls.length, insertionPoint);
@@ -299,20 +389,93 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
             }
 
             const firstInsertTask = inserts[0].task;
-            const type = firstInsertTask.type === TaskType.VIDEO ? 'video' : 'image';
-            const dimensions = parseSizeToPixels(firstInsertTask.params.size);
+            const type =
+              firstInsertTask.type === TaskType.VIDEO
+                ? 'video'
+                : firstInsertTask.type === TaskType.AUDIO
+                ? 'audio'
+                : 'image';
+            const dimensions =
+              type === 'audio'
+                ? {
+                    width: AUDIO_CARD_DEFAULT_WIDTH,
+                    height: AUDIO_CARD_DEFAULT_HEIGHT,
+                  }
+                : parseSizeToPixels(firstInsertTask.params.size);
+            const baseMetadata =
+              type === 'audio'
+                ? {
+                    title:
+                      firstInsertTask.result?.title || firstInsertTask.params.title,
+                    duration: firstInsertTask.result?.duration,
+                    previewImageUrl: firstInsertTask.result?.previewImageUrl,
+                    tags:
+                      typeof firstInsertTask.params.tags === 'string'
+                        ? firstInsertTask.params.tags
+                        : undefined,
+                    mv:
+                      typeof firstInsertTask.params.mv === 'string'
+                        ? firstInsertTask.params.mv
+                        : undefined,
+                    prompt: firstInsertTask.params.prompt,
+                    providerTaskId:
+                      firstInsertTask.result?.providerTaskId ||
+                      firstInsertTask.remoteId,
+                    clipIds: firstInsertTask.result?.clipIds,
+                  }
+                : undefined;
 
             // console.log(`[AutoInsert] Inserting group of ${urls.length} ${type}s`);
 
             if (mergedConfig.insertPrompt) {
               await insertAIFlow(
                 firstInsertTask.params.prompt,
-                urls.map(url => ({ type, url, dimensions })),
+                urls.map((resultUrl, index) => ({
+                  type,
+                  url: resultUrl,
+                  dimensions,
+                  metadata:
+                    type === 'audio'
+                      ? {
+                          ...baseMetadata,
+                          title:
+                            firstInsertTask.result?.clips?.[index]?.title ||
+                            (urls.length > 1
+                              ? `${baseMetadata?.title || firstInsertTask.params.title || 'Audio'} ${index + 1}`
+                              : baseMetadata?.title),
+                          clipId:
+                            firstInsertTask.result?.clips?.[index]?.clipId ||
+                            firstInsertTask.result?.clipIds?.[index],
+                        }
+                      : undefined,
+                })),
                 insertionPoint
               );
             } else {
               if (type === 'image') {
                 await insertImageGroup(urls, insertionPoint, dimensions);
+              } else if (type === 'audio') {
+                const groupId = `audio-group-${firstInsertTask.id}`;
+                await executeCanvasInsertion({
+                  items: urls.map((resultUrl, index) => ({
+                    type: 'audio',
+                    content: resultUrl,
+                    groupId,
+                    dimensions,
+                      metadata: {
+                        ...baseMetadata,
+                        title:
+                          firstInsertTask.result?.clips?.[index]?.title ||
+                          (urls.length > 1
+                            ? `${baseMetadata?.title || firstInsertTask.params.title || 'Audio'} ${index + 1}`
+                            : baseMetadata?.title),
+                        clipId:
+                          firstInsertTask.result?.clips?.[index]?.clipId ||
+                          firstInsertTask.result?.clipIds?.[index],
+                      },
+                    })),
+                  startPoint: insertionPoint,
+                });
               } else {
                 for (const url of urls) {
                   await quickInsert('video', url, insertionPoint, dimensions);
@@ -394,8 +557,12 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
         return;
       }
 
-      // 只处理图片和视频任务
-      if (task.type !== TaskType.IMAGE && task.type !== TaskType.VIDEO) {
+      // 只处理图片、视频和音频任务
+      if (
+        task.type !== TaskType.IMAGE &&
+        task.type !== TaskType.VIDEO &&
+        task.type !== TaskType.AUDIO
+      ) {
         // console.log(`[AutoInsert] Task ${task.id} skipped: type is ${task.type}, not IMAGE or VIDEO`);
         return;
       }
