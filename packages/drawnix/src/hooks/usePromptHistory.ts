@@ -26,7 +26,7 @@ export interface UsePromptHistoryReturn {
   /** 历史提示词列表（已去重） */
   history: PromptHistoryItem[];
   /** 添加历史记录 */
-  addHistory: (content: string, hasSelection?: boolean, modelType?: 'image' | 'video' | 'agent') => void;
+  addHistory: (content: string, hasSelection?: boolean, modelType?: 'image' | 'video' | 'audio' | 'agent') => void;
   /** 删除指定历史记录 */
   removeHistory: (id: string) => void;
   /** 清空所有历史记录 */
@@ -95,7 +95,7 @@ export function usePromptHistory(options: UsePromptHistoryOptions = {}): UseProm
   }, [refreshHistory]);
 
   // 添加历史记录
-  const addHistory = useCallback((content: string, hasSelection?: boolean, modelType?: 'image' | 'video' | 'agent') => {
+  const addHistory = useCallback((content: string, hasSelection?: boolean, modelType?: 'image' | 'video' | 'audio' | 'agent') => {
     promptStorageService.addHistory(content, hasSelection, modelType);
     refreshHistory();
   }, [refreshHistory]);

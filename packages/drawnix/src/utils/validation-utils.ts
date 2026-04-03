@@ -73,6 +73,29 @@ export function validateGenerationParams(
     }
   }
 
+  if (type === TaskType.AUDIO) {
+    if (params.title !== undefined && typeof params.title !== 'string') {
+      errors.push('Title must be a string');
+    }
+    if (params.tags !== undefined && typeof params.tags !== 'string') {
+      errors.push('Tags must be a string');
+    }
+    if (params.mv !== undefined && typeof params.mv !== 'string') {
+      errors.push('mv must be a string');
+    }
+    if (params.continueAt !== undefined) {
+      if (typeof params.continueAt !== 'number' || params.continueAt < 0) {
+        errors.push('continueAt must be a non-negative number');
+      }
+    }
+    if (
+      params.continueClipId !== undefined &&
+      typeof params.continueClipId !== 'string'
+    ) {
+      errors.push('continueClipId must be a string');
+    }
+  }
+
   // Validate character-specific fields
   if (type === TaskType.CHARACTER) {
     if (!params.sourceVideoTaskId) {
@@ -99,7 +122,12 @@ export function validateGenerationParams(
  * @returns True if the type is valid, false otherwise
  */
 export function isValidTaskType(type: string): type is TaskType {
-  return type === TaskType.IMAGE || type === TaskType.VIDEO || type === TaskType.CHARACTER;
+  return (
+    type === TaskType.IMAGE ||
+    type === TaskType.VIDEO ||
+    type === TaskType.AUDIO ||
+    type === TaskType.CHARACTER
+  );
 }
 
 /**

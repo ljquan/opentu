@@ -59,10 +59,6 @@ import {
   isStoryboardPrompt,
   validateSceneDurations,
 } from '../../utils/storyboard-utils';
-import {
-  loadAIVideoToolPreferences,
-  saveAIVideoToolPreferences,
-} from '../../services/ai-generation-preferences-service';
 import { useSelectableModels } from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
@@ -98,17 +94,6 @@ const AIVideoGeneration = ({
   onModelChange,
   onModelRefChange,
 }: AIVideoGenerationProps = {}) => {
-  const initialRoute = resolveInvocationRoute('video');
-  const persistedPreferencesRef = useRef<
-    ReturnType<typeof loadAIVideoToolPreferences> | null
-  >(null);
-  if (!persistedPreferencesRef.current) {
-    const fallbackModel = normalizeVideoModel(
-      initialModel || selectedModel || initialRoute.modelId || 'veo3'
-    );
-    persistedPreferencesRef.current = loadAIVideoToolPreferences(fallbackModel);
-  }
-  const persistedPreferences = persistedPreferencesRef.current;
   const videoModels = useSelectableModels('video');
   const [prompt, setPrompt] = useState(initialPrompt);
   const [error, setError] = useState<string | null>(null);
@@ -124,28 +109,18 @@ const AIVideoGeneration = ({
   const isCompactLayout = viewportWidth <= 768;
 
   // Video model parameters - use state to support dynamic updates
-  const initialPreferredModelId =
-    initialModel ||
-    selectedModel ||
-    persistedPreferences.currentModel ||
-    initialRoute.modelId;
-  const initialPreferredModelRef =
-    selectedModel && selectedModel !== initialRoute.modelId
-      ? selectedModelRef || null
-      : persistedPreferences.currentModel &&
-        persistedPreferences.currentModel !== initialRoute.modelId
-      ? null
-      : createModelRef(initialRoute.profileId, initialRoute.modelId);
+  const initialRoute = resolveInvocationRoute('video');
+  const initialPreferredModelId = initialModel || initialRoute.modelId;
   const initialMatchedModel =
     findMatchingSelectableModel(
       videoModels,
       initialPreferredModelId,
-      initialPreferredModelRef
+      createModelRef(initialRoute.profileId, initialPreferredModelId)
     ) ||
     getPinnedSelectableModel(
       'video',
       initialPreferredModelId,
-      initialPreferredModelRef
+      createModelRef(initialRoute.profileId, initialPreferredModelId)
     );
   const [currentModel, setCurrentModel] = useState<VideoModel>(
     (initialMatchedModel?.id as VideoModel) ||
@@ -153,7 +128,8 @@ const AIVideoGeneration = ({
       normalizeVideoModel('veo3')
   );
   const [currentModelRef, setCurrentModelRef] = useState<ModelRef | null>(
-    getModelRefFromConfig(initialMatchedModel) || initialPreferredModelRef
+    getModelRefFromConfig(initialMatchedModel) ||
+      createModelRef(initialRoute.profileId, initialPreferredModelId)
   );
   const visibleVideoModels = React.useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
@@ -177,10 +153,8 @@ const AIVideoGeneration = ({
   // 额外参数（如 aspect_ratio）
   const [videoSelectedParams, setVideoSelectedParams] = useState<
     Record<string, string>
-  >(
-    () =>
-      persistedPreferences.extraParams ||
-      getDefaultVideoExtraParams(currentModel, currentModelRef || currentModel)
+  >(() =>
+    getDefaultVideoExtraParams(currentModel, currentModelRef || currentModel)
   );
   const compatibleVideoParams = React.useMemo(
     () =>
@@ -212,11 +186,9 @@ const AIVideoGeneration = ({
 
   // Duration and size state
   const [duration, setDuration] = useState(
-    initialDuration?.toString() || persistedPreferences.duration || defaultParams.duration
+    initialDuration?.toString() || defaultParams.duration
   );
-  const [size, setSize] = useState(
-    initialSize || persistedPreferences.size || defaultParams.size
-  );
+  const [size, setSize] = useState(initialSize || defaultParams.size);
   const hasCompatibleParams = React.useMemo(() => {
     // 排除 size 和 duration（已有专用 UI），只看是否有额外参数
     return compatibleVideoParams.some(
@@ -240,6 +212,42 @@ const AIVideoGeneration = ({
     },
     []
   );
+
+  useEffect(() => {
+    const isSameParams = (
+      a: Record<string, string>,
+      b: Record<string, string>
+    ) => {
+      const aKeys = Object.keys(a);
+      const bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) return false;
+      return aKeys.every((key) => a[key] === b[key]);
+    };
+
+    const nextParams = compatibleVideoParams.reduce<Record<string, string>>(
+      (acc, param) => {
+        const prevValue = videoSelectedParams[param.id];
+        const prevValueIsValid =
+          !prevValue ||
+          param.valueType !== 'enum' ||
+          !param.options ||
+          param.options.some((option) => option.value === prevValue);
+
+        if (prevValue && prevValueIsValid) {
+          acc[param.id] = prevValue;
+        } else if (param.defaultValue) {
+          acc[param.id] = param.defaultValue;
+        }
+
+        return acc;
+      },
+      {}
+    );
+
+    if (!isSameParams(videoSelectedParams, nextParams)) {
+      setVideoSelectedParams(nextParams);
+    }
+  }, [compatibleVideoParams, videoSelectedParams]);
 
   // 保存所有原始选中的图片（不受模型切换影响）
   const [allSelectedImages, setAllSelectedImages] = useState<
@@ -533,15 +541,6 @@ const AIVideoGeneration = ({
       setError(null);
     };
   }, []);
-
-  useEffect(() => {
-    saveAIVideoToolPreferences({
-      currentModel,
-      extraParams: videoSelectedParams,
-      duration,
-      size,
-    });
-  }, [currentModel, videoSelectedParams, duration, size]);
 
   const handleReset = () => {
     setPrompt('');

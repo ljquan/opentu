@@ -12,6 +12,10 @@ import {
   TaskExecutionPhase,
   TaskStatus,
 } from '../types/task.types';
+import {
+  audioAPIService,
+  extractAudioGenerationResult,
+} from './audio-api-service';
 import { videoAPIService } from './video-api-service';
 import { TASK_TIMEOUT } from '../constants/TASK_CONSTANTS';
 import { analytics } from '../utils/posthog-analytics';
@@ -20,6 +24,7 @@ import { unifiedCacheService } from './unified-cache-service';
 import { convertAspectRatioToSize } from '../constants/image-aspect-ratios';
 import { asyncImageAPIService } from './async-image-api-service';
 import {
+  DEFAULT_AUDIO_MODEL_ID,
   isAsyncImageModel,
   DEFAULT_IMAGE_MODEL_ID,
 } from '../constants/model-config';
@@ -58,7 +63,12 @@ class GenerationAPIService {
     this.abortControllers.set(taskId, abortController);
 
     const startTime = Date.now();
-    const taskType = type === TaskType.IMAGE ? 'image' : 'video';
+    const taskType =
+      type === TaskType.IMAGE
+        ? 'image'
+        : type === TaskType.VIDEO
+        ? 'video'
+        : 'audio';
 
     // Track model call start with enhanced parameters
     const hasRefImage =
@@ -70,7 +80,11 @@ class GenerationAPIService {
       taskType,
       model:
         params.model ||
-        (taskType === 'image' ? 'gemini-image' : 'gemini-video'),
+        (taskType === 'image'
+          ? 'gemini-image'
+          : taskType === 'video'
+          ? 'gemini-video'
+          : DEFAULT_AUDIO_MODEL_ID),
       promptLength: params.prompt.length,
       hasUploadedImage: hasRefImage,
       startTime,
@@ -102,7 +116,10 @@ class GenerationAPIService {
         if (type === TaskType.IMAGE) {
           return this.generateImage(taskId, params, abortController.signal);
         }
-        return this.generateVideo(taskId, params, abortController.signal);
+        if (type === TaskType.VIDEO) {
+          return this.generateVideo(taskId, params, abortController.signal);
+        }
+        return this.generateAudio(taskId, params, abortController.signal);
       })();
 
       // Race between generation and timeout
@@ -114,7 +131,12 @@ class GenerationAPIService {
       analytics.trackModelSuccess({
         taskId,
         taskType,
-        model: taskType === 'image' ? 'gemini-image' : 'gemini-video',
+        model:
+          taskType === 'image'
+            ? 'gemini-image'
+            : taskType === 'video'
+            ? 'gemini-video'
+            : DEFAULT_AUDIO_MODEL_ID,
         duration,
         resultSize: result.size,
       });
@@ -132,11 +154,24 @@ class GenerationAPIService {
         analytics.trackModelFailure({
           taskId,
           taskType,
-          model: taskType === 'image' ? 'gemini-image' : 'gemini-video',
+          model:
+            taskType === 'image'
+              ? 'gemini-image'
+              : taskType === 'video'
+              ? 'gemini-video'
+              : DEFAULT_AUDIO_MODEL_ID,
           duration,
           error: 'TIMEOUT',
         });
-        throw new Error(`${type === TaskType.IMAGE ? '图片' : '视频'}生成超时`);
+        throw new Error(
+          `${
+            type === TaskType.IMAGE
+              ? '图片'
+              : type === TaskType.VIDEO
+              ? '视频'
+              : '音频'
+          }生成超时`
+        );
       }
 
       if (error.name === 'AbortError') {
@@ -153,7 +188,12 @@ class GenerationAPIService {
       analytics.trackModelFailure({
         taskId,
         taskType,
-        model: taskType === 'image' ? 'gemini-image' : 'gemini-video',
+        model:
+          taskType === 'image'
+            ? 'gemini-image'
+            : taskType === 'video'
+            ? 'gemini-video'
+            : DEFAULT_AUDIO_MODEL_ID,
         duration,
         error: error.message || 'UNKNOWN_ERROR',
       });
@@ -455,6 +495,95 @@ class GenerationAPIService {
   }
 
   /**
+   * Generates audio using the audio adapter path
+   * @private
+   */
+  private async generateAudio(
+    taskId: string,
+    params: GenerationParams,
+    signal: AbortSignal
+  ): Promise<TaskResult> {
+    try {
+      const requestedModel = (params as any).model as string | undefined;
+      const requestedModelRef = (params as any).modelRef as
+        | ModelRef
+        | null
+        | undefined;
+      const adapter = resolveAdapterForInvocation(
+        'audio',
+        requestedModel || DEFAULT_AUDIO_MODEL_ID,
+        requestedModelRef || null
+      );
+
+      if (!adapter || adapter.kind !== 'audio') {
+        throw new Error(`No audio adapter for model: ${requestedModel}`);
+      }
+
+      taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+        executionPhase: TaskExecutionPhase.SUBMITTING,
+      });
+
+      const result = await adapter.generateAudio(
+        getAdapterContextFromSettings(
+          'audio',
+          requestedModelRef || requestedModel
+        ),
+        {
+          prompt: params.prompt,
+          model: requestedModel,
+          modelRef: requestedModelRef || null,
+          title: params.title,
+          tags: params.tags,
+          mv: params.mv,
+          continueClipId: params.continueClipId,
+          continueAt: params.continueAt,
+          params: {
+            ...(params as any).params,
+            signal,
+            onProgress: (progress: number) => {
+              taskQueueService.updateTaskProgress(taskId, progress);
+              taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+                executionPhase: TaskExecutionPhase.POLLING,
+              });
+            },
+            onSubmitted: (remoteId: string) => {
+              taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+                remoteId,
+                executionPhase: TaskExecutionPhase.POLLING,
+              });
+            },
+          },
+        }
+      );
+
+      return {
+        url: result.url,
+        urls: result.urls,
+        format: result.format || 'mp3',
+        size: 0,
+        duration:
+          typeof result.duration === 'number' ? result.duration : undefined,
+        previewImageUrl: result.imageUrl,
+        title: result.title,
+        providerTaskId: result.providerTaskId,
+        primaryClipId: result.primaryClipId,
+        clipIds: result.clipIds,
+        clips: result.clips,
+      };
+    } catch (error: any) {
+      console.error('[GenerationAPI] Audio generation error:', error);
+      const wrappedError = new Error(error.message || '音频生成失败');
+      if (error.apiErrorBody) {
+        (wrappedError as any).apiErrorBody = error.apiErrorBody;
+      }
+      if (error.httpStatus) {
+        (wrappedError as any).httpStatus = error.httpStatus;
+      }
+      throw wrappedError;
+    }
+  }
+
+  /**
    * Resumes video polling for a task that was interrupted (e.g., by page refresh)
    *
    * @param taskId - Task identifier
@@ -540,6 +669,82 @@ class GenerationAPIService {
         taskId,
         taskType: 'video',
         model: 'gemini-video',
+        duration,
+        error: error.message || 'UNKNOWN_ERROR',
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Resumes audio polling for a task interrupted by page refresh
+   */
+  async resumeAudioGeneration(
+    taskId: string,
+    remoteId: string,
+    routeModel?: string | ModelRef | null
+  ): Promise<TaskResult> {
+    const startTime = Date.now();
+
+    analytics.trackModelCall({
+      taskId,
+      taskType: 'audio',
+      model: DEFAULT_AUDIO_MODEL_ID,
+      promptLength: 0,
+      hasUploadedImage: false,
+      startTime,
+    });
+
+    try {
+      const timeout = TASK_TIMEOUT.AUDIO;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('TIMEOUT'));
+        }, timeout);
+      });
+
+      const pollingPromise = audioAPIService.resumePolling(remoteId, {
+        interval: 5000,
+        routeModel,
+        onProgress: (progress) => {
+          taskQueueService.updateTaskProgress(taskId, progress);
+        },
+      });
+
+      const response = await Promise.race([pollingPromise, timeoutPromise]);
+      const result = extractAudioGenerationResult(response);
+      const duration = Date.now() - startTime;
+
+      analytics.trackModelSuccess({
+        taskId,
+        taskType: 'audio',
+        model: DEFAULT_AUDIO_MODEL_ID,
+        duration,
+        resultSize: 0,
+      });
+
+      return {
+        url: result.url,
+        urls: result.urls,
+        format: result.format || 'mp3',
+        size: 0,
+        duration:
+          typeof result.duration === 'number' ? result.duration : undefined,
+        previewImageUrl: result.imageUrl,
+        title: result.title,
+      };
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error(
+        `[GenerationAPI] Resumed audio generation failed for task ${taskId}:`,
+        error
+      );
+
+      analytics.trackModelFailure({
+        taskId,
+        taskType: 'audio',
+        model: DEFAULT_AUDIO_MODEL_ID,
         duration,
         error: error.message || 'UNKNOWN_ERROR',
       });

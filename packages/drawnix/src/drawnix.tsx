@@ -48,6 +48,11 @@ import { buildTextLinkPlugin } from './plugins/with-text-link';
 import { LinkPopup } from './components/popup/link-popup/link-popup';
 import { I18nProvider } from './i18n';
 import { withVideo, isVideoElement } from './plugins/with-video';
+import {
+  getAudioPlaybackSourceFromElement,
+  getCanvasAudioPlaybackQueue,
+  isAudioElement,
+} from './data/audio';
 import { UnifiedMediaViewer, type MediaItem as UnifiedMediaItem } from './components/shared/media-preview';
 import { PlaitDrawElement } from '@plait/draw';
 import { withTracking } from './plugins/tracking';
@@ -91,6 +96,8 @@ import { withFlowchartShortcut } from './plugins/with-flowchart-shortcut';
 import { withFrame } from './plugins/with-frame';
 import { withCard } from './plugins/with-card';
 import { withCardResize } from './plugins/with-card-resize';
+import { withAudioNode } from './plugins/with-audio-node';
+import { withAudioNodeResize } from './plugins/with-audio-node-resize';
 import { toolWindowService } from './services/tool-window-service';
 import { BUILT_IN_TOOLS } from './constants/built-in-tools';
 import { AutoCompleteShapePicker } from './components/auto-complete-shape-picker';
@@ -111,6 +118,10 @@ import { safeReload } from './utils/active-tasks';
 import { CommandPalette } from './components/command-palette/command-palette';
 import { CanvasSearch } from './components/canvas-search/canvas-search';
 import { useTabSync } from './hooks/useTabSync';
+import { CanvasAudioPlayer } from './components/audio-node-element/CanvasAudioPlayer';
+import { canvasAudioPlaybackService } from './services/canvas-audio-playback-service';
+import { useCanvasAudioPlaybackSelector } from './hooks/useCanvasAudioPlayback';
+import { isAudioNodeElement } from './types/audio-node.types';
 
 const TTDDialog = lazy(() => import('./components/ttd-dialog/ttd-dialog').then(module => ({ default: module.TTDDialog })));
 const SettingsDialog = lazy(() => import('./components/settings-dialog/settings-dialog').then(module => ({ default: module.SettingsDialog })));
@@ -758,6 +769,8 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     withFrameResize, // Frame 缩放 - 拖拽缩放 Frame 容器
     withCard, // Card 标签贴 - Markdown 粘贴和 Agent 输出的卡片展示
     withCardResize, // Card 缩放 - 拖拽缩放 Card 标签贴
+    withAudioNode, // Audio Node - 画布内可播放的音频组件节点
+    withAudioNodeResize, // Audio Node 缩放 - 拖拽缩放音频组件节点
     withDefaultFill, // 默认填充 - 让新创建的图形有白色填充，方便双击编辑
     withGradientFill, // 渐变填充 - 支持渐变和图片填充渲染
     withLassoSelection, // 套索选择 - 自由路径框选元素
@@ -985,6 +998,8 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   const { chatDrawerRef } = useChatDrawer();
   const { setAppState: updateState } = useDrawnix();
   const { language } = useI18n();
+  const playbackError = useCanvasAudioPlaybackSelector((state) => state.error);
+  const lastPlaybackErrorRef = useRef<string | undefined>(undefined);
 
   // 画笔自定义光标
   usePencilCursor({ board, pointer: appState.pointer });
@@ -1026,6 +1041,30 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   const [mediaPreviewItems, setMediaPreviewItems] = useState<UnifiedMediaItem[]>([]);
   const [mediaPreviewInitialIndex, setMediaPreviewInitialIndex] = useState(0);
 
+  useEffect(() => {
+    if (!playbackError) {
+      lastPlaybackErrorRef.current = undefined;
+      return;
+    }
+
+    if (playbackError === lastPlaybackErrorRef.current) {
+      return;
+    }
+
+    lastPlaybackErrorRef.current = playbackError;
+    MessagePlugin.error(playbackError);
+  }, [playbackError]);
+
+  useEffect(() => {
+    canvasAudioPlaybackService.setQueue(getCanvasAudioPlaybackQueue(value));
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      canvasAudioPlaybackService.stopAndClear();
+    };
+  }, []);
+
   // 收集画布上所有图片和视频元素
   const collectCanvasMediaItems = useCallback((): { items: UnifiedMediaItem[]; elementIds: string[] } => {
     if (!board || !board.children) return { items: [], elementIds: [] };
@@ -1036,6 +1075,10 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
     for (const element of board.children) {
       const url = (element as any).url;
       if (!url || typeof url !== 'string') continue;
+
+      if (isAudioElement(element)) {
+        continue;
+      }
 
       // 检查是否为图片元素
       const isImage = PlaitDrawElement.isDrawElement(element) && PlaitDrawElement.isImage(element);
@@ -1248,6 +1291,12 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
 
       // 如果双击了图片或视频元素，打开预览
       if (hitElement) {
+        if (isAudioElement(hitElement)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
         const url = (hitElement as any).url;
         if (url && typeof url === 'string') {
           const isImage = PlaitDrawElement.isDrawElement(hitElement) && PlaitDrawElement.isImage(hitElement);
@@ -1303,14 +1352,34 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
         return;
       }
 
+      const viewBoxPoint = toViewBoxPoint(
+        board,
+        toHostPoint(board, event.clientX, event.clientY)
+      );
+      const hitElement = getHitElementByPoint(board, viewBoxPoint);
+
+      if (
+        hitElement &&
+        isAudioElement(hitElement) &&
+        !isAudioNodeElement(hitElement)
+      ) {
+        const playbackSource = getAudioPlaybackSourceFromElement(hitElement);
+        if (playbackSource) {
+          event.preventDefault();
+          event.stopPropagation();
+          void canvasAudioPlaybackService.togglePlayback(playbackSource).catch(() => {
+            // Error feedback is surfaced from the playback store.
+          });
+          return;
+        }
+      }
+
       // 文本工具激活时：单击空白区域显示浮动文本输入
       if (PlaitBoard.isPointer(board, BasicShapes.text)) {
         const isInsideInteractive = target.closest('.plait-tool-container') ||
                                      target.closest('.plait-workzone-container') ||
                                      target.closest('foreignObject');
         if (!isInsideInteractive) {
-          const viewBoxPoint = toViewBoxPoint(board, toHostPoint(board, event.clientX, event.clientY));
-          const hitElement = getHitElementByPoint(board, viewBoxPoint);
           if (!hitElement) {
             setInlineTextInput({
               screenX: event.clientX,
@@ -1409,6 +1478,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             onOpenCloudSync={() => setCloudSyncOpen(true)}
             onKnowledgeBaseToggle={handleKnowledgeBaseToggle}
           />
+          <CanvasAudioPlayer />
 
           <PopupToolbar></PopupToolbar>
           <LinkPopup></LinkPopup>

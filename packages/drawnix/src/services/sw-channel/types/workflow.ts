@@ -198,12 +198,13 @@ export interface WorkflowStepsAddedEvent {
  */
 export interface CanvasOperationRequestEvent {
   requestId: string;
-  operation: 'insert_image' | 'insert_video' | 'insert_text' | 'canvas_insert';
+  operation: 'insert_image' | 'insert_video' | 'insert_audio' | 'insert_text' | 'canvas_insert';
   params: {
     url?: string;
     content?: string;
     position?: { x: number; y: number };
-    items?: Array<{ type: string; url?: string; content?: string }>;
+    items?: Array<{ type: string; url?: string; content?: string; [key: string]: unknown }>;
+    [key: string]: unknown;
   };
 }
 

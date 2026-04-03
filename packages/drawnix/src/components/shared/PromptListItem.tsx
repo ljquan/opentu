@@ -19,8 +19,8 @@ export interface PromptListItemProps {
   pinned?: boolean;
   /** 是否是预设提示词 */
   isPreset?: boolean;
-  /** 生成类型：image(直接生图)、video(直接生视频)、agent(需要Agent分析) */
-  modelType?: 'image' | 'video' | 'agent';
+  /** 生成类型：image(直接生图)、video(直接生视频)、audio(直接生成音频)、agent(需要Agent分析) */
+  modelType?: 'image' | 'video' | 'audio' | 'agent';
   /** 场景描述（用于显示标签） */
   scene?: string;
   /** 点击提示词的回调 */
@@ -39,6 +39,7 @@ export interface PromptListItemProps {
 const MODEL_TYPE_STYLES: Record<string, string> = {
   'image': 'prompt-list-item__tag--image',
   'video': 'prompt-list-item__tag--video',
+  'audio': 'prompt-list-item__tag--audio',
   'agent': 'prompt-list-item__tag--agent',
 };
 

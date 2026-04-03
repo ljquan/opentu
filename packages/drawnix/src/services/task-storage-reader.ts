@@ -39,6 +39,23 @@ interface SWTask {
     height?: number;
     duration?: number;
     thumbnailUrl?: string;
+    previewImageUrl?: string;
+    title?: string;
+    providerTaskId?: string;
+    primaryClipId?: string;
+    clipIds?: string[];
+    clips?: Array<{
+      id?: string;
+      clipId?: string;
+      title?: string;
+      status?: string;
+      audioUrl: string;
+      imageUrl?: string;
+      imageLargeUrl?: string;
+      duration?: number | null;
+      modelName?: string;
+      majorModelVersion?: string;
+    }>;
     characterUsername?: string;
     characterProfileUrl?: string;
     characterPermalink?: string;

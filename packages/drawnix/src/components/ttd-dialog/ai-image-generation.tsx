@@ -54,10 +54,6 @@ import {
   getSizeOptionsForModel,
   type ModelConfig,
 } from '../../constants/model-config';
-import {
-  loadAIImageToolPreferences,
-  saveAIImageToolPreferences,
-} from '../../services/ai-generation-preferences-service';
 import { useSelectableModels } from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
@@ -97,49 +93,31 @@ const AIImageGeneration = ({
   onModelChange,
   onModelRefChange,
 }: AIImageGenerationProps = {}) => {
-  const initialRoute = resolveInvocationRoute('image');
-  const persistedPreferencesRef = useRef<
-    ReturnType<typeof loadAIImageToolPreferences> | null
-  >(null);
-  if (!persistedPreferencesRef.current) {
-    const fallbackModel =
-      selectedModel || initialRoute.modelId || 'gemini-2.5-flash-image-vip';
-    persistedPreferencesRef.current = loadAIImageToolPreferences(fallbackModel);
-  }
-  const persistedPreferences = persistedPreferencesRef.current;
   const imageModels = useSelectableModels('image');
   const [prompt, setPrompt] = useState(initialPrompt);
   const [mjSelectedParams, setMjSelectedParams] = useState<
     Record<string, string>
-  >(persistedPreferences.extraParams);
-  const initialPreferredModelId =
-    selectedModel || persistedPreferences.currentModel || initialRoute.modelId;
-  const initialPreferredModelRef =
-    selectedModel && selectedModel !== initialRoute.modelId
-      ? selectedModelRef || null
-      : persistedPreferences.currentModel &&
-        persistedPreferences.currentModel !== initialRoute.modelId
-      ? null
-      : createModelRef(initialRoute.profileId, initialRoute.modelId);
+  >({});
+  const initialRoute = resolveInvocationRoute('image');
   const initialMatchedModel =
     findMatchingSelectableModel(
       imageModels,
-      initialPreferredModelId,
-      initialPreferredModelRef
+      initialRoute.modelId,
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
     ) ||
     getPinnedSelectableModel(
       'image',
-      initialPreferredModelId,
-      initialPreferredModelRef
+      initialRoute.modelId,
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
     );
   const [currentModel, setCurrentModel] = useState(
     initialMatchedModel?.id ||
-      initialPreferredModelId ||
       imageModels[0]?.id ||
       'gemini-2.5-flash-image-vip'
   );
   const [currentModelRef, setCurrentModelRef] = useState<ModelRef | null>(
-    getModelRefFromConfig(initialMatchedModel) || initialPreferredModelRef
+    getModelRefFromConfig(initialMatchedModel) ||
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
   );
   const visibleImageModels = useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
@@ -161,7 +139,7 @@ const AIImageGeneration = ({
   const [width, setWidth] = useState<number | string>(initialWidth || 1024);
   const [height, setHeight] = useState<number | string>(initialHeight || 1024);
   const [aspectRatio, setAspectRatio] = useState<string>(
-    initialAspectRatio || persistedPreferences.aspectRatio || DEFAULT_ASPECT_RATIO
+    initialAspectRatio || DEFAULT_ASPECT_RATIO
   );
   const [error, setError] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] =

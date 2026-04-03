@@ -1,4 +1,5 @@
 import {
+  getDefaultAudioModel,
   getDefaultImageModel,
   getDefaultTextModel,
   getDefaultVideoModel,
@@ -186,6 +187,10 @@ function buildLegacyBindings(
         gemini.chatModel?.trim() ||
         getDefaultTextModel(),
       type: 'text',
+    },
+    {
+      modelId: gemini.audioModelName?.trim() || getDefaultAudioModel(),
+      type: 'audio',
     },
     {
       modelId: gemini.imageModelName?.trim() || getDefaultImageModel(),

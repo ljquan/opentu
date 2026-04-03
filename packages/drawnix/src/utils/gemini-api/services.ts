@@ -2,7 +2,6 @@
  * Gemini API 服务函数
  */
 
-import { normalizeImageDataUrl } from '@aitu/utils';
 import {
   ImageInput,
   GeminiMessage,
@@ -374,8 +373,6 @@ async function generateImageDirect(
 
     // 提取结果 URL
     const resultUrl = result.data?.[0]?.url || result.data?.[0]?.b64_json;
-    const normalizedResultUrl =
-      typeof resultUrl === 'string' ? normalizeImageDataUrl(resultUrl) : resultUrl;
 
     completeLLMApiLog(logId, {
       httpStatus: response.status,

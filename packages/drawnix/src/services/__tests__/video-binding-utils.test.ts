@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { inferBindingsForProviderModel } from '../provider-routing';
 import {
   getEffectiveVideoCompatibleParams,
@@ -6,7 +6,16 @@ import {
   resolveVideoSubmission,
   shouldDownloadVideoContent,
 } from '../video-binding-utils';
-import { ModelVendor, type ModelConfig } from '../../constants/model-config';
+import {
+  clearRuntimeModelConfigs,
+  ModelVendor,
+  setRuntimeModelConfigs,
+  type ModelConfig,
+} from '../../constants/model-config';
+
+afterEach(() => {
+  clearRuntimeModelConfigs();
+});
 
 describe('video binding utils', () => {
   it('overrides official OpenAI sora bindings with raw Sora capabilities', () => {
@@ -195,5 +204,121 @@ describe('video binding utils', () => {
 
     expect(submission.duration).toBe('8');
     expect(submission.model).toBe('sora-2');
+  });
+
+  it('uses Kling capability defaults and exposes model_name for runtime models', () => {
+    setRuntimeModelConfigs([
+      {
+        id: 'kling_video',
+        label: 'Kling',
+        shortLabel: 'Kling',
+        type: 'video',
+        vendor: ModelVendor.KLING,
+        videoDefaults: {
+          duration: '5',
+          size: '1280x720',
+          aspectRatio: '16:9',
+        },
+      },
+    ]);
+
+    const binding = inferBindingsForProviderModel(
+      {
+        id: 'provider-kling',
+        name: 'Kling Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      },
+      {
+        id: 'kling_video',
+        label: 'Kling',
+        type: 'video',
+        vendor: ModelVendor.KLING,
+      }
+    ).find((candidate) => candidate.protocol === 'kling.video');
+
+    const config = getEffectiveVideoModelConfig('kling_video', binding || null);
+
+    expect(config.defaultDuration).toBe('5');
+    expect(config.durationOptions.map((option) => option.value)).toEqual([
+      '5',
+      '10',
+    ]);
+    expect(config.sizeOptions.map((option) => option.aspectRatio)).toEqual([
+      '16:9',
+      '9:16',
+      '1:1',
+    ]);
+
+    const params = getEffectiveVideoCompatibleParams('kling_video');
+    const durationParam = params.find((param) => param.id === 'duration');
+    const sizeParam = params.find((param) => param.id === 'size');
+    const modelNameParam = params.find((param) => param.id === 'model_name');
+    const cfgScaleParam = params.find((param) => param.id === 'cfg_scale');
+    const cameraHorizontalParam = params.find(
+      (param) => param.id === 'camera_horizontal'
+    );
+
+    expect(durationParam?.defaultValue).toBe('5');
+    expect(durationParam?.options?.map((option) => option.value)).toEqual([
+      '5',
+      '10',
+    ]);
+    expect(sizeParam?.defaultValue).toBe('1280x720');
+    expect(sizeParam?.options?.map((option) => option.value)).toEqual([
+      '1280x720',
+      '720x1280',
+      '1024x1024',
+    ]);
+    expect(modelNameParam?.defaultValue).toBe('kling-v1-6');
+    expect(modelNameParam?.options?.map((option) => option.value)).toEqual([
+      'kling-v3',
+      'kling-v2-6',
+      'kling-v2-1',
+      'kling-v1-6',
+      'kling-v1-5',
+    ]);
+    expect(cfgScaleParam).toMatchObject({
+      min: 0,
+      max: 1,
+      step: 0.01,
+    });
+    expect(cameraHorizontalParam).toMatchObject({
+      min: -10,
+      max: 10,
+      step: 1,
+      integer: true,
+    });
+
+    expect(params.map((param) => param.id)).toEqual(
+      expect.arrayContaining([
+        'duration',
+        'size',
+        'klingAction2',
+        'mode',
+        'cfg_scale',
+        'negative_prompt',
+        'camera_control_type',
+        'camera_horizontal',
+        'camera_vertical',
+        'camera_pan',
+        'camera_tilt',
+        'camera_roll',
+        'camera_zoom',
+      ])
+    );
+  });
+
+  it('reuses Kling defaults for standard Kling version aliases', () => {
+    const config = getEffectiveVideoModelConfig('kling-v3', null);
+
+    expect(config.defaultDuration).toBe('5');
+    expect(config.durationOptions.map((option) => option.value)).toEqual([
+      '5',
+      '10',
+    ]);
+    expect(config.defaultSize).toBe('1280x720');
   });
 });

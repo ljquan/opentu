@@ -32,6 +32,9 @@ enum AIGenerationEvent {
   VIDEO_GENERATION_START = 'video_generation_start',
   VIDEO_GENERATION_SUCCESS = 'video_generation_success',
   VIDEO_GENERATION_FAILED = 'video_generation_failed',
+  AUDIO_GENERATION_START = 'audio_generation_start',
+  AUDIO_GENERATION_SUCCESS = 'audio_generation_success',
+  AUDIO_GENERATION_FAILED = 'audio_generation_failed',
   CHAT_GENERATION_START = 'chat_generation_start',
   CHAT_GENERATION_SUCCESS = 'chat_generation_success',
   CHAT_GENERATION_FAILED = 'chat_generation_failed',
@@ -93,7 +96,7 @@ class PostHogAnalytics {
   /** Track model call start */
   trackModelCall(params: {
     taskId: string;
-    taskType: 'image' | 'video' | 'chat';
+    taskType: 'image' | 'video' | 'audio' | 'chat';
     model: string;
     promptLength: number;
     hasUploadedImage: boolean;
@@ -108,6 +111,7 @@ class PostHogAnalytics {
     const eventMap = {
       image: AIGenerationEvent.IMAGE_GENERATION_START,
       video: AIGenerationEvent.VIDEO_GENERATION_START,
+      audio: AIGenerationEvent.AUDIO_GENERATION_START,
       chat: AIGenerationEvent.CHAT_GENERATION_START,
     };
     this.trackAIGeneration(eventMap[params.taskType], params);
@@ -116,7 +120,7 @@ class PostHogAnalytics {
   /** Track successful model call */
   trackModelSuccess(params: {
     taskId: string;
-    taskType: 'image' | 'video' | 'chat';
+    taskType: 'image' | 'video' | 'audio' | 'chat';
     model: string;
     duration: number;
     resultSize?: number;
@@ -124,6 +128,7 @@ class PostHogAnalytics {
     const eventMap = {
       image: AIGenerationEvent.IMAGE_GENERATION_SUCCESS,
       video: AIGenerationEvent.VIDEO_GENERATION_SUCCESS,
+      audio: AIGenerationEvent.AUDIO_GENERATION_SUCCESS,
       chat: AIGenerationEvent.CHAT_GENERATION_SUCCESS,
     };
     this.trackAIGeneration(eventMap[params.taskType], params);
@@ -132,7 +137,7 @@ class PostHogAnalytics {
   /** Track failed model call */
   trackModelFailure(params: {
     taskId: string;
-    taskType: 'image' | 'video' | 'chat';
+    taskType: 'image' | 'video' | 'audio' | 'chat';
     model: string;
     duration: number;
     error: string;
@@ -140,6 +145,7 @@ class PostHogAnalytics {
     const eventMap = {
       image: AIGenerationEvent.IMAGE_GENERATION_FAILED,
       video: AIGenerationEvent.VIDEO_GENERATION_FAILED,
+      audio: AIGenerationEvent.AUDIO_GENERATION_FAILED,
       chat: AIGenerationEvent.CHAT_GENERATION_FAILED,
     };
     this.trackAIGeneration(eventMap[params.taskType], params);
@@ -148,7 +154,7 @@ class PostHogAnalytics {
   /** Track task cancellation */
   trackTaskCancellation(params: {
     taskId: string;
-    taskType: 'image' | 'video' | 'chat';
+    taskType: 'image' | 'video' | 'audio' | 'chat';
     duration: number;
   }): void {
     this.trackAIGeneration(AIGenerationEvent.TASK_CANCELLED, params);

@@ -19,8 +19,8 @@ export interface PromptItem {
   pinned?: boolean;
   /** 是否是预设提示词（预设不允许删除和置顶） */
   isPreset?: boolean;
-  /** 生成类型：image(直接生图)、video(直接生视频)、agent(需要Agent分析) */
-  modelType?: 'image' | 'video' | 'agent';
+  /** 生成类型：image(直接生图)、video(直接生视频)、audio(直接生成音频)、agent(需要Agent分析) */
+  modelType?: 'image' | 'video' | 'audio' | 'agent';
   /** 场景描述（用于显示标签） */
   scene?: string;
 }

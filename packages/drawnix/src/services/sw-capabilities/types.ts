@@ -16,6 +16,7 @@ export type DelegatedOperationType =
   | 'ai_analyze'
   | 'generate_image'
   | 'generate_video'
+  | 'generate_audio'
   | 'generate_grid_image'
   | 'generate_inspiration_board'
   | 'split_image'
@@ -45,7 +46,7 @@ export interface CapabilityResult {
   success: boolean;
   data?: unknown;
   error?: string;
-  type?: 'image' | 'video' | 'text' | 'canvas' | 'error';
+  type?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
   /** Task ID (for queued operations) */
   taskId?: string;
   /** Multiple task IDs (for batch operations) */
@@ -64,10 +65,11 @@ export interface CapabilityResult {
  * Canvas insertion item
  */
 export interface InsertionItem {
-  type: 'text' | 'image' | 'video' | 'svg';
+  type: 'text' | 'image' | 'video' | 'audio' | 'svg';
   content: string;
   label?: string;
   groupId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -205,6 +207,26 @@ export interface VideoGenerationParams {
   batchTotal?: number;
   /** 全局索引 */
   globalIndex?: number;
+}
+
+/**
+ * Audio generation params (delegated from SW)
+ */
+export interface AudioGenerationParams {
+  prompt: string;
+  model?: string;
+  modelRef?: ModelRef | null;
+  title?: string;
+  tags?: string;
+  mv?: string;
+  continueClipId?: string;
+  continueAt?: number;
+  count?: number;
+  batchId?: string;
+  batchIndex?: number;
+  batchTotal?: number;
+  globalIndex?: number;
+  params?: Record<string, unknown>;
 }
 
 /**

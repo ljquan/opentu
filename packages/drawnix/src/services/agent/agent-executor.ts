@@ -338,15 +338,8 @@ class AgentExecutor {
       const textModelName =
         (typeof textRouteModel === 'string'
           ? textRouteModel
-          : textRouteModel?.modelId) ||
-        globalSettings.textModelName ||
-        context.model.id;
-      console.log(
-        '[AgentExecutor] 使用文本模型:',
-        textModelName,
-        ', hasApiKey:',
-        !!globalSettings.apiKey
-      );
+          : textRouteModel?.modelId) || globalSettings.textModelName;
+      console.log('[AgentExecutor] 使用文本模型:', textModelName, ', hasApiKey:', !!globalSettings.apiKey);
 
       while (iterations < maxIterations) {
         iterations++;

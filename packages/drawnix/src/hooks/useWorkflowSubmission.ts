@@ -119,6 +119,7 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
     // Dynamically import canvas operations to avoid circular dependencies
     const { insertImageFromUrl } = await import('../data/image');
     const { insertVideoFromUrl } = await import('../data/video');
+    const { insertAudioFromUrl } = await import('../data/audio');
     const { getSmartInsertionPoint } = await import('../utils/selection-utils');
     
     // Get insertion point
@@ -133,12 +134,16 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
           await insertImageFromUrl(board, item.url, insertPoint);
         } else if (item.type === 'video' && item.url) {
           await insertVideoFromUrl(board, item.url, insertPoint);
+        } else if (item.type === 'audio' && item.url) {
+          await insertAudioFromUrl(board, item.url, item as any, insertPoint);
         }
       }
     } else if (operation === 'insert_image' && params.url) {
       await insertImageFromUrl(board, params.url, insertPoint);
     } else if (operation === 'insert_video' && params.url) {
       await insertVideoFromUrl(board, params.url, insertPoint);
+    } else if ((operation as string) === 'insert_audio' && params.url) {
+      await insertAudioFromUrl(board, params.url, params as any, insertPoint);
     }
   } catch (error) {
     console.error('[useWorkflowSubmission] Failed to insert to canvas:', error);
@@ -240,12 +245,18 @@ export function useWorkflowSubmission(
               userInstruction: recoveredWorkflow.context?.userInput || '',
               model: {
                 id: recoveredWorkflow.context?.model || '',
-                type: recoveredWorkflow.generationType === 'video' ? 'video' : 'image',
+                type:
+                  recoveredWorkflow.generationType === 'video'
+                    ? 'video'
+                    : recoveredWorkflow.generationType === 'audio'
+                    ? 'audio'
+                    : 'image',
                 isExplicit: true,
               },
               defaultModels: {
                 image: globalSettings.imageModelName || 'gemini-3-pro-image-preview-vip',
                 video: globalSettings.videoModelName || 'veo3.1',
+                audio: globalSettings.audioModelName || 'suno_music',
               } as any,
               params: {
                 count: recoveredWorkflow.metadata?.count,
@@ -489,6 +500,7 @@ export function useWorkflowSubmission(
         defaultModels: {
           image: globalSettings.imageModelName || 'gemini-3-pro-image-preview-vip',
           video: globalSettings.videoModelName || 'veo3.1',
+          audio: globalSettings.audioModelName || 'suno_music',
         },
         params: {
           count: parsedInput.count,
@@ -546,7 +558,10 @@ export function useWorkflowSubmission(
       rawInput: retryContext.aiContext.rawInput,
       modelId: retryContext.aiContext.model.id,
       isModelExplicit: retryContext.aiContext.model.isExplicit,
-      generationType: retryContext.aiContext.model.type as 'image' | 'video',
+      generationType: retryContext.aiContext.model.type as
+        | 'image'
+        | 'video'
+        | 'audio',
       count: workflowMessageData.count || 1,
       size: retryContext.aiContext.params.size,
       duration: retryContext.aiContext.params.duration,

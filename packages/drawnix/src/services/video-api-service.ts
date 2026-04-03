@@ -8,7 +8,6 @@
 import {
   providerTransport,
   resolveInvocationPlanFromRoute,
-  type ProviderModelBinding,
   type ProviderAuthStrategy,
   type ResolvedProviderContext,
 } from './provider-routing';
@@ -98,9 +97,7 @@ interface PollingOptions {
   routeModel?: string | ModelRef | null;
 }
 
-function inferAuthType(
-  route: ReturnType<typeof resolveInvocationRoute>
-): ProviderAuthStrategy {
+function inferAuthType(route: ReturnType<typeof resolveInvocationRoute>): ProviderAuthStrategy {
   return 'bearer';
 }
 
@@ -125,7 +122,9 @@ function resolveProviderContext(
 
 function resolveVideoPlanContext(routeModel?: string | ModelRef | null): {
   providerContext: ResolvedProviderContext;
-  binding: ProviderModelBinding | null;
+  binding: NonNullable<
+    ReturnType<typeof resolveInvocationPlanFromRoute>
+  >['binding'] | null;
 } {
   const plan = resolveInvocationPlanFromRoute('video', routeModel);
   return {
@@ -466,10 +465,7 @@ class VideoAPIService {
     }
 
     // If already completed, return immediately
-    if (
-      immediateStatus.status === 'completed' ||
-      immediateStatus.status === 'succeeded'
-    ) {
+    if (immediateStatus.status === 'completed') {
       return this.resolveCompletedVideoStatus(
         videoId,
         immediateStatus,
@@ -537,7 +533,7 @@ class VideoAPIService {
           onProgress(progress, status.status);
         }
 
-        if (status.status === 'completed' || status.status === 'succeeded') {
+        if (status.status === 'completed') {
           return this.resolveCompletedVideoStatus(
             videoId,
             status,
@@ -607,13 +603,7 @@ class VideoAPIService {
     );
     const inlineUrl = extractInlineVideoUrl(status as Record<string, any>);
 
-    if (
-      !shouldDownloadVideoContent(
-        status.model,
-        binding,
-        status as Record<string, any>
-      )
-    ) {
+    if (!shouldDownloadVideoContent(status.model, binding, status as Record<string, any>)) {
       return inlineUrl ? { ...status, url: inlineUrl } : status;
     }
 

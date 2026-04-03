@@ -30,7 +30,7 @@ export interface PromptHistoryItem {
   /** 是否置顶 */
   pinned?: boolean;
   /** 生成类型：image(直接生图)、video(直接生视频)、agent(需要Agent分析) */
-  modelType?: 'image' | 'video' | 'agent';
+  modelType?: 'image' | 'video' | 'audio' | 'agent';
 }
 
 /**
@@ -205,7 +205,7 @@ export function getPromptHistory(): PromptHistoryItem[] {
 export function addPromptHistory(
   content: string,
   hasSelection?: boolean,
-  modelType?: 'image' | 'video' | 'agent'
+  modelType?: 'image' | 'video' | 'audio' | 'agent'
 ): void {
   if (!content || !content.trim()) return;
 

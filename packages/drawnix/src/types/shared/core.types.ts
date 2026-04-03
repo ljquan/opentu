@@ -60,6 +60,8 @@ export enum TaskType {
   IMAGE = 'image',
   /** Video generation task */
   VIDEO = 'video',
+  /** Audio generation task */
+  AUDIO = 'audio',
   /** Character extraction task */
   CHARACTER = 'character',
   /** Inspiration board generation task (image + split + layout) */
@@ -102,6 +104,16 @@ export interface GenerationParams {
   size?: string;
   /** Video duration in seconds (video only) */
   duration?: number;
+  /** Audio title */
+  title?: string;
+  /** Audio style tags */
+  tags?: string;
+  /** Audio model version */
+  mv?: string;
+  /** Continue from clip ID */
+  continueClipId?: string;
+  /** Continue from timestamp */
+  continueAt?: number;
   /** Style or model to use for generation */
   style?: string;
   /** AI model to use (e.g., 'veo3', 'sora-2') */
@@ -161,6 +173,18 @@ export interface TaskResult {
   duration?: number;
   /** Video thumbnail URL (video only) */
   thumbnailUrl?: string;
+  /** Preview cover image URL (audio only) */
+  previewImageUrl?: string;
+  /** Result title (audio only) */
+  title?: string;
+  /** Provider task ID used to fetch audio results */
+  providerTaskId?: string;
+  /** Primary provider clip identifier for audio follow-up actions */
+  primaryClipId?: string;
+  /** Ordered provider clip identifiers corresponding to urls[] */
+  clipIds?: string[];
+  /** Ordered clip metadata corresponding to audio outputs */
+  clips?: AudioClipResult[];
   /** Character username for @mention (character only) */
   characterUsername?: string;
   /** Character profile picture URL (character only) */
@@ -171,6 +195,29 @@ export interface TaskResult {
   chatResponse?: string;
   /** Tool calls made during chat (chat only) */
   toolCalls?: ChatToolCall[];
+}
+
+export interface AudioClipResult {
+  /** Provider entity id */
+  id?: string;
+  /** Provider clip id */
+  clipId?: string;
+  /** Display title */
+  title?: string;
+  /** Provider clip status */
+  status?: string;
+  /** Playable audio URL */
+  audioUrl: string;
+  /** Preview cover image */
+  imageUrl?: string;
+  /** High resolution preview cover image */
+  imageLargeUrl?: string;
+  /** Clip duration in seconds */
+  duration?: number | null;
+  /** Provider model name */
+  modelName?: string;
+  /** Provider major model version */
+  majorModelVersion?: string;
 }
 
 // ============================================================================

@@ -21,6 +21,7 @@ import {
 import { LS_KEYS } from '../../constants/storage-keys';
 import { ModelDiscoveryDialog } from './model-discovery-dialog';
 import {
+  getDefaultAudioModel,
   getDefaultImageModel,
   getDefaultTextModel,
   getDefaultVideoModel,
@@ -90,16 +91,18 @@ const AUTH_TYPE_OPTIONS: ProviderProfile['authType'][] = [
 const ROUTE_LABELS: Record<ModelType, string> = {
   image: '图片',
   video: '视频',
+  audio: '音频',
   text: '文本',
 };
 
 const MODEL_GROUP_LABELS: Record<ModelType, string> = {
   image: '图片模型',
   video: '视频模型',
+  audio: '音频模型',
   text: '文本模型',
 };
 
-const MODEL_SUMMARY_GROUP_ORDER: ModelType[] = ['text', 'image', 'video'];
+const MODEL_SUMMARY_GROUP_ORDER: ModelType[] = ['text', 'image', 'video', 'audio'];
 
 const PROVIDER_TYPE_META: Record<
   ProviderProfile['providerType'],
@@ -147,7 +150,7 @@ function getModelTypeCounts(models: ModelConfig[]): Record<ModelType, number> {
       counts[model.type] += 1;
       return counts;
     },
-    { image: 0, video: 0, text: 0 }
+    { image: 0, video: 0, audio: 0, text: 0 }
   );
 }
 
@@ -175,7 +178,7 @@ function getConfiguredRouteCount(preset: InvocationPreset | null): number {
     return 0;
   }
 
-  return (['image', 'video', 'text'] as ModelType[]).filter((routeType) =>
+  return (['image', 'video', 'audio', 'text'] as ModelType[]).filter((routeType) =>
     Boolean(getRouteModelId(preset[routeType]))
   ).length;
 }
@@ -195,6 +198,7 @@ function createSettingsDraftSignature(params: {
   profiles: ProviderProfile[];
   presets: InvocationPreset[];
   activePresetId: string;
+  audioModelName: string;
   imageModelName: string;
   videoModelName: string;
   textModelName: string;
@@ -262,6 +266,7 @@ function createProfile(index: number): ProviderProfile {
       supportsText: true,
       supportsImage: true,
       supportsVideo: true,
+      supportsAudio: true,
       supportsTools: true,
     },
   };
@@ -323,7 +328,7 @@ const ProviderAvatar = ({
 
 function createPreset(
   profileId: string | null,
-  defaults: { image: string; video: string; text: string }
+  defaults: { image: string; video: string; audio: string; text: string }
 ): InvocationPreset {
   return {
     id: createId('preset'),
@@ -331,6 +336,7 @@ function createPreset(
     text: createRouteConfig(createModelRef(profileId, defaults.text || null)),
     image: createRouteConfig(createModelRef(profileId, defaults.image || null)),
     video: createRouteConfig(createModelRef(profileId, defaults.video || null)),
+    audio: createRouteConfig(createModelRef(profileId, defaults.audio || null)),
   };
 }
 
@@ -368,7 +374,7 @@ function clearPresetProfileRoute(
 ): InvocationPreset {
   const nextPreset = { ...preset };
 
-  (['image', 'video', 'text'] as ModelType[]).forEach((routeType) => {
+  (['image', 'video', 'audio', 'text'] as ModelType[]).forEach((routeType) => {
     if (getRouteProfileId(nextPreset[routeType]) === profileId) {
       nextPreset[routeType] = createRouteConfig(null);
     }
@@ -426,6 +432,7 @@ export const SettingsDialog = ({
     DEFAULT_INVOCATION_PRESET_ID
   );
   const [initialProfiles, setInitialProfiles] = useState<ProviderProfile[]>([]);
+  const [audioModelName, setAudioModelName] = useState('');
   const [imageModelName, setImageModelName] = useState('');
   const [videoModelName, setVideoModelName] = useState('');
   const [textModelName, setTextModelName] = useState('');
@@ -456,6 +463,10 @@ export const SettingsDialog = ({
     LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
     'image'
   );
+  const legacyAudioModels = useProfilePreferredModels(
+    LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    'audio'
+  );
   const legacyVideoModels = useProfilePreferredModels(
     LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
     'video'
@@ -472,6 +483,7 @@ export const SettingsDialog = ({
     profiles: profilesDraft,
     presets: presetsDraft,
     activePresetId: activePresetIdDraft,
+    audioModelName,
     imageModelName,
     videoModelName,
     textModelName,
@@ -535,6 +547,8 @@ export const SettingsDialog = ({
         profiles: persistedProfiles,
         presets: persistedPresets,
         activePresetId: persistedActivePresetId,
+        audioModelName:
+          persistedGemini.audioModelName || getDefaultAudioModel(),
         imageModelName:
           persistedGemini.imageModelName || getDefaultImageModel(),
         videoModelName:
@@ -572,6 +586,7 @@ export const SettingsDialog = ({
         ? currentPresetId
         : nextPresets[0]?.id || DEFAULT_INVOCATION_PRESET_ID
     );
+    setAudioModelName(geminiConfig.audioModelName || getDefaultAudioModel());
     setImageModelName(geminiConfig.imageModelName || getDefaultImageModel());
     setVideoModelName(geminiConfig.videoModelName || getDefaultVideoModel());
     setTextModelName(geminiConfig.textModelName || getDefaultTextModel());
@@ -594,6 +609,7 @@ export const SettingsDialog = ({
         profiles: nextProfiles,
         presets: nextPresets,
         activePresetId: nextActivePresetId,
+        audioModelName: geminiConfig.audioModelName || getDefaultAudioModel(),
         imageModelName: geminiConfig.imageModelName || getDefaultImageModel(),
         videoModelName: geminiConfig.videoModelName || getDefaultVideoModel(),
         textModelName: geminiConfig.textModelName || getDefaultTextModel(),
@@ -672,6 +688,10 @@ export const SettingsDialog = ({
         nextPresets.find((preset) => preset.id === effectiveActivePresetId) ||
         nextPresets[0] ||
         null;
+      const nextAudioModelName =
+        getRouteModelId(activePreset?.audio) ||
+        persistedGemini.audioModelName ||
+        getDefaultAudioModel();
       const nextImageModelName =
         getRouteModelId(activePreset?.image) ||
         persistedGemini.imageModelName ||
@@ -691,6 +711,7 @@ export const SettingsDialog = ({
         effectiveActivePresetId
       );
       await geminiSettings.update({
+        audioModelName: nextAudioModelName,
         imageModelName: nextImageModelName,
         videoModelName: nextVideoModelName,
         textModelName: nextTextModelName,
@@ -699,6 +720,7 @@ export const SettingsDialog = ({
 
       setPresetsDraft(nextPresets);
       setActivePresetIdDraft(effectiveActivePresetId);
+      setAudioModelName(nextAudioModelName);
       setImageModelName(nextImageModelName);
       setVideoModelName(nextVideoModelName);
       setTextModelName(nextTextModelName);
@@ -795,6 +817,7 @@ export const SettingsDialog = ({
   const handleAddPreset = () => {
     const fallbackProfileId = enabledProfiles[0]?.id || null;
     const nextPreset = createPreset(fallbackProfileId, {
+      audio: audioModelName || getDefaultAudioModel(),
       image: imageModelName || getDefaultImageModel(),
       video: videoModelName || getDefaultVideoModel(),
       text: textModelName || getDefaultTextModel(),
@@ -984,12 +1007,13 @@ export const SettingsDialog = ({
         const nextPreset: InvocationPreset = {
           ...preset,
           name: preset.name.trim() || '未命名预设',
+          audio: { ...preset.audio },
           image: { ...preset.image },
           video: { ...preset.video },
           text: { ...preset.text },
         };
 
-        (['image', 'video', 'text'] as ModelType[]).forEach((routeType) => {
+        (['image', 'video', 'audio', 'text'] as ModelType[]).forEach((routeType) => {
           const route = nextPreset[routeType];
           const routeProfileId = getRouteProfileId(route);
           const routeModelId = getRouteModelId(route);
@@ -1028,6 +1052,10 @@ export const SettingsDialog = ({
       const normalizedLegacyBaseUrl = normalizeModelApiBaseUrl(
         legacyProfile?.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL
       );
+      const normalizedAudioModel =
+        audioModelName.trim() ||
+        legacyAudioModels[0]?.id ||
+        getDefaultAudioModel();
       const normalizedImageModel =
         imageModelName.trim() ||
         legacyImageModels[0]?.id ||
@@ -1044,6 +1072,8 @@ export const SettingsDialog = ({
         getRouteModelId(activePreset?.image) || normalizedImageModel;
       const normalizedActiveVideoModel =
         getRouteModelId(activePreset?.video) || normalizedVideoModel;
+      const normalizedActiveAudioModel =
+        getRouteModelId(activePreset?.audio) || normalizedAudioModel;
       const normalizedActiveTextModel =
         getRouteModelId(activePreset?.text) || normalizedTextModel;
 
@@ -1058,6 +1088,7 @@ export const SettingsDialog = ({
       await geminiSettings.update({
         apiKey: legacyProfile?.apiKey || '',
         baseUrl: normalizedLegacyBaseUrl,
+        audioModelName: normalizedActiveAudioModel,
         imageModelName: normalizedActiveImageModel,
         videoModelName: normalizedActiveVideoModel,
         textModelName: normalizedActiveTextModel,
@@ -1087,6 +1118,7 @@ export const SettingsDialog = ({
       setInitialProfiles(cloneValue(normalizedProfiles));
       setPresetsDraft(normalizedPresets);
       setActivePresetIdDraft(normalizedActivePresetId);
+      setAudioModelName(normalizedAudioModel);
       setImageModelName(normalizedImageModel);
       setVideoModelName(normalizedVideoModel);
       setTextModelName(normalizedTextModel);
@@ -1095,6 +1127,7 @@ export const SettingsDialog = ({
           profiles: normalizedProfiles,
           presets: normalizedPresets,
           activePresetId: normalizedActivePresetId,
+          audioModelName: normalizedAudioModel,
           imageModelName: normalizedImageModel,
           videoModelName: normalizedVideoModel,
           textModelName: normalizedTextModel,
@@ -1581,6 +1614,7 @@ export const SettingsDialog = ({
               <div className="settings-dialog__compat-meta">
                 <span>图片：{imageModelName || getDefaultImageModel()}</span>
                 <span>视频：{videoModelName || getDefaultVideoModel()}</span>
+                <span>音频：{audioModelName || getDefaultAudioModel()}</span>
                 <span>文本：{textModelName || getDefaultTextModel()}</span>
               </div>
             </div>
@@ -1637,6 +1671,7 @@ export const SettingsDialog = ({
               <span>已添加 {runtimeState.models.length} 个</span>
               <span>图 {typeCounts.image}</span>
               <span>视 {typeCounts.video}</span>
+              <span>音 {typeCounts.audio}</span>
               <span>文 {typeCounts.text}</span>
             </div>
           </div>

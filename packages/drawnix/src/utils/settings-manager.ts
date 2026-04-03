@@ -10,6 +10,7 @@ import { configIndexedDBWriter } from './config-indexeddb-writer';
 import type { GeminiConfig } from './gemini-api/types';
 import type { VideoAPIConfig } from './config-indexeddb-writer';
 import {
+  getDefaultAudioModel,
   getDefaultImageModel,
   getDefaultTextModel,
   getDefaultVideoModel,
@@ -25,6 +26,7 @@ export interface GeminiSettings {
   apiKey: string;
   baseUrl: string;
   chatModel?: string;
+  audioModelName?: string;
   imageModelName?: string;
   videoModelName?: string;
   textModelName?: string;
@@ -38,6 +40,7 @@ export interface ProviderCapabilities {
   supportsText: boolean;
   supportsImage: boolean;
   supportsVideo: boolean;
+  supportsAudio: boolean;
   supportsTools: boolean;
 }
 
@@ -80,6 +83,7 @@ export interface InvocationPreset {
   text: RouteConfig;
   image: RouteConfig;
   video: RouteConfig;
+  audio: RouteConfig;
 }
 
 export interface AppSettings {
@@ -114,6 +118,7 @@ const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   supportsText: true,
   supportsImage: true,
   supportsVideo: true,
+  supportsAudio: true,
   supportsTools: true,
 };
 
@@ -123,6 +128,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     apiKey: '',
     baseUrl: TUZI_PROVIDER_DEFAULT_BASE_URL,
     chatModel: 'gpt-5',
+    audioModelName: 'suno_music',
     imageModelName: 'gemini-3-pro-image-preview-vip',
     videoModelName: 'veo3.1',
     textModelName: 'deepseek-v3.2',
@@ -466,6 +472,9 @@ class SettingsManager {
           gemini.textModelName?.trim() || gemini.chatModel?.trim() || null
         )
       ),
+      audio: createRouteConfig(
+        createModelRef(profileId, gemini.audioModelName?.trim() || null)
+      ),
       image: createRouteConfig(
         createModelRef(profileId, gemini.imageModelName?.trim() || null)
       ),
@@ -637,6 +646,7 @@ class SettingsManager {
               : `方案 ${index + 1}`,
           isDefault: preset.isDefault === true,
           text: this.normalizeRouteConfig(preset.text),
+          audio: this.normalizeRouteConfig(preset.audio),
           image: this.normalizeRouteConfig(preset.image),
           video: this.normalizeRouteConfig(preset.video),
         };
@@ -772,6 +782,7 @@ class SettingsManager {
         name: existingPreset.name || legacyPreset.name,
         isDefault: true,
         text: resolveLegacyRoute(existingPreset.text, legacyPreset.text),
+        audio: resolveLegacyRoute(existingPreset.audio, legacyPreset.audio),
         image: resolveLegacyRoute(existingPreset.image, legacyPreset.image),
         video: resolveLegacyRoute(existingPreset.video, legacyPreset.video),
       };
@@ -784,6 +795,11 @@ class SettingsManager {
       text: validProfileIds.has(getRouteProfileId(preset.text) || '')
         ? preset.text
         : createRouteConfig(createModelRef(null, getRouteModelId(preset.text))),
+      audio: validProfileIds.has(getRouteProfileId(preset.audio) || '')
+        ? preset.audio
+        : createRouteConfig(
+            createModelRef(null, getRouteModelId(preset.audio))
+          ),
       image: validProfileIds.has(getRouteProfileId(preset.image) || '')
         ? preset.image
         : createRouteConfig(
@@ -1332,6 +1348,8 @@ class SettingsManager {
         return gemini.imageModelName || getDefaultImageModel();
       case 'video':
         return gemini.videoModelName || getDefaultVideoModel();
+      case 'audio':
+        return gemini.audioModelName || getDefaultAudioModel();
       case 'text':
         return (
           gemini.textModelName || gemini.chatModel || getDefaultTextModel()
@@ -1378,6 +1396,8 @@ class SettingsManager {
         ? 'imageModelName'
         : routeType === 'video'
         ? 'videoModelName'
+        : routeType === 'audio'
+        ? 'audioModelName'
         : 'textModelName';
     const normalizedModelId = nextModelRef?.modelId || null;
     const currentLegacyModelId =

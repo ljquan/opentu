@@ -19,8 +19,8 @@ import './prompt-history-popover.scss';
 /** 选择提示词回调的参数类型 */
 export interface PromptSelectInfo {
   content: string;
-  /** 生成类型：image(直接生图)、video(直接生视频)、agent(需要Agent分析) */
-  modelType?: 'image' | 'video' | 'agent';
+  /** 生成类型：image(直接生图)、video(直接生视频)、audio(直接生成音频)、agent(需要Agent分析) */
+  modelType?: 'image' | 'video' | 'audio' | 'agent';
   scene?: string;
 }
 

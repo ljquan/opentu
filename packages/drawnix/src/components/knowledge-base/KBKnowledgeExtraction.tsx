@@ -106,7 +106,6 @@ export const KBKnowledgeExtraction: React.FC<KBKnowledgeExtractionProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
-  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

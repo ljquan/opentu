@@ -8,7 +8,6 @@
  */
 
 import type { MCPTool, MCPResult, MCPExecuteOptions, MCPTaskResult } from '../types';
-import { videoAPIService } from '../../services/video-api-service';
 import { taskQueueService } from '../../services/task-queue';
 import { TaskType } from '../../types/task.types';
 import type { VideoModel } from '../../types/video.types';
@@ -16,6 +15,10 @@ import { VIDEO_MODEL_CONFIGS } from '../../constants/video-model-config';
 import { getDefaultVideoModel } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { normalizeToClosestVideoSize } from '../../services/media-api/utils';
+import {
+  getAdapterContextFromSettings,
+  resolveAdapterForInvocation,
+} from '../../services/model-adapters';
 
 /**
  * 获取当前使用的视频模型名称
@@ -64,6 +67,8 @@ export interface VideoGenerationParams {
   size?: string;
   /** 参考图片 URL 列表 */
   referenceImages?: string[];
+  /** 额外参数，透传给视频模型适配器 */
+  params?: Record<string, unknown>;
   /** 生成数量（仅 queue 模式支持） */
   count?: number;
   /** 批次 ID（批量生成时） */
@@ -87,6 +92,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
     seconds = '8',
     size = '1280x720',
     referenceImages,
+    params: extraParams,
   } = params;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -98,45 +104,36 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
   }
 
   try {
-    // console.log('[VideoGenerationTool] Generating video with params:', {
-    //   prompt: prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''),
-    //   model,
-    //   seconds,
-    //   size,
-    //   referenceImages: referenceImages?.length || 0,
-    // });
+    const requestedModel = model as string;
+    const adapter = resolveAdapterForInvocation(
+      'video',
+      requestedModel,
+      modelRef || null
+    );
 
-    // 准备参考图片
-    let inputReferences: Array<{ type: 'url'; url: string }> | undefined;
-    if (referenceImages && referenceImages.length > 0) {
-      inputReferences = referenceImages.map((url) => ({
-        type: 'url' as const,
-        url,
-      }));
+    if (!adapter || adapter.kind !== 'video') {
+      return {
+        success: false,
+        error: `未找到可用的视频适配器: ${requestedModel}`,
+        type: 'error',
+      };
     }
 
-    // 调用视频生成 API（带轮询）
-    const result = await videoAPIService.generateVideoWithPolling(
+    const duration = seconds ? Number(seconds) : undefined;
+    const result = await adapter.generateVideo(
+      getAdapterContextFromSettings('video', modelRef || requestedModel),
       {
-        model: model as VideoModel,
-        modelRef: modelRef || null,
         prompt,
-        seconds,
         size,
-        inputReferences: inputReferences as any,
-      },
-      {
-        interval: 5000, // 每 5 秒轮询一次
-        onProgress: (progress, status) => {
-          // console.log(`[VideoGenerationTool] Progress: ${progress}% (${status})`);
-        },
+        model: requestedModel,
+        modelRef: modelRef || null,
+        duration: Number.isFinite(duration) ? duration : undefined,
+        referenceImages,
+        params: extraParams,
       }
     );
 
-    // console.log('[VideoGenerationTool] Generation completed:', result);
-
-    // 提取视频 URL
-    const videoUrl = result.video_url || result.url;
+    const videoUrl = result.url;
     if (!videoUrl) {
       return {
         success: false,
@@ -149,7 +146,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
       success: true,
       data: {
         url: videoUrl,
-        format: 'mp4',
+        format: result.format || 'mp4',
         prompt,
         model,
         seconds,
@@ -181,6 +178,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
 function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions): MCPTaskResult {
   const {
     prompt, model = 'veo3', seconds, size, referenceImages, count = 1,
+    params: extraParams,
     modelRef,
     // 批量参数（可能从工作流步骤传入）
     batchId: paramsBatchId, batchIndex: paramsBatchIndex, batchTotal: paramsBatchTotal, globalIndex: paramsGlobalIndex,
@@ -234,6 +232,7 @@ function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions)
           modelRef: modelRef || null,
           uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
           referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
+          params: extraParams,
           // 使用工作流传入的批量参数
           batchId,
           batchIndex,
@@ -257,6 +256,7 @@ function executeQueue(params: VideoGenerationParams, options: MCPExecuteOptions)
             modelRef: modelRef || null,
             uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
             referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
+            params: extraParams,
             // 批量参数
             batchId: batchId,
             batchIndex: i + 1,
@@ -347,6 +347,58 @@ export const videoGenerationTool: MCPTool = {
         description: '参考图片 URL 列表，用于图生视频',
         items: {
           type: 'string',
+        },
+      },
+      params: {
+        type: 'object',
+        description: '额外模型参数，Kling 可用字段包括 model_name、klingAction2、mode、cfg_scale、negative_prompt 与 camera_*；其中 cfg_scale 取值 0 到 1，camera_* 取值 -10 到 10 且需为整数',
+        properties: {
+          model_name: {
+            type: 'string',
+            enum: ['kling-v3', 'kling-v2-6', 'kling-v2-1', 'kling-v1-6', 'kling-v1-5'],
+          },
+          klingAction2: {
+            type: 'string',
+            enum: ['text2video', 'image2video'],
+          },
+          mode: {
+            type: 'string',
+            enum: ['std', 'pro'],
+          },
+          cfg_scale: {
+            type: 'number',
+            description: 'Kling 自由度，取值范围 0 到 1',
+          },
+          negative_prompt: {
+            type: 'string',
+          },
+          camera_control_type: {
+            type: 'string',
+          },
+          camera_horizontal: {
+            type: 'number',
+            description: 'Kling 水平运镜，取值范围 -10 到 10，且必须为整数',
+          },
+          camera_vertical: {
+            type: 'number',
+            description: 'Kling 垂直运镜，取值范围 -10 到 10，且必须为整数',
+          },
+          camera_pan: {
+            type: 'number',
+            description: 'Kling 水平摇镜，取值范围 -10 到 10，且必须为整数',
+          },
+          camera_tilt: {
+            type: 'number',
+            description: 'Kling 垂直摇镜，取值范围 -10 到 10，且必须为整数',
+          },
+          camera_roll: {
+            type: 'number',
+            description: 'Kling 旋转运镜，取值范围 -10 到 10，且必须为整数',
+          },
+          camera_zoom: {
+            type: 'number',
+            description: 'Kling 变焦，取值范围 -10 到 10，且必须为整数',
+          },
         },
       },
       count: {

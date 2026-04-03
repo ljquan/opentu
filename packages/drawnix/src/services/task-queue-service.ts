@@ -29,6 +29,11 @@ import {
 import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
 import { hasInvocationRouteCredentials } from '../utils/settings-manager';
+import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
+import {
+  getAdapterContextFromSettings,
+  resolveAdapterForInvocation,
+} from './model-adapters';
 
 /**
  * Task Queue Service
@@ -100,7 +105,12 @@ class TaskQueueService {
   private async executeTask(task: Task): Promise<void> {
     try {
       // Check API configuration
-      const routeType = task.type === TaskType.VIDEO ? 'video' : 'image';
+      const routeType =
+        task.type === TaskType.VIDEO
+          ? 'video'
+          : task.type === TaskType.AUDIO
+          ? 'audio'
+          : 'image';
       if (
         !hasInvocationRouteCredentials(
           routeType,
@@ -113,6 +123,80 @@ class TaskQueueService {
         this.updateTaskStatus(task.id, TaskStatus.FAILED, {
           error: { code: 'NO_API_KEY', message: '未配置 API Key' },
         });
+        return;
+      }
+
+      if (task.type === TaskType.AUDIO) {
+        const requestedModel = task.params.model as string | undefined;
+        const requestedModelRef = task.params.modelRef || null;
+        const adapter = resolveAdapterForInvocation(
+          'audio',
+          requestedModel || DEFAULT_AUDIO_MODEL_ID,
+          requestedModelRef
+        );
+
+        if (!adapter || adapter.kind !== 'audio') {
+          throw new Error(`No audio adapter for model: ${requestedModel}`);
+        }
+
+        const result = await adapter.generateAudio(
+          getAdapterContextFromSettings(
+            'audio',
+            requestedModelRef || requestedModel
+          ),
+          {
+            prompt: task.params.prompt,
+            model: requestedModel,
+            modelRef: requestedModelRef,
+            title: task.params.title,
+            tags: task.params.tags,
+            mv: task.params.mv,
+            continueClipId: task.params.continueClipId,
+            continueAt: task.params.continueAt,
+            params: {
+              ...(task.params as any).params,
+              onProgress: (progress: number) => {
+                this.updateTaskProgress(task.id, progress);
+                this.updateTaskStatus(task.id, TaskStatus.PROCESSING, {
+                  executionPhase: TaskExecutionPhase.POLLING,
+                });
+              },
+              onSubmitted: (remoteId: string) => {
+                this.updateTaskStatus(task.id, TaskStatus.PROCESSING, {
+                  remoteId,
+                  executionPhase: TaskExecutionPhase.POLLING,
+                });
+              },
+            },
+          }
+        );
+
+        const now = Date.now();
+        const completedTask: Task = {
+          ...(this.tasks.get(task.id) || task),
+          status: TaskStatus.COMPLETED,
+          progress: 100,
+          result: {
+            url: result.url,
+            urls: result.urls,
+            format: result.format || 'mp3',
+            size: 0,
+            duration:
+              typeof result.duration === 'number' ? result.duration : undefined,
+            previewImageUrl: result.imageUrl,
+            title: result.title,
+            providerTaskId: result.providerTaskId || task.remoteId,
+            primaryClipId: result.primaryClipId,
+            clipIds: result.clipIds,
+            clips: result.clips,
+          },
+          executionPhase: undefined,
+          completedAt: now,
+          updatedAt: now,
+        };
+        this.tasks.set(task.id, completedTask);
+        this.persistTask(completedTask);
+        this.emitEvent('taskUpdated', completedTask);
         return;
       }
 
@@ -314,7 +398,9 @@ class TaskQueueService {
       startedAt: now,
       executionPhase: TaskExecutionPhase.SUBMITTING,
       // Initialize progress for video tasks
-      ...(type === TaskType.VIDEO && { progress: 0 }),
+      ...((type === TaskType.VIDEO || type === TaskType.AUDIO) && {
+        progress: 0,
+      }),
     };
 
     // Add to queue
@@ -517,7 +603,10 @@ class TaskQueueService {
       completedAt: undefined, // Clear completion time
       remoteId: undefined, // Clear remote ID for fresh submission
       executionPhase: TaskExecutionPhase.SUBMITTING,
-      progress: task.type === TaskType.VIDEO ? 0 : undefined, // Reset progress for video
+      progress:
+        task.type === TaskType.VIDEO || task.type === TaskType.AUDIO
+          ? 0
+          : undefined, // Reset progress for async media
     });
 
     // Execute task after retry

@@ -15,6 +15,8 @@ export const TASK_TIMEOUT = {
   IMAGE: 45 * 60 * 1000,
   /** Video generation task timeout: 1.5 hours (90 minutes) */
   VIDEO: 90 * 60 * 1000,
+  /** Audio generation task timeout: 30 minutes */
+  AUDIO: 30 * 60 * 1000,
 } as const;
 
 /**

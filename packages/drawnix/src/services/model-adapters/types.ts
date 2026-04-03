@@ -7,7 +7,7 @@ import type {
   ResolvedProviderContext,
 } from '../provider-routing';
 
-export type ModelKind = 'image' | 'video' | 'chat';
+export type ModelKind = 'image' | 'video' | 'audio' | 'chat';
 
 export interface AdapterContext {
   baseUrl: string;
@@ -76,6 +76,45 @@ export interface VideoGenerationResult {
   raw?: unknown;
 }
 
+export interface AudioGenerationRequest {
+  prompt: string;
+  model?: string;
+  modelRef?: ModelRef | null;
+  title?: string;
+  tags?: string;
+  mv?: string;
+  continueClipId?: string;
+  continueAt?: number;
+  params?: Record<string, unknown>;
+}
+
+export interface AudioGenerationClipResult {
+  id?: string;
+  clipId?: string;
+  title?: string;
+  status?: string;
+  audioUrl: string;
+  imageUrl?: string;
+  imageLargeUrl?: string;
+  duration?: number | null;
+  modelName?: string;
+  majorModelVersion?: string;
+}
+
+export interface AudioGenerationResult {
+  url: string;
+  title?: string;
+  format?: string;
+  duration?: number | null;
+  imageUrl?: string;
+  urls?: string[];
+  providerTaskId?: string;
+  primaryClipId?: string;
+  clipIds?: string[];
+  clips?: AudioGenerationClipResult[];
+  raw?: unknown;
+}
+
 export interface ImageModelAdapter extends AdapterMetadata {
   kind: 'image';
   generateImage(
@@ -92,4 +131,15 @@ export interface VideoModelAdapter extends AdapterMetadata {
   ): Promise<VideoGenerationResult>;
 }
 
-export type ModelAdapter = ImageModelAdapter | VideoModelAdapter;
+export interface AudioModelAdapter extends AdapterMetadata {
+  kind: 'audio';
+  generateAudio(
+    context: AdapterContext,
+    request: AudioGenerationRequest
+  ): Promise<AudioGenerationResult>;
+}
+
+export type ModelAdapter =
+  | ImageModelAdapter
+  | VideoModelAdapter
+  | AudioModelAdapter;

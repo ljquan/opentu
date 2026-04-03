@@ -64,7 +64,7 @@ export type AgentLogEntry =
       /** 错误信息 */
       error?: string;
       /** 结果类型 */
-      resultType?: 'image' | 'video' | 'text' | 'canvas' | 'error';
+      resultType?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
     }
   | {
       type: 'retry';
@@ -123,7 +123,7 @@ export interface WorkflowMessageData {
   /** 工作流名称 */
   name: string;
   /** 生成类型 */
-  generationType: 'image' | 'video' | 'text';
+  generationType: 'image' | 'video' | 'audio' | 'text';
   /** 原始提示词 */
   prompt: string;
   /** AI 分析内容（AI 对用户请求的理解和执行计划） */
@@ -232,7 +232,7 @@ export interface AIInputContext {
     /** 模型 ID */
     id: string;
     /** 生成类型 */
-    type: 'image' | 'video' | 'text';
+    type: 'image' | 'video' | 'audio' | 'text';
     /** 是否为用户显式选择 */
     isExplicit: boolean;
   };
@@ -245,6 +245,8 @@ export interface AIInputContext {
     size?: string;
     /** 时长（视频） */
     duration?: string;
+    /** 音频版本 */
+    mv?: string;
     /** 其他自定义参数 */
     custom?: Record<string, string>;
   };

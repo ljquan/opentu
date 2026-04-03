@@ -27,6 +27,19 @@ const STATUS_LABELS: Record<WorkflowStep['status'], string> = {
   skipped: '已跳过',
 };
 
+function getGenerationIcon(type: WorkflowDefinition['generationType']): string {
+  switch (type) {
+    case 'image':
+      return '🖼️';
+    case 'video':
+      return '🎬';
+    case 'audio':
+      return '🎵';
+    default:
+      return '📝';
+  }
+}
+
 // ============ 单个步骤项组件 ============
 
 interface StepItemProps {
@@ -44,6 +57,9 @@ const StepItem: React.FC<StepItemProps> = ({
 
   const statusIcon = STATUS_ICONS[step.status];
   const statusLabel = STATUS_LABELS[step.status];
+  const hasResult = step.result !== undefined && step.result !== null;
+  const hasExpandableDetails =
+    hasResult || !!step.error || typeof step.duration === 'number';
 
   return (
     <div
@@ -62,12 +78,12 @@ const StepItem: React.FC<StepItemProps> = ({
           <div className="workflow-display-item-title">{step.description}</div>
           <div className="workflow-display-item-status-text">{statusLabel}</div>
         </div>
-        {(step.result || step.error || step.duration) && (
+        {hasExpandableDetails && (
           <div className={`workflow-display-item-expand ${expanded ? 'expanded' : ''}`}>▼</div>
         )}
       </div>
 
-      {expanded && (step.result || step.error || step.duration) && (
+      {expanded && hasExpandableDetails && (
         <div className="workflow-display-item-details">
           {/* 工具名称 */}
           <div className="workflow-display-item-tool">
@@ -76,7 +92,7 @@ const StepItem: React.FC<StepItemProps> = ({
           </div>
 
           {/* 执行时间 */}
-          {step.duration !== undefined && (
+          {typeof step.duration === 'number' && (
             <div className="workflow-display-item-duration">
               <span className="workflow-display-label">耗时:</span>
               <span>{step.duration}ms</span>
@@ -84,7 +100,7 @@ const StepItem: React.FC<StepItemProps> = ({
           )}
 
           {/* 执行结果 */}
-          {step.result && (
+          {hasResult && (
             <div className="workflow-display-item-result">
               <span className="workflow-display-label">执行结果:</span>
               <div className="workflow-display-result-content">
@@ -163,7 +179,7 @@ export const WorkflowDisplay: React.FC<WorkflowDisplayProps> = ({
       <div className="workflow-display-header">
         <div className="workflow-display-header-left">
           <span className="workflow-display-icon">
-            {workflow.generationType === 'image' ? '🖼️' : '🎬'}
+            {getGenerationIcon(workflow.generationType)}
           </span>
           <span className="workflow-display-title">{workflow.name}</span>
         </div>
@@ -242,9 +258,11 @@ export const WorkflowDisplay: React.FC<WorkflowDisplayProps> = ({
             <span className="workflow-display-summary-title">执行完成</span>
           </div>
           <div className="workflow-display-summary-content">
-            {workflow.generationType === 'image' 
+            {workflow.generationType === 'image'
               ? `成功生成 ${workflow.metadata.count} 张图片`
-              : `成功生成 ${workflow.metadata.count} 个视频`}
+              : workflow.generationType === 'video'
+              ? `成功生成 ${workflow.metadata.count} 个视频`
+              : `成功提交 ${workflow.metadata.count} 个音频生成任务`}
           </div>
         </div>
       )}

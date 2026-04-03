@@ -10,6 +10,7 @@
 
 import { geminiSettings, type ModelRef } from './settings-manager';
 import {
+  getDefaultAudioModel as getSystemDefaultAudioModel,
   getModelConfig,
   getImageModelDefaults,
   getDefaultImageModel as getSystemDefaultImageModel,
@@ -28,6 +29,8 @@ export type { ImageDimensions } from '../mcp/types';
 export interface ParseResult {
   /** 清理后的文本（移除特殊标记后） */
   cleanText: string;
+  /** 选中的音频模型 */
+  selectedAudioModel: string | null;
   /** 选中的图片模型 */
   selectedImageModel: string | null;
   /** 选中的视频模型 */
@@ -45,6 +48,7 @@ export interface ParseResult {
 function parseInput(text: string): ParseResult {
   return {
     cleanText: text,
+    selectedAudioModel: null,
     selectedImageModel: null,
     selectedVideoModel: null,
     selectedParams: [],
@@ -62,7 +66,7 @@ export type SendScenario =
 /**
  * 生成类型
  */
-export type GenerationType = 'image' | 'video' | 'text';
+export type GenerationType = 'image' | 'video' | 'audio' | 'text';
 
 /**
  * 带尺寸信息的图片
@@ -138,6 +142,14 @@ function getDefaultImageModel(): string {
 function getDefaultVideoModel(): string {
   const settings = geminiSettings.get();
   return settings?.videoModelName || getSystemDefaultVideoModel();
+}
+
+/**
+ * 获取默认音频模型
+ */
+function getDefaultAudioModel(): string {
+  const settings = geminiSettings.get();
+  return settings?.audioModelName || getSystemDefaultAudioModel();
 }
 
 /**
@@ -239,6 +251,8 @@ export function parseAIInput(
     if (!options.generationType) {
       if (modelConfig?.type === 'video') {
         generationType = 'video';
+      } else if (modelConfig?.type === 'audio') {
+        generationType = 'audio';
       } else if (modelConfig?.type === 'text') {
         generationType = 'text';
       } else {
@@ -246,6 +260,10 @@ export function parseAIInput(
       }
     }
     modelId = options.modelId;
+    isModelExplicit = true;
+  } else if (parseResult.selectedAudioModel) {
+    generationType = 'audio';
+    modelId = parseResult.selectedAudioModel;
     isModelExplicit = true;
   } else if (parseResult.selectedVideoModel) {
     // 如果明确选择了视频模型，生成视频
@@ -269,6 +287,8 @@ export function parseAIInput(
     // 有选中元素但没指定模型时，默认使用图片模型
     if (generationType === 'video') {
       modelId = getDefaultVideoModel();
+    } else if (generationType === 'audio') {
+      modelId = getDefaultAudioModel();
     } else if (generationType === 'text') {
       modelId = getDefaultTextModel();
     } else {
@@ -281,7 +301,8 @@ export function parseAIInput(
   let scenario: SendScenario;
   if (
     options?.generationType === 'image' ||
-    options?.generationType === 'video'
+    options?.generationType === 'video' ||
+    options?.generationType === 'audio'
   ) {
     scenario = 'direct_generation';
   } else {
@@ -328,7 +349,12 @@ export function parseAIInput(
   // 收集额外参数（非 size/duration 的自定义参数，如 seedream_quality, aspect_ratio）
   let extraParams: Record<string, string> | undefined;
   if (options?.params) {
-    if (!modelId.startsWith('mj') && options.params.size) {
+    if (
+      generationType !== 'audio' &&
+      generationType !== 'text' &&
+      !modelId.startsWith('mj') &&
+      options.params.size
+    ) {
       size = normalizeSize(options.params.size);
     }
     if (options.params.duration) duration = options.params.duration;
@@ -370,7 +396,12 @@ export function parseAIInput(
   }
 
   // 如果没有指定尺寸且不是 auto 模式，使用模型默认值（文本模型不需要这些参数）
-  if (!size && options?.size !== 'auto' && generationType !== 'text') {
+  if (
+    !size &&
+    options?.size !== 'auto' &&
+    generationType !== 'text' &&
+    generationType !== 'audio'
+  ) {
     const modelConfig = getModelConfig(modelId);
     if (modelConfig?.type === 'image' && modelConfig.imageDefaults) {
       // 图片模型使用默认尺寸
