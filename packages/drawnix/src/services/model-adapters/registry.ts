@@ -113,6 +113,8 @@ function toRouteType(kind: ModelKind): ModelType {
       return 'image';
     case 'video':
       return 'video';
+    case 'audio':
+      return 'audio';
     case 'chat':
     default:
       return 'text';

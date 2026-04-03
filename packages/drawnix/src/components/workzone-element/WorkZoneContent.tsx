@@ -218,6 +218,7 @@ export const WorkZoneContent: React.FC<WorkZoneContentProps> = ({
   // 类型图标
   const typeIcon = workflow.generationType === 'image' ? '🖼️'
     : workflow.generationType === 'video' ? '🎬'
+    : workflow.generationType === 'audio' ? '🎵'
     : '📝';
 
   // 找到第一个失败步骤的索引

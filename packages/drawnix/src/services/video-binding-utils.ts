@@ -554,7 +554,7 @@ export async function downloadVideoContentToLocalUrl(params: {
     const { unifiedCacheService } = await import('./unified-cache-service');
     await unifiedCacheService.cacheMediaFromBlob(localUrl, blob, 'video', {
       taskId: cacheKey,
-      model: params.modelId,
+      model: params.modelId || undefined,
     });
     return localUrl;
   } catch {

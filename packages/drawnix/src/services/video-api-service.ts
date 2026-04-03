@@ -110,7 +110,9 @@ function resolveProviderContext(
 
 function resolveVideoPlanContext(routeModel?: string | ModelRef | null): {
   providerContext: ResolvedProviderContext;
-  binding: ReturnType<typeof resolveInvocationPlanFromRoute>['binding'] | null;
+  binding: NonNullable<
+    ReturnType<typeof resolveInvocationPlanFromRoute>
+  >['binding'] | null;
 } {
   const plan = resolveInvocationPlanFromRoute('video', routeModel);
   return {
@@ -451,10 +453,7 @@ class VideoAPIService {
     }
 
     // If already completed, return immediately
-    if (
-      immediateStatus.status === 'completed' ||
-      immediateStatus.status === 'succeeded'
-    ) {
+    if (immediateStatus.status === 'completed') {
       return this.resolveCompletedVideoStatus(
         videoId,
         immediateStatus,
@@ -522,7 +521,7 @@ class VideoAPIService {
           onProgress(progress, status.status);
         }
 
-        if (status.status === 'completed' || status.status === 'succeeded') {
+        if (status.status === 'completed') {
           return this.resolveCompletedVideoStatus(
             videoId,
             status,

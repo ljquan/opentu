@@ -11,6 +11,7 @@ export type KnownVideoModel =
   | 'sora-2-4s'
   | 'sora-2-8s'
   | 'sora-2-12s'
+  | 'kling_video'
   | 'kling-v1-6'
   | 'veo3'
   | 'veo3-pro'
