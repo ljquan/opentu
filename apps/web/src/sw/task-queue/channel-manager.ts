@@ -772,7 +772,7 @@ export class SWChannelManager {
 
   private async handleDebugGetCacheEntries(data: { cacheName?: string; limit?: number; offset?: number }): Promise<{
     cacheName: string;
-    entries: { url: string; cacheDate?: number; size?: number }[];
+    entries: { url: string; cacheDate?: number; cacheCreatedAt?: number; size?: number }[];
     total: number;
     offset: number;
     limit: number;
@@ -784,17 +784,20 @@ export class SWChannelManager {
       
       const cache = await caches.open(cacheName);
       const requests = await cache.keys();
-      const entries: { url: string; cacheDate?: number; size?: number }[] = [];
+      const entries: { url: string; cacheDate?: number; cacheCreatedAt?: number; size?: number }[] = [];
 
       for (let i = offset; i < Math.min(offset + limit, requests.length); i++) {
         const request = requests[i];
         const response = await cache.match(request);
         if (response) {
           const cacheDate = response.headers.get('sw-cache-date');
+          const cacheCreatedAt =
+            response.headers.get('sw-cache-created-at') || cacheDate;
           const size = response.headers.get('sw-image-size') || response.headers.get('content-length');
           entries.push({
             url: request.url,
             cacheDate: cacheDate ? parseInt(cacheDate) : undefined,
+            cacheCreatedAt: cacheCreatedAt ? parseInt(cacheCreatedAt) : undefined,
             size: size ? parseInt(size) : undefined,
           });
         }

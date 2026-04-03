@@ -48,6 +48,19 @@ export type CacheProgressCallback = (progress: number) => void;
 /** 缓存媒体类型 */
 export type CacheMediaType = 'image' | 'video';
 
+export interface CacheMediaFromBlobOptions {
+  metadata?: {
+    taskId?: string;
+    prompt?: string;
+    model?: string;
+    [key: string]: any;
+  };
+  cachedAt?: number;
+  lastUsed?: number;
+}
+
+type CacheMediaMetadata = NonNullable<CacheMediaFromBlobOptions['metadata']>;
+
 /** 缓存条目元数据 */
 export interface CachedMedia {
   /** URL（主键） */
@@ -76,6 +89,7 @@ export interface CachedMedia {
 export interface CacheInfo {
   isCached: boolean;
   cachedAt?: number;
+  lastUsed?: number;
   age?: number; // 毫秒
   size?: number;
   metadata?: CachedMedia['metadata'];
@@ -589,6 +603,7 @@ class UnifiedCacheService {
       return {
         isCached: true,
         cachedAt: item.cachedAt,
+        lastUsed: item.lastUsed,
         age,
         size: item.size,
         metadata: item.metadata,
@@ -902,9 +917,22 @@ class UnifiedCacheService {
     url: string,
     blob: Blob,
     type: CacheMediaType,
-    metadata?: { taskId?: string; prompt?: string; model?: string }
+    options?: CacheMediaMetadata | CacheMediaFromBlobOptions
   ): Promise<string> {
     try {
+      const normalizedOptions =
+        options && !('metadata' in options) && !('cachedAt' in options) && !('lastUsed' in options)
+          ? { metadata: options }
+          : options;
+      const cachedAt =
+        typeof normalizedOptions?.cachedAt === 'number' && Number.isFinite(normalizedOptions.cachedAt)
+          ? normalizedOptions.cachedAt
+          : Date.now();
+      const lastUsed =
+        typeof normalizedOptions?.lastUsed === 'number' && Number.isFinite(normalizedOptions.lastUsed)
+          ? normalizedOptions.lastUsed
+          : cachedAt;
+
       // 1. 将 blob 放入 Cache API（通过创建 Response）
       if (typeof caches !== 'undefined') {
         const cache = await caches.open(IMAGE_CACHE_NAME);
@@ -912,7 +940,8 @@ class UnifiedCacheService {
           headers: {
             'Content-Type': blob.type || 'application/octet-stream',
             'Content-Length': blob.size.toString(),
-            'sw-cache-date': Date.now().toString(), // 记录添加时间，用于素材库排序
+            'sw-cache-date': lastUsed.toString(), // 记录最近访问时间，用于素材库排序
+            'sw-cache-created-at': cachedAt.toString(),
             'sw-image-size': blob.size.toString(),
           },
         });
@@ -940,15 +969,14 @@ class UnifiedCacheService {
       }
 
       // 2. 存储元数据到 IndexedDB
-      const now = Date.now();
       const item: CachedMedia = {
         url,
         type,
         mimeType: blob.type || (type === 'video' ? 'video/mp4' : 'image/png'),
         size: blob.size,
-        cachedAt: now,
-        lastUsed: now,
-        metadata: metadata || {},
+        cachedAt,
+        lastUsed,
+        metadata: normalizedOptions?.metadata || {},
       };
 
       await this.putItem(item);

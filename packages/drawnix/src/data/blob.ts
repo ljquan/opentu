@@ -22,9 +22,11 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
 /**
  * 恢复嵌入的媒体数据到缓存中
  */
-const restoreEmbeddedMedia = async (
-  embeddedMedia: EmbeddedMediaItem[]
+export const restoreEmbeddedMedia = async (
+  embeddedMedia?: EmbeddedMediaItem[]
 ): Promise<void> => {
+  if (!embeddedMedia || embeddedMedia.length === 0) return;
+
   for (const item of embeddedMedia) {
     try {
       // 检查是否已经存在
@@ -38,9 +40,12 @@ const restoreEmbeddedMedia = async (
       const blob = base64ToBlob(item.data, item.mimeType);
 
       // 缓存到 unifiedCacheService
-      // 使用 taskId 标识导入来源
       await unifiedCacheService.cacheMediaFromBlob(item.url, blob, item.type, {
-        taskId: `imported-${Date.now()}`,
+        metadata: {
+          taskId: item.taskId || `imported-${Date.now()}`,
+        },
+        cachedAt: item.cachedAt,
+        lastUsed: item.lastUsed || item.cachedAt,
       });
 
       // console.log(`[restoreEmbeddedMedia] 已恢复媒体: ${item.url}`);
@@ -57,9 +62,7 @@ export const loadFromBlob = async (board: PlaitBoard, blob: Blob | File) => {
     data = JSON.parse(contents);
     if (isValidDrawnixData(data)) {
       // 如果存在嵌入的媒体数据，先恢复它们
-      if (data.embeddedMedia && data.embeddedMedia.length > 0) {
-        await restoreEmbeddedMedia(data.embeddedMedia);
-      }
+      await restoreEmbeddedMedia(data.embeddedMedia);
       return data;
     }
     throw new Error('Error: invalid file');

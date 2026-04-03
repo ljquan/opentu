@@ -8,6 +8,7 @@ import type {
   ImagePromptHistoryItem,
 } from '../prompt-storage-service';
 import type { PlaitTheme, PlaitElement as CorePlaitElement } from '@plait/core';
+import type { EmbeddedMediaItem } from '../../data/types';
 
 // 备份文件版本（v3 支持分片）
 export const BACKUP_VERSION = 3;
@@ -30,6 +31,10 @@ export interface BackupOptions {
   includeProjects: boolean;
   includeAssets: boolean;
   includeKnowledgeBase: boolean;
+  /** 导出时间范围起点（毫秒时间戳，包含） */
+  timeRangeStart?: number | null;
+  /** 导出时间范围终点（毫秒时间戳，包含） */
+  timeRangeEnd?: number | null;
 }
 
 export interface BackupWorkspaceState {
@@ -84,6 +89,7 @@ export interface DrawnixFileData {
   elements: PlaitElement[];
   viewport: Viewport;
   theme?: PlaitTheme;
+  embeddedMedia?: EmbeddedMediaItem[];
   boardMeta?: {
     id: string;
     name: string;

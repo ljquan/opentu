@@ -229,6 +229,8 @@ const CACHE_NAME = `drawnix-v${APP_VERSION}`;
 const IMAGE_CACHE_NAME = `drawnix-images`;
 const STATIC_CACHE_NAME = `drawnix-static-v${APP_VERSION}`;
 const FONT_CACHE_NAME = `drawnix-fonts`;
+const SW_CACHE_DATE_HEADER = 'sw-cache-date';
+const SW_CACHE_CREATED_AT_HEADER = 'sw-cache-created-at';
 
 // 缓存 URL 前缀 - 用于合并视频、图片等本地缓存资源
 const CACHE_URL_PREFIX = '/__aitu_cache__/';
@@ -923,7 +925,7 @@ async function cleanOldCacheEntries(cache: Cache) {
       try {
         const response = await cache.match(request);
         if (response) {
-          const cacheDate = response.headers.get('sw-cache-date');
+          const cacheDate = response.headers.get(SW_CACHE_DATE_HEADER);
           const imageSize = response.headers.get('sw-image-size');
           entries.push({
             request,
@@ -2601,7 +2603,9 @@ async function handleFontRequest(request: Request): Promise<Response> {
 
       // 添加自定义头部标记缓存时间
       const headers = new Headers(responseToCache.headers);
-      headers.set('sw-cache-date', Date.now().toString());
+      const now = Date.now().toString();
+      headers.set(SW_CACHE_DATE_HEADER, now);
+      headers.set(SW_CACHE_CREATED_AT_HEADER, now);
 
       const cachedResponse = new Response(responseToCache.body, {
         status: responseToCache.status,
@@ -3069,7 +3073,8 @@ async function handleVideoRequest(request: Request): Promise<Response> {
               headers: {
                 'Content-Type': videoBlob.type || 'video/mp4',
                 'Content-Length': videoBlob.size.toString(),
-                'sw-cache-date': Date.now().toString(),
+                [SW_CACHE_DATE_HEADER]: Date.now().toString(),
+                [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
                 'sw-video-size': videoBlob.size.toString(),
               },
             });
@@ -3950,9 +3955,11 @@ async function handleImageRequestInternal(
             generateThumbnailAsync(blob, originalRequest.url, 'image');
           }
           
-          const cacheDate = cachedResponse.headers.get('sw-cache-date');
+          const cacheDate = cachedResponse.headers.get(SW_CACHE_DATE_HEADER);
           if (cacheDate) {
             const now = Date.now();
+            const cacheCreatedAt =
+              cachedResponse.headers.get(SW_CACHE_CREATED_AT_HEADER) || cacheDate;
 
             // 再次访问时延长缓存时间 - 创建新的响应并更新缓存
             const refreshedResponse = new Response(blob, {
@@ -3962,7 +3969,8 @@ async function handleImageRequestInternal(
                 ...Object.fromEntries(
                   (cachedResponse.headers as any).entries()
                 ),
-                'sw-cache-date': now.toString(), // 更新访问时间为当前时间
+                [SW_CACHE_DATE_HEADER]: now.toString(), // 更新访问时间为当前时间
+                [SW_CACHE_CREATED_AT_HEADER]: cacheCreatedAt, // 保持首次缓存时间不变
               },
             });
 
@@ -3981,7 +3989,8 @@ async function handleImageRequestInternal(
                 ...Object.fromEntries(
                   (cachedResponse.headers as any).entries()
                 ),
-                'sw-cache-date': Date.now().toString(),
+                [SW_CACHE_DATE_HEADER]: Date.now().toString(),
+                [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
               },
             });
 
@@ -4285,7 +4294,8 @@ async function handleImageRequestInternal(
           'Access-Control-Allow-Methods': 'GET',
           'Access-Control-Allow-Headers': '*',
           'Cache-Control': 'max-age=3153600000', // 100年
-          'sw-cache-date': Date.now().toString(), // 添加缓存时间戳
+          [SW_CACHE_DATE_HEADER]: Date.now().toString(), // 最后访问时间
+          [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(), // 首次缓存生成时间
           'sw-image-size': blob.size.toString(), // 添加图片大小信息
         },
       });

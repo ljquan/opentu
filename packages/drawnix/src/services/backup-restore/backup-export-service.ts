@@ -17,6 +17,7 @@ import { TaskType, TaskStatus } from '../../types/task.types';
 import type { Folder } from '../../types/workspace.types';
 import { LS_KEYS_TO_MIGRATE } from '../../constants/storage-keys';
 import { DrawnixExportedType } from '../../data/types';
+import { collectEmbeddedMediaFromElements } from '../../data/json';
 import { VERSIONS } from '../../constants';
 import localforage from 'localforage';
 import { ASSET_CONSTANTS } from '../../constants/ASSET_CONSTANTS';
@@ -43,6 +44,54 @@ import {
 } from './backup-utils';
 
 class BackupExportService {
+  private formatTimestampForFilename(timestamp?: number): string {
+    const date =
+      typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ? new Date(timestamp)
+        : new Date();
+    if (Number.isNaN(date.getTime())) {
+      return 'unknown-time';
+    }
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${y}${m}${d}_${hh}${mm}${ss}`;
+  }
+
+  private buildAssetExportBaseName(assetId: string, createdAt?: number): string {
+    const timePart = this.formatTimestampForFilename(createdAt);
+    const safeId = sanitizeFileName(assetId);
+    return `${timePart}_${safeId}`;
+  }
+
+  private shouldExportAssetByRange(
+    createdAt: number | undefined,
+    options: BackupOptions
+  ): boolean {
+    const { timeRangeStart, timeRangeEnd } = options;
+
+    if (!timeRangeStart && !timeRangeEnd) {
+      return true;
+    }
+
+    if (typeof createdAt !== 'number' || Number.isNaN(createdAt) || createdAt <= 0) {
+      return false;
+    }
+
+    if (typeof timeRangeStart === 'number' && createdAt < timeRangeStart) {
+      return false;
+    }
+
+    if (typeof timeRangeEnd === 'number' && createdAt > timeRangeEnd) {
+      return false;
+    }
+
+    return true;
+  }
+
   /**
    * 导出数据到 ZIP 文件（内部自动下载分片）
    */
@@ -118,13 +167,13 @@ class BackupExportService {
     // 导出项目（非素材，放入 Part1）
     if (options.includeProjects) {
       onProgress?.(40, '正在导出项目...');
-      await this.exportProjects(partManager, manifest, onProgress);
+      await this.exportProjects(partManager, manifest, !options.includeAssets, onProgress);
     }
 
     // 导出素材（通过 partManager.addAssetBlob 自动分片）
     if (options.includeAssets) {
       onProgress?.(50, '正在导出素材...');
-      await this.exportAssets(partManager, manifest, onProgress);
+      await this.exportAssets(partManager, manifest, options, onProgress);
     }
 
     onProgress?.(85, '正在压缩文件...');
@@ -222,6 +271,7 @@ class BackupExportService {
   private async exportProjects(
     partManager: BackupPartManager,
     manifest: BackupManifest,
+    includeEmbeddedMedia: boolean,
     onProgress?: ProgressCallback
   ): Promise<void> {
     const [folders, boards] = await Promise.all([
@@ -242,6 +292,10 @@ class BackupExportService {
         ? `projects/${folderPath}/${safeName}.drawnix`
         : `projects/${safeName}.drawnix`;
 
+      const embeddedMedia = includeEmbeddedMedia
+        ? await collectEmbeddedMediaFromElements(board.elements || [])
+        : undefined;
+
       const drawnixData: DrawnixFileData = {
         type: DrawnixExportedType.drawnix,
         version: VERSIONS.drawnix,
@@ -249,6 +303,7 @@ class BackupExportService {
         elements: board.elements || [],
         viewport: board.viewport || { zoom: 1 },
         theme: board.theme,
+        embeddedMedia,
         boardMeta: {
           id: board.id,
           name: board.name,
@@ -298,15 +353,59 @@ class BackupExportService {
     return pathMap;
   }
   /**
+   * 获取图片的实际生成时间（从任务完成时间获取）
+   */
+  private async getActualCreationTime(item: import('../unified-cache-service').CachedMedia): Promise<number | undefined> {
+    try {
+      // 如果缓存元数据中有任务ID，尝试从任务获取完成时间
+      if (item.metadata?.taskId) {
+        const task = await taskStorageReader.getTask(item.metadata.taskId);
+        if (task?.completedAt) {
+          return task.completedAt;
+        }
+        if (task?.createdAt) {
+          return task.createdAt;
+        }
+      }
+      
+      // 如果没有任务ID或任务不存在，尝试从URL中提取时间信息
+      // 例如：URL可能包含时间戳参数
+      const url = new URL(item.url);
+      const timestampParam = url.searchParams.get('t') || url.searchParams.get('timestamp');
+      if (timestampParam) {
+        const timestamp = parseInt(timestampParam, 10);
+        if (!Number.isNaN(timestamp) && timestamp > 0) {
+          return timestamp;
+        }
+      }
+      
+      // 最后回退到缓存时间
+      return item.cachedAt;
+    } catch (error) {
+      console.warn(`[BackupRestore] Failed to get actual creation time for ${item.url}:`, error);
+      return item.cachedAt;
+    }
+  }
+
+  /**
    * 导出素材数据（通过 partManager.addAssetBlob 自动分片）
    */
   private async exportAssets(
     partManager: BackupPartManager,
     manifest: BackupManifest,
+    options: BackupOptions,
     onProgress?: ProgressCallback
   ): Promise<void> {
+    type PendingAssetExport = {
+      baseName: string;
+      blobData: Blob;
+      metaData: string | object;
+      createdAt?: number;
+    };
+
     const exportedUrls = new Set<string>();
     let exportedCount = 0;
+    const pendingExports: PendingAssetExport[] = [];
 
     // 1. 导出本地素材库
     const store = localforage.createInstance({
@@ -320,18 +419,17 @@ class BackupExportService {
     for (let i = 0; i < assetKeys.length; i++) {
       try {
         const stored = await store.getItem<import('../../types/asset.types').StoredAsset>(assetKeys[i]);
-        if (stored) {
+        if (stored && this.shouldExportAssetByRange(stored.createdAt, options)) {
           const blobData = await unifiedCacheService.getCachedBlob(stored.url);
           if (blobData) {
-            const ext = getExtensionFromMimeType(stored.mimeType);
-            await partManager.addAssetBlob(
-              `${stored.id}${ext}`,
+            const baseName = this.buildAssetExportBaseName(stored.id, stored.createdAt);
+            pendingExports.push({
+              baseName,
               blobData,
-              `${stored.id}.meta.json`,
-              stored
-            );
+              metaData: stored,
+              createdAt: stored.createdAt,
+            });
             exportedUrls.add(stored.url);
-            exportedCount++;
           }
         }
       } catch (error) {
@@ -352,7 +450,14 @@ class BackupExportService {
     for (let i = 0; i < cacheItems.length; i++) {
       const item = cacheItems[i];
       try {
+        // 获取实际生成时间
+        const actualCreationTime = await this.getActualCreationTime(item);
+        
+        if (!this.shouldExportAssetByRange(actualCreationTime, options)) {
+          continue;
+        }
         const itemId = item.metadata?.taskId || generateIdFromUrl(item.url);
+        const exportCreatedAt = actualCreationTime || item.cachedAt;
         const metaData = {
           id: itemId,
           url: item.url,
@@ -360,22 +465,21 @@ class BackupExportService {
           mimeType: item.mimeType,
           size: item.size,
           source: 'AI_GENERATED',
-          createdAt: item.cachedAt,
+          createdAt: exportCreatedAt,
           updatedAt: item.lastUsed,
           metadata: item.metadata,
         };
 
         const blobData = await unifiedCacheService.getCachedBlob(item.url);
         if (blobData) {
-          const ext = getExtensionFromMimeType(item.mimeType);
-          await partManager.addAssetBlob(
-            `${itemId}${ext}`,
+          const baseName = this.buildAssetExportBaseName(itemId, exportCreatedAt);
+          pendingExports.push({
+            baseName,
             blobData,
-            `${itemId}.meta.json`,
-            metaData
-          );
+            metaData,
+            createdAt: exportCreatedAt,
+          });
           exportedUrls.add(item.url);
-          exportedCount++;
         }
       } catch (error) {
         console.warn(`[BackupRestore] Failed to export cached media ${item.url}:`, error);
@@ -387,10 +491,40 @@ class BackupExportService {
       }
     }
 
+    pendingExports.sort((a, b) => {
+      const timeA = a.createdAt ?? 0;
+      const timeB = b.createdAt ?? 0;
+      if (timeA !== timeB) {
+        return timeA - timeB;
+      }
+      return a.baseName.localeCompare(b.baseName);
+    });
+
+    for (let i = 0; i < pendingExports.length; i++) {
+      const asset = pendingExports[i];
+      const meta = typeof asset.metaData === 'string' ? JSON.parse(asset.metaData) : asset.metaData;
+      const mimeType = typeof meta?.mimeType === 'string' ? meta.mimeType : asset.blobData.type;
+      const ext = getExtensionFromMimeType(mimeType);
+
+      await partManager.addAssetBlob(
+        `${asset.baseName}${ext}`,
+        asset.blobData,
+        `${asset.baseName}.meta.json`,
+        asset.metaData,
+        asset.createdAt
+      );
+      exportedCount++;
+
+      if (onProgress && pendingExports.length > 0) {
+        const progress = 75 + Math.round(((i + 1) / pendingExports.length) * 10);
+        onProgress(progress, `正在写入素材 (${i + 1}/${pendingExports.length})...`);
+      }
+    }
+
     manifest.stats.assetCount = exportedCount;
 
     // 3. 导出任务数据
-    onProgress?.(75, '正在导出任务数据...');
+    onProgress?.(85, '正在导出任务数据...');
     const allTasks = await taskStorageReader.getAllTasks();
     const completedMediaTasks = allTasks.filter(
       task =>

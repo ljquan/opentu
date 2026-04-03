@@ -108,6 +108,48 @@
     color: #999;
   }
 
+  &__time-range {
+    margin-bottom: 20px;
+    padding: 12px;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    background: #fafafa;
+  }
+
+  &__time-range-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 10px;
+  }
+
+  &__time-range-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  &__time-range-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    span {
+      font-size: 12px;
+      color: #666;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid #dcdcdc;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: #333;
+      background: #fff;
+    }
+  }
+
   &__dropzone {
     display: flex;
     flex-direction: column;

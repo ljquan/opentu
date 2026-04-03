@@ -39,12 +39,27 @@ export const BackupRestoreDialog = ({
   onSwitchBoard,
   onBeforeImport,
 }: BackupRestoreDialogProps) => {
+  const toInputDateTime = (timestamp?: number | null): string => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  };
+
+  const fromInputDateTime = (value: string): number | null => {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
   const [activeTab, setActiveTab] = useState<TabType>('backup');
   const [backupOptions, setBackupOptions] = useState<BackupOptions>({
     includePrompts: true,
     includeProjects: true,
     includeAssets: true,
     includeKnowledgeBase: true,
+    timeRangeStart: null,
+    timeRangeEnd: null,
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -128,6 +143,14 @@ export const BackupRestoreDialog = ({
       MessagePlugin.warning('请至少选择一项要备份的内容');
       return;
     }
+    if (
+      backupOptions.timeRangeStart &&
+      backupOptions.timeRangeEnd &&
+      backupOptions.timeRangeStart > backupOptions.timeRangeEnd
+    ) {
+      MessagePlugin.warning('开始时间不能晚于结束时间');
+      return;
+    }
 
     setIsProcessing(true);
     setProgress(0);
@@ -142,7 +165,9 @@ export const BackupRestoreDialog = ({
         }
       );
 
-      MessagePlugin.success(`备份成功！共 ${result.totalParts} 个文件`);
+      MessagePlugin.success(
+        `备份成功！分片 ${result.totalParts} 个，素材 ${result.stats.assetCount} 个`
+      );
       handleClose();
     } catch (error) {
       console.error('[BackupRestore] Export failed:', error);
@@ -288,6 +313,36 @@ export const BackupRestoreDialog = ({
                   <span className="backup-restore-dialog__option-desc">包含所有目录、笔记和标签</span>
                 </div>
               </Checkbox>
+            </div>
+
+            <div className="backup-restore-dialog__time-range">
+              <div className="backup-restore-dialog__time-range-title">图片导出时间范围（可选）</div>
+              <div className="backup-restore-dialog__time-range-row">
+                <label className="backup-restore-dialog__time-range-field">
+                  <span>开始时间</span>
+                  <input
+                    type="datetime-local"
+                    value={toInputDateTime(backupOptions.timeRangeStart)}
+                    disabled={isProcessing}
+                    onChange={(e) => setBackupOptions(prev => ({
+                      ...prev,
+                      timeRangeStart: fromInputDateTime(e.target.value),
+                    }))}
+                  />
+                </label>
+                <label className="backup-restore-dialog__time-range-field">
+                  <span>结束时间</span>
+                  <input
+                    type="datetime-local"
+                    value={toInputDateTime(backupOptions.timeRangeEnd)}
+                    disabled={isProcessing}
+                    onChange={(e) => setBackupOptions(prev => ({
+                      ...prev,
+                      timeRangeEnd: fromInputDateTime(e.target.value),
+                    }))}
+                  />
+                </label>
+              </div>
             </div>
 
             {isProcessing && (

@@ -34,6 +34,7 @@ import {
   ProgressCallback,
   ensureElementIds,
 } from './types';
+import { restoreEmbeddedMedia } from '../../data/blob';
 import { getExtensionFromMimeType, generateId } from './backup-utils';
 
 class BackupImportService {
@@ -106,7 +107,7 @@ class BackupImportService {
         result.tasks = await this.importTasks(zip);
       }
 
-      if (result.projects.folders > 0 || result.projects.boards > 0) {
+      if (result.projects.folders > 0 || result.projects.boards > 0 || result.projects.merged > 0) {
         await workspaceService.reload();
       }
 
@@ -295,6 +296,7 @@ class BackupImportService {
         if (drawnixFile) {
           const drawnixContent = await drawnixFile.async('string');
           const drawnixData: DrawnixFileData = JSON.parse(drawnixContent);
+          await restoreEmbeddedMedia(drawnixData.embeddedMedia);
           const boardMeta = drawnixData.boardMeta;
 
           const relativePath = filePath.replace(/^projects\//, '');
@@ -375,7 +377,8 @@ class BackupImportService {
 
     for (let i = 0; i < metaFiles.length; i++) {
       const metaPath = metaFiles[i];
-      const assetId = metaPath.replace('assets/', '').replace('.meta.json', '');
+      const assetFileStem = metaPath.replace('assets/', '').replace('.meta.json', '');
+      let assetIdForLog = assetFileStem;
 
       try {
         const metaFile = zip.file(metaPath);
@@ -383,6 +386,8 @@ class BackupImportService {
 
         const metaContent = await metaFile.async('string');
         const metadata = JSON.parse(metaContent);
+        const assetId = metadata?.id || assetFileStem;
+        assetIdForLog = assetId;
         const isAIGenerated = metadata.source === 'AI_GENERATED';
 
         if (isAIGenerated) {
@@ -395,14 +400,14 @@ class BackupImportService {
         let blobData: Blob | null = null;
 
         for (const ext of possibleExtensions) {
-          const blobFile = zip.file(`assets/${assetId}${ext}`);
+          const blobFile = zip.file(`assets/${assetFileStem}${ext}`);
           if (blobFile) { blobData = await blobFile.async('blob'); break; }
         }
 
         if (!blobData && metadata.mimeType) {
           const ext = getExtensionFromMimeType(metadata.mimeType);
           if (ext) {
-            const blobFile = zip.file(`assets/${assetId}${ext}`);
+            const blobFile = zip.file(`assets/${assetFileStem}${ext}`);
             if (blobFile) blobData = await blobFile.async('blob');
           }
         }
@@ -410,8 +415,18 @@ class BackupImportService {
         if (blobData) {
           const cacheType = metadata.type === 'VIDEO' ? 'video' : 'image';
           await unifiedCacheService.cacheMediaFromBlob(
-            metadata.url, blobData, cacheType as 'image' | 'video',
-            { taskId: metadata.metadata?.taskId || assetId, prompt: metadata.metadata?.prompt, model: metadata.metadata?.model }
+            metadata.url,
+            blobData,
+            cacheType as 'image' | 'video',
+            {
+              metadata: {
+                taskId: metadata.metadata?.taskId || assetId,
+                prompt: metadata.metadata?.prompt,
+                model: metadata.metadata?.model,
+              },
+              cachedAt: metadata.createdAt,
+              lastUsed: metadata.updatedAt || metadata.createdAt,
+            }
           );
           if (!isAIGenerated) await store.setItem(assetId, metadata);
           imported++;
@@ -420,7 +435,7 @@ class BackupImportService {
           skipped++;
         }
       } catch (error) {
-        console.warn(`[BackupRestore] Failed to import asset ${assetId}:`, error);
+        console.warn(`[BackupRestore] Failed to import asset ${assetIdForLog}:`, error);
         skipped++;
       }
 
