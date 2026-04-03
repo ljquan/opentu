@@ -1,0 +1,368 @@
+{
+  "_meta": {
+    "projectName": "opentu stitch workflow",
+    "projectId": "4327151359544385913",
+    "strategy": "design-twin",
+    "sourceOfTruth": [
+      ".stitch/DESIGN.md",
+      ".stitch/SURFACES.md"
+    ]
+  },
+  "surfaces": {
+    "workspace-shell": {
+      "status": "generated",
+      "priority": "P0",
+      "type": "shell",
+      "entry": [
+        "apps/web/src/app/app.tsx",
+        "packages/drawnix/src/drawnix.tsx"
+      ],
+      "dependsOn": [],
+      "stitchMode": "generate",
+      "screenId": "6fb4a608fe994d94ad7cac9da4c002b6",
+      "notes": "Base desktop design twin for the workspace shell. Preferred tracked reference is the cleaned editor-shell version because it matches the current drawnix composition more closely: open whiteboard canvas, fixed left toolbar, bottom-centered AI input bar, and top-right navigation cluster. Remaining gaps are mostly localized control wording and minor visual details rather than shell structure.",
+      "iterations": [
+        {
+          "screenId": "117bd968d3c24bf69ba4baa979420ca2",
+          "label": "workspace-shell-v1",
+          "status": "superseded",
+          "reason": "Established the initial shell composition, but still drifted toward a top-nav workspace landing view."
+        },
+        {
+          "screenId": "aadbf60dedf04b31bfe3be3d2cdda848",
+          "label": "workspace-shell-v2",
+          "status": "superseded",
+          "reason": "Removed the top navigation and dashboard feeling, but still included a centered watermark and footer branding that do not match the current editor shell."
+        },
+        {
+          "screenId": "6fb4a608fe994d94ad7cac9da4c002b6",
+          "label": "workspace-shell-v3",
+          "status": "preferred",
+          "reason": "Best current shell reference. Closest to the current code structure with an open canvas, compact left toolbar, bottom AI input bar, and top-right navigation controls."
+        }
+      ]
+    },
+    "project-drawer": {
+      "status": "generated",
+      "priority": "P0",
+      "type": "drawer",
+      "entry": [
+        "packages/drawnix/src/components/project-drawer"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "screenId": "bef474bcde434798a1a78ebec3ebad6f",
+      "notes": "Primary navigation and board management drawer. Preferred tracked reference is the first generated drawer state because it preserves the shell context, tabs, search field, and hierarchical board tree with the least drift. A follow-up edit that tried to reposition the floating toolbar regressed badly by polluting the canvas with stray labels and placeholder content.",
+      "iterations": [
+        {
+          "screenId": "bef474bcde434798a1a78ebec3ebad6f",
+          "label": "project-drawer-v1",
+          "status": "preferred",
+          "reason": "Best current project drawer reference. Preserves the opened drawer state, board tree hierarchy, and whiteboard shell context with acceptable fidelity."
+        },
+        {
+          "screenId": "163dfa25bd794984b40c8065ec8eba5f",
+          "label": "project-drawer-v2",
+          "status": "rejected",
+          "reason": "Attempted toolbar-position correction, but introduced noisy placeholder labels and visual drift inside the canvas."
+        }
+      ]
+    },
+    "toolbox-drawer": {
+      "status": "planned",
+      "priority": "P0",
+      "type": "drawer",
+      "entry": [
+        "packages/drawnix/src/components/toolbox-drawer"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Utility drawer for tools and expandable system capabilities."
+    },
+    "ai-input-bar": {
+      "status": "generated",
+      "priority": "P0",
+      "type": "panel",
+      "entry": [
+        "packages/drawnix/src/components/ai-input-bar"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "screenId": "3d045651b0e74a7ab1d9ddf98eb8fef3",
+      "notes": "Bottom-centered AI composition bar inside the homepage/editor shell. The current preferred reference is the fourth iteration because it restores the correct shell context, removes the incorrect top navigation strip, keeps the toolbar/minimap scaffolding, and preserves the bar as one unified floating island. Remaining gaps are mostly local fidelity issues inside the bar itself, especially the textarea height, exact widget typography, and some control-label details.",
+      "iterations": [
+        {
+          "screenId": "e0c40b6e7e84459c92b40f7875f8a2e4",
+          "label": "ai-input-bar-v1",
+          "status": "superseded",
+          "reason": "Established the surface direction and shell placement, but the AI bar was still too shallow and under-specified internally."
+        },
+        {
+          "screenId": "f13bf5584f50470abf757c8b62e3fd9e",
+          "label": "ai-input-bar-v2",
+          "status": "rejected",
+          "reason": "Pulled the component out of the shell and broke the unified floating-island composition."
+        },
+        {
+          "screenId": "5147c7c5c4a542379c4a0a7210fd49a0",
+          "label": "ai-input-bar-v3",
+          "status": "superseded",
+          "reason": "Returned the component to the full desktop shell and recovered the unified bar, but still introduced a top navigation strip that does not exist in the current code."
+        },
+        {
+          "screenId": "3d045651b0e74a7ab1d9ddf98eb8fef3",
+          "label": "ai-input-bar-v4",
+          "status": "preferred",
+          "reason": "Best current AI input bar reference. Keeps the full homepage/editor shell, removes the incorrect top navigation, and preserves the bottom-centered bar as a single integrated floating island."
+        }
+      ]
+    },
+    "audio-generation-workspace": {
+      "status": "generated",
+      "priority": "P1",
+      "type": "workflow",
+      "entry": [
+        "packages/drawnix/src/components/ai-input-bar",
+        "packages/drawnix/src/components/chat-drawer",
+        "packages/drawnix/src/components/task-queue",
+        "packages/drawnix/src/components/generation-history"
+      ],
+      "dependsOn": [
+        "workspace-shell",
+        "ai-input-bar",
+        "chat-drawer"
+      ],
+      "stitchMode": "generate",
+      "screenId": "7bc745978a4040078d888f3ff754a8da",
+      "notes": "Canonical tracked audio workspace reference. The latest preferred state adds a top-center playback overlay that behaves like a lightweight workspace HUD rather than a persistent music-app dock. This keeps the audio capability inside the existing whiteboard shell: bottom AI bar in `音频` mode, right-side workflow rail, active canvas audio node, and a temporary global playback echo that does not compete with the canvas, toolbar, or drawer regions.",
+      "iterations": [
+        {
+          "screenId": "11473c95bcfa46dcb82ee2267c2d84cc",
+          "label": "audio-generation-workspace-v1",
+          "status": "superseded",
+          "reason": "Established the canonical canvas-native audio workspace, but still lacked a clear global playback state after clicking play."
+        },
+        {
+          "screenId": "33b8482865e3496386a7eba8f9d27489",
+          "label": "audio-generation-workspace-v2",
+          "status": "superseded",
+          "reason": "Introduced the top-center playback overlay and active node state, but the scrubber was still too small for confident dragging and the active node relied on a harsh blue outer border."
+        },
+        {
+          "screenId": "7bc745978a4040078d888f3ff754a8da",
+          "label": "audio-generation-workspace-v3",
+          "status": "preferred",
+          "reason": "Best current audio reference. Keeps the top-center playback overlay, improves scrubber usability, and replaces the hard blue active border with a softer, more integrated playing-state treatment."
+        }
+      ]
+    },
+    "media-library-modal": {
+      "status": "generated",
+      "priority": "P0",
+      "type": "modal",
+      "entry": [
+        "packages/drawnix/src/components/media-library"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "screenId": "828aea65dfdd4dee97f4481cd1842412",
+      "notes": "Primary asset-management surface for generated and imported media. Preferred tracked reference is the second generated pass because it restores the correct editor context: a large `素材库` utility window over the whiteboard shell rather than a separate branded application page. The two-pane media grid plus inspector structure now aligns well with the real component architecture.",
+      "iterations": [
+        {
+          "screenId": "c88dce37f38c4b85bab175855908aa1d",
+          "label": "media-library-modal-v1",
+          "status": "superseded",
+          "reason": "Captured the main grid-plus-inspector structure, but drifted into a separate branded app shell instead of staying inside the whiteboard editor context."
+        },
+        {
+          "screenId": "828aea65dfdd4dee97f4481cd1842412",
+          "label": "media-library-modal-v2",
+          "status": "preferred",
+          "reason": "Best current media-library reference. Keeps the utility window structure while correctly placing it inside the editor shell."
+        }
+      ]
+    },
+    "settings-dialog": {
+      "status": "generated",
+      "priority": "P0",
+      "type": "dialog",
+      "entry": [
+        "packages/drawnix/src/components/settings-dialog"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "screenId": "63d8351a3deb4b7cb479aaca14926c48",
+      "notes": "System settings reference for future configuration flows. Preferred tracked reference is the first generated settings workspace because it captures the code-level structure well: left primary navigation, provider catalog list, and detailed provider form in a dense desktop settings workspace. Minor remaining drift is mostly in copy polish and exact shell backdrop treatment, not in the settings information architecture.",
+      "iterations": [
+        {
+          "screenId": "63d8351a3deb4b7cb479aaca14926c48",
+          "label": "settings-dialog-v1",
+          "status": "preferred",
+          "reason": "Best current settings reference. Matches the existing provider-centric settings workspace with a left nav, provider list, and detailed configuration form."
+        }
+      ]
+    },
+    "command-palette": {
+      "status": "planned",
+      "priority": "P0",
+      "type": "overlay",
+      "entry": [
+        "packages/drawnix/src/components/command-palette"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Power-user command surface with searchable actions and keyboard-first layout."
+    },
+    "chat-drawer": {
+      "status": "planned",
+      "priority": "P1",
+      "type": "drawer",
+      "entry": [
+        "packages/drawnix/src/components/chat-drawer"
+      ],
+      "dependsOn": [
+        "workspace-shell",
+        "ai-input-bar"
+      ],
+      "stitchMode": "generate",
+      "notes": "Conversational side surface for AI-assisted creation and analysis workflows."
+    },
+    "backup-restore-dialog": {
+      "status": "planned",
+      "priority": "P1",
+      "type": "dialog",
+      "entry": [
+        "packages/drawnix/src/components/backup-restore"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Trust-sensitive data recovery and restoration surface."
+    },
+    "version-update-prompt": {
+      "status": "planned",
+      "priority": "P1",
+      "type": "dialog",
+      "entry": [
+        "packages/drawnix/src/components/version-update"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Product update and upgrade messaging surface."
+    },
+    "canvas-search": {
+      "status": "planned",
+      "priority": "P1",
+      "type": "overlay",
+      "entry": [
+        "packages/drawnix/src/components/canvas-search"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Compact search overlay tied to the whiteboard workspace."
+    },
+    "sync-settings": {
+      "status": "planned",
+      "priority": "P1",
+      "type": "panel",
+      "entry": [
+        "packages/drawnix/src/components/sync-settings"
+      ],
+      "dependsOn": [
+        "workspace-shell",
+        "settings-dialog"
+      ],
+      "stitchMode": "generate",
+      "notes": "Cloud sync and account-linked state surface."
+    },
+    "performance-panel": {
+      "status": "planned",
+      "priority": "P2",
+      "type": "panel",
+      "entry": [
+        "packages/drawnix/src/components/performance-panel"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Dense operational diagnostics surface."
+    },
+    "clean-confirm": {
+      "status": "planned",
+      "priority": "P2",
+      "type": "dialog",
+      "entry": [
+        "packages/drawnix/src/components/clean-confirm"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "generate",
+      "notes": "Destructive confirmation pattern for risky cleanup actions."
+    },
+    "crash-recovery-dialog": {
+      "status": "edited",
+      "priority": "P0",
+      "type": "dialog",
+      "entry": [
+        "apps/web/src/app/CrashRecoveryDialog.tsx"
+      ],
+      "dependsOn": [
+        "workspace-shell"
+      ],
+      "stitchMode": "edit",
+      "screenId": "a4039e54d80249f59f64d6bdbb93ef03",
+      "notes": "Initial Stitch pilot surface. Preferred tracked reference is the first refined desktop modal because it preserves the Chinese content structure and action priority more reliably than later edits. Later iterations improved horizontal button layout but regressed by introducing stubborn English labels such as `warning` and `memory`.",
+      "iterations": [
+        {
+          "screenId": "291af02bf9ce404a9987f68dd1e20def",
+          "label": "initial-generation",
+          "status": "rejected",
+          "reason": "Generated as a mobile-like recovery screen rather than a desktop modal."
+        },
+        {
+          "screenId": "9eeba88b53474549944b2eb181f90114",
+          "label": "desktop-modal-v1",
+          "status": "superseded",
+          "reason": "First desktop modal pass. Better direction than the initial mobile-like draft, but still too small and card-like."
+        },
+        {
+          "screenId": "a4039e54d80249f59f64d6bdbb93ef03",
+          "label": "desktop-modal-v2",
+          "status": "preferred",
+          "reason": "Best current reference. Corrects primary versus secondary action emphasis while keeping the Chinese information structure intact."
+        },
+        {
+          "screenId": "e82b6230aa754f94b6cc463cc66b5b13",
+          "label": "desktop-modal-v3",
+          "status": "rejected",
+          "reason": "Improves the horizontal action row and modal scale, but adds unwanted English labels and drifts away from the intended product language."
+        },
+        {
+          "screenId": "3fb4f3a6849148bf86afd47c20a14506",
+          "label": "desktop-modal-v4",
+          "status": "rejected",
+          "reason": "Attempted localization fix, but the generated screen still retained English labels and did not recover the expected Chinese-only UI."
+        }
+      ]
+    }
+  }
+}
