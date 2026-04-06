@@ -112,12 +112,16 @@ const collectEmbeddedMedia = async (
       const mimeType = getMimeType(url, blob);
       const mediaType = getMediaType(mimeType);
       const base64Data = await blobToBase64(blob);
+      const cacheMetadata = await unifiedCacheService.getCacheInfo(url);
 
       embeddedMedia.push({
         url,
         type: mediaType,
         mimeType,
         data: base64Data,
+        cachedAt: cacheMetadata.cachedAt,
+        lastUsed: cacheMetadata.lastUsed,
+        taskId: cacheMetadata.metadata?.taskId,
       });
     } catch (error) {
       console.error(`[serializeAsJSON] 处理媒体失败: ${url}`, error);
@@ -125,6 +129,16 @@ const collectEmbeddedMedia = async (
   }
 
   return embeddedMedia;
+};
+
+export const collectEmbeddedMediaFromElements = async (
+  elements: PlaitElement[]
+): Promise<EmbeddedMediaItem[] | undefined> => {
+  const virtualUrls = extractVirtualUrls(elements);
+  if (virtualUrls.size === 0) return undefined;
+
+  const embeddedMedia = await collectEmbeddedMedia(virtualUrls);
+  return embeddedMedia.length > 0 ? embeddedMedia : undefined;
 };
 
 export const saveAsJSON = async (
@@ -183,14 +197,7 @@ export const serializeAsJSON = (board: PlaitBoard): string => {
  * 用于保存文件时，将虚拟 URL 对应的媒体数据内嵌到文件中
  */
 export const serializeAsJSONAsync = async (board: PlaitBoard): Promise<string> => {
-  // 提取所有虚拟 URL
-  const virtualUrls = extractVirtualUrls(board.children);
-
-  // 收集嵌入式媒体数据
-  let embeddedMedia: EmbeddedMediaItem[] | undefined;
-  if (virtualUrls.size > 0) {
-    embeddedMedia = await collectEmbeddedMedia(virtualUrls);
-  }
+  const embeddedMedia = await collectEmbeddedMediaFromElements(board.children);
 
   const data: DrawnixExportedData = {
     type: DrawnixExportedType.drawnix,
@@ -198,7 +205,7 @@ export const serializeAsJSONAsync = async (board: PlaitBoard): Promise<string> =
     source: 'web',
     elements: board.children,
     viewport: board.viewport,
-    embeddedMedia: embeddedMedia && embeddedMedia.length > 0 ? embeddedMedia : undefined,
+    embeddedMedia,
   };
 
   return JSON.stringify(data, null, 2);

@@ -14,6 +14,12 @@ export interface EmbeddedMediaItem {
   mimeType: string;
   /** Base64 编码的媒体数据（不含 data: 前缀） */
   data: string;
+  /** 首次缓存/创建时间 */
+  cachedAt?: number;
+  /** 最近访问/更新时间 */
+  lastUsed?: number;
+  /** 原始任务 ID，便于二次导出时复原真实时间 */
+  taskId?: string;
 }
 
 export interface DrawnixExportedData {

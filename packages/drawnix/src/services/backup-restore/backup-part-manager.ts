@@ -9,7 +9,7 @@ import { BACKUP_SIGNATURE, BACKUP_VERSION, BackupManifest, ExportResult } from '
 /** 分片阈值：500MB 未压缩大小 */
 export const PART_SIZE_THRESHOLD = 500 * 1024 * 1024;
 
-function downloadBlob(blob: Blob, filename: string): void {
+async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -17,6 +17,8 @@ function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  // 避免浏览器在多文件下载时过早释放 URL 导致丢包
+  await new Promise(resolve => setTimeout(resolve, 1200));
   URL.revokeObjectURL(url);
 }
 
@@ -47,10 +49,27 @@ export class BackupPartManager {
     this.currentSize += new Blob([data]).size;
   }
 
+  private normalizeEntryDate(timestamp?: number): Date {
+    if (!timestamp || Number.isNaN(timestamp) || timestamp <= 0) {
+      return new Date();
+    }
+    // 兼容秒级时间戳输入
+    const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? new Date() : date;
+  }
+
   /** 添加素材 blob，超阈值时自动 finalize 当前分片 */
-  async addAssetBlob(path: string, blob: Blob, metaPath: string, metaContent: string | object): Promise<void> {
+  async addAssetBlob(
+    path: string,
+    blob: Blob,
+    metaPath: string,
+    metaContent: string | object,
+    createdAt?: number
+  ): Promise<void> {
     const metaStr = typeof metaContent === 'string' ? metaContent : JSON.stringify(metaContent, null, 2);
     const newSize = blob.size + new Blob([metaStr]).size;
+    const entryDate = this.normalizeEntryDate(createdAt);
 
     if (this.currentSize + newSize > PART_SIZE_THRESHOLD && this.currentSize > 0) {
       await this.finalizePart();
@@ -58,15 +77,13 @@ export class BackupPartManager {
     }
 
     const assetsFolder = this.currentZip.folder('assets')!;
-    assetsFolder.file(metaPath, metaStr);
-    assetsFolder.file(path, blob);
+    assetsFolder.file(metaPath, metaStr, { date: entryDate });
+    assetsFolder.file(path, blob, { date: entryDate });
     this.currentSize += newSize;
   }
 
-  /** finalize 当前分片并下载（非 Part1 时立即下载） */
+  /** finalize 当前分片并下载（Part1 延迟下载，其他分片立即下载） */
   private async finalizePart(): Promise<void> {
-    if (this.partIndex === 1) return;
-
     const partManifest = {
       signature: BACKUP_SIGNATURE,
       version: BACKUP_VERSION,
@@ -78,7 +95,13 @@ export class BackupPartManager {
       isFinalPart: false,
       includes: { prompts: false, projects: false, assets: true, knowledgeBase: false },
     };
-    this.currentZip.file('manifest.json', JSON.stringify(partManifest, null, 2));
+    
+    // 对于所有分片都生成manifest，但Part1延迟下载
+    const zipToUse = this.partIndex === 1 ? this.part1Zip : this.currentZip;
+    zipToUse.file('manifest.json', JSON.stringify(partManifest, null, 2));
+
+    // 只有非Part1分片立即下载
+    if (this.partIndex === 1) return;
 
     const blob = await this.currentZip.generateAsync({
       type: 'blob',
@@ -89,7 +112,7 @@ export class BackupPartManager {
     if (this.downloadedParts.length > 0) {
       await new Promise(r => setTimeout(r, 500));
     }
-    downloadBlob(blob, filename);
+    await downloadBlob(blob, filename);
     this.downloadedParts.push({ filename, size: blob.size });
   }
 
@@ -118,7 +141,7 @@ export class BackupPartManager {
         compressionOptions: { level: 6 },
       });
       const filename = `${this.baseFilename}.zip`;
-      downloadBlob(blob, filename);
+      await downloadBlob(blob, filename);
       return { files: [{ filename, size: blob.size }], totalParts: 1, stats: manifest.stats };
     }
 
@@ -131,7 +154,7 @@ export class BackupPartManager {
       compressionOptions: { level: 6 },
     });
     const part1Filename = `${this.baseFilename}_part1.zip`;
-    downloadBlob(part1Blob, part1Filename);
+    await downloadBlob(part1Blob, part1Filename);
     this.downloadedParts.unshift({ filename: part1Filename, size: part1Blob.size });
 
     // 下载最后一个分片
@@ -144,8 +167,8 @@ export class BackupPartManager {
         compressionOptions: { level: 6 },
       });
       const filename = `${this.baseFilename}_part${this.partIndex}.zip`;
-      await new Promise(r => setTimeout(r, 500));
-      downloadBlob(blob, filename);
+      await new Promise(r => setTimeout(r, 700));
+      await downloadBlob(blob, filename);
       this.downloadedParts.push({ filename, size: blob.size });
     }
 
