@@ -45,6 +45,13 @@ export function useViewerState(
     return items.length > 1 ? [idx, nextIdx] : [idx];
   }, [initialIndex, maxCompareSlots, items.length]);
 
+  const getInitialSlotCount = useCallback((): 2 | 3 | 4 => {
+    const compareCount = getInitialCompareIndices().length;
+    if (compareCount >= 4) return 4;
+    if (compareCount === 3) return 3;
+    return 2;
+  }, [getInitialCompareIndices]);
+
   // 核心状态
   const [mode, setModeInternal] = useState<ViewerMode>(initialMode);
   const [currentIndex, setCurrentIndex] = useState<number>(
@@ -62,14 +69,24 @@ export function useViewerState(
     y: 0,
   });
   const [focusedSlot, setFocusedSlotInternal] = useState<number>(0);
-  const [slotCount, setSlotCountInternal] = useState<2 | 3 | 4>(2);
+  const [slotCount, setSlotCountInternal] = useState<2 | 3 | 4>(
+    getInitialSlotCount
+  );
 
   // visible 变化或 initialIndex 变化时重置状态
   useEffect(() => {
     if (visible) {
+      const nextCompareIndices = getInitialCompareIndices();
       setModeInternal(initialMode);
       setCurrentIndex(typeof initialIndex === 'number' ? initialIndex : 0);
-      setCompareIndices(getInitialCompareIndices());
+      setCompareIndices(nextCompareIndices);
+      setSlotCountInternal(
+        nextCompareIndices.length >= 4
+          ? 4
+          : nextCompareIndices.length === 3
+          ? 3
+          : 2
+      );
       setZoomLevel(1);
       setPanOffset({ x: 0, y: 0 });
       setFocusedSlotInternal(0);

@@ -199,7 +199,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
   const isAudioTask = task.type === TaskType.AUDIO;
   const isLyricsTask = isAudioTask && isLyricsResult(task.result);
   const isPreviewableTask =
-    task.type === TaskType.IMAGE || task.type === TaskType.VIDEO;
+    task.type === TaskType.IMAGE || task.type === TaskType.VIDEO || (task.type === TaskType.AUDIO && !isLyricsTask);
   const lyricsText = getLyricsText(task.result);
   const lyricsTitle = getLyricsTitle(
     task.result,

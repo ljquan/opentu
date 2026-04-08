@@ -96,6 +96,22 @@ $thumb-size-sm: 48px;
     object-fit: contain;
   }
 
+  &__image-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 11px;
+    text-align: center;
+    padding: 6px;
+  }
+
+  &__audio-fallback {
+    background: linear-gradient(135deg, rgba(243, 156, 18, 0.28), rgba(255, 255, 255, 0.08));
+    color: #fff;
+  }
+
   &__video-icon {
     position: absolute;
     top: 50%;

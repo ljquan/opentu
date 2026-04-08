@@ -568,8 +568,12 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
      * 处理任务完成事件
      */
     const handleTaskCompleted = (task: Task) => {
-      // 检查任务是否配置了自动插入画布
-      if (!task.params.autoInsertToCanvas) {
+      // WorkZone 关联任务默认应该走自动插入与清理链路，
+      // 兼容历史音频任务未显式写入 autoInsertToCanvas 的情况。
+      const linkedWorkzone = findWorkZoneForTask(task.id);
+      const shouldAutoInsert = task.params.autoInsertToCanvas || !!linkedWorkzone;
+
+      if (!shouldAutoInsert) {
         return;
       }
 

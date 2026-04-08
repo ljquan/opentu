@@ -95,11 +95,96 @@
     pointer-events: none;
   }
 
+  &__image-fallback {
+    width: min(520px, calc(100% - 32px));
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 14px;
+  }
+
   &__video {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
     outline: none;
+  }
+
+  &__audio-shell {
+    width: min(560px, calc(100% - 32px));
+    display: flex;
+    justify-content: center;
+  }
+
+  &__audio-card {
+    width: 100%;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at top right, rgba(243, 156, 18, 0.18), transparent 36%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+    backdrop-filter: blur(12px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  &__audio-poster {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 16px;
+    user-select: none;
+
+    &--fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, rgba(243, 156, 18, 0.3), rgba(255, 255, 255, 0.08));
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  &__audio-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: #fff;
+  }
+
+  &__audio-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 18px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__audio-duration {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  &__audio {
+    width: 100%;
+  }
+
+  &--audio {
+    cursor: default;
+
+    &:active {
+      cursor: default;
+    }
   }
 
   &__toolbar {

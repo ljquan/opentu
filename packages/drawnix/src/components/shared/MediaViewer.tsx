@@ -14,11 +14,23 @@ export interface MediaItem {
   /** 媒体 URL */
   url: string;
   /** 媒体类型 */
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'audio';
   /** 可选的标题 */
   title?: string;
   /** 可选的描述 */
   alt?: string;
+  /** 音频/视频封面 */
+  posterUrl?: string;
+  /** 媒体时长（秒） */
+  duration?: number;
+  /** 生成提示词 */
+  prompt?: string;
+  /** 音频风格标签 */
+  tags?: string;
+  /** 下载时显示的演唱者/作者 */
+  artist?: string;
+  /** 下载时显示的专辑 */
+  album?: string;
 }
 
 export interface MediaViewerProps {
@@ -69,6 +81,12 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({
     type: item.type,
     title: item.title,
     alt: item.alt,
+    posterUrl: item.posterUrl,
+    duration: item.duration,
+    prompt: item.prompt,
+    tags: item.tags,
+    artist: item.artist,
+    album: item.album,
   }));
 
   return (

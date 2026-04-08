@@ -22,8 +22,9 @@ import {
   insertAudioFromUrl,
 } from '../../data/audio';
 import { executeCanvasInsertion } from '../../services/canvas-operations';
-import { sanitizeFilename, downloadFromBlob, normalizeImageDataUrl } from '@aitu/utils';
-import { downloadMediaFile } from '../../utils/download-utils';
+import { downloadFromBlob, normalizeImageDataUrl } from '@aitu/utils';
+import { buildDownloadFilename, downloadMediaFile } from '../../utils/download-utils';
+import { applyAudioMetadataToBlob } from '../../utils/audio-id3';
 import { BaseDrawer } from '../side-drawer';
 import { CharacterCreateDialog } from '../character/CharacterCreateDialog';
 import { CharacterList } from '../character/CharacterList';
@@ -91,7 +92,12 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
   >('all');
   const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewInitialIndex, setPreviewInitialIndex] = useState(0);
+  const [previewInitialIndex, setPreviewInitialIndex] = useState<
+    number | number[]
+  >(0);
+  const [previewInitialMode, setPreviewInitialMode] = useState<
+    'single' | 'compare'
+  >('single');
   
   // 图片编辑器状态
   const [imageEditorVisible, setImageEditorVisible] = useState(false);
@@ -375,19 +381,44 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     try {
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        const filename = `${sanitizeFilename(task.params.prompt) || task.type}${urls.length > 1 ? `-${i + 1}` : ''}.${task.result.format}`;
+        const clip = task.result.clips?.[i];
+        const filename = buildDownloadFilename(
+          clip?.title || task.result.title || task.params.title || task.params.prompt,
+          task.type,
+          task.result.format,
+          urls.length > 1 ? `-${i + 1}` : undefined
+        );
+        const audioMetadata =
+          task.type === TaskType.AUDIO
+            ? {
+                title: clip?.title || task.result.title || task.params.title,
+                prompt: task.params.prompt,
+                tags: typeof task.params.tags === 'string' ? task.params.tags : undefined,
+                coverUrl:
+                  clip?.imageLargeUrl ||
+                  clip?.imageUrl ||
+                  task.result.previewImageUrl,
+                artist: task.params.model || task.params.mv || 'Aitu',
+                album: 'Aitu Generated',
+              }
+            : undefined;
         // 1. 优先从本地 IndexedDB 缓存获取
         const cachedBlob = await unifiedCacheService.getCachedBlob(url);
         if (cachedBlob) {
-          downloadFromBlob(cachedBlob, filename);
+          const blob =
+            task.type === TaskType.AUDIO
+              ? await applyAudioMetadataToBlob(cachedBlob, audioMetadata, url)
+              : cachedBlob;
+          downloadFromBlob(blob, filename);
           continue;
         }
         // 2. 缓存不存在，从 URL 下载（带重试，SW 会自动去重）
         const result = await downloadMediaFile(
           url,
-          task.params.prompt,
+          clip?.title || task.result.title || task.params.title || task.params.prompt,
           task.result.format,
-          task.type
+          task.type,
+          audioMetadata
         );
         if (result && 'opened' in result) {
           // 浏览器已打开标签页
@@ -597,8 +628,12 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     return filteredTasks.filter(t => {
       if (
         t.status !== TaskStatus.COMPLETED ||
-        !t.result?.url ||
-        (t.type !== TaskType.IMAGE && t.type !== TaskType.VIDEO)
+        (!t.result?.url && !t.result?.urls?.length) ||
+        (
+          t.type !== TaskType.IMAGE &&
+          t.type !== TaskType.VIDEO &&
+          !(t.type === TaskType.AUDIO && t.result?.resultKind !== 'lyrics')
+        )
       ) {
         return false;
       }
@@ -609,45 +644,122 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
   }, [filteredTasks]);
 
   // 展开多图任务为多个 MediaItem，同时建立 taskId -> 首个 previewIndex 的映射
-  const { previewMediaItems, taskIdToPreviewIndex } = useMemo(() => {
+  const { previewMediaItems, taskIdToPreviewConfig } = useMemo(() => {
     const items: UnifiedMediaItem[] = [];
-    const indexMap = new Map<string, number>();
+    const configMap = new Map<
+      string,
+      { mode: 'single' | 'compare'; index: number | number[] }
+    >();
 
     for (const task of completedTasksWithResults) {
-      const urls = task.result!.urls?.length
-        ? task.result!.urls
-        : [task.result!.url];
-      const mediaType = task.type === TaskType.VIDEO ? 'video' as const : 'image' as const;
-      const title = task.params.prompt?.substring(0, 50);
+      const startIndex = items.length;
+      const title =
+        task.result?.title ||
+        task.params.title ||
+        task.params.prompt?.substring(0, 50) ||
+        '媒体预览';
 
-      // 记录该任务第一张图在列表中的索引
-      indexMap.set(task.id, items.length);
+      if (task.type === TaskType.AUDIO) {
+        const audioItems =
+          task.result?.clips
+            ?.filter((clip) => Boolean(clip.audioUrl))
+            .map((clip, i) => ({
+              id: clip.clipId || clip.id || `${task.id}-${i}`,
+              url: clip.audioUrl,
+              type: 'audio' as const,
+              title:
+                clip.title ||
+                (task.result?.clips && task.result.clips.length > 1
+                  ? `${title} (${i + 1}/${task.result.clips.length})`
+                  : title),
+              posterUrl:
+                clip.imageLargeUrl ||
+                clip.imageUrl ||
+                task.result?.previewImageUrl,
+              duration:
+                typeof clip.duration === 'number'
+                  ? clip.duration
+                  : task.result?.duration,
+              prompt: task.params.prompt,
+              tags:
+                typeof task.params.tags === 'string'
+                  ? task.params.tags
+                  : undefined,
+              artist: task.params.model || task.params.mv || 'Aitu',
+              album: 'Aitu Generated',
+            })) ?? [];
+        const fallbackUrls = task.result!.urls?.length
+          ? task.result!.urls
+          : task.result!.url
+            ? [task.result!.url]
+            : [];
+        const mediaItems =
+          audioItems.length > 0
+            ? audioItems
+            : fallbackUrls.map((url, i) => ({
+                id: fallbackUrls.length > 1 ? `${task.id}-${i}` : task.id,
+                url,
+                type: 'audio' as const,
+                title:
+                  fallbackUrls.length > 1
+                    ? `${title} (${i + 1}/${fallbackUrls.length})`
+                    : title,
+                posterUrl: task.result?.previewImageUrl,
+                duration: task.result?.duration,
+                prompt: task.params.prompt,
+                tags:
+                  typeof task.params.tags === 'string'
+                    ? task.params.tags
+                    : undefined,
+                artist: task.params.model || task.params.mv || 'Aitu',
+                album: 'Aitu Generated',
+              }));
+        items.push(...mediaItems);
+      } else {
+        const urls = task.result!.urls?.length
+          ? task.result!.urls
+          : [task.result!.url];
+        const mediaType = task.type === TaskType.VIDEO ? 'video' as const : 'image' as const;
 
-      for (let i = 0; i < urls.length; i++) {
-        const normalizedUrl = mediaType === 'image'
-          ? normalizeImageDataUrl(urls[i])
-          : urls[i];
-        items.push({
-          id: urls.length > 1 ? `${task.id}-${i}` : task.id,
-          url: normalizedUrl,
-          type: mediaType,
-          title: urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
-        });
+        for (let i = 0; i < urls.length; i++) {
+          const normalizedUrl = mediaType === 'image'
+            ? normalizeImageDataUrl(urls[i])
+            : urls[i];
+          items.push({
+            id: urls.length > 1 ? `${task.id}-${i}` : task.id,
+            url: normalizedUrl,
+            type: mediaType,
+            title: urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
+          });
+        }
       }
+
+      const taskItemCount = items.length - startIndex;
+      configMap.set(task.id, {
+        mode: task.type === TaskType.AUDIO && taskItemCount > 1 ? 'compare' : 'single',
+        index:
+          task.type === TaskType.AUDIO && taskItemCount > 1
+            ? Array.from(
+                { length: Math.min(taskItemCount, 4) },
+                (_, offset) => startIndex + offset
+              )
+            : startIndex,
+      });
     }
 
-    return { previewMediaItems: items, taskIdToPreviewIndex: indexMap };
+    return { previewMediaItems: items, taskIdToPreviewConfig: configMap };
   }, [completedTasksWithResults]);
 
   // Preview navigation handlers - 使用 Map 精确查找索引
   const handlePreviewOpen = useCallback((taskId: string) => {
     setPreviewTaskId(taskId);
-    const index = taskIdToPreviewIndex.get(taskId);
-    if (index !== undefined) {
-      setPreviewInitialIndex(index);
+    const config = taskIdToPreviewConfig.get(taskId);
+    if (config !== undefined) {
+      setPreviewInitialMode(config.mode);
+      setPreviewInitialIndex(config.index);
       setPreviewVisible(true);
     }
-  }, [taskIdToPreviewIndex]);
+  }, [taskIdToPreviewConfig]);
 
   const handlePreviewClose = useCallback(() => {
     setPreviewTaskId(null);
@@ -983,6 +1095,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       <UnifiedMediaViewer
         visible={previewVisible}
         items={previewMediaItems}
+        initialMode={previewInitialMode}
         initialIndex={previewInitialIndex}
         onClose={handlePreviewClose}
         showThumbnails={true}

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import classNames from 'classnames';
-import { Music4, Pause, Play } from 'lucide-react';
+import { Pause, Play } from 'lucide-react';
 import type { PlaitAudioNode } from '../../types/audio-node.types';
+import { AudioCover } from '../shared/AudioCover';
 import {
   useCanvasAudioPlaybackControls,
   useCanvasAudioPlaybackSelector,
@@ -587,17 +588,12 @@ export const AudioNodeContent: React.FC<AudioNodeContentProps> = ({
           onPointerDown={(event) => event.stopPropagation()}
           title={isPlaying ? 'Pause audio' : 'Play audio'}
         >
-          {element.previewImageUrl ? (
-            <img
-              src={element.previewImageUrl}
-              alt={element.title || 'Audio artwork'}
-              draggable={false}
-            />
-          ) : (
-            <div className="audio-node__artwork-fallback">
-              <Music4 size={22} />
-            </div>
-          )}
+          <AudioCover
+            src={element.previewImageUrl}
+            alt={element.title || 'Audio artwork'}
+            fallbackClassName="audio-node__artwork-fallback"
+            iconSize={22}
+          />
           <div className="audio-node__artwork-overlay">
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
           </div>

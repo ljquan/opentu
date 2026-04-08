@@ -3,10 +3,49 @@
  */
 
 import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { Play, CheckCircle } from 'lucide-react';
+import { Play, CheckCircle, Music4 } from 'lucide-react';
 import { isDataURL, normalizeImageDataUrl } from '@aitu/utils';
+import { AudioCover } from '../AudioCover';
 import type { ThumbnailQueueProps, MediaItem } from './types';
 import './ThumbnailQueue.scss';
+
+const ThumbnailImage: React.FC<{
+  src: string;
+  fallbackSrc?: string;
+  alt: string;
+}> = ({ src, fallbackSrc, alt }) => {
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setFailed(false);
+  }, [src]);
+
+  if (failed) {
+    return (
+      <div className="thumbnail-queue__image thumbnail-queue__image-fallback">
+        <span>加载失败</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={currentSrc}
+      alt={alt}
+      className="thumbnail-queue__image"
+      loading="lazy"
+      onError={() => {
+        if (fallbackSrc && currentSrc !== fallbackSrc) {
+          setCurrentSrc(fallbackSrc);
+          return;
+        }
+        setFailed(true);
+      }}
+    />
+  );
+};
 
 /**
  * 获取预览图 URL（通过添加查询参数）
@@ -101,8 +140,13 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
       const slotNumber = getSlotNumber(index);
       const isDragging = draggedIndex === index;
       const isVideo = item.type === 'video';
+      const isAudio = item.type === 'audio';
       const normalizedUrl = normalizeImageDataUrl(item.url);
-      const thumbnailUrl = getThumbnailUrl(normalizedUrl, 'small'); // 缩略图导航使用小尺寸
+      const posterUrl = item.posterUrl ? normalizeImageDataUrl(item.posterUrl) : '';
+      const thumbnailUrl = getThumbnailUrl(
+        isAudio && posterUrl ? posterUrl : normalizedUrl,
+        'small'
+      ); // 缩略图导航使用小尺寸
 
       return (
         <div
@@ -127,7 +171,7 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
           <div className="thumbnail-queue__thumb">
             {isVideo ? (
               <>
-                  <video
+                <video
                   src={normalizedUrl}
                   className="thumbnail-queue__video"
                   muted
@@ -137,16 +181,26 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
                   <Play size={16} />
                 </div>
               </>
+            ) : isAudio ? (
+              <>
+                <AudioCover
+                  src={posterUrl ? thumbnailUrl : undefined}
+                  fallbackSrc={posterUrl}
+                  alt={item.alt || item.title || ''}
+                  imageClassName="thumbnail-queue__image"
+                  fallbackClassName="thumbnail-queue__image thumbnail-queue__audio-fallback"
+                  iconSize={18}
+                  loading="lazy"
+                />
+                <div className="thumbnail-queue__video-icon">
+                  <Music4 size={16} />
+                </div>
+              </>
             ) : (
-              <img
+              <ThumbnailImage
                 src={thumbnailUrl}
                 alt={item.alt || item.title || ''}
-                className="thumbnail-queue__image"
-                loading="lazy"
-                onError={(e) => {
-                  // 预览图加载失败，回退到原图
-                  (e.target as HTMLImageElement).src = normalizedUrl;
-                }}
+                fallbackSrc={normalizedUrl}
               />
             )}
           </div>

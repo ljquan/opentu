@@ -31,6 +31,7 @@ export interface AudioGenerationParams {
   batchIndex?: number;
   batchTotal?: number;
   globalIndex?: number;
+  autoInsertToCanvas?: boolean;
   params?: Record<string, unknown>;
 }
 
@@ -133,7 +134,7 @@ function executeQueue(
         batchIndex,
         batchTotal,
         globalIndex,
-        autoInsertToCanvas: false,
+        autoInsertToCanvas: params.autoInsertToCanvas ?? true,
         ...((params.params || params.continueSource)
           ? {
               params: {

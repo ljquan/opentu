@@ -3160,6 +3160,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     const canGenerate = prompt.trim().length > 0 || allContent.length > 0;
     const showInspirationBoard = isCanvasEmpty === true;
+    const hasSelectedTextContent = selectedContent.some(
+      (item) => item.type === 'text' && item.text?.trim()
+    );
 
     return (
       <div
@@ -3348,7 +3351,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       ? '输入指令，让 Agent 为你工作...'
                       : 'Type instructions for Agent...'
                     : generationType === 'audio'
-                    ? language === 'zh'
+                    ? hasSelectedTextContent
+                      ? language === 'zh'
+                        ? '已有文本，无需额外提示词，直接发送'
+                        : 'Text already selected. No extra prompt needed, just send'
+                      : language === 'zh'
                       ? '描述你想要生成的音乐、风格、歌词或情绪'
                       : 'Describe the music, style, lyrics, or mood you want'
                     : language === 'zh'

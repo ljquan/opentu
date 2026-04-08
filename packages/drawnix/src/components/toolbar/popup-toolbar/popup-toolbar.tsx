@@ -74,7 +74,7 @@ import { insertVideoFrame } from '../../../utils/video-frame';
 import { isToolElement } from '../../../plugins/with-tool';
 import { isWorkZoneElement } from '../../../plugins/with-workzone';
 import { splitAndInsertImages } from '../../../utils/image-splitter';
-import { smartDownload, BatchDownloadItem } from '../../../utils/download-utils';
+import { smartDownload, BatchDownloadItem, buildDownloadFilename } from '../../../utils/download-utils';
 import { MessagePlugin } from 'tdesign-react';
 import { mergeVideos } from '../../../services/video-merge-webcodecs';
 import { ImageEditor } from '../../image-editor';
@@ -86,6 +86,7 @@ import { isCardElement } from '../../../types/card.types';
 import { duplicateFrame, focusFrame } from '../../../utils/frame-duplicate';
 import { isPlaitMind, findMindRootFromSelection } from '../../../services/ppt';
 import { openCardInKnowledgeBase } from '../../../utils/card-actions';
+import { isAudioNodeElement } from '../../../types/audio-node.types';
 
 export const PopupToolbar = () => {
   const board = useBoard();
@@ -241,13 +242,14 @@ export const PopupToolbar = () => {
     // 图片编辑按钮：选中单个非 SVG 图片时显示
     const hasImageEdit = isImageSelected;
 
-    // 下载按钮：选中图片或视频时显示
+    // 下载按钮：选中图片、视频或音频时显示
     const hasDownloadable =
       selectedElements.length > 0 &&
       !hasToolSelected &&
       selectedElements.some(element =>
         (PlaitDrawElement.isDrawElement(element) && PlaitDrawElement.isImage(element)) ||
-        isVideoElement(element)
+        isVideoElement(element) ||
+        isAudioNodeElement(element)
       ) &&
       !PlaitBoard.hasBeenTextEditing(board);
 
@@ -904,6 +906,20 @@ export const PopupToolbar = () => {
                       downloadItems.push({ url: element.url, type: 'image' });
                     } else if (isVideoElement(element) && (element as any).url) {
                       downloadItems.push({ url: (element as any).url, type: 'video' });
+                    } else if (isAudioNodeElement(element) && element.audioUrl) {
+                      downloadItems.push({
+                        url: element.audioUrl,
+                        type: 'audio',
+                        filename: buildDownloadFilename(element.title, 'audio', 'mp3'),
+                        audioMetadata: {
+                          title: element.title,
+                          prompt: element.prompt,
+                          tags: element.tags,
+                          coverUrl: element.previewImageUrl,
+                          artist: element.modelVersion || 'Aitu',
+                          album: 'Aitu Generated',
+                        },
+                      });
                     }
                   }
 

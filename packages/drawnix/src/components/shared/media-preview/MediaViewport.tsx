@@ -19,6 +19,7 @@ import {
 import { Tooltip, MessagePlugin } from 'tdesign-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { quickInsert } from '../../../services/canvas-operations';
+import { AudioCover } from '../AudioCover';
 import type { MediaViewportProps, MediaViewportRef } from './types';
 import './MediaViewport.scss';
 
@@ -80,6 +81,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [localPan, setLocalPan] = useState(panOffset ?? DEFAULT_PAN);
@@ -136,9 +138,15 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
   const [isToolbarDragging, setIsToolbarDragging] = useState(false);
   const toolbarDragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const isVideo = item?.type === 'video';
+  const isAudio = item?.type === 'audio';
   const mediaUrl = item
-    ? (isVideo ? item.url : normalizeImageDataUrl(item.url))
+    ? (isVideo || isAudio ? item.url : normalizeImageDataUrl(item.url))
     : '';
+  const posterUrl = item?.posterUrl ? normalizeImageDataUrl(item.posterUrl) : '';
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [item?.url]);
 
   // 保存工具栏状态到缓存 - 仅单图模式
   useEffect(() => {
@@ -237,6 +245,10 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
     
     try {
       const contentType = item.type === 'video' ? 'video' : 'image';
+      if (item.type === 'audio') {
+        MessagePlugin.warning('音频暂不支持直接插入到画布');
+        return;
+      }
       const result = await quickInsert(contentType, mediaUrl);
       if (result.success) {
         MessagePlugin.success(item.type === 'video' ? '视频已插入到画布' : '图片已插入到画布');
@@ -362,17 +374,17 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
   return (
     <div
       ref={containerRef}
-      className={`media-viewport ${isFocused ? 'media-viewport--focused' : ''}`}
+      className={`media-viewport ${isFocused ? 'media-viewport--focused' : ''} ${isAudio ? 'media-viewport--audio' : ''}`}
       onClick={onClick}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onWheel={handleWheel}
+      onMouseDown={isAudio ? undefined : handleMouseDown}
+      onMouseMove={isAudio ? undefined : handleMouseMove}
+      onMouseUp={isAudio ? undefined : handleMouseUp}
+      onMouseLeave={isAudio ? undefined : handleMouseUp}
+      onWheel={isAudio ? undefined : handleWheel}
       data-slot={slotIndex}
     >
       {/* 媒体内容 */}
-      <div className="media-viewport__content" style={transformStyle}>
+      <div className="media-viewport__content" style={isAudio ? undefined : transformStyle}>
         {isVideo ? (
           <video
             ref={videoRef}
@@ -400,6 +412,38 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
               }
             }}
           />
+        ) : isAudio ? (
+          <div className="media-viewport__audio-shell" onClick={(e) => e.stopPropagation()}>
+            <div className="media-viewport__audio-card">
+              <AudioCover
+                src={posterUrl}
+                alt={item.alt || item.title || ''}
+                imageClassName="media-viewport__audio-poster"
+                fallbackClassName="media-viewport__audio-poster media-viewport__audio-poster--fallback"
+                iconSize={56}
+              />
+              <div className="media-viewport__audio-meta">
+                {item.title && <div className="media-viewport__audio-title">{item.title}</div>}
+                {typeof item.duration === 'number' && Number.isFinite(item.duration) && item.duration > 0 && (
+                  <div className="media-viewport__audio-duration">
+                    {Math.floor(item.duration / 60)}:{String(Math.round(item.duration % 60)).padStart(2, '0')}
+                  </div>
+                )}
+              </div>
+              <audio
+                src={mediaUrl}
+                controls
+                preload="metadata"
+                className="media-viewport__audio"
+                // @ts-expect-error -- React types lack referrerPolicy on <audio>
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          </div>
+        ) : imageLoadFailed ? (
+          <div className="media-viewport__image-fallback">
+            <span>图片加载失败</span>
+          </div>
         ) : (
           <img
             src={mediaUrl}
@@ -407,6 +451,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
             className="media-viewport__image"
             draggable={false}
             referrerPolicy="no-referrer"
+            onError={() => setImageLoadFailed(true)}
           />
         )}
       </div>
@@ -426,6 +471,8 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
+        {!isAudio && (
+          <>
         {/* 拖拽手柄 + 方向切换 - 仅单图模式 */}
         {!isCompareMode && (
           <>
@@ -572,9 +619,11 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
             <FlipVertical size={16} />
           </button>
         </div>
+          </>
+        )}
 
         {/* 插入到画布 - 仅单图模式（使用内部 quickInsert，无需外部依赖） */}
-        {!isCompareMode && (
+        {!isCompareMode && !isAudio && (
           <>
             <div className="media-viewport__toolbar-divider" />
             <Tooltip content="插入到画布" theme="light" placement="top">
@@ -599,7 +648,9 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
 
         {/* 下载 - 仅单图模式 */}
         {!isCompareMode && onDownload && (
-          <Tooltip content="下载" theme="light" placement="top">
+          <>
+            {isAudio && <div className="media-viewport__toolbar-divider" />}
+            <Tooltip content="下载" theme="light" placement="top">
             <button
               type="button"
               onClick={(e) => {
@@ -610,7 +661,8 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
             >
               <Download size={16} />
             </button>
-          </Tooltip>
+            </Tooltip>
+          </>
         )}
 
         {/* 编辑 - 仅单图模式且为图片 */}

@@ -255,6 +255,7 @@ aitu/
 
 - **Tooltips**：始终使用 `theme='light'`，高层级容器内需显式设置更高 `zIndex` (如 20000)
 - **媒体预览**：统一使用 `UnifiedMediaViewer` 公共组件，禁止自定义 Dialog 实现
+- **媒体封面兜底**：音频封面/缩略图/播放器封面统一走公共组件处理失败占位，禁止各处重复写 `onError + fallback`
 - **生成结果缩略图**：使用 `object-fit: contain` 完整展示，禁止 cover 裁切
 - **小图 hover 预览**：缩略图应提供 hover 大图预览功能（Portal 渲染到 body）
 - **状态表意**：优先使用量化组件（如信号格）而非单一颜色圆点来展示程度差异

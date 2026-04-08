@@ -16,6 +16,7 @@ import {
   processBatchWithConcurrency,
   normalizeImageDataUrl,
 } from '@aitu/utils';
+import { applyAudioMetadataToBlob, type AudioDownloadMetadata } from './audio-id3';
 
 /**
  * Download a media file with auto-generated filename from prompt
@@ -31,7 +32,8 @@ export async function downloadMediaFile(
   url: string,
   prompt: string,
   format: string,
-  fallbackName: string = 'media'
+  fallbackName = 'media',
+  audioMetadata?: AudioDownloadMetadata
 ): Promise<{ opened: boolean } | void> {
   const normalizedUrl = normalizeImageDataUrl(url);
 
@@ -43,7 +45,33 @@ export async function downloadMediaFile(
 
   const sanitizedPrompt = sanitizeFilename(prompt);
   const filename = `${sanitizedPrompt || fallbackName}.${format}`;
+
+  if (fallbackName === 'audio') {
+    const response = await fetch(url, { referrerPolicy: 'no-referrer' });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: ${response.status}`);
+    }
+    const sourceBlob = await response.blob();
+    const blob = await applyAudioMetadataToBlob(
+      sourceBlob,
+      audioMetadata,
+      url
+    );
+    downloadFromBlob(blob, filename);
+    return;
+  }
+
   return downloadFile(normalizedUrl, filename);
+}
+
+export function buildDownloadFilename(
+  baseName: string | undefined,
+  fallbackName: string,
+  extension: string,
+  suffix?: string
+): string {
+  const normalizedBase = sanitizeFilename(baseName || '') || fallbackName;
+  return `${normalizedBase}${suffix || ''}.${extension}`;
 }
 
 /**
@@ -53,9 +81,11 @@ export interface BatchDownloadItem {
   /** 文件 URL */
   url: string;
   /** 文件类型 */
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'audio';
   /** 可选文件名 */
   filename?: string;
+  /** 音频下载时写入的元数据 */
+  audioMetadata?: AudioDownloadMetadata;
 }
 
 /**
@@ -87,10 +117,19 @@ export async function downloadAsZip(items: BatchDownloadItem[], zipFilename?: st
           console.warn(`Failed to fetch ${assetUrl}: ${response.status}`);
           return;
         }
-        const blob = await response.blob();
+        const sourceBlob = await response.blob();
+        const blob =
+          item.type === 'audio'
+            ? await applyAudioMetadataToBlob(
+                sourceBlob,
+                item.audioMetadata,
+                assetUrl
+              )
+            : sourceBlob;
         const ext = getFileExtension(assetUrl, blob.type);
 
-        const prefix = item.type === 'image' ? 'image' : 'video';
+        const prefix =
+          item.type === 'image' ? 'image' : item.type === 'video' ? 'video' : 'audio';
         const filename = item.filename || `${prefix}_${index + 1}.${ext}`;
 
         zip.file(filename, blob);
@@ -121,8 +160,27 @@ export async function smartDownload(items: BatchDownloadItem[], zipFilename?: st
   if (items.length === 1) {
     const item = items[0];
     const assetUrl = item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
+    if (item.type === 'audio') {
+      const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${assetUrl}: ${response.status}`);
+      }
+      const sourceBlob = await response.blob();
+      const blob = await applyAudioMetadataToBlob(
+        sourceBlob,
+        item.audioMetadata,
+        assetUrl
+      );
+      const ext = getFileExtension(assetUrl, blob.type) || 'mp3';
+      const filename = item.filename || `${item.type}_download.${ext}`;
+      downloadFromBlob(blob, filename);
+      return;
+    }
+
     // Use getFileExtension to detect correct extension (handles SVG, PNG, etc.)
-    const ext = getFileExtension(assetUrl) || (item.type === 'image' ? 'png' : 'mp4');
+    const ext =
+      getFileExtension(assetUrl) ||
+      (item.type === 'image' ? 'png' : item.type === 'video' ? 'mp4' : 'mp3');
     const filename = item.filename || `${item.type}_download.${ext}`;
     await downloadFile(assetUrl, filename);
   } else {

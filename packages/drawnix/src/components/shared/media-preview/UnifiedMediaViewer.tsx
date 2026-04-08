@@ -397,6 +397,9 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
         const blob = await response.blob();
         const ext = blob.type.startsWith('video/mp4') ? 'mp4' :
                    blob.type.startsWith('video/webm') ? 'webm' :
+                   blob.type.startsWith('audio/mpeg') ? 'mp3' :
+                   blob.type.startsWith('audio/wav') ? 'wav' :
+                   blob.type.startsWith('audio/') ? 'm4a' :
                    blob.type.startsWith('image/') ? 'png' : 'bin';
         downloadFromBlob(blob, `${currentItem.type}_${Date.now()}.${ext}`);
       } catch (fetchError) {
@@ -406,8 +409,26 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
     }
 
     // 普通 URL，使用 smartDownload
-    const { smartDownload } = await import('../../../utils/download-utils');
-    await smartDownload([{ url, type: currentItem.type }]);
+    const { smartDownload, buildDownloadFilename } = await import('../../../utils/download-utils');
+    await smartDownload([{
+      url,
+      type: currentItem.type,
+      filename:
+        currentItem.type === 'audio'
+          ? buildDownloadFilename(currentItem.title, 'audio', 'mp3')
+          : undefined,
+      audioMetadata:
+        currentItem.type === 'audio'
+          ? {
+              title: currentItem.title,
+              prompt: currentItem.prompt,
+              tags: currentItem.tags,
+              coverUrl: currentItem.posterUrl,
+              artist: currentItem.artist,
+              album: currentItem.album,
+            }
+          : undefined,
+    }]);
   }, [items, currentIndex]);
 
   // 处理编辑当前媒体

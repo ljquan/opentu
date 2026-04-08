@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import {
-  Music4,
+  ChevronDown,
   Pause,
   Play,
   SkipBack,
@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCanvasAudioPlayback } from '../../hooks/useCanvasAudioPlayback';
+import { AudioCover } from '../shared/AudioCover';
 import './canvas-audio-player.scss';
 
 function formatDuration(duration?: number): string {
@@ -26,11 +27,13 @@ function formatDuration(duration?: number): string {
 
 export const CanvasAudioPlayer: React.FC = () => {
   const playback = useCanvasAudioPlayback();
+  const playerRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const collapseTimeoutRef = useRef<number | null>(null);
   const volumeTogglePointerDownRef = useRef(false);
   const volumeHoveredRef = useRef(false);
   const volumeDraggingRef = useRef(false);
+  const [playlistOpen, setPlaylistOpen] = useState(false);
   const [volumeExpanded, setVolumeExpanded] = useState(false);
   const [volumeHovered, setVolumeHovered] = useState(false);
   const [volumeDragging, setVolumeDragging] = useState(false);
@@ -174,6 +177,7 @@ export const CanvasAudioPlayer: React.FC = () => {
 
   useEffect(() => {
     if (!playback.activeAudioUrl) {
+      setPlaylistOpen(false);
       setMobileAnchorRect(null);
       return;
     }
@@ -254,7 +258,10 @@ export const CanvasAudioPlayer: React.FC = () => {
       volumeDraggingRef.current = false;
       setVolumeDragging(false);
       if (!volumeHoveredRef.current) {
-        scheduleCollapse();
+        clearCollapseTimer();
+        collapseTimeoutRef.current = window.setTimeout(() => {
+          setVolumeExpanded(false);
+        }, 180);
       }
     };
 
@@ -263,6 +270,25 @@ export const CanvasAudioPlayer: React.FC = () => {
       window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [volumeDragging]);
+
+  useEffect(() => {
+    if (!playlistOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (playerRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setPlaylistOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [playlistOpen]);
 
   if (!playback.activeAudioUrl) {
     return null;
@@ -277,34 +303,47 @@ export const CanvasAudioPlayer: React.FC = () => {
     : undefined;
 
   return (
-    <div className="canvas-audio-player" style={playerStyle}>
-      <div className="canvas-audio-player__cover">
-        {playback.activePreviewImageUrl ? (
-          <img
+    <div
+      ref={playerRef}
+      className={classNames('canvas-audio-player', {
+        'canvas-audio-player--playlist-open': playlistOpen,
+      })}
+      style={playerStyle}
+    >
+      <button
+        type="button"
+        className="canvas-audio-player__queue-trigger"
+        onClick={() => setPlaylistOpen((open) => !open)}
+        aria-expanded={playlistOpen}
+        aria-label="切换播放列表"
+      >
+        <div className="canvas-audio-player__cover">
+          <AudioCover
             src={playback.activePreviewImageUrl}
             alt={playback.activeTitle || 'Audio cover'}
-            draggable={false}
+            fallbackClassName="canvas-audio-player__cover-fallback"
+            iconSize={18}
           />
-        ) : (
-          <div className="canvas-audio-player__cover-fallback">
-            <Music4 size={18} />
-          </div>
-        )}
-      </div>
+        </div>
 
-      <div className="canvas-audio-player__meta">
-        <div className="canvas-audio-player__title">
-          {playback.activeTitle || '未命名音频'}
+        <div className="canvas-audio-player__meta">
+          <div className="canvas-audio-player__title">
+            {playback.activeTitle || '未命名音频'}
+          </div>
+          <div className="canvas-audio-player__subtitle">
+            <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--desktop">
+              {subtitle}
+            </span>
+            <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--mobile">
+              {mobileSubtitle}
+            </span>
+          </div>
         </div>
-        <div className="canvas-audio-player__subtitle">
-          <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--desktop">
-            {subtitle}
-          </span>
-          <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--mobile">
-            {mobileSubtitle}
-          </span>
-        </div>
-      </div>
+
+        <span className="canvas-audio-player__queue-indicator" aria-hidden="true">
+          <ChevronDown size={14} />
+        </span>
+      </button>
 
       <div className="canvas-audio-player__controls">
         <button
@@ -446,6 +485,43 @@ export const CanvasAudioPlayer: React.FC = () => {
       >
         <X size={16} />
       </button>
+
+      {playlistOpen ? (
+        <div className="canvas-audio-player__playlist">
+          {playback.queue.map((item, index) => (
+            <button
+              key={`${item.audioUrl}-${index}`}
+              type="button"
+              className={classNames('canvas-audio-player__playlist-item', {
+                'canvas-audio-player__playlist-item--active':
+                  index === playback.activeQueueIndex,
+              })}
+              onClick={() => {
+                void playback.togglePlayback(item);
+                setPlaylistOpen(false);
+              }}
+            >
+              <div className="canvas-audio-player__playlist-cover">
+                <AudioCover
+                  src={item.previewImageUrl}
+                  alt={item.title || 'Audio cover'}
+                  fallbackClassName="canvas-audio-player__cover-fallback"
+                  iconSize={16}
+                  loading="lazy"
+                />
+              </div>
+              <div className="canvas-audio-player__playlist-meta">
+                <div className="canvas-audio-player__playlist-title">
+                  {item.title || '未命名音频'}
+                </div>
+                <div className="canvas-audio-player__playlist-subtitle">
+                  {formatDuration(item.duration)}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 };
