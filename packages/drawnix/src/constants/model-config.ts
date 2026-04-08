@@ -1566,7 +1566,7 @@ export const AUDIO_PARAMS: ParamConfig[] = [
       { value: 'chirp-v3-0', label: 'v3.0' },
       { value: 'chirp-v3-5', label: 'v3.5' },
     ],
-    defaultValue: 'chirp-v3-5',
+    defaultValue: 'chirp-v5-5',
     compatibleModels: ['suno_music'],
     compatibleTags: ['suno', 'audio', 'music'],
     modelType: 'audio',

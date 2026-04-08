@@ -912,11 +912,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedParams.sunoAction ||
         params.find((param) => param.id === 'sunoAction')?.defaultValue ||
         'music';
-      if (sunoAction !== 'lyrics') {
-        return params;
+      if (sunoAction === 'lyrics') {
+        // 歌词模式：只保留动作选择和版本，隐藏续写相关参数
+        return params.filter(
+          (param) =>
+            param.id === 'sunoAction' ||
+            param.id === 'mv' ||
+            param.id === 'title' ||
+            param.id === 'tags'
+        );
       }
 
-      return params.filter((param) => param.id === 'sunoAction');
+      return params;
     }, [generationType, selectedModel, selectedModelRef, selectedParams]);
 
     // 点击外部关闭输入框的展开状态
