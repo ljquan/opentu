@@ -29,6 +29,7 @@ import { ModelVendorMark } from '../shared/ModelVendorBrand';
 import { ModelSourceIcon } from '../shared/ModelSourceIcon';
 import { useProviderProfiles } from '../../hooks/use-provider-profiles';
 import { groupModelsByProvider } from '../../utils/model-grouping';
+import { sortModelsByDisplayPriority } from '../../utils/model-sort';
 
 export interface ModelSelectorProps {
   /** 是否可见 */
@@ -112,11 +113,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const searchFilteredModels = useMemo(() => {
     if (!isSearching) return [];
     const keyword = filterKeyword.toLowerCase().trim();
-    return typeFilteredModels.filter(
-      (model) =>
-        model.id.toLowerCase().includes(keyword) ||
-        model.label.toLowerCase().includes(keyword) ||
-        (model.shortLabel && model.shortLabel.toLowerCase().includes(keyword))
+    return sortModelsByDisplayPriority(
+      typeFilteredModels.filter(
+        (model) =>
+          model.id.toLowerCase().includes(keyword) ||
+          model.label.toLowerCase().includes(keyword) ||
+          (model.shortLabel && model.shortLabel.toLowerCase().includes(keyword))
+      )
     );
   }, [typeFilteredModels, filterKeyword, isSearching]);
 

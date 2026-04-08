@@ -12,6 +12,7 @@ import {
   getModelVendorPalette,
   ModelVendorMark,
 } from '../shared/ModelVendorBrand';
+import { sortModelsByDisplayPriority } from '../../utils/model-sort';
 import './model-discovery-dialog.scss';
 
 type ModelTypeFilter = 'all' | ModelType;
@@ -76,15 +77,7 @@ function matchesModelQuery(model: ModelConfig, query: string) {
 }
 
 function sortModels(models: ModelConfig[]) {
-  return [...models].sort((left, right) => {
-    const leftName = (left.shortLabel || left.label || left.id).toLowerCase();
-    const rightName = (
-      right.shortLabel ||
-      right.label ||
-      right.id
-    ).toLowerCase();
-    return leftName.localeCompare(rightName, 'zh-Hans-CN');
-  });
+  return sortModelsByDisplayPriority(models);
 }
 
 function buildVendorGroups(

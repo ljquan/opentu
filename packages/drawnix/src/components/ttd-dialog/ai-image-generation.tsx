@@ -40,7 +40,10 @@ import {
 } from '../../constants/image-aspect-ratios';
 import { DialogTaskList } from '../task-queue/DialogTaskList';
 import { LS_KEYS } from '../../constants/storage-keys';
-import { saveAIImageToolPreferences } from '../../services/ai-generation-preferences-service';
+import {
+  loadScopedAIImageToolPreferences,
+  saveAIImageToolPreferences,
+} from '../../services/ai-generation-preferences-service';
 import {
   geminiSettings,
   hasInvocationRouteCredentials,
@@ -95,10 +98,6 @@ const AIImageGeneration = ({
   onModelRefChange,
 }: AIImageGenerationProps = {}) => {
   const imageModels = useSelectableModels('image');
-  const [prompt, setPrompt] = useState(initialPrompt);
-  const [mjSelectedParams, setMjSelectedParams] = useState<
-    Record<string, string>
-  >({});
   const initialRoute = resolveInvocationRoute('image');
   const initialMatchedModel =
     findMatchingSelectableModel(
@@ -120,6 +119,23 @@ const AIImageGeneration = ({
     getModelRefFromConfig(initialMatchedModel) ||
       createModelRef(initialRoute.profileId, initialRoute.modelId)
   );
+  const initialSelectionKey = getSelectionKey(
+    initialMatchedModel?.id ||
+      imageModels[0]?.id ||
+      'gemini-2.5-flash-image-vip',
+    getModelRefFromConfig(initialMatchedModel) ||
+      createModelRef(initialRoute.profileId, initialRoute.modelId)
+  );
+  const initialScopedPreferences = loadScopedAIImageToolPreferences(
+    initialMatchedModel?.id ||
+      imageModels[0]?.id ||
+      'gemini-2.5-flash-image-vip',
+    initialSelectionKey
+  );
+  const [prompt, setPrompt] = useState(initialPrompt);
+  const [mjSelectedParams, setMjSelectedParams] = useState<
+    Record<string, string>
+  >(initialScopedPreferences.extraParams);
   const visibleImageModels = useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
       imageModels,
@@ -140,7 +156,7 @@ const AIImageGeneration = ({
   const [width, setWidth] = useState<number | string>(initialWidth || 1024);
   const [height, setHeight] = useState<number | string>(initialHeight || 1024);
   const [aspectRatio, setAspectRatio] = useState<string>(
-    initialAspectRatio || DEFAULT_ASPECT_RATIO
+    initialAspectRatio || initialScopedPreferences.aspectRatio || DEFAULT_ASPECT_RATIO
   );
   const [error, setError] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] =
@@ -195,10 +211,22 @@ const AIImageGeneration = ({
     return params.some((p) => p.id !== 'size');
   }, [currentModel, isMJModel]);
 
-  // 模型切换时清空已选参数，避免跨模型残留不兼容配置
+  // Track if we're in manual edit mode (from handleEditTask) to prevent props from overwriting
+  const [isManualEdit, setIsManualEdit] = useState(false);
+
+  // 模型切换时恢复该模型上次使用的偏好
   useEffect(() => {
-    setMjSelectedParams({});
-  }, [currentModel]);
+    if (isManualEdit) {
+      return;
+    }
+
+    const scopedPreferences = loadScopedAIImageToolPreferences(
+      currentModel,
+      getSelectionKey(currentModel, currentModelRef)
+    );
+    setMjSelectedParams(scopedPreferences.extraParams);
+    setAspectRatio(scopedPreferences.aspectRatio);
+  }, [currentModel, currentModelRef, isManualEdit]);
 
   const handleMJParamChange = useCallback((paramId: string, value: string) => {
     if (!value || value === 'default') {
@@ -214,9 +242,6 @@ const AIImageGeneration = ({
       [paramId]: value,
     }));
   }, []);
-
-  // Track if we're in manual edit mode (from handleEditTask) to prevent props from overwriting
-  const [isManualEdit, setIsManualEdit] = useState(false);
 
   // 处理宽度变化
   const handleWidthChange = useCallback((width: number) => {
@@ -358,10 +383,11 @@ const AIImageGeneration = ({
   useEffect(() => {
     saveAIImageToolPreferences({
       currentModel,
+      currentSelectionKey: getSelectionKey(currentModel, currentModelRef),
       extraParams: mjSelectedParams,
       aspectRatio,
     });
-  }, [currentModel, mjSelectedParams, aspectRatio]);
+  }, [currentModel, currentModelRef, mjSelectedParams, aspectRatio]);
 
   // 清除错误状态当组件挂载时（对话框打开时）
   useEffect(() => {

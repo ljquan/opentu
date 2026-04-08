@@ -24,6 +24,8 @@ import {
   getAutoInsertValue,
 } from './shared';
 import {
+  loadScopedAIVideoToolPreferences,
+  saveAIVideoToolPreferences,
   geminiSettings,
   resolveInvocationRoute,
   createModelRef,
@@ -131,6 +133,19 @@ const AIVideoGeneration = ({
     getModelRefFromConfig(initialMatchedModel) ||
       createModelRef(initialRoute.profileId, initialPreferredModelId)
   );
+  const initialVideoSelectionKey = getSelectionKey(
+    ((initialMatchedModel?.id as VideoModel) ||
+      videoModels[0]?.id ||
+      normalizeVideoModel('veo3')) as VideoModel,
+    getModelRefFromConfig(initialMatchedModel) ||
+      createModelRef(initialRoute.profileId, initialPreferredModelId)
+  );
+  const initialScopedVideoPreferences = loadScopedAIVideoToolPreferences(
+    ((initialMatchedModel?.id as VideoModel) ||
+      videoModels[0]?.id ||
+      normalizeVideoModel('veo3')) as VideoModel,
+    initialVideoSelectionKey
+  );
   const visibleVideoModels = React.useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
       videoModels,
@@ -153,9 +168,7 @@ const AIVideoGeneration = ({
   // 额外参数（如 aspect_ratio）
   const [videoSelectedParams, setVideoSelectedParams] = useState<
     Record<string, string>
-  >(() =>
-    getDefaultVideoExtraParams(currentModel, currentModelRef || currentModel)
-  );
+  >(() => initialScopedVideoPreferences.extraParams);
   const compatibleVideoParams = React.useMemo(
     () =>
       getEffectiveVideoCompatibleParams(
@@ -186,9 +199,9 @@ const AIVideoGeneration = ({
 
   // Duration and size state
   const [duration, setDuration] = useState(
-    initialDuration?.toString() || defaultParams.duration
+    initialDuration?.toString() || initialScopedVideoPreferences.duration
   );
-  const [size, setSize] = useState(initialSize || defaultParams.size);
+  const [size, setSize] = useState(initialSize || initialScopedVideoPreferences.size);
   const hasCompatibleParams = React.useMemo(() => {
     // 排除 size 和 duration（已有专用 UI），只看是否有额外参数
     return compatibleVideoParams.some(
@@ -345,12 +358,6 @@ const AIVideoGeneration = ({
           currentModelRef
         );
         setCurrentModelRef(getModelRefFromConfig(matchedModel) || null);
-        setVideoSelectedParams(
-          getDefaultVideoExtraParams(
-            newModel,
-            getModelRefFromConfig(matchedModel) || newModel
-          )
-        );
       }
     };
     geminiSettings.addListener(handleSettingsChange);
@@ -413,16 +420,13 @@ const AIVideoGeneration = ({
     const maxCount = modelConfig.imageUpload.maxCount;
     const labels = modelConfig.imageUpload.labels || [];
 
-    // console.log('AIVideoGeneration - model changed, updating params:', {
-    //   model: currentModel,
-    //   duration: defaultParams.duration,
-    //   size: defaultParams.size,
-    //   maxCount,
-    //   allSelectedImagesCount: allSelectedImages.length
-    // });
-
-    setDuration(defaultParams.duration);
-    setSize(defaultParams.size);
+    const scopedPreferences = loadScopedAIVideoToolPreferences(
+      currentModel,
+      getSelectionKey(currentModel, currentModelRef)
+    );
+    setVideoSelectedParams(scopedPreferences.extraParams);
+    setDuration(scopedPreferences.duration);
+    setSize(scopedPreferences.size);
 
     // 智能过滤图片：从原始选中的图片中截取前 N 张
     if (allSelectedImages.length > 0) {
@@ -449,7 +453,17 @@ const AIVideoGeneration = ({
       setStoryboardScenes([]);
     }
     // 仅在模型或默认参数变化时重置，避免上传图片触发重置
-  }, [currentModel, defaultParams, isEditMode, modelConfig.imageUpload]);
+  }, [allSelectedImages, currentModel, currentModelRef, isEditMode, modelConfig.imageUpload]);
+
+  useEffect(() => {
+    saveAIVideoToolPreferences({
+      currentModel,
+      currentSelectionKey: getSelectionKey(currentModel, currentModelRef),
+      extraParams: videoSelectedParams,
+      duration,
+      size,
+    });
+  }, [currentModel, currentModelRef, duration, size, videoSelectedParams]);
 
   // Handle initial props - use ref to track if we've processed these props before
   const processedPropsRef = React.useRef<string>('');

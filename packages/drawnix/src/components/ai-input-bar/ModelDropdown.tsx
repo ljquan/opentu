@@ -41,6 +41,7 @@ import {
   groupModelsByProvider,
   DEFAULT_PROVIDER_ID,
 } from '../../utils/model-grouping';
+import { compareModelsByDisplayPriority } from '../../utils/model-sort';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
@@ -248,19 +249,11 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           m.sourceProfileName?.toLowerCase().includes(query) ||
           getDiscoveryVendorLabel(m.vendor).toLowerCase().includes(query)
       )
-      .sort((a, b) => {
-        const getPriority = (model: ModelConfig) => {
-          if (model.tags?.includes('new')) return 0;
-          if (model.isVip) return 1;
-          return 2;
-        };
-        const priorityDiff = getPriority(a) - getPriority(b);
-        if (priorityDiff !== 0) return priorityDiff;
-        return (
-          (modelOrderMap.get(getModelKey(a)) ?? 0) -
-          (modelOrderMap.get(getModelKey(b)) ?? 0)
-        );
-      });
+      .sort((a, b) =>
+        compareModelsByDisplayPriority(a, b, {
+          fallbackOrderMap: modelOrderMap,
+        })
+      );
   }, [models, searchQuery, modelOrderMap, getModelKey]);
 
   const displayedModels = useMemo(

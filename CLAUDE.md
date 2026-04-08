@@ -202,6 +202,7 @@ aitu/
 28. **降级路径强制主线程执行器**：workflow 提交超时后降级时，MainThreadWorkflowEngine 须传 `forceFallbackExecutor: true`，否则 `executorFactory.getExecutor()` 可能仍返回 SW 执行器导致二次超时
 29. **Fetch Relay 初始化超时保护**：`fetchRelayClient.initialize()` 在热路径（如 `generateImage`、`doInitialize`）中必须用 `Promise.race` 加 3s 超时，超时后降级到 `directFetch`
 30. **模块迁移接口完整性**：将模块从 SW 迁移到主线程（或反向）时，新模块的 `interface` 定义必须与原模块逐字段对比，确保无遗漏；不仅调用时传参要完整，**类型定义本身**也要包含所有字段（如 `referenceImages`），否则即使调用方想传数据也无法传入
+31. **模型参数偏好按作用域隔离**：图片/视频/音频的参数持久化必须优先使用 `selectionKey`、回退 `modelId`，避免不同供应商的同名模型串配置；表单回填优先级必须是“任务/显式初始化参数 > 模型偏好 > 模型默认值”
 
 ### React 规则
 

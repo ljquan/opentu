@@ -127,7 +127,9 @@ import { PlaitDrawElement } from '@plait/draw';
 import { isPlaitVideo } from '../../interfaces/video';
 import {
   loadAIInputPreferences,
+  loadScopedAIInputModelParams,
   saveAIInputPreferences,
+  saveScopedAIInputModelParams,
 } from '../../services/ai-generation-preferences-service';
 import { applyForcedSunoParams } from '../../utils/suno-model-aliases';
 import {
@@ -616,6 +618,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const initialSelectedModelRef =
       getModelRefFromConfig(initialImageModel) ||
       createModelRef(initialImageRoute.profileId, initialImageRoute.modelId);
+    const initialSelectedModelKey = getSelectionKey(
+      initialSelectedModelConfig?.id || initialSelectedModelId,
+      getModelRefFromConfig(initialSelectedModelConfig) ||
+        initialSelectedModelRef
+    );
+    const initialScopedSelectedParams =
+      initialGenerationType === 'text'
+        ? {}
+        : loadScopedAIInputModelParams(
+            initialGenerationType,
+            initialSelectedModelConfig?.id || initialSelectedModelId,
+            initialSelectedModelKey,
+            initialPreferences.selectedParams
+          );
 
     // State
     const [prompt, setPrompt] = useState('');
@@ -733,14 +749,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       initialGenerationType === 'text'
         ? {}
         : {
-            ...initialPreferences.selectedParams,
+            ...initialScopedSelectedParams,
             ...((initialSelectedModelConfig?.id || initialSelectedModelId).startsWith(
               'mj'
             )
               ? {}
               : {
                   size:
-                    initialPreferences.selectedParams.size ||
+                    initialScopedSelectedParams.size ||
                     getDefaultSizeForModel(
                       initialSelectedModelConfig?.id || initialSelectedModelId
                     ),
@@ -748,6 +764,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           }
     );
     const selectedParamsRef = useRef<Record<string, string>>(selectedParams);
+    const selectedParamScopeRef = useRef<string>(
+      initialGenerationType === 'text'
+        ? 'text'
+        : `${initialGenerationType}:${initialSelectedModelKey}`
+    );
     useEffect(() => {
       selectedParamsRef.current = selectedParams;
     }, [selectedParams]);
@@ -1618,48 +1639,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           providerIdHint: model.sourceProfileId || nextModelRef?.profileId,
           vendorHint: model.vendor,
         });
-        // 仅保留新模型兼容的参数，并设置默认值
-        const compatibleParams =
-          model.type === 'video'
-            ? getEffectiveVideoCompatibleParams(
-                model.id,
-                nextModelRef || model.id,
-                selectedParamsRef.current
-              )
-            : getCompatibleParams(model.id);
-        const nextParams: Record<string, string> = {};
-
-        // 默认 size
-        const sizeParam = compatibleParams.find((p) => p.id === 'size');
-        const prevSize = selectedParamsRef.current?.size;
-        const prevSizeIsValid =
-          !prevSize ||
-          !sizeParam?.options ||
-          sizeParam.options.some((option) => option.value === prevSize);
-        if (!model.id.startsWith('mj') && sizeParam) {
-          nextParams.size =
-            prevSize && prevSizeIsValid
-              ? prevSize
-              : sizeParam.defaultValue || getDefaultSizeForModel(model.id);
-        }
-
-        // 其他参数：沿用同 id 已选值，否则用默认值
-        compatibleParams.forEach((p) => {
-          if (p.id === 'size') return;
-          const prevVal = selectedParamsRef.current?.[p.id];
-          const prevValIsValid =
-            !prevVal ||
-            p.valueType !== 'enum' ||
-            !p.options ||
-            p.options.some((option) => option.value === prevVal);
-          if (prevVal && prevValIsValid) {
-            nextParams[p.id] = prevVal;
-          } else if (p.defaultValue) {
-            nextParams[p.id] = p.defaultValue;
-          }
-        });
-
-        setSelectedParams(applyForcedSunoParams(model.id, nextParams));
+        setSelectedParams(
+          loadScopedAIInputModelParams(
+            model.type as GenerationType,
+            model.id,
+            getSelectionKey(model.id, nextModelRef)
+          )
+        );
 
         // 关闭下拉菜单并保持焦点
         setModelDropdownOpen(false);
@@ -1706,10 +1692,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         return aKeys.every((k) => a[k] === b[k]);
       };
 
+      const currentScopeKey =
+        generationType === 'text'
+          ? 'text'
+          : `${generationType}:${getSelectionKey(selectedModel, selectedModelRef)}`;
+      const baseParams =
+        selectedParamScopeRef.current === currentScopeKey
+          ? selectedParamsRef.current || {}
+          : loadScopedAIInputModelParams(
+              generationType,
+              selectedModel,
+              getSelectionKey(selectedModel, selectedModelRef),
+              selectedParamsRef.current
+            );
       const nextParams: Record<string, string> = {};
 
       const sizeParam = compatibleParams.find((p) => p.id === 'size');
-      const prevSize = selectedParamsRef.current?.size;
+      const prevSize = baseParams.size;
       const prevSizeIsValid =
         !prevSize ||
         !sizeParam?.options ||
@@ -1723,7 +1722,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       compatibleParams.forEach((p) => {
         if (p.id === 'size') return;
-        const prevVal = selectedParamsRef.current?.[p.id];
+        const prevVal = baseParams[p.id];
         const prevValIsValid =
           !prevVal ||
           p.valueType !== 'enum' ||
@@ -1741,9 +1740,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setSelectedParams(normalizedParams);
         selectedParamsRef.current = normalizedParams;
       }
+      selectedParamScopeRef.current = currentScopeKey;
       // 仅在模型或兼容参数变动时运行，避免用户选择被覆盖
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedModel, compatibleParams]);
+    }, [generationType, selectedModel, selectedModelRef, compatibleParams]);
 
     useEffect(() => {
       saveAIInputPreferences({
@@ -1753,9 +1753,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedCount,
         selectedSkillId,
       });
+      if (generationType !== 'text') {
+        saveScopedAIInputModelParams(
+          generationType,
+          selectedModel,
+          selectedParams,
+          getSelectionKey(selectedModel, selectedModelRef)
+        );
+      }
     }, [
       generationType,
       selectedModel,
+      selectedModelRef,
       selectedParams,
       selectedCount,
       selectedSkillId,

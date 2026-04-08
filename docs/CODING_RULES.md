@@ -2291,6 +2291,39 @@ interface LLMApiLog {
 - `packages/drawnix/src/services/media-executor/llm-api-logger.ts` - 主线程版本
 - `apps/web/src/sw/task-queue/llm-api-logger.ts` - SW 版本
 
+### 模型参数偏好必须按模型作用域存储
+
+**场景**: 图片、视频、音频生成表单需要记忆不同模型的用户参数偏好。
+
+**核心原则**:
+- 优先使用 `selectionKey` 作为偏好作用域键，缺失时再回退 `modelId`
+- 不同供应商来源的同名模型不能共享参数
+- 回填优先级必须是：任务参数 / 外部显式初始化 > 模型偏好 > 模型默认值
+- 回填后必须重新做兼容性过滤，丢弃当前模型不支持的参数
+
+❌ **错误示例**:
+```typescript
+const key = `prefs:${model.id}`;
+localStorage.setItem(key, JSON.stringify(params));
+
+// provider-a::gemini-2.5-flash
+// provider-b::gemini-2.5-flash
+// 最终会读写同一个 key，导致参数串用
+```
+
+✅ **正确示例**:
+```typescript
+const scopeKey = model.selectionKey || model.id;
+scopedPreferences[scopeKey] = sanitizeSelectedParams(model.id, params);
+
+const restored =
+  explicitTaskParams ??
+  scopedPreferences[scopeKey] ??
+  getModelDefaultParams(model.id);
+```
+
+**原因**: 运行时模型发现后，同名模型可能来自不同供应商，参数能力并不完全相同。只按 `modelId` 记忆会让用户在切换供应商后看到错误回填，最终演变成隐蔽状态 bug。
+
 ### 中断任务延迟判定
 
 **场景**: 页面刷新后，`handleInterruptedTasks()` 处理仍处于 `processing` 状态的任务。如果图片生成通过 Fetch Relay 代理，SW 可能仍在执行 fetch（尚未完成），此时 `recoverFetchRelayResults()` 找不到结果。
@@ -8933,4 +8966,3 @@ board.dblClick = (event: MouseEvent) => {
 - `board.pointerDown: (event: PointerEvent) => void`
 - `board.pointerMove: (event: PointerEvent) => void`
 - `board.pointerUp: (event: PointerEvent) => void`
-

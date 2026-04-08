@@ -38,6 +38,7 @@ import {
   normalizeModelApiBaseUrl,
   runtimeModelDiscovery,
 } from '../../utils/runtime-model-discovery';
+import { compareModelsByDisplayPriority } from '../../utils/model-sort';
 import {
   createModelRef,
   createRouteConfig,
@@ -1753,7 +1754,7 @@ export const SettingsDialog = ({
             return leftPriority - rightPriority;
           }
 
-          return left.id.localeCompare(right.id, 'zh-Hans-CN');
+          return compareModelsByDisplayPriority(left, right);
         }),
     })).filter((group) => group.models.length > 0);
     const showSearchToolbar = canManageModels || displayModels.length > 0;

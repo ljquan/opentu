@@ -14,6 +14,7 @@ import {
   DISCOVERY_VENDOR_ORDER,
   getDiscoveryVendorLabel,
 } from '../components/shared/ModelVendorBrand';
+import { sortModelsByDisplayPriority } from './model-sort';
 
 export interface VendorCategory {
   vendor: ModelVendor;
@@ -84,7 +85,7 @@ export function groupModelsByProvider(
       .map(([vendor, vendorModels]) => ({
         vendor,
         label: getDiscoveryVendorLabel(vendor),
-        models: vendorModels,
+        models: sortModelsByDisplayPriority(vendorModels),
       }));
 
     const profile = profileMap.get(pid);
