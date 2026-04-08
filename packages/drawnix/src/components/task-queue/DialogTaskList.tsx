@@ -95,6 +95,10 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
     };
 
     const haystackParts: string[] = [];
+    const extraParams =
+      task.params?.params && typeof task.params.params === 'object'
+        ? (task.params.params as Record<string, unknown>)
+        : null;
     haystackParts.push(task.params?.prompt ?? '');
     haystackParts.push(task.params?.model ?? '');
     haystackParts.push(task.id ?? '');
@@ -106,6 +110,15 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
       haystackParts.push(String(task.params.batchIndex));
     if (task.params?.batchTotal)
       haystackParts.push(String(task.params.batchTotal));
+    if (typeof extraParams?.model_name === 'string') {
+      haystackParts.push(extraParams.model_name);
+    }
+    if (typeof extraParams?.mode === 'string') {
+      haystackParts.push(extraParams.mode);
+    }
+    if (typeof extraParams?.klingAction2 === 'string') {
+      haystackParts.push(extraParams.klingAction2);
+    }
     if (task.result?.format) haystackParts.push(String(task.result.format));
     if (task.result?.width && task.result?.height) {
       haystackParts.push(`${task.result.width}x${task.result.height}`);
@@ -282,6 +295,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
     return filteredTasks.filter((t) => {
       if (t.status !== TaskStatus.COMPLETED) return false;
       if (!t.result?.url && !t.result?.urls?.length) return false;
+      if (t.type !== TaskType.IMAGE && t.type !== TaskType.VIDEO) return false;
       if (seen.has(t.id)) return false;
       seen.add(t.id);
       return true;

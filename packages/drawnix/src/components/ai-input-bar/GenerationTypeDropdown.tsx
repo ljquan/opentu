@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check, Sparkles, Image, Video } from 'lucide-react';
+import { ChevronDown, Check, Sparkles, Image, Video, Music4 } from 'lucide-react';
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import { useI18n } from '../../i18n';
 import { Z_INDEX } from '../../constants/z-index';
@@ -16,6 +16,7 @@ export interface GenerationTypeDropdownProps {
 const TYPE_OPTIONS: Array<{ value: GenerationType; label: string; icon: React.ReactNode; zh: string; en: string }> = [
   { value: 'image', label: '图片', icon: <Image size={14} />, zh: '图片', en: 'Image' },
   { value: 'video', label: '视频', icon: <Video size={14} />, zh: '视频', en: 'Video' },
+  { value: 'audio', label: '音频', icon: <Music4 size={14} />, zh: '音频', en: 'Audio' },
   { value: 'text', label: 'Agent', icon: <Sparkles size={14} />, zh: 'Agent', en: 'Agent' },
 ];
 

@@ -187,6 +187,13 @@ export const sortElementsByPosition = (board: PlaitBoard, elements: PlaitElement
  */
 export const extractTextFromElement = (element: PlaitElement, board?: PlaitBoard): string => {
   const texts: string[] = [];
+
+  if (element.type === 'audio' && 'title' in element && typeof element.title === 'string') {
+    const title = element.title.trim();
+    if (title) {
+      texts.push(title);
+    }
+  }
   
   // Handle MindElement (mind map nodes)
   if (board && MindElement.isMindElement(board, element)) {

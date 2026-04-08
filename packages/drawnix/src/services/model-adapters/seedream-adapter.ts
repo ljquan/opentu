@@ -3,8 +3,8 @@ import type {
   ImageGenerationRequest,
   ImageModelAdapter,
 } from './types';
-import { registerModelAdapter } from './registry';
 import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
+import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
 
 const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';

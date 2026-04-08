@@ -10,7 +10,7 @@
 /**
  * 模型类型
  */
-export type ModelType = 'image' | 'video' | 'text';
+export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
 /**
  * 模型厂商
@@ -19,6 +19,7 @@ export enum ModelVendor {
   GEMINI = 'GEMINI',
   FLUX = 'FLUX',
   MIDJOURNEY = 'MIDJOURNEY',
+  SUNO = 'SUNO',
   GPT = 'GPT',
   GROK = 'GROK',
   QWEN = 'QWEN',
@@ -47,6 +48,7 @@ export const VENDOR_NAMES: Record<ModelVendor, string> = {
   [ModelVendor.GEMINI]: 'Gemini',
   [ModelVendor.FLUX]: 'Flux',
   [ModelVendor.MIDJOURNEY]: 'Midjourney',
+  [ModelVendor.SUNO]: 'Suno',
   [ModelVendor.GPT]: 'GPT',
   [ModelVendor.GROK]: 'Grok',
   [ModelVendor.QWEN]: 'Qwen',
@@ -91,6 +93,14 @@ export interface ParamConfig {
   options?: Array<{ value: string; label: string }>;
   /** 默认值 */
   defaultValue?: string;
+  /** 数值最小值（number 类型时使用） */
+  min?: number;
+  /** 数值最大值（number 类型时使用） */
+  max?: number;
+  /** 数值步进（number 类型时使用） */
+  step?: number;
+  /** 是否要求整数（number 类型时使用） */
+  integer?: boolean;
   /** 兼容的模型 ID 列表（空数组表示所有模型都兼容） */
   compatibleModels: string[];
   /** 兼容的模型标签列表（任一命中则视为兼容，用于减少硬编码模型 ID） */
@@ -172,6 +182,7 @@ export const MODEL_TYPE_COLORS = {
   image: '#E53935', // 红色
   video: '#FF9800', // 橙色
   text: '#4CAF50', // 绿色
+  audio: '#1E88E5', // 蓝色
 } as const;
 
 // ============================================
@@ -561,10 +572,10 @@ const SEEDANCE_DEFAULT_PARAMS: VideoModelDefaults = {
  */
 export const VIDEO_MODELS: ModelConfig[] = [
   {
-    id: 'kling-v1-6',
-    label: 'Kling V1.6',
-    shortCode: 'k16',
-    description: '5s/10s 视频，支持文生视频和图生视频',
+    id: 'kling_video',
+    label: 'Kling',
+    shortCode: 'kling',
+    description: 'Kling 标准视频能力，版本通过 model_name 选择',
     type: 'video',
     vendor: ModelVendor.KLING,
     supportsTools: true,
@@ -814,6 +825,25 @@ export const TEXT_MODELS: ModelConfig[] = [
   },
 ];
 
+/**
+ * 音频模型
+ *
+ * 注意：Suno 实际执行使用 submit/fetch 规则与 mv 字段，
+ * 这里保留的是可供路由与默认预设选择的逻辑音频入口。
+ */
+export const AUDIO_MODELS: ModelConfig[] = [
+  {
+    id: 'suno_music',
+    label: 'Suno Music',
+    shortLabel: 'Suno 音乐',
+    shortCode: 'suno',
+    description: 'Suno 音乐生成入口（通过 mv 决定实际版本）',
+    type: 'audio',
+    vendor: ModelVendor.SUNO,
+    tags: ['audio', 'music', 'suno'],
+  },
+];
+
 // ============================================
 // 所有模型
 // ============================================
@@ -833,6 +863,7 @@ export const ALL_MODELS: ModelConfig[] = [
   ...IMAGE_MODELS,
   ...VIDEO_MODELS,
   ...TEXT_MODELS,
+  ...AUDIO_MODELS,
 ];
 
 let runtimeModels: ModelConfig[] = [];
@@ -1023,6 +1054,14 @@ export const TEXT_MODEL_SELECT_OPTIONS = TEXT_MODELS.map((model) => ({
 }));
 
 /**
+ * 音频模型选项（用于 Select 组件）
+ */
+export const AUDIO_MODEL_SELECT_OPTIONS = AUDIO_MODELS.map((model) => ({
+  label: model.label,
+  value: model.id,
+}));
+
+/**
  * 默认图片模型 ID
  */
 export const DEFAULT_IMAGE_MODEL_ID = 'gemini-3-pro-image-preview-vip';
@@ -1072,6 +1111,18 @@ export function getDefaultTextModel(): string {
  * 默认文本模型（兼容旧代码）
  */
 export const DEFAULT_TEXT_MODEL = DEFAULT_TEXT_MODEL_ID;
+
+/**
+ * 默认音频模型 ID
+ */
+export const DEFAULT_AUDIO_MODEL_ID = 'suno_music';
+
+/**
+ * 获取默认音频模型 ID
+ */
+export function getDefaultAudioModel(): string {
+  return DEFAULT_AUDIO_MODEL_ID;
+}
 
 // ============================================
 // 参数配置（用于 SmartSuggestionPanel）
@@ -1299,6 +1350,280 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     defaultValue: '16:9',
     compatibleModels: SEEDANCE_MODEL_IDS,
     modelType: 'video',
+  },
+  {
+    id: 'duration',
+    label: '视频时长',
+    shortLabel: '时长',
+    description: '生成视频的时长（秒）',
+    valueType: 'enum',
+    options: [
+      { value: '5', label: '5秒' },
+      { value: '10', label: '10秒' },
+    ],
+    defaultValue: '5',
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'size',
+    label: '视频尺寸',
+    shortLabel: '尺寸',
+    description: '生成视频的画面比例',
+    valueType: 'enum',
+    options: [
+      { value: '1280x720', label: '横屏 16:9 (1280x720)' },
+      { value: '720x1280', label: '竖屏 9:16 (720x1280)' },
+      { value: '1024x1024', label: '方形 1:1 (1024x1024)' },
+    ],
+    defaultValue: '1280x720',
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'model_name',
+    label: 'Kling 版本',
+    shortLabel: '版本',
+    description: 'Kling 标准视频能力的执行版本',
+    valueType: 'enum',
+    options: [
+      { value: 'kling-v3', label: 'V3' },
+      { value: 'kling-v2-6', label: 'V2.6' },
+      { value: 'kling-v2-1', label: 'V2.1' },
+      { value: 'kling-v1-6', label: 'V1.6' },
+      { value: 'kling-v1-5', label: 'V1.5' },
+    ],
+    defaultValue: 'kling-v1-6',
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'klingAction2',
+    label: 'Kling 模式',
+    shortLabel: '模式',
+    description: '显式指定文生视频或图生视频；留空则自动判断',
+    valueType: 'enum',
+    options: [
+      { value: 'text2video', label: '文生视频' },
+      { value: 'image2video', label: '图生视频' },
+    ],
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'mode',
+    label: '生成模式',
+    shortLabel: '表现',
+    description: 'Kling 生成模式',
+    valueType: 'enum',
+    options: [
+      { value: 'std', label: 'std 高性能' },
+      { value: 'pro', label: 'pro 高表现' },
+    ],
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'cfg_scale',
+    label: '自由度',
+    shortLabel: 'CFG',
+    description: '取值范围 0 到 1，值越大相关性越强',
+    valueType: 'number',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'negative_prompt',
+    label: '负向提示词',
+    shortLabel: '负向',
+    description: '可选，补充不希望出现的内容',
+    valueType: 'string',
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_control_type',
+    label: '运镜协议',
+    shortLabel: '协议',
+    description: 'camera_control.type，常用值如 simple',
+    valueType: 'string',
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_horizontal',
+    label: '水平运镜',
+    shortLabel: '水平',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_vertical',
+    label: '垂直运镜',
+    shortLabel: '垂直',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_pan',
+    label: '水平摇镜',
+    shortLabel: 'Pan',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_tilt',
+    label: '垂直摇镜',
+    shortLabel: 'Tilt',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_roll',
+    label: '旋转运镜',
+    shortLabel: 'Roll',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+  {
+    id: 'camera_zoom',
+    label: '变焦',
+    shortLabel: 'Zoom',
+    description: '取值范围 -10 到 10，且必须为整数',
+    valueType: 'number',
+    min: -10,
+    max: 10,
+    step: 1,
+    integer: true,
+    compatibleModels: ['kling_video'],
+    modelType: 'video',
+  },
+];
+
+/**
+ * 音频参数配置
+ */
+export const AUDIO_PARAMS: ParamConfig[] = [
+  {
+    id: 'sunoAction',
+    label: 'Suno 动作',
+    shortLabel: '动作',
+    description: '选择生成音乐还是歌词',
+    valueType: 'enum',
+    options: [
+      { value: 'music', label: '生成音乐' },
+      { value: 'lyrics', label: '生成歌词' },
+    ],
+    defaultValue: 'music',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'mv',
+    label: 'Suno 版本',
+    shortLabel: '版本',
+    description: 'Suno 音乐生成版本',
+    valueType: 'enum',
+    options: [
+      { value: 'chirp-v5-5', label: 'v5.5' },
+      { value: 'chirp-v5', label: 'v5.0' },
+      { value: 'chirp-v4-5', label: 'v4.5' },
+      { value: 'chirp-v4', label: 'v4.0' },
+      { value: 'chirp-v3-0', label: 'v3.0' },
+      { value: 'chirp-v3-5', label: 'v3.5' },
+    ],
+    defaultValue: 'chirp-v3-5',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'title',
+    label: '歌曲标题',
+    shortLabel: '标题',
+    description: '可选，设置歌曲标题',
+    valueType: 'string',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'tags',
+    label: '风格标签',
+    shortLabel: '风格',
+    description: '可选，使用逗号分隔多个风格标签',
+    valueType: 'string',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'continueSource',
+    label: '续写来源',
+    shortLabel: '续写',
+    description: '选择普通续写还是基于上传音频续写',
+    valueType: 'enum',
+    options: [
+      { value: 'clip', label: '已有 clip' },
+      { value: 'upload', label: '上传音频' },
+    ],
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'continueClipId',
+    label: '续写 Clip ID',
+    shortLabel: 'Clip',
+    description: '续写已有歌曲时填写 clip ID',
+    valueType: 'string',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'continueAt',
+    label: '续写起点秒数',
+    shortLabel: '起点',
+    description: '从第几秒开始续写',
+    valueType: 'number',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
   },
 ];
 
@@ -1562,7 +1887,11 @@ export const IMAGE_PARAMS: ParamConfig[] = [
 /**
  * 所有参数配置
  */
-export const ALL_PARAMS: ParamConfig[] = [...VIDEO_PARAMS, ...IMAGE_PARAMS];
+export const ALL_PARAMS: ParamConfig[] = [
+  ...VIDEO_PARAMS,
+  ...IMAGE_PARAMS,
+  ...AUDIO_PARAMS,
+];
 
 /**
  * 根据模型类型获取参数列表
@@ -1593,6 +1922,11 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   if (idLower.includes('veo')) modelTags.add('veo');
   if (idLower.includes('sora')) modelTags.add('sora');
   if (idLower.includes('seedance')) modelTags.add('seedance');
+  if (idLower.includes('suno') || idLower.includes('chirp')) {
+    modelTags.add('suno');
+    modelTags.add('audio');
+    modelTags.add('music');
+  }
   // 这里不再自动按 doubao 分类，避免与 seedream 重复；若需要可通过 tags 显式声明
 
   return ALL_PARAMS.filter((param) => {

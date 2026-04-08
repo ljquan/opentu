@@ -64,12 +64,22 @@ function compactTask(task: Task, syncVersion: number): CompactTask {
   if (task.result) {
     compactResult = {
       url: task.result.url,
+      urls: task.result.urls,
       format: task.result.format,
       size: task.result.size,
+      resultKind: task.result.resultKind,
       width: task.result.width,
       height: task.result.height,
       duration: task.result.duration,
       thumbnailUrl: task.result.thumbnailUrl,
+      previewImageUrl: task.result.previewImageUrl,
+      title: task.result.title,
+      lyricsText: task.result.lyricsText,
+      lyricsTitle: task.result.lyricsTitle,
+      lyricsTags: task.result.lyricsTags,
+      providerTaskId: task.result.providerTaskId,
+      primaryClipId: task.result.primaryClipId,
+      clipIds: task.result.clipIds,
       characterUsername: task.result.characterUsername,
       characterProfileUrl: task.result.characterProfileUrl,
       characterPermalink: task.result.characterPermalink,
@@ -124,7 +134,10 @@ function createTaskIndexItem(
     syncVersion,
     pageId,
     promptPreview: task.params.prompt?.substring(0, PAGED_SYNC_CONFIG.PROMPT_PREVIEW_LENGTH),
-    thumbnailUrl: task.result?.thumbnailUrl || task.result?.url,
+    thumbnailUrl:
+      task.result?.thumbnailUrl ||
+      task.result?.previewImageUrl ||
+      task.result?.url,
   };
 }
 
@@ -531,12 +544,22 @@ class TaskSyncService {
       completedAt: compact.completedAt,
       result: compact.result ? {
         url: compact.result.url || '',
+        urls: compact.result.urls,
         format: compact.result.format || '',
         size: compact.result.size || 0,
+        resultKind: compact.result.resultKind,
         width: compact.result.width,
         height: compact.result.height,
         duration: compact.result.duration,
         thumbnailUrl: compact.result.thumbnailUrl,
+        previewImageUrl: compact.result.previewImageUrl,
+        title: compact.result.title,
+        lyricsText: compact.result.lyricsText,
+        lyricsTitle: compact.result.lyricsTitle,
+        lyricsTags: compact.result.lyricsTags,
+        providerTaskId: compact.result.providerTaskId,
+        primaryClipId: compact.result.primaryClipId,
+        clipIds: compact.result.clipIds,
         characterUsername: compact.result.characterUsername,
         characterProfileUrl: compact.result.characterProfileUrl,
         characterPermalink: compact.result.characterPermalink,

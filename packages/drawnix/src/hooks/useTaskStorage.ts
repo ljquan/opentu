@@ -91,15 +91,23 @@ export function useTaskStorage(): boolean {
                 isAsyncImageModel(task.params?.model);
 
               const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
+              const isAudioResumable =
+                task.type === TaskType.AUDIO && !!task.remoteId;
 
               console.warn(
                 `[useTaskStorage]   task=${task.id} type=${task.type} phase=${task.executionPhase || 'unknown'} remoteId=${task.remoteId || 'none'} → ${
-                  isVideoResumable || isAsyncImageResumable ? 'KEEP' : 'MARK_FAILED'
+                  isVideoResumable || isAudioResumable || isAsyncImageResumable
+                    ? 'KEEP'
+                    : 'MARK_FAILED'
                 }`
               );
 
               // Video或异步图片任务且有 remoteId：允许后续恢复轮询
-              if (isVideoResumable || isAsyncImageResumable) {
+              if (
+                isVideoResumable ||
+                isAudioResumable ||
+                isAsyncImageResumable
+              ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
               } else {
                 // 其他任务视为中断失败
@@ -143,6 +151,7 @@ export function useTaskStorage(): boolean {
               task.status === 'failed' &&
               task.remoteId &&
               (task.type === TaskType.VIDEO ||
+                task.type === TaskType.AUDIO ||
                 (task.type === TaskType.IMAGE &&
                   isAsyncImageModel(task.params?.model)))
           );
@@ -150,8 +159,10 @@ export function useTaskStorage(): boolean {
           // 无条件打印汇总，便于定位
           const failedVideoCount = storedTasks.filter(t => t.status === 'failed' && t.type === TaskType.VIDEO).length;
           const failedVideoWithRemoteId = storedTasks.filter(t => t.status === 'failed' && t.type === TaskType.VIDEO && t.remoteId).length;
+          const failedAudioCount = storedTasks.filter(t => t.status === 'failed' && t.type === TaskType.AUDIO).length;
+          const failedAudioWithRemoteId = storedTasks.filter(t => t.status === 'failed' && t.type === TaskType.AUDIO && t.remoteId).length;
           console.warn(
-            `[useTaskStorage] Recovery check: ${processingTasks.length} processing, ${failedVideoCount} failed video (${failedVideoWithRemoteId} with remoteId), ${failedRemoteTasks.length} recoverable`
+            `[useTaskStorage] Recovery check: ${processingTasks.length} processing, ${failedVideoCount} failed video (${failedVideoWithRemoteId} with remoteId), ${failedAudioCount} failed audio (${failedAudioWithRemoteId} with remoteId), ${failedRemoteTasks.length} recoverable`
           );
 
           if (failedRemoteTasks.length > 0) {

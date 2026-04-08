@@ -506,7 +506,15 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   return (
     <div ref={bubbleRef} className={`workflow-bubble chat-message chat-message--assistant ${className}`}>
       <div className="chat-message-avatar">
-        <span>{workflow.generationType === 'image' ? '🖼️' : workflow.generationType === 'video' ? '🎬' : '📝'}</span>
+        <span>
+          {workflow.generationType === 'image'
+            ? '🖼️'
+            : workflow.generationType === 'video'
+            ? '🎬'
+            : workflow.generationType === 'audio'
+            ? '🎵'
+            : '📝'}
+        </span>
       </div>
       <div className="workflow-bubble__content chat-message-content">
         {/* 头部 */}

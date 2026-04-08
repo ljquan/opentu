@@ -326,6 +326,111 @@ describe('provider routing', () => {
     ]);
   });
 
+  it('infers trim-v1 transport for suno audio bindings', () => {
+    const [binding] = inferBindingsForProviderModel(
+      {
+        id: 'provider-a',
+        name: 'Provider A',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'key-a',
+        authType: 'bearer',
+      },
+      {
+        id: 'suno_music',
+        label: 'Suno Music',
+        type: 'audio',
+        vendor: ModelVendor.SUNO,
+        tags: ['suno', 'audio', 'music'],
+      }
+    );
+
+    expect(binding?.protocol).toBe('tuzi.suno.music');
+    expect(binding?.submitPath).toBe('/suno/submit/music');
+    expect(binding?.pollPathTemplate).toBe('/suno/fetch/{taskId}');
+    expect(binding?.baseUrlStrategy).toBe('trim-v1');
+    expect(binding?.metadata?.audio?.defaultAction).toBe('music');
+    expect(binding?.metadata?.audio?.submitPathByAction).toEqual({
+      music: '/suno/submit/music',
+      lyrics: '/suno/submit/lyrics',
+    });
+    expect(binding?.metadata?.audio?.versionOptions).toEqual([
+      'chirp-v5-5',
+      'chirp-v5',
+      'chirp-v4-5',
+      'chirp-v4',
+      'chirp-v3-0',
+      'chirp-v3-5',
+    ]);
+    expect(binding?.metadata?.audio?.defaultVersion).toBe('chirp-v3-5');
+  });
+
+  it('infers Kling capability bindings with action-scoped version metadata', () => {
+    const [binding] = inferBindingsForProviderModel(
+      {
+        id: 'provider-kling',
+        name: 'Kling Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'key-a',
+        authType: 'bearer',
+      },
+      {
+        id: 'kling_video',
+        label: 'Kling',
+        type: 'video',
+        vendor: ModelVendor.KLING,
+      }
+    );
+
+    expect(binding?.protocol).toBe('kling.video');
+    expect(binding?.requestSchema).toBe('kling.video.auto-action-json');
+    expect(binding?.submitPath).toBe('/kling/v1/videos/{action}');
+    expect(binding?.pollPathTemplate).toBe('/kling/v1/videos/{action}/{taskId}');
+    expect(binding?.metadata?.video?.versionField).toBe('model_name');
+    expect(binding?.metadata?.video?.defaultVersion).toBe('kling-v1-6');
+    expect(binding?.metadata?.video?.versionOptionsByAction?.text2video).toEqual([
+      'kling-v3',
+      'kling-v2-6',
+      'kling-v2-1',
+      'kling-v1-6',
+      'kling-v1-5',
+    ]);
+    expect(binding?.metadata?.video?.versionOptionsByAction?.image2video).toEqual([
+      'kling-v3',
+      'kling-v2-6',
+      'kling-v2-1',
+      'kling-v1-6',
+      'kling-v1-5',
+    ]);
+  });
+
+  it('excludes Kling O1 models from standard kling.video routing', () => {
+    const bindings = inferBindingsForProviderModel(
+      {
+        id: 'provider-kling',
+        name: 'Kling Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'key-a',
+        authType: 'bearer',
+      },
+      {
+        id: 'kling-video-o1',
+        label: 'Kling Video O1',
+        type: 'video',
+        vendor: ModelVendor.KLING,
+      }
+    );
+
+    expect(bindings.some((binding) => binding.protocol === 'kling.video')).toBe(
+      false
+    );
+    expect(
+      bindings.some((binding) => binding.protocol === 'openai.async.video')
+    ).toBe(true);
+  });
+
   it('marks gemini text bindings as image-capable for gemini-family models', () => {
     const [binding] = inferBindingsForProviderModel(
       {

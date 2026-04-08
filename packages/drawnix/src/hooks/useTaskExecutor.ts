@@ -209,6 +209,56 @@ export function useTaskExecutor(): void {
       tryExecuteNext();
     };
 
+    const resumeAudioTask = async (task: Task) => {
+      const taskId = task.id;
+      const remoteId = task.remoteId!;
+
+      if (executingTasksRef.current.has(taskId)) {
+        return;
+      }
+
+      executingTasksRef.current.add(taskId);
+
+      try {
+        const result = await generationAPIService.resumeAudioGeneration(
+          taskId,
+          remoteId,
+          task.params.modelRef || task.params.model || null
+        );
+
+        if (!isActive) return;
+
+        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.COMPLETED, {
+          result,
+        });
+      } catch (error: any) {
+        if (!isActive) return;
+
+        const errorCode = error.httpStatus
+          ? `HTTP_${error.httpStatus}`
+          : error.name || 'ERROR';
+        const errorMessage = getFriendlyErrorMessage(error);
+        const originalErrorInfo =
+          error.fullResponse ||
+          error.apiErrorBody ||
+          error.message ||
+          String(error);
+
+        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.FAILED, {
+          error: {
+            code: errorCode,
+            message: errorMessage,
+            details: {
+              originalError: originalErrorInfo,
+              timestamp: Date.now(),
+            },
+          },
+        });
+      } finally {
+        onTaskFinished(taskId);
+      }
+    };
+
     // Function to resume an async image task that has a remoteId
     const resumeAsyncImageTask = async (task: Task) => {
       const taskId = task.id;
@@ -404,6 +454,14 @@ export function useTaskExecutor(): void {
         return;
       }
 
+      if (
+        task.type === TaskType.AUDIO &&
+        task.remoteId &&
+        task.status === TaskStatus.PROCESSING
+      ) {
+        return resumeAudioTask(task);
+      }
+
       // Prevent duplicate execution
       if (executingTasksRef.current.has(taskId)) {
         return;
@@ -514,15 +572,24 @@ export function useTaskExecutor(): void {
           task.status === TaskStatus.PROCESSING &&
           isAsyncImageModel(task.params.model)
       );
+      const resumableAudioTasks = tasks.filter(
+        (task) =>
+          task.type === TaskType.AUDIO &&
+          task.remoteId &&
+          task.status === TaskStatus.PROCESSING
+      );
 
       console.warn(
-        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${resumableTasks.length} resumable, ${executingTasksRef.current.size} executing`
+        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${resumableTasks.length} resumable-image, ${resumableAudioTasks.length} resumable-audio, ${executingTasksRef.current.size} executing`
       );
 
       pendingTasks.forEach((task) => {
         enqueueTask(task);
       });
       resumableTasks.forEach((task) => {
+        enqueueTask(task);
+      });
+      resumableAudioTasks.forEach((task) => {
         enqueueTask(task);
       });
     };
@@ -580,6 +647,13 @@ export function useTaskExecutor(): void {
             task.type === TaskType.IMAGE &&
             task.status === TaskStatus.PROCESSING &&
             isAsyncImageModel(task.params.model)
+          ) {
+            enqueueTask(task);
+          } else if (
+            !executingTasksRef.current.has(task.id) &&
+            task.remoteId &&
+            task.type === TaskType.AUDIO &&
+            task.status === TaskStatus.PROCESSING
           ) {
             enqueueTask(task);
           }

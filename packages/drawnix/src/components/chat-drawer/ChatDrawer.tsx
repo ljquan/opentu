@@ -70,6 +70,11 @@ function getToolDescription(
         0,
         30
       )}...`;
+    case 'generate_audio':
+      return `生成音频: ${((args?.prompt as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'generate_grid_image':
       return `生成宫格图: ${((args?.theme as string) || '').substring(
         0,
@@ -249,6 +254,8 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           name: 'AI 智能生成',
           generationType: toolCalls[0]?.name.includes('video')
             ? 'video'
+            : toolCalls[0]?.name.includes('audio')
+            ? 'audio'
             : 'image',
           prompt: aiAnalysis || '',
           aiAnalysis: aiAnalysis,

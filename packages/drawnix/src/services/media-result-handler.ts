@@ -13,12 +13,17 @@ import type { Point } from '@plait/core';
 import type { Task, TaskType } from '../types/task.types';
 import { TaskStatus } from '../types/task.types';
 import {
+  executeCanvasInsertion,
   getCanvasBoard,
   quickInsert,
   insertImageGroup,
   insertAIFlow,
   parseSizeToPixels,
 } from './canvas-operations';
+import {
+  AUDIO_CARD_DEFAULT_HEIGHT,
+  AUDIO_CARD_DEFAULT_WIDTH,
+} from '../data/audio';
 import { getInsertionPointBelowBottommostElement } from '../utils/selection-utils';
 import { splitAndInsertImages } from '../utils/image-splitter';
 import { workflowCompletionService } from './workflow-completion-service';
@@ -26,7 +31,7 @@ import { workflowCompletionService } from './workflow-completion-service';
 /**
  * 媒体类型
  */
-export type MediaType = 'image' | 'video';
+export type MediaType = 'image' | 'video' | 'audio';
 
 /**
  * 媒体结果
@@ -38,6 +43,15 @@ export interface MediaResult {
   width?: number;
   height?: number;
   duration?: number;
+  previewImageUrl?: string;
+  title?: string;
+  providerTaskId?: string;
+  primaryClipId?: string;
+  clipIds?: string[];
+  clips?: Array<{
+    clipId?: string;
+    title?: string;
+  }>;
 }
 
 /**
@@ -153,6 +167,7 @@ export async function handleSingleMediaInsert(
   type: MediaType,
   url: string,
   params: TaskParams,
+  result?: MediaResult,
   config: InsertConfig = {}
 ): Promise<{ success: boolean; error?: string }> {
   const board = getCanvasBoard();
@@ -166,12 +181,36 @@ export async function handleSingleMediaInsert(
 
   try {
     const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
-    const dimensions = parseSizeToPixels(params.size);
+    const dimensions =
+      type === 'audio'
+        ? {
+            width: AUDIO_CARD_DEFAULT_WIDTH,
+            height: AUDIO_CARD_DEFAULT_HEIGHT,
+          }
+        : parseSizeToPixels(params.size);
+    const metadata =
+      type === 'audio'
+        ? {
+            title: result?.title || params.title,
+            duration: result?.duration,
+            previewImageUrl: result?.previewImageUrl,
+            tags: typeof params.tags === 'string' ? params.tags : undefined,
+            mv: typeof params.mv === 'string' ? params.mv : undefined,
+            prompt: params.prompt,
+            providerTaskId: result?.providerTaskId,
+            clipId: result?.primaryClipId,
+            clipIds: result?.clipIds,
+          }
+        : undefined;
 
     if (config.insertPrompt) {
-      await insertAIFlow(params.prompt, [{ type, url, dimensions }], insertionPoint);
+      await insertAIFlow(
+        params.prompt,
+        [{ type, url, dimensions, metadata }],
+        insertionPoint
+      );
     } else {
-      await quickInsert(type, url, insertionPoint, dimensions);
+      await quickInsert(type, url, insertionPoint, dimensions, metadata);
     }
 
     workflowCompletionService.completePostProcessing(taskId, 1, insertionPoint);
@@ -281,8 +320,8 @@ export async function handleMediaResult(
     return handleSplitAndInsertTask(taskId, primaryUrl, params, config);
   }
 
-  // 多图直接插入（仅图片）
-  if (type === 'image' && resultUrls.length > 1) {
+  // 多图直接插入（图片/音频）
+  if ((type === 'image' || type === 'audio') && resultUrls.length > 1) {
     const board = getCanvasBoard();
     if (!board) {
       return { success: false, count: 0, error: 'Board not available' };
@@ -291,8 +330,42 @@ export async function handleMediaResult(
     workflowCompletionService.startPostProcessing(taskId, 'direct_insert');
     try {
       const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
-      const dimensions = parseSizeToPixels(params.size);
-      await insertImageGroup(resultUrls, insertionPoint, dimensions);
+      const dimensions =
+        type === 'audio'
+          ? {
+              width: AUDIO_CARD_DEFAULT_WIDTH,
+              height: AUDIO_CARD_DEFAULT_HEIGHT,
+            }
+          : parseSizeToPixels(params.size);
+
+      if (type === 'audio') {
+        await executeCanvasInsertion({
+          items: resultUrls.map((audioUrl, index) => ({
+            type: 'audio',
+            content: audioUrl,
+            groupId: `audio-group-${taskId}`,
+            dimensions,
+            metadata: {
+              title:
+                result.clips?.[index]?.title ||
+                (result.title || params.title
+                  ? `${result.title || params.title} ${index + 1}`
+                  : `Audio ${index + 1}`),
+              duration: result.duration,
+              previewImageUrl: result.previewImageUrl,
+              tags: typeof params.tags === 'string' ? params.tags : undefined,
+              mv: typeof params.mv === 'string' ? params.mv : undefined,
+              prompt: params.prompt,
+              providerTaskId: result.providerTaskId,
+              clipId: result.clips?.[index]?.clipId || result.clipIds?.[index],
+              clipIds: result.clipIds,
+            },
+          })),
+          startPoint: insertionPoint,
+        });
+      } else {
+        await insertImageGroup(resultUrls, insertionPoint, dimensions);
+      }
       workflowCompletionService.completePostProcessing(taskId, resultUrls.length, insertionPoint);
       return { success: true, count: resultUrls.length };
     } catch (error) {
@@ -303,7 +376,14 @@ export async function handleMediaResult(
   }
 
   // 普通单个媒体任务
-  const insertResult = await handleSingleMediaInsert(taskId, type, primaryUrl, params, config);
+  const insertResult = await handleSingleMediaInsert(
+    taskId,
+    type,
+    primaryUrl,
+    params,
+    result,
+    config
+  );
   return {
     success: insertResult.success,
     count: insertResult.success ? 1 : 0,

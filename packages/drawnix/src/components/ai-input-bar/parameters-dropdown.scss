@@ -183,6 +183,32 @@ $text-dark: #1F2937;
       flex-shrink: 0;
     }
   }
+
+  &__field {
+    padding: 0 4px;
+  }
+
+  &__field-input {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 8px;
+    background: var(--color-surface, #fff);
+    color: var(--color-text, #333);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+    &:focus {
+      border-color: rgba($orange-primary, 0.8);
+      box-shadow: 0 0 0 3px rgba($orange-primary, 0.14);
+    }
+
+    &::placeholder {
+      color: var(--color-text-tertiary, #999);
+    }
+  }
 }
 
 // 暗色主题
@@ -251,6 +277,16 @@ $text-dark: #1F2937;
 
       &--selected#{&}--highlighted {
         box-shadow: 0 0 0 2px rgba($orange-primary, 0.35);
+      }
+    }
+
+    &__field-input {
+      background: var(--color-surface-mid, #333);
+      border-color: var(--color-border, #444);
+      color: var(--color-gray-20, #ccc);
+
+      &::placeholder {
+        color: var(--color-gray-50, #888);
       }
     }
   }

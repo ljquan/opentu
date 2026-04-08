@@ -1,4 +1,5 @@
 import {
+  getDefaultAudioModel,
   getDefaultImageModel,
   getDefaultTextModel,
   getDefaultVideoModel,
@@ -111,6 +112,9 @@ function inferVendorFromModelId(modelId: string): ModelVendor {
   if (lowerId.startsWith('mj') || lowerId.includes('midjourney')) {
     return ModelVendor.MIDJOURNEY;
   }
+  if (lowerId.includes('suno') || lowerId.includes('chirp')) {
+    return ModelVendor.SUNO;
+  }
   if (lowerId.includes('kling')) return ModelVendor.KLING;
   if (lowerId.includes('seedance') || lowerId.includes('seedream')) {
     return ModelVendor.DOUBAO;
@@ -186,6 +190,10 @@ function buildLegacyBindings(
         gemini.chatModel?.trim() ||
         getDefaultTextModel(),
       type: 'text',
+    },
+    {
+      modelId: gemini.audioModelName?.trim() || getDefaultAudioModel(),
+      type: 'audio',
     },
     {
       modelId: gemini.imageModelName?.trim() || getDefaultImageModel(),

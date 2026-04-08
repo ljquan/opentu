@@ -155,7 +155,7 @@ export interface MCPResult {
   /** 错误信息 */
   error?: string;
   /** 结果类型标识 */
-  type?: 'image' | 'video' | 'text' | 'canvas' | 'error';
+  type?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
 }
 
 /**
@@ -231,8 +231,8 @@ export interface AgentExecutionContext {
   model: {
     /** 模型 ID */
     id: string;
-    /** 生成类型: text = agent 模式, image = 图片模式, video = 视频模式 */
-    type: 'text' | 'image' | 'video';
+    /** 生成类型: text = agent 模式, image = 图片模式, video = 视频模式, audio = 音频模式 */
+    type: 'text' | 'image' | 'video' | 'audio';
     /** 是否为用户显式选择 */
     isExplicit: boolean;
   };
@@ -243,6 +243,8 @@ export interface AgentExecutionContext {
     image: string;
     /** 默认视频模型 */
     video: string;
+    /** 默认音频模型 */
+    audio?: string;
   };
 
   /** 参数配置 */

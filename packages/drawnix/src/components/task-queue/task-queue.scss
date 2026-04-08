@@ -55,16 +55,18 @@
         color: var(--td-text-color-primary, #333);
         background: rgba(0, 0, 0, 0.04) !important;
       }
-
-
     }
   }
 
   &__filter-btn--active {
+    color: #F39C12 !important;
+    background: rgba(243, 156, 18, 0.12) !important;
+    box-shadow: inset 0 0 0 1px rgba(243, 156, 18, 0.18);
 
-    
-    svg, .t-icon {
-      color: #F39C12 !important;
+    svg,
+    .t-icon,
+    span {
+      color: currentColor !important;
     }
   }
 

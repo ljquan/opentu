@@ -11,6 +11,7 @@ export { mcpRegistry, MCPRegistry } from './registry';
 // 导出工具
 export { imageGenerationTool, getCurrentImageModel } from './tools/image-generation';
 export { videoGenerationTool, getCurrentVideoModel } from './tools/video-generation';
+export { audioGenerationTool, getCurrentAudioModel } from './tools/audio-generation';
 export {
   canvasInsertionTool,
   setCanvasBoard,
@@ -45,6 +46,7 @@ export { setBoard, getBoard } from './tools/shared';
 import { mcpRegistry } from './registry';
 import { imageGenerationTool } from './tools/image-generation';
 import { videoGenerationTool } from './tools/video-generation';
+import { audioGenerationTool } from './tools/audio-generation';
 import { canvasInsertionTool } from './tools/canvas-insertion';
 import { aiAnalyzeTool } from './tools/ai-analyze';
 import { mermaidTool } from './tools/mermaid-tool';
@@ -73,6 +75,7 @@ export function initializeMCP(): void {
   mcpRegistry.registerAll([
     imageGenerationTool,
     videoGenerationTool,
+    audioGenerationTool,
     longVideoGenerationTool,
     canvasInsertionTool,
     aiAnalyzeTool,

@@ -8,6 +8,9 @@ export type { ImageGenerationParams } from './image-generation';
 export { videoGenerationTool, generateVideo, createVideoTask } from './video-generation';
 export type { VideoGenerationParams } from './video-generation';
 
+export { audioGenerationTool, generateAudio } from './audio-generation';
+export type { AudioGenerationParams } from './audio-generation';
+
 export { aiAnalyzeTool, analyzeWithAI } from './ai-analyze';
 export type { AIAnalyzeParams, AIAnalyzeResult } from './ai-analyze';
 

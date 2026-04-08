@@ -20,22 +20,25 @@ const MODEL_TYPE_LABELS: Record<ModelTypeFilter, string> = {
   all: '全部',
   image: '图片',
   video: '视频',
+  audio: '音频',
   text: '文本',
 };
 
 const MODEL_TYPE_SECTION_LABELS: Record<ModelType, string> = {
   image: '图片',
   video: '视频',
+  audio: '音频',
   text: '文本',
 };
 
 const MODEL_TYPE_SHORT_LABELS: Record<ModelType, string> = {
   image: '图',
   video: '视',
+  audio: '音',
   text: '文',
 };
 
-const MODEL_TYPE_TIE_BREAKER: ModelType[] = ['text', 'image', 'video'];
+const MODEL_TYPE_TIE_BREAKER: ModelType[] = ['text', 'image', 'video', 'audio'];
 
 type VendorGroup = {
   vendor: ModelVendor;
@@ -96,7 +99,7 @@ function buildVendorGroups(
       ({
         vendor: model.vendor,
         models: [],
-        counts: { image: 0, video: 0, text: 0 },
+        counts: { image: 0, video: 0, audio: 0, text: 0 },
         selectedCount: 0,
       } satisfies VendorGroup);
 
@@ -130,7 +133,7 @@ function buildVendorGroups(
 function getOrderedTypeGroups(
   group: VendorGroup
 ): Array<{ type: ModelType; models: ModelConfig[] }> {
-  return (['image', 'video', 'text'] as ModelType[])
+  return (['image', 'video', 'audio', 'text'] as ModelType[])
     .filter((type) => group.counts[type] > 0)
     .map((type) => ({
       type,
@@ -193,6 +196,7 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
       all: models.length,
       image: models.filter((model) => model.type === 'image').length,
       video: models.filter((model) => model.type === 'video').length,
+      audio: models.filter((model) => model.type === 'audio').length,
       text: models.filter((model) => model.type === 'text').length,
     }),
     [models]

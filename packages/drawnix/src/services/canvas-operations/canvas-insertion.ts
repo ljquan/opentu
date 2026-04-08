@@ -8,13 +8,19 @@ import { PlaitBoard, Point, getRectangleByElements } from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
+import {
+  AUDIO_CARD_DEFAULT_HEIGHT,
+  AUDIO_CARD_DEFAULT_WIDTH,
+  insertAudioFromUrl,
+  type AudioCardMetadata,
+} from '../../data/audio';
 import { scrollToPointIfNeeded } from '../../utils/selection-utils';
 import type { MCPResult } from '../../mcp/types';
 
 /**
  * 内容类型
  */
-export type ContentType = 'text' | 'image' | 'video' | 'svg';
+export type ContentType = 'text' | 'image' | 'video' | 'audio' | 'svg';
 
 /**
  * 单个要插入的内容项
@@ -30,6 +36,8 @@ export interface InsertionItem {
   groupId?: string;
   /** 图片/视频尺寸（可选，用于立即插入不等待加载） */
   dimensions?: { width: number; height: number };
+  /** 额外元数据（音频卡片等） */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -261,6 +269,32 @@ async function insertVideoToCanvas(
   return defaultSize;
 }
 
+async function insertAudioToCanvas(
+  board: PlaitBoard,
+  audioUrl: string,
+  point: Point,
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
+): Promise<{ width: number; height: number }> {
+  const size = dimensions || {
+    width: AUDIO_CARD_DEFAULT_WIDTH,
+    height: AUDIO_CARD_DEFAULT_HEIGHT,
+  };
+  await insertAudioFromUrl(
+    board,
+    audioUrl,
+    {
+      ...(metadata as AudioCardMetadata | undefined),
+      width: size.width,
+      height: size.height,
+    },
+    point,
+    false,
+    true
+  );
+  return size;
+}
+
 /**
  * 将SVG代码转换为Data URL
  */
@@ -378,6 +412,11 @@ export async function executeCanvasInsertion(params: CanvasInsertionParams): Pro
           itemSize = item.dimensions || { width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE, height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE };
         } else if (item.type === 'video') {
           itemSize = item.dimensions || { width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE, height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)) };
+        } else if (item.type === 'audio') {
+          itemSize = item.dimensions || {
+            width: AUDIO_CARD_DEFAULT_WIDTH,
+            height: AUDIO_CARD_DEFAULT_HEIGHT,
+          };
         }
 
         const point: Point = [leftX, currentY];
@@ -391,6 +430,15 @@ export async function executeCanvasInsertion(params: CanvasInsertionParams): Pro
         } else if (item.type === 'video') {
           const vidSize = await insertVideoToCanvas(board, item.content, point, item.dimensions);
           currentY += vidSize.height + verticalGap;
+        } else if (item.type === 'audio') {
+          const audioSize = await insertAudioToCanvas(
+            board,
+            item.content,
+            point,
+            item.dimensions,
+            item.metadata
+          );
+          currentY += audioSize.height + verticalGap;
         } else if (item.type === 'svg') {
           const svgSize = await insertSvgToCanvas(board, item.content, point);
           currentY += svgSize.height + verticalGap;
@@ -416,6 +464,16 @@ export async function executeCanvasInsertion(params: CanvasInsertionParams): Pro
             const vidSize = await insertVideoToCanvas(board, item.content, point, item.dimensions);
             maxHeight = Math.max(maxHeight, vidSize.height);
             currentX += vidSize.width + horizontalGap;
+          } else if (item.type === 'audio') {
+            const audioSize = await insertAudioToCanvas(
+              board,
+              item.content,
+              point,
+              item.dimensions,
+              item.metadata
+            );
+            maxHeight = Math.max(maxHeight, audioSize.height);
+            currentX += audioSize.width + horizontalGap;
           } else if (item.type === 'svg') {
             const svgSize = await insertSvgToCanvas(board, item.content, point);
             maxHeight = Math.max(maxHeight, svgSize.height);
@@ -466,10 +524,11 @@ export async function quickInsert(
   type: ContentType,
   content: string,
   point?: Point,
-  dimensions?: { width: number; height: number }
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   return executeCanvasInsertion({
-    items: [{ type, content, dimensions }],
+    items: [{ type, content, dimensions, metadata }],
     startPoint: point,
   });
 }
@@ -499,7 +558,12 @@ export async function insertImageGroup(
  */
 export async function insertAIFlow(
   prompt: string,
-  results: Array<{ type: 'image' | 'video'; url: string; dimensions?: { width: number; height: number } }>,
+  results: Array<{
+    type: 'image' | 'video' | 'audio';
+    url: string;
+    dimensions?: { width: number; height: number };
+    metadata?: Record<string, unknown>;
+  }>,
   point?: Point
 ): Promise<MCPResult> {
   const items: InsertionItem[] = [
@@ -511,6 +575,7 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
+      metadata: results[0].metadata,
     });
   } else {
     const groupId = `result-group-${Date.now()}`;
@@ -520,6 +585,7 @@ export async function insertAIFlow(
         content: r.url,
         groupId,
         dimensions: r.dimensions,
+        metadata: r.metadata,
       });
     });
   }

@@ -4,6 +4,7 @@ import {
   ModelVendor,
   VENDOR_NAMES,
   DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_AUDIO_MODEL_ID,
   DEFAULT_VIDEO_MODEL_ID,
   DEFAULT_TEXT_MODEL_ID,
   getModelsByType,
@@ -22,6 +23,7 @@ import {
   type ModelRef,
   type ProviderProfile,
 } from './settings-manager';
+import { applySunoAliasPresentation, isSunoLikeModelId } from './suno-model-aliases';
 
 const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 
@@ -243,6 +245,9 @@ function inferVendorByKeywords(modelId: string): ModelVendor {
   if (lowerId.includes('kling')) return ModelVendor.KLING;
   if (lowerId.includes('veo')) return ModelVendor.VEO;
   if (lowerId.includes('sora')) return ModelVendor.SORA;
+  if (lowerId.includes('suno') || lowerId.includes('chirp')) {
+    return ModelVendor.SUNO;
+  }
   if (
     lowerId.includes('seedream') ||
     lowerId.includes('seedance') ||
@@ -360,6 +365,9 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
   ) {
     return ModelVendor.DOUBAO;
   }
+  if (owner === 'suno' || owner.includes('suno') || owner.includes('chirp')) {
+    return ModelVendor.SUNO;
+  }
   if (owner === 'google' || owner.includes('google')) {
     return keywordVendor !== ModelVendor.OTHER
       ? keywordVendor
@@ -400,11 +408,36 @@ function inferModelType(model: RemoteModelListItem): ModelType {
       'image',
       ...extraPatterns,
     ]);
+  const hasAudioIdSignal = (...extraPatterns: InferencePattern[]) =>
+    matchesAnyPattern(lowerId, [
+      'audio',
+      'music',
+      'suno',
+      'chirp',
+      'lyrics',
+      'midi',
+      'stems',
+      ...extraPatterns,
+    ]);
 
   const hasId = (...patterns: InferencePattern[]) =>
     matchesAnyPattern(lowerId, patterns);
   const hasHint = (...patterns: InferencePattern[]) =>
     hasAnyEndpointHint(endpointHints, patterns);
+
+  if (
+    hasHint(
+      'audio',
+      'music',
+      'audio_generation',
+      'music-generation',
+      'lyrics',
+      'stems',
+      'midi'
+    )
+  ) {
+    return 'audio';
+  }
 
   if (
     hasHint(
@@ -570,6 +603,13 @@ function inferModelType(model: RemoteModelListItem): ModelType {
       if (hasId('veo')) return 'video';
       if (hasId('imagen', 'gpt-image')) return 'image';
       break;
+    case ModelVendor.SUNO:
+      return 'audio';
+    case ModelVendor.OTHER:
+      if (hasAudioIdSignal()) {
+        return 'audio';
+      }
+      break;
     default:
       break;
   }
@@ -609,6 +649,17 @@ function inferModelType(model: RemoteModelListItem): ModelType {
     lowerId.includes('gpt-image');
   if (isImage) return 'image';
 
+  const isAudio =
+    lowerId.includes('suno') ||
+    lowerId.includes('chirp') ||
+    lowerId.includes('music') ||
+    lowerId.includes('lyrics') ||
+    lowerId.includes('midi') ||
+    lowerId.includes('stems') ||
+    lowerId.includes('remix') ||
+    lowerId.includes('infill');
+  if (isAudio) return 'audio';
+
   return 'text';
 }
 
@@ -620,6 +671,7 @@ function buildShortCode(modelId: string, type: ModelType): string {
     .map((part) => part[0]?.toLowerCase() || '')
     .join('');
   if (compact) return compact.slice(0, 6);
+  if (type === 'audio') return 'aud';
   if (type === 'video') return 'vid';
   if (type === 'text') return 'txt';
   return 'img';
@@ -629,24 +681,49 @@ function buildFallbackConfig(model: RemoteModelListItem): ModelConfig {
   const type = inferModelType(model);
   const vendor = inferVendor(model);
   const vendorLabel = VENDOR_NAMES[vendor];
+  const lowerId = model.id.toLowerCase();
   const supportsTools =
     type === 'text' &&
     (model.supported_endpoint_types || []).some((item) =>
       item.toLowerCase().includes('openai-chat')
     );
 
-  return {
+  if (model.id.toLowerCase() === 'kling_video') {
+    return {
+      id: model.id,
+      label: 'Kling',
+      shortLabel: 'Kling',
+      shortCode: buildShortCode(model.id, 'video'),
+      description: 'Kling 标准视频能力，版本通过 model_name 选择',
+      type: 'video',
+      vendor: ModelVendor.KLING,
+      supportsTools: false,
+      tags: ['runtime', 'kling'],
+      videoDefaults: { duration: '5', size: '1280x720', aspectRatio: '16:9' },
+    };
+  }
+
+  const fallbackConfig: ModelConfig = {
     id: model.id,
     label: model.id,
     shortLabel: model.id,
     shortCode: buildShortCode(model.id, type),
     description: `${vendorLabel} ${
-      type === 'image' ? '图片模型' : type === 'video' ? '视频模型' : '文本模型'
+      type === 'image'
+        ? '图片模型'
+        : type === 'video'
+        ? '视频模型'
+        : type === 'audio'
+        ? '音频模型'
+        : '文本模型'
     }`,
     type,
     vendor,
     supportsTools,
-    tags: ['runtime'],
+    tags:
+      type === 'audio' && isSunoLikeModelId(lowerId)
+        ? ['runtime', 'suno', 'audio', 'music']
+        : ['runtime'],
     imageDefaults:
       type === 'image'
         ? { aspectRatio: 'auto', width: 1024, height: 1024 }
@@ -656,6 +733,10 @@ function buildFallbackConfig(model: RemoteModelListItem): ModelConfig {
         ? { duration: '8', size: '1280x720', aspectRatio: '16:9' }
         : undefined,
   };
+
+  return type === 'audio'
+    ? applySunoAliasPresentation(fallbackConfig)
+    : fallbackConfig;
 }
 
 function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
@@ -772,6 +853,7 @@ function createPinnedRuntimeModel(
   type: ModelType
 ): ModelConfig {
   const profileName = getProfileById(profileId)?.name || '供应商模型';
+  const vendor = inferVendorByKeywords(modelId);
   return attachRuntimeSource(profileId, {
     id: modelId,
     label: modelId,
@@ -779,7 +861,7 @@ function createPinnedRuntimeModel(
     shortCode: buildShortCode(modelId, type),
     description: `${profileName} · ${modelId}`,
     type,
-    vendor: ModelVendor.OTHER,
+    vendor,
   });
 }
 
@@ -1321,6 +1403,7 @@ export function getFallbackDefaultModelId(type: ModelType): string {
   if (preferred.length > 0) {
     return preferred[0].id;
   }
+  if (type === 'audio') return DEFAULT_AUDIO_MODEL_ID;
   if (type === 'video') return DEFAULT_VIDEO_MODEL_ID;
   if (type === 'text') return DEFAULT_TEXT_MODEL_ID;
   return DEFAULT_IMAGE_MODEL_ID;

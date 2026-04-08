@@ -19,6 +19,28 @@ import { getModelConfig, ModelVendor } from './model-config';
  * Each model has specific duration, size, and image upload options
  */
 export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
+  kling_video: {
+    id: 'kling_video',
+    label: 'Kling',
+    provider: 'kling',
+    description: 'Kling 标准视频能力，版本通过 model_name 选择',
+    durationOptions: [
+      { label: '5秒', value: '5' },
+      { label: '10秒', value: '10' },
+    ],
+    defaultDuration: '5',
+    sizeOptions: [
+      { label: '横屏 16:9', value: '1280x720', aspectRatio: '16:9' },
+      { label: '竖屏 9:16', value: '720x1280', aspectRatio: '9:16' },
+      { label: '方形 1:1', value: '1024x1024', aspectRatio: '1:1' },
+    ],
+    defaultSize: '1280x720',
+    imageUpload: {
+      maxCount: 1,
+      mode: 'reference',
+      labels: ['参考图'],
+    },
+  },
   'kling-v1-6': {
     id: 'kling-v1-6',
     label: 'Kling V1.6',
@@ -399,6 +421,28 @@ export function normalizeVideoModel(model?: string | null): VideoModel {
   return 'veo3';
 }
 
+function isStandardKlingVideoModel(modelId: string): boolean {
+  const lowerId = modelId.toLowerCase();
+  return lowerId === 'kling_video' || /^kling-v\d(?:[-.]\d+)?$/.test(lowerId);
+}
+
+function buildStandardKlingVideoConfig(
+  modelId: string,
+  runtimeConfig?: ReturnType<typeof getModelConfig>
+): VideoModelConfig {
+  const capabilityConfig = VIDEO_MODEL_CONFIGS.kling_video;
+  const isCapabilityModel = modelId.toLowerCase() === 'kling_video';
+
+  return {
+    ...capabilityConfig,
+    id: modelId,
+    label: runtimeConfig?.shortLabel || runtimeConfig?.label || capabilityConfig.label,
+    description: isCapabilityModel
+      ? runtimeConfig?.description || capabilityConfig.description
+      : runtimeConfig?.description || 'Kling 标准视频版本，支持文生视频和图生视频',
+  };
+}
+
 function getConfigOrDefault(model?: string | null): VideoModelConfig {
   const normalized = normalizeVideoModel(model);
   const builtInConfig = VIDEO_MODEL_CONFIGS[normalized];
@@ -407,6 +451,10 @@ function getConfigOrDefault(model?: string | null): VideoModelConfig {
   }
 
   const runtimeConfig = getModelConfig(normalized);
+  if (isStandardKlingVideoModel(normalized)) {
+    return buildStandardKlingVideoConfig(normalized, runtimeConfig);
+  }
+
   const defaultSize = runtimeConfig?.videoDefaults?.size || '1280x720';
   const defaultAspectRatio = runtimeConfig?.videoDefaults?.aspectRatio || '16:9';
   const defaultDuration = runtimeConfig?.videoDefaults?.duration || '8';

@@ -59,8 +59,7 @@ function shouldBypassThumbnailForUrl(originalUrl: string): boolean {
  */
 function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
-
-  // 外部 URL / data URL / blob URL 不追加参数，避免破坏资源或签名
+  // 外部 URL / data URL / blob URL 不追加参数，避免破坏资源
   if (shouldBypassThumbnailForUrl(normalizedUrl)) {
     return normalizedUrl;
   }
@@ -124,6 +123,7 @@ async function ensureThumbnailImpl(
   type: 'image' | 'video'
 ): Promise<void> {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
+
   if (shouldBypassThumbnailForUrl(normalizedUrl)) {
     return;
   }
@@ -176,6 +176,7 @@ async function ensureThumbnailImpl(
  */
 function ensureThumbnail(originalUrl: string, type: 'image' | 'video'): void {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
+
   if (shouldBypassThumbnailForUrl(normalizedUrl)) {
     return;
   }
@@ -227,8 +228,8 @@ export function useThumbnailUrl(
     setThumbnailUrl(url);
 
     // 如果提供了类型，排队检查/生成预览图（非阻塞）
-    if (type && !shouldBypassThumbnailForUrl(normalizedUrl)) {
-      ensureThumbnail(normalizedUrl, type);
+    if (type && !shouldBypassThumbnailForUrl(originalUrl)) {
+      ensureThumbnail(originalUrl, type);
     }
   }, [originalUrl, type, size]);
 

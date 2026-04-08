@@ -79,6 +79,18 @@ function getElementTypeInfo(element: PlaitElement, board: PlaitBoard): { typeLab
     };
   }
 
+  if (element.type === 'audio') {
+    return {
+      typeLabel: 'Audio',
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+          <path d="M6 10V6l4 2-4 2Z" fill="currentColor" />
+        </svg>
+      ),
+    };
+  }
+
   if (Freehand.isFreehand(element)) {
     return {
       typeLabel: 'Freehand',
@@ -205,6 +217,10 @@ function getElementDisplayName(element: PlaitElement, board: PlaitBoard, typeInf
 
   if (isToolElement(element) && element.metadata?.name) {
     return element.metadata.name;
+  }
+
+  if (element.type === 'audio' && typeof (element as any).title === 'string' && (element as any).title.trim()) {
+    return (element as any).title.trim();
   }
 
   const text = extractTextFromElement(element, board);

@@ -60,6 +60,8 @@ export enum TaskType {
   IMAGE = 'image',
   /** Video generation task */
   VIDEO = 'video',
+  /** Audio generation task */
+  AUDIO = 'audio',
   /** Character extraction task */
   CHARACTER = 'character',
   /** Inspiration board generation task (image + split + layout) */
@@ -102,6 +104,20 @@ export interface GenerationParams {
   size?: string;
   /** Video duration in seconds (video only) */
   duration?: number;
+  /** Audio title */
+  title?: string;
+  /** Audio style tags */
+  tags?: string;
+  /** Audio model version */
+  mv?: string;
+  /** Suno action type (e.g. music or lyrics) */
+  sunoAction?: string;
+  /** Provider webhook for async completion notifications */
+  notifyHook?: string;
+  /** Continue from clip ID */
+  continueClipId?: string;
+  /** Continue from timestamp */
+  continueAt?: number;
   /** Style or model to use for generation */
   style?: string;
   /** AI model to use (e.g., 'veo3', 'sora-2') */
@@ -153,6 +169,8 @@ export interface TaskResult {
   format: string;
   /** File size in bytes */
   size: number;
+  /** Semantic result kind for mixed-capability providers */
+  resultKind?: TaskResultKind;
   /** Content width in pixels */
   width?: number;
   /** Content height in pixels */
@@ -161,6 +179,24 @@ export interface TaskResult {
   duration?: number;
   /** Video thumbnail URL (video only) */
   thumbnailUrl?: string;
+  /** Preview cover image URL (audio only) */
+  previewImageUrl?: string;
+  /** Result title (audio only) */
+  title?: string;
+  /** Generated lyrics text (lyrics only) */
+  lyricsText?: string;
+  /** Generated lyrics title (lyrics only) */
+  lyricsTitle?: string;
+  /** Generated lyrics style tags (lyrics only) */
+  lyricsTags?: string[];
+  /** Provider task ID used to fetch audio results */
+  providerTaskId?: string;
+  /** Primary provider clip identifier for audio follow-up actions */
+  primaryClipId?: string;
+  /** Ordered provider clip identifiers corresponding to urls[] */
+  clipIds?: string[];
+  /** Ordered clip metadata corresponding to audio outputs */
+  clips?: AudioClipResult[];
   /** Character username for @mention (character only) */
   characterUsername?: string;
   /** Character profile picture URL (character only) */
@@ -171,6 +207,37 @@ export interface TaskResult {
   chatResponse?: string;
   /** Tool calls made during chat (chat only) */
   toolCalls?: ChatToolCall[];
+}
+
+export type TaskResultKind =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'lyrics'
+  | 'character'
+  | 'chat';
+
+export interface AudioClipResult {
+  /** Provider entity id */
+  id?: string;
+  /** Provider clip id */
+  clipId?: string;
+  /** Display title */
+  title?: string;
+  /** Provider clip status */
+  status?: string;
+  /** Playable audio URL */
+  audioUrl: string;
+  /** Preview cover image */
+  imageUrl?: string;
+  /** High resolution preview cover image */
+  imageLargeUrl?: string;
+  /** Clip duration in seconds */
+  duration?: number | null;
+  /** Provider model name */
+  modelName?: string;
+  /** Provider major model version */
+  majorModelVersion?: string;
 }
 
 // ============================================================================

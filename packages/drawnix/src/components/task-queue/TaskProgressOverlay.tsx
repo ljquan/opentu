@@ -1,10 +1,10 @@
 /**
  * TaskProgressOverlay Component
  *
- * 任务进度覆盖层组件，在图片/视频预览区域显示带比例的 loading 状态
+ * 任务进度覆盖层组件，在图片/视频/音频预览区域显示带比例的 loading 状态
  *
  * 进度设计：
- * - 视频任务：显示真实的 API 返回进度（0-100%）
+ * - 视频/音频任务：显示真实的 API 返回进度（0-100%）
  * - 图片任务：模拟进度，分三个阶段
  *   1. 生成阶段（0-90%）：基于预估时间模拟，默认 5 分钟
  *   2. 获取链接（90%）：任务完成但图片未加载
@@ -73,6 +73,13 @@ function getProgressStatusText(
   hasMediaUrl: boolean,
   isImageLoading: boolean
 ): string {
+  if (taskType === TaskType.AUDIO) {
+    if (progress < 10) return '提交任务...';
+    if (progress < 45) return '生成旋律...';
+    if (progress < 85) return '渲染音轨...';
+    return '整理结果...';
+  }
+
   if (taskType === TaskType.VIDEO) {
     if (progress < 10) return '准备中...';
     if (progress < 50) return '生成中...';
@@ -148,7 +155,7 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
   // 计算最终显示的进度
   const displayProgress = useCallback(() => {
     // 视频任务：使用真实进度
-    if (taskType === TaskType.VIDEO) {
+    if (taskType === TaskType.VIDEO || taskType === TaskType.AUDIO) {
       return realProgress ?? 0;
     }
 
@@ -246,7 +253,9 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
   // 构建类名
   const overlayClassName = [
     'task-progress-overlay',
-    taskType === TaskType.VIDEO ? 'task-progress-overlay--video' : '',
+    taskType === TaskType.VIDEO || taskType === TaskType.AUDIO
+      ? 'task-progress-overlay--video'
+      : '',
     mediaUrl && isImageLoading ? 'task-progress-overlay--loading' : '',
   ].filter(Boolean).join(' ');
 

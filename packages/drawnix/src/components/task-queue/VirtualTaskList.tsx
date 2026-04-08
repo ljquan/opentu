@@ -30,6 +30,7 @@ export interface VirtualTaskListProps {
   onDelete?: (taskId: string) => void;
   onDownload?: (taskId: string) => void;
   onInsert?: (taskId: string) => void;
+  onCopy?: (taskId: string) => void;
   onEdit?: (taskId: string) => void;
   onPreviewOpen?: (taskId: string) => void;
   onExtractCharacter?: (taskId: string) => void;
@@ -65,6 +66,7 @@ export const VirtualTaskList: React.FC<VirtualTaskListProps> = ({
   onDelete,
   onDownload,
   onInsert,
+  onCopy,
   onEdit,
   onPreviewOpen,
   onExtractCharacter,
@@ -399,6 +401,7 @@ export const VirtualTaskList: React.FC<VirtualTaskListProps> = ({
                   onDelete={onDelete}
                   onDownload={onDownload}
                   onInsert={onInsert}
+                  onCopy={onCopy}
                   onEdit={onEdit}
                   onPreviewOpen={() => onPreviewOpen?.(task.id)}
                   onExtractCharacter={onExtractCharacter}

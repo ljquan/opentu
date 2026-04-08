@@ -226,7 +226,7 @@ export function convertDirectGenerationToWorkflow(
         description: count > 1 ? `生成图片 (${i + 1}/${count})` : '生成图片',
         status: 'pending',
       });
-    } else {
+    } else if (generationType === 'video') {
       // 构建视频生成参数，size 为 undefined 时不传（让模型自动决定）
       // 注意：batchId 等参数直接放在 args 中，确保传输时不会丢失
       const videoArgs: Record<string, unknown> = {
@@ -259,15 +259,91 @@ export function convertDirectGenerationToWorkflow(
         description: count > 1 ? `生成视频 (${i + 1}/${count})` : '生成视频',
         status: 'pending',
       });
+    } else {
+      const sunoAction =
+        typeof extraParams?.sunoAction === 'string'
+          ? extraParams.sunoAction
+          : 'music';
+      const isLyricsAction = sunoAction === 'lyrics';
+      const audioArgs: Record<string, unknown> = {
+        prompt,
+        model: modelId,
+        modelRef,
+        sunoAction,
+        batchId,
+        batchIndex: i + 1,
+        batchTotal: count,
+        globalIndex: i + 1,
+      };
+
+      if (extraParams) {
+        audioArgs.params = extraParams;
+        if (extraParams.notifyHook) {
+          audioArgs.notifyHook = extraParams.notifyHook;
+        }
+        if (!isLyricsAction && extraParams.mv) {
+          audioArgs.mv = extraParams.mv;
+        }
+        if (!isLyricsAction && extraParams.title) {
+          audioArgs.title = extraParams.title;
+        }
+        if (!isLyricsAction && extraParams.tags) {
+          audioArgs.tags = extraParams.tags;
+        }
+        if (!isLyricsAction && extraParams.continueClipId) {
+          audioArgs.continueClipId = extraParams.continueClipId;
+        }
+        if (
+          !isLyricsAction &&
+          extraParams.continueAt !== undefined &&
+          extraParams.continueAt !== null &&
+          extraParams.continueAt !== ''
+        ) {
+          audioArgs.continueAt = Number(extraParams.continueAt);
+        }
+      }
+
+      steps.push({
+        id: stepId,
+        mcp: 'generate_audio',
+        args: audioArgs,
+        options,
+        description:
+          count > 1
+            ? `${isLyricsAction ? '生成歌词' : '生成音频'} (${i + 1}/${count})`
+            : isLyricsAction
+            ? '生成歌词'
+            : '生成音频',
+        status: 'pending',
+      });
     }
   }
 
+  const isLyricsWorkflow =
+    generationType === 'audio' &&
+    steps.every((step) => step.args.sunoAction === 'lyrics');
+
   return {
     id: workflowId,
-    name: generationType === 'image' ? '图片生成' : '视频生成',
+    name:
+      generationType === 'image'
+        ? '图片生成'
+        : generationType === 'video'
+        ? '视频生成'
+        : isLyricsWorkflow
+        ? '歌词生成'
+        : '音频生成',
     description: `使用 ${modelId} 模型${
       count > 1 ? `生成 ${count} 个` : '生成'
-    }${generationType === 'image' ? '图片' : '视频'}`,
+    }${
+      generationType === 'image'
+        ? '图片'
+        : generationType === 'video'
+        ? '视频'
+        : isLyricsWorkflow
+        ? '歌词'
+        : '音频'
+    }`,
     scenarioType: 'direct_generation',
     generationType,
     steps,
@@ -324,7 +400,7 @@ export function convertAgentFlowToWorkflow(
     rawInput,
     model: {
       id: modelId,
-      type: generationType as 'image' | 'video',
+      type: generationType as 'image' | 'video' | 'audio',
       isExplicit: isModelExplicit,
     },
     params: {
@@ -499,8 +575,8 @@ export async function convertSkillFlowToWorkflow(
 ): Promise<WorkflowDefinition> {
   const {
     generationType,
-    modelId,
     modelRef,
+    modelId,
     isModelExplicit,
     prompt,
     userInstruction,
@@ -586,7 +662,7 @@ export async function convertSkillFlowToWorkflow(
     rawInput,
     model: {
       id: modelId,
-      type: generationType as 'image' | 'video',
+      type: generationType as 'image' | 'video' | 'audio',
       isExplicit: isModelExplicit,
     },
     params: { count, size, duration },

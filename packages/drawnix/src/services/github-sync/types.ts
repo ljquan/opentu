@@ -343,10 +343,14 @@ export interface CompactGenerationParams {
 export interface CompactTaskResult {
   /** 结果 URL */
   url?: string;
+  /** 多结果 URL */
+  urls?: string[];
   /** 格式 */
   format?: string;
   /** 大小 */
   size?: number;
+  /** 结果类型 */
+  resultKind?: 'image' | 'video' | 'audio' | 'lyrics' | 'character' | 'chat';
   /** 宽度 */
   width?: number;
   /** 高度 */
@@ -355,6 +359,22 @@ export interface CompactTaskResult {
   duration?: number;
   /** 缩略图 URL */
   thumbnailUrl?: string;
+  /** 音频封面图 URL */
+  previewImageUrl?: string;
+  /** 音频标题 */
+  title?: string;
+  /** 歌词正文 */
+  lyricsText?: string;
+  /** 歌词标题 */
+  lyricsTitle?: string;
+  /** 歌词标签 */
+  lyricsTags?: string[];
+  /** Provider task ID */
+  providerTaskId?: string;
+  /** 主音频 clip ID */
+  primaryClipId?: string;
+  /** 有序 clip ID 列表 */
+  clipIds?: string[];
   /** 角色用户名 */
   characterUsername?: string;
   /** 角色头像 URL */

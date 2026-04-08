@@ -23,9 +23,11 @@ import type {
   AIAnalyzeParams,
   ImageGenerationParams,
   VideoGenerationParams,
+  AudioGenerationParams,
 } from './types';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
+import { insertAudioFromUrl } from '../../data/audio';
 import { scrollToPointIfNeeded } from '../../utils/selection-utils';
 import { WorkZoneTransforms } from '../../plugins/with-workzone';
 import type { PlaitWorkZone } from '../../types/workzone.types';
@@ -96,6 +98,9 @@ export class SWCapabilitiesHandler {
       case 'generate_video':
         return this.handleGenerateVideo(args as unknown as VideoGenerationParams);
 
+      case 'generate_audio':
+        return this.handleGenerateAudio(args as unknown as AudioGenerationParams);
+
       default:
         return {
           success: false,
@@ -103,6 +108,16 @@ export class SWCapabilitiesHandler {
           type: 'error',
         };
     }
+  }
+
+  private async handleGenerateAudio(
+    _params: AudioGenerationParams
+  ): Promise<CapabilityResult> {
+    return {
+      success: false,
+      error: 'SW 暂不支持直接处理音频生成，请回退到主线程执行',
+      type: 'audio',
+    };
   }
 
   /**
@@ -157,7 +172,7 @@ export class SWCapabilitiesHandler {
       let insertedCount = 0;
 
       for (const item of items) {
-        const { type, content } = item;
+        const { type, content, metadata } = item;
 
         switch (type) {
           case 'text': {
@@ -186,6 +201,12 @@ export class SWCapabilitiesHandler {
           case 'video':
             await insertVideoFromUrl(board, content, currentPoint);
             currentPoint = [currentPoint[0], currentPoint[1] + 300 + verticalGap] as Point;
+            insertedCount++;
+            break;
+
+          case 'audio':
+            await insertAudioFromUrl(board, content, metadata, currentPoint, false, true);
+            currentPoint = [currentPoint[0], currentPoint[1] + 160 + verticalGap] as Point;
             insertedCount++;
             break;
 
@@ -245,7 +266,7 @@ export class SWCapabilitiesHandler {
       let insertedCount = 0;
 
       for (const item of items) {
-        const { type, content } = item;
+        const { type, content, metadata } = item;
 
         switch (type) {
           case 'image':
@@ -258,6 +279,12 @@ export class SWCapabilitiesHandler {
           case 'video':
             await insertVideoFromUrl(board, content, currentPoint);
             currentPoint = [currentPoint[0], currentPoint[1] + 300 + verticalGap] as Point;
+            insertedCount++;
+            break;
+
+          case 'audio':
+            await insertAudioFromUrl(board, content, metadata, currentPoint, false, true);
+            currentPoint = [currentPoint[0], currentPoint[1] + 160 + verticalGap] as Point;
             insertedCount++;
             break;
 

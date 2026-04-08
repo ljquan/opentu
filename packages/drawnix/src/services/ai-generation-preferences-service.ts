@@ -1,6 +1,7 @@
 import {
   DEFAULT_TEXT_MODEL,
   getCompatibleParams,
+  getDefaultAudioModel,
   getDefaultImageModel,
   getDefaultSizeForModel,
   getDefaultVideoModel,
@@ -12,6 +13,7 @@ import { LS_KEYS } from '../constants/storage-keys';
 import { getDefaultModelParams, getVideoModelConfig, normalizeVideoModel } from '../constants/video-model-config';
 import type { VideoModel } from '../types/video.types';
 import type { GenerationType } from '../utils/ai-input-parser';
+import { applyForcedSunoParams } from '../utils/suno-model-aliases';
 
 type PersistedParams = Record<string, string>;
 
@@ -119,17 +121,23 @@ function sanitizeSelectedParams(
     }
   });
 
-  return nextParams;
+  return applyForcedSunoParams(modelId, nextParams);
 }
 
 function getDefaultModelForGenerationType(type: GenerationType): string {
   if (type === 'video') return getDefaultVideoModel();
+  if (type === 'audio') return getDefaultAudioModel();
   if (type === 'text') return DEFAULT_TEXT_MODEL;
   return getDefaultImageModel();
 }
 
 function isValidGenerationType(value: unknown): value is GenerationType {
-  return value === 'image' || value === 'video' || value === 'text';
+  return (
+    value === 'image' ||
+    value === 'video' ||
+    value === 'audio' ||
+    value === 'text'
+  );
 }
 
 function getSupportedAspectRatios(modelId: string): Set<string> {

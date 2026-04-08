@@ -22,6 +22,7 @@ export const DISCOVERY_VENDOR_ORDER: ModelVendor[] = [
   ModelVendor.DOUBAO,
   ModelVendor.FLUX,
   ModelVendor.MIDJOURNEY,
+  ModelVendor.SUNO,
   ModelVendor.GOOGLE,
   ModelVendor.OTHER,
 ];
@@ -153,6 +154,12 @@ const MODEL_VENDOR_BRANDS: Record<ModelVendor, VendorPalette> = {
     accent: '#0369a1',
     surface: '#f0f9ff',
     border: 'rgba(3, 105, 161, 0.14)',
+  },
+  [ModelVendor.SUNO]: {
+    label: 'Suno',
+    accent: '#111827',
+    surface: '#f8fafc',
+    border: 'rgba(15, 23, 42, 0.12)',
   },
   [ModelVendor.GOOGLE]: {
     label: 'Google',
@@ -398,6 +405,17 @@ const MidjourneyMark = ({ size }: IconProps) => (
   </MarkFrame>
 );
 
+const SunoMark = ({ size }: IconProps) => (
+  <MarkFrame size={size}>
+    <path
+      fill="currentColor"
+      fillRule="evenodd"
+      d="M16.5 0C20.642 0 24 5.373 24 12h-9c0 6.627-3.358 12-7.5 12C3.358 24 0 18.627 0 12h9c0-6.627 3.358-12 7.5-12z"
+      clipRule="evenodd"
+    />
+  </MarkFrame>
+);
+
 const VeoMark = ({ size }: IconProps) => (
   <MarkFrame size={size}>
     <g
@@ -509,6 +527,8 @@ function getVendorIcon(vendor: ModelVendor, size: number) {
       return <FluxMark size={size} />;
     case ModelVendor.MIDJOURNEY:
       return <MidjourneyMark size={size} />;
+    case ModelVendor.SUNO:
+      return <SunoMark size={size} />;
     case ModelVendor.VEO:
       return <VeoMark size={size} />;
     default:

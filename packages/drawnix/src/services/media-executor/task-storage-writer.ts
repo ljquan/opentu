@@ -16,7 +16,13 @@ const DB_NAME = APP_DB_NAME;
 const TASKS_STORE = APP_DB_STORES.TASKS;
 
 // 使用与 SW 端一致的字符串字面量类型
-type SWTaskType = 'image' | 'video' | 'character' | 'inspiration_board' | 'chat';
+type SWTaskType =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'character'
+  | 'inspiration_board'
+  | 'chat';
 type SWTaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 /**
@@ -41,10 +47,31 @@ export interface SWTask {
     thumbnailUrls?: string[];
     format: string;
     size: number;
+    resultKind?: 'image' | 'video' | 'audio' | 'lyrics' | 'character' | 'chat';
     width?: number;
     height?: number;
     duration?: number;
     thumbnailUrl?: string;
+    previewImageUrl?: string;
+    title?: string;
+    lyricsText?: string;
+    lyricsTitle?: string;
+    lyricsTags?: string[];
+    providerTaskId?: string;
+    primaryClipId?: string;
+    clipIds?: string[];
+    clips?: Array<{
+      id?: string;
+      clipId?: string;
+      title?: string;
+      status?: string;
+      audioUrl: string;
+      imageUrl?: string;
+      imageLargeUrl?: string;
+      duration?: number | null;
+      modelName?: string;
+      majorModelVersion?: string;
+    }>;
   };
   error?: {
     code: string;
