@@ -15,6 +15,7 @@ import {
   drawPrimaryHandle,
   hasResizeHandle,
 } from '@plait/common';
+import { getCanvasAudioPlaybackQueue } from '../../data/audio';
 import type { PlaitAudioNode } from '../../types/audio-node.types';
 import { AudioNodeGenerator } from './audio-node.generator';
 
@@ -81,7 +82,8 @@ export class AudioNodeComponent
     this.renderedG = this.audioNodeGenerator.processDrawing(
       this.element,
       elementG,
-      this.selected
+      this.selected,
+      getCanvasAudioPlaybackQueue(this.board.children)
     );
 
     this.activeGenerator.processDrawing(
@@ -105,7 +107,8 @@ export class AudioNodeComponent
         this.audioNodeGenerator.updateDrawing(
           this.element,
           this.renderedG,
-          this.selected
+          this.selected,
+          getCanvasAudioPlaybackQueue(this.board.children)
         );
       }
 
@@ -127,7 +130,8 @@ export class AudioNodeComponent
         this.audioNodeGenerator.updateDrawing(
           this.element,
           this.renderedG,
-          this.selected
+          this.selected,
+          getCanvasAudioPlaybackQueue(this.board.children)
         );
       }
 

@@ -2,6 +2,7 @@ import { RectangleClient } from '@plait/core';
 import { createRoot, type Root } from 'react-dom/client';
 import React from 'react';
 import type { PlaitAudioNode } from '../../types/audio-node.types';
+import type { CanvasAudioPlaybackSource } from '../../services/canvas-audio-playback-service';
 import { AudioNodeContent } from './AudioNodeContent';
 
 export class AudioNodeGenerator {
@@ -12,24 +13,26 @@ export class AudioNodeGenerator {
   processDrawing(
     element: PlaitAudioNode,
     parentG: SVGGElement,
-    selected: boolean
+    selected: boolean,
+    canvasQueue: CanvasAudioPlaybackSource[]
   ): SVGGElement {
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('class', 'audio-node-element');
     parentG.appendChild(g);
 
     this.createForeignObject(element, g);
-    this.renderReact(element, selected);
+    this.renderReact(element, selected, canvasQueue);
     return g;
   }
 
   updateDrawing(
     element: PlaitAudioNode,
     _g: SVGGElement,
-    selected: boolean
+    selected: boolean,
+    canvasQueue: CanvasAudioPlaybackSource[]
   ): void {
     this.updateForeignObject(element);
-    this.renderReact(element, selected);
+    this.renderReact(element, selected, canvasQueue);
   }
 
   private createForeignObject(element: PlaitAudioNode, g: SVGGElement): void {
@@ -73,7 +76,11 @@ export class AudioNodeGenerator {
     this.foreignObject.setAttribute('height', String(rect.height));
   }
 
-  private renderReact(element: PlaitAudioNode, selected: boolean): void {
+  private renderReact(
+    element: PlaitAudioNode,
+    selected: boolean,
+    canvasQueue: CanvasAudioPlaybackSource[]
+  ): void {
     if (!this.htmlContainer) {
       return;
     }
@@ -86,6 +93,7 @@ export class AudioNodeGenerator {
       React.createElement(AudioNodeContent, {
         element,
         selected,
+        canvasQueue,
       })
     );
   }

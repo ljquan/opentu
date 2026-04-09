@@ -1059,7 +1059,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   }, [playbackError]);
 
   useEffect(() => {
-    canvasAudioPlaybackService.setQueue(getCanvasAudioPlaybackQueue(value));
+    canvasAudioPlaybackService.setCanvasQueue(getCanvasAudioPlaybackQueue(value));
   }, [value]);
 
   useEffect(() => {
@@ -1370,7 +1370,11 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
         if (playbackSource) {
           event.preventDefault();
           event.stopPropagation();
-          void canvasAudioPlaybackService.togglePlayback(playbackSource).catch(() => {
+          void canvasAudioPlaybackService.togglePlaybackInQueue(
+            playbackSource,
+            getCanvasAudioPlaybackQueue(board.children),
+            { queueSource: 'canvas' }
+          ).catch(() => {
             // Error feedback is surfaced from the playback store.
           });
           return;

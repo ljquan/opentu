@@ -21,7 +21,7 @@
     auto
     auto
     auto;
-  grid-template-areas: 'cover meta controls progress volume toggle close';
+  grid-template-areas: 'cover meta controls progress volume switch toggle close';
   align-items: center;
   gap: 10px;
   padding: 6px 12px;
@@ -43,6 +43,7 @@
       auto
       auto
       auto;
+    grid-template-areas: 'cover meta controls progress volume switch toggle close';
   }
 
   @media (max-width: 768px) {
@@ -229,6 +230,51 @@
   }
 }
 
+.canvas-audio-player__action[data-tooltip],
+.canvas-audio-player__close[data-tooltip],
+.canvas-audio-player__toggle[data-tooltip],
+.canvas-audio-player__volume-toggle[data-tooltip] {
+  position: relative;
+  overflow: visible;
+}
+
+.canvas-audio-player__action[data-tooltip]::after,
+.canvas-audio-player__close[data-tooltip]::after,
+.canvas-audio-player__toggle[data-tooltip]::after,
+.canvas-audio-player__volume-toggle[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.84);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+}
+
+.canvas-audio-player__action[data-tooltip]:hover::after,
+.canvas-audio-player__action[data-tooltip]:focus-visible::after,
+.canvas-audio-player__close[data-tooltip]:hover::after,
+.canvas-audio-player__close[data-tooltip]:focus-visible::after,
+.canvas-audio-player__toggle[data-tooltip]:hover::after,
+.canvas-audio-player__toggle[data-tooltip]:focus-visible::after,
+.canvas-audio-player__volume-toggle[data-tooltip]:hover::after,
+.canvas-audio-player__volume-toggle[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 .canvas-audio-player__action--primary {
   width: 32px;
   height: 32px;
@@ -349,9 +395,16 @@
 }
 
 .canvas-audio-player__toggle {
-  grid-area: toggle;
   justify-self: end;
   color: rgba(71, 85, 105, 0.82);
+}
+
+.canvas-audio-player__switch-toggle {
+  grid-area: switch;
+}
+
+.canvas-audio-player__layout-toggle {
+  grid-area: toggle;
 }
 
 // ---- 拖拽定位 ----
@@ -377,11 +430,11 @@
 // ---- 垂直布局 ----
 .canvas-audio-player--vertical {
   width: 200px;
-  grid-template-columns: 32px 1fr auto auto;
+  grid-template-columns: 32px 1fr auto auto auto;
   grid-template-areas:
-    'cover meta toggle close'
-    'controls controls controls controls'
-    'progress progress progress progress';
+    'cover meta switch toggle close'
+    'controls controls controls controls controls'
+    'progress progress progress progress progress';
   border-radius: 16px;
   gap: 4px 8px;
   padding: 8px 10px;

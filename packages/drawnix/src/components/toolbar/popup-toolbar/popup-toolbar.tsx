@@ -87,6 +87,7 @@ import { duplicateFrame, focusFrame } from '../../../utils/frame-duplicate';
 import { isPlaitMind, findMindRootFromSelection } from '../../../services/ppt';
 import { openCardInKnowledgeBase } from '../../../utils/card-actions';
 import { isAudioNodeElement } from '../../../types/audio-node.types';
+import { getCanvasAudioPlaybackQueue } from '../../../data/audio';
 import { openMusicPlayerToolAndPlay } from '../../../services/tool-launch-service';
 
 export const PopupToolbar = () => {
@@ -1347,18 +1348,7 @@ export const PopupToolbar = () => {
                       clipId: audioElement.clipId,
                       clipIds: audioElement.clipIds,
                     },
-                    queue: [
-                      {
-                        elementId: audioElement.id,
-                        audioUrl: audioElement.audioUrl,
-                        title: audioElement.title,
-                        duration: audioElement.duration,
-                        previewImageUrl: audioElement.previewImageUrl,
-                        providerTaskId: audioElement.providerTaskId,
-                        clipId: audioElement.clipId,
-                        clipIds: audioElement.clipIds,
-                      },
-                    ],
+                    queue: getCanvasAudioPlaybackQueue(board.children),
                   });
                 }}
               />

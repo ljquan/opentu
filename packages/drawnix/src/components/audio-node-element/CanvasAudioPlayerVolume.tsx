@@ -160,6 +160,7 @@ export const CanvasAudioPlayerVolume: React.FC<CanvasAudioPlayerVolumeProps> = (
           }}
           aria-label="Volume controls"
           aria-expanded={volumeExpanded}
+          data-tooltip="音量"
         >
           {volume <= 0.01 ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>

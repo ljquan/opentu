@@ -8,6 +8,8 @@ import {
   useCanvasAudioPlaybackSelector,
 } from '../../hooks/useCanvasAudioPlayback';
 import {
+  canvasAudioPlaybackService,
+  type CanvasAudioPlaybackSource,
   EMPTY_AUDIO_SPECTRUM,
   EMPTY_AUDIO_WAVEFORM,
 } from '../../services/canvas-audio-playback-service';
@@ -16,6 +18,7 @@ import './audio-node-content.scss';
 interface AudioNodeContentProps {
   element: PlaitAudioNode;
   selected: boolean;
+  canvasQueue?: CanvasAudioPlaybackSource[];
 }
 
 interface RibbonSample {
@@ -274,6 +277,7 @@ function buildWaveformLinePath(
 export const AudioNodeContent: React.FC<AudioNodeContentProps> = ({
   element,
   selected,
+  canvasQueue = [],
 }) => {
   const playback = useCanvasAudioPlaybackControls();
   const isActive = useCanvasAudioPlaybackSelector(
@@ -455,7 +459,7 @@ export const AudioNodeContent: React.FC<AudioNodeContentProps> = ({
     event.stopPropagation();
 
     try {
-      await playback.togglePlayback({
+      const playbackSource = {
         elementId: element.id,
         audioUrl: element.audioUrl,
         title: element.title,
@@ -464,6 +468,13 @@ export const AudioNodeContent: React.FC<AudioNodeContentProps> = ({
         clipId: element.clipId,
         providerTaskId: element.providerTaskId,
         clipIds: element.clipIds,
+      };
+      const fallbackQueue = canvasAudioPlaybackService.getCanvasQueue();
+      const playbackQueue =
+        canvasQueue.length >= fallbackQueue.length ? canvasQueue : fallbackQueue;
+
+      await playback.togglePlaybackInQueue(playbackSource, playbackQueue, {
+        queueSource: 'canvas',
       });
     } catch {
       // Error feedback is surfaced globally from the playback store.

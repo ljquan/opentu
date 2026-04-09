@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import {
   canvasAudioPlaybackService,
   type CanvasAudioPlaybackSource,
+  type CanvasAudioQueueSource,
   type CanvasAudioPlaybackState,
 } from '../services/canvas-audio-playback-service';
 
@@ -28,6 +29,16 @@ export function useCanvasAudioPlaybackControls() {
         playlistId: playlist.playlistId,
         playlistName: playlist.playlistName,
       }),
+    togglePlaybackInQueue: (
+      source: CanvasAudioPlaybackSource,
+      queue: CanvasAudioPlaybackSource[],
+      options?: {
+        queueSource?: CanvasAudioQueueSource;
+        playlistId?: string;
+        playlistName?: string;
+      }
+    ) =>
+      canvasAudioPlaybackService.togglePlaybackInQueue(source, queue, options),
     togglePlayback: (source: CanvasAudioPlaybackSource) =>
       canvasAudioPlaybackService.togglePlayback(source),
     pausePlayback: () => canvasAudioPlaybackService.pausePlayback(),

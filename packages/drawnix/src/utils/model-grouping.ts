@@ -7,6 +7,8 @@
 
 import type { ModelConfig, ModelVendor } from '../constants/model-config';
 import {
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+  TUZI_DEFAULT_PROVIDER_NAME,
   TUZI_PROVIDER_ICON_URL,
   type ProviderProfile,
 } from './settings-manager';
@@ -31,8 +33,15 @@ export interface ProviderGroup {
 }
 
 /** 内置模型的默认供应商 ID */
-export const DEFAULT_PROVIDER_ID = 'default';
-const DEFAULT_PROVIDER_NAME = 'default';
+export const DEFAULT_PROVIDER_ID = LEGACY_DEFAULT_PROVIDER_PROFILE_ID;
+
+function normalizeProviderId(model: ModelConfig): string {
+  if (!model.sourceProfileId) {
+    return DEFAULT_PROVIDER_ID;
+  }
+
+  return model.sourceProfileId;
+}
 
 /**
  * 按供应商 → 厂商分类 → 模型 三级分组
@@ -46,7 +55,7 @@ export function groupModelsByProvider(
   // 按 provider 分桶
   const buckets = new Map<string, ModelConfig[]>();
   for (const model of models) {
-    const pid = model.sourceProfileId || DEFAULT_PROVIDER_ID;
+    const pid = normalizeProviderId(model);
     const list = buckets.get(pid);
     if (list) {
       list.push(model);
@@ -94,10 +103,10 @@ export function groupModelsByProvider(
     groups.push({
       providerId: pid,
       providerName: isDefault
-        ? DEFAULT_PROVIDER_NAME
+        ? profile?.name || TUZI_DEFAULT_PROVIDER_NAME
         : profile?.name || pid,
       providerIconUrl: isDefault
-        ? TUZI_PROVIDER_ICON_URL
+        ? profile?.iconUrl || TUZI_PROVIDER_ICON_URL
         : profile?.iconUrl,
       vendorCategories,
       totalCount: bucket.length,

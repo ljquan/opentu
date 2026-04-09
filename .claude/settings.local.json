@@ -11,7 +11,10 @@
       "Bash(git commit:*)",
       "Bash(grep:*)",
       "Bash(pnpm typecheck:*)",
-      "Bash(pnpm check:*)"
+      "Bash(pnpm check:*)",
+      "Bash(git add:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git push:*)"
     ]
   }
 }

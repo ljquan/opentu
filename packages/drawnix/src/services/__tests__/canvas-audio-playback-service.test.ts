@@ -208,6 +208,100 @@ describe('CanvasAudioPlaybackService', () => {
     });
   });
 
+  it('switches to the provided canvas queue before playback starts', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+
+    service.setQueue(
+      [
+        {
+          elementId: 'playlist:1',
+          audioUrl: 'https://example.com/playlist-1.mp3',
+          title: 'Playlist Track',
+        },
+      ],
+      {
+        queueSource: 'playlist',
+        playlistId: 'favorites',
+        playlistName: '收藏',
+      }
+    );
+
+    await service.togglePlaybackInQueue(
+      {
+        elementId: 'canvas:2',
+        audioUrl: 'https://example.com/canvas-2.mp3',
+        title: 'Canvas Track Two',
+      },
+      [
+        {
+          elementId: 'canvas:1',
+          audioUrl: 'https://example.com/canvas-1.mp3',
+          title: 'Canvas Track One',
+        },
+        {
+          elementId: 'canvas:2',
+          audioUrl: 'https://example.com/canvas-2.mp3',
+          title: 'Canvas Track Two',
+        },
+      ],
+      {
+        queueSource: 'canvas',
+      }
+    );
+
+    expect(service.getState()).toMatchObject({
+      queueSource: 'canvas',
+      activePlaylistId: undefined,
+      activePlaylistName: undefined,
+      activeElementId: 'canvas:2',
+      activeAudioUrl: 'https://example.com/canvas-2.mp3',
+      activeQueueIndex: 1,
+    });
+    expect(service.getState().queue).toHaveLength(2);
+  });
+
+  it('updates stored canvas queue without overriding playlist playback context', () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+
+    service.setQueue(
+      [
+        {
+          elementId: 'playlist:1',
+          audioUrl: 'https://example.com/playlist-1.mp3',
+          title: 'Playlist Track',
+        },
+      ],
+      {
+        queueSource: 'playlist',
+        playlistId: 'favorites',
+        playlistName: '收藏',
+      }
+    );
+
+    service.setCanvasQueue([
+      {
+        elementId: 'canvas:1',
+        audioUrl: 'https://example.com/canvas-1.mp3',
+        title: 'Canvas Track One',
+      },
+      {
+        elementId: 'canvas:2',
+        audioUrl: 'https://example.com/canvas-2.mp3',
+        title: 'Canvas Track Two',
+      },
+    ]);
+
+    expect(service.getCanvasQueue()).toHaveLength(2);
+    expect(service.getState()).toMatchObject({
+      queueSource: 'playlist',
+      activePlaylistId: 'favorites',
+      activePlaylistName: '收藏',
+    });
+    expect(service.getState().queue).toHaveLength(1);
+  });
+
   it('updates audio volume and keeps it after clearing playback', async () => {
     const audio = new MockAudioElement();
     const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);

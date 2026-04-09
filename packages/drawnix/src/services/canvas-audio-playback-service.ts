@@ -95,6 +95,7 @@ export class CanvasAudioPlaybackService {
   private lastAnalysisFrameAt = 0;
   private readonly listeners = new Set<PlaybackListener>();
   private state: CanvasAudioPlaybackState = INITIAL_STATE;
+  private canvasQueue: CanvasAudioPlaybackSource[] = [];
 
   constructor(
     private readonly audioFactory: () => HTMLAudioElement = () => new Audio(),
@@ -103,6 +104,10 @@ export class CanvasAudioPlaybackService {
 
   getState(): CanvasAudioPlaybackState {
     return this.state;
+  }
+
+  getCanvasQueue(): CanvasAudioPlaybackSource[] {
+    return this.canvasQueue.map((source) => ({ ...source }));
   }
 
   subscribe(listener: PlaybackListener): () => void {
@@ -563,6 +568,40 @@ export class CanvasAudioPlaybackService {
     await this.startPlayback(source);
   }
 
+  setCanvasQueue(queue: CanvasAudioPlaybackSource[]): void {
+    const normalizedQueue = this.normalizeQueue(queue);
+    this.canvasQueue = normalizedQueue;
+
+    if (this.state.queueSource !== 'canvas') {
+      return;
+    }
+
+    const activeQueueIndex = this.state.activeAudioUrl
+      ? this.findQueueIndex(normalizedQueue, {
+          elementId: this.state.activeElementId,
+          audioUrl: this.state.activeAudioUrl,
+        })
+      : -1;
+
+    this.patchState({
+      queue: normalizedQueue,
+      activeQueueIndex,
+    });
+  }
+
+  async togglePlaybackInQueue(
+    source: CanvasAudioPlaybackSource,
+    queue: CanvasAudioPlaybackSource[],
+    options?: {
+      queueSource?: CanvasAudioQueueSource;
+      playlistId?: string;
+      playlistName?: string;
+    }
+  ): Promise<void> {
+    this.setQueue(queue, options);
+    await this.togglePlayback(source);
+  }
+
   setQueue(
     queue: CanvasAudioPlaybackSource[],
     options?: {
@@ -572,6 +611,9 @@ export class CanvasAudioPlaybackService {
     }
   ): void {
     const normalizedQueue = this.normalizeQueue(queue);
+    if ((options?.queueSource || 'canvas') === 'canvas') {
+      this.canvasQueue = normalizedQueue;
+    }
     const activeQueueIndex = this.state.activeAudioUrl
       ? this.findQueueIndex(normalizedQueue, {
           elementId: this.state.activeElementId,
