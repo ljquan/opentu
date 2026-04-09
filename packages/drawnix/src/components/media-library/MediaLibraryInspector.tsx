@@ -174,7 +174,22 @@ export function MediaLibraryInspector({
     <div className="media-library-inspector">
       {/* 预览 */}
       <div className="media-library-inspector__preview">
-        {asset.type === 'IMAGE' ? (
+        {asset.type === 'AUDIO' ? (
+          <div className="media-library-inspector__audio-preview">
+            {asset.thumbnail && (
+              <img
+                src={asset.thumbnail}
+                alt={asset.name}
+                className="media-library-inspector__audio-cover"
+              />
+            )}
+            <audio
+              src={normalizedAssetUrl}
+              controls
+              className="media-library-inspector__audio"
+            />
+          </div>
+        ) : asset.type === 'IMAGE' ? (
           <img
             src={getThumbnailUrl(normalizedAssetUrl, 'large')}
             alt={asset.name}
@@ -229,7 +244,7 @@ export function MediaLibraryInspector({
         <div className="media-library-inspector__meta-item">
           <span className="media-library-inspector__meta-label">类型</span>
           <span className="media-library-inspector__meta-value">
-            {asset.type === 'IMAGE' ? '图片' : '视频'}
+            {asset.type === 'IMAGE' ? '图片' : asset.type === 'AUDIO' ? '音频' : '视频'}
           </span>
         </div>
         <div className="media-library-inspector__meta-item">

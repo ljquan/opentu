@@ -97,8 +97,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
   const taskToAsset = useCallback((task: {
     id: string;
     type: TaskType;
-    result: { url: string; format?: string; size?: number; previewImageUrl?: string };
-    params: { prompt?: string; model?: string };
+    result: { url: string; format?: string; size?: number; previewImageUrl?: string; title?: string };
+    params: { prompt?: string; model?: string; title?: string };
     completedAt?: number;
     createdAt: number;
   }): Asset => {
@@ -116,12 +116,17 @@ export function AssetProvider({ children }: AssetProviderProps) {
       ? 'video/webm'
       : `image/${task.result.format || 'png'}`;
 
+    // 音频优先用 result.title / params.title 作为名称
+    const name = task.type === TaskType.AUDIO
+      ? (task.result.title || task.params.title || task.params.prompt?.substring(0, 30) || 'AI音频')
+      : (task.params.prompt?.substring(0, 30) || 'AI生成');
+
     return {
       id: task.id,
       type: assetType,
       source: AssetSourceEnum.AI_GENERATED,
       url: task.result.url,
-      name: task.params.prompt?.substring(0, 30) || 'AI生成',
+      name,
       mimeType,
       createdAt: task.completedAt || task.createdAt,
       size: task.result.size,
