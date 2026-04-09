@@ -14,7 +14,10 @@ import {
   Transforms,
   Point,
 } from '@plait/core';
-import { CARD_TITLE_HEIGHT, CARD_BODY_MIN_HEIGHT } from '../../constants/card-colors';
+import {
+  CARD_TITLE_HEIGHT,
+  CARD_BODY_MIN_HEIGHT,
+} from '../../constants/card-colors';
 import { isCardManuallyResized } from '../../plugins/with-card-resize';
 import { measureCardBodyContentHeight } from './CardElement';
 import {
@@ -78,7 +81,7 @@ export class CardComponent
     if (bodyContentH == null) return;
 
     const currentRect = RectangleClient.getRectangleByPoints(this.element.points);
-    const titleHeight = this.element.title?.trim() ? CARD_TITLE_HEIGHT : 0;
+    const titleHeight = CARD_TITLE_HEIGHT;
     const minHeight = titleHeight + CARD_BODY_MIN_HEIGHT;
     const targetHeight = Math.max(titleHeight + bodyContentH, minHeight);
     const heightDiff = Math.abs(currentRect.height - targetHeight);

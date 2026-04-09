@@ -20,6 +20,9 @@ export const CARD_DEFAULT_WIDTH = 240;
 /** Card 标题区高度（像素） */
 export const CARD_TITLE_HEIGHT = 44;
 
+/** Card 默认标题 */
+export const CARD_DEFAULT_TITLE = '无标题';
+
 /** Card 正文区最小高度（像素） */
 export const CARD_BODY_MIN_HEIGHT = 80;
 
@@ -79,4 +82,12 @@ export function getBodyTextColor(_fillColor: string): string {
  */
 export function getCardColorByIndex(index: number): string {
   return CARD_PALETTE[index % CARD_PALETTE.length];
+}
+
+/**
+ * 获取 Card 实际显示标题
+ */
+export function getCardDisplayTitle(title?: string): string {
+  const trimmedTitle = title?.trim();
+  return trimmedTitle || CARD_DEFAULT_TITLE;
 }

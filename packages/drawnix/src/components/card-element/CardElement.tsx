@@ -6,7 +6,11 @@
  */
 import React, { useCallback } from 'react';
 import { MarkdownEditor } from '../MarkdownEditor';
-import { getTitleColor, getBodyColor } from '../../constants/card-colors';
+import {
+  getTitleColor,
+  getBodyColor,
+  getCardDisplayTitle,
+} from '../../constants/card-colors';
 import type { PlaitCard } from '../../types/card.types';
 
 const cardBodyElements = new Map<string, HTMLElement>();
@@ -40,7 +44,7 @@ interface CardElementProps {
  * Card 内容组件 - 渲染标题 + MarkdownEditor 正文（只读）
  */
 export const CardElement: React.FC<CardElementProps> = ({ element }) => {
-  const hasTitle = !!(element.title && element.title.trim());
+  const displayTitle = getCardDisplayTitle(element.title);
   const titleColor = getTitleColor(element.fillColor);
   const bodyColor = getBodyColor(element.fillColor);
 
@@ -70,27 +74,25 @@ export const CardElement: React.FC<CardElementProps> = ({ element }) => {
         userSelect: 'none',
       }}
     >
-      {hasTitle && (
-        <div
-          style={{
-            background: titleColor,
-            color: '#fff',
-            padding: '8px 12px',
-            fontSize: 14,
-            fontWeight: 600,
-            lineHeight: '1.4',
-            flexShrink: 0,
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            cursor: 'move',
-            pointerEvents: 'auto',
-          }}
-        >
-          {element.title}
-        </div>
-      )}
+      <div
+        style={{
+          background: titleColor,
+          color: '#fff',
+          padding: '8px 12px',
+          fontSize: 14,
+          fontWeight: 600,
+          lineHeight: '1.4',
+          flexShrink: 0,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          cursor: 'move',
+          pointerEvents: 'auto',
+        }}
+      >
+        {displayTitle}
+      </div>
       <div
         ref={(el) => {
           if (el) cardBodyElements.set(element.id, el);

@@ -144,7 +144,7 @@ function onResize(
     CARD_MIN_SIZE
   );
 
-  const titleHeight = element.title?.trim() ? CARD_TITLE_HEIGHT : 0;
+  const titleHeight = CARD_TITLE_HEIGHT;
   const bodyContentH = measureCardBodyContentHeight(element.id);
   const contentMaxHeight =
     bodyContentH != null ? titleHeight + bodyContentH : newRect.height;

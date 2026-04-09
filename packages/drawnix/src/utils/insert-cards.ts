@@ -29,8 +29,7 @@ const DEFAULT_CARD_WIDTH = CARD_DEFAULT_WIDTH;
  * 根据 body 文本行数计算
  */
 function estimateCardHeight(block: CardBlock, cardWidth: number = DEFAULT_CARD_WIDTH): number {
-  const hasTitle = !!(block.title && block.title.trim());
-  const titleHeight = hasTitle ? CARD_TITLE_HEIGHT : 0;
+  const titleHeight = CARD_TITLE_HEIGHT;
 
   // 估算正文行数
   const bodyLines = block.body
