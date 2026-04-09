@@ -363,6 +363,8 @@ export const CanvasAudioPlayer: React.FC = () => {
         <CanvasAudioPlayerPlaylist
           queue={playback.queue}
           activeQueueIndex={playback.activeQueueIndex}
+          queueSource={playback.queueSource}
+          activePlaylistId={playback.activePlaylistId}
           onSelect={(item) => {
             void playback.togglePlayback(item);
             setPlaylistOpen(false);

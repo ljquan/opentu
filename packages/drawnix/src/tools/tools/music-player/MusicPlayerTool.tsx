@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Input, Dialog } from 'tdesign-react';
-import { Pause, Play, Search, Minimize2, Music4, SkipBack, SkipForward, Heart, Plus, ListMusic, XSquare } from 'lucide-react';
+import { Pause, Play, Search, Minimize2, Music4, SkipBack, SkipForward, Heart, Plus, ListMusic } from 'lucide-react';
 import { useAssets } from '../../../contexts/AssetContext';
 import { useAudioPlaylists } from '../../../contexts/AudioPlaylistContext';
 import { AssetType } from '../../../types/asset.types';
 import { AUDIO_PLAYLIST_ALL_ID } from '../../../types/audio-playlist.types';
 import { AudioCover } from '../../../components/shared/AudioCover';
+import { AudioTrackList } from '../../../components/shared/AudioTrackList';
+import { AudioTrackContextMenu } from '../../../components/shared/AudioTrackContextMenu';
 import { useCanvasAudioPlayback } from '../../../hooks/useCanvasAudioPlayback';
 import { toolWindowService } from '../../../services/tool-window-service';
 import { MUSIC_PLAYER_TOOL_ID } from '../../tool-ids';
@@ -44,10 +45,8 @@ export const MusicPlayerTool: React.FC = () => {
     x: number;
     y: number;
     assetId: string;
-    assetName: string;
   } | null>(null);
   const [pendingAssetId, setPendingAssetId] = useState<string | null>(null);
-  const itemRefs = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     void loadAssets();
@@ -149,29 +148,6 @@ export const MusicPlayerTool: React.FC = () => {
   const displayAsset = activeAsset || fallbackAsset;
   const activeAssetId = activeAsset?.id || null;
   const resolvedPreviewImageUrl = playback.activePreviewImageUrl || displayAsset?.thumbnail;
-
-  useEffect(() => {
-    if (!activeAssetId) {
-      return;
-    }
-
-    const target = itemRefs.current.get(activeAssetId);
-    if (!target) {
-      return;
-    }
-
-    target.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-      behavior: 'smooth',
-    });
-  }, [
-    activeAssetId,
-    audioAssets.length,
-    playback.activeAudioUrl,
-    playback.activeElementId,
-    playback.activeQueueIndex,
-  ]);
 
   const openCreatePlaylistDialog = (assetId?: string) => {
     setPendingAssetId(assetId || null);
@@ -310,65 +286,32 @@ export const MusicPlayerTool: React.FC = () => {
             <span>当前列表里还没有音频</span>
           </div>
         ) : (
-          audioAssets.map((asset) => {
-            const isActive = activeAssetId === asset.id;
-            const isPlaying = isActive && playback.playing;
-
-            return (
-              <button
-                key={asset.id}
-                ref={(node) => {
-                  if (node) {
-                    itemRefs.current.set(asset.id, node);
-                  } else {
-                    itemRefs.current.delete(asset.id);
-                  }
-                }}
-                type="button"
-                className={`music-player-tool__item ${isActive ? 'music-player-tool__item--active' : ''}`}
-                onClick={() => void handlePlayAsset(asset.id)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setContextMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    assetId: asset.id,
-                    assetName: asset.name,
-                  });
-                }}
-              >
-                <div className="music-player-tool__item-cover">
-                  <AudioCover
-                    src={asset.thumbnail}
-                    alt={asset.name}
-                    fallbackClassName="music-player-tool__item-cover music-player-tool__item-cover--fallback"
-                    iconSize={16}
-                  />
-                </div>
-                <div className="music-player-tool__item-meta">
-                  <div className="music-player-tool__item-title">{asset.name}</div>
-                  <div className="music-player-tool__item-subtitle">
-                    {new Date(asset.createdAt).toLocaleDateString('zh-CN')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className={`music-player-tool__favorite-btn ${favoriteAssetIds.has(asset.id) ? 'music-player-tool__favorite-btn--active' : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void toggleFavorite(asset.id);
-                  }}
-                  aria-label={favoriteAssetIds.has(asset.id) ? '取消收藏' : '加入收藏'}
-                >
-                  <Heart size={14} fill={favoriteAssetIds.has(asset.id) ? 'currentColor' : 'none'} />
-                </button>
-                <div className="music-player-tool__item-status">
-                  {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                </div>
-              </button>
-            );
-          })
+          <AudioTrackList
+            items={audioAssets.map((asset) => ({
+              id: asset.id,
+              title: asset.name,
+              subtitle: new Date(asset.createdAt).toLocaleDateString('zh-CN'),
+              previewImageUrl: asset.thumbnail,
+              isActive: activeAssetId === asset.id,
+              isPlaying: activeAssetId === asset.id && playback.playing,
+              isFavorite: favoriteAssetIds.has(asset.id),
+            }))}
+            onSelect={(item) => void handlePlayAsset(item.id)}
+            onContextMenu={(item, event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setContextMenu({
+                x: event.clientX,
+                y: event.clientY,
+                assetId: item.id,
+              });
+            }}
+            onToggleFavorite={(item) => {
+              void toggleFavorite(item.id);
+            }}
+            showFavoriteButton
+            showPlaybackIndicator
+          />
         )}
       </div>
 
@@ -400,65 +343,19 @@ export const MusicPlayerTool: React.FC = () => {
         />
       </Dialog>
 
-      {contextMenu && createPortal(
-        <div
-          className="music-player-tool__context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="music-player-tool__context-item"
-            onClick={() => {
-              setContextMenu(null);
-              void toggleFavorite(contextMenu.assetId);
-            }}
-          >
-            <Heart size={14} />
-            <span>{favoriteAssetIds.has(contextMenu.assetId) ? '取消收藏' : '加入收藏'}</span>
-          </button>
-          {playlists.map((playlist) => {
-            const exists = (playlistItems[playlist.id] || []).some((item) => item.assetId === contextMenu.assetId);
-            return (
-              <button
-                key={playlist.id}
-                type="button"
-                className="music-player-tool__context-item"
-                disabled={exists}
-                onClick={() => {
-                  setContextMenu(null);
-                  void addAssetToPlaylist(contextMenu.assetId, playlist.id);
-                }}
-              >
-                <ListMusic size={14} />
-                <span>{exists ? `已在 ${playlist.name}` : `添加到 ${playlist.name}`}</span>
-              </button>
-            );
-          })}
-          {selectedPlaylistId !== AUDIO_PLAYLIST_ALL_ID && currentPlaylistAssetIds.has(contextMenu.assetId) && (
-            <button
-              type="button"
-              className="music-player-tool__context-item music-player-tool__context-item--danger"
-              onClick={() => {
-                setContextMenu(null);
-                void removeAssetFromPlaylist(contextMenu.assetId, selectedPlaylistId);
-              }}
-            >
-              <XSquare size={14} />
-              <span>从当前播放列表移除</span>
-            </button>
-          )}
-          <button
-            type="button"
-            className="music-player-tool__context-item"
-            onClick={() => openCreatePlaylistDialog(contextMenu.assetId)}
-          >
-            <Plus size={14} />
-            <span>新建播放列表并添加</span>
-          </button>
-        </div>,
-        document.body
-      )}
+      <AudioTrackContextMenu
+        contextMenu={contextMenu}
+        playlists={playlists}
+        playlistItems={playlistItems}
+        favoriteAssetIds={favoriteAssetIds}
+        selectedPlaylistId={selectedPlaylistId === AUDIO_PLAYLIST_ALL_ID ? null : selectedPlaylistId}
+        currentPlaylistAssetIds={currentPlaylistAssetIds}
+        onClose={() => setContextMenu(null)}
+        onToggleFavorite={(assetId) => void toggleFavorite(assetId)}
+        onAddToPlaylist={(assetId, playlistId) => void addAssetToPlaylist(assetId, playlistId)}
+        onRemoveFromPlaylist={(assetId, playlistId) => void removeAssetFromPlaylist(assetId, playlistId)}
+        onCreatePlaylistAndAdd={(assetId) => openCreatePlaylistDialog(assetId)}
+      />
     </div>
   );
 };
