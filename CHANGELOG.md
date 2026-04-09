@@ -1,3 +1,44 @@
+## 0.6.17 (2026-04-09)
+
+### 🚀 Features
+
+- 优化音乐播放器布局与队列体验 ([4a76a43d](https://github.com/ljquan/aitu/commit/4a76a43d))
+- 统一音乐播放器，始终显示播放列表标签栏，新增"全部语音"标签 ([a66e6d81](https://github.com/ljquan/aitu/commit/a66e6d81))
+- 增加 TTS 播报设置入口 ([bd77e254](https://github.com/ljquan/aitu/commit/bd77e254))
+- add canvas text read-aloud ([63c30e48](https://github.com/ljquan/aitu/commit/63c30e48))
+- route audio entries into music player playback ([e8b9c4ff](https://github.com/ljquan/aitu/commit/e8b9c4ff))
+- 增加音频播放列表与收藏能力 ([f8179794](https://github.com/ljquan/aitu/commit/f8179794))
+- 素材库支持音频展示、缓存与拖拽插入 ([8c5a7e51](https://github.com/ljquan/aitu/commit/8c5a7e51))
+
+### 🩹 Fixes
+
+- 保持画布朗读在播放器切换时不中断 ([13b98cca](https://github.com/ljquan/aitu/commit/13b98cca))
+- 音乐播放器时间展示回退\n\n问题描述：音乐播放器列表在拿不到音频时长时展示 --:--，无法向用户提供有效时间信息。\n修复思路：新增统一时间副标题格式化，优先展示解析/已有时长，缺失时回退展示素材生成时间。\n更新代码架构：在 MusicPlayerTool 收敛音频时间展示策略，并为素材列表补充元数据时长解析链路。 ([204da5a4](https://github.com/ljquan/aitu/commit/204da5a4))
+- 修复音乐播放器最小化误触发底层播放控件\n\n问题描述:\n- 点击音乐播放器右上角最小化按钮时，事件会继续落到底层画布播放控件\n- 导致播放器最小化的同时误触发暂停/播放，交互结果与用户预期不一致\n\n修复思路:\n- 在最小化按钮上阻止 pointer/click 事件冒泡与默认行为\n- 使用 requestAnimationFrame 延后一帧执行最小化，避免同一点击链路被底层控件消费\n\n更新代码架构:\n- 收敛到音乐播放器工具内部按钮事件处理，不改播放服务与队列模型\n- 维持现有播放器/画布控件职责边界，仅修复 UI 事件穿透问题 ([6ab178e1](https://github.com/ljquan/aitu/commit/6ab178e1))
+- 为无标题 markdown 卡片显示默认标题 ([6f96cfec](https://github.com/ljquan/aitu/commit/6f96cfec))
+- markdown 元素按文本参与提示词 ([32a17163](https://github.com/ljquan/aitu/commit/32a17163))
+- 保持 Agent 分类切模型不降级为文本 ([2fbe82de](https://github.com/ljquan/aitu/commit/2fbe82de))
+- 优化设置弹窗小屏适配 ([39eeb5ba](https://github.com/ljquan/aitu/commit/39eeb5ba))
+- unify canvas audio queue playback ([a0839a10](https://github.com/ljquan/aitu/commit/a0839a10))
+- allow create menu on system playlist tabs ([b4837565](https://github.com/ljquan/aitu/commit/b4837565))
+- unify playlist interactions and duration display ([f61bf142](https://github.com/ljquan/aitu/commit/f61bf142))
+- dedupe local canvas files and media library ([ac6181d2](https://github.com/ljquan/aitu/commit/ac6181d2))
+- 过滤辅助缓存条目避免封面图显示为独立素材 ([43bb958b](https://github.com/ljquan/aitu/commit/43bb958b))
+- 修复本地拖入音频的标题和封面显示 ([9e7776ba](https://github.com/ljquan/aitu/commit/9e7776ba))
+- 修复音频素材详情面板展示问题 ([e4a545a4](https://github.com/ljquan/aitu/commit/e4a545a4))
+- 修复 Suno 参数下拉框不显示及版本默认值问题 ([2b658c37](https://github.com/ljquan/aitu/commit/2b658c37))
+
+### 🔧 Chores
+
+- refactor: 调整知识库工具分类 ([81e64fc8](https://github.com/ljquan/aitu/commit/81e64fc8))
+- refactor(context-menu): 统一右键菜单公共组件 ([65739440](https://github.com/ljquan/aitu/commit/65739440))
+- refactor: unify audio playlist tags ([babb531a](https://github.com/ljquan/aitu/commit/babb531a))
+- refactor: unify audio track list and context menu ([0f544aae](https://github.com/ljquan/aitu/commit/0f544aae))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
 ## 0.6.16 (2026-04-08)
 
 ### 🩹 Fixes
