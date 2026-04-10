@@ -1975,6 +1975,24 @@ $drawer-input-height: 160px;
     color: var(--td-text-color-primary);
   }
 
+  &__item-provider {
+    display: inline-flex;
+    align-items: center;
+    max-width: 160px;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+  }
+
   &__item-desc {
     font-size: 12px;
     color: var(--td-text-color-placeholder);

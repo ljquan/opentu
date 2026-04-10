@@ -216,9 +216,26 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     () => groupModelsByProvider(models, providerProfiles),
     [models, providerProfiles]
   );
-  const providerModelCountMap = useMemo(
-    () => new Map(providerGroups.map((group) => [group.providerId, group.totalCount])),
+  const providerNameMap = useMemo(
+    () =>
+      new Map(
+        providerGroups.map((group) => [group.providerId, group.providerName])
+      ),
     [providerGroups]
+  );
+  const providerModelCountMap = useMemo(
+    () =>
+      new Map(
+        providerGroups.map((group) => [group.providerId, group.totalCount])
+      ),
+    [providerGroups]
+  );
+  const getModelProviderName = useCallback(
+    (model: ModelConfig) =>
+      providerNameMap.get(model.sourceProfileId || DEFAULT_PROVIDER_ID) ||
+      model.sourceProfileName ||
+      getDiscoveryVendorLabel(model.vendor),
+    [providerNameMap]
   );
 
   // 当前选中的供应商
@@ -318,7 +335,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           fuzzyScore(model.shortLabel || '', query),
           fuzzyScore(model.shortCode || '', query),
           fuzzyScore(model.description || '', query),
-          fuzzyScore(model.sourceProfileName || '', query),
+          fuzzyScore(getModelProviderName(model), query),
           fuzzyScore(getDiscoveryVendorLabel(model.vendor), query)
         );
         return { model, score };
@@ -330,7 +347,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           fallbackOrderMap: modelOrderMap,
         })
       );
-  }, [models, searchQuery, modelOrderMap]);
+  }, [getModelProviderName, models, searchQuery, modelOrderMap]);
 
   const filteredModelList = useMemo(
     () => filteredModels.map(({ model }) => model),
@@ -837,8 +854,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                       onChange={(event) => setSearchQuery(event.target.value)}
                       placeholder={
                         language === 'zh'
-                          ? '搜索模型名 / 展示名'
-                          : 'Search model id / label'
+                          ? '搜索模型名 / 展示名 / 供应商'
+                          : 'Search model id / label / provider'
                       }
                     />
                     {searchQuery ? (
@@ -907,7 +924,6 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   {displayedModels.length > 0 ? (
                     displayedModels.map((model, index) => {
                       const modelKey = getModelKey(model);
-                      const profile = getModelProfile(model);
                       const isSelected =
                         modelKey === (selectedSelectionKey || selectedModel);
                       const isHighlighted = index === highlightedIndex;
@@ -948,9 +964,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                               </span>
                               {isSearching ? (
                                 <span className="model-dropdown__item-group-tag">
-                                  {profile?.name ||
-                                    model.sourceProfileName ||
-                                    getDiscoveryVendorLabel(model.vendor)}
+                                  {getModelProviderName(model)}
                                 </span>
                               ) : null}
                               {model.tags?.includes('new') && (

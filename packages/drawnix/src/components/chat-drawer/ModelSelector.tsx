@@ -51,13 +51,17 @@ function getProviderLabel(model: ModelConfig): string {
   return model.sourceProfileName || VENDOR_NAMES[model.vendor] || model.id;
 }
 
-function getItemDescription(model: ModelConfig): string {
+function getItemDescription(
+  model: ModelConfig,
+  options?: { includeProvider?: boolean }
+): string {
   const providerLabel = getProviderLabel(model);
   const description = model.description?.trim();
+  const includeProvider = options?.includeProvider ?? true;
   if (!description) {
-    return providerLabel;
+    return includeProvider ? providerLabel : '';
   }
-  if (description.includes(providerLabel)) {
+  if (!includeProvider || description.includes(providerLabel)) {
     return description;
   }
   return `${providerLabel} · ${description}`;
@@ -332,6 +336,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                 filteredModels.map((model) => {
                   const modelKey = getSelectionKeyForModel(model);
                   const isActive = modelKey === currentSelectionKey;
+                  const showProviderTag = Boolean(searchQuery.trim());
+                  const itemDescription = getItemDescription(model, {
+                    includeProvider: !showProviderTag,
+                  });
                   return (
                     <button
                       key={modelKey}
@@ -352,11 +360,18 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                           <span className="model-selector__item-name">
                             {model.shortLabel || model.label}
                           </span>
+                          {showProviderTag ? (
+                            <span className="model-selector__item-provider">
+                              {getProviderLabel(model)}
+                            </span>
+                          ) : null}
                           <ModelHealthBadge modelId={model.id} />
                         </div>
-                        <div className="model-selector__item-desc">
-                          {getItemDescription(model)}
-                        </div>
+                        {itemDescription ? (
+                          <div className="model-selector__item-desc">
+                            {itemDescription}
+                          </div>
+                        ) : null}
                       </div>
                       {isActive && (
                         <svg

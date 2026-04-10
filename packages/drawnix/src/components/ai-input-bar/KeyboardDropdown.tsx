@@ -21,6 +21,12 @@ export interface KeyboardDropdownProps {
 
 const INPUT_TEXTAREA_CLASS = 'ai-input-bar__input';
 
+function isComposingEvent(
+  event: Pick<KeyboardEvent, 'isComposing'> & { keyCode?: number }
+): boolean {
+  return event.isComposing || event.keyCode === 229;
+}
+
 export const KeyboardDropdown: React.FC<KeyboardDropdownProps> = ({
   isOpen,
   setIsOpen,
@@ -35,6 +41,10 @@ export const KeyboardDropdown: React.FC<KeyboardDropdownProps> = ({
   const [portalPosition, setPortalPosition] = useState({ top: 0, left: 0, width: 0, bottom: 0 });
 
   const handleTriggerKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (isComposingEvent(event.nativeEvent)) {
+      return;
+    }
+
     if (isOpen) {
       if (!onOpenKey) return;
       const handled = onOpenKey(event.key);
@@ -56,6 +66,9 @@ export const KeyboardDropdown: React.FC<KeyboardDropdownProps> = ({
   useEffect(() => {
     if (!isOpen || !onOpenKey) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isComposingEvent(event)) {
+        return;
+      }
       const target = event.target as HTMLElement | null;
       const isInputTextarea = !!target?.classList?.contains(INPUT_TEXTAREA_CLASS);
       if (event.defaultPrevented && !isInputTextarea) return;
