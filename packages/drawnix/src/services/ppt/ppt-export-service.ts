@@ -609,12 +609,19 @@ async function addFrameSlide(
   const frameRect = RectangleClient.getRectangleByPoints(frame.points);
   const slide = pptx.addSlide();
 
-  // Frame 背景图：先设置幻灯片背景，再叠加内容
+  // Frame 背景图：用 addImage 铺满幻灯片并设置透明度，与画布预览保持一致（opacity=0.3）
   const backgroundUrl = frame.backgroundUrl;
   if (backgroundUrl) {
     try {
       const bgData = await ensureBase64Image(backgroundUrl);
-      slide.background = { data: bgData };
+      slide.addImage({
+        data: bgData,
+        x: 0,
+        y: 0,
+        w: '100%',
+        h: '100%',
+        transparency: 70,
+      });
     } catch {
       console.debug('[PPT Export] Frame background image load failed, using default');
     }
