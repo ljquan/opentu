@@ -10,11 +10,11 @@
 import type { MCPTool, MCPResult, MCPExecuteOptions, MCPTaskResult } from '../types';
 import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
 import { defaultGeminiClient } from '../../utils/gemini-api';
-import { taskQueueService } from '../../services/task-queue';
 import { TaskType } from '../../types/task.types';
 import { getDefaultImageModel, IMAGE_PARAMS } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { normalizeToClosestImageSize } from '../../services/media-api/utils';
+import { createQueueTask, validatePrompt, wrapApiError, toUploadedImages } from './shared/queue-utils';
 
 /**
  * 获取当前使用的图片模型名称
@@ -69,13 +69,8 @@ export interface ImageGenerationParams {
 async function executeAsync(params: ImageGenerationParams): Promise<MCPResult> {
   const { prompt, size, referenceImages, quality, model, modelRef } = params;
 
-  if (!prompt || typeof prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
+  const promptError = validatePrompt(prompt);
+  if (promptError) return promptError;
 
   try {
     // 调用 Gemini 图片生成 API
@@ -125,146 +120,32 @@ async function executeAsync(params: ImageGenerationParams): Promise<MCPResult> {
     };
   } catch (error: any) {
     console.error('[ImageGenerationTool] Generation failed:', error);
-
-    // 提取更详细的错误信息
-    let errorMessage = error.message || '图片生成失败';
-    if (error.apiErrorBody) {
-      errorMessage = `${errorMessage} - ${JSON.stringify(error.apiErrorBody)}`;
-    }
-
-    return {
-      success: false,
-      error: errorMessage,
-      type: 'error',
-    };
+    return wrapApiError(error, '图片生成失败');
   }
 }
 
-/**
- * 创建任务加入队列（queue 模式）
- * 支持批量创建任务（通过 count 参数）
- */
-function executeQueue(params: ImageGenerationParams, options: MCPExecuteOptions): MCPTaskResult {
-  const {
-    prompt, size, referenceImages, model, count = 1,
-    modelRef,
-    // 批量参数（可能从工作流步骤传入）
-    batchId: paramsBatchId, batchIndex: paramsBatchIndex, batchTotal: paramsBatchTotal, globalIndex: paramsGlobalIndex,
-    // 额外参数（如 seedream_quality）
-    params: extraParams,
-  } = params;
+/** 图片任务队列配置 */
+function getImageQueueConfig(params: ImageGenerationParams) {
+  const uploadedImages = toUploadedImages(params.referenceImages);
 
-  if (!prompt || typeof prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
-
-  try {
-    // 将参考图片转换为 uploadedImages 格式
-    const uploadedImages = referenceImages?.map((url, index) => ({
-      type: 'url' as const,
-      url,
-      name: `reference-${index + 1}`,
-    }));
-
-    // 批量参数：优先使用 params 中的（工作流场景），否则根据 count 生成
-    const actualCount = Math.min(Math.max(1, count), 10); // 限制 1-10 个
-    const batchId = paramsBatchId || (actualCount > 1 ? `batch_${Date.now()}` : options.batchId);
-    const batchIndex = paramsBatchIndex;
-    const batchTotal = paramsBatchTotal || (actualCount > 1 ? actualCount : undefined);
-    const globalIndex = paramsGlobalIndex || options.globalIndex;
-
-    const createdTasks: any[] = [];
-
-    // 如果是重试，复用原有任务
-    if (options.retryTaskId) {
-      // console.log('[ImageGenerationTool] Retrying existing task:', options.retryTaskId);
-      taskQueueService.retryTask(options.retryTaskId);
-      const task = taskQueueService.getTask(options.retryTaskId);
-      if (!task) {
-        throw new Error(`重试任务不存在: ${options.retryTaskId}`);
-      }
-      createdTasks.push(task);
-    } else if (paramsBatchId && typeof paramsBatchIndex === 'number') {
-      // 工作流场景：每个步骤创建一个任务，批量信息已从工作流传入
-      // 使用 typeof 检查确保即使 batchIndex 为 0 也能正确处理
-      const task = taskQueueService.createTask(
-        {
-          prompt,
-          size: size || '1x1',
-          uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
-          referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
-          model: model || getCurrentImageModel(),
-          modelRef: modelRef || null,
-          // 使用工作流传入的批量参数
-          batchId,
-          batchIndex,
-          batchTotal,
-          globalIndex,
-          // 自动插入画布
-          autoInsertToCanvas: true,
-          // 额外参数（如 seedream_quality）
-          ...(extraParams ? { params: extraParams } : {}),
-        },
-        TaskType.IMAGE
-      );
-      createdTasks.push(task);
-    } else {
-      // 直接调用场景（如弹窗）：根据 count 创建多个任务
-      for (let i = 0; i < actualCount; i++) {
-        const task = taskQueueService.createTask(
-          {
-            prompt,
-            size: size || '1x1',
-            uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
-            referenceImages: referenceImages && referenceImages.length > 0 ? referenceImages : undefined,
-            model: model || getCurrentImageModel(),
-            modelRef: modelRef || null,
-            // 批量参数
-            batchId: batchId,
-            batchIndex: i + 1,
-            batchTotal: actualCount,
-            globalIndex: globalIndex ? globalIndex + i : i + 1,
-            // 自动插入画布
-            autoInsertToCanvas: true,
-            // 额外参数（如 seedream_quality）
-            ...(extraParams ? { params: extraParams } : {}),
-          },
-          TaskType.IMAGE
-        );
-        createdTasks.push(task);
-        // console.log(`[ImageGenerationTool] Created task ${i + 1}/${actualCount}:`, task.id);
-      }
-    }
-
-    const firstTask = createdTasks[0];
-
-    return {
-      success: true,
-      data: {
-        taskId: firstTask.id,
-        taskIds: createdTasks.map(t => t.id),
-        prompt,
-        size: size || '1x1',
-        model: model || getCurrentImageModel(),
-        count: actualCount,
-      },
-      type: 'image',
-      taskId: firstTask.id,
-      task: firstTask,
-    };
-  } catch (error: any) {
-    console.error('[ImageGenerationTool] Failed to create task:', error);
-
-    return {
-      success: false,
-      error: error.message || '创建任务失败',
-      type: 'error',
-    };
-  }
+  return {
+    taskType: TaskType.IMAGE,
+    resultType: 'image' as const,
+    getDefaultModel: getCurrentImageModel,
+    logPrefix: 'ImageGenerationTool',
+    buildTaskPayload: () => ({
+      prompt: params.prompt,
+      size: params.size || '1x1',
+      uploadedImages: uploadedImages && uploadedImages.length > 0 ? uploadedImages : undefined,
+      referenceImages: params.referenceImages && params.referenceImages.length > 0 ? params.referenceImages : undefined,
+      model: params.model || getCurrentImageModel(),
+      modelRef: params.modelRef || null,
+      ...(params.params ? { params: params.params } : {}),
+    }),
+    buildResultData: () => ({
+      size: params.size || '1x1',
+    }),
+  };
 }
 
 /**
@@ -374,11 +255,7 @@ export const imageGenerationTool: MCPTool = {
     };
 
     if (mode === 'queue') {
-      // 队列模式：直接使用 taskQueueService
-      // taskQueueService 会根据 SW 可用性自动选择正确的服务
-      // - SW 模式：任务提交到 SW 后台执行
-      // - 降级模式：任务在主线程立即执行
-      return executeQueue(typedParams, options || {});
+      return createQueueTask(typedParams, options || {}, getImageQueueConfig(typedParams));
     }
 
     return executeAsync(typedParams);

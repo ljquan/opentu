@@ -7,14 +7,14 @@
 import type {
   MCPExecuteOptions,
   MCPResult,
-  MCPTaskResult,
   MCPTool,
 } from '../types';
 import { executorFactory } from '../../services/media-executor';
-import { taskQueueService } from '../../services/task-queue';
+import type { ExecutionOptions } from '../../services/media-executor/types';
 import { TaskType } from '../../types/task.types';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { getDefaultTextModel } from '../../constants/model-config';
+import { createQueueTask, validatePrompt } from './shared/queue-utils';
 
 export interface TextGenerationParams {
   prompt: string;
@@ -34,17 +34,24 @@ export function getCurrentTextModel(): string {
   return settings?.textModelName || getDefaultTextModel();
 }
 
+function toExecutionOptions(_options?: MCPExecuteOptions): ExecutionOptions | undefined {
+  return undefined;
+}
+
+function isTextGenerationParams(params: unknown): params is TextGenerationParams {
+  return (
+    typeof params === 'object'
+    && params !== null
+    && typeof (params as { prompt?: unknown }).prompt === 'string'
+  );
+}
+
 async function executeAsync(
   params: TextGenerationParams,
   options: MCPExecuteOptions = {}
 ): Promise<MCPResult> {
-  if (!params.prompt || typeof params.prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
+  const promptError = validatePrompt(params.prompt);
+  if (promptError) return promptError;
 
   try {
     const fallbackExecutor = executorFactory.getFallbackExecutor();
@@ -56,7 +63,7 @@ async function executeAsync(
         referenceImages: params.referenceImages,
         params: params.params,
       },
-      options
+      toExecutionOptions(options)
     );
 
     return {
@@ -73,53 +80,21 @@ async function executeAsync(
   }
 }
 
-function executeQueue(
-  params: TextGenerationParams,
-  options: MCPExecuteOptions = {}
-): MCPTaskResult {
-  if (!params.prompt || typeof params.prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
-
-  try {
-    const task = taskQueueService.createTask(
-      {
-        prompt: params.prompt,
-        model: params.model || getCurrentTextModel(),
-        modelRef: params.modelRef || null,
-        referenceImages: params.referenceImages,
-        batchId: params.batchId || options.batchId,
-        batchIndex: params.batchIndex ?? 1,
-        batchTotal: params.batchTotal ?? 1,
-        globalIndex: params.globalIndex ?? options.globalIndex ?? 1,
-        autoInsertToCanvas: params.autoInsertToCanvas ?? true,
-        ...(params.params ? { params: params.params } : {}),
-      },
-      TaskType.CHAT
-    );
-
-    return {
-      success: true,
-      data: {
-        taskId: task.id,
-        prompt: params.prompt,
-        model: params.model || getCurrentTextModel(),
-      },
-      type: 'text',
-      taskId: task.id,
-      task,
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error.message || '文本任务创建失败',
-      type: 'error',
-    };
-  }
+/** 文本任务队列配置 */
+function getTextQueueConfig(params: TextGenerationParams) {
+  return {
+    taskType: TaskType.CHAT,
+    resultType: 'text' as const,
+    getDefaultModel: getCurrentTextModel,
+    maxCount: 1,
+    buildTaskPayload: () => ({
+      prompt: params.prompt,
+      model: params.model || getCurrentTextModel(),
+      modelRef: params.modelRef || null,
+      referenceImages: params.referenceImages,
+      ...(params.params ? { params: params.params } : {}),
+    }),
+  };
 }
 
 export async function generateText(
@@ -128,7 +103,7 @@ export async function generateText(
 ): Promise<MCPResult> {
   const mode = options.mode || 'async';
   if (mode === 'queue') {
-    return executeQueue(params, options);
+    return createQueueTask(params, options, getTextQueueConfig(params));
   }
   return executeAsync(params, options);
 }
@@ -140,7 +115,16 @@ export const textGenerationTool: MCPTool = {
   execute: async (
     params: Record<string, unknown>,
     options?: MCPExecuteOptions
-  ) => generateText(params as TextGenerationParams, options),
+  ) => {
+    if (!isTextGenerationParams(params)) {
+      return {
+        success: false,
+        error: '缺少必填参数 prompt',
+        type: 'error',
+      };
+    }
+    return generateText(params, options);
+  },
   inputSchema: {
     type: 'object',
     properties: {

@@ -39,6 +39,8 @@ export type { LongVideoGenerationParams } from './tools/long-video-generation';
 export { pptGenerationTool, generatePPT } from './tools/ppt-generation';
 export type { PPTGenerationParams } from '../services/ppt';
 export { knowledgeBaseTools } from './tools/knowledge-base-tool';
+export { videoAnalyzeTool } from './tools/video-analyze';
+export type { VideoAnalyzeParams, VideoAnalysisData, VideoShot } from './tools/video-analyze';
 
 // 共享模块导出
 export { setBoard, getBoard } from './tools/shared';
@@ -60,6 +62,7 @@ import { svgTool } from './tools/svg-tool';
 import { longVideoGenerationTool } from './tools/long-video-generation';
 import { pptGenerationTool } from './tools/ppt-generation';
 import { knowledgeBaseTools } from './tools/knowledge-base-tool';
+import { videoAnalyzeTool } from './tools/video-analyze';
 
 /** 标记 MCP 是否已初始化 */
 let mcpInitialized = false;
@@ -90,6 +93,7 @@ export function initializeMCP(): void {
     svgTool,
     pptGenerationTool,
     ...knowledgeBaseTools,
+    videoAnalyzeTool,
   ]);
   // console.log('[MCP] Initialized with built-in tools');
 }

@@ -4,8 +4,7 @@
  * 封装 Suno 音频生成能力，支持 async 与 queue 两种执行模式。
  */
 
-import type { MCPExecuteOptions, MCPResult, MCPTaskResult, MCPTool } from '../types';
-import { taskQueueService } from '../../services/task-queue';
+import type { MCPExecuteOptions, MCPResult, MCPTool } from '../types';
 import { TaskType } from '../../types/task.types';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { getDefaultAudioModel } from '../../constants/model-config';
@@ -13,6 +12,7 @@ import {
   audioAPIService,
   extractAudioGenerationResult,
 } from '../../services/audio-api-service';
+import { createQueueTask, validatePrompt } from './shared/queue-utils';
 
 export interface AudioGenerationParams {
   prompt: string;
@@ -41,13 +41,8 @@ export function getCurrentAudioModel(): string {
 }
 
 async function executeAsync(params: AudioGenerationParams): Promise<MCPResult> {
-  if (!params.prompt || typeof params.prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
+  const promptError = validatePrompt(params.prompt);
+  if (promptError) return promptError;
 
   try {
     const response = await audioAPIService.generateAudioWithPolling({
@@ -99,84 +94,48 @@ async function executeAsync(params: AudioGenerationParams): Promise<MCPResult> {
   }
 }
 
-function executeQueue(
-  params: AudioGenerationParams,
-  options: MCPExecuteOptions
-): MCPTaskResult {
-  if (!params.prompt || typeof params.prompt !== 'string') {
-    return {
-      success: false,
-      error: '缺少必填参数 prompt',
-      type: 'error',
-    };
-  }
-
-  try {
-    const actualCount = 1;
-    const batchId = params.batchId || options.batchId;
-    const batchIndex = params.batchIndex ?? 1;
-    const batchTotal = params.batchTotal ?? actualCount;
-    const globalIndex = params.globalIndex ?? options.globalIndex ?? 1;
-
-    const task = taskQueueService.createTask(
-      {
-        prompt: params.prompt,
-        model: params.model || getCurrentAudioModel(),
-        modelRef: params.modelRef || null,
-        sunoAction: params.sunoAction,
-        notifyHook: params.notifyHook,
-        title: params.title,
-        tags: params.tags,
-        mv: params.mv,
-        continueClipId: params.continueClipId,
-        continueAt: params.continueAt,
-        batchId,
-        batchIndex,
-        batchTotal,
-        globalIndex,
-        autoInsertToCanvas: params.autoInsertToCanvas ?? true,
-        ...((params.params || params.continueSource)
-          ? {
-              params: {
-                ...(params.params || {}),
-                ...(params.continueSource
-                  ? { continueSource: params.continueSource }
-                  : {}),
-              },
-            }
-          : {}),
-      },
-      TaskType.AUDIO
-    );
-
-    return {
-      success: true,
-      data: {
-        taskId: task.id,
-        prompt: params.prompt,
-        model: params.model || getCurrentAudioModel(),
-        mv: params.mv,
-      },
-      type: 'audio',
-      taskId: task.id,
-      task,
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error.message || '音频任务创建失败',
-      type: 'error',
-    };
-  }
+/** 音频任务队列配置 */
+function getAudioQueueConfig(params: AudioGenerationParams) {
+  return {
+    taskType: TaskType.AUDIO,
+    resultType: 'audio' as const,
+    getDefaultModel: getCurrentAudioModel,
+    maxCount: 1,
+    buildTaskPayload: () => ({
+      prompt: params.prompt,
+      model: params.model || getCurrentAudioModel(),
+      modelRef: params.modelRef || null,
+      sunoAction: params.sunoAction,
+      notifyHook: params.notifyHook,
+      title: params.title,
+      tags: params.tags,
+      mv: params.mv,
+      continueClipId: params.continueClipId,
+      continueAt: params.continueAt,
+      ...((params.params || params.continueSource)
+        ? {
+            params: {
+              ...(params.params || {}),
+              ...(params.continueSource
+                ? { continueSource: params.continueSource }
+                : {}),
+            },
+          }
+        : {}),
+    }),
+    buildResultData: () => ({
+      mv: params.mv,
+    }),
+  };
 }
 
 export async function generateAudio(
   params: AudioGenerationParams,
   options: MCPExecuteOptions = {}
-): Promise<MCPResult | MCPTaskResult> {
+): Promise<MCPResult> {
   const mode = options.mode || 'async';
   if (mode === 'queue') {
-    return executeQueue(params, options);
+    return createQueueTask(params, options, getAudioQueueConfig(params));
   }
   return executeAsync(params);
 }

@@ -61,6 +61,7 @@
     "release:retry": "node scripts/deploy-hybrid.js --skip-e2e  --skip-manual",
     "release:force-bump": "npm run version:patch && node scripts/deploy-hybrid.js --skip-e2e",
     "release:dry": "node scripts/deploy-hybrid.js --dry-run",
+    "rollback": "node scripts/rollback-release.js",
     "pub": "npm run build && node scripts/publish.js",
     "npm:publish": "node scripts/publish-npm.js",
     "npm:publish:dry": "node scripts/publish-npm.js --dry-run",

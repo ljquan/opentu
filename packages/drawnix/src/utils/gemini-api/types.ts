@@ -37,6 +37,17 @@ export type GeminiMessagePart =
       image_url?: {
         url: string;
       };
+    }
+  | {
+      /** base64 内联数据（视频/音频/PDF 等） */
+      type: 'inline_data';
+      mimeType: string;
+      data: string;
+    }
+  | {
+      /** 远程文件 URI（如 YouTube URL） */
+      type: 'file_uri';
+      fileUri: string;
     };
 
 export interface GeminiMessage {

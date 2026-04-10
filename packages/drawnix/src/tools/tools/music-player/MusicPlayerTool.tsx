@@ -42,7 +42,7 @@ import './music-player-tool.scss';
 
 const DEFAULT_PLAYER_WINDOW_SIZE = { width: 520, height: 640 };
 const SUBTITLE_PLAYER_WINDOW_SIZE = { width: 860, height: 640 };
-const PLAYBACK_MODE_ICONS: Record<PlaybackMode, React.ReactNode> = {
+const PLAYBACK_MODE_ICONS: Record<PlaybackMode, React.ReactElement> = {
   sequential: <ListOrdered size={16} />,
   'list-loop': <Repeat size={16} />,
   'single-loop': <Repeat1 size={16} />,

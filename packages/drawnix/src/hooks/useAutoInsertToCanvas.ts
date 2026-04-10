@@ -627,9 +627,7 @@ export function useAutoInsertToCanvas(config: Partial<AutoInsertConfig> = {}): v
           ],
         })
           .then(() => {
-            workflowCompletionService.completePostProcessing(task.id, {
-              insertedCount: 1,
-            });
+            workflowCompletionService.completePostProcessing(task.id, 1);
           })
           .catch((error) => {
             workflowCompletionService.failPostProcessing(task.id, String(error));

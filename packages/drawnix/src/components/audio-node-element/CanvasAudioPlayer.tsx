@@ -31,7 +31,7 @@ import { CanvasAudioPlayerVolume } from './CanvasAudioPlayerVolume';
 import { CanvasAudioPlayerPlaylist } from './CanvasAudioPlayerPlaylist';
 import './canvas-audio-player.scss';
 
-const PLAYBACK_MODE_ICONS: Record<PlaybackMode, React.ReactNode> = {
+const PLAYBACK_MODE_ICONS: Record<PlaybackMode, React.ReactElement> = {
   sequential: <ListOrdered size={14} />,
   'list-loop': <Repeat size={14} />,
   'single-loop': <Repeat1 size={14} />,

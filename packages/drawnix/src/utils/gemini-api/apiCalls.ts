@@ -134,6 +134,14 @@ async function buildGoogleParts(
         parts.push({
           inline_data: await toGoogleInlineData(part.image_url.url),
         });
+      } else if (part.type === 'inline_data' && part.data) {
+        parts.push({
+          inline_data: { mime_type: part.mimeType, data: part.data },
+        });
+      } else if (part.type === 'file_uri' && part.fileUri) {
+        parts.push({
+          fileData: { fileUri: part.fileUri },
+        });
       }
     }
 

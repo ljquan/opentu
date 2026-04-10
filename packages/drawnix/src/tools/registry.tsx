@@ -6,6 +6,7 @@ import { chatMjTool } from './tools/chat-mj';
 import { batchImageTool, BatchImageToolComponent } from './tools/batch-image';
 import { knowledgeBaseTool, KnowledgeBaseToolComponent } from './tools/knowledge-base';
 import { musicPlayerTool, MusicPlayerToolComponent } from './tools/music-player';
+import { videoAnalyzerTool, VideoAnalyzerToolComponent } from './tools/video-analyzer';
 
 export interface ToolPluginModule {
   manifest: ToolDefinition;
@@ -19,12 +20,14 @@ const BUILT_IN_TOOL_PLUGINS: ToolPluginModule[] = [
   batchImageTool,
   knowledgeBaseTool,
   musicPlayerTool,
+  videoAnalyzerTool,
 ];
 
 const INTERNAL_COMPONENTS = new Map<string, React.ComponentType<any>>([
   ['batch-image', BatchImageToolComponent],
   ['knowledge-base', KnowledgeBaseToolComponent],
   ['music-player', MusicPlayerToolComponent],
+  ['video-analyzer', VideoAnalyzerToolComponent],
 ]);
 
 class ToolRegistry {

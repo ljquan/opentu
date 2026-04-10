@@ -223,3 +223,29 @@ export function appendImagePartsToLastUserMessage(
       : message
   );
 }
+
+/**
+ * 将 File 对象转换为 inline_data 消息部分
+ * 支持视频、音频、PDF 等任意文件类型
+ */
+export async function buildInlineDataPart(
+  file: File
+): Promise<GeminiMessagePart> {
+  const dataUrl = await blobToDataUrl(file);
+  const commaIndex = dataUrl.indexOf(',');
+  return {
+    type: 'inline_data',
+    mimeType: file.type || 'application/octet-stream',
+    data: commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl,
+  };
+}
+
+/**
+ * 将远程文件 URI（如 YouTube URL）转换为 file_uri 消息部分
+ */
+export function buildFileUriPart(uri: string): GeminiMessagePart {
+  return {
+    type: 'file_uri',
+    fileUri: uri,
+  };
+}

@@ -169,6 +169,10 @@ aitu/
 20. **重构先问问题**：重构前明确要解决的实际问题；验证方案是否真的解决问题而非增加复杂度
 21. **统计上报旁路化**：统计/监控的初始化与上报须在 requestIdleCallback 或 setTimeout 中执行，不在主路径上做脱敏与网络请求；失败静默不向上抛
 22. **第三方 Session Replay**：默认关闭或按采样开启，避免主线程卡顿（wheel/setInterval）与 413；若开启需配置限流与 413 错误处理
+23. **组件库类型就窄不就宽**：给 UI 组件配置项（如 Dropdown options、Table columns、Form rules）写类型时，优先贴组件库声明的最窄类型；不要用 `ReactNode`、`unknown as Xxx` 这类宽泛写法糊过去，避免升级依赖后类型漂移
+24. **公共接口改签名必须全量收口**：修改 service / hook / util 的函数签名或返回结构后，必须全局搜索所有调用点并一并修正；禁止只改定义或只改单个调用点，留下“对象改 number / 字段名漂移”这类半更新状态
+25. **跨层参数禁止直接透传**：MCP、Service Worker、主线程执行器、UI 层的 `options` / `params` 若类型不一致，必须显式写 adapter / mapper 做转换；即使当前只映射 0-1 个字段，也不要把上一层对象直接传给下一层碰运气
+26. **外部输入入口先校验再执行业务**：Tool/RPC/URL 参数/存储恢复数据进入业务前，先做 type guard 或 schema 校验；禁止用 `as SomeType` 直接断言后调用，避免把编译期问题拖成运行时异常
 
 ### Service Worker 规则
 

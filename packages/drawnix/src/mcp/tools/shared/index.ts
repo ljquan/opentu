@@ -24,3 +24,12 @@ export {
   adjustOverlappingElements,
 } from './insert-utils';
 export type { CodeBlockResult, InsertResult, BoundingBox } from './insert-utils';
+
+// 队列任务工具
+export {
+  createQueueTask,
+  validatePrompt,
+  wrapApiError,
+  toUploadedImages,
+} from './queue-utils';
+export type { BaseGenerationParams, QueueTaskConfig } from './queue-utils';
