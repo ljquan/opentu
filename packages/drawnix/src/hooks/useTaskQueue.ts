@@ -10,7 +10,8 @@ import { atom, useAtomValue, useSetAtom } from 'jotai';
 import { getDefaultStore } from 'jotai/vanilla';
 import { taskQueueService } from '../services/task-queue';
 import { taskStorageReader } from '../services/task-storage-reader';
-import { Task, TaskStatus, TaskType, GenerationParams } from '../types/task.types';
+import { Task, TaskStatus, TaskType, TaskEvent, GenerationParams } from '../types/task.types';
+import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
 
 /**
  * Return type for useTaskQueue hook
@@ -121,6 +122,35 @@ let taskStateSyncStarted = false;
 let taskStateDbFallbackStarted = false;
 const taskStateStore = getDefaultStore();
 
+/**
+ * 增量更新 atom store，避免每次事件都全量拷贝
+ */
+function applyTaskEvent(event: TaskEvent) {
+  const current = taskStateStore.get(tasksAtom);
+  let updated: Task[];
+
+  switch (event.type) {
+    case 'taskCreated':
+      // 避免重复
+      if (current.some(t => t.id === event.task.id)) {
+        updated = current.map(t => t.id === event.task.id ? event.task : t);
+      } else {
+        updated = [event.task, ...current];
+      }
+      break;
+    case 'taskDeleted':
+      updated = current.filter(t => t.id !== event.task.id);
+      break;
+    default:
+      // taskUpdated, taskStatus, taskCompleted, taskFailed, taskSynced
+      updated = current.map(t => t.id === event.task.id ? event.task : t);
+      break;
+  }
+
+  taskStateStore.set(tasksAtom, updated);
+  taskStateStore.set(isLoadingAtom, false);
+}
+
 function syncTasksToAtomStore() {
   const allTasks = taskQueueService.getAllTasks();
   taskStateStore.set(tasksAtom, allTasks);
@@ -142,7 +172,10 @@ async function loadTasksFromStorageFallback() {
     return;
   }
 
-  const storedTasks = await taskStorageReader.getAllTasks();
+  // 限制恢复数量，避免内存溢出
+  const storedTasks = await taskStorageReader.getAllTasks({
+    limit: STORAGE_LIMITS.MAX_RETAINED_TASKS,
+  });
   if (storedTasks.length > 0) {
     taskQueueService.restoreTasks(storedTasks);
   }
@@ -160,8 +193,8 @@ export function ensureTaskStateSyncStarted() {
   taskStateStore.set(tasksAtom, currentTasks);
   taskStateStore.set(isLoadingAtom, currentTasks.length === 0);
 
-  taskQueueService.observeTaskUpdates().subscribe(() => {
-    syncTasksToAtomStore();
+  taskQueueService.observeTaskUpdates().subscribe((event) => {
+    applyTaskEvent(event);
   });
 
   if (currentTasks.length === 0 && !taskStateDbFallbackStarted) {

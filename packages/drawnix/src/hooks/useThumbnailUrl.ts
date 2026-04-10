@@ -14,6 +14,8 @@ import { swChannelClient } from '../services/sw-channel/client';
 const thumbnailCheckCache = new Map<string, number>();
 // 缓存有效期：5 分钟
 const CACHE_TTL = 5 * 60 * 1000;
+// 缓存上限
+const MAX_CACHE_SIZE = 500;
 
 // 待检查队列和处理状态
 const pendingChecks = new Set<string>();
@@ -79,10 +81,20 @@ function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small')
  */
 async function processCheckQueue(): Promise<void> {
   if (isProcessingQueue || pendingChecks.size === 0) return;
-  
+
   isProcessingQueue = true;
-  
+
   try {
+    // 清理过期和超量的缓存条目
+    const now = Date.now();
+    if (thumbnailCheckCache.size > MAX_CACHE_SIZE) {
+      for (const [key, timestamp] of thumbnailCheckCache) {
+        if (now - timestamp > CACHE_TTL || thumbnailCheckCache.size > MAX_CACHE_SIZE) {
+          thumbnailCheckCache.delete(key);
+        }
+      }
+    }
+
     // 每次处理最多 5 个
     const batchSize = 5;
     const batch = Array.from(pendingChecks).slice(0, batchSize);

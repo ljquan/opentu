@@ -1237,6 +1237,11 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
         console.warn('Failed to cleanup expired console logs:', err);
       });
 
+      // 归档超出保留限制的旧任务（不删除，标记 archived）
+      taskQueueStorage.archiveOldTasks(100).catch((err) => {
+        console.warn('Failed to archive old tasks:', err);
+      });
+
 
     })
   );

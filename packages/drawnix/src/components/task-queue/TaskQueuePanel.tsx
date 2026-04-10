@@ -10,6 +10,7 @@ import { Button, Tabs, Dialog, MessagePlugin, Input, Radio, Tooltip, Checkbox, B
 import { DeleteIcon, SearchIcon, UserIcon, RefreshIcon, PauseCircleIcon, CheckDoubleIcon, ImageIcon, VideoIcon, FilterIcon } from 'tdesign-icons-react';
 import { Music4 } from 'lucide-react';
 import { VirtualTaskList } from './VirtualTaskList';
+import { ArchivedTaskList } from './ArchivedTaskList';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import { Task, TaskType, TaskStatus } from '../../types/task.types';
 import { unifiedCacheService } from '../../services/unified-cache-service';
@@ -145,6 +146,9 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       case 'cancelled':
         tasksToFilter = cancelledTasks;
         break;
+      case 'archived':
+        // 归档任务由 ArchivedTaskList 独立加载
+        return [];
       default:
         tasksToFilter = tasks;
     }
@@ -817,8 +821,10 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
         <TabPanel value="active" label={`生成中 (${activeTasks.length})`} />
         <TabPanel value="failed" label={`失败 (${failedTasks.length})`} />
         <TabPanel value="completed" label={`已完成 (${completedTasks.length})`} />
+        <TabPanel value="archived" label="历史" />
       </Tabs>
 
+      {activeTab !== 'archived' && (
       <div className="task-queue-panel__filters">
         {/* Simplified Type Filters */}
         <div className="task-queue-panel__type-filters">
@@ -921,6 +927,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Batch action bar - shown when in selection mode */}
       {selectionMode && !isCharacterView && (
@@ -1017,6 +1024,13 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           <CharacterList
             showHeader={false}
             title=""
+          />
+        ) : activeTab === 'archived' ? (
+          /* Archived Task List View */
+          <ArchivedTaskList
+            onPreviewOpen={handlePreviewOpen}
+            onDownload={handleDownload}
+            className="task-queue-panel__list"
           />
         ) : (
           /* Task List View with Virtual Scrolling */

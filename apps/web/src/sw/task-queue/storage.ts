@@ -1032,19 +1032,32 @@ export class TaskQueueStorage {
    */
   async cleanupStalePendingToolRequests(maxAgeMs = 3600000): Promise<number> {
     try {
-      const requests = await this.getAllPendingToolRequests();
-      const now = Date.now();
-      const staleRequests = requests.filter(r => now - r.createdAt > maxAgeMs);
-      
-      if (staleRequests.length === 0) {
-        return 0;
-      }
+      const db = await this.getDB();
+      const cutoff = Date.now() - maxAgeMs;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(PENDING_TOOL_REQUESTS_STORE, 'readwrite');
+        const store = tx.objectStore(PENDING_TOOL_REQUESTS_STORE);
+        const cursorReq = store.openCursor();
+        let deleted = 0;
 
-      console.log(`[SWStorage] Cleaning up ${staleRequests.length} stale pending tool requests`);
-      for (const request of staleRequests) {
-        await this.deletePendingToolRequest(request.requestId);
-      }
-      return staleRequests.length;
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return; // tx.oncomplete will resolve
+          if (cursor.value.createdAt < cutoff) {
+            cursor.delete();
+            deleted++;
+          }
+          cursor.continue();
+        };
+
+        tx.oncomplete = () => {
+          if (deleted > 0) {
+            console.log(`[SWStorage] Cleaned up ${deleted} stale pending tool requests`);
+          }
+          resolve(deleted);
+        };
+        tx.onerror = () => reject(tx.error);
+      });
     } catch (error) {
       console.error('[SWStorage] Failed to cleanup stale pending tool requests:', error);
       return 0;
@@ -1415,6 +1428,66 @@ export class TaskQueueStorage {
       }
     } catch (error) {
       console.error('[SWStorage] Failed to delete pending canvas operations by workflow:', error);
+    }
+  }
+
+  /**
+   * 归档超出保留限制的终态任务（标记 archived=true）
+   * SW 启动时调用，确保 IndexedDB 中活跃任务数量受控
+   * @param maxRetained 最大保留活跃任务数
+   */
+  async archiveOldTasks(maxRetained = 100): Promise<number> {
+    try {
+      const db = await this.getDB();
+      // 先统计非归档任务数量
+      const allTasks = await new Promise<SWTask[]>((resolve, reject) => {
+        const tx = db.transaction(TASKS_STORE, 'readonly');
+        const store = tx.objectStore(TASKS_STORE);
+        const index = store.index('createdAt');
+        const results: SWTask[] = [];
+        const cursorReq = index.openCursor(null, 'next'); // 最旧的在前
+
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) { resolve(results); return; }
+          const task = cursor.value as SWTask;
+          if (!task.archived) {
+            results.push(task);
+          }
+          cursor.continue();
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+
+      const toArchiveCount = allTasks.length - maxRetained;
+      if (toArchiveCount <= 0) return 0;
+
+      // 从最旧的开始，归档终态任务
+      const terminalStatuses = ['completed', 'failed', 'cancelled'];
+      const toArchive = allTasks
+        .filter(t => terminalStatuses.includes(t.status as string))
+        .slice(0, toArchiveCount);
+
+      if (toArchive.length === 0) return 0;
+
+      const now = Date.now();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(TASKS_STORE, 'readwrite');
+        const store = tx.objectStore(TASKS_STORE);
+        for (const task of toArchive) {
+          task.archived = true;
+          task.updatedAt = now;
+          store.put(task);
+        }
+        tx.oncomplete = () => {
+          console.log(`[SWStorage] Archived ${toArchive.length} old tasks`);
+          resolve(toArchive.length);
+        };
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (error) {
+      console.error('[SWStorage] Failed to archive old tasks:', error);
+      return 0;
     }
   }
 }

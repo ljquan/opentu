@@ -36,6 +36,7 @@ import {
   resolveAdapterForInvocation,
 } from './model-adapters';
 import { cacheRemoteUrl, cacheRemoteUrls } from './media-executor/fallback-utils';
+import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
 
 /**
  * Task Queue Service
@@ -442,10 +443,16 @@ class TaskQueueService {
     // Emit event
     this.emitEvent('taskCreated', task);
 
+    // 归档超出限制的旧任务
+    this.enforceRetentionLimit();
+
     // Execute task asynchronously (fire-and-forget)
     this.executeTask(task).catch((error) => {
       console.error('[TaskQueueService] Task execution error:', error);
     });
+
+    // 任务开始执行后剥离大字段（base64 参考图等）
+    this.stripLargeParams(task.id);
 
     // console.log(`[TaskQueueService] Created task ${task.id} (${type})`);
     return task;
@@ -512,6 +519,8 @@ class TaskQueueService {
       console.debug(
         `[TaskQueueService] Task ${taskId} → ${status}, event emitted`
       );
+      // 任务进入终态后检查是否需要归档旧任务
+      this.enforceRetentionLimit();
     }
   }
 
@@ -739,6 +748,9 @@ class TaskQueueService {
   restoreTasks(tasks: Task[]): void {
     let restoredCount = 0;
     tasks.forEach((task) => {
+      // 跳过已归档的任务
+      if (task.archived) return;
+
       const existing = this.tasks.get(task.id);
 
       // Skip if in-memory task is newer or at a more advanced status
@@ -750,10 +762,22 @@ class TaskQueueService {
       }
 
       // Ensure video tasks have progress field (for backward compatibility)
-      const restoredTask: Task =
+      let restoredTask: Task =
         task.type === TaskType.VIDEO && task.progress === undefined
           ? { ...task, progress: 0 }
-          : task;
+          : { ...task };
+
+      // 剥离大字段（base64 参考图等），减少内存占用
+      if (restoredTask.params?.referenceImages || restoredTask.params?.uploadedImages) {
+        restoredTask = {
+          ...restoredTask,
+          params: {
+            ...restoredTask.params,
+            referenceImages: undefined,
+            uploadedImages: undefined,
+          },
+        };
+      }
 
       this.tasks.set(restoredTask.id, restoredTask);
       restoredCount++;
@@ -769,6 +793,8 @@ class TaskQueueService {
       if (allTasks.length > 0) {
         this.emitEvent('taskCreated', allTasks[0]);
       }
+      // 恢复后检查是否需要归档
+      this.enforceRetentionLimit();
     }
     // console.log(`[TaskQueueService] Restored ${restoredCount}/${tasks.length} tasks (merged)`);
   }
@@ -816,6 +842,70 @@ class TaskQueueService {
     this.updateTaskStatus(taskId, task.status, {
       insertedToCanvas: true,
     });
+  }
+
+  /**
+   * 自动归档超出保留限制的终态任务
+   * 归档后任务仍保留在 IndexedDB 中，但不参与活跃加载
+   */
+  private enforceRetentionLimit(): void {
+    const maxActive = STORAGE_LIMITS.MAX_RETAINED_TASKS;
+    if (this.tasks.size <= maxActive) return;
+
+    // 收集终态任务，按 updatedAt 升序（最旧的优先归档）
+    const terminalTasks: Task[] = [];
+    for (const task of this.tasks.values()) {
+      if (
+        task.status === TaskStatus.COMPLETED ||
+        task.status === TaskStatus.FAILED ||
+        task.status === TaskStatus.CANCELLED
+      ) {
+        terminalTasks.push(task);
+      }
+    }
+
+    terminalTasks.sort((a, b) => a.updatedAt - b.updatedAt);
+
+    const toArchiveCount = this.tasks.size - maxActive;
+    if (toArchiveCount <= 0) return;
+
+    const archiveIds: string[] = [];
+    for (let i = 0; i < Math.min(toArchiveCount, terminalTasks.length); i++) {
+      const task = terminalTasks[i];
+      this.tasks.delete(task.id);
+      archiveIds.push(task.id);
+    }
+
+    // 异步批量归档到 IndexedDB（fire-and-forget）
+    if (archiveIds.length > 0) {
+      taskStorageWriter.archiveTasks(archiveIds).catch((err) => {
+        console.debug('[TaskQueueService] Archive tasks failed:', err);
+      });
+      taskStorageReader.invalidateCache();
+      console.debug(
+        `[TaskQueueService] Archived ${archiveIds.length} tasks, active: ${this.tasks.size}`
+      );
+    }
+  }
+
+  /**
+   * 从内存中的任务副本剥离大字段（referenceImages 等 base64 数据）
+   * 不写回 IndexedDB，保留原始数据供重试时从 DB 读取
+   */
+  private stripLargeParams(taskId: string): void {
+    const task = this.tasks.get(taskId);
+    if (!task?.params) return;
+    const params = task.params as Record<string, unknown>;
+    if (params.referenceImages || params.uploadedImages) {
+      this.tasks.set(taskId, {
+        ...task,
+        params: {
+          ...task.params,
+          referenceImages: undefined,
+          uploadedImages: undefined,
+        },
+      });
+    }
   }
 
   /**

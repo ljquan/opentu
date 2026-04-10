@@ -83,6 +83,8 @@ export interface SWTask {
   insertedToCanvas?: boolean;
   /** Whether the task was synced from remote (should not be resumed) */
   syncedFromRemote?: boolean;
+  /** Whether the task has been archived (excluded from active loading) */
+  archived?: boolean;
 }
 
 // ============================================================================

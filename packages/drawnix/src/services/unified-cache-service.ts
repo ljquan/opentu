@@ -215,12 +215,16 @@ class UnifiedCacheService {
   }
 
   /**
-   * 刷新内存中的缓存状态
+   * 刷新内存中的缓存状态（限制加载数量避免内存溢出）
    */
   private async refreshCacheState(): Promise<void> {
     try {
       const urls = await this.getAllCachedUrls();
-      this.cachedUrls = new Set(urls);
+      // 只保留最近的 1000 条，避免深度用户内存溢出
+      const MAX_CACHED_URLS = 1000;
+      this.cachedUrls = new Set(
+        urls.length > MAX_CACHED_URLS ? urls.slice(-MAX_CACHED_URLS) : urls
+      );
       this.notifyListeners();
     } catch (error) {
       console.error('[UnifiedCache] Failed to refresh cache state:', error);

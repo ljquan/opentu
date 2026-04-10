@@ -12,6 +12,7 @@
 import { Task, TaskStatus, TaskType, GenerationParams } from '../types/task.types';
 import { BaseStorageReader } from './base-storage-reader';
 import { normalizeImageDataUrl } from '@aitu/utils';
+import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
 
 import { APP_DB_NAME, APP_DB_STORES, getAppDB } from './app-database';
 
@@ -76,6 +77,7 @@ interface SWTask {
   executionPhase?: string;
   savedToLibrary?: boolean;
   insertedToCanvas?: boolean;
+  archived?: boolean;
 }
 
 /**
@@ -119,9 +121,11 @@ function convertSWTaskToTask(swTask: SWTask): Task {
  * 任务缓存结构
  */
 interface TaskCache {
-  all: Task[] | null;           // 全量任务缓存
   byType: Map<TaskType, Task[]>; // 按类型过滤的缓存
 }
+
+/** 活跃任务最大加载数量（与 STORAGE_LIMITS.MAX_RETAINED_TASKS 对齐） */
+const MAX_ACTIVE_LOAD = STORAGE_LIMITS.MAX_RETAINED_TASKS * 2; // 200
 
 /**
  * 任务存储读取服务
@@ -157,19 +161,15 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
   }
 
   /**
-   * 获取所有任务（带缓存）
+   * 获取活跃任务（排除已归档，带 limit，使用 cursor 按 createdAt 倒序）
    */
-  async getAllTasks(options?: { status?: TaskStatus; type?: TaskType }): Promise<Task[]> {
+  async getAllTasks(options?: { status?: TaskStatus; type?: TaskType; limit?: number }): Promise<Task[]> {
     const hasTypeFilter = options?.type !== undefined;
     const hasStatusFilter = options?.status !== undefined;
-    
-    // 检查缓存
+    const limit = options?.limit ?? MAX_ACTIVE_LOAD;
+
+    // 检查缓存（仅类型过滤）
     if (this.isCacheValid() && this.cache) {
-      // 无过滤条件：返回全量缓存
-      if (!hasTypeFilter && !hasStatusFilter && this.cache.all) {
-        return this.cache.all;
-      }
-      // 仅类型过滤：返回类型缓存
       if (hasTypeFilter && !hasStatusFilter) {
         const cached = this.cache.byType.get(options!.type!);
         if (cached) {
@@ -180,7 +180,7 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
 
     try {
       const db = await this.getDB();
-      
+
       if (!db.objectStoreNames.contains(TASKS_STORE)) {
         return [];
       }
@@ -188,40 +188,47 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
       const tasks = await new Promise<Task[]>((resolve, reject) => {
         const transaction = db.transaction(TASKS_STORE, 'readonly');
         const store = transaction.objectStore(TASKS_STORE);
-        const request = store.getAll();
+        const index = store.index('createdAt');
+        const results: SWTask[] = [];
+        const cursorReq = index.openCursor(null, 'prev'); // 按 createdAt 倒序
 
-        request.onsuccess = () => {
-          let rawTasks: SWTask[] = request.result || [];
-          
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor || results.length >= limit) {
+            resolve(results.map(convertSWTaskToTask));
+            return;
+          }
+          const task = cursor.value as SWTask;
+          // 过滤已归档任务
+          if (task.archived) {
+            cursor.continue();
+            return;
+          }
           // 应用过滤条件
-          if (hasStatusFilter) {
-            rawTasks = rawTasks.filter(t => t.status === options!.status);
+          if (hasStatusFilter && task.status !== options!.status) {
+            cursor.continue();
+            return;
           }
-          if (hasTypeFilter) {
-            rawTasks = rawTasks.filter(t => t.type === options!.type);
+          if (hasTypeFilter && task.type !== options!.type) {
+            cursor.continue();
+            return;
           }
-          
-          // 按创建时间倒序排序
-          rawTasks.sort((a, b) => b.createdAt - a.createdAt);
-
-          console.warn(`[TaskStorageReader] getAllTasks: ${rawTasks.length} tasks from IndexedDB (filter: type=${options?.type}, status=${options?.status})`);
-          resolve(rawTasks.map(convertSWTaskToTask));
+          results.push(task);
+          cursor.continue();
         };
 
-        request.onerror = () => {
-          reject(new Error(`Failed to get tasks: ${request.error?.message}`));
+        cursorReq.onerror = () => {
+          reject(new Error(`Failed to get tasks: ${cursorReq.error?.message}`));
         };
       });
 
       // 更新缓存
       if (!this.cache || !this.isCacheValid()) {
-        this.cache = { all: null, byType: new Map() };
+        this.cache = { byType: new Map() };
         this.updateCacheTimestamp();
       }
-      
-      if (!hasTypeFilter && !hasStatusFilter) {
-        this.cache.all = tasks;
-      } else if (hasTypeFilter && !hasStatusFilter) {
+
+      if (hasTypeFilter && !hasStatusFilter) {
         this.cache.byType.set(options!.type!, tasks);
       }
 
@@ -253,7 +260,55 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
   }
 
   /**
-   * 获取单个任务
+   * 获取已归档任务（用于历史任务面板，cursor 分页）
+   */
+  async getArchivedTasks(
+    offset = 0,
+    limit = 50
+  ): Promise<{ tasks: Task[]; hasMore: boolean }> {
+    try {
+      const db = await this.getDB();
+      if (!db.objectStoreNames.contains(TASKS_STORE)) {
+        return { tasks: [], hasMore: false };
+      }
+
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(TASKS_STORE, 'readonly');
+        const store = tx.objectStore(TASKS_STORE);
+        const index = store.index('createdAt');
+        const results: Task[] = [];
+        let skipped = 0;
+        const cursorReq = index.openCursor(null, 'prev');
+
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor || results.length >= limit) {
+            resolve({ tasks: results, hasMore: !!cursor });
+            return;
+          }
+          const task = cursor.value as SWTask;
+          if (!task.archived) {
+            cursor.continue();
+            return;
+          }
+          if (skipped < offset) {
+            skipped++;
+            cursor.continue();
+            return;
+          }
+          results.push(convertSWTaskToTask(task));
+          cursor.continue();
+        };
+
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+    } catch {
+      return { tasks: [], hasMore: false };
+    }
+  }
+
+  /**
+   * 获取单个任务（包括已归档的）
    */
   async getTask(taskId: string): Promise<Task | null> {
     try {

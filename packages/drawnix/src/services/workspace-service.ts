@@ -869,6 +869,22 @@ class WorkspaceService {
       this.loadedBoards.set(boardId, board);
       // 同步更新 boards Map（向后兼容）
       this.boards.set(boardId, board);
+
+      // LRU 淘汰：最多保留 3 个已加载画板（当前 + 最近 2 个）
+      const MAX_LOADED_BOARDS = 3;
+      if (this.loadedBoards.size > MAX_LOADED_BOARDS) {
+        for (const [id] of this.loadedBoards) {
+          if (id !== boardId && id !== this.state.currentBoardId) {
+            this.loadedBoards.delete(id);
+            // boards Map 保留空 elements 的元数据版本
+            const meta = this.boardMetadata.get(id);
+            if (meta) {
+              this.boards.set(id, { ...meta, elements: [] } as Board);
+            }
+            if (this.loadedBoards.size <= MAX_LOADED_BOARDS) break;
+          }
+        }
+      }
     }
 
     // Save current board before switching

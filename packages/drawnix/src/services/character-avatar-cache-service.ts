@@ -161,6 +161,15 @@ class CharacterAvatarCacheService {
     // Get from IndexedDB
     const cached = await this.getCachedAvatar(characterId);
     if (cached?.blob) {
+      // LRU 淘汰：超过 50 个时释放最旧的
+      const MAX_OBJECT_URLS = 50;
+      if (this.objectUrlCache.size >= MAX_OBJECT_URLS) {
+        const firstKey = this.objectUrlCache.keys().next().value;
+        if (firstKey) {
+          URL.revokeObjectURL(this.objectUrlCache.get(firstKey)!);
+          this.objectUrlCache.delete(firstKey);
+        }
+      }
       const url = URL.createObjectURL(cached.blob);
       this.objectUrlCache.set(characterId, url);
       return url;

@@ -85,6 +85,8 @@ export interface SWTask {
   insertedToCanvas?: boolean;
   /** 是否从远程同步（不应被恢复执行） */
   syncedFromRemote?: boolean;
+  /** 是否已归档（不参与活跃加载） */
+  archived?: boolean;
   /** 任务配置（可选，导入时可能没有） */
   config?: {
     apiKey: string;
@@ -364,6 +366,52 @@ class TaskStorageWriter {
       }
 
       transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  /**
+   * 归档任务（标记 archived=true，不删除数据）
+   */
+  async archiveTask(taskId: string): Promise<void> {
+    const task = await this.getTask(taskId);
+    if (task) {
+      task.archived = true;
+      task.updatedAt = Date.now();
+      await this.saveTask(task);
+    }
+  }
+
+  /**
+   * 批量归档任务
+   */
+  async archiveTasks(taskIds: string[]): Promise<void> {
+    if (taskIds.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TASKS_STORE, 'readwrite');
+      const store = tx.objectStore(TASKS_STORE);
+      const now = Date.now();
+      let processed = 0;
+      for (const id of taskIds) {
+        const getReq = store.get(id);
+        getReq.onsuccess = () => {
+          const task = getReq.result;
+          if (task) {
+            task.archived = true;
+            task.updatedAt = now;
+            store.put(task);
+          }
+          processed++;
+          if (processed === taskIds.length) {
+            // tx.oncomplete will resolve
+          }
+        };
+        getReq.onerror = () => {
+          processed++;
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
 
