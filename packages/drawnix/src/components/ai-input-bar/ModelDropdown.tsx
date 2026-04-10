@@ -16,7 +16,7 @@ import React, {
   useMemo,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Plus } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import {
   IMAGE_MODELS,
   getModelConfig,
@@ -52,6 +52,66 @@ const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 type ProviderSettingsIntent =
   | { action: 'select'; profileId: string }
   | { action: 'create' };
+
+function normalizeSearchText(value?: string | null): string {
+  return (value || '').toLowerCase().replace(/[\s\-_.:/]+/g, '').trim();
+}
+
+function fuzzyScore(value: string, query: string): number {
+  const rawValue = value.toLowerCase().trim();
+  const rawQuery = query.toLowerCase().trim();
+  if (!rawValue || !rawQuery) {
+    return 0;
+  }
+
+  const normalizedValue = normalizeSearchText(rawValue);
+  const normalizedQuery = normalizeSearchText(rawQuery);
+
+  if (!normalizedQuery) {
+    return 0;
+  }
+  if (rawValue === rawQuery || normalizedValue === normalizedQuery) {
+    return 120;
+  }
+  if (
+    rawValue.startsWith(rawQuery) ||
+    normalizedValue.startsWith(normalizedQuery)
+  ) {
+    return 100;
+  }
+  if (rawValue.includes(rawQuery)) {
+    return 80;
+  }
+  if (normalizedValue.includes(normalizedQuery)) {
+    return 70;
+  }
+
+  const tokens = rawQuery.split(/\s+/).filter(Boolean);
+  if (
+    tokens.length > 1 &&
+    tokens.every((token) => {
+      const normalizedToken = normalizeSearchText(token);
+      return (
+        rawValue.includes(token) ||
+        (!!normalizedToken && normalizedValue.includes(normalizedToken))
+      );
+    })
+  ) {
+    return 60;
+  }
+
+  let queryIndex = 0;
+  for (const char of normalizedValue) {
+    if (char === normalizedQuery[queryIndex]) {
+      queryIndex += 1;
+      if (queryIndex === normalizedQuery.length) {
+        return 40;
+      }
+    }
+  }
+
+  return 0;
+}
 
 export interface ModelDropdownProps {
   /** 当前选中的模型 ID */
@@ -112,6 +172,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [activeVendor, setActiveVendor] = useState<string | null>(null);
   const triggerInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const providerProfiles = useProviderProfiles();
   const providerProfileMap = useMemo(
@@ -235,30 +296,39 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
   // 过滤模型列表
   const filteredModels = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
+    const query = searchQuery.trim();
     if (!query) return [];
 
     return models
-      .filter(
-        (m) =>
-          m.id.toLowerCase().includes(query) ||
-          m.label.toLowerCase().includes(query) ||
-          m.shortLabel?.toLowerCase().includes(query) ||
-          m.shortCode?.toLowerCase().includes(query) ||
-          m.description?.toLowerCase().includes(query) ||
-          m.sourceProfileName?.toLowerCase().includes(query) ||
-          getDiscoveryVendorLabel(m.vendor).toLowerCase().includes(query)
-      )
+      .map((model) => {
+        const score = Math.max(
+          fuzzyScore(model.id, query),
+          fuzzyScore(model.label, query),
+          fuzzyScore(model.shortLabel || '', query),
+          fuzzyScore(model.shortCode || '', query),
+          fuzzyScore(model.description || '', query),
+          fuzzyScore(model.sourceProfileName || '', query),
+          fuzzyScore(getDiscoveryVendorLabel(model.vendor), query)
+        );
+        return { model, score };
+      })
+      .filter(({ score }) => score > 0)
       .sort((a, b) =>
-        compareModelsByDisplayPriority(a, b, {
+        b.score - a.score ||
+        compareModelsByDisplayPriority(a.model, b.model, {
           fallbackOrderMap: modelOrderMap,
         })
       );
-  }, [models, searchQuery, modelOrderMap, getModelKey]);
+  }, [models, searchQuery, modelOrderMap]);
+
+  const filteredModelList = useMemo(
+    () => filteredModels.map(({ model }) => model),
+    [filteredModels]
+  );
 
   const displayedModels = useMemo(
-    () => (isSearching ? filteredModels : activeCategory?.models || []),
-    [isSearching, filteredModels, activeCategory]
+    () => (isSearching ? filteredModelList : activeCategory?.models || []),
+    [isSearching, filteredModelList, activeCategory]
   );
 
   // 供应商标签列表（第一列）
@@ -415,14 +485,12 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           setActiveVendor(selectedVendorHint);
         }
       }
-      if (variant === 'form') {
-        if (next) {
-          // 打开时清空搜索，展示全部模型
-          setSearchQuery('');
-        } else {
-          // 关闭时恢复当前模型标签
-          setSearchQuery(currentModel?.label || selectedModel);
-        }
+      if (next) {
+        // 打开时清空搜索，默认展示当前供应商/分类
+        setSearchQuery('');
+      } else if (variant === 'form') {
+        // 表单态关闭时恢复当前模型标签
+        setSearchQuery(currentModel?.label || selectedModel);
       }
       setIsOpen(next);
     },
@@ -517,6 +585,18 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       triggerInputRef.current?.select();
     }
   }, [isOpen, variant]);
+
+  useEffect(() => {
+    if (isOpen && variant === 'minimal') {
+      searchInputRef.current?.focus();
+    }
+  }, [isOpen, variant]);
+
+  useEffect(() => {
+    if (!isOpen && variant === 'minimal' && searchQuery) {
+      setSearchQuery('');
+    }
+  }, [isOpen, searchQuery, variant]);
 
   const renderTrigger = (
     handleTriggerKeyDown: (event: React.KeyboardEvent) => void
@@ -677,9 +757,45 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   }
             }
           >
-            {header && variant === 'minimal' && !searchQuery && (
+            {variant === 'minimal' ? (
+              <div className="model-dropdown__toolbar">
+                {header ? (
+                  <div className="model-dropdown__toolbar-title">{header}</div>
+                ) : null}
+                <div className="model-dropdown__search">
+                  <div className="model-dropdown__search-input-wrapper">
+                    <Search className="model-dropdown__search-icon" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      className="model-dropdown__search-input"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder={
+                        language === 'zh'
+                          ? '搜索模型名 / 展示名'
+                          : 'Search model id / label'
+                      }
+                    />
+                    {searchQuery ? (
+                      <button
+                        type="button"
+                        className="model-dropdown__search-clear"
+                        onClick={() => {
+                          setSearchQuery('');
+                          searchInputRef.current?.focus();
+                        }}
+                        aria-label={language === 'zh' ? '清空搜索' : 'Clear search'}
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : header ? (
               <div className="model-dropdown__header">{header}</div>
-            )}
+            ) : null}
 
             <VendorTabPanel
               tabs={providerTabs}

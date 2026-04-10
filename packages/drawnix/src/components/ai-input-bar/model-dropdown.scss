@@ -164,10 +164,27 @@ $green-health: #10b981;
   }
 
   // 搜索框
-  &__search {
-    padding: 12px;
+  &__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
     border-bottom: 1px solid #f3f4f6;
-    background: #ffffff;
+    background: #fafafa;
+    flex-shrink: 0;
+  }
+
+  &__toolbar-title {
+    min-width: fit-content;
+    font-size: 12px;
+    font-weight: 600;
+    color: $gray-dark;
+    white-space: nowrap;
+  }
+
+  &__search {
+    flex: 1;
+    min-width: 0;
   }
 
   &__search-input-wrapper {
@@ -205,6 +222,11 @@ $green-health: #10b981;
   &__search-clear {
     position: absolute;
     right: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
     color: var(--td-text-color-placeholder);
     cursor: pointer;
     padding: 2px;
@@ -498,6 +520,15 @@ $green-health: #10b981;
     &__header {
       background: var(--color-surface-mid, #333);
       border-bottom-color: var(--color-border, #444);
+      color: var(--color-gray-50, #999);
+    }
+
+    &__toolbar {
+      background: var(--color-surface-mid, #333);
+      border-bottom-color: var(--color-border, #444);
+    }
+
+    &__toolbar-title {
       color: var(--color-gray-50, #999);
     }
 
