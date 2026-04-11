@@ -51,6 +51,9 @@ class ToolWindowService {
   /** 兼容旧 API：已打开的工具列表 */
   private openToolsSubject = new BehaviorSubject<ToolDefinition[]>([]);
 
+  /** 会话内窗口激活顺序计数器 */
+  private activationOrderCounter = 0;
+
   private constructor() {
     this.loadPinnedTools();
     // 延迟通知，让订阅者有机会订阅
@@ -96,6 +99,7 @@ class ToolWindowService {
                   // icon 和 component 在实际打开时会被更新
                 } as ToolDefinition,
                 status: 'closed',
+                activationOrder: 0,
                 isPinned: true,
               });
             });
@@ -156,6 +160,46 @@ class ToolWindowService {
     return this.toolStates.get(toolId);
   }
 
+  private nextActivationOrder(): number {
+    this.activationOrderCounter += 1;
+    return this.activationOrderCounter;
+  }
+
+  private getTopOpenActivationOrder(excludeToolId?: string): number {
+    let maxOrder = 0;
+
+    this.toolStates.forEach((state, toolId) => {
+      if (toolId === excludeToolId || state.status !== 'open') {
+        return;
+      }
+      if (state.activationOrder > maxOrder) {
+        maxOrder = state.activationOrder;
+      }
+    });
+
+    return maxOrder;
+  }
+
+  private promoteOpenTool(toolId: string): boolean {
+    const state = this.toolStates.get(toolId);
+    if (!state || state.status !== 'open') {
+      return false;
+    }
+
+    if (state.activationOrder > this.getTopOpenActivationOrder(toolId)) {
+      return false;
+    }
+
+    state.activationOrder = this.nextActivationOrder();
+    return true;
+  }
+
+  markToolActivated(toolId: string): void {
+    if (this.promoteOpenTool(toolId)) {
+      this.notify();
+    }
+  }
+
   /**
    * 打开工具窗口
    * @param tool 工具定义
@@ -163,6 +207,7 @@ class ToolWindowService {
    */
   openTool(tool: ToolDefinition, options?: OpenToolOptions): void {
     const existingState = this.toolStates.get(tool.id);
+    let shouldNotify = false;
     
     // 如果需要自动常驻，先设置
     if (options?.autoPin && !this.pinnedToolIds.has(tool.id)) {
@@ -176,38 +221,42 @@ class ToolWindowService {
     }
     
     if (existingState) {
+      existingState.tool = tool;
+      existingState.isPinned = this.pinnedToolIds.has(tool.id);
+
       if (existingState.status === 'open') {
         // 已经打开，更新 componentProps 并聚焦（WinBox 自身处理聚焦）
         if (options?.componentProps !== undefined) {
           existingState.componentProps = options.componentProps;
-          this.notify();
+          shouldNotify = true;
         }
-        return;
+        shouldNotify = this.promoteOpenTool(tool.id) || shouldNotify;
+      } else {
+        // 从最小化或关闭状态恢复
+        existingState.status = 'open';
+        existingState.activationOrder = this.nextActivationOrder();
+        shouldNotify = true;
+        // 如果设置了自动最大化，更新状态
+        if (options?.autoMaximize) {
+          existingState.autoMaximize = true;
+        }
+        // 更新 componentProps
+        if (options?.componentProps !== undefined) {
+          existingState.componentProps = options.componentProps;
+        }
       }
-      // 从最小化或关闭状态恢复
-      existingState.status = 'open';
-      // 更新完整的工具定义（包括 icon 和 component）
-      existingState.tool = tool;
-      // 如果设置了自动最大化，更新状态
-      if (options?.autoMaximize) {
-        existingState.autoMaximize = true;
-      }
-      // 更新 componentProps
-      if (options?.componentProps !== undefined) {
-        existingState.componentProps = options.componentProps;
-      }
-      // 更新常驻状态
-      existingState.isPinned = this.pinnedToolIds.has(tool.id);
     } else {
       // 创建新的窗口状态
       const newState: ToolWindowState = {
         tool,
         status: 'open',
+        activationOrder: this.nextActivationOrder(),
         isPinned: this.pinnedToolIds.has(tool.id),
         autoMaximize: options?.autoMaximize,
         componentProps: options?.componentProps,
       };
       this.toolStates.set(tool.id, newState);
+      shouldNotify = true;
     }
     
     // 如果是常驻工具，更新缓存的工具信息
@@ -220,7 +269,9 @@ class ToolWindowService {
       this.savePinnedTools();
     }
     
-    this.notify();
+    if (shouldNotify) {
+      this.notify();
+    }
   }
 
   /**
@@ -270,6 +321,7 @@ class ToolWindowService {
     if (!state) return;
 
     state.status = 'open';
+    state.activationOrder = this.nextActivationOrder();
     this.notify();
   }
 
@@ -293,6 +345,7 @@ class ToolWindowService {
       case 'closed':
         // 常驻工具从关闭状态重新打开（创建新实例）
         state.status = 'open';
+        state.activationOrder = this.nextActivationOrder();
         // 清除位置和尺寸，让 WinBox 使用默认值
         state.position = undefined;
         state.size = undefined;

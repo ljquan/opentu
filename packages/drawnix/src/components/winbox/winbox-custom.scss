@@ -4,16 +4,9 @@
 @import '../../styles/z-index.scss';
 
 // WinBox 容器全局 z-index
-// 使用 !important 确保层级高于工具栏和 AI 输入框
-// 通过 .focus 类区分激活/非激活窗口
+// 由 CSS 变量驱动，最近激活的窗口会拿到更高层级
 .winbox {
-  // 非激活窗口的 z-index
-  z-index: $z-dialog-ai-image !important;
-  
-  // 激活窗口的 z-index 更高
-  &.focus {
-    z-index: ($z-dialog-ai-image + 100) !important;
-  }
+  z-index: var(--aitu-winbox-z-index, #{$z-dialog-ai-image});
 }
 
 .winbox-react {

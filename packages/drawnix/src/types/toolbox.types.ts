@@ -148,6 +148,9 @@ export interface ToolWindowState {
   /** 窗口尺寸 */
   size?: { width: number; height: number };
 
+  /** 最近一次激活顺序，值越大层级越高 */
+  activationOrder: number;
+
   /** 是否常驻工具栏 */
   isPinned: boolean;
 

@@ -132,6 +132,10 @@ export interface WinBoxWindowProps {
   keepAlive?: boolean;
   /** 最小化动画目标元素选择器，如果提供则最小化时会播放缩放动画到目标位置 */
   minimizeTargetSelector?: string;
+  /** 显式窗口层级，越大越靠上 */
+  zIndex?: number;
+  /** 窗口被激活时回调 */
+  onActivate?: () => void;
 }
 
 /**
@@ -176,12 +180,16 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
   onInsertToCanvas,
   keepAlive = false,
   minimizeTargetSelector,
+  zIndex,
+  onActivate,
 }) => {
   const winboxRef = useRef<any>(null);
   const winboxElementRef = useRef<HTMLDivElement | null>(null); // WinBox 窗口的 DOM 元素
   const onCloseRef = useRef(onClose);
+  const onActivateRef = useRef(onActivate);
   // WinBox 的 onclose 只在实例创建时绑定一次，这里用 ref 保持最新回调。
   onCloseRef.current = onClose;
+  onActivateRef.current = onActivate;
   // 保存最后的正常位置（非最小化/最大化状态），用于最小化恢复
   const lastNormalPositionRef = useRef<{
     x: number;
@@ -435,6 +443,10 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
     return false; // 返回 false 让 WinBox 不自动销毁，由 React 控制
   }, []);
 
+  const triggerActivate = useCallback(() => {
+    onActivateRef.current?.();
+  }, []);
+
   // 创建或更新窗口
   useEffect(() => {
     if (!winboxLoaded || !WinBoxConstructor) return;
@@ -607,7 +619,10 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
           return true;
         },
         onrestore: onRestore,
-        onfocus: onFocus,
+        onfocus: function () {
+          onFocus?.();
+          triggerActivate();
+        },
         onblur: onBlur,
         onmove: function (this: any, x: number, y: number) {
           if (this.max || this.min || isMovingRef.current) return;
@@ -745,6 +760,9 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
       // 保存 WinBox 窗口的 DOM 元素引用，用于应用 viewport scale
       if (wb.window) {
         winboxElementRef.current = wb.window as HTMLDivElement;
+        if (zIndex !== undefined) {
+          wb.window.style.setProperty('--aitu-winbox-z-index', `${zIndex}`);
+        }
         // 立即触发一次缩放计算，确保弹窗首次显示时就应用正确的缩放
         requestAnimationFrame(() => {
           refreshViewportScale();
@@ -974,6 +992,43 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
       winboxRef.current.maximize();
     }
   }, [autoMaximize]);
+
+  useEffect(() => {
+    const wbWindow = winboxElementRef.current;
+    if (!wbWindow) {
+      return;
+    }
+
+    if (zIndex === undefined) {
+      wbWindow.style.removeProperty('--aitu-winbox-z-index');
+      return;
+    }
+
+    wbWindow.style.setProperty('--aitu-winbox-z-index', `${zIndex}`);
+  }, [zIndex]);
+
+  useEffect(() => {
+    const wbWindow = winboxElementRef.current;
+    if (!wbWindow) {
+      return;
+    }
+
+    const handlePointerDown = () => {
+      triggerActivate();
+    };
+
+    const handleFocusIn = () => {
+      triggerActivate();
+    };
+
+    wbWindow.addEventListener('pointerdown', handlePointerDown, true);
+    wbWindow.addEventListener('focusin', handleFocusIn, true);
+
+    return () => {
+      wbWindow.removeEventListener('pointerdown', handlePointerDown, true);
+      wbWindow.removeEventListener('focusin', handleFocusIn, true);
+    };
+  }, [isReady, triggerActivate]);
 
   // 监听尺寸约束变化，动态调整窗口大小
   useEffect(() => {
