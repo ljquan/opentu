@@ -544,8 +544,58 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
     selectedProviderIds,
   ]);
 
-  const queuePreviewTargets = resolvedTargets.slice(0, QUEUE_PREVIEW_LIMIT);
-  const topEntry = sortedEntries.find((entry) => entry.status === 'completed') || null;
+  const isQueuePreviewBoundToActiveSession = useMemo(() => {
+    if (!activeSession) {
+      return false;
+    }
+    if (
+      activeSession.modality !== modality ||
+      activeSession.compareMode !== compareMode
+    ) {
+      return false;
+    }
+
+    const resolvedKeys = resolvedTargets.map((target) => target.selectionKey);
+    if (resolvedKeys.length === 0) {
+      return false;
+    }
+    if (activeSession.entries.length !== resolvedKeys.length) {
+      return false;
+    }
+
+    const resolvedKeySet = new Set(resolvedKeys);
+    return activeSession.entries.every((entry) =>
+      resolvedKeySet.has(entry.selectionKey)
+    );
+  }, [activeSession, compareMode, modality, resolvedTargets]);
+
+  const queuePreviewEntries = useMemo(() => {
+    if (activeSession && isQueuePreviewBoundToActiveSession) {
+      return activeSession.entries.map((entry) => ({
+        key: entry.selectionKey,
+        modelLabel: entry.modelLabel,
+        profileName: entry.profileName,
+        badgeLabel: ENTRY_STATUS_LABELS[entry.status] || ENTRY_STATUS_LABELS.pending,
+      }));
+    }
+
+    return resolvedTargets.map((target) => ({
+      key: target.selectionKey,
+      modelLabel: target.modelLabel,
+      profileName: target.profileName,
+      badgeLabel: ENTRY_STATUS_LABELS.pending,
+    }));
+  }, [activeSession, isQueuePreviewBoundToActiveSession, resolvedTargets]);
+  const displayedSession =
+    activeSession && isQueuePreviewBoundToActiveSession ? activeSession : null;
+  const displayedSessionSummary = displayedSession
+    ? sessionSummary
+    : getSessionSummary(null);
+  const displayedSortedEntries = displayedSession ? sortedEntries : [];
+  const queuePreviewTotal = queuePreviewEntries.length;
+  const queuePreviewTargets = queuePreviewEntries.slice(0, QUEUE_PREVIEW_LIMIT);
+  const topEntry =
+    displayedSortedEntries.find((entry) => entry.status === 'completed') || null;
   const filteredCrossModelModels = useMemo(
     () =>
       activeProfileModels.filter((model) => {
@@ -627,21 +677,51 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
       console.debug('[Benchmark] useEffect: no initialRequest, skip');
       return;
     }
-    const signature = JSON.stringify(initialRequest);
-    // 有 initialRequest 就立即设置 guard，阻止 reconcile useEffect 覆盖
-    launchGuardRef.current = true;
     if (!storeState.ready) {
-      console.debug('[Benchmark] useEffect: storeState not ready, waiting...', { signature });
+      console.debug('[Benchmark] useEffect: storeState not ready, waiting...');
       return;
     }
+    const signature = JSON.stringify(initialRequest);
     if (launchSignatureRef.current === signature) {
       console.debug('[Benchmark] useEffect: same signature, skip', { signature });
       return;
     }
-    launchSignatureRef.current = signature;
 
     const nextModality = initialRequest.modality || 'text';
     const nextProfiles = getAvailableProfilesForModality(profiles, nextModality);
+    const requestedProfileId = initialRequest.profileId || '';
+    const requestedModelId = initialRequest.modelId || '';
+    const requestedProfileState = requestedProfileId
+      ? runtimeModelDiscovery.getState(requestedProfileId)
+      : null;
+    const requestedProfileModels =
+      requestedProfileId && requestedModelId
+        ? getProfileModels(requestedProfileId, nextModality)
+        : [];
+    const requestedModelReady =
+      !requestedModelId ||
+      requestedProfileModels.some((item) => item.id === requestedModelId);
+
+    if (
+      requestedProfileState &&
+      requestedModelId &&
+      !requestedModelReady &&
+      (requestedProfileState.status === 'idle' ||
+        requestedProfileState.status === 'loading')
+    ) {
+      console.debug('[Benchmark] useEffect: waiting for requested model discovery', {
+        signature,
+        requestedProfileId,
+        requestedModelId,
+        status: requestedProfileState.status,
+        discoveryVersion,
+      });
+      return;
+    }
+
+    // 等目标模型可见后再设置 guard，避免过早消费 initialRequest。
+    launchGuardRef.current = true;
+    launchSignatureRef.current = signature;
 
     // 计算该模型在多少个供应商下存在
     const requestedCompareMode =
@@ -664,10 +744,10 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
           )
         )
         .map((profile) => profile.id);
-      // ≤1 个供应商有该模型，降级为 cross-model
+      // 仅 1 个供应商有该模型时，降级为 custom，保留当前供应商 + 当前模型
       if (matchingProviderIds.length <= 1) {
-        nextCompareMode = 'cross-model';
-        console.debug('[Benchmark] cross-provider → cross-model downgrade', {
+        nextCompareMode = 'custom';
+        console.debug('[Benchmark] cross-provider → custom downgrade', {
           modelId: initialRequest.modelId,
           matchingProviderIds,
         });
@@ -722,7 +802,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
           })
           .filter(isNonNullTarget);
       } else if (nextCompareMode === 'cross-model' && initialRequest.modelId) {
-        // 降级场景：只选目标模型
+        // cross-model：只选目标模型
         const profile = nextProfiles.find(
           (item) => item.id === effectiveProfileId
         );
@@ -780,6 +860,16 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
         autoRun: initialRequest.autoRun,
       });
 
+      if (!initialRequest.autoRun) {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            launchGuardRef.current = false;
+            console.debug('[Benchmark] guard released without autoRun');
+          }, 0);
+        });
+        return;
+      }
+
       const session = modelBenchmarkService.createSession({
         modality: nextModality,
         compareMode: nextCompareMode,
@@ -790,9 +880,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
         source: 'shortcut',
       });
 
-      if (initialRequest.autoRun) {
-        void modelBenchmarkService.runSession(session.id);
-      }
+      void modelBenchmarkService.runSession(session.id);
       // 延迟释放 guard：createSession 会更新 storeState → 触发重新渲染 →
       // reconcile effects 需要在 guard 保护下跳过，否则会覆盖 initialRequest 设置的状态。
       // 用 rAF + setTimeout 确保 React 完成所有同步渲染和 effects 后再释放。
@@ -806,9 +894,9 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
 
     return () => {
       window.clearTimeout(schedule);
-      launchGuardRef.current = false;
     };
   }, [
+    discoveryVersion,
     initialRequest,
     profiles,
     rankingMode,
@@ -1724,7 +1812,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
             <section className="model-benchmark__panel model-benchmark__panel--transparent">
               <div className="model-benchmark__panel-head">
                 <div className="model-benchmark__panel-title">
-                  批测队列 ({resolvedTargets.length})
+                  批测队列 ({queuePreviewTotal})
                 </div>
                 <div className="model-benchmark__concurrency">
                   <span>并发:</span>
@@ -1747,17 +1835,19 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
               </div>
               <div className="model-benchmark__queue-grid model-benchmark__queue-grid--dash">
                 {queuePreviewTargets.map((target) => (
-                  <div key={target.selectionKey} className="model-benchmark__queue-card">
+                  <div key={target.key} className="model-benchmark__queue-card">
                     <div className="model-benchmark__queue-card-copy">
                       <strong title={target.modelLabel}>{target.modelLabel}</strong>
                       <span title={target.profileName}>{target.profileName}</span>
                     </div>
-                    <em className="model-benchmark__queue-card-badge">待测</em>
+                    <em className="model-benchmark__queue-card-badge">
+                      {target.badgeLabel}
+                    </em>
                   </div>
                 ))}
-                {resolvedTargets.length > QUEUE_PREVIEW_LIMIT ? (
+                {queuePreviewEntries.length > QUEUE_PREVIEW_LIMIT ? (
                   <div className="model-benchmark__queue-card model-benchmark__queue-card--more">
-                    还有 {resolvedTargets.length - QUEUE_PREVIEW_LIMIT} 个目标待跑
+                    还有 {queuePreviewEntries.length - QUEUE_PREVIEW_LIMIT} 个目标
                   </div>
                 ) : null}
               </div>
@@ -1767,38 +1857,38 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
           <div className="model-benchmark__main-head">
             <div>
               <div className="model-benchmark__eyebrow">
-                {activeSession ? MODE_LABELS[activeSession.compareMode] : 'Result Board'}
+                {displayedSession ? MODE_LABELS[displayedSession.compareMode] : 'Result Board'}
               </div>
-              <h3>{activeSession ? activeSession.title : '还没有测试结果'}</h3>
+              <h3>{displayedSession ? displayedSession.title : '还没有测试结果'}</h3>
               <p className="model-benchmark__main-desc">
-                {activeSession
+                {displayedSession
                   ? '结果按当前排序方式重排，支持继续人工打分、收藏和淘汰。'
                   : '请先在左侧明确范围，或直接点击历史会话查看以往结果。'}
               </p>
             </div>
-            {activeSession ? (
+            {displayedSession ? (
               <div className="model-benchmark__summary-strip">
                 <div className="model-benchmark__summary-card">
-                  <strong>{sessionSummary.total}</strong>
+                  <strong>{displayedSessionSummary.total}</strong>
                   <span>总目标</span>
                 </div>
                 <div className="model-benchmark__summary-card">
-                  <strong>{sessionSummary.completed}</strong>
+                  <strong>{displayedSessionSummary.completed}</strong>
                   <span>成功</span>
                 </div>
                 <div className="model-benchmark__summary-card">
-                  <strong>{sessionSummary.failed}</strong>
+                  <strong>{displayedSessionSummary.failed}</strong>
                   <span>失败</span>
                 </div>
                 <div className="model-benchmark__summary-card">
-                  <strong>{RANKING_LABELS[activeSession.rankingMode]}</strong>
-                  <span>{SESSION_STATUS_LABELS[activeSession.status]}</span>
+                  <strong>{RANKING_LABELS[displayedSession.rankingMode]}</strong>
+                  <span>{SESSION_STATUS_LABELS[displayedSession.status]}</span>
                 </div>
               </div>
             ) : null}
           </div>
 
-          {activeSession ? (
+          {displayedSession ? (
             <>
               {topEntry ? (
                 <section className="model-benchmark__spotlight">
@@ -1819,7 +1909,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
               ) : null}
 
               <div className="model-benchmark__result-grid">
-                {sortedEntries.map((entry, index) => (
+                {displayedSortedEntries.map((entry, index) => (
                   <article
                     key={entry.id}
                     className={`model-benchmark__result-card model-benchmark__result-card--${entry.status}`}
@@ -1879,7 +1969,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
                             }`}
                             onClick={() =>
                               modelBenchmarkService.setEntryFeedback(
-                                activeSession.id,
+                                displayedSession.id,
                                 entry.id,
                                 {
                                   userScore: entry.userScore === score ? null : score,
@@ -1901,7 +1991,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
                           }`}
                           onClick={() =>
                             modelBenchmarkService.setEntryFeedback(
-                              activeSession.id,
+                              displayedSession.id,
                               entry.id,
                               {
                                 favorite: !entry.favorite,
@@ -1920,7 +2010,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
                           }`}
                           onClick={() =>
                             modelBenchmarkService.setEntryFeedback(
-                              activeSession.id,
+                              displayedSession.id,
                               entry.id,
                               {
                                 rejected: !entry.rejected,

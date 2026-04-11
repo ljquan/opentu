@@ -1858,7 +1858,6 @@ export const SettingsDialog = ({
         modelId: payload.modelId,
         modality: payload.modality,
         compareMode: payload.compareMode,
-        autoRun: true,
       });
     },
     [setAppState]
@@ -2076,7 +2075,7 @@ export const SettingsDialog = ({
                                 profileId: selectedProfile.id,
                                 modality: type,
                                 modelId: model.id,
-                                compareMode: 'custom',
+                                compareMode: 'cross-provider',
                               });
                             }}
                             disabled={!canLaunchBenchmark}
@@ -2539,7 +2538,7 @@ export const SettingsDialog = ({
             profileId: selectedProfile.id,
             modelId,
             modality: model?.type || 'image',
-            compareMode: 'custom',
+            compareMode: 'cross-provider',
           });
         }}
       />
