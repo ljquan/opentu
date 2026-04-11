@@ -10,7 +10,7 @@ export const chatMjTool: ToolPluginModule = {
     description: 'ChatGPT Web 聊天界面，支持 Midjourney 绘图代理',
     icon: React.createElement(MessageIcon),
     category: ToolCategory.AI_TOOLS,
-    url: 'https://chat.innk.cc/#/?settings={"key":"${apiKey}","url":"https://api.tu-zi.com"}',
+    url: 'https://vercel.ddaiai.com/#/?settings={"key":"${apiKey}","url":"https://api.tu-zi.com"}',
     defaultWidth: 1000,
     defaultHeight: 700,
     permissions: [

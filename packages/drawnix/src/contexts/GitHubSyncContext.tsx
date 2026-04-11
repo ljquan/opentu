@@ -76,6 +76,36 @@ interface GitHubSyncContextValue {
 }
 
 const GitHubSyncContext = createContext<GitHubSyncContextValue | null>(null);
+const emptySyncResult: SyncResult = {
+  success: false,
+  uploaded: { boards: 0, prompts: 0, tasks: 0, media: 0, knowledgeBase: 0 },
+  downloaded: { boards: 0, prompts: 0, tasks: 0, media: 0, knowledgeBase: 0 },
+  conflicts: [],
+  duration: 0,
+  error: 'GitHub Sync context is unavailable',
+};
+
+const fallbackGitHubSyncContextValue: GitHubSyncContextValue = {
+  isConnected: false,
+  isConfigured: false,
+  syncStatus: 'not_configured',
+  isSyncing: false,
+  lastSyncTime: null,
+  userInfo: null,
+  error: 'GitHub Sync context is unavailable',
+  setToken: async () => false,
+  clearToken: () => {},
+  sync: async () => emptySyncResult,
+  pullFromRemote: async () => emptySyncResult,
+  pushToRemote: async () => emptySyncResult,
+  gistUrl: null,
+  listGists: async () => [],
+  switchGist: async () => emptySyncResult,
+  deleteGist: async () => {},
+  createNewGist: async () => emptySyncResult,
+  config: null,
+  updateConfig: async () => {},
+};
 
 /** Provider Props */
 interface GitHubSyncProviderProps {
@@ -692,10 +722,7 @@ export function GitHubSyncProvider({ children }: GitHubSyncProviderProps) {
  */
 export function useGitHubSync(): GitHubSyncContextValue {
   const context = useContext(GitHubSyncContext);
-  if (!context) {
-    throw new Error('useGitHubSync must be used within GitHubSyncProvider');
-  }
-  return context;
+  return context ?? fallbackGitHubSyncContextValue;
 }
 
 /**

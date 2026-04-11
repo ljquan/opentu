@@ -15,7 +15,7 @@ export const benchmarkLaunchAtom = atom<ModelBenchmarkLaunchRequest | null>(null
 function createFallbackTool(): ToolDefinition {
   return {
     id: MODEL_BENCHMARK_TOOL_ID,
-    name: '模型选型工作台',
+    name: '模型测试',
     description: '批量测试图、文、视频、音频模型，快速比较速度与主观效果',
     icon: '🧪',
     category: 'ai-tools',

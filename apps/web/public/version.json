@@ -1,6 +1,6 @@
 {
   "version": "0.6.18",
-  "buildTime": "2026-04-11T16:25:13.239Z",
+  "buildTime": "2026-04-11T16:27:14.425Z",
   "gitCommit": "unknown",
   "changelog": [
     "ensure rawData is persisted and improve JSON display styling",

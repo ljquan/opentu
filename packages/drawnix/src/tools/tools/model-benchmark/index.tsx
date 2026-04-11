@@ -43,7 +43,7 @@ export const ModelBenchmarkToolComponent: React.FC<Record<string, unknown>> = (p
 export const modelBenchmarkTool: ToolPluginModule = {
   manifest: {
     id: MODEL_BENCHMARK_TOOL_ID,
-    name: '模型选型工作台',
+    name: '模型测试',
     description: '批量比较图、文、视频、音频模型的速度与主观效果',
     icon: '🧪',
     category: ToolCategory.AI_TOOLS,

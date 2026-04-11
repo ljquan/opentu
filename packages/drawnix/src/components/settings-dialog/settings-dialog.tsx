@@ -1814,11 +1814,8 @@ export const SettingsDialog = ({
                         }}
                       >
                         <iframe
+                          title="Bilibili tutorial video"
                           src="//player.bilibili.com/player.html?isOutside=true&aid=116171584049629&bvid=BV1k4PqzPEKz&cid=36455319822&p=1"
-                          scrolling="no"
-                          border="0"
-                          frameBorder="no"
-                          frameSpacing="0"
                           allowFullScreen={true}
                           style={{
                             position: 'absolute',
@@ -1826,6 +1823,7 @@ export const SettingsDialog = ({
                             left: 0,
                             width: '100%',
                             height: '100%',
+                            border: 0,
                           }}
                         ></iframe>
                       </div>
