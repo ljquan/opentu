@@ -1848,7 +1848,7 @@ export const SettingsDialog = ({
       profileId: string;
       modality: ModelType;
       modelId?: string;
-      compareMode: 'cross-provider' | 'cross-model';
+      compareMode: 'cross-provider' | 'cross-model' | 'custom';
     }) => {
       if (!payload.profileId) {
         return;
@@ -2076,7 +2076,7 @@ export const SettingsDialog = ({
                                 profileId: selectedProfile.id,
                                 modality: type,
                                 modelId: model.id,
-                                compareMode: 'cross-provider',
+                                compareMode: 'custom',
                               });
                             }}
                             disabled={!canLaunchBenchmark}
@@ -2539,7 +2539,7 @@ export const SettingsDialog = ({
             profileId: selectedProfile.id,
             modelId,
             modality: model?.type || 'image',
-            compareMode: 'cross-provider',
+            compareMode: 'custom',
           });
         }}
       />

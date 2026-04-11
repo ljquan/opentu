@@ -283,6 +283,10 @@ function getModelOptionLabel(model: Pick<ModelConfig, 'id' | 'label' | 'shortLab
     : `${displayName} · ${model.id}`;
 }
 
+function buildCustomSelectionKey(profileId: string, modelId: string): string {
+  return `${profileId}::${modelId}`;
+}
+
 function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
   const initialRequest = useAtomValue(benchmarkLaunchAtom);
   const profiles = useProviderProfilesState();
@@ -462,6 +466,10 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
   }, [crossProviderCandidates]);
 
   useEffect(() => {
+    if (launchGuardRef.current) {
+      console.debug('[Benchmark] reconcile customKeys: skipped (launchGuard)');
+      return;
+    }
     setSelectedCustomKeys((current) =>
       reconcileSelection(
         current,
@@ -641,6 +649,10 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
       (initialRequest.modelId ? 'cross-provider' : 'cross-model');
     let nextCompareMode = requestedCompareMode;
     let matchingProviderIds: string[] = [];
+    const requestedCustomKey =
+      initialRequest.profileId && initialRequest.modelId
+        ? buildCustomSelectionKey(initialRequest.profileId, initialRequest.modelId)
+        : '';
     if (
       requestedCompareMode === 'cross-provider' &&
       initialRequest.modelId
@@ -691,6 +703,8 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
     } else if (nextCompareMode === 'cross-model' && initialRequest.modelId) {
       // cross-model：只选目标模型，不全选
       setSelectedModelIds([initialRequest.modelId]);
+    } else if (nextCompareMode === 'custom' && requestedCustomKey) {
+      setSelectedCustomKeys([requestedCustomKey]);
     }
 
     const schedule = window.setTimeout(() => {
@@ -713,6 +727,20 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
           (item) => item.id === effectiveProfileId
         );
         if (profile) {
+          const model = getProfileModels(profile.id, nextModality).find(
+            (item) => item.id === initialRequest.modelId
+          );
+          targets = model
+            ? [buildBenchmarkTarget(profile.id, profile.name, model)]
+            : [];
+        } else {
+          targets = [];
+        }
+      } else if (nextCompareMode === 'custom') {
+        const profile = nextProfiles.find(
+          (item) => item.id === (initialRequest.profileId || effectiveProfileId)
+        );
+        if (profile && initialRequest.modelId) {
           const model = getProfileModels(profile.id, nextModality).find(
             (item) => item.id === initialRequest.modelId
           );
