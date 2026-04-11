@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import type { Subscription } from 'rxjs';
-import { Select } from 'tdesign-react';
+import { Select, InputNumber, MessagePlugin } from 'tdesign-react';
+import { DeleteIcon } from 'tdesign-icons-react';
+import { downloadFromBlob } from '@aitu/utils';
 import {
-  BENCHMARK_PROMPT_PRESETS,
   buildBenchmarkTarget,
   getDefaultPromptPreset,
   modelBenchmarkService,
@@ -45,9 +46,9 @@ const MODALITY_LABELS: Record<BenchmarkModality, string> = {
 };
 
 const MODE_LABELS: Record<BenchmarkCompareMode, string> = {
-  'cross-provider': '同模型跨供应商',
-  'cross-model': '同供应商跨模型',
-  custom: '自定义批测',
+  'cross-provider': '跨供应商对比',
+  'cross-model': '多模型批测',
+  custom: '自定义测试',
 };
 
 const MODE_DESCRIPTIONS: Record<BenchmarkCompareMode, string> = {
@@ -69,8 +70,80 @@ const SESSION_STATUS_LABELS: Record<string, string> = {
   partial: '部分失败',
 };
 
+const ENTRY_STATUS_LABELS: Record<string, string> = {
+  pending: '待测',
+  running: '测试中',
+  completed: '已完成',
+  failed: '失败',
+};
+
 const MAX_AUTO_CUSTOM_TARGETS = 6;
 const QUEUE_PREVIEW_LIMIT = 8;
+const MAX_EXCEL_CELL_LENGTH = 32000;
+
+function formatDateTime(value: number | null): string {
+  if (!value) {
+    return '';
+  }
+
+  return new Date(value).toLocaleString('zh-CN', {
+    hour12: false,
+  });
+}
+
+function truncateExcelCell(value: string): string {
+  return value.length > MAX_EXCEL_CELL_LENGTH
+    ? `${value.slice(0, MAX_EXCEL_CELL_LENGTH - 8)}...[截断]`
+    : value;
+}
+
+function normalizeExportText(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+
+  if (value.startsWith('data:')) {
+    return '[内嵌数据已省略]';
+  }
+
+  return truncateExcelCell(value);
+}
+
+function normalizeExportList(values: string[] | null | undefined): string {
+  if (!values?.length) {
+    return '';
+  }
+
+  return truncateExcelCell(values.map((item) => normalizeExportText(item)).join('\n'));
+}
+
+function toBooleanLabel(value: boolean): string {
+  return value ? '是' : '否';
+}
+
+function averageNullableNumbers(values: Array<number | null | undefined>): number | null {
+  let total = 0;
+  let count = 0;
+
+  values.forEach((value) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      total += value;
+      count += 1;
+    }
+  });
+
+  return count > 0 ? Number((total / count).toFixed(2)) : null;
+}
+
+function buildExportFilename(now = new Date()): string {
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(
+    now.getMinutes()
+  ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  return `model-benchmark-history_${dateStr}_${timeStr}.xlsx`;
+}
 
 function isNonNullTarget<T>(value: T | null): value is T {
   return value !== null;
@@ -231,8 +304,9 @@ function ModelBenchmarkWorkbench({
     getDefaultPromptPreset('text').id
   );
   const [prompt, setPrompt] = useState(getDefaultPromptPreset('text').prompt);
-  const [rankingMode, setRankingMode] =
-    useState<BenchmarkRankingMode>('speed');
+  const [concurrency, setConcurrency] = useState(2);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [rankingMode, setRankingMode] = useState<BenchmarkRankingMode>('speed');
   const launchSignatureRef = useRef<string>('');
   const pickerAnchorRef = useRef<string | null>(null);
   const pickerButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -260,11 +334,6 @@ function ModelBenchmarkWorkbench({
   const activeProfile = selectedProfileId
     ? profileMap.get(selectedProfileId) || null
     : null;
-
-  const availablePromptPresets = useMemo(
-    () => BENCHMARK_PROMPT_PRESETS.filter((preset) => preset.modality === modality),
-    [modality]
-  );
 
   const activeProfileModels = useMemo(() => {
     void discoveryVersion;
@@ -303,11 +372,7 @@ function ModelBenchmarkWorkbench({
     }
 
     const defaultPreset = getDefaultPromptPreset(modality);
-    setPromptPresetId((current) =>
-      availablePromptPresets.some((preset) => preset.id === current)
-        ? current
-        : defaultPreset.id
-    );
+    setPromptPresetId(defaultPreset.id);
     setPrompt((current) =>
       current === getDefaultPromptPreset('text').prompt ||
       current === getDefaultPromptPreset('image').prompt ||
@@ -322,7 +387,6 @@ function ModelBenchmarkWorkbench({
     }
   }, [
     availableProfiles,
-    availablePromptPresets,
     modality,
     profileMap,
     selectedProfileId,
@@ -612,14 +676,6 @@ function ModelBenchmarkWorkbench({
     storeState.ready,
   ]);
 
-  const handleApplyPreset = (presetId: string) => {
-    const preset =
-      availablePromptPresets.find((item) => item.id === presetId) ||
-      getDefaultPromptPreset(modality);
-    setPromptPresetId(preset.id);
-    setPrompt(preset.prompt);
-  };
-
   const handleCreateAndRun = async () => {
     if (resolvedTargets.length === 0 || !prompt.trim()) {
       return;
@@ -633,7 +689,265 @@ function ModelBenchmarkWorkbench({
       targets: resolvedTargets,
       source: 'manual',
     });
-    await modelBenchmarkService.runSession(session.id);
+    await modelBenchmarkService.runSession(session.id, concurrency);
+  };
+
+  const handleExportExcel = async () => {
+    if (isExportingExcel) {
+      return;
+    }
+
+    const sessions = storeState.sessions;
+    if (sessions.length === 0) {
+      MessagePlugin.warning('暂无历史会话可导出');
+      return;
+    }
+
+    setIsExportingExcel(true);
+    try {
+      const XLSX = await import('xlsx');
+      const detailRows = sessions.flatMap((session) =>
+        session.entries.map((entry) => ({
+          会话标题: session.title,
+          会话ID: session.id,
+          会话创建时间: formatDateTime(session.createdAt),
+          模态: MODALITY_LABELS[session.modality],
+          对比方式: MODE_LABELS[session.compareMode],
+          会话状态: SESSION_STATUS_LABELS[session.status],
+          提示词预设: session.promptPresetId,
+          提示词: normalizeExportText(session.prompt),
+          供应商配置: entry.profileName,
+          供应商ID: entry.profileId,
+          模型名称: entry.modelLabel,
+          模型ID: entry.modelId,
+          厂商: entry.vendor,
+          选择Key: entry.selectionKey,
+          结果ID: entry.id,
+          结果状态: ENTRY_STATUS_LABELS[entry.status],
+          开始时间: formatDateTime(entry.startedAt),
+          首响时间: formatDateTime(entry.firstResponseAt),
+          完成时间: formatDateTime(entry.completedAt),
+          首响ms: entry.firstResponseMs,
+          总耗时ms: entry.totalDurationMs,
+          预估成本: entry.estimatedCost,
+          用户评分: entry.userScore,
+          已收藏: toBooleanLabel(entry.favorite),
+          已淘汰: toBooleanLabel(entry.rejected),
+          错误摘要: normalizeExportText(entry.errorSummary),
+          预览文本: normalizeExportText(entry.preview.text),
+          预览链接: normalizeExportText(entry.preview.url),
+          预览链接列表: normalizeExportList(entry.preview.urls),
+          预览格式: entry.preview.format || '',
+          预览时长: entry.preview.duration ?? '',
+          预览标题: normalizeExportText(entry.preview.title),
+        }))
+      );
+
+      const modelSummaryMap = new Map<
+        string,
+        {
+          profileName: string;
+          profileId: string;
+          modelLabel: string;
+          modelId: string;
+          vendor: string;
+          modality: string;
+          selectionKey: string;
+          sessionIds: Set<string>;
+          count: number;
+          completedCount: number;
+          failedCount: number;
+          runningCount: number;
+          pendingCount: number;
+          favoriteCount: number;
+          rejectedCount: number;
+          firstResponseValues: number[];
+          totalDurationValues: number[];
+          costValues: number[];
+          scoreValues: number[];
+          latestAt: number;
+        }
+      >();
+
+      sessions.forEach((session) => {
+        session.entries.forEach((entry) => {
+          const groupKey = `${session.modality}::${entry.selectionKey}`;
+          const current = modelSummaryMap.get(groupKey) || {
+            profileName: entry.profileName,
+            profileId: entry.profileId,
+            modelLabel: entry.modelLabel,
+            modelId: entry.modelId,
+            vendor: entry.vendor,
+            modality: MODALITY_LABELS[session.modality],
+            selectionKey: entry.selectionKey,
+            sessionIds: new Set<string>(),
+            count: 0,
+            completedCount: 0,
+            failedCount: 0,
+            runningCount: 0,
+            pendingCount: 0,
+            favoriteCount: 0,
+            rejectedCount: 0,
+            firstResponseValues: [],
+            totalDurationValues: [],
+            costValues: [],
+            scoreValues: [],
+            latestAt: 0,
+          };
+
+          current.sessionIds.add(session.id);
+          current.count += 1;
+          if (entry.status === 'completed') current.completedCount += 1;
+          if (entry.status === 'failed') current.failedCount += 1;
+          if (entry.status === 'running') current.runningCount += 1;
+          if (entry.status === 'pending') current.pendingCount += 1;
+          if (entry.favorite) current.favoriteCount += 1;
+          if (entry.rejected) current.rejectedCount += 1;
+          if (typeof entry.firstResponseMs === 'number') {
+            current.firstResponseValues.push(entry.firstResponseMs);
+          }
+          if (typeof entry.totalDurationMs === 'number') {
+            current.totalDurationValues.push(entry.totalDurationMs);
+          }
+          if (typeof entry.estimatedCost === 'number') {
+            current.costValues.push(entry.estimatedCost);
+          }
+          if (typeof entry.userScore === 'number') {
+            current.scoreValues.push(entry.userScore);
+          }
+
+          current.latestAt = Math.max(
+            current.latestAt,
+            entry.completedAt || entry.startedAt || session.updatedAt || session.createdAt
+          );
+          modelSummaryMap.set(groupKey, current);
+        });
+      });
+
+      const modelSummaryRows = Array.from(modelSummaryMap.values())
+        .map((item) => ({
+          供应商配置: item.profileName,
+          供应商ID: item.profileId,
+          模型名称: item.modelLabel,
+          模型ID: item.modelId,
+          厂商: item.vendor,
+          模态: item.modality,
+          选择Key: item.selectionKey,
+          测试次数: item.count,
+          涉及会话数: item.sessionIds.size,
+          完成次数: item.completedCount,
+          失败次数: item.failedCount,
+          运行中次数: item.runningCount,
+          待测次数: item.pendingCount,
+          收藏次数: item.favoriteCount,
+          淘汰次数: item.rejectedCount,
+          平均首响ms: averageNullableNumbers(item.firstResponseValues),
+          最快首响ms:
+            item.firstResponseValues.length > 0
+              ? Math.min(...item.firstResponseValues)
+              : null,
+          平均总耗时ms: averageNullableNumbers(item.totalDurationValues),
+          最快总耗时ms:
+            item.totalDurationValues.length > 0
+              ? Math.min(...item.totalDurationValues)
+              : null,
+          平均成本: averageNullableNumbers(item.costValues),
+          平均评分: averageNullableNumbers(item.scoreValues),
+          最近测试时间: formatDateTime(item.latestAt),
+        }))
+        .sort((left, right) => {
+          const scoreDelta = (right['平均评分'] ?? -1) - (left['平均评分'] ?? -1);
+          if (scoreDelta !== 0) return scoreDelta;
+          const speedDelta = (left['平均首响ms'] ?? Number.MAX_SAFE_INTEGER) -
+            (right['平均首响ms'] ?? Number.MAX_SAFE_INTEGER);
+          if (speedDelta !== 0) return speedDelta;
+          return (left['平均成本'] ?? Number.MAX_SAFE_INTEGER) -
+            (right['平均成本'] ?? Number.MAX_SAFE_INTEGER);
+        });
+
+      const workbook = XLSX.utils.book_new();
+      const summarySheet = XLSX.utils.json_to_sheet(modelSummaryRows);
+      const detailSheet = XLSX.utils.json_to_sheet(detailRows);
+
+      summarySheet['!cols'] = [
+        { wch: 18 },
+        { wch: 22 },
+        { wch: 24 },
+        { wch: 32 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 32 },
+        { wch: 8 },
+        { wch: 10 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 10 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 20 },
+      ];
+
+      detailSheet['!cols'] = [
+        { wch: 28 },
+        { wch: 24 },
+        { wch: 20 },
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 18 },
+        { wch: 60 },
+        { wch: 18 },
+        { wch: 22 },
+        { wch: 24 },
+        { wch: 32 },
+        { wch: 14 },
+        { wch: 32 },
+        { wch: 24 },
+        { wch: 10 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 36 },
+        { wch: 60 },
+        { wch: 60 },
+        { wch: 80 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 28 },
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, summarySheet, '模型汇总');
+      XLSX.utils.book_append_sheet(workbook, detailSheet, '原始结果');
+
+      const buffer = XLSX.write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      });
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      downloadFromBlob(blob, buildExportFilename());
+      MessagePlugin.success(`已导出 ${modelSummaryRows.length} 个模型结果`);
+    } catch (error) {
+      console.error('[ModelBenchmark] Excel export failed:', error);
+      MessagePlugin.error('导出 Excel 失败，请稍后重试');
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
 
   const handleRangeAwareToggle = (
@@ -757,50 +1071,74 @@ function ModelBenchmarkWorkbench({
   };
 
   const renderEntryPreview = (entry: ModelBenchmarkEntry) => {
+    const rawDataBlock = entry.preview.rawData ? (
+      <details className="model-benchmark__raw-data">
+        <summary>原始数据 (JSON)</summary>
+        <pre>{JSON.stringify(entry.preview.rawData, null, 2)}</pre>
+      </details>
+    ) : null;
+
     if (entry.modality === 'text') {
       return (
-        <pre className="model-benchmark__preview-text">
-          {entry.preview.text || '暂无返回'}
-        </pre>
+        <div className="model-benchmark__preview-content">
+          <pre className="model-benchmark__preview-text">
+            {entry.preview.text || '暂无返回'}
+          </pre>
+          {rawDataBlock}
+        </div>
       );
     }
 
     if (entry.modality === 'image' && entry.preview.url) {
       return (
-        <img
-          className="model-benchmark__preview-image"
-          src={entry.preview.url}
-          alt={entry.modelLabel}
-          loading="lazy"
-        />
+        <div className="model-benchmark__preview-content">
+          <img
+            className="model-benchmark__preview-image"
+            src={entry.preview.url}
+            alt={entry.modelLabel}
+            loading="lazy"
+          />
+          {rawDataBlock}
+        </div>
       );
     }
 
     if (entry.modality === 'video' && entry.preview.url) {
       return (
-        <video
-          className="model-benchmark__preview-video"
-          src={entry.preview.url}
-          controls
-          preload="metadata"
-        />
+        <div className="model-benchmark__preview-content">
+          <video
+            className="model-benchmark__preview-video"
+            src={entry.preview.url}
+            controls
+            preload="metadata"
+          />
+          {rawDataBlock}
+        </div>
       );
     }
 
     if (entry.modality === 'audio' && entry.preview.url) {
       return (
-        <div className="model-benchmark__preview-audio-shell">
-          <audio controls preload="none" src={entry.preview.url} />
-          {entry.preview.text ? (
-            <pre className="model-benchmark__preview-text">
-              {entry.preview.text}
-            </pre>
-          ) : null}
+        <div className="model-benchmark__preview-content">
+          <div className="model-benchmark__preview-audio-shell">
+            <audio controls preload="none" src={entry.preview.url} />
+            {entry.preview.text ? (
+              <pre className="model-benchmark__preview-text">
+                {entry.preview.text}
+              </pre>
+            ) : null}
+          </div>
+          {rawDataBlock}
         </div>
       );
     }
 
-    return <div className="model-benchmark__preview-empty">暂无预览</div>;
+    return (
+      <div className="model-benchmark__preview-empty">
+        {entry.status === 'failed' ? '加载失败' : '暂无预览'}
+        {rawDataBlock}
+      </div>
+    );
   };
 
   const pickerTitle =
@@ -833,28 +1171,6 @@ function ModelBenchmarkWorkbench({
   return (
     <div className="model-benchmark">
       <aside className="model-benchmark__sidebar">
-        <section className="model-benchmark__hero">
-          <div className="model-benchmark__eyebrow">Model Bench</div>
-          <h2 className="model-benchmark__hero-title">模型批测工作台</h2>
-          <p className="model-benchmark__hero-subtitle">
-            把范围先编排清楚，再一键跑完整批，最快找出又快又稳的候选。
-          </p>
-          <div className="model-benchmark__hero-stats">
-            <div className="model-benchmark__hero-stat">
-              <strong>{availableProfiles.length}</strong>
-              <span>可用供应商</span>
-            </div>
-            <div className="model-benchmark__hero-stat">
-              <strong>{resolvedTargets.length}</strong>
-              <span>本轮目标</span>
-            </div>
-            <div className="model-benchmark__hero-stat">
-              <strong>{activeSession?.entries.length || 0}</strong>
-              <span>当前结果</span>
-            </div>
-          </div>
-        </section>
-
         <section className="model-benchmark__panel">
           <div className="model-benchmark__panel-head">
             <div>
@@ -939,83 +1255,6 @@ function ModelBenchmarkWorkbench({
               <div className="model-benchmark__panel-desc">
                 {composerLockedLabel}
               </div>
-              <div className="model-benchmark__composer-hint">
-                {composerNextStep}
-              </div>
-            </div>
-            <div className="model-benchmark__picker-toolbar">
-              {compareMode === 'cross-model' ? (
-                <>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() =>
-                      setSelectedModelIds(activeProfileModels.map((model) => model.id))
-                    }
-                  >
-                    全选
-                  </button>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() => setSelectedModelIds([])}
-                  >
-                    清空
-                  </button>
-                </>
-              ) : null}
-
-              {compareMode === 'cross-provider' ? (
-                <>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() =>
-                      setSelectedProviderIds(
-                        crossProviderCandidates.map((target) => target.profileId)
-                      )
-                    }
-                  >
-                    全选
-                  </button>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() => setSelectedProviderIds([])}
-                  >
-                    清空
-                  </button>
-                </>
-              ) : null}
-
-              {compareMode === 'custom' ? (
-                <>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() =>
-                      setSelectedCustomKeys(
-                        customTargets.map((target) => target.selectionKey)
-                      )
-                    }
-                  >
-                    全选
-                  </button>
-                  <button
-                    type="button"
-                    className="model-benchmark__toolbar-button"
-                    onClick={() =>
-                      setSelectedCustomKeys(
-                        customTargets
-                          .slice(0, MAX_AUTO_CUSTOM_TARGETS)
-                          .map((target) => target.selectionKey)
-                      )
-                    }
-                  >
-                    推荐 6 个
-                  </button>
-                </>
-              ) : null}
             </div>
           </div>
 
@@ -1047,25 +1286,77 @@ function ModelBenchmarkWorkbench({
                   type="search"
                   value={pickerQuery}
                   onChange={(event) => setPickerQuery(event.target.value)}
-                  placeholder="搜索模型名 / ID / 供应商"
+                  placeholder="搜索模型名 / ID"
                 />
               </label>
-              <button
-                type="button"
-                className={`model-benchmark__toolbar-button ${
-                  showSelectedOnly ? 'model-benchmark__toolbar-button--active' : ''
-                }`}
-                onClick={() => setShowSelectedOnly((current) => !current)}
-              >
-                {showSelectedOnly ? '显示全部' : '仅看已选'}
-              </button>
+              <div className="model-benchmark__picker-actions">
+                <button
+                  type="button"
+                  className={`model-benchmark__toolbar-button ${
+                    showSelectedOnly ? 'model-benchmark__toolbar-button--active' : ''
+                  }`}
+                  onClick={() => setShowSelectedOnly((current) => !current)}
+                  title={showSelectedOnly ? '显示全部' : '仅看已选'}
+                >
+                  已选
+                </button>
+                <div className="model-benchmark__action-divider" />
+                {compareMode === 'cross-model' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="model-benchmark__toolbar-button"
+                      onClick={() =>
+                        setSelectedModelIds(activeProfileModels.map((model) => model.id))
+                      }
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      className="model-benchmark__toolbar-button"
+                      onClick={() => setSelectedModelIds([])}
+                    >
+                      清空
+                    </button>
+                  </>
+                ) : null}
+
+                {compareMode === 'custom' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="model-benchmark__toolbar-button"
+                      onClick={() =>
+                        setSelectedCustomKeys(
+                          customTargets.map((target) => target.selectionKey)
+                        )
+                      }
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      className="model-benchmark__toolbar-button"
+                      onClick={() =>
+                        setSelectedCustomKeys(
+                          customTargets
+                            .slice(0, MAX_AUTO_CUSTOM_TARGETS)
+                            .map((target) => target.selectionKey)
+                        )
+                      }
+                    >
+                      推荐
+                    </button>
+                  </>
+                ) : null}
+              </div>
             </div>
           )}
 
           <div className="model-benchmark__picker-summary">
-            <strong>{resolvedTargets.length}</strong>
             <span>
-              已加入本轮批测，当前显示{' '}
+              已加 <strong>{resolvedTargets.length}</strong> / 显示{' '}
               {compareMode === 'cross-model'
                 ? filteredCrossModelModels.length
                 : compareMode === 'cross-provider'
@@ -1074,13 +1365,7 @@ function ModelBenchmarkWorkbench({
             </span>
           </div>
 
-          <div className="model-benchmark__picker-hint">
-            {compareMode === 'cross-provider'
-              ? '先锁定模型，再在下拉框里多选供应商做横向对比。'
-              : '支持模糊检索，按住 Shift 点击可连续多选或连续取消，键盘也可操作。'}
-          </div>
-
-          {compareMode !== 'cross-provider' ? (
+          {(
             <div className="model-benchmark__picker-grid">
             {compareMode === 'cross-model'
               ? filteredCrossModelModels.map((model) => {
@@ -1227,79 +1512,7 @@ function ModelBenchmarkWorkbench({
               </div>
             ) : null}
             </div>
-          ) : null}
-        </section>
-
-        <section className="model-benchmark__panel">
-          <div className="model-benchmark__panel-head">
-            <div>
-              <div className="model-benchmark__panel-title">低成本提示词</div>
-              <div className="model-benchmark__panel-desc">
-                默认用最省钱样本先做第一轮筛选，后续再放大测试强度。
-              </div>
-            </div>
-          </div>
-          <div className="model-benchmark__preset-list">
-            {availablePromptPresets.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`model-benchmark__preset-chip ${
-                  preset.id === promptPresetId
-                    ? 'model-benchmark__preset-chip--active'
-                    : ''
-                }`}
-                onClick={() => handleApplyPreset(preset.id)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <textarea
-            className="model-benchmark__prompt"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            rows={5}
-          />
-        </section>
-
-        <section className="model-benchmark__panel model-benchmark__panel--accent">
-          <div className="model-benchmark__panel-head">
-            <div>
-              <div className="model-benchmark__panel-title">本轮批测队列</div>
-              <div className="model-benchmark__panel-desc">
-                已编排 {resolvedTargets.length} 个目标，默认并发 2。
-              </div>
-            </div>
-            <div className="model-benchmark__queue-count">
-              <strong>{resolvedTargets.length}</strong>
-              <span>个目标</span>
-            </div>
-          </div>
-          <div className="model-benchmark__queue-grid">
-            {queuePreviewTargets.map((target) => (
-              <div key={target.selectionKey} className="model-benchmark__queue-card">
-                <div className="model-benchmark__queue-card-copy">
-                  <strong title={target.modelLabel}>{target.modelLabel}</strong>
-                  <span title={target.profileName}>{target.profileName}</span>
-                </div>
-                <em className="model-benchmark__queue-card-badge">待测</em>
-              </div>
-            ))}
-            {resolvedTargets.length > QUEUE_PREVIEW_LIMIT ? (
-              <div className="model-benchmark__queue-card model-benchmark__queue-card--more">
-                还有 {resolvedTargets.length - QUEUE_PREVIEW_LIMIT} 个目标待跑
-              </div>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className="model-benchmark__primary-button"
-            onClick={handleCreateAndRun}
-            disabled={!storeState.ready || resolvedTargets.length === 0 || !prompt.trim()}
-          >
-            开始整批测试
-          </button>
+          )}
         </section>
 
         <section className="model-benchmark__panel model-benchmark__panel--sessions">
@@ -1307,9 +1520,17 @@ function ModelBenchmarkWorkbench({
             <div>
               <div className="model-benchmark__panel-title">历史会话</div>
               <div className="model-benchmark__panel-desc">
-                会话与正常任务历史隔离，便于集中筛模型。
+                独立历史记录，便于对比筛模型。
               </div>
             </div>
+            <button
+              type="button"
+              className="model-benchmark__ghost-button"
+              onClick={handleExportExcel}
+              disabled={storeState.sessions.length === 0 || isExportingExcel}
+            >
+              {isExportingExcel ? '导出中...' : '导出 Excel'}
+            </button>
           </div>
           <div className="model-benchmark__session-list">
             {storeState.sessions.map((session) => (
@@ -1325,7 +1546,7 @@ function ModelBenchmarkWorkbench({
                 >
                   <span className="model-benchmark__session-title">{session.title}</span>
                   <span className="model-benchmark__session-meta">
-                    {MODE_LABELS[session.compareMode]} · {session.entries.length} 项 ·{' '}
+                    {session.entries.length} 个目标 ·{' '}
                     {SESSION_STATUS_LABELS[session.status]}
                   </span>
                 </button>
@@ -1336,7 +1557,7 @@ function ModelBenchmarkWorkbench({
                   aria-label={`删除会话 ${session.title}`}
                   title="删除会话"
                 >
-                  删除
+                  <DeleteIcon />
                 </button>
               </div>
             ))}
@@ -1346,6 +1567,63 @@ function ModelBenchmarkWorkbench({
 
       <main className="model-benchmark__main">
         <div className="model-benchmark__main-shell">
+          <div className="model-benchmark__config-dash">
+            <section className="model-benchmark__panel model-benchmark__panel--transparent">
+              <div className="model-benchmark__panel-head">
+                <div className="model-benchmark__panel-title">低成本提示词</div>
+              </div>
+              <textarea
+                className="model-benchmark__prompt"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                rows={3}
+                placeholder="在此输入要测试的提示词..."
+              />
+            </section>
+
+            <section className="model-benchmark__panel model-benchmark__panel--transparent">
+              <div className="model-benchmark__panel-head">
+                <div className="model-benchmark__panel-title">
+                  批测队列 ({resolvedTargets.length})
+                </div>
+                <div className="model-benchmark__concurrency">
+                  <span>并发:</span>
+                  <InputNumber
+                    min={1}
+                    max={10}
+                    size="small"
+                    value={concurrency}
+                    onChange={(v) => setConcurrency(Number(v) || 1)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="model-benchmark__primary-button"
+                  onClick={handleCreateAndRun}
+                  disabled={!storeState.ready || resolvedTargets.length === 0 || !prompt.trim()}
+                >
+                  开始测试
+                </button>
+              </div>
+              <div className="model-benchmark__queue-grid model-benchmark__queue-grid--dash">
+                {queuePreviewTargets.map((target) => (
+                  <div key={target.selectionKey} className="model-benchmark__queue-card">
+                    <div className="model-benchmark__queue-card-copy">
+                      <strong title={target.modelLabel}>{target.modelLabel}</strong>
+                      <span title={target.profileName}>{target.profileName}</span>
+                    </div>
+                    <em className="model-benchmark__queue-card-badge">待测</em>
+                  </div>
+                ))}
+                {resolvedTargets.length > QUEUE_PREVIEW_LIMIT ? (
+                  <div className="model-benchmark__queue-card model-benchmark__queue-card--more">
+                    还有 {resolvedTargets.length - QUEUE_PREVIEW_LIMIT} 个目标待跑
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+
           <div className="model-benchmark__main-head">
             <div>
               <div className="model-benchmark__eyebrow">
@@ -1355,7 +1633,7 @@ function ModelBenchmarkWorkbench({
               <p className="model-benchmark__main-desc">
                 {activeSession
                   ? '结果按当前排序方式重排，支持继续人工打分、收藏和淘汰。'
-                  : '先在左侧明确测试范围，确保本轮真的是“批量”而不是单条试跑。'}
+                  : '请先在左侧明确范围，或直接点击历史会话查看以往结果。'}
               </p>
             </div>
             {activeSession ? (
