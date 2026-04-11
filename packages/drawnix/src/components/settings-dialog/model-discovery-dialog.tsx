@@ -1,52 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Check, ChevronDown, FlaskConical, Search, X } from 'lucide-react';
 import { Dialog, DialogContent } from '../dialog/dialog';
 import {
+  getStaticModelConfig,
   type ModelConfig,
-  type ModelType,
   type ModelVendor,
 } from '../../constants/model-config';
 import {
-  DISCOVERY_VENDOR_ORDER,
   getDiscoveryVendorLabel,
   getModelVendorPalette,
   ModelVendorMark,
 } from '../shared/ModelVendorBrand';
-import { sortModelsByDisplayPriority } from '../../utils/model-sort';
+import {
+  type ModelTypeFilter,
+  MODEL_TYPE_LABELS,
+  MODEL_TYPE_SECTION_LABELS,
+  MODEL_TYPE_SHORT_LABELS,
+  matchesModelQuery,
+  buildVendorGroups,
+  getOrderedTypeGroups,
+} from './model-discovery-utils';
 import './model-discovery-dialog.scss';
-
-type ModelTypeFilter = 'all' | ModelType;
-
-const MODEL_TYPE_LABELS: Record<ModelTypeFilter, string> = {
-  all: '全部',
-  image: '图片',
-  video: '视频',
-  audio: '音频',
-  text: '文本',
-};
-
-const MODEL_TYPE_SECTION_LABELS: Record<ModelType, string> = {
-  image: '图片',
-  video: '视频',
-  audio: '音频',
-  text: '文本',
-};
-
-const MODEL_TYPE_SHORT_LABELS: Record<ModelType, string> = {
-  image: '图',
-  video: '视',
-  audio: '音',
-  text: '文',
-};
-
-const MODEL_TYPE_TIE_BREAKER: ModelType[] = ['text', 'image', 'video', 'audio'];
-
-type VendorGroup = {
-  vendor: ModelVendor;
-  models: ModelConfig[];
-  counts: Record<ModelType, number>;
-  selectedCount: number;
-};
 
 interface ModelDiscoveryDialogProps {
   open: boolean;
@@ -55,93 +29,7 @@ interface ModelDiscoveryDialogProps {
   selectedModelIds: string[];
   onClose: () => void;
   onConfirm: (modelIds: string[]) => void;
-}
-
-function matchesModelQuery(model: ModelConfig, query: string) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return true;
-  }
-
-  return [
-    model.id,
-    model.label,
-    model.shortLabel,
-    model.shortCode,
-    model.description,
-    model.sourceProfileName,
-    getDiscoveryVendorLabel(model.vendor),
-  ]
-    .filter(Boolean)
-    .some((value) => value?.toLowerCase().includes(normalized));
-}
-
-function sortModels(models: ModelConfig[]) {
-  return sortModelsByDisplayPriority(models);
-}
-
-function buildVendorGroups(
-  models: ModelConfig[],
-  selectedIds: Set<string>
-): VendorGroup[] {
-  const grouped = new Map<ModelVendor, VendorGroup>();
-
-  for (const model of models) {
-    const current =
-      grouped.get(model.vendor) ||
-      ({
-        vendor: model.vendor,
-        models: [],
-        counts: { image: 0, video: 0, audio: 0, text: 0 },
-        selectedCount: 0,
-      } satisfies VendorGroup);
-
-    current.models.push(model);
-    current.counts[model.type] += 1;
-    if (selectedIds.has(model.id)) {
-      current.selectedCount += 1;
-    }
-
-    grouped.set(model.vendor, current);
-  }
-
-  const priorityMap = new Map(
-    DISCOVERY_VENDOR_ORDER.map((vendor, index) => [vendor, index])
-  );
-
-  return Array.from(grouped.values()).sort((left, right) => {
-    const leftPriority =
-      priorityMap.get(left.vendor) ?? Number.MAX_SAFE_INTEGER;
-    const rightPriority =
-      priorityMap.get(right.vendor) ?? Number.MAX_SAFE_INTEGER;
-
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-
-    return right.models.length - left.models.length;
-  });
-}
-
-function getOrderedTypeGroups(
-  group: VendorGroup
-): Array<{ type: ModelType; models: ModelConfig[] }> {
-  return (['image', 'video', 'audio', 'text'] as ModelType[])
-    .filter((type) => group.counts[type] > 0)
-    .map((type) => ({
-      type,
-      models: sortModels(group.models.filter((model) => model.type === type)),
-    }))
-    .sort((left, right) => {
-      if (right.models.length !== left.models.length) {
-        return right.models.length - left.models.length;
-      }
-
-      return (
-        MODEL_TYPE_TIE_BREAKER.indexOf(left.type) -
-        MODEL_TYPE_TIE_BREAKER.indexOf(right.type)
-      );
-    });
+  onTestModel?: (modelId: string) => void;
 }
 
 export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
@@ -151,6 +39,7 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
   selectedModelIds,
   onClose,
   onConfirm,
+  onTestModel,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeType, setActiveType] = useState<ModelTypeFilter>('all');
@@ -235,6 +124,13 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
   const allVisibleSelected =
     visibleModels.length > 0 &&
     visibleModels.every((model) => selectedIds.has(model.id));
+  const recommendedModelIds = useMemo(
+    () => models.filter((model) => getStaticModelConfig(model.id)).map((model) => model.id),
+    [models]
+  );
+  const allRecommendedSelected =
+    recommendedModelIds.length > 0 &&
+    recommendedModelIds.every((modelId) => selectedIds.has(modelId));
 
   useEffect(() => {
     if (vendorGroups.length === 0) {
@@ -287,6 +183,10 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
 
       return Array.from(new Set([...prev, ...visibleIds]));
     });
+  };
+
+  const selectRecommendedModels = () => {
+    setDraftSelection((prev) => Array.from(new Set([...prev, ...recommendedModelIds])));
   };
 
   const toggleVendor = (vendor: ModelVendor) => {
@@ -497,6 +397,20 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
                                         {model.id}
                                       </div>
                                     </div>
+                                    {onTestModel ? (
+                                      <button
+                                        type="button"
+                                        className="model-discovery-dialog__item-test"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          onTestModel(model.id);
+                                        }}
+                                        title="测试此模型"
+                                      >
+                                        <FlaskConical size={13} />
+                                      </button>
+                                    ) : null}
                                   </label>
                                 );
                               })}
@@ -524,7 +438,15 @@ export const ModelDiscoveryDialog: React.FC<ModelDiscoveryDialogProps> = ({
               onClick={toggleVisibleModels}
               disabled={visibleModels.length === 0}
             >
-              {allVisibleSelected ? '取消全选' : '全选'}
+              {allVisibleSelected ? '取消当前筛选' : '全选'}
+            </button>
+            <button
+              type="button"
+              className="model-discovery-dialog__ghost-button"
+              onClick={selectRecommendedModels}
+              disabled={recommendedModelIds.length === 0 || allRecommendedSelected}
+            >
+              选中推荐模型
             </button>
             <button
               type="button"

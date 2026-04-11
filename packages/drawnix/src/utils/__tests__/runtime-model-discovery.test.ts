@@ -63,4 +63,13 @@ describe('runtime-model-discovery', () => {
       })
     ).toBeNull();
   });
+
+  it('主流最新静态模型可被初始选择器解析', async () => {
+    const { getStaticModelConfig } = await import('../../constants/model-config');
+
+    expect(getStaticModelConfig('gpt-5.1')?.type).toBe('text');
+    expect(getStaticModelConfig('claude-sonnet-4-6')?.type).toBe('text');
+    expect(getStaticModelConfig('seedream-v4')?.type).toBe('image');
+    expect(getStaticModelConfig('veo3-fast-frames')?.type).toBe('video');
+  });
 });

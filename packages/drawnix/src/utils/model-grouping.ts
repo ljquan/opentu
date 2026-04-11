@@ -51,11 +51,17 @@ export function groupModelsByProvider(
   providerProfiles: ProviderProfile[]
 ): ProviderGroup[] {
   const profileMap = new Map(providerProfiles.map((p) => [p.id, p]));
+  const seen = new Set<string>();
 
   // 按 provider 分桶
   const buckets = new Map<string, ModelConfig[]>();
   for (const model of models) {
     const pid = normalizeProviderId(model);
+    const dedupeKey = `${pid}::${model.type}::${model.id}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
     const list = buckets.get(pid);
     if (list) {
       list.push(model);
