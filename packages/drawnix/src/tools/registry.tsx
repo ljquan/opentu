@@ -6,6 +6,10 @@ import { chatMjTool } from './tools/chat-mj';
 import { batchImageTool, BatchImageToolComponent } from './tools/batch-image';
 import { knowledgeBaseTool, KnowledgeBaseToolComponent } from './tools/knowledge-base';
 import { musicPlayerTool, MusicPlayerToolComponent } from './tools/music-player';
+import {
+  modelBenchmarkTool,
+  ModelBenchmarkToolComponent,
+} from './tools/model-benchmark';
 import { videoAnalyzerTool, VideoAnalyzerToolComponent } from './tools/video-analyzer';
 
 export interface ToolPluginModule {
@@ -18,6 +22,7 @@ const BUILT_IN_TOOL_PLUGINS: ToolPluginModule[] = [
   poseLibraryTool,
   chatMjTool,
   batchImageTool,
+  modelBenchmarkTool,
   knowledgeBaseTool,
   musicPlayerTool,
   videoAnalyzerTool,
@@ -25,6 +30,7 @@ const BUILT_IN_TOOL_PLUGINS: ToolPluginModule[] = [
 
 const INTERNAL_COMPONENTS = new Map<string, React.ComponentType<any>>([
   ['batch-image', BatchImageToolComponent],
+  ['model-benchmark', ModelBenchmarkToolComponent],
   ['knowledge-base', KnowledgeBaseToolComponent],
   ['music-player', MusicPlayerToolComponent],
   ['video-analyzer', VideoAnalyzerToolComponent],

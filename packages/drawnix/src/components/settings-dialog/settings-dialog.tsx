@@ -67,6 +67,7 @@ import {
 } from '../shared/ContextMenu';
 import { WinBoxWindow } from '../winbox';
 import { TtsSettingsPanel } from '../project-drawer/TtsSettingsPanel';
+import { openModelBenchmarkTool } from '../../services/model-benchmark-launcher';
 
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
@@ -1834,7 +1835,35 @@ export const SettingsDialog = ({
     );
   };
 
+  const handleLaunchModelBenchmark = useCallback(
+    (payload: {
+      profileId: string;
+      modality: ModelType;
+      modelId?: string;
+      compareMode: 'cross-provider' | 'cross-model';
+    }) => {
+      if (!payload.profileId) {
+        return;
+      }
+      openModelBenchmarkTool({
+        profileId: payload.profileId,
+        modelId: payload.modelId,
+        modality: payload.modality,
+        compareMode: payload.compareMode,
+        autoRun: true,
+      });
+    },
+    []
+  );
+
   const renderProviderModelSummary = () => {
+    const providerDraftState = selectedProfile
+      ? getProviderDraftState(selectedProfile, initialProfiles)
+      : 'saved';
+    const canLaunchBenchmark =
+      !!selectedProfile?.apiKey.trim() &&
+      providerDraftState === 'saved' &&
+      runtimeState.status !== 'loading';
     const isDefaultProvider =
       selectedProfile?.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID;
     const displayModels = dedupeModelsByTypeAndId(
@@ -1950,12 +1979,34 @@ export const SettingsDialog = ({
             {modelGroups.map(({ type, models }) => (
               <div key={type} className="settings-dialog__model-type-group">
                 <div className="settings-dialog__model-type-header">
-                  <span className="settings-dialog__model-type-title">
-                    {MODEL_GROUP_LABELS[type]}
-                  </span>
-                  <span className="settings-dialog__model-type-count">
-                    {models.length}
-                  </span>
+                  <div className="settings-dialog__model-type-meta">
+                    <span className="settings-dialog__model-type-title">
+                      {MODEL_GROUP_LABELS[type]}
+                    </span>
+                    <span className="settings-dialog__model-type-count">
+                      {models.length}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-dialog__model-group-test"
+                    onClick={() => {
+                      if (!selectedProfile) return;
+                      handleLaunchModelBenchmark({
+                        profileId: selectedProfile.id,
+                        modality: type,
+                        compareMode: 'cross-model',
+                      });
+                    }}
+                    disabled={!canLaunchBenchmark}
+                    title={
+                      canLaunchBenchmark
+                        ? '测试当前供应商这一组模型'
+                        : '请先保存供应商配置并确保 API Key 可用'
+                    }
+                  >
+                    测试本组
+                  </button>
                 </div>
                 <div className="settings-dialog__model-type-list">
                   {models.map((model) => {
@@ -1983,6 +2034,30 @@ export const SettingsDialog = ({
                           <span className="settings-dialog__model-type-item-vendor">
                             {getDiscoveryVendorLabel(model.vendor)}
                           </span>
+                        </div>
+                        <div className="settings-dialog__model-type-item-btns">
+                          <button
+                            type="button"
+                            className="settings-dialog__model-item-test"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!selectedProfile) return;
+                              handleLaunchModelBenchmark({
+                                profileId: selectedProfile.id,
+                                modality: type,
+                                modelId: model.id,
+                                compareMode: 'cross-provider',
+                              });
+                            }}
+                            disabled={!canLaunchBenchmark}
+                            title={
+                              canLaunchBenchmark
+                                ? '测试这个模型在不同供应商下的表现'
+                                : '请先保存供应商配置并确保 API Key 可用'
+                            }
+                          >
+                            测试
+                          </button>
                         </div>
                       </div>
                     );
