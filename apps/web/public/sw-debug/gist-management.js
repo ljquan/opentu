@@ -1755,8 +1755,7 @@ async function debugListGists() {
     
     // Filter for sync gists
     const syncGists = gists.filter(g => 
-      g.description?.includes('Opentu') || 
-      g.description?.includes('开图') ||
+      g.description?.includes('Opentu') ||
       Object.keys(g.files).some(f => 
         (f.startsWith('board_') && f.endsWith('.json')) || 
         f.endsWith('.drawnix') || 

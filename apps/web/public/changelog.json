@@ -968,7 +968,7 @@
       "changes": {
         "features": [
           "点击画板自动关闭项目抽屉和工具箱抽屉",
-          "update OpenTu labels and model hints"
+          "update Opentu labels and model hints"
         ],
         "fixes": [
           "修复图片覆盖保存时缩放比例计算错误"

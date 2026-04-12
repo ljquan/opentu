@@ -1,13 +1,13 @@
-# 开图 (AITU) 开发文档
+# Opentu 开发文档
 
-本目录包含项目的所有开发相关文档，包括最新的品牌重塑设计方案。
+本目录包含项目的所有开发相关文档，包括最新的平台品牌升级方案。
 
 ## 📚 文档索引
 
 ### 🎨 品牌设计文档 (NEW)
-- **[BRAND_DESIGN.md](./BRAND_DESIGN.md)** - AITU 品牌设计完整方案和思考过程
+- **[BRAND_DESIGN.md](./BRAND_DESIGN.md)** - Opentu 品牌设计完整方案和思考过程
 - **[BRAND_GUIDELINES.md](./BRAND_GUIDELINES.md)** - 品牌规范开发者速查手册
-- **[LOGO_CONCEPTS.md](./LOGO_CONCEPTS.md)** - Logo 设计概念和 SVG 代码实现
+- **[LOGO_CONCEPTS.md](./LOGO_CONCEPTS.md)** - Logo 设计概念与平台视觉方向
 
 ### 📋 项目开发文档
 - **[VERSION_CONTROL.md](./VERSION_CONTROL.md)** - 版本控制和缓存管理文档
@@ -20,19 +20,19 @@
 
 ## 🎯 品牌转型概述
 
-**品牌名称**: 开图 (AITU) - AI图片视频创作平台
+**品牌名称**: Opentu（中文别名：开图）- AI应用平台
 **项目仓库**: https://github.com/ljquan/aitu
 
 ### 核心变化
-- **定位转变**: 从白板工具 → AI图片/视频创作工具
-- **目标用户**: 数字创作者、设计师、内容创作者
-- **核心价值**: "AI让创意触手可及"
+- **定位转变**: 从白板工具 → 以画布为工作区底座的 AI应用平台
+- **目标用户**: 数字创作者、设计师、内容创作者、AI 产品团队
+- **核心价值**: “AI让创意在单一工作区中持续执行”
 
 ### 品牌亮点
-- **品牌名**: AITU (Visual + AI)
+- **品牌名**: Opentu
 - **主色调**: 智慧紫渐变 (#6C5CE7 → #FD79A8)  
-- **Logo理念**: 智慧之眼 + AI芯片 + 像素粒子
-- **愿景**: 让每个人都能成为视觉创作大师
+- **Logo理念**: 开放工作区 + 平台入口 + 节点流转
+- **愿景**: 让 AI 应用与生成结果在同一画布工作区中持续协作
 
 ## 🚀 快速开始
 
@@ -61,10 +61,10 @@ npm run package         # 仅创建发布包
 
 ## 📁 项目结构
 ```
-drawnix/ (项目根目录)
+opentu/ (项目根目录)
 ├── apps/web/              # 主 Web 应用
-├── packages/drawnix/      # 核心白板库 (即将重构为AI创作库)
-├── packages/react-board/  # React 白板组件
+├── packages/drawnix/      # 画布工作区核心库
+├── packages/react-board/  # React 画布组件
 ├── packages/react-text/   # React 文本组件
 ├── scripts/              # 构建和发布脚本
 └── docs/                 # 开发文档（本目录）
@@ -75,7 +75,7 @@ drawnix/ (项目根目录)
 - [项目主 README](../README.md) - 项目介绍和快速开始
 - [英文 README](../README_en.md) - English documentation
 - [GitHub 仓库](https://github.com/ljquan/aitu) - 源代码仓库
-- [在线演示](https://drawnix.com) - 当前版本演示
+- [在线应用](https://opentu.ai) - 当前版本入口
 
 ## 🛠️ 开发规范
 
@@ -102,10 +102,15 @@ drawnix/ (项目根目录)
 ### 2025-09-05
 - ✨ 完成品牌重塑设计方案
 - 📚 新增品牌设计文档系列
-- 🎨 设计 AITU 品牌形象和 Logo 概念
+- 🎨 设计 Opentu 品牌形象和 Logo 概念
 - 🔧 整理开发文档结构
+
+### 2026-04-12
+- 🔄 文档品牌主名统一为 Opentu
+- 🧭 一级定位升级为 AI应用平台
+- 🧩 画布角色重定义为平台工作区底座
 
 ---
 
 *📖 文档持续更新中... 如有问题请提交 Issue*  
-*最后更新: 2025-09-05*
+*最后更新: 2026-04-12*

@@ -3,7 +3,7 @@
 # 站点信息
 site:
   title: Opentu 用户手册
-  description: Opentu（开图）是一款免费开源的 AI 图片视频创作工具 + 一体化白板
+  description: Opentu（开图）是一款以画布工作区为底座的 AI 应用平台，连接模型、知识、素材与工作流，帮助创作者在同一个浏览器窗口里完成生成、编辑与交付。
   logo: 🎨
 
 # 分类配置（按 order 排序）

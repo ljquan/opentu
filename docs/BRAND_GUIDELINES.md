@@ -1,45 +1,100 @@
-# aitu 品牌规范速查
+# Opentu 品牌规范速查
 
-> 🎨 为开发团队和设计师提供的快速品牌规范参考
+> 面向开发、设计、文档与运营的统一品牌口径。
 
-## 📛 品牌名称
+## 1. 主品牌规则
 
-**正式名称**: aitu  
-**中文名称**: 开图  
-**英文全称**: AI Image & Video Creation Tool  
-**标语**: 爱上图片，爱上创作
+- 正式名称：`Opentu`
+- 中文别名：`开图`
+- 标准首提：`Opentu（开图）`
+- 一级定位：`AI应用平台`
+- 核心表达：`以画布为核心工作区底座，连接模型、工具、知识与工作流`
 
-## 🎨 色彩系统
+### 命名优先级
 
-### CSS 变量定义
+1. 对外主称呼一律使用 `Opentu`
+2. 中文正文首次出现可写 `Opentu（开图）`
+3. 后续正文默认写 `Opentu`
+4. `开图` 仅作为中文别名或历史迁移说明使用
+
+### 禁止混用
+
+- 不再把 `AITU` 作为对外主品牌
+- 不再使用 `OpenTu`、`opentu` 作为正文品牌写法
+- 不再把 `白板工具`、`开源白板应用`、`AI 图片视频创作工具 + 一体化白板` 作为一级定位
+
+## 2. 定位与叙事
+
+### 一句话定位
+
+> Opentu 是一个以画布为核心工作区的 AI 应用平台。
+
+### 50 字介绍
+
+Opentu 将模型、素材、知识、Agent、工具箱与工作流放进同一工作区，让生成、编辑、组织与交付在一个平台内完成。
+
+### 150 字介绍
+
+Opentu 是面向创作者与团队的 AI 应用平台。它不是把 AI 能力零散堆在多个页面里，而是以画布作为统一工作区底座，把图片、视频、流程图、思维导图、知识库、Agent、任务队列与工具箱组织到同一界面中。用户可以在同一个工作区里完成生成、编辑、分析、整理、沉淀与交付，同时保留开源、可扩展、可部署的产品属性。
+
+### 画布角色定义
+
+- 画布不是旧意义上的产品总定位
+- 画布是 `工作区底座`
+- 所有 AI 应用与内容操作都优先围绕工作区展开
+- 白板、思维导图、流程图、灵感板是平台中的能力或应用模块
+
+## 3. 品牌语气
+
+- 清晰：先说平台，再说能力
+- 克制：避免堆叠模型名和功能词
+- 结构化：优先使用“工作区 / 应用 / 运行层 / 开放层”叙事
+- 实用：强调用户如何在同一工作区完成任务
+
+### 推荐句式
+
+- `在 Opentu 工作区中，你可以……`
+- `Opentu 将……连接到同一工作区`
+- `这是 Opentu 的一项平台能力`
+- `画布承担的是工作区与承载层角色`
+
+### 避免句式
+
+- `Opentu 是一款白板工具`
+- `Opentu 主要是 AI 生图工具`
+- `Opentu = 白板 + 若干 AI 功能`
+- `开图是一款……` 作为主品牌开头
+
+## 4. 术语映射
+
+| 中文 | 英文 | 使用说明 |
+|------|------|----------|
+| AI应用平台 | AI application platform | 一级定位 |
+| 画布工作区 | canvas workspace | 面向用户的核心界面 |
+| 工作区底座 | workspace foundation | 用于解释画布角色 |
+| 平台能力 | platform capability | 图片、视频、知识库、工具箱等 |
+| 运行层 | runtime layer | 模型路由、任务队列、缓存、工作流 |
+| 开放层 | extensibility layer | 插件、部署、开源、扩展能力 |
+
+## 5. 色彩与视觉方向
+
 ```css
 :root {
-  /* 主品牌色 - 橙金色系 */
   --brand-primary: #F39C12;
   --brand-primary-dark: #E67E22;
   --brand-primary-darker: #D35400;
-  
-  /* 辅助品牌色 - 蓝紫色系 */
+
   --brand-secondary: #5A4FCF;
   --brand-secondary-light: #7B68EE;
   --brand-secondary-lighter: #9966CC;
-  
-  /* 创作激活色 - 玫红色系 */
+
   --accent-create: #E91E63;
   --accent-create-light: #F06292;
-  
-  /* 渐变色 */
+
   --brand-gradient: linear-gradient(135deg, #F39C12 0%, #E67E22 30%, #5A4FCF 70%, #E91E63 100%);
-  --brush-gradient: linear-gradient(135deg, #5A4FCF 0%, #7B68EE 50%, #E91E63 100%);
-  --film-gradient: linear-gradient(135deg, #F39C12 0%, #E67E22 50%, #D35400 100%);
-  
-  /* 功能色 */
-  --success: #00B894;
-  --warning: #E67E22;
-  --error: #E17055;
-  --info: #5A4FCF;
-  
-  /* 中性色 */
+  --workspace-gradient: linear-gradient(135deg, #5A4FCF 0%, #7B68EE 45%, #E91E63 100%);
+  --runtime-gradient: linear-gradient(135deg, #F39C12 0%, #E67E22 50%, #D35400 100%);
+
   --neutral-900: #2D3436;
   --neutral-800: #636E72;
   --neutral-600: #B2BEC3;
@@ -49,185 +104,36 @@
 }
 ```
 
-### 使用场景
-- **主按钮**: `--brand-gradient` 或 `--brush-gradient`
-- **链接/强调**: `--brand-primary` (橙金色)
-- **背景/面板**: `--neutral-200`
-- **创作相关**: `--accent-create` (玫红色)
-- **媒体相关**: `--film-gradient` (胶卷色系)
-- **AI功能**: `--brand-secondary` (蓝紫色)
+### 色彩语义
 
-## 🔤 字体规范
+- 橙金：应用激活、媒体结果、操作反馈
+- 蓝紫：平台、工作区、智能能力
+- 玫红：创意、协作、动势
+- 渐变：多能力在同一工作区汇聚
 
-### 字体栈
-```css
---font-family-primary: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
---font-family-heading: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
---font-family-mono: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-```
+## 6. 文档与页面标题模板
 
-### 字体尺寸
-```css
---text-xs: 0.75rem;      /* 12px */
---text-sm: 0.875rem;     /* 14px */
---text-base: 1rem;       /* 16px */
---text-lg: 1.125rem;     /* 18px */
---text-xl: 1.25rem;      /* 20px */
---text-2xl: 1.5rem;      /* 24px */
---text-3xl: 1.875rem;    /* 30px */
---text-4xl: 2.25rem;     /* 36px */
-```
+### 中文
 
-## 🎯 Logo 使用规范
+- 首页：`Opentu - AI应用平台`
+- 手册：`Opentu 用户手册`
+- 品牌页：`Opentu 品牌设计`
 
-### Logo 变体
-1. **完整版**: 图标 + 文字 (主要使用)
-2. **简化版**: 仅图标 (小尺寸应用)
-3. **单色版**: 黑白版本 (特殊场景)
+### 英文
 
-### 最小使用尺寸
-- **完整版**: 最小宽度 120px
-- **图标版**: 最小尺寸 24x24px
-- **清晰空间**: Logo周围至少保留Logo高度的1/2作为清晰空间
+- Home: `Opentu - AI Application Platform`
+- Manual: `Opentu User Manual`
+- Brand: `Opentu Brand Design`
 
-### 禁止使用
-- ❌ 不可改变Logo比例
-- ❌ 不可改变Logo颜色（除单色版本）
-- ❌ 不可添加特效或阴影
-- ❌ 不可将Logo放置在复杂背景上
+## 7. 文案检查清单
 
-## 🧩 组件设计原则
-
-### 按钮设计
-```css
-/* 主按钮 */
-.btn-primary {
-  background: var(--brand-gradient);
-  color: white;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-weight: 500;
-  transition: all 0.2s ease-out;
-}
-
-/* 次按钮 */
-.btn-secondary {
-  background: transparent;
-  color: var(--brand-primary);
-  border: 2px solid var(--brand-primary);
-  border-radius: 8px;
-  padding: 10px 22px;
-}
-```
-
-### 卡片设计
-```css
-.card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.08);
-  padding: 24px;
-  border: 1px solid var(--neutral-400);
-}
-```
-
-### 输入框设计
-```css
-.input {
-  background: var(--neutral-200);
-  border: 2px solid transparent;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: var(--text-base);
-  transition: border-color 0.2s ease;
-}
-
-.input:focus {
-  border-color: var(--brand-primary);
-  outline: none;
-}
-```
-
-## 🎬 动效规范
-
-### 缓动函数
-```css
---ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
---ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-```
-
-### 持续时间
-- **快速交互**: 150ms - 200ms
-- **页面切换**: 250ms - 300ms  
-- **加载动画**: 500ms - 1000ms
-
-### 常用动画
-```css
-/* 按钮悬停 */
-.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(108, 92, 231, 0.2);
-}
-
-/* 卡片悬停 */
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(108, 92, 231, 0.12);
-}
-```
-
-## 📱 响应式断点
-
-```css
-/* 移动端优先 */
---breakpoint-sm: 640px;   /* 手机横屏 */
---breakpoint-md: 768px;   /* 平板 */  
---breakpoint-lg: 1024px;  /* 桌面 */
---breakpoint-xl: 1280px;  /* 大屏幕 */
-```
-
-## 🔧 开发实施清单
-
-### UI 组件更新
-- [ ] 更新主色调为新品牌色
-- [ ] 应用新的按钮样式和渐变
-- [ ] 更新 Logo 和图标
-- [ ] 调整字体和排版
-- [ ] 实现新的卡片和布局样式
-
-### 页面更新
-- [ ] 首页/着陆页重新设计
-- [ ] 导航栏品牌元素更新
-- [ ] 创作页面界面优化
-- [ ] 设置页面样式统一
-- [ ] 关于页面品牌信息更新
-
-### 资源文件
-- [ ] 制作各尺寸 Logo 文件
-- [ ] 生成 Favicon 和应用图标
-- [ ] 更新品牌相关图片素材
-- [ ] 准备社交媒体分享图标
+- 品牌名是否统一为 `Opentu`
+- 首次出现是否按需写为 `Opentu（开图）`
+- 一级定位是否写成 `AI应用平台`
+- 是否把画布描述为工作区底座，而不是总定位
+- 是否仍残留 `whiteboard tool` / `白板工具` 的一级表述
+- 中英文文案是否表达同一件事，而不是各说各话
 
 ---
 
-## 🎨 设计工具资源
-
-### Figma 设计系统
-```
-主文件: AITU Design System
-- 色彩样式库
-- 字体样式库  
-- 组件库
-- 图标库
-```
-
-### 开发者资源
-- **色彩工具**: [Coolors.co](https://coolors.co/6c5ce7-a29bfe-fd79a8)
-- **字体下载**: [Inter Font](https://rsms.me/inter/)
-- **图标库**: 使用 Tabler Icons 或自定义图标
-- **渐变生成**: [CSS Gradient](https://cssgradient.io/)
-
----
-
-*快速参考指南 - 随时更新*  
-*最后更新: 2025-09-05*
+*最后更新：2026-04-12*

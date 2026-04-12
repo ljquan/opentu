@@ -131,7 +131,7 @@ setTimeout(initMonitoring, 1000);
   category: 'page_report',
   page_url: 'https://opentu.ai/',
   page_path: '/',
-  page_title: '开图 - AI图片视频创作',
+  page_title: 'Opentu - AI应用平台',
   referrer: 'https://google.com',
   viewport_width: 1920,
   viewport_height: 1080,

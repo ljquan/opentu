@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import type { Subscription } from 'rxjs';
-import { Select, InputNumber, MessagePlugin } from 'tdesign-react';
+import { Select, InputNumber, MessagePlugin, Tooltip } from 'tdesign-react';
 import { DeleteIcon } from 'tdesign-icons-react';
 import { downloadFromBlob } from '@aitu/utils';
 import { useAtomValue } from 'jotai';
@@ -1399,423 +1399,215 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
   return (
     <div className="model-benchmark">
       <aside className="model-benchmark__sidebar">
-        <section className="model-benchmark__panel">
-          <div className="model-benchmark__panel-head">
-            <div>
-              <div className="model-benchmark__panel-title">测试范围编排</div>
-              <div className="model-benchmark__panel-desc">
-                先锁定比较维度，再直接在同一块区域里完成模型或供应商选择。
-              </div>
-            </div>
-          </div>
-
-          <div className="model-benchmark__segmented">
-            {Object.entries(MODALITY_LABELS).map(([value, label]) => (
+        <div className="model-benchmark__sidebar-head">
+          <div className="model-benchmark__panel-title">历史会话</div>
+          <button
+            type="button"
+            className="model-benchmark__ghost-button"
+            onClick={handleExportExcel}
+            disabled={storeState.sessions.length === 0 || isExportingExcel}
+          >
+            {isExportingExcel ? '导出中...' : '导出 Excel'}
+          </button>
+        </div>
+        <div className="model-benchmark__session-list">
+          {storeState.sessions.map((session) => (
+            <div key={session.id} className="model-benchmark__session-row">
               <button
-                key={value}
                 type="button"
-                className={`model-benchmark__segmented-button ${
-                  modality === value ? 'model-benchmark__segmented-button--active' : ''
-                }`}
-                onClick={() => setModality(value as BenchmarkModality)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="model-benchmark__segmented model-benchmark__segmented--stack">
-            {Object.entries(MODE_LABELS).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={`model-benchmark__segmented-button ${
-                  compareMode === value
-                    ? 'model-benchmark__segmented-button--active'
+                className={`model-benchmark__session-item ${
+                  session.id === storeState.activeSessionId
+                    ? 'model-benchmark__session-item--active'
                     : ''
                 }`}
-                onClick={() => setCompareMode(value as BenchmarkCompareMode)}
+                onClick={() => modelBenchmarkService.setActiveSession(session.id)}
               >
-                <strong>{label}</strong>
-                <span>{MODE_DESCRIPTIONS[value as BenchmarkCompareMode]}</span>
+                <span className="model-benchmark__session-title">
+                  {session.title}
+                </span>
+                <span className="model-benchmark__session-meta">
+                  {session.entries.length} 个目标 ·{' '}
+                  {SESSION_STATUS_LABELS[session.status]}
+                </span>
               </button>
-            ))}
-          </div>
-
-          <div className="model-benchmark__field-grid">
-            {compareMode === 'cross-model' ? (
-              <label className="model-benchmark__field model-benchmark__field--full">
-                <span>目标供应商</span>
-                <select
-                  className="model-benchmark__select"
-                  value={selectedProfileId}
-                  onChange={(event) => setSelectedProfileId(event.target.value)}
-                >
-                  {availableProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-
-            {compareMode === 'cross-provider' ? (
-              <label className="model-benchmark__field model-benchmark__field--full">
-                <span>对比模型</span>
-                <Select
-                  filterable
-                  className="model-benchmark__select"
-                  value={selectedModelId}
-                  options={crossProviderModelOptions}
-                  placeholder="搜索并选择要横向对比的模型"
-                  onChange={(value) => setSelectedModelId((value as string) || '')}
-                />
-              </label>
-            ) : null}
-          </div>
-
-          <div className="model-benchmark__composer-divider" />
-
-          <div className="model-benchmark__panel-head model-benchmark__panel-head--tight">
-            <div>
-              <div className="model-benchmark__panel-title">{pickerTitle}</div>
-              <div className="model-benchmark__panel-desc">
-                {composerLockedLabel}
-              </div>
+              <button
+                type="button"
+                className="model-benchmark__session-delete"
+                onClick={() => modelBenchmarkService.removeSession(session.id)}
+                aria-label={`删除会话 ${session.title}`}
+                title="删除会话"
+              >
+                <DeleteIcon />
+              </button>
             </div>
-          </div>
-
-          {compareMode === 'cross-provider' ? (
-            <div className="model-benchmark__multi-select-wrap">
-              <label className="model-benchmark__field model-benchmark__field--full">
-                <span>参测供应商</span>
-                <Select
-                  multiple
-                  filterable
-                  minCollapsedNum={2}
-                  popupProps={{ overlayClassName: 'model-benchmark__select-popup' }}
-                  className="model-benchmark__multi-select"
-                  value={selectedProviderIds}
-                  options={crossProviderOptions}
-                  placeholder="搜索并多选要参与对比的供应商"
-                  onChange={(value) =>
-                    setSelectedProviderIds(
-                      Array.isArray(value) ? (value as string[]) : []
-                    )
-                  }
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="model-benchmark__picker-controls">
-              <label className="model-benchmark__search">
-                <input
-                  type="search"
-                  value={pickerQuery}
-                  onChange={(event) => setPickerQuery(event.target.value)}
-                  placeholder="搜索模型名 / ID"
-                />
-              </label>
-              <div className="model-benchmark__picker-actions">
-                <button
-                  type="button"
-                  className={`model-benchmark__toolbar-button ${
-                    showSelectedOnly ? 'model-benchmark__toolbar-button--active' : ''
-                  }`}
-                  onClick={() => setShowSelectedOnly((current) => !current)}
-                  title={showSelectedOnly ? '显示全部' : '仅看已选'}
-                >
-                  已选
-                </button>
-                <div className="model-benchmark__action-divider" />
-                {compareMode === 'cross-model' ? (
-                  <>
-                    <button
-                      type="button"
-                      className="model-benchmark__toolbar-button"
-                      onClick={() =>
-                        setSelectedModelIds(activeProfileModels.map((model) => model.id))
-                      }
-                    >
-                      全选
-                    </button>
-                    <button
-                      type="button"
-                      className="model-benchmark__toolbar-button"
-                      onClick={() => setSelectedModelIds([])}
-                    >
-                      清空
-                    </button>
-                  </>
-                ) : null}
-
-                {compareMode === 'custom' ? (
-                  <>
-                    <button
-                      type="button"
-                      className="model-benchmark__toolbar-button"
-                      onClick={() =>
-                        setSelectedCustomKeys(
-                          customTargets.map((target) => target.selectionKey)
-                        )
-                      }
-                    >
-                      全选
-                    </button>
-                    <button
-                      type="button"
-                      className="model-benchmark__toolbar-button"
-                      onClick={() =>
-                        setSelectedCustomKeys(
-                          customTargets
-                            .slice(0, MAX_AUTO_CUSTOM_TARGETS)
-                            .map((target) => target.selectionKey)
-                        )
-                      }
-                    >
-                      推荐
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          )}
-
-          <div className="model-benchmark__picker-summary">
-            <span>
-              已加 <strong>{resolvedTargets.length}</strong> / 显示{' '}
-              {compareMode === 'cross-model'
-                ? filteredCrossModelModels.length
-                : compareMode === 'cross-provider'
-                ? filteredCrossProviderCandidates.length
-                : filteredCustomTargets.length}
-            </span>
-          </div>
-
-          {(
-            <div className="model-benchmark__picker-grid">
-            {compareMode === 'cross-model'
-              ? filteredCrossModelModels.map((model) => {
-                  const active = selectedModelIds.includes(model.id);
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      className={`model-benchmark__picker-card ${
-                        active ? 'model-benchmark__picker-card--active' : ''
-                      }`}
-                      ref={(node) => {
-                        pickerButtonRefs.current[model.id] = node;
-                      }}
-                      onClick={(event) =>
-                        handleToggleCrossModel(model.id, event.shiftKey)
-                      }
-                      onKeyDown={(event) =>
-                        handlePickerKeyboardShortcut(
-                          event,
-                          model.id,
-                          selectedModelIds,
-                          setSelectedModelIds,
-                          visiblePickerKeys
-                        )
-                      }
-                    >
-                      <div className="model-benchmark__picker-card-main">
-                        <div className="model-benchmark__picker-card-title">
-                          {getModelDisplayName(model)}
-                        </div>
-                        <div className="model-benchmark__picker-card-meta">
-                          {model.id}
-                        </div>
-                      </div>
-                      <span className="model-benchmark__picker-card-state">
-                        {active ? '已加入' : '点击加入'}
-                      </span>
-                    </button>
-                  );
-                })
-              : null}
-
-            {compareMode === 'cross-provider'
-              ? filteredCrossProviderCandidates.map((target) => {
-                  const active = selectedProviderIds.includes(target.profileId);
-                  return (
-                    <button
-                      key={target.selectionKey}
-                      type="button"
-                      className={`model-benchmark__picker-card ${
-                        active ? 'model-benchmark__picker-card--active' : ''
-                      }`}
-                      ref={(node) => {
-                        pickerButtonRefs.current[target.profileId] = node;
-                      }}
-                      onClick={(event) =>
-                        handleToggleProvider(target.profileId, event.shiftKey)
-                      }
-                      onKeyDown={(event) =>
-                        handlePickerKeyboardShortcut(
-                          event,
-                          target.profileId,
-                          selectedProviderIds,
-                          setSelectedProviderIds,
-                          visiblePickerKeys
-                        )
-                      }
-                    >
-                      <div className="model-benchmark__picker-card-main">
-                        <div className="model-benchmark__picker-card-title">
-                          {target.profileName}
-                        </div>
-                        <div className="model-benchmark__picker-card-meta">
-                          {target.modelLabel}
-                        </div>
-                      </div>
-                      <span className="model-benchmark__picker-card-state">
-                        {active ? '参与对比' : '未参与'}
-                      </span>
-                    </button>
-                  );
-                })
-              : null}
-
-            {compareMode === 'custom'
-              ? filteredCustomTargets.map((target) => {
-                  const active = selectedCustomKeys.includes(target.selectionKey);
-                  return (
-                    <button
-                      key={target.selectionKey}
-                      type="button"
-                      className={`model-benchmark__picker-card ${
-                        active ? 'model-benchmark__picker-card--active' : ''
-                      }`}
-                      ref={(node) => {
-                        pickerButtonRefs.current[target.selectionKey] = node;
-                      }}
-                      onClick={(event) =>
-                        handleToggleCustomTargetWithRange(
-                          target.selectionKey,
-                          event.shiftKey
-                        )
-                      }
-                      onKeyDown={(event) =>
-                        handlePickerKeyboardShortcut(
-                          event,
-                          target.selectionKey,
-                          selectedCustomKeys,
-                          setSelectedCustomKeys,
-                          visiblePickerKeys
-                        )
-                      }
-                    >
-                      <div className="model-benchmark__picker-card-main">
-                        <div className="model-benchmark__picker-card-title">
-                          {target.modelLabel}
-                        </div>
-                        <div className="model-benchmark__picker-card-meta">
-                          {target.profileName}
-                        </div>
-                      </div>
-                      <span className="model-benchmark__picker-card-state">
-                        {active ? '已加入' : '点击加入'}
-                      </span>
-                    </button>
-                  );
-                })
-              : null}
-            {compareMode === 'cross-model' && filteredCrossModelModels.length === 0 ? (
-              <div className="model-benchmark__picker-empty">
-                没有匹配的模型，试试换关键词或关闭“仅看已选”。
-              </div>
-            ) : null}
-            {compareMode === 'cross-provider' &&
-            filteredCrossProviderCandidates.length === 0 ? (
-              <div className="model-benchmark__picker-empty">
-                没有匹配的供应商，试试换关键词或关闭“仅看已选”。
-              </div>
-            ) : null}
-            {compareMode === 'custom' && filteredCustomTargets.length === 0 ? (
-              <div className="model-benchmark__picker-empty">
-                没有匹配的目标组合，试试换关键词或关闭“仅看已选”。
-              </div>
-            ) : null}
-            </div>
-          )}
-        </section>
-
-        <section className="model-benchmark__panel model-benchmark__panel--sessions">
-          <div className="model-benchmark__panel-head">
-            <div>
-              <div className="model-benchmark__panel-title">历史会话</div>
-              <div className="model-benchmark__panel-desc">
-                独立历史记录，便于对比筛模型。
-              </div>
-            </div>
-            <button
-              type="button"
-              className="model-benchmark__ghost-button"
-              onClick={handleExportExcel}
-              disabled={storeState.sessions.length === 0 || isExportingExcel}
-            >
-              {isExportingExcel ? '导出中...' : '导出 Excel'}
-            </button>
-          </div>
-          <div className="model-benchmark__session-list">
-            {storeState.sessions.map((session) => (
-              <div key={session.id} className="model-benchmark__session-row">
-                <button
-                  type="button"
-                  className={`model-benchmark__session-item ${
-                    session.id === storeState.activeSessionId
-                      ? 'model-benchmark__session-item--active'
-                      : ''
-                  }`}
-                  onClick={() => modelBenchmarkService.setActiveSession(session.id)}
-                >
-                  <span className="model-benchmark__session-title">{session.title}</span>
-                  <span className="model-benchmark__session-meta">
-                    {session.entries.length} 个目标 ·{' '}
-                    {SESSION_STATUS_LABELS[session.status]}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="model-benchmark__session-delete"
-                  onClick={() => modelBenchmarkService.removeSession(session.id)}
-                  aria-label={`删除会话 ${session.title}`}
-                  title="删除会话"
-                >
-                  <DeleteIcon />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+          ))}
+        </div>
       </aside>
 
       <main className="model-benchmark__main">
         <div className="model-benchmark__main-shell">
-          <div className="model-benchmark__config-dash">
-            <section className="model-benchmark__panel model-benchmark__panel--transparent">
-              <div className="model-benchmark__panel-head">
-                <div className="model-benchmark__panel-title">低成本提示词</div>
+          <section className="model-benchmark__config-dashboard">
+            <div className="model-benchmark__config-row model-benchmark__config-row--top">
+              <div className="model-benchmark__modality-tabs">
+                {(Object.keys(MODALITY_LABELS) as BenchmarkModality[]).map(
+                  (value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={
+                        modality === value
+                          ? 'model-benchmark__modality-tabs--active'
+                          : ''
+                      }
+                      onClick={() => setModality(value)}
+                    >
+                      {MODALITY_LABELS[value]}
+                    </button>
+                  )
+                )}
               </div>
-              <textarea
-                className="model-benchmark__prompt"
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                rows={3}
-                placeholder="在此输入要测试的提示词..."
-              />
-            </section>
 
-            <section className="model-benchmark__panel model-benchmark__panel--transparent">
-              <div className="model-benchmark__panel-head">
-                <div className="model-benchmark__panel-title">
-                  批测队列 ({queuePreviewTotal})
+              <div className="model-benchmark__mode-selector">
+                {(Object.entries(MODE_LABELS) as [string, string][]).map(
+                  ([value, label]) => (
+                    <Tooltip
+                      key={value}
+                      content={MODE_DESCRIPTIONS[value as BenchmarkCompareMode]}
+                      placement="top"
+                    >
+                      <button
+                        type="button"
+                        className={
+                          compareMode === value
+                            ? 'model-benchmark__mode-selector--active'
+                            : ''
+                        }
+                        onClick={() =>
+                          setCompareMode(value as BenchmarkCompareMode)
+                        }
+                      >
+                        {label}
+                      </button>
+                    </Tooltip>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="model-benchmark__config-main">
+              <div className="model-benchmark__config-controls">
+                <div className="model-benchmark__primary-select-row">
+                  {compareMode === 'cross-model' ? (
+                    <Select
+                      className="model-benchmark__select"
+                      label="目标供应商: "
+                      value={selectedProfileId}
+                      onChange={(value) => setSelectedProfileId(value as string)}
+                      options={availableProfiles.map((p) => ({
+                        label: p.name,
+                        value: p.id,
+                      }))}
+                    />
+                  ) : null}
+
+                  {compareMode === 'cross-provider' ? (
+                    <Select
+                      filterable
+                      className="model-benchmark__select"
+                      label="对比模型: "
+                      value={selectedModelId}
+                      options={crossProviderModelOptions}
+                      placeholder="搜索并选择要横向对比的模型"
+                      onChange={(value) =>
+                        setSelectedModelId((value as string) || '')
+                      }
+                    />
+                  ) : null}
                 </div>
+
+                <div className="model-benchmark__secondary-select-row">
+                  {compareMode === 'cross-provider' ? (
+                    <Select
+                      multiple
+                      filterable
+                      minCollapsedNum={3}
+                      popupProps={{
+                        overlayClassName: 'model-benchmark__select-popup',
+                      }}
+                      className="model-benchmark__multi-select"
+                      label="参测供应商: "
+                      value={selectedProviderIds}
+                      options={crossProviderOptions}
+                      placeholder="多选要参与对比的供应商 (已选即为批测队列)"
+                      onChange={(value) =>
+                        setSelectedProviderIds(
+                          Array.isArray(value) ? (value as string[]) : []
+                        )
+                      }
+                    />
+                  ) : null}
+
+                  {compareMode === 'cross-model' ? (
+                    <Select
+                      multiple
+                      filterable
+                      minCollapsedNum={3}
+                      popupProps={{
+                        overlayClassName: 'model-benchmark__select-popup',
+                      }}
+                      className="model-benchmark__multi-select"
+                      label="参测模型: "
+                      value={selectedModelIds}
+                      options={activeProfileModels.map((m) => ({
+                        label: getModelOptionLabel(m),
+                        value: m.id,
+                      }))}
+                      placeholder="多选要测试的模型 (已选即为批测队列)"
+                      onChange={(value) =>
+                        setSelectedModelIds(
+                          Array.isArray(value) ? (value as string[]) : []
+                        )
+                      }
+                    />
+                  ) : null}
+
+                  {compareMode === 'custom' ? (
+                    <Select
+                      multiple
+                      filterable
+                      minCollapsedNum={3}
+                      popupProps={{
+                        overlayClassName: 'model-benchmark__select-popup',
+                      }}
+                      className="model-benchmark__multi-select"
+                      label="目标组合: "
+                      value={selectedCustomKeys}
+                      options={customTargets.map((t) => ({
+                        label: `${t.profileName} · ${t.modelLabel}`,
+                        value: t.selectionKey,
+                      }))}
+                      placeholder="手动编排供应商与模型组合"
+                      onChange={(value) =>
+                        setSelectedCustomKeys(
+                          Array.isArray(value) ? (value as string[]) : []
+                        )
+                      }
+                    />
+                  ) : null}
+                </div>
+
+                <div className="model-benchmark__prompt-area">
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="在此输入测试提示词..."
+                  />
+                </div>
+              </div>
+
+              <div className="model-benchmark__config-actions">
                 <div className="model-benchmark__concurrency">
-                  <span>并发:</span>
+                  <span>最大并发:</span>
                   <InputNumber
                     min={1}
                     max={10}
@@ -1824,35 +1616,26 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
                     onChange={(v) => setConcurrency(Number(v) || 1)}
                   />
                 </div>
-                <button
-                  type="button"
-                  className="model-benchmark__primary-button"
-                  onClick={handleCreateAndRun}
-                  disabled={!storeState.ready || resolvedTargets.length === 0 || !prompt.trim()}
-                >
-                  开始测试
-                </button>
+                <div className="model-benchmark__composer-hint">
+                  提示：多选框中已选中的项目即为本次待测试的队列。
+                </div>
+                <div className="model-benchmark__start-btn-wrap">
+                  <button
+                    type="button"
+                    className="model-benchmark__primary-button"
+                    onClick={handleCreateAndRun}
+                    disabled={
+                      !storeState.ready ||
+                      resolvedTargets.length === 0 ||
+                      !prompt.trim()
+                    }
+                  >
+                    开始测试 ({resolvedTargets.length})
+                  </button>
+                </div>
               </div>
-              <div className="model-benchmark__queue-grid model-benchmark__queue-grid--dash">
-                {queuePreviewTargets.map((target) => (
-                  <div key={target.key} className="model-benchmark__queue-card">
-                    <div className="model-benchmark__queue-card-copy">
-                      <strong title={target.modelLabel}>{target.modelLabel}</strong>
-                      <span title={target.profileName}>{target.profileName}</span>
-                    </div>
-                    <em className="model-benchmark__queue-card-badge">
-                      {target.badgeLabel}
-                    </em>
-                  </div>
-                ))}
-                {queuePreviewEntries.length > QUEUE_PREVIEW_LIMIT ? (
-                  <div className="model-benchmark__queue-card model-benchmark__queue-card--more">
-                    还有 {queuePreviewEntries.length - QUEUE_PREVIEW_LIMIT} 个目标
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          </div>
+            </div>
+          </section>
 
           <div className="model-benchmark__main-head">
             <div>

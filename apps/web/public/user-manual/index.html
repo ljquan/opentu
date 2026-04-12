@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首页 - Opentu 用户手册</title>
+  <style>
+    :root {
+      --primary-color: #F39C12;
+      --secondary-color: #5A4FCF;
+      --accent-color: #E91E63;
+      --text-color: #333;
+      --bg-color: #fff;
+      --border-color: #e0e0e0;
+      --code-bg: #f5f5f5;
+      --tip-bg: #e8f5e9;
+      --tip-border: #4caf50;
+      --note-bg: #e3f2fd;
+      --note-border: #2196f3;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.7;
+      color: var(--text-color);
+      background: var(--bg-color);
+    }
+    
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 280px;
+      height: 100vh;
+      background: #fafafa;
+      border-right: 1px solid var(--border-color);
+      padding: 1.5rem;
+      overflow-y: auto;
+    }
+    
+    .sidebar-header {
+      font-size: 1.25rem;
+      font-weight: bold;
+      color: var(--primary-color);
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 2px solid var(--primary-color);
+    }
+    
+    .sidebar-nav {
+      list-style: none;
+    }
+    
+    .sidebar-nav li {
+      margin-bottom: 0.25rem;
+    }
+    
+    .sidebar-nav a {
+      color: var(--text-color);
+      text-decoration: none;
+      display: block;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      transition: all 0.2s;
+      font-size: 0.9rem;
+    }
+    
+    .sidebar-nav a:hover {
+      background: #eee;
+      color: var(--primary-color);
+    }
+    
+    .sidebar-nav a.active {
+      background: var(--primary-color);
+      color: white;
+    }
+    
+    .sidebar-nav .category {
+      font-weight: 600;
+      color: var(--secondary-color);
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .main-content {
+      margin-left: 300px;
+      padding: 2rem 3rem;
+      max-width: 900px;
+    }
+    
+    h1 {
+      font-size: 2rem;
+      color: var(--secondary-color);
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid var(--primary-color);
+    }
+    
+    h2 {
+      font-size: 1.5rem;
+      color: var(--secondary-color);
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+    }
+    
+    h3 {
+      font-size: 1.2rem;
+      color: #444;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+    
+    p {
+      margin-bottom: 1rem;
+    }
+    
+    ul, ol {
+      margin-bottom: 1rem;
+      padding-left: 1.5rem;
+    }
+    
+    li {
+      margin-bottom: 0.5rem;
+    }
+    
+    code {
+      background: var(--code-bg);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.9em;
+    }
+    
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+    
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+    }
+    
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    th {
+      background: #f5f5f5;
+      font-weight: 600;
+    }
+    
+    .step-screenshot {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      margin: 1.5rem 0;
+      border: 1px solid var(--border-color);
+    }
+    
+    .tip {
+      background: var(--tip-bg);
+      border-left: 4px solid var(--tip-border);
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+      border-radius: 0 8px 8px 0;
+    }
+    
+    .note {
+      background: var(--note-bg);
+      border-left: 4px solid var(--note-border);
+      padding: 1rem 1.25rem;
+      margin: 1.5rem 0;
+      border-radius: 0 8px 8px 0;
+    }
+    
+    .footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+      color: #666;
+      font-size: 0.9rem;
+    }
+    
+    a {
+      color: var(--secondary-color);
+      text-decoration: none;
+    }
+    
+    a:hover {
+      text-decoration: underline;
+    }
+    
+    @media (max-width: 768px) {
+      .sidebar {
+        display: none;
+      }
+      .main-content {
+        margin-left: 0;
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+<nav class="sidebar">
+<div class="sidebar-header">🎨 Opentu 用户手册</div>
+<ul class="sidebar-nav">
+<li><a href="index.html" class="active"><strong>首页</strong></a></li>
+<li class="category">快速入门</li>
+<li><a href="basics-canvas-navigation.html">画布操作</a></li>
+<li><a href="basics-insert-content.html">插入内容到画布</a></li>
+<li class="category">绘图工具</li>
+<li><a href="drawing-pencil-tool.html">画笔工具</a></li>
+<li><a href="drawing-shapes.html">形状工具</a></li>
+<li><a href="drawing-text.html">文本工具</a></li>
+<li><a href="drawing-mindmap.html">思维导图</a></li>
+<li><a href="drawing-flowchart.html">流程图</a></li>
+<li class="category">AI 创作</li>
+<li><a href="ai-generation-image-generation.html">AI 生成图片</a></li>
+<li><a href="ai-generation-inspiration-board.html">灵感创意板</a></li>
+<li><a href="ai-generation-image-split.html">智能拆分图片</a></li>
+<li><a href="ai-generation-video-generation.html">AI 生成视频</a></li>
+<li class="category">进阶功能</li>
+<li><a href="advanced-export-import.html">导出与导入</a></li>
+<li><a href="advanced-media-library.html">素材库</a></li>
+<li><a href="advanced-settings.html">设置与配置</a></li>
+<li><a href="advanced-troubleshooting.html">问题排查</a></li>
+<li><a href="advanced-image-preview-edit.html">图片预览与编辑</a></li>
+<li><a href="advanced-toolbox.html">工具箱</a></li>
+</ul>
+</nav>
+<main class="main-content">
+  <article>
+    
+<h1>欢迎使用 Opentu（开图）</h1>
+
+<strong>Opentu（开图）</strong> 是一个以浏览器为入口的 AI 应用平台，强化了模型、知识、素材与工具的协作能力。
+
+平台以<strong>画布工作区</strong>为运行底座，用户在同一个画布中发起 AI 生成指令、撰写知识卡、调用插件工具、管理任务队列，并通过多模型路由完成图像、视频、文本等交付。
+
+<p>
+这让创作者不用在多个应用间切换，就能在一个开放工作区内完成从灵感到交付的全链路。
+</p>
+
+<div class="note"><strong>注意：</strong><strong>重要提示：</strong> 您的所有数据（项目、素材、提示词历史）都保存在<strong>当前浏览器</strong>的本地存储中，不会上传到服务器。这意味着：
+
+<ul><li>✅ 数据隐私安全，完全由您掌控</li>
+<li>⚠️ 换浏览器或清除浏览器数据会丢失内容</li>
+<li>💡 需要迁移数据？使用 <strong>菜单 → 备份恢复</strong> 功能导出后在新浏览器导入</li>
+</ul></div>
+
+<h2>Opentu 平台概览</h2>
+
+<ul><li><strong>AI 应用</strong> - 在底部 AI 输入栏发起图片、视频、灵感板的生成请求，或通过 Agent/Skill 调用多模型能力</li>
+<li><strong>知识与素材</strong> - 知识库、灵感板、素材库都与画布互联，生成内容可一键插入工作区并被任务队列追踪</li>
+<li><strong>工具与工作流</strong> - 命令面板、工具箱与工作流系统贯穿整个平台，支持多步骤执行与任务重试</li>
+<li><strong>开放与扩展</strong> - 插件架构、API 配置与同步能力让 Opentu 适合作为高频 AI 工作空间</li>
+</ul>
+
+<h2>产品展示</h2>
+
+<h3>智能拆分图片</h3>
+
+<p>
+输入描述，AI 生成可拆分的图片，一键拆成九宫格，发朋友圈超方便。
+</p>
+
+<img src="../product_showcase/九宫格拆图.gif" alt="九宫格拆图" style="max-width: 100%; border-radius: 8px;" />
+
+<h3>流程图</h3>
+
+<p>
+用自然语言描述流程，AI 自动生成专业流程图。
+</p>
+
+<img src="../product_showcase/流程图.gif" alt="流程图" style="max-width: 100%; border-radius: 8px;" />
+
+<h3>思维导图</h3>
+
+<p>
+输入主题，AI 帮你拓展思路，快速生成完整的思维导图。
+</p>
+
+<img src="../product_showcase/思维导图.gif" alt="思维导图" style="max-width: 100%; border-radius: 8px;" />
+
+<h2>我能用它做什么？</h2>
+
+<h3>平台能力 🔥</h3>
+
+<ul><li><strong>AI 生成图片</strong> - 支持多种图片生成模型</li>
+</ul>  - nano-banana - 快速生图
+<p>
+- nano-banana-2 - 高质量生图，支持 HD/2K/4K 分辨率
+- 支持文本转图片、图片参考生成、批量生成
+</p>
+
+<ul><li><strong>AI 生成视频</strong> - 支持多种视频生成模型</li>
+</ul>  - Veo3 / Veo3 Pro - 高质量视频生成
+<p>
+- Veo3.1 / Veo3.1 Pro - 支持首尾帧控制，多图参考
+- Sora-2 / Sora-2 Pro - OpenAI 视频模型
+- 支持图生视频、进度追踪、任务管理
+</p>
+
+<ul><li><strong>模型自由切换</strong> - 在生成对话框中即时切换不同的 AI 模型</li>
+<li><strong>任务队列管理</strong> - 异步任务处理，支持批量生成、任务重试、历史记录、媒体缓存</li>
+</ul>
+<h3>画布工作区与可视化</h3>
+
+<ul><li><strong>思维导图</strong> - 快速整理思路，支持 Markdown 转换</li>
+<li><strong>流程图</strong> - 绘制流程图，支持 Mermaid 语法</li>
+<li><strong>自由画笔</strong> - 手绘涂鸦，多种画笔可选</li>
+<li><strong>形状工具</strong> - 矩形、圆形、箭头等基础形状</li>
+<li><strong>图片插入</strong> - 支持插入和编辑图片元素</li>
+</ul>
+<h3>编辑与交互</h3>
+
+<ul><li><strong>丰富的编辑功能</strong> - 撤销、重做、复制、粘贴、多选等</li>
+<li><strong>无限画布</strong> - 自由缩放、滚动、移动</li>
+<li><strong>自动保存</strong> - 本地浏览器自动保存，数据不丢失</li>
+<li><strong>多格式导出</strong> - 支持 PNG、JSON(<code>.drawnix</code>) 等格式导出</li>
+</ul>
+<h3>体验与生态</h3>
+
+<ul><li><strong>完全免费 + 开源</strong> - MIT 许可证，可商用</li>
+<li><strong>主题模式</strong> - 支持亮色/暗色主题切换</li>
+<li><strong>移动端适配</strong> - 完美支持移动设备使用</li>
+</ul>
+<h2>立即开始</h2>
+
+<p>
+访问 <a href="https://opentu.ai">opentu.ai</a> 开始使用，无需注册账号。
+</p>
+
+<p>
+体验新功能？试试 <a href="https://pr.opentu.ai">pr.opentu.ai</a>
+</p>
+
+<h2>快速入门</h2>
+
+<h3>1. 生成图片</h3>
+
+<p>
+在底部输入框输入描述（如"一只可爱的猫咪"），点击发送。
+</p>
+
+<h3>2. 绘制思维导图</h3>
+
+<p>
+点击工具栏的思维导图图标，或按 <code>M</code> 键，开始创建。
+</p>
+
+<h3>3. 自由绘画</h3>
+
+<p>
+按 <code>P</code> 键切换到画笔，在画布上自由绘制。
+</p>
+
+<h2>界面介绍</h2>
+
+<img class="step-screenshot" src="https://unpkg.com/aitu-app@0.5.59/user-manual/screenshots/ai-step-0.png" alt="主界面" loading="lazy" />
+
+<ul><li><strong>顶部工具栏</strong> - 各种绘图工具和编辑功能</li>
+<li><strong>底部输入框</strong> - AI 创作入口，输入描述生成图片/视频</li>
+<li><strong>右下角导航</strong> - 缩放、重置视图等操作</li>
+<li><strong>无限画布</strong> - 可自由拖动、缩放的创作空间</li>
+</ul>
+<h2>常用快捷键</h2>
+
+<table><thead><tr><th>快捷键</th><th>功能</th></tr></thead><tbody><tr><td><code>H</code></td><td>手形工具（拖动画布）</td></tr><tr><td><code>V</code></td><td>选择工具</td></tr><tr><td><code>P</code></td><td>画笔工具</td></tr><tr><td><code>T</code></td><td>文本工具</td></tr><tr><td><code>M</code></td><td>思维导图</td></tr><tr><td><code>R</code></td><td>矩形工具</td></tr><tr><td><code>O</code></td><td>椭圆工具</td></tr><tr><td><code>Ctrl/Cmd + Z</code></td><td>撤销</td></tr><tr><td><code>Ctrl/Cmd + Shift + Z</code></td><td>重做</td></tr><tr><td><code>Ctrl/Cmd + S</code></td><td>保存文件</td></tr><tr><td><code>Ctrl/Cmd + Shift + E</code></td><td>导出图片</td></tr><tr><td>鼠标滚轮</td><td>缩放画布</td></tr></tbody></table>
+<h2>数据存储说明</h2>
+
+<p>
+您的数据存储在浏览器本地，包括：
+</p>
+
+<table><thead><tr><th>数据类型</th><th>存储位置</th><th>说明</th></tr></thead><tbody><tr><td>项目文件</td><td>IndexedDB</td><td>画布内容和结构</td></tr><tr><td>素材库</td><td>Cache Storage</td><td>上传和生成的图片视频</td></tr><tr><td>提示词历史</td><td>IndexedDB</td><td>使用过的 AI 提示词</td></tr><tr><td>设置</td><td>LocalStorage</td><td>API 配置等</td></tr></tbody></table>
+<strong>数据迁移方法：</strong>
+
+<p>
+1. 在原浏览器打开 <strong>菜单 → 备份恢复</strong>
+2. 勾选需要迁移的内容，点击 <strong>导出</strong>
+3. 在新浏览器打开 Opentu，<strong>导入</strong> 刚才的 ZIP 文件
+</p>
+
+<h2>获取帮助</h2>
+
+<h3>加入用户交流群</h3>
+
+<p>
+扫码加入交流群，与其他用户交流使用心得，反馈问题和建议：
+</p>
+
+<img src="https://tuziai.oss-cn-shenzhen.aliyuncs.com/aitu/AiTu.png" alt="用户反馈群二维码" style="max-width: 200px; border-radius: 8px;" />
+
+<p>
+也可以点击应用右侧工具栏的 <strong>用户反馈群</strong> 按钮查看二维码。
+</p>
+
+<h3>问题排查</h3>
+
+<p>
+遇到问题时，可以使用 <strong>调试面板</strong> 帮助定位：
+</p>
+
+<table><thead><tr><th>环境</th><th>调试面板地址</th></tr></thead><tbody><tr><td>正式环境</td><td><a href="https://opentu.ai/sw-debug.html">https://opentu.ai/sw-debug.html</a></td></tr><tr><td>体验环境</td><td><a href="https://pr.opentu.ai/sw-debug.html">https://pr.opentu.ai/sw-debug.html</a></td></tr></tbody></table>
+<p>
+调试面板可以：
+</p>
+<ul><li>查看 Service Worker 状态和日志</li>
+<li>导出诊断日志（发给技术支持）</li>
+<li>备份和恢复应用数据</li>
+<li>清除缓存解决异常问题</li>
+</ul>
+<div class="tip"><strong>提示：</strong>如需技术支持，请在调试面板中点击"导出日志"，将日志文件发送给开发者。
+</div>
+
+<h3>其他方式</h3>
+
+<ul><li>📖 阅读本手册的详细教程</li>
+<li>🐛 在 <a href="https://github.com/ljquan/aitu/issues">GitHub Issues</a> 提交问题</li>
+<li>💬 参与 <a href="https://github.com/ljquan/aitu/discussions">GitHub Discussions</a> 讨论</li>
+</ul>
+<p>
+---
+</p>
+
+<em>爱创作，图未来。</em>
+
+  </article>
+  
+  <footer class="footer">
+    <p>Opentu 用户手册 v0.5.59</p>
+    <p>生成时间: 2026/1/26 23:58:02</p>
+  </footer>
+</main>
+</body>
+</html>

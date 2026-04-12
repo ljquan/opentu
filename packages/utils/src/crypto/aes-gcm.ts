@@ -18,7 +18,8 @@ const DEFAULT_KEY_LENGTH = 256;
 const DEFAULT_ITERATIONS = 100000;
 const IV_LENGTH = 12; // 96 bits for AES-GCM
 const SALT_LENGTH = 16;
-const FALLBACK_PREFIX = 'AITU_FB:';
+const FALLBACK_PREFIX = 'OPENTU_FB:';
+const LEGACY_FALLBACK_PREFIX = 'AITU_FB:';
 
 // ==================== 辅助函数 ====================
 
@@ -106,7 +107,10 @@ function fallbackEncode(plaintext: string): string {
  * Fallback 解码
  */
 function fallbackDecode(encoded: string): string {
-  const data = encoded.slice(FALLBACK_PREFIX.length);
+  const prefix = encoded.startsWith(FALLBACK_PREFIX)
+    ? FALLBACK_PREFIX
+    : LEGACY_FALLBACK_PREFIX;
+  const data = encoded.slice(prefix.length);
   return decodeURIComponent(globalThis.atob(data));
 }
 
@@ -114,7 +118,7 @@ function fallbackDecode(encoded: string): string {
  * 检查是否是 fallback 编码的数据
  */
 function isFallbackEncoded(data: string): boolean {
-  return data.startsWith(FALLBACK_PREFIX);
+  return data.startsWith(FALLBACK_PREFIX) || data.startsWith(LEGACY_FALLBACK_PREFIX);
 }
 
 // ==================== 公共 API ====================

@@ -3569,7 +3569,7 @@ function createOfflinePage(): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>离线 - OpenTu</title>
+  <title>离线 - Opentu</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -3602,7 +3602,7 @@ function createOfflinePage(): Response {
 </head>
 <body>
   <h1>📡 无法连接到服务器</h1>
-  <p>请检查您的网络连接，或稍后再试。</p>
+  <p>Opentu 是一个以画布工作区为底座的 AI 应用平台，当前无法访问时请检查网络或稍后再试。</p>
   <button onclick="location.reload()">重试</button>
 </body>
 </html>`,

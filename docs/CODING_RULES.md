@@ -1634,7 +1634,7 @@ return (
 ### 重要规则
 - **UI 框架**: 使用 TDesign React，配置浅色主题
 - **Tooltips**: 始终使用 `theme='light'`
-- **品牌色一致性**: 覆盖第三方组件（如 TDesign Tag）的默认颜色以符合 AITU 品牌视觉
+- **品牌色一致性**: 覆盖第三方组件（如 TDesign Tag）的默认颜色以符合 Opentu 品牌视觉
   - **示例**: 处理中状态使用蓝紫色系 (`#5A4FCF`)
   - **CSS**: `.t-tag--theme-primary { background-color: rgba(90, 79, 207, 0.08); color: #5A4FCF; }`
 - **文件大小限制**: 单个文件不超过 500 行

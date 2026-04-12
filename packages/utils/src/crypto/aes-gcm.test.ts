@@ -16,8 +16,8 @@ describe('isEncrypted', () => {
   });
 
   it('should return true for fallback encoded data', () => {
-    const fallbackData = 'AITU_FB:SGVsbG8gV29ybGQ=';
-    expect(isEncrypted(fallbackData)).toBe(true);
+    expect(isEncrypted('OPENTU_FB:SGVsbG8gV29ybGQ=')).toBe(true);
+    expect(isEncrypted('AITU_FB:SGVsbG8gV29ybGQ=')).toBe(true);
   });
 
   it('should return false for plain text', () => {

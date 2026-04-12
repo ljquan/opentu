@@ -39,7 +39,7 @@ export const SHARD_FILES = {
 
 /** Gist 描述前缀 */
 export const GIST_DESCRIPTION_PREFIX = {
-  MASTER: 'Opentu (开图) - 数据同步',
+  MASTER: 'Opentu - 数据同步',
   SHARD: 'Opentu - Media Shard',
 } as const;
 

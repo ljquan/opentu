@@ -3,10 +3,10 @@
     Opentu (opentu.ai)
   </h1>
   <h3>
-    AI Image & Video Creation (SaaS) + All-in-One Whiteboard
+    Opentu (opentu.ai) · AI Application Platform
   </h3>
   <p>
-    Mind Maps · Flowcharts · Freehand · AI Image Generation · AI Video Generation
+    The canvas workspace is treated as the core execution layer so models, tools, and workflows keep running on one platform.
   </p>
   <p>
     <a href="https://github.com/ljquan/aitu/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
@@ -25,9 +25,9 @@
 
 ## Application
 
-[_https://opentu.ai_](https://opentu.ai) and [_https://pr.opentu.ai_](https://pr.opentu.ai) is the online application of _Opentu_.
+[_https://opentu.ai_](https://opentu.ai) and [_https://pr.opentu.ai_](https://pr.opentu.ai) are live deployments of the Opentu AI application platform.
 
-We will iterate frequently on application features to continuously optimize user experience.
+We will iterate frequently on platform capabilities—generation, workflows, tools, and integrations—to keep the canvas-driven experience evolving.
 
 ## 🚀 Quick Start
 
@@ -44,25 +44,18 @@ Click the buttons below to deploy Opentu to your own server:
 | Vercel   | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fljquan%2Faitu&project-name=aitu&repository-name=aitu) |
 | Netlify  | [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/ljquan/aitu)                           |
 
-## AI Creation Capabilities 🔥
+## Platform Capabilities 🔥
 
-- **AI Image Generation** - Multiple image generation models
-  - gemini-2.5-flash-image (nano-banana) - Fast image generation
-  - gemini-3-pro-image-preview (nano-banana-pro) - High quality, supports HD/2K/4K resolution
-  - Text-to-image, image reference generation, batch generation
-- **AI Video Generation** - Multiple video generation models
-  - Veo3 / Veo3 Pro - High quality video generation
-  - Veo3.1 / Veo3.1 Pro - First/last frame control, multi-image reference
-  - Sora-2 / Sora-2 Pro - OpenAI video model
-  - Image-to-video, progress tracking, task management
-- **Model Switching** - Instantly switch between AI models in generation dialogs
-- **Task Queue Management** - Async task processing, batch generation, retry, history, media caching
+- **AI Generation & Model Routing** - Gemini, nano-banana, Veo3, Sora, and other models share the same prompt panel with batch, resolution, and media-type controls
+- **Task Queue & Workflows** - Advanced queues + progress tracking sync generated outputs with the canvas workspace and media library
+- **Toolbox & Extensions** - Toolboxes, inspiration boards, plugins, and Skill/Agent modules interoperate inside the platform
+- **Content & Asset Governance** - Unified caching, media libraries, and sync/import/export flows keep generated assets reusable across workspaces
 
-### Whiteboard & Visualization
+### Canvas Workspace & Visualization
 
-- **Freehand Drawing** - Hand-drawn creations with multiple brush tools
-- **Image Support** - Insert and edit image elements
-- **Markdown to Mind Map** - Convert text to visual structures
+- **Canvas is the core workspace foundation** that houses assets, tasks, command palettes, and workflow indicators
+- **Freehand drawing & shapes** output directly into canvas elements, with edits syncing back to tasks and assets
+- **Markdown/Mermaid conversions**, structure views, and collaboration all unfold within the same canvas workspace
 
 ### Editing & Interaction
 
@@ -78,21 +71,21 @@ Click the buttons below to deploy Opentu to your own server:
 - **Theme Support** - Light/dark theme switching
 - **Mobile-friendly** - Perfect mobile device support
 
-## About the Name
+## About the Name and Positioning
 
-**_Opentu (opentu.ai)_** is born from the love of creation and the pursuit of visual expression.
+**_Opentu (opentu.ai)_** stands for an AI application platform where the canvas workspace acts as the core execution layer for generation, tooling, and workflows.
 
-_Ope_ represents passion and dedication to creation, while _ntu_ symbolizes the infinite possibilities of visual expression. Here, each creation is a pursuit of beauty, every stroke an extension of imagination.
+_Ope_ signals passion; _ntu_ points to endless visual possibilities. Opentu turns creative drive into a continuous platform flow—AI prompts, task outcomes, and collaboration streams all coalesce on the canvas.
 
-Creativity stems from inner love, and **_Opentu (opentu.ai)_** is committed to being a powerful assistant for every creator.
+Creativity comes from inner love, and **_Opentu (opentu.ai)_** is committed to being every team’s AI application engine.
 
-_Love Creation, Visualize the Future._
+_Let AI applications keep running from the canvas._
 
-## About Plait Drawing Framework
+## About the Plait Drawing Framework
 
-_Opentu (Opentu)_ is positioned as an out-of-the-box, open-source, free tool product. It is built on top of the _Plait_ framework, which is an open-source drawing framework representing significant technical accumulation in knowledge visualization products.
+_Opentu (Opentu)_ builds on the _Plait_ framework, whose Board/Element/Viewport primitives form the canvas workspace foundation for the platform. Plait supplies the rendering and interaction layer while Opentu layers AI generation, toolboxes, and task orchestration on top.
 
-Opentu uses a plugin architecture. Although technically complex, it provides advantages such as supporting multiple UI frameworks (_Angular, React_), integrating different rich text frameworks (currently only _Slate_), enabling clear business layering, and allowing the development of fine-grained reusable plugins to expand more whiteboard application scenarios.
+Opentu’s plugin architecture enables `withXxx` extensions for toolboxes, task queues, media management, and Agent-based Skills. This modularity keeps the canvas workspace adaptable, integrates with UI frameworks like _Angular_ and _React_, and supports different rich text engines (currently _Slate_) without fragmenting the platform experience.
 
 ## Repository Structure
 
@@ -104,7 +97,7 @@ aitu/
 │       ├── public/                  # Static assets
 │       └── index.html               # Entry HTML
 ├── packages/
-│   ├── drawnix/                     # Whiteboard core library
+│   ├── drawnix/                     # Canvas workspace core library
 │   │   ├── src/
 │   │   │   ├── components/          # React components
 │   │   │   │   ├── toolbar/         # Toolbar components
@@ -136,7 +129,7 @@ aitu/
 ### Key Directory Description
 
 - **apps/web**: Web application entry, contains page routing and global config
-- **packages/drawnix**: Core whiteboard library with all core features and components
+- **packages/drawnix**: Canvas workspace core library with task, asset, tool, and editing capabilities
   - `components/`: UI components including toolbars, dialogs, task queue
   - `plugins/`: Feature plugins using composition pattern
   - `services/`: Business service layer for API calls and state management
@@ -272,7 +265,7 @@ Visit `http://localhost:8080` to use.
 
 ```
 packages/
-├── drawnix/           # Core whiteboard application
+├── drawnix/           # Core canvas workspace application
 │   ├── src/
 │   │   ├── components/    # React components
 │   │   ├── plugins/       # Feature plugins

@@ -52,6 +52,90 @@ function checkSshpassInstalled() {
   }
 }
 
+// 检查 rsync 是否安装
+function checkRsyncInstalled() {
+  try {
+    execSync('which rsync', { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// 构建 SSH 公共参数（消除重复逻辑）
+function buildSSHAuth(config) {
+  let prefix = '';
+  let usePassword = false;
+  const args = [];
+
+  if (config.DEPLOY_SSH_PASSWORD) {
+    if (checkSshpassInstalled()) {
+      usePassword = true;
+      prefix = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+    }
+  }
+
+  if (config.DEPLOY_SSH_KEY && !usePassword) {
+    const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/')
+      ? config.DEPLOY_SSH_KEY
+      : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
+    if (fs.existsSync(sshKeyPath)) {
+      args.push(`-i "${sshKeyPath}"`);
+    }
+  }
+
+  args.push('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null');
+
+  return { prefix, usePassword, args };
+}
+
+// 构建 SSH 命令
+function buildSSHCommand(config, remoteCmd) {
+  const { prefix, usePassword, args } = buildSSHAuth(config);
+  const portArg = config.DEPLOY_PORT && config.DEPLOY_PORT !== '22' ? `-p ${config.DEPLOY_PORT}` : '';
+  return {
+    command: `${prefix}ssh ${portArg} ${args.join(' ')} ${config.DEPLOY_USER}@${config.DEPLOY_HOST} "${remoteCmd}"`,
+    usePassword,
+  };
+}
+
+// 执行远程 SSH 命令（返回 stdout）
+function execRemoteCommand(config, remoteCmd, options = {}) {
+  const { command } = buildSSHCommand(config, remoteCmd);
+  return execSync(command, { encoding: 'utf8', stdio: 'pipe', ...options }).trim();
+}
+
+// 预检远程目录：确保存在且可写
+function ensureRemoteDir(config) {
+  const dir = config.DEPLOY_UPLOAD_DIR;
+  if (!dir) return { ok: false, reason: '未配置 DEPLOY_UPLOAD_DIR' };
+
+  try {
+    const result = execRemoteCommand(config,
+      `mkdir -p ${dir} 2>/dev/null; test -w ${dir} && echo 'writable' || echo 'not_writable'`
+    );
+    if (result === 'writable') return { ok: true };
+
+    // 尝试修复权限（如果用户有 sudo）
+    try {
+      execRemoteCommand(config, `sudo chown -R $(whoami) ${dir} 2>/dev/null && echo ok`);
+      const retry = execRemoteCommand(config, `test -w ${dir} && echo 'writable' || echo 'not_writable'`);
+      if (retry === 'writable') {
+        console.log(`🔧 已自动修复目录权限`);
+        return { ok: true };
+      }
+    } catch (_) { /* sudo 不可用，忽略 */ }
+
+    return {
+      ok: false,
+      reason: `目录 ${dir} 不可写`,
+      fix: `ssh root@${config.DEPLOY_HOST} "chown -R ${config.DEPLOY_USER}:${config.DEPLOY_USER} ${dir} && chmod 755 ${dir}"`,
+    };
+  } catch (error) {
+    return { ok: false, reason: `SSH 连接失败: ${error.message}` };
+  }
+}
+
 // 查找最新的打包文件
 function findLatestPackage() {
   const distPath = path.join(__dirname, '../dist/apps');
@@ -87,45 +171,12 @@ function findLatestPackage() {
 
 // 检查远程文件是否存在
 function checkRemoteFileExists(tarName, config) {
-  if (!config.DEPLOY_UPLOAD_DIR) {
-    return false;
-  }
-  
+  if (!config.DEPLOY_UPLOAD_DIR) return false;
   try {
-    // 构建 SSH 命令
-    let sshCommand = '';
-    let usePassword = false;
-    
-    if (config.DEPLOY_SSH_PASSWORD) {
-      if (!checkSshpassInstalled()) {
-        return false;
-      }
-      usePassword = true;
-      sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
-    }
-    
-    sshCommand += 'ssh';
-    
-    if (config.DEPLOY_PORT && config.DEPLOY_PORT !== '22') {
-      sshCommand += ` -p ${config.DEPLOY_PORT}`;
-    }
-    
-    if (config.DEPLOY_SSH_KEY && !usePassword) {
-      const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/') 
-        ? config.DEPLOY_SSH_KEY 
-        : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
-      
-      if (fs.existsSync(sshKeyPath)) {
-        sshCommand += ` -i "${sshKeyPath}"`;
-      }
-    }
-    
-    sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-    sshCommand += ` ${config.DEPLOY_USER}@${config.DEPLOY_HOST}`;
-    sshCommand += ` "test -f ${config.DEPLOY_UPLOAD_DIR}/${tarName} && echo 'exists' || echo 'not_exists'"`;
-    
-    const result = execSync(sshCommand, { encoding: 'utf8', stdio: 'pipe' });
-    return result.trim() === 'exists';
+    const result = execRemoteCommand(config,
+      `test -f ${config.DEPLOY_UPLOAD_DIR}/${tarName} && echo 'exists' || echo 'not_exists'`
+    );
+    return result === 'exists';
   } catch (error) {
     return false;
   }
@@ -144,59 +195,37 @@ function calculateLocalFileHash(filePath) {
 
 // 获取远程文件的哈希
 function getRemoteFileHash(tarName, config) {
-  if (!config.DEPLOY_UPLOAD_DIR) {
-    return null;
-  }
-  
+  if (!config.DEPLOY_UPLOAD_DIR) return null;
   try {
-    // 构建 SSH 命令
-    let sshCommand = '';
-    let usePassword = false;
-    
-    if (config.DEPLOY_SSH_PASSWORD) {
-      if (!checkSshpassInstalled()) {
-        return null;
-      }
-      usePassword = true;
-      sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
-    }
-    
-    sshCommand += 'ssh';
-    
-    if (config.DEPLOY_PORT && config.DEPLOY_PORT !== '22') {
-      sshCommand += ` -p ${config.DEPLOY_PORT}`;
-    }
-    
-    if (config.DEPLOY_SSH_KEY && !usePassword) {
-      const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/') 
-        ? config.DEPLOY_SSH_KEY 
-        : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
-      
-      if (fs.existsSync(sshKeyPath)) {
-        sshCommand += ` -i "${sshKeyPath}"`;
-      }
-    }
-    
-    sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-    sshCommand += ` ${config.DEPLOY_USER}@${config.DEPLOY_HOST}`;
-    sshCommand += ` "sha256sum ${config.DEPLOY_UPLOAD_DIR}/${tarName} 2>/dev/null | cut -d' ' -f1 || echo ''"`;
-    
-    const result = execSync(sshCommand, { encoding: 'utf8', stdio: 'pipe' });
-    const hash = result.trim();
+    const hash = execRemoteCommand(config,
+      `sha256sum ${config.DEPLOY_UPLOAD_DIR}/${tarName} 2>/dev/null | cut -d' ' -f1 || echo ''`
+    );
     return hash || null;
   } catch (error) {
     return null;
   }
 }
 
-// 上传文件到远程服务器
+// 上传文件到远程服务器（rsync 优先，scp 降级）
 function uploadToServer(tarPath, tarName, config, localHash = null) {
   if (!config.DEPLOY_UPLOAD_DIR) {
     console.error(`\n❌ 未配置上传目录`);
     console.error(`   请在 .env 文件中配置 DEPLOY_UPLOAD_DIR`);
     return false;
   }
-  
+
+  // 预检远程目录
+  console.log(`\n🔍 预检远程目录...`);
+  const dirCheck = ensureRemoteDir(config);
+  if (!dirCheck.ok) {
+    console.error(`\n❌ ${dirCheck.reason}`);
+    if (dirCheck.fix) {
+      console.error(`\n💡 修复命令:\n   ${dirCheck.fix}`);
+    }
+    return false;
+  }
+  console.log(`   目录可写 ✓`);
+
   // 计算本地文件哈希
   if (!localHash) {
     console.log(`\n🔐 计算本地文件哈希...`);
@@ -205,11 +234,11 @@ function uploadToServer(tarPath, tarName, config, localHash = null) {
       console.log(`   本地哈希: ${localHash.substring(0, 16)}...`);
     }
   }
-  
+
   // 检查远程文件是否存在并比较哈希
   console.log(`\n🔍 检查远程文件...`);
   const remoteHash = getRemoteFileHash(tarName, config);
-  
+
   if (remoteHash) {
     console.log(`   远程哈希: ${remoteHash.substring(0, 16)}...`);
     if (localHash && remoteHash === localHash) {
@@ -221,72 +250,50 @@ function uploadToServer(tarPath, tarName, config, localHash = null) {
   } else {
     console.log(`   远程文件不存在，需要上传`);
   }
-  
+
+  const fileSizeMB = (fs.statSync(tarPath).size / 1024 / 1024).toFixed(2);
   console.log(`\n🚀 开始上传到远程服务器...`);
   console.log(`   服务器: ${config.DEPLOY_USER}@${config.DEPLOY_HOST}:${config.DEPLOY_PORT}`);
   console.log(`   目标目录: ${config.DEPLOY_UPLOAD_DIR}`);
-  console.log(`   文件: ${tarName}`);
+  console.log(`   文件: ${tarName} (${fileSizeMB} MB)`);
 
+  const { prefix, usePassword, args } = buildSSHAuth(config);
+  const remoteDest = `${config.DEPLOY_USER}@${config.DEPLOY_HOST}:${config.DEPLOY_UPLOAD_DIR}/`;
+
+  // 优先尝试 rsync（进度显示 + 压缩 + 断点续传）
+  if (checkRsyncInstalled()) {
+    try {
+      console.log(`🔄 使用 rsync 上传（支持断点续传）...`);
+      const portArg = config.DEPLOY_PORT && config.DEPLOY_PORT !== '22' ? config.DEPLOY_PORT : '22';
+      const sshOpts = `ssh -p ${portArg} ${args.join(' ')}`;
+      const rsyncCmd = `${prefix}rsync -avz --progress --partial -e '${sshOpts}' "${tarPath}" "${remoteDest}"`;
+      execSync(rsyncCmd, { stdio: 'inherit' });
+      console.log(`✅ rsync 上传成功!`);
+      console.log(`📦 远程路径: ${config.DEPLOY_UPLOAD_DIR}/${tarName}`);
+      return { success: true, tarName, usePassword };
+    } catch (error) {
+      console.log(`⚠️  rsync 失败，降级到 scp...`);
+    }
+  }
+
+  // scp 降级
   try {
-    // 构建 scp 命令
-    let scpCommand = '';
-    let usePassword = false;
-    
-    // 如果配置了密码，优先使用密码
-    if (config.DEPLOY_SSH_PASSWORD) {
-      if (!checkSshpassInstalled()) {
-        console.error(`\n❌ 未安装 sshpass，无法使用密码认证`);
-        console.error(`\n💡 安装方法:`);
-        console.error(`   macOS: brew install hudochenkov/sshpass/sshpass`);
-        console.error(`   Linux: apt-get install sshpass 或 yum install sshpass`);
-        return false;
-      }
-      usePassword = true;
-      scpCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
-    }
-    
-    scpCommand += 'scp';
-    
-    // 添加端口
+    console.log(`🔄 使用 scp 上传...`);
+    let scpCmd = `${prefix}scp`;
     if (config.DEPLOY_PORT && config.DEPLOY_PORT !== '22') {
-      scpCommand += ` -P ${config.DEPLOY_PORT}`;
+      scpCmd += ` -P ${config.DEPLOY_PORT}`;
     }
-    
-    // 添加 SSH 密钥（如果没有使用密码）
-    if (config.DEPLOY_SSH_KEY && !usePassword) {
-      const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/') 
-        ? config.DEPLOY_SSH_KEY 
-        : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
-      
-      if (fs.existsSync(sshKeyPath)) {
-        scpCommand += ` -i "${sshKeyPath}"`;
-      }
-    }
-    
-    // 禁用严格主机密钥检查
-    scpCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-    
-    // 添加源文件和目标
-    const remotePath = `${config.DEPLOY_USER}@${config.DEPLOY_HOST}:${config.DEPLOY_UPLOAD_DIR}`;
-    scpCommand += ` "${tarPath}" "${remotePath}/"`;
-    
-    console.log(`🔄 执行上传命令...`);
-    if (usePassword) {
-      console.log(`   使用密码认证`);
-    } else if (config.DEPLOY_SSH_KEY) {
-      console.log(`   使用 SSH 密钥认证`);
-    } else {
-      console.log(`   使用默认 SSH 认证`);
-    }
-    
-    execSync(scpCommand, { stdio: 'inherit' });
-    
-    console.log(`✅ 上传成功!`);
+    scpCmd += ` ${args.join(' ')} "${tarPath}" "${remoteDest}"`;
+    execSync(scpCmd, { stdio: 'inherit' });
+    console.log(`✅ scp 上传成功!`);
     console.log(`📦 远程路径: ${config.DEPLOY_UPLOAD_DIR}/${tarName}`);
-    
     return { success: true, tarName, usePassword };
   } catch (error) {
     console.error(`❌ 上传失败:`, error.message);
+    if (error.message.includes('Permission denied')) {
+      console.error(`\n💡 权限不足，请在服务器执行:`);
+      console.error(`   chown -R ${config.DEPLOY_USER}:${config.DEPLOY_USER} ${config.DEPLOY_UPLOAD_DIR}`);
+    }
     return false;
   }
 }
@@ -295,50 +302,17 @@ function uploadToServer(tarPath, tarName, config, localHash = null) {
 function executeRemoteExtract(config, tarName, usePassword = false) {
   if (!config.DEPLOY_UPLOAD_DIR) {
     console.error(`\n❌ 未配置上传目录`);
-    console.error(`   请在 .env 文件中配置 DEPLOY_UPLOAD_DIR`);
     return false;
   }
-  
-  // 从包中读取版本号
+
   const uploadsDir = config.DEPLOY_UPLOAD_DIR;
   const releasesDir = config.DEPLOY_RELEASES_DIR || uploadsDir.replace('/uploads', '/releases');
-  
+
   console.log(`\n📦 开始远程解压...`);
   console.log(`   包文件: ${tarName}`);
-  console.log(`   上传目录: ${uploadsDir}`);
   console.log(`   解压目录: ${releasesDir}`);
-  
+
   try {
-    // 构建 SSH 命令
-    let sshCommand = '';
-    
-    if (usePassword) {
-      sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
-    }
-    
-    sshCommand += 'ssh';
-    
-    // 添加端口
-    if (config.DEPLOY_PORT && config.DEPLOY_PORT !== '22') {
-      sshCommand += ` -p ${config.DEPLOY_PORT}`;
-    }
-    
-    // 添加 SSH 密钥（如果没有使用密码）
-    if (config.DEPLOY_SSH_KEY && !usePassword) {
-      const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/') 
-        ? config.DEPLOY_SSH_KEY 
-        : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
-      
-      if (fs.existsSync(sshKeyPath)) {
-        sshCommand += ` -i "${sshKeyPath}"`;
-      }
-    }
-    
-    // 禁用严格主机密钥检查
-    sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-    
-    // 构建远程解压命令
-    // 使用 base64 编码避免引号转义问题
     const extractScript = `VERSION=$(tar -xzf ${uploadsDir}/${tarName} -O web/version.json 2>/dev/null | grep '"version"' | sed 's/.*"version": "\\([^"]*\\)".*/\\1/')
 if [ -z "$VERSION" ]; then
   echo "无法读取版本号"
@@ -366,16 +340,13 @@ else
 fi
 cp "${releasesDir}/$VERSION/versions.html" "${releasesDir}/versions.html" 2>/dev/null || true
 cp "${releasesDir}/$VERSION/changelog.json" "${releasesDir}/changelog.json" 2>/dev/null || true`;
-    
-    // 将脚本编码为 base64，避免引号转义问题
+
     const encodedScript = Buffer.from(extractScript).toString('base64');
-    const remoteCommand = `echo ${encodedScript} | base64 -d | bash`;
-    
-    sshCommand += ` ${config.DEPLOY_USER}@${config.DEPLOY_HOST} "${remoteCommand}"`;
-    
+    const { command } = buildSSHCommand(config, `echo ${encodedScript} | base64 -d | bash`);
+
     console.log(`🔄 执行远程解压命令...`);
-    execSync(sshCommand, { stdio: 'inherit' });
-    
+    execSync(command, { stdio: 'inherit' });
+
     console.log(`✅ 解压成功!`);
     return true;
   } catch (error) {
@@ -392,52 +363,21 @@ cp "${releasesDir}/$VERSION/changelog.json" "${releasesDir}/changelog.json" 2>/d
 function executeRemoteDeploy(config, tarName, env = 'test', usePassword = false) {
   if (!config.DEPLOY_SCRIPT_PATH) {
     console.error(`\n❌ 未配置部署脚本路径`);
-    console.error(`   请在 .env 文件中配置 DEPLOY_SCRIPT_PATH`);
     return false;
   }
-  
+
   const deployScriptPath = config.DEPLOY_SCRIPT_PATH;
-  
   console.log(`\n🚀 开始自动部署到${env === 'test' ? '测试' : '生产'}环境...`);
   console.log(`   部署脚本: ${deployScriptPath}`);
   console.log(`   包文件: ${tarName}`);
-  
+
   try {
-    // 构建 SSH 命令
-    let sshCommand = '';
-    
-    if (usePassword) {
-      sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
-    }
-    
-    sshCommand += 'ssh';
-    
-    // 添加端口
-    if (config.DEPLOY_PORT && config.DEPLOY_PORT !== '22') {
-      sshCommand += ` -p ${config.DEPLOY_PORT}`;
-    }
-    
-    // 添加 SSH 密钥（如果没有使用密码）
-    if (config.DEPLOY_SSH_KEY && !usePassword) {
-      const sshKeyPath = config.DEPLOY_SSH_KEY.startsWith('/') 
-        ? config.DEPLOY_SSH_KEY 
-        : path.join(process.env.HOME || '', config.DEPLOY_SSH_KEY.replace(/^~/, ''));
-      
-      if (fs.existsSync(sshKeyPath)) {
-        sshCommand += ` -i "${sshKeyPath}"`;
-      }
-    }
-    
-    // 禁用严格主机密钥检查
-    sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-    
-    // 构建远程命令
     const remoteCommand = `bash ${deployScriptPath} --${env} ${tarName}`;
-    sshCommand += ` ${config.DEPLOY_USER}@${config.DEPLOY_HOST} "${remoteCommand}"`;
-    
+    const { command } = buildSSHCommand(config, remoteCommand);
+
     console.log(`🔄 执行远程部署命令...`);
-    execSync(sshCommand, { stdio: 'inherit' });
-    
+    execSync(command, { stdio: 'inherit' });
+
     console.log(`✅ 部署成功!`);
     return true;
   } catch (error) {
@@ -513,42 +453,9 @@ function main() {
       process.exit(1);
     }
   } else {
-    // 计算本地文件哈希
-    console.log(`\n🔐 计算本地文件哈希...`);
-    const localHash = calculateLocalFileHash(packageFile.path);
-    if (localHash) {
-      console.log(`   本地哈希: ${localHash.substring(0, 16)}...`);
-    }
-    
-    // 检查文件是否已存在并比较哈希
-    fileExists = checkRemoteFileExists(packageFile.name, config);
-    if (fileExists) {
-      console.log(`\nℹ️  远程文件已存在: ${config.DEPLOY_UPLOAD_DIR}/${packageFile.name}`);
-      
-      // 获取远程文件哈希
-      const remoteHash = getRemoteFileHash(packageFile.name, config);
-      if (remoteHash && localHash) {
-        console.log(`   远程哈希: ${remoteHash.substring(0, 16)}...`);
-        if (remoteHash === localHash) {
-          console.log(`✅ 远程文件哈希匹配，跳过上传`);
-          uploadResult = getAuthInfo(config);
-          uploadResult.success = true;
-          uploadResult.tarName = packageFile.name;
-          uploadResult.skipped = true;
-          uploadResult.hash = localHash;
-        } else {
-          console.log(`⚠️  远程文件哈希不匹配，将重新上传`);
-          uploadResult = uploadToServer(packageFile.path, packageFile.name, config, localHash);
-        }
-      } else {
-        console.log(`   将重新上传覆盖`);
-        uploadResult = uploadToServer(packageFile.path, packageFile.name, config, localHash);
-      }
-    } else {
-      // 上传文件
-      uploadResult = uploadToServer(packageFile.path, packageFile.name, config, localHash);
-    }
-    
+    // 上传文件（内部已处理哈希比对和跳过逻辑）
+    uploadResult = uploadToServer(packageFile.path, packageFile.name, config);
+
     if (!uploadResult || !uploadResult.success) {
       console.error(`\n❌ 上传失败，终止部署`);
       process.exit(1);

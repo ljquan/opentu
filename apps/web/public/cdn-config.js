@@ -13,6 +13,26 @@
  */
 
 (function() {
+  var CDN_GLOBAL_KEY = '__OPENTU_CDN__';
+  var CDN_API_GLOBAL_KEY = '__OPENTU_CDN_API__';
+  var LEGACY_CDN_GLOBAL_KEY = '__AITU_CDN__';
+  var LEGACY_CDN_API_GLOBAL_KEY = '__AITU_CDN_API__';
+  var STORAGE_KEY = 'opentu-cdn-preference';
+  var LEGACY_STORAGE_KEY = 'aitu-cdn-preference';
+
+  function setCDNPreference(value) {
+    window[CDN_GLOBAL_KEY] = value;
+    window[LEGACY_CDN_GLOBAL_KEY] = value;
+  }
+
+  function getCDNPreference() {
+    return window[CDN_GLOBAL_KEY] || window[LEGACY_CDN_GLOBAL_KEY] || null;
+  }
+
+  function setCDNApi(api) {
+    window[CDN_API_GLOBAL_KEY] = api;
+    window[LEGACY_CDN_API_GLOBAL_KEY] = api;
+  }
   
 
   // 开发模式检测 - 本地开发时跳过 CDN 逻辑
@@ -21,23 +41,23 @@
                       window.location.hostname.endsWith('.localhost');
   
   if (isDevelopment) {
-    window.__AITU_CDN__ = { cdn: 'local', latency: 0, timestamp: Date.now(), isDevelopment: true };
-    window.__AITU_CDN_API__ = {
-      selectBestCDN: function() { return Promise.resolve(window.__AITU_CDN__); },
+    setCDNPreference({ cdn: 'local', latency: 0, timestamp: Date.now(), isDevelopment: true });
+    setCDNApi({
+      selectBestCDN: function() { return Promise.resolve(getCDNPreference()); },
       getCDNBaseUrl: function() { return null; },
       clearCDNCache: function() {},
-      reselectCDN: function() { return Promise.resolve(window.__AITU_CDN__); },
+      reselectCDN: function() { return Promise.resolve(getCDNPreference()); },
       sources: [],
       config: {},
       isDevelopment: true,
-    };
+    });
     return; // 直接返回，不执行 CDN 检测
   }
 
   // 配置
   var CONFIG = {
     packageName: 'aitu-app',
-    storageKey: 'aitu-cdn-preference',
+    storageKey: STORAGE_KEY,
     testTimeout: 5000, // 测试超时时间（毫秒）
     cacheExpiry: 3600000, // 缓存过期时间（1小时）
   };
@@ -95,11 +115,13 @@
   function selectBestCDN() {
     // 检查缓存
     try {
-      var cached = localStorage.getItem(CONFIG.storageKey);
+      var cached =
+        localStorage.getItem(CONFIG.storageKey) ||
+        localStorage.getItem(LEGACY_STORAGE_KEY);
       if (cached) {
         var data = JSON.parse(cached);
         if (Date.now() - data.timestamp < CONFIG.cacheExpiry) {
-          window.__AITU_CDN__ = data;
+          setCDNPreference(data);
           return Promise.resolve(data);
         }
       }
@@ -136,7 +158,7 @@
       }
 
       // 暴露到全局变量供 SW 使用
-      window.__AITU_CDN__ = preference;
+      setCDNPreference(preference);
       
       return preference;
     });
@@ -164,7 +186,9 @@
   function clearCDNCache() {
     try {
       localStorage.removeItem(CONFIG.storageKey);
-      delete window.__AITU_CDN__;
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      delete window[CDN_GLOBAL_KEY];
+      delete window[LEGACY_CDN_GLOBAL_KEY];
     } catch (e) {
       // 忽略
     }
@@ -179,14 +203,14 @@
   }
 
   // 暴露 API
-  window.__AITU_CDN_API__ = {
+  setCDNApi({
     selectBestCDN: selectBestCDN,
     getCDNBaseUrl: getCDNBaseUrl,
     clearCDNCache: clearCDNCache,
     reselectCDN: reselectCDN,
     sources: CDN_SOURCES,
     config: CONFIG,
-  };
+  });
 
   // 页面加载时自动选择 CDN（非阻塞）
   if (document.readyState === 'loading') {

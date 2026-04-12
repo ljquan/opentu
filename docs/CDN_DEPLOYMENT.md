@@ -281,13 +281,15 @@ if (isCDNAvailable(cdnName)) {
 // 在浏览器控制台执行
 
 // 查看 CDN 状态
-__AITU_CDN_API__.sources
+__OPENTU_CDN_API__.sources
 
 // 强制重新选择 CDN
-__AITU_CDN_API__.reselectCDN()
+__OPENTU_CDN_API__.reselectCDN()
 
 // 清除 CDN 缓存
-__AITU_CDN_API__.clearCDNCache()
+__OPENTU_CDN_API__.clearCDNCache()
+
+> 兼容说明：运行时仍保留 `__AITU_CDN__` / `__AITU_CDN_API__` 旧别名读取能力，用于兼容历史缓存与调试入口，但新代码应统一使用 `__OPENTU_CDN__` / `__OPENTU_CDN_API__`。
 ```
 
 ## 监控与告警

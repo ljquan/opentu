@@ -1,6 +1,6 @@
-# TDesign 主题集成 - AITU 品牌色彩
+# TDesign 主题集成 - Opentu 品牌色彩
 
-本文档说明了如何在项目中集成 TDesign 组件库并应用 AITU 品牌色彩系统。
+本文档说明了如何在项目中集成 TDesign 组件库并应用 Opentu 品牌色彩系统。
 
 ## 🎨 品牌色彩系统
 
@@ -156,7 +156,7 @@ function MyComponent() {
       <div className="aitu-gradient-bg">渐变背景</div>
       
       {/* 使用渐变文字 */}
-      <h1 className="aitu-gradient-text">AITU</h1>
+      <h1 className="aitu-gradient-text">Opentu</h1>
     </div>
   );
 }

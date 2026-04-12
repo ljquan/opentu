@@ -1,7 +1,7 @@
 {
-  "name": "OpenTu - AI图片视频创作",
-  "short_name": "OpenTu",
-  "description": "OpenTu 是一款强大的AI图片视频创作工具，集成思维导图、流程图等功能。基于 Plait 框架开发，支持插件扩展，提供自动保存、无限画布等特性。",
+  "name": "Opentu - AI应用平台",
+  "short_name": "Opentu",
+  "description": "Opentu（开图）是一个以画布工作区为核心的 AI 应用平台，集成模型、素材、知识与工作流，支持插件扩展、自动保存与多格式导出。",
   "start_url": "./",
   "display": "standalone",
   "orientation": "any",
@@ -28,9 +28,9 @@
   "prefer_related_applications": false,
   "shortcuts": [
     {
-      "name": "新建白板",
+      "name": "新建工作区",
       "short_name": "新建",
-      "description": "创建一个新的白板",
+      "description": "创建一个新的 Opentu 工作区",
       "url": "./",
       "icons": [
         {

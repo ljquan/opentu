@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CDN 状态调试 - OpenTu</title>
+    <title>CDN 状态调试 - Opentu AI应用平台</title>
     <style>
       :root {
         --primary-color: #f39c12;
@@ -171,7 +171,7 @@
     </style>
   </head>
   <body>
-    <h1>🌐 CDN 状态调试</h1>
+    <h1>🌐 Opentu CDN 状态调试</h1>
 
     <div class="card">
       <h2>CDN 源状态</h2>
@@ -360,7 +360,7 @@
       // 显示 CDN 偏好
       function showPreference() {
         const container = document.getElementById('cdn-preference');
-        const pref = window.__AITU_CDN__;
+        const pref = window.__OPENTU_CDN__ || window.__AITU_CDN__;
 
         if (!pref) {
           container.innerHTML =
@@ -403,8 +403,9 @@
       async function reselectCDN() {
         log('重新选择最佳 CDN...');
 
-        if (window.__AITU_CDN_API__) {
-          const result = await window.__AITU_CDN_API__.reselectCDN();
+        const api = window.__OPENTU_CDN_API__ || window.__AITU_CDN_API__;
+        if (api) {
+          const result = await api.reselectCDN();
           log(`已选择: ${result.cdn} (${result.latency}ms)`, 'success');
           showPreference();
         } else {
@@ -414,8 +415,9 @@
 
       // 清除偏好
       function clearPreference() {
-        if (window.__AITU_CDN_API__) {
-          window.__AITU_CDN_API__.clearCDNCache();
+        const api = window.__OPENTU_CDN_API__ || window.__AITU_CDN_API__;
+        if (api) {
+          api.clearCDNCache();
           log('CDN 偏好已清除', 'success');
           showPreference();
         }
