@@ -28,6 +28,8 @@
     "build:web": "node scripts/update-version.js && nx build web",
     "preview": "npx serve dist/apps/web -l 7288",
     "preview:watch": "concurrently -k \"cd apps/web && NODE_OPTIONS='--max-old-space-size=8192' npx vite build --watch\" \"npx wait-on dist/apps/web/index.html && npx serve dist/apps/web -l 7288\"",
+    "iframe:test:host": "python3 -m http.server 7201 -d apps/web/public",
+    "iframe:test": "node scripts/iframe-test-dev.js",
     "package": "npm run build && node scripts/create-deploy-package.js",
     "typecheck": "nx run-many -t=typecheck",
     "lint": "nx run-many -t=lint",

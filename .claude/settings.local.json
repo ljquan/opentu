@@ -14,7 +14,8 @@
       "Bash(pnpm check:*)",
       "Bash(git add:*)",
       "Bash(npx tsc:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npx eslint:*)"
     ]
   }
 }

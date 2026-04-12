@@ -140,6 +140,37 @@
         .btn-secondary:hover {
             background: #5a6268;
         }
+
+        .input {
+            min-width: 320px;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+
+        .code-block {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f1f3f4;
+            border-radius: 4px;
+            font-size: 0.85em;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        .diagnostics {
+            margin-top: 12px;
+            padding: 12px;
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 8px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            min-height: 96px;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
@@ -152,19 +183,33 @@
         <div class="content">
             <!-- 本地测试 - 模拟本地域名嵌入 -->
             <div class="test-section">
-                <h2>本地环境嵌入测试 <span class="status success">✓ 允许</span></h2>
+                <h2>本地跨端口嵌入测试 <span class="status success">✓ 允许</span></h2>
                 <div class="iframe-info">
-                    <strong>场景:</strong> 本地开发环境嵌入当前应用<br>
-                    <strong>状态:</strong> 本地域名已在白名单中，应该正常显示<br>
-                    <strong>用途:</strong> 验证本地开发时的嵌入效果
+                    <strong>场景:</strong> 用另一个端口模拟 <code>7201 -&gt; 7200</code> 的真实跨端口 iframe 嵌入<br>
+                    <strong>状态:</strong> localhost 任意端口已在白名单中，应该正常显示<br>
+                    <strong>用途:</strong> 复现 <code>api.tu-zi.com/oepntu</code> 嵌入 <code>opentu.ai</code> 的模式
+                </div>
+                <div class="note">
+                    <strong>推荐本地复现:</strong>
+                    <div class="code-block">终端 1: pnpm start
+终端 2: python3 -m http.server 7201 -d apps/web/public
+浏览器: http://localhost:7201/iframe-test.html?target=http://localhost:7200</div>
                 </div>
                 <div class="controls">
+                    <input
+                        id="target-url"
+                        class="input"
+                        type="text"
+                        placeholder="输入被嵌入页面地址，例如 http://localhost:7200"
+                    />
+                    <button class="btn btn-secondary" onclick="saveTargetUrl()">保存目标地址</button>
                     <button class="btn btn-primary" onclick="loadLocalIframe()">嵌入当前应用</button>
                     <button class="btn btn-secondary" onclick="reloadIframe('local-iframe')">重新加载</button>
                 </div>
                 <div class="iframe-container">
                     <iframe id="local-iframe" src="" title="本地嵌入Aitu应用"></iframe>
                 </div>
+                <div id="diagnostics" class="diagnostics">等待开始诊断...</div>
             </div>
 
             <!-- 模拟 api.tu-zi.com 嵌入 -->
@@ -232,8 +277,8 @@
                 <h2>CSP 策略配置</h2>
                 <div class="note">
                     为了允许当前应用被其他域名通过iframe嵌入，需要配置以下HTTP响应头：
-                    <pre style="margin: 10px 0; padding: 10px; background: #f1f3f4; border-radius: 4px; font-size: 0.85em;">Content-Security-Policy: frame-ancestors 'self' localhost:* 127.0.0.1:* https://api.tu-zi.com
-X-Frame-Options: ALLOWALL</pre>
+                    <pre style="margin: 10px 0; padding: 10px; background: #f1f3f4; border-radius: 4px; font-size: 0.85em;">Content-Security-Policy: frame-ancestors 'self' localhost:* 127.0.0.1:* *.localhost:* https://api.tu-zi.com
+# 不再设置 X-Frame-Options，避免与 frame-ancestors 冲突</pre>
                 </div>
                 <div class="iframe-info">
                     <strong>当前策略允许嵌入的父域名:</strong><br>
@@ -259,75 +304,146 @@ X-Frame-Options: ALLOWALL</pre>
     </div>
 
     <script>
-        // 获取当前页面的基础URL
-        function getBaseUrl() {
-            return 'https://ai-tu.netlify.app/';
+        const TARGET_STORAGE_KEY = 'aitu-iframe-test-target';
+        const diagnosticsEl = document.getElementById('diagnostics');
+        let diagnosticsStartAt = 0;
+
+        function appendDiagnostics(message) {
+            if (!diagnosticsEl) {
+                return;
+            }
+            const now = new Date();
+            const timestamp = now.toLocaleTimeString('zh-CN', { hour12: false });
+            diagnosticsEl.textContent = `[${timestamp}] ${message}\n${diagnosticsEl.textContent}`.trim();
         }
-        
+
+        function buildDefaultTarget() {
+            const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            if (isLocalHost) {
+                return `${location.protocol}//${location.hostname}:7200`;
+            }
+            return 'https://opentu.ai';
+        }
+
+        function normalizeBaseUrl(url) {
+            const input = (url || '').trim();
+            if (!input) {
+                return buildDefaultTarget();
+            }
+
+            try {
+                const normalized = new URL(input);
+                return normalized.toString().replace(/\/$/, '');
+            } catch (error) {
+                appendDiagnostics(`目标地址无效，回退默认值: ${input}`);
+                return buildDefaultTarget();
+            }
+        }
+
+        function getBaseUrl() {
+            const input = document.getElementById('target-url');
+            const queryTarget = new URLSearchParams(location.search).get('target');
+            const storedTarget = localStorage.getItem(TARGET_STORAGE_KEY);
+            const currentValue = input && input.value ? input.value : '';
+            const target = currentValue || queryTarget || storedTarget || buildDefaultTarget();
+            return normalizeBaseUrl(target);
+        }
+
+        function syncTargetInput() {
+            const input = document.getElementById('target-url');
+            if (input) {
+                input.value = getBaseUrl();
+            }
+        }
+
+        function saveTargetUrl() {
+            const baseUrl = getBaseUrl();
+            localStorage.setItem(TARGET_STORAGE_KEY, baseUrl);
+            syncTargetInput();
+            appendDiagnostics(`已保存目标地址: ${baseUrl}`);
+        }
+
+        function setIframeSrc(iframeId, nextSrc) {
+            const iframe = document.getElementById(iframeId);
+            if (!iframe) {
+                return;
+            }
+
+            diagnosticsStartAt = performance.now();
+            iframe.src = nextSrc;
+            appendDiagnostics(`开始加载 ${iframeId}: ${nextSrc}`);
+        }
+
         // 加载本地iframe - 嵌入当前应用
         function loadLocalIframe() {
-            const iframe = document.getElementById('local-iframe');
             const baseUrl = getBaseUrl();
-            iframe.src = baseUrl;
+            saveTargetUrl();
+            setIframeSrc('local-iframe', baseUrl);
             console.log('Embedding current app in local iframe:', baseUrl);
         }
-        
+
         // 嵌入当前应用
         function loadCurrentApp() {
-            const iframe = document.getElementById('tuzi-iframe');
             const baseUrl = getBaseUrl();
-            iframe.src = baseUrl;
+            setIframeSrc('tuzi-iframe', baseUrl);
             console.log('Embedding current app:', baseUrl);
         }
-        
+
         // 带查询参数嵌入当前应用
         function loadAppWithQuery(query) {
-            const iframe = document.getElementById('tuzi-iframe');
             const baseUrl = getBaseUrl();
-            iframe.src = `${baseUrl}?${query}`;
+            setIframeSrc('tuzi-iframe', `${baseUrl}?${query}`);
             console.log('Embedding current app with query:', `${baseUrl}?${query}`);
         }
-        
+
         // 带参数加载
         function loadWithParams(params) {
-            const iframe = document.getElementById('param-iframe');
             const baseUrl = getBaseUrl();
-            iframe.src = `${baseUrl}?${params}`;
+            setIframeSrc('param-iframe', `${baseUrl}?${params}`);
             console.log('Loading with params:', `${baseUrl}?${params}`);
         }
-        
+
         // 重新加载指定iframe
         function reloadIframe(iframeId) {
             const iframe = document.getElementById(iframeId);
             const src = iframe.src;
             iframe.src = '';
             setTimeout(() => {
-                iframe.src = src;
+                setIframeSrc(iframeId, src);
             }, 100);
         }
-        
+
         // 清空iframe
         function clearIframe(iframeId) {
             const iframe = document.getElementById(iframeId);
             iframe.src = '';
+            appendDiagnostics(`已清空 ${iframeId}`);
         }
-        
+
         // 监听iframe加载事件
         document.addEventListener('DOMContentLoaded', function() {
+            syncTargetInput();
+            appendDiagnostics(`父页面地址: ${location.href}`);
+            appendDiagnostics(`默认目标地址: ${getBaseUrl()}`);
+
             const iframes = document.querySelectorAll('iframe');
             iframes.forEach(iframe => {
                 iframe.addEventListener('load', function() {
+                    const duration = diagnosticsStartAt ? Math.round(performance.now() - diagnosticsStartAt) : 0;
+                    appendDiagnostics(`iframe load 成功: ${this.id} (${duration}ms)`);
                     console.log(`Iframe loaded successfully: ${this.id}`);
                 });
-                
+
                 iframe.addEventListener('error', function() {
+                    appendDiagnostics(`iframe load 失败: ${this.id}`);
                     console.log(`Iframe failed to load: ${this.id}`);
                 });
             });
         });
-        
+
         // 检测CSP违规
         document.addEventListener('securitypolicyviolation', function(e) {
+            appendDiagnostics(`CSP 违规: ${e.violatedDirective} blocked=${e.blockedURI || 'unknown'}`);
             console.log('CSP Violation:', {
                 directive: e.violatedDirective,
                 blockedURI: e.blockedURI,

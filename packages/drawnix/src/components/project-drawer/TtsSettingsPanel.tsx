@@ -332,6 +332,7 @@ export const TtsSettingsPanel: React.FC = () => {
           <Volume2 size={16} />
           <span>播报参数</span>
         </div>
+        <div className="project-drawer-tts__hint">使用浏览器自带能力，免费。</div>
         <label className="project-drawer-tts__slider">
           <span className="project-drawer-tts__slider-label">语速</span>
           <input
