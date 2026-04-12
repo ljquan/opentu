@@ -15,12 +15,15 @@ import {
   Rows3,
   Columns3,
   ListOrdered,
+  Gauge,
 } from 'lucide-react';
 import { useCanvasAudioPlayback } from '../../hooks/useCanvasAudioPlayback';
 import { useDraggablePosition } from '../../hooks/useDraggablePosition';
 import { LS_KEYS } from '../../constants/storage-keys';
 import { toolWindowService } from '../../services/tool-window-service';
 import {
+  getPlaybackSpeedPresets,
+  formatPlaybackRateLabel,
   isReadingPlaybackSource,
   PLAYBACK_MODE_LABELS,
   type PlaybackMode,
@@ -43,6 +46,17 @@ const PLAYBACK_MODE_OPTIONS = (Object.keys(PLAYBACK_MODE_LABELS) as PlaybackMode
   content: PLAYBACK_MODE_LABELS[mode],
   prefixIcon: PLAYBACK_MODE_ICONS[mode],
 }));
+
+function buildPlaybackRateOptions(currentRate: number, mediaType: 'audio' | 'reading') {
+  return getPlaybackSpeedPresets(mediaType).map((rate) => {
+    const label = formatPlaybackRateLabel(rate);
+    const isActive = Math.abs(rate - currentRate) < 0.001;
+    return {
+      value: rate,
+      content: isActive ? `✓ ${label}` : label,
+    };
+  });
+}
 
 function formatDuration(duration?: number): string {
   if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) {
@@ -71,13 +85,28 @@ export const CanvasAudioPlayer: React.FC = () => {
       return 'horizontal';
     }
   });
+  const [windowWidth, setWindowWidth] = useState(() => 
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
+  const effectiveLayout = windowWidth <= 768 ? 'vertical' : layout;
   const [mobileAnchorRect, setMobileAnchorRect] = useState<{
     left: number;
     width: number;
     bottom: number;
   } | null>(null);
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = windowWidth <= 768;
   const { position, isDragging, wasDraggedRef, elementRef, handlePointerDown } =
     useDraggablePosition({
       storageKey: LS_KEYS.AUDIO_PLAYER_POSITION,
@@ -133,8 +162,17 @@ export const CanvasAudioPlayer: React.FC = () => {
   );
   const hasActivePlayback = hasReadingPlayback || !!playback.activeAudioUrl;
   const canSeek = playback.mediaType === 'audio';
+  const playbackRateMediaType = playback.mediaType === 'reading' ? 'reading' : 'audio';
   const playbackModeLabel = PLAYBACK_MODE_LABELS[playback.playbackMode];
   const playbackModeIcon = PLAYBACK_MODE_ICONS[playback.playbackMode];
+  const playbackRateOptions = useMemo(
+    () => buildPlaybackRateOptions(playback.effectivePlaybackRate, playbackRateMediaType),
+    [playback.effectivePlaybackRate, playbackRateMediaType]
+  );
+  const playbackRateLabel = formatPlaybackRateLabel(playback.effectivePlaybackRate);
+  const playbackRateTooltip = `${
+    playback.mediaType === 'reading' ? '语音速度' : '播放速度'
+  } ${playbackRateLabel}`;
 
   const scrubberStyle = {
     '--canvas-audio-progress': `${progress}%`,
@@ -258,7 +296,7 @@ export const CanvasAudioPlayer: React.FC = () => {
     return null;
   }
 
-  const positionStyle: React.CSSProperties = position
+  const positionStyle: React.CSSProperties = position && !isMobile
     ? { left: position.x, top: position.y }
     : {};
   const mobileStyle = mobileAnchorRect
@@ -277,7 +315,7 @@ export const CanvasAudioPlayer: React.FC = () => {
         'canvas-audio-player--playlist-open': playlistOpen,
         'canvas-audio-player--positioned': !!position,
         'canvas-audio-player--dragging': isDragging,
-        'canvas-audio-player--vertical': layout === 'vertical',
+        'canvas-audio-player--vertical': effectiveLayout === 'vertical',
       })}
       style={Object.keys(playerStyle).length > 0 ? playerStyle : undefined}
     >
@@ -375,6 +413,23 @@ export const CanvasAudioPlayer: React.FC = () => {
       />
 
       <Dropdown
+        options={playbackRateOptions}
+        trigger="click"
+        placement="bottom"
+        minColumnWidth={112}
+        onClick={(data) => playback.setPlaybackRate(Number(data.value))}
+      >
+        <button
+          type="button"
+          className="canvas-audio-player__toggle canvas-audio-player__speed-toggle"
+          aria-label={`切换播放速度，当前${playbackRateLabel}`}
+          data-tooltip={playbackRateTooltip}
+        >
+          <Gauge size={14} />
+        </button>
+      </Dropdown>
+
+      <Dropdown
         options={PLAYBACK_MODE_OPTIONS}
         trigger="click"
         placement="bottom"
@@ -411,9 +466,10 @@ export const CanvasAudioPlayer: React.FC = () => {
         type="button"
         className="canvas-audio-player__toggle canvas-audio-player__layout-toggle"
         onClick={toggleLayout}
-        data-tooltip={layout === 'horizontal' ? '切换为垂直布局' : '切换为水平布局'}
+        data-tooltip={effectiveLayout === 'horizontal' ? '切换为垂直布局' : '切换为水平布局'}
+        style={{ display: windowWidth <= 768 ? 'none' : '' }}
       >
-        {layout === 'horizontal' ? <Rows3 size={14} /> : <Columns3 size={14} />}
+        {effectiveLayout === 'horizontal' ? <Rows3 size={14} /> : <Columns3 size={14} />}
       </button>
 
       <button

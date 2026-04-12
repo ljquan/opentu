@@ -1,13 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../media-executor/fallback-utils', () => ({
+  cacheRemoteUrl: vi.fn(async (url: string) => url),
+}));
+
 import {
   CanvasAudioPlaybackService,
   DEFAULT_PLAYBACK_MODE,
   EMPTY_AUDIO_SPECTRUM,
   EMPTY_AUDIO_WAVEFORM,
 } from '../canvas-audio-playback-service';
+import { ttsSettings } from '../../utils/settings-manager';
 
-beforeEach(() => {
+beforeEach(async () => {
   globalThis.localStorage?.clear?.();
+  await ttsSettings.update({
+    selectedVoice: '',
+    rate: 1,
+    pitch: 1,
+    volume: 1,
+    voicesByLanguage: {},
+  });
 });
 import { createReadingPlaybackSource } from '../reading-playback-source';
 
@@ -17,6 +30,7 @@ class MockAudioElement extends EventTarget {
   duration = 0;
   preload = '';
   volume = 1;
+  playbackRate = 1;
 
   async play(): Promise<void> {
     this.dispatchEvent(new Event('play'));
@@ -365,6 +379,28 @@ describe('CanvasAudioPlaybackService', () => {
     expect(service.getState().volume).toBe(0.35);
   });
 
+  it('updates audio playback rate and persists it across service instances', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+
+    service.setPlaybackRate(1.5, 'audio');
+    expect(service.getState()).toMatchObject({
+      audioPlaybackRate: 1.5,
+      effectivePlaybackRate: 1.5,
+    });
+
+    await service.togglePlayback({
+      elementId: 'audio-node-speed',
+      audioUrl: 'https://example.com/audio-speed.mp3',
+      title: 'Speed Test',
+    });
+
+    expect(audio.playbackRate).toBe(1.5);
+
+    const restoredService = new CanvasAudioPlaybackService();
+    expect(restoredService.getState().audioPlaybackRate).toBe(1.5);
+  });
+
   it('stops at queue end in sequential mode when playback ends', async () => {
     const audio = new MockAudioElement();
     audio.duration = 180;
@@ -418,6 +454,7 @@ describe('CanvasAudioPlaybackService', () => {
 
     audio.dispatchEvent(new Event('ended'));
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(service.getState()).toMatchObject({
       activeAudioUrl: queue[0].audioUrl,
@@ -441,6 +478,7 @@ describe('CanvasAudioPlaybackService', () => {
 
     audio.currentTime = 42;
     audio.dispatchEvent(new Event('ended'));
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(audio.currentTime).toBe(0);
@@ -479,6 +517,7 @@ describe('CanvasAudioPlaybackService', () => {
     await service.togglePlayback(queue[0]);
 
     audio.dispatchEvent(new Event('ended'));
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(service.getState().activeAudioUrl).toBe(queue[2].audioUrl);
@@ -659,5 +698,71 @@ describe('CanvasAudioPlaybackService', () => {
       activeReadingSegmentIndex: 0,
       playing: true,
     });
+  });
+
+  it('syncs reading playback rate to tts settings when changed from playback controls', async () => {
+    const audio = new MockAudioElement();
+    const speechSynthesis = new MockSpeechSynthesis();
+    const readingSource = createReadingPlaybackSource({
+      elementId: 'kb-note:3',
+      title: '语速同步',
+      content: '第一句。第二句。',
+      origin: {
+        kind: 'kb-note',
+        id: '3',
+      },
+    });
+
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement,
+      {
+        speechSynthesis: speechSynthesis as unknown as SpeechSynthesis,
+        utteranceFactory: (text) => ({ text } as SpeechSynthesisUtterance),
+      }
+    );
+
+    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    service.setPlaybackRate(1.5, 'reading');
+    await Promise.resolve();
+
+    expect(service.getState()).toMatchObject({
+      readingPlaybackRate: 1.5,
+      effectivePlaybackRate: 1.5,
+      activeReadingSourceId: readingSource?.readingSourceId,
+    });
+    expect(speechSynthesis.utterances[0]?.rate).toBe(1.5);
+    expect(ttsSettings.get()?.rate).toBe(1.5);
+  });
+
+  it('reacts to external tts rate updates while reading is active', async () => {
+    const audio = new MockAudioElement();
+    const speechSynthesis = new MockSpeechSynthesis();
+    const readingSource = createReadingPlaybackSource({
+      elementId: 'kb-note:4',
+      title: '设置联动',
+      content: '第一句。第二句。',
+      origin: {
+        kind: 'kb-note',
+        id: '4',
+      },
+    });
+
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement,
+      {
+        speechSynthesis: speechSynthesis as unknown as SpeechSynthesis,
+        utteranceFactory: (text) => ({ text } as SpeechSynthesisUtterance),
+      }
+    );
+
+    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    await ttsSettings.update({ rate: 2 });
+
+    expect(service.getState()).toMatchObject({
+      readingPlaybackRate: 2,
+      effectivePlaybackRate: 2,
+      activeReadingSourceId: readingSource?.readingSourceId,
+    });
+    expect(speechSynthesis.utterances[0]?.rate).toBe(2);
   });
 });

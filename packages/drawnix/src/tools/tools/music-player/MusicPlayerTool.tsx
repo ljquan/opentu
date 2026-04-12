@@ -11,6 +11,7 @@ import {
   Repeat1,
   Shuffle,
   ListOrdered,
+  Gauge,
 } from 'lucide-react';
 import { useAssets } from '../../../contexts/AssetContext';
 import { useAudioPlaylists } from '../../../contexts/AudioPlaylistContext';
@@ -30,6 +31,8 @@ import { useCanvasAudioPlayback } from '../../../hooks/useCanvasAudioPlayback';
 import { useAllTracksPlaybackSources } from '../../../hooks/useAllTracksPlaybackSources';
 import { useResolvedAudioDurations } from '../../../hooks/useResolvedAudioDurations';
 import {
+  getPlaybackSpeedPresets,
+  formatPlaybackRateLabel,
   isReadingPlaybackSource,
   PLAYBACK_MODE_LABELS,
   type PlaybackQueueItem,
@@ -53,6 +56,17 @@ const PLAYBACK_MODE_OPTIONS = (Object.keys(PLAYBACK_MODE_LABELS) as PlaybackMode
   content: PLAYBACK_MODE_LABELS[mode],
   prefixIcon: PLAYBACK_MODE_ICONS[mode],
 }));
+
+function buildPlaybackRateOptions(currentRate: number, mediaType: 'audio' | 'reading') {
+  return getPlaybackSpeedPresets(mediaType).map((rate) => {
+    const label = formatPlaybackRateLabel(rate);
+    const isActive = Math.abs(rate - currentRate) < 0.001;
+    return {
+      value: rate,
+      content: isActive ? `✓ ${label}` : label,
+    };
+  });
+}
 
 function formatDuration(duration?: number): string {
   if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) {
@@ -178,6 +192,7 @@ export const MusicPlayerTool: React.FC = () => {
   );
   const showPlaybackQueue =
     playback.queue.length > 0 && (isReadingMode || !!playback.activeAudioUrl);
+  const playbackRateMediaType = playback.mediaType === 'reading' ? 'reading' : 'audio';
   const playbackTabId = playback.activePlaylistId || (
     isReadingMode
       ? AUDIO_PLAYLIST_ALL_TRACKS_ID
@@ -186,6 +201,14 @@ export const MusicPlayerTool: React.FC = () => {
         : AUDIO_PLAYLIST_ALL_ID
   );
   const shouldShowPlaybackQueue = showPlaybackQueue && selectedPlaylistId === playbackTabId;
+  const playbackRateOptions = useMemo(
+    () => buildPlaybackRateOptions(playback.effectivePlaybackRate, playbackRateMediaType),
+    [playback.effectivePlaybackRate, playbackRateMediaType]
+  );
+  const playbackRateLabel = formatPlaybackRateLabel(playback.effectivePlaybackRate);
+  const playbackRateTooltip = `${
+    playback.mediaType === 'reading' ? '语音速度' : '播放速度'
+  } ${playbackRateLabel}`;
   const tempTabs = useMemo(() => {
     if (!showPlaybackQueue) {
       return [];
@@ -511,6 +534,22 @@ export const MusicPlayerTool: React.FC = () => {
               >
                 <SkipForward size={16} />
               </button>
+              <Dropdown
+                options={playbackRateOptions}
+                trigger="click"
+                placement="bottom-right"
+                minColumnWidth={112}
+                onClick={(data) => playback.setPlaybackRate(Number(data.value))}
+              >
+                <button
+                  type="button"
+                  className="music-player-tool__action-btn"
+                  aria-label={`切换播放速度，当前${playbackRateLabel}`}
+                  data-tooltip={playbackRateTooltip}
+                >
+                  <Gauge size={16} />
+                </button>
+              </Dropdown>
               <Dropdown
                 options={PLAYBACK_MODE_OPTIONS}
                 trigger="click"

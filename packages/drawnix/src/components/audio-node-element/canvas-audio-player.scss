@@ -21,8 +21,10 @@
     auto
     auto
     auto
+    auto
+    auto
     auto;
-  grid-template-areas: 'cover meta controls progress volume mode switch toggle close';
+  grid-template-areas: 'cover meta controls progress volume speed mode switch toggle close';
   align-items: center;
   gap: 10px;
   padding: 6px 12px;
@@ -44,8 +46,10 @@
       auto
       auto
       auto
+      auto
+      auto
       auto;
-    grid-template-areas: 'cover meta controls progress volume mode switch toggle close';
+    grid-template-areas: 'cover meta controls progress volume speed mode switch toggle close';
   }
 
   @media (max-width: 768px) {
@@ -57,10 +61,10 @@
     transform: none;
     width: var(--canvas-audio-mobile-width);
     max-width: none;
-    grid-template-columns: 32px minmax(0, 1fr) auto auto auto;
+    grid-template-columns: 32px minmax(0, 1fr) auto auto auto auto;
     grid-template-areas:
-      'cover meta controls mode close'
-      'cover progress progress progress progress';
+      'cover meta controls speed mode close'
+      'cover progress progress progress progress progress';
     row-gap: 3px;
     column-gap: 8px;
     padding: 7px 10px 5px;
@@ -409,6 +413,10 @@
   grid-area: mode;
 }
 
+.canvas-audio-player__speed-toggle {
+  grid-area: speed;
+}
+
 .canvas-audio-player__layout-toggle {
   grid-area: toggle;
 }
@@ -436,11 +444,11 @@
 // ---- 垂直布局 ----
 .canvas-audio-player--vertical {
   width: 236px;
-  grid-template-columns: 32px 1fr auto auto auto auto;
+  grid-template-columns: 32px 1fr auto auto auto auto auto;
   grid-template-areas:
-    'cover meta mode switch toggle close'
-    'controls controls controls controls controls controls'
-    'progress progress progress progress progress progress';
+    'cover meta speed mode switch toggle close'
+    'controls controls controls controls controls controls controls'
+    'progress progress progress progress progress progress progress';
   border-radius: 16px;
   gap: 4px 8px;
   padding: 8px 10px;
@@ -460,10 +468,15 @@
 
   .canvas-audio-player__controls {
     justify-content: center;
+    justify-self: center;
   }
 
   .canvas-audio-player__queue-indicator {
     display: none;
+  }
+
+  .canvas-audio-player__toggle {
+    display: inline-flex;
   }
 
   .canvas-audio-player__queue-trigger {
@@ -480,6 +493,12 @@
   .canvas-audio-player__playlist {
     left: 0;
     width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    left: 50%;
+    transform: translateX(-50%);
+    width: 236px;
   }
 }
 

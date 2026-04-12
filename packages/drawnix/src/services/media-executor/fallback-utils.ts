@@ -276,7 +276,10 @@ export async function cacheRemoteUrl(
   taskId: string,
   mediaType: 'image' | 'video' | 'audio',
   format: string,
-  index?: number
+  index?: number,
+  options?: {
+    source?: 'AI_GENERATED' | 'PLAYBACK_CACHE';
+  }
 ): Promise<string> {
   const normalizedUrl =
     mediaType === 'image' ? normalizeImageDataUrl(remoteUrl) : remoteUrl;
@@ -292,10 +295,18 @@ export async function cacheRemoteUrl(
     }
 
     try {
+      const cacheSource = options?.source || 'AI_GENERATED';
       const hintedFormat = getFileExtension(normalizedUrl);
       const guessedFormat = hintedFormat !== 'bin' ? hintedFormat : format;
       const guessedSuffix = index !== undefined ? `_${index}` : '';
-      const guessedLocalUrl = `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${guessedFormat}`;
+      const safeTaskId =
+        cacheSource === 'PLAYBACK_CACHE'
+          ? taskId.replace(/[^a-zA-Z0-9._-]+/g, '-')
+          : taskId;
+      const guessedLocalUrl =
+        cacheSource === 'PLAYBACK_CACHE'
+          ? `/__aitu_cache__/audio/${safeTaskId}${guessedSuffix}.${guessedFormat}`
+          : `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${guessedFormat}`;
 
       if (await unifiedCacheService.isCached(guessedLocalUrl)) {
         return guessedLocalUrl;
@@ -322,7 +333,10 @@ export async function cacheRemoteUrl(
           : hintedFormat !== 'bin'
           ? hintedFormat
           : guessedFormat;
-      const localUrl = `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${finalFormat}`;
+      const localUrl =
+        cacheSource === 'PLAYBACK_CACHE'
+          ? `/__aitu_cache__/audio/${safeTaskId}${guessedSuffix}.${finalFormat}`
+          : `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${finalFormat}`;
 
       if (await unifiedCacheService.isCached(localUrl)) {
         return localUrl;
@@ -330,7 +344,7 @@ export async function cacheRemoteUrl(
 
       await unifiedCacheService.cacheMediaFromBlob(localUrl, blob, mediaType, {
         taskId,
-        source: 'AI_GENERATED',
+        source: cacheSource,
       });
       return localUrl;
     } catch (error) {

@@ -67,6 +67,20 @@ interface CacheAssetTaskContext {
   completedTaskUrls: Set<string>;
 }
 
+function isPlaybackCachePollution(item: {
+  metadata?: { source?: string; name?: string };
+}, filename: string, isAudio: boolean): boolean {
+  if (!isAudio) {
+    return false;
+  }
+
+  if (item.metadata?.source === 'PLAYBACK_CACHE') {
+    return true;
+  }
+
+  return !item.metadata?.name && /^asset:[0-9a-f-]+\.(mp3|wav|ogg|aac|flac|m4a|webm)$/i.test(filename);
+}
+
 function hasAIGeneratedCacheMetadata(item: {
   metadata?: {
     taskId?: string;
@@ -312,6 +326,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
                         isAIGeneratedAudio ||
                         pathname.startsWith('/__aitu_cache__/audio/') ||
                         /\.(mp3|wav|ogg|aac|flac)$/i.test(pathname);
+
+        if (isPlaybackCachePollution(item, filename, isAudio)) continue;
 
         const assetSource =
           isAIGeneratedAudio || hasAIGeneratedCacheMetadata(item)

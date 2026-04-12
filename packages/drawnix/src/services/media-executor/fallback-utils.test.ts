@@ -140,6 +140,42 @@ describe('cacheRemoteUrl', () => {
     vi.unstubAllGlobals();
   });
 
+  it('caches playback-only remote audio urls into hidden local cache paths', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(new Blob(['audio-binary'], { type: 'audio/mpeg' }), {
+          status: 200,
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const remoteUrl = 'https://cdn.example.com/audio/task-456.mp3';
+
+    const result = await cacheRemoteUrl(
+      remoteUrl,
+      'asset:d88312b4-5b86-4f11-b9a6-c4162ba07486',
+      'audio',
+      'mp3',
+      undefined,
+      { source: 'PLAYBACK_CACHE' }
+    );
+
+    expect(result).toBe('/__aitu_cache__/audio/asset-d88312b4-5b86-4f11-b9a6-c4162ba07486.mp3');
+    expect(cacheMediaFromBlob).toHaveBeenCalledWith(
+      '/__aitu_cache__/audio/asset-d88312b4-5b86-4f11-b9a6-c4162ba07486.mp3',
+      expect.any(Blob),
+      'audio',
+      {
+        taskId: 'asset:d88312b4-5b86-4f11-b9a6-c4162ba07486',
+        source: 'PLAYBACK_CACHE',
+      }
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it('keeps remote http urls unchanged as well', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);

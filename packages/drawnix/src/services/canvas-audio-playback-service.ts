@@ -4,7 +4,7 @@ import {
 } from '../hooks/useTextToSpeech';
 import { getFileExtension } from '@aitu/utils';
 import { LS_KEYS } from '../constants/storage-keys';
-import { ttsSettings } from '../utils/settings-manager';
+import { ttsSettings, type TtsSettings } from '../utils/settings-manager';
 import { cacheRemoteUrl } from './media-executor/fallback-utils';
 import type {
   ReadingPlaybackOrigin,
@@ -26,16 +26,36 @@ export interface CanvasAudioPlaybackSource {
 export type PlaybackQueueSource = 'canvas' | 'playlist' | 'reading';
 export type CanvasAudioQueueSource = PlaybackQueueSource;
 export type PlaybackMediaType = 'audio' | 'reading' | null;
+export type PlaybackRateMediaType = Exclude<PlaybackMediaType, null>;
 export type PlaybackQueueItem = CanvasAudioPlaybackSource | ReadingPlaybackSource;
 export type PlaybackMode = 'sequential' | 'list-loop' | 'single-loop' | 'shuffle';
 
 export const DEFAULT_PLAYBACK_MODE: PlaybackMode = 'sequential';
+export const AUDIO_PLAYBACK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 2, 3] as const;
+export const READING_PLAYBACK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 2, 3, 5, 10] as const;
+export const DEFAULT_AUDIO_PLAYBACK_RATE = 1;
 export const PLAYBACK_MODE_LABELS: Record<PlaybackMode, string> = {
   sequential: '顺序播放',
   'list-loop': '列表循环',
   'single-loop': '单曲循环',
   shuffle: '随机播放',
 };
+
+export function formatPlaybackRateLabel(rate: number): string {
+  const roundedRate = Math.round(rate * 100) / 100;
+  const normalized = Number.isInteger(roundedRate)
+    ? roundedRate.toFixed(0)
+    : roundedRate.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${normalized}x`;
+}
+
+export function getPlaybackSpeedPresets(
+  mediaType: PlaybackRateMediaType
+): readonly number[] {
+  return mediaType === 'reading'
+    ? READING_PLAYBACK_SPEED_PRESETS
+    : AUDIO_PLAYBACK_SPEED_PRESETS;
+}
 
 function isPlaybackMode(value: string | null | undefined): value is PlaybackMode {
   return (
@@ -71,6 +91,54 @@ function persistPlaybackMode(mode: PlaybackMode): void {
   }
 }
 
+function normalizeAudioPlaybackRate(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_AUDIO_PLAYBACK_RATE;
+  }
+
+  return Math.max(0.25, Math.min(value, 3));
+}
+
+function normalizeReadingPlaybackRate(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_TTS_SETTINGS.rate;
+  }
+
+  return Math.max(0.5, Math.min(value, 10));
+}
+
+function readPersistedAudioPlaybackRate(): number {
+  if (typeof window === 'undefined') {
+    return DEFAULT_AUDIO_PLAYBACK_RATE;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(LS_KEYS.AUDIO_PLAYER_AUDIO_PLAYBACK_RATE);
+    return normalizeAudioPlaybackRate(stored ? Number(stored) : undefined);
+  } catch {
+    return DEFAULT_AUDIO_PLAYBACK_RATE;
+  }
+}
+
+function persistAudioPlaybackRate(rate: number): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      LS_KEYS.AUDIO_PLAYER_AUDIO_PLAYBACK_RATE,
+      String(normalizeAudioPlaybackRate(rate))
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function readPersistedReadingPlaybackRate(): number {
+  return normalizeReadingPlaybackRate(ttsSettings.get()?.rate);
+}
+
 export interface CanvasAudioPlaybackState {
   mediaType: PlaybackMediaType;
   activeElementId?: string;
@@ -95,6 +163,9 @@ export interface CanvasAudioPlaybackState {
   currentTime: number;
   duration: number;
   volume: number;
+  audioPlaybackRate: number;
+  readingPlaybackRate: number;
+  effectivePlaybackRate: number;
   analysisAvailable: boolean;
   spectrumLevels: number[];
   waveformLevels: number[];
@@ -142,6 +213,9 @@ function createInitialState(): CanvasAudioPlaybackState {
     currentTime: 0,
     duration: 0,
     volume: DEFAULT_VOLUME,
+    audioPlaybackRate: readPersistedAudioPlaybackRate(),
+    readingPlaybackRate: readPersistedReadingPlaybackRate(),
+    effectivePlaybackRate: readPersistedAudioPlaybackRate(),
     analysisAvailable: false,
     spectrumLevels: [...EMPTY_AUDIO_SPECTRUM],
     waveformLevels: [...EMPTY_AUDIO_WAVEFORM],
@@ -201,11 +275,14 @@ export class CanvasAudioPlaybackService {
   private readingProgressHandle: number | ReturnType<typeof setInterval> | null = null;
   private readingSegmentResumeAt = 0;
   private readingSegmentOffsetMs = 0;
+  private readingResumeRequiresRestart = false;
 
   constructor(
     private readonly audioFactory: () => HTMLAudioElement = () => new Audio(),
     private readonly runtime: CanvasAudioPlaybackRuntime = {}
-  ) {}
+  ) {
+    ttsSettings.addListener(this.handleTtsSettingsChange);
+  }
 
   getState(): CanvasAudioPlaybackState {
     return this.state;
@@ -252,6 +329,32 @@ export class CanvasAudioPlaybackService {
 
     return window.speechSynthesis;
   }
+
+  private handleTtsSettingsChange = (nextSettings: TtsSettings): void => {
+    const nextReadingRate = normalizeReadingPlaybackRate(nextSettings?.rate);
+
+    if (Math.abs(nextReadingRate - this.state.readingPlaybackRate) < 0.001) {
+      return;
+    }
+
+    this.patchState((current) => ({
+      readingPlaybackRate: nextReadingRate,
+      effectivePlaybackRate:
+        current.mediaType !== 'audio' ? nextReadingRate : current.effectivePlaybackRate,
+    }));
+
+    if (this.state.mediaType !== 'reading' || !this.currentReadingSource) {
+      return;
+    }
+
+    if (this.state.playing) {
+      const nextSegmentIndex = Math.max(0, this.state.activeReadingSegmentIndex);
+      this.startReading(this.currentReadingSource, nextSegmentIndex);
+      return;
+    }
+
+    this.readingResumeRequiresRestart = true;
+  };
 
   private getUtteranceFactory(): ((text: string) => SpeechSynthesisUtterance) | null {
     if (this.runtime.utteranceFactory) {
@@ -302,11 +405,16 @@ export class CanvasAudioPlaybackService {
       this.audio = this.audioFactory();
       this.audio.preload = 'metadata';
       this.audio.volume = this.state.volume;
+      this.audio.playbackRate = this.state.audioPlaybackRate;
       this.audio.crossOrigin = 'anonymous';
       this.attachAudioListeners(this.audio);
     }
 
     return this.audio;
+  }
+
+  private getActivePlaybackRateMediaType(): PlaybackRateMediaType {
+    return this.state.mediaType === 'reading' ? 'reading' : 'audio';
   }
 
   private getAudioContextFactory(): (() => AudioContext) | undefined {
@@ -729,6 +837,7 @@ export class CanvasAudioPlaybackService {
     this.stopReadingProgressLoop();
     this.readingSegmentResumeAt = 0;
     this.readingSegmentOffsetMs = 0;
+    this.readingResumeRequiresRestart = false;
     this.currentReadingSource = null;
     if (cancelSpeech) {
       this.getSpeechSynthesis()?.cancel();
@@ -788,6 +897,8 @@ export class CanvasAudioPlaybackService {
       }
     }
 
+    audio.playbackRate = this.state.audioPlaybackRate;
+
     this.patchState({
       mediaType: 'audio',
       activeElementId: source.elementId,
@@ -800,6 +911,7 @@ export class CanvasAudioPlaybackService {
       activeQueueIndex,
       currentTime: switchingTrack ? 0 : audio.currentTime,
       duration: source.duration || (Number.isFinite(audio.duration) ? audio.duration : 0),
+      effectivePlaybackRate: this.state.audioPlaybackRate,
       activeReadingSourceId: undefined,
       activeReadingOrigin: undefined,
       activeReadingSegmentIndex: -1,
@@ -842,7 +954,14 @@ export class CanvasAudioPlaybackService {
         audioUrl,
         cacheKey,
         'audio',
-        ext !== 'bin' ? ext : 'mp3'
+        ext !== 'bin' ? ext : 'mp3',
+        undefined,
+        {
+          source:
+            source.elementId?.startsWith('asset:')
+              ? 'PLAYBACK_CACHE'
+              : 'AI_GENERATED',
+        }
       );
     } catch (error) {
       console.warn('[CanvasAudioPlayback] Failed to resolve local audio cache:', error);
@@ -857,10 +976,12 @@ export class CanvasAudioPlaybackService {
       return null;
     }
 
+    const persistedTtsSettings = ttsSettings.get();
     const settings = {
       ...DEFAULT_TTS_SETTINGS,
-      ...(ttsSettings.get() || {}),
-      voicesByLanguage: ttsSettings.get()?.voicesByLanguage || {},
+      ...(persistedTtsSettings || {}),
+      voicesByLanguage: persistedTtsSettings?.voicesByLanguage || {},
+      rate: this.state.readingPlaybackRate,
     };
     const utterance = utteranceFactory(text);
     utterance.lang = preferredLanguage;
@@ -909,6 +1030,7 @@ export class CanvasAudioPlaybackService {
 
     this.readingSegmentOffsetMs = 0;
     this.readingSegmentResumeAt = this.getNow();
+    this.readingResumeRequiresRestart = false;
     utterance.onend = () => {
       if (sourceVersion !== this.readingVersion) {
         return;
@@ -952,6 +1074,7 @@ export class CanvasAudioPlaybackService {
       subtitleMode: 'estimated',
       currentTime: segment.startMs / 1000,
       duration: (source.segments[source.segments.length - 1]?.endMs || 0) / 1000,
+      effectivePlaybackRate: this.state.readingPlaybackRate,
       playing: true,
       analysisAvailable: false,
       spectrumLevels: [...EMPTY_AUDIO_SPECTRUM],
@@ -1015,6 +1138,53 @@ export class CanvasAudioPlaybackService {
     this.patchState({
       playbackMode: mode,
     });
+  }
+
+  setPlaybackRate(rate: number, mediaType?: PlaybackRateMediaType): void {
+    const targetMediaType = mediaType || this.getActivePlaybackRateMediaType();
+
+    if (targetMediaType === 'reading') {
+      const nextRate = normalizeReadingPlaybackRate(rate);
+      if (Math.abs(nextRate - this.state.readingPlaybackRate) < 0.001) {
+        return;
+      }
+
+      this.patchState((current) => ({
+        readingPlaybackRate: nextRate,
+        effectivePlaybackRate:
+          current.mediaType !== 'audio' ? nextRate : current.effectivePlaybackRate,
+      }));
+
+      if (this.state.mediaType === 'reading' && this.currentReadingSource) {
+        const nextSegmentIndex = Math.max(0, this.state.activeReadingSegmentIndex);
+        if (this.state.playing) {
+          this.startReading(this.currentReadingSource, nextSegmentIndex);
+        } else {
+          this.readingResumeRequiresRestart = true;
+        }
+      }
+
+      void ttsSettings.update({ rate: nextRate }).catch((error) => {
+        console.warn('[CanvasAudioPlayback] Failed to persist reading playback rate:', error);
+      });
+      return;
+    }
+
+    const nextRate = normalizeAudioPlaybackRate(rate);
+    if (Math.abs(nextRate - this.state.audioPlaybackRate) < 0.001) {
+      return;
+    }
+
+    persistAudioPlaybackRate(nextRate);
+    if (this.audio) {
+      this.audio.playbackRate = nextRate;
+    }
+
+    this.patchState((current) => ({
+      audioPlaybackRate: nextRate,
+      effectivePlaybackRate:
+        current.mediaType !== 'reading' ? nextRate : current.effectivePlaybackRate,
+    }));
   }
 
   private getSequentialQueueIndex(offset: -1 | 1): number {
@@ -1246,8 +1416,11 @@ export class CanvasAudioPlaybackService {
         return;
       }
 
-      if (this.state.activeReadingSegmentIndex < 0) {
-        this.startReading(this.currentReadingSource);
+      if (this.state.activeReadingSegmentIndex < 0 || this.readingResumeRequiresRestart) {
+        this.startReading(
+          this.currentReadingSource,
+          Math.max(0, this.state.activeReadingSegmentIndex)
+        );
         return;
       }
 
@@ -1264,6 +1437,8 @@ export class CanvasAudioPlaybackService {
     if (!this.audio || !this.state.activeAudioUrl) {
       return;
     }
+
+    this.audio.playbackRate = this.state.audioPlaybackRate;
 
     try {
       await this.audio.play();
@@ -1334,6 +1509,9 @@ export class CanvasAudioPlaybackService {
       ...createInitialState(),
       queue: this.state.queue,
       volume: this.state.volume,
+      audioPlaybackRate: this.state.audioPlaybackRate,
+      readingPlaybackRate: this.state.readingPlaybackRate,
+      effectivePlaybackRate: this.state.audioPlaybackRate,
       playbackMode: this.state.playbackMode,
       queueSource: this.state.queueSource,
       activePlaylistId: this.state.activePlaylistId,
