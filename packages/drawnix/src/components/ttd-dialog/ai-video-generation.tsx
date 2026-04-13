@@ -112,6 +112,28 @@ function areUploadedImagesEqual(
   );
 }
 
+function isVideoOptionValueValid(
+  value: string,
+  options: Array<{ value: string }>
+): boolean {
+  return options.some((option) => option.value === value);
+}
+
+function isAIVideoDebugEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return (
+      window.localStorage?.getItem('aitu-debug-ai-video') === '1' ||
+      new URLSearchParams(window.location.search).get('debugAIVideo') === '1'
+    );
+  } catch {
+    return false;
+  }
+}
+
 interface AIVideoGenerationProps {
   initialPrompt?: string;
   initialImage?: ImageFile; // 保留单图片支持（向后兼容）
@@ -258,6 +280,21 @@ const AIVideoGeneration = ({
     initialDuration?.toString() || initialScopedVideoPreferences.duration
   );
   const [size, setSize] = useState(initialSize || initialScopedVideoPreferences.size);
+  const effectiveDuration = React.useMemo(
+    () =>
+      isVideoOptionValueValid(duration, modelConfig.durationOptions)
+        ? duration
+        : modelConfig.defaultDuration,
+    [duration, modelConfig.defaultDuration, modelConfig.durationOptions]
+  );
+  const effectiveSize = React.useMemo(
+    () =>
+      isVideoOptionValueValid(size, modelConfig.sizeOptions)
+        ? size
+        : modelConfig.defaultSize,
+    [modelConfig.defaultSize, modelConfig.sizeOptions, size]
+  );
+  const debugAIVideo = React.useMemo(() => isAIVideoDebugEnabled(), []);
   const hasCompatibleParams = React.useMemo(() => {
     // 排除 size 和 duration（已有专用 UI），只看是否有额外参数
     return compatibleVideoParams.some(
@@ -522,10 +559,43 @@ const AIVideoGeneration = ({
       currentModel,
       currentSelectionKey: getSelectionKey(currentModel, currentModelRef),
       extraParams: videoSelectedParams,
-      duration,
-      size,
+      duration: effectiveDuration,
+      size: effectiveSize,
     });
-  }, [currentModel, currentModelRef, duration, size, videoSelectedParams]);
+  }, [
+    currentModel,
+    currentModelRef,
+    effectiveDuration,
+    effectiveSize,
+    videoSelectedParams,
+  ]);
+
+  useEffect(() => {
+    if (!debugAIVideo) {
+      return;
+    }
+
+    if (duration !== effectiveDuration || size !== effectiveSize) {
+      console.debug('[AIVideoGeneration] normalized invalid options', {
+        currentModel,
+        currentModelRef,
+        rawDuration: duration,
+        effectiveDuration,
+        rawSize: size,
+        effectiveSize,
+        params: videoSelectedParams,
+      });
+    }
+  }, [
+    currentModel,
+    currentModelRef,
+    debugAIVideo,
+    duration,
+    effectiveDuration,
+    effectiveSize,
+    size,
+    videoSelectedParams,
+  ]);
 
   // Handle initial props - use ref to track if we've processed these props before
   const processedPropsRef = React.useRef<string>('');
@@ -800,7 +870,7 @@ const AIVideoGeneration = ({
       // 故事场景模式验证
       const validation = validateSceneDurations(
         storyboardScenes,
-        parseFloat(duration),
+        parseFloat(effectiveDuration),
         storyboardConfig.minSceneDuration
       );
       if (!validation.valid) {
@@ -866,8 +936,8 @@ const AIVideoGeneration = ({
           prompt: finalPrompt,
           model: currentModel,
           modelRef: currentModelRef || null,
-          seconds: duration,
-          size: size,
+          seconds: effectiveDuration,
+          size: effectiveSize,
           // 保存上传的图片（已转换为可序列化的格式）
           uploadedImages: convertedImages,
           // 故事场景配置（用于编辑恢复）
@@ -875,7 +945,7 @@ const AIVideoGeneration = ({
             storyboard: {
               enabled: true,
               scenes: storyboardScenes,
-              totalDuration: parseFloat(duration),
+              totalDuration: parseFloat(effectiveDuration),
             },
           }),
           // 批量生成信息（始终包含 batchId 以跳过重复检测）
@@ -1071,8 +1141,8 @@ const AIVideoGeneration = ({
             <VideoModelOptions
               model={currentModel}
               configOverride={modelConfig}
-              duration={duration}
-              size={size}
+              duration={effectiveDuration}
+              size={effectiveSize}
               onDurationChange={setDuration}
               onSizeChange={setSize}
               disabled={isGenerating}
@@ -1107,7 +1177,7 @@ const AIVideoGeneration = ({
               <StoryboardEditor
                 enabled={storyboardEnabled}
                 onEnabledChange={setStoryboardEnabled}
-                totalDuration={parseFloat(duration)}
+                totalDuration={parseFloat(effectiveDuration)}
                 maxScenes={storyboardConfig.maxScenes}
                 minSceneDuration={storyboardConfig.minSceneDuration}
                 scenes={storyboardScenes}

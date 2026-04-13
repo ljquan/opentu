@@ -5,7 +5,7 @@
  * Renders duration, size options and handles model-specific constraints.
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Select, Radio } from 'tdesign-react';
 import type { VideoModel, VideoModelConfig } from '../../../types/video.types';
 import { getVideoModelConfig } from '../../../constants/video-model-config';
@@ -38,23 +38,6 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
   const normalizedDuration = isDurationValid ? duration : config.defaultDuration;
   const normalizedSize = isSizeValid ? size : config.defaultSize;
 
-  useEffect(() => {
-    if (duration !== normalizedDuration) {
-      onDurationChange(normalizedDuration);
-    }
-
-    if (size !== normalizedSize) {
-      onSizeChange(normalizedSize);
-    }
-  }, [
-    duration,
-    normalizedDuration,
-    normalizedSize,
-    onDurationChange,
-    onSizeChange,
-    size,
-  ]);
-
   // Convert duration options to RadioGroup format
   const durationRadioOptions = durationOptions.map(opt => ({
     label: opt.label,
@@ -82,7 +65,12 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
             // Multiple options - show as radio group
             <Radio.Group
               value={normalizedDuration}
-              onChange={(value) => onDurationChange(value as string)}
+              onChange={(value) => {
+                const nextValue = value as string;
+                if (nextValue !== normalizedDuration) {
+                  onDurationChange(nextValue);
+                }
+              }}
               disabled={disabled}
               variant="default-filled"
               size="small"
@@ -103,7 +91,12 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
         <div className="video-model-options__control">
           <Select
             value={normalizedSize}
-            onChange={(value) => onSizeChange(value as string)}
+            onChange={(value) => {
+              const nextValue = value as string;
+              if (nextValue !== normalizedSize) {
+                onSizeChange(nextValue);
+              }
+            }}
             disabled={disabled}
             size="small"
             options={sizeSelectOptions}

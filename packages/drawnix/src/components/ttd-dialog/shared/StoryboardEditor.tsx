@@ -38,13 +38,22 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
   // Selected scene state for expanded view
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const scenesEndRef = useRef<HTMLDivElement>(null);
+  const sceneIdsSignature = scenes.map((scene) => scene.id).join('|');
 
   // Auto-select first scene when enabled
   useEffect(() => {
-    if (enabled && scenes.length > 0 && !selectedSceneId) {
+    if (!enabled || scenes.length === 0) {
+      return;
+    }
+
+    const selectedSceneStillExists = selectedSceneId
+      ? scenes.some((scene) => scene.id === selectedSceneId)
+      : false;
+
+    if (!selectedSceneStillExists && selectedSceneId !== scenes[0].id) {
       setSelectedSceneId(scenes[0].id);
     }
-  }, [enabled, scenes, selectedSceneId]);
+  }, [enabled, sceneIdsSignature, scenes, selectedSceneId]);
 
   // Handle adding a new scene - preserve existing durations, allocate from remaining time
   const handleAddScene = useCallback(() => {
@@ -153,10 +162,19 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
           );
           // Round to 1 decimal place for cleaner display
           const rounded = parseFloat(clampedDuration.toFixed(1));
+          if (rounded === scene.duration) {
+            return scene;
+          }
           return { ...scene, duration: rounded };
         }
         return scene;
       });
+
+      if (
+        updatedScenes.every((scene, index) => scene === scenes[index])
+      ) {
+        return;
+      }
 
       onScenesChange(updatedScenes);
     },
@@ -166,6 +184,11 @@ export const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
   // Handle scene prompt change
   const handlePromptChange = useCallback(
     (sceneId: string, newPrompt: string) => {
+      const currentScene = scenes.find((scene) => scene.id === sceneId);
+      if (currentScene?.prompt === newPrompt) {
+        return;
+      }
+
       const updatedScenes = scenes.map(scene => {
         if (scene.id === sceneId) {
           return { ...scene, prompt: newPrompt };
