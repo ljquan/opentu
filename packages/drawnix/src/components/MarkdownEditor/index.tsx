@@ -144,7 +144,7 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
     }
 
     editorRef.current = {
-      getMarkdown: () => { try { return crepe.getMarkdown?.() ?? ''; } catch { return ''; } },
+      getMarkdown: () => lastMarkdownRef.current,
       setMarkdown: (md: string) => {
         try { lastMarkdownRef.current = md; crepe.editor?.action(replaceAll(md)); } catch { /* 忽略 */ }
       },
@@ -172,8 +172,8 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
     const crepe = crepeRef.current;
     if (!crepe) return;
     try {
-      const cur = crepe.getMarkdown?.();
-      if (cur !== undefined && markdown !== cur && markdown !== lastMarkdownRef.current) {
+      const cur = lastMarkdownRef.current;
+      if (markdown !== cur) {
         lastMarkdownRef.current = markdown;
         crepe.editor?.action(replaceAll(markdown));
       }
