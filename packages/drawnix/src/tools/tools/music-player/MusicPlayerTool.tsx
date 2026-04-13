@@ -37,6 +37,7 @@ import { useResolvedAudioDurations } from '../../../hooks/useResolvedAudioDurati
 import {
   getPlaybackSpeedPresets,
   formatPlaybackRateLabel,
+  type CanvasAudioPlaybackSource,
   isReadingPlaybackSource,
   PLAYBACK_MODE_LABELS,
   type PlaybackQueueItem,
@@ -107,6 +108,10 @@ function formatTrackSubtitle(duration?: number, createdAt?: number): string {
 
 function openKnowledgeBaseNote(noteId: string): void {
   window.dispatchEvent(new CustomEvent('kb:open', { detail: { noteId } }));
+}
+
+function isNonNull<T>(value: T | null | undefined): value is T {
+  return value != null;
 }
 
 export const MusicPlayerTool: React.FC = () => {
@@ -261,7 +266,10 @@ export const MusicPlayerTool: React.FC = () => {
   }, [playbackTabId, showPlaybackQueue]);
 
   const audioPlaybackQueue = useMemo(
-    () => playback.queue.filter((item) => !isReadingPlaybackSource(item)),
+    () =>
+      playback.queue.filter(
+        (item): item is CanvasAudioPlaybackSource => !isReadingPlaybackSource(item)
+      ),
     [playback.queue]
   );
   const resolvedQueueDurations = useResolvedAudioDurations(audioPlaybackQueue);
@@ -277,7 +285,7 @@ export const MusicPlayerTool: React.FC = () => {
   const getQueueItemId = (item: PlaybackQueueItem, index: number) =>
     isReadingPlaybackSource(item) ? item.readingSourceId : `${item.audioUrl}-${index}`;
 
-  const buildAudioPlaybackSource = (assetId: string) => {
+  const buildAudioPlaybackSource = (assetId: string): CanvasAudioPlaybackSource | null => {
     const asset = assetById.get(assetId);
     if (!asset) {
       return null;
@@ -413,19 +421,19 @@ export const MusicPlayerTool: React.FC = () => {
   );
   const playlistListItems = useMemo<AudioTrackListItem[]>(
     () =>
-      selectedPlaylistItems.flatMap((itemRef) => {
+      selectedPlaylistItems.reduce<AudioTrackListItem[]>((items, itemRef) => {
         if (isAudioPlaylistAssetItemRef(itemRef)) {
           const asset = assetById.get(itemRef.assetId);
           if (!asset) {
-            return [];
+            return items;
           }
           if (
             normalizedQuery.length > 0
             && !asset.name.toLowerCase().includes(normalizedQuery)
           ) {
-            return [];
+            return items;
           }
-          return [{
+          items.push({
             id: `asset:${asset.id}`,
             title: asset.name,
             subtitle: formatTrackSubtitle(
@@ -439,30 +447,34 @@ export const MusicPlayerTool: React.FC = () => {
             canFavorite: true,
             assetId: asset.id,
             playlistItemRef: itemRef,
-          }];
+          });
+          return items;
         }
 
         const noteMeta = noteMetaById.get(itemRef.noteId);
         if (!noteMeta) {
-          return [];
+          return items;
         }
         if (
           normalizedQuery.length > 0
           && !(noteMeta.title || '').toLowerCase().includes(normalizedQuery)
         ) {
-          return [];
+          return items;
         }
-        return [{
+        items.push({
           id: `reading:${noteMeta.id}`,
           title: noteMeta.title || '未命名笔记',
           subtitle: new Date(noteMeta.updatedAt).toLocaleDateString('zh-CN'),
+          previewImageUrl: undefined,
+          isFavorite: false,
           canFavorite: false,
           noteId: noteMeta.id,
           playlistItemRef: itemRef,
           isActive: activeReadingNoteId === noteMeta.id,
           isPlaying: activeReadingNoteId === noteMeta.id && playback.playing && playback.mediaType === 'reading',
-        }];
-      }),
+        });
+        return items;
+      }, []),
     [
       activeAssetId,
       activeReadingNoteId,
@@ -517,7 +529,7 @@ export const MusicPlayerTool: React.FC = () => {
       })
     );
 
-    return queueItems.filter((item): item is PlaybackQueueItem => !!item);
+    return queueItems.filter(isNonNull);
   };
 
   const handlePlayListItem = async (item: AudioTrackListItem) => {
@@ -569,7 +581,7 @@ export const MusicPlayerTool: React.FC = () => {
         playlistName: activePlaylist?.name,
       });
       const matchedSource = playlistQueue.find(
-        (queueItem): queueItem is typeof source =>
+        (queueItem): queueItem is NonNullable<typeof source> =>
           isReadingPlaybackSource(queueItem)
           && queueItem.origin.kind === 'kb-note'
           && queueItem.origin.id === itemRef.noteId

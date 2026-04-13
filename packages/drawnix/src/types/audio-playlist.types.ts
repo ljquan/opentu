@@ -39,15 +39,15 @@ export interface AudioPlaylistItem {
 }
 
 export function isAudioPlaylistAssetItemRef(
-  item: AudioPlaylistItemRef
+  item: AudioPlaylistItemRef | null | undefined
 ): item is AudioPlaylistAssetItemRef {
-  return item.kind === 'asset';
+  return item?.kind === 'asset';
 }
 
 export function isAudioPlaylistReadingItemRef(
-  item: AudioPlaylistItemRef
+  item: AudioPlaylistItemRef | null | undefined
 ): item is AudioPlaylistReadingItemRef {
-  return item.kind === 'reading';
+  return item?.kind === 'reading';
 }
 
 export function getAudioPlaylistItemRef(

@@ -55,9 +55,17 @@ export const AudioTrackContextMenu: React.FC<AudioTrackContextMenuProps> = ({
   if (isAudioPlaylistAssetItemRef(contextMenu.item)) {
     items.push({
       key: 'favorite',
-      label: (item) => (favoriteAssetIds.has(item.assetId) ? '取消收藏' : '加入收藏'),
+      label: (item) => (
+        isAudioPlaylistAssetItemRef(item) && favoriteAssetIds.has(item.assetId)
+          ? '取消收藏'
+          : '加入收藏'
+      ),
       icon: <Heart size={14} />,
-      onSelect: (item) => onToggleFavorite(item.assetId),
+      onSelect: (item) => {
+        if (isAudioPlaylistAssetItemRef(item)) {
+          onToggleFavorite(item.assetId);
+        }
+      },
     });
   }
 

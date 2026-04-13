@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Music4 } from 'lucide-react';
+import { normalizeImageDataUrl } from '@aitu/utils';
 
 interface AudioCoverProps {
   src?: string;
@@ -24,11 +25,43 @@ export const AudioCover: React.FC<AudioCoverProps> = ({
   loading,
   referrerPolicy = 'no-referrer',
 }) => {
-  const [currentSrc, setCurrentSrc] = useState(src);
+  const normalizeSafeImageSrc = (value?: string): string | undefined => {
+    if (!value) {
+      return undefined;
+    }
+
+    const normalized = normalizeImageDataUrl(value);
+    if (!normalized) {
+      return undefined;
+    }
+
+    if (
+      normalized.startsWith('data:') ||
+      normalized.startsWith('blob:') ||
+      normalized.startsWith('/') ||
+      normalized.startsWith('./') ||
+      normalized.startsWith('../')
+    ) {
+      return normalized;
+    }
+
+    try {
+      const parsed = new URL(normalized, window.location.origin);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.toString();
+      }
+    } catch {
+      return undefined;
+    }
+
+    return undefined;
+  };
+
+  const [currentSrc, setCurrentSrc] = useState(() => normalizeSafeImageSrc(src));
   const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
-    setCurrentSrc(src);
+    setCurrentSrc(normalizeSafeImageSrc(src));
     setLoadFailed(false);
   }, [src]);
 
@@ -49,8 +82,9 @@ export const AudioCover: React.FC<AudioCoverProps> = ({
       loading={loading}
       referrerPolicy={referrerPolicy}
       onError={() => {
-        if (fallbackSrc && currentSrc !== fallbackSrc) {
-          setCurrentSrc(fallbackSrc);
+        const safeFallbackSrc = normalizeSafeImageSrc(fallbackSrc);
+        if (safeFallbackSrc && currentSrc !== safeFallbackSrc) {
+          setCurrentSrc(safeFallbackSrc);
           return;
         }
         setLoadFailed(true);
