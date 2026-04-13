@@ -31,35 +31,38 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
   disabled = false,
 }) => {
   const config = configOverride || getVideoModelConfig(model);
+  const durationOptions = config.durationOptions;
+  const sizeOptions = config.sizeOptions;
+  const isDurationValid = durationOptions.some((opt) => opt.value === duration);
+  const isSizeValid = sizeOptions.some((opt) => opt.value === size);
+  const normalizedDuration = isDurationValid ? duration : config.defaultDuration;
+  const normalizedSize = isSizeValid ? size : config.defaultSize;
 
-  // Reset to default values when model changes
   useEffect(() => {
-    const defaults = {
-      duration: config.defaultDuration,
-      size: config.defaultSize,
-    };
-
-    // Check if current duration is valid for new model
-    const validDuration = config.durationOptions.find(opt => opt.value === duration);
-    if (!validDuration) {
-      onDurationChange(defaults.duration);
+    if (duration !== normalizedDuration) {
+      onDurationChange(normalizedDuration);
     }
 
-    // Check if current size is valid for new model
-    const validSize = config.sizeOptions.find(opt => opt.value === size);
-    if (!validSize) {
-      onSizeChange(defaults.size);
+    if (size !== normalizedSize) {
+      onSizeChange(normalizedSize);
     }
-  }, [config, duration, model, onDurationChange, onSizeChange, size]);
+  }, [
+    duration,
+    normalizedDuration,
+    normalizedSize,
+    onDurationChange,
+    onSizeChange,
+    size,
+  ]);
 
   // Convert duration options to RadioGroup format
-  const durationRadioOptions = config.durationOptions.map(opt => ({
+  const durationRadioOptions = durationOptions.map(opt => ({
     label: opt.label,
     value: opt.value,
   }));
 
   // Convert size options to Select format
-  const sizeSelectOptions = config.sizeOptions.map(opt => ({
+  const sizeSelectOptions = sizeOptions.map(opt => ({
     label: `${opt.label} (${opt.value})`,
     value: opt.value,
   }));
@@ -70,15 +73,15 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
       <div className="video-model-options__row">
         <label className="video-model-options__label">时长</label>
         <div className="video-model-options__control">
-          {config.durationOptions.length === 1 ? (
+          {durationOptions.length === 1 ? (
             // Single option - show as text
             <span className="video-model-options__fixed-value">
-              {config.durationOptions[0].label}
+              {durationOptions[0].label}
             </span>
           ) : (
             // Multiple options - show as radio group
             <Radio.Group
-              value={duration}
+              value={normalizedDuration}
               onChange={(value) => onDurationChange(value as string)}
               disabled={disabled}
               variant="default-filled"
@@ -99,7 +102,7 @@ export const VideoModelOptions: React.FC<VideoModelOptionsProps> = ({
         <label className="video-model-options__label">尺寸</label>
         <div className="video-model-options__control">
           <Select
-            value={size}
+            value={normalizedSize}
             onChange={(value) => onSizeChange(value as string)}
             disabled={disabled}
             size="small"

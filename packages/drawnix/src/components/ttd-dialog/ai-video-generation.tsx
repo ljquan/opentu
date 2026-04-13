@@ -71,6 +71,47 @@ import {
   getSelectionKey,
 } from '../../utils/model-selection';
 
+function areStringMapsEqual(
+  a: Record<string, string>,
+  b: Record<string, string>
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+function buildFilteredUploadedImages(
+  images: UploadedVideoImage[],
+  maxCount: number,
+  labels: string[]
+): UploadedVideoImage[] {
+  return images.slice(0, maxCount).map((img, index) => ({
+    ...img,
+    slot: index,
+    slotLabel: labels[index] || `参考图${index + 1}`,
+  }));
+}
+
+function areUploadedImagesEqual(
+  a: UploadedVideoImage[],
+  b: UploadedVideoImage[]
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((item, index) => {
+      const next = b[index];
+      return (
+        item.slot === next.slot &&
+        item.slotLabel === next.slotLabel &&
+        item.url === next.url &&
+        item.name === next.name &&
+        item.file === next.file
+      );
+    })
+  );
+}
+
 interface AIVideoGenerationProps {
   initialPrompt?: string;
   initialImage?: ImageFile; // 保留单图片支持（向后兼容）
@@ -198,6 +239,19 @@ const AIVideoGeneration = ({
       ),
     [currentModel, currentModelRef, videoSelectedParams]
   );
+  const imageUploadConfig = React.useMemo(() => {
+    const labels = modelConfig.imageUpload.labels || [];
+    return {
+      maxCount: modelConfig.imageUpload.maxCount,
+      mode: modelConfig.imageUpload.mode,
+      labels,
+      labelsSignature: labels.join('|'),
+    };
+  }, [
+    modelConfig.imageUpload.labels,
+    modelConfig.imageUpload.maxCount,
+    modelConfig.imageUpload.mode,
+  ]);
 
   // Duration and size state
   const [duration, setDuration] = useState(
@@ -229,16 +283,6 @@ const AIVideoGeneration = ({
   );
 
   useEffect(() => {
-    const isSameParams = (
-      a: Record<string, string>,
-      b: Record<string, string>
-    ) => {
-      const aKeys = Object.keys(a);
-      const bKeys = Object.keys(b);
-      if (aKeys.length !== bKeys.length) return false;
-      return aKeys.every((key) => a[key] === b[key]);
-    };
-
     const nextParams = compatibleVideoParams.reduce<Record<string, string>>(
       (acc, param) => {
         const prevValue = videoSelectedParams[param.id];
@@ -259,7 +303,7 @@ const AIVideoGeneration = ({
       {}
     );
 
-    if (!isSameParams(videoSelectedParams, nextParams)) {
+    if (!areStringMapsEqual(videoSelectedParams, nextParams)) {
       setVideoSelectedParams(nextParams);
     }
   }, [compatibleVideoParams, videoSelectedParams]);
@@ -419,43 +463,59 @@ const AIVideoGeneration = ({
       return;
     }
 
-    const maxCount = modelConfig.imageUpload.maxCount;
-    const labels = modelConfig.imageUpload.labels || [];
-
     const scopedPreferences = loadScopedAIVideoToolPreferences(
       currentModel,
       getSelectionKey(currentModel, currentModelRef)
     );
-    setVideoSelectedParams(scopedPreferences.extraParams);
-    setDuration(scopedPreferences.duration);
-    setSize(scopedPreferences.size);
-
-    // 智能过滤图片：从原始选中的图片中截取前 N 张
-    if (allSelectedImages.length > 0) {
-      const filteredImages = allSelectedImages
-        .slice(0, maxCount)
-        .map((img, index) => ({
-          ...img,
-          slot: index,
-          slotLabel: labels[index] || `参考图${index + 1}`,
-        }));
-      setUploadedImages(filteredImages);
-
-      // 如果有图片被截断，输出提示日志
-      // if (allSelectedImages.length > maxCount) {
-      //   console.log(`AIVideoGeneration - 当前模型最多支持 ${maxCount} 张图片，已保留前 ${maxCount} 张`);
-      // }
-    } else {
-      setUploadedImages([]);
-    }
+    const scopedModelConfig = getEffectiveVideoModelConfigForSelection(
+      currentModel,
+      currentModelRef || currentModel,
+      scopedPreferences.extraParams
+    );
+    const nextDuration = scopedModelConfig.durationOptions.some(
+      (option) => option.value === scopedPreferences.duration
+    )
+      ? scopedPreferences.duration
+      : scopedModelConfig.defaultDuration;
+    const nextSize = scopedModelConfig.sizeOptions.some(
+      (option) => option.value === scopedPreferences.size
+    )
+      ? scopedPreferences.size
+      : scopedModelConfig.defaultSize;
+    setVideoSelectedParams((prev) =>
+      areStringMapsEqual(prev, scopedPreferences.extraParams)
+        ? prev
+        : scopedPreferences.extraParams
+    );
+    setDuration((prev) => (prev === nextDuration ? prev : nextDuration));
+    setSize((prev) => (prev === nextSize ? prev : nextSize));
 
     // Disable storyboard mode if new model doesn't support it
     if (!supportsStoryboardMode(currentModel)) {
-      setStoryboardEnabled(false);
-      setStoryboardScenes([]);
+      setStoryboardEnabled((prev) => (prev ? false : prev));
+      setStoryboardScenes((prev) => (prev.length > 0 ? [] : prev));
     }
-    // 仅在模型或默认参数变化时重置，避免上传图片触发重置
-  }, [allSelectedImages, currentModel, currentModelRef, isEditMode, modelConfig.imageUpload]);
+  }, [currentModel, currentModelRef, isEditMode]);
+
+  useEffect(() => {
+    const nextUploadedImages =
+      allSelectedImages.length > 0
+        ? buildFilteredUploadedImages(
+            allSelectedImages,
+            imageUploadConfig.maxCount,
+            imageUploadConfig.labels
+          )
+        : [];
+
+    setUploadedImages((prev) =>
+      areUploadedImagesEqual(prev, nextUploadedImages) ? prev : nextUploadedImages
+    );
+  }, [
+    allSelectedImages,
+    imageUploadConfig.labels,
+    imageUploadConfig.labelsSignature,
+    imageUploadConfig.maxCount,
+  ]);
 
   useEffect(() => {
     saveAIVideoToolPreferences({
@@ -499,9 +559,6 @@ const AIVideoGeneration = ({
     setPrompt(initialPrompt);
 
     // 处理图片：保存所有原始图片，并按当前模型过滤显示
-    const maxCount = modelConfig.imageUpload.maxCount;
-    const labels = modelConfig.imageUpload.labels || [];
-
     let newAllImages: UploadedVideoImage[] = [];
     if (initialImages && initialImages.length > 0) {
       newAllImages = initialImages;
@@ -521,13 +578,11 @@ const AIVideoGeneration = ({
     setAllSelectedImages(newAllImages);
 
     // 按当前模型 maxCount 过滤显示
-    const filteredImages = newAllImages
-      .slice(0, maxCount)
-      .map((img, index) => ({
-        ...img,
-        slot: index,
-        slotLabel: labels[index] || `参考图${index + 1}`,
-      }));
+    const filteredImages = buildFilteredUploadedImages(
+      newAllImages,
+      imageUploadConfig.maxCount,
+      imageUploadConfig.labels
+    );
     setUploadedImages(filteredImages);
 
     // 更新 duration 和 size（如果有初始值）
@@ -546,7 +601,9 @@ const AIVideoGeneration = ({
     initialDuration,
     initialSize,
     initialResultUrl,
-    modelConfig.imageUpload,
+    imageUploadConfig.labels,
+    imageUploadConfig.labelsSignature,
+    imageUploadConfig.maxCount,
     isManualEdit,
   ]);
 
@@ -608,16 +665,15 @@ const AIVideoGeneration = ({
   // 处理图片变化（用户手动上传/删除时同步更新原始图片列表）
   const handleImagesChange = React.useCallback(
     (newImages: ReferenceImage[]) => {
-      const labels = modelConfig.imageUpload.labels || [];
       const convertedImages = referenceImagesToUploadedImages(
         newImages,
-        labels
+        imageUploadConfig.labels
       );
       setUploadedImages(convertedImages);
       // 同步更新原始图片列表（用户手动操作后，原始列表以当前显示的为准）
       setAllSelectedImages(convertedImages);
     },
-    [modelConfig.imageUpload.labels, referenceImagesToUploadedImages]
+    [imageUploadConfig.labels, referenceImagesToUploadedImages]
   );
 
   // 使用useMemo优化性能，当videoHistory、language或promptHistoryVersion变化时重新计算
@@ -1028,15 +1084,15 @@ const AIVideoGeneration = ({
               onImagesChange={handleImagesChange}
               language={language}
               disabled={isGenerating}
-              multiple={modelConfig.imageUpload.maxCount > 1}
-              maxCount={modelConfig.imageUpload.maxCount}
+              multiple={imageUploadConfig.maxCount > 1}
+              maxCount={imageUploadConfig.maxCount}
               slotLabels={
-                modelConfig.imageUpload.mode === 'frames'
-                  ? modelConfig.imageUpload.labels
+                imageUploadConfig.mode === 'frames'
+                  ? imageUploadConfig.labels
                   : undefined
               }
               label={
-                modelConfig.imageUpload.mode === 'frames'
+                imageUploadConfig.mode === 'frames'
                   ? language === 'zh'
                     ? '首尾帧图片 (可选)'
                     : 'Start/End Frames (Optional)'
