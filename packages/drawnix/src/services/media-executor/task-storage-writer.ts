@@ -73,6 +73,7 @@ export interface SWTask {
       majorModelVersion?: string;
     }>;
     chatResponse?: string;
+    analysisData?: unknown;
     toolCalls?: any[];
   };
   error?: {

@@ -65,6 +65,7 @@ interface SWTask {
     characterProfileUrl?: string;
     characterPermalink?: string;
     chatResponse?: string;
+    analysisData?: unknown;
     toolCalls?: any[];
   };
   error?: {

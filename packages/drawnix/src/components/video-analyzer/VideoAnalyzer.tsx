@@ -13,6 +13,8 @@ import { AnalyzePage } from './pages/AnalyzePage';
 import { ScriptPage } from './pages/ScriptPage';
 import { GeneratePage } from './pages/GeneratePage';
 import { HistoryPage } from './pages/HistoryPage';
+import { taskQueueService } from '../../services/task-queue';
+import { syncVideoAnalyzerTask, isVideoAnalyzerTask } from './task-sync';
 import './VideoAnalyzer.scss';
 
 const VideoAnalyzer: React.FC = () => {
@@ -23,6 +25,55 @@ const VideoAnalyzer: React.FC = () => {
 
   useEffect(() => {
     loadRecords().then(setRecords);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const syncingTaskIds = new Set<string>();
+
+    const syncTask = async (task: Parameters<typeof syncVideoAnalyzerTask>[0]) => {
+      if (!isVideoAnalyzerTask(task) || syncingTaskIds.has(task.id)) {
+        return;
+      }
+
+      syncingTaskIds.add(task.id);
+      try {
+        const synced = await syncVideoAnalyzerTask(task);
+        if (!synced || disposed) {
+          return;
+        }
+
+        setRecords(synced.records);
+        setCurrentRecord(prev => {
+          if (prev?.id === synced.record.id) {
+            return synced.record;
+          }
+          if (!prev && task.params.videoAnalyzerAction === 'analyze') {
+            return synced.record;
+          }
+          return prev;
+        });
+      } catch (error) {
+        console.error('[VideoAnalyzer] Failed to sync task result:', error);
+      } finally {
+        syncingTaskIds.delete(task.id);
+      }
+    };
+
+    taskQueueService.getAllTasks().forEach(task => {
+      void syncTask(task);
+    });
+
+    const subscription = taskQueueService.observeTaskUpdates().subscribe(event => {
+      if (event.task.status === 'completed') {
+        void syncTask(event.task);
+      }
+    });
+
+    return () => {
+      disposed = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleAnalysisComplete = useCallback((record: AnalysisRecord) => {
@@ -49,8 +100,6 @@ const VideoAnalyzer: React.FC = () => {
     }
     setPage(target);
   }, []);
-
-  const isWorkflow = page === 'analyze' || page === 'script' || page === 'generate';
 
   return (
     <div className="video-analyzer">

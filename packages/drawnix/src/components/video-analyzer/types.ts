@@ -2,7 +2,7 @@
  * 视频拆解器内部类型定义
  */
 
-import type { VideoAnalysisData, VideoShot } from '../../mcp/tools/video-analyze';
+import type { VideoAnalysisData, VideoShot } from '../../services/video-analysis-service';
 import { createModelRef, type ModelRef } from '../../utils/settings-manager';
 
 export type { VideoAnalysisData, VideoShot };
@@ -30,6 +30,19 @@ export interface ProductInfo {
   /** @deprecated use prompt */
   sellingPoints?: string;
 }
+
+export type AnalysisSourceSnapshot =
+  | {
+      type: 'youtube';
+      youtubeUrl: string;
+    }
+  | {
+      type: 'upload';
+      cacheUrl: string;
+      fileName: string;
+      mimeType: string;
+      size: number;
+    };
 
 /** 将旧格式 ProductInfo 迁移为新格式（幂等） */
 export function migrateProductInfo(raw: Partial<ProductInfo>, fallbackDuration: number): ProductInfo {
@@ -61,6 +74,7 @@ export interface AnalysisRecord {
   createdAt: number;
   source: 'upload' | 'youtube';
   sourceLabel: string;
+  sourceSnapshot?: AnalysisSourceSnapshot | null;
   model: string;
   modelRef?: ModelRef | null;
   analysis: VideoAnalysisData;
@@ -70,6 +84,10 @@ export interface AnalysisRecord {
   productInfo?: ProductInfo;
   /** 关联的生成任务 batchId */
   batchId?: string;
+  /** 生成该分析记录的队列任务 ID */
+  analyzeTaskId?: string | null;
+  /** 当前挂起的脚本改编任务 ID */
+  pendingRewriteTaskId?: string | null;
   /** 是否收藏 */
   starred: boolean;
 }

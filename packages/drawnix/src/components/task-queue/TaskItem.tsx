@@ -68,6 +68,11 @@ function getKlingModeLabel(mode?: string): string | undefined {
   return mode;
 }
 
+function getVideoAnalyzerAction(task: Task): 'analyze' | 'rewrite' | null {
+  const action = task.params.videoAnalyzerAction;
+  return action === 'analyze' || action === 'rewrite' ? action : null;
+}
+
 export interface TaskItemProps {
   /** The task to display */
   task: Task;
@@ -208,12 +213,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
   );
   const lyricsPreview = getLyricsPreview(lyricsText);
   const lyricsTags = getLyricsTags(task.result);
+  const videoAnalyzerAction = getVideoAnalyzerAction(task);
   const displayPrompt = isCharacterTask
     ? isCompleted && task.result?.characterUsername
       ? `@${task.result.characterUsername}`
       : '角色创建中...'
     : isChatTask
-    ? task.result?.chatResponse || task.result?.title || task.params.prompt
+    ? task.result?.title || task.params.prompt || task.result?.chatResponse
     : isLyricsTask
     ? lyricsTitle || lyricsPreview || task.params.prompt
     : task.result?.title || task.params.title || task.params.prompt;
@@ -318,7 +324,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
             (task.completedAt || Date.now()) - task.startedAt
           )}</div>
         )}
-        {task.type === TaskType.VIDEO && (
+        {(task.type === TaskType.VIDEO || task.type === TaskType.CHAT) && (
           <div><strong>进度：</strong>{task.progress ?? 0}%</div>
         )}
       </div>
@@ -382,7 +388,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
             ) : task.status === TaskStatus.PROCESSING ? (
               isChatTask ? (
                 <div className="task-item__preview-placeholder">
-                  <span>生成文本中</span>
+                  <span>
+                    {videoAnalyzerAction === 'analyze'
+                      ? `视频分析中 ${Math.round(task.progress ?? 0)}%`
+                      : videoAnalyzerAction === 'rewrite'
+                      ? `脚本改编中 ${Math.round(task.progress ?? 0)}%`
+                      : '生成文本中'}
+                  </span>
                 </div>
               ) : (
                 /* 处理中状态：只显示进度覆盖层，不显示其他内容 */
@@ -586,7 +598,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
               </div>
 
               {/* Progress bar for video tasks (outside tags) */}
-              {(task.type === TaskType.VIDEO || task.type === TaskType.AUDIO) &&
+              {(task.type === TaskType.VIDEO ||
+                task.type === TaskType.AUDIO ||
+                (task.type === TaskType.CHAT &&
+                  typeof task.progress === 'number')) &&
                 task.status === TaskStatus.PROCESSING && (
                 <div className="task-item__progress-container">
                   <div className="task-item__progress-bar">

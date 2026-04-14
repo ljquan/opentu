@@ -205,6 +205,8 @@ export interface TaskResult {
   characterPermalink?: string;
   /** Chat response content (chat only) */
   chatResponse?: string;
+  /** Structured analysis payload for specialized text tasks */
+  analysisData?: unknown;
   /** Tool calls made during chat (chat only) */
   toolCalls?: ChatToolCall[];
 }

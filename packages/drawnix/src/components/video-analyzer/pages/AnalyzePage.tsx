@@ -7,14 +7,13 @@ import type { AnalysisRecord, VideoAnalysisData, VideoShot } from '../types';
 import { formatShotsMarkdown } from '../types';
 import { videoAnalyzeTool } from '../../../mcp/tools/video-analyze';
 import { quickInsert } from '../../../mcp/tools/canvas-insertion';
-import { buildInlineDataPart } from '../../../utils/gemini-api/message-utils';
 import { ModelDropdown } from '../../ai-input-bar/ModelDropdown';
 import { useSelectableModels } from '../../../hooks/use-runtime-models';
 import { useProviderProfiles } from '../../../hooks/use-provider-profiles';
 import { useDrawnix } from '../../../hooks/use-drawnix';
 import { ShotTimeline } from '../components/ShotTimeline';
 import { ShotCard } from '../components/ShotCard';
-import { addRecord, updateRecord } from '../storage';
+import { updateRecord } from '../storage';
 import { getSelectionKey } from '../../../utils/model-selection';
 import {
   TUZI_MIX_PROVIDER_PROFILE_ID,
@@ -25,6 +24,9 @@ import {
   writeStoredModelSelection,
 } from '../utils';
 import { extractFramesFromVideo, cacheFrameBlob } from '../../../utils/video-frame-cache';
+import { cacheVideoSource, restoreVideoFileFromSnapshot } from '../video-source-cache';
+import { taskQueueService } from '../../../services/task-queue';
+import { syncVideoAnalyzerTask } from '../task-sync';
 
 type InputMode = 'upload' | 'youtube';
 
@@ -50,7 +52,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
   onNext,
 }) => {
   const { setAppState } = useDrawnix();
-  const [inputMode, setInputMode] = useState<InputMode>('youtube');
+  const [inputMode, setInputMode] = useState<InputMode>('upload');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [selectedModel, setSelectedModelState] = useState(
@@ -65,6 +67,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
     writeStoredModelSelection(STORAGE_KEY_MODEL, model, modelRef);
   }, []);
   const [analyzing, setAnalyzing] = useState(false);
+  const [pendingAnalyzeTaskId, setPendingAnalyzeTaskId] = useState<string | null>(null);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [analysis, setAnalysis] = useState<VideoAnalysisData | null>(
@@ -87,6 +90,66 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
   useEffect(() => () => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const hydrateFromRecord = async () => {
+      if (!existingRecord) {
+        if (pendingAnalyzeTaskId) {
+          return;
+        }
+        setAnalysis(null);
+        setInputMode('upload');
+        setYoutubeUrl('');
+        setVideoFile(null);
+        setError('');
+        return;
+      }
+
+      setAnalysis(existingRecord.analysis || null);
+      setSelectedModelState(existingRecord.model || DEFAULT_ANALYSIS_MODEL);
+      setSelectedModelRef(existingRecord.modelRef || null);
+      setError('');
+
+      const snapshot = existingRecord.sourceSnapshot;
+      if (snapshot?.type === 'upload') {
+        setInputMode('upload');
+        setYoutubeUrl('');
+        const restoredFile = await restoreVideoFileFromSnapshot(snapshot);
+        if (disposed) return;
+        setVideoFile(restoredFile);
+        if (!restoredFile) {
+          setError('原上传视频缓存已失效，无法自动回填视频');
+        }
+        return;
+      }
+
+      if (existingRecord.source === 'upload') {
+        setInputMode('upload');
+        setYoutubeUrl('');
+        setVideoFile(null);
+        setError('这条旧历史未保存原视频，无法自动回填视频');
+        return;
+      }
+
+      setInputMode('youtube');
+      setVideoFile(null);
+      if (snapshot?.type === 'youtube') {
+        setYoutubeUrl(snapshot.youtubeUrl);
+      } else if (existingRecord.source === 'youtube') {
+        setYoutubeUrl(existingRecord.sourceLabel || '');
+      } else {
+        setYoutubeUrl('');
+      }
+    };
+
+    void hydrateFromRecord();
+
+    return () => {
+      disposed = true;
+    };
+  }, [existingRecord]);
   const allTextModels = useSelectableModels('text');
   const videoAnalysisModels = useMemo(
     () => allTextModels.filter(m => /^gemini/i.test(m.id)),
@@ -184,68 +247,114 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
     try {
       let params: Record<string, unknown> = {};
       if (inputMode === 'upload' && videoFile) {
-        setProgress('读取视频文件...');
-        const part = await buildInlineDataPart(videoFile);
-        if (part.type === 'inline_data') {
-          params = {
-            videoData: part.data,
-            // 写死为 mp4
-            mimeType: 'video/mp4', //part.mimeType,
-            model: selectedModel,
-            modelRef: selectedModelRef,
-          };
-        }
+        setProgress('缓存视频文件...');
+        const sourceSnapshot = await cacheVideoSource(videoFile);
+        params = {
+          videoCacheUrl: sourceSnapshot.cacheUrl,
+          mimeType: sourceSnapshot.mimeType,
+          model: selectedModel,
+          modelRef: selectedModelRef,
+          taskLabel: `分析视频：${videoFile.name || '本地视频'}`,
+          videoAnalyzerSource: 'upload',
+          videoAnalyzerSourceLabel: videoFile.name || '本地视频',
+          videoAnalyzerSourceSnapshot: sourceSnapshot,
+        };
       } else if (inputMode === 'youtube' && youtubeUrl) {
-        params = { youtubeUrl, model: selectedModel, modelRef: selectedModelRef };
+        params = {
+          youtubeUrl,
+          model: selectedModel,
+          modelRef: selectedModelRef,
+          taskLabel: `分析视频：${youtubeUrl}`,
+          videoAnalyzerSource: 'youtube',
+          videoAnalyzerSourceLabel: youtubeUrl,
+          videoAnalyzerSourceSnapshot: {
+            type: 'youtube',
+            youtubeUrl,
+          },
+        };
       } else {
         setError('请先选择视频文件或输入 YouTube URL');
         setAnalyzing(false);
         return;
       }
 
-      setProgress('AI 分析中，请耐心等待...');
-      const result = await videoAnalyzeTool.execute(params);
+      setProgress('加入任务队列...');
+      const result = await videoAnalyzeTool.execute(params, { mode: 'queue' });
 
-      if (result.success && result.data) {
-        const analysisData = (result.data as { analysis: VideoAnalysisData }).analysis;
-        setAnalysis(analysisData);
-
-        // 保存到历史
-        const record: AnalysisRecord = {
-          id: crypto.randomUUID(),
-          createdAt: Date.now(),
-          source: inputMode,
-          sourceLabel: inputMode === 'upload' ? (videoFile?.name || '本地视频') : youtubeUrl,
-          model: selectedModel,
-          modelRef: selectedModelRef,
-          analysis: analysisData,
-          starred: false,
-        };
-        const updated = await addRecord(record);
-        onRecordsChange(updated);
-        onComplete(record);
-
-        // 上传视频模式：自动提取帧图片（异步，不阻塞 UI）
-        if (inputMode === 'upload' && videoFile && analysisData.shots.length > 0) {
-          extractAndCacheFrames(videoFile, analysisData.shots).then(
-            async (updatedShots) => {
-              setAnalysis(prev => prev ? { ...prev, shots: updatedShots } : prev);
-              const refreshed = await updateRecord(record.id, { editedShots: updatedShots });
-              onRecordsChange(refreshed);
-              onComplete({ ...record, editedShots: updatedShots });
-            }
-          );
-        }
+      if (result.success && (result as { taskId?: string }).taskId) {
+        setPendingAnalyzeTaskId((result as { taskId?: string }).taskId || null);
+        setProgress('已加入任务队列，等待分析...');
       } else {
-        setError(result.error || '分析失败');
+        setError(result.error || '创建分析任务失败');
       }
     } catch (err: any) {
       setError(err.message || '分析失败');
     } finally {
       setAnalyzing(false);
-      setProgress('');
     }
-  }, [inputMode, videoFile, youtubeUrl, selectedModel, selectedModelRef, onComplete, onRecordsChange]);
+  }, [inputMode, videoFile, youtubeUrl, selectedModel, selectedModelRef]);
+
+  useEffect(() => {
+    if (!pendingAnalyzeTaskId) {
+      return;
+    }
+
+    const subscription = taskQueueService.observeTaskUpdates().subscribe(event => {
+      if (event.task.id !== pendingAnalyzeTaskId) {
+        return;
+      }
+
+      if (event.task.status === 'failed') {
+        setPendingAnalyzeTaskId(null);
+        setProgress('');
+        setError(event.task.error?.message || '分析失败');
+        return;
+      }
+
+      if (event.task.status === 'completed') {
+        void syncVideoAnalyzerTask(event.task).then(async synced => {
+          if (!synced) {
+            return;
+          }
+
+          onRecordsChange(synced.records);
+          onComplete(synced.record);
+          setAnalysis(synced.record.analysis);
+
+          if (
+            synced.record.source === 'upload' &&
+            videoFile &&
+            synced.record.analysis.shots.length > 0
+          ) {
+            const updatedShots = await extractAndCacheFrames(
+              videoFile,
+              synced.record.analysis.shots
+            );
+            setAnalysis(prev => (prev ? { ...prev, shots: updatedShots } : prev));
+            const refreshed = await updateRecord(synced.record.id, {
+              editedShots: updatedShots,
+            });
+            onRecordsChange(refreshed);
+            onComplete({ ...synced.record, editedShots: updatedShots });
+          }
+        }).catch((err: any) => {
+          setError(err.message || '分析结果同步失败');
+        }).finally(() => {
+          setPendingAnalyzeTaskId(null);
+          setProgress('');
+        });
+        return;
+      }
+
+      if (typeof event.task.progress === 'number') {
+        setProgress(`分析中 ${Math.round(event.task.progress)}%`);
+      } else {
+        setProgress('分析中，请耐心等待...');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [pendingAnalyzeTaskId, onComplete, onRecordsChange, videoFile, extractAndCacheFrames]);
 
   const handleInsertAnalysis = useCallback(async () => {
     if (!analysis) return;
@@ -258,8 +367,8 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
       {!analysis && (
         <>
           <div className="va-tabs">
-            <button className={`va-tab ${inputMode === 'youtube' ? 'active' : ''}`} onClick={() => setInputMode('youtube')}>YouTube URL</button>
             <button className={`va-tab ${inputMode === 'upload' ? 'active' : ''}`} onClick={() => setInputMode('upload')}>上传视频</button>
+            <button className={`va-tab ${inputMode === 'youtube' ? 'active' : ''}`} onClick={() => setInputMode('youtube')}>YouTube URL</button>
           </div>
           {inputMode === 'upload' ? (
             videoFile ? (
@@ -313,8 +422,12 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
               )}
             </div>
           )}
-          <button className="va-analyze-btn" onClick={handleAnalyze} disabled={analyzing || (inputMode === 'upload' ? !videoFile : !youtubeUrl)}>
-            {analyzing ? progress || '分析中...' : '开始分析'}
+          <button
+            className="va-analyze-btn"
+            onClick={handleAnalyze}
+            disabled={analyzing || !!pendingAnalyzeTaskId || (inputMode === 'upload' ? !videoFile : !youtubeUrl)}
+          >
+            {analyzing || pendingAnalyzeTaskId ? progress || '分析中...' : '开始分析'}
           </button>
           {error && <div className="va-error">{error}</div>}
         </>

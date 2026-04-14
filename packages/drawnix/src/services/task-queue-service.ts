@@ -37,6 +37,20 @@ import {
 } from './model-adapters';
 import { cacheRemoteUrl, cacheRemoteUrls } from './media-executor/fallback-utils';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
+import { sendChatWithGemini } from '../utils/gemini-api/services';
+import type { GeminiMessage } from '../utils/gemini-api/types';
+import { buildInlineDataPart } from '../utils/gemini-api/message-utils';
+import { unifiedCacheService } from './unified-cache-service';
+import { executeVideoAnalysis } from './video-analysis-service';
+import {
+  formatShotsMarkdown,
+  type VideoAnalysisData,
+} from '../components/video-analyzer/types';
+
+const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
+const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
+const VIDEO_ANALYZER_SIMULATED_START_PROGRESS = 15;
+const VIDEO_ANALYZER_SIMULATED_END_PROGRESS = 95;
 
 async function cacheAudioCoverUrl(
   coverUrl: string | undefined,
@@ -385,6 +399,16 @@ class TaskQueueService {
           break;
         }
         case TaskType.CHAT: {
+          if ((task.params as { videoAnalyzerAction?: string }).videoAnalyzerAction === 'analyze') {
+            await this.executeVideoAnalyzerAnalyzeTask(task);
+            break;
+          }
+
+          if ((task.params as { videoAnalyzerAction?: string }).videoAnalyzerAction === 'rewrite') {
+            await this.executeVideoAnalyzerRewriteTask(task, executionOptions);
+            break;
+          }
+
           await executor.generateText(
             {
               taskId: task.id,
@@ -472,6 +496,169 @@ class TaskQueueService {
     }
   }
 
+  private async finalizeChatTask(
+    task: Task,
+    payload: {
+      title: string;
+      chatResponse: string;
+      format?: string;
+      resultExtras?: Partial<NonNullable<Task['result']>>;
+    }
+  ): Promise<void> {
+    const result: NonNullable<Task['result']> = {
+      url: '',
+      format: payload.format || 'json',
+      size: payload.chatResponse.length,
+      resultKind: 'chat',
+      title: payload.title,
+      chatResponse: payload.chatResponse,
+      ...payload.resultExtras,
+    };
+
+    await taskStorageWriter.completeTask(task.id, result);
+
+    const now = Date.now();
+    const completedTask: Task = {
+      ...(this.tasks.get(task.id) || task),
+      status: TaskStatus.COMPLETED,
+      progress: 100,
+      result,
+      executionPhase: undefined,
+      completedAt: now,
+      updatedAt: now,
+    };
+    this.tasks.set(task.id, completedTask);
+    this.persistTask(completedTask);
+    this.emitEvent('taskUpdated', completedTask);
+    this.emitEvent('taskCompleted', completedTask);
+  }
+
+  private async executeVideoAnalyzerAnalyzeTask(task: Task): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      mimeType?: string;
+      youtubeUrl?: string;
+      videoData?: string;
+      videoCacheUrl?: string;
+      videoAnalyzerPrompt?: string;
+      prompt?: string;
+    };
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    this.updateTaskProgress(task.id, 8);
+
+    let videoData = params.videoData;
+    let mimeType = params.mimeType || 'video/mp4';
+
+    if (!videoData && params.videoCacheUrl) {
+      const blob =
+        (await unifiedCacheService.getCachedBlob(params.videoCacheUrl)) ||
+        (await fetch(params.videoCacheUrl).then((response) =>
+          response.ok ? response.blob() : null
+        ));
+
+      if (!blob) {
+        throw new Error('无法读取已缓存的视频文件');
+      }
+
+      const file = new File([blob], 'video-analyzer-source.mp4', {
+        type: blob.type || mimeType,
+      });
+      const part = await buildInlineDataPart(file);
+      if (part.type !== 'inline_data') {
+        throw new Error('视频缓存转换失败');
+      }
+      videoData = part.data;
+      mimeType = part.mimeType || mimeType;
+    }
+
+    this.updateTaskProgress(task.id, VIDEO_ANALYZER_SIMULATED_START_PROGRESS);
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / VIDEO_ANALYZER_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        VIDEO_ANALYZER_SIMULATED_START_PROGRESS +
+        (VIDEO_ANALYZER_SIMULATED_END_PROGRESS -
+          VIDEO_ANALYZER_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, VIDEO_ANALYZER_SIMULATED_INTERVAL_MS);
+
+    try {
+      const result = await executeVideoAnalysis({
+        videoData,
+        mimeType,
+        youtubeUrl: params.youtubeUrl,
+        prompt: params.videoAnalyzerPrompt || params.prompt,
+        model: params.model,
+        modelRef: params.modelRef || null,
+      });
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '视频分析失败');
+      }
+
+      const analysis = (result.data as { analysis: VideoAnalysisData }).analysis;
+      const formattedText = formatShotsMarkdown(analysis.shots || [], analysis);
+      await this.finalizeChatTask(task, {
+        title: '视频分析结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: analysis,
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeVideoAnalyzerRewriteTask(
+    task: Task,
+    options: {
+      onProgress: (progress: { progress: number; phase?: string }) => void;
+    }
+  ): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      videoAnalyzerPrompt?: string;
+      prompt?: string;
+    };
+    const actualPrompt = String(params.videoAnalyzerPrompt || '').trim();
+    if (!actualPrompt) {
+      throw new Error('缺少脚本改编提示词');
+    }
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    options.onProgress({ progress: 30, phase: 'submitting' });
+    await taskStorageWriter.updateProgress(task.id, 30, 'submitting');
+
+    const messages: GeminiMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: actualPrompt }] },
+    ];
+    const response = await sendChatWithGemini(
+      messages,
+      undefined,
+      undefined,
+      (params.modelRef as any) || params.model
+    );
+    const text = response.choices?.[0]?.message?.content;
+    if (!text) {
+      throw new Error('AI 未返回有效响应');
+    }
+
+    options.onProgress({ progress: 100 });
+    await this.finalizeChatTask(task, {
+      title: String(params.prompt || '脚本改编'),
+      chatResponse: text,
+      format: 'md',
+    });
+  }
+
   /**
    * Gets the singleton instance of TaskQueueService
    */
@@ -512,7 +699,10 @@ class TaskQueueService {
       startedAt: now,
       executionPhase: TaskExecutionPhase.SUBMITTING,
       // Initialize progress for video tasks
-      ...((type === TaskType.VIDEO || type === TaskType.AUDIO) && {
+      ...((type === TaskType.VIDEO ||
+        type === TaskType.AUDIO ||
+        (type === TaskType.CHAT &&
+          typeof sanitizedParams.videoAnalyzerAction === 'string')) && {
         progress: 0,
       }),
     };
@@ -726,7 +916,10 @@ class TaskQueueService {
       remoteId: undefined, // Clear remote ID for fresh submission
       executionPhase: TaskExecutionPhase.SUBMITTING,
       progress:
-        task.type === TaskType.VIDEO || task.type === TaskType.AUDIO
+        task.type === TaskType.VIDEO ||
+        task.type === TaskType.AUDIO ||
+        (task.type === TaskType.CHAT &&
+          typeof task.params.videoAnalyzerAction === 'string')
           ? 0
           : undefined, // Reset progress for async media
     });
