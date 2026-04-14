@@ -423,6 +423,7 @@ const AIVideoGeneration = ({
 
   const { language } = useI18n();
   const { createTask } = useTaskQueue();
+  const generatingLockRef = useRef(false);
   const isModelControlled = selectedModel !== undefined;
   const lastSyncedSelectedSelectionKeyRef = React.useRef<string | null>(null);
 
@@ -871,6 +872,10 @@ const AIVideoGeneration = ({
   };
 
   const handleGenerate = async (count = 1) => {
+    // 防止快速双击/重复触发导致多次创建任务
+    if (generatingLockRef.current) return;
+    generatingLockRef.current = true;
+    try {
     // 验证输入
     if (storyboardEnabled) {
       // 故事场景模式验证
@@ -1032,6 +1037,9 @@ const AIVideoGeneration = ({
       }
 
       setError(errorMessage);
+    }
+    } finally {
+      generatingLockRef.current = false;
     }
   };
 

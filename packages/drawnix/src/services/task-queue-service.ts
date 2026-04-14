@@ -70,6 +70,7 @@ class TaskQueueService {
   private static instance: TaskQueueService;
   private tasks: Map<string, Task>;
   private taskUpdates$: Subject<TaskEvent>;
+  private executingTasks = new Set<string>();
 
   private constructor() {
     this.tasks = new Map();
@@ -130,6 +131,12 @@ class TaskQueueService {
    * This is called automatically after task creation
    */
   private async executeTask(task: Task): Promise<void> {
+    // 防止同一任务被重复执行（双重调用防护）
+    if (this.executingTasks.has(task.id)) {
+      console.warn(`[TaskQueueService] Task ${task.id} is already executing, skipping duplicate`);
+      return;
+    }
+    this.executingTasks.add(task.id);
     try {
       // Check API configuration
       const routeType =
@@ -460,6 +467,8 @@ class TaskQueueService {
         this.persistTask(failedTask);
         this.emitEvent('taskUpdated', failedTask);
       }
+    } finally {
+      this.executingTasks.delete(task.id);
     }
   }
 
