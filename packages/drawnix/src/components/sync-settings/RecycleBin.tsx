@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Button, MessagePlugin, Loading, Dialog, Input } from 'tdesign-react';
+import { Button, MessagePlugin, Loading, Input } from 'tdesign-react';
 import {
   DeleteIcon,
   RefreshIcon,
@@ -14,6 +14,7 @@ import {
   LinkIcon,
 } from 'tdesign-icons-react';
 import { syncEngine } from '../../services/github-sync';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import type { DeletedItems } from '../../services/github-sync/types';
 
 /** 构建画板文件的 Gist URL */
@@ -351,60 +352,42 @@ export function RecycleBin({ isConnected, onRefresh }: RecycleBinProps) {
       </div>
 
       {/* 永久删除确认对话框 */}
-      <Dialog
-        visible={!!deleteConfirmItem}
-        onClose={() => setDeleteConfirmItem(null)}
-        header="永久删除"
-        confirmBtn={
-          <Button 
-            theme="danger" 
-            onClick={handlePermanentDelete}
-            loading={!!deletingId}
-          >
-            确认删除
-          </Button>
-        }
-        cancelBtn={
-          <Button variant="outline" onClick={() => setDeleteConfirmItem(null)}>
-            取消
-          </Button>
-        }
+      <ConfirmDialog
+        open={!!deleteConfirmItem}
+        title="永久删除"
+        confirmText="确认删除"
+        cancelText="取消"
+        danger
+        confirmLoading={!!deletingId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteConfirmItem(null);
+          }
+        }}
+        onConfirm={handlePermanentDelete}
       >
         <p>确定要永久删除 "{deleteConfirmItem?.name}" 吗？</p>
         <p style={{ color: '#e34d59' }}>
           此操作不可撤销，数据将从云端永久删除。
         </p>
-      </Dialog>
+      </ConfirmDialog>
 
       {/* 清空回收站确认对话框 */}
-      <Dialog
-        visible={showEmptyConfirm}
-        onClose={() => {
-          setShowEmptyConfirm(false);
-          setEmptyConfirmText('');
+      <ConfirmDialog
+        open={showEmptyConfirm}
+        title="清空回收站"
+        confirmText="永久删除全部"
+        cancelText="取消"
+        danger
+        confirmLoading={isEmptying}
+        confirmDisabled={emptyConfirmText !== '确认清空'}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowEmptyConfirm(false);
+            setEmptyConfirmText('');
+          }
         }}
-        header="清空回收站"
-        confirmBtn={
-          <Button 
-            theme="danger" 
-            onClick={handleEmptyRecycleBin}
-            loading={isEmptying}
-            disabled={emptyConfirmText !== '确认清空'}
-          >
-            永久删除全部
-          </Button>
-        }
-        cancelBtn={
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              setShowEmptyConfirm(false);
-              setEmptyConfirmText('');
-            }}
-          >
-            取消
-          </Button>
-        }
+        onConfirm={handleEmptyRecycleBin}
       >
         <p>此操作将永久删除回收站中的所有数据：</p>
         <ul style={{ margin: '12px 0', paddingLeft: '20px' }}>
@@ -426,7 +409,7 @@ export function RecycleBin({ isConnected, onRefresh }: RecycleBinProps) {
           onChange={(val) => setEmptyConfirmText(val as string)}
           placeholder='输入"确认清空"'
         />
-      </Dialog>
+      </ConfirmDialog>
     </>
   );
 }

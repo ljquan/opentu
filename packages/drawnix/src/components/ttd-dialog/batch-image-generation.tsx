@@ -15,7 +15,6 @@ import {
   MessagePlugin,
   Dialog,
   Tooltip,
-  DialogPlugin,
   Button,
   Checkbox,
 } from 'tdesign-react';
@@ -35,6 +34,7 @@ import {
 import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
 import { useI18n } from '../../i18n';
 import { MediaViewer } from '../shared/MediaViewer';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { useMediaViewer, urlsToMediaItems } from '../../hooks/useMediaViewer';
 import { smartDownload } from '../../utils/download-utils';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
@@ -159,6 +159,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
   onModelRefChange,
 }) => {
   const { language } = useI18n();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const imageModels = useSelectableModels('image');
   const { createTask, tasks: queueTasks } = useTaskQueue();
   const { addAsset, assets: libraryAssets, loadAssets } = useAssets();
@@ -1902,31 +1903,23 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
           ? `${warningMessage}，是否继续？`
           : `${warningMessage}. Continue?`;
 
-      // 使用 DialogPlugin 弹窗确认
-      const dialog = DialogPlugin.confirm({
-        header: language === 'zh' ? '生成提醒' : 'Generation Warning',
-        body: confirmMessage,
-        confirmBtn: language === 'zh' ? '继续生成' : 'Continue',
-        cancelBtn: language === 'zh' ? '取消' : 'Cancel',
-        theme: 'warning',
-        closeBtn: true,
-        onConfirm: () => {
-          dialog.destroy();
+      void confirm({
+        title: language === 'zh' ? '生成提醒' : 'Generation Warning',
+        description: confirmMessage,
+        confirmText: language === 'zh' ? '继续生成' : 'Continue',
+        cancelText: language === 'zh' ? '取消' : 'Cancel',
+        confirmTheme: 'warning',
+      }).then((confirmed) => {
+        if (confirmed) {
           executeSubmit(validTasks);
-        },
-        onCancel: () => {
-          dialog.destroy();
-        },
-        onClose: () => {
-          dialog.destroy();
-        },
+        }
       });
       return;
     }
 
     // 没有超限，直接提交
     executeSubmit(validTasks);
-  }, [tasks, selectedRows, language, executeSubmit, getRowTasksInfo]);
+  }, [confirm, tasks, selectedRows, language, executeSubmit, getRowTasksInfo]);
 
   // 键盘导航和直接输入
   useEffect(() => {
@@ -3414,6 +3407,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
           onSelect={handleMediaLibrarySelect}
         />
       )}
+      {confirmDialog}
     </div>
   );
 };

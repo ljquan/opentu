@@ -2,19 +2,22 @@
  * 历史记录页 - 分析历史列表 + 收藏 + 删除 + 关联任务展开
  */
 
-import React, { useCallback, useState, useMemo } from 'react';
-import { ChevronRight, Download } from 'lucide-react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { AnalysisRecord } from '../types';
 import { updateRecord, deleteRecord } from '../storage';
 import { useSharedTaskState } from '../../../hooks/useTaskQueue';
 import type { Task } from '../../../types/task.types';
-import { TaskType, TaskStatus } from '../../../types/task.types';
-
-interface RelatedTasks {
-  rewrite: Task[];
-  image: Task[];
-  video: Task[];
-}
+import { TaskType } from '../../../types/task.types';
+import {
+  UnifiedMediaViewer,
+  type UnifiedMediaItem,
+} from '../../shared/media-preview';
+import { ConfirmDialog } from '../../dialog/ConfirmDialog';
+import {
+  HistoryRecordCard,
+  getTaskMediaUrls,
+  type RelatedTasks,
+} from '../components/HistoryRecordCard';
 
 interface HistoryPageProps {
   records: AnalysisRecord[];
@@ -24,6 +27,56 @@ interface HistoryPageProps {
   onInsertTask?: (task: Task) => void;
   /** 点击脚本改编任务时，跳转到该记录的脚本页 */
   onSelectScript?: (record: AnalysisRecord, task: Task) => void;
+}
+
+function buildPreviewTitle(task: Task, index: number, total: number): string {
+  const baseTitle =
+    task.result?.title ||
+    task.params.title ||
+    task.params.prompt ||
+    (task.type === TaskType.VIDEO ? '视频预览' : '图片预览');
+
+  return total > 1 ? `${baseTitle} (${index + 1}/${total})` : baseTitle;
+}
+
+function buildPreviewItems(tasks: Task[]): {
+  items: UnifiedMediaItem[];
+  taskIdToIndex: Map<string, number>;
+} {
+  const items: UnifiedMediaItem[] = [];
+  const taskIdToIndex = new Map<string, number>();
+
+  for (const task of tasks) {
+    if (task.type !== TaskType.IMAGE && task.type !== TaskType.VIDEO) {
+      continue;
+    }
+
+    const urls = getTaskMediaUrls(task);
+    if (urls.length === 0) {
+      continue;
+    }
+
+    const startIndex = items.length;
+    const posterUrl =
+      task.type === TaskType.VIDEO
+        ? task.result?.thumbnailUrls?.[0] || task.result?.thumbnailUrl || undefined
+        : undefined;
+
+    urls.forEach((url, index) => {
+      items.push({
+        id: urls.length > 1 ? `${task.id}-${index}` : task.id,
+        url,
+        type: task.type === TaskType.VIDEO ? 'video' : 'image',
+        title: buildPreviewTitle(task, index, urls.length),
+        prompt: task.params.prompt,
+        posterUrl: task.type === TaskType.VIDEO ? posterUrl : undefined,
+      });
+    });
+
+    taskIdToIndex.set(task.id, startIndex);
+  }
+
+  return { items, taskIdToIndex };
 }
 
 export const HistoryPage: React.FC<HistoryPageProps> = ({
@@ -36,6 +89,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 }) => {
   const filtered = showStarredOnly ? records.filter(r => r.starred) : records;
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewItems, setPreviewItems] = useState<UnifiedMediaItem[]>([]);
+  const [previewInitialIndex, setPreviewInitialIndex] = useState(0);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { tasks: allTasks } = useSharedTaskState();
 
   // 一次遍历构建 recordId → 关联任务映射
@@ -96,11 +153,20 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     onRecordsChange(updated);
   }, [onRecordsChange]);
 
-  const handleDelete = useCallback(async (e: React.MouseEvent, id: string) => {
+  const handleDelete = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    const updated = await deleteRecord(id);
+    setPendingDeleteId(id);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDeleteId) {
+      return;
+    }
+
+    const updated = await deleteRecord(pendingDeleteId);
     onRecordsChange(updated);
-  }, [onRecordsChange]);
+    setPendingDeleteId(null);
+  }, [onRecordsChange, pendingDeleteId]);
 
   const handleToggleExpand = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -117,6 +183,22 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     onSelectScript?.(record, task);
   }, [onSelectScript]);
 
+  const handlePreviewOpen = useCallback((e: React.MouseEvent, task: Task, previewTasks: Task[]) => {
+    e.stopPropagation();
+    const { items, taskIdToIndex } = buildPreviewItems(previewTasks);
+    const initialIndex = taskIdToIndex.get(task.id);
+    if (!items.length || initialIndex === undefined) {
+      return;
+    }
+    setPreviewItems(items);
+    setPreviewInitialIndex(initialIndex);
+    setPreviewVisible(true);
+  }, []);
+
+  const handlePreviewClose = useCallback(() => {
+    setPreviewVisible(false);
+  }, []);
+
   if (filtered.length === 0) {
     return (
       <div className="va-page va-empty">
@@ -126,175 +208,54 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   }
 
   return (
-    <div className="va-page">
-      <div className="va-history-list">
-        {filtered.map(record => {
-          const related = relatedTasksMap.get(record.id);
-          const hasRelated = related && (related.rewrite.length + related.image.length + related.video.length) > 0;
-          const isExpanded = expandedId === record.id;
+    <>
+      <div className="va-page">
+        <div className="va-history-list">
+          {filtered.map(record => {
+            const related = relatedTasksMap.get(record.id);
+            const isExpanded = expandedId === record.id;
 
-          return (
-            <div
-              key={record.id}
-              className="va-history-item"
-              onClick={() => onSelect(record)}
-            >
-              <div className="va-history-header">
-                <span className="va-history-source">
-                  {record.source === 'youtube' ? '🔗' : '📁'} {record.sourceLabel}
-                </span>
-                <button
-                  className={`va-star-btn ${record.starred ? 'starred' : ''}`}
-                  onClick={e => handleToggleStar(e, record)}
-                >
-                  {record.starred ? '★' : '☆'}
-                </button>
-              </div>
-              <div className="va-history-meta">
-                {hasRelated && (
-                  <button
-                    className={`va-history-expand-btn ${isExpanded ? 'expanded' : ''}`}
-                    onClick={e => handleToggleExpand(e, record.id)}
-                  >
-                    <ChevronRight size={12} />
-                    <span>{isExpanded ? '收起' : '关联任务'}</span>
-                  </button>
-                )}
-                <span>{new Date(record.createdAt).toLocaleString()}</span>
-                <span>{record.analysis.shotCount} 镜头</span>
-                <span>{record.model}</span>
-                <button
-                  className="va-history-delete"
-                  onClick={e => handleDelete(e, record.id)}
-                >
-                  删除
-                </button>
-              </div>
-              {record.analysis.video_style && (
-                <div className="va-history-style">{record.analysis.video_style}</div>
-              )}
-              {isExpanded && related && (
-                <RelatedTasksSection
-                  related={related}
-                  record={record}
-                  onInsertClick={handleInsertClick}
-                  onScriptClick={handleScriptClick}
-                />
-              )}
-            </div>
-          );
-        })}
+            return (
+              <HistoryRecordCard
+                key={record.id}
+                record={record}
+                related={related}
+                isExpanded={isExpanded}
+                onSelect={onSelect}
+                onToggleStar={handleToggleStar}
+                onDelete={handleDelete}
+                onToggleExpand={handleToggleExpand}
+                onInsertTask={handleInsertClick}
+                onPreviewOpen={handlePreviewOpen}
+                onSelectScript={handleScriptClick}
+              />
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
-};
 
-/** 状态文本映射 */
-function statusLabel(status: TaskStatus): string {
-  switch (status) {
-    case TaskStatus.COMPLETED: return '已完成';
-    case TaskStatus.PROCESSING: return '进行中';
-    case TaskStatus.PENDING: return '等待中';
-    case TaskStatus.FAILED: return '失败';
-    default: return '';
-  }
-}
+      <UnifiedMediaViewer
+        visible={previewVisible}
+        items={previewItems}
+        initialIndex={previewInitialIndex}
+        onClose={handlePreviewClose}
+        showThumbnails={previewItems.length > 1}
+      />
 
-/** 状态 CSS class */
-function statusClass(status: TaskStatus): string {
-  switch (status) {
-    case TaskStatus.COMPLETED: return 'completed';
-    case TaskStatus.PROCESSING: return 'processing';
-    case TaskStatus.PENDING: return 'pending';
-    case TaskStatus.FAILED: return 'failed';
-    default: return 'pending';
-  }
-}
-
-/** 格式化时间为短格式 */
-function shortTime(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-/** 获取任务的 prompt 摘要 */
-function taskPromptSummary(task: Task): string {
-  const prompt = String(task.params.prompt || '');
-  return prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt;
-}
-
-/** 关联任务分组展示 */
-const RelatedTasksSection: React.FC<{
-  related: RelatedTasks;
-  record: AnalysisRecord;
-  onInsertClick: (e: React.MouseEvent, task: Task) => void;
-  onScriptClick: (e: React.MouseEvent, record: AnalysisRecord, task: Task) => void;
-}> = ({ related, record, onInsertClick, onScriptClick }) => (
-  <div className="va-history-related" onClick={e => e.stopPropagation()}>
-    {related.rewrite.length > 0 && (
-      <div>
-        <div className="va-history-related-group-title">脚本改编 ({related.rewrite.length})</div>
-        {related.rewrite.map(task => (
-          <RelatedTaskItem
-            key={task.id}
-            task={task}
-            onClick={e => onScriptClick(e, record, task)}
-          />
-        ))}
-      </div>
-    )}
-    {related.image.length > 0 && (
-      <div>
-        <div className="va-history-related-group-title">图片生成 ({related.image.length})</div>
-        {related.image.map(task => (
-          <RelatedTaskItem key={task.id} task={task} onInsertClick={onInsertClick} />
-        ))}
-      </div>
-    )}
-    {related.video.length > 0 && (
-      <div>
-        <div className="va-history-related-group-title">视频生成 ({related.video.length})</div>
-        {related.video.map(task => (
-          <RelatedTaskItem key={task.id} task={task} onInsertClick={onInsertClick} />
-        ))}
-      </div>
-    )}
-  </div>
-);
-
-/** 单条关联任务 */
-const RelatedTaskItem: React.FC<{
-  task: Task;
-  onClick?: (e: React.MouseEvent) => void;
-  onInsertClick?: (e: React.MouseEvent, task: Task) => void;
-}> = ({ task, onClick, onInsertClick }) => {
-  const isCompleted = task.status === TaskStatus.COMPLETED;
-  const hasResult = isCompleted && (task.result?.url || task.result?.urls?.length);
-  const thumbUrl = task.result?.url || task.result?.urls?.[0];
-
-  return (
-    <div
-      className="va-history-related-task"
-      title={statusLabel(task.status)}
-      onClick={onClick}
-    >
-      <span className={`va-history-related-task-status ${statusClass(task.status)}`} />
-      <span className="va-history-related-task-prompt">{taskPromptSummary(task)}</span>
-      <span className="va-history-related-task-time">{shortTime(task.createdAt)}</span>
-      {hasResult && thumbUrl && task.type !== TaskType.CHAT && (
-        <span className="va-history-related-task-thumb">
-          <img src={thumbUrl} alt="" referrerPolicy="no-referrer" />
-        </span>
-      )}
-      {hasResult && onInsertClick && (
-        <button
-          className="va-history-related-insert-btn"
-          onClick={e => onInsertClick(e, task)}
-          title="插入画板"
-        >
-          <Download size={14} />
-        </button>
-      )}
-    </div>
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="确认删除"
+        description="确定要删除这条历史记录吗？此操作不可撤销。"
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDeleteId(null);
+          }
+        }}
+        onConfirm={handleConfirmDelete}
+      />
+    </>
   );
 };

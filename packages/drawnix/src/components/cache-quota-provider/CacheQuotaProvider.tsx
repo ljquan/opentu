@@ -5,8 +5,8 @@
  * Prompts user to open media library for manual cleanup
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { DialogPlugin } from 'tdesign-react';
+import React, { useState, useCallback } from 'react';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { useCacheQuotaMonitor } from '../../hooks/useUnifiedCache';
 
 export interface CacheQuotaProviderProps {
@@ -24,36 +24,34 @@ export const CacheQuotaProvider: React.FC<CacheQuotaProviderProps> = ({
   onOpenMediaLibrary,
 }) => {
   const [dialogVisible, setDialogVisible] = useState(false);
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const handleQuotaExceeded = useCallback(() => {
     // Only show dialog if not already visible
     if (!dialogVisible) {
       setDialogVisible(true);
-
-      const dialog = DialogPlugin.confirm({
-        header: '缓存空间已满',
-        body: '图片缓存空间已满，无法继续缓存新图片。是否打开素材库清理缓存？',
-        theme: 'warning',
-        confirmBtn: '打开素材库',
-        cancelBtn: '稍后处理',
-        onConfirm: () => {
-          setDialogVisible(false);
+      void confirm({
+        title: '缓存空间已满',
+        description: '图片缓存空间已满，无法继续缓存新图片。是否打开素材库清理缓存？',
+        confirmText: '打开素材库',
+        cancelText: '稍后处理',
+        confirmTheme: 'warning',
+      }).then((confirmed) => {
+        setDialogVisible(false);
+        if (confirmed) {
           onOpenMediaLibrary?.();
-          dialog.hide();
-        },
-        onCancel: () => {
-          setDialogVisible(false);
-          dialog.hide();
-        },
-        onClose: () => {
-          setDialogVisible(false);
-        },
+        }
       });
     }
-  }, [dialogVisible, onOpenMediaLibrary]);
+  }, [confirm, dialogVisible, onOpenMediaLibrary]);
 
   // Monitor quota
   useCacheQuotaMonitor(handleQuotaExceeded);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {confirmDialog}
+    </>
+  );
 };

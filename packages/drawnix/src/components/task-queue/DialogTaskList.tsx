@@ -13,7 +13,7 @@ import { Task, TaskType, TaskStatus } from '../../types/task.types';
 import { useDrawnix, DialogType } from '../../hooks/use-drawnix';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
-import { MessagePlugin, Dialog, Input, Button, Tooltip } from 'tdesign-react';
+import { MessagePlugin, Input, Button, Tooltip } from 'tdesign-react';
 import { SearchIcon, DeleteIcon } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import {
@@ -21,6 +21,7 @@ import {
   smartDownload,
 } from '../../utils/download-utils';
 import { CharacterCreateDialog } from '../character/CharacterCreateDialog';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import {
   UnifiedMediaViewer,
   type MediaItem as UnifiedMediaItem,
@@ -495,26 +496,28 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
       </div>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        visible={showDeleteConfirm}
-        header="确认删除"
-        onClose={() => setShowDeleteConfirm(false)}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="确认删除"
+        description="确定要删除此任务吗？此操作无法撤销。"
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowDeleteConfirm}
         onConfirm={confirmDelete}
-        onCancel={() => setShowDeleteConfirm(false)}
-      >
-        确定要删除此任务吗？此操作无法撤销。
-      </Dialog>
+      />
 
       {/* Clear Failed Tasks Confirmation Dialog */}
-      <Dialog
-        visible={showClearFailedConfirm}
-        header="清除失败任务"
-        onClose={() => setShowClearFailedConfirm(false)}
+      <ConfirmDialog
+        open={showClearFailedConfirm}
+        title="清除失败任务"
+        description={`确定要清除全部 ${failedTaskCount} 个失败任务吗？此操作无法撤销。`}
+        confirmText="清除"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowClearFailedConfirm}
         onConfirm={handleClearFailed}
-        onCancel={() => setShowClearFailedConfirm(false)}
-      >
-        确定要清除全部 {failedTaskCount} 个失败任务吗？此操作无法撤销。
-      </Dialog>
+      />
 
       {/* Unified Preview */}
       <UnifiedMediaViewer

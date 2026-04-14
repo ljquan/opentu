@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Button, Tabs, Dialog, MessagePlugin, Input, Tooltip, Checkbox } from 'tdesign-react';
+import { Button, Tabs, MessagePlugin, Input, Tooltip, Checkbox } from 'tdesign-react';
 import { DeleteIcon, SearchIcon, UserIcon, RefreshIcon, PauseCircleIcon, CheckDoubleIcon, ImageIcon, VideoIcon, FilterIcon } from 'tdesign-icons-react';
 import { Music4 } from 'lucide-react';
 import { VirtualTaskList } from './VirtualTaskList';
@@ -39,6 +39,7 @@ import { useGitHubSync } from '../../contexts/GitHubSyncContext';
 import { mediaSyncService } from '../../services/github-sync/media-sync-service';
 import { CloudUploadIcon } from 'tdesign-icons-react';
 import { formatLyricsForCanvas, getLyricsTags, getLyricsTitle, isLyricsTask } from '../../utils/lyrics-task-utils';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import './task-queue.scss';
 
 const { TabPanel } = Tabs;
@@ -1118,37 +1119,40 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       </BaseDrawer>
 
       {/* Clear Confirmation Dialog */}
-      <Dialog
-        visible={showClearConfirm}
-        header="确认清除"
-        onClose={() => setShowClearConfirm(false)}
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="确认清除"
+        description={`确定要清除所有${clearType === 'completed' ? '已完成' : '失败'}的任务吗？此操作无法撤销。`}
+        confirmText="清除"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowClearConfirm}
         onConfirm={confirmClear}
-        onCancel={() => setShowClearConfirm(false)}
-      >
-        确定要清除所有{clearType === 'completed' ? '已完成' : '失败'}的任务吗？此操作无法撤销。
-      </Dialog>
+      />
 
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        visible={showDeleteConfirm}
-        header="确认删除"
-        onClose={() => setShowDeleteConfirm(false)}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="确认删除"
+        description="确定要删除此任务吗？此操作无法撤销。"
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowDeleteConfirm}
         onConfirm={confirmDelete}
-        onCancel={() => setShowDeleteConfirm(false)}
-      >
-        确定要删除此任务吗？此操作无法撤销。
-      </Dialog>
+      />
 
       {/* Batch Delete Confirmation Dialog */}
-      <Dialog
-        visible={showBatchDeleteConfirm}
-        header="确认批量删除"
-        onClose={() => setShowBatchDeleteConfirm(false)}
+      <ConfirmDialog
+        open={showBatchDeleteConfirm}
+        title="确认批量删除"
+        description={`确定要删除选中的 ${selectedTaskIds.size} 个任务吗？此操作无法撤销。`}
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowBatchDeleteConfirm}
         onConfirm={confirmBatchDelete}
-        onCancel={() => setShowBatchDeleteConfirm(false)}
-      >
-        确定要删除选中的 {selectedTaskIds.size} 个任务吗？此操作无法撤销。
-      </Dialog>
+      />
 
       {/* 统一预览 */}
       <UnifiedMediaViewer

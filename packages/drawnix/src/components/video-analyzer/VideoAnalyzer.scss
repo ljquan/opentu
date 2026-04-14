@@ -1087,25 +1087,55 @@
   border-radius: 4px;
   overflow: hidden;
   flex-shrink: 0;
+  position: relative;
+  background: #f3f4f6;
 
-  img {
+  img,
+  video {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
+    pointer-events: none;
   }
 }
 
-.va-history-related-insert-btn {
-  border: none;
-  background: none;
-  padding: 2px 4px;
-  cursor: pointer;
-  color: #bbb;
-  font-size: 14px;
-  flex-shrink: 0;
-  transition: color 0.15s;
+.va-history-related-task-thumb-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
-  &:hover { color: #F39C12; }
+.va-history-related-insert-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f3f4f6;
+  border-radius: 12px;
+  padding: 0;
+  cursor: pointer;
+  color: #4b5563;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+
+  &:hover {
+    background: #e5e7eb;
+    color: #111827;
+    transform: translateY(-1px);
+  }
 }
 
 .va-history-source {

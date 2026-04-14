@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect, useTransition } from 'react';
-import { Loading, Input, Button, Checkbox, Popconfirm, Tooltip, Dialog } from 'tdesign-react';
+import { Loading, Input, Button, Checkbox, Tooltip, Dialog } from 'tdesign-react';
 import { 
   Search, 
   Trash2, 
@@ -37,6 +37,7 @@ import {
   MediaLibraryIcon,
 } from '../icons';
 import { useAssets } from '../../contexts/AssetContext';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { filterAssets, formatFileSize, formatDate } from '../../utils/asset-utils';
 import { useDeviceType } from '../../hooks/useDeviceType';
 import { normalizeImageDataUrl } from '@aitu/utils';
@@ -212,6 +213,7 @@ export function MediaLibraryGrid({
     targetAssetId?: string;
   } | null>(null);
   const [playlistNameInput, setPlaylistNameInput] = useState('');
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // 加载已同步的 URL（当配置了 GitHub 同步时）
   useEffect(() => {
@@ -627,6 +629,34 @@ export function MediaLibraryGrid({
       console.error('[MediaLibraryGrid] Batch delete failed:', error);
     }
   }, [selectedAssetIds, removeAssets, board, filteredResult.assets]);
+
+  const handleBatchDeleteClick = useCallback(async () => {
+    if (filteredSelectedCount === 0) {
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: '确认批量删除',
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+      children: (
+        <>
+          <p>确定要删除选中的 {filteredSelectedCount} 个素材吗？</p>
+          {batchDeleteWarningInfo.hasCacheAssets &&
+          batchDeleteWarningInfo.affectedCount > 0 ? (
+            <p style={{ marginTop: '8px', color: 'var(--td-error-color)' }}>
+              ⚠️ 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
+            </p>
+          ) : null}
+        </>
+      ),
+    });
+
+    if (confirmed) {
+      await handleBatchDelete();
+    }
+  }, [batchDeleteWarningInfo, confirm, filteredSelectedCount, handleBatchDelete]);
   
   // 计算批量删除时会影响的画布元素数量
   // 只计算当前筛选结果中被选中的素材
@@ -971,31 +1001,19 @@ export function MediaLibraryGrid({
             <ViewModeToggle viewMode={pendingViewMode} onViewModeChange={handleViewModeChange} />
             {isSelectionMode ? (
               <>
-                <Popconfirm
-                  content={
-                    <div>
-                      <p>确定要删除选中的 {filteredSelectedCount} 个素材吗？</p>
-                      {batchDeleteWarningInfo.hasCacheAssets && batchDeleteWarningInfo.affectedCount > 0 && (
-                        <p style={{ marginTop: '8px', color: 'var(--td-error-color)' }}>
-                          ⚠️ 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
-                        </p>
-                      )}
-                    </div>
-                  }
-                  onConfirm={handleBatchDelete}
-                  theme="warning"
+                <Button
+                  variant="base"
+                  theme="danger"
+                  size="small"
+                  icon={<Trash2 size={16} />}
+                  disabled={filteredSelectedCount === 0}
+                  onClick={() => {
+                    void handleBatchDeleteClick();
+                  }}
+                  data-track="grid_batch_delete"
                 >
-                  <Button
-                    variant="base"
-                    theme="danger"
-                    size="small"
-                    icon={<Trash2 size={16} />}
-                    disabled={filteredSelectedCount === 0}
-                    data-track="grid_batch_delete"
-                  >
-                    删除
-                  </Button>
-                </Popconfirm>
+                  删除
+                </Button>
                 <Button
                   variant="outline"
                   size="small"
@@ -1373,6 +1391,7 @@ export function MediaLibraryGrid({
           autofocus
         />
       </Dialog>
+      {confirmDialog}
     </div>
   );
 }

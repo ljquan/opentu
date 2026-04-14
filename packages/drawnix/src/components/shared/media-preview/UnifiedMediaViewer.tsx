@@ -547,7 +547,7 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
           <button
             className="unified-viewer__nav unified-viewer__nav--prev"
             onClick={actions.goToPrev}
-            title="上一个"
+            aria-label="上一个"
           >
             <ChevronLeft size={32} />
           </button>
@@ -574,7 +574,7 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
           <button
             className="unified-viewer__nav unified-viewer__nav--next"
             onClick={actions.goToNext}
-            title="下一个"
+            aria-label="下一个"
           >
             <ChevronRight size={32} />
           </button>

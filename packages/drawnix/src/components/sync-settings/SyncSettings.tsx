@@ -21,6 +21,7 @@ import { useGitHubSync, GistInfo } from '../../contexts/GitHubSyncContext';
 import { tokenService, syncPasswordService } from '../../services/github-sync';
 import { TokenGuide } from './TokenGuide';
 import { RecycleBin } from './RecycleBin';
+import { ConfirmDialog, useConfirmDialog } from '../dialog/ConfirmDialog';
 import { LockOnIcon, LockOffIcon } from 'tdesign-icons-react';
 import { safeReload } from '../../utils/active-tasks';
 import './sync-settings.scss';
@@ -105,6 +106,7 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
   const [gists, setGists] = useState<GistInfo[]>([]);
   const [isLoadingGists, setIsLoadingGists] = useState(false);
   const [deleteConfirmGist, setDeleteConfirmGist] = useState<GistInfo | null>(null);
+  const { confirm, confirmDialog } = useConfirmDialog();
   
   // 加密密码状态
   const [customPassword, setCustomPassword] = useState('');
@@ -273,8 +275,15 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
       return;
     }
     
-    // 确认操作
-    if (!window.confirm('以远程为准同步将下载云端数据覆盖本地。\n\n确定要继续吗？')) {
+    const confirmed = await confirm({
+      title: '确认下载覆盖',
+      description: '以远程为准同步将下载云端数据覆盖本地。\n\n确定要继续吗？',
+      confirmText: '继续下载',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
       return;
     }
     
@@ -319,7 +328,7 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
     } finally {
       setIsLocalSyncing(false);
     }
-  }, [pullFromRemote, isSyncing, isLocalSyncing]);
+  }, [confirm, pullFromRemote, isSyncing, isLocalSyncing]);
 
   // 以本地为准同步（上传本地数据）
   const handlePushToRemote = useCallback(async () => {
@@ -329,8 +338,15 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
       return;
     }
     
-    // 确认操作
-    if (!window.confirm('以本地为准同步将上传本地数据覆盖云端。\n\n确定要继续吗？')) {
+    const confirmed = await confirm({
+      title: '确认上传覆盖',
+      description: '以本地为准同步将上传本地数据覆盖云端。\n\n确定要继续吗？',
+      confirmText: '继续上传',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
       console.log('[SyncSettings] User cancelled push');
       return;
     }
@@ -358,7 +374,7 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
     } finally {
       setIsLocalSyncing(false);
     }
-  }, [pushToRemote, isSyncing, isLocalSyncing, showGistManager, loadGists]);
+  }, [confirm, pushToRemote, isSyncing, isLocalSyncing, showGistManager, loadGists]);
   
   // 综合同步状态
   const syncingState = isSyncing || isLocalSyncing;
@@ -769,40 +785,32 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
       />
 
       {/* 断开连接确认 */}
-      <Dialog
-        visible={showDisconnectConfirm}
-        onClose={() => setShowDisconnectConfirm(false)}
-        header="断开连接"
-        confirmBtn={
-          <Button theme="danger" onClick={handleDisconnect}>
-            确认断开
-          </Button>
-        }
-        cancelBtn={
-          <Button variant="outline" onClick={() => setShowDisconnectConfirm(false)}>
-            取消
-          </Button>
-        }
+      <ConfirmDialog
+        open={showDisconnectConfirm}
+        title="断开连接"
+        confirmText="确认断开"
+        cancelText="取消"
+        danger
+        onOpenChange={setShowDisconnectConfirm}
+        onConfirm={handleDisconnect}
       >
         <p>断开后，本地数据不会被删除，但将停止与云端同步。</p>
         <p>您可以随时重新连接恢复同步。</p>
-      </Dialog>
+      </ConfirmDialog>
 
       {/* 删除 Gist 确认 */}
-      <Dialog
-        visible={!!deleteConfirmGist}
-        onClose={() => setDeleteConfirmGist(null)}
-        header="删除 Gist"
-        confirmBtn={
-          <Button theme="danger" onClick={() => deleteConfirmGist && handleDeleteGist(deleteConfirmGist)}>
-            确认删除
-          </Button>
-        }
-        cancelBtn={
-          <Button variant="outline" onClick={() => setDeleteConfirmGist(null)}>
-            取消
-          </Button>
-        }
+      <ConfirmDialog
+        open={!!deleteConfirmGist}
+        title="删除 Gist"
+        confirmText="确认删除"
+        cancelText="取消"
+        danger
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteConfirmGist(null);
+          }
+        }}
+        onConfirm={() => deleteConfirmGist ? handleDeleteGist(deleteConfirmGist) : undefined}
       >
         <p>确定要删除此 Gist 吗？</p>
         <p>此操作不可撤销，Gist 中的数据将被永久删除。</p>
@@ -811,7 +819,8 @@ export function SyncSettings({ visible, onClose }: SyncSettingsProps) {
             警告：您正在删除当前使用的 Gist，删除后需要重新选择或创建新的 Gist。
           </p>
         )}
-      </Dialog>
+      </ConfirmDialog>
+      {confirmDialog}
     </>
   );
 }

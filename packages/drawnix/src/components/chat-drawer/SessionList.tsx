@@ -5,9 +5,9 @@
  */
 
 import React, { useCallback } from 'react';
-import { Dialog } from 'tdesign-react';
 import { AddIcon } from 'tdesign-icons-react';
 import { SessionItem } from './SessionItem';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import type { SessionListProps, ChatSession } from '../../types/chat.types';
 
 export const SessionList: React.FC<SessionListProps> = React.memo(
@@ -74,17 +74,20 @@ export const SessionList: React.FC<SessionListProps> = React.memo(
           )}
         </div>
 
-        <Dialog
-          visible={pendingDeleteId !== null}
-          header="删除会话"
+        <ConfirmDialog
+          open={pendingDeleteId !== null}
+          title="删除会话"
+          description="确定删除此会话吗？删除后无法恢复。"
+          confirmText="删除"
+          cancelText="取消"
+          danger
+          onOpenChange={(open) => {
+            if (!open) {
+              handleDeleteCancel();
+            }
+          }}
           onConfirm={handleDeleteConfirm}
-          onCancel={handleDeleteCancel}
-          onClose={handleDeleteCancel}
-          confirmBtn="删除"
-          cancelBtn="取消"
-        >
-          确定删除此会话吗？删除后无法恢复。
-        </Dialog>
+        />
       </div>
     );
   }

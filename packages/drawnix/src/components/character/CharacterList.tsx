@@ -6,9 +6,10 @@
  */
 
 import React, { useCallback } from 'react';
-import { Button, Dialog, MessagePlugin, Loading } from 'tdesign-react';
+import { Button, MessagePlugin, Loading } from 'tdesign-react';
 import { RefreshIcon, UserAddIcon } from 'tdesign-icons-react';
 import { CharacterCard } from './CharacterCard';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import { useCharacters } from '../../hooks/useCharacters';
 import type { SoraCharacter } from '../../types/character.types';
 import './character.scss';
@@ -154,15 +155,20 @@ export const CharacterList: React.FC<CharacterListProps> = ({
       </div>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        visible={!!deleteConfirmId}
-        header="确认删除"
-        onClose={() => setDeleteConfirmId(null)}
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="确认删除"
+        description="确定要删除此角色吗？删除后将无法在提示词中使用该角色。"
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteConfirmId(null);
+          }
+        }}
         onConfirm={confirmDelete}
-        onCancel={() => setDeleteConfirmId(null)}
-      >
-        确定要删除此角色吗？删除后将无法在提示词中使用该角色。
-      </Dialog>
+      />
     </div>
   );
 };
