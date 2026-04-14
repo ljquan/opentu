@@ -345,6 +345,8 @@ const TTDDialogComponent = ({
               initialResultUrl:
                 appState.dialogInitialData.initialResultUrl ||
                 appState.dialogInitialData.resultUrl,
+              initialAspectRatio:
+                appState.dialogInitialData.initialAspectRatio,
             });
             return;
           }
@@ -771,6 +773,7 @@ const TTDDialogComponent = ({
             selectedModelRef={selectedVideoModelRef}
             onModelChange={handleVideoModelChange}
             onModelRefChange={handleVideoModelRefChange}
+            externalBatchId={appState.dialogInitialData?.batchId}
           />
         )}
       </WinBoxWindow>

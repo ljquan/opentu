@@ -553,6 +553,26 @@
   }
 }
 
+// Frame button group (generate + library picker)
+.va-shot-frame-btn-group {
+  display: inline-flex;
+  align-items: stretch;
+
+  button:first-child {
+    border-radius: 6px 0 0 6px;
+    border-right: none;
+  }
+}
+
+.va-shot-frame-library-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px !important;
+  border-radius: 0 6px 6px 0 !important;
+  border-left: 1px solid var(--td-border-level-1-color, #eee) !important;
+}
+
 // Batch actions
 .va-batch-actions {
   display: flex;
@@ -727,6 +747,12 @@
   box-sizing: border-box;
 
   &:focus { border-color: rgba(243, 156, 18, 0.5); }
+
+  &.va-auto-resize {
+    resize: none;
+    overflow: hidden;
+    min-height: 32px;
+  }
 }
 
 // Edit fields (ScriptPage shot editing)
@@ -757,6 +783,12 @@
   box-sizing: border-box;
 
   &:focus { border-color: rgba(243, 156, 18, 0.4); }
+
+  &.va-auto-resize {
+    resize: none;
+    overflow: hidden;
+    min-height: 28px;
+  }
 }
 
 .va-edit-input {
@@ -957,7 +989,6 @@
   border-radius: 8px;
   cursor: pointer;
   transition: border-color 0.15s;
-  position: relative;
 
   &:hover { border-color: rgba(243, 156, 18, 0.4); }
 }
@@ -967,6 +998,114 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+
+// Expand/collapse button (in meta row)
+.va-history-expand-btn {
+  border: none;
+  background: rgba(243, 156, 18, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #E6A23C;
+  font-size: 11px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover { background: rgba(243, 156, 18, 0.15); color: #E67E22; }
+
+  svg {
+    transition: transform 200ms ease-out;
+  }
+
+  &.expanded svg { transform: rotate(90deg); }
+}
+
+// Related tasks expanded section
+.va-history-related {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.va-history-related-group-title {
+  font-size: 11px;
+  color: #999;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.va-history-related-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover { background: rgba(243, 156, 18, 0.06); }
+}
+
+.va-history-related-task-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  &.completed { background: #10B981; }
+  &.processing { background: #F39C12; }
+  &.pending { background: #999; }
+  &.failed { background: #EF4444; }
+}
+
+.va-history-related-task-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #555;
+}
+
+.va-history-related-task-time {
+  font-size: 11px;
+  color: #bbb;
+  flex-shrink: 0;
+}
+
+.va-history-related-task-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.va-history-related-insert-btn {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: #bbb;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+
+  &:hover { color: #F39C12; }
 }
 
 .va-history-source {
@@ -991,6 +1130,7 @@
 
 .va-history-meta {
   display: flex;
+  align-items: center;
   gap: 12px;
   font-size: 12px;
   color: var(--td-text-color-placeholder, #999);
@@ -1003,14 +1143,13 @@
 }
 
 .va-history-delete {
-  position: absolute;
-  bottom: 10px;
-  right: 12px;
+  margin-left: auto;
   border: none;
   background: none;
   font-size: 12px;
   color: var(--td-text-color-placeholder, #ccc);
   cursor: pointer;
+  flex-shrink: 0;
 
   &:hover { color: #EF4444; }
 }

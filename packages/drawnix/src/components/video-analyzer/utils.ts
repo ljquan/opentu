@@ -9,7 +9,11 @@ function trimTrailingPeriod(s: string): string {
 }
 
 /** 将镜头的多个字段融合为完整的视频生成 prompt */
-export function buildVideoPrompt(shot: VideoShot): string {
+export function buildVideoPrompt(
+  shot: VideoShot,
+  analysis?: VideoAnalysisData,
+  productInfo?: ProductInfo | null,
+): string {
   const description = shot.description ? trimTrailingPeriod(shot.description) : '';
   const cameraMovement = shot.camera_movement
     ? trimTrailingPeriod(shot.camera_movement)
@@ -46,8 +50,16 @@ export function buildVideoPrompt(shot: VideoShot): string {
       : `角色对白：${dialogue}`
     : '';
 
+  // 全局风格信息（优先使用用户编辑值）
+  const styleParts: string[] = [];
+  const videoStyle = productInfo?.videoStyle || analysis?.video_style;
+  const bgmMood = productInfo?.bgmMood || analysis?.bgm_mood;
+  if (videoStyle) styleParts.push(`画面风格：${trimTrailingPeriod(videoStyle)}`);
+  if (bgmMood) styleParts.push(`BGM情绪：${trimTrailingPeriod(bgmMood)}`);
+
   const parts = [
     '请生成一个真实自然、上下文连贯的单镜头短视频',
+    ...styleParts,
     description ? `镜头主题：${description}` : '',
     narrationPrompt,
     dialoguePrompt,
@@ -60,6 +72,17 @@ export function buildVideoPrompt(shot: VideoShot): string {
   ].filter(Boolean);
 
   return parts.join('。');
+}
+
+/** 为图片生成 prompt 添加全局风格前缀 */
+export function buildFramePrompt(
+  shotPrompt: string,
+  analysis?: VideoAnalysisData,
+  productInfo?: ProductInfo | null,
+): string {
+  const videoStyle = productInfo?.videoStyle || analysis?.video_style;
+  if (!videoStyle || !shotPrompt) return shotPrompt;
+  return `${trimTrailingPeriod(videoStyle)}。${shotPrompt}`;
 }
 
 export function buildScriptRewritePrompt(params: {
@@ -254,11 +277,20 @@ export function addVersionToRecord(
   };
 }
 
+/** 原始分析版本的特殊 ID */
+export const ORIGINAL_VERSION_ID = 'original';
+
 /** 切换到指定版本，返回 record patch；版本不存在返回 null */
 export function switchToVersion(
   record: AnalysisRecord,
   versionId: string
 ): Partial<AnalysisRecord> | null {
+  if (versionId === ORIGINAL_VERSION_ID) {
+    return {
+      activeVersionId: ORIGINAL_VERSION_ID,
+      editedShots: [...record.analysis.shots],
+    };
+  }
   const version = record.scriptVersions?.find(v => v.id === versionId);
   if (!version) return null;
   return {

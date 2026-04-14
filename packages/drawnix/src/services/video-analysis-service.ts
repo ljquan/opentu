@@ -30,6 +30,7 @@ export interface VideoShot {
   transition_hint?: TransitionHint;
   generated_first_frame_url?: string;
   generated_last_frame_url?: string;
+  generated_video_url?: string;
 }
 
 export interface VideoAnalysisData {

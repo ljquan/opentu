@@ -22,6 +22,10 @@ export interface ProductInfo {
   videoModelRef?: ModelRef | null;
   /** 用户选择的单段时长（秒），来自视频模型的 durationOptions */
   segmentDuration?: number;
+  /** 用户编辑的画面风格（覆盖 analysis.video_style） */
+  videoStyle?: string;
+  /** 用户编辑的 BGM 情绪（覆盖 analysis.bgm_mood） */
+  bgmMood?: string;
 
   /** @deprecated use prompt */
   name?: string;
@@ -53,6 +57,8 @@ export function migrateProductInfo(raw: Partial<ProductInfo>, fallbackDuration: 
       videoModel: raw.videoModel,
       videoModelRef: createModelRef(raw.videoModelRef?.profileId, raw.videoModelRef?.modelId),
       segmentDuration: raw.segmentDuration,
+      videoStyle: raw.videoStyle,
+      bgmMood: raw.bgmMood,
     };
   }
   const parts: string[] = [];
@@ -65,6 +71,8 @@ export function migrateProductInfo(raw: Partial<ProductInfo>, fallbackDuration: 
     videoModel: raw.videoModel,
     videoModelRef: createModelRef(raw.videoModelRef?.profileId, raw.videoModelRef?.modelId),
     segmentDuration: raw.segmentDuration,
+    videoStyle: raw.videoStyle,
+    bgmMood: raw.bgmMood,
   };
 }
 

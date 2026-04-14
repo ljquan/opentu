@@ -7,7 +7,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import type { PageId, AnalysisRecord } from './types';
-import { loadRecords } from './storage';
+import { loadRecords, updateRecord } from './storage';
 import { StepBar } from './components/StepBar';
 import { AnalyzePage } from './pages/AnalyzePage';
 import { ScriptPage } from './pages/ScriptPage';
@@ -15,6 +15,13 @@ import { GeneratePage } from './pages/GeneratePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { taskQueueService } from '../../services/task-queue';
 import { syncVideoAnalyzerTask, isVideoAnalyzerTask } from './task-sync';
+import { switchToVersion } from './utils';
+import { useDrawnix } from '../../hooks/use-drawnix';
+import { insertImageFromUrl } from '../../data/image';
+import { insertVideoFromUrl } from '../../data/video';
+import { TaskType } from '../../types/task.types';
+import type { Task } from '../../types/task.types';
+import { MessagePlugin } from 'tdesign-react';
 import './VideoAnalyzer.scss';
 
 const VideoAnalyzer: React.FC = () => {
@@ -22,6 +29,7 @@ const VideoAnalyzer: React.FC = () => {
   const [currentRecord, setCurrentRecord] = useState<AnalysisRecord | null>(null);
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
   const [showStarred, setShowStarred] = useState(false);
+  const { board } = useDrawnix();
 
   useEffect(() => {
     loadRecords().then(setRecords);
@@ -98,6 +106,49 @@ const VideoAnalyzer: React.FC = () => {
     setPage(target);
   }, []);
 
+  const handleInsertTask = useCallback(async (task: Task) => {
+    if ((!task.result?.url && !task.result?.urls?.length) || !board) {
+      void MessagePlugin.warning('无法插入：白板未就绪');
+      return;
+    }
+    try {
+      if (task.type === TaskType.IMAGE) {
+        const urls = task.result.urls?.length ? task.result.urls : [task.result.url];
+        for (const url of urls) {
+          await insertImageFromUrl(board, url);
+        }
+        void MessagePlugin.success(urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板');
+      } else if (task.type === TaskType.VIDEO) {
+        await insertVideoFromUrl(board, task.result.url);
+        void MessagePlugin.success('视频已插入到白板');
+      }
+    } catch (error) {
+      console.error('[VideoAnalyzer] Failed to insert to board:', error);
+      void MessagePlugin.error(`插入失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }, [board]);
+
+  const handleSelectScript = useCallback(async (record: AnalysisRecord, task: Task) => {
+    // 通过任务的 prompt 匹配 ScriptVersion
+    const taskPrompt = String(task.params.videoAnalyzerPrompt || task.params.prompt || '');
+    const versions = record.scriptVersions || [];
+    const matched = versions.find(v => v.prompt === taskPrompt)
+      || versions.find(v => taskPrompt && v.prompt?.includes(taskPrompt));
+
+    let updatedRecord = record;
+    if (matched && matched.id !== record.activeVersionId) {
+      const patch = switchToVersion(record, matched.id);
+      if (patch) {
+        const updatedRecords = await updateRecord(record.id, patch);
+        updatedRecord = updatedRecords.find(r => r.id === record.id) || { ...record, ...patch };
+        setRecords(updatedRecords);
+      }
+    }
+
+    setCurrentRecord(updatedRecord);
+    setPage('script');
+  }, []);
+
   return (
     <div className="video-analyzer">
       {/* 顶部导航栏：步骤条 + 历史/收藏入口 */}
@@ -162,6 +213,8 @@ const VideoAnalyzer: React.FC = () => {
           onSelect={handleHistorySelect}
           onRecordsChange={setRecords}
           showStarredOnly={showStarred}
+          onInsertTask={board ? handleInsertTask : undefined}
+          onSelectScript={handleSelectScript}
         />
       )}
     </div>

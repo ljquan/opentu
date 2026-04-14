@@ -21,10 +21,33 @@ import {
   buildScriptRewritePrompt,
   switchToVersion,
   updateActiveShotsInRecord,
+  ORIGINAL_VERSION_ID,
 } from '../utils';
 import { taskQueueService } from '../../../services/task-queue';
 import { TaskType } from '../../../types/task.types';
 import { syncVideoAnalyzerTask } from '../task-sync';
+
+/** 自适应高度 textarea 的 onInput 处理 */
+function autoResize(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+/** 根据内容估算 textarea rows（每行约 30 个中文字符） */
+function estimateRows(text: string | undefined, charsPerLine = 30): number {
+  if (!text) return 1;
+  const lines = text.split('\n');
+  let total = 0;
+  for (const line of lines) {
+    total += Math.max(1, Math.ceil(line.length / charsPerLine));
+  }
+  return Math.max(1, total);
+}
+
+/** 挂载时自动调整高度的 ref callback */
+function autoResizeRef(el: HTMLTextAreaElement | null) {
+  if (el) autoResize(el);
+}
 
 const STORAGE_KEY_SCRIPT_MODEL = 'video-analyzer:script-model';
 const STORAGE_KEY_VIDEO_MODEL = 'video-analyzer:video-model';
@@ -75,12 +98,17 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
   onRecordsChange,
   onNext,
 }) => {
-  const [productInfo, setProductInfo] = useState<ProductInfo>(() =>
-    migrateProductInfo(
+  const [productInfo, setProductInfo] = useState<ProductInfo>(() => {
+    const migrated = migrateProductInfo(
       record.productInfo || { prompt: '' },
       record.analysis.totalDuration
-    )
-  );
+    );
+    return {
+      ...migrated,
+      videoStyle: migrated.videoStyle ?? record.analysis.video_style ?? '',
+      bgmMood: migrated.bgmMood ?? record.analysis.bgm_mood ?? '',
+    };
+  });
   const [shots, setShots] = useState<VideoShot[]>(
     record.editedShots || [...record.analysis.shots]
   );
@@ -159,12 +187,15 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
   }, [selectedSegmentDuration, productInfo.targetDuration, record.analysis.totalDuration]);
 
   useEffect(() => {
-    setProductInfo(
-      migrateProductInfo(
-        record.productInfo || { prompt: '' },
-        record.analysis.totalDuration
-      )
+    const migrated = migrateProductInfo(
+      record.productInfo || { prompt: '' },
+      record.analysis.totalDuration
     );
+    setProductInfo({
+      ...migrated,
+      videoStyle: migrated.videoStyle ?? record.analysis.video_style ?? '',
+      bgmMood: migrated.bgmMood ?? record.analysis.bgm_mood ?? '',
+    });
     setShots(record.editedShots || [...record.analysis.shots]);
     setPendingRewriteTaskId(prev => record.pendingRewriteTaskId ?? prev ?? null);
     setRewriteProgress(prev => (record.pendingRewriteTaskId ? prev : ''));
@@ -322,11 +353,13 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
       {/* 提示词 + 参数 */}
       <div className="va-product-form">
         <textarea
-          className="va-form-textarea"
+          ref={autoResizeRef}
+          className="va-form-textarea va-auto-resize"
           placeholder="描述你想要的视频内容，如：拖鞋，生活用品，主打防滑..."
-          rows={3}
+          rows={Math.max(3, estimateRows(productInfo.prompt))}
           value={productInfo.prompt}
           onChange={e => setProductInfo(p => ({ ...p, prompt: e.target.value }))}
+          onInput={e => autoResize(e.currentTarget)}
         />
         <div className="va-form-row">
           <div className="va-duration-input" style={{ width: 'auto', flex: 1 }}>
@@ -388,7 +421,9 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
                 className="va-version-btn"
                 onClick={() => setVersionMenuOpen(v => !v)}
               >
-                {record.scriptVersions.find(v => v.id === record.activeVersionId)?.label || `v${record.scriptVersions.length}`} ▾
+                {record.activeVersionId === ORIGINAL_VERSION_ID
+                  ? '原始分析'
+                  : record.scriptVersions.find(v => v.id === record.activeVersionId)?.label || `v${record.scriptVersions.length}`} ▾
               </button>
               {versionMenuOpen && (
                 <div className="va-version-menu">
@@ -403,10 +438,44 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
                       <span className="va-version-time">{v.shots.length} 镜头 · {new Date(v.createdAt).toLocaleTimeString()}</span>
                     </div>
                   ))}
+                  <div
+                    className={`va-version-item ${record.activeVersionId === ORIGINAL_VERSION_ID || !record.activeVersionId ? 'active' : ''}`}
+                    onClick={() => handleSwitchVersion(ORIGINAL_VERSION_ID)}
+                  >
+                    <span>原始分析</span>
+                    <span className="va-version-time">{record.analysis.shots.length} 镜头 · {new Date(record.createdAt).toLocaleTimeString()}</span>
+                  </div>
                 </div>
               )}
             </div>
           )}
+        </div>
+        {/* 风格 & BGM */}
+        <div className="va-form-row">
+          <div style={{ flex: 1 }}>
+            <label className="va-edit-label">画面风格</label>
+            <textarea
+              ref={autoResizeRef}
+              className="va-edit-textarea va-auto-resize"
+              rows={estimateRows(productInfo.videoStyle)}
+              value={productInfo.videoStyle || ''}
+              onChange={e => setProductInfo(p => ({ ...p, videoStyle: e.target.value }))}
+              onInput={e => autoResize(e.currentTarget)}
+              placeholder="如：室内暖光，色调温暖现代"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="va-edit-label">BGM 情绪</label>
+            <textarea
+              ref={autoResizeRef}
+              className="va-edit-textarea va-auto-resize"
+              rows={estimateRows(productInfo.bgmMood)}
+              value={productInfo.bgmMood || ''}
+              onChange={e => setProductInfo(p => ({ ...p, bgmMood: e.target.value }))}
+              onInput={e => autoResize(e.currentTarget)}
+              placeholder="如：轻快、治愈、科技感"
+            />
+          </div>
         </div>
         {error && <div className="va-error">{error}</div>}
       </div>
@@ -417,11 +486,11 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
           <ShotCard key={shot.id} shot={shot} index={i} compact>
             <div className="va-edit-fields">
               <label className="va-edit-label">画面描述</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.description || ''} onChange={e => handleShotFieldChange(shot.id, 'description', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.description)} value={shot.description || ''} onChange={e => handleShotFieldChange(shot.id, 'description', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">旁白</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.narration || ''} onChange={e => handleShotFieldChange(shot.id, 'narration', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.narration)} value={shot.narration || ''} onChange={e => handleShotFieldChange(shot.id, 'narration', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">角色说话</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.dialogue || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue', e.target.value)} placeholder={'多角色时按"角色名: 台词"分行'} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.dialogue)} value={shot.dialogue || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue', e.target.value)} onInput={e => autoResize(e.currentTarget)} placeholder={'多角色时按"角色名: 台词"分行'} />
               <label className="va-edit-label">对白角色</label>
               <input className="va-form-input" type="text" value={shot.dialogue_speakers || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue_speakers', e.target.value)} placeholder="如：主讲人 或 主讲人|顾客" />
               <label className="va-edit-label">旁白/对白关系</label>
@@ -429,9 +498,9 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
               <label className="va-edit-label">运镜方式</label>
               <ComboInput value={shot.camera_movement || ''} onChange={v => handleShotFieldChange(shot.id, 'camera_movement', v)} options={CAMERA_MOVEMENT_OPTIONS} placeholder="选择或输入运镜方式" />
               <label className="va-edit-label">首帧 Prompt</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.first_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'first_frame_prompt', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.first_frame_prompt)} value={shot.first_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'first_frame_prompt', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">尾帧 Prompt</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.last_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'last_frame_prompt', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.last_frame_prompt)} value={shot.last_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'last_frame_prompt', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">转场方式</label>
               <ComboInput value={shot.transition_hint || ''} onChange={v => handleShotFieldChange(shot.id, 'transition_hint', v)} options={TRANSITION_OPTIONS} placeholder="选择转场方式" />
             </div>
