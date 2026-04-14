@@ -10,7 +10,7 @@ import type { Task } from '../../../types/task.types';
 import { TaskType } from '../../../types/task.types';
 import {
   UnifiedMediaViewer,
-  type UnifiedMediaItem,
+  type MediaItem,
 } from '../../shared/media-preview';
 import { ConfirmDialog } from '../../dialog/ConfirmDialog';
 import {
@@ -40,10 +40,10 @@ function buildPreviewTitle(task: Task, index: number, total: number): string {
 }
 
 function buildPreviewItems(tasks: Task[]): {
-  items: UnifiedMediaItem[];
+  items: MediaItem[];
   taskIdToIndex: Map<string, number>;
 } {
-  const items: UnifiedMediaItem[] = [];
+  const items: MediaItem[] = [];
   const taskIdToIndex = new Map<string, number>();
 
   for (const task of tasks) {
@@ -90,7 +90,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   const filtered = showStarredOnly ? records.filter(r => r.starred) : records;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewItems, setPreviewItems] = useState<UnifiedMediaItem[]>([]);
+  const [previewItems, setPreviewItems] = useState<MediaItem[]>([]);
   const [previewInitialIndex, setPreviewInitialIndex] = useState(0);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { tasks: allTasks } = useSharedTaskState();

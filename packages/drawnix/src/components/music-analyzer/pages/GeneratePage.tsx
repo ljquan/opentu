@@ -106,6 +106,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   }, [mvParam?.defaultValue]);
 
   const clips = record.generatedClips || [];
+  // 续写只能选有真实 clipId 的片段
+  const continuableClips = useMemo(
+    () => clips.filter((c) => c.clipId && c.clipId.length > 8),
+    [clips]
+  );
 
   // 批量生成
   const handleGenerate = useCallback(async () => {
@@ -340,7 +345,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       )}
 
       {/* 续写区 */}
-      {clips.length > 0 && (
+      {continuableClips.length > 0 && (
         <div className="ma-card">
           <button
             className="ma-section-toggle"
@@ -357,7 +362,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                 onChange={(e) => setContinueClipId(e.target.value)}
               >
                 <option value="">选择片段</option>
-                {clips.map((clip) => (
+                {continuableClips.map((clip) => (
                   <option key={clip.clipId} value={clip.clipId}>
                     {clip.title || clip.clipId.slice(0, 8)} ({clip.duration ? `${Math.round(clip.duration)}s` : '未知时长'})
                   </option>
@@ -402,23 +407,31 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   );
 };
 
-/** 已生成片段卡片 */
+/** 已生成片段 - 紧凑横向布局 */
 const ClipCard: React.FC<{ clip: GeneratedClip }> = ({ clip }) => (
-  <div className="ma-clip-card">
-    {clip.imageUrl && (
+  <div className="ma-clip-row">
+    {clip.imageUrl ? (
       <img
-        className="ma-clip-cover"
+        className="ma-clip-thumb"
         src={clip.imageUrl}
         alt=""
         referrerPolicy="no-referrer"
       />
+    ) : (
+      <div className="ma-clip-thumb ma-clip-thumb--placeholder">♪</div>
     )}
-    <div className="ma-clip-info">
+    <div className="ma-clip-meta">
       <span className="ma-clip-title">{clip.title || '未命名'}</span>
       {clip.duration != null && (
-        <span className="ma-clip-duration">{Math.round(clip.duration)}s</span>
+        <span className="ma-clip-duration">{formatDuration(clip.duration)}</span>
       )}
     </div>
-    <audio controls src={clip.audioUrl} className="ma-clip-audio" preload="metadata" />
+    <audio controls src={clip.audioUrl} className="ma-clip-player" preload="metadata" />
   </div>
 );
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}

@@ -419,9 +419,11 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
       onMouseDown={isAudio ? undefined : handleMouseDown}
       onMouseMove={isAudio ? undefined : handleMouseMove}
       onMouseUp={isAudio ? undefined : handleMouseUp}
-      onMouseLeave={isAudio ? undefined : handleMouseUp}
       onWheel={isAudio ? undefined : handleWheel}
       onMouseLeave={() => {
+        if (!isAudio) {
+          handleMouseUp();
+        }
         setIsMediaHovered(false);
         setIsPromptHovered(false);
         setIsToolbarHovered(false);

@@ -258,6 +258,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
     task.params.params && typeof task.params.params === 'object'
       ? (task.params.params as Record<string, unknown>)
       : null;
+  const audioDurationLabel =
+    task.type === TaskType.AUDIO && !isLyricsTask
+      ? formatAudioDuration(task.result?.duration)
+      : null;
   const isKlingVideoTask =
     task.type === TaskType.VIDEO && isKlingTaskModel(task.params.model);
   const klingModelVersion =
@@ -461,7 +465,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   <>
                     <RetryImage
                       src={previewMediaUrl}
-                      alt={displayPrompt}
+                      alt={displayPrompt || '音频封面'}
                       maxRetries={3}
                       fallback={
                         <div className="task-item__preview-placeholder">
@@ -577,9 +581,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 {task.type === TaskType.VIDEO && task.params.size && (
                   <Tag variant="outline">{task.params.size}</Tag>
                 )}
-                {task.type === TaskType.AUDIO && task.result?.duration && !isLyricsTask && (
+                {audioDurationLabel && (
                   <Tag variant="outline">
-                    {formatAudioDuration(task.result.duration)}
+                    {audioDurationLabel}
                   </Tag>
                 )}
                 {task.type === TaskType.AUDIO && task.params.mv && !isLyricsTask && (
@@ -616,10 +620,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   }
                   return null;
                 })()}
-                {task.type === TaskType.AUDIO && task.result?.duration && !isLyricsTask && (
+                {audioDurationLabel && (
                   <span className="task-item__size">
                     {' · '}
-                    {formatAudioDuration(task.result.duration)}
+                    {audioDurationLabel}
                   </span>
                 )}
                 {isCompleted && task.result?.url && !isLyricsTask && (

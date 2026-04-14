@@ -6,6 +6,11 @@
 
 import { PlaitElement, Point } from '@plait/core';
 
+export interface ToolDefaultWindowBehavior {
+  /** 打开工具后是否默认常驻到左侧最小化工具栏 */
+  autoPinOnOpen?: boolean;
+}
+
 /**
  * 工具定义 - 工具箱中的工具配置
  *
@@ -38,6 +43,9 @@ export type ToolDefinition = {
 
   /** 是否支持同工具多窗口实例 */
   supportsMultipleWindows?: boolean;
+
+  /** 默认窗口行为 */
+  defaultWindowBehavior?: ToolDefaultWindowBehavior;
 } & (
   | {
       /** iframe URL (外部页面工具必填) */

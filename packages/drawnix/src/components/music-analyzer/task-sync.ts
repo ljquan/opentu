@@ -241,7 +241,7 @@ export function extractClipsFromTask(task: Task): GeneratedClip[] {
     for (const clip of result.clips) {
       if (clip.audioUrl) {
         clips.push({
-          clipId: clip.clipId || clip.id || crypto.randomUUID(),
+          clipId: clip.clipId || clip.id || '',
           audioUrl: clip.audioUrl,
           imageUrl: clip.imageUrl || clip.imageLargeUrl,
           title: clip.title,
@@ -255,7 +255,7 @@ export function extractClipsFromTask(task: Task): GeneratedClip[] {
   // 单个 url 结果
   if (clips.length === 0 && result.url) {
     clips.push({
-      clipId: result.primaryClipId || crypto.randomUUID(),
+      clipId: result.primaryClipId || '',
       audioUrl: result.url,
       imageUrl: result.previewImageUrl,
       title: result.title,

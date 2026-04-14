@@ -77,14 +77,15 @@ export async function syncVideoAnalyzerTask(task: Task): Promise<{
     }
 
     const analysis = parseAnalysisResult(task);
+    const sourceSnapshot = getTaskSourceSnapshot(task);
     const source = ((task.params as { videoAnalyzerSource?: unknown }).videoAnalyzerSource === 'upload'
       ? 'upload'
       : 'youtube') as AnalysisRecord['source'];
     const sourceLabel = String(
       (task.params as { videoAnalyzerSourceLabel?: unknown }).videoAnalyzerSourceLabel ||
         (source === 'youtube'
-          ? getTaskSourceSnapshot(task)?.type === 'youtube'
-            ? getTaskSourceSnapshot(task)?.youtubeUrl
+          ? sourceSnapshot?.type === 'youtube'
+            ? sourceSnapshot.youtubeUrl
             : ''
           : '本地视频')
     );
@@ -94,7 +95,7 @@ export async function syncVideoAnalyzerTask(task: Task): Promise<{
       createdAt: Date.now(),
       source,
       sourceLabel,
-      sourceSnapshot: getTaskSourceSnapshot(task),
+      sourceSnapshot,
       model: String(task.params.model || ''),
       modelRef: (task.params as { modelRef?: AnalysisRecord['modelRef'] }).modelRef || null,
       analysis,

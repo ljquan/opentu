@@ -145,18 +145,21 @@ function normalizeStringArray(value: unknown, wrapMetaTags = false): string[] {
 }
 
 export function normalizeMusicAnalysisData(raw: unknown): MusicAnalysisData {
+  const data =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
   return {
-    summary: String(raw?.summary || '').trim(),
-    language: String(raw?.language || '').trim(),
-    mood: String(raw?.mood || '').trim(),
-    genreTags: normalizeStringArray(raw?.genreTags),
-    structure: normalizeStringArray(raw?.structure, true),
-    hook: String(raw?.hook || '').trim() || undefined,
-    lyricRewriteBrief: String(raw?.lyricRewriteBrief || '').trim(),
-    titleSuggestions: normalizeStringArray(raw?.titleSuggestions),
-    sunoTitle: String(raw?.sunoTitle || '').trim(),
-    sunoStyleTags: normalizeStringArray(raw?.sunoStyleTags),
-    sunoLyricsDraft: String(raw?.sunoLyricsDraft || '').trim(),
+    summary: String(data.summary || '').trim(),
+    language: String(data.language || '').trim(),
+    mood: String(data.mood || '').trim(),
+    genreTags: normalizeStringArray(data.genreTags),
+    structure: normalizeStringArray(data.structure, true),
+    hook: String(data.hook || '').trim() || undefined,
+    lyricRewriteBrief: String(data.lyricRewriteBrief || '').trim(),
+    titleSuggestions: normalizeStringArray(data.titleSuggestions),
+    sunoTitle: String(data.sunoTitle || '').trim(),
+    sunoStyleTags: normalizeStringArray(data.sunoStyleTags),
+    sunoLyricsDraft: String(data.sunoLyricsDraft || '').trim(),
   };
 }
 

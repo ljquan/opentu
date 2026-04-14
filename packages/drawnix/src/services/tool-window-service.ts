@@ -14,6 +14,7 @@ import {
 
 /** localStorage key for pinned tools */
 const PINNED_TOOLS_STORAGE_KEY = 'aitu-pinned-tools';
+const PIN_PREFERENCES_STORAGE_KEY = 'aitu-tool-pin-preferences';
 const LAUNCHER_INSTANCE_PREFIX = 'launcher:';
 const INSTANCE_OFFSET_X = 36;
 const INSTANCE_OFFSET_Y = 28;
@@ -56,6 +57,9 @@ class ToolWindowService {
   /** 常驻工具信息缓存（用于刷新后恢复 launcher 图标） */
   private pinnedToolInfos: Map<string, SerializableToolInfo> = new Map();
 
+  /** 用户显式设置过的常驻偏好（覆盖工具默认行为） */
+  private pinPreferences: Map<string, boolean> = new Map();
+
   /** 工具状态变化通知（仅真实实例） */
   private toolStatesSubject = new BehaviorSubject<ToolWindowState[]>([]);
 
@@ -69,7 +73,9 @@ class ToolWindowService {
   private instanceCounters: Map<string, number> = new Map();
 
   private constructor() {
+    this.loadPinPreferences();
     this.loadPinnedTools();
+    this.reconcilePinnedToolsWithPreferences();
     setTimeout(() => this.notify(), 0);
   }
 
@@ -108,6 +114,28 @@ class ToolWindowService {
     }
   }
 
+  private loadPinPreferences(): void {
+    try {
+      const stored = localStorage.getItem(PIN_PREFERENCES_STORAGE_KEY);
+      if (!stored) {
+        return;
+      }
+
+      const raw = JSON.parse(stored) as Record<string, unknown>;
+      if (!raw || typeof raw !== 'object') {
+        return;
+      }
+
+      Object.entries(raw).forEach(([toolId, value]) => {
+        if (typeof value === 'boolean') {
+          this.pinPreferences.set(toolId, value);
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to load tool pin preferences:', e);
+    }
+  }
+
   private savePinnedTools(): void {
     try {
       const infos: SerializableToolInfo[] = [];
@@ -121,6 +149,28 @@ class ToolWindowService {
     } catch (e) {
       console.warn('Failed to save pinned tools:', e);
     }
+  }
+
+  private savePinPreferences(): void {
+    try {
+      const serialized = Object.fromEntries(this.pinPreferences.entries());
+      localStorage.setItem(
+        PIN_PREFERENCES_STORAGE_KEY,
+        JSON.stringify(serialized)
+      );
+    } catch (e) {
+      console.warn('Failed to save tool pin preferences:', e);
+    }
+  }
+
+  private reconcilePinnedToolsWithPreferences(): void {
+    this.pinPreferences.forEach((pinned, toolId) => {
+      if (pinned) {
+        return;
+      }
+      this.pinnedToolIds.delete(toolId);
+      this.pinnedToolInfos.delete(toolId);
+    });
   }
 
   observeToolStates(): Observable<ToolWindowState[]> {
@@ -219,23 +269,10 @@ class ToolWindowService {
 
   openTool(tool: ToolDefinition, options?: OpenToolOptions): string | undefined {
     const launchMode = this.resolveLaunchMode(tool, options?.launchMode);
-
-    if (options?.autoPin && !this.pinnedToolIds.has(tool.id)) {
-      this.pinnedToolIds.add(tool.id);
-      this.pinnedToolInfos.set(tool.id, {
-        id: tool.id,
-        name: tool.name,
-        category: tool.category,
-      });
-      this.savePinnedTools();
-    }
+    this.applyAutoPinBehavior(tool, options);
 
     if (this.pinnedToolIds.has(tool.id)) {
-      this.pinnedToolInfos.set(tool.id, {
-        id: tool.id,
-        name: tool.name,
-        category: tool.category,
-      });
+      this.updatePinnedToolInfo(tool);
       this.savePinnedTools();
     }
 
@@ -256,9 +293,7 @@ class ToolWindowService {
     tool: ToolDefinition,
     options?: Omit<OpenToolOptions, 'launchMode'>
   ): string {
-    if (options?.autoPin && !this.pinnedToolIds.has(tool.id)) {
-      this.pinnedToolIds.add(tool.id);
-    }
+    this.applyAutoPinBehavior(tool, options);
 
     const instanceId = this.generateInstanceId(tool.id);
     const instanceIndex = this.nextInstanceIndex(tool.id);
@@ -277,11 +312,7 @@ class ToolWindowService {
     };
 
     if (newState.isPinned) {
-      this.pinnedToolInfos.set(tool.id, {
-        id: tool.id,
-        name: tool.name,
-        category: tool.category,
-      });
+      this.updatePinnedToolInfo(tool);
       this.savePinnedTools();
     }
 
@@ -353,26 +384,16 @@ class ToolWindowService {
   }
 
   setPinned(toolId: string, pinned: boolean): void {
-    if (pinned) {
-      this.pinnedToolIds.add(toolId);
-      const state = this.getPrimaryToolState(toolId);
-      if (state) {
-        this.pinnedToolInfos.set(toolId, {
-          id: state.toolId,
-          name: state.tool.name,
-          category: state.tool.category,
-        });
-      }
-    } else {
-      this.pinnedToolIds.delete(toolId);
-      this.pinnedToolInfos.delete(toolId);
-    }
+    const state = this.getPrimaryToolState(toolId);
+    this.setPinnedState(toolId, pinned, {
+      tool: state?.tool,
+      persistPreference: true,
+    });
 
     this.getToolInstances(toolId).forEach((state) => {
       state.isPinned = pinned;
     });
 
-    this.savePinnedTools();
     this.notify();
   }
 
@@ -479,6 +500,70 @@ class ToolWindowService {
 
   private resolveState(target: string): ToolWindowState | undefined {
     return this.toolStates.get(target) || this.getPrimaryToolState(target);
+  }
+
+  private shouldAutoPinOnOpen(
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): boolean {
+    if (options && Object.prototype.hasOwnProperty.call(options, 'autoPin')) {
+      return options.autoPin === true;
+    }
+
+    const userPreference = this.pinPreferences.get(tool.id);
+    if (typeof userPreference === 'boolean') {
+      return userPreference;
+    }
+
+    return tool.defaultWindowBehavior?.autoPinOnOpen === true;
+  }
+
+  private applyAutoPinBehavior(
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): void {
+    if (!this.shouldAutoPinOnOpen(tool, options)) {
+      return;
+    }
+
+    const persistPreference =
+      options && Object.prototype.hasOwnProperty.call(options, 'autoPin');
+    this.setPinnedState(tool.id, true, { tool, persistPreference });
+  }
+
+  private updatePinnedToolInfo(tool: ToolDefinition): void {
+    this.pinnedToolInfos.set(tool.id, {
+      id: tool.id,
+      name: tool.name,
+      category: tool.category,
+    });
+  }
+
+  private setPinnedState(
+    toolId: string,
+    pinned: boolean,
+    options?: {
+      tool?: ToolDefinition;
+      persistPreference?: boolean;
+    }
+  ): void {
+    if (pinned) {
+      this.pinnedToolIds.add(toolId);
+      const tool = options?.tool || this.getPrimaryToolState(toolId)?.tool;
+      if (tool) {
+        this.updatePinnedToolInfo(tool);
+      }
+    } else {
+      this.pinnedToolIds.delete(toolId);
+      this.pinnedToolInfos.delete(toolId);
+    }
+
+    if (options?.persistPreference) {
+      this.pinPreferences.set(toolId, pinned);
+      this.savePinPreferences();
+    }
+
+    this.savePinnedTools();
   }
 
   private createLauncherState(toolId: string): ToolWindowState | undefined {

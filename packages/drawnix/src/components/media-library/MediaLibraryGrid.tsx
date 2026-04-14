@@ -630,6 +630,26 @@ export function MediaLibraryGrid({
     }
   }, [selectedAssetIds, removeAssets, board, filteredResult.assets]);
 
+  // 计算批量删除时会影响的画布元素数量
+  // 只计算当前筛选结果中被选中的素材
+  const batchDeleteWarningInfo = useMemo(() => {
+    // 获取筛选后被选中的素材
+    const filteredSelectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
+    
+    if (!board || filteredSelectedAssets.length === 0) {
+      return { hasCacheAssets: false, affectedCount: 0 };
+    }
+    
+    let affectedCount = 0;
+    const cacheAssets = filteredSelectedAssets.filter(a => isCacheUrl(a.url));
+    
+    for (const asset of cacheAssets) {
+      affectedCount += countElementsByAssetUrls(board, asset.dedupeUrls || [asset.url]);
+    }
+    
+    return { hasCacheAssets: cacheAssets.length > 0, affectedCount };
+  }, [board, selectedAssetIds, filteredResult.assets]);
+
   const handleBatchDeleteClick = useCallback(async () => {
     if (filteredSelectedCount === 0) {
       return;
@@ -673,26 +693,6 @@ export function MediaLibraryGrid({
 
     await deletePlaylist(playlist.id);
   }, [confirm, deletePlaylist]);
-  
-  // 计算批量删除时会影响的画布元素数量
-  // 只计算当前筛选结果中被选中的素材
-  const batchDeleteWarningInfo = useMemo(() => {
-    // 获取筛选后被选中的素材
-    const filteredSelectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
-    
-    if (!board || filteredSelectedAssets.length === 0) {
-      return { hasCacheAssets: false, affectedCount: 0 };
-    }
-    
-    let affectedCount = 0;
-    const cacheAssets = filteredSelectedAssets.filter(a => isCacheUrl(a.url));
-    
-    for (const asset of cacheAssets) {
-      affectedCount += countElementsByAssetUrls(board, asset.dedupeUrls || [asset.url]);
-    }
-    
-    return { hasCacheAssets: cacheAssets.length > 0, affectedCount };
-  }, [board, selectedAssetIds, filteredResult.assets]);
 
   // 批量下载处理
   // 只下载当前筛选结果中被选中的素材

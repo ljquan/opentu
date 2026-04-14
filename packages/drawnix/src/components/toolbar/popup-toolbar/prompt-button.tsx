@@ -186,7 +186,9 @@ export const PopupPromptButton: React.FC<PopupPromptButtonProps> = ({
   const { history: aiInputHistory, addHistory, removeHistory } = usePromptHistory({
     deduplicateWithPresets: false,
   });
-  const { confirm, confirmDialog } = useConfirmDialog({ container: board?.host ?? null });
+  const { confirm, confirmDialog } = useConfirmDialog({
+    container: board ? PlaitBoard.getBoardContainer(board) : null,
+  });
   const listRef = useRef<HTMLDivElement>(null);
 
   // 获取图片和视频描述历史记录

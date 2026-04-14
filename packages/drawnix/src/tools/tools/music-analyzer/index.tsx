@@ -48,6 +48,9 @@ export const musicAnalyzerTool: ToolPluginModule = {
     category: ToolCategory.AI_TOOLS,
     component: 'music-analyzer',
     supportsMultipleWindows: true,
+    defaultWindowBehavior: {
+      autoPinOnOpen: true,
+    },
     defaultWidth: 520,
     defaultHeight: 700,
   },

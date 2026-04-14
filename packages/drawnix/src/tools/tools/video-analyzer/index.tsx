@@ -49,6 +49,9 @@ export const videoAnalyzerTool: ToolPluginModule = {
     category: ToolCategory.AI_TOOLS,
     component: 'video-analyzer',
     supportsMultipleWindows: true,
+    defaultWindowBehavior: {
+      autoPinOnOpen: true,
+    },
     defaultWidth: 520,
     defaultHeight: 700,
   },

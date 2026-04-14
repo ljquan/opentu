@@ -33,7 +33,7 @@ const renderIcon = (icon: unknown, size = 20): React.ReactNode => {
   if (typeof icon === 'string') {
     return <span style={{ fontSize: size }}>{icon}</span>;
   }
-  return icon;
+  return React.isValidElement(icon) ? icon : null;
 };
 
 /**
