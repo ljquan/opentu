@@ -324,6 +324,31 @@
   flex-shrink: 0;
 }
 
+.va-model-tip {
+  margin-top: -2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #F39C12;
+  line-height: 1.4;
+}
+
+.va-model-tip-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #E67E22;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:hover {
+    color: #D35400;
+  }
+}
+
 .va-analyze-btn {
   padding: 10px;
   border: none;

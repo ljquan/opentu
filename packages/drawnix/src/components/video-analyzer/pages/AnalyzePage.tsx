@@ -10,11 +10,16 @@ import { quickInsert } from '../../../mcp/tools/canvas-insertion';
 import { buildInlineDataPart } from '../../../utils/gemini-api/message-utils';
 import { ModelDropdown } from '../../ai-input-bar/ModelDropdown';
 import { useSelectableModels } from '../../../hooks/use-runtime-models';
+import { useProviderProfiles } from '../../../hooks/use-provider-profiles';
+import { useDrawnix } from '../../../hooks/use-drawnix';
 import { ShotTimeline } from '../components/ShotTimeline';
 import { ShotCard } from '../components/ShotCard';
 import { addRecord } from '../storage';
 import { getSelectionKey } from '../../../utils/model-selection';
-import type { ModelRef } from '../../../utils/settings-manager';
+import {
+  TUZI_MIX_PROVIDER_PROFILE_ID,
+  type ModelRef,
+} from '../../../utils/settings-manager';
 import {
   readStoredModelSelection,
   writeStoredModelSelection,
@@ -24,6 +29,7 @@ type InputMode = 'upload' | 'youtube';
 
 const DEFAULT_ANALYSIS_MODEL = 'gemini-3.1-pro-preview';
 const STORAGE_KEY_MODEL = 'video-analyzer:model';
+const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 
 function formatSize(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1) + 'MB';
@@ -42,6 +48,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
   onRecordsChange,
   onNext,
 }) => {
+  const { setAppState } = useDrawnix();
   const [inputMode, setInputMode] = useState<InputMode>('youtube');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -62,6 +69,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
   const [analysis, setAnalysis] = useState<VideoAnalysisData | null>(
     existingRecord?.analysis || null
   );
+  const providerProfiles = useProviderProfiles();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrlRef = useRef<string | null>(null);
 
@@ -83,6 +91,30 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
     () => allTextModels.filter(m => /^gemini/i.test(m.id)),
     [allTextModels]
   );
+  const isGeminiMixConfigured = useMemo(() => {
+    const mixProfile = providerProfiles.find(
+      profile => profile.id === TUZI_MIX_PROVIDER_PROFILE_ID
+    );
+    return Boolean(mixProfile?.apiKey.trim());
+  }, [providerProfiles]);
+
+  const handleOpenGeminiMixSettings = useCallback(() => {
+    const intent = {
+      action: 'select' as const,
+      profileId: TUZI_MIX_PROVIDER_PROFILE_ID,
+    };
+
+    (
+      window as typeof window & {
+        __aituPendingProviderNavigationIntent?: typeof intent;
+      }
+    ).__aituPendingProviderNavigationIntent = intent;
+
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_PROVIDER_NAV_EVENT, { detail: intent })
+    );
+    setAppState(prev => ({ ...prev, openSettings: true }));
+  }, [setAppState]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -211,6 +243,18 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
               disabled={analyzing}
               placeholder="选择多模态模型"
             />
+          </div>
+          <div className="va-model-tip">
+            <span>建议使用 gemini-mix 分组</span>
+            {!isGeminiMixConfigured && (
+              <button
+                type="button"
+                className="va-model-tip-link"
+                onClick={handleOpenGeminiMixSettings}
+              >
+                去设置
+              </button>
+            )}
           </div>
           <button className="va-analyze-btn" onClick={handleAnalyze} disabled={analyzing || (inputMode === 'upload' ? !videoFile : !youtubeUrl)}>
             {analyzing ? progress || '分析中...' : '开始分析'}
