@@ -68,6 +68,7 @@ import {
   useContextMenuState,
   type ContextMenuEntry,
 } from '../shared/ContextMenu';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { ModelDropdown } from '../ai-input-bar/ModelDropdown';
 import { WinBoxWindow } from '../winbox';
 import { TtsSettingsPanel } from '../project-drawer/TtsSettingsPanel';
@@ -519,6 +520,7 @@ export const SettingsDialog = ({
   container: HTMLElement | null;
 }) => {
   const { appState, setAppState } = useDrawnix();
+  const { confirm, confirmDialog } = useConfirmDialog({ container });
   const {
     isMobile: isMobileDevice,
     viewportWidth,
@@ -1015,8 +1017,21 @@ export const SettingsDialog = ({
     };
   }, [appState.openSettings, isCompactLayout, profilesDraft]);
 
-  const handleDeleteProfile = (profileId: string) => {
+  const handleDeleteProfile = async (profileId: string) => {
     if (isManagedProviderProfile(profileId)) {
+      return;
+    }
+
+    const profile = profilesDraft.find((item) => item.id === profileId);
+    const confirmed = await confirm({
+      title: '确认删除供应商',
+      description: `确定要删除供应商「${profile?.name || '未命名供应商'}」吗？相关预设里的路由会被清空。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -1103,8 +1118,21 @@ export const SettingsDialog = ({
     }
   };
 
-  const handleDeletePreset = (presetId: string) => {
+  const handleDeletePreset = async (presetId: string) => {
     if (presetsDraft.length <= 1) {
+      return;
+    }
+
+    const preset = presetsDraft.find((item) => item.id === presetId);
+    const confirmed = await confirm({
+      title: '确认删除预设',
+      description: `确定要删除预设「${preset?.name || '未命名预设'}」吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -2694,6 +2722,7 @@ export const SettingsDialog = ({
           });
         }}
       />
+      {confirmDialog}
     </>
   );
 };

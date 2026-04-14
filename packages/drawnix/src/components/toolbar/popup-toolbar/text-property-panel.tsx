@@ -11,6 +11,7 @@ import { PlaitBoard } from '@plait/core';
 import { FontSizes, TextTransforms } from '@plait/text-plugins';
 import { useI18n } from '../../../i18n';
 import { UnifiedColorPicker } from '../../unified-color-picker';
+import { useConfirmDialog } from '../../dialog/ConfirmDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../../popover/popover';
 import { Island } from '../../island';
 import { GradientEditor, generateGradientCSS as generateFillGradientCSS } from '../../gradient-editor';
@@ -79,6 +80,9 @@ export const TextPropertyPanel: React.FC<TextPropertyPanelProps> = ({
   selectionRect,
 }) => {
   const { t, language } = useI18n();
+  const { confirm, confirmDialog } = useConfirmDialog({
+    container: PlaitBoard.getBoardContainer(board),
+  });
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [fontSizeInput, setFontSizeInput] = useState(currentFontSize || '16');
@@ -389,13 +393,28 @@ export const TextPropertyPanel: React.FC<TextPropertyPanelProps> = ({
   }, [gradientConfig, customGradients]);
 
   // 删除自定义渐变
-  const deleteCustomGradient = useCallback((id: string) => {
+  const deleteCustomGradient = useCallback(async (id: string) => {
+    const confirmed = await confirm({
+      title: language === 'zh' ? '确认删除渐变预设' : 'Delete Gradient Preset',
+      description:
+        language === 'zh'
+          ? '确定要删除这个自定义渐变预设吗？'
+          : 'Are you sure you want to delete this custom gradient preset?',
+      confirmText: language === 'zh' ? '删除' : 'Delete',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      danger: true,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
     const updated = customGradients.filter(g => g.id !== id);
     setCustomGradients(updated);
     kvStorageService.set(CUSTOM_GRADIENTS_KEY, updated).catch((e) => {
       console.warn('Failed to save custom gradients:', e);
     });
-  }, [customGradients]);
+  }, [confirm, customGradients, language]);
 
   // 切换阴影开关
   const toggleShadow = useCallback(() => {
@@ -1186,6 +1205,7 @@ export const TextPropertyPanel: React.FC<TextPropertyPanelProps> = ({
           </div>
         </div>
       </div>
+      {confirmDialog}
     </>
   );
 };

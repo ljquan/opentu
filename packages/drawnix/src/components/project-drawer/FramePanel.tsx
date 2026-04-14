@@ -43,6 +43,7 @@ import {
   useContextMenuState,
   type ContextMenuEntry,
 } from '../shared';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 
 interface FrameInfo {
   frame: PlaitFrame;
@@ -59,6 +60,9 @@ interface FrameInfo {
 export const FramePanel: React.FC = () => {
   const { board } = useDrawnix();
   const { language } = useI18n();
+  const { confirm, confirmDialog } = useConfirmDialog({
+    container: board ? PlaitBoard.getBoardContainer(board) : null,
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -242,9 +246,21 @@ export const FramePanel: React.FC = () => {
 
   // 删除 Frame
   const handleDelete = useCallback(
-    (frameInfo: FrameInfo, e?: React.MouseEvent) => {
+    async (frameInfo: FrameInfo, e?: React.MouseEvent) => {
       e?.stopPropagation();
       if (!board) return;
+
+      const confirmed = await confirm({
+        title: '确认删除 Frame',
+        description: `确定要删除 Frame「${frameInfo.frame.name || '未命名 Frame'}」吗？此操作不可撤销。`,
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true,
+      });
+
+      if (!confirmed) {
+        return;
+      }
 
       // 先解绑所有子元素
       const children = FrameTransforms.getFrameChildren(board, frameInfo.frame);
@@ -256,7 +272,7 @@ export const FramePanel: React.FC = () => {
       Transforms.removeNode(board, frameInfo.path);
       MessagePlugin.success('已删除 Frame');
     },
-    [board]
+    [board, confirm]
   );
 
   // 复制 Frame
@@ -356,7 +372,7 @@ export const FramePanel: React.FC = () => {
         handleDuplicate(frameInfo);
       }
       if (action === 'delete') {
-        handleDelete(frameInfo);
+        void handleDelete(frameInfo);
       }
       closeContextMenu();
     },
@@ -859,7 +875,7 @@ export const FramePanel: React.FC = () => {
                     shape="square"
                     theme="danger"
                     icon={<DeleteIcon />}
-                    onClick={(e) => handleDelete(info, e as unknown as React.MouseEvent)}
+                    onClick={(e) => void handleDelete(info, e as unknown as React.MouseEvent)}
                     title="删除"
                   />
                 </div>
@@ -888,6 +904,7 @@ export const FramePanel: React.FC = () => {
         board={board}
         onClose={() => setSlideshowVisible(false)}
       />
+      {confirmDialog}
     </div>
   );
 };

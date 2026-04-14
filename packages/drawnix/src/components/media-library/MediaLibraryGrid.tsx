@@ -657,6 +657,22 @@ export function MediaLibraryGrid({
       await handleBatchDelete();
     }
   }, [batchDeleteWarningInfo, confirm, filteredSelectedCount, handleBatchDelete]);
+
+  const handleDeletePlaylist = useCallback(async (playlist: AudioPlaylist) => {
+    const confirmed = await confirm({
+      title: '确认删除播放列表',
+      description: `确定要删除播放列表「${playlist.name}」吗？删除后列表内关联关系将被移除，此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    await deletePlaylist(playlist.id);
+  }, [confirm, deletePlaylist]);
   
   // 计算批量删除时会影响的画布元素数量
   // 只计算当前筛选结果中被选中的素材
@@ -1199,7 +1215,7 @@ export function MediaLibraryGrid({
             onSelect={handleSelectPlaylist}
             onCreate={() => openCreatePlaylistDialog('create')}
             onRename={openRenamePlaylistDialog}
-            onDelete={(playlist) => void deletePlaylist(playlist.id)}
+            onDelete={(playlist) => void handleDeletePlaylist(playlist)}
           />
         )}
 
