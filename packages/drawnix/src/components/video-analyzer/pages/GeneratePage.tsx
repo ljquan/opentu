@@ -166,21 +166,39 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     openDialog(DialogType.aiImageGeneration, {
       initialPrompt: prompt,
       batchId: shotBatchId,
+      // 如果有提取的首帧图片，作为参考图传入
+      ...(shot.generated_first_frame_url ? {
+        initialImages: [{ url: shot.generated_first_frame_url, name: '首帧' }],
+      } : {}),
     });
   }, [record.id, openDialog]);
 
-  const handleShotGenerateLastFrame = useCallback((shot: VideoShot) => {
+  // 获取 shot 的尾帧 URL（优先使用已生成的，否则使用下一个 shot 的首帧）
+  const getLastFrameUrl = useCallback((shot: VideoShot, index: number) => {
+    if (shot.generated_last_frame_url) {
+      return shot.generated_last_frame_url;
+    }
+    const nextShot = shots[index + 1];
+    return nextShot?.generated_first_frame_url;
+  }, [shots]);
+
+  const handleShotGenerateLastFrame = useCallback((shot: VideoShot, index: number) => {
     const prompt = shot.last_frame_prompt || shot.description || '';
     if (!prompt) return;
     const shotBatchId = `va_${record.id}_shot${shot.id}_last`;
+    const lastFrameUrl = getLastFrameUrl(shot, index);
     openDialog(DialogType.aiImageGeneration, {
       initialPrompt: prompt,
       batchId: shotBatchId,
+      // 如果有尾帧图片（或下一个 shot 的首帧），作为参考图传入
+      ...(lastFrameUrl ? {
+        initialImages: [{ url: lastFrameUrl, name: '尾帧' }],
+      } : {}),
     });
-  }, [record.id, openDialog]);
+  }, [record.id, openDialog, getLastFrameUrl]);
 
   // --- 单镜头：打开视频生成弹窗 ---
-  const handleShotGenerateVideo = useCallback((shot: VideoShot) => {
+  const handleShotGenerateVideo = useCallback((shot: VideoShot, index: number) => {
     const prompt = buildVideoPrompt(shot);
     if (!prompt) return;
     const size = aspectRatioToVideoSize(aspectRatio);
@@ -189,8 +207,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     if (shot.generated_first_frame_url) {
       initialImages.push({ url: shot.generated_first_frame_url, name: '首帧' });
     }
-    if (shot.generated_last_frame_url) {
-      initialImages.push({ url: shot.generated_last_frame_url, name: '尾帧' });
+    const lastFrameUrl = getLastFrameUrl(shot, index);
+    if (lastFrameUrl) {
+      initialImages.push({ url: lastFrameUrl, name: '尾帧' });
     }
     openDialog(DialogType.aiVideoGeneration, {
       initialPrompt: prompt,
@@ -198,7 +217,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       initialDuration: segmentDuration,
       initialSize: size,
     });
-  }, [aspectRatio, segmentDuration, openDialog]);
+  }, [aspectRatio, segmentDuration, openDialog, getLastFrameUrl]);
 
   // --- 删除帧图片 ---
   const handleDeleteFrame = useCallback((shotId: string, frameType: 'first' | 'last') => {
@@ -277,7 +296,13 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                 {/* 首帧 */}
                 {shot.generated_first_frame_url ? (
                   <div className="va-shot-frame-thumb">
-                    <img src={shot.generated_first_frame_url} alt="首帧" referrerPolicy="no-referrer" />
+                    <img
+                      src={shot.generated_first_frame_url}
+                      alt="首帧"
+                      referrerPolicy="no-referrer"
+                      onClick={() => handleShotGenerateFirstFrame(shot)}
+                      title="点击以此帧为参考图生成首帧"
+                    />
                     <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'first')}>×</button>
                     <button className="va-shot-frame-regen" onClick={() => handleShotGenerateFirstFrame(shot)}>↻</button>
                   </div>
@@ -285,18 +310,46 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                   <button onClick={() => handleShotGenerateFirstFrame(shot)}>生成首帧图片</button>
                 ) : null}
                 {/* 尾帧 */}
-                {shot.generated_last_frame_url ? (
-                  <div className="va-shot-frame-thumb">
-                    <img src={shot.generated_last_frame_url} alt="尾帧" referrerPolicy="no-referrer" />
-                    <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'last')}>×</button>
-                    <button className="va-shot-frame-regen" onClick={() => handleShotGenerateLastFrame(shot)}>↻</button>
-                  </div>
-                ) : (shot.last_frame_prompt || shot.description) ? (
-                  <button onClick={() => handleShotGenerateLastFrame(shot)}>生成尾帧图片</button>
-                ) : null}
+                {(() => {
+                  const lastFrameUrl = shot.generated_last_frame_url || getLastFrameUrl(shot, i);
+                  const isFromNextShot = !shot.generated_last_frame_url && lastFrameUrl;
+                  if (shot.generated_last_frame_url) {
+                    return (
+                      <div className="va-shot-frame-thumb">
+                        <img
+                          src={shot.generated_last_frame_url}
+                          alt="尾帧"
+                          referrerPolicy="no-referrer"
+                          onClick={() => handleShotGenerateLastFrame(shot, i)}
+                          title="点击以此帧为参考图生成尾帧"
+                        />
+                        <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'last')}>×</button>
+                        <button className="va-shot-frame-regen" onClick={() => handleShotGenerateLastFrame(shot, i)}>↻</button>
+                      </div>
+                    );
+                  }
+                  if (isFromNextShot) {
+                    return (
+                      <div className="va-shot-frame-thumb va-shot-frame-thumb--borrowed">
+                        <img
+                          src={lastFrameUrl}
+                          alt="尾帧(下一镜头首帧)"
+                          referrerPolicy="no-referrer"
+                          onClick={() => handleShotGenerateLastFrame(shot, i)}
+                          title="下一镜头首帧，点击以此为参考图生成尾帧"
+                        />
+                        <span className="va-shot-frame-label">下一镜头首帧</span>
+                      </div>
+                    );
+                  }
+                  if (shot.last_frame_prompt || shot.description) {
+                    return <button onClick={() => handleShotGenerateLastFrame(shot, i)}>生成尾帧图片</button>;
+                  }
+                  return null;
+                })()}
                 {/* 视频 */}
                 {(shot.description || shot.narration || shot.dialogue || shot.camera_movement || shot.first_frame_prompt || shot.last_frame_prompt) && (
-                  <button onClick={() => handleShotGenerateVideo(shot)}>生成视频</button>
+                  <button onClick={() => handleShotGenerateVideo(shot, i)}>生成视频</button>
                 )}
               </>
             }

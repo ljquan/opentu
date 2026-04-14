@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import type { AnalysisRecord, VideoAnalysisData } from '../types';
+import type { AnalysisRecord, VideoAnalysisData, VideoShot } from '../types';
 import { formatShotsMarkdown } from '../types';
 import { videoAnalyzeTool } from '../../../mcp/tools/video-analyze';
 import { quickInsert } from '../../../mcp/tools/canvas-insertion';
@@ -14,7 +14,7 @@ import { useProviderProfiles } from '../../../hooks/use-provider-profiles';
 import { useDrawnix } from '../../../hooks/use-drawnix';
 import { ShotTimeline } from '../components/ShotTimeline';
 import { ShotCard } from '../components/ShotCard';
-import { addRecord } from '../storage';
+import { addRecord, updateRecord } from '../storage';
 import { getSelectionKey } from '../../../utils/model-selection';
 import {
   TUZI_MIX_PROVIDER_PROFILE_ID,
@@ -24,6 +24,7 @@ import {
   readStoredModelSelection,
   writeStoredModelSelection,
 } from '../utils';
+import { extractFramesFromVideo, cacheFrameBlob } from '../../../utils/video-frame-cache';
 
 type InputMode = 'upload' | 'youtube';
 
@@ -97,6 +98,8 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
     );
     return Boolean(mixProfile?.apiKey.trim());
   }, [providerProfiles]);
+  const isUsingGeminiMixModel =
+    selectedModelRef?.profileId === TUZI_MIX_PROVIDER_PROFILE_ID;
 
   const handleOpenGeminiMixSettings = useCallback(() => {
     const intent = {
@@ -132,6 +135,46 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
     setVideoFile(null);
     setError('');
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  const [extractingFrames, setExtractingFrames] = useState(false);
+  const [frameProgress, setFrameProgress] = useState('');
+
+  /** 从本地视频提取帧图片并缓存 */
+  const extractAndCacheFrames = useCallback(async (
+    file: File,
+    shots: VideoShot[],
+  ): Promise<VideoShot[]> => {
+    setExtractingFrames(true);
+    setFrameProgress('提取帧图片...');
+    try {
+      const timestamps = shots.map(s => s.startTime);
+      const blobs = await extractFramesFromVideo(
+        file,
+        timestamps,
+        (cur, total) => setFrameProgress(`提取帧图片 ${cur}/${total}`)
+      );
+
+      // 缓存每个帧并更新 shot
+      return await Promise.all(
+        shots.map(async (shot, i) => {
+          const blob = blobs[i];
+          if (!blob) return shot;
+          try {
+            const url = await cacheFrameBlob(blob, shot.id, 'first');
+            return { ...shot, generated_first_frame_url: url };
+          } catch {
+            return shot;
+          }
+        })
+      );
+    } catch (err) {
+      console.debug('Frame extraction failed:', err);
+      return shots;
+    } finally {
+      setExtractingFrames(false);
+      setFrameProgress('');
+    }
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -181,6 +224,18 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
         const updated = await addRecord(record);
         onRecordsChange(updated);
         onComplete(record);
+
+        // 上传视频模式：自动提取帧图片（异步，不阻塞 UI）
+        if (inputMode === 'upload' && videoFile && analysisData.shots.length > 0) {
+          extractAndCacheFrames(videoFile, analysisData.shots).then(
+            async (updatedShots) => {
+              setAnalysis(prev => prev ? { ...prev, shots: updatedShots } : prev);
+              const refreshed = await updateRecord(record.id, { editedShots: updatedShots });
+              onRecordsChange(refreshed);
+              onComplete({ ...record, editedShots: updatedShots });
+            }
+          );
+        }
       } else {
         setError(result.error || '分析失败');
       }
@@ -244,18 +299,20 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
               placeholder="选择多模态模型"
             />
           </div>
-          <div className="va-model-tip">
-            <span>建议使用 gemini-mix 分组</span>
-            {!isGeminiMixConfigured && (
-              <button
-                type="button"
-                className="va-model-tip-link"
-                onClick={handleOpenGeminiMixSettings}
-              >
-                去设置
-              </button>
-            )}
-          </div>
+          {!isUsingGeminiMixModel && (
+            <div className="va-model-tip">
+              <span>建议使用 gemini-mix 分组的gemini-3.1-pro-preview</span>
+              {!isGeminiMixConfigured && (
+                <button
+                  type="button"
+                  className="va-model-tip-link"
+                  onClick={handleOpenGeminiMixSettings}
+                >
+                  去设置
+                </button>
+              )}
+            </div>
+          )}
           <button className="va-analyze-btn" onClick={handleAnalyze} disabled={analyzing || (inputMode === 'upload' ? !videoFile : !youtubeUrl)}>
             {analyzing ? progress || '分析中...' : '开始分析'}
           </button>
@@ -289,6 +346,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
           </div>
 
           <div className="va-page-actions">
+            {extractingFrames && <span className="va-frame-progress">{frameProgress}</span>}
             <button onClick={handleInsertAnalysis}>插入画布</button>
             <button onClick={() => { setAnalysis(null); }}>重新分析</button>
             {onNext && <button className="va-btn-primary" onClick={onNext}>下一步: 编辑脚本 →</button>}
