@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { ImageIcon, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
+import { ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
 import type { MVRecord, VideoShot } from '../types';
 import { updateRecord } from '../storage';
 import { updateActiveShotsInRecord } from '../utils';
@@ -34,6 +34,25 @@ import type { Asset } from '../../../types/asset.types';
 
 const STORAGE_KEY_IMAGE_MODEL = 'mv-creator:image-model';
 const STORAGE_KEY_VIDEO_MODEL = 'mv-creator:gen-video-model';
+
+const MediaLibraryGridIcon = ({ size = 14 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width={size}
+    height={size}
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="8" height="8" rx="1.5" />
+    <circle cx="17" cy="7" r="4" />
+    <rect x="3" y="13" width="8" height="8" rx="1.5" />
+    <rect x="13" y="13" width="8" height="8" rx="1.5" />
+  </svg>
+);
 
 interface GeneratePageProps {
   record: MVRecord;
@@ -251,13 +270,29 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         : frameType === 'last' ? 'generated_last_frame_url'
         : 'generated_video_url';
       const shot = currentShots.find(s => s.id === shotId);
+      const suppressedUrl = shot?.suppressed_generated_urls?.[frameType];
+      if (suppressedUrl && suppressedUrl === resultUrl) {
+        processedTaskIdsRef.current.add(task.id);
+        continue;
+      }
       if (!shot || shot[field] === resultUrl) {
         processedTaskIdsRef.current.add(task.id);
         continue;
       }
 
       currentShots = currentShots.map(s =>
-        s.id === shotId ? { ...s, [field]: resultUrl } : s
+        s.id === shotId
+          ? {
+              ...s,
+              [field]: resultUrl,
+              suppressed_generated_urls: s.suppressed_generated_urls
+                ? {
+                    ...s.suppressed_generated_urls,
+                    [frameType]: undefined,
+                  }
+                : undefined,
+            }
+          : s
       );
       processedTaskIdsRef.current.add(task.id);
       hasUpdate = true;
@@ -281,13 +316,17 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   }, [allTasks, autoFillAdjacentFrames, record, onRecordUpdate, onRecordsChange]);
 
   // 素材库选择
-  const [libraryTarget, setLibraryTarget] = useState<{ shotId: string; frame: 'first' | 'last' } | null>(null);
+  const [libraryTarget, setLibraryTarget] = useState<{ shotId: string; assetType: 'first' | 'last' | 'video' } | null>(null);
 
   const handleLibrarySelect = useCallback(async (asset: Asset) => {
     if (!libraryTarget) return;
     setLibraryTarget(null);
-    const { shotId, frame } = libraryTarget;
-    const field = frame === 'first' ? 'generated_first_frame_url' : 'generated_last_frame_url';
+    const { shotId, assetType } = libraryTarget;
+    const field = assetType === 'first'
+      ? 'generated_first_frame_url'
+      : assetType === 'last'
+        ? 'generated_last_frame_url'
+        : 'generated_video_url';
     const updatedShots = shots.map(s =>
       s.id === shotId ? { ...s, [field]: asset.url } : s
     );
@@ -297,6 +336,103 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   }, [libraryTarget, record, shots, onRecordsChange, onRecordUpdate]);
 
   const imageAspectRatio = aspectRatio.replace('x', ':');
+  const toDraftImages = useCallback((images: Array<{ url: string; name: string }>) => {
+    return images.map((image) => ({
+      url: image.url,
+      name: image.name,
+    }));
+  }, []);
+
+  const areDraftImagesEqual = useCallback((
+    left: Array<{ url: string; name: string }> = [],
+    right: Array<{ url: string; name: string }> = []
+  ) => {
+    return (
+      left.length === right.length &&
+      left.every((image, index) =>
+        image.url === right[index]?.url && image.name === right[index]?.name
+      )
+    );
+  }, []);
+
+  const saveShotDraft = useCallback(async (
+    shotId: string,
+    type: 'first' | 'last' | 'video',
+    draft: {
+      prompt: string;
+      images: Array<{ url: string; name: string }>;
+      aspectRatio?: string;
+      duration?: number;
+      size?: string;
+    }
+  ) => {
+    let changed = false;
+    const normalizedImages = toDraftImages(draft.images);
+    const updatedShots = latestShotsRef.current.map((shot) => {
+      if (shot.id !== shotId) {
+        return shot;
+      }
+
+      if (type === 'first') {
+        const currentDraft = shot.first_frame_draft;
+        const nextDraft = {
+          prompt: draft.prompt,
+          images: normalizedImages,
+          aspectRatio: draft.aspectRatio,
+        };
+        if (
+          currentDraft?.prompt === nextDraft.prompt &&
+          currentDraft?.aspectRatio === nextDraft.aspectRatio &&
+          areDraftImagesEqual(currentDraft?.images, nextDraft.images)
+        ) {
+          return shot;
+        }
+        changed = true;
+        return { ...shot, first_frame_draft: nextDraft };
+      }
+
+      if (type === 'last') {
+        const currentDraft = shot.last_frame_draft;
+        const nextDraft = {
+          prompt: draft.prompt,
+          images: normalizedImages,
+          aspectRatio: draft.aspectRatio,
+        };
+        if (
+          currentDraft?.prompt === nextDraft.prompt &&
+          currentDraft?.aspectRatio === nextDraft.aspectRatio &&
+          areDraftImagesEqual(currentDraft?.images, nextDraft.images)
+        ) {
+          return shot;
+        }
+        changed = true;
+        return { ...shot, last_frame_draft: nextDraft };
+      }
+
+      const currentDraft = shot.video_draft;
+      const nextDraft = {
+        prompt: draft.prompt,
+        images: normalizedImages,
+        duration: draft.duration,
+        size: draft.size,
+      };
+      if (
+        currentDraft?.prompt === nextDraft.prompt &&
+        currentDraft?.duration === nextDraft.duration &&
+        currentDraft?.size === nextDraft.size &&
+        areDraftImagesEqual(currentDraft?.images, nextDraft.images)
+      ) {
+        return shot;
+      }
+      changed = true;
+      return { ...shot, video_draft: nextDraft };
+    });
+
+    if (!changed) {
+      return;
+    }
+    await applyUpdatedShots(updatedShots);
+  }, [applyUpdatedShots, areDraftImagesEqual, toDraftImages]);
 
   // 构建 MV 专用的 analysis-like 对象给 buildVideoPrompt / buildFramePrompt
   const pseudoAnalysis = useMemo(() => ({
@@ -322,16 +458,24 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     const rawPrompt = shot.first_frame_prompt || shot.description || '';
     if (!rawPrompt) return;
     const prompt = buildFramePrompt(rawPrompt, pseudoAnalysis, pseudoProductInfo);
+    const draft = shot.first_frame_draft;
     const shotBatchId = `mv_${record.id}_shot${shot.id}_first`;
     openDialog(DialogType.aiImageGeneration, {
-      initialPrompt: prompt,
+      initialPrompt: draft?.prompt ?? prompt,
       batchId: shotBatchId,
-      initialAspectRatio: imageAspectRatio,
-      ...(shot.generated_first_frame_url ? {
-        initialImages: [{ url: shot.generated_first_frame_url, name: '首帧' }],
-      } : {}),
+      initialAspectRatio: draft?.aspectRatio ?? imageAspectRatio,
+      initialImages: draft
+        ? toDraftImages(draft.images || [])
+        : shot.generated_first_frame_url
+          ? [{ url: shot.generated_first_frame_url, name: '首帧' }]
+          : undefined,
+      onDraftChange: (nextDraft: {
+        prompt: string;
+        images: Array<{ url: string; name: string }>;
+        aspectRatio?: string;
+      }) => saveShotDraft(shot.id, 'first', nextDraft),
     });
-  }, [record.id, pseudoAnalysis, pseudoProductInfo, openDialog, imageAspectRatio]);
+  }, [record.id, pseudoAnalysis, pseudoProductInfo, openDialog, imageAspectRatio, saveShotDraft, toDraftImages]);
 
   const getLastFrameUrl = useCallback((shot: VideoShot, index: number) => {
     if (shot.generated_last_frame_url) return shot.generated_last_frame_url;
@@ -342,19 +486,30 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     const rawPrompt = shot.last_frame_prompt || shot.description || '';
     if (!rawPrompt) return;
     const prompt = buildFramePrompt(rawPrompt, pseudoAnalysis, pseudoProductInfo);
+    const draft = shot.last_frame_draft;
     const shotBatchId = `mv_${record.id}_shot${shot.id}_last`;
     const lastFrameUrl = getLastFrameUrl(shot, index);
     openDialog(DialogType.aiImageGeneration, {
-      initialPrompt: prompt,
+      initialPrompt: draft?.prompt ?? prompt,
       batchId: shotBatchId,
-      initialAspectRatio: imageAspectRatio,
-      ...(lastFrameUrl ? { initialImages: [{ url: lastFrameUrl, name: '尾帧' }] } : {}),
+      initialAspectRatio: draft?.aspectRatio ?? imageAspectRatio,
+      initialImages: draft
+        ? toDraftImages(draft.images || [])
+        : lastFrameUrl
+          ? [{ url: lastFrameUrl, name: '尾帧' }]
+          : undefined,
+      onDraftChange: (nextDraft: {
+        prompt: string;
+        images: Array<{ url: string; name: string }>;
+        aspectRatio?: string;
+      }) => saveShotDraft(shot.id, 'last', nextDraft),
     });
-  }, [record.id, pseudoAnalysis, pseudoProductInfo, openDialog, getLastFrameUrl, imageAspectRatio]);
+  }, [record.id, pseudoAnalysis, pseudoProductInfo, openDialog, getLastFrameUrl, imageAspectRatio, saveShotDraft, toDraftImages]);
 
   const handleShotGenerateVideo = useCallback(async (shot: VideoShot, index: number) => {
     const prompt = buildVideoPrompt(shot, pseudoAnalysis, pseudoProductInfo);
     if (!prompt) return;
+    const draft = shot.video_draft;
     const shotBatchId = `mv_${record.id}_shot${shot.id}_video`;
     const initialImages: ReferenceImage[] = [];
     if (shot.generated_first_frame_url) {
@@ -366,20 +521,41 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     }
 
     openDialog(DialogType.aiVideoGeneration, {
-      initialPrompt: prompt,
-      initialImages: initialImages.length > 0 ? initialImages : undefined,
-      initialDuration: segmentDuration,
-      initialSize: videoSize,
+      initialPrompt: draft?.prompt ?? prompt,
+      initialImages: draft
+        ? toDraftImages(draft.images || [])
+        : initialImages.length > 0
+          ? initialImages
+          : undefined,
+      initialDuration: draft?.duration ?? segmentDuration,
+      initialSize: draft?.size ?? videoSize,
       batchId: shotBatchId,
+      onDraftChange: (nextDraft: {
+        prompt: string;
+        images: Array<{ url: string; name: string }>;
+        duration?: number;
+        size?: string;
+      }) => saveShotDraft(shot.id, 'video', nextDraft),
     });
-  }, [record.id, pseudoAnalysis, pseudoProductInfo, segmentDuration, videoSize, openDialog, getLastFrameUrl]);
+  }, [record.id, pseudoAnalysis, pseudoProductInfo, segmentDuration, videoSize, openDialog, getLastFrameUrl, saveShotDraft, toDraftImages]);
 
   const handleDeleteFrame = useCallback((shotId: string, frameType: 'first' | 'last' | 'video') => {
     const field = frameType === 'first' ? 'generated_first_frame_url'
       : frameType === 'last' ? 'generated_last_frame_url'
       : 'generated_video_url';
     const updatedShots = shots.map(s =>
-      s.id === shotId ? { ...s, [field]: undefined } : s
+      s.id === shotId
+        ? {
+            ...s,
+            [field]: undefined,
+            suppressed_generated_urls: s[field]
+              ? {
+                  ...(s.suppressed_generated_urls || {}),
+                  [frameType]: s[field] as string,
+                }
+              : s.suppressed_generated_urls,
+          }
+        : s
     );
     void updateRecord(record.id, updateActiveShotsInRecord(record, updatedShots)).then(updated => {
       onRecordsChange(updated);
@@ -701,8 +877,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                 <span className="va-shot-frame-btn-group">
                   <button onClick={() => handleShotGenerateFirstFrame(shot)}>生成首帧</button>
                   <button className="va-shot-frame-library-btn"
-                    onClick={() => setLibraryTarget({ shotId: shot.id, frame: 'first' })} title="从素材库选择">
-                    <ImageIcon size={14} />
+                    onClick={() => setLibraryTarget({ shotId: shot.id, assetType: 'first' })} title="从素材库选择">
+                    <MediaLibraryGridIcon />
                   </button>
                 </span>
               ) : null}
@@ -732,8 +908,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                     <span className="va-shot-frame-btn-group">
                       <button onClick={() => handleShotGenerateLastFrame(shot, i)}>生成尾帧</button>
                       <button className="va-shot-frame-library-btn"
-                        onClick={() => setLibraryTarget({ shotId: shot.id, frame: 'last' })} title="从素材库选择">
-                        <ImageIcon size={14} />
+                        onClick={() => setLibraryTarget({ shotId: shot.id, assetType: 'last' })} title="从素材库选择">
+                        <MediaLibraryGridIcon />
                       </button>
                     </span>
                   );
@@ -768,7 +944,16 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                   )}
                 </div>
               ) : shot.description ? (
-                <button onClick={() => handleShotGenerateVideo(shot, i)}>生成视频</button>
+                <span className="va-shot-frame-btn-group">
+                  <button onClick={() => handleShotGenerateVideo(shot, i)}>生成视频</button>
+                  <button
+                    className="va-shot-frame-library-btn"
+                    onClick={() => setLibraryTarget({ shotId: shot.id, assetType: 'video' })}
+                    title="从素材库插入视频"
+                  >
+                    <MediaLibraryGridIcon />
+                  </button>
+                </span>
               ) : null}
             </>
           } />
@@ -838,9 +1023,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         isOpen={!!libraryTarget}
         onClose={() => setLibraryTarget(null)}
         mode={SelectionMode.SELECT}
-        filterType={AssetType.IMAGE}
+        filterType={libraryTarget?.assetType === 'video' ? AssetType.VIDEO : AssetType.IMAGE}
         onSelect={handleLibrarySelect}
-        selectButtonText="使用此图片"
+        selectButtonText={libraryTarget?.assetType === 'video' ? '使用此视频' : '使用此图片'}
       />
     </div>
   );

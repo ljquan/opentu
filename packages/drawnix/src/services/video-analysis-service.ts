@@ -9,6 +9,24 @@ import { buildGenerateContentConfig, extractJsonObjects } from './analysis-core'
 export type VideoShotType = 'opening' | 'product' | 'detail' | 'scene' | 'cta' | 'other';
 export type TransitionHint = 'cut' | 'dissolve' | 'match_cut' | 'fade_to_black';
 
+export interface ShotDraftImage {
+  url: string;
+  name: string;
+}
+
+export interface FrameGenerationDraft {
+  prompt?: string;
+  images?: ShotDraftImage[];
+  aspectRatio?: string;
+}
+
+export interface VideoGenerationDraft {
+  prompt?: string;
+  images?: ShotDraftImage[];
+  duration?: number;
+  size?: string;
+}
+
 export interface VideoShot {
   id: string;
   startTime: number;
@@ -28,6 +46,10 @@ export interface VideoShot {
   generated_first_frame_url?: string;
   generated_last_frame_url?: string;
   generated_video_url?: string;
+  suppressed_generated_urls?: Partial<Record<'first' | 'last' | 'video', string>>;
+  first_frame_draft?: FrameGenerationDraft;
+  last_frame_draft?: FrameGenerationDraft;
+  video_draft?: VideoGenerationDraft;
 }
 
 export interface VideoAnalysisData {

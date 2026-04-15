@@ -31,7 +31,7 @@ export const PricingFieldGroup: React.FC<PricingFieldGroupProps> = React.memo(
           profile.apiKey,
           pricingConfig.pricingGroup,
           pricingConfig.cnyPerUsd,
-          { force: true }
+          { force: true, promoteToAutoRefresh: true }
         );
         void MessagePlugin.success('价格信息已同步');
       } catch (err) {
