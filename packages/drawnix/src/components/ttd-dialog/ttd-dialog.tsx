@@ -56,6 +56,11 @@ const TTDDialogComponent = ({
   const { language } = useI18n();
   const board = useBoard();
   const { isMobile, isTablet } = useDeviceType();
+  const dialogInitialDataByType = appState.dialogInitialDataByType;
+  const imageDialogInitialData =
+    dialogInitialDataByType?.[DialogType.aiImageGeneration] ?? null;
+  const videoDialogInitialData =
+    dialogInitialDataByType?.[DialogType.aiVideoGeneration] ?? null;
 
   // 移动端和平板端不显示批量出图
   const showBatchTab = !isMobile && !isTablet;
@@ -285,288 +290,293 @@ const TTDDialogComponent = ({
     aiImageData.initialPrompt,
   ]);
 
-  // 使用 useRef 来跟踪上一次打开的弹窗类型，避免不必要的处理
-  const prevOpenDialogsRef = useRef<Set<DialogType>>(new Set());
+  const prevImageDialogOpenRef = useRef(false);
+  const prevImageDialogInitialDataRef = useRef(imageDialogInitialData);
+  const prevVideoDialogOpenRef = useRef(false);
+  const prevVideoDialogInitialDataRef = useRef(videoDialogInitialData);
 
-  // 当 AI 图片生成对话框打开时，处理选中内容
   useEffect(() => {
-    // 确保board存在
     if (!board) {
       return;
     }
 
-    const currentDialogs = appState.openDialogTypes;
-    const prevDialogs = prevOpenDialogsRef.current;
-
-    // 检查是否有新打开的图片生成弹窗
+    const isImageDialogOpen = appState.openDialogTypes.has(
+      DialogType.aiImageGeneration
+    );
     const isImageDialogNewlyOpened =
-      currentDialogs.has(DialogType.aiImageGeneration) &&
-      !prevDialogs.has(DialogType.aiImageGeneration);
+      isImageDialogOpen && !prevImageDialogOpenRef.current;
+    const imageDialogDataChanged =
+      prevImageDialogInitialDataRef.current !== imageDialogInitialData;
 
-    // 检查是否有新打开的视频生成弹窗
-    const isVideoDialogNewlyOpened =
-      currentDialogs.has(DialogType.aiVideoGeneration) &&
-      !prevDialogs.has(DialogType.aiVideoGeneration);
+    prevImageDialogOpenRef.current = isImageDialogOpen;
+    prevImageDialogInitialDataRef.current = imageDialogInitialData;
 
-    // 更新上一次的状态
-    prevOpenDialogsRef.current = new Set(currentDialogs);
-
-    // 防止多次并发处理
-    if (isProcessingRef.current) {
+    if (
+      !isImageDialogOpen ||
+      (!isImageDialogNewlyOpened && !imageDialogDataChanged) ||
+      isProcessingRef.current
+    ) {
       return;
     }
 
-    if (isImageDialogNewlyOpened) {
-      const processSelection = async () => {
-        isProcessingRef.current = true;
+    const processSelection = async () => {
+      isProcessingRef.current = true;
 
-        // 设置超时保护，防止处理状态被永久锁定
-        if (processingTimeoutRef.current) {
-          clearTimeout(processingTimeoutRef.current);
-        }
-        processingTimeoutRef.current = setTimeout(() => {
-          console.warn('Processing timeout, resetting processing state');
-          isProcessingRef.current = false;
-        }, 10000); // 10秒超时
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      processingTimeoutRef.current = setTimeout(() => {
+        console.warn('Processing timeout, resetting processing state');
+        isProcessingRef.current = false;
+      }, 10000);
 
-        try {
-          // 如果有初始数据（从任务编辑传入），直接使用
-          if (appState.dialogInitialData) {
-            setAiImageData({
-              initialPrompt:
-                appState.dialogInitialData.initialPrompt ||
-                appState.dialogInitialData.prompt ||
-                '',
-              initialImages:
-                appState.dialogInitialData.initialImages ||
-                appState.dialogInitialData.uploadedImages ||
-                [],
-              selectedElementIds: [],
-              initialResultUrl:
-                appState.dialogInitialData.initialResultUrl ||
-                appState.dialogInitialData.resultUrl,
-              initialAspectRatio:
-                appState.dialogInitialData.initialAspectRatio,
-            });
-            return;
-          }
-
-          // 使用保存在appState中的最近选中元素IDs
-          const selectedElementIds = appState.lastSelectedElementIds || [];
-          // console.log('Using saved selected element IDs for AI image generation:', selectedElementIds);
-
-          // 检测是否选中了单个 Frame，自动匹配宽高比并保存 Frame 信息
-          let frameAspectRatio: string | undefined;
-          let detectedFrameId: string | undefined;
-          let detectedFrameDimensions:
-            | { width: number; height: number }
-            | undefined;
-          const selectedElements = getSelectedElements(board);
-          if (
-            selectedElements.length === 1 &&
-            isFrameElement(selectedElements[0])
-          ) {
-            const frame = selectedElements[0];
-            const rect = RectangleClient.getRectangleByPoints(frame.points);
-            frameAspectRatio = matchFrameAspectRatio(rect.width, rect.height);
-            detectedFrameId = frame.id;
-            detectedFrameDimensions = {
-              width: rect.width,
-              height: rect.height,
-            };
-          }
-
-          // 使用新的处理逻辑来处理选中的内容,传入保存的元素IDs
-          const processedContent = await processSelectedContentForAI(
-            board,
-            selectedElementIds
-          );
-
-          // 准备图片列表
-          const imageItems: ReferenceImage[] = [];
-
-          // 1. 先添加剩余的图片（非重叠的图片）
-          processedContent.remainingImages.forEach((image) => {
-            imageItems.push({
-              url: image.url,
-              name: image.name || `selected-image-${Date.now()}.png`,
-            });
-          });
-
-          // 2. 后添加由图形元素生成的图片（如果存在）
-          if (processedContent.graphicsImage) {
-            imageItems.push({
-              url: processedContent.graphicsImage,
-              name: `graphics-combined-${Date.now()}.png`,
-            });
-          }
-
-          // 设置 AI 图片生成的初始数据
+      try {
+        if (imageDialogInitialData) {
           setAiImageData({
-            initialPrompt: processedContent.remainingText || '',
-            initialImages: imageItems,
-            selectedElementIds: selectedElementIds,
-            initialAspectRatio: frameAspectRatio,
-            targetFrameId: detectedFrameId,
-            targetFrameDimensions: detectedFrameDimensions,
+            initialPrompt:
+              imageDialogInitialData.initialPrompt ||
+              imageDialogInitialData.prompt ||
+              '',
+            initialImages:
+              imageDialogInitialData.initialImages ||
+              imageDialogInitialData.uploadedImages ||
+              [],
+            selectedElementIds: [],
+            initialResultUrl:
+              imageDialogInitialData.initialResultUrl ||
+              imageDialogInitialData.resultUrl,
+            initialAspectRatio: imageDialogInitialData.initialAspectRatio,
+            targetFrameId: imageDialogInitialData.targetFrameId,
+            targetFrameDimensions:
+              imageDialogInitialData.targetFrameDimensions,
           });
-        } catch (error) {
-          console.warn('Error processing selected content for AI:', error);
+          return;
+        }
 
-          // 如果新的处理逻辑失败，回退到原来的逻辑
-          const selectedContent = extractSelectedContent(board);
+        const selectedElementIds = appState.lastSelectedElementIds || [];
+        let frameAspectRatio: string | undefined;
+        let detectedFrameId: string | undefined;
+        let detectedFrameDimensions:
+          | { width: number; height: number }
+          | undefined;
+        const selectedElements = getSelectedElements(board);
+        if (
+          selectedElements.length === 1 &&
+          isFrameElement(selectedElements[0])
+        ) {
+          const frame = selectedElements[0];
+          const rect = RectangleClient.getRectangleByPoints(frame.points);
+          frameAspectRatio = matchFrameAspectRatio(rect.width, rect.height);
+          detectedFrameId = frame.id;
+          detectedFrameDimensions = {
+            width: rect.width,
+            height: rect.height,
+          };
+        }
 
-          const imageItems = selectedContent.images.map((image) => ({
+        const processedContent = await processSelectedContentForAI(
+          board,
+          selectedElementIds
+        );
+        const imageItems: ReferenceImage[] = [];
+
+        processedContent.remainingImages.forEach((image) => {
+          imageItems.push({
             url: image.url,
             name: image.name || `selected-image-${Date.now()}.png`,
-          }));
-
-          setAiImageData({
-            initialPrompt: selectedContent.text || '',
-            initialImages: imageItems,
-            selectedElementIds: [], // 回退情况下没有选中元素信息
           });
-        } finally {
-          isProcessingRef.current = false;
-          if (processingTimeoutRef.current) {
-            clearTimeout(processingTimeoutRef.current);
-            processingTimeoutRef.current = null;
-          }
+        });
+
+        if (processedContent.graphicsImage) {
+          imageItems.push({
+            url: processedContent.graphicsImage,
+            name: `graphics-combined-${Date.now()}.png`,
+          });
         }
-      };
 
-      processSelection();
-    }
+        setAiImageData({
+          initialPrompt: processedContent.remainingText || '',
+          initialImages: imageItems,
+          selectedElementIds,
+          initialAspectRatio: frameAspectRatio,
+          targetFrameId: detectedFrameId,
+          targetFrameDimensions: detectedFrameDimensions,
+        });
+      } catch (error) {
+        console.warn('Error processing selected content for AI:', error);
 
-    // 处理 AI 视频生成的选中内容
-    if (isVideoDialogNewlyOpened) {
-      const processVideoSelection = async () => {
-        isProcessingRef.current = true;
+        const selectedContent = extractSelectedContent(board);
+        const imageItems = selectedContent.images.map((image) => ({
+          url: image.url,
+          name: image.name || `selected-image-${Date.now()}.png`,
+        }));
 
-        // 设置超时保护，防止处理状态被永久锁定
+        setAiImageData({
+          initialPrompt: selectedContent.text || '',
+          initialImages: imageItems,
+          selectedElementIds: [],
+        });
+      } finally {
+        isProcessingRef.current = false;
         if (processingTimeoutRef.current) {
           clearTimeout(processingTimeoutRef.current);
+          processingTimeoutRef.current = null;
         }
-        processingTimeoutRef.current = setTimeout(() => {
-          console.warn('Video processing timeout, resetting processing state');
-          isProcessingRef.current = false;
-        }, 10000); // 10秒超时
+      }
+    };
 
-        try {
-          // 如果有初始数据（从任务编辑传入），直接使用
-          if (appState.dialogInitialData) {
-            // console.log('Video generation - dialogInitialData:', appState.dialogInitialData);
-            const videoData = {
-              initialPrompt:
-                appState.dialogInitialData.initialPrompt ||
-                appState.dialogInitialData.prompt ||
-                '',
-              initialImage:
-                appState.dialogInitialData.initialImage ||
-                appState.dialogInitialData.uploadedImage,
-              initialImages:
-                appState.dialogInitialData.initialImages ||
-                appState.dialogInitialData.uploadedImages,
-              initialDuration:
-                appState.dialogInitialData.initialDuration ||
-                appState.dialogInitialData.duration,
-              initialModel:
-                appState.dialogInitialData.initialModel ||
-                appState.dialogInitialData.model,
-              initialSize:
-                appState.dialogInitialData.initialSize ||
-                appState.dialogInitialData.size,
-              initialResultUrl:
-                appState.dialogInitialData.initialResultUrl ||
-                appState.dialogInitialData.resultUrl,
-            };
-            // console.log('Video generation - setting aiVideoData:', videoData);
-            setAiVideoData(videoData);
-            return;
-          }
+    void processSelection();
+  }, [
+    appState.lastSelectedElementIds,
+    appState.openDialogTypes,
+    board,
+    imageDialogInitialData,
+  ]);
 
-          // 使用保存在appState中的最近选中元素IDs
-          const selectedElementIds = appState.lastSelectedElementIds || [];
-          // console.log('Using saved selected element IDs for AI video generation:', selectedElementIds);
-
-          // 使用新的处理逻辑来处理选中的内容,传入保存的元素IDs
-          const processedContent = await processSelectedContentForAI(
-            board,
-            selectedElementIds
-          );
-
-          // 对于视频生成，传入所有选中的图片（支持多图片模型）
-          const allImages: Array<{ url: string; name: string }> = [];
-
-          if (processedContent.remainingImages.length > 0) {
-            processedContent.remainingImages.forEach((image, index) => {
-              allImages.push({
-                url: image.url,
-                name:
-                  image.name || `selected-image-${index + 1}-${Date.now()}.png`,
-              });
-            });
-          } else if (processedContent.graphicsImage) {
-            allImages.push({
-              url: processedContent.graphicsImage,
-              name: `graphics-combined-${Date.now()}.png`,
-            });
-          }
-
-          // 设置 AI 视频生成的初始数据，传入所有图片
-          setAiVideoData({
-            initialPrompt: processedContent.remainingText || '',
-            initialImage: allImages.length > 0 ? allImages[0] : undefined, // 向后兼容
-            initialImages: allImages.map((img, index) => ({
-              slot: index,
-              slotLabel: `参考图${index + 1}`,
-              url: img.url,
-              name: img.name,
-            })),
-          });
-        } catch (error) {
-          console.warn(
-            'Error processing selected content for AI video:',
-            error
-          );
-
-          // 如果新的处理逻辑失败，回退到原来的逻辑，但同样传入所有图片
-          const selectedContent = extractSelectedContent(board);
-
-          const fallbackImages = selectedContent.images.map((image, index) => ({
-            url: image.url,
-            name: image.name || `selected-image-${index + 1}-${Date.now()}.png`,
-          }));
-
-          setAiVideoData({
-            initialPrompt: selectedContent.text || '',
-            initialImage:
-              fallbackImages.length > 0 ? fallbackImages[0] : undefined,
-            initialImages: fallbackImages.map((img, index) => ({
-              slot: index,
-              slotLabel: `参考图${index + 1}`,
-              url: img.url,
-              name: img.name,
-            })),
-          });
-        } finally {
-          isProcessingRef.current = false;
-          if (processingTimeoutRef.current) {
-            clearTimeout(processingTimeoutRef.current);
-            processingTimeoutRef.current = null;
-          }
-        }
-      };
-
-      processVideoSelection();
+  useEffect(() => {
+    if (!board) {
+      return;
     }
-  }, [appState.openDialogTypes]); // Remove board dependency to prevent recursive updates
 
-  // 清理处理状态当所有弹窗关闭时
+    const isVideoDialogOpen = appState.openDialogTypes.has(
+      DialogType.aiVideoGeneration
+    );
+    const isVideoDialogNewlyOpened =
+      isVideoDialogOpen && !prevVideoDialogOpenRef.current;
+    const videoDialogDataChanged =
+      prevVideoDialogInitialDataRef.current !== videoDialogInitialData;
+
+    prevVideoDialogOpenRef.current = isVideoDialogOpen;
+    prevVideoDialogInitialDataRef.current = videoDialogInitialData;
+
+    if (
+      !isVideoDialogOpen ||
+      (!isVideoDialogNewlyOpened && !videoDialogDataChanged) ||
+      isProcessingRef.current
+    ) {
+      return;
+    }
+
+    const processVideoSelection = async () => {
+      isProcessingRef.current = true;
+
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      processingTimeoutRef.current = setTimeout(() => {
+        console.warn('Video processing timeout, resetting processing state');
+        isProcessingRef.current = false;
+      }, 10000);
+
+      try {
+        if (videoDialogInitialData) {
+          setAiVideoData({
+            initialPrompt:
+              videoDialogInitialData.initialPrompt ||
+              videoDialogInitialData.prompt ||
+              '',
+            initialImage:
+              videoDialogInitialData.initialImage ||
+              videoDialogInitialData.uploadedImage,
+            initialImages:
+              videoDialogInitialData.initialImages ||
+              videoDialogInitialData.uploadedImages,
+            initialDuration:
+              videoDialogInitialData.initialDuration ||
+              videoDialogInitialData.duration,
+            initialModel:
+              videoDialogInitialData.initialModel ||
+              videoDialogInitialData.model,
+            initialSize:
+              videoDialogInitialData.initialSize ||
+              videoDialogInitialData.size,
+            initialResultUrl:
+              videoDialogInitialData.initialResultUrl ||
+              videoDialogInitialData.resultUrl,
+          });
+          return;
+        }
+
+        const selectedElementIds = appState.lastSelectedElementIds || [];
+        const processedContent = await processSelectedContentForAI(
+          board,
+          selectedElementIds
+        );
+        const allImages: Array<{ url: string; name: string }> = [];
+
+        if (processedContent.remainingImages.length > 0) {
+          processedContent.remainingImages.forEach((image, index) => {
+            allImages.push({
+              url: image.url,
+              name:
+                image.name || `selected-image-${index + 1}-${Date.now()}.png`,
+            });
+          });
+        } else if (processedContent.graphicsImage) {
+          allImages.push({
+            url: processedContent.graphicsImage,
+            name: `graphics-combined-${Date.now()}.png`,
+          });
+        }
+
+        setAiVideoData({
+          initialPrompt: processedContent.remainingText || '',
+          initialImage: allImages.length > 0 ? allImages[0] : undefined,
+          initialImages: allImages.map((img, index) => ({
+            slot: index,
+            slotLabel: `参考图${index + 1}`,
+            url: img.url,
+            name: img.name,
+          })),
+        });
+      } catch (error) {
+        console.warn('Error processing selected content for AI video:', error);
+
+        const selectedContent = extractSelectedContent(board);
+        const fallbackImages = selectedContent.images.map((image, index) => ({
+          url: image.url,
+          name: image.name || `selected-image-${index + 1}-${Date.now()}.png`,
+        }));
+
+        setAiVideoData({
+          initialPrompt: selectedContent.text || '',
+          initialImage:
+            fallbackImages.length > 0 ? fallbackImages[0] : undefined,
+          initialImages: fallbackImages.map((img, index) => ({
+            slot: index,
+            slotLabel: `参考图${index + 1}`,
+            url: img.url,
+            name: img.name,
+          })),
+        });
+      } finally {
+        isProcessingRef.current = false;
+        if (processingTimeoutRef.current) {
+          clearTimeout(processingTimeoutRef.current);
+          processingTimeoutRef.current = null;
+        }
+      }
+    };
+
+    void processVideoSelection();
+  }, [
+    appState.lastSelectedElementIds,
+    appState.openDialogTypes,
+    board,
+    videoDialogInitialData,
+  ]);
+
   useEffect(() => {
     if (appState.openDialogTypes.size === 0) {
       isProcessingRef.current = false;
-      prevOpenDialogsRef.current = new Set();
+      prevImageDialogOpenRef.current = false;
+      prevImageDialogInitialDataRef.current = null;
+      prevVideoDialogOpenRef.current = false;
+      prevVideoDialogInitialDataRef.current = null;
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+        processingTimeoutRef.current = null;
+      }
     }
   }, [appState.openDialogTypes]);
 
@@ -719,16 +729,17 @@ const TTDDialogComponent = ({
             </Suspense>
           ) : (
             <AIImageGeneration
+              key={imageDialogInitialData?.batchId || 'ai-image-dialog'}
               initialPrompt={aiImageData.initialPrompt}
               initialImages={aiImageData.initialImages}
               selectedElementIds={aiImageData.selectedElementIds}
               initialWidth={
-                appState.dialogInitialData?.initialWidth ||
-                appState.dialogInitialData?.width
+                imageDialogInitialData?.initialWidth ||
+                imageDialogInitialData?.width
               }
               initialHeight={
-                appState.dialogInitialData?.initialHeight ||
-                appState.dialogInitialData?.height
+                imageDialogInitialData?.initialHeight ||
+                imageDialogInitialData?.height
               }
               initialResultUrl={aiImageData.initialResultUrl}
               initialAspectRatio={aiImageData.initialAspectRatio}
@@ -738,7 +749,8 @@ const TTDDialogComponent = ({
               selectedModelRef={selectedImageModelRef}
               onModelChange={handleImageModelChange}
               onModelRefChange={handleImageModelRefChange}
-              externalBatchId={appState.dialogInitialData?.batchId}
+              externalBatchId={imageDialogInitialData?.batchId}
+              onDraftChange={imageDialogInitialData?.onDraftChange}
             />
           ))}
       </WinBoxWindow>
@@ -762,6 +774,7 @@ const TTDDialogComponent = ({
       >
         {appState.openDialogTypes.has(DialogType.aiVideoGeneration) && (
           <AIVideoGeneration
+            key={videoDialogInitialData?.batchId || 'ai-video-dialog'}
             initialPrompt={aiVideoData.initialPrompt}
             initialImage={aiVideoData.initialImage}
             initialImages={aiVideoData.initialImages}
@@ -773,7 +786,8 @@ const TTDDialogComponent = ({
             selectedModelRef={selectedVideoModelRef}
             onModelChange={handleVideoModelChange}
             onModelRefChange={handleVideoModelRefChange}
-            externalBatchId={appState.dialogInitialData?.batchId}
+            externalBatchId={videoDialogInitialData?.batchId}
+            onDraftChange={videoDialogInitialData?.onDraftChange}
           />
         )}
       </WinBoxWindow>

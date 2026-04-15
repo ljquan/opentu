@@ -82,6 +82,11 @@ interface AIImageGenerationProps {
   onModelRefChange?: (value: ModelRef | null) => void;
   /** 外部传入的 batchId，用于任务关联（如视频分析器帧生成） */
   externalBatchId?: string;
+  onDraftChange?: (draft: {
+    prompt: string;
+    images: Array<{ url: string; name: string }>;
+    aspectRatio?: string;
+  }) => void | Promise<void>;
 }
 
 const AIImageGeneration = ({
@@ -99,6 +104,7 @@ const AIImageGeneration = ({
   onModelChange,
   onModelRefChange,
   externalBatchId,
+  onDraftChange,
 }: AIImageGenerationProps = {}) => {
   const imageModels = useSelectableModels('image');
   const initialRoute = resolveInvocationRoute('image');
@@ -303,6 +309,38 @@ const AIImageGeneration = ({
     initialAspectRatio,
     isManualEdit,
   ]);
+
+  const lastDraftRef = useRef('');
+  useEffect(() => {
+    if (!onDraftChange) {
+      return;
+    }
+
+    const draft = {
+      prompt,
+      images: uploadedImages.map((image) => ({
+        url: image.url,
+        name: image.name,
+      })),
+      aspectRatio,
+    };
+    const draftKey = JSON.stringify(draft);
+    if (lastDraftRef.current === draftKey) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (lastDraftRef.current === draftKey) {
+        return;
+      }
+      lastDraftRef.current = draftKey;
+      void onDraftChange(draft);
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [aspectRatio, onDraftChange, prompt, uploadedImages]);
 
   useEffect(() => {
     const handleSettingsChange = (newSettings: any) => {
