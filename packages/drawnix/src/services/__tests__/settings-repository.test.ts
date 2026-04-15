@@ -46,6 +46,9 @@ describe('settings-repository', () => {
       providerCatalogsSettings: {
         get: () => [],
       },
+      providerPricingCacheSettings: {
+        get: () => [],
+      },
       resolveInvocationRoute: () => {
         throw new Error('resolveInvocationRoute should not be called');
       },

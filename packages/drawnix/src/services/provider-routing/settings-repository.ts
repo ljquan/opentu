@@ -22,6 +22,7 @@ import {
 } from '../../utils/settings-manager';
 import { InvocationPlanner } from './invocation-planner';
 import { inferBindingsForProviderCatalog } from './binding-inference';
+import { modelPricingService } from '../../utils/model-pricing-service';
 import type {
   InvocationPlan,
   InvocationPlanRequest,
@@ -252,7 +253,12 @@ export function listSettingsModelBindings(
     if (!profile) {
       return [];
     }
-    return inferBindingsForProviderCatalog(profile, catalog.discoveredModels);
+    const pricingCache = modelPricingService.getCache(catalog.profileId);
+    return inferBindingsForProviderCatalog(
+      profile,
+      catalog.discoveredModels,
+      pricingCache?.modelEndpoints ?? null
+    );
   });
   const legacyBindings =
     options.includeLegacyProfile === false

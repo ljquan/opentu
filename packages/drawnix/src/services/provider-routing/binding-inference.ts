@@ -3,6 +3,8 @@ import {
   ModelVendor,
   type ModelConfig,
 } from '../../constants/model-config';
+import type { PricingEndpointInfo } from '../../utils/model-pricing-types';
+import { inferAllBindingHintsFromEndpoints } from './endpoint-binding-inference';
 import type {
   ProviderModelBinding,
   ProviderProfileSnapshot,
@@ -566,27 +568,61 @@ function dedupeBindings(bindings: ProviderModelBinding[]): ProviderModelBinding[
 
 export function inferBindingsForProviderModel(
   profile: ProviderProfileSnapshot,
-  model: ModelConfig
+  model: ModelConfig,
+  endpointHints?: Record<string, PricingEndpointInfo> | null
 ): ProviderModelBinding[] {
+  let bindings: ProviderModelBinding[];
   switch (model.type) {
     case 'text':
-      return dedupeBindings(inferTextBindings(profile, model));
+      bindings = inferTextBindings(profile, model);
+      break;
     case 'image':
-      return dedupeBindings(inferImageBindings(profile, model));
+      bindings = inferImageBindings(profile, model);
+      break;
     case 'video':
-      return dedupeBindings(inferVideoBindings(profile, model));
+      bindings = inferVideoBindings(profile, model);
+      break;
     case 'audio':
-      return dedupeBindings(inferAudioBindings(profile, model));
+      bindings = inferAudioBindings(profile, model);
+      break;
     default:
-      return [];
+      bindings = [];
   }
+
+  if (endpointHints) {
+    const hints = inferAllBindingHintsFromEndpoints(endpointHints);
+    for (const hint of hints) {
+      const alreadyHasSpecific = bindings.some(
+        (b) => b.protocol === hint.protocol && b.confidence === 'high' && b.source === 'template'
+      );
+      if (!alreadyHasSpecific) {
+        bindings.push(
+          buildBinding(profile, model, {
+            ...hint,
+            priority: 350,
+            confidence: 'medium',
+            source: 'discovered',
+          })
+        );
+      }
+    }
+  }
+
+  return dedupeBindings(bindings);
 }
 
 export function inferBindingsForProviderCatalog(
   profile: ProviderProfileSnapshot,
-  models: ModelConfig[]
+  models: ModelConfig[],
+  modelEndpointsMap?: Record<string, Record<string, PricingEndpointInfo>> | null
 ): ProviderModelBinding[] {
   return dedupeBindings(
-    models.flatMap((model) => inferBindingsForProviderModel(profile, model))
+    models.flatMap((model) =>
+      inferBindingsForProviderModel(
+        profile,
+        model,
+        modelEndpointsMap?.[model.id] ?? null
+      )
+    )
   );
 }
