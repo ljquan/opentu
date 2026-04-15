@@ -63,6 +63,7 @@ export interface ProviderPricingCache {
   profileId: string;
   fetchedAt: number;
   sourceSignature?: string;
+  autoRefreshSourceSignature?: string | null;
   groups: PricingGroup[];
   /** key = modelId */
   prices: Record<string, ModelPrice>;

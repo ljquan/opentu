@@ -195,6 +195,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       isPencilMode: false,
       openDialogTypes: new Set(),
       dialogInitialData: null,
+      dialogInitialDataByType: {},
       openCleanConfirm: false,
       openSettings: false,
     };

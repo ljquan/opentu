@@ -50,6 +50,10 @@ export type DialogInitialData = {
   [key: string]: any;
 };
 
+export type DialogInitialDataByType = Partial<
+  Record<DialogType, DialogInitialData | null>
+>;
+
 export type DrawnixState = {
   pointer: DrawnixPointerType;
   isMobile: boolean;
@@ -58,7 +62,10 @@ export type DrawnixState = {
   openDialogType?: DialogType | null;
   /** 当前打开的弹窗类型集合，支持同时打开多个弹窗 */
   openDialogTypes: Set<DialogType>;
+  /** @deprecated 使用 dialogInitialDataByType 代替，保留用于向后兼容 */
   dialogInitialData?: DialogInitialData | null;
+  /** 按弹窗类型保存各自的初始化数据，避免多弹窗互相覆盖 */
+  dialogInitialDataByType?: DialogInitialDataByType;
   openCleanConfirm: boolean;
   openSettings: boolean;
   openCommandPalette?: boolean;
@@ -93,10 +100,15 @@ export const useDrawnix = (): {
     context.setAppState((prevState) => {
       const newOpenDialogTypes = new Set(prevState.openDialogTypes);
       newOpenDialogTypes.add(dialogType);
+      const nextDialogInitialDataByType: DialogInitialDataByType = {
+        ...(prevState.dialogInitialDataByType || {}),
+        [dialogType]: initialData || null,
+      };
       return {
         ...prevState,
         openDialogTypes: newOpenDialogTypes,
-        dialogInitialData: initialData || null
+        dialogInitialData: initialData || null,
+        dialogInitialDataByType: nextDialogInitialDataByType,
       };
     });
   };
@@ -106,9 +118,14 @@ export const useDrawnix = (): {
     context.setAppState((prevState) => {
       const newOpenDialogTypes = new Set(prevState.openDialogTypes);
       newOpenDialogTypes.delete(dialogType);
+      const nextDialogInitialDataByType = {
+        ...(prevState.dialogInitialDataByType || {}),
+        [dialogType]: null,
+      };
       return {
         ...prevState,
         openDialogTypes: newOpenDialogTypes,
+        dialogInitialDataByType: nextDialogInitialDataByType,
       };
     });
   };

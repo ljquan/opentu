@@ -14,6 +14,7 @@ import type {
 type PricingListener = () => void;
 type FetchAndCacheOptions = {
   force?: boolean;
+  promoteToAutoRefresh?: boolean;
 };
 
 type ResolvedProviderPricingConfig = {
@@ -85,6 +86,34 @@ export function getPricingCacheTtlMs(pricingUrl: string): number {
   return isTuziPricingUrl(pricingUrl)
     ? TUZI_PRICING_CACHE_TTL_MS
     : MODEL_PRICING_CACHE_TTL_MS;
+}
+
+export function buildPricingSourceSignature(
+  pricingUrl: string,
+  groupName: string,
+  cnyPerUsd: number
+): string {
+  return `${stripPricingUrlSearch(pricingUrl)}\n${groupName || 'default'}\n${round4(cnyPerUsd)}`;
+}
+
+export function isPricingCacheEligibleForWarmup(
+  cache: ProviderPricingCache | null | undefined,
+  sourceSignature: string
+): boolean {
+  if (!cache) {
+    return false;
+  }
+
+  if (typeof cache.autoRefreshSourceSignature === 'string') {
+    return cache.autoRefreshSourceSignature === sourceSignature;
+  }
+
+  if (cache.autoRefreshSourceSignature === null) {
+    return false;
+  }
+
+  // 兼容旧缓存：历史版本没有显式标记时，保留当前签名的自动刷新能力。
+  return cache.sourceSignature === sourceSignature;
 }
 
 export function resolveProviderPricingConfig(
@@ -185,7 +214,7 @@ class ModelPricingService {
     groupName: string,
     cnyPerUsd: number
   ): string {
-    return `${stripPricingUrlSearch(pricingUrl)}\n${groupName || 'default'}\n${round4(cnyPerUsd)}`;
+    return buildPricingSourceSignature(pricingUrl, groupName, cnyPerUsd);
   }
 
   private isFresh(
@@ -263,7 +292,8 @@ class ModelPricingService {
     json: PricingApiResponse,
     groupName: string,
     cnyPerUsd: number,
-    sourceSignature: string
+    sourceSignature: string,
+    autoRefreshSourceSignature: string | null
   ): ProviderPricingCache {
     const groups: PricingGroup[] = Object.entries(json.data.group_info).map(
       ([name, info]) => ({
@@ -298,6 +328,7 @@ class ModelPricingService {
       profileId,
       fetchedAt: Date.now(),
       sourceSignature,
+      autoRefreshSourceSignature,
       groups,
       prices,
       modelEndpoints,
@@ -334,12 +365,18 @@ class ModelPricingService {
       apiKey,
       options
     );
+    const autoRefreshSourceSignature =
+      options.promoteToAutoRefresh ||
+      isPricingCacheEligibleForWarmup(cached, sourceSignature)
+        ? sourceSignature
+        : null;
     const cache = this.buildProviderCache(
       profileId,
       json,
       groupName,
       cnyPerUsd,
-      sourceSignature
+      sourceSignature,
+      autoRefreshSourceSignature
     );
 
     this.cacheMap.set(profileId, cache);
@@ -386,6 +423,15 @@ class ModelPricingService {
       .forEach((profile) => {
         const pricingConfig = resolveProviderPricingConfig(profile);
         if (!pricingConfig) {
+          return;
+        }
+        const sourceSignature = this.buildSourceSignature(
+          pricingConfig.pricingUrl,
+          pricingConfig.pricingGroup,
+          pricingConfig.cnyPerUsd
+        );
+        const cached = this.cacheMap.get(profile.id);
+        if (!isPricingCacheEligibleForWarmup(cached, sourceSignature)) {
           return;
         }
         void this.fetchAndCache(

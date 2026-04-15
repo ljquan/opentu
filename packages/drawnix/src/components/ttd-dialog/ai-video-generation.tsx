@@ -132,6 +132,12 @@ interface AIVideoGenerationProps {
   onModelChange?: (value: string) => void;
   onModelRefChange?: (value: ModelRef | null) => void;
   externalBatchId?: string;
+  onDraftChange?: (draft: {
+    prompt: string;
+    images: Array<{ url: string; name: string }>;
+    duration?: number;
+    size?: string;
+  }) => void | Promise<void>;
 }
 
 const AIVideoGeneration = ({
@@ -147,6 +153,7 @@ const AIVideoGeneration = ({
   onModelChange,
   onModelRefChange,
   externalBatchId,
+  onDraftChange,
 }: AIVideoGenerationProps = {}) => {
   const videoModels = useSelectableModels('video');
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -767,6 +774,40 @@ const AIVideoGeneration = ({
     // 触发 presetPrompts 重新计算
     setPromptHistoryVersion((v) => v + 1);
   };
+
+  const lastDraftRef = useRef('');
+  useEffect(() => {
+    if (!onDraftChange) {
+      return;
+    }
+
+    const parsedDuration = Number.parseFloat(effectiveDuration);
+    const draft = {
+      prompt,
+      images: uploadedImages.map((image) => ({
+        url: image.url,
+        name: image.name,
+      })),
+      duration: Number.isFinite(parsedDuration) ? parsedDuration : undefined,
+      size: effectiveSize || undefined,
+    };
+    const draftKey = JSON.stringify(draft);
+    if (lastDraftRef.current === draftKey) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (lastDraftRef.current === draftKey) {
+        return;
+      }
+      lastDraftRef.current = draftKey;
+      void onDraftChange(draft);
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [effectiveDuration, effectiveSize, onDraftChange, prompt, uploadedImages]);
 
   // 处理任务编辑（从弹窗内的任务列表点击编辑）
   const handleEditTask = (task: any) => {
