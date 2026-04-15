@@ -22,6 +22,8 @@ export interface ProductInfo {
   videoModelRef?: ModelRef | null;
   /** 用户选择的单段时长（秒），来自视频模型的 durationOptions */
   segmentDuration?: number;
+  /** 用户选择的视频尺寸 */
+  videoSize?: string;
   /** 用户编辑的画面风格（覆盖 analysis.video_style） */
   videoStyle?: string;
   /** 用户编辑的 BGM 情绪（覆盖 analysis.bgm_mood） */
@@ -57,6 +59,7 @@ export function migrateProductInfo(raw: Partial<ProductInfo>, fallbackDuration: 
       videoModel: raw.videoModel,
       videoModelRef: createModelRef(raw.videoModelRef?.profileId, raw.videoModelRef?.modelId),
       segmentDuration: raw.segmentDuration,
+      videoSize: raw.videoSize,
       videoStyle: raw.videoStyle,
       bgmMood: raw.bgmMood,
     };
@@ -71,6 +74,7 @@ export function migrateProductInfo(raw: Partial<ProductInfo>, fallbackDuration: 
     videoModel: raw.videoModel,
     videoModelRef: createModelRef(raw.videoModelRef?.profileId, raw.videoModelRef?.modelId),
     segmentDuration: raw.segmentDuration,
+    videoSize: raw.videoSize,
     videoStyle: raw.videoStyle,
     bgmMood: raw.bgmMood,
   };
