@@ -128,6 +128,8 @@ import { CanvasAudioPlayer } from './components/audio-node-element/CanvasAudioPl
 import { canvasAudioPlaybackService } from './services/canvas-audio-playback-service';
 import { useCanvasAudioPlaybackSelector } from './hooks/useCanvasAudioPlayback';
 import { isAudioNodeElement } from './types/audio-node.types';
+import { useProviderProfiles } from './hooks/use-provider-profiles';
+import { modelPricingService } from './utils/model-pricing-service';
 
 const TTDDialog = lazy(() => import('./components/ttd-dialog/ttd-dialog').then(module => ({ default: module.TTDDialog })));
 const SettingsDialog = lazy(() => import('./components/settings-dialog/settings-dialog').then(module => ({ default: module.SettingsDialog })));
@@ -180,6 +182,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
 
   // Initialize task storage synchronization
   const isTaskStorageReady = useTaskStorage();
+  const providerProfiles = useProviderProfiles();
 
   const [appState, setAppState] = useState<DrawnixState>(() => {
     // TODO: need to consider how to maintenance the pointer state in future
@@ -202,6 +205,20 @@ export const Drawnix: React.FC<DrawnixProps> = ({
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [backupRestoreOpen, setBackupRestoreOpen] = useState(false);
   const [cloudSyncOpen, setCloudSyncOpen] = useState(false);
+
+  useEffect(() => {
+    if (providerProfiles.length === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      modelPricingService.warmupProfiles(providerProfiles);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [providerProfiles]);
 
   // 使用 ref 来保存 board 的最新引用,避免 useCallback 依赖问题
   const boardRef = useRef<DrawnixBoard | null>(null);

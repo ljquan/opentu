@@ -538,7 +538,7 @@ function createLLMApiEntry(log, isExpanded, onToggle, isSelectMode = false, isSe
       ` : ''}
       ${log.responseBody ? `
         <div class="detail-section response-body-section">
-          <h4>响应体 (Response Body)</h4>
+          <h4>原始返回 JSON (Response Body)</h4>
           <pre class="json-highlight">${formatJsonWithHighlight(log.responseBody)}</pre>
         </div>
       ` : ''}
@@ -669,13 +669,13 @@ function updateResponseBodyDisplay(entry, fullLog) {
       responseSection = document.createElement('div');
       responseSection.className = 'detail-section response-body-section';
       responseSection.innerHTML = `
-        <h4>响应体 (Response Body)</h4>
+        <h4>原始返回 JSON (Response Body)</h4>
         <pre class="json-highlight">${formatJsonWithHighlight(fullLog.responseBody)}</pre>
       `;
       detailsEl.appendChild(responseSection);
     } else {
       responseSection.innerHTML = `
-        <h4>响应体 (Response Body)</h4>
+        <h4>原始返回 JSON (Response Body)</h4>
         <pre class="json-highlight">${formatJsonWithHighlight(fullLog.responseBody)}</pre>
       `;
     }
