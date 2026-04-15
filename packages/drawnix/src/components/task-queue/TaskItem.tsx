@@ -350,9 +350,11 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
         {task.type === TaskType.VIDEO && task.params.size && (
           <div><strong>分辨率：</strong>{task.params.size}</div>
         )}
-        {task.params.batchId && task.params.batchIndex && task.params.batchTotal && (
-          <div><strong>批量：</strong>{task.params.batchIndex}/{task.params.batchTotal}</div>
-        )}
+        {task.params.batchId &&
+          typeof task.params.batchIndex === 'number' &&
+          typeof task.params.batchTotal === 'number' && (
+            <div><strong>批量：</strong>{task.params.batchIndex + 1}/{task.params.batchTotal}</div>
+          )}
         <div><strong>创建时间：</strong>{formatDateTime(task.createdAt)}</div>
         {task.startedAt && (
           <div><strong>执行时长：</strong>{formatTaskDuration(
@@ -600,9 +602,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 {isLyricsTask && lyricsTags[0] && (
                   <Tag variant="outline">{lyricsTags[0]}</Tag>
                 )}
-                {task.params.batchId && task.params.batchIndex && (
-                  <Tag variant="outline">批量 {task.params.batchIndex}/{task.params.batchTotal}</Tag>
-                )}
+                {task.params.batchId &&
+                  typeof task.params.batchIndex === 'number' &&
+                  typeof task.params.batchTotal === 'number' && (
+                    <Tag variant="outline">
+                      批量 {task.params.batchIndex + 1}/{task.params.batchTotal}
+                    </Tag>
+                  )}
               </div>
 
               <div className="task-item__details">
