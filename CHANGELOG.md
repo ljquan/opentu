@@ -1,3 +1,18 @@
+## 0.6.29 (2026-04-15)
+
+### 🚀 Features
+
+- 支持镜头草稿保存和素材库视频插入 ([eb691775](https://github.com/ljquan/aitu/commit/eb691775))
+- 串行化爆款视频批量生成 ([b5f2ca6d](https://github.com/ljquan/aitu/commit/b5f2ca6d))
+
+### 🔧 Chores
+
+- 更新版本号至0.6.28并扩展素材类型定义 ([6a41a24d](https://github.com/ljquan/aitu/commit/6a41a24d))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
 ## 0.6.28 (2026-04-15)
 
 ### 🚀 Features

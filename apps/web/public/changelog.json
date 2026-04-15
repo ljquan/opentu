@@ -1,6 +1,22 @@
 {
   "versions": [
     {
+      "version": "0.6.29",
+      "date": "2026-04-15",
+      "changes": {
+        "features": [
+          "支持镜头草稿保存和素材库视频插入",
+          "串行化爆款视频批量生成"
+        ],
+        "fixes": [],
+        "improvements": [
+          "更新版本号至0.6.28并扩展素材类型定义"
+        ]
+      },
+      "type": "patch",
+      "highlights": "支持镜头草稿保存和素材库视频插入"
+    },
+    {
       "version": "0.6.28",
       "date": "2026-04-15",
       "changes": {
