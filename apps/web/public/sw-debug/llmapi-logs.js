@@ -552,18 +552,25 @@ function createLLMApiEntry(log, isExpanded, onToggle, isSelectMode = false, isSe
       onToggle(log.id, isNowExpanded);
     }
     
-    // 首次展开时获取完整数据（包含 responseBody）
-    if (isNowExpanded && !fullLogCache.has(log.id)) {
-      try {
-        const fullLog = await getLLMApiLogByIdInSW(log.id);
-        if (fullLog) {
-          fullLogCache.set(log.id, fullLog);
-          // 更新响应体显示
-          updateResponseBodyDisplay(entry, fullLog);
-        }
-      } catch (error) {
-        console.error('[LLMApiLogs] Failed to load full log:', error);
+    if (!isNowExpanded) {
+      return;
+    }
+
+    const cachedFullLog = fullLogCache.get(log.id);
+    if (cachedFullLog) {
+      updateResponseBodyDisplay(entry, cachedFullLog);
+      return;
+    }
+
+    // 首次展开时获取完整数据（包含 responseBody / 关联任务结果）
+    try {
+      const fullLog = await getLLMApiLogByIdInSW(log.id);
+      if (fullLog) {
+        fullLogCache.set(log.id, fullLog);
+        updateResponseBodyDisplay(entry, fullLog);
       }
+    } catch (error) {
+      console.error('[LLMApiLogs] Failed to load full log:', error);
     }
   };
 
@@ -610,6 +617,13 @@ function createLLMApiEntry(log, isExpanded, onToggle, isSelectMode = false, isSe
       e.stopPropagation();
       toggleLLMApiLogSelection(log.id);
     });
+  }
+
+  if (isExpanded) {
+    const cachedFullLog = fullLogCache.get(log.id);
+    if (cachedFullLog) {
+      updateResponseBodyDisplay(entry, cachedFullLog);
+    }
   }
 
   return entry;
@@ -679,6 +693,116 @@ function updateResponseBodyDisplay(entry, fullLog) {
         <pre class="json-highlight">${formatJsonWithHighlight(fullLog.responseBody)}</pre>
       `;
     }
+  }
+
+  // 4. 关联任务结果 JSON（异步任务或未记录 responseBody 时兜底）
+  upsertLinkedTaskSections(detailsEl, fullLog.linkedTask);
+}
+
+function createJsonDetailSection(className, title, jsonText) {
+  const section = document.createElement('div');
+  section.className = `detail-section ${className}`;
+  section.innerHTML = `
+    <h4>${title}</h4>
+    <pre class="json-highlight">${formatJsonWithHighlight(jsonText)}</pre>
+  `;
+  return section;
+}
+
+function createRawResponsesSection(rawResponses) {
+  const section = document.createElement('div');
+  section.className = 'detail-section linked-task-raw-response-section';
+  section.innerHTML = `
+    <details>
+      <summary style="cursor: pointer; user-select: none; color: var(--text-primary); font-weight: 600;">
+        原始模型文本 (${rawResponses.length})
+      </summary>
+      <div style="margin-top: 10px;">
+        ${rawResponses.map((item, index) => `
+          <div style="margin-top: ${index === 0 ? '0' : '12px'};">
+            <div style="margin-bottom: 6px; color: var(--text-muted); font-size: 12px; font-family: monospace;">
+              ${escapeHtml(item.path || `rawResponse[${index}]`)}
+            </div>
+            <pre>${escapeHtml(item.content || '')}</pre>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `;
+  return section;
+}
+
+function createLinkedTaskMetaSection(linkedTask) {
+  const section = document.createElement('div');
+  section.className = 'detail-section linked-task-meta-section';
+  section.innerHTML = `
+    <h4>关联任务</h4>
+    <table class="form-data-table">
+      <tbody>
+        <tr>
+          <td class="form-data-name">任务 ID</td>
+          <td><span class="form-data-value" style="font-family: monospace; font-size: 11px;">${escapeHtml(linkedTask.id || '-')}</span></td>
+        </tr>
+        <tr>
+          <td class="form-data-name">匹配方式</td>
+          <td><span class="form-data-value">${escapeHtml(linkedTask.matchedBy || '-')}</span></td>
+        </tr>
+        <tr>
+          <td class="form-data-name">来源库</td>
+          <td><span class="form-data-value" style="font-family: monospace; font-size: 11px;">${escapeHtml(linkedTask.sourceDb || '-')}</span></td>
+        </tr>
+        <tr>
+          <td class="form-data-name">任务状态</td>
+          <td><span class="form-data-value">${escapeHtml(linkedTask.status || '-')}</span></td>
+        </tr>
+        <tr>
+          <td class="form-data-name">任务类型</td>
+          <td><span class="form-data-value">${escapeHtml(linkedTask.type || '-')}</span></td>
+        </tr>
+        ${linkedTask.remoteId ? `
+        <tr>
+          <td class="form-data-name">Remote ID</td>
+          <td><span class="form-data-value" style="font-family: monospace; font-size: 11px;">${escapeHtml(linkedTask.remoteId)}</span></td>
+        </tr>
+        ` : ''}
+      </tbody>
+    </table>
+  `;
+  return section;
+}
+
+function upsertLinkedTaskSections(detailsEl, linkedTask) {
+  const oldSections = detailsEl.querySelectorAll(
+    '.linked-task-meta-section, .linked-task-result-section, .linked-task-snapshot-section, .linked-task-raw-response-section'
+  );
+  oldSections.forEach((section) => section.remove());
+
+  if (!linkedTask) {
+    return;
+  }
+
+  detailsEl.appendChild(createLinkedTaskMetaSection(linkedTask));
+
+  if (linkedTask.resultJson) {
+    detailsEl.appendChild(
+      createJsonDetailSection(
+        'linked-task-result-section',
+        '关联任务结果 JSON (Fallback)',
+        linkedTask.resultJson
+      )
+    );
+  } else if (linkedTask.snapshotJson) {
+    detailsEl.appendChild(
+      createJsonDetailSection(
+        'linked-task-snapshot-section',
+        '关联任务快照 JSON',
+        linkedTask.snapshotJson
+      )
+    );
+  }
+
+  if (Array.isArray(linkedTask.rawResponses) && linkedTask.rawResponses.length > 0) {
+    detailsEl.appendChild(createRawResponsesSection(linkedTask.rawResponses));
   }
 }
 
