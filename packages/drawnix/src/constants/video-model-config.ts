@@ -631,6 +631,21 @@ export function getDefaultModelParams(model: VideoModel): {
 }
 
 /**
+ * 获取模型下可安全使用的视频尺寸。
+ * 若传入尺寸为空或不受当前模型支持，则回退到模型默认尺寸。
+ */
+export function getValidVideoSize(
+  model: VideoModel,
+  size?: string | null
+): string {
+  const config = getConfigOrDefault(model);
+  if (size && config.sizeOptions.some(option => option.value === size)) {
+    return size;
+  }
+  return config.defaultSize;
+}
+
+/**
  * Check if model supports multiple image uploads
  */
 export function supportsMultipleImages(model: VideoModel): boolean {

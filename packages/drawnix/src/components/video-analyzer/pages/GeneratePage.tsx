@@ -5,8 +5,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { ImageIcon } from 'lucide-react';
 import type { AnalysisRecord, VideoShot } from '../types';
-import { aspectRatioToVideoSize, migrateProductInfo } from '../types';
-import { getVideoModelConfig } from '../../../constants/video-model-config';
+import { migrateProductInfo } from '../types';
+import { getValidVideoSize, getVideoModelConfig } from '../../../constants/video-model-config';
 import { mcpRegistry } from '../../../mcp/registry';
 import { updateRecord } from '../storage';
 import { MediaLibraryModal } from '../../media-library';
@@ -23,6 +23,9 @@ import type { ModelRef } from '../../../utils/settings-manager';
 import { useDrawnix, DialogType } from '../../../hooks/use-drawnix';
 import { useSharedTaskState } from '../../../hooks/useTaskQueue';
 import { TaskStatus } from '../../../types/task.types';
+import { taskQueueService } from '../../../services/task-queue';
+import { extractFrameFromUrl } from '../../../utils/video-frame-cache';
+import { buildBatchVideoReferenceImages, waitForBatchVideoTask } from '../../../utils/batch-video-generation';
 import {
   readStoredModelSelection,
   writeStoredModelSelection,
@@ -45,10 +48,18 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   onRecordsChange,
   onRestart,
 }) => {
-  const shots = record.editedShots || record.analysis.shots;
+  const shots = useMemo(
+    () => record.editedShots || record.analysis.shots,
+    [record.editedShots, record.analysis.shots]
+  );
   const aspectRatio = record.analysis.aspect_ratio || '16x9';
   const batchId = record.batchId || `va_${record.id}`;
   const { openDialog } = useDrawnix();
+  const latestRecordRef = useRef(record);
+  const latestShotsRef = useRef(shots);
+  const batchStopRef = useRef(false);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
+  const activeBatchTaskIdRef = useRef<string | null>(null);
 
   const [refImages, setRefImages] = useState<ReferenceImage[]>([]);
   const imageModels = useSelectableModels('image');
@@ -72,14 +83,64 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         record.productInfo?.videoModel || 'veo3'
       ).modelRef
   );
+  const [videoSize, setVideoSizeState] = useState<string>(
+    () => getValidVideoSize(
+      record.productInfo?.videoModel || readStoredModelSelection(STORAGE_KEY_VIDEO_MODEL, 'veo3').modelId,
+      record.productInfo?.videoSize
+    )
+  );
   const [segmentDuration, setSegmentDuration] = useState<number>(
     () => record.productInfo?.segmentDuration || parseInt(getVideoModelConfig(record.productInfo?.videoModel || 'veo3').defaultDuration, 10) || 8
   );
+  const [batchVideoState, setBatchVideoState] = useState({
+    running: false,
+    stopping: false,
+    currentIndex: -1,
+    retryCount: 0,
+  });
 
-  // 视频模型时长选项
-  const durationOptions = useMemo(() => {
-    return getVideoModelConfig(videoModel).durationOptions;
-  }, [videoModel]);
+  const videoModelConfig = useMemo(() => getVideoModelConfig(videoModel), [videoModel]);
+  const durationOptions = useMemo(() => videoModelConfig.durationOptions, [videoModelConfig]);
+  const sizeOptions = useMemo(() => videoModelConfig.sizeOptions, [videoModelConfig]);
+
+  useEffect(() => {
+    latestRecordRef.current = record;
+  }, [record]);
+
+  useEffect(() => {
+    latestShotsRef.current = shots;
+  }, [shots]);
+
+  const applyRecordPatch = useCallback(async (patch: Partial<AnalysisRecord>) => {
+    const current = latestRecordRef.current;
+    const nextRecord = { ...current, ...patch };
+    latestRecordRef.current = nextRecord;
+    if (nextRecord.editedShots) {
+      latestShotsRef.current = nextRecord.editedShots;
+    }
+    const updated = await updateRecord(current.id, patch);
+    onRecordsChange(updated);
+    onRecordUpdate(nextRecord);
+    return nextRecord;
+  }, [onRecordUpdate, onRecordsChange]);
+
+  const applyUpdatedShots = useCallback(async (updatedShots: VideoShot[]) => {
+    const current = latestRecordRef.current;
+    const patch = updateActiveShotsInRecord(current, updatedShots);
+    latestShotsRef.current = updatedShots;
+    await applyRecordPatch(patch);
+    return updatedShots;
+  }, [applyRecordPatch]);
+
+  const applyProductInfoPatch = useCallback(async (patch: Partial<NonNullable<AnalysisRecord['productInfo']>>) => {
+    const current = latestRecordRef.current;
+    const nextProductInfo = {
+      ...migrateProductInfo(current.productInfo || { prompt: '' }, current.analysis.totalDuration),
+      ...patch,
+    };
+    await applyRecordPatch({ productInfo: nextProductInfo });
+    return nextProductInfo;
+  }, [applyRecordPatch]);
 
   const setImageModel = useCallback((model: string, modelRef?: ModelRef | null) => {
     setImageModelState(model);
@@ -93,20 +154,27 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     writeStoredModelSelection(STORAGE_KEY_VIDEO_MODEL, model, modelRef);
     const cfg = getVideoModelConfig(model);
     const nextSegmentDuration = parseInt(cfg.defaultDuration, 10) || 8;
+    const nextVideoSize = getValidVideoSize(model, videoSize);
     setSegmentDuration(nextSegmentDuration);
-
-    const nextProductInfo = {
-      ...migrateProductInfo(record.productInfo || { prompt: '' }, record.analysis.totalDuration),
+    setVideoSizeState(nextVideoSize);
+    void applyProductInfoPatch({
       videoModel: model,
       videoModelRef: modelRef || null,
       segmentDuration: nextSegmentDuration,
-    };
-
-    void updateRecord(record.id, { productInfo: nextProductInfo }).then(updated => {
-      onRecordsChange(updated);
-      onRecordUpdate({ ...record, productInfo: nextProductInfo });
+      videoSize: nextVideoSize,
     });
-  }, [record, onRecordUpdate, onRecordsChange]);
+  }, [applyProductInfoPatch, videoSize]);
+
+  const handleSegmentDurationChange = useCallback((value: number) => {
+    setSegmentDuration(value);
+    void applyProductInfoPatch({ segmentDuration: value });
+  }, [applyProductInfoPatch]);
+
+  const handleVideoSizeChange = useCallback((value: string) => {
+    const nextVideoSize = getValidVideoSize(videoModel, value);
+    setVideoSizeState(nextVideoSize);
+    void applyProductInfoPatch({ videoSize: nextVideoSize });
+  }, [applyProductInfoPatch, videoModel]);
 
   // 参考图 URL 列表（用于传给批量生成接口）
   const refImageUrls = useMemo(() => refImages.map(img => img.url).filter(Boolean), [refImages]);
@@ -114,11 +182,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   // 确保 batchId 已保存
   const ensureBatchId = useCallback(async () => {
     if (!record.batchId) {
-      const updated = await updateRecord(record.id, { batchId });
-      onRecordsChange(updated);
-      onRecordUpdate({ ...record, batchId });
+      await applyRecordPatch({ batchId });
     }
-  }, [record, batchId, onRecordUpdate, onRecordsChange]);
+  }, [record.batchId, batchId, applyRecordPatch]);
 
   // --- Prompt 提取 ---
   const getFirstFramePrompt = useCallback((shot: VideoShot) => {
@@ -132,12 +198,55 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   // --- 通过 jotai 任务状态驱动帧图片回填 ---
   const { tasks: allTasks } = useSharedTaskState();
   const processedTaskIdsRef = useRef(new Set<string>());
+  const extractingRef = useRef(new Set<string>());
+
+  const autoFillAdjacentFrames = useCallback(async (
+    recordId: string,
+    currentShots: VideoShot[],
+    newVideos: Array<{ shotId: string; videoUrl: string }>
+  ) => {
+    let updatedShots = [...currentShots];
+    let changed = false;
+
+    for (const { shotId, videoUrl } of newVideos) {
+      const key = `auto_${shotId}`;
+      if (extractingRef.current.has(key)) continue;
+      extractingRef.current.add(key);
+
+      try {
+        const idx = updatedShots.findIndex(s => s.id === shotId);
+        if (idx === -1) continue;
+
+        const nextShot = updatedShots[idx + 1];
+        if (!nextShot) continue;
+
+        const url = await extractFrameFromUrl(videoUrl, nextShot.id, 'first', 'last');
+        if (!url || nextShot.generated_first_frame_url === url) continue;
+
+        updatedShots = updatedShots.map((shot, shotIndex) =>
+          shotIndex === idx + 1 ? { ...shot, generated_first_frame_url: url } : shot
+        );
+        changed = true;
+      } finally {
+        extractingRef.current.delete(key);
+      }
+    }
+
+    if (changed) {
+      const latestRecord = record;
+      void updateRecord(recordId, updateActiveShotsInRecord(latestRecord, updatedShots)).then(updated => {
+        onRecordsChange(updated);
+        onRecordUpdate({ ...latestRecord, editedShots: updatedShots });
+      });
+    }
+  }, [record, onRecordUpdate, onRecordsChange]);
 
   useEffect(() => {
     const prefix = `va_${record.id}_shot`;
     let hasUpdate = false;
     const currentRecord = record;
     let currentShots = currentRecord.editedShots || currentRecord.analysis.shots;
+    const newVideoShots: Array<{ shotId: string; videoUrl: string }> = [];
 
     for (const task of allTasks) {
       if (task.status !== TaskStatus.COMPLETED) continue;
@@ -168,6 +277,10 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       );
       processedTaskIdsRef.current.add(task.id);
       hasUpdate = true;
+
+      if (frameType === 'video') {
+        newVideoShots.push({ shotId, videoUrl: resultUrl });
+      }
     }
 
     if (hasUpdate) {
@@ -176,7 +289,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         onRecordUpdate({ ...currentRecord, editedShots: currentShots });
       });
     }
-  }, [allTasks, record, onRecordUpdate, onRecordsChange]);
+
+    if (newVideoShots.length > 0) {
+      void autoFillAdjacentFrames(currentRecord.id, currentShots, newVideoShots);
+    }
+  }, [allTasks, autoFillAdjacentFrames, record, onRecordUpdate, onRecordsChange]);
 
   // --- 从素材库选择帧图片 ---
   const [libraryTarget, setLibraryTarget] = useState<{ shotId: string; frame: 'first' | 'last' } | null>(null);
@@ -247,7 +364,6 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const handleShotGenerateVideo = useCallback((shot: VideoShot, index: number) => {
     const prompt = buildVideoPrompt(shot, record.analysis, record.productInfo);
     if (!prompt) return;
-    const size = aspectRatioToVideoSize(aspectRatio);
     const shotBatchId = `va_${record.id}_shot${shot.id}_video`;
     // 将已生成的首帧/尾帧作为参考图带入
     const initialImages: ReferenceImage[] = [];
@@ -262,10 +378,10 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       initialPrompt: prompt,
       initialImages: initialImages.length > 0 ? initialImages : undefined,
       initialDuration: segmentDuration,
-      initialSize: size,
+      initialSize: videoSize,
       batchId: shotBatchId,
     });
-  }, [record.id, aspectRatio, segmentDuration, openDialog, getLastFrameUrl]);
+  }, [record.id, segmentDuration, videoSize, openDialog, getLastFrameUrl, record.analysis, record.productInfo]);
 
   // --- 删除帧图片/视频 ---
   const handleDeleteFrame = useCallback((shotId: string, frameType: 'first' | 'last' | 'video') => {
@@ -320,24 +436,239 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     }
   }, [shots, record, ensureBatchId, getLastFramePrompt, aspectRatio, refImageUrls, imageModel, imageModelRef]);
 
-  const handleGenerateAllVideos = useCallback(async () => {
-    await ensureBatchId();
-    const size = aspectRatioToVideoSize(aspectRatio);
-    const seconds = String(segmentDuration);
-    for (const shot of shots) {
-      const prompt = buildVideoPrompt(shot, record.analysis, record.productInfo);
-      if (!prompt) continue;
-      const shotBatchId = `va_${record.id}_shot${shot.id}_video`;
-      await mcpRegistry.executeTool(
-        { name: 'generate_video', arguments: {
-          prompt, size, seconds, count: 1, batchId: shotBatchId, model: videoModel,
-          modelRef: videoModelRef,
-          referenceImages: refImageUrls.length > 0 ? refImageUrls : undefined,
-        }},
-        { mode: 'queue' }
-      );
+  const propagateTailFrameToNextShot = useCallback(async (
+    currentShots: VideoShot[],
+    index: number,
+    videoUrl: string
+  ) => {
+    const nextShot = currentShots[index + 1];
+    if (!nextShot) {
+      return currentShots;
     }
-  }, [shots, record, aspectRatio, batchId, videoModel, videoModelRef, ensureBatchId, segmentDuration, refImageUrls]);
+
+    const nextFirstFrameUrl = await extractFrameFromUrl(videoUrl, nextShot.id, 'first', 'last');
+    if (!nextFirstFrameUrl || nextShot.generated_first_frame_url === nextFirstFrameUrl) {
+      return currentShots;
+    }
+
+    const updatedShots = currentShots.map((item, shotIndex) =>
+      shotIndex === index + 1
+        ? { ...item, generated_first_frame_url: nextFirstFrameUrl }
+        : item
+    );
+    await applyUpdatedShots(updatedShots);
+    return updatedShots;
+  }, [applyUpdatedShots]);
+
+  const writeShotVideoResult = useCallback(async (
+    currentShots: VideoShot[],
+    index: number,
+    videoUrl: string
+  ) => {
+    const shot = currentShots[index];
+    if (!shot || shot.generated_video_url === videoUrl) {
+      return currentShots;
+    }
+    const updatedShots = currentShots.map((item, shotIndex) =>
+      shotIndex === index ? { ...item, generated_video_url: videoUrl } : item
+    );
+    await applyUpdatedShots(updatedShots);
+    return updatedShots;
+  }, [applyUpdatedShots]);
+
+  const createBatchVideoTask = useCallback(async (
+    shot: VideoShot,
+    index: number,
+    currentShots: VideoShot[]
+  ) => {
+    const prompt = buildVideoPrompt(shot, record.analysis, record.productInfo);
+    if (!prompt) {
+      return null;
+    }
+
+    const firstFrameUrl = index === 0 ? refImageUrls[0] : shot.generated_first_frame_url;
+    const lastFrameUrl = shot.generated_last_frame_url || currentShots[index + 1]?.generated_first_frame_url;
+    const referenceImages = buildBatchVideoReferenceImages({
+      model: videoModel,
+      firstFrameUrl,
+      lastFrameUrl,
+      extraReferenceUrls: refImageUrls.slice(index === 0 ? 1 : 0),
+    });
+    const shotBatchId = `va_${record.id}_shot${shot.id}_video`;
+
+    const result = await mcpRegistry.executeTool(
+      {
+        name: 'generate_video',
+        arguments: {
+          prompt,
+          size: videoSize,
+          seconds: String(segmentDuration),
+          count: 1,
+          batchId: shotBatchId,
+          model: videoModel,
+          modelRef: videoModelRef,
+          referenceImages,
+        },
+      },
+      { mode: 'queue' }
+    );
+
+    const taskId = (result as { taskId?: string; data?: { taskId?: string } }).taskId
+      || (result.data as { taskId?: string } | undefined)?.taskId;
+
+    if (!result.success || !taskId) {
+      throw new Error(result.error || '创建视频任务失败');
+    }
+
+    return taskId;
+  }, [
+    record.analysis,
+    record.id,
+    record.productInfo,
+    refImageUrls,
+    segmentDuration,
+    videoModel,
+    videoModelRef,
+    videoSize,
+  ]);
+
+  const stopBatchVideoGeneration = useCallback(() => {
+    batchStopRef.current = true;
+    setBatchVideoState(prev => prev.running ? { ...prev, stopping: true } : prev);
+    if (activeBatchTaskIdRef.current) {
+      taskQueueService.cancelTask(activeBatchTaskIdRef.current);
+    }
+    batchAbortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      batchStopRef.current = true;
+      batchAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const handleGenerateAllVideos = useCallback(async () => {
+    if (batchVideoState.running) {
+      return;
+    }
+
+    await ensureBatchId();
+    batchStopRef.current = false;
+    batchAbortControllerRef.current = new AbortController();
+    activeBatchTaskIdRef.current = null;
+    setBatchVideoState({
+      running: true,
+      stopping: false,
+      currentIndex: -1,
+      retryCount: 0,
+    });
+
+    try {
+      let currentShots = latestShotsRef.current;
+
+      for (let index = 0; index < currentShots.length; index++) {
+        if (batchStopRef.current) {
+          break;
+        }
+
+        currentShots = latestShotsRef.current;
+        const shot = currentShots[index];
+        if (!shot) {
+          continue;
+        }
+
+        const prompt = buildVideoPrompt(shot, record.analysis, record.productInfo);
+        if (!prompt) {
+          continue;
+        }
+
+        setBatchVideoState(prev => ({
+          ...prev,
+          currentIndex: index,
+          retryCount: 0,
+        }));
+
+        if (shot.generated_video_url) {
+          currentShots = await propagateTailFrameToNextShot(currentShots, index, shot.generated_video_url);
+          continue;
+        }
+
+        let retryCount = 0;
+        let taskId: string | null = null;
+
+        while (!batchStopRef.current) {
+          if (!taskId) {
+            taskId = await createBatchVideoTask(shot, index, currentShots);
+          }
+
+          if (!taskId) {
+            break;
+          }
+
+          activeBatchTaskIdRef.current = taskId;
+          setBatchVideoState({
+            running: true,
+            stopping: false,
+            currentIndex: index,
+            retryCount,
+          });
+
+          const waitResult = await waitForBatchVideoTask(
+            taskId,
+            batchAbortControllerRef.current?.signal
+          );
+
+          if (batchStopRef.current) {
+            break;
+          }
+
+          const task = waitResult.task || taskQueueService.getTask(taskId);
+          const videoUrl = task?.result?.url;
+
+          if (waitResult.success && task && videoUrl) {
+            currentShots = await writeShotVideoResult(currentShots, index, videoUrl);
+            currentShots = await propagateTailFrameToNextShot(currentShots, index, videoUrl);
+            break;
+          }
+
+          retryCount += 1;
+          setBatchVideoState({
+            running: true,
+            stopping: false,
+            currentIndex: index,
+            retryCount,
+          });
+
+          if (task?.status === TaskStatus.FAILED) {
+            taskQueueService.retryTask(taskId);
+            continue;
+          }
+
+          taskId = null;
+        }
+
+        activeBatchTaskIdRef.current = null;
+      }
+    } finally {
+      activeBatchTaskIdRef.current = null;
+      batchAbortControllerRef.current = null;
+      setBatchVideoState({
+        running: false,
+        stopping: false,
+        currentIndex: -1,
+        retryCount: 0,
+      });
+    }
+  }, [
+    batchVideoState.running,
+    createBatchVideoTask,
+    ensureBatchId,
+    propagateTailFrameToNextShot,
+    record.analysis,
+    record.productInfo,
+    writeShotVideoResult,
+  ]);
 
   return (
     <div className="va-page">
@@ -484,7 +815,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
               <select
                 className="va-form-select"
                 value={String(segmentDuration)}
-                onChange={e => setSegmentDuration(parseInt(e.target.value, 10))}
+                onChange={e => handleSegmentDurationChange(parseInt(e.target.value, 10))}
                 disabled={durationOptions.length <= 1}
               >
                 {durationOptions.map(opt => (
@@ -492,13 +823,37 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
                 ))}
               </select>
             </div>
+            <div className="va-segment-duration-select">
+              <label className="va-model-label">尺寸</label>
+              <select
+                className="va-form-select"
+                value={videoSize}
+                onChange={e => handleVideoSizeChange(e.target.value)}
+                disabled={sizeOptions.length <= 1}
+              >
+                {sizeOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
+        {batchVideoState.running && (
+          <div className="va-batch-config-title">
+            正在串行生成第 {Math.max(batchVideoState.currentIndex + 1, 1)}/{shots.length} 段
+            {batchVideoState.retryCount > 0 ? `，已重试 ${batchVideoState.retryCount} 次` : ''}
+          </div>
+        )}
         <div className="va-page-actions">
           {onRestart && <button onClick={onRestart}>重新分析</button>}
           <button onClick={handleGenerateAllFirstFrames}>全部→生成首帧图片</button>
           <button onClick={handleGenerateAllLastFrames}>全部→生成尾帧图片</button>
-          <button onClick={handleGenerateAllVideos}>全部→生成视频</button>
+          <button onClick={handleGenerateAllVideos} disabled={batchVideoState.running}>全部→生成视频</button>
+          {batchVideoState.running && (
+            <button onClick={stopBatchVideoGeneration}>
+              {batchVideoState.stopping ? '停止中…' : '停止全部生成'}
+            </button>
+          )}
         </div>
       </div>
 

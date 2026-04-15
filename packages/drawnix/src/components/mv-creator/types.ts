@@ -47,6 +47,7 @@ export interface MVRecord {
   videoModel?: string;
   videoModelRef?: ModelRef | null;
   segmentDuration?: number;
+  videoSize?: string;
   videoStyle?: string;
   aspectRatio?: string;
   /** AI 分镜规划任务 ID */
