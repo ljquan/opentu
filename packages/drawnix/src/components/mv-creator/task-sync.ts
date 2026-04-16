@@ -64,6 +64,7 @@ export async function syncMVStoryboardTask(task: Task): Promise<{
   const nextRecords = await updateRecord(recordId, {
     editedShots: shots,
     pendingStoryboardTaskId: null,
+    storyboardGeneratedAt: Date.now(),
     ...versionPatch,
   });
   const updatedRecord = nextRecords.find(r => r.id === recordId) || {

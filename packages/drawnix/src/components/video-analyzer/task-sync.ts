@@ -140,6 +140,7 @@ export async function syncVideoAnalyzerTask(task: Task): Promise<{
   const nextRecords = await updateRecord(recordId, {
     ...versionPatch,
     pendingRewriteTaskId: null,
+    storyboardGeneratedAt: Date.now(),
   });
   const updatedRecord =
     nextRecords.find(record => record.id === recordId) ||
