@@ -50,7 +50,13 @@ function resolveBindingPath(
     return `/v1/models/${model}:generateContent`;
   }
 
-  return template.replace(/\{model(?:_name)?\}/g, model);
+  const resolvedPath = template.replace(/\{model(?:_name)?\}/g, model);
+
+  // 兼容历史错误模板：/v1beta/{model}:generateContent -> /v1beta/models/{model}:generateContent
+  return resolvedPath.replace(
+    /^(\/v\d+(?:alpha|beta)?\/)([^/]+:(?:generateContent|streamGenerateContent))$/i,
+    '$1models/$2'
+  );
 }
 
 function buildGoogleEndpoint(config: GeminiConfig, model: string, stream: boolean): string {

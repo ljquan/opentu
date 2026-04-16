@@ -490,9 +490,9 @@
   }
 }
 
-// 图片生成弹窗 - PC端有模式切换tabs时隐藏标题，移动端保留标题
+// 图片生成弹窗 - 仅在顶部有自定义 tabs 时隐藏标题，避免单图模式丢标题
 .winbox-ai-image-generation {
-  .wb-title {
+  &:has(.wb-header-custom) .wb-title {
     display: none !important;
   }
   
