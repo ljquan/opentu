@@ -298,6 +298,86 @@ describe('provider routing', () => {
     ).toBe('trim-v1');
   });
 
+  it('routes tuzi gemini image models to images generations only', () => {
+    const profile = {
+      id: 'provider-b',
+      name: 'Provider B',
+      providerType: 'gemini-compatible' as const,
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'key-b',
+      authType: 'query' as const,
+    };
+    const model: ModelConfig = {
+      id: 'gemini-3.1-flash-image-preview-4k',
+      label: 'Gemini Image 4K',
+      type: 'image',
+      vendor: ModelVendor.GEMINI,
+    };
+    const bindings = inferBindingsForProviderModel(profile, model);
+    const planner = new InvocationPlanner(
+      createRepositories({
+        profiles: [profile],
+        bindings,
+      })
+    );
+
+    const plan = planner.plan({
+      operation: 'image',
+      modelRef: {
+        profileId: profile.id,
+        modelId: model.id,
+      },
+    });
+
+    expect(bindings.map((binding) => binding.protocol)).toEqual([
+      'openai.images.generations',
+    ]);
+    expect(plan.binding.protocol).toBe('openai.images.generations');
+    expect(plan.binding.submitPath).toBe('/images/generations');
+  });
+
+  it('keeps discovered generateContent bindings below template image bindings for tuzi-compatible endpoints', () => {
+    const profile = {
+      id: 'provider-b',
+      name: 'Provider B',
+      providerType: 'openai-compatible' as const,
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'key-b',
+      authType: 'bearer' as const,
+    };
+    const model: ModelConfig = {
+      id: 'gemini-2.5-flash-image',
+      label: 'Gemini Image',
+      type: 'image',
+      vendor: ModelVendor.GEMINI,
+    };
+    const bindings = inferBindingsForProviderModel(profile, model, {
+      image: {
+        path: '/v1beta/models/gemini-2.5-flash-image:generateContent',
+      } as any,
+    });
+    const planner = new InvocationPlanner(
+      createRepositories({
+        profiles: [profile],
+        bindings,
+      })
+    );
+
+    const plan = planner.plan({
+      operation: 'image',
+      modelRef: {
+        profileId: profile.id,
+        modelId: model.id,
+      },
+    });
+
+    expect(bindings.map((binding) => binding.protocol)).toContain(
+      'google.generateContent'
+    );
+    expect(plan.binding.protocol).toBe('openai.images.generations');
+    expect(plan.binding.submitPath).toBe('/images/generations');
+  });
+
   it('infers multiple candidate bindings for multi-interface video models', () => {
     const bindings = inferBindingsForProviderModel(
       {
