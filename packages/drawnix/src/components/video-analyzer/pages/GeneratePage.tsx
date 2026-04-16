@@ -80,6 +80,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const activeBatchTaskIdRef = useRef<string | null>(null);
 
   const [refImages, setRefImages] = useState<ReferenceImage[]>([]);
+  const [characterRefImages, setCharacterRefImages] = useState<ReferenceImage[]>([]);
   const imageModels = useSelectableModels('image');
   const videoModels = useSelectableModels('video');
   const [imageModel, setImageModelState] = useState(
@@ -120,6 +121,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const videoModelConfig = useMemo(() => getVideoModelConfig(videoModel), [videoModel]);
   const durationOptions = useMemo(() => videoModelConfig.durationOptions, [videoModelConfig]);
   const sizeOptions = useMemo(() => videoModelConfig.sizeOptions, [videoModelConfig]);
+  const supportsCharacterRef = useMemo(() => videoModelConfig.imageUpload.mode === 'reference', [videoModelConfig]);
 
   useEffect(() => {
     latestRecordRef.current = record;
@@ -196,6 +198,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
 
   // 参考图 URL 列表（用于传给批量生成接口）
   const refImageUrls = useMemo(() => refImages.map(img => img.url).filter(Boolean), [refImages]);
+  const characterRefUrls = useMemo(() => characterRefImages.map(img => img.url).filter(Boolean), [characterRefImages]);
 
   // 确保 batchId 已保存
   const ensureBatchId = useCallback(async () => {
@@ -271,6 +274,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       if (processedTaskIdsRef.current.has(task.id)) continue;
       const taskBatchId = task.params?.batchId as string | undefined;
       if (!taskBatchId || !taskBatchId.startsWith(prefix)) continue;
+      // 跳过在当前脚本生成之前创建的任务，防止旧任务结果污染新脚本
+      if (record.storyboardGeneratedAt && task.createdAt < record.storyboardGeneratedAt) {
+        processedTaskIdsRef.current.add(task.id);
+        continue;
+      }
       const resultUrl = task.result?.url;
       if (!resultUrl) continue;
 
@@ -462,9 +470,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     const draft = shot.first_frame_draft;
     const shotBatchId = `va_${record.id}_shot${shot.id}_first`;
     openDialog(DialogType.aiImageGeneration, {
-      initialPrompt: draft?.prompt ?? prompt,
+      initialPrompt: draft?.prompt || prompt,
       batchId: shotBatchId,
       initialAspectRatio: draft?.aspectRatio ?? imageAspectRatio,
+      initialModel: imageModel || undefined,
+      initialModelRef: imageModelRef,
       initialImages: draft
         ? toDraftImages(draft.images || [])
         : shot.generated_first_frame_url
@@ -476,7 +486,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         aspectRatio?: string;
       }) => saveShotDraft(shot.id, 'first', nextDraft),
     });
-  }, [record, openDialog, imageAspectRatio, saveShotDraft, toDraftImages]);
+  }, [record, openDialog, imageAspectRatio, imageModel, imageModelRef, saveShotDraft, toDraftImages]);
 
   // 获取 shot 的尾帧 URL（优先使用已生成的，否则使用下一个 shot 的首帧）
   const getLastFrameUrl = useCallback((shot: VideoShot, index: number) => {
@@ -495,9 +505,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     const shotBatchId = `va_${record.id}_shot${shot.id}_last`;
     const lastFrameUrl = getLastFrameUrl(shot, index);
     openDialog(DialogType.aiImageGeneration, {
-      initialPrompt: draft?.prompt ?? prompt,
+      initialPrompt: draft?.prompt || prompt,
       batchId: shotBatchId,
       initialAspectRatio: draft?.aspectRatio ?? imageAspectRatio,
+      initialModel: imageModel || undefined,
+      initialModelRef: imageModelRef,
       initialImages: draft
         ? toDraftImages(draft.images || [])
         : lastFrameUrl
@@ -509,7 +521,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         aspectRatio?: string;
       }) => saveShotDraft(shot.id, 'last', nextDraft),
     });
-  }, [record, openDialog, getLastFrameUrl, imageAspectRatio, saveShotDraft, toDraftImages]);
+  }, [record, openDialog, getLastFrameUrl, imageAspectRatio, imageModel, imageModelRef, saveShotDraft, toDraftImages]);
 
   // --- 单镜头：打开视频生成弹窗 ---
   const handleShotGenerateVideo = useCallback((shot: VideoShot, index: number) => {
@@ -526,15 +538,26 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     if (lastFrameUrl) {
       initialImages.push({ url: lastFrameUrl, name: '尾帧' });
     }
+    const targetModelConfig = getVideoModelConfig(videoModel);
+    const durationStr = String(draft?.duration ?? segmentDuration);
+    const validDuration = targetModelConfig.durationOptions.some(o => o.value === durationStr)
+      ? (draft?.duration ?? segmentDuration)
+      : undefined;
+    const validSize = targetModelConfig.sizeOptions.some(o => o.value === (draft?.size ?? videoSize))
+      ? (draft?.size ?? videoSize)
+      : undefined;
+
     openDialog(DialogType.aiVideoGeneration, {
-      initialPrompt: draft?.prompt ?? prompt,
+      initialPrompt: draft?.prompt || prompt,
       initialImages: draft
         ? toDraftImages(draft.images || [])
         : initialImages.length > 0
           ? initialImages
           : undefined,
-      initialDuration: draft?.duration ?? segmentDuration,
-      initialSize: draft?.size ?? videoSize,
+      initialDuration: validDuration,
+      initialSize: validSize,
+      initialModel: videoModel || undefined,
+      initialModelRef: videoModelRef,
       batchId: shotBatchId,
       onDraftChange: (nextDraft: {
         prompt: string;
@@ -543,7 +566,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         size?: string;
       }) => saveShotDraft(shot.id, 'video', nextDraft),
     });
-  }, [record.id, segmentDuration, videoSize, openDialog, getLastFrameUrl, record.analysis, record.productInfo, saveShotDraft, toDraftImages]);
+  }, [record.id, segmentDuration, videoSize, videoModel, videoModelRef, openDialog, getLastFrameUrl, record.analysis, record.productInfo, saveShotDraft, toDraftImages]);
 
   // --- 删除帧图片/视频 ---
   const handleDeleteFrame = useCallback((shotId: string, frameType: 'first' | 'last' | 'video') => {
@@ -661,19 +684,27 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
 
     const firstFrameUrl = index === 0 ? refImageUrls[0] : shot.generated_first_frame_url;
     const lastFrameUrl = shot.generated_last_frame_url || currentShots[index + 1]?.generated_first_frame_url;
-    const referenceImages = buildBatchVideoReferenceImages({
+    const { referenceImages, unusedCharacterReferenceUrls } = buildBatchVideoReferenceImages({
       model: videoModel,
       firstFrameUrl,
       lastFrameUrl,
       extraReferenceUrls: refImageUrls.slice(index === 0 ? 1 : 0),
+      characterReferenceUrls: characterRefUrls,
     });
+
+    // frames 模式下角色参考图无法放入 referenceImages，注入 prompt 作为补偿
+    let finalPrompt = prompt;
+    if (unusedCharacterReferenceUrls && unusedCharacterReferenceUrls.length > 0 && !shot.character_description) {
+      finalPrompt = `${prompt}。角色参考图已提供，请保持角色外观与参考图一致`;
+    }
+
     const shotBatchId = `va_${record.id}_shot${shot.id}_video`;
 
     const result = await mcpRegistry.executeTool(
       {
         name: 'generate_video',
         arguments: {
-          prompt,
+          prompt: finalPrompt,
           size: videoSize,
           seconds: String(segmentDuration),
           count: 1,
@@ -699,6 +730,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     record.id,
     record.productInfo,
     refImageUrls,
+    characterRefUrls,
     segmentDuration,
     videoModel,
     videoModelRef,
@@ -843,122 +875,15 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     writeShotVideoResult,
   ]);
 
+  const thumbStyle = useMemo(() => {
+    if (!videoSize?.includes('x')) return {};
+    const [w, h] = videoSize.split('x').map(Number);
+    if (!w || !h) return {};
+    return { width: Math.round(54 * w / h), height: 54 };
+  }, [videoSize]);
+
   return (
     <div className="va-page">
-      {/* 镜头列表 */}
-      <div className="va-shots">
-        {shots.map((shot, i) => (
-          <ShotCard
-            key={shot.id}
-            shot={shot}
-            index={i}
-            actions={
-              <>
-                {/* 首帧 */}
-                {shot.generated_first_frame_url ? (
-                  <div className="va-shot-frame-thumb">
-                    <img
-                      src={shot.generated_first_frame_url}
-                      alt="首帧"
-                      referrerPolicy="no-referrer"
-                      onClick={() => handleShotGenerateFirstFrame(shot)}
-                      title="点击以此帧为参考图生成首帧"
-                    />
-                    <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'first')}>×</button>
-                    <button className="va-shot-frame-regen" onClick={() => handleShotGenerateFirstFrame(shot)}>↻</button>
-                  </div>
-                ) : (shot.first_frame_prompt || shot.description) ? (
-                  <span className="va-shot-frame-btn-group">
-                    <button onClick={() => handleShotGenerateFirstFrame(shot)}>生成首帧</button>
-                    <button
-                      className="va-shot-frame-library-btn"
-                      onClick={() => handlePickFromLibrary(shot.id, 'first')}
-                      title="从素材库选择"
-                    >
-                      <MediaLibraryGridIcon />
-                    </button>
-                  </span>
-                ) : null}
-                {/* 尾帧 */}
-                {(() => {
-                  const lastFrameUrl = shot.generated_last_frame_url || getLastFrameUrl(shot, i);
-                  const isFromNextShot = !shot.generated_last_frame_url && lastFrameUrl;
-                  if (shot.generated_last_frame_url) {
-                    return (
-                      <div className="va-shot-frame-thumb">
-                        <img
-                          src={shot.generated_last_frame_url}
-                          alt="尾帧"
-                          referrerPolicy="no-referrer"
-                          onClick={() => handleShotGenerateLastFrame(shot, i)}
-                          title="点击以此帧为参考图生成尾帧"
-                        />
-                        <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'last')}>×</button>
-                        <button className="va-shot-frame-regen" onClick={() => handleShotGenerateLastFrame(shot, i)}>↻</button>
-                      </div>
-                    );
-                  }
-                  if (isFromNextShot) {
-                    return (
-                      <div className="va-shot-frame-thumb va-shot-frame-thumb--borrowed">
-                        <img
-                          src={lastFrameUrl}
-                          alt="尾帧(下一镜头首帧)"
-                          referrerPolicy="no-referrer"
-                          onClick={() => handleShotGenerateLastFrame(shot, i)}
-                          title="下一镜头首帧，点击以此为参考图生成尾帧"
-                        />
-                        <span className="va-shot-frame-label">下一镜头首帧</span>
-                      </div>
-                    );
-                  }
-                  if (shot.last_frame_prompt || shot.description) {
-                    return (
-                      <span className="va-shot-frame-btn-group">
-                        <button onClick={() => handleShotGenerateLastFrame(shot, i)}>生成尾帧</button>
-                        <button
-                          className="va-shot-frame-library-btn"
-                          onClick={() => handlePickFromLibrary(shot.id, 'last')}
-                          title="从素材库选择"
-                        >
-                          <MediaLibraryGridIcon />
-                        </button>
-                      </span>
-                    );
-                  }
-                  return null;
-                })()}
-                {/* 视频 */}
-                {shot.generated_video_url ? (
-                  <div className="va-shot-frame-thumb">
-                    <video
-                      src={shot.generated_video_url}
-                      muted
-                      preload={'metadata' as const}
-                      onClick={() => handleShotGenerateVideo(shot, i)}
-                      title="点击重新生成视频"
-                    />
-                    <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'video')}>×</button>
-                    <button className="va-shot-frame-regen" onClick={() => handleShotGenerateVideo(shot, i)}>↻</button>
-                  </div>
-                ) : (shot.description || shot.narration || shot.dialogue || shot.camera_movement || shot.first_frame_prompt || shot.last_frame_prompt) ? (
-                  <span className="va-shot-frame-btn-group">
-                    <button onClick={() => handleShotGenerateVideo(shot, i)}>生成视频</button>
-                    <button
-                      className="va-shot-frame-library-btn"
-                      onClick={() => handlePickFromLibrary(shot.id, 'video')}
-                      title="从素材库插入视频"
-                    >
-                      <MediaLibraryGridIcon />
-                    </button>
-                  </span>
-                ) : null}
-              </>
-            }
-          />
-        ))}
-      </div>
-
       {/* 批量生成配置 */}
       <div className="va-batch-config">
         <div className="va-batch-config-title">批量生成配置</div>
@@ -968,6 +893,14 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           multiple
           label="参考图 (可选)"
         />
+        {supportsCharacterRef && (
+          <ReferenceImageUpload
+            images={characterRefImages}
+            onImagesChange={setCharacterRefImages}
+            multiple
+            label="角色参考图 (可选，保持角色一致性)"
+          />
+        )}
         <div className="va-product-form">
           <div className="va-model-select">
             <label className="va-model-label">图片模型</label>
@@ -1037,6 +970,120 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      {/* 镜头列表 */}
+      <div className="va-shots">
+        {shots.map((shot, i) => (
+          <ShotCard
+            key={shot.id}
+            shot={shot}
+            index={i}
+            actions={
+              <>
+                {/* 首帧 */}
+                {shot.generated_first_frame_url ? (
+                  <div className="va-shot-frame-thumb" style={thumbStyle}>
+                    <img
+                      src={shot.generated_first_frame_url}
+                      alt="首帧"
+                      referrerPolicy="no-referrer"
+                      onClick={() => handleShotGenerateFirstFrame(shot)}
+                      title="点击以此帧为参考图生成首帧"
+                    />
+                    <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'first')}>×</button>
+                    <button className="va-shot-frame-regen" onClick={() => handleShotGenerateFirstFrame(shot)}>↻</button>
+                  </div>
+                ) : (shot.first_frame_prompt || shot.description) ? (
+                  <span className="va-shot-frame-btn-group">
+                    <button onClick={() => handleShotGenerateFirstFrame(shot)}>生成首帧</button>
+                    <button
+                      className="va-shot-frame-library-btn"
+                      onClick={() => handlePickFromLibrary(shot.id, 'first')}
+                      title="从素材库选择"
+                    >
+                      <MediaLibraryGridIcon />
+                    </button>
+                  </span>
+                ) : null}
+                {/* 尾帧 */}
+                {(() => {
+                  const lastFrameUrl = shot.generated_last_frame_url || getLastFrameUrl(shot, i);
+                  const isFromNextShot = !shot.generated_last_frame_url && lastFrameUrl;
+                  if (shot.generated_last_frame_url) {
+                    return (
+                      <div className="va-shot-frame-thumb" style={thumbStyle}>
+                        <img
+                          src={shot.generated_last_frame_url}
+                          alt="尾帧"
+                          referrerPolicy="no-referrer"
+                          onClick={() => handleShotGenerateLastFrame(shot, i)}
+                          title="点击以此帧为参考图生成尾帧"
+                        />
+                        <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'last')}>×</button>
+                        <button className="va-shot-frame-regen" onClick={() => handleShotGenerateLastFrame(shot, i)}>↻</button>
+                      </div>
+                    );
+                  }
+                  if (isFromNextShot) {
+                    return (
+                      <div className="va-shot-frame-thumb va-shot-frame-thumb--borrowed" style={thumbStyle}>
+                        <img
+                          src={lastFrameUrl}
+                          alt="尾帧(下一镜头首帧)"
+                          referrerPolicy="no-referrer"
+                          onClick={() => handleShotGenerateLastFrame(shot, i)}
+                          title="下一镜头首帧，点击以此为参考图生成尾帧"
+                        />
+                        <span className="va-shot-frame-label">下一镜头首帧</span>
+                      </div>
+                    );
+                  }
+                  if (shot.last_frame_prompt || shot.description) {
+                    return (
+                      <span className="va-shot-frame-btn-group">
+                        <button onClick={() => handleShotGenerateLastFrame(shot, i)}>生成尾帧</button>
+                        <button
+                          className="va-shot-frame-library-btn"
+                          onClick={() => handlePickFromLibrary(shot.id, 'last')}
+                          title="从素材库选择"
+                        >
+                          <MediaLibraryGridIcon />
+                        </button>
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
+                {/* 视频 */}
+                {shot.generated_video_url ? (
+                  <div className="va-shot-frame-thumb" style={thumbStyle}>
+                    <video
+                      src={shot.generated_video_url}
+                      muted
+                      preload={'metadata' as const}
+                      onClick={() => handleShotGenerateVideo(shot, i)}
+                      title="点击重新生成视频"
+                    />
+                    <button className="va-shot-frame-delete" onClick={() => handleDeleteFrame(shot.id, 'video')}>×</button>
+                    <button className="va-shot-frame-regen" onClick={() => handleShotGenerateVideo(shot, i)}>↻</button>
+                  </div>
+                ) : (shot.description || shot.narration || shot.dialogue || shot.camera_movement || shot.first_frame_prompt || shot.last_frame_prompt) ? (
+                  <span className="va-shot-frame-btn-group">
+                    <button onClick={() => handleShotGenerateVideo(shot, i)}>生成视频</button>
+                    <button
+                      className="va-shot-frame-library-btn"
+                      onClick={() => handlePickFromLibrary(shot.id, 'video')}
+                      title="从素材库插入视频"
+                    >
+                      <MediaLibraryGridIcon />
+                    </button>
+                  </span>
+                ) : null}
+              </>
+            }
+          />
+        ))}
       </div>
 
       {/* 素材库选择弹窗 */}

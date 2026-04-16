@@ -350,6 +350,12 @@ const TTDDialogComponent = ({
             targetFrameDimensions:
               imageDialogInitialData.targetFrameDimensions,
           });
+          if (imageDialogInitialData.initialModel) {
+            setSelectedImageModel(imageDialogInitialData.initialModel);
+          }
+          if (imageDialogInitialData.initialModelRef !== undefined) {
+            setSelectedImageModelRef(imageDialogInitialData.initialModelRef);
+          }
           return;
         }
 
@@ -494,6 +500,14 @@ const TTDDialogComponent = ({
               videoDialogInitialData.initialResultUrl ||
               videoDialogInitialData.resultUrl,
           });
+          const resolvedVideoModel =
+            videoDialogInitialData.initialModel || videoDialogInitialData.model;
+          if (resolvedVideoModel) {
+            setSelectedVideoModel(resolvedVideoModel);
+          }
+          if (videoDialogInitialData.initialModelRef !== undefined) {
+            setSelectedVideoModelRef(videoDialogInitialData.initialModelRef);
+          }
           return;
         }
 

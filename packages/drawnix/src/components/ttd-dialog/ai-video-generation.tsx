@@ -435,6 +435,8 @@ const AIVideoGeneration = ({
   const generatingLockRef = useRef(false);
   const isModelControlled = selectedModel !== undefined;
   const lastSyncedSelectedSelectionKeyRef = React.useRef<string | null>(null);
+  // 当 initialModel 传入时，保护 currentModel 不被外部 selectedModel 覆盖，直到用户手动切换
+  const initialModelAppliedRef = React.useRef<string | null>(null);
 
   // Sync model from global settings changes (from header dropdown)
   useEffect(() => {
@@ -502,6 +504,11 @@ const AIVideoGeneration = ({
       return;
     }
 
+    // 如果 initialModel 已被应用且外部传来的是不同模型（全局偏好回写），忽略这次覆盖
+    if (initialModelAppliedRef.current && initialModelAppliedRef.current !== selectedModel) {
+      return;
+    }
+
     lastSyncedSelectedSelectionKeyRef.current = nextSelectionKey;
     setCurrentModel((prev) => (prev === selectedModel ? prev : selectedModel));
     const matchedModel = findMatchingSelectableModel(
@@ -529,6 +536,7 @@ const AIVideoGeneration = ({
     selectedModel,
     selectedModelRef,
     visibleVideoModels,
+    initialModel,
   ]);
 
   // Track if we're in manual edit mode (from handleEditTask) to prevent props from overwriting
@@ -567,15 +575,20 @@ const AIVideoGeneration = ({
         ? prev
         : scopedPreferences.extraParams
     );
-    setDuration((prev) => (prev === nextDuration ? prev : nextDuration));
-    setSize((prev) => (prev === nextSize ? prev : nextSize));
+    // initialDuration/initialSize 优先级高于模型偏好，避免被覆盖
+    const effectiveDurationStr = initialDuration !== undefined
+      ? initialDuration.toString()
+      : nextDuration;
+    const effectiveSizeStr = initialSize || nextSize;
+    setDuration((prev) => (prev === effectiveDurationStr ? prev : effectiveDurationStr));
+    setSize((prev) => (prev === effectiveSizeStr ? prev : effectiveSizeStr));
 
     // Disable storyboard mode if new model doesn't support it
     if (!supportsStoryboardMode(currentModel)) {
       setStoryboardEnabled((prev) => (prev ? false : prev));
       setStoryboardScenes((prev) => (prev.length > 0 ? [] : prev));
     }
-  }, [currentModel, currentModelRef, isEditMode]);
+  }, [currentModel, currentModelRef, isEditMode, initialDuration, initialSize]);
 
   useEffect(() => {
     const nextUploadedImages =
@@ -618,7 +631,6 @@ const AIVideoGeneration = ({
   useEffect(() => {
     // Skip if we're in manual edit mode (user clicked edit in task list)
     if (isManualEdit) {
-      // console.log('AIVideoGeneration - skipping props update in manual edit mode');
       return;
     }
 
@@ -635,12 +647,17 @@ const AIVideoGeneration = ({
 
     // Skip if we've already processed these exact props
     if (processedPropsRef.current === propsKey) {
-      // console.log('AIVideoGeneration - skipping duplicate props processing');
       return;
     }
 
     // console.log('AIVideoGeneration - processing new props:', { propsKey });
     processedPropsRef.current = propsKey;
+
+    // 记录 initialModel，防止全局偏好回写覆盖
+    if (initialModel) {
+      initialModelAppliedRef.current = initialModel;
+      setCurrentModel(initialModel as VideoModel);
+    }
 
     setPrompt(initialPrompt);
 
@@ -1144,6 +1161,7 @@ const AIVideoGeneration = ({
                     )}
                     onSelect={(value) => {
                       const nextModel = value as VideoModel;
+                      initialModelAppliedRef.current = null; // 用户手动切换，解除保护
                       setCurrentModel(nextModel);
                       setCurrentModelRef(null);
                       setVideoSelectedParams(
@@ -1154,6 +1172,7 @@ const AIVideoGeneration = ({
                     }}
                     onSelectModel={(model: ModelConfig) => {
                       const nextModel = model.id as VideoModel;
+                      initialModelAppliedRef.current = null; // 用户手动切换，解除保护
                       setCurrentModel(nextModel);
                       const nextModelRef = getModelRefFromConfig(model);
                       setCurrentModelRef(nextModelRef);

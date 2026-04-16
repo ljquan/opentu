@@ -118,6 +118,8 @@ export interface AnalysisRecord {
   scriptVersions?: ScriptVersion[];
   /** 当前活跃的脚本版本 ID */
   activeVersionId?: string;
+  /** 最近一次生成/改编脚本的时间戳（用于过滤旧任务结果，防止污染新脚本） */
+  storyboardGeneratedAt?: number;
 }
 
 /** 镜头类型颜色映射 */

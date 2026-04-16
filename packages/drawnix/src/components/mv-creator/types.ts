@@ -60,4 +60,8 @@ export interface MVRecord {
 
   // ── 生成相关 ──
   batchId?: string;
+  /** 角色参考图 URL 列表，用于保持多镜头角色一致性 */
+  characterReferenceUrls?: string[];
+  /** 最近一次生成分镜的时间戳（用于过滤旧任务结果，防止污染新脚本） */
+  storyboardGeneratedAt?: number;
 }
