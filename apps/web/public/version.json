@@ -1,9 +1,6 @@
 {
-  "version": "0.6.29",
-  "buildTime": "2026-04-15T16:00:08.392Z",
+  "version": "0.6.30",
+  "buildTime": "2026-04-16T02:41:19.735Z",
   "gitCommit": "unknown",
-  "changelog": [
-    "支持镜头草稿保存和素材库视频插入",
-    "串行化爆款视频批量生成"
-  ]
+  "changelog": []
 }
