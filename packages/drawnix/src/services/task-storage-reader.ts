@@ -164,9 +164,10 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
   /**
    * 获取活跃任务（排除已归档，带 limit，使用 cursor 按 createdAt 倒序）
    */
-  async getAllTasks(options?: { status?: TaskStatus; type?: TaskType; limit?: number }): Promise<Task[]> {
+  async getAllTasks(options?: { status?: TaskStatus; type?: TaskType; limit?: number; includeArchived?: boolean }): Promise<Task[]> {
     const hasTypeFilter = options?.type !== undefined;
     const hasStatusFilter = options?.status !== undefined;
+    const includeArchived = options?.includeArchived ?? false;
     const limit = options?.limit ?? MAX_ACTIVE_LOAD;
 
     // 检查缓存（仅类型过滤）
@@ -200,8 +201,7 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
             return;
           }
           const task = cursor.value as SWTask;
-          // 过滤已归档任务
-          if (task.archived) {
+          if (!includeArchived && task.archived) {
             cursor.continue();
             return;
           }

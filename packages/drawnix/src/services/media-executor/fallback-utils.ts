@@ -280,6 +280,7 @@ export async function cacheRemoteUrl(
   options?: {
     source?: 'AI_GENERATED' | 'PLAYBACK_CACHE';
     forceRemoteCache?: boolean;
+    extraMetadata?: Record<string, unknown>;
   }
 ): Promise<string> {
   const normalizedUrl =
@@ -350,6 +351,7 @@ export async function cacheRemoteUrl(
       await unifiedCacheService.cacheMediaFromBlob(localUrl, blob, mediaType, {
         taskId,
         source: cacheSource,
+        ...options?.extraMetadata,
       });
       return localUrl;
     } catch (error) {
@@ -389,6 +391,7 @@ export async function cacheRemoteUrl(
       await unifiedCacheService.cacheMediaFromBlob(contentAddressedUrl, blob, mediaType, {
         taskId,
         ...(mediaType === 'audio' ? { source: 'AI_GENERATED' } : {}),
+        ...options?.extraMetadata,
       });
       return contentAddressedUrl;
     }

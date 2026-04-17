@@ -287,7 +287,14 @@ class TaskQueueService {
 
         if (fmt !== 'lyrics') {
           try {
-            cachedUrl = await cacheRemoteUrl(result.url, task.id, 'audio', fmt);
+            const audioMeta = {
+              extraMetadata: {
+                name: result.title || task.params.title || task.params.prompt?.substring(0, 30) || 'AI音频',
+                providerTaskId: result.providerTaskId || task.remoteId,
+                duration: typeof result.duration === 'number' ? result.duration : undefined,
+              },
+            };
+            cachedUrl = await cacheRemoteUrl(result.url, task.id, 'audio', fmt, undefined, audioMeta);
             if (result.imageUrl) {
               cachedPreviewImageUrl = await cacheAudioCoverUrl(
                 result.imageUrl,
@@ -297,12 +304,21 @@ class TaskQueueService {
             if (result.clips?.length) {
               cachedClips = await Promise.all(
                 result.clips.map(async (clip, index) => {
+                  const clipMeta = {
+                    extraMetadata: {
+                      name: clip.title || result.title || task.params.title || task.params.prompt?.substring(0, 30) || 'AI音频',
+                      clipId: clip.clipId || clip.id,
+                      providerTaskId: result.providerTaskId || task.remoteId,
+                      duration: typeof clip.duration === 'number' ? clip.duration : undefined,
+                    },
+                  };
                   const cachedAudioUrl = await cacheRemoteUrl(
                     clip.audioUrl,
                     task.id,
                     'audio',
                     fmt,
-                    result.clips!.length > 1 ? index : undefined
+                    result.clips!.length > 1 ? index : undefined,
+                    clipMeta
                   );
                   const cachedCoverUrl = await cacheAudioCoverUrl(
                     clip.imageLargeUrl || clip.imageUrl,
@@ -339,7 +355,8 @@ class TaskQueueService {
                     task.id,
                     'audio',
                     fmt,
-                    result.urls!.length > 1 ? index : undefined
+                    result.urls!.length > 1 ? index : undefined,
+                    audioMeta
                   )
                 )
               );

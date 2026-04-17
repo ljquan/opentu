@@ -647,7 +647,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
 
       // 2. 从任务队列获取已完成的 AI 生成任务
       // 统一从 IndexedDB 直接读取，SW 模式和降级模式使用同一个数据库
-      const completedTasks = await taskStorageReader.getAllTasks({ status: TaskStatus.COMPLETED });
+      // includeArchived: 归档任务的媒体仍在 Cache Storage 中，需要读取元数据
+      const completedTasks = await taskStorageReader.getAllTasks({ status: TaskStatus.COMPLETED, includeArchived: true });
       const preliminaryAiAssets = completedTasks
         .filter((task): task is typeof task & { result: NonNullable<typeof task.result> } =>
           (task.type === TaskType.IMAGE || task.type === TaskType.VIDEO || task.type === TaskType.AUDIO) &&

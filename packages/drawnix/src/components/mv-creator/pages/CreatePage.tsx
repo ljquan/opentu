@@ -4,12 +4,12 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MVRecord, GeneratedClip } from '../types';
-import { TaskType } from '../../../types/task.types';
+import { TaskType, TaskStatus } from '../../../types/task.types';
 import { addRecord, updateRecord } from '../storage';
-import { useSharedTaskState } from '../../../hooks/useTaskQueue';
 import { extractClipsFromTask } from '../../music-analyzer/task-sync';
 import { toolWindowService } from '../../../services/tool-window-service';
 import { musicAnalyzerTool } from '../../../tools/tools/music-analyzer';
+import { taskStorageReader } from '../../../services/task-storage-reader';
 
 const STORAGE_KEY_PROMPT = 'mv-creator:creation-prompt';
 
@@ -56,22 +56,27 @@ export const CreatePage: React.FC<CreatePageProps> = ({
     if (!existingRecord) writeSessionPrompt(creationPrompt);
   }, [creationPrompt, existingRecord]);
 
-  // 获取项目中已有的音频
-  const { tasks: allTasks } = useSharedTaskState();
-  const existingAudioClips = useMemo(() => {
-    const result: (GeneratedClip & { prompt?: string })[] = [];
-    for (const task of allTasks) {
-      if (task.type !== TaskType.AUDIO || task.status !== 'completed') continue;
-      const extracted = extractClipsFromTask(task);
-      for (const clip of extracted) {
-        result.push({
-          ...clip,
-          prompt: String(task.params.prompt || ''),
-        });
+  // 获取项目中已有的音频（含归档任务，避免被 enforceRetentionLimit 淘汰后丢失）
+  const [existingAudioClips, setExistingAudioClips] = useState<(GeneratedClip & { prompt?: string })[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    taskStorageReader.getAllTasks({
+      type: TaskType.AUDIO,
+      status: TaskStatus.COMPLETED,
+      includeArchived: true,
+    }).then((audioTasks) => {
+      if (cancelled) return;
+      const result: (GeneratedClip & { prompt?: string })[] = [];
+      for (const task of audioTasks) {
+        const extracted = extractClipsFromTask(task);
+        for (const clip of extracted) {
+          result.push({ ...clip, prompt: String(task.params.prompt || '') });
+        }
       }
-    }
-    return result;
-  }, [allTasks]);
+      setExistingAudioClips(result);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const handleOpenMusicTool = useCallback(() => {
     // 获取 MV Creator 窗口位置，向右偏移避免重叠
