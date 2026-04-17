@@ -306,7 +306,7 @@ async function generateVideoThumbnailForSize(
  * @param _blob 视频 Blob（未使用，保留参数兼容性）
  * @param _maxSize 最大尺寸（未使用，由主线程决定）
  */
-async function requestVideoThumbnailFromMainThread(url: string, _blob: Blob, _maxSize: number = THUMBNAIL_MAX_SIZE_LARGE): Promise<Blob | null> {
+async function requestVideoThumbnailFromMainThread(url: string, _blob: Blob, maxSize: number = THUMBNAIL_MAX_SIZE_LARGE): Promise<Blob | null> {
   const { getChannelManager } = await import('../channel-manager');
   const cm = getChannelManager();
   
@@ -316,7 +316,7 @@ async function requestVideoThumbnailFromMainThread(url: string, _blob: Blob, _ma
   }
   
   // 直接使用 publish 发起请求，等待主线程响应（双工通讯）
-  const thumbnailUrl = await cm.requestVideoThumbnail(url, 30000);
+  const thumbnailUrl = await cm.requestVideoThumbnail(url, 30000, maxSize);
   
   if (!thumbnailUrl) {
     return null;

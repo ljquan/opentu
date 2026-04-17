@@ -96,6 +96,18 @@
   }
 }
 
+.mv-creator .mv-generate-footer-actions {
+  margin-top: 16px;
+  justify-content: center;
+}
+
+.mv-creator .mv-generate-footer-hint {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #999;
+}
+
 /* hover 大图/大视频预览（portal 到 body） */
 .mv-hover-preview {
   position: fixed;

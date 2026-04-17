@@ -59,6 +59,11 @@ export const ShotCard: React.FC<ShotCardProps> = ({ shot, index, compact, action
           {TRANSITION_ICONS[shot.transition_hint] || '→'} {TRANSITION_LABELS[shot.transition_hint] || shot.transition_hint}
         </span>
       )}
+      {shot.character_ids && shot.character_ids.length > 0 && (
+        <span className="va-shot-characters">
+          {shot.character_ids.join(', ')}
+        </span>
+      )}
     </div>
     {!compact && (
       <>

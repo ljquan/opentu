@@ -40,6 +40,7 @@ interface ThumbnailGenerateParams {
   mediaType: 'image' | 'video';
   blob: ArrayBuffer;
   mimeType: string;
+  sizes?: ('small' | 'large')[];
 }
 
 // Crash monitoring types
@@ -426,7 +427,14 @@ export class SWChannelManager {
 
   private async handleThumbnailGenerate(data: ThumbnailGenerateParams): Promise<{ success: boolean; error?: string }> {
     try {
-      const { url, mediaType, blob, mimeType } = data;
+      const { url, mediaType, blob, mimeType, sizes } = data;
+      console.info('[SWChannelManager] thumbnail RPC received', {
+        url,
+        mediaType,
+        mimeType,
+        sizes,
+        bytes: blob.byteLength,
+      });
       
       // 动态导入缩略图工具
       const { generateThumbnailAsync } = await import('./utils/thumbnail-utils');
@@ -435,7 +443,7 @@ export class SWChannelManager {
       const mediaBlob = new Blob([blob], { type: mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/png') });
       
       // 生成缩略图 (参数顺序: blob, url, mediaType)
-      generateThumbnailAsync(mediaBlob, url, mediaType);
+      generateThumbnailAsync(mediaBlob, url, mediaType, sizes);
       
       return { success: true };
     } catch (error: any) {
@@ -1145,38 +1153,46 @@ export class SWChannelManager {
    * @param timeoutMs 超时时间（毫秒）
    * @returns 缩略图 Data URL，失败返回 null
    */
-  async requestVideoThumbnail(url: string, timeoutMs: number = 30000): Promise<string | null> {
-    // 获取第一个可用的客户端通道
-    const clientChannel = Array.from(this.channels.values())[0];
-    if (!clientChannel) {
-      console.warn('[ChannelManager] No client channel available for video thumbnail request');
+  async requestVideoThumbnail(url: string, timeoutMs = 30000, maxSize?: number): Promise<string | null> {
+    const candidateChannels = Array.from(this.channels.values()).sort((left, right) => {
+      if (left.isDebugClient === right.isDebugClient) {
+        return right.createdAt - left.createdAt;
+      }
+      return left.isDebugClient ? 1 : -1;
+    });
+
+    if (candidateChannels.length === 0) {
       return null;
     }
 
-    try {
-      // 使用 call() 发起 RPC 请求到主线程
-      const response = await withTimeout(
-        clientChannel.channel.call('thumbnail:generate', { url }),
-        timeoutMs,
-        'Video thumbnail generation timeout' as any
-      ) as any;
+    for (const clientChannel of candidateChannels) {
+      try {
+        const response = await withTimeout(
+          clientChannel.channel.call('thumbnail:generate', { url, maxSize }),
+          timeoutMs,
+          'Video thumbnail generation timeout' as any
+        ) as any;
 
-      if (!response || response.ret !== 0) {
-        console.warn('[ChannelManager] Video thumbnail generation failed:', response?.msg);
-        return null;
+        if (!response || response.ret !== 0) {
+          continue;
+        }
+
+        const data = response.data as { thumbnailUrl?: string; error?: string } | undefined;
+        if (data?.error) {
+          continue;
+        }
+
+        if (!data?.thumbnailUrl) {
+          continue;
+        }
+
+        return data.thumbnailUrl;
+      } catch {
+        continue;
       }
-
-      const data = response.data as { thumbnailUrl?: string; error?: string } | undefined;
-      if (data?.error) {
-        console.warn('[ChannelManager] Video thumbnail generation error:', data.error);
-        return null;
-      }
-
-      return data?.thumbnailUrl || null;
-    } catch (error) {
-      console.warn('[ChannelManager] Video thumbnail request failed:', error);
-      return null;
     }
+
+    return null;
   }
 
   /**

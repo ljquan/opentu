@@ -82,6 +82,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -94,6 +95,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
   const [isPromptHovered, setIsPromptHovered] = useState(false);
   const [isToolbarHovered, setIsToolbarHovered] = useState(false);
   const promptHideTimerRef = useRef<number | null>(null);
+  const autoFitFrameRef = useRef<number | null>(null);
 
   // 暴露视频控制方法给父组件
   useImperativeHandle(ref, () => ({
@@ -116,6 +118,18 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
       if (videoRef.current) {
         videoRef.current.pause();
       }
+    },
+    toggleVideoPlayback: () => {
+      if (!videoRef.current) {
+        return;
+      }
+      if (videoRef.current.paused || videoRef.current.ended) {
+        videoRef.current.play().catch(() => {
+          // 忽略自动播放限制错误
+        });
+        return;
+      }
+      videoRef.current.pause();
     },
     setVideoTime: (time: number) => {
       if (videoRef.current) {
@@ -151,6 +165,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
     ? (isVideo || isAudio ? item.url : normalizeImageDataUrl(item.url))
     : '';
   const posterUrl = item?.posterUrl ? normalizeImageDataUrl(item.posterUrl) : '';
+  const mediaIdentity = item ? `${item.type}:${item.id || item.url}` : 'empty';
 
   const clearPromptHideTimer = useCallback(() => {
     if (promptHideTimerRef.current !== null) {
@@ -184,9 +199,26 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
 
   useEffect(() => {
     setImageLoadFailed(false);
-  }, [item?.url]);
+    setIsDragging(false);
+    setLocalPan(panOffset ?? DEFAULT_PAN);
+    setLocalZoom(zoomLevel);
+    setRotation(0);
+    setFlipH(false);
+    setFlipV(false);
 
-  useEffect(() => () => clearPromptHideTimer(), [clearPromptHideTimer]);
+    if (autoFitFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoFitFrameRef.current);
+      autoFitFrameRef.current = null;
+    }
+  }, [mediaIdentity]);
+
+  useEffect(() => () => {
+    clearPromptHideTimer();
+    if (autoFitFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoFitFrameRef.current);
+      autoFitFrameRef.current = null;
+    }
+  }, [clearPromptHideTimer]);
 
   // 保存工具栏状态到缓存 - 仅单图模式
   useEffect(() => {
@@ -202,11 +234,97 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
       if (prev.x === newPan.x && prev.y === newPan.y) return prev;
       return newPan;
     });
-  }, [panOffset?.x, panOffset?.y]);
+  }, [panOffset]);
 
   useEffect(() => {
     setLocalZoom((prev) => (prev === zoomLevel ? prev : zoomLevel));
   }, [zoomLevel]);
+
+  const scheduleAutoFit = useCallback(() => {
+    if (
+      isCompareMode ||
+      isAudio ||
+      !containerRef.current ||
+      (Math.abs(zoomLevel - 1) > 0.001) ||
+      Math.abs((panOffset?.x ?? 0)) > 0.5 ||
+      Math.abs((panOffset?.y ?? 0)) > 0.5
+    ) {
+      return;
+    }
+
+    if (autoFitFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoFitFrameRef.current);
+    }
+
+    autoFitFrameRef.current = window.requestAnimationFrame(() => {
+      autoFitFrameRef.current = null;
+
+      const mediaElement = isVideo ? videoRef.current : imageRef.current;
+      if (!mediaElement || !containerRef.current) {
+        return;
+      }
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      if (containerRect.width <= 0 || containerRect.height <= 0) {
+        return;
+      }
+
+      const intrinsicWidth = isVideo
+        ? (mediaElement as HTMLVideoElement).videoWidth
+        : (mediaElement as HTMLImageElement).naturalWidth;
+      const intrinsicHeight = isVideo
+        ? (mediaElement as HTMLVideoElement).videoHeight
+        : (mediaElement as HTMLImageElement).naturalHeight;
+      if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+        return;
+      }
+
+      const horizontalPadding = 32;
+      const verticalReserve = isVideo ? 140 : 88;
+      const availableWidth = Math.max(containerRect.width - horizontalPadding, 0);
+      const availableHeight = Math.max(containerRect.height - verticalReserve, 0);
+      if (availableWidth <= 0 || availableHeight <= 0) {
+        return;
+      }
+
+      const fittedZoom = Math.min(
+        1,
+        availableWidth / intrinsicWidth,
+        availableHeight / intrinsicHeight
+      );
+
+      if (!Number.isFinite(fittedZoom) || fittedZoom <= 0 || fittedZoom >= 0.995) {
+        return;
+      }
+
+      setLocalZoom((prev) => (Math.abs(prev - fittedZoom) <= 0.01 ? prev : fittedZoom));
+      onZoomChange?.(fittedZoom);
+    });
+  }, [isCompareMode, isAudio, isVideo, zoomLevel, panOffset?.x, panOffset?.y, onZoomChange]);
+
+  useEffect(() => {
+    if (!item?.url || isAudio || isCompareMode) {
+      return;
+    }
+
+    const mediaElement = isVideo ? videoRef.current : imageRef.current;
+    if (!mediaElement) {
+      return;
+    }
+
+    if (isVideo) {
+      const video = mediaElement as HTMLVideoElement;
+      if (video.readyState >= 1) {
+        scheduleAutoFit();
+      }
+      return;
+    }
+
+    const image = mediaElement as HTMLImageElement;
+    if (image.complete && image.naturalWidth > 0) {
+      scheduleAutoFit();
+    }
+  }, [item, isAudio, isCompareMode, isVideo, scheduleAutoFit]);
 
   // 鼠标拖拽
   const handleMouseDown = useCallback(
@@ -467,6 +585,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
                   onVideoTimeUpdate(videoRef.current.currentTime);
                 }
               }}
+              onLoadedMetadata={scheduleAutoFit}
             />
           </div>
         ) : isAudio ? (
@@ -514,11 +633,13 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
             onMouseLeave={handleMediaHoverEnd}
           >
             <img
+              ref={imageRef}
               src={mediaUrl}
               alt={item.alt || item.title || ''}
               className="media-viewport__image"
               draggable={false}
               referrerPolicy="no-referrer"
+              onLoad={scheduleAutoFit}
               onError={() => setImageLoadFailed(true)}
             />
           </div>

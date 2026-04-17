@@ -17,6 +17,7 @@ import { RetryImage } from '../retry-image';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
 import { useThumbnailUrl } from '../../hooks/useThumbnailUrl';
 import { getLyricsPreview, getLyricsTags, getLyricsText, getLyricsTitle, isLyricsResult } from '../../utils/lyrics-task-utils';
+import { VideoPosterPreview } from '../shared/VideoPosterPreview';
 import './task-queue.scss';
 import './task-progress-overlay.scss';
 
@@ -300,7 +301,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
   // 获取预览图URL（任务列表使用小尺寸）
   const thumbnailUrl = useThumbnailUrl(
     previewMediaUrl,
-    task.type === TaskType.IMAGE ? 'image' : task.type === TaskType.VIDEO ? 'video' : undefined,
+    task.type === TaskType.IMAGE ? 'image' : undefined,
     'small' // 任务列表使用小尺寸预览图
   );
 
@@ -507,7 +508,17 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   </div>
                 ) : mediaUrl ? (
                   <>
-                    <video src={mediaUrl} muted playsInline />
+                    <VideoPosterPreview
+                      src={mediaUrl}
+                      poster={task.result?.previewImageUrl}
+                      alt={displayPrompt || '视频预览'}
+                      thumbnailSize="small"
+                      videoProps={{
+                        muted: true,
+                        playsInline: true,
+                        preload: 'metadata',
+                      }}
+                    />
                     {/* 视频播放按钮覆盖层 */}
                     <div className="task-item__video-play-overlay">
                       <PlayCircleIcon size="32px" />

@@ -265,7 +265,7 @@ if ('serviceWorker' in navigator) {
       return;
     }
     
-    swChannelClient.registerVideoThumbnailHandler(async (url) => {
+    swChannelClient.registerVideoThumbnailHandler(async (url, maxSize) => {
       try {
         const { generateVideoThumbnailFromBlob } = await import('@aitu/utils');
         
@@ -285,8 +285,8 @@ if ('serviceWorker' in navigator) {
             if (networkResponse.ok) {
               videoBlob = await networkResponse.blob();
             }
-          } catch (fetchError) {
-            console.warn('[Main] Failed to fetch video from network:', fetchError);
+          } catch {
+            videoBlob = null;
           }
         }
         
@@ -295,7 +295,7 @@ if ('serviceWorker' in navigator) {
         }
         
         // 生成预览图
-        const thumbnailBlob = await generateVideoThumbnailFromBlob(videoBlob, 400);
+        const thumbnailBlob = await generateVideoThumbnailFromBlob(videoBlob, maxSize || 400);
         
         // 将 Blob 转换为 Data URL
         const thumbnailUrl = await new Promise<string>((resolve, reject) => {
@@ -307,7 +307,6 @@ if ('serviceWorker' in navigator) {
         
         return { thumbnailUrl };
       } catch (error) {
-        console.warn('[Main] Failed to generate video thumbnail:', error);
         return { error: error instanceof Error ? error.message : String(error) };
       }
     });

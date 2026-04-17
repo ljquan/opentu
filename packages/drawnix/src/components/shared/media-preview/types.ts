@@ -136,6 +136,8 @@ export interface MediaViewportRef {
   playVideo: () => void;
   /** 暂停视频 */
   pauseVideo: () => void;
+  /** 切换视频播放/暂停 */
+  toggleVideoPlayback: () => void;
   /** 设置视频播放进度（秒） */
   setVideoTime: (time: number) => void;
   /** 获取视频当前时间（秒） */

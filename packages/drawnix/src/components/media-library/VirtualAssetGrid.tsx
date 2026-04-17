@@ -36,39 +36,12 @@ const VIEW_CONFIG: Record<ViewMode, {
   },
 };
 
-// 根据容器宽度和最大尺寸计算列数和实际尺寸
-const calculateGridLayout = (
-  viewMode: ViewMode,
-  containerWidth: number,
-  config: typeof VIEW_CONFIG[ViewMode]
-): { columns: number; itemSize: number } => {
-  if (viewMode === 'list') {
-    return { columns: 1, itemSize: config.maxItemSize };
-  }
-
-  const availableWidth = containerWidth - config.padding * 2;
-
-  // 计算最大尺寸下能放多少列
-  const columnsAtMaxSize = Math.floor((availableWidth + config.gap) / (config.maxItemSize + config.gap));
-
-  // 至少1列
-  const columns = Math.max(1, columnsAtMaxSize);
-
-  // 计算实际尺寸（均分可用空间）
-  const itemSize = Math.floor((availableWidth - config.gap * (columns - 1)) / columns);
-
-  // 确保尺寸在合理范围内
-  const clampedSize = Math.max(config.minItemSize, Math.min(config.maxItemSize, itemSize));
-
-  return { columns, itemSize: clampedSize };
-};
-
 interface VirtualAssetGridProps {
   assets: Asset[];
   viewMode: ViewMode;
   gridSize?: number;
   selectedAssetId?: string;
-  selectedAssetIds: Set<string>;
+  isAssetSelected: (asset: Asset) => boolean;
   isSelectionMode: boolean;
   onSelectAsset: (assetId: string, event?: React.MouseEvent) => void;
   onDoubleClick?: (asset: Asset) => void;
@@ -84,7 +57,7 @@ export function VirtualAssetGrid({
   viewMode,
   gridSize = 180,
   selectedAssetId,
-  selectedAssetIds,
+  isAssetSelected,
   isSelectionMode,
   onSelectAsset,
   onDoubleClick,
@@ -198,7 +171,7 @@ export function VirtualAssetGrid({
           <AssetItem
             asset={asset}
             viewMode={viewMode}
-            isSelected={isSelectionMode ? selectedAssetIds.has(asset.id) : selectedAssetId === asset.id}
+            isSelected={isSelectionMode ? isAssetSelected(asset) : selectedAssetId === asset.id}
             onSelect={onSelectAsset}
             onDoubleClick={onDoubleClick}
             onPreview={onPreview}
@@ -211,7 +184,7 @@ export function VirtualAssetGrid({
         </div>
       );
     });
-  }, [assets, columns, viewMode, selectedAssetId, selectedAssetIds, isSelectionMode, onSelectAsset, onDoubleClick, onPreview, onContextMenu, isFavorite, onToggleFavorite, itemSize.height, syncedUrls]);
+  }, [assets, columns, viewMode, selectedAssetId, isAssetSelected, isSelectionMode, onSelectAsset, onDoubleClick, onPreview, onContextMenu, isFavorite, onToggleFavorite, itemSize.height, syncedUrls]);
 
   const virtualItems = rowVirtualizer.getVirtualItems();
 
@@ -222,7 +195,6 @@ export function VirtualAssetGrid({
       style={{
         height: '100%',
         overflow: 'auto',
-        contain: 'strict',
       }}
     >
       <div

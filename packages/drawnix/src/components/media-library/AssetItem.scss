@@ -18,16 +18,13 @@ $brand-orange-dark: #E67E22;
   border: 2px solid transparent;
   overflow: hidden;
   transition:
-    transform 0.2s ease,
     border-color 0.15s ease,
     box-shadow 0.2s ease;
-  contain: layout style;
   user-select: none; // 防止 Shift 连选时文本被选中
 
   &:hover {
-    transform: translateY(-2px);
     border-color: rgba(0, 0, 0, 0.15);
-    box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.14);
   }
 
   &--selected {
@@ -38,10 +35,6 @@ $brand-orange-dark: #E67E22;
 
   &--selection-mode {
     cursor: default;
-    
-    &:hover {
-      transform: translateY(-1px);
-    }
   }
 
   // ========== 缩略图 ==========
@@ -52,7 +45,6 @@ $brand-orange-dark: #E67E22;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    content-visibility: auto;
   }
 
   &__image,
@@ -61,7 +53,6 @@ $brand-orange-dark: #E67E22;
     height: 100%;
     object-fit: contain;
     image-rendering: -webkit-optimize-contrast;
-    transition: transform 0.3s ease;
   }
 
   &__audio-preview {
@@ -74,11 +65,6 @@ $brand-orange-dark: #E67E22;
     color: #5A4FCF;
   }
 
-  &:hover &__image,
-  &:hover &__video {
-    transform: scale(1.05);
-  }
-
   // ========== 徽章 ==========
   &__badges {
     position: absolute;
@@ -89,11 +75,7 @@ $brand-orange-dark: #E67E22;
     gap: 6px;
     z-index: 2;
     opacity: 1;
-    transition: opacity 0.2s ease, transform 0.2s ease;
-  }
-
-  &:hover &__badges {
-    transform: translateY(-2px);
+    transition: opacity 0.2s ease;
   }
 
   &__type-badge {
@@ -229,8 +211,9 @@ $brand-orange-dark: #E67E22;
     box-shadow: 
       0 2px 8px 0 rgba(0, 0, 0, 0.12),
       0 0 0 1px rgba(255, 255, 255, 0.5);
-    transition: all 0.2s ease;
-    animation: fadeInScale 0.15s ease-out;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 
     svg {
       color: #333;
@@ -239,7 +222,6 @@ $brand-orange-dark: #E67E22;
     }
 
     &:hover {
-      transform: scale(1.1);
       background: #fff;
       box-shadow: 
         0 4px 12px 0 rgba(0, 0, 0, 0.15),
@@ -251,8 +233,14 @@ $brand-orange-dark: #E67E22;
     }
 
     &:active {
-      transform: scale(0.95);
+      background: rgba(255, 255, 255, 0.98);
     }
+  }
+
+  &:hover &__preview-btn,
+  &:focus-within &__preview-btn {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   &__favorite-btn {
@@ -289,17 +277,6 @@ $brand-orange-dark: #E67E22;
       right: auto;
       flex-shrink: 0;
       margin-left: 8px;
-    }
-  }
-
-  @keyframes fadeInScale {
-    from {
-      opacity: 0;
-      transform: scale(0.8);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
     }
   }
 
@@ -423,11 +400,6 @@ $brand-orange-dark: #E67E22;
     border-width: 1px;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
 
-    &:hover {
-      transform: translateY(-2px) scale(1.01);
-      box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.12);
-    }
-
     &.asset-item--selected {
       border-width: 2px;
     }
@@ -500,10 +472,9 @@ $brand-orange-dark: #E67E22;
     border: 1px solid #f1f5f9;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.02);
     margin-bottom: 8px; // 增加间距避免重叠感，列表也可以有呼吸感
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
     &:hover {
-      transform: translateX(2px);
       background: #fff;
       border-color: rgba($brand-orange, 0.2);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);

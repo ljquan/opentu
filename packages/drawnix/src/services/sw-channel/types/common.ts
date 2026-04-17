@@ -155,6 +155,7 @@ export interface SWRequestConfigEvent {
 export interface ThumbnailVideoRequestEvent {
   requestId: string;
   url: string;
+  maxSize?: number;
   timestamp?: number;
 }
 
@@ -166,6 +167,7 @@ export interface ThumbnailGenerateParams {
   mediaType: 'image' | 'video';
   blob: ArrayBuffer;
   mimeType: string;
+  sizes?: ('small' | 'large')[];
 }
 
 /**

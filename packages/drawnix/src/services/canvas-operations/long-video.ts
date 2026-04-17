@@ -75,6 +75,10 @@ export interface LongVideoMeta {
   model: VideoModel;
   /** 视频尺寸 */
   size: string;
+  /** 角色参考图 URL 列表，传递给每个片段任务以保持角色一致性 */
+  characterReferenceUrls?: string[];
+  /** 角色一致性描述，注入每段 prompt 以锚定角色外观 */
+  characterDescription?: string;
 }
 
 /**
@@ -221,6 +225,11 @@ export function createLongVideoSegmentTask(
     });
   }
 
+  // 构建参考图列表：角色参考图（用于保持角色一致性）
+  const referenceImages = meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
+    ? meta.characterReferenceUrls
+    : undefined;
+
   // 创建任务
   const task = taskQueueService.createTask(
     {
@@ -229,6 +238,7 @@ export function createLongVideoSegmentTask(
       duration: segment.duration,
       model: meta.model,
       uploadedImages: uploadedImages.length > 0 ? uploadedImages : undefined,
+      referenceImages,
       // 长视频链式生成元数据
       longVideoMeta: meta,
       // 批量参数（用于UI展示）

@@ -285,7 +285,8 @@ export class SWChannelClient {
     url: string,
     mediaType: 'image' | 'video',
     blob: ArrayBuffer,
-    mimeType: string
+    mimeType: string,
+    sizes?: ('small' | 'large')[]
   ): Promise<TaskOperationResult> {
     this.ensureInitialized();
     
@@ -295,6 +296,7 @@ export class SWChannelClient {
         mediaType,
         blob,
         mimeType,
+        sizes,
       });
       
       if (response.ret !== ReturnCode.Success) {
@@ -315,24 +317,16 @@ export class SWChannelClient {
    * @param handler 处理函数，接收 url，返回 { thumbnailUrl } 或 { error }
    */
   registerVideoThumbnailHandler(
-    handler: (url: string) => Promise<{ thumbnailUrl?: string; error?: string }>
+    handler: (url: string, maxSize?: number) => Promise<{ thumbnailUrl?: string; error?: string }>
   ): void {
     this.ensureInitialized();
-    
-    // 使用 subscribe 注册处理器，SW 通过 publish 请求时会触发
     this.channel!.subscribe('thumbnail:generate', async (request) => {
-      const url = (request.data as { url?: string })?.url;
+      const { url, maxSize } = (request.data as { url?: string; maxSize?: number }) || {};
       if (!url) {
-        return { ret: ReturnCode.ReceiverCallbackError, msg: 'Missing url parameter' };
+        throw new Error('Missing url parameter');
       }
-      
-      try {
-        const result = await handler(url);
-        return { ret: ReturnCode.Success, data: result };
-      } catch (error) {
-        console.error('[SWChannelClient] thumbnail:generate handler error:', error);
-        return { ret: ReturnCode.ReceiverCallbackError, msg: String(error) };
-      }
+
+      return handler(url, maxSize);
     });
   }
 

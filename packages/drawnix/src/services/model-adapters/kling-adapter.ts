@@ -59,6 +59,12 @@ type KlingCameraControlField = {
   label: string;
 };
 
+type KlingElement = {
+  name: string;
+  description?: string;
+  element_input_urls: string[];
+};
+
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const DEFAULT_POLL_MAX_ATTEMPTS = 1080;
 const DEFAULT_KLING_MODEL_NAME = 'kling-v1-6';
@@ -492,10 +498,21 @@ export const klingAdapter: VideoModelAdapter = {
               key !== 'camera_pan' &&
               key !== 'camera_tilt' &&
               key !== 'camera_roll' &&
-              key !== 'camera_zoom'
+              key !== 'camera_zoom' &&
+              key !== 'kling_elements'
           )
         )
       : undefined;
+
+    // kling_elements：角色/元素参考图，用于保持多镜头角色一致性
+    // 格式：[{ name: string, description?: string, element_input_urls: string[] }]
+    const klingElements = request.params?.kling_elements;
+    const normalizedKlingElements: KlingElement[] | undefined =
+      Array.isArray(klingElements) && klingElements.length > 0
+        ? (klingElements as KlingElement[]).filter(
+            (el) => el.name && Array.isArray(el.element_input_urls) && el.element_input_urls.length > 0
+          )
+        : undefined;
 
     onProgress?.(5, 'submitting');
 
@@ -509,6 +526,7 @@ export const klingAdapter: VideoModelAdapter = {
       cfg_scale: cfgScale,
       camera_control: action2 === 'text2video' ? cameraControl : undefined,
       duration: request.duration ? String(request.duration) : undefined,
+      kling_elements: normalizedKlingElements,
     });
 
     const taskId = submitResponse.data.task_id;

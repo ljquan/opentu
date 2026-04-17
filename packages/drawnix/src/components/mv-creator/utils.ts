@@ -72,6 +72,68 @@ export function updateActiveShotsInRecord(
   return patch;
 }
 
+export function formatMVShotsMarkdown(
+  record: MVRecord,
+  shots: VideoShot[] = record.editedShots || []
+): string {
+  const totalDuration = record.selectedClipDuration
+    || shots.reduce((max, shot) => Math.max(max, shot.endTime || 0), 0);
+  const musicStyles = record.musicStyleTags?.filter(Boolean).join(', ');
+  const characters = record.characters || [];
+  const headerLines = [
+    '# 爆款MV脚本',
+    '',
+    `**创意描述：** ${record.creationPrompt || '-'}`,
+    `**音乐标题：** ${record.musicTitle || '-'}`,
+    `**音乐风格：** ${musicStyles || '-'}`,
+    `**时长：** ${totalDuration || 0}s`,
+    `**画面比例：** ${record.aspectRatio || '16x9'}`,
+    `**视频风格：** ${record.videoStyle || '-'}`,
+  ];
+
+  if (record.musicLyrics?.trim()) {
+    headerLines.push('', '## 歌词', '', record.musicLyrics.trim());
+  }
+
+  if (record.rewritePrompt?.trim()) {
+    headerLines.push('', '## 改编提示词', '', record.rewritePrompt.trim());
+  }
+
+  if (characters.length > 0) {
+    headerLines.push('', '## 角色设定', '');
+    characters.forEach((character, index) => {
+      headerLines.push(`### ${index + 1}. ${character.name || character.id}`);
+      headerLines.push(`- ID：${character.id}`);
+      headerLines.push(`- 外观提示词：${character.description || '-'}`);
+      if (character.referenceImageUrl) {
+        headerLines.push(`- 参考图：${character.referenceImageUrl}`);
+      }
+      headerLines.push('');
+    });
+  }
+
+  const shotSections = shots.map((shot, index) => {
+    const lines = [
+      `### ${index + 1}. ${shot.label || `镜头 ${index + 1}`} (${shot.startTime}s-${shot.endTime}s)`,
+      '',
+      `**画面描述：** ${shot.description || '-'}`,
+      '',
+      `**旁白：** ${shot.narration || '-'}`,
+      shot.dialogue ? `\n**角色对白：** ${shot.dialogue}` : '',
+      shot.dialogue_speakers ? `\n**对白角色：** ${shot.dialogue_speakers}` : '',
+      shot.speech_relation ? `\n**语音关系：** ${shot.speech_relation}` : '',
+      shot.camera_movement ? `\n**运镜：** ${shot.camera_movement}` : '',
+      shot.first_frame_prompt ? `\n**首帧 Prompt：** ${shot.first_frame_prompt}` : '',
+      shot.last_frame_prompt ? `\n**尾帧 Prompt：** ${shot.last_frame_prompt}` : '',
+      shot.transition_hint ? `\n**转场：** ${shot.transition_hint}` : '',
+      shot.character_ids?.length ? `\n**角色：** ${shot.character_ids.join(', ')}` : '',
+    ];
+    return lines.filter(Boolean).join('\n');
+  });
+
+  return `${headerLines.join('\n')}\n\n## 分镜\n\n${shotSections.join('\n\n---\n\n')}`;
+}
+
 // ── AI 分镜 Prompt ──
 
 export function buildStoryboardPrompt(params: {

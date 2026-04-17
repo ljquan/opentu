@@ -9,8 +9,8 @@ import { useState, useEffect } from 'react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { swChannelClient } from '../services/sw-channel/client';
 
-// 内存缓存：记录已检查过的缩略图 URL
-// key: originalUrl, value: 检查时间戳
+// 内存缓存：记录已检查过的缩略图 URL（按尺寸区分）
+// key: `${originalUrl}|${size}`, value: 检查时间戳
 const thumbnailCheckCache = new Map<string, number>();
 // 缓存有效期：5 分钟
 const CACHE_TTL = 5 * 60 * 1000;
@@ -42,12 +42,36 @@ function getImageCache(): Promise<Cache> {
   return imageCachePromise;
 }
 
-function shouldBypassThumbnailForUrl(originalUrl: string): boolean {
+function getThumbnailCheckKey(originalUrl: string, size: 'small' | 'large'): string {
+  return `${originalUrl}|${size}`;
+}
+
+function getThumbnailStorageKey(originalUrl: string, size: 'small' | 'large'): string {
+  try {
+    const url = new URL(originalUrl, window.location.origin);
+    url.searchParams.delete('thumbnail');
+    url.searchParams.set('_thumb', size);
+    return url.toString();
+  } catch {
+    const cleanUrl = originalUrl
+      .replace(/[?&]thumbnail=[^&]*/g, '')
+      .replace(/thumbnail=[^&]*&?/g, '');
+    const separator = cleanUrl.includes('?') ? '&' : '?';
+    return `${cleanUrl}${separator}_thumb=${size}`;
+  }
+}
+
+function shouldBypassThumbnailForUrl(
+  originalUrl: string,
+  type?: 'image' | 'video'
+): boolean {
   return (
-    originalUrl.startsWith('http://') ||
-    originalUrl.startsWith('https://') ||
     originalUrl.startsWith('data:') ||
-    originalUrl.startsWith('blob:')
+    originalUrl.startsWith('blob:') ||
+    (
+      type !== 'video' &&
+      (originalUrl.startsWith('http://') || originalUrl.startsWith('https://'))
+    )
   );
 }
 
@@ -59,10 +83,14 @@ function shouldBypassThumbnailForUrl(originalUrl: string): boolean {
  * @param size 预览图尺寸（默认 small）
  * @returns 预览图 URL（带 ?thumbnail={size} 参数）
  */
-function getThumbnailUrl(originalUrl: string, size: 'small' | 'large' = 'small'): string {
+function getThumbnailUrl(
+  originalUrl: string,
+  size: 'small' | 'large' = 'small',
+  type?: 'image' | 'video'
+): string {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
   // 外部 URL / data URL / blob URL 不追加参数，避免破坏资源
-  if (shouldBypassThumbnailForUrl(normalizedUrl)) {
+  if (shouldBypassThumbnailForUrl(normalizedUrl, type)) {
     return normalizedUrl;
   }
   try {
@@ -101,14 +129,18 @@ async function processCheckQueue(): Promise<void> {
     
     for (const item of batch) {
       pendingChecks.delete(item);
-      const [originalUrl, type] = item.split('|');
+      const [originalUrl, type, size = 'small'] = item.split('|');
       
       try {
-        await ensureThumbnailImpl(originalUrl, type as 'image' | 'video');
+        await ensureThumbnailImpl(
+          originalUrl,
+          type as 'image' | 'video',
+          size as 'small' | 'large'
+        );
         // 记录已检查
-        thumbnailCheckCache.set(originalUrl, Date.now());
+        thumbnailCheckCache.set(getThumbnailCheckKey(originalUrl, size as 'small' | 'large'), Date.now());
       } catch (error) {
-        console.warn('[useThumbnailUrl] Failed to ensure thumbnail:', originalUrl, error);
+        console.warn('Failed to ensure thumbnail:', originalUrl, error);
       }
     }
     
@@ -132,19 +164,22 @@ async function processCheckQueue(): Promise<void> {
  */
 async function ensureThumbnailImpl(
   originalUrl: string,
-  type: 'image' | 'video'
+  type: 'image' | 'video',
+  size: 'small' | 'large'
 ): Promise<void> {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
 
-  if (shouldBypassThumbnailForUrl(normalizedUrl)) {
+  if (shouldBypassThumbnailForUrl(normalizedUrl, type)) {
     return;
   }
+
+  const thumbnailStorageKey = getThumbnailStorageKey(normalizedUrl, size);
 
   // 使用缓存的 Cache 引用，避免重复 caches.open
   const thumbCache = await getThumbCache();
   
-  // 快速检查：只用原始 URL 检查一次
-  const existingThumbnail = await thumbCache.match(normalizedUrl);
+  // 快速检查：按 SW 实际存储 key 检查
+  const existingThumbnail = await thumbCache.match(thumbnailStorageKey);
   if (existingThumbnail) {
     return; // 已存在
   }
@@ -175,7 +210,8 @@ async function ensureThumbnailImpl(
         normalizedUrl,
         type,
         arrayBuffer,
-        blob.type
+        blob.type,
+        [size]
       );
     }
   }
@@ -186,24 +222,52 @@ async function ensureThumbnailImpl(
  * @param originalUrl 原始 URL
  * @param type 媒体类型
  */
-function ensureThumbnail(originalUrl: string, type: 'image' | 'video'): void {
+function ensureThumbnail(
+  originalUrl: string,
+  type: 'image' | 'video',
+  size: 'small' | 'large',
+  immediate = false
+): void {
   const normalizedUrl = normalizeImageDataUrl(originalUrl);
 
-  if (shouldBypassThumbnailForUrl(normalizedUrl)) {
+  if (shouldBypassThumbnailForUrl(normalizedUrl, type)) {
     return;
   }
 
   // 检查内存缓存
-  const lastCheck = thumbnailCheckCache.get(normalizedUrl);
+  const checkKey = getThumbnailCheckKey(normalizedUrl, size);
+  const lastCheck = thumbnailCheckCache.get(checkKey);
   if (lastCheck && Date.now() - lastCheck < CACHE_TTL) {
     return; // 最近已检查过
   }
   
   // 加入待检查队列
-  const queueKey = `${normalizedUrl}|${type}`;
+  const queueKey = `${normalizedUrl}|${type}|${size}`;
   if (!pendingChecks.has(queueKey)) {
     pendingChecks.add(queueKey);
-    
+
+    if (immediate) {
+      void (async () => {
+        if (isProcessingQueue) {
+          return;
+        }
+        try {
+          isProcessingQueue = true;
+          pendingChecks.delete(queueKey);
+          await ensureThumbnailImpl(normalizedUrl, type, size);
+          thumbnailCheckCache.set(checkKey, Date.now());
+        } catch (error) {
+          console.warn('Failed to ensure thumbnail immediately:', normalizedUrl, error);
+        } finally {
+          isProcessingQueue = false;
+          if (pendingChecks.size > 0) {
+            setTimeout(processCheckQueue, 0);
+          }
+        }
+      })();
+      return;
+    }
+
     // 使用 requestIdleCallback 延迟处理队列
     if ('requestIdleCallback' in window) {
       (window as Window).requestIdleCallback(processCheckQueue, { timeout: 2000 });
@@ -226,7 +290,7 @@ export function useThumbnailUrl(
   size: 'small' | 'large' = 'small'
 ): string | undefined {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(
-    originalUrl ? getThumbnailUrl(originalUrl, size) : undefined
+    originalUrl ? getThumbnailUrl(originalUrl, size, type) : undefined
   );
 
   useEffect(() => {
@@ -236,12 +300,12 @@ export function useThumbnailUrl(
     }
 
     const normalizedUrl = normalizeImageDataUrl(originalUrl);
-    const url = getThumbnailUrl(normalizedUrl, size);
+    const url = getThumbnailUrl(normalizedUrl, size, type);
     setThumbnailUrl(url);
 
     // 如果提供了类型，排队检查/生成预览图（非阻塞）
-    if (type && !shouldBypassThumbnailForUrl(originalUrl)) {
-      ensureThumbnail(originalUrl, type);
+    if (type && !shouldBypassThumbnailForUrl(originalUrl, type)) {
+      ensureThumbnail(originalUrl, type, size, type === 'video');
     }
   }, [originalUrl, type, size]);
 

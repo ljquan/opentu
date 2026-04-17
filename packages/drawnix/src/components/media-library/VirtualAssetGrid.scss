@@ -60,9 +60,6 @@
   }
 
   &__row {
-    will-change: transform;
-    contain: layout style;
-
     &--grid,
     &--compact {
       justify-content: flex-start;

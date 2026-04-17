@@ -33,6 +33,10 @@ interface LongVideoBatch {
   mergeCompleted: boolean;
   /** 完整脚本列表（从首个任务 meta 中提取） */
   scripts: VideoSegmentScript[];
+  /** 角色参考图 URL 列表，传递给每个片段任务 */
+  characterReferenceUrls?: string[];
+  /** 角色一致性描述，传递给每个片段任务 */
+  characterDescription?: string;
 }
 
 /**
@@ -125,6 +129,8 @@ class LongVideoChainService {
         isMerging: false,
         mergeCompleted: false,
         scripts: scripts || [],
+        characterReferenceUrls: meta.characterReferenceUrls,
+        characterDescription: meta.characterDescription,
       };
       this.batches.set(batchId, batch);
     }
@@ -162,7 +168,7 @@ class LongVideoChainService {
     if (segmentIndex < totalSegments) {
       batch.creatingNextFor = segmentIndex;
       try {
-        await this.createNextSegment(task, meta, scripts, videoUrl);
+        await this.createNextSegment(task, meta, scripts, videoUrl, batch.characterReferenceUrls, batch.characterDescription);
       } finally {
         batch.creatingNextFor = null;
       }
@@ -176,7 +182,9 @@ class LongVideoChainService {
     _currentTask: Task,
     currentMeta: LongVideoMeta,
     scripts: VideoSegmentScript[],
-    videoUrl?: string
+    videoUrl?: string,
+    characterReferenceUrls?: string[],
+    characterDescription?: string
   ): Promise<void> {
     const nextIndex = currentMeta.segmentIndex + 1;
     const nextScript = scripts.find(s => s.index === nextIndex);
@@ -204,6 +212,8 @@ class LongVideoChainService {
       ...currentMeta,
       segmentIndex: nextIndex,
       needsLastFrame: nextIndex < currentMeta.totalSegments,
+      characterReferenceUrls: characterReferenceUrls ?? currentMeta.characterReferenceUrls,
+      characterDescription: characterDescription ?? currentMeta.characterDescription,
     };
 
     // 创建任务

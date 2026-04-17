@@ -11,6 +11,7 @@ import { normalizeImageDataUrl } from '@aitu/utils';
 import { subscribeAssetMap, getAssetMapSnapshot } from '../../../stores/asset-map-store';
 import { AssetType } from '../../../types/asset.types';
 import { MarkdownAudioAssetCard } from '../MarkdownAudioAssetCard';
+import { VideoPosterPreview } from '../../shared/VideoPosterPreview';
 import { assetEmbedSchema } from './schema';
 
 interface AssetEmbedViewProps {
@@ -48,12 +49,19 @@ const AssetEmbedView: React.FC<AssetEmbedViewProps> = ({ assetId, assetType, lab
   if (asset.type === AssetType.VIDEO) {
     return (
       <div className="collimind-asset-embed__video-wrap">
-        <video
+        <VideoPosterPreview
           className="collimind-asset-embed__video"
           src={asset.url}
-          controls
-          preload="metadata"
-          playsInline
+          poster={asset.thumbnail}
+          alt={label || asset.name || '素材视频'}
+          thumbnailSize="large"
+          activateVideoOnClick
+          playOnActivate
+          videoProps={{
+            controls: true,
+            preload: 'metadata',
+            playsInline: true,
+          }}
         />
         {(label || asset.name) && (
           <div className="collimind-asset-embed__caption">{label || asset.name}</div>

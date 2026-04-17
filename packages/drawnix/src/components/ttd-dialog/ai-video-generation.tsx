@@ -119,6 +119,16 @@ function isVideoOptionValueValid(
   return options.some((option) => option.value === value);
 }
 
+function normalizeVideoAspectRatioValue(value?: string | null): string | null {
+  const normalized = value?.trim().replace(/[xX]/g, ':');
+  return normalized && /^\d+:\d+$/.test(normalized) ? normalized : null;
+}
+
+function extractSeedanceResolution(size?: string | null): string | null {
+  const resolution = size?.split('@')[0]?.trim();
+  return resolution && /^\d+p$/.test(resolution) ? resolution : null;
+}
+
 interface AIVideoGenerationProps {
   initialPrompt?: string;
   initialImage?: ImageFile; // 保留单图片支持（向后兼容）
@@ -246,6 +256,41 @@ const AIVideoGeneration = ({
       ),
     [currentModel, currentModelRef, videoSelectedParams]
   );
+  const videoOptionsConfig = React.useMemo(() => {
+    if (modelConfig.provider !== 'seedance') {
+      return modelConfig;
+    }
+
+    const selectedAspectRatio =
+      normalizeVideoAspectRatioValue(videoSelectedParams.aspect_ratio) ||
+      normalizeVideoAspectRatioValue(videoSelectedParams.aspectRatio) ||
+      '16:9';
+    const seenResolutions = new Set<string>();
+    const resolutionOptions = modelConfig.sizeOptions
+      .map((option) => extractSeedanceResolution(option.value))
+      .filter((value): value is string => {
+        if (!value || seenResolutions.has(value)) {
+          return false;
+        }
+        seenResolutions.add(value);
+        return true;
+      });
+    const sizeOptions = resolutionOptions.map((resolution) => ({
+      label: resolution,
+      value: `${resolution}@${selectedAspectRatio}`,
+      aspectRatio: selectedAspectRatio,
+    }));
+    const defaultResolution =
+      extractSeedanceResolution(modelConfig.defaultSize) ||
+      resolutionOptions[0] ||
+      '720p';
+
+    return {
+      ...modelConfig,
+      sizeOptions,
+      defaultSize: `${defaultResolution}@${selectedAspectRatio}`,
+    };
+  }, [modelConfig, videoSelectedParams.aspectRatio, videoSelectedParams.aspect_ratio]);
   const defaultParams = React.useMemo(
     () =>
       getEffectiveVideoDefaultParams(
@@ -287,17 +332,30 @@ const AIVideoGeneration = ({
   const [size, setSize] = useState(initialSize || initialScopedVideoPreferences.size);
   const effectiveDuration = React.useMemo(
     () =>
-      isVideoOptionValueValid(duration, modelConfig.durationOptions)
+      isVideoOptionValueValid(duration, videoOptionsConfig.durationOptions)
         ? duration
-        : modelConfig.defaultDuration,
-    [duration, modelConfig.defaultDuration, modelConfig.durationOptions]
+        : videoOptionsConfig.defaultDuration,
+    [duration, videoOptionsConfig.defaultDuration, videoOptionsConfig.durationOptions]
   );
   const effectiveSize = React.useMemo(
-    () =>
-      isVideoOptionValueValid(size, modelConfig.sizeOptions)
-        ? size
-        : modelConfig.defaultSize,
-    [modelConfig.defaultSize, modelConfig.sizeOptions, size]
+    () => {
+      if (isVideoOptionValueValid(size, videoOptionsConfig.sizeOptions)) {
+        return size;
+      }
+
+      if (videoOptionsConfig.provider === 'seedance') {
+        const resolution = extractSeedanceResolution(size);
+        const matchedOption = videoOptionsConfig.sizeOptions.find(
+          (option) => extractSeedanceResolution(option.value) === resolution
+        );
+        if (matchedOption) {
+          return matchedOption.value;
+        }
+      }
+
+      return videoOptionsConfig.defaultSize;
+    },
+    [size, videoOptionsConfig]
   );
   const hasCompatibleParams = React.useMemo(() => {
     // 排除 size 和 duration（已有专用 UI），只看是否有额外参数
@@ -1201,7 +1259,7 @@ const AIVideoGeneration = ({
             {/* 模型额外参数（排除 size 和 duration，已有 VideoModelOptions） */}
             {hasCompatibleParams && (
               <div className="model-params-row">
-                <ParametersDropdown
+              <ParametersDropdown
                   selectedParams={videoSelectedParams}
                   onParamChange={handleVideoParamChange}
                   compatibleParams={compatibleVideoParams}
@@ -1216,7 +1274,7 @@ const AIVideoGeneration = ({
             {/* Video model options: duration & size */}
             <VideoModelOptions
               model={currentModel}
-              configOverride={modelConfig}
+              configOverride={videoOptionsConfig}
               duration={effectiveDuration}
               size={effectiveSize}
               onDurationChange={setDuration}

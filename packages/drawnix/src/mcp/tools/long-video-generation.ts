@@ -39,6 +39,8 @@ export interface LongVideoGenerationParams {
   size?: string;
   /** 首帧参考图片 URL（可选，用于第一段视频） */
   firstFrameImage?: string;
+  /** 角色一致性描述（如"a young woman with black hair, red jacket"），注入每段 prompt 以锚定角色外观 */
+  characterDescription?: string;
 }
 
 /**
@@ -75,6 +77,10 @@ export interface LongVideoMeta {
   model: VideoModel;
   /** 视频尺寸 */
   size: string;
+  /** 角色参考图 URL 列表，传递给每个片段任务以保持角色一致性 */
+  characterReferenceUrls?: string[];
+  /** 角色一致性描述，注入每段 prompt 以锚定角色外观 */
+  characterDescription?: string;
 }
 
 /**
@@ -82,8 +88,16 @@ export interface LongVideoMeta {
  */
 function getScriptGenerationPrompt(
   segmentCount: number,
-  segmentDuration: number
+  segmentDuration: number,
+  characterDescription?: string
 ): string {
+  const characterRule = characterDescription
+    ? `\n角色一致性要求（极其重要！）：
+- 视频中有固定角色，描述为："${characterDescription}"
+- 每个片段的 prompt 必须以 "The same ${characterDescription}," 开头
+- 角色的外貌（发型、服装、体型等）在所有片段中保持完全一致，不得改变\n`
+    : '';
+
   return `你是一个专业的视频脚本编剧。用户会给你一个视频主题，你需要将其拆分为 ${segmentCount} 个连续的视频片段脚本。
 
 要求：
@@ -91,7 +105,7 @@ function getScriptGenerationPrompt(
 2. 片段之间要保持叙事连贯性，画面能自然衔接
 3. 每个片段的描述要具体、可视化，包含：场景、主体、动作、镜头运动
 4. 使用英文撰写描述以获得更好的生成效果
-
+${characterRule}
 拼接衔接要求（极其重要！）：
 1. 视觉锚点：相邻片段之间必须有一个共同的视觉元素，确保画面连贯
 2. 运镜方向延续：如果一个片段结尾是向右平移，下一个片段开头应继续向右或保持静止
@@ -163,12 +177,13 @@ async function generateVideoScript(
   userPrompt: string,
   segmentCount: number,
   segmentDuration: number,
+  characterDescription?: string,
   onChunk?: (chunk: string) => void
 ): Promise<VideoSegmentScript[]> {
   const settings = geminiSettings.get();
   const textModel = settings.textModelName;
 
-  const systemPrompt = getScriptGenerationPrompt(segmentCount, segmentDuration);
+  const systemPrompt = getScriptGenerationPrompt(segmentCount, segmentDuration, characterDescription);
 
   const messages: GeminiMessage[] = [
     {
@@ -223,6 +238,11 @@ export function createLongVideoSegmentTask(
     });
   }
 
+  // 构建参考图列表：角色参考图（用于保持角色一致性）
+  const referenceImages = meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
+    ? meta.characterReferenceUrls
+    : undefined;
+
   // 创建任务
   const task = taskQueueService.createTask(
     {
@@ -231,6 +251,7 @@ export function createLongVideoSegmentTask(
       duration: segment.duration,
       model: meta.model,
       uploadedImages: uploadedImages.length > 0 ? uploadedImages : undefined,
+      referenceImages,
       // 长视频链式生成元数据
       longVideoMeta: meta,
       // 批量参数（用于UI展示）
@@ -260,6 +281,7 @@ async function executeLongVideoGeneration(
     model = DEFAULT_LONG_VIDEO_MODEL,
     size = '16x9',
     firstFrameImage,
+    characterDescription,
   } = params;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -290,6 +312,7 @@ async function executeLongVideoGeneration(
       prompt,
       segmentCount,
       segmentDuration,
+      characterDescription,
       options.onChunk
     );
 
@@ -315,11 +338,10 @@ async function executeLongVideoGeneration(
       scripts, // 保存完整脚本供后续使用
       model,
       size,
+      characterDescription,
     };
 
     const firstTask = createLongVideoSegmentTask(firstScript, meta, firstFrameImage);
-
-    // 只添加第一个视频片段步骤到工作流
     // 后续片段和合并由 long-video-chain-service 自动处理，不在工作流中显示
     options.onAddSteps?.([{
       id: firstTask.id,

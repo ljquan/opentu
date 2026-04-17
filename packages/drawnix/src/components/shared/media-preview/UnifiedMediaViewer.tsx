@@ -3,7 +3,7 @@
  * 支持单图预览、对比预览和编辑模式，可相互切换
  */
 
-import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
@@ -48,6 +48,7 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
   const editStatesRef = useRef<Map<string, ImageEditState>>(new Map());
   // 对比模式下各槽位的 MediaViewport ref（用于视频联动控制）
   const viewportRefs = useRef<(MediaViewportRef | null)[]>([]);
+  const singleViewportRef = useRef<MediaViewportRef | null>(null);
   // 用于防止视频同步时的循环触发
   const isSyncingVideoRef = useRef(false);
 
@@ -192,13 +193,21 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
     if (!visible) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 避免在输入框等元素中触发
+      const target = e.target instanceof HTMLElement ? e.target : null;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLButtonElement ||
+        target?.isContentEditable
       ) {
         return;
       }
+
+      const activeViewportRef =
+        mode === 'single'
+          ? singleViewportRef.current
+          : viewportRefs.current[focusedSlot] || null;
 
       switch (e.key) {
         case 'Escape':
@@ -272,6 +281,13 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
             actions.resetView();
           }
           break;
+        case ' ':
+        case 'Spacebar':
+          if (activeViewportRef?.isVideo()) {
+            e.preventDefault();
+            activeViewportRef.toggleVideoPlayback();
+          }
+          break;
         case 's':
         case 'S':
           if (mode === 'compare') {
@@ -286,7 +302,7 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [visible, mode, items.length, items, currentIndex, actions, onClose, slotCount, goToNextGroup, goToPrevGroup, switchToEditImage, handleResetViewWithVideos]);
+  }, [visible, mode, items.length, items, currentIndex, focusedSlot, actions, onClose, slotCount, goToNextGroup, goToPrevGroup, switchToEditImage, handleResetViewWithVideos]);
 
   // 全屏处理
   const handleFullscreen = useCallback(() => {
@@ -555,6 +571,7 @@ export const UnifiedMediaViewer: React.FC<UnifiedMediaViewerProps> = ({
 
         {/* 主展示区 */}
         <MediaViewport
+          ref={singleViewportRef}
           item={currentItem}
           zoomLevel={zoomLevel}
           panOffset={panOffset}

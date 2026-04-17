@@ -2,10 +2,10 @@
  * 视频拆解器内部类型定义
  */
 
-import type { VideoAnalysisData, VideoShot } from '../../services/video-analysis-service';
+import type { VideoAnalysisData, VideoShot, VideoCharacter } from '../../services/video-analysis-service';
 import { createModelRef, type ModelRef } from '../../utils/settings-manager';
 
-export type { VideoAnalysisData, VideoShot };
+export type { VideoAnalysisData, VideoShot, VideoCharacter };
 
 /** 页面标识 */
 export type PageId = 'analyze' | 'script' | 'generate' | 'history';
@@ -104,6 +104,8 @@ export interface AnalysisRecord {
   analysis: VideoAnalysisData;
   /** 用户编辑后的脚本 */
   editedShots?: VideoShot[];
+  /** 角色列表（含用户设置的 referenceImageUrl），优先级高于 analysis.characters */
+  characters?: VideoCharacter[];
   /** 商品信息 */
   productInfo?: ProductInfo;
   /** 关联的生成任务 batchId */

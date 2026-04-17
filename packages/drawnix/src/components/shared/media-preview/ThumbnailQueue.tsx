@@ -6,6 +6,7 @@ import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { Play, CheckCircle, Music4 } from 'lucide-react';
 import { isDataURL, normalizeImageDataUrl } from '@aitu/utils';
 import { AudioCover } from '../AudioCover';
+import { VideoPosterPreview } from '../VideoPosterPreview';
 import type { ThumbnailQueueProps, MediaItem } from './types';
 import './ThumbnailQueue.scss';
 
@@ -171,11 +172,16 @@ export const ThumbnailQueue: React.FC<ThumbnailQueueProps> = ({
           <div className="thumbnail-queue__thumb">
             {isVideo ? (
               <>
-                <video
+                <VideoPosterPreview
                   src={normalizedUrl}
+                  poster={posterUrl || undefined}
                   className="thumbnail-queue__video"
-                  muted
-                  preload="metadata"
+                  alt={item.alt || item.title || ''}
+                  thumbnailSize="small"
+                  videoProps={{
+                    muted: true,
+                    preload: 'metadata',
+                  }}
                 />
                 <div className="thumbnail-queue__video-icon">
                   <Play size={16} />

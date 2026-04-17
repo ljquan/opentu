@@ -14,6 +14,23 @@ import type {
 } from '../types/video.types';
 import { getModelConfig, ModelVendor } from './model-config';
 
+const SEEDANCE_ASPECT_RATIO_OPTIONS = [
+  { label: '横屏 16:9', aspectRatio: '16:9' },
+  { label: '竖屏 9:16', aspectRatio: '9:16' },
+  { label: '方形 1:1', aspectRatio: '1:1' },
+] as const;
+
+const SEEDANCE_RESOLUTION_OPTIONS = ['1080p', '720p', '480p'] as const;
+
+const SEEDANCE_SIZE_OPTIONS: SizeOption[] = SEEDANCE_RESOLUTION_OPTIONS.flatMap(
+  (resolution) =>
+    SEEDANCE_ASPECT_RATIO_OPTIONS.map(({ label, aspectRatio }) => ({
+      label: `${resolution} · ${label}`,
+      value: `${resolution}@${aspectRatio}`,
+      aspectRatio,
+    }))
+);
+
 /**
  * Video model configurations
  * Each model has specific duration, size, and image upload options
@@ -331,12 +348,8 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
       { label: '10秒', value: '10' },
     ],
     defaultDuration: '5',
-    sizeOptions: [
-      { label: '1080p', value: '1080p', aspectRatio: '16:9' },
-      { label: '720p', value: '720p', aspectRatio: '16:9' },
-      { label: '480p', value: '480p', aspectRatio: '16:9' },
-    ],
-    defaultSize: '720p',
+    sizeOptions: SEEDANCE_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
     imageUpload: {
       maxCount: 2,
       mode: 'frames',
@@ -353,12 +366,8 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
       { label: '10秒', value: '10' },
     ],
     defaultDuration: '5',
-    sizeOptions: [
-      { label: '1080p', value: '1080p', aspectRatio: '16:9' },
-      { label: '720p', value: '720p', aspectRatio: '16:9' },
-      { label: '480p', value: '480p', aspectRatio: '16:9' },
-    ],
-    defaultSize: '720p',
+    sizeOptions: SEEDANCE_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
     imageUpload: {
       maxCount: 2,
       mode: 'frames',
@@ -375,12 +384,8 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
       { label: '10秒', value: '10' },
     ],
     defaultDuration: '5',
-    sizeOptions: [
-      { label: '1080p', value: '1080p', aspectRatio: '16:9' },
-      { label: '720p', value: '720p', aspectRatio: '16:9' },
-      { label: '480p', value: '480p', aspectRatio: '16:9' },
-    ],
-    defaultSize: '720p',
+    sizeOptions: SEEDANCE_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
     imageUpload: {
       maxCount: 1,
       mode: 'frames',
@@ -397,12 +402,8 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
       { label: '10秒', value: '10' },
     ],
     defaultDuration: '5',
-    sizeOptions: [
-      { label: '1080p', value: '1080p', aspectRatio: '16:9' },
-      { label: '720p', value: '720p', aspectRatio: '16:9' },
-      { label: '480p', value: '480p', aspectRatio: '16:9' },
-    ],
-    defaultSize: '720p',
+    sizeOptions: SEEDANCE_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
     imageUpload: {
       maxCount: 4,
       mode: 'reference',
@@ -630,18 +631,46 @@ export function getDefaultModelParams(model: VideoModel): {
   };
 }
 
+function normalizeVideoAspectRatio(aspectRatio?: string | null): string | undefined {
+  const normalized = aspectRatio?.trim().replace(/[xX]/g, ':');
+  return normalized && /^\d+:\d+$/.test(normalized) ? normalized : undefined;
+}
+
 /**
  * 获取模型下可安全使用的视频尺寸。
  * 若传入尺寸为空或不受当前模型支持，则回退到模型默认尺寸。
  */
 export function getValidVideoSize(
   model: VideoModel,
-  size?: string | null
+  size?: string | null,
+  aspectRatio?: string | null
 ): string {
   const config = getConfigOrDefault(model);
   if (size && config.sizeOptions.some(option => option.value === size)) {
     return size;
   }
+  const normalizedAspectRatio = normalizeVideoAspectRatio(aspectRatio);
+  const legacyResolution = size && /^\d+p$/.test(size) ? size : undefined;
+
+  if (legacyResolution) {
+    const resolutionMatch = config.sizeOptions.find((option) => (
+      option.value.startsWith(`${legacyResolution}@`) &&
+      (!normalizedAspectRatio || option.aspectRatio === normalizedAspectRatio)
+    ));
+    if (resolutionMatch) {
+      return resolutionMatch.value;
+    }
+  }
+
+  if (normalizedAspectRatio) {
+    const aspectRatioMatch = config.sizeOptions.find(
+      (option) => option.aspectRatio === normalizedAspectRatio
+    );
+    if (aspectRatioMatch) {
+      return aspectRatioMatch.value;
+    }
+  }
+
   return config.defaultSize;
 }
 

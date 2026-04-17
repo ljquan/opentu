@@ -43,14 +43,29 @@ const resolveActualModel = (logicalId: string, resolution: string): string => {
   return `doubao-${normalized}_${resolution}`;
 };
 
+const normalizeAspectRatio = (aspectRatio?: string): string | undefined => {
+  const normalized = aspectRatio?.trim().replace(/[xX]/g, ':');
+  return normalized && /^\d+:\d+$/.test(normalized) ? normalized : undefined;
+};
+
+const parseSeedanceSize = (
+  size?: string
+): { resolution?: string; aspectRatio?: string } => {
+  if (!size) {
+    return {};
+  }
+  const [resolution, rawAspectRatio] = size.split('@');
+  return {
+    resolution: /^\d+p$/.test(resolution) ? resolution : undefined,
+    aspectRatio: normalizeAspectRatio(rawAspectRatio),
+  };
+};
+
 /**
  * 从 size 参数提取分辨率（480p/720p/1080p）
  */
 const extractResolution = (size?: string): string => {
-  if (size && /^\d+p$/.test(size)) {
-    return size;
-  }
-  return '720p';
+  return parseSeedanceSize(size).resolution || '720p';
 };
 
 const resolveBaseUrl = (context: AdapterContext): string => {
@@ -194,11 +209,13 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
     const logicalModel = request.model || 'seedance-1.5-pro';
     const resolution = extractResolution(request.size);
     const actualModel = resolveActualModel(logicalModel, resolution);
+    const parsedSize = parseSeedanceSize(request.size);
 
-    // 宽高比从 params.aspect_ratio 或默认 16:9
+    // 宽高比优先取显式参数，其次回退到 size 中的组合值
     const aspectRatio =
-      (request.params?.aspect_ratio as string | undefined) ||
-      (request.params?.aspectRatio as string | undefined) ||
+      normalizeAspectRatio(request.params?.aspect_ratio as string | undefined) ||
+      normalizeAspectRatio(request.params?.aspectRatio as string | undefined) ||
+      parsedSize.aspectRatio ||
       '16:9';
 
     // 首帧/尾帧：referenceImages[0] = 首帧, referenceImages[1] = 尾帧

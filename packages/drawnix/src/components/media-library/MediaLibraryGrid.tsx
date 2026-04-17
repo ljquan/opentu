@@ -38,9 +38,8 @@ import {
 } from '../icons';
 import { useAssets } from '../../contexts/AssetContext';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
-import { filterAssets, formatFileSize, formatDate } from '../../utils/asset-utils';
+import { filterAssets, formatFileSize } from '../../utils/asset-utils';
 import { useDeviceType } from '../../hooks/useDeviceType';
-import { normalizeImageDataUrl } from '@aitu/utils';
 import { VirtualAssetGrid } from './VirtualAssetGrid';
 import { MediaLibraryEmpty } from './MediaLibraryEmpty';
 import { ViewModeToggle } from './ViewModeToggle';
@@ -80,6 +79,30 @@ const VIEW_MODE_DEBOUNCE_MS = 150;
 // localStorage keys
 const VIEW_MODE_STORAGE_KEY = 'media-library-view-mode';
 const GRID_SIZE_STORAGE_KEY = 'media-library-grid-size';
+
+function normalizeImageDataUrl(value: string, fallbackMimeType = 'image/png'): string {
+  const trimmed = value.trim();
+
+  if (
+    !trimmed ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../')
+  ) {
+    return trimmed || value;
+  }
+
+  const normalized = trimmed.replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized) || normalized.length < 32) {
+    return trimmed;
+  }
+
+  return `data:${fallbackMimeType};base64,${normalized}`;
+}
 
 // 从 localStorage 读取视图模式
 const getStoredViewMode = (): ViewMode => {
@@ -150,6 +173,51 @@ const SORT_GROUPS = [
   },
 ];
 
+interface SelectionScopeSnapshot {
+  activeType?: AssetType;
+  activeSource?: AssetSource;
+  searchQuery: string;
+  playlistId: string | null;
+}
+
+interface SelectionState {
+  scope: SelectionScopeSnapshot | null;
+  selectedIds: Set<string>;
+  deselectedIds: Set<string>;
+}
+
+function createEmptySelectionState(): SelectionState {
+  return {
+    scope: null,
+    selectedIds: new Set<string>(),
+    deselectedIds: new Set<string>(),
+  };
+}
+
+function matchesSelectionScope(
+  asset: Asset,
+  scope: SelectionScopeSnapshot | null,
+  playlistAssetIdSets: Map<string, Set<string>>
+): boolean {
+  if (!scope) return false;
+
+  const matchesType = !scope.activeType || asset.type === scope.activeType;
+  const matchesSource = !scope.activeSource || asset.source === scope.activeSource;
+  const matchesSearch =
+    !scope.searchQuery || asset.name.toLowerCase().includes(scope.searchQuery);
+
+  let matchesPlaylist = true;
+  if (scope.playlistId) {
+    if (scope.playlistId === AUDIO_PLAYLIST_ALL_ID) {
+      matchesPlaylist = asset.type === AssetType.AUDIO;
+    } else {
+      matchesPlaylist = playlistAssetIdSets.get(scope.playlistId)?.has(asset.id) ?? false;
+    }
+  }
+
+  return matchesType && matchesSource && matchesSearch && matchesPlaylist;
+}
+
 export function MediaLibraryGrid({
   filterType,
   selectedAssetId,
@@ -159,7 +227,7 @@ export function MediaLibraryGrid({
   onUploadClick,
   storageStatus,
 }: MediaLibraryGridProps) {
-  const { assets, filters, loading, setFilters, removeAssets, removeAsset, syncedUrls, loadSyncedUrls } = useAssets();
+  const { assets, filters, loading, setFilters, removeAssets, syncedUrls, loadSyncedUrls } = useAssets();
   const {
     playlists,
     favoriteAssetIds,
@@ -177,7 +245,9 @@ export function MediaLibraryGrid({
   const { isMobile } = useDeviceType();
   const [isDragging, setIsDragging] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [selectionState, setSelectionState] = useState<SelectionState>(() =>
+    createEmptySelectionState()
+  );
   const [gridSize, setGridSize] = useState<number>(getStoredGridSize); // 从缓存恢复网格尺寸
   const lastSelectedIdRef = useRef<string | null>(null); // 记录上次选中的素材ID，用于Shift连选
   
@@ -315,9 +385,30 @@ export function MediaLibraryGrid({
   }, [assets, filters, selectedPlaylistId, getPlaylistAssetIds]);
 
   const currentPlaylistAssetIds = useMemo(
-    () => new Set(selectedPlaylistId ? getPlaylistAssetIds(selectedPlaylistId) : []),
+    () =>
+      new Set(
+        selectedPlaylistId && selectedPlaylistId !== AUDIO_PLAYLIST_ALL_ID
+          ? getPlaylistAssetIds(selectedPlaylistId)
+          : []
+      ),
     [getPlaylistAssetIds, selectedPlaylistId]
   );
+
+  const playlistAssetIdSets = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    Object.keys(playlistItems).forEach((playlistId) => {
+      const items = playlistItems[playlistId] ?? [];
+      result.set(
+        playlistId,
+        new Set(
+          items
+            .map((item) => item.assetId)
+            .filter((assetId): assetId is string => typeof assetId === 'string' && assetId.length > 0)
+        )
+      );
+    });
+    return result;
+  }, [playlistItems]);
 
   const handleAssetDownload = useCallback(async (asset: Asset) => {
     await smartDownload([buildAssetDownloadItem(asset)]);
@@ -476,7 +567,7 @@ export function MediaLibraryGrid({
         }, 100);
       });
     }, VIEW_MODE_DEBOUNCE_MS);
-  }, [viewMode]);
+  }, [gridSize, viewMode]);
 
   // 清理防抖定时器
   useEffect(() => {
@@ -487,21 +578,53 @@ export function MediaLibraryGrid({
     };
   }, []);
 
+  const getSelectionScopeSnapshot = useCallback((): SelectionScopeSnapshot => {
+    return {
+      activeType:
+        filters.activeType && filters.activeType !== 'ALL'
+          ? (filters.activeType as AssetType)
+          : undefined,
+      activeSource:
+        filters.activeSource && filters.activeSource !== 'ALL'
+          ? (filters.activeSource as AssetSource)
+          : undefined,
+      searchQuery: filters.searchQuery.trim().toLowerCase(),
+      playlistId: selectedPlaylistId || null,
+    };
+  }, [filters.activeSource, filters.activeType, filters.searchQuery, selectedPlaylistId]);
+
+  const isAssetSelected = useCallback((asset: Asset): boolean => {
+    if (selectionState.selectedIds.has(asset.id)) {
+      return true;
+    }
+
+    return (
+      matchesSelectionScope(asset, selectionState.scope, playlistAssetIdSets) &&
+      !selectionState.deselectedIds.has(asset.id)
+    );
+  }, [playlistAssetIdSets, selectionState]);
+
+  const filteredSelectedAssets = useMemo(() => {
+    return filteredResult.assets.filter(isAssetSelected);
+  }, [filteredResult.assets, isAssetSelected]);
+
+  const filteredSelectedCount = filteredSelectedAssets.length;
+
   // 全选逻辑
   const isAllSelected = useMemo(() => {
     if (filteredResult.assets.length === 0) return false;
-    return filteredResult.assets.every(asset => selectedAssetIds.has(asset.id));
-  }, [filteredResult.assets, selectedAssetIds]);
-
-  // 当前筛选结果中被选中的数量
-  const filteredSelectedCount = useMemo(() => {
-    return filteredResult.assets.filter(asset => selectedAssetIds.has(asset.id)).length;
-  }, [filteredResult.assets, selectedAssetIds]);
+    return filteredSelectedCount === filteredResult.assets.length;
+  }, [filteredResult.assets.length, filteredSelectedCount]);
 
   const isPartialSelected = useMemo(() => {
     if (filteredResult.assets.length === 0) return false;
     return filteredSelectedCount > 0 && filteredSelectedCount < filteredResult.assets.length;
   }, [filteredResult.assets.length, filteredSelectedCount]);
+
+  const clearSelectionState = useCallback(() => {
+    setSelectionState(createEmptySelectionState());
+    lastSelectedIdRef.current = null;
+  }, []);
 
   // 拖放事件处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -532,19 +655,28 @@ export function MediaLibraryGrid({
 
   // 批量选择处理
   const toggleSelectionMode = useCallback(() => {
-    setIsSelectionMode(prev => !prev);
-    setSelectedAssetIds(new Set()); // 清空选择
-  }, []);
+    setIsSelectionMode((prev) => !prev);
+    clearSelectionState();
+  }, [clearSelectionState]);
 
   const toggleSelectAll = useCallback(() => {
     if (isAllSelected) {
-      setSelectedAssetIds(new Set());
+      clearSelectionState();
     } else {
-      setSelectedAssetIds(new Set(filteredResult.assets.map(asset => asset.id)));
+      setSelectionState({
+        scope: getSelectionScopeSnapshot(),
+        selectedIds: new Set<string>(),
+        deselectedIds: new Set<string>(),
+      });
     }
-  }, [isAllSelected, filteredResult.assets]);
+  }, [clearSelectionState, getSelectionScopeSnapshot, isAllSelected]);
 
   const toggleAssetSelection = useCallback((assetId: string, event?: React.MouseEvent) => {
+    const currentAsset = filteredResult.assets.find((asset) => asset.id === assetId);
+    if (!currentAsset) {
+      return;
+    }
+
     // Shift 键连选逻辑
     if (event?.shiftKey && lastSelectedIdRef.current && lastSelectedIdRef.current !== assetId) {
       const lastIndex = filteredResult.assets.findIndex(a => a.id === lastSelectedIdRef.current);
@@ -553,12 +685,25 @@ export function MediaLibraryGrid({
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex);
         const end = Math.max(lastIndex, currentIndex);
-        const rangeIds = filteredResult.assets.slice(start, end + 1).map(a => a.id);
+        const rangeAssets = filteredResult.assets.slice(start, end + 1);
         
-        setSelectedAssetIds(prev => {
-          const newSet = new Set(prev);
-          rangeIds.forEach(id => newSet.add(id));
-          return newSet;
+        setSelectionState((prev) => {
+          const nextSelectedIds = new Set(prev.selectedIds);
+          const nextDeselectedIds = new Set(prev.deselectedIds);
+
+          rangeAssets.forEach((asset) => {
+            if (matchesSelectionScope(asset, prev.scope, playlistAssetIdSets)) {
+              nextDeselectedIds.delete(asset.id);
+            } else {
+              nextSelectedIds.add(asset.id);
+            }
+          });
+
+          return {
+            ...prev,
+            selectedIds: nextSelectedIds,
+            deselectedIds: nextDeselectedIds,
+          };
         });
         
         // 更新右侧面板显示最近点击的素材
@@ -568,14 +713,29 @@ export function MediaLibraryGrid({
     }
     
     // 普通点击切换选中状态
-    setSelectedAssetIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(assetId)) {
-        newSet.delete(assetId);
+    setSelectionState((prev) => {
+      const nextSelectedIds = new Set(prev.selectedIds);
+      const nextDeselectedIds = new Set(prev.deselectedIds);
+      const selectedByScope = matchesSelectionScope(currentAsset, prev.scope, playlistAssetIdSets);
+      const isSelected = nextSelectedIds.has(assetId) || (selectedByScope && !nextDeselectedIds.has(assetId));
+
+      if (isSelected) {
+        if (nextSelectedIds.has(assetId)) {
+          nextSelectedIds.delete(assetId);
+        } else if (selectedByScope) {
+          nextDeselectedIds.add(assetId);
+        }
+      } else if (selectedByScope) {
+        nextDeselectedIds.delete(assetId);
       } else {
-        newSet.add(assetId);
+        nextSelectedIds.add(assetId);
       }
-      return newSet;
+
+      return {
+        ...prev,
+        selectedIds: nextSelectedIds,
+        deselectedIds: nextDeselectedIds,
+      };
     });
     
     // 记录本次选中的 ID
@@ -583,13 +743,11 @@ export function MediaLibraryGrid({
     
     // 更新右侧面板显示最近点击的素材
     onSelectAsset(assetId);
-  }, [filteredResult.assets, onSelectAsset]);
+  }, [filteredResult.assets, onSelectAsset, playlistAssetIdSets]);
 
   // 批量删除处理（同时删除画布上使用这些素材的元素）
   // 只删除当前筛选结果中被选中的素材
   const handleBatchDelete = useCallback(async () => {
-    // 只获取筛选结果中被选中的素材
-    const filteredSelectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
     const idsToDelete = filteredSelectedAssets.map(a => a.id);
     
     if (idsToDelete.length === 0) return;
@@ -619,27 +777,16 @@ export function MediaLibraryGrid({
       
       // 然后删除素材本身
       await removeAssets(idsToDelete);
-      // 从选中集合中移除已删除的项（保留其他筛选条件下的选中项）
-      setSelectedAssetIds(prev => {
-        const newSet = new Set(prev);
-        idsToDelete.forEach(id => newSet.delete(id));
-        return newSet;
-      });
-      // 如果没有剩余选中项，退出选择模式
-      if (selectedAssetIds.size - idsToDelete.length === 0) {
-        setIsSelectionMode(false);
-      }
+      clearSelectionState();
+      setIsSelectionMode(false);
     } catch (error) {
       console.error('[MediaLibraryGrid] Batch delete failed:', error);
     }
-  }, [selectedAssetIds, removeAssets, board, filteredResult.assets]);
+  }, [board, clearSelectionState, filteredSelectedAssets, removeAssets]);
 
   // 计算批量删除时会影响的画布元素数量
   // 只计算当前筛选结果中被选中的素材
   const batchDeleteWarningInfo = useMemo(() => {
-    // 获取筛选后被选中的素材
-    const filteredSelectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
-    
     if (!board || filteredSelectedAssets.length === 0) {
       return { hasCacheAssets: false, affectedCount: 0 };
     }
@@ -652,7 +799,7 @@ export function MediaLibraryGrid({
     }
     
     return { hasCacheAssets: cacheAssets.length > 0, affectedCount };
-  }, [board, selectedAssetIds, filteredResult.assets]);
+  }, [board, filteredSelectedAssets]);
 
   const handleBatchDeleteClick = useCallback(async () => {
     if (filteredSelectedCount === 0) {
@@ -670,7 +817,7 @@ export function MediaLibraryGrid({
           {batchDeleteWarningInfo.hasCacheAssets &&
           batchDeleteWarningInfo.affectedCount > 0 ? (
             <p style={{ marginTop: '8px', color: 'var(--td-error-color)' }}>
-              ⚠️ 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
+              <span role="img" aria-label="注意">⚠️</span> 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
             </p>
           ) : null}
         </>
@@ -701,17 +848,14 @@ export function MediaLibraryGrid({
   // 批量下载处理
   // 只下载当前筛选结果中被选中的素材
   const handleBatchDownload = useCallback(async () => {
-    // 只获取筛选结果中被选中的素材
-    const selectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
-    
-    if (selectedAssets.length === 0 || isDownloading) return;
+    if (filteredSelectedAssets.length === 0 || isDownloading) return;
     
     setIsDownloading(true);
     setDownloadProgress(0);
     
     try {
       await smartDownload(
-        buildAssetDownloadItems(selectedAssets),
+        buildAssetDownloadItems(filteredSelectedAssets),
         `素材_${new Date().toISOString().slice(0, 10)}.zip`,
         setDownloadProgress
       );
@@ -721,23 +865,18 @@ export function MediaLibraryGrid({
       setIsDownloading(false);
       setDownloadProgress(0);
     }
-  }, [selectedAssetIds, filteredResult.assets, isDownloading]);
+  }, [filteredSelectedAssets, isDownloading]);
 
   // 批量同步处理（上传到云端）
   // 同步当前筛选结果中被选中的素材（AI 生成和本地上传）
   const handleBatchSync = useCallback(async () => {
-    // 获取筛选结果中被选中的所有素材
-    const selectedAssets = filteredResult.assets.filter(a => 
-      selectedAssetIds.has(a.id)
-    );
-    
-    if (selectedAssets.length === 0 || isSyncing) return;
+    if (filteredSelectedAssets.length === 0 || isSyncing) return;
     
     // 收集所有可同步的媒体 URL（排除已同步的）
     const syncableUrls: string[] = [];
     
     // AI 生成素材：直接同步当前资产 URL（支持一个任务展开多条音频）
-    selectedAssets
+    filteredSelectedAssets
       .filter(a => a.source === AssetSource.AI_GENERATED)
       .forEach(a => {
         const syncStatus = mediaSyncService.getUrlSyncStatus(a.url);
@@ -747,7 +886,7 @@ export function MediaLibraryGrid({
       });
     
     // 本地上传素材：获取缓存 URL（排除已同步）
-    selectedAssets
+    filteredSelectedAssets
       .filter(a => a.source === AssetSource.LOCAL && a.url.startsWith('/__aitu_cache__/'))
       .forEach(a => {
         const syncStatus = mediaSyncService.getUrlSyncStatus(a.url);
@@ -789,21 +928,19 @@ export function MediaLibraryGrid({
       setIsSyncing(false);
       setSyncProgress(0);
     }
-  }, [selectedAssetIds, filteredResult.assets, isSyncing, loadSyncedUrls]);
+  }, [filteredSelectedAssets, isSyncing, loadSyncedUrls]);
   
   // 计算选中的可同步素材数量（排除已同步的）
   const syncableCount = useMemo(() => {
-    const selectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
-    
     // AI 生成素材：直接按资产 URL 判断是否可同步
-    const aiSyncable = selectedAssets.filter(a => {
+    const aiSyncable = filteredSelectedAssets.filter(a => {
       if (a.source !== AssetSource.AI_GENERATED) return false;
       const syncStatus = mediaSyncService.getUrlSyncStatus(a.url);
       return syncStatus !== 'synced';
     }).length;
     
     // 本地上传素材：检查是否有缓存 URL，且未同步
-    const localSyncable = selectedAssets.filter(a => {
+    const localSyncable = filteredSelectedAssets.filter(a => {
       if (a.source !== AssetSource.LOCAL) return false;
       // 只有在统一缓存中的本地素材才能同步
       if (!a.url.startsWith('/__aitu_cache__/')) return false;
@@ -813,7 +950,7 @@ export function MediaLibraryGrid({
     }).length;
     
     return aiSyncable + localSyncable;
-  }, [filteredResult.assets, selectedAssetIds]);
+  }, [filteredSelectedAssets]);
 
   const handleToggleFavorite = useCallback(async (asset: Asset) => {
     if (asset.type !== AssetType.AUDIO) return;
@@ -1254,7 +1391,7 @@ export function MediaLibraryGrid({
               viewMode={viewMode}
               gridSize={gridSize}
               selectedAssetId={selectedAssetId ?? undefined}
-              selectedAssetIds={selectedAssetIds}
+              isAssetSelected={isAssetSelected}
               isSelectionMode={isSelectionMode}
               onSelectAsset={isSelectionMode ? toggleAssetSelection : onSelectAsset}
               onDoubleClick={onDoubleClick}

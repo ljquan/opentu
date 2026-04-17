@@ -18,6 +18,7 @@ import { useAssetSize } from '../../hooks/useAssetSize';
 import { isCacheUrl, countElementsByAssetUrls } from '../../utils/asset-cleanup';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { ConfirmDialog } from '../dialog/ConfirmDialog';
+import { VideoPosterPreview } from '../shared/VideoPosterPreview';
 import type { MediaLibraryInspectorProps } from '../../types/asset.types';
 import './MediaLibraryInspector.scss';
 
@@ -201,11 +202,18 @@ export function MediaLibraryInspector({
             }}
           />
         ) : (
-          <video
+          <VideoPosterPreview
             src={normalizedAssetUrl}
-            controls
+            alt={asset.name}
             className="media-library-inspector__video"
-            poster={getThumbnailUrl(normalizedAssetUrl, 'large')}
+            poster={asset.thumbnail}
+            thumbnailSize="large"
+            activateVideoOnClick
+            playOnActivate
+            videoProps={{
+              controls: true,
+              preload: 'metadata',
+            }}
           />
         )}
       </div>

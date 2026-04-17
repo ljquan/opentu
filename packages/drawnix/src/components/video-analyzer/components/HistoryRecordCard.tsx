@@ -3,6 +3,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import type { AnalysisRecord } from '../types';
 import type { Task } from '../../../types/task.types';
 import { TaskStatus, TaskType } from '../../../types/task.types';
+import { VideoPosterPreview } from '../../shared/VideoPosterPreview';
 
 export interface RelatedTasks {
   rewrite: Task[];
@@ -243,18 +244,19 @@ const RelatedTaskItem: React.FC<{
       {hasResult && primaryUrl && task.type !== TaskType.CHAT && (
         <span className="va-history-related-task-thumb">
           {task.type === TaskType.VIDEO ? (
-            thumbnailUrl ? (
-              <img src={thumbnailUrl} alt="" referrerPolicy="no-referrer" />
-            ) : (
-              <video
-                src={primaryUrl}
-                preload="metadata"
-                muted
-                playsInline
-                poster={task.result?.thumbnailUrl}
-                aria-hidden="true"
-              />
-            )
+            <VideoPosterPreview
+              src={primaryUrl}
+              poster={thumbnailUrl || undefined}
+              alt=""
+              className="va-history-related-task-thumb-media"
+              thumbnailSize="small"
+              videoProps={{
+                preload: 'metadata',
+                muted: true,
+                playsInline: true,
+                'aria-hidden': true,
+              }}
+            />
           ) : (
             <img src={thumbnailUrl || primaryUrl} alt="" referrerPolicy="no-referrer" />
           )}
