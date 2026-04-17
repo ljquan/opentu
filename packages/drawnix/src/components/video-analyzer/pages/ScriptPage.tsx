@@ -407,7 +407,7 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
           </div>
           {segmentPlan.overflow > 0 && (
             <span className="va-duration-overflow">
-              实际 {segmentPlan.actualTotal}s（+{segmentPlan.overflow}s）
+              实际 {segmentPlan.actualTotal}s（+{parseFloat(segmentPlan.overflow.toFixed(2))}s）
             </span>
           )}
         </div>

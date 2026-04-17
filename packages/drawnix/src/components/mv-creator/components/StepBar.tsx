@@ -2,8 +2,8 @@ import React from 'react';
 import type { PageId } from '../types';
 
 const STEPS: Array<{ id: Exclude<PageId, 'history'>; label: string }> = [
-  { id: 'create', label: '创意' },
-  { id: 'storyboard', label: '分镜' },
+  { id: 'analyze', label: '分析' },
+  { id: 'script', label: '脚本' },
   { id: 'generate', label: '生成' },
 ];
 
@@ -29,7 +29,7 @@ export const StepBar: React.FC<StepBarProps> = ({
         const isActive = step.id === current;
         const isPast = index < currentIdx;
         const isDisabled =
-          (!hasRecord && index > 0) || (step.id === 'generate' && !hasShots);
+          (!hasRecord && index > 0) || ((step.id === 'script' || step.id === 'generate') && !hasShots);
 
         return (
           <React.Fragment key={step.id}>

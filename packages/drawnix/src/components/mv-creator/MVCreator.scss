@@ -1,5 +1,25 @@
 /* MV Creator 专属样式 — 大部分复用 video-analyzer + music-analyzer 的类 */
 
+/* 折叠/展开配置按钮 */
+.mv-creator .va-collapse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #888;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+
+  &:hover {
+    background: rgba(243, 156, 18, 0.08);
+    color: #666;
+  }
+}
+
 /* 分镜编辑字段 */
 .mv-creator .va-shot-edit-fields {
   display: flex;
@@ -73,5 +93,26 @@
   &:hover {
     background: rgba(243, 156, 18, 0.2);
     color: #333;
+  }
+}
+
+/* hover 大图/大视频预览（portal 到 body） */
+.mv-hover-preview {
+  position: fixed;
+  z-index: 20000;
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+  max-width: 360px;
+  max-height: 360px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+  background: #000;
+
+  img, video {
+    display: block;
+    max-width: 360px;
+    max-height: 360px;
+    object-fit: contain;
   }
 }

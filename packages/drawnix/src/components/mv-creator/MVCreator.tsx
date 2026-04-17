@@ -8,14 +8,15 @@ import React, { useState, useCallback, useEffect } from 'react';
 import type { MVRecord, PageId } from './types';
 import { loadRecords } from './storage';
 import { StepBar } from './components/StepBar';
-import { CreatePage } from './pages/CreatePage';
-import { StoryboardPage } from './pages/StoryboardPage';
+import { AnalyzePage } from './pages/AnalyzePage';
+import { ScriptPage } from './pages/ScriptPage';
 import { GeneratePage } from './pages/GeneratePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { taskQueueService } from '../../services/task-queue';
 import {
   isMVCreatorTask,
   syncMVStoryboardTask,
+  syncMVRewriteTask,
   getMVMusicRecordId,
   syncMVMusicTask,
 } from './task-sync';
@@ -24,7 +25,7 @@ import '../music-analyzer/MusicAnalyzer.scss';
 import './MVCreator.scss';
 
 const MVCreator: React.FC = () => {
-  const [page, setPage] = useState<PageId>('create');
+  const [page, setPage] = useState<PageId>('analyze');
   const [currentRecord, setCurrentRecord] = useState<MVRecord | null>(null);
   const [records, setRecords] = useState<MVRecord[]>([]);
   const [showStarred, setShowStarred] = useState(false);
@@ -41,11 +42,11 @@ const MVCreator: React.FC = () => {
     const syncTask = async (task: Parameters<typeof syncMVStoryboardTask>[0]) => {
       if (syncingTaskIds.has(task.id)) return;
 
-      // 分镜规划任务
+      // 分镜规划 / 脚本改编任务
       if (isMVCreatorTask(task)) {
         syncingTaskIds.add(task.id);
         try {
-          const synced = await syncMVStoryboardTask(task);
+          const synced = await syncMVStoryboardTask(task) || await syncMVRewriteTask(task);
           if (!synced || disposed) return;
           setRecords(synced.records);
           setCurrentRecord(prev => {
@@ -102,13 +103,12 @@ const MVCreator: React.FC = () => {
 
   const handleHistorySelect = useCallback((record: MVRecord) => {
     setCurrentRecord(record);
-    // 自动跳转到最新步骤
     if (record.editedShots && record.editedShots.length > 0) {
       setPage('generate');
     } else if (record.selectedClipId) {
-      setPage('storyboard');
+      setPage('analyze');
     } else {
-      setPage('create');
+      setPage('analyze');
     }
   }, []);
 
@@ -118,7 +118,7 @@ const MVCreator: React.FC = () => {
 
   const handleRestart = useCallback(() => {
     setCurrentRecord(null);
-    setPage('create');
+    setPage('analyze');
   }, []);
 
   const handleNavigate = useCallback((target: Exclude<PageId, 'history'>) => {
@@ -132,7 +132,7 @@ const MVCreator: React.FC = () => {
       <div className="va-nav">
         {page === 'history' ? (
           <>
-            <button className="va-nav-back" onClick={() => setPage('create')}>←</button>
+            <button className="va-nav-back" onClick={() => setPage('analyze')}>←</button>
             <span className="va-nav-title">{showStarred ? '收藏' : '历史记录'}</span>
             <button
               className={`va-nav-btn ${showStarred ? 'active' : ''}`}
@@ -165,17 +165,17 @@ const MVCreator: React.FC = () => {
         )}
       </div>
 
-      {page === 'create' && (
-        <CreatePage
+      {page === 'analyze' && (
+        <AnalyzePage
           existingRecord={currentRecord}
           onComplete={handleComplete}
           onRecordsChange={setRecords}
           onCreateNew={handleRestart}
-          onNext={currentRecord?.selectedClipId ? () => setPage('storyboard') : undefined}
+          onNext={currentRecord?.editedShots?.length ? () => setPage('script') : undefined}
         />
       )}
-      {page === 'storyboard' && currentRecord && (
-        <StoryboardPage
+      {page === 'script' && currentRecord && hasShots && (
+        <ScriptPage
           record={currentRecord}
           onRecordUpdate={handleRecordUpdate}
           onRecordsChange={setRecords}

@@ -52,7 +52,7 @@ export const videoAnalyzerTool: ToolPluginModule = {
     defaultWindowBehavior: {
       autoPinOnOpen: true,
     },
-    defaultWidth: 520,
+    defaultWidth: 680,
     defaultHeight: 700,
   },
   Component: VideoAnalyzerToolComponent,

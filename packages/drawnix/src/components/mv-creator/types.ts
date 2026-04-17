@@ -2,13 +2,13 @@
  * 爆款MV生成器 - 类型定义
  */
 
-import type { VideoShot } from '../../services/video-analysis-service';
+import type { VideoShot, VideoCharacter } from '../../services/video-analysis-service';
 import type { GeneratedClip } from '../music-analyzer/types';
 import type { ModelRef } from '../../utils/settings-manager';
 
-export type { VideoShot, GeneratedClip };
+export type { VideoShot, VideoCharacter, GeneratedClip };
 
-export type PageId = 'create' | 'storyboard' | 'generate' | 'history';
+export type PageId = 'analyze' | 'script' | 'generate' | 'history';
 
 /** MV 分镜版本快照 */
 export interface StoryboardVersion {
@@ -50,8 +50,12 @@ export interface MVRecord {
   videoSize?: string;
   videoStyle?: string;
   aspectRatio?: string;
+  /** 脚本页改编提示词（持久化） */
+  rewritePrompt?: string;
   /** AI 分镜规划任务 ID */
   pendingStoryboardTaskId?: string | null;
+  /** AI 脚本改编任务 ID */
+  pendingRewriteTaskId?: string | null;
   /** 编辑后的镜头列表 */
   editedShots?: VideoShot[];
   /** 分镜版本历史 */
@@ -60,7 +64,9 @@ export interface MVRecord {
 
   // ── 生成相关 ──
   batchId?: string;
-  /** 角色参考图 URL 列表，用于保持多镜头角色一致性 */
+  /** 角色列表（含用户设置的参考图），用于基于首帧的角色一致性 */
+  characters?: VideoCharacter[];
+  /** @deprecated 旧版扁平角色参考图列表，保留向后兼容 */
   characterReferenceUrls?: string[];
   /** 最近一次生成分镜的时间戳（用于过滤旧任务结果，防止污染新脚本） */
   storyboardGeneratedAt?: number;
