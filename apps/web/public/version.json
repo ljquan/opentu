@@ -1,6 +1,15 @@
 {
-  "version": "0.6.30",
-  "buildTime": "2026-04-16T02:41:20.295Z",
+  "version": "0.6.31",
+  "buildTime": "2026-04-17T16:30:30.039Z",
   "gitCommit": "unknown",
-  "changelog": []
+  "changelog": [
+    "improve markdown image resizing and placement",
+    "修复生成页多项 Bug 并优化单镜头生成参数透传",
+    "修正 tuzi 图片路由与 AI 生图弹窗标题",
+    "统一视频展示为海报优先并支持降级播放",
+    "修复归档任务导致音频素材元数据丢失",
+    "对齐爆款视频与爆款MV生成页交互",
+    "支持镜头草稿保存和素材库视频插入",
+    "串行化爆款视频批量生成"
+  ]
 }

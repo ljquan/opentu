@@ -1,3 +1,32 @@
+## 0.6.31 (2026-04-17)
+
+### 🚀 Features
+
+- 统一视频展示为海报优先并支持降级播放 ([4c7a1032](https://github.com/ljquan/aitu/commit/4c7a1032))
+- 对齐爆款视频与爆款MV生成页交互 ([ccf3c7b6](https://github.com/ljquan/aitu/commit/ccf3c7b6))
+- 支持镜头草稿保存和素材库视频插入 ([3fac4d35](https://github.com/ljquan/aitu/commit/3fac4d35))
+- 串行化爆款视频批量生成 ([3288d5cf](https://github.com/ljquan/aitu/commit/3288d5cf))
+- improve markdown image resizing and placement ([1becd9b0](https://github.com/ljquan/aitu/commit/1becd9b0))
+- 优化ppt导出 ([939e04f3](https://github.com/ljquan/aitu/commit/939e04f3))
+
+### 🩹 Fixes
+
+- 修复归档任务导致音频素材元数据丢失 ([2b4a450a](https://github.com/ljquan/aitu/commit/2b4a450a))
+- 修复生成页多项 Bug 并优化单镜头生成参数透传 ([f698b70f](https://github.com/ljquan/aitu/commit/f698b70f))
+- 修正 tuzi 图片路由与 AI 生图弹窗标题 ([8362bf8a](https://github.com/ljquan/aitu/commit/8362bf8a))
+
+### 🔧 Chores
+
+- bump version to 0.6.30 ([970fdf7d](https://github.com/ljquan/aitu/commit/970fdf7d))
+- bump version to 0.6.29 ([4f85263b](https://github.com/ljquan/aitu/commit/4f85263b))
+- refactor(mv-creator): 重构为 分析→脚本→生成 三步流程，对齐爆款视频生成 ([c9a3c42c](https://github.com/ljquan/aitu/commit/c9a3c42c))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- SaulgoodMan-C <271131037+SaulgoodMan-C@users.noreply.github.com>
+- liangyufeng <l.yfeng@qq.com>
+
 ## 0.6.29 (2026-04-15)
 
 ### 🚀 Features
