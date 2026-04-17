@@ -1,5 +1,5 @@
 /**
- * remark 插件：将 asset:// 素材引用转换为 assetEmbed 自定义节点
+ * remark 插件：将 asset:// 音频/视频素材引用转换为 assetEmbed 自定义节点
  *
  * 本插件注册在 Crepe 内置 remarkImageBlockPlugin 之后运行，
  * 需要同时匹配两种 MDAST 节点：
@@ -8,6 +8,7 @@
  */
 import { $remark } from '@milkdown/kit/utils';
 import { ASSET_URI_PREFIX } from '../../../utils/markdown-asset-embeds';
+import { parseMarkdownImageAlt } from '../../../utils/markdown-image-blocks';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface MdastNode {
@@ -19,19 +20,14 @@ interface MdastNode {
   [key: string]: any;
 }
 
-function parseAlt(alt: string): { assetType: string; label: string } {
-  const pipeIdx = alt.indexOf('|');
-  return {
-    assetType: pipeIdx > 0 ? alt.slice(0, pipeIdx) : 'image',
-    label: pipeIdx > 0 ? alt.slice(pipeIdx + 1) : alt,
-  };
-}
-
 function tryConvertToAssetEmbed(node: MdastNode): MdastNode | null {
   const url = node.url;
   if (!url?.startsWith(ASSET_URI_PREFIX)) return null;
   const assetId = url.slice(ASSET_URI_PREFIX.length);
-  const { assetType, label } = parseAlt(node.alt || '');
+  const parsedAlt = parseMarkdownImageAlt(node.alt || '');
+  const assetType = parsedAlt.assetType || 'image';
+  if (assetType === 'image') return null;
+  const label = parsedAlt.label || parsedAlt.rawAlt;
   return { type: 'assetEmbed', assetId, assetType, label };
 }
 
@@ -83,4 +79,3 @@ function transformAssetImages(node: MdastNode): void {
 }
 
 export const remarkAssetEmbed = $remark('remarkAssetEmbed', () => () => transformAssetImages as any);
-

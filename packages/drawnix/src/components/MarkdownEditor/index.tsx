@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, memo, useState, useContext } from 'react';
 import { editorViewCtx } from '@milkdown/kit/core';
-import { replaceAll } from '@milkdown/kit/utils';
+import { insert, replaceAll } from '@milkdown/kit/utils';
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import '@milkdown/crepe/theme/common/style.css';
@@ -11,6 +11,7 @@ import { AssetContext } from '../../contexts/asset-context-instance';
 import { AssetType, SelectionMode } from '../../types/asset.types';
 import { MediaLibraryModal } from '../media-library';
 import { assetEmbedPlugins } from './asset-embed-plugin';
+import { markdownImageBlockPlugins } from './image-block-plugin';
 import './MarkdownEditor.css';
 
 /** 编辑器模式 */
@@ -62,6 +63,7 @@ function handleImageUpload(file: File): Promise<string> {
 interface InternalEditorRef {
   getMarkdown: () => string;
   setMarkdown: (markdown: string) => void;
+  insertMarkdown: (markdown: string) => void;
   focus: () => void;
 }
 
@@ -113,6 +115,8 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
       },
     });
 
+    crepe.editor.use(markdownImageBlockPlugins);
+
     // 注册 asset-embed 插件（remark + schema + view）
     if (enableAssetEmbeds) {
       crepe.editor.use(assetEmbedPlugins);
@@ -149,6 +153,9 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
       getMarkdown: () => lastMarkdownRef.current,
       setMarkdown: (md: string) => {
         try { lastMarkdownRef.current = md; crepe.editor?.action(replaceAll(md)); } catch { /* 忽略 */ }
+      },
+      insertMarkdown: (md: string) => {
+        try { crepe.editor?.action(insert(md)); } catch { /* 忽略 */ }
       },
       focus: () => {
         try { crepe.editor?.ctx.get(editorViewCtx)?.focus(); } catch { /* 忽略 */ }
@@ -297,11 +304,13 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
         return;
       }
 
-      const prefix = current && !current.endsWith('\n') ? '\n\n' : current ? '\n' : '';
-      const next = `${current}${prefix}${snippet}\n`;
-      setSourceContent(next);
-      editorRef.current?.setMarkdown(next);
-      onChange?.(next);
+      editorRef.current?.insertMarkdown(snippet);
+      requestAnimationFrame(() => {
+        const next = editorRef.current?.getMarkdown();
+        if (typeof next === 'string') {
+          setSourceContent(next);
+        }
+      });
     }, [markdown, mode, onChange, sourceMarkdown]);
 
     useImperativeHandle(ref, () => ({
