@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import type { AnalysisRecord, ProductInfo, VideoShot } from '../types';
+import type { AnalysisRecord, ProductInfo, VideoCharacter, VideoShot } from '../types';
 import { formatShotsMarkdown, migrateProductInfo } from '../types';
 import { quickInsert } from '../../../mcp/tools/canvas-insertion';
 import { updateRecord } from '../storage';
@@ -185,6 +185,10 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
     const singleOption = [{ label: `${selectedSegmentDuration}秒`, value: String(selectedSegmentDuration) }];
     return computeSegmentPlan(targetDur, singleOption);
   }, [selectedSegmentDuration, productInfo.targetDuration, record.analysis.totalDuration]);
+  const characters = useMemo<VideoCharacter[]>(
+    () => record.characters || record.analysis.characters || [],
+    [record.characters, record.analysis.characters]
+  );
 
   useEffect(() => {
     const migrated = migrateProductInfo(
@@ -226,10 +230,24 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
     });
   }, [record, productInfo, pendingRewriteTaskId, onRecordUpdate, onRecordsChange]);
 
+  const saveRecordField = useCallback(async (patch: Partial<AnalysisRecord>) => {
+    const updated = await updateRecord(record.id, patch);
+    onRecordsChange(updated);
+    onRecordUpdate({ ...record, ...patch, productInfo, pendingRewriteTaskId });
+  }, [record, productInfo, pendingRewriteTaskId, onRecordUpdate, onRecordsChange]);
+
   const handleShotFieldChange = useCallback((shotId: string, field: keyof VideoShot, value: string) => {
     const newShots = shots.map(s => s.id === shotId ? { ...s, [field]: value } : s);
     saveShots(newShots);
   }, [shots, saveShots]);
+
+  const handleCharacterDescChange = useCallback((charId: string, desc: string) => {
+    const base = record.characters || record.analysis.characters || [];
+    const updated = base.map(char => (
+      char.id === charId ? { ...char, description: desc } : char
+    ));
+    void saveRecordField({ characters: updated });
+  }, [record.characters, record.analysis.characters, saveRecordField]);
 
   const handleRewrite = useCallback(async () => {
     if (!productInfo.prompt?.trim()) {
@@ -480,6 +498,27 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
         {error && <div className="va-error">{error}</div>}
       </div>
 
+      {characters.length > 0 && (
+        <div className="va-characters">
+          {characters.map(char => (
+            <div key={char.id} className="va-character-item">
+              <div className="va-character-info" style={{ flex: 1 }}>
+                <span className="va-character-name">{char.name}</span>
+                <textarea
+                  ref={autoResizeRef}
+                  className="va-edit-textarea va-auto-resize"
+                  rows={estimateRows(char.description)}
+                  value={char.description}
+                  onChange={e => handleCharacterDescChange(char.id, e.target.value)}
+                  onInput={e => autoResize(e.currentTarget)}
+                  placeholder="角色外貌描述（英文，用于文生图）"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 镜头脚本列表 */}
       <div className="va-shots">
         {shots.map((shot, i) => (
@@ -509,8 +548,8 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
       </div>
 
       <div className="va-page-actions">
-        <button onClick={handleInsertScripts}>脚本→画布</button>
-        {onNext && <button className="va-btn-primary" onClick={onNext}>下一步: 生成素材 →</button>}
+        <button onClick={handleInsertScripts}>脚本插入画布</button>
+        {onNext && <button className="va-btn-primary" onClick={onNext}>下一步：批量生成 →</button>}
       </div>
     </div>
   );

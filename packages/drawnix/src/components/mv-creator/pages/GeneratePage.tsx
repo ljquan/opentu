@@ -5,11 +5,13 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
+import { MessagePlugin } from 'tdesign-react';
 import type { MVRecord, VideoShot, VideoCharacter } from '../types';
 import { updateRecord } from '../storage';
-import { updateActiveShotsInRecord } from '../utils';
+import { formatMVShotsMarkdown, updateActiveShotsInRecord } from '../utils';
 import { getValidVideoSize, getVideoModelConfig } from '../../../constants/video-model-config';
 import { mcpRegistry } from '../../../mcp/registry';
+import { quickInsert, setCanvasBoard } from '../../../mcp/tools/canvas-insertion';
 import { ShotCard } from '../../video-analyzer/components/ShotCard';
 import {
   buildVideoPrompt,
@@ -33,6 +35,11 @@ import { MediaLibraryModal } from '../../media-library';
 import { VideoPosterPreview } from '../../shared/VideoPosterPreview';
 import { SelectionMode, AssetType } from '../../../types/asset.types';
 import type { Asset } from '../../../types/asset.types';
+import {
+  exportWorkflowAssetsZip,
+  resetCharacterReferenceImages,
+  resetGeneratedShots,
+} from '../../../utils/workflow-generation-utils';
 
 const STORAGE_KEY_IMAGE_MODEL = 'mv-creator:image-model';
 const STORAGE_KEY_VIDEO_MODEL = 'mv-creator:gen-video-model';
@@ -72,12 +79,13 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const shots = useMemo(() => record.editedShots || [], [record.editedShots]);
   const aspectRatio = record.aspectRatio || '16x9';
   const batchId = record.batchId || `mv_${record.id}`;
-  const { openDialog } = useDrawnix();
+  const { openDialog, board } = useDrawnix();
   const latestRecordRef = useRef(record);
   const latestShotsRef = useRef(shots);
   const batchStopRef = useRef(false);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
   const activeBatchTaskIdRef = useRef<string | null>(null);
+  const exportResetTimerRef = useRef<number | null>(null);
 
   const [refImages, setRefImages] = useState<ReferenceImage[]>([]);
   const characters = useMemo<VideoCharacter[]>(
@@ -102,7 +110,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const [videoSize, setVideoSizeState] = useState<string>(
     () => getValidVideoSize(
       record.videoModel || readStoredModelSelection(STORAGE_KEY_VIDEO_MODEL, 'veo3').modelId,
-      record.videoSize
+      record.videoSize,
+      aspectRatio
     )
   );
   const [segmentDuration, setSegmentDuration] = useState<number>(
@@ -114,6 +123,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     currentIndex: -1,
     retryCount: 0,
   });
+  const [isExportingAssets, setIsExportingAssets] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [insertGeneratedVideosToCanvas, setInsertGeneratedVideosToCanvas] = useState(false);
 
   const videoModelConfig = useMemo(() => getVideoModelConfig(videoModel), [videoModel]);
   const durationOptions = useMemo(() => videoModelConfig.durationOptions, [videoModelConfig]);
@@ -126,6 +138,15 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   useEffect(() => {
     latestShotsRef.current = shots;
   }, [shots]);
+
+  useEffect(() => {
+    return () => {
+      if (exportResetTimerRef.current !== null) {
+        window.clearTimeout(exportResetTimerRef.current);
+        exportResetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const applyRecordPatch = useCallback(async (patch: Partial<MVRecord>) => {
     const current = latestRecordRef.current;
@@ -160,7 +181,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     writeStoredModelSelection(STORAGE_KEY_VIDEO_MODEL, model, ref);
     const cfg = getVideoModelConfig(model);
     const nextSegmentDuration = parseInt(cfg.defaultDuration, 10) || 8;
-    const nextVideoSize = getValidVideoSize(model, videoSize);
+    const nextVideoSize = getValidVideoSize(model, videoSize, aspectRatio);
     setSegmentDuration(nextSegmentDuration);
     setVideoSizeState(nextVideoSize);
     void applyRecordPatch({
@@ -169,7 +190,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       segmentDuration: nextSegmentDuration,
       videoSize: nextVideoSize,
     });
-  }, [applyRecordPatch, videoSize]);
+  }, [applyRecordPatch, aspectRatio, videoSize]);
 
   const handleSegmentDurationChange = useCallback((value: number) => {
     setSegmentDuration(value);
@@ -177,18 +198,147 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   }, [applyRecordPatch]);
 
   const handleVideoSizeChange = useCallback((value: string) => {
-    const nextVideoSize = getValidVideoSize(videoModel, value);
+    const nextVideoSize = getValidVideoSize(videoModel, value, aspectRatio);
     setVideoSizeState(nextVideoSize);
     void applyRecordPatch({ videoSize: nextVideoSize });
-  }, [applyRecordPatch, videoModel]);
+  }, [applyRecordPatch, aspectRatio, videoModel]);
 
   const refImageUrls = useMemo(() => refImages.map(img => img.url).filter(Boolean), [refImages]);
+  const exportableAssets = useMemo(() => (
+    shots.flatMap((shot, index) => {
+      const items: Array<{
+        url: string;
+        type: 'image' | 'video';
+        kind: 'first' | 'last' | 'video';
+        shotIndex: number;
+      }> = [];
+      if (shot.generated_first_frame_url) {
+        items.push({
+          url: shot.generated_first_frame_url,
+          type: 'image',
+          kind: 'first',
+          shotIndex: index,
+        });
+      }
+      if (shot.generated_last_frame_url) {
+        items.push({
+          url: shot.generated_last_frame_url,
+          type: 'image',
+          kind: 'last',
+          shotIndex: index,
+        });
+      }
+      if (shot.generated_video_url) {
+        items.push({
+          url: shot.generated_video_url,
+          type: 'video',
+          kind: 'video',
+          shotIndex: index,
+        });
+      }
+      return items;
+    })
+  ), [shots]);
 
   const handleCharacterRefImageChange = useCallback(async (charId: string, url: string | undefined) => {
     const base = latestRecordRef.current.characters || [];
     const updated = base.map(c => c.id === charId ? { ...c, referenceImageUrl: url } : c);
     await applyRecordPatch({ characters: updated });
   }, [applyRecordPatch]);
+
+  const handleInsertScriptToCanvas = useCallback(async () => {
+    try {
+      const currentRecord = latestRecordRef.current;
+      const currentShots = latestShotsRef.current;
+      setCanvasBoard(board);
+      const result = await quickInsert('text', formatMVShotsMarkdown(currentRecord, currentShots));
+      if (!result.success) {
+        throw new Error(result.error || '插入失败，请确认画布已打开');
+      }
+      MessagePlugin.success('脚本已插入画布');
+    } catch (error) {
+      console.error('[MVCreator] Failed to insert script to canvas:', error);
+      const message = error instanceof Error ? error.message : '脚本插入画布失败';
+      MessagePlugin.error(message);
+    }
+  }, [board]);
+
+  const insertGeneratedVideoToCanvas = useCallback(async (videoUrl: string) => {
+    if (!board) {
+      return false;
+    }
+    try {
+      setCanvasBoard(board);
+      const result = await quickInsert('video', videoUrl);
+      if (!result.success) {
+        throw new Error(result.error || '插入失败，请确认画布已打开');
+      }
+      return true;
+    } catch (error) {
+      console.error('[MVCreator] Failed to insert generated video to canvas:', error);
+      return false;
+    }
+  }, [board]);
+
+  const handleDownloadAssetsZip = useCallback(async () => {
+    if (isExportingAssets) {
+      return;
+    }
+
+    setIsExportingAssets(true);
+    setExportProgress(0);
+
+    try {
+      const currentRecord = latestRecordRef.current;
+      const currentShots = latestShotsRef.current;
+      const scriptMarkdown = formatMVShotsMarkdown(currentRecord, currentShots);
+      const selectedAudioUrl =
+        currentRecord.selectedClipAudioUrl ||
+        currentRecord.generatedClips?.find(
+          (clip) => clip.clipId === currentRecord.selectedClipId
+        )?.audioUrl ||
+        null;
+      const result = await exportWorkflowAssetsZip({
+        recordId: currentRecord.id,
+        fileNamePrefix: 'mv',
+        zipBaseName: 'mv_assets',
+        scriptMarkdown,
+        recordMeta: {
+          id: currentRecord.id,
+          creationPrompt: currentRecord.creationPrompt || '',
+          musicTitle: currentRecord.musicTitle || '',
+          musicStyleTags: currentRecord.musicStyleTags || [],
+          aspectRatio: currentRecord.aspectRatio || '16x9',
+          videoStyle: currentRecord.videoStyle || '',
+          shotCount: currentShots.length,
+        },
+        shots: currentShots,
+        assets: exportableAssets,
+        audioAsset: selectedAudioUrl ? {
+          url: selectedAudioUrl,
+          fallbackExtension: 'mp3',
+          downloadErrorMessage: '音乐下载失败',
+        } : {
+          url: '',
+          missingErrorMessage: '缺少已选中的音乐文件',
+        },
+        onProgress: setExportProgress,
+      });
+      MessagePlugin.success(`素材导出完成，共 ${result.assetCount} 个文件`);
+    } catch (error) {
+      console.error('[MVCreator] Failed to export mv assets:', error);
+      MessagePlugin.error('素材导出失败');
+    } finally {
+      if (exportResetTimerRef.current !== null) {
+        window.clearTimeout(exportResetTimerRef.current);
+      }
+      exportResetTimerRef.current = window.setTimeout(() => {
+        exportResetTimerRef.current = null;
+        setIsExportingAssets(false);
+        setExportProgress(0);
+      }, 300);
+    }
+  }, [exportableAssets, isExportingAssets]);
 
   const handleGenerateCharacterRef = useCallback((char: VideoCharacter) => {
     const charBatchId = `mv_${record.id}_char${char.id}_ref`;
@@ -426,7 +576,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     };
   }, [clearHoverPreviewHideTimer]);
 
-  const imageAspectRatio = useMemo(() => {
+  const selectedVideoAspectRatio = useMemo(() => {
+    const optionAspectRatio = sizeOptions.find((option) => option.value === videoSize)?.aspectRatio;
+    if (optionAspectRatio) {
+      return optionAspectRatio;
+    }
     if (videoSize?.includes('x')) {
       const [w, h] = videoSize.split('x').map(Number);
       if (w && h) {
@@ -436,7 +590,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       }
     }
     return aspectRatio.replace('x', ':');
-  }, [videoSize, aspectRatio]);
+  }, [aspectRatio, sizeOptions, videoSize]);
+  const imageAspectRatio = selectedVideoAspectRatio;
   const toDraftImages = useCallback((images: Array<{ url: string; name: string }>) => {
     return images.map((image) => ({
       url: image.url,
@@ -834,6 +989,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           model: videoModel,
           modelRef: videoModelRef,
           referenceImages,
+          params: videoModelConfig.provider === 'seedance'
+            ? { aspect_ratio: selectedVideoAspectRatio }
+            : undefined,
         },
       },
       { mode: 'queue' }
@@ -854,8 +1012,10 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     record.id,
     segmentDuration,
     videoModel,
+    videoModelConfig.provider,
     videoModelRef,
     videoSize,
+    selectedVideoAspectRatio,
   ]);
 
   const stopBatchVideoGeneration = useCallback(() => {
@@ -877,6 +1037,12 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const handleGenerateAllVideos = useCallback(async () => {
     if (batchVideoState.running) {
       return;
+    }
+
+    let shouldInsertToCanvas = insertGeneratedVideosToCanvas;
+    if (shouldInsertToCanvas && !board) {
+      MessagePlugin.warning('画布未就绪，本次将只生成不插入画布');
+      shouldInsertToCanvas = false;
     }
 
     await ensureBatchId();
@@ -954,6 +1120,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         }));
 
         if (shot.generated_video_url) {
+          if (shouldInsertToCanvas) {
+            await insertGeneratedVideoToCanvas(shot.generated_video_url);
+          }
           currentShots = await propagateTailFrameToNextShot(currentShots, index, shot.generated_video_url);
           try {
             const lastFrame = await extractFrameFromUrl(shot.generated_video_url, shot.id, 'last', 'last');
@@ -964,13 +1133,14 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           continue;
         }
 
-        // 生成首帧（镜头有角色 或 有上一段尾帧）
-        // 有角色时必须用生图模型生成（保持角色一致性），即使已有提取的尾帧
+        // 仅在缺少首帧时补生成：
+        // 有角色或有上一段尾帧时，需要一个首帧来保证角色一致性/镜头连贯性；
+        // 但如果当前镜头已经有首帧，则直接复用，避免批量生成时重复覆盖。
         currentCharacters = latestRecordRef.current.characters || [];
         const shotHasCharacters = (shot.character_ids || []).length > 0;
         const needsFirstFrame = shotHasCharacters || (prevLastFrameUrl !== undefined);
         const hasGeneratedFirstFrame = !!shot.generated_first_frame_url;
-        const shouldGenerateFirstFrame = needsFirstFrame && (!hasGeneratedFirstFrame || shotHasCharacters);
+        const shouldGenerateFirstFrame = needsFirstFrame && !hasGeneratedFirstFrame;
 
         if (shouldGenerateFirstFrame && !batchStopRef.current) {
           const firstFrameUrl = await generateFirstFrameForShot(shot, prevLastFrameUrl, currentCharacters);
@@ -1016,6 +1186,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
 
           if (waitResult.success && task && videoUrl) {
             currentShots = await writeShotVideoResult(currentShots, index, videoUrl);
+            if (shouldInsertToCanvas) {
+              await insertGeneratedVideoToCanvas(videoUrl);
+            }
             currentShots = await propagateTailFrameToNextShot(currentShots, index, videoUrl);
             try {
               const lastFrame = await extractFrameFromUrl(videoUrl, shot.id, 'last', 'last');
@@ -1067,29 +1240,25 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     record.id,
     imageModel,
     imageModelRef,
+    insertGeneratedVideoToCanvas,
+    insertGeneratedVideosToCanvas,
     writeShotVideoResult,
+    board,
   ]);
 
   const handleResetAllGenerated = useCallback(async () => {
-    const clearedShots = shots.map(s => ({
-      ...s,
-      generated_first_frame_url: undefined,
-      generated_last_frame_url: undefined,
-      generated_video_url: undefined,
-      suppressed_generated_urls: undefined,
-    }));
-    const clearedChars = (record.characters || []).map(c => ({ ...c, referenceImageUrl: undefined }));
+    const clearedShots = resetGeneratedShots(shots);
+    const clearedChars = resetCharacterReferenceImages(record.characters || []);
     await applyUpdatedShots(clearedShots);
     await applyRecordPatch({ characters: clearedChars });
   }, [shots, record.characters, applyUpdatedShots, applyRecordPatch]);
 
   const thumbStyle = useMemo(() => {
-    if (!videoSize?.includes('x')) return {};
-    const [w, h] = videoSize.split('x').map(Number);
+    const [w, h] = selectedVideoAspectRatio.split(':').map(Number);
     if (!w || !h) return {};
     const computedW = Math.round(54 * w / h);
     return { width: Math.max(computedW, 48), height: computedW < 48 ? Math.round(48 * h / w) : 54 };
-  }, [videoSize]);
+  }, [selectedVideoAspectRatio]);
 
   return (
     <div className="va-page">
@@ -1167,6 +1336,14 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         <div className="va-page-actions">
           {onRestart && <button onClick={onRestart}>重新开始</button>}
           <button onClick={handleResetAllGenerated}>重置生成</button>
+          <label className="va-inline-checkbox">
+            <input
+              type="checkbox"
+              checked={insertGeneratedVideosToCanvas}
+              onChange={e => setInsertGeneratedVideosToCanvas(e.target.checked)}
+            />
+            生成后插入画布
+          </label>
           <button onClick={handleGenerateAllVideos} disabled={batchVideoState.running}>全部→生成视频</button>
           {batchVideoState.running && (
             <button onClick={stopBatchVideoGeneration}>
@@ -1290,6 +1467,18 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
             </>
           } />
         ))}
+      </div>
+
+      <div className="va-page-actions mv-generate-footer-actions">
+        <button onClick={() => void handleInsertScriptToCanvas()} disabled={shots.length === 0}>
+          脚本插入画布
+        </button>
+        <button onClick={() => void handleDownloadAssetsZip()} disabled={isExportingAssets || shots.length === 0}>
+          {isExportingAssets ? `素材下载 ${exportProgress}%` : '素材下载 ZIP'}
+        </button>
+      </div>
+      <div className="mv-generate-footer-hint">
+        若有素材未打包成功，解压后在 ZIP 根目录运行 `sh 00.补全下载.sh` 即可按 manifest 补全下载。
       </div>
 
       <MediaLibraryModal
