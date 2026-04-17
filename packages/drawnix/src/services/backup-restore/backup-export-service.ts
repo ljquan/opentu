@@ -13,8 +13,7 @@ import {
   getImagePromptHistory,
 } from '../prompt-storage-service';
 import { taskStorageReader } from '../task-storage-reader';
-import { TaskType, TaskStatus } from '../../types/task.types';
-import type { Folder } from '../../types/workspace.types';
+import { TaskStatus } from '../../types/task.types';
 import { LS_KEYS_TO_MIGRATE } from '../../constants/storage-keys';
 import { DrawnixExportedType } from '../../data/types';
 import { collectEmbeddedMediaFromElements } from '../../data/json';
@@ -38,33 +37,21 @@ import {
   ProgressCallback,
 } from './types';
 import {
-  sanitizeFileName,
   getExtensionFromMimeType,
   generateIdFromUrl,
+  normalizeBackupAssetType,
+  appendUrlHashToBackupName,
+  ensureUniqueBackupName,
+  buildAssetExportBaseName,
+  buildFolderPathMap,
+  mergePromptData,
+  filterCompletedMediaTasks,
+  sanitizeFileName,
 } from './backup-utils';
 
 class BackupExportService {
-  private formatTimestampForFilename(timestamp?: number): string {
-    const date =
-      typeof timestamp === 'number' && Number.isFinite(timestamp)
-        ? new Date(timestamp)
-        : new Date();
-    if (Number.isNaN(date.getTime())) {
-      return 'unknown-time';
-    }
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    const ss = String(date.getSeconds()).padStart(2, '0');
-    return `${y}${m}${d}_${hh}${mm}${ss}`;
-  }
-
   private buildAssetExportBaseName(assetId: string, createdAt?: number): string {
-    const timePart = this.formatTimestampForFilename(createdAt);
-    const safeId = sanitizeFileName(assetId);
-    return `${timePart}_${safeId}`;
+    return buildAssetExportBaseName(assetId, createdAt);
   }
 
   private shouldExportAssetByRange(
@@ -134,6 +121,7 @@ class BackupExportService {
         prompts: options.includePrompts,
         projects: options.includeProjects,
         assets: options.includeAssets,
+        tasks: options.includeAssets,
         knowledgeBase: options.includeKnowledgeBase,
       },
       stats: {
@@ -220,50 +208,22 @@ class BackupExportService {
     await initPromptStorageCache();
 
     const promptHistory = getPromptHistory();
-    let videoPromptHistory = getVideoPromptHistory();
-    let imagePromptHistory = getImagePromptHistory();
+    const videoPromptHistory = getVideoPromptHistory();
+    const imagePromptHistory = getImagePromptHistory();
 
     const completedTasks = await taskStorageReader.getAllTasks({ status: TaskStatus.COMPLETED });
-
-    const imageTaskPrompts = completedTasks
-      .filter(task => task.type === TaskType.IMAGE && task.params?.prompt)
-      .map(task => ({
-        id: `task_${task.id}`,
-        content: task.params.prompt.trim(),
-        timestamp: task.completedAt || task.createdAt,
-      }))
-      .filter(item => item.content.length > 0);
-
-    const videoTaskPrompts = completedTasks
-      .filter(task => task.type === TaskType.VIDEO && task.params?.prompt)
-      .map(task => ({
-        id: `task_${task.id}`,
-        content: task.params.prompt.trim(),
-        timestamp: task.completedAt || task.createdAt,
-      }))
-      .filter(item => item.content.length > 0);
-
-    const existingImageContents = new Set(imagePromptHistory.map(p => p.content));
-    const newImagePrompts = imageTaskPrompts.filter(p => !existingImageContents.has(p.content));
-    imagePromptHistory = [...imagePromptHistory, ...newImagePrompts];
-
-    const existingVideoContents = new Set(videoPromptHistory.map(p => p.content));
-    const newVideoPrompts = videoTaskPrompts.filter(p => !existingVideoContents.has(p.content));
-    videoPromptHistory = [...videoPromptHistory, ...newVideoPrompts];
 
     const presetSettings = await kvStorageService.get<PresetStorageData>(
       LS_KEYS_TO_MIGRATE.PRESET_SETTINGS
     );
 
-    return {
+    return mergePromptData({
       promptHistory,
       videoPromptHistory,
       imagePromptHistory,
-      presetSettings: presetSettings || {
-        image: { pinnedPrompts: [], deletedPrompts: [] },
-        video: { pinnedPrompts: [], deletedPrompts: [] },
-      },
-    };
+      presetSettings: presetSettings || undefined,
+      allTasks: completedTasks,
+    });
   }
   /**
    * 导出项目数据（写入 partManager）
@@ -279,10 +239,11 @@ class BackupExportService {
       workspaceStorageService.loadAllBoards(),
     ]);
 
-    const folderPathMap = this.buildFolderPathMap(folders);
+    const folderPathMap = buildFolderPathMap(folders);
 
     // 创建文件夹结构（空文件夹通过 manifest 记录即可）
     manifest.stats.folderCount = folders.length;
+    partManager.addFile('projects/_folders.json', { folders });
 
     for (let i = 0; i < boards.length; i++) {
       const board = boards[i];
@@ -322,35 +283,6 @@ class BackupExportService {
       }
     }
     manifest.stats.boardCount = boards.length;
-  }
-
-  private buildFolderPathMap(folders: Folder[]): Map<string, string> {
-    const pathMap = new Map<string, string>();
-    const folderMap = new Map<string, Folder>();
-
-    for (const folder of folders) {
-      folderMap.set(folder.id, folder);
-    }
-
-    const getPath = (folderId: string): string => {
-      if (pathMap.has(folderId)) return pathMap.get(folderId)!;
-      const folder = folderMap.get(folderId);
-      if (!folder) return '';
-      const safeName = sanitizeFileName(folder.name);
-      if (folder.parentId) {
-        const parentPath = getPath(folder.parentId);
-        const fullPath = parentPath ? `${parentPath}/${safeName}` : safeName;
-        pathMap.set(folderId, fullPath);
-        return fullPath;
-      }
-      pathMap.set(folderId, safeName);
-      return safeName;
-    };
-
-    for (const folder of folders) {
-      getPath(folder.id);
-    }
-    return pathMap;
   }
   /**
    * 获取图片的实际生成时间（从任务完成时间获取）
@@ -404,6 +336,7 @@ class BackupExportService {
     };
 
     const exportedUrls = new Set<string>();
+    const usedBaseNames = new Set<string>();
     let exportedCount = 0;
     const pendingExports: PendingAssetExport[] = [];
 
@@ -422,7 +355,10 @@ class BackupExportService {
         if (stored && this.shouldExportAssetByRange(stored.createdAt, options)) {
           const blobData = await unifiedCacheService.getCachedBlob(stored.url);
           if (blobData) {
-            const baseName = this.buildAssetExportBaseName(stored.id, stored.createdAt);
+            const baseName = appendUrlHashToBackupName(
+              this.buildAssetExportBaseName(stored.id, stored.createdAt),
+              stored.url
+            );
             pendingExports.push({
               baseName,
               blobData,
@@ -461,7 +397,7 @@ class BackupExportService {
         const metaData = {
           id: itemId,
           url: item.url,
-          type: item.type === 'video' ? 'VIDEO' : 'IMAGE',
+          type: normalizeBackupAssetType(item.type, item.mimeType),
           mimeType: item.mimeType,
           size: item.size,
           source: 'AI_GENERATED',
@@ -472,7 +408,10 @@ class BackupExportService {
 
         const blobData = await unifiedCacheService.getCachedBlob(item.url);
         if (blobData) {
-          const baseName = this.buildAssetExportBaseName(itemId, exportCreatedAt);
+          const baseName = appendUrlHashToBackupName(
+            this.buildAssetExportBaseName(itemId, exportCreatedAt),
+            item.url
+          );
           pendingExports.push({
             baseName,
             blobData,
@@ -505,11 +444,12 @@ class BackupExportService {
       const meta = typeof asset.metaData === 'string' ? JSON.parse(asset.metaData) : asset.metaData;
       const mimeType = typeof meta?.mimeType === 'string' ? meta.mimeType : asset.blobData.type;
       const ext = getExtensionFromMimeType(mimeType);
+      const uniqueBaseName = ensureUniqueBackupName(asset.baseName, usedBaseNames);
 
       await partManager.addAssetBlob(
-        `${asset.baseName}${ext}`,
+        `${uniqueBaseName}${ext}`,
         asset.blobData,
-        `${asset.baseName}.meta.json`,
+        `${uniqueBaseName}.meta.json`,
         asset.metaData,
         asset.createdAt
       );
@@ -526,12 +466,7 @@ class BackupExportService {
     // 3. 导出任务数据
     onProgress?.(85, '正在导出任务数据...');
     const allTasks = await taskStorageReader.getAllTasks();
-    const completedMediaTasks = allTasks.filter(
-      task =>
-        task.status === TaskStatus.COMPLETED &&
-        (task.type === TaskType.IMAGE || task.type === TaskType.VIDEO) &&
-        task.result?.url
-    );
+    const completedMediaTasks = filterCompletedMediaTasks(allTasks);
 
     if (completedMediaTasks.length > 0) {
       partManager.addFile('tasks.json', completedMediaTasks);

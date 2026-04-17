@@ -1,6 +1,91 @@
 {
   "versions": [
     {
+      "version": "0.6.28",
+      "date": "2026-04-15",
+      "changes": {
+        "features": [
+          "引入音频卡片自适应尺寸及多工具窗口支持",
+          "完善音频结果缓存并接入 MV 分镜任务",
+          "爆款MV生成器增强 — 历史跳转、帧传递、音频驱动分镜"
+        ],
+        "fixes": [
+          "修复任务工作流同步幽灵日志刷屏",
+          "区分 sw-debug llmapi 的音频与歌词生成",
+          "补齐 sw-debug 的 llmapi JSON 结果展示",
+          "修复 suno 多音频重复与时长错误"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "引入音频卡片自适应尺寸及多工具窗口支持"
+    },
+    {
+      "version": "0.6.27",
+      "date": "2026-04-15",
+      "changes": {
+        "features": [
+          "基于 pricing endpoints 推断 provider bindings",
+          "统一爆款音乐续写与 infill 能力",
+          "优化爆款音乐生成工具流程与体验",
+          "支持工具默认窗口行为并修复音乐任务卡片异常"
+        ],
+        "fixes": [
+          "首屏异步预热价格并补全 LLM 原始响应日志",
+          "清理任务列表批量索引误渲染 0",
+          "补齐 suno 续写所需 task_id",
+          "保留爆款音乐创作描述并上移错误提示",
+          "优化音乐分析历史标题并隐藏续写入口"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "基于 pricing endpoints 推断 provider bindings"
+    },
+    {
+      "version": "0.6.26",
+      "date": "2026-04-14",
+      "changes": {
+        "features": [
+          "新增爆款音乐生成工具",
+          "历史关联任务展开、生成回填、风格传递与脚本版本优化",
+          "支持工具弹窗多窗口实例",
+          "脚本版本管理，支持多版本切换",
+          "优化视频分析与脚本改编交互",
+          "视频分析任务接入队列并优化结果插入",
+          "上传视频分析后自动提取首帧图片"
+        ],
+        "fixes": [
+          "修复音乐分析器兼容性并完善工作流展示",
+          "统一持久化删除的二次确认",
+          "统一确认弹窗与媒体预览提示词交互",
+          "批量生成使用每个镜头独立的 batchId",
+          "修复 Markdown 卡片初始化阶段的 Milkdown editorView 异常",
+          "在爆款视频分析页提示 gemini-mix 分组"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "新增爆款音乐生成工具"
+    },
+    {
+      "version": "0.6.25",
+      "date": "2026-04-14",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "修正视频分析中内联数据的MIME类型",
+          "防止生成任务重复调用大模型 API",
+          "统一主应用和 sw-debug 的备份恢复核心逻辑"
+        ],
+        "improvements": [
+          "更新应用版本并移除AI视频调试代码"
+        ]
+      },
+      "type": "patch",
+      "highlights": "修正视频分析中内联数据的MIME类型"
+    },
+    {
       "version": "0.6.24",
       "date": "2026-04-13",
       "changes": {

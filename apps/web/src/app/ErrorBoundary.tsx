@@ -66,11 +66,8 @@ export function safeModeReload(): void {
 
 export function goToDebug(): void {
   const debugUrl = '/sw-debug.html';
-  if (window.self !== window.top) {
-    window.open(debugUrl, '_blank');
-  } else {
-    window.location.href = debugUrl;
-  }
+  // iframe 内直接跳转，保持同一浏览上下文以访问 SW/IndexedDB 数据
+  window.location.href = debugUrl;
 }
 
 // ==================== Unified Fallback UI ====================

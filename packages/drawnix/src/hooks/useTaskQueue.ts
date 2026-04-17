@@ -143,7 +143,11 @@ function applyTaskEvent(event: TaskEvent) {
       break;
     default:
       // taskUpdated, taskStatus, taskCompleted, taskFailed, taskSynced
-      updated = current.map(t => t.id === event.task.id ? event.task : t);
+      if (current.some((t) => t.id === event.task.id)) {
+        updated = current.map(t => t.id === event.task.id ? event.task : t);
+      } else {
+        updated = [event.task, ...current];
+      }
       break;
   }
 

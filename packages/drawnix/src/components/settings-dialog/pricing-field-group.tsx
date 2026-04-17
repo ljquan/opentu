@@ -1,6 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { Select, MessagePlugin } from 'tdesign-react';
-import { modelPricingService } from '../../utils/model-pricing-service';
+import {
+  modelPricingService,
+  resolveProviderPricingConfig,
+} from '../../utils/model-pricing-service';
 import { usePricingGroups } from '../../hooks/use-model-pricing';
 import type { ProviderProfile } from '../../utils/settings-manager';
 
@@ -9,46 +12,26 @@ interface PricingFieldGroupProps {
   onUpdateProfile: (updater: (p: ProviderProfile) => ProviderProfile) => void;
 }
 
-const TUZI_HOST = 'api.tu-zi.com';
-const DEFAULT_CNY_PER_USD = 0.7;
-
-function derivePricingUrl(baseUrl: string): string {
-  try {
-    const origin = new URL(baseUrl).origin;
-    return `${origin}/api/pricing`;
-  } catch {
-    return '';
-  }
-}
-
-function isTuziProvider(baseUrl: string): boolean {
-  try {
-    return new URL(baseUrl).host === TUZI_HOST;
-  } catch {
-    return false;
-  }
-}
-
 export const PricingFieldGroup: React.FC<PricingFieldGroupProps> = React.memo(
   ({ profile, onUpdateProfile }) => {
     const [fetching, setFetching] = useState(false);
     const groups = usePricingGroups(profile.id);
 
-    const pricingUrl =
-      profile.pricingUrl || (profile.baseUrl ? derivePricingUrl(profile.baseUrl) : '');
-    const cnyPerUsd =
-      profile.cnyPerUsd ?? (isTuziProvider(profile.baseUrl) ? DEFAULT_CNY_PER_USD : 1);
-    const pricingGroup = profile.pricingGroup || 'default';
+    const pricingConfig = resolveProviderPricingConfig(profile);
+    const pricingUrl = pricingConfig?.pricingUrl || '';
+    const cnyPerUsd = pricingConfig?.cnyPerUsd ?? 1;
+    const pricingGroup = pricingConfig?.pricingGroup || 'default';
     const handleFetchPricing = useCallback(async () => {
-      if (!pricingUrl) return;
+      if (!pricingConfig) return;
       setFetching(true);
       try {
         await modelPricingService.fetchAndCache(
           profile.id,
-          pricingUrl,
+          pricingConfig.pricingUrl,
           profile.apiKey,
-          pricingGroup,
-          cnyPerUsd
+          pricingConfig.pricingGroup,
+          pricingConfig.cnyPerUsd,
+          { force: true }
         );
         void MessagePlugin.success('价格信息已同步');
       } catch (err) {
@@ -58,21 +41,21 @@ export const PricingFieldGroup: React.FC<PricingFieldGroupProps> = React.memo(
       } finally {
         setFetching(false);
       }
-    }, [pricingUrl, profile.id, profile.apiKey, pricingGroup, cnyPerUsd]);
+    }, [pricingConfig, profile.id, profile.apiKey]);
 
     const handleGroupChange = useCallback(
       async (value: string | number) => {
         const nextGroup = String(value);
         onUpdateProfile((p) => ({ ...p, pricingGroup: nextGroup }));
-        if (!pricingUrl) return;
+        if (!pricingConfig) return;
         setFetching(true);
         try {
           await modelPricingService.fetchAndCache(
             profile.id,
-            pricingUrl,
+            pricingConfig.pricingUrl,
             profile.apiKey,
             nextGroup,
-            cnyPerUsd
+            pricingConfig.cnyPerUsd
           );
         } catch {
           // 静默失败，价格数据保持上次缓存
@@ -80,7 +63,7 @@ export const PricingFieldGroup: React.FC<PricingFieldGroupProps> = React.memo(
           setFetching(false);
         }
       },
-      [onUpdateProfile, pricingUrl, profile.id, profile.apiKey, cnyPerUsd]
+      [onUpdateProfile, pricingConfig, profile.id, profile.apiKey]
     );
 
     const groupOptions = groups.map((g) => ({

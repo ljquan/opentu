@@ -180,6 +180,7 @@ const AIImageGeneration = ({
   const { isGenerating } = useGenerationState('image');
   const { language } = useI18n();
   const { createTask } = useTaskQueue();
+  const generatingLockRef = useRef(false);
 
   const isMJModel = currentModel.startsWith('mj');
   const modelAspectRatioOptions = React.useMemo<AspectRatioOption[]>(() => {
@@ -521,6 +522,10 @@ const AIImageGeneration = ({
   };
 
   const handleGenerate = async (count = 1) => {
+    // 防止快速双击/重复触发导致多次创建任务
+    if (generatingLockRef.current) return;
+    generatingLockRef.current = true;
+    try {
     if (!prompt || !prompt.trim()) {
       setError(
         language === 'zh' ? '请输入图像描述' : 'Please enter image description'
@@ -731,6 +736,9 @@ const AIImageGeneration = ({
       }
 
       setError(errorMessage);
+    }
+    } finally {
+      generatingLockRef.current = false;
     }
   };
 

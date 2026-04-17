@@ -307,7 +307,9 @@ export async function cacheRemoteUrl(
       const guessedLocalUrl =
         cacheSource === 'PLAYBACK_CACHE'
           ? `/__aitu_cache__/audio/${safeTaskId}${guessedSuffix}.${guessedFormat}`
-          : `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${guessedFormat}`;
+          : mediaType === 'audio'
+          ? `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${guessedFormat}`
+          : `/__aitu_cache__/${mediaType}/${taskId}${guessedSuffix}.${guessedFormat}`;
 
       if (await unifiedCacheService.isCached(guessedLocalUrl)) {
         return guessedLocalUrl;
@@ -337,7 +339,9 @@ export async function cacheRemoteUrl(
       const localUrl =
         cacheSource === 'PLAYBACK_CACHE'
           ? `/__aitu_cache__/audio/${safeTaskId}${guessedSuffix}.${finalFormat}`
-          : `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${finalFormat}`;
+          : mediaType === 'audio'
+          ? `${AI_GENERATED_AUDIO_URL_PREFIX}${taskId}${guessedSuffix}.${finalFormat}`
+          : `/__aitu_cache__/${mediaType}/${taskId}${guessedSuffix}.${finalFormat}`;
 
       if (await unifiedCacheService.isCached(localUrl)) {
         return localUrl;

@@ -1,0 +1,77 @@
+/* MV Creator 专属样式 — 大部分复用 video-analyzer + music-analyzer 的类 */
+
+/* 分镜编辑字段 */
+.mv-creator .va-shot-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mv-creator .va-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mv-creator .va-edit-field-label {
+  font-size: 11px;
+  color: #999;
+}
+
+/* 音频选择列表限高可滚动 */
+.mv-creator .ma-clips-gallery {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.mv-creator .va-edit-field-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+
+  &:focus {
+    outline: none;
+    border-color: rgba(243, 156, 18, 0.4);
+  }
+}
+
+/* 视频缩略图 + 帧传递按钮横向布局 */
+.mv-creator .va-shot-video-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mv-creator .va-shot-frame-transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mv-creator .va-shot-frame-transfer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  background: rgba(243, 156, 18, 0.08);
+  color: #888;
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+
+  &:hover {
+    background: rgba(243, 156, 18, 0.2);
+    color: #333;
+  }
+}

@@ -12,6 +12,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { usePromptHistory } from '../../hooks/usePromptHistory';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { PromptListPanel, type PromptItem } from '../shared';
 import { AI_COLD_START_SUGGESTIONS } from '../../constants/prompts';
 import './prompt-history-popover.scss';
@@ -39,6 +40,7 @@ export const PromptHistoryPopover: React.FC<PromptHistoryPopoverProps> = ({
   const { history, removeHistory, togglePinHistory, refreshHistory } = usePromptHistory({
     deduplicateWithPresets: false,
   });
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -140,13 +142,26 @@ export const PromptHistoryPopover: React.FC<PromptHistoryPopoverProps> = ({
   }, [onSelectPrompt]);
 
   // 处理删除（只允许删除历史记录，不允许删除预设）
-  const handleDelete = useCallback((id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     // 预设提示词的 id 以 preset_ 开头，不允许删除
     if (id.startsWith('preset_')) {
       return;
     }
+    const confirmed = await confirm({
+      title: language === 'zh' ? '确认删除提示词' : 'Delete Prompt',
+      description:
+        language === 'zh'
+          ? '确定要删除这条历史提示词吗？此操作不可撤销。'
+          : 'Are you sure you want to delete this prompt history item? This action cannot be undone.',
+      confirmText: language === 'zh' ? '删除' : 'Delete',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
     removeHistory(id);
-  }, [removeHistory]);
+  }, [confirm, language, removeHistory]);
 
   // 处理置顶切换（只允许置顶历史记录）
   const handleTogglePin = useCallback((id: string) => {
@@ -187,6 +202,7 @@ export const PromptHistoryPopover: React.FC<PromptHistoryPopoverProps> = ({
           />
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 };

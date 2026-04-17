@@ -17,6 +17,7 @@ import { PlaitBoard, getSelectedElements, Transforms, ATTACHED_ELEMENT_CLASS_NAM
 import { MindElement } from '@plait/mind';
 import { PlaitDrawElement, isDrawElementsIncludeText } from '@plait/draw';
 import { Popover, PopoverTrigger, PopoverContent } from '../../popover/popover';
+import { useConfirmDialog } from '../../dialog/ConfirmDialog';
 import { ToolButton } from '../../tool-button';
 import { AI_IMAGE_PROMPTS } from '../../../constants/prompts';
 import { usePromptHistory } from '../../../hooks/usePromptHistory';
@@ -184,6 +185,9 @@ export const PopupPromptButton: React.FC<PopupPromptButtonProps> = ({
   // 禁用预设去重，因为文本组件内部有自己的去重逻辑
   const { history: aiInputHistory, addHistory, removeHistory } = usePromptHistory({
     deduplicateWithPresets: false,
+  });
+  const { confirm, confirmDialog } = useConfirmDialog({
+    container: board ? PlaitBoard.getBoardContainer(board) : null,
   });
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -402,10 +406,23 @@ export const PopupPromptButton: React.FC<PopupPromptButtonProps> = ({
   }, [board, addHistory]);
 
   // 处理删除历史
-  const handleDeleteHistory = useCallback((e: React.MouseEvent, id: string) => {
+  const handleDeleteHistory = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    const confirmed = await confirm({
+      title: language === 'zh' ? '确认删除提示词' : 'Delete Prompt',
+      description:
+        language === 'zh'
+          ? '确定要删除这条历史提示词吗？此操作不可撤销。'
+          : 'Are you sure you want to delete this prompt history item? This action cannot be undone.',
+      confirmText: language === 'zh' ? '删除' : 'Delete',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
     removeHistory(id);
-  }, [removeHistory]);
+  }, [confirm, language, removeHistory]);
 
   // 键盘事件处理
   useEffect(() => {
@@ -554,6 +571,7 @@ export const PopupPromptButton: React.FC<PopupPromptButtonProps> = ({
           )}
         </div>
       </PopoverContent>
+      {confirmDialog}
     </Popover>
   );
 };

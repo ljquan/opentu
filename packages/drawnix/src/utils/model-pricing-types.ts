@@ -62,7 +62,10 @@ export interface PricingGroup {
 export interface ProviderPricingCache {
   profileId: string;
   fetchedAt: number;
+  sourceSignature?: string;
   groups: PricingGroup[];
   /** key = modelId */
   prices: Record<string, ModelPrice>;
+  /** key = modelId, value = endpoint name → endpoint info */
+  modelEndpoints?: Record<string, Record<string, PricingEndpointInfo>>;
 }

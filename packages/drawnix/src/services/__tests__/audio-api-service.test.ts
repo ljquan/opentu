@@ -216,6 +216,211 @@ describe('audio-api-service', () => {
     expect(extracted.clips).toHaveLength(2);
   });
 
+  it('sends continue and infill parameters in Suno music submit body', async () => {
+    const taskId = 'b16bca7d-17ee-41fd-a218-31ca5fda0ac9';
+    const sendMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: 'success', data: taskId }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            task_id: taskId,
+            action: 'MUSIC',
+            status: 'SUCCESS',
+            data: [
+              {
+                clip_id: 'clip-continue-1',
+                batch_index: 0,
+                status: 'complete',
+                audio_url: 'https://cdn1.suno.ai/clip-continue-1.mp3',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+    vi.doMock('../provider-routing', async () => {
+      const actual = await vi.importActual<object>('../provider-routing');
+      return {
+        ...actual,
+        resolveInvocationPlanFromRoute: () => null,
+        providerTransport: {
+          ...(actual as { providerTransport: object }).providerTransport,
+          send: sendMock,
+        },
+      };
+    });
+
+    vi.doMock('../../utils/settings-manager', () => ({
+      resolveInvocationRoute: () => ({
+        profileId: 'runtime',
+        profileName: 'Runtime',
+        providerType: 'custom',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      }),
+    }));
+
+    const { audioAPIService } = await import('../audio-api-service');
+
+    await audioAPIService.generateAudioWithPolling(
+      {
+        model: 'suno_music',
+        prompt: '继续完善副歌',
+        continueClipId: 'clip-continue-1',
+        continueTaskId: 'task-continue-1',
+        continueAt: 32,
+        infillStartS: 8,
+        infillEndS: 16,
+      },
+      {
+        interval: 1,
+        maxAttempts: 2,
+      }
+    );
+
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock.mock.calls[0]?.[1]).toMatchObject({
+      path: '/suno/submit/music',
+      method: 'POST',
+    });
+    expect(JSON.parse(sendMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+      prompt: '继续完善副歌',
+      continue_clip_id: 'clip-continue-1',
+      task_id: 'task-continue-1',
+      continue_at: 32,
+      infill_start_s: 8,
+      infill_end_s: 16,
+    });
+  });
+
+  it('remembers clip_id discovered during polling and reuses it for continuation ids', async () => {
+    const taskId = 'a1a214aa-b4b2-4744-9d05-7977b9fcf6b9';
+    const sendMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: 'success', data: taskId }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 'success',
+            data: {
+              task_id: taskId,
+              action: 'MUSIC',
+              status: 'IN_PROGRESS',
+              progress: '30%',
+              data: [
+                {
+                  id: 'song-row-1',
+                  clip_id: 'continue-clip-1',
+                  batch_index: 0,
+                  status: 'queued',
+                },
+                {
+                  id: 'song-row-2',
+                  clip_id: 'continue-clip-2',
+                  batch_index: 1,
+                  status: 'queued',
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 'success',
+            data: {
+              task_id: taskId,
+              action: 'MUSIC',
+              status: 'SUCCESS',
+              data: [
+                {
+                  id: 'final-row-1',
+                  batch_index: 0,
+                  status: 'complete',
+                  audio_url: 'https://cdn1.suno.ai/final-1.mp3',
+                },
+                {
+                  id: 'final-row-2',
+                  batch_index: 1,
+                  status: 'complete',
+                  audio_url: 'https://cdn1.suno.ai/final-2.mp3',
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+    vi.doMock('../provider-routing', async () => {
+      const actual = await vi.importActual<object>('../provider-routing');
+      return {
+        ...actual,
+        resolveInvocationPlanFromRoute: () => null,
+        providerTransport: {
+          ...(actual as { providerTransport: object }).providerTransport,
+          send: sendMock,
+        },
+      };
+    });
+
+    vi.doMock('../../utils/settings-manager', () => ({
+      resolveInvocationRoute: () => ({
+        profileId: 'runtime',
+        profileName: 'Runtime',
+        providerType: 'custom',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      }),
+    }));
+
+    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+
+    const result = await audioAPIService.generateAudioWithPolling(
+      {
+        model: 'suno_music',
+        prompt: '写一首儿歌',
+      },
+      {
+        interval: 1,
+        maxAttempts: 3,
+      }
+    );
+
+    const extracted = extractAudioGenerationResult(result);
+    expect(extracted.primaryClipId).toBe('continue-clip-1');
+    expect(extracted.clipIds).toEqual(['continue-clip-1', 'continue-clip-2']);
+    expect(extracted.clips?.map((clip) => clip.clipId)).toEqual([
+      'continue-clip-1',
+      'continue-clip-2',
+    ]);
+  });
+
   it('submits Suno lyrics generation and extracts text results from fetch payloads', async () => {
     const taskId = 'fc415768-51b9-4fb0-89f9-31b6863a736e';
     const sendMock = vi

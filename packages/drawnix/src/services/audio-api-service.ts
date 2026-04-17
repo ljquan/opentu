@@ -22,6 +22,12 @@ import type {
   AudioGenerationResult,
 } from './model-adapters';
 import { getForcedSunoParams } from '../utils/suno-model-aliases';
+import {
+  startLLMApiLog,
+  completeLLMApiLog,
+  failLLMApiLog,
+  updateLLMApiLogMetadata,
+} from './media-executor/llm-api-logger';
 
 export interface AudioGenerationParams {
   model: string;
@@ -33,8 +39,12 @@ export interface AudioGenerationParams {
   sunoAction?: string;
   notifyHook?: string;
   continueClipId?: string;
+  continueTaskId?: string;
   continueAt?: number;
+  infillStartS?: number;
+  infillEndS?: number;
   params?: Record<string, unknown>;
+  taskId?: string;
 }
 
 export type SunoAction = 'music' | 'lyrics';
@@ -87,6 +97,11 @@ interface AudioPollingOptions {
   onProgress?: (progress: number, status?: string) => void;
   onSubmitted?: (taskId: string) => void;
   routeModel?: string | ModelRef | null;
+}
+
+interface ClipIdentifierMemory {
+  byBatchIndex: Map<number, string>;
+  ordered: string[];
 }
 
 function inferAuthType(): ProviderAuthStrategy {
@@ -443,6 +458,64 @@ function resolveClipIdentifier(clip: AudioClipRecord): string | undefined {
   return normalizeOptionalString(clip.clip_id) || normalizeOptionalString(clip.id);
 }
 
+function createClipIdentifierMemory(): ClipIdentifierMemory {
+  return {
+    byBatchIndex: new Map<number, string>(),
+    ordered: [],
+  };
+}
+
+function rememberClipIdentifiers(
+  clips: AudioClipRecord[],
+  memory: ClipIdentifierMemory
+): void {
+  for (const clip of clips) {
+    const clipId = normalizeOptionalString(clip.clip_id);
+    if (!clipId) {
+      continue;
+    }
+
+    if (
+      typeof clip.batch_index === 'number' &&
+      Number.isFinite(clip.batch_index) &&
+      !memory.byBatchIndex.has(clip.batch_index)
+    ) {
+      memory.byBatchIndex.set(clip.batch_index, clipId);
+    }
+
+    if (!memory.ordered.includes(clipId)) {
+      memory.ordered.push(clipId);
+    }
+  }
+}
+
+function applyRememberedClipIdentifiers(
+  clips: AudioClipRecord[],
+  memory: ClipIdentifierMemory
+): AudioClipRecord[] {
+  return clips.map((clip, index) => {
+    if (normalizeOptionalString(clip.clip_id)) {
+      return clip;
+    }
+
+    let rememberedClipId: string | undefined;
+    if (typeof clip.batch_index === 'number' && Number.isFinite(clip.batch_index)) {
+      rememberedClipId = memory.byBatchIndex.get(clip.batch_index);
+    }
+    if (!rememberedClipId) {
+      rememberedClipId = memory.ordered[index];
+    }
+    if (!rememberedClipId) {
+      return clip;
+    }
+
+    return {
+      ...clip,
+      clip_id: rememberedClipId,
+    };
+  });
+}
+
 function normalizeAudioClipResult(
   clip: AudioClipRecord
 ): AudioGenerationClipResult | null {
@@ -519,15 +592,22 @@ function getPrimaryTaskId(payload: any, fallback = ''): string {
 
 function normalizeAudioTaskResponse(
   payload: any,
-  fallbackTaskId = ''
+  fallbackTaskId = '',
+  clipMemory?: ClipIdentifierMemory
 ): AudioTaskResponse {
-  const clips = extractAudioClips(payload).sort((left, right) => {
+  const extractedClips = extractAudioClips(payload).sort((left, right) => {
     const leftIndex =
       typeof left.batch_index === 'number' ? left.batch_index : Number.MAX_SAFE_INTEGER;
     const rightIndex =
       typeof right.batch_index === 'number' ? right.batch_index : Number.MAX_SAFE_INTEGER;
     return leftIndex - rightIndex;
   });
+  if (clipMemory) {
+    rememberClipIdentifiers(extractedClips, clipMemory);
+  }
+  const clips = clipMemory
+    ? applyRememberedClipIdentifiers(extractedClips, clipMemory)
+    : extractedClips;
   const lyrics = extractLyricsPayload(payload);
 
   return {
@@ -603,10 +683,28 @@ function buildMusicSubmitBody(params: AudioGenerationParams): string {
     (typeof params.params?.continueClipId === 'string'
       ? params.params.continueClipId
       : undefined);
+  const continueTaskId =
+    params.continueTaskId ||
+    (typeof params.params?.continueTaskId === 'string'
+      ? params.params.continueTaskId
+      : undefined) ||
+    (typeof params.params?.task_id === 'string'
+      ? params.params.task_id
+      : undefined);
   const continueAtValue =
     params.continueAt ??
     (typeof params.params?.continueAt === 'number'
       ? params.params.continueAt
+      : undefined);
+  const infillStartSValue =
+    params.infillStartS ??
+    (typeof params.params?.infillStartS === 'number'
+      ? params.params.infillStartS
+      : undefined);
+  const infillEndSValue =
+    params.infillEndS ??
+    (typeof params.params?.infillEndS === 'number'
+      ? params.params.infillEndS
       : undefined);
 
   if (title) {
@@ -618,15 +716,24 @@ function buildMusicSubmitBody(params: AudioGenerationParams): string {
   if (continueClipId) {
     body.continue_clip_id = continueClipId;
   }
+  if (continueTaskId) {
+    body.task_id = continueTaskId;
+  }
   if (typeof continueAtValue === 'number' && Number.isFinite(continueAtValue)) {
     body.continue_at = continueAtValue;
   }
 
-  if ('infillStartS' in (params.params || {})) {
-    body.infill_start_s = params.params?.infillStartS ?? null;
+  if (
+    typeof infillStartSValue === 'number' &&
+    Number.isFinite(infillStartSValue)
+  ) {
+    body.infill_start_s = infillStartSValue;
   }
-  if ('infillEndS' in (params.params || {})) {
-    body.infill_end_s = params.params?.infillEndS ?? null;
+  if (
+    typeof infillEndSValue === 'number' &&
+    Number.isFinite(infillEndSValue)
+  ) {
+    body.infill_end_s = infillEndSValue;
   }
 
   return JSON.stringify(body);
@@ -758,20 +865,46 @@ class AudioAPIService {
       throw new Error('API Key 未配置，请先配置 API Key');
     }
 
-    const response = await providerTransport.send(providerContext, {
-      path: resolveSubmitPath(params, binding),
-      baseUrlStrategy,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: buildSubmitBody(params),
+    const action = resolveRequestedAction(params);
+    const submitPath = resolveSubmitPath(params, binding);
+    const body = buildSubmitBody(params);
+    const startTime = Date.now();
+
+    const logId = startLLMApiLog({
+      endpoint: submitPath,
+      model: params.model,
+      taskType: 'audio',
+      prompt: params.prompt,
+      taskId: params.taskId,
     });
+
+    let response: Response;
+    try {
+      response = await providerTransport.send(providerContext, {
+        path: submitPath,
+        baseUrlStrategy,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+    } catch (error: any) {
+      failLLMApiLog(logId, {
+        duration: Date.now() - startTime,
+        errorMessage: error.message || String(error),
+      });
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
+      const duration = Date.now() - startTime;
+      failLLMApiLog(logId, {
+        httpStatus: response.status,
+        duration,
+        errorMessage: errorText.substring(0, 500),
+      });
       const error = new Error(
-        `${resolveRequestedAction(params) === 'lyrics' ? '歌词' : '音乐'}生成提交失败: ${response.status} - ${errorText}`
+        `${action === 'lyrics' ? '歌词' : '音乐'}生成提交失败: ${response.status} - ${errorText}`
       );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
@@ -779,7 +912,22 @@ class AudioAPIService {
     }
 
     const payload = await response.json();
-    return normalizeAudioTaskResponse(payload);
+    const result = normalizeAudioTaskResponse(payload);
+    const duration = Date.now() - startTime;
+
+    completeLLMApiLog(logId, {
+      httpStatus: response.status,
+      duration,
+      resultType: action === 'lyrics' ? 'lyrics' : 'audio',
+      remoteId: result.taskId,
+      responseBody: JSON.stringify(payload),
+    });
+
+    if (result.taskId) {
+      updateLLMApiLogMetadata(logId, { remoteId: result.taskId });
+    }
+
+    return result;
   }
 
   async queryAudioTask(
@@ -873,7 +1021,12 @@ class AudioAPIService {
     taskId: string,
     options: AudioPollingOptions = {}
   ): Promise<AudioTaskResponse> {
-    const immediate = await this.queryAudioTask(taskId, options.routeModel);
+    const clipMemory = createClipIdentifierMemory();
+    const immediate = normalizeAudioTaskResponse(
+      (await this.queryAudioTask(taskId, options.routeModel)).raw,
+      taskId,
+      clipMemory
+    );
 
     if (options.onProgress) {
       options.onProgress(immediate.progress || 0, immediate.status);
@@ -889,12 +1042,13 @@ class AudioAPIService {
       throw new Error(immediate.failReason || 'Suno 生成失败');
     }
 
-    return this.pollUntilComplete(taskId, options);
+    return this.pollUntilComplete(taskId, options, clipMemory);
   }
 
   private async pollUntilComplete(
     taskId: string,
-    options: AudioPollingOptions = {}
+    options: AudioPollingOptions = {},
+    clipMemory: ClipIdentifierMemory = createClipIdentifierMemory()
   ): Promise<AudioTaskResponse> {
     const { interval = 5000, maxAttempts = 720, onProgress } = options;
 
@@ -907,7 +1061,8 @@ class AudioAPIService {
       attempts += 1;
 
       try {
-        const result = await this.queryAudioTask(taskId, options.routeModel);
+        const payload = await this.queryAudioTask(taskId, options.routeModel);
+        const result = normalizeAudioTaskResponse(payload.raw, taskId, clipMemory);
         consecutiveErrors = 0;
 
         if (onProgress) {

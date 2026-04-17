@@ -13,6 +13,7 @@ import {
 import { analytics } from '../utils/posthog-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { isVirtualMediaUrl } from '../utils/virtual-media-url';
+import { createHash, getAudioCacheKeySeed } from './audio-cache-key';
 import {
   AUDIO_NODE_DEFAULT_HEIGHT,
   AUDIO_NODE_DEFAULT_WIDTH,
@@ -24,8 +25,88 @@ import type { CanvasAudioPlaybackSource } from '../services/canvas-audio-playbac
 
 export const AUDIO_CARD_DEFAULT_WIDTH = AUDIO_NODE_DEFAULT_WIDTH;
 export const AUDIO_CARD_DEFAULT_HEIGHT = AUDIO_NODE_DEFAULT_HEIGHT;
+const AUDIO_CARD_ADAPTIVE_MIN_WIDTH = 380;
+const AUDIO_CARD_ADAPTIVE_MAX_WIDTH = 520;
 
 export type AudioCardMetadata = AudioNodeMetadata;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function measureVisualTextUnits(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+
+  let units = 0;
+  for (const char of value) {
+    if (/[\u3400-\u9fff\uf900-\ufaff]/u.test(char)) {
+      units += 2;
+    } else if (/[A-Z0-9]/.test(char)) {
+      units += 1.12;
+    } else if (/\s/.test(char)) {
+      units += 0.45;
+    } else {
+      units += 1;
+    }
+  }
+  return units;
+}
+
+function extractAudioCardPreviewText(metadata: AudioCardMetadata): string {
+  const normalizedTags = metadata.tags
+    ?.split(/[，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' · ');
+
+  if (normalizedTags) {
+    return normalizedTags;
+  }
+
+  const promptPreview = metadata.prompt
+    ?.split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  return promptPreview || '画布音频';
+}
+
+function resolveAdaptiveAudioCardWidth(metadata: AudioCardMetadata): number {
+  const titleUnits = measureVisualTextUnits(metadata.title || '未命名音频');
+  const previewUnits = measureVisualTextUnits(extractAudioCardPreviewText(metadata));
+  const dominantUnits = Math.max(titleUnits * 1.08, previewUnits);
+  const estimatedWidth = Math.round(304 + clamp(dominantUnits, 0, 48) * 4.6);
+  return clamp(
+    estimatedWidth,
+    AUDIO_CARD_ADAPTIVE_MIN_WIDTH,
+    AUDIO_CARD_ADAPTIVE_MAX_WIDTH
+  );
+}
+
+export function resolveAudioCardDimensions(
+  metadata: AudioCardMetadata = {}
+): { width: number; height: number } {
+  const explicitWidth = metadata.width;
+  const explicitHeight = metadata.height;
+  const width =
+    typeof explicitWidth === 'number' &&
+    Number.isFinite(explicitWidth) &&
+    explicitWidth > 0 &&
+    explicitWidth !== AUDIO_CARD_DEFAULT_WIDTH
+      ? explicitWidth
+      : resolveAdaptiveAudioCardWidth(metadata);
+  const height =
+    typeof explicitHeight === 'number' &&
+    Number.isFinite(explicitHeight) &&
+    explicitHeight > 0
+      ? explicitHeight
+      : AUDIO_CARD_DEFAULT_HEIGHT;
+
+  return { width, height };
+}
 
 interface AudioImageElement {
   id?: string;
@@ -103,14 +184,6 @@ function formatAudioDuration(duration?: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function createHash(input: string): number {
-  let hash = 0;
-  for (let index = 0; index < input.length; index++) {
-    hash = (hash * 31 + input.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash);
 }
 
 function truncateText(value: string, maxLength: number): string {
@@ -351,8 +424,7 @@ export async function buildAudioImageElement(
   audioUrl: string,
   metadata: AudioCardMetadata = {}
 ): Promise<AudioImageElement> {
-  const width = metadata.width || AUDIO_CARD_DEFAULT_WIDTH;
-  const height = metadata.height || AUDIO_CARD_DEFAULT_HEIGHT;
+  const { width, height } = resolveAudioCardDimensions(metadata);
   const artworkDataUrl = await resolveArtworkDataUrl(metadata.previewImageUrl);
   const svg = buildAudioCardSvg({ ...metadata, width, height }, artworkDataUrl);
 
@@ -390,10 +462,10 @@ export async function insertAudioFromUrl(
   let resolvedAudioUrl = audioUrl;
   if (audioUrl.startsWith('http://') || audioUrl.startsWith('https://')) {
     try {
-      const cacheKeySeed =
-        metadata.providerTaskId ||
-        metadata.clipId ||
-        `audio-${createHash(audioUrl).toString(36)}`;
+      const cacheKeySeed = getAudioCacheKeySeed(audioUrl, {
+        clipId: metadata.clipId,
+        providerTaskId: metadata.providerTaskId,
+      });
       const ext = getFileExtension(audioUrl);
       resolvedAudioUrl = await cacheRemoteUrl(
         audioUrl,
@@ -406,8 +478,7 @@ export async function insertAudioFromUrl(
     }
   }
 
-  const width = metadata.width || AUDIO_CARD_DEFAULT_WIDTH;
-  const height = metadata.height || AUDIO_CARD_DEFAULT_HEIGHT;
+  const { width, height } = resolveAudioCardDimensions(metadata);
   let insertionPoint = startPoint;
 
   if (!startPoint && !isDrop) {
@@ -434,7 +505,11 @@ export async function insertAudioFromUrl(
       width,
       height,
     },
-    metadata,
+    metadata: {
+      ...metadata,
+      width,
+      height,
+    },
   });
 
   analytics.track('asset_insert_canvas', {

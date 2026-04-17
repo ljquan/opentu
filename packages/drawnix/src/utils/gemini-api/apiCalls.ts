@@ -50,7 +50,7 @@ function resolveBindingPath(
     return `/v1/models/${model}:generateContent`;
   }
 
-  return template.replace(/\{model\}/g, model);
+  return template.replace(/\{model(?:_name)?\}/g, model);
 }
 
 function buildGoogleEndpoint(config: GeminiConfig, model: string, stream: boolean): string {

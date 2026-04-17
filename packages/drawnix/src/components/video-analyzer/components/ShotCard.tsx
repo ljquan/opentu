@@ -33,6 +33,17 @@ interface ShotCardProps {
 
 export const ShotCard: React.FC<ShotCardProps> = ({ shot, index, compact, actions, children }) => (
   <div className="va-shot-card">
+    {/* 仅在无 actions 且非紧凑模式（分析页只读模式）时显示顶部帧图片 */}
+    {!actions && !compact && shot.generated_first_frame_url && (
+      <div className="va-shot-frame-row">
+        <img
+          src={shot.generated_first_frame_url}
+          alt="首帧"
+          className="va-shot-frame-img"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    )}
     <div className="va-shot-header">
       <span
         className="va-shot-badge"

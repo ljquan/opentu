@@ -17,5 +17,9 @@
       "Bash(git push:*)",
       "Bash(npx eslint:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "playwright"
+  ],
+  "enableAllProjectMcpServers": true
 }

@@ -11,6 +11,8 @@ import type { GradientFillConfig } from '../../types/fill.types';
 import { DEFAULT_LINEAR_GRADIENT } from '../../types/fill.types';
 import { kvStorageService } from '../../services/kv-storage-service';
 import { LS_KEYS_TO_MIGRATE } from '../../constants/storage-keys';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
+import { useI18n } from '../../i18n';
 
 const CUSTOM_GRADIENTS_KEY = LS_KEYS_TO_MIGRATE.CUSTOM_GRADIENTS;
 
@@ -26,6 +28,8 @@ export const GradientFillPanel: React.FC<GradientFillPanelProps> = ({
   onChange,
   inline = false,
 }) => {
+  const { language } = useI18n();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [customGradients, setCustomGradients] = useState<Array<{ id: string; css: string }>>([]);
   const [currentConfig, setCurrentConfig] = useState<GradientFillConfig>(
     value || DEFAULT_LINEAR_GRADIENT
@@ -73,28 +77,48 @@ export const GradientFillPanel: React.FC<GradientFillPanelProps> = ({
   }, [currentConfig, customGradients]);
 
   // 删除自定义渐变
-  const deleteCustomGradient = useCallback((index: number) => {
+  const deleteCustomGradient = useCallback(async (index: number) => {
     const gradient = customGradients[index];
-    if (gradient) {
-      const updated = customGradients.filter(g => g.id !== gradient.id);
-      setCustomGradients(updated);
-      kvStorageService.set(CUSTOM_GRADIENTS_KEY, updated).catch((e) => {
-        console.warn('Failed to save custom gradients:', e);
-      });
+    if (!gradient) {
+      return;
     }
-  }, [customGradients]);
+
+    const confirmed = await confirm({
+      title: language === 'zh' ? '确认删除渐变预设' : 'Delete Gradient Preset',
+      description:
+        language === 'zh'
+          ? '确定要删除这个自定义渐变预设吗？'
+          : 'Are you sure you want to delete this custom gradient preset?',
+      confirmText: language === 'zh' ? '删除' : 'Delete',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      danger: true,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const updated = customGradients.filter(g => g.id !== gradient.id);
+    setCustomGradients(updated);
+    kvStorageService.set(CUSTOM_GRADIENTS_KEY, updated).catch((e) => {
+      console.warn('Failed to save custom gradients:', e);
+    });
+  }, [confirm, customGradients, language]);
 
   return (
-    <GradientEditor
-      value={currentConfig}
-      onChange={handleChange}
-      showPresets={true}
-      showHistory={true}
-      inline={inline}
-      customPresets={customGradients.map((g) => g.css)}
-      onSavePreset={saveCurrentGradient}
-      onDeletePreset={deleteCustomGradient}
-    />
+    <>
+      <GradientEditor
+        value={currentConfig}
+        onChange={handleChange}
+        showPresets={true}
+        showHistory={true}
+        inline={inline}
+        customPresets={customGradients.map((g) => g.css)}
+        onSavePreset={saveCurrentGradient}
+        onDeletePreset={deleteCustomGradient}
+      />
+      {confirmDialog}
+    </>
   );
 };
 

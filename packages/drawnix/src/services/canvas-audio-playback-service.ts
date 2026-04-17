@@ -6,6 +6,7 @@ import { getFileExtension } from '@aitu/utils';
 import { LS_KEYS } from '../constants/storage-keys';
 import { ttsSettings, type TtsSettings } from '../utils/settings-manager';
 import { cacheRemoteUrl } from './media-executor/fallback-utils';
+import { getAudioCacheKeySeed } from '../data/audio-cache-key';
 import type {
   ReadingPlaybackOrigin,
   ReadingPlaybackSource,
@@ -185,13 +186,6 @@ const WAVEFORM_SMOOTHING = 0.42;
 const PULSE_SMOOTHING = 0.52;
 const READING_PROGRESS_INTERVAL_MS = 250;
 
-function createAudioPlaybackHash(input: string): string {
-  let hash = 0;
-  for (let index = 0; index < input.length; index++) {
-    hash = (hash * 31 + input.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
 export const EMPTY_AUDIO_SPECTRUM = Object.freeze(
   Array.from({ length: ANALYSIS_BAND_COUNT }, () => 0)
 );
@@ -945,11 +939,12 @@ export class CanvasAudioPlaybackService {
 
     try {
       const ext = getFileExtension(audioUrl);
-      const cacheKey =
-        source.providerTaskId ||
-        source.clipId ||
-        source.elementId ||
-        `playback-${createAudioPlaybackHash(audioUrl)}`;
+      const cacheKey = source.elementId?.startsWith('asset:')
+        ? source.elementId
+        : getAudioCacheKeySeed(audioUrl, {
+            clipId: source.clipId,
+            providerTaskId: source.providerTaskId,
+          });
       return await cacheRemoteUrl(
         audioUrl,
         cacheKey,

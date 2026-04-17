@@ -68,6 +68,118 @@
 
 /* ===== asset-embed 插件样式 ===== */
 
+.collimind-markdown-editor .milkdown-image-block.collimind-markdown-image-block {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: top;
+  margin: 8px 12px 8px 0;
+  max-width: 100%;
+}
+
+.collimind-markdown-editor .milkdown-image-block.collimind-markdown-image-block:last-child {
+  margin-right: 0;
+}
+
+.collimind-markdown-image-block__shell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+  cursor: grab;
+}
+
+.collimind-markdown-image-block__frame {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: stretch;
+  min-width: 80px;
+  min-height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+
+.collimind-markdown-image-block__shell.is-selected .collimind-markdown-image-block__frame {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.45);
+}
+
+.collimind-markdown-image-block__image {
+  display: block;
+  max-width: 100%;
+}
+
+.collimind-markdown-image-block__caption {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.collimind-markdown-image-block__handle {
+  position: absolute;
+  border: none;
+  background: #f97316;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+  opacity: 0.96;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.collimind-markdown-image-block__handle--right {
+  top: 50%;
+  right: -5px;
+  width: 10px;
+  height: 56px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.collimind-markdown-image-block__handle--bottom {
+  left: 50%;
+  bottom: -5px;
+  width: 56px;
+  height: 10px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.collimind-markdown-image-block__handle--corner {
+  right: -6px;
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+}
+
+.collimind-markdown-image-block__loading,
+.collimind-markdown-image-block__missing {
+  min-width: 180px;
+  min-height: 96px;
+  border-radius: 12px;
+}
+
+.collimind-markdown-image-block__loading {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: asset-embed-shimmer 1.5s ease-in-out infinite;
+}
+
+.collimind-markdown-image-block__missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .collimind-asset-embed {
   margin: 8px 0;
   max-width: 100%;

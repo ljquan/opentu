@@ -23,7 +23,7 @@ export interface LLMApiLog {
   // 请求信息
   endpoint: string;        // API endpoint (e.g., /images/generations, /chat/completions)
   model: string;           // 使用的模型
-  taskType: 'image' | 'video' | 'chat' | 'character' | 'other';
+  taskType: 'image' | 'video' | 'audio' | 'chat' | 'character' | 'other';
   
   // 请求参数（脱敏后）
   prompt?: string;         // 提示词
@@ -42,7 +42,7 @@ export interface LLMApiLog {
   resultCount?: number;    // 生成数量
   resultUrl?: string;      // 生成的图片/视频 URL
   resultText?: string;     // 聊天响应文本（截断）
-  responseBody?: string;   // 原始响应体（截断）
+  responseBody?: string;   // 原始响应体（超大时限长截断）
   errorMessage?: string;   // 错误信息
   remoteId?: string;       // API 厂商的任务 ID (用于异步任务恢复)
 
@@ -60,6 +60,7 @@ const DB_NAME = 'llm-api-logs';
 const DB_VERSION = 4; // Bump to ensure taskId index exists
 const STORE_NAME = 'logs';
 const MAX_DB_LOGS = 1000; // IndexedDB 中最多保存的日志数量
+const MAX_RESPONSE_BODY_LENGTH = 128 * 1024; // 保留原始 JSON，极端大响应再截断，避免日志库膨胀
 
 // 广播回调
 let broadcastCallback: ((log: LLMApiLog) => void) | null = null;
@@ -211,6 +212,25 @@ function compactLog(log: LLMApiLog): Partial<LLMApiLog> {
   };
 }
 
+function matchesTaskTypeFilter(log: LLMApiLog, taskType?: string): boolean {
+  if (!taskType) return true;
+
+  const isLyrics =
+    log.taskType === 'audio' &&
+    (log.resultType === 'lyrics' ||
+      /\/lyrics(?:\/|$)/i.test(log.endpoint || ''));
+
+  if (taskType === 'lyrics') {
+    return isLyrics;
+  }
+
+  if (taskType === 'audio') {
+    return log.taskType === 'audio' && !isLyrics;
+  }
+
+  return log.taskType === taskType;
+}
+
 /**
  * 分页获取 LLM API 日志（精简版，用于列表展示）
  * @param page 页码
@@ -232,7 +252,7 @@ export async function getLLMApiLogsPaginated(
   
   // 应用过滤条件
   if (filter?.taskType) {
-    allLogs = allLogs.filter(log => log.taskType === filter.taskType);
+    allLogs = allLogs.filter(log => matchesTaskTypeFilter(log, filter.taskType));
   }
   if (filter?.status) {
     allLogs = allLogs.filter(log => log.status === filter.status);
@@ -543,7 +563,7 @@ export function completeLLMApiLog(
     log.resultCount = params.resultCount;
     log.resultUrl = params.resultUrl;
     log.resultText = params.resultText ? truncateText(params.resultText, 1000) : undefined;
-    log.responseBody = params.responseBody ? truncateText(params.responseBody, 2000) : undefined;
+    log.responseBody = params.responseBody ? truncateResponseBody(params.responseBody) : undefined;
     if (params.remoteId) log.remoteId = params.remoteId;
     
     // 更新 IndexedDB
@@ -571,7 +591,7 @@ export function updateLLMApiLogMetadata(
   const log = memoryLogs.find(l => l.id === logId);
   if (log) {
     if (params.remoteId) log.remoteId = params.remoteId;
-    if (params.responseBody) log.responseBody = truncateText(params.responseBody, 2000);
+    if (params.responseBody) log.responseBody = truncateResponseBody(params.responseBody);
     if (params.httpStatus) log.httpStatus = params.httpStatus;
     
     // 更新 IndexedDB
@@ -603,7 +623,7 @@ export function failLLMApiLog(
     log.httpStatus = params.httpStatus;
     log.duration = params.duration;
     log.errorMessage = truncateError(params.errorMessage);
-    log.responseBody = params.responseBody ? truncateText(params.responseBody, 2000) : undefined;
+    log.responseBody = params.responseBody ? truncateResponseBody(params.responseBody) : undefined;
     if (params.remoteId) log.remoteId = params.remoteId;
     
     // 更新 IndexedDB
@@ -631,6 +651,11 @@ function truncatePrompt(prompt: string): string {
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength) + '...';
+}
+
+function truncateResponseBody(text: string): string {
+  if (text.length <= MAX_RESPONSE_BODY_LENGTH) return text;
+  return `${text.substring(0, MAX_RESPONSE_BODY_LENGTH)}\n... [response truncated for log storage]`;
 }
 
 /**

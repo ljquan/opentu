@@ -9,7 +9,11 @@ import React, { useEffect, useState, Suspense, useCallback, useMemo, useRef } fr
 import { PlaitBoard, getViewportOrigination } from '@plait/core';
 import { WinBoxWindow } from '../winbox';
 import { toolWindowService } from '../../services/tool-window-service';
-import { ToolDefinition, ToolWindowState } from '../../types/toolbox.types';
+import {
+  ToolDefinition,
+  ToolInstanceContextProps,
+  ToolWindowState,
+} from '../../types/toolbox.types';
 import { useI18n } from '../../i18n';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { ToolTransforms } from '../../plugins/with-tool';
@@ -59,39 +63,39 @@ export const ToolWinBoxManager: React.FC = () => {
    * 处理工具最小化
    */
   const handleMinimize = useCallback((
-    toolId: string,
+    instanceId: string,
     position: { x: number; y: number },
     size: { width: number; height: number }
   ) => {
-    toolWindowService.minimizeTool(toolId, position, size);
+    toolWindowService.minimizeTool(instanceId, position, size);
   }, []);
 
   /**
    * 处理窗口位置/尺寸变化
    */
-  const handleMove = useCallback((toolId: string, x: number, y: number) => {
-    const state = toolWindowService.getToolState(toolId);
+  const handleMove = useCallback((instanceId: string, x: number, y: number) => {
+    const state = toolWindowService.getToolInstance(instanceId);
     if (state) {
-      toolWindowService.updateToolPosition(toolId, { x, y }, state.size);
+      toolWindowService.updateToolPosition(instanceId, { x, y }, state.size);
     }
   }, []);
 
   /**
    * 处理窗口调整大小
    */
-  const handleResize = useCallback((toolId: string, width: number, height: number) => {
-    const state = toolWindowService.getToolState(toolId);
+  const handleResize = useCallback((instanceId: string, width: number, height: number) => {
+    const state = toolWindowService.getToolInstance(instanceId);
     if (state) {
       toolWindowService.updateToolPosition(
-        toolId,
+        instanceId,
         state.position || { x: 0, y: 0 },
         { width, height }
       );
     }
   }, []);
 
-  const handleActivate = useCallback((toolId: string) => {
-    toolWindowService.markToolActivated(toolId);
+  const handleActivate = useCallback((instanceId: string) => {
+    toolWindowService.markToolActivated(instanceId);
   }, []);
 
   // 当 toolStates 变化时（如外部调用 openTool），同步置顶到 WinBoxManager
@@ -105,7 +109,7 @@ export const ToolWinBoxManager: React.FC = () => {
     const topTool = openStates.reduce((a, b) =>
       a.activationOrder >= b.activationOrder ? a : b
     );
-    const topToolId = topTool.tool.id;
+    const topToolId = topTool.instanceId;
     if (topToolId !== prevTopToolRef.current) {
       prevTopToolRef.current = topToolId;
       winboxManagerService.bringToFront(`tool-window-${topToolId}`);
@@ -118,6 +122,7 @@ export const ToolWinBoxManager: React.FC = () => {
    * @param rect 弹窗当前位置和尺寸（屏幕坐标）
    */
   const handleInsertToCanvas = useCallback((
+    instanceId: string,
     tool: ToolDefinition,
     rect: { x: number; y: number; width: number; height: number }
   ) => {
@@ -127,38 +132,44 @@ export const ToolWinBoxManager: React.FC = () => {
     }
 
     // 先关闭弹窗
-    toolWindowService.closeTool(tool.id);
+    toolWindowService.closeTool(instanceId);
 
     // 将屏幕坐标转换为画布坐标
     const boardContainerRect = PlaitBoard.getBoardContainer(board).getBoundingClientRect();
     const zoom = board.viewport.zoom;
     const origination = getViewportOrigination(board);
+    if (!origination) {
+      console.warn('Viewport origination not ready');
+      return;
+    }
 
     // 弹窗位置相对于画布容器的偏移
     const screenX = rect.x - boardContainerRect.left;
     const screenY = rect.y - boardContainerRect.top;
 
     // 转换为画布坐标
-    const canvasX = origination![0] + screenX / zoom;
-    const canvasY = origination![1] + screenY / zoom;
+    const canvasX = origination[0] + screenX / zoom;
+    const canvasY = origination[1] + screenY / zoom;
 
     // 使用弹窗的尺寸
     const width = rect.width;
     const height = rect.height;
 
     // 插入到画布（使用与 ToolboxDrawer 相同的调用方式）
+    const toolUrl = 'url' in tool ? tool.url : undefined;
+    const toolComponent = 'component' in tool ? tool.component : undefined;
     if (tool.url || tool.component) {
       ToolTransforms.insertTool(
         board,
         tool.id,
-        (tool as any).url, // url 可能为 undefined
+        toolUrl,
         [canvasX, canvasY],
         { width, height },
         {
           name: tool.name,
           category: tool.category,
           permissions: tool.permissions,
-          component: (tool as any).component,
+          component: toolComponent,
         }
       );
     }
@@ -168,8 +179,8 @@ export const ToolWinBoxManager: React.FC = () => {
    * 处理窗口最大化回调
    * 清除 autoMaximize 标记，避免再次打开时重复最大化
    */
-  const handleMaximize = useCallback((toolId: string) => {
-    const state = toolWindowService.getToolState(toolId);
+  const handleMaximize = useCallback((instanceId: string) => {
+    const state = toolWindowService.getToolInstance(instanceId);
     if (state && state.autoMaximize) {
       // 清除 autoMaximize 标记（通过更新状态）
       // 由于 ToolWindowState 是引用类型，直接修改即可
@@ -188,10 +199,31 @@ export const ToolWinBoxManager: React.FC = () => {
         if (a.activationOrder !== b.activationOrder) {
           return a.activationOrder - b.activationOrder;
         }
-        return a.tool.id.localeCompare(b.tool.id);
+        return a.instanceId.localeCompare(b.instanceId);
       }),
     [activeStates]
   );
+
+  const displayMetaByInstanceId = useMemo(() => {
+    const counts = new Map<string, number>();
+    const counters = new Map<string, number>();
+
+    stackedStates.forEach((state) => {
+      counts.set(state.toolId, (counts.get(state.toolId) || 0) + 1);
+    });
+
+    const result = new Map<string, { displayIndex: number; showIndex: boolean }>();
+    stackedStates.forEach((state) => {
+      const displayIndex = (counters.get(state.toolId) || 0) + 1;
+      counters.set(state.toolId, displayIndex);
+      result.set(state.instanceId, {
+        displayIndex,
+        showIndex: (counts.get(state.toolId) || 0) > 1,
+      });
+    });
+
+    return result;
+  }, [stackedStates]);
 
   if (stackedStates.length === 0) {
     return null;
@@ -200,8 +232,15 @@ export const ToolWinBoxManager: React.FC = () => {
   return (
     <>
       {stackedStates.map(state => {
-        const { tool, status, position, size, autoMaximize } = state;
+        const { instanceId, instanceIndex, tool, status, position, size, autoMaximize } = state;
         const InternalComponent = toolRegistry.resolveInternalComponent(tool.component);
+        const displayMeta = displayMetaByInstanceId.get(instanceId);
+        const componentProps: ToolInstanceContextProps & Record<string, unknown> = {
+          ...(state.componentProps || {}),
+          toolInstanceId: instanceId,
+          toolId: state.toolId,
+          instanceIndex,
+        };
         
         // 确定窗口是否可见
         const isVisible = status === 'open';
@@ -211,25 +250,25 @@ export const ToolWinBoxManager: React.FC = () => {
         
         return (
           <WinBoxWindow
-            key={tool.id}
-            id={`tool-window-${tool.id}`}
+            key={instanceId}
+            id={`tool-window-${instanceId}`}
             visible={isVisible}
             keepAlive={true}
-            title={tool.name}
+            title={displayMeta?.showIndex ? `${tool.name} #${displayMeta.displayIndex}` : tool.name}
             icon={tool.icon}
             width={windowSize.width}
             height={windowSize.height}
             x={position?.x}
             y={position?.y}
             autoMaximize={autoMaximize}
-            onClose={() => toolWindowService.closeTool(tool.id)}
-            onMinimize={(pos, sz) => handleMinimize(tool.id, pos, sz)}
-            onMaximize={() => handleMaximize(tool.id)}
-            onMove={(x, y) => handleMove(tool.id, x, y)}
-            onResize={(w, h) => handleResize(tool.id, w, h)}
-            onActivate={() => handleActivate(tool.id)}
-            onInsertToCanvas={(rect) => handleInsertToCanvas(tool, rect)}
-            minimizeTargetSelector={`[data-minimize-target="${tool.id}"]`}
+            onClose={() => toolWindowService.closeTool(instanceId)}
+            onMinimize={(pos, sz) => handleMinimize(instanceId, pos, sz)}
+            onMaximize={() => handleMaximize(instanceId)}
+            onMove={(x, y) => handleMove(instanceId, x, y)}
+            onResize={(w, h) => handleResize(instanceId, w, h)}
+            onActivate={() => handleActivate(instanceId)}
+            onInsertToCanvas={(rect) => handleInsertToCanvas(instanceId, tool, rect)}
+            minimizeTargetSelector={`[data-minimize-target="${instanceId}"]`}
             className="winbox-ai-generation winbox-tool-window"
             background="#ffffff"
           >
@@ -247,7 +286,7 @@ export const ToolWinBoxManager: React.FC = () => {
                     {language === 'zh' ? '加载中...' : 'Loading...'}
                   </div>
                 }>
-                  <InternalComponent {...(state.componentProps || {})} />
+                  <InternalComponent {...componentProps} />
                 </Suspense>
               ) : tool.url ? (
                 <iframe

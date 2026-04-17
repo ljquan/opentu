@@ -55,6 +55,7 @@ import {
   useContextMenuState,
   type ContextMenuEntry,
 } from '../shared';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import { FramePanel } from './FramePanel';
 import { LayerPanel } from './LayerPanel';
 import './project-drawer.scss';
@@ -1579,10 +1580,13 @@ export const ProjectDrawer: React.FC<ProjectDrawerProps> = ({
       </BaseDrawer>
 
       {/* Delete confirmation dialog */}
-      <Dialog
-        visible={showDeleteDialog}
-        header="确认删除"
-        onClose={() => {
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="确认删除"
+        onOpenChange={(open) => {
+          if (open) {
+            return;
+          }
           setShowDeleteDialog(false);
           setDeleteTarget(null);
           setDeleteMultipleTargets([]);
@@ -1612,16 +1616,17 @@ export const ProjectDrawer: React.FC<ProjectDrawerProps> = ({
               ? handleDeleteBoard 
               : undefined
         }
-        confirmBtn={
+        confirmText={
           deleteMultipleTargets.length > 0 || deleteTarget?.type === 'board' 
             ? '删除' 
             : undefined
         }
-        cancelBtn={
+        cancelText={
           deleteMultipleTargets.length > 0 || deleteTarget?.type === 'board' 
             ? '取消' 
             : undefined
         }
+        danger
       >
         {deleteMultipleTargets.length > 0 ? (
           <p>确定要删除选中的 {deleteMultipleTargets.length} 个画板吗？此操作不可撤销。</p>
@@ -1642,7 +1647,7 @@ export const ProjectDrawer: React.FC<ProjectDrawerProps> = ({
             )}
           </p>
         )}
-      </Dialog>
+      </ConfirmDialog>
 
       {/* Import progress dialog */}
       <Dialog

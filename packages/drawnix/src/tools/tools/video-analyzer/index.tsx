@@ -32,7 +32,7 @@ const LoadingFallback: React.FC = () => (
   </div>
 );
 
-export const VideoAnalyzerToolComponent: React.FC<any> = (props) => (
+export const VideoAnalyzerToolComponent: React.FC<Record<string, unknown>> = (props) => (
   <div style={containerStyle}>
     <Suspense fallback={<LoadingFallback />}>
       <VideoAnalyzerOriginal {...props} />
@@ -48,6 +48,10 @@ export const videoAnalyzerTool: ToolPluginModule = {
     icon: '🎬',
     category: ToolCategory.AI_TOOLS,
     component: 'video-analyzer',
+    supportsMultipleWindows: true,
+    defaultWindowBehavior: {
+      autoPinOnOpen: true,
+    },
     defaultWidth: 520,
     defaultHeight: 700,
   },

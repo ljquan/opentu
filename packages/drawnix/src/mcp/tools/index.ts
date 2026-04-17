@@ -10,6 +10,8 @@ export type { VideoGenerationParams } from './video-generation';
 
 export { audioGenerationTool, generateAudio } from './audio-generation';
 export type { AudioGenerationParams } from './audio-generation';
+export { audioAnalyzeTool } from './audio-analyze';
+export type { MusicAnalyzeParams, MusicAnalysisData } from './audio-analyze';
 
 export { aiAnalyzeTool, analyzeWithAI } from './ai-analyze';
 export type { AIAnalyzeParams, AIAnalyzeResult } from './ai-analyze';

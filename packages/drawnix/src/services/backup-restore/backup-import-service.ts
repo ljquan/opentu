@@ -27,6 +27,7 @@ import { knowledgeBaseService } from '../knowledge-base-service';
 import {
   BACKUP_SIGNATURE,
   BackupManifest,
+  BackupProjectFoldersData,
   PromptsData,
   PresetStorageData,
   DrawnixFileData,
@@ -35,7 +36,15 @@ import {
   ensureElementIds,
 } from './types';
 import { restoreEmbeddedMedia } from '../../data/blob';
-import { getExtensionFromMimeType, generateId } from './backup-utils';
+import {
+  getCandidateExtensions,
+  generateId,
+  normalizeCacheMediaType,
+  buildFolderPathMap,
+  collectFolderPathsFromBoardPaths,
+  getFolderDepth,
+  getFolderKey,
+} from './backup-utils';
 
 class BackupImportService {
   async importFromZip(
@@ -103,6 +112,9 @@ class BackupImportService {
       if (manifest.includes.assets) {
         onProgress?.(60, '正在导入素材...');
         result.assets = await this.importAssets(zip, onProgress);
+      }
+
+      if (manifest.includes.tasks ?? manifest.includes.assets) {
         onProgress?.(85, '正在导入任务数据...');
         result.tasks = await this.importTasks(zip);
       }
@@ -242,52 +254,10 @@ class BackupImportService {
       return { folders: 0, boards: 0, merged: 0, skipped: 0 };
     }
 
-    // 从目录结构推断文件夹
-    const folderPaths = new Set<string>();
-    const folderIdMap = new Map<string, string>();
+    const folderIdMap = await this.restoreProjectFolders(zip, existingFolders, drawnixFiles);
+    foldersImported = folderIdMap.created;
+    skipped += folderIdMap.skipped;
 
-    for (const filePath of drawnixFiles) {
-      const relativePath = filePath.replace(/^projects\//, '');
-      const parts = relativePath.split('/');
-      if (parts.length > 1) {
-        let currentPath = '';
-        for (let i = 0; i < parts.length - 1; i++) {
-          currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-          folderPaths.add(currentPath);
-        }
-      }
-    }
-
-    const sortedPaths = Array.from(folderPaths).sort((a, b) => {
-      const depthA = a.split('/').length;
-      const depthB = b.split('/').length;
-      return depthA - depthB || a.localeCompare(b);
-    });
-
-    for (let i = 0; i < sortedPaths.length; i++) {
-      const folderPath = sortedPaths[i];
-      const parts = folderPath.split('/');
-      const folderName = parts[parts.length - 1];
-      const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
-      const parentId = parentPath ? folderIdMap.get(parentPath) || null : null;
-
-      const folderId = generateId();
-      folderIdMap.set(folderPath, folderId);
-
-      const existingFolder = existingFolders.find(f => f.name === folderName && f.parentId === parentId);
-      if (existingFolder) {
-        folderIdMap.set(folderPath, existingFolder.id);
-        skipped++;
-        continue;
-      }
-
-      const folder: Folder = {
-        id: folderId, name: folderName, parentId, order: i,
-        isExpanded: true, createdAt: Date.now(), updatedAt: Date.now(),
-      };
-      await workspaceStorageService.saveFolder(folder);
-      foldersImported++;
-    }
     // 导入画板
     for (let i = 0; i < drawnixFiles.length; i++) {
       const filePath = drawnixFiles[i];
@@ -303,7 +273,7 @@ class BackupImportService {
           const parts = relativePath.split('/');
           const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
           const folderId = folderPath
-            ? folderIdMap.get(folderPath) || boardMeta?.folderId || null
+            ? folderIdMap.pathToId.get(folderPath) || (boardMeta?.folderId ? folderIdMap.importedToLocalId.get(boardMeta.folderId) : null) || boardMeta?.folderId || null
             : null;
 
           const fileName = parts[parts.length - 1] || 'unnamed.drawnix';
@@ -396,28 +366,19 @@ class BackupImportService {
           if (existingIds.has(assetId)) { skipped++; continue; }
         }
 
-        const possibleExtensions = ['.jpg', '.png', '.gif', '.webp', '.mp4', '.webm', '.mov', '.svg'];
         let blobData: Blob | null = null;
 
-        for (const ext of possibleExtensions) {
+        for (const ext of getCandidateExtensions(metadata.mimeType)) {
           const blobFile = zip.file(`assets/${assetFileStem}${ext}`);
           if (blobFile) { blobData = await blobFile.async('blob'); break; }
         }
 
-        if (!blobData && metadata.mimeType) {
-          const ext = getExtensionFromMimeType(metadata.mimeType);
-          if (ext) {
-            const blobFile = zip.file(`assets/${assetFileStem}${ext}`);
-            if (blobFile) blobData = await blobFile.async('blob');
-          }
-        }
-
         if (blobData) {
-          const cacheType = metadata.type === 'VIDEO' ? 'video' : 'image';
+          const cacheType = normalizeCacheMediaType(metadata.type, metadata.mimeType);
           await unifiedCacheService.cacheMediaFromBlob(
             metadata.url,
             blobData,
-            cacheType as 'image' | 'video',
+            cacheType,
             {
               metadata: {
                 taskId: metadata.metadata?.taskId || assetId,
@@ -446,6 +407,102 @@ class BackupImportService {
     }
 
     return { imported, skipped };
+  }
+
+  private async restoreProjectFolders(
+    zip: JSZip,
+    existingFolders: Folder[],
+    drawnixFiles: string[]
+  ): Promise<{
+    pathToId: Map<string, string>;
+    importedToLocalId: Map<string, string>;
+    created: number;
+    skipped: number;
+  }> {
+    const importedToLocalId = new Map<string, string>();
+    const pathToId = new Map<string, string>();
+    let created = 0;
+    let skipped = 0;
+
+    const foldersFile = zip.file('projects/_folders.json');
+    const folderKeyMap = new Map(existingFolders.map(folder => [getFolderKey(folder.name, folder.parentId), folder]));
+
+    if (foldersFile) {
+      const parsed = JSON.parse(await foldersFile.async('string')) as BackupProjectFoldersData | Folder[];
+      const importedFolders = Array.isArray(parsed) ? parsed : parsed?.folders || [];
+      const importedFolderMap = new Map(importedFolders.map(folder => [folder.id, folder]));
+      const sortedFolders = [...importedFolders].sort((a, b) => {
+        const depthA = getFolderDepth(a, importedFolderMap);
+        const depthB = getFolderDepth(b, importedFolderMap);
+        return depthA - depthB || a.order - b.order || a.name.localeCompare(b.name);
+      });
+
+      for (const folder of sortedFolders) {
+        const mappedParentId = folder.parentId ? importedToLocalId.get(folder.parentId) || null : null;
+        const existingById = existingFolders.find(item => item.id === folder.id);
+        if (existingById) {
+          importedToLocalId.set(folder.id, existingById.id);
+          continue;
+        }
+
+        const existingByKey = folderKeyMap.get(getFolderKey(folder.name, mappedParentId));
+        if (existingByKey) {
+          importedToLocalId.set(folder.id, existingByKey.id);
+          skipped++;
+          continue;
+        }
+
+        const nextFolder: Folder = {
+          ...folder,
+          parentId: mappedParentId,
+        };
+        await workspaceStorageService.saveFolder(nextFolder);
+        existingFolders.push(nextFolder);
+        folderKeyMap.set(getFolderKey(nextFolder.name, nextFolder.parentId), nextFolder);
+        importedToLocalId.set(folder.id, nextFolder.id);
+        created++;
+      }
+
+      const allFolders = await workspaceStorageService.loadAllFolders();
+      const pathMap = buildFolderPathMap(allFolders);
+      for (const [folderId, path] of pathMap.entries()) {
+        pathToId.set(path, folderId);
+      }
+    }
+
+    const fallbackPaths = collectFolderPathsFromBoardPaths(drawnixFiles);
+    for (const folderPath of fallbackPaths) {
+      if (pathToId.has(folderPath)) {
+        continue;
+      }
+      const parts = folderPath.split('/');
+      const folderName = parts[parts.length - 1];
+      const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
+      const parentId = parentPath ? pathToId.get(parentPath) || null : null;
+      const key = getFolderKey(folderName, parentId);
+      const existingFolder = folderKeyMap.get(key);
+      if (existingFolder) {
+        pathToId.set(folderPath, existingFolder.id);
+        continue;
+      }
+
+      const folder: Folder = {
+        id: generateId(),
+        name: folderName,
+        parentId,
+        order: existingFolders.length,
+        isExpanded: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await workspaceStorageService.saveFolder(folder);
+      existingFolders.push(folder);
+      folderKeyMap.set(key, folder);
+      pathToId.set(folderPath, folder.id);
+      created++;
+    }
+
+    return { pathToId, importedToLocalId, created, skipped };
   }
 
   private async importTasks(zip: JSZip): Promise<{ imported: number; skipped: number }> {

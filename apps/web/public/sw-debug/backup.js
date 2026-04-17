@@ -8,62 +8,34 @@ import {
   KV_KEYS,
   CACHE_NAMES,
   SW_TASK_QUEUE_DB,
-  TaskType,
-  TaskStatus,
   readAllFromIDB,
   readKVItem,
 } from './indexeddb.js';
 import { showToast } from './toast.js';
 import { BackupPartManager } from './backup-part-manager.js';
-
-/**
- * 备份签名和版本
- */
-export const BACKUP_SIGNATURE = 'aitu-backup';
-export const BACKUP_VERSION = 3;
-
-/**
- * 获取文件扩展名（导出供 restore 复用）
- */
-export function getExtensionFromMimeType(mimeType) {
-  const mimeToExt = {
-    'image/jpeg': '.jpg',
-    'image/jpg': '.jpg',
-    'image/png': '.png',
-    'image/gif': '.gif',
-    'image/webp': '.webp',
-    'image/svg+xml': '.svg',
-    'video/mp4': '.mp4',
-    'video/webm': '.webm',
-    'video/quicktime': '.mov',
-  };
-  return mimeToExt[mimeType] || '';
-}
-
-/**
- * 清理文件/文件夹名称（导出供 restore 复用）
- */
-export function sanitizeFileName(name) {
-  return (
-    name
-      .replace(/[<>:"/\\|?*]/g, '_')
-      .replace(/\s+/g, ' ')
-      .trim() || 'unnamed'
-  );
-}
-
-/**
- * 从 URL 生成唯一 ID（导出供 restore 复用）
- */
-export function generateIdFromUrl(url) {
-  let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    const char = url.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `cache-${Math.abs(hash).toString(36)}`;
-}
+import {
+  BACKUP_SIGNATURE,
+  BACKUP_VERSION,
+  getExtensionFromMimeType,
+  getCandidateExtensions,
+  normalizeBackupAssetType,
+  normalizeCacheMediaType,
+  sanitizeFileName,
+  generateIdFromUrl,
+  appendUrlHashToBackupName,
+  ensureUniqueBackupName,
+  buildAssetExportBaseName,
+  mergePromptData,
+  filterCompletedMediaTasks,
+  buildFolderPathMap,
+  exportKnowledgeBaseData,
+} from './shared/backup-core.js';
+export {
+  BACKUP_SIGNATURE,
+  BACKUP_VERSION,
+  getCandidateExtensions,
+  normalizeCacheMediaType,
+};
 
 /**
  * 等待 JSZip 加载完成
@@ -130,10 +102,10 @@ export async function performBackup() {
       createdAt: Date.now(),
       source: 'sw-debug-panel',
       backupId,
-      includes: { prompts: true, projects: true, tasks: true, assets: true },
+      includes: { prompts: true, projects: true, tasks: true, assets: true, knowledgeBase: true },
       stats: {
         promptCount: 0, videoPromptCount: 0, imagePromptCount: 0,
-        folderCount: 0, boardCount: 0, assetCount: 0, taskCount: 0,
+        folderCount: 0, boardCount: 0, assetCount: 0, taskCount: 0, kbNoteCount: 0,
       },
     };
 
@@ -157,15 +129,17 @@ export async function performBackup() {
 
     // 3. 任务数据（非素材，放 Part1）
     updateProgress(30, '正在导出任务数据...');
-    const completedMediaTasks = allTasks.filter(
-      task => task.status === TaskStatus.COMPLETED &&
-              (task.type === TaskType.IMAGE || task.type === TaskType.VIDEO) &&
-              task.result?.url
-    );
+    const completedMediaTasks = filterCompletedMediaTasks(allTasks);
     if (completedMediaTasks.length > 0) {
       partManager.addFile('tasks.json', completedMediaTasks);
       manifest.stats.taskCount = completedMediaTasks.length;
     }
+
+    // 3.5 知识库
+    updateProgress(33, '正在导出知识库...');
+    const knowledgeBaseData = await collectKnowledgeBaseData();
+    partManager.addFile('knowledge-base.json', knowledgeBaseData);
+    manifest.stats.kbNoteCount = knowledgeBaseData.notes.length;
 
     // 4. 素材数据（通过 partManager 自动分片）
     updateProgress(35, '正在备份素材...');
@@ -229,47 +203,13 @@ async function collectPromptsData(allTasks = []) {
     readKVItem(KV_KEYS.PRESET_SETTINGS),
   ]);
 
-  let finalPromptHistory = promptHistory || [];
-  let finalVideoPromptHistory = videoPromptHistory || [];
-  let finalImagePromptHistory = imagePromptHistory || [];
-
-  const completedTasks = allTasks.filter(task => task.status === TaskStatus.COMPLETED);
-
-  const imageTaskPrompts = completedTasks
-    .filter(task => task.type === TaskType.IMAGE && task.params?.prompt)
-    .map(task => ({
-      id: `task_${task.id}`,
-      content: task.params.prompt.trim(),
-      timestamp: task.completedAt || task.createdAt,
-    }))
-    .filter(item => item.content && item.content.length > 0);
-
-  const videoTaskPrompts = completedTasks
-    .filter(task => task.type === TaskType.VIDEO && task.params?.prompt)
-    .map(task => ({
-      id: `task_${task.id}`,
-      content: task.params.prompt.trim(),
-      timestamp: task.completedAt || task.createdAt,
-    }))
-    .filter(item => item.content && item.content.length > 0);
-
-  const existingImageContents = new Set(finalImagePromptHistory.map(p => p.content));
-  const newImagePrompts = imageTaskPrompts.filter(p => !existingImageContents.has(p.content));
-  finalImagePromptHistory = [...finalImagePromptHistory, ...newImagePrompts];
-
-  const existingVideoContents = new Set(finalVideoPromptHistory.map(p => p.content));
-  const newVideoPrompts = videoTaskPrompts.filter(p => !existingVideoContents.has(p.content));
-  finalVideoPromptHistory = [...finalVideoPromptHistory, ...newVideoPrompts];
-
-  return {
-    promptHistory: finalPromptHistory,
-    videoPromptHistory: finalVideoPromptHistory,
-    imagePromptHistory: finalImagePromptHistory,
-    presetSettings: presetSettings || {
-      image: { pinnedPrompts: [], deletedPrompts: [] },
-      video: { pinnedPrompts: [], deletedPrompts: [] },
-    },
-  };
+  return mergePromptData({
+    promptHistory: promptHistory || [],
+    videoPromptHistory: videoPromptHistory || [],
+    imagePromptHistory: imagePromptHistory || [],
+    presetSettings: presetSettings || undefined,
+    allTasks,
+  });
 }
 
 /** 收集项目数据 */
@@ -284,34 +224,13 @@ async function collectProjectsData(zip) {
   const folderList = folders || [];
   const boardList = boards || [];
 
-  const folderPathMap = new Map();
-  const folderMap = new Map();
-
-  for (const folder of folderList) {
-    folderMap.set(folder.id, folder);
-  }
-
-  const getPath = (folderId) => {
-    if (folderPathMap.has(folderId)) return folderPathMap.get(folderId);
-    const folder = folderMap.get(folderId);
-    if (!folder) return '';
-    const safeName = sanitizeFileName(folder.name);
-    if (folder.parentId) {
-      const parentPath = getPath(folder.parentId);
-      const fullPath = parentPath ? `${parentPath}/${safeName}` : safeName;
-      folderPathMap.set(folderId, fullPath);
-      return fullPath;
-    }
-    folderPathMap.set(folderId, safeName);
-    return safeName;
-  };
-
-  for (const folder of folderList) getPath(folder.id);
+  const folderPathMap = buildFolderPathMap(folderList);
 
   for (const folder of folderList) {
     const path = folderPathMap.get(folder.id) || folder.name;
     projectsFolder.folder(path);
   }
+  projectsFolder.file('_folders.json', JSON.stringify({ folders: folderList }, null, 2));
 
   for (const board of boardList) {
     const folderPath = board.folderId ? folderPathMap.get(board.folderId) : null;
@@ -342,6 +261,7 @@ async function collectProjectsData(zip) {
 async function collectAssetsData(partManager, onProgress) {
   let exportedCount = 0;
   const exportedUrls = new Set();
+  const usedBaseNames = new Set();
 
   try {
     const cache = await caches.open(CACHE_NAMES.IMAGES);
@@ -362,9 +282,16 @@ async function collectAssetsData(partManager, onProgress) {
             const blob = await response.blob();
             if (blob.size > 0) {
               const ext = getExtensionFromMimeType(asset.mimeType || blob.type);
+              const uniqueBaseName = ensureUniqueBackupName(
+                appendUrlHashToBackupName(
+                  buildAssetExportBaseName(String(asset.id || 'asset'), asset.createdAt),
+                  asset.url
+                ),
+                usedBaseNames
+              );
               await partManager.addAssetBlob(
-                `${asset.id}${ext}`, blob,
-                `${asset.id}.meta.json`, asset
+                `${uniqueBaseName}${ext}`, blob,
+                `${uniqueBaseName}.meta.json`, asset
               );
               exportedUrls.add(asset.url);
               exportedCount++;
@@ -383,7 +310,7 @@ async function collectAssetsData(partManager, onProgress) {
         const itemId = item.metadata?.taskId || generateIdFromUrl(item.url);
         const metaData = {
           id: itemId, url: item.url,
-          type: item.type === 'video' ? 'VIDEO' : 'IMAGE',
+          type: normalizeBackupAssetType(item.type, item.mimeType),
           mimeType: item.mimeType, size: item.size,
           source: 'AI_GENERATED',
           createdAt: item.cachedAt, updatedAt: item.lastUsed,
@@ -394,9 +321,16 @@ async function collectAssetsData(partManager, onProgress) {
           const blob = await response.blob();
           if (blob.size > 0) {
             const ext = getExtensionFromMimeType(item.mimeType);
+            const uniqueBaseName = ensureUniqueBackupName(
+              appendUrlHashToBackupName(
+                buildAssetExportBaseName(String(itemId), item.cachedAt),
+                item.url
+              ),
+              usedBaseNames
+            );
             await partManager.addAssetBlob(
-              `${itemId}${ext}`, blob,
-              `${itemId}.meta.json`, metaData
+              `${uniqueBaseName}${ext}`, blob,
+              `${uniqueBaseName}.meta.json`, metaData
             );
             exportedUrls.add(item.url);
             exportedCount++;
@@ -422,11 +356,18 @@ async function collectAssetsData(partManager, onProgress) {
             const id = filename.split('.')[0] || `cache-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             const contentType = response.headers.get('content-type') || blob.type;
             const ext = getExtensionFromMimeType(contentType);
-            const type = contentType.startsWith('video/') ? 'VIDEO' : 'IMAGE';
+            const type = normalizeBackupAssetType(null, contentType);
             const metadata = { id, url, type, mimeType: contentType, size: blob.size, source: 'AI_GENERATED', createdAt: Date.now() };
+            const uniqueBaseName = ensureUniqueBackupName(
+              appendUrlHashToBackupName(
+                buildAssetExportBaseName(String(id), metadata.createdAt),
+                url
+              ),
+              usedBaseNames
+            );
             await partManager.addAssetBlob(
-              `${id}${ext}`, blob,
-              `${id}.meta.json`, metadata
+              `${uniqueBaseName}${ext}`, blob,
+              `${uniqueBaseName}.meta.json`, metadata
             );
             exportedUrls.add(url);
             exportedCount++;
@@ -439,6 +380,40 @@ async function collectAssetsData(partManager, onProgress) {
   } catch (error) { /* 静默 */ }
 
   return exportedCount;
+}
+
+async function collectKnowledgeBaseData() {
+  const noteContents = await readAllFromIDB(
+    IDB_STORES.KNOWLEDGE_BASE.name,
+    IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_CONTENTS
+  );
+  const noteContentMap = new Map(
+    noteContents.map((item) => [item.noteId || item.id, item.content])
+  );
+
+  return exportKnowledgeBaseData({
+    getAllDirectories: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.DIRECTORIES
+    ),
+    getAllTags: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.TAGS
+    ),
+    getAllNoteMetas: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTES
+    ),
+    getNoteContentById: async (id) => noteContentMap.get(id),
+    getAllNoteTags: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_TAGS
+    ),
+    getAllNoteImages: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_IMAGES
+    ),
+  });
 }
 
 /**

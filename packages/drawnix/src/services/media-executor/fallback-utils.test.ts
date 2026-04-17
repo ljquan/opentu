@@ -176,6 +176,42 @@ describe('cacheRemoteUrl', () => {
     vi.unstubAllGlobals();
   });
 
+  it('caches force-remote cover images into image cache paths instead of audio paths', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(new Blob(['cover-binary'], { type: 'image/jpeg' }), {
+          status: 200,
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const remoteUrl = 'https://cdn.example.com/audio/cover.jpg';
+
+    const result = await cacheRemoteUrl(
+      remoteUrl,
+      'task-audio-cover',
+      'image',
+      'jpg',
+      1,
+      { forceRemoteCache: true }
+    );
+
+    expect(result).toBe('/__aitu_cache__/image/task-audio-cover_1.jpg');
+    expect(cacheMediaFromBlob).toHaveBeenCalledWith(
+      '/__aitu_cache__/image/task-audio-cover_1.jpg',
+      expect.any(Blob),
+      'image',
+      {
+        taskId: 'task-audio-cover',
+        source: 'AI_GENERATED',
+      }
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it('keeps remote http urls unchanged as well', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);

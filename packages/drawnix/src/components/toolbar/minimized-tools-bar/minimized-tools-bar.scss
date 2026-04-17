@@ -21,6 +21,24 @@
     justify-content: center;
   }
 
+  &__badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--brand-primary, #f39c12);
+    color: #fff;
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    font-weight: 600;
+    pointer-events: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+
   &__indicator {
     position: absolute;
     width: 3px;

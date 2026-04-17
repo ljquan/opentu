@@ -31,6 +31,18 @@ export const IDB_STORES = {
     name: 'drawnix-unified-cache',
     store: 'media',
   },
+  // 知识库
+  KNOWLEDGE_BASE: {
+    name: 'aitu-knowledge-base',
+    stores: {
+      DIRECTORIES: 'directories',
+      NOTES: 'notes',
+      TAGS: 'tags',
+      NOTE_TAGS: 'noteTags',
+      NOTE_CONTENTS: 'noteContents',
+      NOTE_IMAGES: 'noteImages',
+    },
+  },
 };
 
 /**
@@ -66,6 +78,7 @@ export const SW_TASK_QUEUE_DB = {
 export const TaskType = {
   IMAGE: 'image',
   VIDEO: 'video',
+  AUDIO: 'audio',
 };
 
 export const TaskStatus = {
@@ -116,6 +129,29 @@ export async function readAllFromIDB(dbName, storeName) {
   } catch (error) {
     return [];
   }
+}
+
+/**
+ * 从 IndexedDB 读取单条数据
+ */
+export async function readItemFromIDB(dbName, storeName, key) {
+  const db = await openIDB(dbName, storeName);
+  if (!db) return null;
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const store = transaction.objectStore(storeName);
+    const request = store.get(key);
+
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result || null);
+    };
+  });
 }
 
 /**

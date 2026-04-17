@@ -16,6 +16,7 @@ import {
   AUDIO_CARD_DEFAULT_HEIGHT,
   AUDIO_CARD_DEFAULT_WIDTH,
   insertAudioFromUrl,
+  resolveAudioCardDimensions,
   type AudioCardMetadata,
 } from '../../data/audio';
 import { scrollToPointIfNeeded } from '../../utils/selection-utils';
@@ -294,10 +295,11 @@ async function insertAudioToCanvas(
   dimensions?: { width: number; height: number },
   metadata?: Record<string, unknown>
 ): Promise<{ width: number; height: number }> {
-  const size = dimensions || {
-    width: AUDIO_CARD_DEFAULT_WIDTH,
-    height: AUDIO_CARD_DEFAULT_HEIGHT,
-  };
+  const size = resolveAudioCardDimensions({
+    ...(metadata as AudioCardMetadata | undefined),
+    width: dimensions?.width,
+    height: dimensions?.height,
+  });
 
   await insertAudioFromUrl(
     board,

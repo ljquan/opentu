@@ -1,15 +1,25 @@
 /**
  * Tool Window Service
- * 
- * 管理工具箱工具以弹窗形式打开的状态
- * 支持最小化、常驻工具栏、位置记忆等功能
+ *
+ * 管理工具箱工具以弹窗形式打开的状态。
+ * 支持多实例窗口、最小化、常驻工具栏、位置记忆等能力。
  */
 
 import { BehaviorSubject, Observable } from 'rxjs';
-import { ToolDefinition, ToolWindowState } from '../types/toolbox.types';
+import {
+  ToolDefinition,
+  ToolWindowLaunchMode,
+  ToolWindowState,
+} from '../types/toolbox.types';
 
 /** localStorage key for pinned tools */
 const PINNED_TOOLS_STORAGE_KEY = 'aitu-pinned-tools';
+const PIN_PREFERENCES_STORAGE_KEY = 'aitu-tool-pin-preferences';
+const LAUNCHER_INSTANCE_PREFIX = 'launcher:';
+const INSTANCE_OFFSET_X = 36;
+const INSTANCE_OFFSET_Y = 28;
+const INSTANCE_BASE_X = 96;
+const INSTANCE_BASE_Y = 72;
 
 /** 可序列化的工具信息 */
 interface SerializableToolInfo {
@@ -28,6 +38,10 @@ interface OpenToolOptions {
   autoPin?: boolean;
   /** 传递给工具组件的额外 props（如 initialNoteId） */
   componentProps?: Record<string, unknown>;
+  /** 打开策略 */
+  launchMode?: ToolWindowLaunchMode;
+  /** 指定窗口初始位置，避免与调用方窗口重叠 */
+  position?: { x: number; y: number };
 }
 
 /**
@@ -35,34 +49,38 @@ interface OpenToolOptions {
  */
 class ToolWindowService {
   private static instance: ToolWindowService;
-  
-  /** 工具窗口状态映射 */
+
+  /** 工具窗口状态映射（真实窗口实例） */
   private toolStates: Map<string, ToolWindowState> = new Map();
-  
+
   /** 常驻工具 ID 集合 */
   private pinnedToolIds: Set<string> = new Set();
-  
-  /** 常驻工具信息缓存（用于刷新后恢复） */
+
+  /** 常驻工具信息缓存（用于刷新后恢复 launcher 图标） */
   private pinnedToolInfos: Map<string, SerializableToolInfo> = new Map();
-  
-  /** 工具状态变化通知 */
+
+  /** 用户显式设置过的常驻偏好（覆盖工具默认行为） */
+  private pinPreferences: Map<string, boolean> = new Map();
+
+  /** 工具状态变化通知（仅真实实例） */
   private toolStatesSubject = new BehaviorSubject<ToolWindowState[]>([]);
-  
+
   /** 兼容旧 API：已打开的工具列表 */
   private openToolsSubject = new BehaviorSubject<ToolDefinition[]>([]);
 
   /** 会话内窗口激活顺序计数器 */
   private activationOrderCounter = 0;
 
+  /** 同工具实例序号计数器（关闭后不回收） */
+  private instanceCounters: Map<string, number> = new Map();
+
   private constructor() {
+    this.loadPinPreferences();
     this.loadPinnedTools();
-    // 延迟通知，让订阅者有机会订阅
+    this.reconcilePinnedToolsWithPreferences();
     setTimeout(() => this.notify(), 0);
   }
 
-  /**
-   * 获取单例实例
-   */
   static getInstance(): ToolWindowService {
     if (!ToolWindowService.instance) {
       ToolWindowService.instance = new ToolWindowService();
@@ -70,54 +88,60 @@ class ToolWindowService {
     return ToolWindowService.instance;
   }
 
-  /**
-   * 从 localStorage 加载常驻工具列表
-   */
   private loadPinnedTools(): void {
     try {
       const stored = localStorage.getItem(PINNED_TOOLS_STORAGE_KEY);
-      if (stored) {
-        const infos = JSON.parse(stored) as SerializableToolInfo[];
-        // 兼容旧格式（只有 id 数组）
-        if (Array.isArray(infos) && infos.length > 0) {
-          if (typeof infos[0] === 'string') {
-            // 旧格式：string[]
-            (infos as unknown as string[]).forEach(id => {
-              this.pinnedToolIds.add(id);
-            });
-          } else {
-            // 新格式：SerializableToolInfo[]
-            infos.forEach(info => {
-              this.pinnedToolIds.add(info.id);
-              this.pinnedToolInfos.set(info.id, info);
-              // 为常驻工具创建初始状态（closed）
-              this.toolStates.set(info.id, {
-                tool: {
-                  id: info.id,
-                  name: info.name,
-                  category: info.category,
-                  // icon 和 component 在实际打开时会被更新
-                } as ToolDefinition,
-                status: 'closed',
-                activationOrder: 0,
-                isPinned: true,
-              });
-            });
-          }
-        }
+      if (!stored) {
+        return;
       }
+
+      const infos = JSON.parse(stored) as SerializableToolInfo[];
+      if (!Array.isArray(infos) || infos.length === 0) {
+        return;
+      }
+
+      if (typeof infos[0] === 'string') {
+        (infos as unknown as string[]).forEach((id) => {
+          this.pinnedToolIds.add(id);
+        });
+        return;
+      }
+
+      infos.forEach((info) => {
+        this.pinnedToolIds.add(info.id);
+        this.pinnedToolInfos.set(info.id, info);
+      });
     } catch (e) {
       console.warn('Failed to load pinned tools:', e);
     }
   }
 
-  /**
-   * 保存常驻工具列表到 localStorage
-   */
+  private loadPinPreferences(): void {
+    try {
+      const stored = localStorage.getItem(PIN_PREFERENCES_STORAGE_KEY);
+      if (!stored) {
+        return;
+      }
+
+      const raw = JSON.parse(stored) as Record<string, unknown>;
+      if (!raw || typeof raw !== 'object') {
+        return;
+      }
+
+      Object.entries(raw).forEach(([toolId, value]) => {
+        if (typeof value === 'boolean') {
+          this.pinPreferences.set(toolId, value);
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to load tool pin preferences:', e);
+    }
+  }
+
   private savePinnedTools(): void {
     try {
       const infos: SerializableToolInfo[] = [];
-      this.pinnedToolIds.forEach(id => {
+      this.pinnedToolIds.forEach((id) => {
         const info = this.pinnedToolInfos.get(id);
         if (info) {
           infos.push(info);
@@ -129,35 +153,445 @@ class ToolWindowService {
     }
   }
 
-  /**
-   * 观察工具窗口状态列表（新 API）
-   */
+  private savePinPreferences(): void {
+    try {
+      const serialized = Object.fromEntries(this.pinPreferences.entries());
+      localStorage.setItem(
+        PIN_PREFERENCES_STORAGE_KEY,
+        JSON.stringify(serialized)
+      );
+    } catch (e) {
+      console.warn('Failed to save tool pin preferences:', e);
+    }
+  }
+
+  private reconcilePinnedToolsWithPreferences(): void {
+    this.pinPreferences.forEach((pinned, toolId) => {
+      if (pinned) {
+        return;
+      }
+      this.pinnedToolIds.delete(toolId);
+      this.pinnedToolInfos.delete(toolId);
+    });
+  }
+
   observeToolStates(): Observable<ToolWindowState[]> {
     return this.toolStatesSubject.asObservable();
   }
 
-  /**
-   * 获取所有工具窗口状态
-   */
+  observeOpenTools(): Observable<ToolDefinition[]> {
+    return this.openToolsSubject.asObservable();
+  }
+
   getToolStates(): ToolWindowState[] {
     return Array.from(this.toolStates.values());
   }
 
-  /**
-   * 获取需要在工具栏显示图标的工具列表
-   * 包括：已打开的工具 + 最小化的工具 + 已关闭但常驻的工具
-   */
   getToolbarTools(): ToolWindowState[] {
-    return this.getToolStates().filter(
-      state => state.status !== 'closed' || state.isPinned
+    const pinnedOrder = new Map(
+      Array.from(this.pinnedToolIds).map((toolId, index) => [toolId, index])
+    );
+    const instances = this.getToolStates().sort((a, b) => {
+      if (a.toolId === b.toolId) {
+        return a.instanceIndex - b.instanceIndex;
+      }
+
+      const aPinnedOrder = pinnedOrder.get(a.toolId);
+      const bPinnedOrder = pinnedOrder.get(b.toolId);
+
+      if (aPinnedOrder !== undefined && bPinnedOrder !== undefined) {
+        return aPinnedOrder - bPinnedOrder;
+      }
+      if (aPinnedOrder !== undefined) {
+        return -1;
+      }
+      if (bPinnedOrder !== undefined) {
+        return 1;
+      }
+
+      if (a.activationOrder !== b.activationOrder) {
+        return a.activationOrder - b.activationOrder;
+      }
+
+      return a.toolId.localeCompare(b.toolId);
+    });
+
+    const toolIdsWithInstances = new Set(instances.map((state) => state.toolId));
+    const launchers = Array.from(this.pinnedToolIds)
+      .filter((toolId) => !toolIdsWithInstances.has(toolId))
+      .map((toolId) => this.createLauncherState(toolId))
+      .filter((state): state is ToolWindowState => !!state);
+
+    return [...instances, ...launchers];
+  }
+
+  getToolInstances(toolId: string): ToolWindowState[] {
+    return this.getToolStates()
+      .filter((state) => state.toolId === toolId)
+      .sort((a, b) => {
+        if (a.instanceIndex !== b.instanceIndex) {
+          return a.instanceIndex - b.instanceIndex;
+        }
+        return a.activationOrder - b.activationOrder;
+      });
+  }
+
+  getToolInstance(instanceId: string): ToolWindowState | undefined {
+    return this.toolStates.get(instanceId);
+  }
+
+  getToolState(target: string): ToolWindowState | undefined {
+    return this.resolveState(target) || this.createLauncherState(target);
+  }
+
+  getPrimaryToolState(toolId: string): ToolWindowState | undefined {
+    const instances = this.getToolInstances(toolId);
+    if (instances.length === 0) {
+      return undefined;
+    }
+
+    const openInstances = instances.filter((state) => state.status === 'open');
+    if (openInstances.length > 0) {
+      return openInstances.reduce((top, state) =>
+        top.activationOrder >= state.activationOrder ? top : state
+      );
+    }
+
+    return instances.reduce((top, state) =>
+      top.activationOrder >= state.activationOrder ? top : state
     );
   }
 
-  /**
-   * 获取指定工具的状态
-   */
-  getToolState(toolId: string): ToolWindowState | undefined {
-    return this.toolStates.get(toolId);
+  canOpenMultiple(tool: ToolDefinition): boolean {
+    if (typeof tool.supportsMultipleWindows === 'boolean') {
+      return tool.supportsMultipleWindows;
+    }
+    return !!tool.url;
+  }
+
+  openTool(tool: ToolDefinition, options?: OpenToolOptions): string | undefined {
+    const launchMode = this.resolveLaunchMode(tool, options?.launchMode);
+    this.applyAutoPinBehavior(tool, options);
+
+    if (this.pinnedToolIds.has(tool.id)) {
+      this.updatePinnedToolInfo(tool);
+      this.savePinnedTools();
+    }
+
+    if (launchMode === 'reuse') {
+      const reusableState = this.getPrimaryToolState(tool.id);
+      if (reusableState) {
+        this.applyOpenToExistingState(reusableState, tool, options);
+        this.notify();
+        return reusableState.instanceId;
+      }
+    }
+
+    const instanceId = this.openNewToolInstance(tool, options);
+    return instanceId;
+  }
+
+  openNewToolInstance(
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): string {
+    this.applyAutoPinBehavior(tool, options);
+
+    const instanceId = this.generateInstanceId(tool.id);
+    const instanceIndex = this.nextInstanceIndex(tool.id);
+    const newState: ToolWindowState = {
+      instanceId,
+      toolId: tool.id,
+      instanceIndex,
+      tool,
+      status: 'open',
+      position: options?.position || this.getCascadedPosition(tool.id),
+      activationOrder: this.nextActivationOrder(),
+      isPinned: this.pinnedToolIds.has(tool.id),
+      isLauncher: false,
+      autoMaximize: options?.autoMaximize,
+      componentProps: options?.componentProps,
+    };
+
+    if (newState.isPinned) {
+      this.updatePinnedToolInfo(tool);
+      this.savePinnedTools();
+    }
+
+    this.toolStates.set(instanceId, newState);
+    this.notify();
+    return instanceId;
+  }
+
+  closeTool(target: string): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    this.toolStates.delete(state.instanceId);
+    if (this.getToolInstances(state.toolId).length === 0) {
+      this.instanceCounters.delete(state.toolId);
+    }
+    this.notify();
+  }
+
+  minimizeTool(
+    target: string,
+    position?: { x: number; y: number },
+    size?: { width: number; height: number }
+  ): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    state.status = 'minimized';
+    if (position) {
+      state.position = position;
+    }
+    if (size) {
+      state.size = size;
+    }
+    this.notify();
+  }
+
+  restoreTool(target: string): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    state.status = 'open';
+    state.activationOrder = this.nextActivationOrder();
+    this.notify();
+  }
+
+  toggleToolVisibility(target: string): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    switch (state.status) {
+      case 'open':
+        this.minimizeTool(state.instanceId);
+        break;
+      case 'minimized':
+        this.restoreTool(state.instanceId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  setPinned(toolId: string, pinned: boolean): void {
+    const state = this.getPrimaryToolState(toolId);
+    this.setPinnedState(toolId, pinned, {
+      tool: state?.tool,
+      persistPreference: true,
+    });
+
+    this.getToolInstances(toolId).forEach((state) => {
+      state.isPinned = pinned;
+    });
+
+    this.notify();
+  }
+
+  isPinned(toolId: string): boolean {
+    return this.pinnedToolIds.has(toolId);
+  }
+
+  getPinnedToolIds(): string[] {
+    return Array.from(this.pinnedToolIds);
+  }
+
+  updateToolPosition(
+    target: string,
+    position: { x: number; y: number },
+    size?: { width: number; height: number }
+  ): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    state.position = position;
+    if (size) {
+      state.size = size;
+    }
+  }
+
+  updateToolSize(
+    target: string,
+    size: { width: number; height: number }
+  ): void {
+    const state = this.resolveState(target);
+    if (!state) {
+      return;
+    }
+
+    state.size = size;
+    this.notify();
+  }
+
+  markToolActivated(target: string): void {
+    const state = this.resolveState(target);
+    if (!state || state.status !== 'open') {
+      return;
+    }
+
+    if (state.activationOrder > this.getTopOpenActivationOrder(state.instanceId)) {
+      return;
+    }
+
+    state.activationOrder = this.nextActivationOrder();
+    this.notify();
+  }
+
+  isToolOpen(toolId: string): boolean {
+    return this.getToolInstances(toolId).some((state) => state.status === 'open');
+  }
+
+  isToolMinimized(toolId: string): boolean {
+    return this.getToolInstances(toolId).some(
+      (state) => state.status === 'minimized'
+    );
+  }
+
+  private resolveLaunchMode(
+    tool: ToolDefinition,
+    launchMode: ToolWindowLaunchMode | undefined
+  ): Exclude<ToolWindowLaunchMode, 'auto'> {
+    if (launchMode && launchMode !== 'auto') {
+      return launchMode;
+    }
+    return this.canOpenMultiple(tool) ? 'new' : 'reuse';
+  }
+
+  private applyOpenToExistingState(
+    state: ToolWindowState,
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): void {
+    state.tool = tool;
+    state.toolId = tool.id;
+    state.isPinned = this.pinnedToolIds.has(tool.id);
+    state.isLauncher = false;
+
+    if (options?.componentProps !== undefined) {
+      state.componentProps = options.componentProps;
+    }
+
+    if (state.status !== 'open') {
+      state.status = 'open';
+      state.activationOrder = this.nextActivationOrder();
+      if (options?.autoMaximize) {
+        state.autoMaximize = true;
+      }
+      return;
+    }
+
+    if (options?.autoMaximize) {
+      state.autoMaximize = true;
+    }
+
+    state.activationOrder = this.nextActivationOrder();
+  }
+
+  private resolveState(target: string): ToolWindowState | undefined {
+    return this.toolStates.get(target) || this.getPrimaryToolState(target);
+  }
+
+  private shouldAutoPinOnOpen(
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): boolean {
+    if (options && Object.prototype.hasOwnProperty.call(options, 'autoPin')) {
+      return options.autoPin === true;
+    }
+
+    const userPreference = this.pinPreferences.get(tool.id);
+    if (typeof userPreference === 'boolean') {
+      return userPreference;
+    }
+
+    return tool.defaultWindowBehavior?.autoPinOnOpen === true;
+  }
+
+  private applyAutoPinBehavior(
+    tool: ToolDefinition,
+    options?: Omit<OpenToolOptions, 'launchMode'>
+  ): void {
+    if (!this.shouldAutoPinOnOpen(tool, options)) {
+      return;
+    }
+
+    const persistPreference =
+      options && Object.prototype.hasOwnProperty.call(options, 'autoPin');
+    this.setPinnedState(tool.id, true, { tool, persistPreference });
+  }
+
+  private updatePinnedToolInfo(tool: ToolDefinition): void {
+    this.pinnedToolInfos.set(tool.id, {
+      id: tool.id,
+      name: tool.name,
+      category: tool.category,
+    });
+  }
+
+  private setPinnedState(
+    toolId: string,
+    pinned: boolean,
+    options?: {
+      tool?: ToolDefinition;
+      persistPreference?: boolean;
+    }
+  ): void {
+    if (pinned) {
+      this.pinnedToolIds.add(toolId);
+      const tool = options?.tool || this.getPrimaryToolState(toolId)?.tool;
+      if (tool) {
+        this.updatePinnedToolInfo(tool);
+      }
+    } else {
+      this.pinnedToolIds.delete(toolId);
+      this.pinnedToolInfos.delete(toolId);
+    }
+
+    if (options?.persistPreference) {
+      this.pinPreferences.set(toolId, pinned);
+      this.savePinPreferences();
+    }
+
+    this.savePinnedTools();
+  }
+
+  private createLauncherState(toolId: string): ToolWindowState | undefined {
+    if (!this.pinnedToolIds.has(toolId)) {
+      return undefined;
+    }
+
+    const info = this.pinnedToolInfos.get(toolId);
+    if (!info) {
+      return undefined;
+    }
+
+    return {
+      instanceId: `${LAUNCHER_INSTANCE_PREFIX}${toolId}`,
+      toolId,
+      instanceIndex: 0,
+      tool: {
+        id: info.id,
+        name: info.name,
+        category: info.category,
+      } as ToolDefinition,
+      status: 'closed',
+      activationOrder: 0,
+      isPinned: true,
+      isLauncher: true,
+    };
   }
 
   private nextActivationOrder(): number {
@@ -165,11 +599,17 @@ class ToolWindowService {
     return this.activationOrderCounter;
   }
 
-  private getTopOpenActivationOrder(excludeToolId?: string): number {
+  private nextInstanceIndex(toolId: string): number {
+    const next = (this.instanceCounters.get(toolId) || 0) + 1;
+    this.instanceCounters.set(toolId, next);
+    return next;
+  }
+
+  private getTopOpenActivationOrder(excludeInstanceId?: string): number {
     let maxOrder = 0;
 
-    this.toolStates.forEach((state, toolId) => {
-      if (toolId === excludeToolId || state.status !== 'open') {
+    this.toolStates.forEach((state, instanceId) => {
+      if (instanceId === excludeInstanceId || state.status !== 'open') {
         return;
       }
       if (state.activationOrder > maxOrder) {
@@ -180,283 +620,45 @@ class ToolWindowService {
     return maxOrder;
   }
 
-  private promoteOpenTool(toolId: string): boolean {
-    const state = this.toolStates.get(toolId);
-    if (!state || state.status !== 'open') {
-      return false;
+  private getCascadedPosition(
+    toolId: string
+  ): { x: number; y: number } | undefined {
+    const instances = this.getToolInstances(toolId);
+    if (instances.length === 0) {
+      return undefined;
     }
 
-    if (state.activationOrder > this.getTopOpenActivationOrder(toolId)) {
-      return false;
-    }
+    const latestState = instances.reduce((latest, state) =>
+      latest.activationOrder >= state.activationOrder ? latest : state
+    );
+    const fallbackOffset = instances.length;
 
-    state.activationOrder = this.nextActivationOrder();
-    return true;
+    return {
+      x:
+        (latestState.position?.x ?? INSTANCE_BASE_X + fallbackOffset * INSTANCE_OFFSET_X) +
+        INSTANCE_OFFSET_X,
+      y:
+        (latestState.position?.y ?? INSTANCE_BASE_Y + fallbackOffset * INSTANCE_OFFSET_Y) +
+        INSTANCE_OFFSET_Y,
+    };
   }
 
-  markToolActivated(toolId: string): void {
-    if (this.promoteOpenTool(toolId)) {
-      this.notify();
-    }
+  private generateInstanceId(toolId: string): string {
+    const suffix =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    return `${toolId}:${suffix}`;
   }
 
-  /**
-   * 打开工具窗口
-   * @param tool 工具定义
-   * @param options 可选配置项
-   */
-  openTool(tool: ToolDefinition, options?: OpenToolOptions): void {
-    const existingState = this.toolStates.get(tool.id);
-    let shouldNotify = false;
-    
-    // 如果需要自动常驻，先设置
-    if (options?.autoPin && !this.pinnedToolIds.has(tool.id)) {
-      this.pinnedToolIds.add(tool.id);
-      this.pinnedToolInfos.set(tool.id, {
-        id: tool.id,
-        name: tool.name,
-        category: tool.category,
-      });
-      this.savePinnedTools();
-    }
-    
-    if (existingState) {
-      existingState.tool = tool;
-      existingState.isPinned = this.pinnedToolIds.has(tool.id);
-
-      if (existingState.status === 'open') {
-        // 已经打开，更新 componentProps 并聚焦（WinBox 自身处理聚焦）
-        if (options?.componentProps !== undefined) {
-          existingState.componentProps = options.componentProps;
-          shouldNotify = true;
-        }
-        shouldNotify = this.promoteOpenTool(tool.id) || shouldNotify;
-      } else {
-        // 从最小化或关闭状态恢复
-        existingState.status = 'open';
-        existingState.activationOrder = this.nextActivationOrder();
-        shouldNotify = true;
-        // 如果设置了自动最大化，更新状态
-        if (options?.autoMaximize) {
-          existingState.autoMaximize = true;
-        }
-        // 更新 componentProps
-        if (options?.componentProps !== undefined) {
-          existingState.componentProps = options.componentProps;
-        }
-      }
-    } else {
-      // 创建新的窗口状态
-      const newState: ToolWindowState = {
-        tool,
-        status: 'open',
-        activationOrder: this.nextActivationOrder(),
-        isPinned: this.pinnedToolIds.has(tool.id),
-        autoMaximize: options?.autoMaximize,
-        componentProps: options?.componentProps,
-      };
-      this.toolStates.set(tool.id, newState);
-      shouldNotify = true;
-    }
-    
-    // 如果是常驻工具，更新缓存的工具信息
-    if (this.pinnedToolIds.has(tool.id)) {
-      this.pinnedToolInfos.set(tool.id, {
-        id: tool.id,
-        name: tool.name,
-        category: tool.category,
-      });
-      this.savePinnedTools();
-    }
-    
-    if (shouldNotify) {
-      this.notify();
-    }
-  }
-
-  /**
-   * 关闭工具窗口
-   * - 非常驻工具：从状态中移除
-   * - 常驻工具：状态设为 closed，保留以便在工具栏显示
-   */
-  closeTool(toolId: string): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    if (state.isPinned) {
-      // 常驻工具：设为关闭状态，保留在 map 中
-      state.status = 'closed';
-    } else {
-      // 非常驻工具：完全移除
-      this.toolStates.delete(toolId);
-    }
-    
-    this.notify();
-  }
-
-  /**
-   * 最小化工具窗口
-   * 保留实例，记录位置，在工具栏显示图标
-   */
-  minimizeTool(toolId: string, position?: { x: number; y: number }, size?: { width: number; height: number }): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    state.status = 'minimized';
-    if (position) {
-      state.position = position;
-    }
-    if (size) {
-      state.size = size;
-    }
-    
-    this.notify();
-  }
-
-  /**
-   * 从最小化恢复工具窗口
-   */
-  restoreTool(toolId: string): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    state.status = 'open';
-    state.activationOrder = this.nextActivationOrder();
-    this.notify();
-  }
-
-  /**
-   * 切换工具窗口可见性
-   * - open -> minimized
-   * - minimized -> open
-   * - closed (pinned) -> open (新实例)
-   */
-  toggleToolVisibility(toolId: string): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    switch (state.status) {
-      case 'open':
-        this.minimizeTool(toolId);
-        break;
-      case 'minimized':
-        this.restoreTool(toolId);
-        break;
-      case 'closed':
-        // 常驻工具从关闭状态重新打开（创建新实例）
-        state.status = 'open';
-        state.activationOrder = this.nextActivationOrder();
-        // 清除位置和尺寸，让 WinBox 使用默认值
-        state.position = undefined;
-        state.size = undefined;
-        this.notify();
-        break;
-    }
-  }
-
-  /**
-   * 设置工具是否常驻工具栏
-   */
-  setPinned(toolId: string, pinned: boolean): void {
-    const state = this.toolStates.get(toolId);
-    
-    if (pinned) {
-      this.pinnedToolIds.add(toolId);
-      if (state) {
-        state.isPinned = true;
-        // 保存工具信息以便刷新后恢复
-        this.pinnedToolInfos.set(toolId, {
-          id: state.tool.id,
-          name: state.tool.name,
-          category: state.tool.category,
-        });
-      }
-    } else {
-      this.pinnedToolIds.delete(toolId);
-      this.pinnedToolInfos.delete(toolId);
-      if (state) {
-        state.isPinned = false;
-        // 如果取消常驻且已关闭，则从 map 中移除
-        if (state.status === 'closed') {
-          this.toolStates.delete(toolId);
-        }
-      }
-    }
-    
-    this.savePinnedTools();
-    this.notify();
-  }
-
-  /**
-   * 检查工具是否常驻
-   */
-  isPinned(toolId: string): boolean {
-    return this.pinnedToolIds.has(toolId);
-  }
-
-  /**
-   * 获取所有常驻工具 ID
-   */
-  getPinnedToolIds(): string[] {
-    return Array.from(this.pinnedToolIds);
-  }
-
-  /**
-   * 更新工具窗口位置和尺寸
-   */
-  updateToolPosition(
-    toolId: string,
-    position: { x: number; y: number },
-    size?: { width: number; height: number }
-  ): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    state.position = position;
-    if (size) {
-      state.size = size;
-    }
-    // 不需要通知，位置更新不触发重渲染
-  }
-
-  /**
-   * 更新工具窗口尺寸
-   */
-  updateToolSize(toolId: string, size: { width: number; height: number }): void {
-    const state = this.toolStates.get(toolId);
-    if (!state) return;
-
-    state.size = size;
-    this.notify();
-  }
-
-  /**
-   * 检查工具是否已打开窗口（兼容旧 API）
-   */
-  isToolOpen(toolId: string): boolean {
-    const state = this.toolStates.get(toolId);
-    return state?.status === 'open';
-  }
-
-  /**
-   * 检查工具是否已最小化
-   */
-  isToolMinimized(toolId: string): boolean {
-    const state = this.toolStates.get(toolId);
-    return state?.status === 'minimized';
-  }
-
-  /**
-   * 通知订阅者
-   */
   private notify(): void {
     const states = this.getToolStates();
     this.toolStatesSubject.next(states);
-    
-    // 兼容旧 API
+
     const openTools = states
-      .filter(state => state.status === 'open')
-      .map(state => state.tool);
+      .filter((state) => state.status === 'open')
+      .map((state) => state.tool);
     this.openToolsSubject.next(openTools);
   }
 }

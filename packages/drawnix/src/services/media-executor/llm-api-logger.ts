@@ -12,6 +12,7 @@ const DB_NAME = 'llm-api-logs';
 const DB_VERSION = 4;
 const STORE_NAME = 'logs';
 const MAX_DB_LOGS = 1000;
+const MAX_RESPONSE_BODY_LENGTH = 128 * 1024; // 保留原始 JSON，极端大响应再截断，避免日志库膨胀
 
 /**
  * 参考图信息
@@ -32,7 +33,7 @@ export interface LLMApiLog {
   timestamp: number;
   endpoint: string;
   model: string;
-  taskType: 'image' | 'video' | 'chat' | 'character' | 'other';
+  taskType: 'image' | 'video' | 'audio' | 'chat' | 'character' | 'other';
   prompt?: string;
   requestBody?: string;
   hasReferenceImages?: boolean;
@@ -209,7 +210,7 @@ export function completeLLMApiLog(
     log.resultCount = params.resultCount;
     log.resultUrl = params.resultUrl;
     log.resultText = params.resultText ? truncate(params.resultText, 1000) : undefined;
-    log.responseBody = params.responseBody ? truncate(params.responseBody, 2000) : undefined;
+    log.responseBody = params.responseBody ? truncateResponseBody(params.responseBody) : undefined;
     log.remoteId = params.remoteId;
 
     // 更新 IndexedDB
@@ -231,7 +232,7 @@ export function updateLLMApiLogMetadata(
   const log = memoryLogs.find((l) => l.id === logId);
   if (log) {
     if (params.remoteId) log.remoteId = params.remoteId;
-    if (params.responseBody) log.responseBody = truncate(params.responseBody, 2000);
+    if (params.responseBody) log.responseBody = truncateResponseBody(params.responseBody);
     if (params.httpStatus) log.httpStatus = params.httpStatus;
 
     // 更新 IndexedDB
@@ -257,7 +258,7 @@ export function failLLMApiLog(
     log.httpStatus = params.httpStatus;
     log.duration = params.duration;
     log.errorMessage = truncate(params.errorMessage, 500);
-    log.responseBody = params.responseBody ? truncate(params.responseBody, 2000) : undefined;
+    log.responseBody = params.responseBody ? truncateResponseBody(params.responseBody) : undefined;
 
     // 更新 IndexedDB
     saveLogToDB(log);
@@ -333,4 +334,9 @@ export async function llmFetch(
 export function getLogId(taskId: string): string | undefined {
   const log = memoryLogs.find((l) => l.taskId === taskId);
   return log?.id;
+}
+
+function truncateResponseBody(text: string): string {
+  if (text.length <= MAX_RESPONSE_BODY_LENGTH) return text;
+  return `${text.substring(0, MAX_RESPONSE_BODY_LENGTH)}\n... [response truncated for log storage]`;
 }

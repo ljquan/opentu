@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect, useTransition } from 'react';
-import { Loading, Input, Button, Checkbox, Popconfirm, Tooltip, Dialog } from 'tdesign-react';
+import { Loading, Input, Button, Checkbox, Tooltip, Dialog } from 'tdesign-react';
 import { 
   Search, 
   Trash2, 
@@ -37,6 +37,7 @@ import {
   MediaLibraryIcon,
 } from '../icons';
 import { useAssets } from '../../contexts/AssetContext';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { filterAssets, formatFileSize, formatDate } from '../../utils/asset-utils';
 import { useDeviceType } from '../../hooks/useDeviceType';
 import { normalizeImageDataUrl } from '@aitu/utils';
@@ -60,9 +61,7 @@ import { insertVideoFromUrl } from '../../data/video';
 import { useGitHubSync } from '../../contexts/GitHubSyncContext';
 import { useAudioPlaylists } from '../../contexts/AudioPlaylistContext';
 import { mediaSyncService } from '../../services/github-sync/media-sync-service';
-import { taskQueueService } from '../../services/task-queue';
 import { openMusicPlayerToolAndPlay } from '../../services/tool-launch-service';
-import { TaskStatus, TaskType } from '../../types/task.types';
 import {
   AUDIO_PLAYLIST_ALL_ID,
   type AudioPlaylist,
@@ -212,6 +211,7 @@ export function MediaLibraryGrid({
     targetAssetId?: string;
   } | null>(null);
   const [playlistNameInput, setPlaylistNameInput] = useState('');
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // 加载已同步的 URL（当配置了 GitHub 同步时）
   useEffect(() => {
@@ -335,7 +335,10 @@ export function MediaLibraryGrid({
             elementId: `asset:${item.id}`,
             audioUrl: item.url,
             title: item.name,
+            duration: item.duration,
             previewImageUrl: item.thumbnail,
+            clipId: item.clipId,
+            providerTaskId: item.providerTaskId,
           }));
         const activePlaylist = selectedPlaylistId
           ? playlists.find((playlist) => playlist.id === selectedPlaylistId) || null
@@ -346,7 +349,10 @@ export function MediaLibraryGrid({
             elementId: `asset:${asset.id}`,
             audioUrl: asset.url,
             title: asset.name,
+            duration: asset.duration,
             previewImageUrl: asset.thumbnail,
+            clipId: asset.clipId,
+            providerTaskId: asset.providerTaskId,
           },
           queue: audioQueue,
           playlist:
@@ -627,7 +633,7 @@ export function MediaLibraryGrid({
       console.error('[MediaLibraryGrid] Batch delete failed:', error);
     }
   }, [selectedAssetIds, removeAssets, board, filteredResult.assets]);
-  
+
   // 计算批量删除时会影响的画布元素数量
   // 只计算当前筛选结果中被选中的素材
   const batchDeleteWarningInfo = useMemo(() => {
@@ -647,6 +653,50 @@ export function MediaLibraryGrid({
     
     return { hasCacheAssets: cacheAssets.length > 0, affectedCount };
   }, [board, selectedAssetIds, filteredResult.assets]);
+
+  const handleBatchDeleteClick = useCallback(async () => {
+    if (filteredSelectedCount === 0) {
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: '确认批量删除',
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+      children: (
+        <>
+          <p>确定要删除选中的 {filteredSelectedCount} 个素材吗？</p>
+          {batchDeleteWarningInfo.hasCacheAssets &&
+          batchDeleteWarningInfo.affectedCount > 0 ? (
+            <p style={{ marginTop: '8px', color: 'var(--td-error-color)' }}>
+              ⚠️ 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
+            </p>
+          ) : null}
+        </>
+      ),
+    });
+
+    if (confirmed) {
+      await handleBatchDelete();
+    }
+  }, [batchDeleteWarningInfo, confirm, filteredSelectedCount, handleBatchDelete]);
+
+  const handleDeletePlaylist = useCallback(async (playlist: AudioPlaylist) => {
+    const confirmed = await confirm({
+      title: '确认删除播放列表',
+      description: `确定要删除播放列表「${playlist.name}」吗？删除后列表内关联关系将被移除，此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    await deletePlaylist(playlist.id);
+  }, [confirm, deletePlaylist]);
 
   // 批量下载处理
   // 只下载当前筛选结果中被选中的素材
@@ -686,16 +736,13 @@ export function MediaLibraryGrid({
     // 收集所有可同步的媒体 URL（排除已同步的）
     const syncableUrls: string[] = [];
     
-    // AI 生成素材：获取已完成任务的 URL（排除已同步）
+    // AI 生成素材：直接同步当前资产 URL（支持一个任务展开多条音频）
     selectedAssets
       .filter(a => a.source === AssetSource.AI_GENERATED)
       .forEach(a => {
-        const task = taskQueueService.getTask(a.id);
-        if (task && task.status === TaskStatus.COMPLETED && task.result?.url) {
-          const syncStatus = mediaSyncService.getUrlSyncStatus(task.result.url);
-          if (syncStatus !== 'synced') {
-            syncableUrls.push(task.result.url);
-          }
+        const syncStatus = mediaSyncService.getUrlSyncStatus(a.url);
+        if (syncStatus !== 'synced') {
+          syncableUrls.push(a.url);
         }
       });
     
@@ -748,15 +795,10 @@ export function MediaLibraryGrid({
   const syncableCount = useMemo(() => {
     const selectedAssets = filteredResult.assets.filter(a => selectedAssetIds.has(a.id));
     
-    // AI 生成素材：检查任务是否存在且已完成，且未同步
+    // AI 生成素材：直接按资产 URL 判断是否可同步
     const aiSyncable = selectedAssets.filter(a => {
       if (a.source !== AssetSource.AI_GENERATED) return false;
-      const task = taskQueueService.getTask(a.id);
-      if (!task) return false;
-      if (task.status !== TaskStatus.COMPLETED) return false;
-      if (!task.result?.url) return false;
-      // 检查是否已同步
-      const syncStatus = mediaSyncService.getUrlSyncStatus(task.result.url);
+      const syncStatus = mediaSyncService.getUrlSyncStatus(a.url);
       return syncStatus !== 'synced';
     }).length;
     
@@ -971,31 +1013,19 @@ export function MediaLibraryGrid({
             <ViewModeToggle viewMode={pendingViewMode} onViewModeChange={handleViewModeChange} />
             {isSelectionMode ? (
               <>
-                <Popconfirm
-                  content={
-                    <div>
-                      <p>确定要删除选中的 {filteredSelectedCount} 个素材吗？</p>
-                      {batchDeleteWarningInfo.hasCacheAssets && batchDeleteWarningInfo.affectedCount > 0 && (
-                        <p style={{ marginTop: '8px', color: 'var(--td-error-color)' }}>
-                          ⚠️ 画布中有 <strong>{batchDeleteWarningInfo.affectedCount}</strong> 个元素正在使用这些素材，删除后将被一并移除！
-                        </p>
-                      )}
-                    </div>
-                  }
-                  onConfirm={handleBatchDelete}
-                  theme="warning"
+                <Button
+                  variant="base"
+                  theme="danger"
+                  size="small"
+                  icon={<Trash2 size={16} />}
+                  disabled={filteredSelectedCount === 0}
+                  onClick={() => {
+                    void handleBatchDeleteClick();
+                  }}
+                  data-track="grid_batch_delete"
                 >
-                  <Button
-                    variant="base"
-                    theme="danger"
-                    size="small"
-                    icon={<Trash2 size={16} />}
-                    disabled={filteredSelectedCount === 0}
-                    data-track="grid_batch_delete"
-                  >
-                    删除
-                  </Button>
-                </Popconfirm>
+                  删除
+                </Button>
                 <Button
                   variant="outline"
                   size="small"
@@ -1181,7 +1211,7 @@ export function MediaLibraryGrid({
             onSelect={handleSelectPlaylist}
             onCreate={() => openCreatePlaylistDialog('create')}
             onRename={openRenamePlaylistDialog}
-            onDelete={(playlist) => void deletePlaylist(playlist.id)}
+            onDelete={(playlist) => void handleDeletePlaylist(playlist)}
           />
         )}
 
@@ -1373,6 +1403,7 @@ export function MediaLibraryGrid({
           autofocus
         />
       </Dialog>
+      {confirmDialog}
     </div>
   );
 }

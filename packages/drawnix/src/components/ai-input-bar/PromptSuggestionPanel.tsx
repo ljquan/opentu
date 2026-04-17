@@ -9,6 +9,7 @@
 
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { History, Lightbulb, X } from 'lucide-react';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 
 export interface PromptItem {
   id: string;
@@ -46,6 +47,7 @@ export const PromptSuggestionPanel: React.FC<PromptSuggestionPanelProps> = ({
   onDeleteHistory,
   language = 'zh',
 }) => {
+  const { confirm, confirmDialog } = useConfirmDialog();
   // console.log('[PromptSuggestionPanel] render, visible:', visible, 'prompts.length:', prompts.length);
   const panelRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -181,10 +183,23 @@ export const PromptSuggestionPanel: React.FC<PromptSuggestionPanelProps> = ({
   }, [highlightedIndex, visible, allFilteredPrompts.length]);
 
   // 处理删除历史记录
-  const handleDeleteHistory = useCallback((e: React.MouseEvent, id: string) => {
+  const handleDeleteHistory = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    const confirmed = await confirm({
+      title: language === 'zh' ? '确认删除提示词' : 'Delete Prompt',
+      description:
+        language === 'zh'
+          ? '确定要删除这条历史提示词吗？此操作不可撤销。'
+          : 'Are you sure you want to delete this prompt history item? This action cannot be undone.',
+      confirmText: language === 'zh' ? '删除' : 'Delete',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
     onDeleteHistory?.(id);
-  }, [onDeleteHistory]);
+  }, [confirm, language, onDeleteHistory]);
 
   // 截断显示文本
   const truncateText = (text: string, maxLength: number = 80) => {
@@ -207,12 +222,13 @@ export const PromptSuggestionPanel: React.FC<PromptSuggestionPanelProps> = ({
   if (!hasResults) return null;
 
   return (
-    <div 
-      ref={panelRef}
-      className="prompt-suggestion-panel"
-    >
-      {/* 面板内容 */}
-      <div className="prompt-suggestion-panel__content">
+    <>
+      <div 
+        ref={panelRef}
+        className="prompt-suggestion-panel"
+      >
+        {/* 面板内容 */}
+        <div className="prompt-suggestion-panel__content">
         {/* 历史指令 */}
         {historyPrompts.length > 0 && (
               <div className="prompt-suggestion-panel__section">
@@ -275,8 +291,10 @@ export const PromptSuggestionPanel: React.FC<PromptSuggestionPanelProps> = ({
                 </div>
               </div>
             )}
+        </div>
       </div>
-    </div>
+      {confirmDialog}
+    </>
   );
 };
 

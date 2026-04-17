@@ -6,8 +6,6 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { AnalysisRecord, ProductInfo, VideoShot } from '../types';
 import { formatShotsMarkdown, migrateProductInfo } from '../types';
 import { quickInsert } from '../../../mcp/tools/canvas-insertion';
-import { sendChatWithGemini } from '../../../utils/gemini-api/services';
-import type { GeminiMessage } from '../../../utils/gemini-api/types';
 import { updateRecord } from '../storage';
 import { ShotCard } from '../components/ShotCard';
 import { ComboInput } from '../components/ComboInput';
@@ -20,7 +18,36 @@ import type { ModelRef } from '../../../utils/settings-manager';
 import {
   readStoredModelSelection,
   writeStoredModelSelection,
+  buildScriptRewritePrompt,
+  switchToVersion,
+  updateActiveShotsInRecord,
+  ORIGINAL_VERSION_ID,
 } from '../utils';
+import { taskQueueService } from '../../../services/task-queue';
+import { TaskType } from '../../../types/task.types';
+import { syncVideoAnalyzerTask } from '../task-sync';
+
+/** 自适应高度 textarea 的 onInput 处理 */
+function autoResize(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+/** 根据内容估算 textarea rows（每行约 30 个中文字符） */
+function estimateRows(text: string | undefined, charsPerLine = 30): number {
+  if (!text) return 1;
+  const lines = text.split('\n');
+  let total = 0;
+  for (const line of lines) {
+    total += Math.max(1, Math.ceil(line.length / charsPerLine));
+  }
+  return Math.max(1, total);
+}
+
+/** 挂载时自动调整高度的 ref callback */
+function autoResizeRef(el: HTMLTextAreaElement | null) {
+  if (el) autoResize(el);
+}
 
 const STORAGE_KEY_SCRIPT_MODEL = 'video-analyzer:script-model';
 const STORAGE_KEY_VIDEO_MODEL = 'video-analyzer:video-model';
@@ -71,17 +98,28 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
   onRecordsChange,
   onNext,
 }) => {
-  const [productInfo, setProductInfo] = useState<ProductInfo>(() =>
-    migrateProductInfo(
+  const [productInfo, setProductInfo] = useState<ProductInfo>(() => {
+    const migrated = migrateProductInfo(
       record.productInfo || { prompt: '' },
       record.analysis.totalDuration
-    )
-  );
+    );
+    return {
+      ...migrated,
+      videoStyle: migrated.videoStyle ?? record.analysis.video_style ?? '',
+      bgmMood: migrated.bgmMood ?? record.analysis.bgm_mood ?? '',
+    };
+  });
   const [shots, setShots] = useState<VideoShot[]>(
     record.editedShots || [...record.analysis.shots]
   );
   const [rewriting, setRewriting] = useState(false);
+  const [pendingRewriteTaskId, setPendingRewriteTaskId] = useState<string | null>(
+    () => record.pendingRewriteTaskId || null
+  );
+  const [rewriteProgress, setRewriteProgress] = useState('');
   const [error, setError] = useState('');
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
+  const versionMenuRef = useRef<HTMLDivElement>(null);
   const [scriptModel, setScriptModelState] = useState(
     () => readStoredModelSelection(STORAGE_KEY_SCRIPT_MODEL, DEFAULT_SCRIPT_MODEL).modelId
   );
@@ -148,6 +186,21 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
     return computeSegmentPlan(targetDur, singleOption);
   }, [selectedSegmentDuration, productInfo.targetDuration, record.analysis.totalDuration]);
 
+  useEffect(() => {
+    const migrated = migrateProductInfo(
+      record.productInfo || { prompt: '' },
+      record.analysis.totalDuration
+    );
+    setProductInfo({
+      ...migrated,
+      videoStyle: migrated.videoStyle ?? record.analysis.video_style ?? '',
+      bgmMood: migrated.bgmMood ?? record.analysis.bgm_mood ?? '',
+    });
+    setShots(record.editedShots || [...record.analysis.shots]);
+    setPendingRewriteTaskId(prev => record.pendingRewriteTaskId ?? prev ?? null);
+    setRewriteProgress(prev => (record.pendingRewriteTaskId ? prev : ''));
+  }, [record]);
+
   // 表单变化时自动保存到 IndexedDB（防抖 500ms）
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
@@ -155,17 +208,23 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
     saveTimerRef.current = setTimeout(async () => {
       const updated = await updateRecord(record.id, { productInfo });
       onRecordsChange(updated);
-      onRecordUpdate({ ...record, productInfo });
+      onRecordUpdate({ ...record, productInfo, pendingRewriteTaskId });
     }, 500);
     return () => clearTimeout(saveTimerRef.current);
-  }, [productInfo]); // 只依赖 productInfo，避免循环
+  }, [productInfo, pendingRewriteTaskId]); // 只跟随表单和挂起任务状态
 
   const saveShots = useCallback(async (newShots: VideoShot[]) => {
     setShots(newShots);
-    const updated = await updateRecord(record.id, { editedShots: newShots, productInfo });
+    const shotsPatch = updateActiveShotsInRecord(record, newShots);
+    const updated = await updateRecord(record.id, { ...shotsPatch, productInfo });
     onRecordsChange(updated);
-    onRecordUpdate({ ...record, editedShots: newShots, productInfo });
-  }, [record, productInfo, onRecordUpdate, onRecordsChange]);
+    onRecordUpdate({
+      ...record,
+      ...shotsPatch,
+      productInfo,
+      pendingRewriteTaskId,
+    });
+  }, [record, productInfo, pendingRewriteTaskId, onRecordUpdate, onRecordsChange]);
 
   const handleShotFieldChange = useCallback((shotId: string, field: keyof VideoShot, value: string) => {
     const newShots = shots.map(s => s.id === shotId ? { ...s, [field]: value } : s);
@@ -179,127 +238,128 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
     }
     setRewriting(true);
     setError('');
+    setRewriteProgress('AI 改编中 0%');
     try {
-      const originalShots = JSON.stringify(record.analysis.shots.map(s => ({
-        id: s.id, label: s.label, type: s.type,
-        startTime: s.startTime, endTime: s.endTime, duration: s.duration,
-        description: s.description,
-        narration: s.narration,
-        dialogue: s.dialogue || '',
-        dialogue_speakers: s.dialogue_speakers,
-        speech_relation: s.speech_relation || 'none',
-        first_frame_prompt: s.first_frame_prompt,
-        last_frame_prompt: s.last_frame_prompt,
-        camera_movement: s.camera_movement,
-      })));
-
-      const targetDur = productInfo.targetDuration || record.analysis.totalDuration;
-      const { segments, actualTotal, isFixed, overflow } = segmentPlan;
-      const segmentCount = segments.length;
-
-      const durationInfo = isFixed
-        ? `当前视频模型（${videoModel}）为固定时长模型，每段固定 ${segments[0]} 秒。
-实际可用视频总时长：${actualTotal} 秒（${segmentCount} 段 × ${segments[0]} 秒/段）${overflow > 0 ? `，比目标 ${targetDur} 秒多出 ${overflow} 秒` : ''}。
-请按 ${actualTotal} 秒总时长分配内容节奏。`
-        : `目标视频总时长：${targetDur} 秒。
-分段方案：${segments.map((d, i) => `第${i + 1}段 ${d}s`).join('、')}，实际总时长 ${actualTotal} 秒。
-每个镜头的 duration 必须等于对应段的可用时长。`;
-
-      const prompt = `你是一个短视频脚本改编专家。请基于以下原始视频脚本，改编脚本。
-
-原始视频信息：
-- 总时长：${record.analysis.totalDuration}秒
-- 风格：${record.analysis.video_style || '未知'}
-- BGM 情绪：${record.analysis.bgm_mood || '未知'}
-- 画面比例：${record.analysis.aspect_ratio || '16x9'}
-
-原始镜头脚本：
-${originalShots}
-
-用户提示词：
-${productInfo.prompt || '未指定'}
-
-视频生成约束：
-- 使用的视频模型：${videoModel}
-- ${durationInfo}
-- 需要 ${segmentCount} 个视频片段拼接成完整视频
-
-改编要求（所有字段必须使用与用户提示词相同的语言）：
-1. **description（画面描述）**：根据用户提示词"${productInfo.prompt || ''}"改编画面内容，详细描述场景、人物、动作、光线、色调
-2. **narration（旁白）**：画外音/解说词，无旁白则为空字符串
-3. **dialogue（角色说话）**：角色台词，无角色说话则为空字符串；多角色请按”角色名: 台词”分行输出
-4. **dialogue_speakers（对白角色）**：单角色填角色名，多角色用”角色A|角色B”按发言顺序列出；无对白填空字符串
-5. **speech_relation（旁白与对白关系）**：必须是 'none' | 'narration_only' | 'dialogue_only' | 'both' 之一，并与 narration/dialogue 是否为空严格一致
-6. **first_frame_prompt（首帧图片提示词）**：用于生成镜头开场画面，需精确描述主体位置、动作起始状态、构图、光线与背景
-7. **last_frame_prompt（尾帧图片提示词）**：用于生成镜头结尾画面，需精确描述主体位置、动作定格状态、构图、光线与背景
-8. **camera_movement（运镜方式）**：根据新内容适当调整
-
-拼接衔接要求（极其重要！）：
-1. 视觉锚点：相邻镜头之间必须有一个共同的视觉元素（同一商品、同一场景、同一手部动作），确保画面连贯
-2. 运镜方向延续：如果一个镜头结尾是向右平移(pan right)，下一个镜头开头应继续向右或保持静止，不能突然反向
-3. 色调一致性：所有镜头统一使用相同的色调和光线风格
-4. 动作连贯：如果一个镜头结尾主体正在做某个动作，下一个镜头开头要延续这个动作
-
-每个镜头的额外输出字段：
-- **transition_hint**：到下一个镜头的转场方式，从 'cut'(硬切)、'dissolve'(交叉溶解)、'match_cut'(匹配切)、'fade_to_black'(淡出到黑) 中选择。同场景内推荐 'cut'，跨场景推荐 'dissolve'，最后一个镜头设为 'fade_to_black'
-
-重要：所有字段的值必须使用与用户提示词相同的语言，保持语言一致性。
-
-返回一个 JSON 数组，每个元素包含：id、startTime、endTime、duration、description、narration、dialogue、dialogue_speakers、speech_relation、first_frame_prompt、last_frame_prompt、camera_movement、label、type、transition_hint 字段。
-只返回 JSON 数组，不要 markdown 格式。`;
-
-      const messages: GeminiMessage[] = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
-      const response = await sendChatWithGemini(
-        messages,
-        undefined,
-        undefined,
-        scriptModelRef || scriptModel
+      const actualPrompt = buildScriptRewritePrompt({
+        recordAnalysis: record.analysis,
+        productInfo,
+        videoModel,
+      });
+      const task = taskQueueService.createTask(
+        {
+          prompt: `改编脚本：${productInfo.prompt.slice(0, 40)}`,
+          model: scriptModel,
+          modelRef: scriptModelRef || null,
+          videoAnalyzerAction: 'rewrite',
+          videoAnalyzerPrompt: actualPrompt,
+          videoAnalyzerRecordId: record.id,
+          autoInsertToCanvas: false,
+        },
+        TaskType.CHAT
       );
-      const text = response.choices?.[0]?.message?.content;
-      if (!text) throw new Error('AI 未返回有效响应');
-
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error('响应中未找到有效 JSON');
-
-      const updates = JSON.parse(jsonMatch[0]) as Array<Partial<VideoShot> & { id: string }>;
-      // AI 可能返回全新的镜头列表（增减镜头），或基于原 id 更新
-      let newShots: VideoShot[];
-      if (updates.length > 0 && updates[0].startTime !== undefined) {
-        // AI 返回了完整的镜头列表（含时间分配），直接使用
-        newShots = updates.map((u, i) => ({
-          ...shots.find(s => s.id === u.id) || shots[i] || {},
-          ...u,
-          id: u.id || `shot_${i + 1}`,
-        })) as VideoShot[];
-      } else {
-        // 仅部分字段更新，合并到现有 shots
-        newShots = shots.map(shot => {
-          const update = updates.find(u => u.id === shot.id);
-          return update ? { ...shot, ...update } : shot;
-        });
-      }
-      await saveShots(newShots);
+      setPendingRewriteTaskId(task.id);
+      setRewriteProgress(`AI 改编中 ${Math.round(task.progress ?? 0)}%`);
+      const updated = await updateRecord(record.id, {
+        pendingRewriteTaskId: task.id,
+      });
+      onRecordsChange(updated);
+      onRecordUpdate({ ...record, pendingRewriteTaskId: task.id });
     } catch (err: any) {
       setError(err.message || '改编失败');
     } finally {
       setRewriting(false);
     }
-  }, [record, productInfo, shots, saveShots, segmentPlan, videoModel, scriptModel, scriptModelRef]);
+  }, [record, productInfo, shots, videoModel, scriptModel, scriptModelRef, onRecordUpdate, onRecordsChange]);
+
+  useEffect(() => {
+    if (!pendingRewriteTaskId) {
+      return;
+    }
+
+    const currentTask = taskQueueService.getTask(pendingRewriteTaskId);
+    if (typeof currentTask?.progress === 'number') {
+      setRewriteProgress(`AI 改编中 ${Math.round(currentTask.progress)}%`);
+    }
+
+    const subscription = taskQueueService.observeTaskUpdates().subscribe(event => {
+      if (event.task.id !== pendingRewriteTaskId) {
+        return;
+      }
+
+      if (event.task.status === 'failed') {
+        setPendingRewriteTaskId(null);
+        setRewriteProgress('');
+        setError(event.task.error?.message || '改编失败');
+        void updateRecord(record.id, { pendingRewriteTaskId: null }).then(updated => {
+          onRecordsChange(updated);
+          onRecordUpdate({ ...record, pendingRewriteTaskId: null });
+        });
+        return;
+      }
+
+      if (event.task.status === 'completed') {
+        void syncVideoAnalyzerTask(event.task).then(synced => {
+          if (!synced) {
+            return;
+          }
+          onRecordsChange(synced.records);
+          onRecordUpdate(synced.record);
+          setShots(synced.record.editedShots || synced.record.analysis.shots);
+        }).catch((err: any) => {
+          setError(err.message || '改编结果同步失败');
+        }).finally(() => {
+          setPendingRewriteTaskId(null);
+          setRewriteProgress('');
+        });
+        return;
+      }
+
+      if (typeof event.task.progress === 'number') {
+        setRewriteProgress(`AI 改编中 ${Math.round(event.task.progress)}%`);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [pendingRewriteTaskId, record.id, onRecordUpdate, onRecordsChange]);
 
   const handleInsertScripts = useCallback(async () => {
     await quickInsert('text', formatShotsMarkdown(shots, record.analysis, productInfo));
   }, [shots, productInfo, record]);
+
+  const handleSwitchVersion = useCallback(async (versionId: string) => {
+    const patch = switchToVersion(record, versionId);
+    if (!patch) return;
+    setVersionMenuOpen(false);
+    setShots(patch.editedShots!);
+    const updated = await updateRecord(record.id, patch);
+    onRecordsChange(updated);
+    onRecordUpdate({ ...record, ...patch });
+  }, [record, onRecordUpdate, onRecordsChange]);
+
+  // 点击外部关闭版本菜单
+  useEffect(() => {
+    if (!versionMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (versionMenuRef.current && !versionMenuRef.current.contains(e.target as Node)) {
+        setVersionMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [versionMenuOpen]);
 
   return (
     <div className="va-page">
       {/* 提示词 + 参数 */}
       <div className="va-product-form">
         <textarea
-          className="va-form-textarea"
+          ref={autoResizeRef}
+          className="va-form-textarea va-auto-resize"
           placeholder="描述你想要的视频内容，如：拖鞋，生活用品，主打防滑..."
-          rows={3}
+          rows={Math.max(3, estimateRows(productInfo.prompt))}
           value={productInfo.prompt}
           onChange={e => setProductInfo(p => ({ ...p, prompt: e.target.value }))}
+          onInput={e => autoResize(e.currentTarget)}
         />
         <div className="va-form-row">
           <div className="va-duration-input" style={{ width: 'auto', flex: 1 }}>
@@ -351,9 +411,72 @@ ${productInfo.prompt || '未指定'}
             </span>
           )}
         </div>
-        <button className="va-analyze-btn" onClick={handleRewrite} disabled={rewriting}>
-          {rewriting ? 'AI 改编中...' : 'AI 改编脚本'}
-        </button>
+        <div className="va-version-row">
+          <button className="va-analyze-btn" onClick={handleRewrite} disabled={rewriting || !!pendingRewriteTaskId} style={{ flex: 1 }}>
+            {rewriting || pendingRewriteTaskId ? rewriteProgress || 'AI 改编中...' : 'AI 改编脚本'}
+          </button>
+          {record.scriptVersions && record.scriptVersions.length > 0 && (
+            <div className="va-version-select" ref={versionMenuRef}>
+              <button
+                className="va-version-btn"
+                onClick={() => setVersionMenuOpen(v => !v)}
+              >
+                {record.activeVersionId === ORIGINAL_VERSION_ID
+                  ? '原始分析'
+                  : record.scriptVersions.find(v => v.id === record.activeVersionId)?.label || `v${record.scriptVersions.length}`} ▾
+              </button>
+              {versionMenuOpen && (
+                <div className="va-version-menu">
+                  {record.scriptVersions.map(v => (
+                    <div
+                      key={v.id}
+                      className={`va-version-item ${v.id === record.activeVersionId ? 'active' : ''}`}
+                      onClick={() => handleSwitchVersion(v.id)}
+                    >
+                      <span>{v.label}</span>
+                      {v.prompt && <span className="va-version-prompt">{v.prompt.length > 30 ? v.prompt.slice(0, 30) + '...' : v.prompt}</span>}
+                      <span className="va-version-time">{v.shots.length} 镜头 · {new Date(v.createdAt).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
+                  <div
+                    className={`va-version-item ${record.activeVersionId === ORIGINAL_VERSION_ID || !record.activeVersionId ? 'active' : ''}`}
+                    onClick={() => handleSwitchVersion(ORIGINAL_VERSION_ID)}
+                  >
+                    <span>原始分析</span>
+                    <span className="va-version-time">{record.analysis.shots.length} 镜头 · {new Date(record.createdAt).toLocaleTimeString()}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* 风格 & BGM */}
+        <div className="va-form-row">
+          <div style={{ flex: 1 }}>
+            <label className="va-edit-label">画面风格</label>
+            <textarea
+              ref={autoResizeRef}
+              className="va-edit-textarea va-auto-resize"
+              rows={estimateRows(productInfo.videoStyle)}
+              value={productInfo.videoStyle || ''}
+              onChange={e => setProductInfo(p => ({ ...p, videoStyle: e.target.value }))}
+              onInput={e => autoResize(e.currentTarget)}
+              placeholder="如：室内暖光，色调温暖现代"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="va-edit-label">BGM 情绪</label>
+            <textarea
+              ref={autoResizeRef}
+              className="va-edit-textarea va-auto-resize"
+              rows={estimateRows(productInfo.bgmMood)}
+              value={productInfo.bgmMood || ''}
+              onChange={e => setProductInfo(p => ({ ...p, bgmMood: e.target.value }))}
+              onInput={e => autoResize(e.currentTarget)}
+              placeholder="如：轻快、治愈、科技感"
+            />
+          </div>
+        </div>
         {error && <div className="va-error">{error}</div>}
       </div>
 
@@ -363,11 +486,11 @@ ${productInfo.prompt || '未指定'}
           <ShotCard key={shot.id} shot={shot} index={i} compact>
             <div className="va-edit-fields">
               <label className="va-edit-label">画面描述</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.description || ''} onChange={e => handleShotFieldChange(shot.id, 'description', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.description)} value={shot.description || ''} onChange={e => handleShotFieldChange(shot.id, 'description', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">旁白</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.narration || ''} onChange={e => handleShotFieldChange(shot.id, 'narration', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.narration)} value={shot.narration || ''} onChange={e => handleShotFieldChange(shot.id, 'narration', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">角色说话</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.dialogue || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue', e.target.value)} placeholder={'多角色时按"角色名: 台词"分行'} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.dialogue)} value={shot.dialogue || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue', e.target.value)} onInput={e => autoResize(e.currentTarget)} placeholder={'多角色时按"角色名: 台词"分行'} />
               <label className="va-edit-label">对白角色</label>
               <input className="va-form-input" type="text" value={shot.dialogue_speakers || ''} onChange={e => handleShotFieldChange(shot.id, 'dialogue_speakers', e.target.value)} placeholder="如：主讲人 或 主讲人|顾客" />
               <label className="va-edit-label">旁白/对白关系</label>
@@ -375,9 +498,9 @@ ${productInfo.prompt || '未指定'}
               <label className="va-edit-label">运镜方式</label>
               <ComboInput value={shot.camera_movement || ''} onChange={v => handleShotFieldChange(shot.id, 'camera_movement', v)} options={CAMERA_MOVEMENT_OPTIONS} placeholder="选择或输入运镜方式" />
               <label className="va-edit-label">首帧 Prompt</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.first_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'first_frame_prompt', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.first_frame_prompt)} value={shot.first_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'first_frame_prompt', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">尾帧 Prompt</label>
-              <textarea className="va-edit-textarea" rows={2} value={shot.last_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'last_frame_prompt', e.target.value)} />
+              <textarea ref={autoResizeRef} className="va-edit-textarea va-auto-resize" rows={estimateRows(shot.last_frame_prompt)} value={shot.last_frame_prompt || ''} onChange={e => handleShotFieldChange(shot.id, 'last_frame_prompt', e.target.value)} onInput={e => autoResize(e.currentTarget)} />
               <label className="va-edit-label">转场方式</label>
               <ComboInput value={shot.transition_hint || ''} onChange={v => handleShotFieldChange(shot.id, 'transition_hint', v)} options={TRANSITION_OPTIONS} placeholder="选择转场方式" />
             </div>

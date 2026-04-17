@@ -26,6 +26,10 @@ import {
   addTagToNote,
   _getStoreInstances,
 } from './knowledge-base-service';
+import {
+  exportKnowledgeBaseData,
+  importKnowledgeBaseData,
+} from './backup-restore/backup-utils';
 
 export interface KBExportData {
   version: 1 | 2;
@@ -43,44 +47,43 @@ export interface KBExportData {
  */
 export async function exportAllData(): Promise<KBExportData> {
   const { notesStore, noteContentsStore, noteImagesStore, tagsStore, noteTagsStore } = _getStoreInstances();
-
-  const directories = await getAllDirectories();
-  const tags: KBTag[] = [];
-  await tagsStore.iterate<KBTag, void>((value) => {
-    tags.push(value);
-  });
-
-  // 导出笔记：合并元数据和正文
-  const notes: KBNote[] = [];
-  await notesStore.iterate<KBNote, void>(async (meta) => {
-    // 从 noteContentsStore 加载正文
-    const contentRecord = await noteContentsStore.getItem<{ id: string; noteId: string; content: string }>(meta.id);
-    const content = contentRecord?.content ?? (meta as any).content ?? '';
-    notes.push({ ...meta, content });
-  });
-
-  const noteTagsList: KBNoteTag[] = [];
-  await noteTagsStore.iterate<KBNoteTag, void>((value) => {
-    noteTagsList.push(value);
-  });
-
-  // 导出图片
-  const images: KBNoteImage[] = [];
-  if (noteImagesStore) {
-    await noteImagesStore.iterate<KBNoteImage, void>((value) => {
-      images.push(value);
-    });
-  }
-
-  return {
-    version: 2,
-    exportedAt: Date.now(),
-    directories,
-    notes,
-    tags,
-    noteTags: noteTagsList,
-    images,
-  };
+  return exportKnowledgeBaseData({
+    getAllDirectories,
+    getAllTags: async () => {
+      const tags: KBTag[] = [];
+      await tagsStore.iterate<KBTag, void>((value) => {
+        tags.push(value);
+      });
+      return tags;
+    },
+    getAllNoteMetas: async () => {
+      const noteMetas: Array<Omit<KBNote, 'content'> & { content?: string }> = [];
+      await notesStore.iterate<Omit<KBNote, 'content'> & { content?: string }, void>((meta) => {
+        noteMetas.push(meta);
+      });
+      return noteMetas;
+    },
+    getNoteContentById: async (id: string) => {
+      const contentRecord = await noteContentsStore.getItem<{ id: string; noteId: string; content: string }>(id);
+      return contentRecord?.content;
+    },
+    getAllNoteTags: async () => {
+      const noteTagsList: KBNoteTag[] = [];
+      await noteTagsStore.iterate<KBNoteTag, void>((value) => {
+        noteTagsList.push(value);
+      });
+      return noteTagsList;
+    },
+    getAllNoteImages: async () => {
+      const images: KBNoteImage[] = [];
+      if (noteImagesStore) {
+        await noteImagesStore.iterate<KBNoteImage, void>((value) => {
+          images.push(value);
+        });
+      }
+      return images;
+    },
+  }) as Promise<KBExportData>;
 }
 
 /**
@@ -188,73 +191,24 @@ export async function importAllData(data: KBExportData): Promise<{
   imageCount: number;
 }> {
   const { directoriesStore, notesStore, noteContentsStore, noteImagesStore, tagsStore, noteTagsStore } = _getStoreInstances();
-
-  let dirCount = 0;
-  let noteCount = 0;
-  let tagCount = 0;
-  let imageCount = 0;
-
-  // 导入目录
-  for (const dir of data.directories) {
-    const existing = await getDirectoryById(dir.id);
-    if (!existing) {
-      await directoriesStore.setItem(dir.id, dir);
-      dirCount++;
-    }
-  }
-
-  // 导入标签
-  for (const tag of data.tags) {
-    const existing = await getTagById(tag.id);
-    if (!existing) {
-      await tagsStore.setItem(tag.id, tag);
-      tagCount++;
-    }
-  }
-
-  // 导入笔记（支持旧格式自动拆分）
-  for (const note of data.notes) {
-    const existing = await getNoteById(note.id);
-    if (!existing) {
-      // 拆分元数据和正文
-      const { content, ...meta } = note;
-
-      // 存储元数据（不含正文）
-      await notesStore.setItem(note.id, meta);
-
-      // 存储正文到独立 store
-      if (content) {
-        await noteContentsStore.setItem(note.id, {
-          id: note.id,
-          noteId: note.id,
-          content,
-        });
-      }
-
-      noteCount++;
-    }
-  }
-
-  // 导入笔记-标签关联
-  for (const nt of data.noteTags) {
-    const existing = await noteTagsStore.getItem<KBNoteTag>(nt.id);
-    if (!existing) {
-      await noteTagsStore.setItem(nt.id, nt);
-    }
-  }
-
-  // 导入图片（v2 格式）
-  if (data.images && data.images.length > 0 && noteImagesStore) {
-    for (const img of data.images) {
-      const existing = await noteImagesStore.getItem<KBNoteImage>(img.id);
-      if (!existing) {
-        await noteImagesStore.setItem(img.id, img);
-        imageCount++;
-      }
-    }
-  }
-
-  return { dirCount, noteCount, tagCount, imageCount };
+  return importKnowledgeBaseData(data, {
+    getAllDirectories,
+    getDirectoryById,
+    putDirectory: (id: string, value: KBDirectory) => directoriesStore.setItem(id, value),
+    getTagById,
+    putTag: (id: string, value: KBTag) => tagsStore.setItem(id, value),
+    getNoteById,
+    putNoteMeta: (id: string, value: Omit<KBNote, 'content'>) => notesStore.setItem(id, value),
+    putNoteContent: (id: string, value: { id: string; noteId: string; content: string }) => noteContentsStore.setItem(id, value),
+    getNoteTagById: (id: string) => noteTagsStore.getItem<KBNoteTag>(id),
+    putNoteTag: (id: string, value: KBNoteTag) => noteTagsStore.setItem(id, value),
+    getNoteImageById: noteImagesStore
+      ? (id: string) => noteImagesStore.getItem<KBNoteImage>(id)
+      : undefined,
+    putNoteImage: noteImagesStore
+      ? (id: string, value: KBNoteImage) => noteImagesStore.setItem(id, value)
+      : undefined,
+  });
 }
 
 /**

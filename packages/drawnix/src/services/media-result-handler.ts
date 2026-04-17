@@ -24,6 +24,7 @@ import {
   AUDIO_CARD_DEFAULT_HEIGHT,
   AUDIO_CARD_DEFAULT_WIDTH,
 } from '../data/audio';
+import { resolveAudioResultUrls } from './audio-task-result-utils';
 import { getInsertionPointBelowBottommostElement } from '../utils/selection-utils';
 import { splitAndInsertImages } from '../utils/image-splitter';
 import { workflowCompletionService } from './workflow-completion-service';
@@ -49,8 +50,13 @@ export interface MediaResult {
   primaryClipId?: string;
   clipIds?: string[];
   clips?: Array<{
+    id?: string;
+    audioUrl?: string;
     clipId?: string;
     title?: string;
+    imageUrl?: string;
+    imageLargeUrl?: string;
+    duration?: number | null;
   }>;
 }
 
@@ -192,13 +198,23 @@ export async function handleSingleMediaInsert(
       type === 'audio'
         ? {
             title: result?.title || params.title,
-            duration: result?.duration,
-            previewImageUrl: result?.previewImageUrl,
+            duration:
+              typeof result?.clips?.[0]?.duration === 'number'
+                ? result.clips[0]!.duration || undefined
+                : result?.duration,
+            previewImageUrl:
+              result?.clips?.[0]?.imageLargeUrl ||
+              result?.clips?.[0]?.imageUrl ||
+              result?.previewImageUrl,
             tags: typeof params.tags === 'string' ? params.tags : undefined,
             mv: typeof params.mv === 'string' ? params.mv : undefined,
             prompt: params.prompt,
             providerTaskId: result?.providerTaskId,
-            clipId: result?.primaryClipId,
+            clipId:
+              result?.primaryClipId ||
+              result?.clips?.[0]?.clipId ||
+              result?.clips?.[0]?.id ||
+              result?.clipIds?.[0],
             clipIds: result?.clipIds,
           }
         : undefined;
@@ -303,7 +319,12 @@ export async function handleMediaResult(
   if (!primaryUrl) {
     return { success: false, count: 0, error: 'No result URL' };
   }
-  const resultUrls = result.urls?.length ? result.urls : [primaryUrl];
+  const resultUrls =
+    type === 'audio'
+      ? resolveAudioResultUrls(result)
+      : result.urls?.length
+      ? result.urls
+      : [primaryUrl];
 
   // 检查是否需要自动插入
   if (!params.autoInsertToCanvas) {
@@ -351,13 +372,22 @@ export async function handleMediaResult(
                 (result.title || params.title
                   ? `${result.title || params.title} ${index + 1}`
                   : `Audio ${index + 1}`),
-              duration: result.duration,
-              previewImageUrl: result.previewImageUrl,
+              duration:
+                typeof result.clips?.[index]?.duration === 'number'
+                  ? result.clips[index]!.duration || undefined
+                  : result.duration,
+              previewImageUrl:
+                result.clips?.[index]?.imageLargeUrl ||
+                result.clips?.[index]?.imageUrl ||
+                result.previewImageUrl,
               tags: typeof params.tags === 'string' ? params.tags : undefined,
               mv: typeof params.mv === 'string' ? params.mv : undefined,
               prompt: params.prompt,
               providerTaskId: result.providerTaskId,
-              clipId: result.clips?.[index]?.clipId || result.clipIds?.[index],
+              clipId:
+                result.clips?.[index]?.clipId ||
+                result.clips?.[index]?.id ||
+                result.clipIds?.[index],
               clipIds: result.clipIds,
             },
           })),

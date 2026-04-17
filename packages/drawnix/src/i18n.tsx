@@ -161,6 +161,7 @@ export interface Translations {
   'toolbar.moveToTop': string;
   'toolbar.zoom': string;
   'toolbar.moveToBottom': string;
+  'toolbar.openNewWindow': string;
   'toolbar.resetToDefault': string;
 
   // Text effects
@@ -350,6 +351,7 @@ const translations: Record<Language, Translations> = {
     'toolbar.moveDown': '下移',
     'toolbar.moveToTop': '置顶',
     'toolbar.moveToBottom': '置底',
+    'toolbar.openNewWindow': '新窗口打开',
     'toolbar.resetToDefault': '重置为默认',
     'toolbar.zoom': '缩放',
 
@@ -537,6 +539,7 @@ const translations: Record<Language, Translations> = {
     'toolbar.moveDown': 'Move Down',
     'toolbar.moveToTop': 'Move to Top',
     'toolbar.moveToBottom': 'Move to Bottom',
+    'toolbar.openNewWindow': 'Open in New Window',
     'toolbar.resetToDefault': 'Reset to Default',
     'toolbar.zoom': 'Zoom',
 

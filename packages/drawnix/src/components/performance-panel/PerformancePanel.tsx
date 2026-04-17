@@ -6,13 +6,14 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Tooltip, Popconfirm } from 'tdesign-react';
+import { Tooltip } from 'tdesign-react';
 import { CloseIcon, MoveIcon, PinIcon, PinFilledIcon, RefreshIcon, AddIcon } from 'tdesign-icons-react';
 import { memoryMonitorService, MemoryStats } from '../../services/memory-monitor-service';
 import { Z_INDEX } from '../../constants/z-index';
 import { useI18n } from '../../i18n';
 import { PlaitElement } from '@plait/core';
 import { safeReload } from '../../utils/active-tasks';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import './performance-panel.scss';
 
 // 存储键 - 只保存位置和固定状态，dismissed 不持久化
@@ -54,6 +55,7 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({
   elements = [],
 }) => {
   const { language } = useI18n();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null);
 
   // 计算图片元素数量
@@ -236,6 +238,19 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({
     safeReload();
   }, []);
 
+  const handleRefreshClick = useCallback(async () => {
+    const confirmed = await confirm({
+      title: language === 'zh' ? '刷新页面' : 'Refresh page',
+      description: language === 'zh' ? '刷新页面可释放内存' : 'Refresh to free memory',
+      confirmText: language === 'zh' ? '刷新' : 'Refresh',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+    });
+
+    if (confirmed) {
+      handleRefresh();
+    }
+  }, [confirm, handleRefresh, language]);
+
   // 创建新项目
   const [isCreating, setIsCreating] = useState(false);
   const handleCreateProject = useCallback(async () => {
@@ -333,21 +348,15 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({
       )}
 
       {/* 刷新页面按钮 */}
-      <Popconfirm
-        content={language === 'zh' ? '刷新页面可释放内存' : 'Refresh to free memory'}
-        confirmBtn={language === 'zh' ? '刷新' : 'Refresh'}
-        cancelBtn={language === 'zh' ? '取消' : 'Cancel'}
-        onConfirm={handleRefresh}
-        placement="left"
-        theme="default"
+      <button
+        className="performance-panel__btn"
+        title={language === 'zh' ? '刷新页面' : 'Refresh page'}
+        onClick={() => {
+          void handleRefreshClick();
+        }}
       >
-        <button
-          className="performance-panel__btn"
-          title={language === 'zh' ? '刷新页面' : 'Refresh page'}
-        >
-          <RefreshIcon />
-        </button>
-      </Popconfirm>
+        <RefreshIcon />
+      </button>
 
       {/* 分隔线 */}
       <div className="performance-panel__divider" />
@@ -368,6 +377,7 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({
       >
         <CloseIcon />
       </button>
+      {confirmDialog}
     </div>
   );
 };

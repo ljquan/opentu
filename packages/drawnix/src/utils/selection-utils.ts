@@ -190,7 +190,11 @@ export const extractTextFromElement = (element: PlaitElement, board?: PlaitBoard
   const texts: string[] = [];
 
   if (isCardElement(element)) {
-    return element.body?.trim() || '';
+    const body = element.body?.trim() || '';
+    if (element.title?.trim()) {
+      return `# ${element.title.trim()}\n${body}`;
+    }
+    return body;
   }
 
   if (element.type === 'audio' && 'title' in element && typeof element.title === 'string') {

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Button, Input, DialogPlugin, MessagePlugin } from 'tdesign-react';
+import { Button, Input, MessagePlugin } from 'tdesign-react';
 import { SearchIcon, AddIcon } from 'tdesign-icons-react';
 import { PlaitBoard, getViewportOrigination } from '@plait/core';
 import { useDrawnix } from '../../hooks/use-drawnix';
@@ -19,6 +19,7 @@ import { DEFAULT_TOOL_CONFIG, TOOL_CATEGORY_LABELS } from '../../constants/built
 import { ToolList } from './ToolList';
 import { CustomToolDialog } from '../custom-tool-dialog/CustomToolDialog';
 import { BaseDrawer } from '../side-drawer';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { needsApiKeyConfiguration } from '../../utils/url-template';
 import { geminiSettings } from '../../utils/settings-manager';
 import './toolbox-drawer.scss';
@@ -45,6 +46,7 @@ export const ToolboxDrawer: React.FC<ToolboxDrawerProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [customToolDialogVisible, setCustomToolDialogVisible] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // 待处理的工具操作（等待 API Key 配置完成后继续）
   const pendingToolRef = useRef<{
@@ -287,30 +289,30 @@ export const ToolboxDrawer: React.FC<ToolboxDrawerProps> = ({
    * 处理删除工具
    */
   const handleDeleteTool = useCallback(async (tool: ToolDefinition) => {
-    // 使用 TDesign 的确认对话框
-    const confirmDialog = DialogPlugin.confirm({
-      header: '确认删除',
-      body: `确定要删除工具 "${tool.name}" 吗？此操作不可撤销。`,
-      onConfirm: async () => {
-        try {
-          const removed = await toolboxService.removeCustomTool(tool.id);
-          if (removed) {
-            MessagePlugin.success('工具已删除');
-            // 触发列表刷新
-            setRefreshKey((prev) => prev + 1);
-          } else {
-            MessagePlugin.warning('工具不存在或删除失败');
-          }
-        } catch (error) {
-          console.error('Failed to delete tool:', error);
-          MessagePlugin.error('删除工具失败，请重试');
-        }
-        confirmDialog.destroy();
-      },
-      onClose: () => {
-        confirmDialog.destroy();
-      },
+    const confirmed = await confirm({
+      title: '确认删除',
+      description: `确定要删除工具 "${tool.name}" 吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
     });
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const removed = await toolboxService.removeCustomTool(tool.id);
+      if (removed) {
+        MessagePlugin.success('工具已删除');
+        setRefreshKey((prev) => prev + 1);
+      } else {
+        MessagePlugin.warning('工具不存在或删除失败');
+      }
+    } catch (error) {
+      console.error('Failed to delete tool:', error);
+      MessagePlugin.error('删除工具失败，请重试');
+    }
   }, []);
 
   /**
@@ -416,6 +418,7 @@ export const ToolboxDrawer: React.FC<ToolboxDrawerProps> = ({
           onSuccess={handleCustomToolSaved}
         />
       )}
+      {confirmDialog}
     </>
   );
 };

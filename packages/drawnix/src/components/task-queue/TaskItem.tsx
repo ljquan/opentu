@@ -68,6 +68,40 @@ function getKlingModeLabel(mode?: string): string | undefined {
   return mode;
 }
 
+function getVideoAnalyzerAction(task: Task): 'analyze' | 'rewrite' | null {
+  const action = task.params.videoAnalyzerAction;
+  return action === 'analyze' || action === 'rewrite' ? action : null;
+}
+
+function getVideoAnalyzerSubtitle(task: Task): string | null {
+  const action = getVideoAnalyzerAction(task);
+  if (action === 'analyze') {
+    const sourceLabel = normalizeNestedString(task.params.videoAnalyzerSourceLabel);
+    return sourceLabel || null;
+  }
+
+  if (action === 'rewrite') {
+    const prompt = normalizeNestedString(task.params.prompt);
+    if (!prompt) {
+      return null;
+    }
+    return prompt.replace(/^改编脚本：\s*/, '');
+  }
+
+  return null;
+}
+
+function getVideoAnalyzerTypeTag(task: Task): string | null {
+  const action = getVideoAnalyzerAction(task);
+  if (action === 'analyze') {
+    return '视频分析';
+  }
+  if (action === 'rewrite') {
+    return '脚本改编';
+  }
+  return null;
+}
+
 export interface TaskItemProps {
   /** The task to display */
   task: Task;
@@ -208,18 +242,25 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
   );
   const lyricsPreview = getLyricsPreview(lyricsText);
   const lyricsTags = getLyricsTags(task.result);
+  const videoAnalyzerAction = getVideoAnalyzerAction(task);
+  const videoAnalyzerSubtitle = getVideoAnalyzerSubtitle(task);
+  const videoAnalyzerTypeTag = getVideoAnalyzerTypeTag(task);
   const displayPrompt = isCharacterTask
     ? isCompleted && task.result?.characterUsername
       ? `@${task.result.characterUsername}`
       : '角色创建中...'
     : isChatTask
-    ? task.result?.chatResponse || task.result?.title || task.params.prompt
+    ? task.result?.title || task.params.prompt || task.result?.chatResponse
     : isLyricsTask
     ? lyricsTitle || lyricsPreview || task.params.prompt
     : task.result?.title || task.params.title || task.params.prompt;
   const extraParams =
     task.params.params && typeof task.params.params === 'object'
       ? (task.params.params as Record<string, unknown>)
+      : null;
+  const audioDurationLabel =
+    task.type === TaskType.AUDIO && !isLyricsTask
+      ? formatAudioDuration(task.result?.duration)
       : null;
   const isKlingVideoTask =
     task.type === TaskType.VIDEO && isKlingTaskModel(task.params.model);
@@ -309,16 +350,18 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
         {task.type === TaskType.VIDEO && task.params.size && (
           <div><strong>分辨率：</strong>{task.params.size}</div>
         )}
-        {task.params.batchId && task.params.batchIndex && task.params.batchTotal && (
-          <div><strong>批量：</strong>{task.params.batchIndex}/{task.params.batchTotal}</div>
-        )}
+        {task.params.batchId &&
+          typeof task.params.batchIndex === 'number' &&
+          typeof task.params.batchTotal === 'number' && (
+            <div><strong>批量：</strong>{task.params.batchIndex + 1}/{task.params.batchTotal}</div>
+          )}
         <div><strong>创建时间：</strong>{formatDateTime(task.createdAt)}</div>
         {task.startedAt && (
           <div><strong>执行时长：</strong>{formatTaskDuration(
             (task.completedAt || Date.now()) - task.startedAt
           )}</div>
         )}
-        {task.type === TaskType.VIDEO && (
+        {(task.type === TaskType.VIDEO || task.type === TaskType.CHAT) && (
           <div><strong>进度：</strong>{task.progress ?? 0}%</div>
         )}
       </div>
@@ -382,7 +425,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
             ) : task.status === TaskStatus.PROCESSING ? (
               isChatTask ? (
                 <div className="task-item__preview-placeholder">
-                  <span>生成文本中</span>
+                  <span>
+                    {videoAnalyzerAction === 'analyze'
+                      ? `视频分析中 ${Math.round(task.progress ?? 0)}%`
+                      : videoAnalyzerAction === 'rewrite'
+                      ? `脚本改编中 ${Math.round(task.progress ?? 0)}%`
+                      : '生成文本中'}
+                  </span>
                 </div>
               ) : (
                 /* 处理中状态：只显示进度覆盖层，不显示其他内容 */
@@ -418,7 +467,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   <>
                     <RetryImage
                       src={previewMediaUrl}
-                      alt={displayPrompt}
+                      alt={displayPrompt || '音频封面'}
                       maxRetries={3}
                       fallback={
                         <div className="task-item__preview-placeholder">
@@ -491,6 +540,11 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
           <div className="task-item__prompt" title={task.params.prompt}>
             {displayPrompt}
           </div>
+          {isChatTask && videoAnalyzerSubtitle && (
+            <div className="task-item__subtitle" title={videoAnalyzerSubtitle}>
+              {videoAnalyzerSubtitle}
+            </div>
+          )}
         </div>
 
         {/* Info Area - Meta & Actions */}
@@ -509,6 +563,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                     {task.params.model}
                   </Tag>
                 )}
+                {isChatTask && videoAnalyzerTypeTag && (
+                  <Tag variant="outline">{videoAnalyzerTypeTag}</Tag>
+                )}
                 {isKlingVideoTask && klingModelVersion && (
                   <Tag variant="outline">{klingModelVersion}</Tag>
                 )}
@@ -526,9 +583,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 {task.type === TaskType.VIDEO && task.params.size && (
                   <Tag variant="outline">{task.params.size}</Tag>
                 )}
-                {task.type === TaskType.AUDIO && task.result?.duration && !isLyricsTask && (
+                {audioDurationLabel && (
                   <Tag variant="outline">
-                    {formatAudioDuration(task.result.duration)}
+                    {audioDurationLabel}
                   </Tag>
                 )}
                 {task.type === TaskType.AUDIO && task.params.mv && !isLyricsTask && (
@@ -545,9 +602,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 {isLyricsTask && lyricsTags[0] && (
                   <Tag variant="outline">{lyricsTags[0]}</Tag>
                 )}
-                {task.params.batchId && task.params.batchIndex && (
-                  <Tag variant="outline">批量 {task.params.batchIndex}/{task.params.batchTotal}</Tag>
-                )}
+                {task.params.batchId &&
+                  typeof task.params.batchIndex === 'number' &&
+                  typeof task.params.batchTotal === 'number' && (
+                    <Tag variant="outline">
+                      批量 {task.params.batchIndex + 1}/{task.params.batchTotal}
+                    </Tag>
+                  )}
               </div>
 
               <div className="task-item__details">
@@ -565,10 +626,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                   }
                   return null;
                 })()}
-                {task.type === TaskType.AUDIO && task.result?.duration && !isLyricsTask && (
+                {audioDurationLabel && (
                   <span className="task-item__size">
                     {' · '}
-                    {formatAudioDuration(task.result.duration)}
+                    {audioDurationLabel}
                   </span>
                 )}
                 {isCompleted && task.result?.url && !isLyricsTask && (
@@ -586,7 +647,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
               </div>
 
               {/* Progress bar for video tasks (outside tags) */}
-              {(task.type === TaskType.VIDEO || task.type === TaskType.AUDIO) &&
+              {(task.type === TaskType.VIDEO ||
+                task.type === TaskType.AUDIO ||
+                (task.type === TaskType.CHAT &&
+                  typeof task.progress === 'number')) &&
                 task.status === TaskStatus.PROCESSING && (
                 <div className="task-item__progress-container">
                   <div className="task-item__progress-bar">

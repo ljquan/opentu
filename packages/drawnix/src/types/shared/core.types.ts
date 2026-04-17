@@ -116,8 +116,14 @@ export interface GenerationParams {
   notifyHook?: string;
   /** Continue from clip ID */
   continueClipId?: string;
+  /** Continue from provider task ID */
+  continueTaskId?: string;
   /** Continue from timestamp */
   continueAt?: number;
+  /** Infill start timestamp */
+  infillStartS?: number;
+  /** Infill end timestamp */
+  infillEndS?: number;
   /** Style or model to use for generation */
   style?: string;
   /** AI model to use (e.g., 'veo3', 'sora-2') */
@@ -205,6 +211,8 @@ export interface TaskResult {
   characterPermalink?: string;
   /** Chat response content (chat only) */
   chatResponse?: string;
+  /** Structured analysis payload for specialized text tasks */
+  analysisData?: unknown;
   /** Tool calls made during chat (chat only) */
   toolCalls?: ChatToolCall[];
 }

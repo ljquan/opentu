@@ -45,7 +45,10 @@ const CACHE_NAMES = [
  */
 function openDB(dbName, version, onUpgradeNeeded) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName, version);
+    const request =
+      typeof version === 'number'
+        ? indexedDB.open(dbName, version)
+        : indexedDB.open(dbName);
     
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
@@ -54,6 +57,52 @@ function openDB(dbName, version, onUpgradeNeeded) {
       request.onupgradeneeded = onUpgradeNeeded;
     }
   });
+}
+
+/**
+ * 仅打开已存在的数据库；若数据库不存在则返回 null，避免调试页误创建空库。
+ * @param {string} dbName
+ * @returns {Promise<IDBDatabase|null>}
+ */
+function openExistingDB(dbName) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(dbName);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      request.transaction?.abort();
+      resolve(null);
+    };
+  });
+}
+
+// 主线程任务数据库
+const APP_DB_NAME = 'aitu-app';
+const APP_TASKS_STORE = 'tasks';
+
+// Service Worker 任务数据库
+const SW_TASK_QUEUE_DB_NAME = 'sw-task-queue';
+const SW_TASKS_STORE = 'tasks';
+
+function matchesLLMApiTaskTypeFilter(log, taskType) {
+  if (!taskType) return true;
+  if (!log || typeof log !== 'object') return false;
+
+  const isLyrics =
+    log.taskType === 'audio' &&
+    (log.resultType === 'lyrics' ||
+      (typeof log.endpoint === 'string' && /\/lyrics(?:\/|$)/i.test(log.endpoint)));
+
+  if (taskType === 'lyrics') {
+    return isLyrics;
+  }
+
+  if (taskType === 'audio') {
+    return log.taskType === 'audio' && !isLyrics;
+  }
+
+  return log.taskType === taskType;
 }
 
 // ============================================================================
@@ -166,7 +215,7 @@ export async function getLLMApiLogsDirect(page = 1, pageSize = 20, filter = {}) 
           const log = cursor.value;
           // 应用过滤器
           let include = true;
-          if (filter.taskType && log.taskType !== filter.taskType) {
+          if (!matchesLLMApiTaskTypeFilter(log, filter.taskType)) {
             include = false;
           }
           if (filter.status && log.status !== filter.status) {
@@ -246,6 +295,229 @@ export async function getLLMApiLogByIdDirect(logId) {
     console.warn('[DebugStorageReader] Failed to read LLM API log by ID:', error);
     return null;
   }
+}
+
+function normalizeTaskDebugInfo(task, sourceDb, matchedBy) {
+  if (!task) return null;
+
+  return {
+    id: task.id,
+    type: task.type,
+    status: task.status,
+    remoteId: task.remoteId,
+    matchedBy,
+    sourceDb,
+    hasResult: !!task.result,
+    result: task.result || null,
+    error: task.error || null,
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
+  };
+}
+
+function sanitizeResultForDebug(value, path = '$') {
+  const rawResponses = [];
+
+  function visit(current, currentPath) {
+    if (Array.isArray(current)) {
+      return current.map((item, index) => visit(item, `${currentPath}[${index}]`));
+    }
+
+    if (!current || typeof current !== 'object') {
+      return current;
+    }
+
+    const next = {};
+    for (const [key, child] of Object.entries(current)) {
+      if (key === 'rawResponse') {
+        if (typeof child === 'string' && child.trim()) {
+          rawResponses.push({
+            path: `${currentPath}.${key}`,
+            content: child,
+          });
+        }
+        continue;
+      }
+
+      next[key] = visit(child, `${currentPath}.${key}`);
+    }
+    return next;
+  }
+
+  return {
+    sanitized: visit(value, path),
+    rawResponses,
+  };
+}
+
+async function getTaskByIdFromDB(dbName, storeName, taskId) {
+  if (!taskId) return null;
+
+  try {
+    const db = await openExistingDB(dbName);
+    if (!db || !db.objectStoreNames.contains(storeName)) {
+      db?.close();
+      return null;
+    }
+
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([storeName], 'readonly');
+      const store = tx.objectStore(storeName);
+      const request = store.get(taskId);
+
+      request.onsuccess = () => {
+        db.close();
+        resolve(request.result || null);
+      };
+
+      request.onerror = () => {
+        db.close();
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.warn(`[DebugStorageReader] Failed to get task by id from ${dbName}:`, error);
+    return null;
+  }
+}
+
+async function findTaskByPredicateInDB(dbName, storeName, predicate) {
+  try {
+    const db = await openExistingDB(dbName);
+    if (!db || !db.objectStoreNames.contains(storeName)) {
+      db?.close();
+      return null;
+    }
+
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([storeName], 'readonly');
+      const store = tx.objectStore(storeName);
+      const source = store.indexNames.contains('updatedAt')
+        ? store.index('updatedAt')
+        : store.indexNames.contains('createdAt')
+        ? store.index('createdAt')
+        : store;
+      const request = source.openCursor(null, 'prev');
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          db.close();
+          resolve(null);
+          return;
+        }
+
+        const task = cursor.value;
+        if (predicate(task)) {
+          db.close();
+          resolve(task);
+          return;
+        }
+
+        cursor.continue();
+      };
+
+      request.onerror = () => {
+        db.close();
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.warn(`[DebugStorageReader] Failed to scan tasks from ${dbName}:`, error);
+    return null;
+  }
+}
+
+async function resolveLinkedTask(log) {
+  const dbCandidates = [
+    { dbName: APP_DB_NAME, storeName: APP_TASKS_STORE, sourceDb: APP_DB_NAME },
+    { dbName: SW_TASK_QUEUE_DB_NAME, storeName: SW_TASKS_STORE, sourceDb: SW_TASK_QUEUE_DB_NAME },
+  ];
+
+  if (log.taskId) {
+    for (const candidate of dbCandidates) {
+      const task = await getTaskByIdFromDB(candidate.dbName, candidate.storeName, log.taskId);
+      if (task) {
+        return normalizeTaskDebugInfo(task, candidate.sourceDb, 'taskId');
+      }
+    }
+  }
+
+  if (!log.remoteId && !log.taskId) {
+    return null;
+  }
+
+  for (const candidate of dbCandidates) {
+    const task = await findTaskByPredicateInDB(
+      candidate.dbName,
+      candidate.storeName,
+      (task) => {
+        if (!task) return false;
+
+        if (log.remoteId && task.remoteId === log.remoteId) {
+          return true;
+        }
+
+        if (log.remoteId && task.result?.providerTaskId === log.remoteId) {
+          return true;
+        }
+
+        if (log.taskId && task.result?.providerTaskId === log.taskId) {
+          return true;
+        }
+
+        return false;
+      }
+    );
+
+    if (task) {
+      const matchedBy =
+        log.remoteId && task.remoteId === log.remoteId
+          ? 'remoteId'
+          : 'providerTaskId';
+      return normalizeTaskDebugInfo(task, candidate.sourceDb, matchedBy);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 为 LLM API 日志关联任务结果调试信息。
+ * 优先返回任务 result JSON；用于异步模型或原始 responseBody 缺失时兜底展示。
+ * @param {object} log
+ * @returns {Promise<object|null>}
+ */
+export async function getLinkedTaskDebugDataForLLMLog(log) {
+  if (!log || typeof log !== 'object') {
+    return null;
+  }
+
+  const linkedTask = await resolveLinkedTask(log);
+  if (!linkedTask) {
+    return null;
+  }
+
+  const { sanitized, rawResponses } = sanitizeResultForDebug(linkedTask.result);
+
+  return {
+    ...linkedTask,
+    resultJson: sanitized ? JSON.stringify(sanitized, null, 2) : '',
+    rawResponses,
+    snapshotJson: JSON.stringify(
+      {
+        id: linkedTask.id,
+        type: linkedTask.type,
+        status: linkedTask.status,
+        remoteId: linkedTask.remoteId,
+        error: linkedTask.error,
+        updatedAt: linkedTask.updatedAt,
+        completedAt: linkedTask.completedAt,
+      },
+      null,
+      2
+    ),
+  };
 }
 
 // ============================================================================

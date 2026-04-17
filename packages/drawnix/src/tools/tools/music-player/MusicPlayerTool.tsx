@@ -45,6 +45,7 @@ import {
 } from '../../../services/canvas-audio-playback-service';
 import { toolWindowService } from '../../../services/tool-window-service';
 import { MUSIC_PLAYER_TOOL_ID } from '../../tool-ids';
+import type { ToolInstanceContextProps } from '../../../types/toolbox.types';
 import { MusicPlayerQueueList } from './MusicPlayerQueueList';
 import './music-player-tool.scss';
 
@@ -114,7 +115,12 @@ function isNonNull<T>(value: T | null | undefined): value is T {
   return value != null;
 }
 
-export const MusicPlayerTool: React.FC = () => {
+type MusicPlayerToolProps = Partial<ToolInstanceContextProps>;
+
+export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
+  toolInstanceId,
+}) => {
+  const windowTargetId = toolInstanceId || MUSIC_PLAYER_TOOL_ID;
   const { assets, loadAssets } = useAssets();
   const {
     playlists,
@@ -295,7 +301,10 @@ export const MusicPlayerTool: React.FC = () => {
       elementId: `asset:${asset.id}`,
       audioUrl: asset.url,
       title: asset.name,
+      duration: asset.duration,
       previewImageUrl: asset.thumbnail,
+      clipId: asset.clipId,
+      providerTaskId: asset.providerTaskId,
     };
   };
 
@@ -406,7 +415,7 @@ export const MusicPlayerTool: React.FC = () => {
         id: `asset:${asset.id}`,
         title: asset.name,
         subtitle: formatTrackSubtitle(
-          resolvedAudioAssetDurations.get(asset.url),
+          resolvedAudioAssetDurations.get(asset.url) ?? asset.duration,
           asset.createdAt
         ),
         previewImageUrl: asset.thumbnail,
@@ -437,7 +446,7 @@ export const MusicPlayerTool: React.FC = () => {
             id: `asset:${asset.id}`,
             title: asset.name,
             subtitle: formatTrackSubtitle(
-              resolvedAudioAssetDurations.get(asset.url),
+              resolvedAudioAssetDurations.get(asset.url) ?? asset.duration,
               asset.createdAt
             ),
             previewImageUrl: asset.thumbnail,
@@ -624,7 +633,7 @@ export const MusicPlayerTool: React.FC = () => {
   const isAudioTabSelected = selectedPlaylistId !== AUDIO_PLAYLIST_ALL_TRACKS_ID;
 
   useEffect(() => {
-    const state = toolWindowService.getToolState(MUSIC_PLAYER_TOOL_ID);
+    const state = toolWindowService.getToolState(windowTargetId);
     if (!state || state.status !== 'open') {
       return;
     }
@@ -638,14 +647,14 @@ export const MusicPlayerTool: React.FC = () => {
     }
 
     if (hasSubtitlePanel) {
-      toolWindowService.updateToolSize(MUSIC_PLAYER_TOOL_ID, targetSize);
+      toolWindowService.updateToolSize(windowTargetId, targetSize);
       return;
     }
 
     if (currentWidth <= SUBTITLE_PLAYER_WINDOW_SIZE.width) {
-      toolWindowService.updateToolSize(MUSIC_PLAYER_TOOL_ID, targetSize);
+      toolWindowService.updateToolSize(windowTargetId, targetSize);
     }
-  }, [hasSubtitlePanel]);
+  }, [hasSubtitlePanel, windowTargetId]);
 
   return (
     <div className={`music-player-tool ${hasSubtitlePanel ? 'music-player-tool--with-subtitle' : ''}`}>
@@ -773,7 +782,7 @@ export const MusicPlayerTool: React.FC = () => {
                   event.stopPropagation();
                   // 延后一帧最小化，避免底层 popup-toolbar 接到同一次点击造成误暂停。
                   requestAnimationFrame(() => {
-                    toolWindowService.minimizeTool(MUSIC_PLAYER_TOOL_ID);
+                    toolWindowService.minimizeTool(windowTargetId);
                   });
                 }}
                 aria-label="切回播放控件"

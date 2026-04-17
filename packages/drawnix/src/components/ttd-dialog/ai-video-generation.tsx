@@ -131,6 +131,7 @@ interface AIVideoGenerationProps {
   selectedModelRef?: ModelRef | null;
   onModelChange?: (value: string) => void;
   onModelRefChange?: (value: ModelRef | null) => void;
+  externalBatchId?: string;
 }
 
 const AIVideoGeneration = ({
@@ -145,6 +146,7 @@ const AIVideoGeneration = ({
   selectedModelRef,
   onModelChange,
   onModelRefChange,
+  externalBatchId,
 }: AIVideoGenerationProps = {}) => {
   const videoModels = useSelectableModels('video');
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -423,6 +425,7 @@ const AIVideoGeneration = ({
 
   const { language } = useI18n();
   const { createTask } = useTaskQueue();
+  const generatingLockRef = useRef(false);
   const isModelControlled = selectedModel !== undefined;
   const lastSyncedSelectedSelectionKeyRef = React.useRef<string | null>(null);
 
@@ -871,6 +874,10 @@ const AIVideoGeneration = ({
   };
 
   const handleGenerate = async (count = 1) => {
+    // 防止快速双击/重复触发导致多次创建任务
+    if (generatingLockRef.current) return;
+    generatingLockRef.current = true;
+    try {
     // 验证输入
     if (storyboardEnabled) {
       // 故事场景模式验证
@@ -928,7 +935,7 @@ const AIVideoGeneration = ({
       // 批量生成逻辑
       const batchTaskIds: string[] = [];
       // 始终生成 batchId，即使 count=1，这样可以跳过 SW 的重复检测
-      const batchId = `video_batch_${Date.now()}`;
+      const batchId = externalBatchId || `video_batch_${Date.now()}`;
 
       for (let i = 0; i < count; i++) {
         // 额外参数（如 aspect_ratio）透传给 adapter
@@ -1032,6 +1039,9 @@ const AIVideoGeneration = ({
       }
 
       setError(errorMessage);
+    }
+    } finally {
+      generatingLockRef.current = false;
     }
   };
 

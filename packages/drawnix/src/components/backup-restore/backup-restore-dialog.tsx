@@ -7,8 +7,9 @@
 
 import { Dialog, DialogContent } from '../dialog/dialog';
 import { useState, useRef, useCallback } from 'react';
-import { Checkbox, MessagePlugin, Progress, DialogPlugin } from 'tdesign-react';
+import { Checkbox, MessagePlugin, Progress } from 'tdesign-react';
 import { UploadIcon } from 'tdesign-icons-react';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import {
   backupRestoreService,
   BackupOptions,
@@ -39,6 +40,7 @@ export const BackupRestoreDialog = ({
   onSwitchBoard,
   onBeforeImport,
 }: BackupRestoreDialogProps) => {
+  const { confirm, confirmDialog } = useConfirmDialog({ container });
   const toInputDateTime = (timestamp?: number | null): string => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
@@ -97,23 +99,19 @@ export const BackupRestoreDialog = ({
       await onSwitchBoard(workspaceState.currentBoardId, workspaceState.viewport);
       MessagePlugin.success(`已切换到画板「${targetBoard.name}」`);
     } else {
-      // 当前不是空白画布，弹窗询问
-      const dialogInstance = DialogPlugin.confirm({
-        header: '恢复画布状态',
-        body: `备份时正在编辑画板「${workspaceState.currentBoardName || targetBoard.name}」，是否切换到该画板？`,
-        confirmBtn: '切换',
-        cancelBtn: '取消',
-        onConfirm: async () => {
-          await onSwitchBoard(workspaceState.currentBoardId!, workspaceState.viewport);
-          MessagePlugin.success(`已切换到画板「${targetBoard.name}」`);
-          dialogInstance.destroy();
-        },
-        onCancel: () => {
-          dialogInstance.destroy();
-        },
+      const confirmed = await confirm({
+        title: '恢复画布状态',
+        description: `备份时正在编辑画板「${workspaceState.currentBoardName || targetBoard.name}」，是否切换到该画板？`,
+        confirmText: '切换',
+        cancelText: '取消',
       });
+
+      if (confirmed) {
+        await onSwitchBoard(workspaceState.currentBoardId!, workspaceState.viewport);
+        MessagePlugin.success(`已切换到画板「${targetBoard.name}」`);
+      }
     }
-  }, [onSwitchBoard]);
+  }, [confirm, onSwitchBoard]);
 
   const handleClose = useCallback(async () => {
     if (!isProcessing) {
@@ -299,7 +297,7 @@ export const BackupRestoreDialog = ({
               >
                 <div className="backup-restore-dialog__option-content">
                   <span className="backup-restore-dialog__option-title">素材库</span>
-                  <span className="backup-restore-dialog__option-desc">包含所有本地上传的图片和视频</span>
+                  <span className="backup-restore-dialog__option-desc">包含所有本地上传的图片、视频和音频</span>
                 </div>
               </Checkbox>
 
@@ -316,7 +314,7 @@ export const BackupRestoreDialog = ({
             </div>
 
             <div className="backup-restore-dialog__time-range">
-              <div className="backup-restore-dialog__time-range-title">图片导出时间范围（可选）</div>
+              <div className="backup-restore-dialog__time-range-title">素材导出时间范围（可选）</div>
               <div className="backup-restore-dialog__time-range-row">
                 <label className="backup-restore-dialog__time-range-field">
                   <span>开始时间</span>
@@ -462,6 +460,7 @@ export const BackupRestoreDialog = ({
           </div>
         )}
       </DialogContent>
+      {confirmDialog}
     </Dialog>
   );
 };

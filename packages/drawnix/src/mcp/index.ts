@@ -2,6 +2,25 @@
  * MCP 模块统一导出
  */
 
+import { mcpRegistry } from './registry';
+import { imageGenerationTool } from './tools/image-generation';
+import { videoGenerationTool } from './tools/video-generation';
+import { audioGenerationTool } from './tools/audio-generation';
+import { textGenerationTool } from './tools/text-generation';
+import { canvasInsertionTool } from './tools/canvas-insertion';
+import { aiAnalyzeTool } from './tools/ai-analyze';
+import { mermaidTool } from './tools/mermaid-tool';
+import { mindmapTool } from './tools/mindmap-tool';
+import { gridImageTool } from './tools/photo-wall-tool';
+import { inspirationBoardTool } from './tools/creative-photo-wall-tool';
+import { splitImageTool } from './tools/split-image-tool';
+import { svgTool } from './tools/svg-tool';
+import { longVideoGenerationTool } from './tools/long-video-generation';
+import { pptGenerationTool } from './tools/ppt-generation';
+import { knowledgeBaseTools } from './tools/knowledge-base-tool';
+import { videoAnalyzeTool } from './tools/video-analyze';
+import { audioAnalyzeTool } from './tools/audio-analyze';
+
 // 导出类型
 export * from './types';
 
@@ -41,28 +60,11 @@ export type { PPTGenerationParams } from '../services/ppt';
 export { knowledgeBaseTools } from './tools/knowledge-base-tool';
 export { videoAnalyzeTool } from './tools/video-analyze';
 export type { VideoAnalyzeParams, VideoAnalysisData, VideoShot } from './tools/video-analyze';
+export { audioAnalyzeTool } from './tools/audio-analyze';
+export type { MusicAnalyzeParams, MusicAnalysisData } from './tools/audio-analyze';
 
 // 共享模块导出
 export { setBoard, getBoard } from './tools/shared';
-
-// 初始化函数：注册所有内置工具
-import { mcpRegistry } from './registry';
-import { imageGenerationTool } from './tools/image-generation';
-import { videoGenerationTool } from './tools/video-generation';
-import { audioGenerationTool } from './tools/audio-generation';
-import { textGenerationTool } from './tools/text-generation';
-import { canvasInsertionTool } from './tools/canvas-insertion';
-import { aiAnalyzeTool } from './tools/ai-analyze';
-import { mermaidTool } from './tools/mermaid-tool';
-import { mindmapTool } from './tools/mindmap-tool';
-import { gridImageTool } from './tools/photo-wall-tool';
-import { inspirationBoardTool } from './tools/creative-photo-wall-tool';
-import { splitImageTool } from './tools/split-image-tool';
-import { svgTool } from './tools/svg-tool';
-import { longVideoGenerationTool } from './tools/long-video-generation';
-import { pptGenerationTool } from './tools/ppt-generation';
-import { knowledgeBaseTools } from './tools/knowledge-base-tool';
-import { videoAnalyzeTool } from './tools/video-analyze';
 
 /** 标记 MCP 是否已初始化 */
 let mcpInitialized = false;
@@ -94,6 +96,7 @@ export function initializeMCP(): void {
     pptGenerationTool,
     ...knowledgeBaseTools,
     videoAnalyzeTool,
+    audioAnalyzeTool,
   ]);
   // console.log('[MCP] Initialized with built-in tools');
 }

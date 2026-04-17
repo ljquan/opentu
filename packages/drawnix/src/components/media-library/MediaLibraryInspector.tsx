@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { Button, Input, Dialog, MessagePlugin } from 'tdesign-react';
+import { Button, Input, MessagePlugin } from 'tdesign-react';
 import {
   Download,
   Trash2,
@@ -17,6 +17,7 @@ import { formatDate, formatFileSize } from '../../utils/asset-utils';
 import { useAssetSize } from '../../hooks/useAssetSize';
 import { isCacheUrl, countElementsByAssetUrls } from '../../utils/asset-cleanup';
 import { useDrawnix } from '../../hooks/use-drawnix';
+import { ConfirmDialog } from '../dialog/ConfirmDialog';
 import type { MediaLibraryInspectorProps } from '../../types/asset.types';
 import './MediaLibraryInspector.scss';
 
@@ -328,14 +329,14 @@ export function MediaLibraryInspector({
       </div>
 
       {/* 删除确认对话框 */}
-      <Dialog
-        visible={deleteDialogVisible}
-        onClose={() => setDeleteDialogVisible(false)}
-        header="确认删除"
+      <ConfirmDialog
+        open={deleteDialogVisible}
+        title="确认删除"
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onOpenChange={setDeleteDialogVisible}
         onConfirm={handleConfirmDelete}
-        onCancel={() => setDeleteDialogVisible(false)}
-        confirmBtn="删除"
-        cancelBtn="取消"
       >
         <p>删除后无法恢复，确认删除该素材？</p>
         <p style={{ marginTop: '8px', color: 'var(--td-text-color-secondary)' }}>
@@ -346,7 +347,7 @@ export function MediaLibraryInspector({
             ⚠️ 画布中有 <strong>{canvasElementCount}</strong> 个元素正在使用此素材，删除后这些元素也将被移除！
           </p>
         )}
-      </Dialog>
+      </ConfirmDialog>
     </div>
   );
 }

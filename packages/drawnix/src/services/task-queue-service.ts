@@ -27,7 +27,6 @@ import {
   type SWTask,
 } from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
-import { normalizeImageDataUrl } from '@aitu/utils';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
 import { hasInvocationRouteCredentials } from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
@@ -35,8 +34,74 @@ import {
   getAdapterContextFromSettings,
   resolveAdapterForInvocation,
 } from './model-adapters';
-import { cacheRemoteUrl, cacheRemoteUrls } from './media-executor/fallback-utils';
+import { cacheRemoteUrl } from './media-executor/fallback-utils';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
+import { sendChatWithGemini } from '../utils/gemini-api/services';
+import type { GeminiMessage } from '../utils/gemini-api/types';
+import { buildInlineDataPart } from '../utils/gemini-api/message-utils';
+import { unifiedCacheService } from './unified-cache-service';
+import { buildGenerateContentConfig } from './analysis-core';
+import { callGoogleGenerateContentWithLog } from '../utils/gemini-api/logged-calls';
+import { executeVideoAnalysis } from './video-analysis-service';
+import {
+  formatShotsMarkdown,
+  type VideoAnalysisData,
+} from '../components/video-analyzer/types';
+import { loadRecords } from '../components/video-analyzer/storage';
+import {
+  applyRewriteShotUpdates,
+  parseRewriteShotUpdates,
+} from '../components/video-analyzer/utils';
+import {
+  DEFAULT_MUSIC_ANALYSIS_PROMPT,
+  executeMusicAnalysis,
+  MAX_AUDIO_ANALYZE_FILE_SIZE,
+  type MusicAnalysisData,
+} from './music-analysis-service';
+import { formatMusicAnalysisMarkdown } from '../components/music-analyzer/types';
+import { loadRecords as loadMusicRecords } from '../components/music-analyzer/storage';
+import { parseLyricsRewriteResult } from '../components/music-analyzer/utils';
+
+const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
+const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
+const VIDEO_ANALYZER_SIMULATED_START_PROGRESS = 15;
+const VIDEO_ANALYZER_SIMULATED_END_PROGRESS = 95;
+const VIDEO_REWRITE_SIMULATED_DURATION_MS = 2 * 60 * 1000;
+const VIDEO_REWRITE_SIMULATED_INTERVAL_MS = 2000;
+const VIDEO_REWRITE_SIMULATED_START_PROGRESS = 20;
+const VIDEO_REWRITE_SIMULATED_END_PROGRESS = 95;
+const MUSIC_ANALYZER_SIMULATED_DURATION_MS = 4 * 60 * 1000;
+const MUSIC_ANALYZER_SIMULATED_INTERVAL_MS = 3000;
+const MUSIC_ANALYZER_SIMULATED_START_PROGRESS = 12;
+const MUSIC_ANALYZER_SIMULATED_END_PROGRESS = 95;
+const MUSIC_REWRITE_SIMULATED_DURATION_MS = 2 * 60 * 1000;
+const MUSIC_REWRITE_SIMULATED_INTERVAL_MS = 2000;
+const MUSIC_REWRITE_SIMULATED_START_PROGRESS = 20;
+const MUSIC_REWRITE_SIMULATED_END_PROGRESS = 95;
+
+function normalizeImageDataUrl(value: string, fallbackMimeType = 'image/png'): string {
+  const trimmed = value.trim();
+
+  if (
+    !trimmed ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../')
+  ) {
+    return trimmed || value;
+  }
+
+  const normalized = trimmed.replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized) || normalized.length < 32) {
+    return trimmed;
+  }
+
+  return `data:${fallbackMimeType};base64,${normalized}`;
+}
 
 async function cacheAudioCoverUrl(
   coverUrl: string | undefined,
@@ -70,6 +135,8 @@ class TaskQueueService {
   private static instance: TaskQueueService;
   private tasks: Map<string, Task>;
   private taskUpdates$: Subject<TaskEvent>;
+  private executingTasks = new Set<string>();
+  private blockedTaskIds = new Set<string>();
 
   private constructor() {
     this.tasks = new Map();
@@ -130,6 +197,12 @@ class TaskQueueService {
    * This is called automatically after task creation
    */
   private async executeTask(task: Task): Promise<void> {
+    // 防止同一任务被重复执行（双重调用防护）
+    if (this.executingTasks.has(task.id)) {
+      console.warn(`[TaskQueueService] Task ${task.id} is already executing, skipping duplicate`);
+      return;
+    }
+    this.executingTasks.add(task.id);
     try {
       // Check API configuration
       const routeType =
@@ -183,7 +256,10 @@ class TaskQueueService {
             sunoAction: task.params.sunoAction,
             notifyHook: task.params.notifyHook,
             continueClipId: task.params.continueClipId,
+            continueTaskId: task.params.continueTaskId,
             continueAt: task.params.continueAt,
+            infillStartS: task.params.infillStartS,
+            infillEndS: task.params.infillEndS,
             params: {
               ...(task.params as any).params,
               onProgress: (progress: number) => {
@@ -212,9 +288,6 @@ class TaskQueueService {
         if (fmt !== 'lyrics') {
           try {
             cachedUrl = await cacheRemoteUrl(result.url, task.id, 'audio', fmt);
-            if (result.urls?.length) {
-              cachedUrls = await cacheRemoteUrls(result.urls, task.id, 'audio', fmt);
-            }
             if (result.imageUrl) {
               cachedPreviewImageUrl = await cacheAudioCoverUrl(
                 result.imageUrl,
@@ -224,27 +297,55 @@ class TaskQueueService {
             if (result.clips?.length) {
               cachedClips = await Promise.all(
                 result.clips.map(async (clip, index) => {
+                  const cachedAudioUrl = await cacheRemoteUrl(
+                    clip.audioUrl,
+                    task.id,
+                    'audio',
+                    fmt,
+                    result.clips!.length > 1 ? index : undefined
+                  );
                   const cachedCoverUrl = await cacheAudioCoverUrl(
                     clip.imageLargeUrl || clip.imageUrl,
                     task.id,
                     result.clips!.length > 1 ? index : undefined
                   );
 
-                  if (!cachedCoverUrl) {
-                    return clip;
-                  }
-
                   return {
                     ...clip,
+                    audioUrl: cachedAudioUrl,
                     imageLargeUrl: clip.imageLargeUrl
-                      ? cachedCoverUrl
+                      ? cachedCoverUrl || clip.imageLargeUrl
                       : clip.imageLargeUrl,
                     imageUrl: clip.imageUrl
-                      ? cachedCoverUrl
+                      ? cachedCoverUrl || clip.imageUrl
                       : clip.imageUrl || cachedCoverUrl,
                   };
                 })
               );
+              cachedUrls = cachedClips
+                .map((clip) => clip.audioUrl)
+                .filter(
+                  (audioUrl): audioUrl is string =>
+                    typeof audioUrl === 'string' && audioUrl.trim().length > 0
+                );
+              if (cachedUrls.length > 0) {
+                cachedUrl = cachedUrls[0];
+              }
+            } else if (result.urls?.length) {
+              cachedUrls = await Promise.all(
+                result.urls.map((audioUrl, index) =>
+                  cacheRemoteUrl(
+                    audioUrl,
+                    task.id,
+                    'audio',
+                    fmt,
+                    result.urls!.length > 1 ? index : undefined
+                  )
+                )
+              );
+              if (cachedUrls.length > 0) {
+                cachedUrl = cachedUrls[0];
+              }
             }
             if (!cachedPreviewImageUrl) {
               cachedPreviewImageUrl =
@@ -378,6 +479,36 @@ class TaskQueueService {
           break;
         }
         case TaskType.CHAT: {
+          if ((task.params as { videoAnalyzerAction?: string }).videoAnalyzerAction === 'analyze') {
+            await this.executeVideoAnalyzerAnalyzeTask(task);
+            break;
+          }
+
+          if ((task.params as { videoAnalyzerAction?: string }).videoAnalyzerAction === 'rewrite') {
+            await this.executeVideoAnalyzerRewriteTask(task, executionOptions);
+            break;
+          }
+
+          if ((task.params as { musicAnalyzerAction?: string }).musicAnalyzerAction === 'analyze') {
+            await this.executeMusicAnalyzerAnalyzeTask(task);
+            break;
+          }
+
+          if ((task.params as { musicAnalyzerAction?: string }).musicAnalyzerAction === 'rewrite') {
+            await this.executeMusicAnalyzerRewriteTask(task, executionOptions);
+            break;
+          }
+
+          if ((task.params as { musicAnalyzerAction?: string }).musicAnalyzerAction === 'lyrics-gen') {
+            await this.executeMusicAnalyzerLyricsGenTask(task, executionOptions);
+            break;
+          }
+
+          if ((task.params as { mvCreatorAction?: string }).mvCreatorAction === 'storyboard') {
+            await this.executeMVStoryboardTask(task, executionOptions);
+            break;
+          }
+
           await executor.generateText(
             {
               taskId: task.id,
@@ -460,6 +591,596 @@ class TaskQueueService {
         this.persistTask(failedTask);
         this.emitEvent('taskUpdated', failedTask);
       }
+    } finally {
+      this.executingTasks.delete(task.id);
+    }
+  }
+
+  private async finalizeChatTask(
+    task: Task,
+    payload: {
+      title: string;
+      chatResponse: string;
+      format?: string;
+      resultExtras?: Partial<NonNullable<Task['result']>>;
+    }
+  ): Promise<void> {
+    const result: NonNullable<Task['result']> = {
+      url: '',
+      format: payload.format || 'json',
+      size: payload.chatResponse.length,
+      resultKind: 'chat',
+      title: payload.title,
+      chatResponse: payload.chatResponse,
+      ...payload.resultExtras,
+    };
+
+    await taskStorageWriter.completeTask(task.id, result);
+
+    const now = Date.now();
+    const completedTask: Task = {
+      ...(this.tasks.get(task.id) || task),
+      status: TaskStatus.COMPLETED,
+      progress: 100,
+      result,
+      executionPhase: undefined,
+      completedAt: now,
+      updatedAt: now,
+    };
+    this.tasks.set(task.id, completedTask);
+    this.persistTask(completedTask);
+    this.emitEvent('taskUpdated', completedTask);
+    this.emitEvent('taskCompleted', completedTask);
+  }
+
+  private async executeVideoAnalyzerAnalyzeTask(task: Task): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      mimeType?: string;
+      youtubeUrl?: string;
+      videoData?: string;
+      videoCacheUrl?: string;
+      videoAnalyzerPrompt?: string;
+      prompt?: string;
+    };
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    this.updateTaskProgress(task.id, 8);
+
+    let videoData = params.videoData;
+    let mimeType = params.mimeType || 'video/mp4';
+
+    if (!videoData && params.videoCacheUrl) {
+      const blob =
+        (await unifiedCacheService.getCachedBlob(params.videoCacheUrl)) ||
+        (await fetch(params.videoCacheUrl).then((response) =>
+          response.ok ? response.blob() : null
+        ));
+
+      if (!blob) {
+        throw new Error('无法读取已缓存的视频文件');
+      }
+
+      const file = new File([blob], 'video-analyzer-source.mp4', {
+        type: blob.type || mimeType,
+      });
+      const part = await buildInlineDataPart(file);
+      if (part.type !== 'inline_data') {
+        throw new Error('视频缓存转换失败');
+      }
+      videoData = part.data;
+      mimeType = part.mimeType || mimeType;
+    }
+
+    this.updateTaskProgress(task.id, VIDEO_ANALYZER_SIMULATED_START_PROGRESS);
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / VIDEO_ANALYZER_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        VIDEO_ANALYZER_SIMULATED_START_PROGRESS +
+        (VIDEO_ANALYZER_SIMULATED_END_PROGRESS -
+          VIDEO_ANALYZER_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, VIDEO_ANALYZER_SIMULATED_INTERVAL_MS);
+
+    try {
+      const result = await executeVideoAnalysis({
+        videoData,
+        mimeType,
+        youtubeUrl: params.youtubeUrl,
+        prompt: params.videoAnalyzerPrompt || params.prompt,
+        model: params.model,
+        modelRef: params.modelRef || null,
+      });
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '视频分析失败');
+      }
+
+      const analysis = (result.data as { analysis: VideoAnalysisData }).analysis;
+      const formattedText = formatShotsMarkdown(analysis.shots || [], analysis);
+      await this.finalizeChatTask(task, {
+        title: '视频分析结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: analysis,
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeVideoAnalyzerRewriteTask(
+    task: Task,
+    options: {
+      onProgress: (progress: { progress: number; phase?: string }) => void;
+    }
+  ): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      videoAnalyzerPrompt?: string;
+      prompt?: string;
+      videoAnalyzerRecordId?: string;
+    };
+    const actualPrompt = String(params.videoAnalyzerPrompt || '').trim();
+    if (!actualPrompt) {
+      throw new Error('缺少脚本改编提示词');
+    }
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    options.onProgress({
+      progress: VIDEO_REWRITE_SIMULATED_START_PROGRESS,
+      phase: 'submitting',
+    });
+    await taskStorageWriter.updateProgress(
+      task.id,
+      VIDEO_REWRITE_SIMULATED_START_PROGRESS,
+      'submitting'
+    );
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / VIDEO_REWRITE_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        VIDEO_REWRITE_SIMULATED_START_PROGRESS +
+        (VIDEO_REWRITE_SIMULATED_END_PROGRESS -
+          VIDEO_REWRITE_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, VIDEO_REWRITE_SIMULATED_INTERVAL_MS);
+
+    try {
+      const messages: GeminiMessage[] = [
+        { role: 'user', content: [{ type: 'text', text: actualPrompt }] },
+      ];
+      const response = await sendChatWithGemini(
+        messages,
+        undefined,
+        undefined,
+        (params.modelRef as any) || params.model,
+        { taskType: 'video', taskId: task.id }
+      );
+      const text = response.choices?.[0]?.message?.content;
+      if (!text) {
+        throw new Error('AI 未返回有效响应');
+      }
+
+      const recordId = String(params.videoAnalyzerRecordId || '').trim();
+      const targetRecord = recordId
+        ? (await loadRecords()).find(record => record.id === recordId) || null
+        : null;
+
+      const updates = parseRewriteShotUpdates(text);
+      const baseShots = targetRecord?.editedShots || targetRecord?.analysis.shots || [];
+      const editedShots = applyRewriteShotUpdates(baseShots, updates);
+      const formattedText =
+        targetRecord && editedShots.length > 0
+          ? formatShotsMarkdown(
+              editedShots,
+              targetRecord.analysis,
+              targetRecord.productInfo
+            )
+          : text;
+
+      options.onProgress({ progress: 100 });
+      await this.finalizeChatTask(task, {
+        title: '脚本改编结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: {
+            editedShots,
+            rawResponse: text,
+          },
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeMusicAnalyzerAnalyzeTask(task: Task): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      mimeType?: string;
+      audioData?: string;
+      audioCacheUrl?: string;
+      musicAnalyzerPrompt?: string;
+      prompt?: string;
+    };
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    this.updateTaskProgress(task.id, 8);
+
+    let audioData = params.audioData;
+    let mimeType = params.mimeType || 'audio/mpeg';
+
+    if (!audioData && params.audioCacheUrl) {
+      const blob =
+        (await unifiedCacheService.getCachedBlob(params.audioCacheUrl)) ||
+        (await fetch(params.audioCacheUrl).then((response) =>
+          response.ok ? response.blob() : null
+        ));
+
+      if (!blob) {
+        throw new Error('无法读取已缓存的音频文件');
+      }
+      if (blob.size > MAX_AUDIO_ANALYZE_FILE_SIZE) {
+        throw new Error('音频文件过大，请控制在 20MB 内');
+      }
+
+      const file = new File([blob], 'music-analyzer-source.mp3', {
+        type: blob.type || mimeType,
+      });
+      const part = await buildInlineDataPart(file);
+      if (part.type !== 'inline_data') {
+        throw new Error('音频缓存转换失败');
+      }
+      audioData = part.data;
+      mimeType = part.mimeType || mimeType;
+    }
+
+    this.updateTaskProgress(task.id, MUSIC_ANALYZER_SIMULATED_START_PROGRESS);
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / MUSIC_ANALYZER_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        MUSIC_ANALYZER_SIMULATED_START_PROGRESS +
+        (MUSIC_ANALYZER_SIMULATED_END_PROGRESS -
+          MUSIC_ANALYZER_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, MUSIC_ANALYZER_SIMULATED_INTERVAL_MS);
+
+    try {
+      const result = await executeMusicAnalysis({
+        audioData,
+        mimeType,
+        prompt: params.musicAnalyzerPrompt || params.prompt || DEFAULT_MUSIC_ANALYSIS_PROMPT,
+        model: params.model,
+        modelRef: params.modelRef || null,
+      });
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '音频分析失败');
+      }
+
+      const analysis = (result.data as { analysis: MusicAnalysisData }).analysis;
+      const formattedText = formatMusicAnalysisMarkdown(analysis);
+      await this.finalizeChatTask(task, {
+        title: '音频分析结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: analysis,
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeMusicAnalyzerRewriteTask(
+    task: Task,
+    options: {
+      onProgress: (progress: { progress: number; phase?: string }) => void;
+    }
+  ): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      musicAnalyzerPrompt?: string;
+      prompt?: string;
+      musicAnalyzerRecordId?: string;
+    };
+    const actualPrompt = String(params.musicAnalyzerPrompt || '').trim();
+    if (!actualPrompt) {
+      throw new Error('缺少歌词改写提示词');
+    }
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    options.onProgress({
+      progress: MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      phase: 'submitting',
+    });
+    await taskStorageWriter.updateProgress(
+      task.id,
+      MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      'submitting'
+    );
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / MUSIC_REWRITE_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        MUSIC_REWRITE_SIMULATED_START_PROGRESS +
+        (MUSIC_REWRITE_SIMULATED_END_PROGRESS -
+          MUSIC_REWRITE_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, MUSIC_REWRITE_SIMULATED_INTERVAL_MS);
+
+    try {
+      const messages: GeminiMessage[] = [
+        { role: 'user', content: [{ type: 'text', text: actualPrompt }] },
+      ];
+      const response = await sendChatWithGemini(
+        messages,
+        undefined,
+        undefined,
+        (params.modelRef as any) || params.model,
+        { taskType: 'audio', taskId: task.id }
+      );
+      const text = response.choices?.[0]?.message?.content;
+      if (!text) {
+        throw new Error('AI 未返回有效响应');
+      }
+
+      const recordId = String(params.musicAnalyzerRecordId || '').trim();
+      const targetRecord = recordId
+        ? (await loadMusicRecords()).find((record) => record.id === recordId) || null
+        : null;
+      const rewriteResult = parseLyricsRewriteResult(text);
+      const formattedText =
+        targetRecord && rewriteResult.lyricsDraft
+          ? [
+              `# ${rewriteResult.title || targetRecord.title || '未命名歌曲'}`,
+              '',
+              `标签: ${
+                rewriteResult.styleTags.length > 0
+                  ? rewriteResult.styleTags.join(', ')
+                  : (targetRecord.styleTags || []).join(', ') || '-'
+              }`,
+              '',
+              rewriteResult.lyricsDraft,
+            ].join('\n')
+          : text;
+
+      options.onProgress({ progress: 100 });
+      await this.finalizeChatTask(task, {
+        title: '歌词改写结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: {
+            title: rewriteResult.title,
+            styleTags: rewriteResult.styleTags,
+            lyricsDraft: rewriteResult.lyricsDraft,
+            rawResponse: text,
+          },
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeMusicAnalyzerLyricsGenTask(
+    task: Task,
+    options: {
+      onProgress: (progress: { progress: number; phase?: string }) => void;
+    }
+  ): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      musicAnalyzerPrompt?: string;
+      musicAnalyzerRecordId?: string;
+    };
+    const actualPrompt = String(params.musicAnalyzerPrompt || '').trim();
+    if (!actualPrompt) {
+      throw new Error('缺少歌词生成提示词');
+    }
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    options.onProgress({
+      progress: MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      phase: 'submitting',
+    });
+    await taskStorageWriter.updateProgress(
+      task.id,
+      MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      'submitting'
+    );
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / MUSIC_REWRITE_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        MUSIC_REWRITE_SIMULATED_START_PROGRESS +
+        (MUSIC_REWRITE_SIMULATED_END_PROGRESS -
+          MUSIC_REWRITE_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, MUSIC_REWRITE_SIMULATED_INTERVAL_MS);
+
+    try {
+      const messages: GeminiMessage[] = [
+        { role: 'user', content: [{ type: 'text', text: actualPrompt }] },
+      ];
+      const response = await sendChatWithGemini(
+        messages,
+        undefined,
+        undefined,
+        (params.modelRef as any) || params.model,
+        { taskType: 'audio', taskId: task.id }
+      );
+      const text = response.choices?.[0]?.message?.content;
+      if (!text) {
+        throw new Error('AI 未返回有效响应');
+      }
+
+      const recordId = String(params.musicAnalyzerRecordId || '').trim();
+      const targetRecord = recordId
+        ? (await loadMusicRecords()).find((record) => record.id === recordId) || null
+        : null;
+      const lyricsResult = parseLyricsRewriteResult(text);
+      const formattedText =
+        targetRecord && lyricsResult.lyricsDraft
+          ? [
+              `# ${lyricsResult.title || targetRecord.title || '未命名歌曲'}`,
+              '',
+              `标签: ${
+                lyricsResult.styleTags.length > 0
+                  ? lyricsResult.styleTags.join(', ')
+                  : (targetRecord.styleTags || []).join(', ') || '-'
+              }`,
+              '',
+              lyricsResult.lyricsDraft,
+            ].join('\n')
+          : text;
+
+      options.onProgress({ progress: 100 });
+      await this.finalizeChatTask(task, {
+        title: '歌词草稿结果',
+        chatResponse: formattedText,
+        format: 'md',
+        resultExtras: {
+          analysisData: {
+            title: lyricsResult.title,
+            styleTags: lyricsResult.styleTags,
+            lyricsDraft: lyricsResult.lyricsDraft,
+            rawResponse: text,
+          },
+        },
+      });
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }
+
+  private async executeMVStoryboardTask(
+    task: Task,
+    options: {
+      onProgress: (progress: { progress: number; phase?: string }) => void;
+    }
+  ): Promise<void> {
+    const params = task.params as {
+      model?: string;
+      modelRef?: Task['params']['modelRef'];
+      prompt?: string;
+      audioCacheUrl?: string;
+    };
+    const actualPrompt = String(params.prompt || '').trim();
+    if (!actualPrompt) {
+      throw new Error('缺少分镜规划提示词');
+    }
+
+    await taskStorageWriter.updateStatus(task.id, 'processing');
+    options.onProgress({
+      progress: MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      phase: 'submitting',
+    });
+    await taskStorageWriter.updateProgress(
+      task.id,
+      MUSIC_REWRITE_SIMULATED_START_PROGRESS,
+      'submitting'
+    );
+
+    // 读取音频 base64
+    let audioData: string | undefined;
+    let audioMimeType = 'audio/mpeg';
+    if (params.audioCacheUrl) {
+      const blob =
+        (await unifiedCacheService.getCachedBlob(params.audioCacheUrl)) ||
+        (await fetch(params.audioCacheUrl).then(r => r.ok ? r.blob() : null));
+      if (blob) {
+        const file = new File([blob], 'mv-audio.mp3', {
+          type: blob.type || audioMimeType,
+        });
+        const part = await buildInlineDataPart(file);
+        if (part.type === 'inline_data') {
+          audioData = part.data;
+          audioMimeType = part.mimeType || audioMimeType;
+        }
+      }
+    }
+
+    const startedAt = Date.now();
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const ratio = Math.min(elapsed / MUSIC_REWRITE_SIMULATED_DURATION_MS, 1);
+      const nextProgress =
+        MUSIC_REWRITE_SIMULATED_START_PROGRESS +
+        (MUSIC_REWRITE_SIMULATED_END_PROGRESS -
+          MUSIC_REWRITE_SIMULATED_START_PROGRESS) *
+          ratio;
+      this.updateTaskProgress(task.id, Math.floor(nextProgress));
+    }, MUSIC_REWRITE_SIMULATED_INTERVAL_MS);
+
+    try {
+      const contentParts: GeminiMessage['content'] = [
+        { type: 'text', text: actualPrompt },
+      ];
+      if (audioData) {
+        (contentParts as any[]).push({
+          type: 'inline_data',
+          mimeType: audioMimeType,
+          data: audioData,
+        });
+      }
+
+      const messages: GeminiMessage[] = [
+        { role: 'user', content: contentParts },
+      ];
+
+      const config = await buildGenerateContentConfig(
+        params.model,
+        (params.modelRef as any) || null
+      );
+      const response = await callGoogleGenerateContentWithLog(
+        config,
+        messages,
+        { stream: false },
+        { taskType: 'video', prompt: actualPrompt, taskId: task.id }
+      );
+
+      const text = response.choices?.[0]?.message?.content;
+      if (!text) {
+        throw new Error('AI 未返回有效响应');
+      }
+
+      options.onProgress({ progress: 100 });
+      await this.finalizeChatTask(task, {
+        title: 'MV 分镜脚本',
+        chatResponse: text,
+        format: 'md',
+      });
+    } finally {
+      window.clearInterval(progressTimer);
     }
   }
 
@@ -503,10 +1224,16 @@ class TaskQueueService {
       startedAt: now,
       executionPhase: TaskExecutionPhase.SUBMITTING,
       // Initialize progress for video tasks
-      ...((type === TaskType.VIDEO || type === TaskType.AUDIO) && {
+      ...((type === TaskType.VIDEO ||
+        type === TaskType.AUDIO ||
+        (type === TaskType.CHAT &&
+          (typeof sanitizedParams.videoAnalyzerAction === 'string' ||
+            typeof sanitizedParams.musicAnalyzerAction === 'string'))) && {
         progress: 0,
       }),
     };
+
+    this.blockedTaskIds.delete(task.id);
 
     // Add to queue
     this.tasks.set(task.id, task);
@@ -544,6 +1271,13 @@ class TaskQueueService {
     status: TaskStatus,
     updates?: Partial<Task>
   ): void {
+    if (this.blockedTaskIds.has(taskId) && status !== TaskStatus.CANCELLED) {
+      console.debug(
+        `[TaskQueueService] Ignoring blocked task update: ${taskId} → ${status}`
+      );
+      return;
+    }
+
     let task = this.tasks.get(taskId);
     if (!task) {
       // Task not in memory — create a minimal entry so the event is still emitted.
@@ -605,6 +1339,13 @@ class TaskQueueService {
    * @param progress - Progress percentage (0-100)
    */
   updateTaskProgress(taskId: string, progress: number): void {
+    if (this.blockedTaskIds.has(taskId)) {
+      console.debug(
+        `[TaskQueueService] Ignoring blocked task progress update: ${taskId}`
+      );
+      return;
+    }
+
     const task = this.tasks.get(taskId);
     if (!task) {
       console.warn(`[TaskQueueService] Task ${taskId} not found`);
@@ -682,6 +1423,7 @@ class TaskQueueService {
       return;
     }
 
+    this.blockedTaskIds.add(taskId);
     this.updateTaskStatus(taskId, TaskStatus.CANCELLED);
     // console.log(`[TaskQueueService] Cancelled task ${taskId}`);
   }
@@ -710,6 +1452,7 @@ class TaskQueueService {
 
     // Reset task for retry - set to PROCESSING for immediate execution
     const now = Date.now();
+    this.blockedTaskIds.delete(taskId);
     this.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
       error: undefined,
       startedAt: now, // Set new start time
@@ -717,7 +1460,11 @@ class TaskQueueService {
       remoteId: undefined, // Clear remote ID for fresh submission
       executionPhase: TaskExecutionPhase.SUBMITTING,
       progress:
-        task.type === TaskType.VIDEO || task.type === TaskType.AUDIO
+        task.type === TaskType.VIDEO ||
+        task.type === TaskType.AUDIO ||
+        (task.type === TaskType.CHAT &&
+          (typeof task.params.videoAnalyzerAction === 'string' ||
+            typeof task.params.musicAnalyzerAction === 'string'))
           ? 0
           : undefined, // Reset progress for async media
     });
@@ -745,6 +1492,7 @@ class TaskQueueService {
       return;
     }
 
+    this.blockedTaskIds.add(taskId);
     this.tasks.delete(taskId);
 
     // Delete from IndexedDB
@@ -780,6 +1528,7 @@ class TaskQueueService {
    * Idempotent: skips if task already exists in memory.
    */
   trackExternalTask(task: Task): void {
+    this.blockedTaskIds.delete(task.id);
     if (this.tasks.has(task.id)) return;
     this.tasks.set(task.id, task);
     this.persistTask(task);
@@ -792,6 +1541,13 @@ class TaskQueueService {
    * when the executor updates IndexedDB directly.
    */
   syncTaskFromStorage(taskId: string, storageTask: Partial<Task>): void {
+    if (this.blockedTaskIds.has(taskId)) {
+      console.debug(
+        `[TaskQueueService] Ignoring blocked storage sync for task ${taskId}`
+      );
+      return;
+    }
+
     const task = this.tasks.get(taskId);
     if (!task) return;
     if (
@@ -853,6 +1609,7 @@ class TaskQueueService {
         };
       }
 
+      this.blockedTaskIds.delete(restoredTask.id);
       this.tasks.set(restoredTask.id, restoredTask);
       restoredCount++;
     });
@@ -970,13 +1727,15 @@ class TaskQueueService {
     const task = this.tasks.get(taskId);
     if (!task?.params) return;
     const params = task.params as Record<string, unknown>;
-    if (params.referenceImages || params.uploadedImages) {
+    if (params.referenceImages || params.uploadedImages || params.videoData || params.audioData) {
       this.tasks.set(taskId, {
         ...task,
         params: {
           ...task.params,
           referenceImages: undefined,
           uploadedImages: undefined,
+          videoData: undefined,
+          audioData: undefined,
         },
       });
     }

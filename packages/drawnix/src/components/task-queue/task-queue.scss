@@ -467,6 +467,18 @@
     word-break: break-word;
   }
 
+  &__subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--td-text-color-placeholder, #999);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
   &__info-area {
     display: flex;
     flex-direction: column;

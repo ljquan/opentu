@@ -36,6 +36,7 @@ import {
   type ProviderProfile,
 } from '../../utils/settings-manager';
 import type { ModelConfig } from '../../constants/model-config';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import './model-benchmark-workbench.scss';
 
 interface ModelBenchmarkWorkbenchProps {
@@ -328,6 +329,7 @@ function buildCustomSelectionKey(profileId: string, modelId: string): string {
 }
 
 function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
+  const { confirm, confirmDialog } = useConfirmDialog();
   const initialRequest = useAtomValue(benchmarkLaunchAtom);
   const profiles = useProviderProfilesState();
   const discoveryVersion = useDiscoveryVersion();
@@ -382,6 +384,25 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
   const activeProfile = selectedProfileId
     ? profileMap.get(selectedProfileId) || null
     : null;
+
+  const handleDeleteSession = React.useCallback(
+    async (session: ModelBenchmarkSession) => {
+      const confirmed = await confirm({
+        title: '确认删除会话',
+        description: `确定要删除会话「${session.title || '未命名会话'}」吗？此操作不可撤销。`,
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true,
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      modelBenchmarkService.removeSession(session.id);
+    },
+    [confirm]
+  );
 
   const activeProfileModels = useMemo(() => {
     void discoveryVersion;
@@ -1550,7 +1571,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
                   <button
                     type="button"
                     className="model-benchmark__session-delete"
-                    onClick={() => modelBenchmarkService.removeSession(session.id)}
+                    onClick={() => void handleDeleteSession(session)}
                     aria-label={`删除会话 ${session.title}`}
                     title="删除会话"
                   >
@@ -1950,6 +1971,7 @@ function ModelBenchmarkWorkbench({}: ModelBenchmarkWorkbenchProps) {
           )}
         </div>
       </main>
+      {confirmDialog}
     </div>
   );
 }

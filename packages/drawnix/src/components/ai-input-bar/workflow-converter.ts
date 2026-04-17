@@ -37,6 +37,51 @@ import type { SkillDSLVariables } from './skill-dsl.types';
 import { preprocessExternalSkillContent } from '../../services/external-skill-parser';
 
 /**
+ * 从 Markdown 卡片内容中解析 Suno 音乐生成字段。
+ * 识别 `# 标题`、`标签: xxx` 行，剩余部分作为歌词/prompt。
+ * 仅当 prompt 看起来像歌词格式（含 Suno 结构标签如 [Verse]）时才拆分。
+ */
+function parseSunoFieldsFromMarkdown(prompt: string): {
+  title?: string;
+  tags?: string;
+  lyrics: string;
+} {
+  // 快速判断：没有 Suno 结构标签则不拆分
+  if (!/\[(?:Intro|Verse|Chorus|Pre-Chorus|Bridge|Outro|Hook|Fade|Instrumental|Interlude)/i.test(prompt)) {
+    return { lyrics: prompt };
+  }
+
+  const lines = prompt.split('\n');
+  let title: string | undefined;
+  let tags: string | undefined;
+  const lyricsLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // # 标题（仅取第一个）
+    if (!title && /^#\s+(.+)/.test(trimmed)) {
+      title = trimmed.replace(/^#\s+/, '').trim();
+      continue;
+    }
+
+    // 标签: xxx 或 Tags: xxx
+    if (!tags && /^(?:标签|tags)\s*[:：]\s*(.+)/i.test(trimmed)) {
+      tags = trimmed.replace(/^(?:标签|tags)\s*[:：]\s*/i, '').trim();
+      continue;
+    }
+
+    lyricsLines.push(line);
+  }
+
+  // 去掉首尾空行
+  while (lyricsLines.length > 0 && lyricsLines[0].trim() === '') lyricsLines.shift();
+  while (lyricsLines.length > 0 && lyricsLines[lyricsLines.length - 1].trim() === '') lyricsLines.pop();
+
+  return { title, tags, lyrics: lyricsLines.join('\n') };
+}
+
+/**
  * 工作流步骤执行选项（批量参数等）
  */
 export interface WorkflowStepOptions {
@@ -281,6 +326,20 @@ export function convertDirectGenerationToWorkflow(
         batchTotal: count,
         globalIndex: i + 1,
       };
+
+      // 从 Markdown 卡片内容解析 title/tags/lyrics（仅 music 动作且用户未手动设置时）
+      if (!isLyricsAction && prompt) {
+        const parsed = parseSunoFieldsFromMarkdown(prompt);
+        if (parsed.title || parsed.tags) {
+          audioArgs.prompt = parsed.lyrics;
+          if (parsed.title && !extraParams?.title) {
+            audioArgs.title = parsed.title;
+          }
+          if (parsed.tags && !extraParams?.tags) {
+            audioArgs.tags = parsed.tags;
+          }
+        }
+      }
 
       if (extraParams) {
         audioArgs.params = extraParams;

@@ -8,6 +8,21 @@ import { downloadJson } from './utils.js';
 import { loadLLMApiLogs } from './llmapi-logs.js';
 import { loadCrashLogs } from './memory-logs.js';
 
+function isLyricsLLMLog(log) {
+  if (!log || typeof log !== 'object') return false;
+  if (log.taskType !== 'audio') return false;
+
+  return log.resultType === 'lyrics' ||
+    (typeof log.endpoint === 'string' && /\/lyrics(?:\/|$)/i.test(log.endpoint));
+}
+
+function getLLMApiCategory(log) {
+  if (isLyricsLLMLog(log)) {
+    return 'lyrics';
+  }
+  return log?.taskType || 'other';
+}
+
 /**
  * Open export modal
  * Ensures all log data is loaded before export
@@ -204,7 +219,7 @@ export function exportLogs() {
   let filteredLLMApiLogs = [];
   if (options.llmapiTypes.length > 0) {
     filteredLLMApiLogs = state.llmapiLogs.filter(l =>
-      options.llmapiTypes.includes(l.taskType)
+      options.llmapiTypes.includes(getLLMApiCategory(l))
     );
   }
   

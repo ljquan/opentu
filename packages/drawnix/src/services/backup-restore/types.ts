@@ -9,6 +9,7 @@ import type {
 } from '../prompt-storage-service';
 import type { PlaitTheme, PlaitElement as CorePlaitElement } from '@plait/core';
 import type { EmbeddedMediaItem } from '../../data/types';
+import type { Folder } from '../../types/workspace.types';
 
 // 备份文件版本（v3 支持分片）
 export const BACKUP_VERSION = 3;
@@ -55,6 +56,7 @@ export interface BackupManifest {
     prompts: boolean;
     projects: boolean;
     assets: boolean;
+    tasks: boolean;
     knowledgeBase: boolean;
   };
   stats: {
@@ -98,6 +100,10 @@ export interface DrawnixFileData {
     createdAt: number;
     updatedAt: number;
   };
+}
+
+export interface BackupProjectFoldersData {
+  folders: Folder[];
 }
 
 export interface Viewport {

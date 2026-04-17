@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Input, Dropdown, MessagePlugin, DialogPlugin } from 'tdesign-react';
+import { Input, Dropdown, MessagePlugin } from 'tdesign-react';
 import {
   Search,
   Upload,
@@ -29,6 +29,7 @@ import { KBTagManagementDialog } from './KBTagManagementDialog';
 import { KBRelatedNotes } from './KBRelatedNotes';
 import { KBKnowledgeExtraction } from './KBKnowledgeExtraction';
 import { KBSortDropdown } from './KBSortDropdown';
+import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { knowledgeBaseService } from '../../services/knowledge-base-service';
 import { getKBSearchEngine, type KBSearchResult } from '../../services/kb-search-engine';
 import type {
@@ -74,6 +75,7 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
   const [semanticResults, setSemanticResults] = useState<KBSearchResult[] | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // Right sidebar state
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
@@ -387,28 +389,30 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
     const dir = directories.find((d) => d.id === id);
     if (!dir) return;
 
-    const confirmDialog = DialogPlugin.confirm({
-      header: '确认删除目录',
-      body: `确定要删除目录 "${dir.name}" 及其下的所有笔记吗？此操作不可撤销。`,
-      onConfirm: async () => {
-        try {
-          await knowledgeBaseService.deleteDirectory(id);
-          if (selectedDirId === id) {
-            setSelectedDirId(directories[0]?.id || null);
-            setSelectedNoteId(null);
-            setCurrentNote(null);
-          }
-          await refreshData();
-          MessagePlugin.success('目录已删除');
-        } catch (err: any) {
-          MessagePlugin.error(`删除失败: ${err.message}`);
-        }
-        confirmDialog.destroy();
-      },
-      onClose: () => {
-        confirmDialog.destroy();
-      },
+    const confirmed = await confirm({
+      title: '确认删除目录',
+      description: `确定要删除目录 "${dir.name}" 及其下的所有笔记吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
     });
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await knowledgeBaseService.deleteDirectory(id);
+      if (selectedDirId === id) {
+        setSelectedDirId(directories[0]?.id || null);
+        setSelectedNoteId(null);
+        setCurrentNote(null);
+      }
+      await refreshData();
+      MessagePlugin.success('目录已删除');
+    } catch (err: any) {
+      MessagePlugin.error(`删除失败: ${err.message}`);
+    }
   }, [refreshData, selectedDirId, directories]);
 
   const handleDuplicateDir = useCallback(async (id: string) => {
@@ -596,7 +600,12 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
       // 检查画布中是否已存在关联该笔记的 Card
       const existingCard = board.children.find((child: any) => child.noteId === noteMeta.id);
       if (existingCard) {
-        const confirmed = window.confirm(`画布中已存在关联该笔记的卡片，是否再次插入？`);
+        const confirmed = await confirm({
+          title: '重复插入提醒',
+          description: '画布中已存在关联该笔记的卡片，是否再次插入？',
+          confirmText: '继续插入',
+          cancelText: '取消',
+        });
         if (!confirmed) return;
       }
 
@@ -664,28 +673,30 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
     const note = allNotes.find((n) => n.id === id);
     if (!note) return;
 
-    const confirmDialog = DialogPlugin.confirm({
-      header: '确认删除笔记',
-      body: `确定要删除笔记 "${note.title || '无标题'}" 吗？此操作不可撤销。`,
-      onConfirm: async () => {
-        try {
-          await knowledgeBaseService.deleteNote(id);
-          if (selectedNoteId === id) {
-            setSelectedNoteId(null);
-            setCurrentNote(null);
-            setNoteTags([]);
-          }
-          await refreshData();
-          MessagePlugin.success('笔记已删除');
-        } catch (err: any) {
-          MessagePlugin.error(`删除失败: ${err.message}`);
-        }
-        confirmDialog.destroy();
-      },
-      onClose: () => {
-        confirmDialog.destroy();
-      },
+    const confirmed = await confirm({
+      title: '确认删除笔记',
+      description: `确定要删除笔记 "${note.title || '无标题'}" 吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      danger: true,
     });
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await knowledgeBaseService.deleteNote(id);
+      if (selectedNoteId === id) {
+        setSelectedNoteId(null);
+        setCurrentNote(null);
+        setNoteTags([]);
+      }
+      await refreshData();
+      MessagePlugin.success('笔记已删除');
+    } catch (err: any) {
+      MessagePlugin.error(`删除失败: ${err.message}`);
+    }
   }, [selectedNoteId, refreshData, allNotes]);
 
   // Auto-select first note on load
@@ -1128,6 +1139,7 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
         onUpdateTag={handleUpdateTag}
         onDeleteTag={handleDeleteTag}
       />
+      {confirmDialog}
     </div>
   );
 };

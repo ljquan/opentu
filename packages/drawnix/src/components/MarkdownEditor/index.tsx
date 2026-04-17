@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback, memo, useState, useContext } from 'react';
 import { editorViewCtx } from '@milkdown/kit/core';
-import { replaceAll } from '@milkdown/kit/utils';
+import { insert, replaceAll } from '@milkdown/kit/utils';
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import '@milkdown/crepe/theme/common/style.css';
@@ -11,6 +11,7 @@ import { AssetContext } from '../../contexts/asset-context-instance';
 import { AssetType, SelectionMode } from '../../types/asset.types';
 import { MediaLibraryModal } from '../media-library';
 import { assetEmbedPlugins } from './asset-embed-plugin';
+import { markdownImageBlockPlugins } from './image-block-plugin';
 import './MarkdownEditor.css';
 
 /** 编辑器模式 */
@@ -62,6 +63,7 @@ function handleImageUpload(file: File): Promise<string> {
 interface InternalEditorRef {
   getMarkdown: () => string;
   setMarkdown: (markdown: string) => void;
+  insertMarkdown: (markdown: string) => void;
   focus: () => void;
 }
 
@@ -113,21 +115,25 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
       },
     });
 
+    crepe.editor.use(markdownImageBlockPlugins);
+
     // 注册 asset-embed 插件（remark + schema + view）
     if (enableAssetEmbeds) {
       crepe.editor.use(assetEmbedPlugins);
     }
 
-    // 监听 markdown 变化
-    crepe.on((listener) => {
-      listener.markdownUpdated((_: unknown, md: string) => {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        if (md !== lastMarkdownRef.current) {
-          lastMarkdownRef.current = md;
-          debounceRef.current = setTimeout(() => onChangeRef.current?.(md), 50);
-        }
+    // 仅在外部需要回传内容时注册监听，避免只读视图走额外序列化链路。
+    if (onChangeRef.current) {
+      crepe.on((listener) => {
+        listener.markdownUpdated((_: unknown, md: string) => {
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          if (md !== lastMarkdownRef.current) {
+            lastMarkdownRef.current = md;
+            debounceRef.current = setTimeout(() => onChangeRef.current?.(md), 50);
+          }
+        });
       });
-    });
+    }
 
     crepeRef.current = crepe;
     return crepe;
@@ -147,6 +153,9 @@ function CrepeEditorCore({ markdown, onChange, placeholder, readOnly, editorRef,
       getMarkdown: () => lastMarkdownRef.current,
       setMarkdown: (md: string) => {
         try { lastMarkdownRef.current = md; crepe.editor?.action(replaceAll(md)); } catch { /* 忽略 */ }
+      },
+      insertMarkdown: (md: string) => {
+        try { crepe.editor?.action(insert(md)); } catch { /* 忽略 */ }
       },
       focus: () => {
         try { crepe.editor?.ctx.get(editorViewCtx)?.focus(); } catch { /* 忽略 */ }
@@ -211,6 +220,7 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
     const [sourceContent, setSourceContent] = useState(sourceMarkdown || markdown);
     const [isImageAssetLibraryOpen, setIsImageAssetLibraryOpen] = useState(false);
     const [showImageAssetLibraryOverlay, setShowImageAssetLibraryOverlay] = useState(false);
+    const [canMountWysiwyg, setCanMountWysiwyg] = useState(initialMode !== 'wysiwyg');
     const sourceContentRef = useRef(sourceMarkdown || markdown);
 
     const canUseAssetLibraryImagePicker = enableAssetLibraryImagePicker && Boolean(assetContext);
@@ -225,6 +235,35 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
     useEffect(() => {
       sourceContentRef.current = sourceContent;
     }, [sourceContent]);
+
+    useEffect(() => {
+      if (mode !== 'wysiwyg') {
+        setCanMountWysiwyg(false);
+        return;
+      }
+
+      let rafId = 0;
+      let cancelled = false;
+
+      const waitForHost = () => {
+        const host = previewHostRef.current;
+        if (cancelled) return;
+
+        if (host?.isConnected) {
+          setCanMountWysiwyg(true);
+          return;
+        }
+
+        rafId = requestAnimationFrame(waitForHost);
+      };
+
+      waitForHost();
+
+      return () => {
+        cancelled = true;
+        if (rafId) cancelAnimationFrame(rafId);
+      };
+    }, [mode]);
 
     const handleModeChange = useCallback((newMode: EditorMode) => {
       if (newMode === mode) return;
@@ -265,11 +304,13 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
         return;
       }
 
-      const prefix = current && !current.endsWith('\n') ? '\n\n' : current ? '\n' : '';
-      const next = `${current}${prefix}${snippet}\n`;
-      setSourceContent(next);
-      editorRef.current?.setMarkdown(next);
-      onChange?.(next);
+      editorRef.current?.insertMarkdown(snippet);
+      requestAnimationFrame(() => {
+        const next = editorRef.current?.getMarkdown();
+        if (typeof next === 'string') {
+          setSourceContent(next);
+        }
+      });
     }, [markdown, mode, onChange, sourceMarkdown]);
 
     useImperativeHandle(ref, () => ({
@@ -288,7 +329,7 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
     useEffect(() => {
       const src = sourceMarkdown || markdown;
       if (src !== sourceContent) setSourceContent(src);
-    }, [markdown, sourceMarkdown]);
+    }, [markdown, sourceContent, sourceMarkdown]);
 
     const syncActiveImageHost = useCallback(() => {
       const root = previewHostRef.current;
@@ -440,16 +481,18 @@ export const MarkdownEditor = memo(forwardRef<MarkdownEditorRef, MarkdownEditorP
           ref={previewHostRef}
           style={{ display: mode === 'wysiwyg' ? 'contents' : 'none' }}
         >
-          <MilkdownProvider>
-            <CrepeEditorCore
-              markdown={markdown}
-              onChange={onChange}
-              placeholder={placeholder}
-              readOnly={readOnly}
-              editorRef={editorRef}
-              enableAssetEmbeds={enableAssetEmbeds}
-            />
-          </MilkdownProvider>
+          {canMountWysiwyg && (
+            <MilkdownProvider>
+              <CrepeEditorCore
+                markdown={markdown}
+                onChange={onChange}
+                placeholder={placeholder}
+                readOnly={readOnly}
+                editorRef={editorRef}
+                enableAssetEmbeds={enableAssetEmbeds}
+              />
+            </MilkdownProvider>
+          )}
         </div>
 
         {/* 源码编辑器 */}

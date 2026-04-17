@@ -88,6 +88,23 @@ export function validateGenerationParams(
         errors.push('continueAt must be a non-negative number');
       }
     }
+    if (params.infillStartS !== undefined) {
+      if (typeof params.infillStartS !== 'number' || params.infillStartS < 0) {
+        errors.push('infillStartS must be a non-negative number');
+      }
+    }
+    if (params.infillEndS !== undefined) {
+      if (typeof params.infillEndS !== 'number' || params.infillEndS < 0) {
+        errors.push('infillEndS must be a non-negative number');
+      }
+    }
+    if (
+      typeof params.infillStartS === 'number' &&
+      typeof params.infillEndS === 'number' &&
+      params.infillStartS >= params.infillEndS
+    ) {
+      errors.push('infillStartS must be smaller than infillEndS');
+    }
     if (
       params.continueClipId !== undefined &&
       typeof params.continueClipId !== 'string'

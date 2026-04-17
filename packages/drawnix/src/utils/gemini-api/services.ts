@@ -37,8 +37,9 @@ import {
   startLLMApiLog,
   completeLLMApiLog,
   failLLMApiLog,
+  type LLMApiLog,
 } from '../../services/media-executor/llm-api-logger';
-import { normalizeImageDataUrl } from '@aitu/utils';
+import { normalizeImageDataUrl, truncate } from '@aitu/utils';
 
 function inferAuthTypeFromRoute(
   route: ReturnType<typeof resolveInvocationRoute>
@@ -561,17 +562,28 @@ export async function chatWithGemini(
 }
 
 /**
+ * sendChatWithGemini 的日志元数据
+ */
+export interface SendChatLogMeta {
+  taskType?: LLMApiLog['taskType'];
+  taskId?: string;
+  prompt?: string;
+}
+
+/**
  * 发送多轮对话消息
  * @param messages 消息列表
  * @param onChunk 流式回调
  * @param signal 取消信号
  * @param temporaryModel 临时模型引用（仅在当前会话中使用，不影响全局设置）
+ * @param logMeta 日志元数据，不传则默认 taskType='chat'
  */
 export async function sendChatWithGemini(
   messages: GeminiMessage[],
   onChunk?: (content: string) => void,
   signal?: AbortSignal,
-  temporaryModel?: string | ModelRef | null
+  temporaryModel?: string | ModelRef | null,
+  logMeta?: SendChatLogMeta
 ): Promise<GeminiResponse> {
   console.log('[sendChatWithGemini] 开始, temporaryModel:', temporaryModel);
 
@@ -603,14 +615,59 @@ export async function sendChatWithGemini(
     'ms'
   );
 
-  // 只有显式需要流式回调的聊天链路才走流式；
-  // 结构化 JSON / 分析类场景应保持非流式以获得完整响应。
-  if (onChunk) {
-    console.log('[sendChatWithGemini] 使用流式调用 callApiStreamRaw');
-    return await callApiStreamRaw(validatedConfig, messages, onChunk, signal);
-  } else {
-    console.log('[sendChatWithGemini] 使用非流式调用 callApiWithRetry');
-    // Note: callApiWithRetry doesn't support signal yet, but for now ChatService uses onChunk
-    return await callApiWithRetry(validatedConfig, messages);
+  // --- LLM API 日志 ---
+  const firstTextContent = messages[0]?.content;
+  const firstTextPart = Array.isArray(firstTextContent)
+    ? firstTextContent.find((p) => p.type === 'text')
+    : undefined;
+  const autoPrompt =
+    logMeta?.prompt ||
+    (firstTextPart && 'text' in firstTextPart ? firstTextPart.text : undefined);
+  const logId = startLLMApiLog({
+    endpoint: config.baseUrl || '/chat/completions',
+    model: config.modelName || 'unknown',
+    taskType: logMeta?.taskType || 'chat',
+    prompt: autoPrompt,
+    taskId: logMeta?.taskId,
+  });
+  const startTime = Date.now();
+
+  try {
+    let resultText = '';
+
+    // 只有显式需要流式回调的聊天链路才走流式；
+    // 结构化 JSON / 分析类场景应保持非流式以获得完整响应。
+    let response: GeminiResponse;
+    if (onChunk) {
+      console.log('[sendChatWithGemini] 使用流式调用 callApiStreamRaw');
+      response = await callApiStreamRaw(
+        validatedConfig,
+        messages,
+        (chunk) => {
+          resultText += chunk;
+          onChunk(chunk);
+        },
+        signal
+      );
+    } else {
+      console.log('[sendChatWithGemini] 使用非流式调用 callApiWithRetry');
+      response = await callApiWithRetry(validatedConfig, messages);
+      resultText = response.choices?.[0]?.message?.content || '';
+    }
+
+    completeLLMApiLog(logId, {
+      httpStatus: 200,
+      duration: Date.now() - startTime,
+      resultType: 'text',
+      resultText: resultText ? truncate(resultText, 1000) : undefined,
+    });
+
+    return response;
+  } catch (error: any) {
+    failLLMApiLog(logId, {
+      duration: Date.now() - startTime,
+      errorMessage: error.message || String(error),
+    });
+    throw error;
   }
 }

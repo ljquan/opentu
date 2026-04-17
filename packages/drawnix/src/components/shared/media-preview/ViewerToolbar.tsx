@@ -16,12 +16,9 @@ import {
   Pencil,
   Check,
 } from 'lucide-react';
-import { Tooltip } from 'tdesign-react';
 import type { ViewerToolbarProps, ViewerMode, CompareLayout } from './types';
+import { HoverPopover } from './HoverPopover';
 import './ViewerToolbar.scss';
-
-// Tooltip z-index 需要高于 unified-viewer 的 10000
-const TOOLTIP_Z_INDEX = 10010;
 
 export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
   mode,
@@ -67,40 +64,30 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
 
       {/* 切换到对比模式 */}
       {totalCount > 1 && (
-        <Tooltip
-          content="对比模式"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="对比模式" placement="bottom" contentClassName="viewer-popover">
           <button
             className="viewer-toolbar__btn"
             onClick={() => onModeChange('compare')}
+            aria-label="对比模式"
           >
             <Columns size={18} />
           </button>
-        </Tooltip>
+        </HoverPopover>
       )}
 
       {/* 编辑按钮（仅图片可编辑） */}
       {showEditButton && isImage && (
         <>
           <div className="viewer-toolbar__divider" />
-          <Tooltip
-            content="编辑图片"
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
+          <HoverPopover content="编辑图片" placement="bottom" contentClassName="viewer-popover">
             <button
               className="viewer-toolbar__btn"
               onClick={() => onModeChange('edit')}
+              aria-label="编辑图片"
             >
               <Pencil size={18} />
             </button>
-          </Tooltip>
+          </HoverPopover>
         </>
       )}
     </>
@@ -110,21 +97,16 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
   const renderEditModeTools = () => (
     <>
       {/* 返回预览 */}
-      <Tooltip
-        content="返回预览"
-        theme="light"
-        placement="bottom"
-        zIndex={TOOLTIP_Z_INDEX}
-        showArrow={false}
-      >
+      <HoverPopover content="返回预览" placement="bottom" contentClassName="viewer-popover">
         <button
           className="viewer-toolbar__btn"
           onClick={onBackToPreview}
+          aria-label="返回预览"
         >
           <ChevronLeft size={18} />
           <span className="viewer-toolbar__btn-text">返回</span>
         </button>
-      </Tooltip>
+      </HoverPopover>
 
       <div className="viewer-toolbar__divider" />
 
@@ -137,21 +119,16 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
   const renderCompareModeTools = () => (
     <>
       {/* 切换到单图模式 */}
-      <Tooltip
-        content="单图模式"
-        theme="light"
-        placement="bottom"
-        zIndex={TOOLTIP_Z_INDEX}
-        showArrow={false}
-      >
+      <HoverPopover content="单图模式" placement="bottom" contentClassName="viewer-popover">
         <button
           className="viewer-toolbar__btn"
           onClick={() => onModeChange('single')}
+          aria-label="单图模式"
         >
           <ChevronLeft size={18} />
           <span className="viewer-toolbar__btn-text">单图</span>
         </button>
-      </Tooltip>
+      </HoverPopover>
 
       <div className="viewer-toolbar__divider" />
 
@@ -159,23 +136,19 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
       <div className="viewer-toolbar__group">
         <span className="viewer-toolbar__label">分屏</span>
         {[2, 3, 4].map((count) => (
-          <Tooltip
-            key={count}
-            content={`${count}分屏`}
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
-            <button
-              className={`viewer-toolbar__btn viewer-toolbar__btn--small ${
-                slotCount === count ? 'viewer-toolbar__btn--active' : ''
-              }`}
-              onClick={() => onSlotCountChange(count as 2 | 3 | 4)}
-            >
-              {count}
-            </button>
-          </Tooltip>
+          <React.Fragment key={count}>
+            <HoverPopover content={`${count}分屏`} placement="bottom" contentClassName="viewer-popover">
+              <button
+                className={`viewer-toolbar__btn viewer-toolbar__btn--small ${
+                  slotCount === count ? 'viewer-toolbar__btn--active' : ''
+                }`}
+                onClick={() => onSlotCountChange(count as 2 | 3 | 4)}
+                aria-label={`${count}分屏`}
+              >
+                {count}
+              </button>
+            </HoverPopover>
+          </React.Fragment>
         ))}
       </div>
 
@@ -183,89 +156,67 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
 
       {/* 布局切换 */}
       <div className="viewer-toolbar__group">
-        <Tooltip
-          content="水平布局"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="水平布局" placement="bottom" contentClassName="viewer-popover">
           <button
             className={`viewer-toolbar__btn ${
               compareLayout === 'horizontal' ? 'viewer-toolbar__btn--active' : ''
             }`}
             onClick={() => handleLayoutChange('horizontal')}
+            aria-label="水平布局"
           >
             <Columns size={18} />
           </button>
-        </Tooltip>
-        <Tooltip
-          content="垂直布局"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        </HoverPopover>
+        <HoverPopover content="垂直布局" placement="bottom" contentClassName="viewer-popover">
           <button
             className={`viewer-toolbar__btn ${
               compareLayout === 'vertical' ? 'viewer-toolbar__btn--active' : ''
             }`}
             onClick={() => handleLayoutChange('vertical')}
+            aria-label="垂直布局"
           >
             <Rows size={18} />
           </button>
-        </Tooltip>
-        <Tooltip
-          content="网格布局"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        </HoverPopover>
+        <HoverPopover content="网格布局" placement="bottom" contentClassName="viewer-popover">
           <button
             className={`viewer-toolbar__btn ${
               compareLayout === 'grid' ? 'viewer-toolbar__btn--active' : ''
             }`}
             onClick={() => handleLayoutChange('grid')}
+            aria-label="网格布局"
           >
             <Grid2x2 size={18} />
           </button>
-        </Tooltip>
+        </HoverPopover>
       </div>
 
       <div className="viewer-toolbar__divider" />
 
       {/* 同步模式 */}
-      <Tooltip
+      <HoverPopover
         content={syncMode ? '取消联动（快捷键 S）' : '联动缩放/拖拽（快捷键 S）'}
-        theme="light"
         placement="bottom"
-        zIndex={TOOLTIP_Z_INDEX}
-        showArrow={false}
+        contentClassName="viewer-popover"
       >
         <button
           className={`viewer-toolbar__btn ${
             syncMode ? 'viewer-toolbar__btn--active' : ''
           }`}
           onClick={onSyncToggle}
+          aria-label={syncMode ? '取消联动' : '联动缩放/拖拽'}
         >
           {syncMode ? <Link size={18} /> : <Unlink size={18} />}
         </button>
-      </Tooltip>
+      </HoverPopover>
 
       {/* 重置视图 - 仅在联动模式下显示 */}
       {syncMode && (
-        <Tooltip
-          content="重置视图"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="重置视图" placement="bottom" contentClassName="viewer-popover">
           <button className="viewer-toolbar__btn" onClick={onResetView}>
             <RotateCcw size={18} />
           </button>
-        </Tooltip>
+        </HoverPopover>
       )}
     </>
   );
@@ -288,49 +239,33 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
       return (
         <>
           {/* 重置编辑 */}
-          <Tooltip
-            content="重置"
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
+          <HoverPopover content="重置" placement="bottom" contentClassName="viewer-popover">
             <button className="viewer-toolbar__btn" onClick={onResetEdit}>
               <RotateCcw size={18} />
             </button>
-          </Tooltip>
+          </HoverPopover>
 
           {/* 保存 */}
-          <Tooltip
-            content="保存"
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
+          <HoverPopover content="保存" placement="bottom" contentClassName="viewer-popover">
             <button
               className="viewer-toolbar__btn viewer-toolbar__btn--primary"
               onClick={onSaveEdit}
+              aria-label="保存"
             >
               <Check size={18} />
             </button>
-          </Tooltip>
+          </HoverPopover>
 
           {/* 关闭 */}
-          <Tooltip
-            content="关闭（Esc）"
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
+          <HoverPopover content="关闭（Esc）" placement="bottom" contentClassName="viewer-popover">
             <button
               className="viewer-toolbar__btn viewer-toolbar__btn--close"
               onClick={onClose}
+              aria-label="关闭"
             >
               <X size={20} />
             </button>
-          </Tooltip>
+          </HoverPopover>
         </>
       );
     }
@@ -339,34 +274,23 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
       <>
         {/* 全屏 */}
         {onFullscreen && (
-          <Tooltip
-            content="全屏"
-            theme="light"
-            placement="bottom"
-            zIndex={TOOLTIP_Z_INDEX}
-            showArrow={false}
-          >
+          <HoverPopover content="全屏" placement="bottom" contentClassName="viewer-popover">
             <button className="viewer-toolbar__btn" onClick={onFullscreen}>
               <Maximize2 size={18} />
             </button>
-          </Tooltip>
+          </HoverPopover>
         )}
 
         {/* 关闭 */}
-        <Tooltip
-          content="关闭（Esc）"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="关闭（Esc）" placement="bottom" contentClassName="viewer-popover">
           <button
             className="viewer-toolbar__btn viewer-toolbar__btn--close"
             onClick={onClose}
+            aria-label="关闭"
           >
             <X size={20} />
           </button>
-        </Tooltip>
+        </HoverPopover>
       </>
     );
   };
@@ -376,37 +300,27 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
     return (
       <div className="viewer-toolbar viewer-toolbar--edit-simplified">
         {/* 左上角返回按钮 */}
-        <Tooltip
-          content="返回预览"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="返回预览" placement="bottom" contentClassName="viewer-popover">
           <button
             className="viewer-toolbar__corner-btn viewer-toolbar__corner-btn--left"
             onClick={onBackToPreview}
+            aria-label="返回预览"
           >
             <ChevronLeft size={20} />
             <span>返回</span>
           </button>
-        </Tooltip>
+        </HoverPopover>
 
         {/* 右上角关闭按钮 */}
-        <Tooltip
-          content="关闭（Esc）"
-          theme="light"
-          placement="bottom"
-          zIndex={TOOLTIP_Z_INDEX}
-          showArrow={false}
-        >
+        <HoverPopover content="关闭（Esc）" placement="bottom" contentClassName="viewer-popover">
           <button
             className="viewer-toolbar__corner-btn viewer-toolbar__corner-btn--right"
             onClick={onClose}
+            aria-label="关闭"
           >
             <X size={20} />
           </button>
-        </Tooltip>
+        </HoverPopover>
       </div>
     );
   }

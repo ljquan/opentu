@@ -6,6 +6,11 @@
 
 import { PlaitElement, Point } from '@plait/core';
 
+export interface ToolDefaultWindowBehavior {
+  /** 打开工具后是否默认常驻到左侧最小化工具栏 */
+  autoPinOnOpen?: boolean;
+}
+
 /**
  * 工具定义 - 工具箱中的工具配置
  *
@@ -35,6 +40,12 @@ export type ToolDefinition = {
 
   /** iframe sandbox 权限 */
   permissions?: string[];
+
+  /** 是否支持同工具多窗口实例 */
+  supportsMultipleWindows?: boolean;
+
+  /** 默认窗口行为 */
+  defaultWindowBehavior?: ToolDefaultWindowBehavior;
 } & (
   | {
       /** iframe URL (外部页面工具必填) */
@@ -130,12 +141,34 @@ export interface ToolboxState {
  */
 export type ToolWindowStatus = 'open' | 'minimized' | 'closed';
 
+export type ToolWindowLaunchMode = 'auto' | 'reuse' | 'new';
+
+export interface ToolInstanceContextProps {
+  /** 当前窗口实例 ID */
+  toolInstanceId: string;
+
+  /** 所属工具 ID */
+  toolId: string;
+
+  /** 同工具下的实例序号 */
+  instanceIndex: number;
+}
+
 /**
  * 工具窗口状态 - 管理弹窗形式打开的工具
  *
  * 用于跟踪工具弹窗的显示状态、位置和常驻设置
  */
 export interface ToolWindowState {
+  /** 窗口实例 ID；launcher 使用伪 instanceId */
+  instanceId: string;
+
+  /** 所属工具 ID */
+  toolId: string;
+
+  /** 同工具下的实例序号；launcher 固定为 0 */
+  instanceIndex: number;
+
   /** 工具定义 */
   tool: ToolDefinition;
 
@@ -153,6 +186,9 @@ export interface ToolWindowState {
 
   /** 是否常驻工具栏 */
   isPinned: boolean;
+
+  /** 是否为关闭态 launcher 图标 */
+  isLauncher: boolean;
 
   /** 是否自动最大化（仅在首次打开时生效） */
   autoMaximize?: boolean;

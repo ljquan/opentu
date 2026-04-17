@@ -34,6 +34,7 @@ import {
   getConsoleLogsDirect,
   getLLMApiLogsDirect,
   getLLMApiLogByIdDirect,
+  getLinkedTaskDebugDataForLLMLog,
   getCrashSnapshotsDirect,
   getCacheStatsDirect,
 } from './debug-storage-reader.js';
@@ -509,14 +510,25 @@ export async function getLLMApiLogByIdInSW(logId) {
   try {
     // 优先直接从 IndexedDB 读取
     const log = await getLLMApiLogByIdDirect(logId);
-    return log;
+    if (!log) {
+      return null;
+    }
+
+    const linkedTask = await getLinkedTaskDebugDataForLLMLog(log);
+    return linkedTask ? { ...log, linkedTask } : log;
   } catch (error) {
     console.error('[SW Communication] Failed to get LLM API log by ID directly, falling back to RPC:', error);
     // Fallback to RPC
     try {
       await ensureDuplexInitialized();
       const result = await getLLMApiLogByIdRPC(logId);
-      return result?.log || null;
+      const log = result?.log || null;
+      if (!log) {
+        return null;
+      }
+
+      const linkedTask = await getLinkedTaskDebugDataForLLMLog(log);
+      return linkedTask ? { ...log, linkedTask } : log;
     } catch (rpcError) {
       console.error('[SW Communication] RPC fallback also failed:', rpcError);
       return null;

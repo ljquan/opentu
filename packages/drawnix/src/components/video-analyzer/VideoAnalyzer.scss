@@ -119,14 +119,19 @@
   gap: 8px;
   padding-top: 8px;
   flex-shrink: 0;
+  align-items: center;
+  flex-wrap: nowrap;
 
   button {
-    flex: 1;
-    padding: 8px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 6px;
     border: none;
     border-radius: 8px;
     background: #f5f5f5;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
     cursor: pointer;
     color: #555;
     transition: all 0.15s;
@@ -137,6 +142,7 @@
     }
 
     &.va-btn-primary {
+      flex: 1.2 1 0;
       background: linear-gradient(135deg, #F39C12, #E67E22);
       color: #fff;
       font-weight: 500;
@@ -322,6 +328,31 @@
   color: #F39C12;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.va-model-tip {
+  margin-top: -2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #F39C12;
+  line-height: 1.4;
+}
+
+.va-model-tip-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #E67E22;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:hover {
+    color: #D35400;
+  }
 }
 
 .va-analyze-btn {
@@ -522,6 +553,26 @@
   }
 }
 
+// Frame button group (generate + library picker)
+.va-shot-frame-btn-group {
+  display: inline-flex;
+  align-items: stretch;
+
+  button:first-child {
+    border-radius: 6px 0 0 6px;
+    border-right: none;
+  }
+}
+
+.va-shot-frame-library-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px !important;
+  border-radius: 0 6px 6px 0 !important;
+  border-left: 1px solid var(--td-border-level-1-color, #eee) !important;
+}
+
 // Batch actions
 .va-batch-actions {
   display: flex;
@@ -586,6 +637,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    cursor: pointer;
   }
 
   .va-shot-frame-delete,
@@ -622,6 +674,45 @@
       opacity: 1;
     }
   }
+
+  &--borrowed {
+    border-style: dashed;
+    opacity: 0.7;
+  }
+}
+
+.va-shot-frame-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  font-size: 9px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 1px 0;
+  line-height: 1.2;
+}
+
+// ShotCard 首帧图片行
+.va-shot-frame-row {
+  margin-bottom: 6px;
+
+  .va-shot-frame-img {
+    width: 100%;
+    max-height: 120px;
+    object-fit: contain;
+    border-radius: 4px;
+    display: block;
+  }
+}
+
+// 帧提取进度
+.va-frame-progress {
+  font-size: 11px;
+  color: #F39C12;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .va-form-row {
@@ -656,6 +747,12 @@
   box-sizing: border-box;
 
   &:focus { border-color: rgba(243, 156, 18, 0.5); }
+
+  &.va-auto-resize {
+    resize: none;
+    overflow: hidden;
+    min-height: 32px;
+  }
 }
 
 // Edit fields (ScriptPage shot editing)
@@ -686,6 +783,12 @@
   box-sizing: border-box;
 
   &:focus { border-color: rgba(243, 156, 18, 0.4); }
+
+  &.va-auto-resize {
+    resize: none;
+    overflow: hidden;
+    min-height: 28px;
+  }
 }
 
 .va-edit-input {
@@ -886,7 +989,6 @@
   border-radius: 8px;
   cursor: pointer;
   transition: border-color 0.15s;
-  position: relative;
 
   &:hover { border-color: rgba(243, 156, 18, 0.4); }
 }
@@ -896,6 +998,144 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+
+// Expand/collapse button (in meta row)
+.va-history-expand-btn {
+  border: none;
+  background: rgba(243, 156, 18, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #E6A23C;
+  font-size: 11px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover { background: rgba(243, 156, 18, 0.15); color: #E67E22; }
+
+  svg {
+    transition: transform 200ms ease-out;
+  }
+
+  &.expanded svg { transform: rotate(90deg); }
+}
+
+// Related tasks expanded section
+.va-history-related {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.va-history-related-group-title {
+  font-size: 11px;
+  color: #999;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.va-history-related-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover { background: rgba(243, 156, 18, 0.06); }
+}
+
+.va-history-related-task-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  &.completed { background: #10B981; }
+  &.processing { background: #F39C12; }
+  &.pending { background: #999; }
+  &.failed { background: #EF4444; }
+}
+
+.va-history-related-task-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #555;
+}
+
+.va-history-related-task-time {
+  font-size: 11px;
+  color: #bbb;
+  flex-shrink: 0;
+}
+
+.va-history-related-task-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  background: #f3f4f6;
+
+  img,
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+}
+
+.va-history-related-task-thumb-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.va-history-related-insert-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f3f4f6;
+  border-radius: 12px;
+  padding: 0;
+  cursor: pointer;
+  color: #4b5563;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+
+  &:hover {
+    background: #e5e7eb;
+    color: #111827;
+    transform: translateY(-1px);
+  }
 }
 
 .va-history-source {
@@ -920,6 +1160,7 @@
 
 .va-history-meta {
   display: flex;
+  align-items: center;
   gap: 12px;
   font-size: 12px;
   color: var(--td-text-color-placeholder, #999);
@@ -932,14 +1173,85 @@
 }
 
 .va-history-delete {
-  position: absolute;
-  bottom: 10px;
-  right: 12px;
+  margin-left: auto;
   border: none;
   background: none;
   font-size: 12px;
   color: var(--td-text-color-placeholder, #ccc);
   cursor: pointer;
+  flex-shrink: 0;
 
   &:hover { color: #EF4444; }
+}
+
+// Script version selector
+.va-version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.va-version-select {
+  position: relative;
+}
+
+.va-version-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--td-border-level-1-color, #ddd);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--td-text-color-secondary, #666);
+  white-space: nowrap;
+
+  &:hover { border-color: rgba(243, 156, 18, 0.5); color: #F39C12; }
+}
+
+.va-version-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.va-version-item {
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--td-text-color-primary, #333);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid #f5f5f5;
+
+  &:last-child { border-bottom: none; }
+  &:hover { background: rgba(243, 156, 18, 0.06); }
+  &.active { color: #F39C12; font-weight: 500; }
+}
+
+.va-version-time {
+  font-size: 11px;
+  color: var(--td-text-color-placeholder, #999);
+  font-weight: 400;
+}
+
+.va-version-prompt {
+  font-size: 11px;
+  color: var(--td-text-color-secondary, #666);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

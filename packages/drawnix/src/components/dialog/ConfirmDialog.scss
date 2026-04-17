@@ -1,0 +1,42 @@
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-width: 100%;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.16);
+
+  &__title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--td-text-color-primary, #111827);
+  }
+
+  &__description {
+    margin: 12px 0 0;
+    line-height: 1.6;
+    color: var(--td-text-color-secondary, #4b5563);
+    white-space: pre-wrap;
+  }
+
+  &__body {
+    margin-top: 12px;
+    color: var(--td-text-color-primary, #111827);
+
+    p {
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    p + p {
+      margin-top: 8px;
+    }
+  }
+
+  &__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
+  }
+}

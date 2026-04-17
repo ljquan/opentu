@@ -17,6 +17,9 @@ export * from './apiCalls';
 // 导出服务函数
 export * from './services';
 
+// 导出带日志的调用包装
+export * from './logged-calls';
+
 // 导出认证相关
 export * from './auth';
 

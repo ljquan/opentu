@@ -10,12 +10,25 @@ import {
   CACHE_NAMES,
   SW_TASK_QUEUE_DB,
   readAllFromIDB,
+  readItemFromIDB,
   readKVItem,
   writeToIDB,
   writeKVItem,
   writeBatchToIDB,
 } from './indexeddb.js';
-import { BACKUP_SIGNATURE, waitForJSZip } from './backup.js';
+import {
+  BACKUP_SIGNATURE,
+  waitForJSZip,
+  normalizeCacheMediaType,
+} from './backup.js';
+import {
+  findBinaryFile,
+  importKnowledgeBaseData,
+  buildFolderPathMap,
+  collectFolderPathsFromBoardPaths,
+  getFolderDepth,
+  getFolderKey,
+} from './shared/backup-core.js';
 import { showToast } from './toast.js';
 
 /**
@@ -73,7 +86,7 @@ async function performRestore(file) {
       throw new Error(`不支持的备份版本: ${manifest.version}`);
     }
 
-    const stats = { prompts: 0, projects: 0, tasks: 0, assets: 0 };
+    const stats = { prompts: 0, projects: 0, tasks: 0, knowledgeBase: 0, assets: 0 };
 
     // 1. 恢复提示词
     if (manifest.includes?.prompts !== false) {
@@ -93,11 +106,17 @@ async function performRestore(file) {
       stats.tasks = await restoreTasks(zip);
     }
 
-    // 4. 恢复素材
+    // 4. 恢复知识库
+    if (manifest.includes?.knowledgeBase !== false) {
+      updateProgress(52, '正在恢复知识库...');
+      stats.knowledgeBase = await restoreKnowledgeBase(zip);
+    }
+
+    // 5. 恢复素材
     if (manifest.includes?.assets !== false) {
-      updateProgress(55, '正在恢复素材...');
+      updateProgress(60, '正在恢复素材...');
       stats.assets = await restoreAssets(zip, (current, total) => {
-        const percent = 55 + Math.round((current / total) * 35);
+        const percent = 60 + Math.round((current / total) * 30);
         updateProgress(percent, `正在恢复素材 (${current}/${total})...`);
       });
     }
@@ -159,7 +178,6 @@ async function restoreProjects(zip) {
   if (!projectsFolder) return 0;
 
   let count = 0;
-  const folders = [];
   const boards = [];
 
   // 遍历 projects/ 下的所有 .drawnix 文件
@@ -192,13 +210,10 @@ async function restoreProjects(zip) {
     }
   }
 
-  // 从画板中提取文件夹信息（通过 folderId 关联）
-  // 文件夹结构在 ZIP 中是目录，但元数据在画板的 boardMeta.folderId 中
-  // 读取现有文件夹以避免覆盖
   const existingFolders = await readAllFromIDB(
     IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.FOLDERS
   );
-  const existingFolderIds = new Set((existingFolders || []).map(f => f.id));
+  const folderRestore = await restoreProjectFolders(zip, existingFolders || [], drawnixFiles.map(file => file.name));
 
   // 写入画板（upsert）
   if (boards.length > 0) {
@@ -207,12 +222,26 @@ async function restoreProjects(zip) {
     );
     const existingBoardMap = new Map((existingBoards || []).map(b => [b.id, b]));
 
-    for (const board of boards) {
+    for (let i = 0; i < boards.length; i++) {
+      const board = boards[i];
       const existing = existingBoardMap.get(board.id);
       // 如果已存在且本地更新时间更新，跳过
       if (existing && existing.updatedAt >= (board.updatedAt || 0)) continue;
       try {
-        await writeToIDB(IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.BOARDS, board);
+        const filePath = drawnixFiles[i]?.name || '';
+        const relativePath = filePath.replace(/^projects\//, '');
+        const parts = relativePath.split('/');
+        const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
+        const folderId = folderPath
+          ? folderRestore.pathToId.get(folderPath)
+            || (board.folderId ? folderRestore.importedToLocalId.get(board.folderId) : null)
+            || board.folderId
+            || null
+          : null;
+        await writeToIDB(IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.BOARDS, {
+          ...board,
+          folderId,
+        });
         count++;
       } catch (err) {
         console.debug('[Restore] Failed to write board:', board.id, err);
@@ -274,7 +303,7 @@ async function restoreAssets(zip, onProgress) {
       if (!assetId) { processedCount++; continue; }
 
       // 查找对应的二进制文件
-      const binaryFile = findBinaryFile(assetsFolder, relativePath, assetId);
+      const binaryFile = findBinaryFile(assetsFolder, relativePath, meta.mimeType);
 
       if (binaryFile) {
         const blob = await binaryFile.async('blob');
@@ -293,7 +322,7 @@ async function restoreAssets(zip, onProgress) {
         // AI 生成的素材 → unified-cache
         const cacheItem = {
           url: meta.url,
-          type: meta.type === 'VIDEO' ? 'video' : 'image',
+          type: normalizeCacheMediaType(meta.type, meta.mimeType),
           mimeType: meta.mimeType,
           size: meta.size,
           cachedAt: meta.createdAt,
@@ -319,20 +348,167 @@ async function restoreAssets(zip, onProgress) {
 }
 
 /**
- * 查找 meta 文件对应的二进制文件
+ * 恢复知识库
  */
-function findBinaryFile(assetsFolder, metaRelativePath, assetId) {
-  // meta 文件路径: "assetId.meta.json"，二进制文件: "assetId.ext"
-  const basePath = metaRelativePath.replace('.meta.json', '');
-  const extensions = ['.jpg', '.png', '.gif', '.webp', '.svg', '.mp4', '.webm', '.mov', ''];
+async function restoreKnowledgeBase(zip) {
+  const kbFile = zip.file('knowledge-base.json');
+  if (!kbFile) return 0;
 
-  for (const ext of extensions) {
-    const file = assetsFolder.file(basePath + ext);
-    if (file && !file.dir) return file;
-  }
-  return null;
+  const data = JSON.parse(await kbFile.async('string'));
+  const result = await importKnowledgeBaseData(data, {
+    getAllDirectories: () => readAllFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.DIRECTORIES
+    ),
+    getDirectoryById: (id) => readItemFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.DIRECTORIES,
+      id
+    ),
+    putDirectory: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.DIRECTORIES,
+      value
+    ),
+    getTagById: (id) => readItemFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.TAGS,
+      id
+    ),
+    putTag: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.TAGS,
+      value
+    ),
+    getNoteById: async (id) => {
+      const meta = await readItemFromIDB(
+        IDB_STORES.KNOWLEDGE_BASE.name,
+        IDB_STORES.KNOWLEDGE_BASE.stores.NOTES,
+        id
+      );
+      if (!meta) return null;
+      const contentRecord = await readItemFromIDB(
+        IDB_STORES.KNOWLEDGE_BASE.name,
+        IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_CONTENTS,
+        id
+      );
+      return {
+        ...meta,
+        content: contentRecord?.content ?? '',
+      };
+    },
+    putNoteMeta: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTES,
+      value
+    ),
+    putNoteContent: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_CONTENTS,
+      value
+    ),
+    getNoteTagById: (id) => readItemFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_TAGS,
+      id
+    ),
+    putNoteTag: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_TAGS,
+      value
+    ),
+    getNoteImageById: (id) => readItemFromIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_IMAGES,
+      id
+    ),
+    putNoteImage: (_id, value) => writeToIDB(
+      IDB_STORES.KNOWLEDGE_BASE.name,
+      IDB_STORES.KNOWLEDGE_BASE.stores.NOTE_IMAGES,
+      value
+    ),
+  });
+
+  return result.noteCount;
 }
 
+async function restoreProjectFolders(zip, existingFolders, drawnixFilePaths) {
+  const importedToLocalId = new Map();
+  const pathToId = new Map();
+  const folderKeyMap = new Map(existingFolders.map(folder => [getFolderKey(folder.name, folder.parentId), folder]));
+  const foldersFile = zip.file('projects/_folders.json');
+
+  if (foldersFile) {
+    const parsed = JSON.parse(await foldersFile.async('string'));
+    const importedFolders = Array.isArray(parsed) ? parsed : parsed?.folders || [];
+    const folderMap = new Map(importedFolders.map(folder => [folder.id, folder]));
+    const sortedFolders = [...importedFolders].sort((a, b) => {
+      const depthA = getFolderDepth(a, folderMap);
+      const depthB = getFolderDepth(b, folderMap);
+      return depthA - depthB || (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name);
+    });
+
+    for (const folder of sortedFolders) {
+      const mappedParentId = folder.parentId ? importedToLocalId.get(folder.parentId) || null : null;
+      const existingById = existingFolders.find(item => item.id === folder.id);
+      if (existingById) {
+        importedToLocalId.set(folder.id, existingById.id);
+        continue;
+      }
+
+      const existingByKey = folderKeyMap.get(getFolderKey(folder.name, mappedParentId));
+      if (existingByKey) {
+        importedToLocalId.set(folder.id, existingByKey.id);
+        continue;
+      }
+
+      const nextFolder = {
+        ...folder,
+        parentId: mappedParentId,
+      };
+      await writeToIDB(IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.FOLDERS, nextFolder);
+      existingFolders.push(nextFolder);
+      folderKeyMap.set(getFolderKey(nextFolder.name, nextFolder.parentId), nextFolder);
+      importedToLocalId.set(folder.id, nextFolder.id);
+    }
+
+    const allFolders = await readAllFromIDB(IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.FOLDERS);
+    const fullPathMap = buildFolderPathMap(allFolders || []);
+    for (const [folderId, folderPath] of fullPathMap.entries()) {
+      pathToId.set(folderPath, folderId);
+    }
+  }
+
+  const fallbackPaths = collectFolderPathsFromBoardPaths(drawnixFilePaths);
+  for (const folderPath of fallbackPaths) {
+    if (pathToId.has(folderPath)) continue;
+    const parts = folderPath.split('/');
+    const folderName = parts[parts.length - 1];
+    const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
+    const parentId = parentPath ? pathToId.get(parentPath) || null : null;
+    const existingFolder = folderKeyMap.get(getFolderKey(folderName, parentId));
+    if (existingFolder) {
+      pathToId.set(folderPath, existingFolder.id);
+      continue;
+    }
+
+    const folder = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+      name: folderName,
+      parentId,
+      order: existingFolders.length,
+      isExpanded: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await writeToIDB(IDB_STORES.WORKSPACE.name, IDB_STORES.WORKSPACE.stores.FOLDERS, folder);
+    existingFolders.push(folder);
+    folderKeyMap.set(getFolderKey(folder.name, folder.parentId), folder);
+    pathToId.set(folderPath, folder.id);
+  }
+
+  return { importedToLocalId, pathToId };
+}
 /**
  * 显示恢复进度条
  */
@@ -373,8 +549,9 @@ function showRestoreSuccessNotification(stats, manifest) {
           ${stats.prompts > 0 ? `新增提示词: ${stats.prompts}` : ''}
           ${stats.projects > 0 ? `${stats.prompts > 0 ? ' | ' : ''}画板: ${stats.projects}` : ''}
           ${stats.tasks > 0 ? `${(stats.prompts + stats.projects) > 0 ? ' | ' : ''}任务: ${stats.tasks}` : ''}
-          ${stats.assets > 0 ? `${(stats.prompts + stats.projects + stats.tasks) > 0 ? ' | ' : ''}素材: ${stats.assets}` : ''}
-          ${(stats.prompts + stats.projects + stats.tasks + stats.assets) === 0 ? '所有数据已是最新，无需更新' : ''}
+          ${stats.knowledgeBase > 0 ? `${(stats.prompts + stats.projects + stats.tasks) > 0 ? ' | ' : ''}知识库笔记: ${stats.knowledgeBase}` : ''}
+          ${stats.assets > 0 ? `${(stats.prompts + stats.projects + stats.tasks + stats.knowledgeBase) > 0 ? ' | ' : ''}素材: ${stats.assets}` : ''}
+          ${(stats.prompts + stats.projects + stats.tasks + stats.knowledgeBase + stats.assets) === 0 ? '所有数据已是最新，无需更新' : ''}
         </p>
       </div>
       <button class="close" onclick="this.parentElement.parentElement.remove()">×</button>

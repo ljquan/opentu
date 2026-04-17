@@ -222,7 +222,10 @@ export interface AudioGenerationParams {
   tags?: string;
   mv?: string;
   continueClipId?: string;
+  continueTaskId?: string;
   continueAt?: number;
+  infillStartS?: number;
+  infillEndS?: number;
   count?: number;
   batchId?: string;
   batchIndex?: number;

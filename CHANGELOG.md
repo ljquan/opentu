@@ -1,3 +1,89 @@
+## 0.6.28 (2026-04-15)
+
+### 🚀 Features
+
+- 引入音频卡片自适应尺寸及多工具窗口支持 ([92b47af9](https://github.com/ljquan/aitu/commit/92b47af9))
+- 完善音频结果缓存并接入 MV 分镜任务 ([b108089d](https://github.com/ljquan/aitu/commit/b108089d))
+- 爆款MV生成器增强 — 历史跳转、帧传递、音频驱动分镜 ([c29f4a81](https://github.com/ljquan/aitu/commit/c29f4a81))
+
+### 🩹 Fixes
+
+- 修复任务工作流同步幽灵日志刷屏 ([492ca8bf](https://github.com/ljquan/aitu/commit/492ca8bf))
+- 区分 sw-debug llmapi 的音频与歌词生成 ([7421d206](https://github.com/ljquan/aitu/commit/7421d206))
+- 补齐 sw-debug 的 llmapi JSON 结果展示 ([4a411bc6](https://github.com/ljquan/aitu/commit/4a411bc6))
+- 修复 suno 多音频重复与时长错误 ([093cdf54](https://github.com/ljquan/aitu/commit/093cdf54))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
+## 0.6.27 (2026-04-15)
+
+### 🚀 Features
+
+- 基于 pricing endpoints 推断 provider bindings ([1a161276](https://github.com/ljquan/aitu/commit/1a161276))
+- 统一爆款音乐续写与 infill 能力 ([458375c0](https://github.com/ljquan/aitu/commit/458375c0))
+- 优化爆款音乐生成工具流程与体验 ([ae2f0e12](https://github.com/ljquan/aitu/commit/ae2f0e12))
+- 支持工具默认窗口行为并修复音乐任务卡片异常 ([788cbe04](https://github.com/ljquan/aitu/commit/788cbe04))
+
+### 🩹 Fixes
+
+- 首屏异步预热价格并补全 LLM 原始响应日志 ([4aa69578](https://github.com/ljquan/aitu/commit/4aa69578))
+- 清理任务列表批量索引误渲染 0 ([211cb525](https://github.com/ljquan/aitu/commit/211cb525))
+- 补齐 suno 续写所需 task_id ([703812e4](https://github.com/ljquan/aitu/commit/703812e4))
+- 保留爆款音乐创作描述并上移错误提示 ([f3dce84e](https://github.com/ljquan/aitu/commit/f3dce84e))
+- 优化音乐分析历史标题并隐藏续写入口 ([cd9b213d](https://github.com/ljquan/aitu/commit/cd9b213d))
+
+### 🔧 Chores
+
+- refactor: 统一 LLM 调用日志，所有大模型调用自动记录到 sw-debug LLM API 面板 ([7313b52f](https://github.com/ljquan/aitu/commit/7313b52f))
+- style: 优化音乐分析器已生成片段布局 ([616b4633](https://github.com/ljquan/aitu/commit/616b4633))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
+## 0.6.26 (2026-04-14)
+
+### 🚀 Features
+
+- 新增爆款音乐生成工具 ([9e5bd769](https://github.com/ljquan/aitu/commit/9e5bd769))
+- 历史关联任务展开、生成回填、风格传递与脚本版本优化 ([d914bc12](https://github.com/ljquan/aitu/commit/d914bc12))
+- 支持工具弹窗多窗口实例 ([247a9ff2](https://github.com/ljquan/aitu/commit/247a9ff2))
+- 脚本版本管理，支持多版本切换 ([790e8272](https://github.com/ljquan/aitu/commit/790e8272))
+- 优化视频分析与脚本改编交互 ([bc82abc6](https://github.com/ljquan/aitu/commit/bc82abc6))
+- 视频分析任务接入队列并优化结果插入 ([0cfcb25c](https://github.com/ljquan/aitu/commit/0cfcb25c))
+- 上传视频分析后自动提取首帧图片 ([c50dec54](https://github.com/ljquan/aitu/commit/c50dec54))
+
+### 🩹 Fixes
+
+- 修复音乐分析器兼容性并完善工作流展示 ([6cde07e0](https://github.com/ljquan/aitu/commit/6cde07e0))
+- 统一持久化删除的二次确认 ([c717d30f](https://github.com/ljquan/aitu/commit/c717d30f))
+- 统一确认弹窗与媒体预览提示词交互 ([4b007267](https://github.com/ljquan/aitu/commit/4b007267))
+- 批量生成使用每个镜头独立的 batchId ([f593eef3](https://github.com/ljquan/aitu/commit/f593eef3))
+- 修复 Markdown 卡片初始化阶段的 Milkdown editorView 异常 ([8badb0c7](https://github.com/ljquan/aitu/commit/8badb0c7))
+- 在爆款视频分析页提示 gemini-mix 分组 ([55815a81](https://github.com/ljquan/aitu/commit/55815a81))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
+## 0.6.25 (2026-04-14)
+
+### 🩹 Fixes
+
+- 修正视频分析中内联数据的MIME类型 ([55e6b903](https://github.com/ljquan/aitu/commit/55e6b903))
+- 防止生成任务重复调用大模型 API ([f381d800](https://github.com/ljquan/aitu/commit/f381d800))
+- 统一主应用和 sw-debug 的备份恢复核心逻辑 ([3c359631](https://github.com/ljquan/aitu/commit/3c359631))
+
+### 🔧 Chores
+
+- 更新应用版本并移除AI视频调试代码 ([9628c9ad](https://github.com/ljquan/aitu/commit/9628c9ad))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
 ## 0.6.24 (2026-04-13)
 
 ### 🩹 Fixes

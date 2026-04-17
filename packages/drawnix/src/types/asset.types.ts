@@ -53,6 +53,10 @@ export interface Asset {
   thumbnail?: string; // 缩略图URL（视频用）
   prompt?: string; // AI生成的提示词（仅AI_GENERATED）
   modelName?: string; // 生成模型名称（仅AI_GENERATED）
+  taskId?: string; // 来源任务 ID（仅运行时 AI 生成素材）
+  duration?: number; // 音频/视频时长（秒）
+  clipId?: string; // 音频片段 ID（仅 AI 音频）
+  providerTaskId?: string; // 供应商任务 ID（仅 AI 音频）
 }
 
 /**
