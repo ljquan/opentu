@@ -2,8 +2,10 @@ import { $nodeSchema } from '@milkdown/kit/utils';
 import {
   buildMarkdownImageTitle,
   isNumericImageRatioAlt,
+  parseMarkdownImageAlt,
   parseMarkdownImageTitle,
 } from '../../../utils/markdown-image-blocks';
+import { ASSET_URI_PREFIX } from '../../../utils/markdown-asset-embeds';
 
 function normalizeOptionalNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -38,7 +40,14 @@ export const markdownImageBlockSchema = $nodeSchema('image-block', () => ({
     height: { default: null },
   },
   parseMarkdown: {
-    match: ({ type }: { type: string }) => type === 'image-block',
+    match: (node: { type: string; url?: string; alt?: string }) => {
+      if (node.type !== 'image-block') return false;
+      if (node.url?.startsWith(ASSET_URI_PREFIX)) {
+        const parsed = parseMarkdownImageAlt(node.alt);
+        if (parsed.assetType && parsed.assetType !== 'image') return false;
+      }
+      return true;
+    },
     runner: (state: any, node: any, type: any) => {
       const rawAlt = typeof node.alt === 'string' ? node.alt : '';
       const parsedTitle = parseMarkdownImageTitle(node.title as string | undefined);

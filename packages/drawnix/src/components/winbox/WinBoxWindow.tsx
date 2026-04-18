@@ -186,6 +186,10 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
   const winboxElementRef = useRef<HTMLDivElement | null>(null); // WinBox 窗口的 DOM 元素
   const onCloseRef = useRef(onClose);
   const onActivateRef = useRef(onActivate);
+  const mountedRef = useRef(true);
+  const interactionActiveRef = useRef(false);
+  const pendingDeferredCloseRef = useRef<any>(null);
+  const managedTimeoutsRef = useRef<number[]>([]);
   // WinBox 的 onclose 只在实例创建时绑定一次，这里用 ref 保持最新回调。
   onCloseRef.current = onClose;
   onActivateRef.current = onActivate;
@@ -212,6 +216,91 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
   const splitSideRef = useRef<'left' | 'right' | null>(null);
   // 保存原始 minWidth 以便分屏后恢复
   const originalMinWidthRef = useRef<number | null>(null);
+
+  const clearManagedTimeouts = useCallback(() => {
+    managedTimeoutsRef.current.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    managedTimeoutsRef.current = [];
+  }, []);
+
+  const scheduleManagedTimeout = useCallback(
+    (callback: () => void, delay: number) => {
+      const timeoutId = window.setTimeout(() => {
+        managedTimeoutsRef.current = managedTimeoutsRef.current.filter(
+          (id) => id !== timeoutId
+        );
+        callback();
+      }, delay);
+      managedTimeoutsRef.current.push(timeoutId);
+      return timeoutId;
+    },
+    []
+  );
+
+  const resetPortalState = useCallback(() => {
+    if (!mountedRef.current) {
+      return;
+    }
+    setHeaderPortalContainer(null);
+    setBodyPortalContainer(null);
+    setIconPortalContainer(null);
+    setIsReady(false);
+  }, []);
+
+  const closeWinBoxInstance = useCallback(
+    (wb: any, suppressOnClose = true) => {
+      if (!wb) {
+        return;
+      }
+
+      clearManagedTimeouts();
+
+      if (suppressOnClose) {
+        wb.onclose = null;
+      }
+
+      try {
+        wb.close(true);
+      } catch {
+        // 忽略关闭错误
+      }
+    },
+    [clearManagedTimeouts]
+  );
+
+  const flushPendingDeferredClose = useCallback(() => {
+    const wb = pendingDeferredCloseRef.current;
+    if (!wb) {
+      return;
+    }
+
+    pendingDeferredCloseRef.current = null;
+    closeWinBoxInstance(wb);
+  }, [closeWinBoxInstance]);
+
+  const deferCloseUntilInteractionEnds = useCallback(
+    (wb: any) => {
+      if (!wb) {
+        return;
+      }
+
+      clearManagedTimeouts();
+      pendingDeferredCloseRef.current = wb;
+
+      try {
+        wb.hide();
+      } catch {
+        // 忽略隐藏错误
+      }
+
+      scheduleManagedTimeout(() => {
+        interactionActiveRef.current = false;
+        flushPendingDeferredClose();
+      }, 800);
+    },
+    [clearManagedTimeouts, flushPendingDeferredClose, scheduleManagedTimeout]
+  );
 
   const setSplitSide = useCallback((side: 'left' | 'right' | null) => {
     _setSplitSide(side);
@@ -434,6 +523,13 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
     }
   }, [winboxLoaded]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const isMovingRef = useRef(false);
 
   // 处理窗口关闭
@@ -457,21 +553,25 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
       if (winboxRef.current) {
         // 隐藏时从窗口管理器注销
         winboxManagerService.unregister(windowIdRef.current);
+        clearManagedTimeouts();
         if (keepAlive) {
           // keepAlive 模式：只隐藏窗口，不销毁实例
-          winboxRef.current.hide();
+          try {
+            winboxRef.current.hide();
+          } catch {
+            // 忽略隐藏错误
+          }
         } else {
           // 非 keepAlive 模式：关闭并清理窗口
-          try {
-            winboxRef.current.close(true); // force close
-          } catch {
-            // 忽略关闭错误
+          const wb = winboxRef.current;
+          if (interactionActiveRef.current) {
+            deferCloseUntilInteractionEnds(wb);
+          } else {
+            closeWinBoxInstance(wb);
           }
           winboxRef.current = null;
           winboxElementRef.current = null; // 清空 DOM 元素引用
-          setHeaderPortalContainer(null);
-          setBodyPortalContainer(null);
-          setIsReady(false);
+          resetPortalState();
         }
       }
       return;
@@ -491,6 +591,8 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
 
     // 当 visible 变为 true 且窗口不存在时，创建窗口
     if (visible && !winboxRef.current) {
+      flushPendingDeferredClose();
+
       // 构建 class 列表
       const classList: string[] = ['winbox-react'];
       if (!maximizable) classList.push('no-max');
@@ -603,7 +705,10 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
               wbWindow.style.opacity = '0';
 
               // 动画结束后隐藏窗口并清理
-              setTimeout(() => {
+              scheduleManagedTimeout(() => {
+                if (!wbWindow.isConnected) {
+                  return;
+                }
                 wbWindow.style.transition = 'none';
                 wbWindow.style.transform = '';
                 wbWindow.style.opacity = '';
@@ -839,7 +944,7 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
       // 如果设置了自动最大化，则在创建后最大化窗口
       if (autoMaximize) {
         // 使用 setTimeout 确保窗口完全创建后再最大化
-        setTimeout(() => {
+        scheduleManagedTimeout(() => {
           if (winboxRef.current) {
             winboxRef.current.maximize();
           }
@@ -847,7 +952,18 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, winboxLoaded, autoMaximize, keepAlive]);
+  }, [
+    visible,
+    winboxLoaded,
+    autoMaximize,
+    keepAlive,
+    clearManagedTimeouts,
+    closeWinBoxInstance,
+    deferCloseUntilInteractionEnds,
+    flushPendingDeferredClose,
+    resetPortalState,
+    scheduleManagedTimeout,
+  ]);
   // 注意: handleClose 不在依赖中，因为它只在创建时使用一次，
   // 添加到依赖会导致 WinBox 实例频繁重建并触发关闭回调
 
@@ -857,18 +973,24 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
     return () => {
       winboxManagerService.unregister(windowId);
       if (winboxRef.current) {
-        try {
-          // 防止在卸载时触发 onclose 回调
-          winboxRef.current.onclose = null;
-          winboxRef.current.close(true);
-        } catch {
-          // 忽略
+        const wb = winboxRef.current;
+        if (interactionActiveRef.current) {
+          deferCloseUntilInteractionEnds(wb);
+        } else {
+          closeWinBoxInstance(wb);
         }
         winboxRef.current = null;
         winboxElementRef.current = null; // 清空 DOM 元素引用
       }
+      if (!pendingDeferredCloseRef.current) {
+        clearManagedTimeouts();
+      }
     };
-  }, []);
+  }, [
+    clearManagedTimeouts,
+    closeWinBoxInstance,
+    deferCloseUntilInteractionEnds,
+  ]);
 
   // 更新标题
   useEffect(() => {
@@ -987,7 +1109,10 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
     wbWindow.style.opacity = '1';
 
     // 动画结束后清理
-    setTimeout(() => {
+    scheduleManagedTimeout(() => {
+      if (!wbWindow.isConnected) {
+        return;
+      }
       wbWindow.style.transition = 'none';
       wbWindow.style.transform = '';
       wbWindow.style.transformOrigin = '';
@@ -996,7 +1121,60 @@ export const WinBoxWindow: React.FC<WinBoxWindowProps> = ({
         parentEl.style.perspectiveOrigin = '';
       }
     }, duration);
-  }, [minimizeTargetSelector]);
+  }, [minimizeTargetSelector, scheduleManagedTimeout]);
+
+  useEffect(() => {
+    const wbWindow = winboxElementRef.current;
+    if (!wbWindow) {
+      return;
+    }
+
+    const resizeHandleSelector = [
+      '.wb-drag',
+      '.wb-n',
+      '.wb-s',
+      '.wb-e',
+      '.wb-w',
+      '.wb-ne',
+      '.wb-nw',
+      '.wb-se',
+      '.wb-sw',
+    ].join(', ');
+
+    const handleInteractionStart = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(resizeHandleSelector)
+      ) {
+        interactionActiveRef.current = true;
+      }
+    };
+
+    const handleInteractionEnd = () => {
+      if (!interactionActiveRef.current && !pendingDeferredCloseRef.current) {
+        return;
+      }
+      interactionActiveRef.current = false;
+      flushPendingDeferredClose();
+    };
+
+    wbWindow.addEventListener('mousedown', handleInteractionStart, true);
+    wbWindow.addEventListener('touchstart', handleInteractionStart, true);
+    window.addEventListener('mouseup', handleInteractionEnd, true);
+    window.addEventListener('touchend', handleInteractionEnd, true);
+    window.addEventListener('touchcancel', handleInteractionEnd, true);
+    window.addEventListener('blur', handleInteractionEnd);
+
+    return () => {
+      wbWindow.removeEventListener('mousedown', handleInteractionStart, true);
+      wbWindow.removeEventListener('touchstart', handleInteractionStart, true);
+      window.removeEventListener('mouseup', handleInteractionEnd, true);
+      window.removeEventListener('touchend', handleInteractionEnd, true);
+      window.removeEventListener('touchcancel', handleInteractionEnd, true);
+      window.removeEventListener('blur', handleInteractionEnd);
+    };
+  }, [isReady, flushPendingDeferredClose]);
 
   // 监听 autoMaximize 变化，动态最大化窗口
   useEffect(() => {

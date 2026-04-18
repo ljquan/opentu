@@ -74,6 +74,7 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
   const [isCreatingDir, setIsCreatingDir] = useState(false);
   const [semanticResults, setSemanticResults] = useState<KBSearchResult[] | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteSelectionRequestRef = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const { confirm, confirmDialog } = useConfirmDialog();
 
@@ -438,6 +439,7 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
   }, []);
 
   const handleSelectNote = useCallback(async (id: string) => {
+    const requestId = ++noteSelectionRequestRef.current;
     setSelectedNoteId(id);
     // 选中笔记时清空目录激活态，保持激活态互斥
     setSelectedDirId(null);
@@ -468,8 +470,10 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
             ...(inferredOutputType ? { outputType: inferredOutputType } : {}),
           },
         };
-        setCurrentNote(virtualNote);
-        setNoteTags([]);
+        if (requestId === noteSelectionRequestRef.current) {
+          setCurrentNote(virtualNote);
+          setNoteTags([]);
+        }
       }
       return;
     }
@@ -491,16 +495,26 @@ const KnowledgeBaseContent: React.FC<KnowledgeBaseContentProps> = ({ initialNote
             ...(externalSkill.category ? { category: externalSkill.category } : {}),
           },
         };
-        setCurrentNote(virtualNote);
-        setNoteTags([]);
+        if (requestId === noteSelectionRequestRef.current) {
+          setCurrentNote(virtualNote);
+          setNoteTags([]);
+        }
       }
       return;
     }
 
     const note = await knowledgeBaseService.getNoteById(id);
+    if (requestId !== noteSelectionRequestRef.current) {
+      return;
+    }
+
     setCurrentNote(note);
     if (note) {
       const tags = await knowledgeBaseService.getTagsForNote(note.id);
+      if (requestId !== noteSelectionRequestRef.current) {
+        return;
+      }
+
       setNoteTags(tags);
       // 仅展开笔记所在目录，不激活目录（激活态互斥：选中笔记时目录不高亮）
       setExpandedDirIds((prev) => {

@@ -8,7 +8,10 @@
  */
 import { $remark } from '@milkdown/kit/utils';
 import { ASSET_URI_PREFIX } from '../../../utils/markdown-asset-embeds';
-import { parseMarkdownImageAlt } from '../../../utils/markdown-image-blocks';
+import {
+  parseMarkdownImageAlt,
+  parseMarkdownImageTitle,
+} from '../../../utils/markdown-image-blocks';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface MdastNode {
@@ -27,8 +30,16 @@ function tryConvertToAssetEmbed(node: MdastNode): MdastNode | null {
   const parsedAlt = parseMarkdownImageAlt(node.alt || '');
   const assetType = parsedAlt.assetType || 'image';
   if (assetType === 'image') return null;
-  const label = parsedAlt.label || parsedAlt.rawAlt;
-  return { type: 'assetEmbed', assetId, assetType, label };
+  const parsedTitle = parseMarkdownImageTitle(node.title as string | undefined);
+  const label = parsedAlt.label || '';
+  return {
+    type: 'assetEmbed',
+    assetId,
+    assetType,
+    label,
+    width: parsedTitle.width,
+    height: parsedTitle.height,
+  };
 }
 
 /** 递归遍历 MDAST，将 asset:// 引用转换为 assetEmbed */

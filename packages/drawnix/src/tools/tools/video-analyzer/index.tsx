@@ -2,6 +2,7 @@ import React from 'react';
 import { lazy, Suspense, type CSSProperties } from 'react';
 import type { ToolPluginModule } from '../../registry';
 import { ToolCategory } from '../../../types/toolbox.types';
+import { Clapperboard } from 'lucide-react';
 
 const VideoAnalyzerOriginal = lazy(
   () => import('../../../components/video-analyzer/VideoAnalyzer')
@@ -45,7 +46,7 @@ export const videoAnalyzerTool: ToolPluginModule = {
     id: 'video-analyzer',
     name: '爆款视频生成',
     description: 'AI 分析视频内容，提取镜头、脚本、风格等结构化数据',
-    icon: '🎬',
+    icon: <Clapperboard size={18} strokeWidth={1.75} />,
     category: ToolCategory.AI_TOOLS,
     component: 'video-analyzer',
     supportsMultipleWindows: true,

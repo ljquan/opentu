@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, type CSSProperties } from 'react';
 import type { ToolPluginModule } from '../../registry';
 import { ToolCategory } from '../../../types/toolbox.types';
+import { DiscAlbum } from 'lucide-react';
 
 const MusicAnalyzerOriginal = lazy(
   () => import('../../../components/music-analyzer/MusicAnalyzer')
@@ -44,7 +45,7 @@ export const musicAnalyzerTool: ToolPluginModule = {
     id: 'music-analyzer',
     name: '爆款音乐生成',
     description: '分析音频、改写歌词，并一键送入 Suno 生成音乐',
-    icon: '🎵',
+    icon: <DiscAlbum size={18} strokeWidth={1.75} />,
     category: ToolCategory.AI_TOOLS,
     component: 'music-analyzer',
     supportsMultipleWindows: true,

@@ -428,14 +428,7 @@ export class SWChannelManager {
   private async handleThumbnailGenerate(data: ThumbnailGenerateParams): Promise<{ success: boolean; error?: string }> {
     try {
       const { url, mediaType, blob, mimeType, sizes } = data;
-      console.info('[SWChannelManager] thumbnail RPC received', {
-        url,
-        mediaType,
-        mimeType,
-        sizes,
-        bytes: blob.byteLength,
-      });
-      
+
       // 动态导入缩略图工具
       const { generateThumbnailAsync } = await import('./utils/thumbnail-utils');
       

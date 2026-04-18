@@ -76,6 +76,15 @@ export function parseMarkdownImageAlt(rawAlt?: string | null): ParsedMarkdownIma
   const normalized = (rawAlt || '').trim();
   const pipeIndex = normalized.indexOf('|');
 
+  if (pipeIndex < 0 && /^(image|video|audio)$/i.test(normalized)) {
+    return {
+      assetType: normalized.toLowerCase(),
+      label: '',
+      rawAlt: normalized,
+      isAssetAlt: true,
+    };
+  }
+
   if (pipeIndex <= 0) {
     return {
       assetType: null,

@@ -40,3 +40,7 @@ export function buildAssetEmbedMarkdown(asset: Asset): string {
   const alt = `${getTypeHint(asset.type)}|${safeLabel}`;
   return `![${alt}](${ASSET_URI_PREFIX}${asset.id})`;
 }
+
+export function buildBlockAssetEmbedMarkdown(asset: Asset): string {
+  return `\n\n${buildAssetEmbedMarkdown(asset)}\n\n`;
+}

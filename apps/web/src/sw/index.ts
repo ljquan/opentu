@@ -2906,11 +2906,6 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
   if (isThumbnailRequest) {
     // 获取预览图尺寸（small 或 large，默认 small）
     const thumbnailSize = (url.searchParams.get('thumbnail') || 'small') as 'small' | 'large';
-    console.info('Service Worker: thumbnail request intercepted', {
-      requestUrl: request.url,
-      thumbnailSize,
-      pathname: url.pathname,
-    });
     // 构建缓存 key：移除所有控制参数
     const originalUrlForCache = new URL(url.toString());
     originalUrlForCache.searchParams.delete('thumbnail');
@@ -2926,20 +2921,10 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
     );
     
     if (result) {
-      console.info('Service Worker: thumbnail response cache hit', {
-        cacheKey: originalUrlForCache.toString(),
-        requestedSize: thumbnailSize,
-        servedSize: result.size,
-      });
       const blob = await result.response.blob();
       return createThumbnailResponse(blob);
     }
     
-    console.warn('Service Worker: thumbnail response cache miss', {
-      cacheKey: originalUrlForCache.toString(),
-      requestedSize: thumbnailSize,
-      pathname: url.pathname,
-    });
     // 预览图不存在，回退到原图（继续正常流程）
   }
 

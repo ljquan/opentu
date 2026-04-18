@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, type CSSProperties } from 'react';
 import type { ToolPluginModule } from '../../registry';
 import { ToolCategory } from '../../../types/toolbox.types';
+import { Film } from 'lucide-react';
 
 const MVCreatorOriginal = lazy(
   () => import('../../../components/mv-creator/MVCreator')
@@ -44,7 +45,7 @@ export const mvCreatorTool: ToolPluginModule = {
     id: 'mv-creator',
     name: '爆款MV生成',
     description: '输入创意，AI 生成音乐和分镜视频，一站式 MV 创作',
-    icon: '🎥',
+    icon: <Film size={18} strokeWidth={1.75} />,
     category: ToolCategory.AI_TOOLS,
     component: 'mv-creator',
     supportsMultipleWindows: true,

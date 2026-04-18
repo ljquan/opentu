@@ -54,4 +54,20 @@ describe('markdown-image-blocks', () => {
       isAssetAlt: false,
     });
   });
+
+  it('keeps bare media type hints parseable for asset embeds without labels', () => {
+    expect(parseMarkdownImageAlt('video')).toEqual({
+      assetType: 'video',
+      label: '',
+      rawAlt: 'video',
+      isAssetAlt: true,
+    });
+
+    expect(parseMarkdownImageAlt('audio')).toEqual({
+      assetType: 'audio',
+      label: '',
+      rawAlt: 'audio',
+      isAssetAlt: true,
+    });
+  });
 });
