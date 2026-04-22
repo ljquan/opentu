@@ -40,6 +40,7 @@ import {
   type LLMApiLog,
 } from '../../services/media-executor/llm-api-logger';
 import { normalizeImageDataUrl, truncate } from '@aitu/utils';
+import { getBlockedImageErrorMessage } from '../image-response-guards';
 
 function inferAuthTypeFromRoute(
   route: ReturnType<typeof resolveInvocationRoute>
@@ -150,9 +151,14 @@ function normalizeGoogleImageSize(
   return quality.toUpperCase() as '1K' | '2K' | '4K';
 }
 
-function normalizeGoogleImageResult(content: string): {
+export function normalizeGoogleImageResult(content: string): {
   data: Array<{ b64_json?: string; url?: string }>;
 } {
+  const blockedMessage = getBlockedImageErrorMessage(content);
+  if (blockedMessage) {
+    throw new Error(blockedMessage);
+  }
+
   const base64Matches = Array.from(
     content.matchAll(/data:([^;]+);base64,([A-Za-z0-9+/=]+)/g)
   );

@@ -28,6 +28,11 @@ import { WorkZoneTransforms } from '../plugins/with-workzone';
 import { PlaitBoard } from '@plait/core';
 import { geminiSettings } from '../utils/settings-manager';
 import { useTaskWorkflowSync } from './useTaskWorkflowSync';
+import {
+  workflowCompletionService,
+  type WorkflowCompletionEvent,
+} from '../services/workflow-completion-service';
+import { deriveRecoveredPostProcessingState } from '../utils/workflow-post-processing';
 
 // ============================================================================
 // Workflow Recovery Coordination
@@ -47,6 +52,10 @@ export interface UseWorkflowSubmissionOptions {
   boardRef: React.MutableRefObject<PlaitBoard | null>;
   /** Current WorkZone ID reference */
   workZoneIdRef: React.MutableRefObject<string | null>;
+  /** Optional lifecycle callback for caller-owned UI side effects */
+  onPostProcessingCompleted?: (
+    event: WorkflowCompletionEvent
+  ) => void | Promise<void>;
 }
 
 export interface UseWorkflowSubmissionReturn {
@@ -55,7 +64,8 @@ export interface UseWorkflowSubmissionReturn {
     parsedInput: ParsedGenerationParams,
     referenceImages: string[],
     retryContext?: WorkflowRetryContext,
-    existingWorkflow?: LegacyWorkflowDefinition
+    existingWorkflow?: LegacyWorkflowDefinition,
+    sendOptions?: WorkflowSendOptions
   ) => Promise<{ workflowId: string; usedSW: boolean }>;
   /** Cancel a workflow */
   cancelWorkflow: (workflowId: string) => Promise<void>;
@@ -66,6 +76,15 @@ export interface UseWorkflowSubmissionReturn {
   ) => Promise<void>;
   /** Get current retry context */
   getRetryContext: () => WorkflowRetryContext | null;
+}
+
+export type WorkflowExecutionMode = 'caller-owned' | 'service-owned';
+
+export interface WorkflowSendOptions {
+  autoOpen?: boolean;
+  continueInCurrentSession?: boolean;
+  activateTargetSession?: boolean;
+  executionMode?: WorkflowExecutionMode;
 }
 
 // ============================================================================
@@ -92,6 +111,7 @@ export function toWorkflowMessageData(
     aiAnalysis: workflow.aiAnalysis,
     count: metadata.count,
     createdAt: workflow.createdAt,
+    status: workflow.status,
     steps: workflow.steps.map(step => ({
       id: step.id,
       description: step.description,
@@ -106,6 +126,46 @@ export function toWorkflowMessageData(
     retryContext,
     postProcessingStatus,
     insertedCount,
+    error: workflow.error,
+  };
+}
+
+function toServiceWorkflowDefinition(
+  workflow: LegacyWorkflowDefinition
+): SWWorkflowDefinition {
+  const metadata = workflow.metadata || {};
+  const context = workflow.context || {};
+
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    steps: workflow.steps.map((step) => ({
+      id: step.id,
+      mcp: step.mcp,
+      args: step.args,
+      description: step.description,
+      status: step.status,
+      result: step.result,
+      error: step.error,
+      duration: step.duration,
+      options: step.options,
+    })),
+    status: workflow.status || 'pending',
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt || workflow.createdAt,
+    error: workflow.error,
+    context: {
+      userInput: context.userInput || metadata.userInstruction,
+      model: context.model || metadata.modelId,
+      modelRef: context.modelRef ?? metadata.modelRef ?? null,
+      params: {
+        count: metadata.count,
+        size: metadata.size,
+        duration: metadata.duration,
+      },
+      referenceImages:
+        context.referenceImages || metadata.referenceImages || [],
+    },
   };
 }
 
@@ -157,7 +217,7 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
 export function useWorkflowSubmission(
   options: UseWorkflowSubmissionOptions
 ): UseWorkflowSubmissionReturn {
-  const { boardRef, workZoneIdRef } = options;
+  const { boardRef, workZoneIdRef, onPostProcessingCompleted } = options;
 
   const workflowControl = useWorkflowControl();
   const chatDrawerControl = useChatDrawerControl();
@@ -181,6 +241,15 @@ export function useWorkflowSubmission(
 
   // Current retry context
   const currentRetryContextRef = useRef<WorkflowRetryContext | null>(null);
+  const postProcessingStatusRef = useRef<PostProcessingStatus | undefined>();
+  const insertedCountRef = useRef<number | undefined>();
+  const trackedWorkflowIdRef = useRef<string | null>(null);
+  const ownedWorkflowIdRef = useRef<string | null>(null);
+  const onPostProcessingCompletedRef = useRef(onPostProcessingCompleted);
+
+  useEffect(() => {
+    onPostProcessingCompletedRef.current = onPostProcessingCompleted;
+  }, [onPostProcessingCompleted]);
 
   // Active subscriptions
   const subscriptionsRef = useRef<Subscription[]>([]);
@@ -201,6 +270,75 @@ export function useWorkflowSubmission(
     []
   );
 
+  const subscribeToWorkflowEvents = useCallback(
+    (
+      workflow: LegacyWorkflowDefinition,
+      retryContext: WorkflowRetryContext
+    ): Subscription => {
+      const workflowSub = workflowSubmissionService.subscribeToWorkflow(
+        workflow.id,
+        async (event: WorkflowEvent) => {
+          await handleWorkflowEventRef.current?.(event, workflow, retryContext);
+        }
+      );
+      subscriptionsRef.current.push(workflowSub);
+      return workflowSub;
+    },
+    []
+  );
+
+  const removeWorkflowSubscription = useCallback((subscription: Subscription) => {
+    subscription.unsubscribe();
+    subscriptionsRef.current = subscriptionsRef.current.filter(
+      (entry) => entry !== subscription
+    );
+  }, []);
+
+  const buildWorkflowMessageData = useCallback(
+    (
+      workflow: LegacyWorkflowDefinition,
+      retryContext?: WorkflowRetryContext
+    ): WorkflowMessageData => {
+      const shouldAttachPostProcessing =
+        trackedWorkflowIdRef.current === workflow.id;
+      const recoveredPostProcessing = deriveRecoveredPostProcessingState(workflow);
+      const resolvedPostProcessingStatus =
+        shouldAttachPostProcessing && postProcessingStatusRef.current !== undefined
+          ? postProcessingStatusRef.current
+          : recoveredPostProcessing.postProcessingStatus;
+      const resolvedInsertedCount =
+        shouldAttachPostProcessing && insertedCountRef.current !== undefined
+          ? insertedCountRef.current
+          : recoveredPostProcessing.insertedCount;
+
+      return toWorkflowMessageData(
+        workflow,
+        retryContext,
+        resolvedPostProcessingStatus,
+        resolvedInsertedCount
+      );
+    },
+    []
+  );
+
+  const syncWorkflowPresentation = useCallback(
+    (
+      workflow: LegacyWorkflowDefinition,
+      retryContext?: WorkflowRetryContext
+    ): WorkflowMessageData => {
+      const workflowData = buildWorkflowMessageData(workflow, retryContext);
+      updateWorkflowMessageRef.current(workflowData);
+
+      const board = boardRef.current;
+      const workZoneId = workZoneIdRef.current;
+      if (workZoneId && board) {
+        WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
+      }
+
+      return workflowData;
+    },
+    [boardRef, buildWorkflowMessageData, shouldSyncWorkZone, workZoneIdRef]
+  );
   /**
    * Recover workflows on mount (after page refresh)
    */
@@ -276,26 +414,11 @@ export function useWorkflowSubmission(
             textModel: globalSettings.textModelName,
           };
 
-          const workflowData = toWorkflowMessageData(recoveredWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          const board = boardRef.current;
-          const workZoneId = workZoneIdRef.current;
-          if (
-            shouldSyncWorkZone(recoveredWorkflow.generationType) &&
-            workZoneId &&
-            board
-          ) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-          }
-
-          const workflowSub = workflowSubmissionService.subscribeToWorkflow(
-            recoveredWorkflow.id,
-            async (evt: WorkflowEvent) => {
-              await handleWorkflowEventRef.current?.(evt, recoveredWorkflow, retryContext);
-            }
-          );
-          subscriptionsRef.current.push(workflowSub);
+          trackedWorkflowIdRef.current = recoveredWorkflow.id;
+          postProcessingStatusRef.current = undefined;
+          insertedCountRef.current = undefined;
+          syncWorkflowPresentation(recoveredWorkflow, retryContext);
+          subscribeToWorkflowEvents(recoveredWorkflow, retryContext);
         }
       }
     );
@@ -308,7 +431,14 @@ export function useWorkflowSubmission(
       subscriptionsRef.current.forEach(sub => sub.unsubscribe());
       subscriptionsRef.current = [];
     };
-  }, []);
+  }, [
+    boardRef,
+    recoverWorkflowsOnMount,
+    subscribeToWorkflowEvents,
+    syncWorkflowPresentation,
+    workflowControl,
+    workZoneIdRef,
+  ]);
 
   /**
    * Handle workflow events
@@ -337,12 +467,7 @@ export function useWorkflowSubmission(
         // Sync to ChatDrawer and WorkZone
         const updatedWorkflow = workflowControl.getWorkflow();
         if (updatedWorkflow) {
-          const workflowData = toWorkflowMessageData(updatedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-          }
+          syncWorkflowPresentation(updatedWorkflow, retryContext);
         }
         break;
       }
@@ -375,12 +500,9 @@ export function useWorkflowSubmission(
         // Sync final state to ChatDrawer and WorkZone
         const completedWorkflow = workflowControl.getWorkflow();
         if (completedWorkflow) {
-          const workflowData = toWorkflowMessageData(completedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
+          syncWorkflowPresentation(completedWorkflow, retryContext);
 
           if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-            
             // 检查是否还有 pending 或 running 步骤（AI 分析可能会添加后续步骤）
             const hasPendingSteps = completedWorkflow.steps.some(
               step => step.status === 'pending' || step.status === 'running'
@@ -427,12 +549,7 @@ export function useWorkflowSubmission(
         // Sync failed state to ChatDrawer and WorkZone
         const failedWorkflow = workflowControl.getWorkflow();
         if (failedWorkflow) {
-          const workflowData = toWorkflowMessageData(failedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-          }
+          syncWorkflowPresentation(failedWorkflow, retryContext);
         }
         break;
       }
@@ -452,12 +569,7 @@ export function useWorkflowSubmission(
         // Sync to ChatDrawer and WorkZone
         const workflowWithNewSteps = workflowControl.getWorkflow();
         if (workflowWithNewSteps) {
-          const workflowData = toWorkflowMessageData(workflowWithNewSteps, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-          }
+          syncWorkflowPresentation(workflowWithNewSteps, retryContext);
         }
         break;
       }
@@ -473,7 +585,68 @@ export function useWorkflowSubmission(
         break;
       }
     }
-  }, [workflowControl, boardRef, workZoneIdRef, shouldSyncWorkZone]);
+  }, [
+    boardRef,
+    shouldSyncWorkZone,
+    syncWorkflowPresentation,
+    workflowControl,
+    workZoneIdRef,
+  ]);
+
+  useEffect(() => {
+    const completionSub = workflowCompletionService
+      .observeCompletionEvents()
+      .subscribe((event) => {
+        const workflow = workflowControl.getWorkflow();
+        if (!workflow || trackedWorkflowIdRef.current !== workflow.id) {
+          return;
+        }
+
+        const step = workflow.steps.find((currentStep) => {
+          const result = currentStep.result as { taskId?: string } | undefined;
+          return result?.taskId === event.taskId;
+        });
+
+        if (!step) {
+          return;
+        }
+
+        switch (event.type) {
+          case 'postProcessingStarted':
+            postProcessingStatusRef.current = 'processing';
+            break;
+          case 'postProcessingCompleted':
+            postProcessingStatusRef.current = 'completed';
+            insertedCountRef.current =
+              (insertedCountRef.current || 0) + (event.result.insertedCount || 0);
+            break;
+          case 'postProcessingFailed':
+            postProcessingStatusRef.current = 'failed';
+            break;
+        }
+
+        const updatedWorkflow = workflowControl.getWorkflow();
+        if (updatedWorkflow && trackedWorkflowIdRef.current === updatedWorkflow.id) {
+          syncWorkflowPresentation(
+            updatedWorkflow,
+            currentRetryContextRef.current || undefined
+          );
+        }
+
+        if (
+          event.type === 'postProcessingCompleted' &&
+          ownedWorkflowIdRef.current === workflow.id
+        ) {
+          void onPostProcessingCompletedRef.current?.(event);
+        }
+      });
+
+    subscriptionsRef.current.push(completionSub);
+
+    return () => {
+      removeWorkflowSubscription(completionSub);
+    };
+  }, [removeWorkflowSubscription, syncWorkflowPresentation, workflowControl]);
 
   // Update ref when handleWorkflowEvent changes
   useEffect(() => {
@@ -487,10 +660,15 @@ export function useWorkflowSubmission(
     parsedInput: ParsedGenerationParams,
     referenceImages: string[],
     retryContext?: WorkflowRetryContext,
-    existingWorkflow?: LegacyWorkflowDefinition
+    existingWorkflow?: LegacyWorkflowDefinition,
+    sendOptions?: WorkflowSendOptions
   ): Promise<{ workflowId: string; usedSW: boolean }> => {
     // Use existing workflow if provided, otherwise create a new one
     const legacyWorkflow = existingWorkflow || convertToWorkflow(parsedInput, referenceImages);
+    trackedWorkflowIdRef.current = legacyWorkflow.id;
+    ownedWorkflowIdRef.current = legacyWorkflow.id;
+    postProcessingStatusRef.current = undefined;
+    insertedCountRef.current = undefined;
 
     // Start workflow in WorkflowContext
     workflowControl.startWorkflow(legacyWorkflow);
@@ -527,17 +705,74 @@ export function useWorkflowSubmission(
     currentRetryContextRef.current = finalRetryContext;
 
     // Send to ChatDrawer
-    const workflowMessageData = toWorkflowMessageData(legacyWorkflow, finalRetryContext);
+    const workflowMessageData = buildWorkflowMessageData(
+      legacyWorkflow,
+      finalRetryContext
+    );
     await sendWorkflowMessageRef.current({
       context: finalRetryContext.aiContext,
       workflow: workflowMessageData,
       textModel,
-      autoOpen: false,
+      autoOpen: sendOptions?.autoOpen ?? false,
+      continueInCurrentSession: sendOptions?.continueInCurrentSession ?? false,
+      activateTargetSession: sendOptions?.activateTargetSession ?? true,
     });
 
-    // Always use main thread execution
+    if ((sendOptions?.executionMode ?? 'caller-owned') === 'service-owned') {
+      const workflowSub = subscribeToWorkflowEvents(
+        legacyWorkflow,
+        finalRetryContext
+      );
+
+      try {
+        await workflowSubmissionService.submit(
+          toServiceWorkflowDefinition(legacyWorkflow)
+        );
+      } catch (error) {
+        removeWorkflowSubscription(workflowSub);
+
+        const failureMessage =
+          error instanceof Error ? error.message : 'Workflow execution failed';
+        const failedWorkflow: LegacyWorkflowDefinition = {
+          ...(workflowControl.getWorkflow() || legacyWorkflow),
+          status: 'failed',
+          error: failureMessage,
+          updatedAt: Date.now(),
+        };
+
+        workflowControl.restoreWorkflow(failedWorkflow);
+
+        const failedWorkflowMessage = toWorkflowMessageData(
+          failedWorkflow,
+          finalRetryContext,
+          postProcessingStatusRef.current,
+          insertedCountRef.current
+        );
+        updateWorkflowMessageRef.current(failedWorkflowMessage);
+
+        const board = boardRef.current;
+        const workZoneId = workZoneIdRef.current;
+        if (workZoneId && board) {
+          WorkZoneTransforms.updateWorkflow(
+            board,
+            workZoneId,
+            failedWorkflowMessage
+          );
+        }
+
+        throw error;
+      }
+    }
+
     return { workflowId: legacyWorkflow.id, usedSW: false };
-  }, [workflowControl]);
+  }, [
+    workflowControl,
+    boardRef,
+    workZoneIdRef,
+    buildWorkflowMessageData,
+    subscribeToWorkflowEvents,
+    removeWorkflowSubscription,
+  ]);
 
   /**
    * Cancel a workflow

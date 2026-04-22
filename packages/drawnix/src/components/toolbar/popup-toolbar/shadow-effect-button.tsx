@@ -14,7 +14,7 @@ import { useI18n } from '../../../i18n';
 import { SHADOW_PRESETS, DEFAULT_TEXT_SHADOW, DEFAULT_GLOW } from '../../../constants/text-effects';
 import type { TextShadowConfig, GlowConfig, ShadowEffectConfig } from '../../../types/text-effects.types';
 import { generateTextShadowCSS, generateGlowCSS } from '../../../utils/text-effects-utils';
-import { setTextShadow } from '../../../transforms/property';
+import { setTextShadow as applyTextShadow } from '../../../transforms/property';
 import { ShadowEffectIcon } from '../../icons';
 import './shadow-effect-button.scss';
 
@@ -63,7 +63,7 @@ export const PopupShadowEffectButton: React.FC<PopupShadowEffectButtonProps> = (
       : updates.glow 
         ? generateGlowCSS(updates.glow)
         : null;
-    setTextShadow(board, shadowCSS);
+    applyTextShadow(board, shadowCSS);
     
     onShadowChange?.(newConfig);
   }, [board, currentShadow, textShadow, glow, onShadowChange]);

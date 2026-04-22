@@ -38,7 +38,11 @@ function generateTitle(content: string): string {
 // Session Operations
 // ============================================================================
 
-export async function createSession(): Promise<ChatSession> {
+type CreateSessionOptions = Pick<ChatSession, 'textModelId' | 'textModelRef'>;
+
+export async function createSession(
+  options?: Partial<CreateSessionOptions>
+): Promise<ChatSession> {
   const now = Date.now();
   const session: ChatSession = {
     id: generateId(),
@@ -46,6 +50,8 @@ export async function createSession(): Promise<ChatSession> {
     createdAt: now,
     updatedAt: now,
     messageCount: 0,
+    textModelId: options?.textModelId ?? null,
+    textModelRef: options?.textModelRef ?? null,
   };
 
   await sessionsStore.setItem(session.id, session);

@@ -15,7 +15,15 @@ export class CardGenerator {
   private htmlContainer: HTMLElement | null = null;
   private reactRoot: Root | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private isEditing = false;
   onHeightMeasured?: (height: number) => void;
+
+  setEditing(editing: boolean): void {
+    this.isEditing = editing;
+    if (this.htmlContainer) {
+      this.htmlContainer.style.pointerEvents = editing ? 'auto' : 'none';
+    }
+  }
 
   processDrawing(element: PlaitCard, parentG: SVGGElement): SVGGElement {
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -56,7 +64,7 @@ export class CardGenerator {
     this.htmlContainer.style.cssText = `
       width: 100%;
       height: 100%;
-      pointer-events: none;
+      pointer-events: ${this.isEditing ? 'auto' : 'none'};
     `;
 
     this.foreignObject.appendChild(this.htmlContainer);

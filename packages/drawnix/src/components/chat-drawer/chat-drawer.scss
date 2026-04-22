@@ -11,7 +11,7 @@
 $drawer-min-width: 375px;
 $border-radius: 12px;
 $drawer-header-height: 108px; // 增加了高度以适应新设计
-$drawer-input-height: 160px;
+$drawer-input-height: 208px;
 
 // ============================================================================
 // Chat Drawer Container
@@ -176,7 +176,22 @@ $drawer-input-height: 160px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    height: calc(100vh - #{$drawer-header-height});
+    flex: 1;
+    min-height: 0;
+  }
+
+  &__composer {
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    padding-top: 10px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.94) 14px,
+      #ffffff 100%
+    );
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
   }
 
   &__close-btn {
@@ -781,19 +796,29 @@ $drawer-input-height: 160px;
     padding: $spacing-sm $spacing-md;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + #{$spacing-sm});
 
-    &__form {
-      padding: 6px;
+    &__content-preview {
+      gap: 6px;
+      padding-left: 10px;
+
+      .selected-content-preview {
+        gap: 6px;
+      }
     }
 
     &__textarea {
-      min-height: 60px;
+      min-height: 64px;
       font-size: 15px;
+    }
+
+    &__form {
+      padding: 6px;
     }
 
     &__send {
       width: 36px;
       height: 36px;
       min-width: 36px;
+      border-radius: 50%;
     }
   }
 }
@@ -874,6 +899,15 @@ $drawer-input-height: 160px;
       border-radius: 12px;
     }
 
+    &__content-preview {
+      gap: 4px;
+      padding-left: 8px;
+
+      .selected-content-preview {
+        gap: 4px;
+      }
+    }
+
     &__textarea {
       min-height: 44px;
       max-height: 80px;
@@ -937,6 +971,10 @@ $drawer-input-height: 160px;
   }
 
   .enhanced-chat-input {
+    &__content-preview {
+      padding-left: 6px;
+    }
+
     &__selection-item {
       width: 28px;
       height: 28px;
@@ -1302,157 +1340,61 @@ $drawer-input-height: 160px;
   position: relative;
   flex-shrink: 0;
   max-height: $drawer-input-height;
-  padding: $spacing-md $spacing-lg;
-  border-top: 1px solid var(--td-component-border);
-  background: #ffffff;
-  overflow-y: auto;
-
-  // 选中内容预览（对齐 AIInputBar 样式）
-  &__selection {
-    display: flex;
-    flex-wrap: wrap;
-    gap: $spacing-sm;
-    padding-bottom: $spacing-sm;
-    margin-bottom: $spacing-sm;
-    border-bottom: 1px dashed var(--td-component-border);
-    align-items: center;
-  }
-
-  &__selection-item {
-    position: relative;
-    width: 36px;
-    height: 36px;
-    border-radius: 4px;
-    overflow: hidden;
-    background: #f5f5f5;
-    flex-shrink: 0;
-    cursor: pointer;
-    transition: transform 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &:hover {
-      transform: scale(1.05);
-    }
-
-    img,
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #f5f5f5;
-    }
-
-    &--graphics {
-      border: 1px solid #f39c12;
-    }
-
-    &--video {
-      border: 2px solid #3b82f6;
-    }
-
-    &--text {
-      width: auto;
-      height: auto;
-      min-width: 64px;
-      max-width: 180px;
-      padding: 8px 12px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-    }
-  }
+  padding: 12px $spacing-lg $spacing-md;
+  background: transparent;
+  overflow-x: hidden;
+  overflow-y: visible;
 
   &__form {
     display: flex;
-    align-items: flex-start;
-    gap: $spacing-sm;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
     background: #ffffff;
-    border-radius: 16px;
-    padding: 8px;
-    border: 1px solid var(--td-component-border);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-    transition: all 0.3s ease;
+    border-radius: 24px;
+    padding: 8px 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    transition: all 0.2s ease;
 
     &:focus-within {
-      border-color: var(--td-brand-color);
-      box-shadow: 0 4px 20px rgba(243, 156, 18, 0.15);
+      box-shadow:
+        0 4px 16px rgba(15, 23, 42, 0.08),
+        0 0 0 2px rgba(245, 158, 11, 0.08);
     }
   }
 
   &__input-wrapper {
     position: relative;
-    flex: 1;
+    width: 100%;
+    min-width: 0;
   }
 
-  // 高亮背景层 - 显示模型/参数/个数标签的背景色块
-  &__highlight-layer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 10px 12px;
-    font-size: 14px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    word-break: break-word;
-    pointer-events: none;
-    font-family: inherit;
-    overflow: hidden;
-    z-index: 1;
+  &__content-preview {
+    pointer-events: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding: 0;
+    padding-left: 12px;
     box-sizing: border-box;
-  }
+    flex-shrink: 0;
 
-  &__highlight-text {
-    color: transparent;
-  }
-
-  &__highlight-tag {
-    color: transparent;
-    border-radius: 3px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    padding: 0 2px;
-    margin: 0 -2px;
-
-    // 图片模型标签 - 红色背景
-    &--image {
-      background: rgba(229, 57, 53, 0.15);
-    }
-
-    // 视频模型标签 - 橙色背景
-    &--video {
-      background: rgba(255, 152, 0, 0.15);
-    }
-
-    // 参数标签 - 紫色背景
-    &--param {
-      background: rgba(156, 39, 176, 0.15);
-    }
-
-    // 个数标签 - 蓝色背景
-    &--count {
-      background: rgba(33, 150, 243, 0.15);
+    .selected-content-preview {
+      gap: 8px;
     }
   }
 
   &__textarea {
-    position: relative;
-    z-index: 2;
     width: 100%;
-    min-height: 88px;
+    min-height: 72px;
     max-height: 120px;
-    padding: 10px 12px;
+    padding: 6px 12px 0;
     background: transparent;
     border: none;
     border-radius: 12px;
     resize: none;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
     font-family: inherit;
     color: var(--td-text-color-primary);
@@ -1461,6 +1403,111 @@ $drawer-input-height: 160px;
 
     &::placeholder {
       color: var(--td-text-color-placeholder);
+    }
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-top: 2px;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  &__bottom-bar {
+    justify-content: flex-start;
+    margin-top: 0;
+    padding: 0;
+  }
+
+  &__file-input {
+    display: none;
+  }
+
+  &__action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  &__tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  &__bottom-spacer {
+    flex: 1;
+    min-width: 8px;
+  }
+
+  &__tool-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #f3f4f6;
+    border-radius: 8px;
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+
+    &:hover:not(:disabled) {
+      color: #1f2937;
+      background: #f3f4f6;
+      border-color: #9ca3af;
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.95);
+      background: rgba(245, 158, 11, 0.08);
+      border-color: rgba(245, 158, 11, 0.24);
+      color: #d97706;
+    }
+
+    &:focus-visible {
+      outline: 2px solid rgba(245, 158, 11, 0.35);
+      outline-offset: 2px;
+      background: rgba(245, 158, 11, 0.08);
+      color: #d97706;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    &--selected {
+      background: rgba(245, 158, 11, 0.08);
+      border-color: rgba(245, 158, 11, 0.22);
+      color: #d97706;
+
+      &:hover:not(:disabled) {
+        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.3);
+      }
+
+      &:active:not(:disabled) {
+        background: rgba(245, 158, 11, 0.16);
+      }
+    }
+
+    svg {
+      flex-shrink: 0;
     }
   }
 
@@ -1482,11 +1529,15 @@ $drawer-input-height: 160px;
       background: #f59e0b;
       color: #fff;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+      box-shadow: 0 6px 14px rgba(245, 158, 11, 0.24);
 
       &:hover {
         background: #d97706;
         transform: scale(1.05);
+      }
+
+      &:active {
+        transform: scale(0.95);
       }
     }
 
@@ -1498,8 +1549,8 @@ $drawer-input-height: 160px;
     }
 
     svg {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAspectRatio } from './services';
+import { normalizeAspectRatio, normalizeGoogleImageResult } from './services';
 
 describe('normalizeAspectRatio', () => {
   it('preserves canonical Gemini aspect ratio enums', () => {
@@ -19,3 +19,25 @@ describe('normalizeAspectRatio', () => {
   });
 });
 
+describe('normalizeGoogleImageResult', () => {
+  it('extracts inline image data from normal responses', () => {
+    const result = normalizeGoogleImageResult(
+      'ok data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    );
+
+    expect(result.data).toEqual([
+      {
+        b64_json:
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      },
+    ]);
+  });
+
+  it('rejects blocked prompt placeholder responses before extracting image data', () => {
+    expect(() =>
+      normalizeGoogleImageResult(
+        'prompt_blocked code: prompt_blocked reason: PROHIBITED_CONTENT data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+      )
+    ).toThrow('内容被拒绝');
+  });
+});

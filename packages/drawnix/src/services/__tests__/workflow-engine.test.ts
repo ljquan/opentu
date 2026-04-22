@@ -16,6 +16,71 @@ import type {
   WorkflowStepStatus,
 } from '../workflow-engine/types';
 
+function mockWorkflowEngineDependencies() {
+  vi.doMock('../media-executor', () => ({
+    executorFactory: {
+      getFallbackExecutor: () => ({
+        name: 'Mock',
+        isAvailable: async () => true,
+        generateImage: async () => {},
+        generateVideo: async () => {},
+        aiAnalyze: async () => {},
+        generateText: async () => ({ content: 'test' }),
+      }),
+      getExecutor: async () => ({
+        name: 'Mock',
+        isAvailable: async () => true,
+        generateImage: async () => {},
+        generateVideo: async () => {},
+        aiAnalyze: async () => {},
+        generateText: async () => ({ content: 'test' }),
+      }),
+    },
+    taskStorageWriter: {},
+  }));
+
+  vi.doMock('../media-generation', () => ({
+    generateImage: async () => ({
+      task: {
+        id: 'test-task',
+        status: 'completed',
+        result: { url: 'https://example.com/test.png' },
+      },
+      url: 'https://example.com/test.png',
+    }),
+    generateVideo: async () => ({
+      task: {
+        id: 'test-task',
+        status: 'completed',
+        result: { url: 'https://example.com/test.mp4' },
+      },
+    }),
+    TaskStatus: {
+      FAILED: 'failed',
+    },
+  }));
+
+  vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
+    workflowStorageWriter: {
+      isAvailable: async () => true,
+      createWorkflow: async () => {},
+      updateWorkflowStatus: async () => {},
+      updateStepStatus: async () => {},
+      completeWorkflow: async () => {},
+      failWorkflow: async () => {},
+      saveWorkflow: async () => {},
+      getWorkflow: async () => undefined,
+    },
+  }));
+
+  vi.doMock('../media-executor/task-polling', () => ({
+    waitForTaskCompletion: async () => ({
+      success: true,
+      task: { id: 'test', status: 'completed' },
+    }),
+  }));
+}
+
 describe('WorkflowEngine Module', () => {
   describe('Workflow Types', () => {
     it('should define correct WorkflowStep structure', () => {
@@ -199,36 +264,7 @@ describe('WorkflowEngine Module', () => {
     });
 
     it('should export WorkflowEngine class', async () => {
-      vi.doMock('../media-executor/factory', () => ({
-        executorFactory: {
-          getExecutor: async () => ({
-            name: 'Mock',
-            isAvailable: async () => true,
-            generateImage: async () => {},
-            generateVideo: async () => {},
-            aiAnalyze: async () => {},
-            generateText: async () => ({ content: 'test' }),
-          }),
-        },
-      }));
-
-      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
-        workflowStorageWriter: {
-          isAvailable: async () => true,
-          createWorkflow: async () => {},
-          updateWorkflowStatus: async () => {},
-          updateStepStatus: async () => {},
-          completeWorkflow: async () => {},
-          failWorkflow: async () => {},
-        },
-      }));
-
-      vi.doMock('../media-executor/task-polling', () => ({
-        waitForTaskCompletion: async () => ({
-          success: true,
-          task: { id: 'test', status: 'completed' },
-        }),
-      }));
+      mockWorkflowEngineDependencies();
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
 
@@ -237,36 +273,7 @@ describe('WorkflowEngine Module', () => {
     });
 
     it('should create engine with event handler', async () => {
-      vi.doMock('../media-executor/factory', () => ({
-        executorFactory: {
-          getExecutor: async () => ({
-            name: 'Mock',
-            isAvailable: async () => true,
-            generateImage: async () => {},
-            generateVideo: async () => {},
-            aiAnalyze: async () => {},
-            generateText: async () => ({ content: 'test' }),
-          }),
-        },
-      }));
-
-      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
-        workflowStorageWriter: {
-          isAvailable: async () => true,
-          createWorkflow: async () => {},
-          updateWorkflowStatus: async () => {},
-          updateStepStatus: async () => {},
-          completeWorkflow: async () => {},
-          failWorkflow: async () => {},
-        },
-      }));
-
-      vi.doMock('../media-executor/task-polling', () => ({
-        waitForTaskCompletion: async () => ({
-          success: true,
-          task: { id: 'test', status: 'completed' },
-        }),
-      }));
+      mockWorkflowEngineDependencies();
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
 
@@ -279,36 +286,7 @@ describe('WorkflowEngine Module', () => {
     });
 
     it('should have submitWorkflow method', async () => {
-      vi.doMock('../media-executor/factory', () => ({
-        executorFactory: {
-          getExecutor: async () => ({
-            name: 'Mock',
-            isAvailable: async () => true,
-            generateImage: async () => {},
-            generateVideo: async () => {},
-            aiAnalyze: async () => {},
-            generateText: async () => ({ content: 'test' }),
-          }),
-        },
-      }));
-
-      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
-        workflowStorageWriter: {
-          isAvailable: async () => true,
-          createWorkflow: async () => {},
-          updateWorkflowStatus: async () => {},
-          updateStepStatus: async () => {},
-          completeWorkflow: async () => {},
-          failWorkflow: async () => {},
-        },
-      }));
-
-      vi.doMock('../media-executor/task-polling', () => ({
-        waitForTaskCompletion: async () => ({
-          success: true,
-          task: { id: 'test', status: 'completed' },
-        }),
-      }));
+      mockWorkflowEngineDependencies();
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
       const engine = new WorkflowEngine({ onEvent: () => {} });
@@ -317,36 +295,7 @@ describe('WorkflowEngine Module', () => {
     });
 
     it('should have getWorkflow method', async () => {
-      vi.doMock('../media-executor/factory', () => ({
-        executorFactory: {
-          getExecutor: async () => ({
-            name: 'Mock',
-            isAvailable: async () => true,
-            generateImage: async () => {},
-            generateVideo: async () => {},
-            aiAnalyze: async () => {},
-            generateText: async () => ({ content: 'test' }),
-          }),
-        },
-      }));
-
-      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
-        workflowStorageWriter: {
-          isAvailable: async () => true,
-          createWorkflow: async () => {},
-          updateWorkflowStatus: async () => {},
-          updateStepStatus: async () => {},
-          completeWorkflow: async () => {},
-          failWorkflow: async () => {},
-        },
-      }));
-
-      vi.doMock('../media-executor/task-polling', () => ({
-        waitForTaskCompletion: async () => ({
-          success: true,
-          task: { id: 'test', status: 'completed' },
-        }),
-      }));
+      mockWorkflowEngineDependencies();
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
       const engine = new WorkflowEngine({ onEvent: () => {} });
@@ -355,42 +304,81 @@ describe('WorkflowEngine Module', () => {
     });
 
     it('should return undefined for non-existent workflow', async () => {
-      vi.doMock('../media-executor/factory', () => ({
-        executorFactory: {
-          getExecutor: async () => ({
-            name: 'Mock',
-            isAvailable: async () => true,
-            generateImage: async () => {},
-            generateVideo: async () => {},
-            aiAnalyze: async () => {},
-            generateText: async () => ({ content: 'test' }),
-          }),
-        },
-      }));
-
-      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
-        workflowStorageWriter: {
-          isAvailable: async () => true,
-          createWorkflow: async () => {},
-          updateWorkflowStatus: async () => {},
-          updateStepStatus: async () => {},
-          completeWorkflow: async () => {},
-          failWorkflow: async () => {},
-        },
-      }));
-
-      vi.doMock('../media-executor/task-polling', () => ({
-        waitForTaskCompletion: async () => ({
-          success: true,
-          task: { id: 'test', status: 'completed' },
-        }),
-      }));
+      mockWorkflowEngineDependencies();
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
       const engine = new WorkflowEngine({ onEvent: () => {} });
 
       const result = engine.getWorkflow('non-existent-id');
       expect(result).toBeUndefined();
+    });
+
+    it('should emit taskId on running step as soon as queued media task is created', async () => {
+      vi.doMock('../media-executor', () => ({
+        executorFactory: {
+          getFallbackExecutor: vi.fn(),
+        },
+        taskStorageWriter: {},
+      }));
+
+      vi.doMock('../media-generation', () => ({
+        generateImage: vi.fn(async (_prompt: string, options?: { onTaskCreated?: (taskId: string) => void }) => {
+          options?.onTaskCreated?.('task-1');
+          return {
+            task: {
+              id: 'task-1',
+              status: 'completed',
+              result: { url: 'https://example.com/apple.png' },
+            },
+          };
+        }),
+        generateVideo: vi.fn(),
+        TaskStatus: {
+          FAILED: 'failed',
+        },
+      }));
+
+      vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
+        workflowStorageWriter: {
+          saveWorkflow: vi.fn().mockResolvedValue(undefined),
+        },
+      }));
+
+      const { WorkflowEngine } = await import('../workflow-engine/engine');
+
+      const events: WorkflowEvent[] = [];
+      const engine = new WorkflowEngine({
+        onEvent: (event) => events.push(event),
+        forceFallbackExecutor: true,
+      });
+
+      const workflow: Workflow = {
+        id: 'workflow-1',
+        name: 'Image Workflow',
+        status: 'pending',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        steps: [
+          {
+            id: 'step-1',
+            mcp: 'generate_image',
+            args: { prompt: '生成一个苹果', model: 'gemini-image' },
+            description: '生成图片',
+            status: 'pending',
+          },
+        ],
+      };
+
+      await engine.submitWorkflow(workflow);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(events).toContainEqual({
+        type: 'step',
+        workflowId: 'workflow-1',
+        stepId: 'step-1',
+        status: 'running',
+        result: { taskId: 'task-1' },
+      });
     });
   });
 });

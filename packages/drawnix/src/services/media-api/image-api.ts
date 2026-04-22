@@ -12,6 +12,7 @@ import type {
   AsyncTaskSubmitResponse,
 } from './types';
 import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
+import { getBlockedImageErrorMessage } from '../../utils/image-response-guards';
 import {
   isAsyncImageModel,
   normalizeApiBase,
@@ -77,6 +78,11 @@ export function buildImageRequestBody(params: ImageGenerationParams): Record<str
  * 解析同步图片生成响应
  */
 export function parseImageResponse(data: Record<string, unknown>): ImageGenerationResult {
+  const blockedMessage = getBlockedImageErrorMessage(data);
+  if (blockedMessage) {
+    throw new Error(blockedMessage);
+  }
+
   // 支持多种响应格式
   if (data.data && Array.isArray(data.data)) {
     const urls = data.data

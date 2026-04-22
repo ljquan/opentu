@@ -5,14 +5,67 @@
  * 支持 #模型、-参数、+数量 语法解析和建议面板控制
  */
 
-import { useState, useRef, useCallback, useEffect, RefObject } from 'react';
-import {
-  useTriggerDetection,
-  insertToInput,
-  TRIGGER_CHARS,
-} from '../components/ai-input-bar/smart-suggestion-panel';
-import type { PromptItem } from '../components/ai-input-bar/smart-suggestion-panel/types';
+import { useState, useCallback, useEffect, RefObject } from 'react';
 import { useTextSelection } from './useTextSelection';
+
+type TriggerMode = 'model' | 'param' | 'count';
+
+interface PromptItem {
+  content: string;
+}
+
+const TRIGGER_CHARS = {
+  model: '#',
+  param: '-',
+  count: '+',
+} as const;
+
+function useTriggerDetection(input: string, _hasSelection: boolean): {
+  mode: TriggerMode | null;
+  triggerPosition: number | undefined;
+} {
+  const triggerEntries = Object.entries(TRIGGER_CHARS).map(([mode, char]) => ({
+    mode: mode as TriggerMode,
+    index: input.lastIndexOf(char),
+  }));
+  const activeTrigger = triggerEntries.reduce<{
+    mode: TriggerMode | null;
+    index: number;
+  }>(
+    (latest, current) =>
+      current.index > latest.index
+        ? { mode: current.mode, index: current.index }
+        : latest,
+    { mode: null, index: -1 }
+  );
+
+  return {
+    mode: activeTrigger.mode,
+    triggerPosition:
+      activeTrigger.index >= 0 ? activeTrigger.index : undefined,
+  };
+}
+
+function insertToInput(
+  input: string,
+  value: string,
+  triggerPosition: number | undefined,
+  triggerChar: string
+): string {
+  if (triggerPosition === undefined) {
+    return input.length > 0 ? `${input} ${triggerChar}${value}` : `${triggerChar}${value}`;
+  }
+
+  const nextWhitespaceIndex = input
+    .slice(triggerPosition)
+    .search(/\s/);
+  const endIndex =
+    nextWhitespaceIndex >= 0
+      ? triggerPosition + nextWhitespaceIndex
+      : input.length;
+
+  return `${input.slice(0, triggerPosition + 1)}${value}${input.slice(endIndex)}`;
+}
 
 export interface UseSmartInputOptions {
   /** 是否有选中内容 */
@@ -83,7 +136,7 @@ export function useSmartInput(options: UseSmartInputOptions): UseSmartInputRetur
       }
     } else {
       // 主动模式：有选中内容时自动提示
-      if (mode && mode !== 'prompt') {
+      if (mode) {
         setShowSuggestion(true);
       } else if (!hasSelection) {
         setShowSuggestion(false);

@@ -3,14 +3,14 @@
  * 处理工具执行结果
  */
 
-import type { MCPToolResult, MCPContentItem } from '../types/mcp.types';
+import type { MCPToolResult, MCPContent } from '../types/mcp.types';
 
 export class ToolResponseHelper {
   /**
    * 创建成功响应
    */
-  static success(content: string | MCPContentItem[]): MCPToolResult {
-    const contentItems: MCPContentItem[] = typeof content === 'string'
+  static success(content: string | MCPContent[]): MCPToolResult {
+    const contentItems: MCPContent[] = typeof content === 'string'
       ? [{ type: 'text', text: content }]
       : content;
 
@@ -37,7 +37,10 @@ export class ToolResponseHelper {
     if (!result.content) return '';
 
     return result.content
-      .filter((item): item is MCPContentItem & { type: 'text' } => item.type === 'text')
+      .filter(
+        (item): item is MCPContent & { type: 'text'; text: string } =>
+          item.type === 'text' && typeof item.text === 'string'
+      )
       .map((item) => item.text)
       .join('\n');
   }
@@ -53,7 +56,7 @@ export class ToolResponseHelper {
    * 合并多个响应
    */
   static merge(results: MCPToolResult[]): MCPToolResult {
-    const allContent: MCPContentItem[] = [];
+    const allContent: MCPContent[] = [];
     let hasError = false;
 
     for (const result of results) {

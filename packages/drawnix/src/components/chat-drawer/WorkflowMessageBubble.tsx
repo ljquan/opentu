@@ -8,7 +8,11 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage } from '@llamaindex/chat-ui';
 import type { Message } from '@llamaindex/chat-ui';
 import type { WorkflowMessageData, AgentLogEntry } from '../../types/chat.types';
+import { taskQueueService } from '../../services/task-queue-service';
 import { MermaidRenderer } from './MermaidRenderer';
+import { UnifiedMediaViewer } from '../shared';
+import type { UnifiedMediaItem as MediaItem } from '../shared';
+import { normalizeWorkflowPostProcessing } from '../../utils/workflow-post-processing';
 import './workflow-message-bubble.scss';
 
 // ============ 状态图标映射 ============
@@ -30,6 +34,108 @@ const STATUS_LABELS: Record<StepStatus, string> = {
   failed: '失败',
   skipped: '已跳过',
 };
+
+const WORKFLOW_MEDIA_TOOL_TYPES: Record<string, MediaItem['type']> = {
+  generate_image: 'image',
+  generate_grid_image: 'image',
+  generate_photo_wall: 'image',
+  generate_inspiration_board: 'image',
+  generate_video: 'video',
+  generate_long_video: 'video',
+  generate_audio: 'audio',
+};
+
+function getWorkflowStepTaskIds(
+  step: WorkflowMessageData['steps'][number]
+): string[] {
+  const result =
+    step.result && typeof step.result === 'object'
+      ? (step.result as { taskId?: unknown; taskIds?: unknown })
+      : undefined;
+  const ids = new Set<string>();
+
+  if (typeof result?.taskId === 'string' && result.taskId) {
+    ids.add(result.taskId);
+  }
+
+  if (Array.isArray(result?.taskIds)) {
+    result.taskIds.forEach((taskId) => {
+      if (typeof taskId === 'string' && taskId) {
+        ids.add(taskId);
+      }
+    });
+  }
+
+  return Array.from(ids);
+}
+
+function getStepMediaType(
+  step: WorkflowMessageData['steps'][number]
+): MediaItem['type'] | null {
+  return WORKFLOW_MEDIA_TOOL_TYPES[step.mcp] || null;
+}
+
+function extractMediaItemsFromWorkflowStep(
+  step: WorkflowMessageData['steps'][number],
+  stepIndex: number
+): MediaItem[] {
+  const mediaType = getStepMediaType(step);
+  if (!mediaType) {
+    return [];
+  }
+
+  const sources: Array<Record<string, unknown>> = [];
+  if (step.result && typeof step.result === 'object') {
+    sources.push(step.result as Record<string, unknown>);
+  }
+
+  getWorkflowStepTaskIds(step).forEach((taskId) => {
+    const task = taskQueueService.getTask(taskId);
+    if (task?.result) {
+      sources.push(task.result as unknown as Record<string, unknown>);
+    }
+  });
+
+  const items: MediaItem[] = [];
+  const seen = new Set<string>();
+
+  sources.forEach((source) => {
+    const urls = Array.isArray(source.urls)
+      ? source.urls.filter((url): url is string => typeof url === 'string' && Boolean(url))
+      : typeof source.url === 'string' && source.url
+      ? [source.url]
+      : [];
+
+    if (urls.length === 0) {
+      return;
+    }
+
+    const posterUrl =
+      typeof source.previewImageUrl === 'string'
+        ? source.previewImageUrl
+        : typeof source.thumbnailUrl === 'string'
+        ? source.thumbnailUrl
+        : undefined;
+
+    urls.forEach((url) => {
+      const key = `${mediaType}:${url}`;
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      items.push({
+        type: mediaType,
+        url,
+        posterUrl,
+        alt: `工作流结果 ${items.length + 1}`,
+        title: `${step.description} ${stepIndex + 1}`,
+      });
+    });
+  });
+
+  return items;
+}
 
 // ============ 单个步骤项组件 ============
 
@@ -287,8 +393,13 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   onRetry,
   isRetrying = false,
 }) => {
+  const resolvedWorkflow = useMemo(
+    () => normalizeWorkflowPostProcessing(workflow),
+    [workflow]
+  );
+
   const normalizedSteps = useMemo(() => {
-    return workflow.steps.map((step) => {
+    return resolvedWorkflow.steps.map((step) => {
       const stepResult = step.result as { taskId?: string } | undefined;
       const hasPendingTask = Boolean(stepResult?.taskId);
       const hasCompletedResult = step.result !== undefined && step.result !== null;
@@ -304,16 +415,16 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
       }
       return step;
     });
-  }, [workflow.steps]);
+  }, [resolvedWorkflow.steps]);
 
   // 检查是否需要后处理（图片生成类任务需要拆分和插入画布）
   const needsPostProcessing = useMemo(() => {
-    return workflow.generationType === 'image' && normalizedSteps.some(s =>
+    return resolvedWorkflow.generationType === 'image' && normalizedSteps.some(s =>
       s.mcp === 'generate_image' ||
       s.mcp === 'generate_grid_image' ||
       s.mcp === 'generate_inspiration_board'
     );
-  }, [workflow.generationType, normalizedSteps]);
+  }, [resolvedWorkflow.generationType, normalizedSteps]);
 
   // 计算工作流状态（考虑后处理）
   const workflowStatus = useMemo(() => {
@@ -329,7 +440,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
     } else if (completedSteps === totalSteps && totalSteps > 0) {
       // 所有步骤完成，但需要检查后处理状态
       if (needsPostProcessing) {
-        const postStatus = workflow.postProcessingStatus;
+        const postStatus = resolvedWorkflow.postProcessingStatus;
         if (postStatus === 'completed') {
           status = 'completed';
         } else if (postStatus === 'failed') {
@@ -348,7 +459,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
     }
 
     return { status, totalSteps, completedSteps };
-  }, [normalizedSteps, workflow.postProcessingStatus, needsPostProcessing]);
+  }, [normalizedSteps, resolvedWorkflow.postProcessingStatus, needsPostProcessing]);
 
   // 计算进度
   const progress = workflowStatus.totalSteps > 0 
@@ -366,15 +477,15 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
 
     // 如果所有步骤完成但正在后处理，显示特定状态
     const allStepsCompleted = normalizedSteps.every(s => s.status === 'completed');
-    if (allStepsCompleted && needsPostProcessing && workflow.postProcessingStatus === 'processing') {
+    if (allStepsCompleted && needsPostProcessing && resolvedWorkflow.postProcessingStatus === 'processing') {
       return '正在插入画布';
     }
-    if (allStepsCompleted && needsPostProcessing && !workflow.postProcessingStatus) {
+    if (allStepsCompleted && needsPostProcessing && !resolvedWorkflow.postProcessingStatus) {
       return '正在处理';
     }
 
     return baseLabels[workflowStatus.status];
-  }, [workflowStatus.status, normalizedSteps, workflow.postProcessingStatus, needsPostProcessing]);
+  }, [workflowStatus.status, normalizedSteps, resolvedWorkflow.postProcessingStatus, needsPostProcessing]);
 
   const isCompleted = workflowStatus.status === 'completed';
   const isFailed = workflowStatus.status === 'failed';
@@ -416,8 +527,8 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
     }
 
     // 没有步骤返回 content，使用 workflow.aiAnalysis
-    return workflow.aiAnalysis || '';
-  }, [isCompleted, normalizedSteps, workflow.aiAnalysis]);
+    return resolvedWorkflow.aiAnalysis || '';
+  }, [isCompleted, normalizedSteps, resolvedWorkflow.aiAnalysis]);
 
   // 检查是否有媒体生成步骤（图片/视频）
   const hasMediaGeneration = useMemo(() => {
@@ -475,11 +586,18 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   // 当前执行步骤的 ref，用于自动滚动
   const currentStepRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const hasAutoScrolledRef = useRef(false);
 
   // 当步骤状态变化时，自动滚动到当前执行的步骤
   useEffect(() => {
     // 只在运行中时自动滚动
     if (!isRunning) return;
+
+    // 跳过首次挂载，避免刷新恢复时被旧的运行中卡片抢走视图。
+    if (!hasAutoScrolledRef.current) {
+      hasAutoScrolledRef.current = true;
+      return;
+    }
 
     // 使用 requestAnimationFrame 确保 DOM 更新后再滚动
     requestAnimationFrame(() => {
@@ -494,7 +612,18 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   }, [currentStepIndex, isRunning, normalizedSteps.length]);
 
   // 检查是否可以重试（有重试上下文且有失败步骤）
-  const canRetry = isFailed && workflow.retryContext && firstFailedStepIndex >= 0;
+  const canRetry = isFailed && resolvedWorkflow.retryContext && firstFailedStepIndex >= 0;
+  const mediaItems = useMemo(() => {
+    if (!hasMediaGeneration) {
+      return [];
+    }
+
+    return normalizedSteps.flatMap((step, index) =>
+      extractMediaItemsFromWorkflowStep(step, index)
+    );
+  }, [hasMediaGeneration, normalizedSteps]);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   // 处理重试点击
   const handleRetry = () => {
@@ -507,11 +636,11 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
     <div ref={bubbleRef} className={`workflow-bubble chat-message chat-message--assistant ${className}`}>
       <div className="chat-message-avatar">
         <span>
-          {workflow.generationType === 'image'
+          {resolvedWorkflow.generationType === 'image'
             ? '🖼️'
-            : workflow.generationType === 'video'
+            : resolvedWorkflow.generationType === 'video'
             ? '🎬'
-            : workflow.generationType === 'audio'
+            : resolvedWorkflow.generationType === 'audio'
             ? '🎵'
             : '📝'}
         </span>
@@ -519,7 +648,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
       <div className="workflow-bubble__content chat-message-content">
         {/* 头部 */}
         <div className="workflow-bubble__header">
-          <span className="workflow-bubble__title">{workflow.name}</span>
+          <span className="workflow-bubble__title">{resolvedWorkflow.name}</span>
           <div className="workflow-bubble__status-info">
             <span className={`workflow-bubble__status workflow-bubble__status--${workflowStatus.status}`}>
               {statusLabel}
@@ -539,13 +668,13 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
         </div>
 
         {/* 原始请求 */}
-        {workflow.prompt && (
+        {resolvedWorkflow.prompt && (
           <div className="workflow-bubble__prompt">
             <span className="workflow-bubble__label">请求:</span>
             <span className="workflow-bubble__prompt-text">
-              {workflow.prompt.length > 100
-                ? `${workflow.prompt.substring(0, 100)}...`
-                : workflow.prompt}
+              {resolvedWorkflow.prompt.length > 100
+                ? `${resolvedWorkflow.prompt.substring(0, 100)}...`
+                : resolvedWorkflow.prompt}
             </span>
           </div>
         )}
@@ -563,16 +692,56 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
         </div>
 
         {/* Agent 执行日志 */}
-        {workflow.logs && workflow.logs.length > 0 && (
+        {resolvedWorkflow.logs && resolvedWorkflow.logs.length > 0 && (
           <div className="workflow-bubble__logs">
             <div className="workflow-bubble__logs-header">
               <span className="workflow-bubble__logs-title">执行详情</span>
             </div>
             <div className="workflow-bubble__logs-list">
-              {workflow.logs.map((log, index) => (
+              {resolvedWorkflow.logs.map((log, index) => (
                 <AgentLogItem key={`log-${index}-${log.timestamp}`} log={log} />
               ))}
             </div>
+          </div>
+        )}
+
+        {!isFailed && mediaItems.length > 0 && (
+          <div className="workflow-bubble__media">
+            {mediaItems.map((item, index) => (
+              <button
+                key={`${item.type}-${item.url}-${index}`}
+                type="button"
+                className={`workflow-bubble__media-item workflow-bubble__media-item--${item.type}`}
+                aria-label={`预览结果 ${index + 1}`}
+                onClick={() => {
+                  setPreviewIndex(index);
+                  setPreviewVisible(true);
+                }}
+              >
+                <div className="workflow-bubble__media-thumb">
+                  {item.type === 'audio' && !item.posterUrl ? (
+                    <div className="workflow-bubble__media-placeholder">
+                      <span>🎵</span>
+                    </div>
+                  ) : (
+                    <img
+                      className="workflow-bubble__media-image"
+                      src={
+                        item.type === 'image'
+                          ? item.url
+                          : item.posterUrl || item.url
+                      }
+                      alt={`工作流结果 ${index + 1}`}
+                    />
+                  )}
+                  {item.type !== 'image' && (
+                    <span className="workflow-bubble__media-badge">
+                      {item.type === 'video' ? '视频' : '音频'}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
           </div>
         )}
 
@@ -616,6 +785,14 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
             )}
           </div>
         )}
+
+        <UnifiedMediaViewer
+          visible={previewVisible}
+          items={mediaItems}
+          initialIndex={previewIndex}
+          onClose={() => setPreviewVisible(false)}
+          showThumbnails={true}
+        />
       </div>
     </div>
   );

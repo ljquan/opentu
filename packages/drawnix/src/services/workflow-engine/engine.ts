@@ -388,7 +388,15 @@ export class WorkflowEngine {
           onTaskCreated: (taskId) => {
             // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
             step.result = { taskId };
-            workflowStorageWriter.saveWorkflow(workflow);
+            workflow.updatedAt = Date.now();
+            void workflowStorageWriter.saveWorkflow(workflow);
+            this.emitEvent({
+              type: 'step',
+              workflowId: workflow.id,
+              stepId: step.id,
+              status: 'running',
+              result: { taskId },
+            });
           },
         });
 
@@ -419,7 +427,15 @@ export class WorkflowEngine {
           onTaskCreated: (taskId) => {
             // 提前持久化 taskId，页面刷新后 useTaskWorkflowSync 可通过此映射匹配事件
             step.result = { taskId };
-            workflowStorageWriter.saveWorkflow(workflow);
+            workflow.updatedAt = Date.now();
+            void workflowStorageWriter.saveWorkflow(workflow);
+            this.emitEvent({
+              type: 'step',
+              workflowId: workflow.id,
+              stepId: step.id,
+              status: 'running',
+              result: { taskId },
+            });
           },
         });
 

@@ -12,7 +12,7 @@ import {
   hasImageParts,
 } from '../../utils/gemini-api/message-utils';
 import type { AgentResult, AgentExecuteOptions, ToolCall, AgentExecutionContext } from '../../mcp/types';
-import { generateSystemPrompt, generateReferenceImagesPrompt } from './system-prompts';
+import { generateSystemPrompt } from './system-prompts';
 import { parseToolCalls, extractTextContent } from './tool-parser';
 import { geminiSettings } from '../../utils/settings-manager';
 import { analytics } from '../../utils/posthog-analytics';
@@ -21,6 +21,10 @@ import {
   resolveInvocationPlanFromRoute,
   supportsTextBindingImageInput,
 } from '../provider-routing';
+import {
+  buildReferenceImageSystemPrompt,
+  getReferenceImagePlaceholderMappings,
+} from './reference-image-context';
 
 /**
  * 将占位符替换为真实图片 URL
@@ -121,7 +125,11 @@ export function buildStructuredUserMessage(context: AgentExecutionContext): stri
     // 图片（包括图形转换的图片）
     if (hasImages) {
       const allImages = [...context.selection.images, ...context.selection.graphics];
-      const placeholders = allImages.map((_, i) => `[图片${i + 1}]`).join('、');
+      const placeholders = getReferenceImagePlaceholderMappings(
+        allImages.length
+      )
+        .map((item) => item.placeholder)
+        .join('、');
       parts.push(`- **参考图片**: ${placeholders}`);
     }
 
@@ -295,7 +303,7 @@ class AgentExecutor {
 
         // 如果有参考图片，添加补充说明（使用占位符方式，包含尺寸信息）
         if (allReferenceImages.length > 0) {
-          systemPrompt += generateReferenceImagesPrompt(
+          systemPrompt += buildReferenceImageSystemPrompt(
             allReferenceImages.length,
             context.selection.imageDimensions
           );

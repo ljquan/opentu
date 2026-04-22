@@ -4,6 +4,8 @@
  * TypeScript interfaces for the Chat Drawer feature.
  */
 
+import type { ModelRef } from '../utils/settings-manager';
+
 // ============================================================================
 // Enums
 // ============================================================================
@@ -171,6 +173,8 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  textModelId?: string | null;
+  textModelRef?: ModelRef | null;
 }
 
 /** 抽屉状态接口 */
@@ -218,6 +222,10 @@ export interface SelectedContentItem {
   text?: string;
   /** 显示名称 */
   name: string;
+  /** 媒体宽度（可选） */
+  width?: number;
+  /** 媒体高度（可选） */
+  height?: number;
 }
 
 /** AI 输入上下文 - 完整的用户输入信息 */
@@ -277,6 +285,10 @@ export interface WorkflowMessageParams {
   textModel?: string;
   /** 是否自动打开 ChatDrawer，默认 true */
   autoOpen?: boolean;
+  /** 是否优先续接当前会话，默认 false */
+  continueInCurrentSession?: boolean;
+  /** 是否切换到目标工作流会话，默认 true */
+  activateTargetSession?: boolean;
 }
 
 /** ChatDrawer Ref API - 用于外部控制 ChatDrawer */

@@ -90,8 +90,8 @@ export const ColorPicker = React.forwardRef((props: ColorPickerProps, ref) => {
                     }}
                     title={color.name}
                   >
-                    {isNoColor(color.value) && NoColorIcon}
-                    {selectedColor === color.value && Check}
+                    {isNoColor(color.value) && <NoColorIcon />}
+                    {selectedColor === color.value && <Check />}
                   </button>
                 );
               })}

@@ -1,181 +1,383 @@
 /**
  * EnhancedChatInput Component
  *
- * 增强版聊天输入框，支持：
- * - 选中元素展示
- * - 多行文本输入
+ * 抽屉内简洁输入框：
+ * - 仅保留输入和发送
+ * - 固定按 agent 对话语义发送
+ * - 抽屉附件草稿独立于外部 AIInputBar
  */
 
-import React, { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, {
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+} from 'react';
 import { SendIcon } from 'tdesign-icons-react';
-import { SelectedContentPreview } from '../shared/SelectedContentPreview';
-import type { SelectedContentItem } from '../../contexts/ChatDrawerContext';
 import type { Message } from '@llamaindex/chat-ui';
 import { usePromptHistory } from '../../hooks/usePromptHistory';
+import { useI18n } from '../../i18n';
+import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
+import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
+import { SelectedContentPreview } from '../shared/SelectedContentPreview';
+import {
+  AssetType,
+  SelectionMode,
+  type Asset,
+} from '../../types/asset.types';
+import type { SelectedContentItem } from '../../types/chat.types';
 
 interface EnhancedChatInputProps {
   selectedContent: SelectedContentItem[];
-  onSend: (message: Message) => void | Promise<void>;
+  onSendMessage: (message: Message) => void | Promise<void>;
   disabled?: boolean;
   placeholder?: string;
 }
 
-/**
- * EnhancedChatInput Ref 接口
- */
 export interface EnhancedChatInputRef {
-  /** 设置输入框内容 */
   setContent: (content: string) => void;
-  /** 获取输入框内容 */
   getContent: () => string;
-  /** 聚焦输入框 */
   focus: () => void;
 }
 
-export const EnhancedChatInput = forwardRef<EnhancedChatInputRef, EnhancedChatInputProps>(({
-  selectedContent,
-  onSend,
-  disabled = false,
-  placeholder = '输入消息...',
-}, ref) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState('');
-  const hasSelection = selectedContent.length > 0;
-  const { addHistory: addPromptHistory } = usePromptHistory();
-
-  // 暴露方法给父组件
-  useImperativeHandle(ref, () => ({
-    setContent: (content: string) => {
-      setInput(content);
-      // 聚焦输入框
-      textareaRef.current?.focus();
+export const EnhancedChatInput = forwardRef<
+  EnhancedChatInputRef,
+  EnhancedChatInputProps
+>(
+  (
+    {
+      selectedContent,
+      onSendMessage,
+      disabled = false,
+      placeholder = '输入指令，让 Agent 为你工作...',
     },
-    getContent: () => input,
-    focus: () => textareaRef.current?.focus(),
-  }), [input]);
+    ref
+  ) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [input, setInput] = useState('');
+    const [uploadedContent, setUploadedContent] = useState<SelectedContentItem[]>(
+      []
+    );
+    const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+    const { addHistory: addPromptHistory } = usePromptHistory();
+    const { language } = useI18n();
 
-  // 发送消息
-  const handleSend = useCallback(() => {
-    const trimmedInput = input.trim();
-    if (!trimmedInput && selectedContent.length === 0) return;
+    const allContent = useMemo(
+      () => [...uploadedContent, ...selectedContent],
+      [uploadedContent, selectedContent]
+    );
+    const hasSelection = allContent.length > 0;
 
-    // 构建消息
-    const parts: Message['parts'] = [];
+    useImperativeHandle(
+      ref,
+      () => ({
+        setContent: (content: string) => {
+          setInput(content);
+          textareaRef.current?.focus();
+        },
+        getContent: () => input,
+        focus: () => textareaRef.current?.focus(),
+      }),
+      [input]
+    );
 
-    // 添加文本
-    if (trimmedInput) {
-      parts.push({ type: 'text', text: trimmedInput });
-    }
-
-    // 添加选中的图片/视频
-    selectedContent.forEach((item, index) => {
-      if (item.type === 'image' || item.type === 'graphics') {
-        parts.push({
-          type: 'data-file',
-          data: {
-            filename: `${item.type}-${index + 1}.png`,
-            mediaType: 'image/png',
-            url: item.url || '',
-          },
-        } as any);
-      } else if (item.type === 'video') {
-        parts.push({
-          type: 'data-file',
-          data: {
-            filename: `video-${index + 1}.mp4`,
-            mediaType: 'video/mp4',
-            url: item.url || '',
-          },
-        } as any);
+    useEffect(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(
+          textareaRef.current.scrollHeight,
+          120
+        )}px`;
       }
-    });
+    }, [input]);
 
-    const message: Message = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      parts,
-    };
+    const fileToSelectedContent = useCallback(
+      (file: File): Promise<SelectedContentItem> =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const url = reader.result as string;
+            if (file.type.startsWith('image/')) {
+              const img = new Image();
+              img.onload = () => {
+                resolve({
+                  type: 'image',
+                  url,
+                  name: file.name || `插入图片-${Date.now()}`,
+                  width: img.naturalWidth || undefined,
+                  height: img.naturalHeight || undefined,
+                });
+              };
+              img.onerror = () => {
+                resolve({
+                  type: 'image',
+                  url,
+                  name: file.name || `插入图片-${Date.now()}`,
+                });
+              };
+              img.src = url;
+              return;
+            }
 
-    // 保存提示词到历史记录（Chat Drawer 默认为 Agent 模式）
-    if (trimmedInput) {
-      addPromptHistory(trimmedInput, hasSelection, 'agent');
-    }
+            resolve({
+              type: 'video',
+              url,
+              name: file.name || `插入文件-${Date.now()}`,
+            });
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        }),
+      []
+    );
 
-    void Promise.resolve(onSend(message)).catch((error) => {
-      console.error('[EnhancedChatInput] send failed:', error);
-    });
-    setInput('');
-  }, [input, selectedContent, onSend, addPromptHistory, hasSelection]);
+    const handleUploadClick = useCallback(() => {
+      fileInputRef.current?.click();
+    }, []);
 
-  // 键盘事件处理
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // 检测 IME 组合输入状态（如中文拼音输入法）
-    if (e.nativeEvent.isComposing) {
-      return;
-    }
+    const handleFileChange = useCallback(
+      async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const fileList = Array.from(event.target.files || []);
+        if (fileList.length === 0) {
+          return;
+        }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }, [handleSend]);
+        const nextContent: SelectedContentItem[] = [];
 
-  // 自动调整高度
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
-    }
-  }, [input]);
+        for (const file of fileList) {
+          if (
+            !file.type.startsWith('image/') &&
+            !file.type.startsWith('video/')
+          ) {
+            continue;
+          }
 
-  // 渲染选中内容预览
-  const renderSelectedContent = () => {
-    if (selectedContent.length === 0) return null;
+          try {
+            nextContent.push(await fileToSelectedContent(file));
+          } catch (error) {
+            console.error('[EnhancedChatInput] Failed to read local file:', error);
+          }
+        }
+
+        if (nextContent.length > 0) {
+          setUploadedContent((prev) => [...prev, ...nextContent]);
+        }
+
+        event.target.value = '';
+      },
+      [fileToSelectedContent]
+    );
+
+    const handleMediaLibrarySelect = useCallback(
+      (asset: Asset) => {
+        setUploadedContent((prev) => [
+          ...prev,
+          {
+            type: 'image',
+            url: asset.url,
+            name: asset.name || `素材-${Date.now()}`,
+          },
+        ]);
+        setShowMediaLibrary(false);
+      },
+      []
+    );
+
+    const handleRemoveUploadedContent = useCallback((index: number) => {
+      setUploadedContent((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    }, []);
+
+    const handleSubmit = useCallback(async () => {
+      const trimmedInput = input.trim();
+      if (!trimmedInput && allContent.length === 0) return;
+      const submittedInput = trimmedInput;
+      const submittedUploadedContent = uploadedContent;
+
+      const parts: Message['parts'] = [];
+
+      if (trimmedInput) {
+        parts.push({ type: 'text', text: trimmedInput });
+      }
+
+      allContent.forEach((item, index) => {
+        if (item.type === 'image' || item.type === 'graphics') {
+          parts.push({
+            type: 'data-file',
+            data: {
+              filename: `${item.type}-${index + 1}.png`,
+              mediaType: 'image/png',
+              url: item.url || '',
+            },
+          } as Message['parts'][number]);
+        } else if (item.type === 'video') {
+          parts.push({
+            type: 'data-file',
+            data: {
+              filename: `video-${index + 1}.mp4`,
+              mediaType: 'video/mp4',
+              url: item.url || '',
+            },
+          } as Message['parts'][number]);
+        }
+      });
+
+      if (trimmedInput) {
+        addPromptHistory(trimmedInput, hasSelection, 'agent');
+      }
+
+      setInput('');
+      setUploadedContent([]);
+      try {
+        await Promise.resolve(
+          onSendMessage({
+            id: `msg_${Date.now()}`,
+            role: 'user',
+            parts,
+          })
+        );
+      } catch (error) {
+        console.error('[EnhancedChatInput] Failed to send message:', error);
+        setInput((current) => (current ? current : submittedInput));
+        setUploadedContent((current) =>
+          current.length > 0 ? current : submittedUploadedContent
+        );
+      }
+    }, [
+      addPromptHistory,
+      allContent,
+      hasSelection,
+      input,
+      onSendMessage,
+      uploadedContent,
+    ]);
+
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.nativeEvent.isComposing) {
+          return;
+        }
+
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          void handleSubmit();
+        }
+      },
+      [handleSubmit]
+    );
+
+    const isActive = (input.trim() || allContent.length > 0) && !disabled;
+    const hasUploadedContent = uploadedContent.length > 0;
+    const uploadLabel = language === 'zh' ? '插入文件' : 'Insert file';
+    const libraryLabel = language === 'zh' ? '素材库' : 'Library';
+    const toolButtonClassName = (isSelected: boolean) =>
+      `enhanced-chat-input__tool-button${
+        isSelected ? ' enhanced-chat-input__tool-button--selected' : ''
+      }`;
 
     return (
-      <div className="enhanced-chat-input__selection">
-        <SelectedContentPreview
-          items={selectedContent}
-          language="zh"
-          enableHoverPreview={true}
-        />
-      </div>
-    );
-  };
-
-  const isActive = (input.trim() || selectedContent.length > 0) && !disabled;
-
-  return (
-    <div className="enhanced-chat-input" ref={containerRef}>
-      {renderSelectedContent()}
-
-      <div className="enhanced-chat-input__form">
-        <div className="enhanced-chat-input__input-wrapper">
-          <textarea
-            ref={textareaRef}
-            className="enhanced-chat-input__textarea"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={hasSelection ? '描述你想要的效果...' : placeholder}
-            disabled={disabled}
-            rows={4}
+      <div className="enhanced-chat-input">
+        <div className="enhanced-chat-input__form">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="enhanced-chat-input__file-input"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
           />
+
+          {allContent.length > 0 && (
+            <div className="enhanced-chat-input__content-preview">
+              <SelectedContentPreview
+                items={allContent}
+                language={language}
+                enableHoverPreview={true}
+                onRemove={handleRemoveUploadedContent}
+                removableStartIndex={uploadedContent.length}
+              />
+            </div>
+          )}
+
+          <div className="enhanced-chat-input__input-wrapper">
+            <textarea
+              ref={textareaRef}
+              className="enhanced-chat-input__textarea"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              disabled={disabled}
+              rows={3}
+            />
+          </div>
+
+          <div className="enhanced-chat-input__actions enhanced-chat-input__bottom-bar">
+            <div className="enhanced-chat-input__tools enhanced-chat-input__action-group">
+              <button
+                type="button"
+                className={toolButtonClassName(hasUploadedContent)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={handleUploadClick}
+                disabled={disabled}
+                aria-label={uploadLabel}
+                title={uploadLabel}
+              >
+                <ImageUploadIcon size={16} />
+              </button>
+
+              <button
+                type="button"
+                className={toolButtonClassName(hasUploadedContent)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={() => setShowMediaLibrary(true)}
+                disabled={disabled}
+                aria-label={libraryLabel}
+                title={libraryLabel}
+              >
+                <MediaLibraryIcon size={16} />
+              </button>
+            </div>
+
+            <div className="enhanced-chat-input__bottom-spacer" />
+
+            <button
+              type="button"
+              className={`enhanced-chat-input__send ${
+                isActive ? 'enhanced-chat-input__send--active' : ''
+              }`}
+              onClick={() => void handleSubmit()}
+              disabled={!isActive}
+              aria-label="发送"
+            >
+              <SendIcon size={20} />
+            </button>
+          </div>
         </div>
 
-        <button
-          className={`enhanced-chat-input__send ${isActive ? 'enhanced-chat-input__send--active' : ''}`}
-          onClick={handleSend}
-          disabled={!isActive}
-          aria-label="发送"
-        >
-          <SendIcon size={20} />
-        </button>
+        {showMediaLibrary && (
+          <MediaLibraryModal
+            isOpen={showMediaLibrary}
+            onClose={() => setShowMediaLibrary(false)}
+            mode={SelectionMode.SELECT}
+            filterType={AssetType.IMAGE}
+            onSelect={handleMediaLibrarySelect}
+          />
+        )}
       </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 EnhancedChatInput.displayName = 'EnhancedChatInput';
 

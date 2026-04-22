@@ -6,7 +6,7 @@
  */
 
 import { useRef, useCallback, useMemo } from 'react';
-import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
+import { useVirtualizer, VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 
 export interface UseVirtualListOptions<T> {
   /** Array of items to virtualize */
@@ -39,7 +39,7 @@ export interface UseVirtualListReturn<T> {
   /** Measure an item (call when item size changes) */
   measureItem: (index: number) => void;
   /** Get the virtualizer instance for advanced usage */
-  virtualizer: ReturnType<typeof useVirtualizer>;
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
 }
 
 /**

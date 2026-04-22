@@ -1,11 +1,11 @@
 import { defaultGeminiClient } from '../../utils/gemini-api';
 import { asyncImageAPIService } from '../async-image-api-service';
+import { parseImageResponse } from '../media-api/image-api';
 import {
   audioAPIService,
   extractAudioGenerationResult,
 } from '../audio-api-service';
 import { videoAPIService } from '../video-api-service';
-import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
 import {
   DEFAULT_AUDIO_MODEL_ID,
   DEFAULT_IMAGE_MODEL_ID,
@@ -52,39 +52,16 @@ const audioModelIds = AUDIO_MODELS.map((model) => model.id);
 const extractImageUrl = (
   response: any,
   prompt: string
-): { url: string; urls?: string[]; format: string; raw?: unknown } => {
-  if (
-    response?.data &&
-    Array.isArray(response.data) &&
-    response.data.length > 0
-  ) {
-    const imageData = response.data[0];
-    const urls = response.data
-      .map(
-        (item: any) =>
-          item?.url ||
-          (item?.b64_json
-            ? `data:image/png;base64,${item.b64_json}`
-            : undefined)
-      )
-      .filter(Boolean) as string[];
-    const format = getFileExtension(urls[0]) || 'png';
-    if (imageData.url) {
-      return {
-        url: normalizeImageDataUrl(imageData.url),
-        urls,
-        format: format === 'bin' ? 'png' : format,
-        raw: response,
-      };
-    }
-    if (imageData.b64_json) {
-      const normalizedUrl = normalizeImageDataUrl(imageData.b64_json);
-      return {
-        url: normalizedUrl,
-        urls,
-        format: format === 'bin' ? 'png' : format,
-        raw: response,
-      };
+): { url: string; urls?: string[]; format?: string; raw?: unknown } => {
+  try {
+    const parsed = parseImageResponse(response as Record<string, unknown>);
+    return {
+      ...parsed,
+      raw: response,
+    };
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
     }
   }
 

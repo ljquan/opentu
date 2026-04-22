@@ -62,6 +62,7 @@ export async function generateImage(
     model: options.model,
     modelRef: options.modelRef || null,
     size: options.size,
+    autoInsertToCanvas: true,
   });
 
   // 注册到 TaskQueueService 内存 Map，确保任务队列 UI 和重试功能可用
@@ -74,6 +75,7 @@ export async function generateImage(
       model: options.model,
       modelRef: options.modelRef || null,
       size: options.size,
+      autoInsertToCanvas: true,
     },
     createdAt: now,
     updatedAt: now,

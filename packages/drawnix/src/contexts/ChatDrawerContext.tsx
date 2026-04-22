@@ -16,6 +16,8 @@ export interface SelectedContentItem {
   url?: string;
   text?: string;
   name: string;
+  width?: number;
+  height?: number;
 }
 
 /** 重试处理器类型 */

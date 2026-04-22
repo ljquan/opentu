@@ -96,6 +96,7 @@ import {
 import { knowledgeBaseService } from '../../services/knowledge-base-service';
 import { externalSkillService } from '../../services/external-skill-service';
 import { useWorkflowControl } from '../../contexts/WorkflowContext';
+import { useAIComposerSync } from '../../contexts/AIComposerContext';
 import {
   hasInvocationRouteCredentials,
   resolveInvocationRoute,
@@ -117,6 +118,7 @@ import type {
   PostProcessingStatus,
 } from '../../types/chat.types';
 import { workflowCompletionService } from '../../services/workflow-completion-service';
+import type { WorkflowCompletionEvent } from '../../services/workflow-completion-service';
 import { BoardTransforms } from '@plait/core';
 import { ImageGenerationAnchorTransforms } from '../../plugins/with-image-generation-anchor';
 import { buildImageGenerationAnchorCreateOptions } from '../../utils/image-generation-anchor-submission';
@@ -505,6 +507,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const textModels = useSelectableModels('text');
 
     const chatDrawerControl = useChatDrawerControl();
+    const composerSync = useAIComposerSync();
+    const {
+      generationType: sharedComposerGenerationType,
+      selectedModel: sharedComposerSelectedModel,
+      selectedModelRef: sharedComposerSelectedModelRef,
+      selectedParams: sharedComposerSelectedParams,
+      selectedCount: sharedComposerSelectedCount,
+      setComposerState: setSharedComposerState,
+    } = composerSync;
     const workflowControl = useWorkflowControl();
     const {
       addHistory: addPromptHistory,
@@ -910,6 +921,98 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [selectedCount, setSelectedCount] = useState(
       initialPreferences.selectedCount
     );
+    const skipNextComposerStatePushRef = useRef(false);
+    const localComposerStateRef = useRef({
+      generationType,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+      selectedCount,
+    });
+    localComposerStateRef.current = {
+      generationType,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+      selectedCount,
+    };
+
+    useEffect(() => {
+      if (skipNextComposerStatePushRef.current) {
+        skipNextComposerStatePushRef.current = false;
+        return;
+      }
+
+      setSharedComposerState({
+        generationType,
+        selectedModel,
+        selectedModelRef,
+        selectedParams,
+        selectedCount,
+      });
+    }, [
+      generationType,
+      selectedCount,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+      setSharedComposerState,
+    ]);
+
+    useEffect(() => {
+      let appliedComposerState = false;
+      const localComposerState = localComposerStateRef.current;
+
+      if (sharedComposerGenerationType !== localComposerState.generationType) {
+        appliedComposerState = true;
+        setGenerationType(sharedComposerGenerationType);
+      }
+      if (sharedComposerSelectedModel !== localComposerState.selectedModel) {
+        appliedComposerState = true;
+        setSelectedModel(sharedComposerSelectedModel);
+      }
+      if (
+        (sharedComposerSelectedModelRef?.profileId || null) !==
+        (localComposerState.selectedModelRef?.profileId || null)
+      ) {
+        appliedComposerState = true;
+        setSelectedModelRef(sharedComposerSelectedModelRef);
+      }
+      if (
+        sharedComposerSelectedCount !== localComposerState.selectedCount &&
+        !(
+          sharedComposerGenerationType !== 'image' &&
+          sharedComposerGenerationType !== 'video' &&
+          sharedComposerSelectedCount !== 1
+        )
+      ) {
+        appliedComposerState = true;
+        setSelectedCount(sharedComposerSelectedCount);
+      }
+      const localParamKeys = Object.keys(localComposerState.selectedParams);
+      const sharedParamKeys = Object.keys(sharedComposerSelectedParams);
+      const sameParams =
+        localParamKeys.length === sharedParamKeys.length &&
+        localParamKeys.every(
+          (key) =>
+            localComposerState.selectedParams[key] ===
+            sharedComposerSelectedParams[key]
+        );
+      if (!sameParams) {
+        appliedComposerState = true;
+        setSelectedParams(sharedComposerSelectedParams);
+      }
+
+      if (appliedComposerState) {
+        skipNextComposerStatePushRef.current = true;
+      }
+    }, [
+      sharedComposerGenerationType,
+      sharedComposerSelectedCount,
+      sharedComposerSelectedModel,
+      sharedComposerSelectedModelRef,
+      sharedComposerSelectedParams,
+    ]);
 
     // 下拉菜单的打开状态（用于特殊符号触发）
     const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -1227,168 +1330,76 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return () => subscription.unsubscribe();
     }, [workflowControl]);
 
-    // 当前后处理状态 ref
-    const postProcessingStatusRef = useRef<PostProcessingStatus | undefined>(
-      undefined
-    );
-    const insertedCountRef = useRef<number | undefined>(undefined);
-
-    // 监听后处理完成事件（图片拆分、插入画布等）
-    useEffect(() => {
-      const subscription = workflowCompletionService
-        .observeCompletionEvents()
-        .subscribe((event) => {
-          const workflow = workflowControl.getWorkflow();
-
-          // 查找与此任务关联的步骤（即使 workflow 为 null 也继续处理 postProcessingCompleted）
-          const step = workflow?.steps.find((s) => {
-            const result = s.result as { taskId?: string } | undefined;
-            return result?.taskId === event.taskId;
-          });
-
-          // 更新后处理状态
-          let newPostProcessingStatus: PostProcessingStatus | undefined;
-          let newInsertedCount: number | undefined;
-
-          switch (event.type) {
-            case 'postProcessingStarted':
-              newPostProcessingStatus = 'processing';
-              break;
-            case 'postProcessingCompleted':
-              newPostProcessingStatus = 'completed';
-              newInsertedCount = event.result.insertedCount;
-              break;
-            case 'postProcessingFailed':
-              newPostProcessingStatus = 'failed';
-              break;
-          }
-
-          // 保存状态到 ref
-          postProcessingStatusRef.current = newPostProcessingStatus;
-          if (newInsertedCount !== undefined) {
-            insertedCountRef.current =
-              (insertedCountRef.current || 0) + newInsertedCount;
-          }
-
-          // 同步更新 ChatDrawer 中的工作流消息（仅当 workflow 和 step 都存在时）
-          if (workflow && step) {
-            const updatedWorkflow = workflowControl.getWorkflow();
-            if (updatedWorkflow) {
-              const workflowData = toWorkflowMessageData(
-                updatedWorkflow,
-                currentRetryContextRef.current || undefined,
-                newPostProcessingStatus,
-                insertedCountRef.current
-              );
-              updateWorkflowMessageRef.current(workflowData);
-
-              // 同步更新 WorkZone（如果存在）
-              const workZoneId = currentWorkZoneIdRef.current;
-              const board = SelectionWatcherBoardRef.current;
-              if (workZoneId && board) {
-                WorkZoneTransforms.updateWorkflow(
-                  board,
-                  workZoneId,
-                  workflowData
-                );
-              }
-            }
-          }
-
-          // 如果后处理完成，执行后续操作
-          // 注意：即使找不到 workflow 或 step，也要删除 WorkZone（通过 currentWorkZoneIdRef）
-          if (event.type === 'postProcessingCompleted') {
-            const position = event.result.firstElementPosition;
-
-            // 立即重置提交状态，允许用户继续输入
-            // console.log('[AIInputBar] postProcessingCompleted: resetting isSubmitting');
-            if (submitCooldownRef.current) {
-              clearTimeout(submitCooldownRef.current);
-              submitCooldownRef.current = null;
-            }
-            setIsSubmitting(false);
-
-            // 关闭 ChatDrawer（如果是由 AIInputBar 触发的对话）
-            // 注意：这里使用 setTimeout 确保消息更新后再关闭
-            setTimeout(async () => {
-              chatDrawerControl.closeChatDrawer();
-
-              // 删除 WorkZone（因为图片已经插入画布）
-              const workZoneId = currentWorkZoneIdRef.current;
-              const board = SelectionWatcherBoardRef.current;
-              if (workZoneId && board) {
-                // 只有当所有步骤都完成后才删除
-                const workflow = workflowControl.getWorkflow();
-                const allStepsFinished = workflow?.steps.every(
-                  (s) =>
-                    s.status === 'completed' ||
-                    s.status === 'failed' ||
-                    s.status === 'skipped'
-                );
-
-                if (allStepsFinished) {
-                  const { workflowCompletionService } = await import(
-                    '../../services/workflow-completion-service'
-                  );
-                  const allPostProcessingFinished = workflow?.steps.every(
-                    (step) => {
-                      const stepResult = step.result as
-                        | { taskId?: string }
-                        | undefined;
-                      if (stepResult?.taskId) {
-                        return workflowCompletionService.isPostProcessingCompleted(
-                          stepResult.taskId
-                        );
-                      }
-                      return true;
-                    }
-                  );
-
-                  if (allPostProcessingFinished) {
-                    WorkZoneTransforms.removeWorkZone(board, workZoneId);
-                    currentWorkZoneIdRef.current = null;
-                    // console.log('[AIInputBar] Removed WorkZone after completion:', workZoneId);
-                  }
-                }
-              }
-
-              // 滚动画布到插入元素的位置
-              if (position) {
-                if (board) {
-                  // 计算新的视口原点，使元素位于视口中心
-                  const containerRect = board.host?.getBoundingClientRect();
-                  if (containerRect) {
-                    const zoom = board.viewport.zoom;
-                    const newOriginationX =
-                      position[0] - containerRect.width / (2 * zoom);
-                    const newOriginationY =
-                      position[1] - containerRect.height / (2 * zoom);
-                    BoardTransforms.updateViewport(
-                      board,
-                      [newOriginationX, newOriginationY],
-                      zoom
-                    );
-                  }
-                }
-              }
-            }, 500);
-
-            // 重置状态
-            postProcessingStatusRef.current = undefined;
-            insertedCountRef.current = undefined;
-          }
-        });
-
-      return () => subscription.unsubscribe();
-    }, [workflowControl, chatDrawerControl]);
-
     // 保存 board 引用供后处理完成后使用
     const SelectionWatcherBoardRef = useRef<any>(null);
+
+    const handleWorkflowPostProcessingCompleted = useCallback(
+      async (event: WorkflowCompletionEvent) => {
+        const position = event.result.firstElementPosition;
+
+        if (submitCooldownRef.current) {
+          clearTimeout(submitCooldownRef.current);
+          submitCooldownRef.current = null;
+        }
+        setIsSubmitting(false);
+
+        setTimeout(async () => {
+          chatDrawerControl.closeChatDrawer();
+
+          const workZoneId = currentWorkZoneIdRef.current;
+          const board = SelectionWatcherBoardRef.current;
+          if (workZoneId && board) {
+            const workflow = workflowControl.getWorkflow();
+            const allStepsFinished = workflow?.steps.every(
+              (step) =>
+                step.status === 'completed' ||
+                step.status === 'failed' ||
+                step.status === 'skipped'
+            );
+
+            if (allStepsFinished) {
+              const allPostProcessingFinished = workflow?.steps.every((step) => {
+                const stepResult = step.result as { taskId?: string } | undefined;
+                if (stepResult?.taskId) {
+                  return workflowCompletionService.isPostProcessingCompleted(
+                    stepResult.taskId
+                  );
+                }
+                return true;
+              });
+
+              if (allPostProcessingFinished) {
+                WorkZoneTransforms.removeWorkZone(board, workZoneId);
+                currentWorkZoneIdRef.current = null;
+              }
+            }
+          }
+
+          if (position && board) {
+            const containerRect = board.host?.getBoundingClientRect();
+            if (containerRect) {
+              const zoom = board.viewport.zoom;
+              const newOriginationX =
+                position[0] - containerRect.width / (2 * zoom);
+              const newOriginationY =
+                position[1] - containerRect.height / (2 * zoom);
+              BoardTransforms.updateViewport(
+                board,
+                [newOriginationX, newOriginationY],
+                zoom
+              );
+            }
+          }
+        }, 500);
+      },
+      [chatDrawerControl, workflowControl]
+    );
 
     // 使用工作流提交 Hook
     const { submitWorkflow: submitWorkflowToSW } = useWorkflowSubmission({
       boardRef: SelectionWatcherBoardRef,
       workZoneIdRef: currentWorkZoneIdRef,
+      onPostProcessingCompleted: handleWorkflowPostProcessingCompleted,
     });
 
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1722,17 +1733,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [uploadedContent.length]
     );
 
-    // 同步 allContent 到 ChatDrawer Context
+    // 仅同步画布选中内容到 ChatDrawer Context。
+    // 用户上传/素材库附件改为通过 AIComposerContext 共享，避免抽屉端重复预览。
     useEffect(() => {
       setSelectedContentRef.current(
-        allContent.map((c) => ({
+        selectedContent.map((c) => ({
           type: c.type,
           url: c.url,
           text: c.text,
           name: c.name,
+          width: c.width,
+          height: c.height,
         }))
       );
-    }, [allContent]);
+    }, [selectedContent]);
 
     // 处理粘贴图片，仅在 AIInputBar 处于激活状态时接管
     useEffect(() => {
@@ -2533,7 +2547,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             parsedParams,
             referenceImages,
             retryContext,
-            workflow
+            workflow,
+            {
+              continueInCurrentSession: false,
+              activateTargetSession: false,
+            }
           );
           console.log('[AIInputBar][handleGenerate] submitWorkflowToSW 返回:', {
             usedSW,

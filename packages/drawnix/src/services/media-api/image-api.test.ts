@@ -30,4 +30,19 @@ describe('parseImageResponse', () => {
     expect(result.url).toBe('https://example.com/test.webp');
     expect(result.format).toBe('webp');
   });
+
+  it('rejects blocked prompt placeholder payloads even if they contain image data', () => {
+    expect(() =>
+      parseImageResponse({
+        data: [
+          {
+            b64_json:
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+            revised_prompt:
+              'prompt_blocked code: prompt_blocked reason: PROHIBITED_CONTENT',
+          },
+        ],
+      })
+    ).toThrow('内容被拒绝');
+  });
 });

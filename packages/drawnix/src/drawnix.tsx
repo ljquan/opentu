@@ -80,10 +80,9 @@ import { withTextResize } from './plugins/with-text-resize';
 import { withImageGenerationAnchor } from './plugins/with-image-generation-anchor';
 import { withWorkZone } from './plugins/with-workzone';
 import { MultiSelectionHandles } from './components/multi-selection-handles';
-import {
-  ChatDrawerProvider,
-  useChatDrawer,
-} from './contexts/ChatDrawerContext';
+import { ChatDrawer } from './components/chat-drawer';
+import { ChatDrawerProvider, useChatDrawer } from './contexts/ChatDrawerContext';
+import { AIComposerProvider } from './contexts/AIComposerContext';
 import { useWorkspace } from './hooks/useWorkspace';
 import { Board as WorkspaceBoard } from './types/workspace.types';
 import { toolTestHelper } from './utils/tool-test-helper';
@@ -94,6 +93,7 @@ import { ToolbarConfigProvider } from './hooks/use-toolbar-config';
 import { QuickCreationToolbar } from './components/toolbar/quick-creation-toolbar/quick-creation-toolbar';
 import { CacheQuotaProvider } from './components/cache-quota-provider/CacheQuotaProvider';
 import { RecentColorsProvider } from './components/unified-color-picker';
+import { GitHubSyncProvider } from './contexts/GitHubSyncContext';
 import { usePencilCursor } from './hooks/usePencilCursor';
 import { withArrowLineAutoCompleteExtend } from './plugins/with-arrow-line-auto-complete-extend';
 import { withFlowchartShortcut } from './plugins/with-flowchart-shortcut';
@@ -128,7 +128,6 @@ import {
   type IdlePrefetchGroup,
 } from './utils/startup-prefetch';
 import { DeferredAIInputBar } from './components/startup/DeferredAIInputBar';
-import { ChatDrawer } from './components/chat-drawer';
 import type { MediaLibraryModalProps } from './types/asset.types';
 import { SelectionMode } from './types/asset.types';
 
@@ -176,7 +175,6 @@ const CanvasAudioPlayer = lazy(() =>
     })
   )
 );
-
 export type DrawnixProps = {
   value: PlaitElement[];
   viewport?: Viewport;
@@ -741,59 +739,63 @@ export const Drawnix: React.FC<DrawnixProps> = ({
           <AudioPlaylistProvider>
             <ToolbarConfigProvider>
               <CacheQuotaProvider onOpenMediaLibrary={handleOpenMediaLibrary}>
-                <ChatDrawerProvider>
-                  <DrawnixContext.Provider value={contextValue}>
-                    <DrawnixContent
-                      value={value}
-                      viewport={viewport}
-                      theme={theme}
-                      options={options}
-                      plugins={plugins}
-                      containerRef={containerRef}
-                      appState={appState}
-                      board={board}
-                      setBoard={setBoard}
-                      projectDrawerOpen={projectDrawerOpen}
-                      toolboxDrawerOpen={toolboxDrawerOpen}
-                      taskPanelExpanded={taskPanelExpanded}
-                      mediaLibraryOpen={mediaLibraryOpen}
-                      mediaLibraryConfig={mediaLibraryConfig}
-                      backupRestoreOpen={backupRestoreOpen}
-                      onChange={onChange}
-                      onSelectionChange={handleSelectionChange}
-                      onViewportChange={onViewportChange}
-                      onThemeChange={onThemeChange}
-                      onValueChange={onValueChange}
-                      afterInit={afterInit}
-                      onBoardSwitch={onBoardSwitch}
-                      onTabSyncNeeded={onTabSyncNeeded}
-                      handleProjectDrawerToggle={handleProjectDrawerToggle}
-                      handleToolboxDrawerToggle={handleToolboxDrawerToggle}
-                      handleKnowledgeBaseToggle={handleKnowledgeBaseToggle}
-                      handleTaskPanelToggle={handleTaskPanelToggle}
-                      handleOpenMediaLibrary={handleOpenMediaLibrary}
-                      handleOpenBackupRestore={handleOpenBackupRestore}
-                      handleOpenCloudSync={handleOpenCloudSync}
-                      setProjectDrawerOpen={setProjectDrawerOpen}
-                      setToolboxDrawerOpen={setToolboxDrawerOpen}
-                      setMediaLibraryOpen={setMediaLibraryOpen}
-                      setBackupRestoreOpen={setBackupRestoreOpen}
-                      cloudSyncOpen={cloudSyncOpen}
-                      setCloudSyncOpen={setCloudSyncOpen}
-                      handleBeforeSwitch={handleBeforeSwitch}
-                      isDataReady={isDataReady}
-                      onCreateProjectForMemory={handleCreateProjectForMemory}
-                      currentBoardId={currentBoardId}
-                      deferredRuntimeEnabled={deferredRuntimeEnabled}
-                      shouldRenderDeferredFeatures={shouldRenderDeferredFeatures}
-                      versionUpdateEnabled={versionUpdateEnabled}
-                      performancePanelEnabled={performancePanelEnabled}
-                      toolWindowManagerEnabled={toolWindowManagerEnabled}
-                      minimizedToolsBarEnabled={minimizedToolsBarEnabled}
-                      enableToolWindows={enableToolWindows}
-                    />
-                  </DrawnixContext.Provider>
-                </ChatDrawerProvider>
+                <GitHubSyncProvider>
+                  <ChatDrawerProvider>
+                    <AIComposerProvider>
+                      <DrawnixContext.Provider value={contextValue}>
+                        <DrawnixContent
+                          value={value}
+                          viewport={viewport}
+                          theme={theme}
+                          options={options}
+                          plugins={plugins}
+                          containerRef={containerRef}
+                          appState={appState}
+                          board={board}
+                          setBoard={setBoard}
+                          projectDrawerOpen={projectDrawerOpen}
+                          toolboxDrawerOpen={toolboxDrawerOpen}
+                          taskPanelExpanded={taskPanelExpanded}
+                          mediaLibraryOpen={mediaLibraryOpen}
+                          mediaLibraryConfig={mediaLibraryConfig}
+                          backupRestoreOpen={backupRestoreOpen}
+                          onChange={onChange}
+                          onSelectionChange={handleSelectionChange}
+                          onViewportChange={onViewportChange}
+                          onThemeChange={onThemeChange}
+                          onValueChange={onValueChange}
+                          afterInit={afterInit}
+                          onBoardSwitch={onBoardSwitch}
+                          onTabSyncNeeded={onTabSyncNeeded}
+                          handleProjectDrawerToggle={handleProjectDrawerToggle}
+                          handleToolboxDrawerToggle={handleToolboxDrawerToggle}
+                          handleKnowledgeBaseToggle={handleKnowledgeBaseToggle}
+                          handleTaskPanelToggle={handleTaskPanelToggle}
+                          handleOpenMediaLibrary={handleOpenMediaLibrary}
+                          handleOpenBackupRestore={handleOpenBackupRestore}
+                          handleOpenCloudSync={handleOpenCloudSync}
+                          setProjectDrawerOpen={setProjectDrawerOpen}
+                          setToolboxDrawerOpen={setToolboxDrawerOpen}
+                          setMediaLibraryOpen={setMediaLibraryOpen}
+                          setBackupRestoreOpen={setBackupRestoreOpen}
+                          cloudSyncOpen={cloudSyncOpen}
+                          setCloudSyncOpen={setCloudSyncOpen}
+                          handleBeforeSwitch={handleBeforeSwitch}
+                          isDataReady={isDataReady}
+                          onCreateProjectForMemory={handleCreateProjectForMemory}
+                          currentBoardId={currentBoardId}
+                          deferredRuntimeEnabled={deferredRuntimeEnabled}
+                          shouldRenderDeferredFeatures={shouldRenderDeferredFeatures}
+                          versionUpdateEnabled={versionUpdateEnabled}
+                          performancePanelEnabled={performancePanelEnabled}
+                          toolWindowManagerEnabled={toolWindowManagerEnabled}
+                          minimizedToolsBarEnabled={minimizedToolsBarEnabled}
+                          enableToolWindows={enableToolWindows}
+                        />
+                      </DrawnixContext.Provider>
+                    </AIComposerProvider>
+                  </ChatDrawerProvider>
+                </GitHubSyncProvider>
               </CacheQuotaProvider>
             </ToolbarConfigProvider>
           </AudioPlaylistProvider>

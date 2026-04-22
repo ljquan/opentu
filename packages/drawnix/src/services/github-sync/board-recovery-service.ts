@@ -3,10 +3,9 @@
  * 用于从远程 Gist 中恢复丢失的画布元数据
  */
 
-import { logDebug, logInfo, logSuccess, logWarning, logError } from './sync-log-service';
+import { logDebug, logError } from './sync-log-service';
 import { gitHubApiService } from './github-api-service';
 import { cryptoService } from './crypto-service';
-import { SYNC_FILES } from './types';
 import type { Board, BoardMetadata } from '../../types/workspace.types';
 
 /**
@@ -27,7 +26,7 @@ export async function recoverBoardsFromRemote(
   };
 
   try {
-    logDebug('BoardRecovery] Starting recovery from gist:', gistId);
+    logDebug('[BoardRecovery] Starting recovery from gist', { gistId });
 
     // 获取 Gist 中的所有文件
     const gist = await gitHubApiService.getGist(gistId);
@@ -35,7 +34,9 @@ export async function recoverBoardsFromRemote(
       filename => filename.startsWith('board_') && filename.endsWith('.json')
     );
 
-    logDebug('BoardRecovery] Found board files:', boardFiles.length);
+    logDebug('[BoardRecovery] Found board files', {
+      boardFileCount: boardFiles.length,
+    });
 
     if (boardFiles.length === 0) {
       result.errors.push('未找到任何画布文件');
@@ -62,19 +63,30 @@ export async function recoverBoardsFromRemote(
           createdAt: board.createdAt,
           updatedAt: board.updatedAt,
           folderId: board.folderId || null,
+          order: board.order ?? 0,
         };
 
         result.recoveredBoards.push(metadata);
-        logDebug('BoardRecovery] Recovered board:', metadata.name);
+        logDebug('[BoardRecovery] Recovered board', {
+          boardId: metadata.id,
+          boardName: metadata.name,
+        });
       } catch (error) {
         const errorMsg = `解密失败: ${filename} - ${error instanceof Error ? error.message : '未知错误'}`;
         result.errors.push(errorMsg);
-        logError('BoardRecovery]', errorMsg);
+        logError(
+          '[BoardRecovery] Failed to recover board from file',
+          error instanceof Error ? error : undefined,
+          {
+            filename,
+            errorMsg,
+          }
+        );
       }
     }
 
     result.success = result.recoveredBoards.length > 0;
-    logDebug('BoardRecovery] Recovery complete:', {
+    logDebug('[BoardRecovery] Recovery complete', {
       recovered: result.recoveredBoards.length,
       errors: result.errors.length,
     });
@@ -82,7 +94,10 @@ export async function recoverBoardsFromRemote(
     return result;
   } catch (error) {
     result.errors.push(`恢复失败: ${error instanceof Error ? error.message : '未知错误'}`);
-    logError('BoardRecovery] Recovery failed:', error);
+    logError(
+      '[BoardRecovery] Recovery failed',
+      error instanceof Error ? error : undefined
+    );
     return result;
   }
 }

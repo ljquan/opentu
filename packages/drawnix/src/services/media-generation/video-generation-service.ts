@@ -67,6 +67,7 @@ export async function generateVideo(
         : options.duration,
     size: options.size,
     params: options.params,
+    autoInsertToCanvas: true,
   });
 
   // 注册到 TaskQueueService 内存 Map，确保任务队列 UI 和重试功能可用
@@ -80,6 +81,7 @@ export async function generateVideo(
       modelRef: options.modelRef || null,
       size: options.size,
       params: options.params,
+      autoInsertToCanvas: true,
     },
     createdAt: now,
     updatedAt: now,

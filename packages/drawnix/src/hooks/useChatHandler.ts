@@ -17,6 +17,7 @@ import {
   parseToolCalls,
   extractTextContent,
 } from '../services/agent/tool-parser';
+import { buildReferenceImageContextFromAttachments } from '../services/agent/reference-image-context';
 import { mcpRegistry, initializeMCP } from '../mcp';
 import type { ToolCall, MCPTaskResult } from '../mcp/types';
 import {
@@ -30,6 +31,62 @@ import {
 
 // 确保 MCP 模块已初始化
 initializeMCP();
+
+const AGENT_MEDIA_QUEUE_TOOLS = new Set([
+  'generate_image',
+  'generate_video',
+  'generate_audio',
+]);
+
+const IMAGE_WORKFLOW_TOOLS = new Set([
+  'generate_image',
+  'generate_grid_image',
+  'generate_photo_wall',
+  'generate_inspiration_board',
+]);
+
+const PREVIOUS_IMAGE_REFERENCE_PATTERNS = [
+  /上一张图/,
+  /上一张/,
+  /刚才那张/,
+  /刚刚那张/,
+  /那张图/,
+  /这张图/,
+  /在这张基础上/,
+  /在上一张图基础上/,
+  /基于上一张图/,
+  /基于这张图/,
+  /参考上一张图/,
+  /reference image/i,
+  /previous image/i,
+  /last image/i,
+  /that image/i,
+];
+
+const IMAGE_EDIT_ACTION_PATTERNS = [
+  /改/,
+  /修改/,
+  /编辑/,
+  /优化/,
+  /调整/,
+  /增强/,
+  /细化/,
+  /去掉/,
+  /减少/,
+  /增加/,
+  /变成/,
+  /换成/,
+  /make it/i,
+  /modify/i,
+  /edit/i,
+  /adjust/i,
+  /refine/i,
+  /improve/i,
+  /remove/i,
+];
+
+const REFERENCE_IMAGE_FOLLOW_UP_MESSAGE =
+  '如果你要基于上一张图继续修改，请先重新选中画布里的参考图或上传参考图，我再继续生成。';
 
 /** 工具调用结果 */
 interface ToolCallResult {
@@ -54,6 +111,55 @@ interface UseChatHandlerOptions {
   ) => void;
   /** 工作流消息更新回调 */
   onWorkflowUpdate?: (messageId: string, workflow: WorkflowMessageData) => void;
+}
+
+function isSuccessfulImageWorkflowMessage(message: ChatMessage): boolean {
+  if (message.role !== MessageRole.ASSISTANT || !message.workflow) {
+    return false;
+  }
+
+  if (message.workflow.generationType !== 'image') {
+    return false;
+  }
+
+  return message.workflow.steps.some(
+    (step) =>
+      IMAGE_WORKFLOW_TOOLS.has(step.mcp) && step.status === 'completed'
+  );
+}
+
+function shouldAskForExplicitReferenceImage(options: {
+  userContent: string;
+  attachments?: ChatMessage['attachments'];
+  history: ChatMessage[];
+}): boolean {
+  const text = options.userContent.trim();
+  if (!text || (options.attachments?.length || 0) > 0) {
+    return false;
+  }
+
+  if (!options.history.some(isSuccessfulImageWorkflowMessage)) {
+    return false;
+  }
+
+  const mentionsPreviousImage = PREVIOUS_IMAGE_REFERENCE_PATTERNS.some(
+    (pattern) => pattern.test(text)
+  );
+  if (!mentionsPreviousImage) {
+    return false;
+  }
+
+  return IMAGE_EDIT_ACTION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function getAgentToolExecutionOptions(
+  toolCall: ToolCall
+): { mode: 'queue' } | undefined {
+  if (!AGENT_MEDIA_QUEUE_TOOLS.has(toolCall.name)) {
+    return undefined;
+  }
+
+  return { mode: 'queue' };
 }
 
 export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
@@ -169,14 +275,72 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
 
       // Get the user message content
       const userContent = extractMessageText(msg);
+      const shouldAskForReferenceImage = shouldAskForExplicitReferenceImage({
+        userContent,
+        attachments: ourMsg.attachments,
+        history: rawMessagesRef.current,
+      });
+      const referenceImageContext = buildReferenceImageContextFromAttachments({
+        userMessage: userContent,
+        attachments: ourMsg.attachments,
+      });
+      const chatUserContent =
+        referenceImageContext?.structuredUserMessage ?? userContent;
+      const systemPrompt =
+        systemPromptRef.current +
+        (referenceImageContext?.systemPromptSuffix ?? '');
 
       let fullContent = '';
       let streamErrorHandled = false;
 
+      if (shouldAskForReferenceImage) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMsgId
+              ? {
+                  ...message,
+                  parts: [
+                    {
+                      type: 'text',
+                      text: REFERENCE_IMAGE_FOLLOW_UP_MESSAGE,
+                    },
+                  ],
+                }
+              : message
+          )
+        );
+
+        const assistantChatMsg: ChatMessage = {
+          id: assistantMsgId,
+          sessionId,
+          role: MessageRole.ASSISTANT,
+          content: REFERENCE_IMAGE_FOLLOW_UP_MESSAGE,
+          timestamp: Date.now(),
+          status: MessageStatus.SUCCESS,
+        };
+
+        rawMessagesRef.current = [
+          ...rawMessagesRef.current,
+          ourMsg,
+          assistantChatMsg,
+        ];
+
+        chatStorageService.addMessage(assistantChatMsg);
+        chatStorageService.updateSession(sessionId, {
+          updatedAt: Date.now(),
+          messageCount: (session?.messageCount || 0) + 2,
+        });
+
+        currentAssistantMsgRef.current = null;
+        setStatus('ready');
+        isSendingRef.current = false;
+        return;
+      }
+
       try {
         await chatService.sendChatMessage(
           history.slice(0, -1), // Exclude the new user message from history
-          userContent,
+          chatUserContent,
           ourMsg.attachments || [],
           (event) => {
             if (event.type === 'content' && event.content) {
@@ -205,9 +369,16 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
                   const results: ToolCallResult[] = [];
                   for (const toolCall of processedToolCalls) {
                     try {
-                      const result = (await mcpRegistry.executeTool(
-                        toolCall
-                      )) as MCPTaskResult;
+                      const executionOptions =
+                        getAgentToolExecutionOptions(toolCall as ToolCall);
+                      const result = (executionOptions
+                        ? await mcpRegistry.executeTool(
+                            toolCall,
+                            executionOptions
+                          )
+                        : await mcpRegistry.executeTool(
+                            toolCall
+                          )) as MCPTaskResult;
                       results.push({
                         toolCall: toolCall as ToolCall,
                         success: result.success,
@@ -319,7 +490,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
             }
           },
           temporaryModelRef.current, // 传递临时模型（使用 ref 确保获取最新值）
-          systemPromptRef.current // 传递系统提示词
+          systemPrompt // 传递系统提示词
         );
       } catch (error: any) {
         if (error.message !== 'Request cancelled' && !streamErrorHandled) {
