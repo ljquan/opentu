@@ -3785,7 +3785,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                         generationType === 'image' ? 'image' : 'video'
                       } you want to create`
                 }
-                rows={shouldKeepExpanded ? 4 : 1}
+                rows={shouldKeepExpanded ? 6 : 1}
                 disabled={isSubmitting}
                 data-testid="ai-input-textarea"
               />
