@@ -376,7 +376,7 @@ $vip-color: #E91E63;
 
     // 展开状态
     &--expanded {
-      max-height: 200px; // 最大高度限制
+      max-height: 260px; // 允许输入框扩展到 6 行，同时保留上方预览空间
     }
   }
 
@@ -617,7 +617,7 @@ $vip-color: #E91E63;
     resize: none;
     outline: none;
     min-height: 24px;
-    max-height: 120px;
+    max-height: calc(15px * 1.5 * 6 + 12px);
     overflow-y: auto;
     padding: 6px 12px;
     padding-right: 20px;
@@ -672,8 +672,8 @@ $vip-color: #E91E63;
 
     // When focused, expand height smoothly (controlled by parent container max-height)
     &--focused {
-      min-height: 80px; // 约 3-4 行
-      max-height: 160px; // 最大高度限制
+      min-height: calc(15px * 1.5 * 4 + 12px);
+      max-height: calc(15px * 1.5 * 6 + 12px);
     }
   }
 

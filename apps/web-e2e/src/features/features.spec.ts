@@ -3,9 +3,94 @@
  * 功能测试 - 基于实际页面元素和状态
  * 仅 3 次页面加载，覆盖所有核心功能
  */
+import type { Locator } from '@playwright/test';
 import { test, expect } from '../fixtures/test-base';
 
+async function getTextareaMetrics(textarea: Locator) {
+  return textarea.evaluate((node) => {
+    const textareaElement = node as HTMLTextAreaElement;
+    const styles = window.getComputedStyle(textareaElement);
+    const lineHeight = parseFloat(styles.lineHeight);
+    const paddingTop = parseFloat(styles.paddingTop);
+    const paddingBottom = parseFloat(styles.paddingBottom);
+    const clientHeight = textareaElement.clientHeight;
+    const scrollHeight = textareaElement.scrollHeight;
+
+    return {
+      clientHeight,
+      scrollHeight,
+      lineHeight,
+      paddingTop,
+      paddingBottom,
+      visibleRows:
+        (clientHeight - paddingTop - paddingBottom) / Math.max(lineHeight, 1),
+    };
+  });
+}
+
 test.describe('@feature 功能测试', () => {
+  test('AI 输入栏：展开后默认 4 行并自增到 6 行', async ({ page }) => {
+    await page.goto('/');
+    const drawnix = page.locator('.drawnix');
+    await expect(drawnix).toBeVisible({ timeout: 10000 });
+
+    const aiInput = page.locator('[data-testid="ai-input-textarea"]');
+    await expect(aiInput).toBeVisible();
+
+    const collapsedMetrics = await getTextareaMetrics(aiInput);
+    expect(collapsedMetrics.visibleRows).toBeGreaterThan(0.8);
+    expect(collapsedMetrics.visibleRows).toBeLessThan(1.4);
+
+    await aiInput.click();
+    await page.waitForTimeout(150);
+
+    const expandedMetrics = await getTextareaMetrics(aiInput);
+    expect(expandedMetrics.visibleRows).toBeGreaterThan(3.6);
+    expect(expandedMetrics.visibleRows).toBeLessThan(4.4);
+
+    await aiInput.fill('这是一段用于触发输入框自动换行的测试文本'.repeat(10));
+    await page.waitForTimeout(150);
+
+    const softWrapMetrics = await getTextareaMetrics(aiInput);
+    expect(softWrapMetrics.visibleRows).toBeGreaterThan(4.1);
+    expect(softWrapMetrics.visibleRows).toBeLessThan(6.4);
+
+    await aiInput.fill(
+      '第一行\n第二行\n第三行\n第四行\n第五行\n第六行\n第七行\n第八行'
+    );
+    await page.waitForTimeout(150);
+
+    const cappedMetrics = await getTextareaMetrics(aiInput);
+    expect(cappedMetrics.visibleRows).toBeGreaterThan(5.4);
+    expect(cappedMetrics.visibleRows).toBeLessThan(6.4);
+    expect(cappedMetrics.scrollHeight).toBeGreaterThan(
+      cappedMetrics.clientHeight + 1
+    );
+
+    await aiInput.fill('');
+    await page.waitForTimeout(150);
+
+    const clearedMetrics = await getTextareaMetrics(aiInput);
+    expect(clearedMetrics.visibleRows).toBeGreaterThan(3.6);
+    expect(clearedMetrics.visibleRows).toBeLessThan(4.4);
+
+    await aiInput.evaluate((node) => {
+      (node as HTMLTextAreaElement).blur();
+    });
+    await page.waitForTimeout(150);
+
+    const collapsedAgainMetrics = await getTextareaMetrics(aiInput);
+    expect(collapsedAgainMetrics.visibleRows).toBeGreaterThan(0.8);
+    expect(collapsedAgainMetrics.visibleRows).toBeLessThan(1.4);
+
+    await aiInput.click();
+    await page.waitForTimeout(150);
+
+    const refocusedMetrics = await getTextareaMetrics(aiInput);
+    expect(refocusedMetrics.visibleRows).toBeGreaterThan(3.6);
+    expect(refocusedMetrics.visibleRows).toBeLessThan(4.4);
+  });
+
   /**
    * 测试1：主画布交互功能
    * AI输入栏、模型选择、灵感板、绘图工具

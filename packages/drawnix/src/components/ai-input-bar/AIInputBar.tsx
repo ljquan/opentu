@@ -214,6 +214,10 @@ interface SelectedContent {
   height?: number; // 图片/视频高度
 }
 
+const COLLAPSED_INPUT_ROWS = 1;
+const DEFAULT_EXPANDED_INPUT_ROWS = 4;
+const MAX_EXPANDED_INPUT_ROWS = 6;
+
 function getSelectionKeyForModel(
   model: Pick<ModelConfig, 'id' | 'selectionKey' | 'sourceProfileId'>
 ): string {
@@ -3511,6 +3515,51 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       []
     );
 
+    const shouldKeepExpanded =
+      isFocused || allContent.length > 0 || isPromptOptimizeOpen;
+
+    const syncTextareaHeight = useCallback(() => {
+      const textarea = inputRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      if (!shouldKeepExpanded) {
+        textarea.style.height = '';
+        return;
+      }
+
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computedStyle.lineHeight);
+      const paddingTop = parseFloat(computedStyle.paddingTop);
+      const paddingBottom = parseFloat(computedStyle.paddingBottom);
+      const safeLineHeight = Number.isFinite(lineHeight) ? lineHeight : 0;
+      const safePaddingTop = Number.isFinite(paddingTop) ? paddingTop : 0;
+      const safePaddingBottom = Number.isFinite(paddingBottom)
+        ? paddingBottom
+        : 0;
+      const minHeight = Math.ceil(
+        safeLineHeight * DEFAULT_EXPANDED_INPUT_ROWS +
+          safePaddingTop +
+          safePaddingBottom
+      );
+      const maxHeight = Math.ceil(
+        safeLineHeight * MAX_EXPANDED_INPUT_ROWS +
+          safePaddingTop +
+          safePaddingBottom
+      );
+
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(
+        maxHeight,
+        Math.max(minHeight, textarea.scrollHeight)
+      )}px`;
+    }, [shouldKeepExpanded]);
+
+    useEffect(() => {
+      syncTextareaHeight();
+    }, [prompt, shouldKeepExpanded, syncTextareaHeight]);
+
     const sendButtonTrackParams = useMemo(
       () =>
         JSON.stringify({
@@ -3534,8 +3583,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const hasSelectedTextContent = selectedContent.some(
       (item) => item.type === 'text' && item.text?.trim()
     );
-    const shouldKeepExpanded =
-      isFocused || allContent.length > 0 || isPromptOptimizeOpen;
 
     return (
       <div
@@ -3767,7 +3814,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                         generationType === 'image' ? 'image' : 'video'
                       } you want to create`
                 }
-                rows={shouldKeepExpanded ? 6 : 1}
+                rows={
+                  shouldKeepExpanded
+                    ? DEFAULT_EXPANDED_INPUT_ROWS
+                    : COLLAPSED_INPUT_ROWS
+                }
                 disabled={isSubmitting}
                 data-testid="ai-input-textarea"
               />
