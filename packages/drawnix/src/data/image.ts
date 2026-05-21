@@ -334,7 +334,9 @@ export const insertImageFromUrl = async (
   // 如果为 true 且提供了 referenceDimensions，则跳过图片加载直接使用提供的尺寸
   skipImageLoad?: boolean,
   // 如果为 true，图片加载后不再按真实比例改写尺寸
-  lockReferenceDimensions?: boolean
+  lockReferenceDimensions?: boolean,
+  // 如果为 true，插入图片后不自动选中（用于自动插入场景，避免覆盖用户当前选中状态）
+  skipSelect?: boolean
 ) => {
   // 外部 URL 和 data URL 先缓存到本地
   let resolvedUrl = normalizeImageDataUrl(imageUrl);
@@ -471,6 +473,15 @@ export const insertImageFromUrl = async (
     width: imageItem.width,
     height: imageItem.height,
   });
+
+  // 选中新插入的图片元素（如果没有跳过选中）
+  if (!skipSelect) {
+    const newElement = board.children[childrenCountBefore];
+    if (newElement) {
+      clearSelectedElement(board);
+      addSelectedElement(board, newElement);
+    }
+  }
 
   // 如果跳过了图片加载，异步加载图片并更新元素尺寸
   if (shouldUpdateSizeAfterLoad && referenceDimensions) {

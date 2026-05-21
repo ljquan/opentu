@@ -226,7 +226,8 @@ export class SWCapabilitiesHandler {
           }
 
           case 'image':
-            await insertImageFromUrl(board, content, currentPoint, false, { width: 400, height: 400 }, false, true);
+            // skipSelect: true - SW 自动插入不选中新图片，避免覆盖用户当前选中状态
+            await insertImageFromUrl(board, content, currentPoint, false, { width: 400, height: 400 }, false, true, undefined, true);
             currentPoint = [currentPoint[0], currentPoint[1] + 400 + verticalGap] as Point;
             insertedCount++;
             break;
@@ -304,7 +305,8 @@ export class SWCapabilitiesHandler {
         switch (type) {
           case 'image':
             // 使用默认尺寸立即插入，不等待图片下载完成
-            await insertImageFromUrl(board, content, currentPoint, false, { width: 400, height: 400 }, false, true);
+            // skipSelect: true - SW 自动插入不选中新图片，避免覆盖用户当前选中状态
+            await insertImageFromUrl(board, content, currentPoint, false, { width: 400, height: 400 }, false, true, undefined, true);
             currentPoint = [currentPoint[0], currentPoint[1] + 400 + verticalGap] as Point;
             insertedCount++;
             break;

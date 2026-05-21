@@ -220,8 +220,9 @@ async function insertImageToCanvas(
   // console.log(`[CanvasInsertion] insertImageToCanvas: url=${imageUrl.substring(0, 80)}, point=`, point, 'size=', size);
   // skipScroll: true - 由 executeCanvasInsertion 统一处理滚动
   // skipImageLoad: true - 使用传入的尺寸，不等待图片加载
+  // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
   try {
-    await insertImageFromUrl(board, imageUrl, point, false, size, true, true, true);
+    await insertImageFromUrl(board, imageUrl, point, false, size, true, true, true, true);
     // console.log(`[CanvasInsertion] insertImageFromUrl completed successfully`);
   } catch (error) {
     console.error(`[CanvasInsertion] insertImageFromUrl failed:`, error);

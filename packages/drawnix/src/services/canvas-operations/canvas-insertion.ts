@@ -222,7 +222,8 @@ async function insertImageToCanvas(
   });
   // 批量插入需要固定参考尺寸，避免图片加载后按原始比例回写导致间距抖动。
   // 传入 skipImageLoad=true 和尺寸，立即插入图片不等待下载
-  await insertImageFromUrl(board, imageUrl, point, false, size, true, true, true);
+  // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
+  await insertImageFromUrl(board, imageUrl, point, false, size, true, true, true, true);
   return size;
 }
 

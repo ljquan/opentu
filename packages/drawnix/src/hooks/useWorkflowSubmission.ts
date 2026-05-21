@@ -99,7 +99,8 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
       // Handle batch insert
       for (const item of params.items) {
         if (item.type === 'image' && item.url) {
-          await insertImageFromUrl(board, item.url, insertPoint);
+          // skipSelect: true - 工作流自动插入不选中新图片，避免覆盖用户当前选中状态
+          await insertImageFromUrl(board, item.url, insertPoint, false, undefined, undefined, undefined, undefined, true);
         } else if (item.type === 'video' && item.url) {
           await insertVideoFromUrl(board, item.url, insertPoint);
         } else if (item.type === 'audio' && item.url) {
@@ -107,7 +108,8 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
         }
       }
     } else if (operation === 'insert_image' && params.url) {
-      await insertImageFromUrl(board, params.url, insertPoint);
+      // skipSelect: true - 工作流自动插入不选中新图片，避免覆盖用户当前选中状态
+      await insertImageFromUrl(board, params.url, insertPoint, false, undefined, undefined, undefined, undefined, true);
     } else if (operation === 'insert_video' && params.url) {
       await insertVideoFromUrl(board, params.url, insertPoint);
     } else if ((operation as string) === 'insert_audio' && params.url) {

@@ -63,7 +63,8 @@ async function insertMedia(
     return size;
   }
 
-  await insertImageFromUrl(board, content, point, false, size, true, true);
+  // skipSelect: true - 快速插入通常用于自动插入场景，不选中新图片避免覆盖用户当前选中状态
+  await insertImageFromUrl(board, content, point, false, size, true, true, undefined, true);
   return size;
 }
 
