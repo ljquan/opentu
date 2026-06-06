@@ -1,14 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import path from 'path';
 
 const workspaceRoot = path.resolve(__dirname, '../..');
+const webSrcPath = path.resolve(workspaceRoot, 'apps/web/src');
 
 export default defineConfig({
   root: __dirname,
   cacheDir: '../../node_modules/.vite/apps/desktop',
-
-  // Tauri 需要相对路径
   base: './',
 
   define: {
@@ -28,11 +28,8 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^tdesign-react$/,
-        replacement: path.resolve(
-          workspaceRoot,
-          'packages/drawnix/src/utils/tdesign.ts'
-        ),
+        find: /^\.\.\/web\/src\/(.+)$/,
+        replacement: path.resolve(webSrcPath, '$1'),
       },
     ],
     dedupe: ['react', 'react-dom'],
@@ -54,4 +51,6 @@ export default defineConfig({
       },
     },
   },
+
+  plugins: [react(), nxViteTsPaths()],
 });

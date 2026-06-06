@@ -59,10 +59,30 @@ jobs:
 
           ## 数据存储
 
-          所有数据存储在本地，不会上传到云端：
-          - Windows: \`%APPDATA%/com.opentu.desktop/\`
-          - macOS: \`~/Library/Application Support/com.opentu.desktop/\`
-          - Linux: \`~/.local/share/com.opentu.desktop/\`
+          所有数据存储在本地，不会上传到云端。**首次启动时可自定义存储路径**。
+
+          ### 默认存储位置
+          - Windows: `%APPDATA%/com.opentu.desktop/media/`
+          - macOS: `~/Library/Application Support/com.opentu.desktop/media/`
+          - Linux: `~/.local/share/com.opentu.desktop/media/`
+
+          ### 自定义存储路径
+          首次启动应用时，会弹出路径选择对话框，您可以选择任意文件夹作为生成产物的存放位置。
+
+          ### 文件分类存储
+          生成的文件会自动按类型分类存放：
+          - `{存储路径}/图片/` — 存放 AI 生成的图片文件
+          - `{存储路径}/视频/` — 存放 AI 生成的视频文件
+          - `{存储路径}/音频/` — 存放 AI 生成的音频文件
+
+          ### 修改存储路径
+          启动后在 **设置 → 存储路径** 中可随时修改。
+
+          ### 获取生成资源
+          1. 打开应用，进入设置查看当前存储路径
+          2. 在文件资源管理器中打开该路径
+          3. 进入对应的「图片」、「视频」或「音频」文件夹即可找到生成的文件
+          4. 也可在应用的素材库面板中直接预览和管理生成的资源
           " \
             --draft
 
@@ -75,8 +95,6 @@ jobs:
         with:
           node-version: "20"
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
@@ -107,8 +125,6 @@ jobs:
         with:
           node-version: "20"
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
@@ -146,8 +162,6 @@ jobs:
         with:
           node-version: "20"
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:

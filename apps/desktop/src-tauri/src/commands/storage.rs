@@ -40,18 +40,20 @@ pub fn remove_local(state: State<AppState>, key: String) -> Result<(), String> {
 pub fn get_stats(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let data_dir = db.data_dir.clone();
+    let media_root = db.media_root.clone();
 
     let db_size = std::fs::metadata(data_dir.join("opentu.db"))
         .map(|m| m.len())
         .unwrap_or(0);
 
-    let media_size = dir_size(&data_dir.join("media"));
+    let media_size = dir_size(&media_root);
 
     Ok(serde_json::json!({
         "dbSize": db_size,
         "mediaSize": media_size,
         "totalSize": db_size + media_size,
         "dataDir": data_dir.to_string_lossy(),
+        "mediaRoot": media_root.to_string_lossy(),
     }))
 }
 

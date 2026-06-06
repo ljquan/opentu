@@ -103,7 +103,7 @@ import { MessagePlugin } from '../../utils/message-plugin';
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
 
-type SettingsView = 'providers' | 'presets' | 'canvas' | 'speech';
+type SettingsView = 'providers' | 'presets' | 'canvas' | 'speech' | 'storage';
 type CompactPanelMode = 'catalog' | 'detail';
 type ProviderNavigationIntent =
   | { action: 'select'; profileId: string }
@@ -112,11 +112,24 @@ type ProviderNavigationIntent =
 const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 const SETTINGS_DIALOG_COMPACT_BREAKPOINT = 980;
 
+const isDesktopTauri =
+  typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+
+// Tauri 桌面端命令调用（不依赖 @tauri-apps/api 包）
+function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const internals = (window as any).__TAURI_INTERNALS__;
+  if (!internals) {
+    return Promise.reject(new Error('Not in Tauri environment'));
+  }
+  return internals.invoke(command, args);
+}
+
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
   { value: 'providers', label: '供应商' },
   { value: 'presets', label: '模型预设' },
   { value: 'canvas', label: '画布显示' },
   { value: 'speech', label: '语音播放' },
+  ...(isDesktopTauri ? [{ value: 'storage' as SettingsView, label: '存储路径' }] : []),
 ];
 
 const PROVIDER_TYPE_OPTIONS: ProviderProfile['providerType'][] = [
@@ -3008,6 +3021,166 @@ export const SettingsDialog = ({
     );
   };
 
+  const renderStorageSettings = () => {
+    const [desktopMediaPath, setDesktopMediaPath] = useState('');
+    const [desktopInputPath, setDesktopInputPath] = useState('');
+    const [desktopStorageLoading, setDesktopStorageLoading] = useState(true);
+    const [desktopStorageError, setDesktopStorageError] = useState('');
+    const [desktopStorageMsg, setDesktopStorageMsg] = useState('');
+
+    const loadDesktopMediaPath = useCallback(async () => {
+      if (!isDesktopTauri) return;
+      try {
+        const path = await tauriInvoke<string>('get_media_root_path');
+        setDesktopMediaPath(path);
+        setDesktopInputPath(path);
+        setDesktopStorageLoading(false);
+      } catch (err) {
+        console.error('[StorageSettings] Failed to load:', err);
+        setDesktopStorageLoading(false);
+      }
+    }, []);
+
+    const handleDesktopBrowse = useCallback(async () => {
+      try {
+        const selected = await tauriInvoke<string | null>('pick_media_folder');
+        if (selected) {
+          setDesktopInputPath(selected);
+          setDesktopStorageError('');
+        }
+      } catch (err) {
+        setDesktopStorageError('无法打开文件夹选择器');
+      }
+    }, []);
+
+    const handleDesktopSave = useCallback(async () => {
+      if (!desktopInputPath.trim()) {
+        setDesktopStorageError('请输入有效的文件夹路径');
+        return;
+      }
+      try {
+        const saved = await tauriInvoke<string>('set_media_root_path', { path: desktopInputPath.trim() });
+        setDesktopMediaPath(saved);
+        setDesktopInputPath(saved);
+        setDesktopStorageError('');
+        setDesktopStorageMsg('存储路径已更新');
+        setTimeout(() => setDesktopStorageMsg(''), 3000);
+      } catch (err) {
+        setDesktopStorageError('无法设置存储路径，请检查路径是否有效');
+      }
+    }, [desktopInputPath]);
+
+    const handleDesktopReset = useCallback(async () => {
+      try {
+        const defaultPath = await tauriInvoke<string>('reset_media_root_path');
+        setDesktopMediaPath(defaultPath);
+        setDesktopInputPath(defaultPath);
+        setDesktopStorageError('');
+        setDesktopStorageMsg('已恢复默认路径');
+        setTimeout(() => setDesktopStorageMsg(''), 3000);
+      } catch (err) {
+        setDesktopStorageError('无法恢复默认路径');
+      }
+    }, []);
+
+    useEffect(() => {
+      if (!isDesktopTauri) return;
+      loadDesktopMediaPath();
+    }, [loadDesktopMediaPath]);
+
+    return (
+      <div className="settings-dialog__workspace settings-dialog__workspace--single">
+        <div className="settings-dialog__content-panel settings-dialog__content-panel--canvas">
+          {isCompactLayout ? (
+            <div className="settings-dialog__compact-stage-header">
+              <div className="settings-dialog__compact-stage-copy">
+                <span className="settings-dialog__compact-stage-eyebrow">存储路径</span>
+                <p className="settings-dialog__compact-stage-text">
+                  设置生成图片、视频等产物的存放位置。
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <div className="settings-dialog__section settings-dialog__section--canvas-card">
+            <div className="settings-dialog__section-header">
+              <div>
+                <h3 className="settings-dialog__section-title">产物存储路径</h3>
+              </div>
+            </div>
+
+            {desktopStorageLoading ? (
+              <div className="settings-dialog__model-empty">正在加载...</div>
+            ) : (
+              <>
+                <div className="settings-dialog__field settings-dialog__field--column" style={{ marginBottom: 16 }}>
+                  <label className="settings-dialog__label settings-dialog__label--stacked">
+                    当前存储路径
+                  </label>
+                  <div className="settings-dialog__storage-path-row" style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      className="settings-dialog__input"
+                      value={desktopInputPath}
+                      onChange={(e) => { setDesktopInputPath(e.target.value); setDesktopStorageError(''); }}
+                      placeholder="输入或选择文件夹路径..."
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="settings-dialog__button"
+                      onClick={handleDesktopBrowse}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      浏览...
+                    </button>
+                  </div>
+                  <span className="settings-dialog__field-hint" style={{ marginTop: 8 }}>
+                    生成的文件将保存在：
+                    <br />
+                    {desktopInputPath || '...'}\图片\ — 生成的图片
+                    <br />
+                    {desktopInputPath || '...'}\视频\ — 生成的视频
+                    <br />
+                    {desktopInputPath || '...'}\音频\ — 生成的音频
+                  </span>
+                </div>
+
+                {desktopStorageError && (
+                  <div style={{ padding: '10px 14px', marginBottom: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>
+                    {desktopStorageError}
+                  </div>
+                )}
+
+                {desktopStorageMsg && (
+                  <div style={{ padding: '10px 14px', marginBottom: 16, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#16a34a', fontSize: 13 }}>
+                    {desktopStorageMsg}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button
+                    type="button"
+                    className="settings-dialog__button settings-dialog__button--primary"
+                    onClick={handleDesktopSave}
+                  >
+                    保存路径
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-dialog__button"
+                    onClick={handleDesktopReset}
+                  >
+                    恢复默认
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderCanvasSettings = () => (
     <div className="settings-dialog__workspace settings-dialog__workspace--single">
       <div className="settings-dialog__content-panel settings-dialog__content-panel--canvas">
@@ -3086,6 +3259,10 @@ export const SettingsDialog = ({
 
     if (activeView === 'speech') {
       return <TtsSettingsPanel />;
+    }
+
+    if (activeView === 'storage') {
+      return renderStorageSettings();
     }
 
     if (activeView === 'presets') {

@@ -75,53 +75,6 @@
       </div>
     </div>
     <div id="root"></div>
-    <script type="module">
-      import { StrictMode } from 'react';
-      import * as ReactDOM from 'react-dom/client';
-
-      // 启动进度模拟
-      let bootProgress = 0;
-      const fill = document.getElementById('boot-progress-fill');
-      const value = document.getElementById('boot-progress-value');
-      const updateProgress = (p) => {
-        fill.style.width = p + '%';
-        value.textContent = p + '%';
-      };
-      const timer = setInterval(() => {
-        bootProgress = Math.min(90, bootProgress + 3);
-        updateProgress(bootProgress);
-        if (bootProgress >= 90) clearInterval(timer);
-      }, 80);
-
-      try {
-        const { default: App } = await import('../web/src/app/app');
-        const { ErrorBoundary } = await import('../web/src/app/ErrorBoundary');
-
-        const bootRoot = document.getElementById('app-boot-loading');
-        updateProgress(100);
-        setTimeout(() => {
-          if (bootRoot) {
-            bootRoot.classList.add('is-leaving');
-            setTimeout(() => { if (bootRoot.parentNode) bootRoot.parentNode.removeChild(bootRoot); }, 360);
-          }
-        }, 200);
-
-        const root = ReactDOM.createRoot(document.getElementById('root')!);
-        root.render(
-          StrictMode ? React.createElement(StrictMode, null,
-            React.createElement(ErrorBoundary, null,
-              React.createElement(App, null)
-            )
-          ) : React.createElement(ErrorBoundary, null,
-            React.createElement(App, null)
-          )
-        );
-      } catch (err) {
-        console.error('[Desktop] Failed to start:', err);
-        updateProgress(100);
-        const tip = document.querySelector('.app-boot-tip');
-        if (tip) tip.textContent = '启动失败，请重启应用';
-      }
-    </script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
