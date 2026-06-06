@@ -1,0 +1,54 @@
+{
+  "productName": "Opentu",
+  "version": "0.1.0",
+  "identifier": "com.opentu.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:7201",
+    "beforeDevCommand": "pnpm run dev:renderer",
+    "beforeBuildCommand": "pnpm run build:renderer"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Opentu 开图",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https: http: asset:; connect-src 'self' https: http:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "copyright": "Copyright © 2026 Opentu",
+    "category": "Productivity",
+    "shortDescription": "AI 图片生成、流程图、思维导图与画布工作区",
+    "longDescription": "Opentu（开图）是一个以画布工作区为核心的 AI 应用平台，支持 AI 图片生成、流程图、思维导图、素材管理与任务推进。"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ljquan/opentu/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    },
+    "dialog": {},
+    "store": {},
+    "opener": {},
+    "process": {}
+  }
+}

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Opentu 开图</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <style>
+      :root {
+        --app-boot-bg: radial-gradient(circle at top, rgba(90, 79, 207, 0.14), transparent 38%),
+          linear-gradient(180deg, #fff8ef 0%, #ffffff 58%, #f8f9ff 100%);
+        --app-boot-text: #2d3436;
+        --app-boot-muted: #636e72;
+        --app-boot-accent: #f39c12;
+        --app-boot-accent-soft: rgba(243, 156, 18, 0.14);
+        --app-boot-shadow: 0 20px 60px rgba(45, 52, 54, 0.08);
+      }
+      #app-boot-loading {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; background: var(--app-boot-bg);
+        transition: opacity 0.28s ease, visibility 0.28s ease;
+      }
+      .app-boot-card {
+        width: min(420px, calc(100vw - 48px));
+        padding: 28px 24px; border-radius: 24px;
+        background: rgba(255,255,255,0.92);
+        box-shadow: var(--app-boot-shadow);
+        backdrop-filter: blur(14px); text-align: center;
+      }
+      .app-boot-mark {
+        min-width: 52px; height: 52px; padding: 0 16px;
+        margin: 0 auto 16px; border-radius: 16px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, rgba(243,156,18,0.18), rgba(90,79,207,0.12));
+        color: var(--app-boot-accent); font-size: 16px; font-weight: 700;
+        white-space: nowrap; text-decoration: none;
+      }
+      .app-boot-title { margin: 0; color: var(--app-boot-text); font-size: 18px; font-weight: 600; }
+      .app-boot-tip { margin: 10px 0 0; color: var(--app-boot-muted); font-size: 14px; }
+      .app-boot-progress {
+        display: flex; align-items: center; justify-content: center;
+        gap: 12px; margin-top: 18px; padding: 10px 14px;
+        border-radius: 999px; background: var(--app-boot-accent-soft);
+        color: var(--app-boot-accent); font-size: 13px; font-weight: 600;
+      }
+      .app-boot-progress-track {
+        position: relative; width: min(180px, 42vw); height: 8px;
+        overflow: hidden; border-radius: 999px; background: rgba(243,156,18,0.16);
+      }
+      .app-boot-progress-fill {
+        position: absolute; inset: 0 auto 0 0; width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(243,156,18,0.72), rgba(243,156,18,1));
+        box-shadow: 0 0 16px rgba(243,156,18,0.3);
+        transition: width 0.24s ease;
+      }
+      .app-boot-progress-value { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+      .app-boot-note { margin-top: 14px; color: rgba(99,110,114,0.84); font-size: 12px; }
+      #app-boot-loading.is-leaving { opacity: 0; visibility: hidden; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app-boot-loading" role="status" aria-live="polite" aria-label="应用正在加载">
+      <div class="app-boot-card">
+        <div class="app-boot-mark">OpenTu.ai</div>
+        <p class="app-boot-title">正在启动工作台</p>
+        <p class="app-boot-tip">资源加载中，马上就好...</p>
+        <div class="app-boot-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span class="app-boot-progress-track" aria-hidden="true">
+            <span class="app-boot-progress-fill" id="boot-progress-fill"></span>
+          </span>
+          <span class="app-boot-progress-value" id="boot-progress-value">0%</span>
+        </div>
+        <div class="app-boot-note">数据存储在本地，可通过菜单中的"备份/恢复"进行管理。</div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module">
+      import { StrictMode } from 'react';
+      import * as ReactDOM from 'react-dom/client';
+
+      // 启动进度模拟
+      let bootProgress = 0;
+      const fill = document.getElementById('boot-progress-fill');
+      const value = document.getElementById('boot-progress-value');
+      const updateProgress = (p) => {
+        fill.style.width = p + '%';
+        value.textContent = p + '%';
+      };
+      const timer = setInterval(() => {
+        bootProgress = Math.min(90, bootProgress + 3);
+        updateProgress(bootProgress);
+        if (bootProgress >= 90) clearInterval(timer);
+      }, 80);
+
+      try {
+        const { default: App } = await import('../web/src/app/app');
+        const { ErrorBoundary } = await import('../web/src/app/ErrorBoundary');
+
+        const bootRoot = document.getElementById('app-boot-loading');
+        updateProgress(100);
+        setTimeout(() => {
+          if (bootRoot) {
+            bootRoot.classList.add('is-leaving');
+            setTimeout(() => { if (bootRoot.parentNode) bootRoot.parentNode.removeChild(bootRoot); }, 360);
+          }
+        }, 200);
+
+        const root = ReactDOM.createRoot(document.getElementById('root')!);
+        root.render(
+          StrictMode ? React.createElement(StrictMode, null,
+            React.createElement(ErrorBoundary, null,
+              React.createElement(App, null)
+            )
+          ) : React.createElement(ErrorBoundary, null,
+            React.createElement(App, null)
+          )
+        );
+      } catch (err) {
+        console.error('[Desktop] Failed to start:', err);
+        updateProgress(100);
+        const tip = document.querySelector('.app-boot-tip');
+        if (tip) tip.textContent = '启动失败，请重启应用';
+      }
+    </script>
+  </body>
+</html>

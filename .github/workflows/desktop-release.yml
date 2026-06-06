@@ -1,0 +1,180 @@
+name: Desktop Build & Release
+run-name: "Desktop Release: ${{ github.ref_name }}"
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Opentu Desktop ${{ github.ref_name }}" \
+            --notes "## 安装方式
+
+          ### macOS / Linux 一键安装
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/scripts/install_opentu.sh | bash
+          \`\`\`
+
+          或指定版本：
+
+          \`\`\`bash
+          OPENTU_TAG=${{ github.ref_name }} curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/scripts/install_opentu.sh | bash
+          \`\`\`
+
+          ### Windows
+
+          下载下方 Assets 中的 \`.msi\` 安装包，双击安装即可。
+
+          ### macOS 未签名包打开方式
+
+          如果第一次打开时被系统拦截：
+          1. 对应用点右键，选择\"打开\"，在弹窗里确认\"打开\"
+          2. 或在终端执行：\`xattr -dr com.apple.quarantine \"/Applications/Opentu.app\"\`
+
+          ---
+
+          ## 功能特性
+
+          - **AI 图片生成**：多模型支持（GPT Image、Gemini）、多种比例
+          - **AI 视频生成**：Veo、Seedance 等模型
+          - **AI 音频生成**：Suno 音乐生成
+          - **画布工作区**：流程图、思维导图、白板绘图
+          - **素材库管理**：本地媒体文件管理、批量操作
+          - **知识库**：笔记、标签、搜索
+          - **数据备份**：自动备份、导入导出
+
+          ## 数据存储
+
+          所有数据存储在本地，不会上传到云端：
+          - Windows: \`%APPDATA%/com.opentu.desktop/\`
+          - macOS: \`~/Library/Application Support/com.opentu.desktop/\`
+          - Linux: \`~/.local/share/com.opentu.desktop/\`
+          " \
+            --draft
+
+  build-macos-arm:
+    needs: create-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+      - run: pnpm install --frozen-lockfile
+      - name: Build Desktop
+        working-directory: apps/desktop
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: pnpm tauri build --target aarch64-apple-darwin
+      - name: Upload assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          BUNDLE="apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
+          find "$BUNDLE/dmg"   -name "*.dmg"   -exec sh -c 'cp "$1" "Opentu-macos-aarch64.dmg"   && gh release upload "$TAG" "Opentu-macos-aarch64.dmg"   --clobber' _ {} \;
+          find "$BUNDLE/macos" -name "*.tar.gz" -exec sh -c 'cp "$1" "Opentu-macos-aarch64.tar.gz" && gh release upload "$TAG" "Opentu-macos-aarch64.tar.gz" --clobber' _ {} \;
+
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+      - run: pnpm install --frozen-lockfile
+      - name: Build Desktop
+        working-directory: apps/desktop
+        run: pnpm tauri build
+      - name: Upload assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          $bundle = "apps/desktop/src-tauri/target/release/bundle"
+          Get-ChildItem "$bundle/msi/*.msi" | ForEach-Object {
+            Copy-Item $_.FullName "Opentu-windows-x86_64.msi"
+            gh release upload $env:TAG "Opentu-windows-x86_64.msi" --clobber
+          }
+          Get-ChildItem "$bundle/nsis/*-setup.exe" | ForEach-Object {
+            Copy-Item $_.FullName "Opentu-windows-x86_64-setup.exe"
+            gh release upload $env:TAG "Opentu-windows-x86_64-setup.exe" --clobber
+          }
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+      - run: pnpm install --frozen-lockfile
+      - name: Build Desktop
+        working-directory: apps/desktop
+        run: pnpm tauri build
+      - name: Upload assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          BUNDLE="apps/desktop/src-tauri/target/release/bundle"
+          find "$BUNDLE/appimage" -name "*.AppImage" -exec sh -c 'cp "$1" "Opentu-linux-x86_64.AppImage" && gh release upload "$TAG" "Opentu-linux-x86_64.AppImage" --clobber' _ {} \;
+          find "$BUNDLE/deb"      -name "*.deb"      -exec sh -c 'cp "$1" "Opentu-linux-x86_64.deb"      && gh release upload "$TAG" "Opentu-linux-x86_64.deb"      --clobber' _ {} \;
+          find "$BUNDLE/rpm"      -name "*.rpm"      -exec sh -c 'cp "$1" "Opentu-linux-x86_64.rpm"      && gh release upload "$TAG" "Opentu-linux-x86_64.rpm"      --clobber' _ {} \;
+
+  upload-install-script:
+    needs: [build-macos-arm, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload install script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            scripts/install_opentu.sh \
+            --clobber
