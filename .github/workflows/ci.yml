@@ -20,13 +20,12 @@ jobs:
           fetch-depth: 0
 
       # Cache node_modules
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
 
-      - run: corepack enable pnpm
-      - run: pnpm install
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
 
 
@@ -81,13 +80,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
 
-      - run: corepack enable pnpm
-      - run: pnpm install
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
 
       # 安装所有浏览器用于完整测试
       - name: Install Playwright Browsers
