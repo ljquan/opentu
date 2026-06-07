@@ -101,20 +101,31 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "apps/desktop/src-tauri -> target"
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Build Desktop
         working-directory: apps/desktop
         env:
           APPLE_SIGNING_IDENTITY: "-"
-        run: pnpm tauri build --target aarch64-apple-darwin
+          CI: true
+          RUST_BACKTRACE: "1"
+        run: |
+          echo "Starting build..."
+          pnpm tauri build --target aarch64-apple-darwin --verbose
       - name: Upload assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           BUNDLE="apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
-          find "$BUNDLE/dmg"   -name "*.dmg"   -exec sh -c 'cp "$1" "Opentu-macos-aarch64.dmg"   && gh release upload "$TAG" "Opentu-macos-aarch64.dmg"   --clobber' _ {} \;
-          find "$BUNDLE/macos" -name "*.tar.gz" -exec sh -c 'cp "$1" "Opentu-macos-aarch64.tar.gz" && gh release upload "$TAG" "Opentu-macos-aarch64.tar.gz" --clobber' _ {} \;
+          echo "Checking bundle directory: $BUNDLE"
+          ls -la $BUNDLE
+          if [ -d "$BUNDLE/dmg" ]; then
+            find "$BUNDLE/dmg" -name "*.dmg" -exec sh -c 'cp "$1" "Opentu-macos-aarch64.dmg" && gh release upload "$TAG" "Opentu-macos-aarch64.dmg" --clobber' _ {} \;
+          fi
+          if [ -d "$BUNDLE/macos" ]; then
+            find "$BUNDLE/macos" -name "*.tar.gz" -exec sh -c 'cp "$1" "Opentu-macos-aarch64.tar.gz" && gh release upload "$TAG" "Opentu-macos-aarch64.tar.gz" --clobber' _ {} \;
+          fi
 
   build-windows:
     needs: create-release
@@ -129,10 +140,15 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "apps/desktop/src-tauri -> target"
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Build Desktop
         working-directory: apps/desktop
-        run: pnpm tauri build
+        env:
+          CI: true
+        run: |
+          echo "Starting build..."
+          pnpm tauri build --verbose
       - name: Upload assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -140,13 +156,19 @@ jobs:
         shell: pwsh
         run: |
           $bundle = "apps/desktop/src-tauri/target/release/bundle"
-          Get-ChildItem "$bundle/msi/*.msi" | ForEach-Object {
-            Copy-Item $_.FullName "Opentu-windows-x86_64.msi"
-            gh release upload $env:TAG "Opentu-windows-x86_64.msi" --clobber
+          Write-Host "Checking bundle directory: $bundle"
+          Get-ChildItem -Path $bundle -Recurse
+          if (Test-Path "$bundle/msi") {
+            Get-ChildItem "$bundle/msi/*.msi" | ForEach-Object {
+              Copy-Item $_.FullName "Opentu-windows-x86_64.msi"
+              gh release upload $env:TAG "Opentu-windows-x86_64.msi" --clobber
+            }
           }
-          Get-ChildItem "$bundle/nsis/*-setup.exe" | ForEach-Object {
-            Copy-Item $_.FullName "Opentu-windows-x86_64-setup.exe"
-            gh release upload $env:TAG "Opentu-windows-x86_64-setup.exe" --clobber
+          if (Test-Path "$bundle/nsis") {
+            Get-ChildItem "$bundle/nsis/*-setup.exe" | ForEach-Object {
+              Copy-Item $_.FullName "Opentu-windows-x86_64-setup.exe"
+              gh release upload $env:TAG "Opentu-windows-x86_64-setup.exe" --clobber
+            }
           }
 
   build-linux:
@@ -166,19 +188,33 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "apps/desktop/src-tauri -> target"
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Build Desktop
         working-directory: apps/desktop
-        run: pnpm tauri build
+        env:
+          CI: true
+          RUST_BACKTRACE: "1"
+        run: |
+          echo "Starting build..."
+          pnpm tauri build --verbose
       - name: Upload assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           BUNDLE="apps/desktop/src-tauri/target/release/bundle"
-          find "$BUNDLE/appimage" -name "*.AppImage" -exec sh -c 'cp "$1" "Opentu-linux-x86_64.AppImage" && gh release upload "$TAG" "Opentu-linux-x86_64.AppImage" --clobber' _ {} \;
-          find "$BUNDLE/deb"      -name "*.deb"      -exec sh -c 'cp "$1" "Opentu-linux-x86_64.deb"      && gh release upload "$TAG" "Opentu-linux-x86_64.deb"      --clobber' _ {} \;
-          find "$BUNDLE/rpm"      -name "*.rpm"      -exec sh -c 'cp "$1" "Opentu-linux-x86_64.rpm"      && gh release upload "$TAG" "Opentu-linux-x86_64.rpm"      --clobber' _ {} \;
+          echo "Checking bundle directory: $BUNDLE"
+          ls -la $BUNDLE
+          if [ -d "$BUNDLE/appimage" ]; then
+            find "$BUNDLE/appimage" -name "*.AppImage" -exec sh -c 'cp "$1" "Opentu-linux-x86_64.AppImage" && gh release upload "$TAG" "Opentu-linux-x86_64.AppImage" --clobber' _ {} \;
+          fi
+          if [ -d "$BUNDLE/deb" ]; then
+            find "$BUNDLE/deb" -name "*.deb" -exec sh -c 'cp "$1" "Opentu-linux-x86_64.deb" && gh release upload "$TAG" "Opentu-linux-x86_64.deb" --clobber' _ {} \;
+          fi
+          if [ -d "$BUNDLE/rpm" ]; then
+            find "$BUNDLE/rpm" -name "*.rpm" -exec sh -c 'cp "$1" "Opentu-linux-x86_64.rpm" && gh release upload "$TAG" "Opentu-linux-x86_64.rpm" --clobber' _ {} \;
+          fi
 
   upload-install-script:
     needs: [build-macos-arm, build-windows, build-linux]
