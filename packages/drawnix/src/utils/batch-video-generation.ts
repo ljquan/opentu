@@ -55,8 +55,7 @@ function buildVideoFailureText(
 ): string {
   return [task?.error?.code, task?.error?.message, fallbackError]
     .filter(
-      (item): item is string =>
-        typeof item === 'string' && item.trim() !== ''
+      (item): item is string => typeof item === 'string' && item.trim() !== ''
     )
     .join(' ');
 }
@@ -67,6 +66,10 @@ export function getNonRetryableBatchVideoFailureReason(
 ): string | null {
   const failureText = buildVideoFailureText(task, fallbackError);
   if (!failureText) {
+    return null;
+  }
+
+  if (/\bPROVIDER_RECAPTCHA_BLOCKED\b/i.test(failureText)) {
     return null;
   }
 
@@ -102,7 +105,13 @@ export function getNonRetryableBatchVideoFailureReason(
 export function buildBatchVideoReferenceImages(
   params: BuildBatchVideoReferenceImagesParams
 ): BatchVideoReferenceResult {
-  const { model, firstFrameUrl, lastFrameUrl, extraReferenceUrls = [], characterReferenceUrls = [] } = params;
+  const {
+    model,
+    firstFrameUrl,
+    lastFrameUrl,
+    extraReferenceUrls = [],
+    characterReferenceUrls = [],
+  } = params;
   const config = getVideoModelConfig(model);
   const urls: string[] = [];
   const descriptions: string[] = [];
@@ -115,31 +124,53 @@ export function buildBatchVideoReferenceImages(
   };
 
   if (config.imageUpload.mode === 'frames') {
-    append(firstFrameUrl, '首帧图：只表示视频起始画面状态，视频必须从这张图开始，优先于故事上下文。');
-    append(lastFrameUrl, '尾帧图：只表示视频结束画面状态，视频应自然过渡到这张图，优先于故事上下文。');
-    const referenceImages = urls.length > 0 ? urls.slice(0, config.imageUpload.maxCount) : undefined;
+    append(
+      firstFrameUrl,
+      '首帧图：只表示视频起始画面状态，视频必须从这张图开始，优先于故事上下文。'
+    );
+    append(
+      lastFrameUrl,
+      '尾帧图：只表示视频结束画面状态，视频应自然过渡到这张图，优先于故事上下文。'
+    );
+    const referenceImages =
+      urls.length > 0 ? urls.slice(0, config.imageUpload.maxCount) : undefined;
     const referenceImageDescriptions = referenceImages
       ? descriptions.slice(0, referenceImages.length)
       : undefined;
     // frames 模式槽位被首尾帧占满，角色参考图只能通过 prompt 注入
-    const unusedCharacterReferenceUrls = characterReferenceUrls.length > 0 ? characterReferenceUrls : undefined;
-    return { referenceImages, referenceImageDescriptions, unusedCharacterReferenceUrls };
+    const unusedCharacterReferenceUrls =
+      characterReferenceUrls.length > 0 ? characterReferenceUrls : undefined;
+    return {
+      referenceImages,
+      referenceImageDescriptions,
+      unusedCharacterReferenceUrls,
+    };
   }
 
   // 非 frames 模式：角色参考图优先，然后是首帧，再是额外参考图
   for (const url of characterReferenceUrls) {
-    append(url, '角色参考图：仅用于锁定人物身份、脸型、发型、服装、材质和气质，不表示时间顺序、动作或剧情。');
+    append(
+      url,
+      '角色参考图：仅用于锁定人物身份、脸型、发型、服装、材质和气质，不表示时间顺序、动作或剧情。'
+    );
     if (urls.length >= config.imageUpload.maxCount) break;
   }
-  append(firstFrameUrl, '首帧图：只表示视频起始画面状态，视频必须从这张图开始，优先于故事上下文。');
+  append(
+    firstFrameUrl,
+    '首帧图：只表示视频起始画面状态，视频必须从这张图开始，优先于故事上下文。'
+  );
   for (const url of extraReferenceUrls) {
-    append(url, '全局/补充参考图：仅用于主体、产品、场景、风格或色彩一致性，不表示时间顺序、动作或剧情。');
+    append(
+      url,
+      '全局/补充参考图：仅用于主体、产品、场景、风格或色彩一致性，不表示时间顺序、动作或剧情。'
+    );
     if (urls.length >= config.imageUpload.maxCount) break;
   }
 
   return {
     referenceImages: urls.length > 0 ? urls : undefined,
-    referenceImageDescriptions: descriptions.length > 0 ? descriptions : undefined,
+    referenceImageDescriptions:
+      descriptions.length > 0 ? descriptions : undefined,
   };
 }
 

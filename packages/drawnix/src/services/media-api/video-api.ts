@@ -28,6 +28,7 @@ import {
 import { prepareVideoReferenceImageBlob } from '../video-reference-image-utils';
 
 const DURATION_IN_MODEL_PREFIX = 'sora-2-';
+const PROVIDER_ERROR_PREVIEW_LIMIT = 1000;
 const durationEncodedInModel = (model?: string | null) =>
   Boolean(model && model.startsWith(DURATION_IN_MODEL_PREFIX));
 
@@ -40,6 +41,128 @@ export class VideoGenerationFailedError extends Error {
     super(message);
     this.name = 'VideoGenerationFailedError';
   }
+}
+
+export class ProviderHttpError extends Error {
+  public readonly status: number;
+  public readonly rawResponse: string;
+  public readonly code: string;
+
+  constructor(params: {
+    status: number;
+    message: string;
+    rawResponse: string;
+    code?: string;
+  }) {
+    super(params.message);
+    this.name = 'ProviderHttpError';
+    this.status = params.status;
+    this.rawResponse = params.rawResponse;
+    this.code = params.code || `HTTP_${params.status}`;
+  }
+}
+
+function extractProviderErrorMessage(rawText: string): string {
+  const trimmed = rawText.trim();
+  if (!trimmed) return '';
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      message?: string;
+      detail?: string;
+      error?:
+        | string
+        | {
+            code?: unknown;
+            message?: unknown;
+            status?: unknown;
+            details?: Array<{
+              reason?: unknown;
+              metadata?: {
+                reason?: unknown;
+              };
+            }>;
+          };
+    };
+    if (typeof parsed.error === 'string') return parsed.error;
+
+    const error = parsed.error;
+    const reason =
+      error?.details?.find(
+        (item) =>
+          typeof item.reason === 'string' ||
+          typeof item.metadata?.reason === 'string'
+      )?.reason ||
+      error?.details?.find((item) => typeof item.metadata?.reason === 'string')
+        ?.metadata?.reason;
+    const message =
+      (typeof error?.message === 'string' ? error.message : '') ||
+      (typeof parsed.message === 'string' ? parsed.message : '') ||
+      (typeof parsed.detail === 'string' ? parsed.detail : '');
+    return [message, reason].filter(Boolean).join(' ').trim();
+  } catch {
+    return trimmed.replace(/\s+/g, ' ');
+  }
+}
+
+async function readResponseTextPreview(
+  response: Response,
+  limit = PROVIDER_ERROR_PREVIEW_LIMIT
+): Promise<string> {
+  if (!response.body) {
+    try {
+      return (await response.clone().text()).slice(0, limit);
+    } catch {
+      return '';
+    }
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+
+  try {
+    while (text.length < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    if (text.length >= limit) {
+      await reader.cancel().catch(() => undefined);
+    }
+  } catch {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return text.slice(0, limit);
+}
+
+function buildVideoSubmissionHttpError(
+  status: number,
+  rawResponse: string
+): ProviderHttpError {
+  const providerMessage = extractProviderErrorMessage(rawResponse);
+  const combined = `${providerMessage} ${rawResponse}`;
+  const isRecaptchaBlocked =
+    status === 403 &&
+    /recaptcha|PUBLIC_ERROR_UNUSUAL_ACTIVITY|unusual activity/i.test(combined);
+
+  if (isRecaptchaBlocked) {
+    return new ProviderHttpError({
+      status,
+      code: 'PROVIDER_RECAPTCHA_BLOCKED',
+      message:
+        '供应商风控拦截：当前视频模型触发 reCAPTCHA/异常流量校验，请换用 Seedance/Veo 其他模型或稍后重试。',
+      rawResponse,
+    });
+  }
+
+  return new ProviderHttpError({
+    status,
+    message: providerMessage || `视频提交失败：HTTP ${status}`,
+    rawResponse,
+  });
 }
 
 /**
@@ -73,10 +196,7 @@ export async function submitVideoGeneration(
   formData.append('model', submission.model);
   formData.append('prompt', params.prompt);
 
-  if (
-    submission.duration &&
-    !durationEncodedInModel(submission.model)
-  ) {
+  if (submission.duration && !durationEncodedInModel(submission.model)) {
     formData.append(submission.durationField, String(submission.duration));
   }
 
@@ -113,14 +233,16 @@ export async function submitVideoGeneration(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Video submission failed: ${response.status} - ${errorText}`);
+    const errorText = await readResponseTextPreview(response);
+    throw buildVideoSubmissionHttpError(response.status, errorText);
   }
 
   const data = await response.json();
 
   if (data.status === 'failed') {
-    throw new VideoGenerationFailedError(parseErrorMessage(data.error) || '视频生成失败');
+    throw new VideoGenerationFailedError(
+      parseErrorMessage(data.error) || '视频生成失败'
+    );
   }
 
   if (!data.id) {
@@ -175,11 +297,7 @@ export async function pollVideoUntilComplete(
   config: VideoApiConfig,
   options: PollingOptions = {}
 ): Promise<VideoStatusResponse> {
-  const {
-    onProgress,
-    signal,
-    interval = 5000,
-  } = options;
+  const { onProgress, signal, interval = 5000 } = options;
   const fetchFn = config.fetchImpl || fetch;
   const baseUrl = normalizeApiBase(config.baseUrl);
   const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
@@ -215,7 +333,10 @@ export async function pollVideoUntilComplete(
         }
 
         // 指数退避
-        const backoffInterval = Math.min(interval * Math.pow(1.5, consecutiveErrors), 60000);
+        const backoffInterval = Math.min(
+          interval * Math.pow(1.5, consecutiveErrors),
+          60000
+        );
         await sleep(backoffInterval, signal);
         attempts++;
         continue;
@@ -225,7 +346,8 @@ export async function pollVideoUntilComplete(
       consecutiveErrors = 0;
 
       const data: VideoStatusResponse = await response.json();
-      const status = data.status?.toLowerCase() as VideoStatusResponse['status'];
+      const status =
+        data.status?.toLowerCase() as VideoStatusResponse['status'];
 
       // 更新进度
       const progress = data.progress ?? Math.min(10 + attempts * 2, 90);
@@ -239,7 +361,9 @@ export async function pollVideoUntilComplete(
 
       // 检查失败状态 - 业务失败不应重试
       if (status === 'failed' || status === 'error') {
-        throw new VideoGenerationFailedError(parseErrorMessage(data.error) || '视频生成失败');
+        throw new VideoGenerationFailedError(
+          parseErrorMessage(data.error) || '视频生成失败'
+        );
       }
 
       // 等待下一次轮询
@@ -267,7 +391,10 @@ export async function pollVideoUntilComplete(
         throw err;
       }
 
-      const backoffInterval = Math.min(interval * Math.pow(1.5, consecutiveErrors), 60000);
+      const backoffInterval = Math.min(
+        interval * Math.pow(1.5, consecutiveErrors),
+        60000
+      );
       await sleep(backoffInterval, signal);
       attempts++;
     }

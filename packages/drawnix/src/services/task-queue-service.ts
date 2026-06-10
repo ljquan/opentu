@@ -132,12 +132,7 @@ function areStorageSyncValuesEqual(left: unknown, right: unknown): boolean {
     return true;
   }
 
-  if (
-    left &&
-    right &&
-    typeof left === 'object' &&
-    typeof right === 'object'
-  ) {
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
     const leftJson = stableStringify(left);
     const rightJson = stableStringify(right);
     return leftJson !== undefined && leftJson === rightJson;
@@ -146,7 +141,10 @@ function areStorageSyncValuesEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-function hasStorageTaskChanges(task: Task, storageTask: Partial<Task>): boolean {
+function hasStorageTaskChanges(
+  task: Task,
+  storageTask: Partial<Task>
+): boolean {
   return STORAGE_SYNC_FIELDS.some((field) => {
     if (!(field in storageTask)) {
       return false;
@@ -235,10 +233,7 @@ function trackTaskAnalytics(
 
 function isTrackedTerminalTaskStatus(
   status: TaskStatus
-): status is
-  | TaskStatus.COMPLETED
-  | TaskStatus.FAILED
-  | TaskStatus.CANCELLED {
+): status is TaskStatus.COMPLETED | TaskStatus.FAILED | TaskStatus.CANCELLED {
   return (
     status === TaskStatus.COMPLETED ||
     status === TaskStatus.FAILED ||
@@ -1159,12 +1154,20 @@ class TaskQueueService {
       const localTask = this.tasks.get(task.id);
       if (localTask) {
         const now = Date.now();
+        const originalError =
+          typeof error.rawResponse === 'string'
+            ? error.rawResponse
+            : error.message || String(error);
         const failedTask: Task = {
           ...localTask,
           status: TaskStatus.FAILED,
           error: {
-            code: 'EXECUTION_ERROR',
+            code: error.code || 'EXECUTION_ERROR',
             message: error.message || 'Task execution failed',
+            details: {
+              originalError,
+              timestamp: now,
+            },
           },
           updatedAt: now,
           completedAt: now,
@@ -2082,9 +2085,9 @@ class TaskQueueService {
   }
 
   async findImageTaskByResultUrl(imageUrl: string): Promise<Task | undefined> {
-    const memoryMatch = this
-      .getAllTasks()
-      .find((task) => imageTaskMatchesUrl(task, imageUrl));
+    const memoryMatch = this.getAllTasks().find((task) =>
+      imageTaskMatchesUrl(task, imageUrl)
+    );
     if (memoryMatch) {
       return this.getCompleteTask(memoryMatch.id);
     }
@@ -2157,10 +2160,7 @@ class TaskQueueService {
    *
    * @param taskId - The task ID to retry
    */
-  retryTask(
-    taskId: string,
-    options: { allowCompleted?: boolean } = {}
-  ): void {
+  retryTask(taskId: string, options: { allowCompleted?: boolean } = {}): void {
     const task = this.tasks.get(taskId);
     if (!task) {
       console.warn(`[TaskQueueService] Task ${taskId} not found`);

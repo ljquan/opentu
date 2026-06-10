@@ -8,23 +8,27 @@ import {
 
 describe('media-api provider routing', () => {
   it('uses header auth and extra headers for sync image generation', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('https://api.example.com/v1/images/generations');
-      const headers = init?.headers as Record<string, string>;
-      expect(headers['Content-Type']).toBe('application/json');
-      expect(headers['X-API-Key']).toBe('secret');
-      expect(headers['X-Trace-Id']).toBe('trace-1');
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          'https://api.example.com/v1/images/generations'
+        );
+        const headers = init?.headers as Record<string, string>;
+        expect(headers['Content-Type']).toBe('application/json');
+        expect(headers['X-API-Key']).toBe('secret');
+        expect(headers['X-Trace-Id']).toBe('trace-1');
 
-      return new Response(
-        JSON.stringify({
-          data: [{ url: 'https://cdn.example.com/image.png' }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    });
+        return new Response(
+          JSON.stringify({
+            data: [{ url: 'https://cdn.example.com/image.png' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    );
 
     const result = await generateImageSync(
       {
@@ -48,7 +52,9 @@ describe('media-api provider routing', () => {
 
   it('uses query auth for async image polling endpoints', async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe('https://gateway.example.com/v1/videos/task-1?key=secret');
+      expect(String(input)).toBe(
+        'https://gateway.example.com/v1/videos/task-1?key=secret'
+      );
 
       return new Response(
         JSON.stringify({
@@ -77,31 +83,49 @@ describe('media-api provider routing', () => {
   });
 
   it('submits async image reference images and mask to /v1/videos form data', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === 'data:image/png;base64,abc123') {
-        return new Response(new Blob(['ref'], { type: 'image/png' }), {
-          status: 200,
-        });
-      }
-      if (String(input) === 'data:image/png;base64,mask123') {
-        return new Response(new Blob(['mask'], { type: 'image/png' }), {
-          status: 200,
-        });
-      }
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === 'data:image/png;base64,abc123') {
+          return new Response(new Blob(['ref'], { type: 'image/png' }), {
+            status: 200,
+          });
+        }
+        if (String(input) === 'data:image/png;base64,mask123') {
+          return new Response(new Blob(['mask'], { type: 'image/png' }), {
+            status: 200,
+          });
+        }
 
-      if (String(input) === 'https://gateway.example.com/v1/videos') {
-        expect(init?.body).toBeInstanceOf(FormData);
-        const formData = init?.body as FormData;
-        expect(formData.get('model')).toBe('gpt-image-2');
-        expect(formData.get('prompt')).toBe('edit with reference');
-        expect(formData.get('size')).toBe('1:1');
-        expect(formData.get('input_reference')).toBeInstanceOf(Blob);
-        expect(formData.get('mask')).toBeInstanceOf(Blob);
+        if (String(input) === 'https://gateway.example.com/v1/videos') {
+          expect(init?.body).toBeInstanceOf(FormData);
+          const formData = init?.body as FormData;
+          expect(formData.get('model')).toBe('gpt-image-2');
+          expect(formData.get('prompt')).toBe('edit with reference');
+          expect(formData.get('size')).toBe('1:1');
+          expect(formData.get('input_reference')).toBeInstanceOf(Blob);
+          expect(formData.get('mask')).toBeInstanceOf(Blob);
 
+          return new Response(
+            JSON.stringify({
+              id: 'task-1',
+              status: 'completed',
+              progress: 100,
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+
+        expect(String(input)).toBe(
+          'https://gateway.example.com/v1/videos/task-1'
+        );
         return new Response(
           JSON.stringify({
             id: 'task-1',
             status: 'completed',
+            url: 'https://cdn.example.com/final.png',
             progress: 100,
           }),
           {
@@ -110,21 +134,7 @@ describe('media-api provider routing', () => {
           }
         );
       }
-
-      expect(String(input)).toBe('https://gateway.example.com/v1/videos/task-1');
-      return new Response(
-        JSON.stringify({
-          id: 'task-1',
-          status: 'completed',
-          url: 'https://cdn.example.com/final.png',
-          progress: 100,
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    });
+    );
 
     const result = await generateImageAsync(
       {
@@ -151,24 +161,26 @@ describe('media-api provider routing', () => {
   });
 
   it('uses bearer auth for shared video submission', async () => {
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('https://video.example.com/v1/videos');
-      const headers = init?.headers as Record<string, string>;
-      expect(headers.Authorization).toBe('Bearer video-secret');
-      expect(init?.method).toBe('POST');
-      expect(init?.body).toBeInstanceOf(FormData);
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe('https://video.example.com/v1/videos');
+        const headers = init?.headers as Record<string, string>;
+        expect(headers.Authorization).toBe('Bearer video-secret');
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBeInstanceOf(FormData);
 
-      return new Response(
-        JSON.stringify({
-          id: 'video-task-1',
-          status: 'queued',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    });
+        return new Response(
+          JSON.stringify({
+            id: 'video-task-1',
+            status: 'queued',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    );
 
     const remoteId = await submitVideoGeneration(
       {
@@ -185,5 +197,50 @@ describe('media-api provider routing', () => {
 
     expect(remoteId).toBe('video-task-1');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('summarizes provider reCAPTCHA video submission failures', async () => {
+    const rawError = {
+      error: {
+        code: 403,
+        message: 'reCAPTCHA evaluation failed',
+        status: 'PERMISSION_DENIED',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'PUBLIC_ERROR_UNUSUAL_ACTIVITY',
+          },
+        ],
+      },
+    };
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify(rawError), {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: { 'Content-Type': 'application/json' },
+        })
+    );
+
+    await expect(
+      submitVideoGeneration(
+        {
+          prompt: 'make a video',
+          model: 'omni-flash',
+        },
+        {
+          apiKey: 'video-secret',
+          baseUrl: 'https://video.example.com/v1',
+          authType: 'bearer',
+          fetchImpl,
+        }
+      )
+    ).rejects.toMatchObject({
+      code: 'PROVIDER_RECAPTCHA_BLOCKED',
+      message:
+        '供应商风控拦截：当前视频模型触发 reCAPTCHA/异常流量校验，请换用 Seedance/Veo 其他模型或稍后重试。',
+      rawResponse: JSON.stringify(rawError),
+      status: 403,
+    });
   });
 });
