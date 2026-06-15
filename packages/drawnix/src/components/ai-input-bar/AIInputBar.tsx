@@ -453,6 +453,16 @@ const AI_INPUT_LONG_TEXT_MAX_HEIGHT = 680;
 const AI_INPUT_LINE_HEIGHT = 1.5;
 type AIInputResizeMode = 'collapsed' | 'expanded' | 'long-text';
 type AIInputSubmitTrigger = 'button' | 'keyboard';
+type RouteMode = 'auto' | 'manual';
+
+function getRouteTypeFromGenerationType(
+  generationType: GenerationType
+): 'text' | 'image' | 'video' | 'audio' {
+  if (generationType === 'video') return 'video';
+  if (generationType === 'audio') return 'audio';
+  if (generationType === 'text' || generationType === 'agent') return 'text';
+  return 'image';
+}
 
 function getTextareaMetrics(textarea: HTMLTextAreaElement) {
   const styles = window.getComputedStyle(textarea);
@@ -1126,6 +1136,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       getModelRefFromConfig(initialSelectedModelConfig) ||
         initialSelectedModelRef
     );
+    const [routeModeByType, setRouteModeByType] = useState<
+      Partial<Record<'text' | 'image', RouteMode>>
+    >({
+      text: 'auto',
+      image: 'auto',
+    });
     const [selectedAgentImageModel, setSelectedAgentImageModel] = useState(
       initialImageModel?.id || getDefaultImageModel()
     );
@@ -1512,7 +1528,55 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       visibleTextModels,
       visibleVideoModels,
     ]);
-
+    const currentRouteType = getRouteTypeFromGenerationType(generationType);
+    const supportsRouteMode =
+      currentRouteType === 'text' || currentRouteType === 'image';
+    const currentRouteMode: RouteMode = supportsRouteMode
+      ? routeModeByType[currentRouteType] || 'auto'
+      : 'manual';
+    const autoRoute = useMemo(
+      () =>
+        supportsRouteMode
+          ? resolveInvocationRoute(currentRouteType)
+          : null,
+      [currentRouteType, supportsRouteMode]
+    );
+    const autoRouteRef = useMemo(
+      () =>
+        autoRoute
+          ? createModelRef(autoRoute.profileId, autoRoute.modelId)
+          : null,
+      [autoRoute]
+    );
+    const autoRouteModel = useMemo(() => {
+      if (!autoRoute) return null;
+      return (
+        findMatchingSelectableModel(
+          currentModels,
+          autoRoute.modelId,
+          autoRouteRef
+        ) ||
+        getPinnedSelectableModel(
+          currentRouteType,
+          autoRoute.modelId,
+          autoRouteRef
+        ) ||
+        getModelConfig(autoRoute.modelId) ||
+        null
+      );
+    }, [autoRoute, autoRouteRef, currentModels, currentRouteType]);
+    const routeSelectedModel =
+      supportsRouteMode && currentRouteMode === 'auto'
+        ? autoRouteModel?.id || autoRoute?.modelId || selectedModel
+        : selectedModel;
+    const routeSelectedModelRef =
+      supportsRouteMode && currentRouteMode === 'auto'
+        ? getModelRefFromConfig(autoRouteModel) || autoRouteRef || null
+        : selectedModelRef;
+    const effectiveSelectionKey = getSelectionKey(
+      routeSelectedModel,
+      routeSelectedModelRef
+    );
     useEffect(() => {
       let cancelled = false;
 
@@ -1579,12 +1643,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       if (generationType === 'agent') return [];
       if (generationType === 'video') {
         return getEffectiveVideoCompatibleParams(
-          selectedModel,
-          selectedModelRef || selectedModel,
+          routeSelectedModel,
+          routeSelectedModelRef || routeSelectedModel,
           selectedParams
         );
       }
-      const params = getCompatibleParams(selectedModel);
+      const params = getCompatibleParams(routeSelectedModel);
       if (generationType !== 'audio') {
         return params;
       }
@@ -1605,7 +1669,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       }
 
       return params;
-    }, [generationType, selectedModel, selectedModelRef, selectedParams]);
+    }, [
+      generationType,
+      routeSelectedModel,
+      routeSelectedModelRef,
+      selectedParams,
+    ]);
 
     // 点击外部关闭输入框的展开状态
     useEffect(() => {
@@ -2710,6 +2779,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setSelectedModel(model.id);
         const nextModelRef = getModelRefFromConfig(model);
         setSelectedModelRef(nextModelRef);
+        const nextRouteType = getRouteTypeFromGenerationType(nextGenerationType);
+        if (nextRouteType === 'text' || nextRouteType === 'image') {
+          setRouteModeByType((prev) => ({
+            ...prev,
+            [nextRouteType]: 'manual',
+          }));
+        }
         setPersistedModelSelection(
           nextGenerationType as PersistedGenerationType,
           {
@@ -3048,9 +3124,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const effectiveContent = override?.content ?? allContent;
         const effectiveGenerationType =
           override?.generationType ?? generationType;
-        const effectiveSelectedModel = override?.selectedModel ?? selectedModel;
+        const effectiveSelectedModel =
+          override?.selectedModel ?? routeSelectedModel;
         const effectiveSelectedModelRef =
-          override?.selectedModelRef ?? selectedModelRef;
+          override?.selectedModelRef ?? routeSelectedModelRef;
         const effectiveSelectedParams =
           override?.selectedParams ?? selectedParams;
         const effectiveSelectedCount = override?.selectedCount ?? selectedCount;
@@ -4148,6 +4225,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         isSubmitting,
         selectedModel,
         selectedModelRef,
+        routeSelectedModel,
+        routeSelectedModelRef,
         workflowControl,
         submitWorkflowToSW,
         addPromptHistory,
@@ -4712,7 +4791,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         JSON.stringify({
           generationType,
           model: selectedModel,
-          profileId: selectedModelRef?.profileId || null,
+          profileId: routeSelectedModelRef?.profileId || null,
           hasAttachedContent: allContent.length > 0,
           attachedCount: allContent.length,
           knowledgeContextCount: knowledgeContextRefs.length,
@@ -4724,7 +4803,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         knowledgeContextRefs.length,
         prompt,
         selectedModel,
-        selectedModelRef?.profileId,
+        routeSelectedModelRef?.profileId,
       ]
     );
     const canGenerate = prompt.trim().length > 0 || allContent.length > 0;
@@ -4770,7 +4849,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       resizeAIInputTextarea(textarea, inputResizeMode);
     }, [inputResizeMode, isPromptManuallyExpanded, prompt, shouldKeepExpanded]);
-
     return (
       <>
         {confirmDialog}
@@ -4883,11 +4961,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 )}
 
                 <ModelDropdown
-                  selectedModel={selectedModel}
-                  selectedSelectionKey={getSelectionKey(
-                    selectedModel,
-                    selectedModelRef
-                  )}
+                  selectedModel={routeSelectedModel}
+                  selectedSelectionKey={effectiveSelectionKey}
                   onSelect={handleModelSelect}
                   onSelectModel={handleModelConfigSelect}
                   language={language}
@@ -4983,11 +5058,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 {/* Parameters dropdown selector - Hidden for Agent mode */}
                 {generationType !== 'agent' && compatibleParams.length > 0 && (
                   <ParametersDropdown
-                    key={selectedModel} // 强制在模型切换时重新挂载以刷新可配置参数
+                    key={routeSelectedModel} // 强制在模型切换时重新挂载以刷新可配置参数
                     selectedParams={selectedParams}
                     onParamChange={handleParamSelect}
                     compatibleParams={compatibleParams}
-                    modelId={selectedModel}
+                    modelId={routeSelectedModel}
                     language={language}
                     isOpen={paramsDropdownOpen}
                     onOpenChange={handleParamsDropdownChange}
