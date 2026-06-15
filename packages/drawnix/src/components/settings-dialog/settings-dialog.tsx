@@ -1,16 +1,19 @@
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { useDeviceType } from '../../hooks/useDeviceType';
+import '../ai-input-bar/ai-input-bar.scss';
 import './settings-dialog.scss';
 import {
   memo,
   useCallback,
   useDeferredValue,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import classNames from 'classnames';
 import { Switch } from 'tdesign-react';
 import { InfoCircleIcon } from 'tdesign-icons-react';
 import {
@@ -23,9 +26,11 @@ import {
   EyeOff,
   FlaskConical,
   Loader2,
+  Plus,
   Search,
   Trash2,
   X,
+  Zap,
 } from 'lucide-react';
 import { LS_KEYS } from '../../constants/storage-keys';
 import { ModelDiscoveryDialog } from './model-discovery-dialog';
@@ -105,12 +110,24 @@ export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constan
 
 type SettingsView = 'providers' | 'presets' | 'canvas' | 'speech';
 type CompactPanelMode = 'catalog' | 'detail';
+type EndpointSelectionMode = 'auto' | 'manual';
+type EndpointLatency = number | 'failed' | null;
 type ProviderNavigationIntent =
   | { action: 'select'; profileId: string }
   | { action: 'create' };
 
 const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 const SETTINGS_DIALOG_COMPACT_BREAKPOINT = 980;
+const TUZI_SWITCH_CODEX_PRESETS_URL =
+  'https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/src/config/codexProviderPresets.ts';
+let tuziSwitchEndpointCache: EndpointOption[] | null = null;
+
+interface EndpointOption {
+  id: string;
+  url: string;
+  shortLabel: string;
+  removable?: boolean;
+}
 
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
   { value: 'providers', label: '供应商' },
@@ -644,6 +661,103 @@ function buildPresetRouteModels(
   );
 }
 
+function normalizeEndpointUrl(url?: string | null): string {
+  const trimmed = (url || '').trim();
+  if (!trimmed) return TUZI_PROVIDER_DEFAULT_BASE_URL;
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, '');
+  try {
+    const parsed = new URL(
+      /^[a-z][a-z\d+\-.]*:\/\//i.test(withoutTrailingSlash)
+        ? withoutTrailingSlash
+        : `https://${withoutTrailingSlash}`
+    );
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    return `${parsed.origin}${pathname === '/' ? '' : pathname}`;
+  } catch {
+    return withoutTrailingSlash || TUZI_PROVIDER_DEFAULT_BASE_URL;
+  }
+}
+
+function createEndpointOption(
+  url: string,
+  index: number,
+  removable = false
+): EndpointOption {
+  const normalizedUrl = normalizeEndpointUrl(url);
+  return {
+    id: `${removable ? 'custom' : 'switch'}-${index}-${normalizedUrl}`,
+    url: normalizedUrl,
+    shortLabel: removable ? '自定义' : index === 0 ? '主' : `S${index + 1}`,
+    removable,
+  };
+}
+
+function extractTuziSwitchEndpointUrls(source: string): string[] {
+  const urls = new Set<string>();
+  const pushUrl = (value: string) => {
+    const normalized = normalizeEndpointUrl(value);
+    if (
+      normalized &&
+      !/YOUR_RESOURCE_NAME|example\.com/i.test(normalized)
+    ) {
+      urls.add(normalized);
+    }
+  };
+
+  for (const block of source.matchAll(/endpointCandidates\s*:\s*\[([\s\S]*?)\]/g)) {
+    for (const value of block[1].matchAll(/["'](https?:\/\/[^"']+)["']/g)) {
+      pushUrl(value[1]);
+    }
+  }
+
+  for (const call of source.matchAll(
+    /generateThirdPartyConfig\s*\(\s*["'][^"']+["']\s*,\s*["'](https?:\/\/[^"']+)["']/g
+  )) {
+    pushUrl(call[1]);
+  }
+
+  return Array.from(urls);
+}
+
+async function loadTuziSwitchEndpointOptions(): Promise<EndpointOption[]> {
+  if (tuziSwitchEndpointCache) {
+    return tuziSwitchEndpointCache;
+  }
+
+  const response = await fetch(TUZI_SWITCH_CODEX_PRESETS_URL, {
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load tuzi-switch endpoints: ${response.status}`);
+  }
+
+  const source = await response.text();
+  tuziSwitchEndpointCache = extractTuziSwitchEndpointUrls(source).map((url, index) =>
+    createEndpointOption(url, index)
+  );
+  return tuziSwitchEndpointCache;
+}
+
+async function measureEndpointLatency(url: string): Promise<EndpointLatency> {
+  const startedAt = performance.now();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 4500);
+
+  try {
+    await fetch(normalizeEndpointUrl(url), {
+      method: 'GET',
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return Math.max(1, Math.round(performance.now() - startedAt));
+  } catch {
+    return 'failed';
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export const SettingsDialog = ({
   container,
 }: {
@@ -689,6 +803,24 @@ export const SettingsDialog = ({
     new Set()
   );
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
+  const [endpointSelectionMode, setEndpointSelectionMode] =
+    useState<EndpointSelectionMode>('auto');
+  const [selectedEndpointUrl, setSelectedEndpointUrl] = useState(() =>
+    normalizeEndpointUrl(geminiSettings.get().baseUrl)
+  );
+  const [switchEndpointOptions, setSwitchEndpointOptions] = useState<
+    EndpointOption[]
+  >([]);
+  const [customEndpointOptions, setCustomEndpointOptions] = useState<
+    EndpointOption[]
+  >([]);
+  const [endpointLatencies, setEndpointLatencies] = useState<
+    Record<string, EndpointLatency>
+  >({});
+  const [isEndpointTesting, setIsEndpointTesting] = useState(false);
+  const [customEndpointUrl, setCustomEndpointUrl] = useState('');
+  const [endpointAddError, setEndpointAddError] = useState('');
+  const [switchEndpointLoadError, setSwitchEndpointLoadError] = useState('');
 
   const toggleGroupCollapse = (type: ModelType) => {
     setCollapsedGroups((prev) => {
@@ -756,6 +888,53 @@ export const SettingsDialog = ({
   });
   const hasPendingChanges =
     appState.openSettings && currentDraftSignature !== initialDraftSignature;
+
+  const endpointOptions = useMemo(() => {
+    const map = new Map<string, EndpointOption>();
+    const push = (option: EndpointOption) => {
+      const normalizedUrl = normalizeEndpointUrl(option.url);
+      if (!normalizedUrl || map.has(normalizedUrl)) {
+        return;
+      }
+      map.set(normalizedUrl, { ...option, url: normalizedUrl });
+    };
+
+    switchEndpointOptions.forEach(push);
+    push({
+      id: 'current-profile-base-url',
+      url: normalizeEndpointUrl(selectedProfile?.baseUrl),
+      shortLabel: '当前',
+    });
+    customEndpointOptions.forEach(push);
+
+    return Array.from(map.values());
+  }, [customEndpointOptions, selectedProfile?.baseUrl, switchEndpointOptions]);
+
+  const bestEndpoint = useMemo(() => {
+    const measured = endpointOptions
+      .map((endpoint) => ({
+        endpoint,
+        latency: endpointLatencies[endpoint.url],
+      }))
+      .filter(
+        (entry): entry is { endpoint: EndpointOption; latency: number } =>
+          typeof entry.latency === 'number'
+      )
+      .sort((a, b) => a.latency - b.latency);
+
+    return (
+      measured[0]?.endpoint ||
+      endpointOptions[0] || {
+        id: 'fallback-current-profile-base-url',
+        url: normalizeEndpointUrl(selectedProfile?.baseUrl),
+        shortLabel: '当前',
+      }
+    );
+  }, [endpointLatencies, endpointOptions, selectedProfile?.baseUrl]);
+
+  const activeEndpoint =
+    endpointOptions.find((endpoint) => endpoint.url === selectedEndpointUrl) ||
+    bestEndpoint;
 
   useEffect(() => {
     setIsApiKeyVisible(false);
@@ -985,6 +1164,42 @@ export const SettingsDialog = ({
     setModelSearchQuery('');
   }, [selectedProfileId, activeView]);
 
+  useEffect(() => {
+    if (!appState.openSettings) {
+      return;
+    }
+
+    let cancelled = false;
+    loadTuziSwitchEndpointOptions()
+      .then((options) => {
+        if (cancelled) {
+          return;
+        }
+        setSwitchEndpointOptions(options);
+        setSwitchEndpointLoadError('');
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        console.warn('[SettingsDialog] 加载 tuzi-switch 端点失败:', error);
+        setSwitchEndpointLoadError('switch 端点加载失败，已使用当前配置');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appState.openSettings]);
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      return;
+    }
+    const normalizedUrl = normalizeEndpointUrl(selectedProfile.baseUrl);
+    setSelectedEndpointUrl(normalizedUrl);
+    setEndpointSelectionMode('auto');
+  }, [selectedProfile?.id]);
+
   const updateProfile = (
     profileId: string,
     updater: (profile: ProviderProfile) => ProviderProfile
@@ -1006,6 +1221,134 @@ export const SettingsDialog = ({
       )
     );
   };
+
+  const handleEndpointSelect = useCallback(
+    (url: string, mode: EndpointSelectionMode = 'manual') => {
+      if (!selectedProfile) {
+        return;
+      }
+      const normalizedUrl = normalizeEndpointUrl(url);
+      setEndpointSelectionMode(mode);
+      setSelectedEndpointUrl(normalizedUrl);
+      updateProfile(selectedProfile.id, (profile) => ({
+        ...profile,
+        baseUrl: normalizedUrl,
+      }));
+      if (selectedProfile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+        void geminiSettings.update({
+          ...geminiSettings.get(),
+          baseUrl: normalizedUrl,
+        });
+      }
+    },
+    [selectedProfile?.id]
+  );
+
+  const handleEndpointAutoSelectChange = useCallback(
+    (checked: boolean) => {
+      if (checked) {
+        handleEndpointSelect(bestEndpoint.url, 'auto');
+        return;
+      }
+      handleEndpointSelect(activeEndpoint.url, 'manual');
+    },
+    [activeEndpoint.url, bestEndpoint.url, handleEndpointSelect]
+  );
+
+  const handleAddCustomEndpoint = useCallback(() => {
+    const normalizedUrl = normalizeEndpointUrl(customEndpointUrl);
+
+    if (!/^https?:\/\/[^/]+\.[^/]+/i.test(normalizedUrl)) {
+      setEndpointAddError('请输入有效的端点地址');
+      return;
+    }
+
+    if (endpointOptions.some((endpoint) => endpoint.url === normalizedUrl)) {
+      setEndpointAddError('端点已存在');
+      return;
+    }
+
+    const nextEndpoint = createEndpointOption(
+      normalizedUrl,
+      customEndpointOptions.length,
+      true
+    );
+    setCustomEndpointOptions((prev) => [...prev, nextEndpoint]);
+    setCustomEndpointUrl('');
+    setEndpointAddError('');
+    handleEndpointSelect(nextEndpoint.url, 'manual');
+  }, [
+    customEndpointOptions.length,
+    customEndpointUrl,
+    endpointOptions,
+    handleEndpointSelect,
+  ]);
+
+  const handleRemoveCustomEndpoint = useCallback(
+    (endpoint: EndpointOption) => {
+      if (!endpoint.removable) {
+        return;
+      }
+      setCustomEndpointOptions((prev) =>
+        prev.filter((item) => item.url !== endpoint.url)
+      );
+      setEndpointLatencies((prev) => {
+        const next = { ...prev };
+        delete next[endpoint.url];
+        return next;
+      });
+      if (selectedEndpointUrl === endpoint.url) {
+        handleEndpointSelect(bestEndpoint.url, 'auto');
+      }
+    },
+    [bestEndpoint.url, handleEndpointSelect, selectedEndpointUrl]
+  );
+
+  const handleRunEndpointSpeedTest = useCallback(async () => {
+    if (isEndpointTesting || endpointOptions.length === 0) {
+      return;
+    }
+
+    setIsEndpointTesting(true);
+    setEndpointLatencies((prev) => {
+      const next = { ...prev };
+      for (const endpoint of endpointOptions) {
+        next[endpoint.url] = null;
+      }
+      return next;
+    });
+
+    const results = await Promise.all(
+      endpointOptions.map(async (endpoint) => ({
+        url: endpoint.url,
+        latency: await measureEndpointLatency(endpoint.url),
+      }))
+    );
+    setEndpointLatencies(
+      results.reduce<Record<string, EndpointLatency>>((acc, result) => {
+        acc[result.url] = result.latency;
+        return acc;
+      }, {})
+    );
+    setIsEndpointTesting(false);
+
+    if (endpointSelectionMode === 'auto') {
+      const fastest = results
+        .filter(
+          (result): result is { url: string; latency: number } =>
+            typeof result.latency === 'number'
+        )
+        .sort((a, b) => a.latency - b.latency)[0];
+      if (fastest) {
+        handleEndpointSelect(fastest.url, 'auto');
+      }
+    }
+  }, [
+    endpointOptions,
+    endpointSelectionMode,
+    handleEndpointSelect,
+    isEndpointTesting,
+  ]);
 
   const persistPresetConfiguration = async (
     nextPresets: InvocationPreset[],
@@ -2278,6 +2621,162 @@ export const SettingsDialog = ({
                 }
                 placeholder={TUZI_PROVIDER_DEFAULT_BASE_URL}
               />
+              <div className="settings-dialog__endpoint-panel ai-input-bar__site-panel">
+                <div className="ai-input-bar__site-panel-toolbar">
+                  <div className="ai-input-bar__site-title">
+                    <div className="ai-input-bar__site-count">
+                      {endpointOptions.length} 个端点
+                    </div>
+                    <div className="ai-input-bar__site-source">
+                      来源: tuzi-switch
+                    </div>
+                  </div>
+                  <div className="ai-input-bar__site-actions">
+                    <label className="ai-input-bar__site-auto">
+                      <input
+                        type="checkbox"
+                        checked={endpointSelectionMode === 'auto'}
+                        onChange={(event) =>
+                          handleEndpointAutoSelectChange(event.target.checked)
+                        }
+                      />
+                      <span>自动选择</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="ai-input-bar__site-test-btn"
+                      onClick={() => void handleRunEndpointSpeedTest()}
+                      disabled={
+                        isEndpointTesting || endpointOptions.length === 0
+                      }
+                    >
+                      {isEndpointTesting ? (
+                        <Loader2
+                          size={14}
+                          className="ai-input-bar__site-spin"
+                        />
+                      ) : (
+                        <Zap size={15} />
+                      )}
+                      <span>测速</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="ai-input-bar__site-list">
+                  {endpointOptions.map((endpoint) => {
+                    const selected =
+                      endpoint.url === activeEndpoint.url ||
+                      (endpointSelectionMode === 'auto' &&
+                        endpoint.url === bestEndpoint.url);
+                    const latency = endpointLatencies[endpoint.url];
+                    const latencyText =
+                      typeof latency === 'number'
+                        ? `${latency}ms`
+                        : latency === 'failed'
+                        ? '失败'
+                        : '—';
+
+                    return (
+                      <div
+                        key={endpoint.id}
+                        role="button"
+                        tabIndex={0}
+                        className={classNames('ai-input-bar__site-row', {
+                          'ai-input-bar__site-row--selected': selected,
+                        })}
+                        onClick={() =>
+                          handleEndpointSelect(endpoint.url, 'manual')
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            handleEndpointSelect(endpoint.url, 'manual');
+                          }
+                        }}
+                      >
+                        <span className="ai-input-bar__site-row-dot" />
+                        <span className="ai-input-bar__site-row-url">
+                          {endpoint.url}
+                        </span>
+                        <span
+                          className={classNames(
+                            'ai-input-bar__site-row-latency',
+                            {
+                              'ai-input-bar__site-row-latency--fast':
+                                typeof latency === 'number' && latency < 300,
+                              'ai-input-bar__site-row-latency--slow':
+                                typeof latency === 'number' && latency >= 800,
+                              'ai-input-bar__site-row-latency--failed':
+                                latency === 'failed',
+                            }
+                          )}
+                        >
+                          {isEndpointTesting && latency == null ? (
+                            <Loader2
+                              size={14}
+                              className="ai-input-bar__site-spin"
+                            />
+                          ) : (
+                            latencyText
+                          )}
+                        </span>
+                        {endpoint.removable ? (
+                          <button
+                            type="button"
+                            className="ai-input-bar__site-remove"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handleRemoveCustomEndpoint(endpoint);
+                            }}
+                          >
+                            <X size={17} />
+                          </button>
+                        ) : (
+                          <span className="ai-input-bar__site-remove-placeholder">
+                            —
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="ai-input-bar__site-add">
+                  <input
+                    value={customEndpointUrl}
+                    placeholder="https://api.example.com"
+                    onChange={(event) => {
+                      setCustomEndpointUrl(event.target.value);
+                      setEndpointAddError('');
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        handleAddCustomEndpoint();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="ai-input-bar__site-add-btn"
+                    onClick={handleAddCustomEndpoint}
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
+                {endpointAddError ? (
+                  <div className="ai-input-bar__site-error">
+                    {endpointAddError}
+                  </div>
+                ) : null}
+                {switchEndpointLoadError ? (
+                  <div className="ai-input-bar__site-error">
+                    {switchEndpointLoadError}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
