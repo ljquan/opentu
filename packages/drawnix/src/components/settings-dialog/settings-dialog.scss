@@ -139,6 +139,15 @@
     overflow: hidden;
   }
 
+  &__endpoint-panel {
+    margin-top: 10px;
+    box-shadow: none;
+
+    .ai-input-bar__site-list {
+      max-height: 260px;
+    }
+  }
+
   &__workspace {
     display: grid;
     grid-template-columns: 264px minmax(0, 1fr);
