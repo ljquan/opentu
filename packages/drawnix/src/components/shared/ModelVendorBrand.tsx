@@ -25,6 +25,7 @@ export const DISCOVERY_VENDOR_ORDER: ModelVendor[] = [
   ModelVendor.MIDJOURNEY,
   ModelVendor.SUNO,
   ModelVendor.GOOGLE,
+  ModelVendor.ATLAS,
   ModelVendor.OTHER,
 ];
 
@@ -173,6 +174,12 @@ const MODEL_VENDOR_BRANDS: Record<ModelVendor, VendorPalette> = {
     accent: '#2563eb',
     surface: '#eff6ff',
     border: 'rgba(37, 99, 235, 0.14)',
+  },
+  [ModelVendor.ATLAS]: {
+    label: 'Atlas Cloud',
+    accent: '#2563eb',
+    surface: '#eff6ff',
+    border: 'rgba(37, 99, 235, 0.16)',
   },
   [ModelVendor.OTHER]: {
     label: 'Other',
@@ -509,6 +516,15 @@ const StepFunMark = ({ size }: IconProps) => (
   </MarkFrame>
 );
 
+const AtlasMark = ({ size }: IconProps) => (
+  <MarkFrame size={size}>
+    <path
+      fill="currentColor"
+      d="M12 2.5l8 19h-3.3l-1.6-4h-6.2l-1.6 4H4l8-19zm0 6.6l-1.95 5h3.9L12 9.1z"
+    />
+  </MarkFrame>
+);
+
 function getVendorIcon(vendor: ModelVendor, size: number) {
   switch (vendor) {
     case ModelVendor.GPT:
@@ -557,6 +573,8 @@ function getVendorIcon(vendor: ModelVendor, size: number) {
       return <SunoMark size={size} />;
     case ModelVendor.VEO:
       return <VeoMark size={size} />;
+    case ModelVendor.ATLAS:
+      return <AtlasMark size={size} />;
     default:
       return <OtherMark size={size} />;
   }

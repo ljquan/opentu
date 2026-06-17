@@ -69,6 +69,10 @@ export const TUZI_PROVIDER_ICON_URL = '/logo-tuzi.png';
 export const TUZI_PROVIDER_DEFAULT_BASE_URL = 'https://api.tu-zi.com/v1';
 export const TUZI_BUSINESS_PROVIDER_DEFAULT_BASE_URL =
   'https://business.tu-zi.com/v1';
+export const ATLAS_PROVIDER_PROFILE_ID = 'atlas-cloud';
+export const ATLAS_PROVIDER_DEFAULT_BASE_URL = 'https://api.atlascloud.ai/v1';
+export const ATLAS_PROVIDER_NAME = 'Atlas Cloud';
+export const ATLAS_PROVIDER_HOMEPAGE = 'https://atlascloud.ai/';
 export const TUZI_DEFAULT_PROVIDER_NAME = 'default 分组';
 export const TUZI_ORIGINAL_PROVIDER_NAME = '原价分组';
 export const TUZI_MIX_PROVIDER_NAME = 'gemini-mix 分组';
@@ -705,6 +709,48 @@ class SettingsManager {
     };
   }
 
+  private buildAtlasProviderProfile(
+    profile?: Partial<ProviderProfile>
+  ): ProviderProfile {
+    const baseUrl =
+      typeof profile?.baseUrl === 'string' && profile.baseUrl.trim()
+        ? profile.baseUrl
+        : ATLAS_PROVIDER_DEFAULT_BASE_URL;
+    const providerType = this.normalizeProviderType(
+      baseUrl,
+      profile?.providerType
+    );
+
+    return {
+      id: ATLAS_PROVIDER_PROFILE_ID,
+      name: ATLAS_PROVIDER_NAME,
+      homepageUrl:
+        this.normalizeHomepageUrl(profile?.homepageUrl) ||
+        ATLAS_PROVIDER_HOMEPAGE,
+      providerType,
+      baseUrl,
+      // API key 由用户在设置中填写，这里仅保留占位，绝不内置真实 key。
+      apiKey: typeof profile?.apiKey === 'string' ? profile.apiKey : '',
+      authType: this.normalizeProviderAuthType(
+        baseUrl,
+        providerType,
+        profile?.authType
+      ),
+      imageApiCompatibility: this.normalizeStoredImageApiCompatibility(
+        profile?.imageApiCompatibility
+      ),
+      preferAsyncImageEndpoint: profile?.preferAsyncImageEndpoint === true,
+      extraHeaders: this.normalizeStringRecord(profile?.extraHeaders),
+      // 默认不启用，避免在用户未配置 key 时干扰现有调用方案。
+      enabled: profile?.enabled === true,
+      capabilities: this.normalizeCapabilities(profile?.capabilities),
+      pricingGroup:
+        typeof profile?.pricingGroup === 'string' && profile.pricingGroup.trim()
+          ? profile.pricingGroup.trim()
+          : 'default',
+    };
+  }
+
   private buildLegacyDefaultPreset(gemini: GeminiSettings): InvocationPreset {
     const profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID;
     return {
@@ -966,6 +1012,9 @@ class SettingsManager {
     const existingTuziBusinessProfile = settings.providerProfiles.find(
       (profile) => profile.id === TUZI_BUSINESS_PROVIDER_PROFILE_ID
     );
+    const existingAtlasProfile = settings.providerProfiles.find(
+      (profile) => profile.id === ATLAS_PROVIDER_PROFILE_ID
+    );
     const migrations: SettingsMigrations = { ...settings.migrations };
     const shouldRunLegacyDefaultImageMigration =
       migrations.legacyDefaultImageApiCompatibilityV1 !== true;
@@ -1018,6 +1067,7 @@ class SettingsManager {
     const tuziBusinessProfile = this.buildTuziBusinessProfile(
       existingTuziBusinessProfile
     );
+    const atlasProfile = this.buildAtlasProviderProfile(existingAtlasProfile);
     const legacyPreset = this.buildLegacyDefaultPreset(gemini);
 
     const providerProfiles = [
@@ -1026,13 +1076,15 @@ class SettingsManager {
       tuziMixProfile,
       tuziCodexProfile,
       tuziBusinessProfile,
+      atlasProfile,
       ...settings.providerProfiles.filter(
         (profile) =>
           profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
           profile.id !== TUZI_ORIGINAL_PROVIDER_PROFILE_ID &&
           profile.id !== TUZI_MIX_PROVIDER_PROFILE_ID &&
           profile.id !== TUZI_CODEX_PROVIDER_PROFILE_ID &&
-          profile.id !== TUZI_BUSINESS_PROVIDER_PROFILE_ID
+          profile.id !== TUZI_BUSINESS_PROVIDER_PROFILE_ID &&
+          profile.id !== ATLAS_PROVIDER_PROFILE_ID
       ),
     ];
 
@@ -1120,6 +1172,21 @@ class SettingsManager {
         discoveredModels: [],
         selectedModelIds: [],
         sourceBaseUrl: tuziBusinessProfile.baseUrl,
+        error: null,
+      });
+    }
+
+    if (
+      !providerCatalogs.some(
+        (catalog) => catalog.profileId === ATLAS_PROVIDER_PROFILE_ID
+      )
+    ) {
+      providerCatalogs.push({
+        profileId: ATLAS_PROVIDER_PROFILE_ID,
+        discoveredAt: null,
+        discoveredModels: [],
+        selectedModelIds: [],
+        sourceBaseUrl: atlasProfile.baseUrl,
         error: null,
       });
     }
