@@ -39,6 +39,7 @@ export enum ModelVendor {
   GOOGLE = 'GOOGLE',
   DOUBAO = 'DOUBAO',
   HAPPYHORSE = 'HAPPYHORSE',
+  ATLAS = 'ATLAS',
   OTHER = 'OTHER',
 }
 
@@ -69,6 +70,7 @@ export const VENDOR_NAMES: Record<ModelVendor, string> = {
   [ModelVendor.GOOGLE]: 'Google',
   [ModelVendor.DOUBAO]: '即梦',
   [ModelVendor.HAPPYHORSE]: 'HappyHorse',
+  [ModelVendor.ATLAS]: 'Atlas Cloud',
   [ModelVendor.OTHER]: '其它',
 };
 
@@ -1316,6 +1318,16 @@ export const TEXT_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
     type: 'text',
     vendor: ModelVendor.DOUBAO,
     supportsTools: true,
+  },
+  {
+    id: 'deepseek-ai/deepseek-v4-pro',
+    label: 'DeepSeek V4 Pro (Atlas)',
+    shortCode: 'atdsv4',
+    description: 'Atlas Cloud 默认模型，OpenAI 兼容聚合网关',
+    type: 'text',
+    vendor: ModelVendor.ATLAS,
+    supportsTools: true,
+    tags: ['new', 'atlas'],
   },
 ]);
 

@@ -14,6 +14,7 @@ export enum ModelProvider {
   GROK = 'GROK',
   QWEN = 'QWEN',
   DOUBAO = 'DOUBAO',
+  ATLAS = 'ATLAS',
 }
 
 /** Model badge types */
@@ -39,6 +40,7 @@ export const PROVIDER_NAMES: Record<ModelProvider, string> = {
   [ModelProvider.GROK]: 'Grok',
   [ModelProvider.QWEN]: 'Qwen',
   [ModelProvider.DOUBAO]: '即梦',
+  [ModelProvider.ATLAS]: 'Atlas Cloud',
 };
 
 /** Predefined chat models */
@@ -248,6 +250,30 @@ export const CHAT_MODELS: ChatModel[] = [
     badges: ['NEW', 'Reasoning'],
     maxTokens: 128000,
   },
+  // Atlas Cloud Models（OpenAI 兼容聚合网关，base_url: https://api.atlascloud.ai/v1）
+  {
+    id: 'deepseek-ai/deepseek-v4-pro',
+    name: 'DeepSeek V4 Pro (Atlas)',
+    description: 'Atlas Cloud 默认模型，DeepSeek V4 Pro 旗舰',
+    provider: ModelProvider.ATLAS,
+    badges: ['NEW', 'Pro'],
+    maxTokens: 128000,
+  },
+  {
+    id: 'deepseek-ai/deepseek-v3.2',
+    name: 'DeepSeek V3.2 (Atlas)',
+    description: 'Atlas Cloud 提供的 DeepSeek V3.2，性价比高',
+    provider: ModelProvider.ATLAS,
+    badges: ['Economic'],
+    maxTokens: 128000,
+  },
+  {
+    id: 'Qwen/Qwen3-235B-A22B',
+    name: 'Qwen3 235B (Atlas)',
+    description: 'Atlas Cloud 提供的通义千问 Qwen3 235B',
+    provider: ModelProvider.ATLAS,
+    maxTokens: 128000,
+  },
 ];
 
 /** Default model ID */
@@ -273,6 +299,7 @@ export function getModelsByProvider(): Record<ModelProvider, ChatModel[]> {
     [ModelProvider.GROK]: [],
     [ModelProvider.QWEN]: [],
     [ModelProvider.DOUBAO]: [],
+    [ModelProvider.ATLAS]: [],
   };
 
   CHAT_MODELS.forEach((model) => {

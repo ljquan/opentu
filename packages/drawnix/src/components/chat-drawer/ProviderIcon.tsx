@@ -56,6 +56,17 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({ provider, className 
         </svg>
       );
 
+    case ModelProvider.ATLAS:
+      return (
+        <svg viewBox="0 0 24 24" className={className} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" fill="#2563eb" />
+          <path
+            d="M12 6l4 11h-2.2l-.8-2.4h-2l-.8 2.4H8L12 6zm0 3.6l-.7 2.2h1.4L12 9.6z"
+            fill="white"
+          />
+        </svg>
+      );
+
     default:
       return null;
   }
