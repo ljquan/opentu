@@ -58,6 +58,11 @@ export function getImageGenerationTaskInsertGroupKey(
   const batchIndex = getImageGenerationAnchorTaskBatchIndex(task);
   const fallbackGroupKey = workflowId || task.params.prompt || `task:${task.id}`;
 
+  // 批量出图工具：同一行（同一 batchId）的图片分组排列
+  if (typeof task.params.batchGroupId === 'string') {
+    return `batch-row:${task.params.batchGroupId}`;
+  }
+
   if (task.type !== TaskType.IMAGE) {
     const taskGroupType =
       task.type === TaskType.AUDIO && isLyricsTask(task) ? 'lyrics' : task.type;

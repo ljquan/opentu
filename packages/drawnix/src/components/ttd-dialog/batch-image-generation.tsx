@@ -2168,6 +2168,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               batchTotal: generateCount,
               globalIndex: subTaskCounter,
               autoInsertToCanvas: true,
+              batchGroupId: `batch-submit-${globalBatchTimestamp}`,
               ...(adapterParams ? { params: adapterParams } : {}),
             };
 
