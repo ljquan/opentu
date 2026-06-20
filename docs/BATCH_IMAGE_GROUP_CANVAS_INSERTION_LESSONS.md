@@ -33,9 +33,20 @@ if (typeof task.params.batchGroupId === 'string') {
 - **仅影响批量出图工具**：`batchGroupId` 只有该工具设置，其他功能（AI 对话出图、PPT 出图、单张出图等）完全不受影响
 - 所有现有测试用例（13 个）通过，无回归
 
+### 用户提示
+
+在"生成选中行"按钮上添加 `HoverTip`，鼠标悬停时展示分组说明：
+- 中文: "同批次生成的图片将在画布上自动分组排列，不同批次间垂直分隔"
+- 英文: "Images from the same batch will be grouped together on the canvas"
+
+## 影响范围
+
+- **仅影响批量出图工具**：`batchGroupId` 只有该工具设置，其他功能（AI 对话出图、PPT 出图、单张出图等）完全不受影响
+- 所有现有测试用例（13 个）通过，无回归
+
 ## 涉及文件
 
 | 文件 | 改动 |
 |------|------|
-| `packages/drawnix/src/components/ttd-dialog/batch-image-generation.tsx` | 任务参数新增 `batchGroupId` |
+| `packages/drawnix/src/components/ttd-dialog/batch-image-generation.tsx` | 任务参数新增 `batchGroupId`；生成按钮添加 HoverTip 分组提示 |
 | `packages/drawnix/src/utils/image-generation-anchor-task.ts` | `getImageGenerationTaskInsertGroupKey` 新增 `batchGroupId` 判断 |
