@@ -3314,26 +3314,35 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               />
             </div>
 
-            <Button
-              theme="primary"
-              onClick={submitToQueue}
-              loading={isSubmitting}
-              disabled={isSubmitting}
-              className="batch-generate-btn"
-              data-track="batch_generate_click"
-              data-track-params={JSON.stringify({
-                selectedRows: selectedRows.size,
-                model: selectedModel,
-              })}
+            <HoverTip
+              content={
+                language === 'zh'
+                  ? '同批次生成的图片将在画布上自动分组排列，不同批次间垂直分隔'
+                  : 'Images from the same batch will be grouped together on the canvas'
+              }
+              theme="light"
             >
-              {isSubmitting
-                ? language === 'zh'
-                  ? '提交中...'
-                  : 'Submitting...'
-                : language === 'zh'
-                ? '生成选中行'
-                : 'Generate Selected'}
-            </Button>
+              <Button
+                theme="primary"
+                onClick={submitToQueue}
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                className="batch-generate-btn"
+                data-track="batch_generate_click"
+                data-track-params={JSON.stringify({
+                  selectedRows: selectedRows.size,
+                  model: selectedModel,
+                })}
+              >
+                {isSubmitting
+                  ? language === 'zh'
+                    ? '提交中...'
+                    : 'Submitting...'
+                  : language === 'zh'
+                  ? '生成选中行'
+                  : 'Generate Selected'}
+              </Button>
+            </HoverTip>
 
             <span className="toolbar-divider"></span>
 
