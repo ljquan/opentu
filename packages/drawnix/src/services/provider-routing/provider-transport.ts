@@ -104,6 +104,20 @@ function isFetchNetworkError(error: unknown): boolean {
   return /Failed to fetch|Load failed|NetworkError/i.test(error.message);
 }
 
+function shouldRetryTuziResponse(
+  context: ResolvedProviderContext,
+  request: ProviderTransportRequest,
+  response: Response
+): boolean {
+  return (
+    response.status === 404 &&
+    isTrustedTuziApiBaseUrl(context.baseUrl) &&
+    !/^https?:\/\//i.test(request.path) &&
+    (request.method || 'GET').toUpperCase() === 'POST' &&
+    /\/images\/(?:generations|edits)\/?$/i.test(request.path)
+  );
+}
+
 async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
   if (!isTrustedTuziApiBaseUrl(baseUrl)) {
     return [];
@@ -345,7 +359,36 @@ export class ProviderTransport {
     );
 
     try {
-      return await fetcher(prepared.url, prepared.init);
+      const response = await fetcher(prepared.url, prepared.init);
+      if (!shouldRetryTuziResponse(context, request, response)) {
+        return response;
+      }
+
+      const fallbackBaseUrls = await getTuziFallbackBaseUrls(context.baseUrl);
+      for (const fallbackBaseUrl of fallbackBaseUrls) {
+        const fallbackPrepared = this.prepareRequest(
+          { ...context, baseUrl: fallbackBaseUrl },
+          { ...request, signal: timeoutControl.signal }
+        );
+        try {
+          const fallbackResponse = await fetcher(
+            fallbackPrepared.url,
+            fallbackPrepared.init
+          );
+          if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
+            return fallbackResponse;
+          }
+        } catch (fallbackError) {
+          if (
+            timeoutControl.didTimeout() ||
+            !isFetchNetworkError(fallbackError)
+          ) {
+            throw fallbackError;
+          }
+        }
+      }
+
+      return response;
     } catch (error) {
       if (timeoutControl.didTimeout()) {
         const timeoutMinutes = Math.floor((request.timeoutMs || 0) / 60000);

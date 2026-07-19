@@ -24,6 +24,7 @@ import {
 } from '../../utils/settings-manager';
 import { InvocationPlanner } from './invocation-planner';
 import { inferBindingsForProviderCatalog } from './binding-inference';
+import { isTuziCompatibleBaseUrl } from './tuzi-api-endpoints';
 import { modelPricingService } from '../../utils/model-pricing-service';
 import type {
   InvocationPlan,
@@ -67,22 +68,7 @@ function inferProviderTypeFromBaseUrl(
 }
 
 function isTuziBaseUrl(baseUrl: string): boolean {
-  const normalizedBaseUrl = baseUrl.trim().toLowerCase();
-  if (!normalizedBaseUrl) {
-    return false;
-  }
-
-  try {
-    const url = new URL(
-      /^[a-z][a-z\d+\-.]*:\/\//i.test(normalizedBaseUrl)
-        ? normalizedBaseUrl
-        : `https://${normalizedBaseUrl}`
-    );
-    const hostname = url.hostname.toLowerCase();
-    return hostname === 'tu-zi.com' || hostname.endsWith('.tu-zi.com');
-  } catch {
-    return false;
-  }
+  return isTuziCompatibleBaseUrl(baseUrl);
 }
 
 function inferAuthType(

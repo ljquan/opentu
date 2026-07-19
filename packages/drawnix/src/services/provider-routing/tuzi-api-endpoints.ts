@@ -65,6 +65,24 @@ export function isTrustedTuziApiBaseUrl(url?: string | null): boolean {
   return TRUSTED_TUZI_API_ORIGINS.has(normalizeTuziApiEndpointUrl(url));
 }
 
+export function isTuziCompatibleBaseUrl(url?: string | null): boolean {
+  if (isTrustedTuziApiBaseUrl(url)) {
+    return true;
+  }
+
+  const normalized = normalizeTuziApiEndpointUrl(url);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase();
+    return hostname === 'tu-zi.com' || hostname.endsWith('.tu-zi.com');
+  } catch {
+    return false;
+  }
+}
+
 function normalizeJsonLikeString(value: string): string {
   return value
     .replace(/([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)/g, '$1"$2"$3')

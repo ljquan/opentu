@@ -74,6 +74,12 @@ Tuzi GPT 生图还应显式使用 `ensure-v1` 传输策略。站点测速或备�
 
 模型价格地址是独立配置，仍使用 origin 下的 `/api/pricing`，不应被改成 `/v1/api/pricing`。
 
+Tuzi 的官方备用站不都使用 `tu-zi.com` 域名。美国、广州和深圳节点使用 `sydney-ai.com` 或 `ourzhishi.top`，路由判断必须基于受信站点列表，不能只检查 hostname 后缀。否则切换备用站后，同一个 `gpt-image-2` 会被误判为普通 OpenAI 兼容模型并选择错误 adapter。
+
+Tuzi `default` 分组的 GPT Image 简化 JSON 格式对文生图和参考图请求都使用 `/v1/images/generations`。旧任务或历史 binding 即使保存了 `/images/edits`，Tuzi JSON adapter 也必须修正回 `/images/generations`，不能把 JSON 请求发送到官方 multipart edits 接口。
+
+站点首页测速只能反映连通性，不能证明生图路由可用。可信 Tuzi 节点对图片 POST 返回 `404` 时，应保持相同 API 版本和请求体尝试其它官方节点；普通供应商、绝对 endpoint 和非图片请求不得触发该切换。
+
 ### 3. 错误必须携带可安全暴露的 endpoint
 
 供应商返回空响应或 HTML 错误页时，错误文案应包含最终 URL 的 pathname，但不包含 query、API Key 或 Authorization 请求头。
@@ -89,6 +95,9 @@ Tuzi GPT 生图还应显式使用 `ensure-v1` 传输策略。站点测速或备�
 - 设置页点击或自动选择备用站后，API 地址立即包含 `/v1`。
 - 关闭并重新打开设置后，已保存站点保持唯一高亮。
 - 价格地址仍为 `/api/pricing`，不追加 `/v1`。
+- 官方备用域名仍按 Tuzi GPT Image 兼容模式推断 binding。
+- 历史 `/images/edits` binding 在 Tuzi JSON adapter 中修正为 `/images/generations`。
+- 可信 Tuzi 图片路由返回 `404` 时自动尝试下一官方节点。
 - `404` 无 JSON 错误体时，用户可以看到最终 endpoint path。
 - 使用真实供应商完成一次生图，不只验证模型列表。
 

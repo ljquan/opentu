@@ -9,6 +9,7 @@ import {
   resolveInvocationPlanFromRoute,
   type ProviderModelBinding,
 } from '../provider-routing';
+import { isTuziCompatibleBaseUrl } from '../provider-routing/tuzi-api-endpoints';
 
 const adapterRegistry = new Map<string, ModelAdapter>();
 
@@ -154,8 +155,7 @@ function resolveGPTImageAdapterForLegacyRoute(
   }
 
   const route = resolveInvocationRoute('image', modelRef || modelId);
-  const baseUrl = route.baseUrl.toLowerCase();
-  if (baseUrl.includes('.tu-zi.com')) {
+  if (isTuziCompatibleBaseUrl(route.baseUrl)) {
     return findImageAdapterBySchema('tuzi.image.gpt-generation-json');
   }
 

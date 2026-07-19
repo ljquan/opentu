@@ -139,7 +139,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   let endpoint = '';
   try {
     const url = new URL(response.url);
-    endpoint = url.pathname;
+    endpoint = `${url.hostname}${url.pathname}`;
   } catch {
     endpoint = (response.url || '').split(/[?#]/, 1)[0];
   }
@@ -152,7 +152,15 @@ async function readErrorMessage(response: Response): Promise<string> {
 function resolveTuziGPTImagePath(context: {
   binding?: { submitPath?: string } | null;
 }): string {
-  return context.binding?.submitPath || '/images/generations';
+  const submitPath = context.binding?.submitPath?.trim();
+  if (submitPath && /\/images\/generations\/?$/i.test(submitPath)) {
+    return '/images/generations';
+  }
+
+  // Tuzi's simplified GPT Image JSON schema uses the generations endpoint
+  // for both text-to-image and reference-image requests. Old persisted
+  // bindings can still point at the official multipart edits endpoint.
+  return '/images/generations';
 }
 
 export const tuziGPTImageAdapter: ImageModelAdapter = {

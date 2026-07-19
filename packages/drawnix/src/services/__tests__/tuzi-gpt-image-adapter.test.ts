@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildTuziGPTImageRequestBody,
+  tuziGPTImageAdapter,
+} from '../model-adapters/tuzi-gpt-image-adapter';
 
 const mocks = vi.hoisted(() => ({
   sendAdapterRequest: vi.fn(),
@@ -7,11 +11,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../model-adapters/context', () => ({
   sendAdapterRequest: mocks.sendAdapterRequest,
 }));
-
-import {
-  buildTuziGPTImageRequestBody,
-  tuziGPTImageAdapter,
-} from '../model-adapters/tuzi-gpt-image-adapter';
 
 describe('tuzi GPT image adapter', () => {
   afterEach(() => {
@@ -164,7 +163,7 @@ describe('tuzi GPT image adapter', () => {
     });
   });
 
-  it('preserves explicit GPT Image pixel size for Tuzi edit requests', async () => {
+  it('repairs legacy Tuzi edit bindings to the JSON generations endpoint', async () => {
     mocks.sendAdapterRequest.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -201,7 +200,8 @@ describe('tuzi GPT image adapter', () => {
     );
 
     const request = mocks.sendAdapterRequest.mock.calls[0]?.[1];
-    expect(request.path).toBe('/images/edits');
+    expect(request.path).toBe('/images/generations');
+    expect(request.baseUrlStrategy).toBe('ensure-v1');
     expect(JSON.parse(request.body)).toMatchObject({
       model: 'gpt-image-2',
       prompt: 'Continue this PPT slide style',
@@ -245,7 +245,7 @@ describe('tuzi GPT image adapter', () => {
         }
       )
     ).rejects.toThrow(
-      'Tuzi GPT Image request failed: 404 (/v1/v1/images/generations)'
+      'Tuzi GPT Image request failed: 404 (api.tu-zi.com/v1/v1/images/generations)'
     );
   });
 });
