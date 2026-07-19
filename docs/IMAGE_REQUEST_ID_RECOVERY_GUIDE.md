@@ -256,3 +256,7 @@ apps/web/src/sw/task-queue/
 ```
 
 `[+]` = 本次改动 / 新增
+
+## 十、故障复盘
+
+- [多供应商生图 CORS 预检失败排障经验](./PROVIDER_IMAGE_CORS_LESSONS.md)：记录 `X-Request-Id` 触发跨域预检失败的证据链、修复边界与上线检查清单。
