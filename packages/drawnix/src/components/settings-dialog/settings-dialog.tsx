@@ -48,10 +48,8 @@ import {
   useProfilePreferredModels,
   useRuntimeModelDiscoveryState,
 } from '../../hooks/use-runtime-models';
-import {
-  normalizeModelApiBaseUrl,
-  runtimeModelDiscovery,
-} from '../../utils/runtime-model-discovery';
+import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
+import { normalizeModelApiBaseUrl } from '../../utils/provider-base-url';
 import { compareModelsByDisplayPriority } from '../../utils/model-sort';
 import {
   createModelRef,
@@ -99,6 +97,11 @@ import {
 import { modelBenchmarkService } from '../../services/model-benchmark-service';
 import { HoverTip } from '../shared/hover';
 import { createProviderProfileDraft } from './provider-profile-draft';
+import {
+  normalizeEndpointApiBaseUrl,
+  normalizeEndpointUrl,
+  resolveEndpointSelectionUrl,
+} from './provider-endpoint-utils';
 import { MessagePlugin } from '../../utils/message-plugin';
 import {
   isTrustedTuziApiBaseUrl,
@@ -678,23 +681,6 @@ function buildPresetRouteModels(
   );
 }
 
-function normalizeEndpointUrl(url?: string | null): string {
-  const trimmed = (url || '').trim();
-  if (!trimmed) return TUZI_PROVIDER_DEFAULT_BASE_URL;
-  const withoutTrailingSlash = trimmed.replace(/\/+$/, '');
-  try {
-    const parsed = new URL(
-      /^[a-z][a-z\d+\-.]*:\/\//i.test(withoutTrailingSlash)
-        ? withoutTrailingSlash
-        : `https://${withoutTrailingSlash}`
-    );
-    const pathname = parsed.pathname.replace(/\/+$/, '');
-    return `${parsed.origin}${pathname === '/' ? '' : pathname}`;
-  } catch {
-    return withoutTrailingSlash || TUZI_PROVIDER_DEFAULT_BASE_URL;
-  }
-}
-
 function createEndpointOption(
   endpoint:
     | string
@@ -1197,8 +1183,15 @@ export const SettingsDialog = ({
     if (!selectedProfile) {
       return;
     }
-    const normalizedUrl = normalizeEndpointUrl(selectedProfile.baseUrl);
-    setSelectedEndpointUrl(normalizedUrl);
+    setSelectedEndpointUrl(
+      resolveEndpointSelectionUrl(
+        selectedProfile.baseUrl,
+        endpointOptions.map((endpoint) => endpoint.url)
+      )
+    );
+  }, [endpointOptions, selectedProfile?.baseUrl, selectedProfile?.id]);
+
+  useEffect(() => {
     setEndpointSelectionMode('auto');
   }, [selectedProfile?.id]);
 
@@ -1230,16 +1223,17 @@ export const SettingsDialog = ({
         return;
       }
       const normalizedUrl = normalizeEndpointUrl(url);
+      const normalizedApiBaseUrl = normalizeEndpointApiBaseUrl(normalizedUrl);
       setEndpointSelectionMode(mode);
       setSelectedEndpointUrl(normalizedUrl);
       updateProfile(selectedProfile.id, (profile) => ({
         ...profile,
-        baseUrl: normalizedUrl,
+        baseUrl: normalizedApiBaseUrl,
       }));
       if (selectedProfile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
         void geminiSettings.update({
           ...geminiSettings.get(),
-          baseUrl: normalizedUrl,
+          baseUrl: normalizedApiBaseUrl,
         });
       }
     },
@@ -2684,10 +2678,7 @@ export const SettingsDialog = ({
 
                   <div className="settings-dialog__endpoint-list">
                     {endpointOptions.map((endpoint) => {
-                      const selected =
-                        endpoint.url === activeEndpoint.url ||
-                        (endpointSelectionMode === 'auto' &&
-                          endpoint.url === bestEndpoint.url);
+                      const selected = endpoint.url === activeEndpoint.url;
                       const latency = endpointLatencies[endpoint.url];
                       const latencyText =
                         typeof latency === 'number'

@@ -70,6 +70,10 @@ Tuzi GPT 生图还应显式使用 `ensure-v1` 传输策略。站点测速或备�
 - endpoint 已经是完整绝对 URL 时，应直接使用，不再与 Base URL 拼接。
 - Google `v1beta`、Suno 根路径、Kling 专用路径应继续使用各自的 `baseUrlStrategy`。
 
+设置页中的 Tuzi 站点列表可以展示简洁的 origin，例如 `https://apicdn.tu-zi.com`，但选中或测速切换后写入供应商配置的必须立即是 `https://apicdn.tu-zi.com/v1`。重新打开设置时，应从已保存的 `/v1` Base URL 反查并唯一高亮对应站点。
+
+模型价格地址是独立配置，仍使用 origin 下的 `/api/pricing`，不应被改成 `/v1/api/pricing`。
+
 ### 3. 错误必须携带可安全暴露的 endpoint
 
 供应商返回空响应或 HTML 错误页时，错误文案应包含最终 URL 的 pathname，但不包含 query、API Key 或 Authorization 请求头。
@@ -82,6 +86,9 @@ Tuzi GPT 生图还应显式使用 `ensure-v1` 传输策略。站点测速或备�
 - Base URL 为 `https://host/v1`，path 为 `/v1`。
 - Base URL 为 `https://host/v1`，path 为 `/v1beta/...`，不应错误合并。
 - 绝对 endpoint URL 保持不变。
+- 设置页点击或自动选择备用站后，API 地址立即包含 `/v1`。
+- 关闭并重新打开设置后，已保存站点保持唯一高亮。
+- 价格地址仍为 `/api/pricing`，不追加 `/v1`。
 - `404` 无 JSON 错误体时，用户可以看到最终 endpoint path。
 - 使用真实供应商完成一次生图，不只验证模型列表。
 
@@ -89,6 +96,8 @@ Tuzi GPT 生图还应显式使用 `ensure-v1` 传输策略。站点测速或备�
 
 - `packages/drawnix/src/services/provider-routing/provider-transport.ts`
 - `packages/drawnix/src/services/model-adapters/tuzi-gpt-image-adapter.ts`
+- `packages/drawnix/src/components/settings-dialog/provider-endpoint-utils.ts`
+- `packages/drawnix/src/utils/provider-base-url.ts`
 - `packages/drawnix/src/services/__tests__/provider-routing.test.ts`
 - `packages/drawnix/src/services/__tests__/tuzi-gpt-image-adapter.test.ts`
 - `docs/PROVIDER_IMAGE_CORS_LESSONS.md`

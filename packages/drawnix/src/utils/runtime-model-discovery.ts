@@ -12,7 +12,7 @@ import {
   getStaticModelConfig,
   setRuntimeModelConfigs,
 } from '../constants/model-config';
-import { normalizeApiBase } from '../services/media-api/utils';
+import { normalizeModelApiBaseUrl } from './provider-base-url';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   providerCatalogsSettings,
@@ -89,18 +89,7 @@ function hashString(input: string): string {
   return Math.abs(hash >>> 0).toString(16);
 }
 
-export function normalizeModelApiBaseUrl(baseUrl: string): string {
-  const trimmed = (baseUrl || '').trim();
-  const fallback = 'https://api.tu-zi.com/v1';
-  if (!trimmed) return fallback;
-
-  let normalized = trimmed.replace(/\/+$/, '');
-  normalized = normalized.replace(/\/models$/i, '');
-  if (!/\/v1$/i.test(normalized)) {
-    normalized = `${normalizeApiBase(normalized)}/v1`;
-  }
-  return normalized;
-}
+export { normalizeModelApiBaseUrl } from './provider-base-url';
 
 function buildDiscoverySignature(baseUrl: string, apiKey: string): string {
   return `${normalizeModelApiBaseUrl(baseUrl)}::${hashString(apiKey.trim())}`;
