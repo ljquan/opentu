@@ -18,18 +18,19 @@
 
 ## 二、总体设计
 
-### 2.1 传输层统一注入 X-Request-Id
+### 2.1 传输层按能力注入 X-Request-Id
 
 - `ProviderTransport.send()` 是所有 provider 请求的最终出口
 - 新增 `ProviderTransportRequest.requestId` 可选字段
-- 若传入 → 自动写入 `X-Request-Id` 请求头
-- 超时抛出的 `TimeoutError` 上会挂载 `.requestId`（便于上层直接兜底）
+- 仅在受支持的 Tuzi 同源请求中写入 `X-Request-Id`
+- 跨域 Tuzi 与其他供应商不附带该头，避免 API 未在 `Access-Control-Allow-Headers` 放行时导致 `Failed to fetch`
+- 只有实际发送了请求头时，超时抛出的 `TimeoutError` 才会挂载 `.requestId`
 - **向后兼容**：不传 `requestId` 时行为完全不变
 
 ### 2.2 图片适配器自动生成 requestId
 
 - `sendAdapterRequest()`（`model-adapters/context.ts`）
-- 当 `context.operation === 'image'` 且 caller 未显式传入 `requestId` → **自动生成 UUID**
+- 当请求为 Tuzi 同源图片调用且 caller 未显式传入 `requestId` → **自动生成 UUID**
 - 通过 `AdapterContext.onRequestSent({ requestId })` 回调回传给 caller，便于日志/兜底
 
 ### 2.3 找回接口封装
@@ -159,10 +160,11 @@ pnpm exec nx run-many -t typecheck   # 5 个包全部通过 ✓
 ### 5.2 手动验证（浏览器）
 
 **场景 A - 正常路径**：
-1. 打开应用，用 `api.tu-zi.com` provider 正常生图
+1. 本地开发环境打开应用，用 `api.tu-zi.com` provider 正常生图
 2. F12 > Application > IndexedDB > `llm-api-logs` > `logs`
 3. 找到最新一条记录，字段 `requestId` 应为 UUID（如 `8c41eb26-a2d0-fcb1-01a6-f697e7d4e2ff`）
 4. F12 > Network 面板中找到 `/images/generations` 请求，Request Headers 应包含 `X-Request-Id: <UUID>`
+5. 改用跨域供应商域名时，Request Headers 不应包含 `X-Request-Id`，且生图仍能正常完成
 
 **场景 B - 超时找回成功**：
 1. 临时把 `IMAGE_GENERATION_TIMEOUT_MS`（`constants/TASK_CONSTANTS.ts`）改到 100ms
@@ -194,7 +196,7 @@ pnpm exec nx run-many -t typecheck   # 5 个包全部通过 ✓
 | **`?sw=0` 降级模式** | 已覆盖（fallback-executor 直连 + fallback-adapter-routes 两条分支）|
 | **`crypto.randomUUID`** | Chrome 92+ / 现代 SW 全部支持，含极端兜底 fallback |
 | **`baseUrlStrategy: 'trim-v1'`** | 已有能力，不新增基础设施 |
-| **`X-Request-Id` 与 `Authorization`** | 在 `applyAuthHeaders` 之后追加，不影响鉴权 |
+| **`X-Request-Id` 与 CORS** | 仅在 Tuzi 同源/代理请求中追加；其他请求省略，避免预检失败 |
 | **找回接口自身超时** | 15s 短超时，兜底不拖累主流程 |
 
 ## 七、注意事项

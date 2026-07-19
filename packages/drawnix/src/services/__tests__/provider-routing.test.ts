@@ -7,6 +7,7 @@ import {
   supportsTextBindingImageInput,
 } from '../provider-routing';
 import { providerTransport } from '../provider-routing';
+import { canAttachProviderRequestIdHeader } from '../provider-routing';
 import type {
   InvocationPlannerRepositories,
   ProviderModelBinding,
@@ -277,6 +278,53 @@ describe('provider routing', () => {
     expect(prepared.url).toBe('https://api.example.com/v1/images/generations');
     expect(prepared.headers.Authorization).toBe('Bearer secret');
     expect(prepared.headers['Content-Type']).toBe('application/json');
+  });
+
+  it('omits X-Request-Id for custom cross-origin providers', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-custom',
+        profileName: 'Custom Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://images.example.com/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/images/generations',
+        method: 'POST',
+        requestId: 'request-id-that-would-trigger-preflight',
+      }
+    );
+
+    expect(prepared.headers['X-Request-Id']).toBeUndefined();
+  });
+
+  it('only enables Tuzi request-id recovery for same-origin requests', () => {
+    const context: ProviderProfileSnapshot = {
+      id: 'provider-tuzi',
+      name: 'Tuzi',
+      providerType: 'openai-compatible',
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'secret',
+      authType: 'bearer',
+    };
+    const request = { path: '/images/generations' };
+
+    expect(
+      canAttachProviderRequestIdHeader(
+        context,
+        request,
+        'https://opentu.example.com'
+      )
+    ).toBe(false);
+    expect(
+      canAttachProviderRequestIdHeader(
+        context,
+        request,
+        'https://api.tu-zi.com'
+      )
+    ).toBe(true);
   });
 
   it('prepares query-auth transport requests', () => {

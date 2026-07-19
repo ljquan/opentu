@@ -25,6 +25,7 @@ import {
   type ModelRef,
 } from '../../utils/settings-manager';
 import {
+  canAttachProviderRequestIdHeader,
   providerTransport,
   resolveInvocationPlanFromRoute,
   type ProviderAuthStrategy,
@@ -356,13 +357,19 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       );
     }
 
-    // 为本次请求生成 X-Request-Id，用于超时时通过 /log/get-request 找回结果
-    const requestId = generateRequestIdForImage();
-    emitImageRequestIdDebugLog(requestId, {
-      model: modelName,
-      endpoint: '/images/generations',
-      source: 'fallbackExecutor',
-    });
+    const imageProviderContext = buildProviderContext(config.imageConfig);
+    const requestId = canAttachProviderRequestIdHeader(imageProviderContext, {
+      path: '/images/generations',
+    })
+      ? generateRequestIdForImage()
+      : undefined;
+    if (requestId) {
+      emitImageRequestIdDebugLog(requestId, {
+        model: modelName,
+        endpoint: '/images/generations',
+        source: 'fallbackExecutor',
+      });
+    }
 
     // 开始记录 LLM API 调用
     const logId = startLLMApiLog({
@@ -408,20 +415,17 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       let httpStatus = 200;
       try {
         // 直接调用 API
-        const response = await providerTransport.send(
-          buildProviderContext(config.imageConfig),
-          {
-            path: '/images/generations',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
-            signal: options?.signal,
-            timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
-            requestId,
-          }
-        );
+        const response = await providerTransport.send(imageProviderContext, {
+          path: '/images/generations',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: options?.signal,
+          timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
+          requestId,
+        });
 
         if (!response.ok) {
           const duration = Date.now() - startTime;
@@ -450,7 +454,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         httpStatus = response.status;
       } catch (sendError) {
         // 超时兜底：尝试通过 /log/get-request 找回已经生成成功的结果
-        if (isTimeoutErrorForRecover(sendError)) {
+        if (isTimeoutErrorForRecover(sendError) && requestId) {
           console.warn(
             `[FallbackMediaExecutor] 生图请求超时，尝试通过 X-Request-Id 找回: ${requestId}`
           );

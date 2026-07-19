@@ -22,7 +22,10 @@ import {
   sleep,
   buildProviderContextFromApiConfig,
 } from './utils';
-import { providerTransport } from '../provider-routing/provider-transport';
+import {
+  canAttachProviderRequestIdHeader,
+  providerTransport,
+} from '../provider-routing/provider-transport';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import { emitImageRequestIdDebugLog } from './request-id-debug';
 
@@ -269,29 +272,33 @@ export async function generateImageSync(
     model,
   });
 
-  const requestId = generateRequestId();
-  emitImageRequestIdDebugLog(requestId, {
-    model,
-    endpoint: '/images/generations',
-    source: 'generateImageSync',
-  });
+  const providerContext = buildProviderContextFromApiConfig(config);
+  const requestId = canAttachProviderRequestIdHeader(providerContext, {
+    path: '/images/generations',
+  })
+    ? generateRequestId()
+    : undefined;
+  if (requestId) {
+    emitImageRequestIdDebugLog(requestId, {
+      model,
+      endpoint: '/images/generations',
+      source: 'generateImageSync',
+    });
+  }
 
   try {
-    const response = await providerTransport.send(
-      buildProviderContextFromApiConfig(config),
-      {
-        path: '/images/generations',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal,
-        timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
-        fetcher: fetchFn,
-        requestId,
-      }
-    );
+    const response = await providerTransport.send(providerContext, {
+      path: '/images/generations',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal,
+      timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
+      fetcher: fetchFn,
+      requestId,
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -304,7 +311,7 @@ export async function generateImageSync(
     return parseImageResponse(data);
   } catch (error) {
     // 超时兜底：尝试通过 /log/get-request 找回已经生成成功的结果
-    if (isTimeoutError(error)) {
+    if (isTimeoutError(error) && requestId) {
       console.warn(
         `[ImageAPI] 生图请求超时，尝试通过 X-Request-Id 找回结果: ${requestId}`
       );

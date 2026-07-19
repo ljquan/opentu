@@ -182,8 +182,8 @@ export interface ProviderTransportRequest {
   credentials?: RequestCredentials;
   fetcher?: typeof fetch;
   /**
-   * 若提供，会被写入 X-Request-Id 请求头，用于超时/失败场景兜底找回。
-   * 目前主要用于图片生成接口。
+   * Tuzi 同源请求会将其写入 X-Request-Id，用于超时兜底找回。
+   * 其他供应商或跨域请求会忽略该字段，避免触发 CORS 预检失败。
    */
   requestId?: string;
 }

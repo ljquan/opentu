@@ -23,8 +23,8 @@ export interface AdapterContext {
   binding?: ProviderModelBinding | null;
   fetcher?: typeof fetch;
   /**
-   * sendAdapterRequest 发起图片类请求时会自动生成 requestId 并通过此回调回传。
-   * 用于 caller（如 runImageAdapter）在超时时通过 /log/get-request 找回结果。
+   * sendAdapterRequest 仅在 Tuzi 同源图片请求中生成 requestId 并回传。
+   * caller 可在超时时通过 /log/get-request 找回结果。
    */
   onRequestSent?: (info: { requestId: string }) => void;
 }

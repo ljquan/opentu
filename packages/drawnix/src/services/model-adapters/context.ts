@@ -1,4 +1,5 @@
 import {
+  canAttachProviderRequestIdHeader,
   providerTransport,
   type ProviderTransportRequest,
   type ResolvedProviderContext,
@@ -82,10 +83,17 @@ export function sendAdapterRequest(
     request.timeoutMs ??
     (context.operation === 'image' ? IMAGE_GENERATION_TIMEOUT_MS : undefined);
 
-  // 图片操作自动附带 X-Request-Id，用于超时时通过 /log/get-request 找回结果。
-  // 若 caller 已显式传入 requestId 则复用，避免重复生成。
-  let requestId = request.requestId;
-  if (!requestId && context.operation === 'image') {
+  const providerContext = buildProviderContextFromAdapterContext(
+    context,
+    baseUrlOverride
+  );
+  const supportsRequestId =
+    context.operation === 'image' &&
+    canAttachProviderRequestIdHeader(providerContext, request);
+
+  // 只有受支持的同源 Tuzi 请求才附带 X-Request-Id。
+  let requestId = supportsRequestId ? request.requestId : undefined;
+  if (!requestId && supportsRequestId) {
     requestId = generateRequestId();
   }
 
@@ -105,15 +113,12 @@ export function sendAdapterRequest(
     }
   }
 
-  return providerTransport.send(
-    buildProviderContextFromAdapterContext(context, baseUrlOverride),
-    {
-      ...request,
-      requestId,
-      timeoutMs,
-      fetcher: context.fetcher || request.fetcher,
-    }
-  );
+  return providerTransport.send(providerContext, {
+    ...request,
+    requestId,
+    timeoutMs,
+    fetcher: context.fetcher || request.fetcher,
+  });
 }
 
 function generateRequestId(): string {
