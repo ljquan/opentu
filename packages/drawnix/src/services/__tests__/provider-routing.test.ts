@@ -280,6 +280,82 @@ describe('provider routing', () => {
     expect(prepared.headers['Content-Type']).toBe('application/json');
   });
 
+  it('collapses a duplicated API version at the URL join boundary', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-tuzi',
+        profileName: 'Tuzi',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/v1/images/generations',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.tu-zi.com/v1/images/generations');
+  });
+
+  it('keeps different API version segments when joining provider URLs', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-custom',
+        profileName: 'Custom Provider',
+        providerType: 'custom',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/v1beta/models/test:generateContent',
+      }
+    );
+
+    expect(prepared.url).toBe(
+      'https://api.example.com/v1/v1beta/models/test:generateContent'
+    );
+  });
+
+  it('collapses an exact duplicate API version path', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-custom',
+        profileName: 'Custom Provider',
+        providerType: 'custom',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/v1',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.example.com/v1');
+  });
+
+  it('adds /v1 when a versioned API receives a provider origin', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-tuzi',
+        profileName: 'Tuzi',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/images/generations',
+        baseUrlStrategy: 'ensure-v1',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.tu-zi.com/v1/images/generations');
+  });
+
   it('omits X-Request-Id for custom cross-origin providers', () => {
     const prepared = providerTransport.prepareRequest(
       {

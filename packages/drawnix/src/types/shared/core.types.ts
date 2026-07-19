@@ -95,7 +95,7 @@ export interface TaskInvocationBindingSnapshot {
   responseSchema?: string;
   submitPath?: string;
   pollPathTemplate?: string;
-  baseUrlStrategy?: 'preserve' | 'trim-v1';
+  baseUrlStrategy?: 'preserve' | 'trim-v1' | 'ensure-v1';
   metadata?: Record<string, unknown>;
 }
 

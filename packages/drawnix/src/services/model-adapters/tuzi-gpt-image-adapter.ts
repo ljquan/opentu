@@ -36,9 +36,12 @@ function getResolvedOfficialSize(
   return resolveOfficialGPTImageSize(model, requestedSize, request.params);
 }
 
-function getRequestedCount(request: ImageGenerationRequest): number | undefined {
+function getRequestedCount(
+  request: ImageGenerationRequest
+): number | undefined {
   const count =
-    getNumberParam(request.params, 'n') ?? getNumberParam(request.params, 'count');
+    getNumberParam(request.params, 'n') ??
+    getNumberParam(request.params, 'count');
 
   return count !== undefined && count >= 1 && count <= 10 ? count : undefined;
 }
@@ -108,7 +111,16 @@ export function buildTuziGPTImageRequestBody(
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  const data = await response.json().catch(() => null);
+  const rawText = await response.text().catch(() => '');
+  const data = rawText
+    ? (() => {
+        try {
+          return JSON.parse(rawText);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   if (typeof data?.error === 'string') {
     return data.error;
   }
@@ -118,12 +130,28 @@ async function readErrorMessage(response: Response): Promise<string> {
   if (typeof data?.message === 'string') {
     return data.message;
   }
-  return `Tuzi GPT Image request failed: ${response.status}`;
+
+  const plainText = rawText.trim();
+  if (plainText && !/^<!doctype|^<html/i.test(plainText)) {
+    return plainText.slice(0, 300);
+  }
+
+  let endpoint = '';
+  try {
+    const url = new URL(response.url);
+    endpoint = url.pathname;
+  } catch {
+    endpoint = (response.url || '').split(/[?#]/, 1)[0];
+  }
+
+  return `Tuzi GPT Image request failed: ${response.status}${
+    endpoint ? ` (${endpoint})` : ''
+  }`;
 }
 
-function resolveTuziGPTImagePath(
-  context: { binding?: { submitPath?: string } | null }
-): string {
+function resolveTuziGPTImagePath(context: {
+  binding?: { submitPath?: string } | null;
+}): string {
   return context.binding?.submitPath || '/images/generations';
 }
 
@@ -140,6 +168,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   async generateImage(context, request) {
     const response = await sendAdapterRequest(context, {
       path: resolveTuziGPTImagePath(context),
+      baseUrlStrategy: 'ensure-v1',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

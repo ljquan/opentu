@@ -51,6 +51,10 @@ function applyBaseUrlStrategy(
   switch (strategy) {
     case 'trim-v1':
       return normalizedBaseUrl.replace(/\/v1$/i, '');
+    case 'ensure-v1':
+      return /\/v1$/i.test(normalizedBaseUrl)
+        ? normalizedBaseUrl
+        : `${normalizedBaseUrl}/v1`;
     case 'preserve':
     default:
       return normalizedBaseUrl;
@@ -63,7 +67,24 @@ function joinUrl(baseUrl: string, path: string): string {
   }
 
   const normalizedBase = trimTrailingSlashes(baseUrl);
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  let normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  // Endpoint discovery and manually persisted bindings can include the API
+  // version even when the provider base URL already ends with it. Collapse
+  // only the shared version segment at the join boundary so a valid
+  // /v1/images/generations request never becomes /v1/v1/images/generations.
+  const baseVersionMatch = normalizedBase.match(/\/(v\d+(?:beta\d*)?)$/i);
+  const pathVersionMatch = normalizedPath.match(
+    /^\/(v\d+(?:beta\d*)?)(?:\/|$)/i
+  );
+  if (
+    baseVersionMatch &&
+    pathVersionMatch &&
+    baseVersionMatch[1].toLowerCase() === pathVersionMatch[1].toLowerCase()
+  ) {
+    normalizedPath = normalizedPath.slice(pathVersionMatch[1].length + 1);
+  }
+
   return `${normalizedBase}${normalizedPath}`;
 }
 
