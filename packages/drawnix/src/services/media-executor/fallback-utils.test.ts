@@ -284,8 +284,12 @@ describe('cacheRemoteUrl', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps remote http urls unchanged as well', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
+  it('caches remote videos to stable local URLs for canvas playback', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Blob(['video-binary'], { type: 'video/mp4' }), {
+        status: 200,
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const { cacheRemoteUrl } = await import('./fallback-utils');
@@ -293,9 +297,21 @@ describe('cacheRemoteUrl', () => {
 
     const result = await cacheRemoteUrl(remoteUrl, 'task-video', 'video', 'mp4');
 
-    expect(result).toBe(remoteUrl);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    expect(result).toBe('/__aitu_cache__/video/task-video.mp4');
+    expect(fetchMock).toHaveBeenCalledWith(remoteUrl, {
+      credentials: 'omit',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+    });
+    expect(cacheMediaFromBlob).toHaveBeenCalledWith(
+      '/__aitu_cache__/video/task-video.mp4',
+      expect.any(Blob),
+      'video',
+      {
+        taskId: 'task-video',
+        source: 'AI_GENERATED',
+      }
+    );
 
     vi.unstubAllGlobals();
   });

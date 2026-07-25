@@ -26,6 +26,7 @@ import {
 import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
+  extractVideoFailureMessage,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -413,17 +414,11 @@ class VideoAPIService {
 
     // Check if submission already failed (e.g., content policy violation)
     if (submitResponse.status === 'failed') {
-      let errorMessage = '视频生成失败';
-      if (submitResponse.error) {
-        if (typeof submitResponse.error === 'string') {
-          errorMessage = submitResponse.error;
-        } else if (typeof submitResponse.error === 'object') {
-          errorMessage =
-            (submitResponse.error as any).message ||
-            JSON.stringify(submitResponse.error);
-        }
-      }
-      throw new Error(errorMessage);
+      throw new Error(
+        extractVideoFailureMessage(
+          submitResponse as unknown as Record<string, any>
+        )
+      );
     }
 
     // Continue with polling
@@ -551,20 +546,11 @@ class VideoAPIService {
         }
 
         if (status.status === 'failed') {
-          // Handle error - extract message if error is an object
-          let errorMessage = '视频生成失败';
-          if (status.error) {
-            if (typeof status.error === 'string') {
-              errorMessage = status.error;
-            } else if (typeof status.error === 'object') {
-              // Error is an object, extract message
-              errorMessage =
-                (status.error as any).message || JSON.stringify(status.error);
-            }
-          }
           // Mark as business failure so it won't be retried
           isBusinessFailure = true;
-          throw new Error(errorMessage);
+          throw new Error(
+            extractVideoFailureMessage(status as unknown as Record<string, any>)
+          );
         }
       } catch (err: any) {
         // 业务失败（API 返回 status: failed）不应重试，直接抛出

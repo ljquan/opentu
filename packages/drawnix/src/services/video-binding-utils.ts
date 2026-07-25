@@ -473,6 +473,45 @@ export function extractInlineVideoUrl(
   return payload?.video_url || payload?.url || payload?.output?.url;
 }
 
+function isPlayableVideoUrl(value: string): boolean {
+  return /^(?:https?:|blob:|data:|\/)/i.test(value.trim());
+}
+
+/**
+ * Some compatible video providers put the useful failure reason in
+ * `video_url` while returning only `task failed` in `error.message`.
+ */
+export function extractVideoFailureMessage(
+  payload: Record<string, any> | null | undefined,
+  fallback = '视频生成失败'
+): string {
+  if (!payload) return fallback;
+
+  const videoUrlMessage =
+    typeof payload.video_url === 'string' &&
+    payload.video_url.trim() &&
+    !isPlayableVideoUrl(payload.video_url)
+      ? payload.video_url.trim()
+      : undefined;
+  if (videoUrlMessage) return videoUrlMessage;
+
+  const error = payload.error;
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (
+    error &&
+    typeof error === 'object' &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
+    return error.message.trim();
+  }
+  if (typeof payload.message === 'string' && payload.message.trim()) {
+    return payload.message.trim();
+  }
+
+  return fallback;
+}
+
 function resolveTemplatePath(
   template: string,
   taskId: string,

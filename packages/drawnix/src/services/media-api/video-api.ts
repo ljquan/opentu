@@ -21,6 +21,7 @@ import { providerTransport } from '../provider-routing/provider-transport';
 import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
+  extractVideoFailureMessage,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -120,7 +121,12 @@ export async function submitVideoGeneration(
   const data = await response.json();
 
   if (data.status === 'failed') {
-    throw new VideoGenerationFailedError(parseErrorMessage(data.error) || '视频生成失败');
+    throw new VideoGenerationFailedError(
+      extractVideoFailureMessage(
+        data,
+        parseErrorMessage(data.error) || '视频生成失败'
+      )
+    );
   }
 
   if (!data.id) {
@@ -239,7 +245,12 @@ export async function pollVideoUntilComplete(
 
       // 检查失败状态 - 业务失败不应重试
       if (status === 'failed' || status === 'error') {
-        throw new VideoGenerationFailedError(parseErrorMessage(data.error) || '视频生成失败');
+        throw new VideoGenerationFailedError(
+          extractVideoFailureMessage(
+            data,
+            parseErrorMessage(data.error) || '视频生成失败'
+          )
+        );
       }
 
       // 等待下一次轮询

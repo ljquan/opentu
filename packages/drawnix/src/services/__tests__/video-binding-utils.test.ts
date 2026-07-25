@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { inferBindingsForProviderModel } from '../provider-routing';
 import {
+  extractVideoFailureMessage,
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfig,
   resolveVideoPollPath,
@@ -20,6 +21,26 @@ afterEach(() => {
 });
 
 describe('video binding utils', () => {
+  it('prefers provider failure text returned in video_url', () => {
+    expect(
+      extractVideoFailureMessage({
+        status: 'failed',
+        video_url: '图片下载失败，请确认上传图片公网可达',
+        error: { message: 'task failed' },
+      })
+    ).toBe('图片下载失败，请确认上传图片公网可达');
+  });
+
+  it('does not treat a playable video_url as an error message', () => {
+    expect(
+      extractVideoFailureMessage({
+        status: 'failed',
+        video_url: 'https://cdn.example.com/video.mp4',
+        error: { message: 'task failed' },
+      })
+    ).toBe('task failed');
+  });
+
   it('overrides official OpenAI sora bindings with raw Sora capabilities', () => {
     const model: ModelConfig = {
       id: 'sora-2',
