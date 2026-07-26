@@ -18,16 +18,10 @@ import { unifiedCacheService } from '../services/unified-cache-service';
 import { Task, TaskStatus, TaskType } from '../types/task.types';
 import { CharacterStatus } from '../types/character.types';
 import {
-  isResumableAsyncImageTask,
   isTaskTimeout,
 } from '../utils/task-utils';
 import { AI_GENERATION_CONCURRENCY_LIMIT } from '../constants/TASK_CONSTANTS';
 import { classifyApiCredentialError } from '../utils/api-auth-error-event';
-import {
-  assertTaskInvocationRouteAvailable,
-  resolveTaskInvocationRouteModel,
-  shouldUseStrictTaskInvocationRoute,
-} from '../services/task-invocation-route';
 
 /**
  * 从 API 错误体中提取原始错误消息
@@ -227,129 +221,6 @@ export function useTaskExecutor(): void {
       tryExecuteNext();
     };
 
-    const resumeAudioTask = async (task: Task) => {
-      const taskId = task.id;
-      const remoteId = task.remoteId!;
-
-      if (executingTasksRef.current.has(taskId)) {
-        return;
-      }
-
-      executingTasksRef.current.add(taskId);
-
-      try {
-        if (shouldUseStrictTaskInvocationRoute(task)) {
-          assertTaskInvocationRouteAvailable('audio', task);
-        }
-        const result = await generationAPIService.resumeAudioGeneration(
-          taskId,
-          remoteId,
-          resolveTaskInvocationRouteModel(task)
-        );
-
-        if (!isActive) return;
-
-        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.COMPLETED, {
-          result,
-        });
-      } catch (error: any) {
-        if (!isActive) return;
-
-        const errorCode = error.httpStatus
-          ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
-        const errorMessage = getFriendlyErrorMessage(error);
-        const originalErrorInfo =
-          error.fullResponse ||
-          error.apiErrorBody ||
-          error.message ||
-          String(error);
-
-        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.FAILED, {
-          error: {
-            code: errorCode,
-            message: errorMessage,
-            details: {
-              originalError: originalErrorInfo,
-              timestamp: Date.now(),
-            },
-          },
-        });
-      } finally {
-        onTaskFinished(taskId);
-      }
-    };
-
-    // Function to resume an async image task that has a remoteId
-    const resumeAsyncImageTask = async (task: Task) => {
-      const taskId = task.id;
-      const remoteId = task.remoteId!;
-
-      if (executingTasksRef.current.has(taskId)) {
-        return;
-      }
-
-      executingTasksRef.current.add(taskId);
-
-      try {
-        if (shouldUseStrictTaskInvocationRoute(task)) {
-          assertTaskInvocationRouteAvailable('image', task);
-        }
-        const result = await generationAPIService.resumeAsyncImageGeneration(
-          taskId,
-          remoteId,
-          resolveTaskInvocationRouteModel(task)
-        );
-
-        if (!isActive) return;
-
-        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.COMPLETED, {
-          result,
-        });
-
-        if (result.url) {
-          try {
-            await unifiedCacheService.registerImageMetadata(result.url, {
-              taskId: task.id,
-              model: task.params.model,
-              prompt: task.params.prompt,
-              params: task.params,
-            });
-          } catch (error) {
-            console.error(
-              `[TaskExecutor] Failed to register metadata for resumed async image task ${taskId}:`,
-              error
-            );
-          }
-        }
-      } catch (error: any) {
-        if (!isActive) return;
-
-        const errorCode = error.httpStatus
-          ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
-        const errorMessage = getFriendlyErrorMessage(error);
-        const originalErrorInfo =
-          error.fullResponse ||
-          error.apiErrorBody ||
-          error.message ||
-          String(error);
-
-        legacyTaskQueueService.updateTaskStatus(taskId, TaskStatus.FAILED, {
-          error: {
-            code: errorCode,
-            message: errorMessage,
-            details: {
-              originalError: originalErrorInfo,
-              timestamp: Date.now(),
-            },
-          },
-        });
-      } finally {
-        onTaskFinished(taskId);
-      }
-    };
-
     // Function to execute a character task
     const executeCharacterTask = async (task: Task) => {
       const taskId = task.id;
@@ -462,9 +333,10 @@ export function useTaskExecutor(): void {
       // Check if this is a resumable async image task
       if (
         task.status === TaskStatus.PROCESSING &&
-        isResumableAsyncImageTask(task)
+        task.type === TaskType.IMAGE &&
+        !!task.remoteId
       ) {
-        return resumeAsyncImageTask(task);
+        return;
       }
 
       // Skip resumable video tasks — handled by FallbackMediaExecutor.resumePendingTasks()
@@ -481,7 +353,16 @@ export function useTaskExecutor(): void {
         task.remoteId &&
         task.status === TaskStatus.PROCESSING
       ) {
-        return resumeAudioTask(task);
+        return;
+      }
+
+      // Submitting-stage async media recovery is owned by FallbackMediaExecutor.
+      if (
+        task.status === TaskStatus.PROCESSING &&
+        task.executionPhase === 'submitting' &&
+        !!task.clientRequestId
+      ) {
+        return;
       }
 
       // Prevent duplicate execution
@@ -587,29 +468,11 @@ export function useTaskExecutor(): void {
       );
 
       // Process resumable tasks (processing with remoteId) — video tasks excluded, handled by FallbackMediaExecutor
-      const resumableTasks = tasks.filter(
-        (task) =>
-          task.status === TaskStatus.PROCESSING &&
-          isResumableAsyncImageTask(task)
-      );
-      const resumableAudioTasks = tasks.filter(
-        (task) =>
-          task.type === TaskType.AUDIO &&
-          task.remoteId &&
-          task.status === TaskStatus.PROCESSING
-      );
-
       console.warn(
-        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${resumableTasks.length} resumable-image, ${resumableAudioTasks.length} resumable-audio, ${executingTasksRef.current.size} executing`
+        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${executingTasksRef.current.size} executing`
       );
 
       pendingTasks.forEach((task) => {
-        enqueueTask(task);
-      });
-      resumableTasks.forEach((task) => {
-        enqueueTask(task);
-      });
-      resumableAudioTasks.forEach((task) => {
         enqueueTask(task);
       });
     };
@@ -658,22 +521,6 @@ export function useTaskExecutor(): void {
 
           // Execute pending tasks
           if (task.status === TaskStatus.PENDING) {
-            enqueueTask(task);
-          }
-          // Resume async image tasks that have remoteId and are in processing state (video tasks excluded, handled by FallbackMediaExecutor)
-          else if (
-            !executingTasksRef.current.has(task.id) &&
-            task.remoteId &&
-            task.status === TaskStatus.PROCESSING &&
-            isResumableAsyncImageTask(task)
-          ) {
-            enqueueTask(task);
-          } else if (
-            !executingTasksRef.current.has(task.id) &&
-            task.remoteId &&
-            task.type === TaskType.AUDIO &&
-            task.status === TaskStatus.PROCESSING
-          ) {
             enqueueTask(task);
           }
         }

@@ -433,10 +433,10 @@ describe('Media Executor Module', () => {
             | ((progress: number, status?: string) => void)
             | undefined;
           const handleSubmitted = request.params?.onSubmitted as
-            | ((videoId: string) => void)
+            | ((videoId: string) => void | Promise<void>)
             | undefined;
 
-          handleSubmitted?.('video-task-1');
+          await handleSubmitted?.('video-task-1');
           handleProgress?.(30, 'in_progress');
 
           return {

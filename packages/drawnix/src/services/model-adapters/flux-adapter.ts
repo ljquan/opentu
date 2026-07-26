@@ -206,7 +206,7 @@ export const fluxImageAdapter: ImageModelAdapter = {
       | ((progress: number, status?: string) => void)
       | undefined;
     const onSubmitted = request.params?.onSubmitted as
-      | ((remoteId: string) => void)
+      | ((remoteId: string) => void | Promise<void>)
       | undefined;
 
     onProgress?.(5, 'submitting');
@@ -219,7 +219,7 @@ export const fluxImageAdapter: ImageModelAdapter = {
       throw new Error('Flux API 未返回任务 ID');
     }
 
-    onSubmitted?.(remoteId);
+    await onSubmitted?.(remoteId);
     onProgress?.(10, 'processing');
 
     // 轮询结果

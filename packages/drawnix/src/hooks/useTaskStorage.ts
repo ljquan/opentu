@@ -91,10 +91,20 @@ export function useTaskStorage(): boolean {
               const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
               const isAudioResumable =
                 task.type === TaskType.AUDIO && !!task.remoteId;
+              const isSubmissionRecoverable =
+                task.executionPhase === TaskExecutionPhase.SUBMITTING &&
+                !!task.clientRequestId &&
+                task.requestIdRecoverable === true &&
+                (task.type === TaskType.VIDEO ||
+                  task.type === TaskType.AUDIO ||
+                  task.type === TaskType.IMAGE);
 
               console.warn(
                 `[useTaskStorage]   task=${task.id} type=${task.type} phase=${task.executionPhase || 'unknown'} remoteId=${task.remoteId || 'none'} → ${
-                  isVideoResumable || isAudioResumable || isAsyncImageResumable
+                  isVideoResumable ||
+                  isAudioResumable ||
+                  isAsyncImageResumable ||
+                  isSubmissionRecoverable
                     ? 'KEEP'
                     : 'MARK_FAILED'
                 }`
@@ -104,7 +114,8 @@ export function useTaskStorage(): boolean {
               if (
                 isVideoResumable ||
                 isAudioResumable ||
-                isAsyncImageResumable
+                isAsyncImageResumable ||
+                isSubmissionRecoverable
               ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
               } else {
@@ -112,12 +123,16 @@ export function useTaskStorage(): boolean {
                 let errorMessage = '任务被中断（页面刷新）';
                 let errorCode = 'INTERRUPTED';
 
-                if (
-                  task.type === TaskType.VIDEO &&
-                  task.executionPhase === TaskExecutionPhase.SUBMITTING
-                ) {
-                  errorMessage = '任务在提交过程中被中断，可能已在后台执行';
-                  errorCode = 'INTERRUPTED_DURING_SUBMISSION';
+                if (task.executionPhase === TaskExecutionPhase.SUBMITTING) {
+                  if (task.clientRequestId) {
+                    errorMessage =
+                      '任务可能已提交，但原供应商不支持安全自动找回。请确认供应商任务后再手动重试，以免重复扣费。';
+                    errorCode = 'SUBMISSION_RECOVERY_UNAVAILABLE';
+                  } else {
+                    errorMessage =
+                      '任务在提交过程中被中断，可能已在后台执行';
+                    errorCode = 'INTERRUPTED_DURING_SUBMISSION';
+                  }
                 }
 
                 legacyTaskQueueService.updateTaskStatus(

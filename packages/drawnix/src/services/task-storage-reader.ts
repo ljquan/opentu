@@ -83,6 +83,8 @@ interface SWTask {
   };
   progress?: number;
   remoteId?: string;
+  clientRequestId?: string;
+  requestIdRecoverable?: boolean;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: string;
   savedToLibrary?: boolean;
@@ -213,6 +215,8 @@ function convertSWTaskToTask(swTask: SWTask): Task {
     error: swTask.error,
     progress: swTask.progress,
     remoteId: swTask.remoteId,
+    clientRequestId: swTask.clientRequestId,
+    requestIdRecoverable: swTask.requestIdRecoverable,
     invocationRoute: swTask.invocationRoute,
     executionPhase: swTask.executionPhase as Task['executionPhase'],
     savedToLibrary: swTask.savedToLibrary,

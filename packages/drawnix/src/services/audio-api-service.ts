@@ -45,6 +45,7 @@ export interface AudioGenerationParams {
   infillEndS?: number;
   params?: Record<string, unknown>;
   taskId?: string;
+  requestId?: string;
 }
 
 export type SunoAction = 'music' | 'lyrics';
@@ -95,7 +96,7 @@ interface AudioPollingOptions {
   interval?: number;
   maxAttempts?: number;
   onProgress?: (progress: number, status?: string) => void;
-  onSubmitted?: (taskId: string) => void;
+  onSubmitted?: (taskId: string) => void | Promise<void>;
   routeModel?: string | ModelRef | null;
 }
 
@@ -886,6 +887,7 @@ class AudioAPIService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
+        requestId: params.requestId,
       });
     } catch (error: any) {
       failLLMApiLog(logId, {
@@ -989,7 +991,7 @@ class AudioAPIService {
     }
 
     if (onSubmitted) {
-      onSubmitted(submitResponse.taskId);
+      await onSubmitted(submitResponse.taskId);
     }
 
     if (onProgress) {

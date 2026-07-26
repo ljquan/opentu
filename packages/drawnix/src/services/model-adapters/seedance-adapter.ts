@@ -230,7 +230,7 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
       | ((progress: number, status?: string) => void)
       | undefined;
     const onSubmitted = request.params?.onSubmitted as
-      | ((videoId: string) => void)
+      | ((videoId: string) => void | Promise<void>)
       | undefined;
 
     onProgress?.(5, 'submitting');
@@ -250,7 +250,7 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
       throw new Error('Seedance API 未返回任务 ID');
     }
 
-    onSubmitted?.(taskId);
+    await onSubmitted?.(taskId);
 
     // 提交时已失败
     if (submitResult.status === 'failed') {

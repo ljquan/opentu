@@ -442,14 +442,14 @@ export const happyHorseVideoAdapter: VideoModelAdapter = {
       | ((progress: number, status?: string) => void)
       | undefined;
     const onSubmitted = request.params?.onSubmitted as
-      | ((videoId: string) => void)
+      | ((videoId: string) => void | Promise<void>)
       | undefined;
 
     onProgress?.(5, 'submitting');
 
     const submitResult = await submitHappyHorseVideo(context, request);
     const taskId = extractTaskId(submitResult);
-    onSubmitted?.(taskId);
+    await onSubmitted?.(taskId);
 
     if (submitResult.status === 'failed' || submitResult.status === 'error') {
       throw new Error(extractErrorMessage(submitResult.error));

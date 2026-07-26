@@ -44,6 +44,7 @@ export interface VideoGenerationParams {
   seconds?: string;
   size?: string;
   params?: Record<string, unknown>;
+  requestId?: string;
   // Multiple images support for different models
   inputReferences?: UploadedVideoImage[];
   // Legacy single image support (for backward compatibility)
@@ -95,7 +96,7 @@ interface PollingOptions {
   interval?: number; // Polling interval in ms (default: 5000)
   maxAttempts?: number; // Max polling attempts (default: 1080 = 90min at 5s interval)
   onProgress?: (progress: number, status: string) => void;
-  onSubmitted?: (videoId: string) => void; // Callback when video is submitted (for saving remoteId)
+  onSubmitted?: (videoId: string) => void | Promise<void>; // Persistence barrier before polling
   routeModel?: string | ModelRef | null;
   params?: Record<string, unknown>;
 }
@@ -292,6 +293,7 @@ class VideoAPIService {
       baseUrlStrategy: binding?.baseUrlStrategy,
       method: 'POST',
       body: formData,
+      requestId: params.requestId,
     });
 
     if (!response.ok) {
@@ -404,7 +406,7 @@ class VideoAPIService {
 
     // Notify that video has been submitted (for saving remoteId)
     if (onSubmitted) {
-      onSubmitted(submitResponse.id);
+      await onSubmitted(submitResponse.id);
     }
 
     // Report initial progress

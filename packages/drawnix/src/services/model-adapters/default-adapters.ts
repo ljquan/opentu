@@ -167,6 +167,10 @@ export const geminiImageAdapter: ImageModelAdapter = {
           size: request.size,
           referenceImages: request.referenceImages,
           maskImage: request.maskImage,
+          requestId:
+            typeof request.params?.requestId === 'string'
+              ? request.params.requestId
+              : undefined,
         },
         {
           interval: 5000,
@@ -174,7 +178,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
             | ((progress: number, status?: string) => void)
             | undefined,
           onSubmitted: request.params?.onSubmitted as
-            | ((remoteId: string) => void)
+            | ((remoteId: string) => void | Promise<void>)
             | undefined,
         }
       );
@@ -265,6 +269,10 @@ export const geminiVideoAdapter: VideoModelAdapter = {
         size,
         inputReferences,
         params: adapterParams,
+        requestId:
+          typeof request.params?.requestId === 'string'
+            ? request.params.requestId
+            : undefined,
       },
       {
         interval: 5000,
@@ -272,7 +280,7 @@ export const geminiVideoAdapter: VideoModelAdapter = {
           | ((progress: number, status?: string) => void)
           | undefined,
         onSubmitted: request.params?.onSubmitted as
-          | ((videoId: string) => void)
+          | ((videoId: string) => void | Promise<void>)
           | undefined,
       }
     );
@@ -319,6 +327,10 @@ export const sunoAudioAdapter: AudioModelAdapter = {
         infillStartS: request.infillStartS,
         infillEndS: request.infillEndS,
         params: request.params,
+        requestId:
+          typeof request.params?.requestId === 'string'
+            ? request.params.requestId
+            : undefined,
       },
       {
         interval: 5000,
@@ -326,7 +338,7 @@ export const sunoAudioAdapter: AudioModelAdapter = {
           | ((progress: number, status?: string) => void)
           | undefined,
         onSubmitted: request.params?.onSubmitted as
-          | ((taskId: string) => void)
+          | ((taskId: string) => void | Promise<void>)
           | undefined,
       }
     );

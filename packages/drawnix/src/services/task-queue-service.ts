@@ -28,7 +28,10 @@ import {
 } from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
-import { hasInvocationRouteCredentials } from '../utils/settings-manager';
+import {
+  hasInvocationRouteCredentials,
+  resolveInvocationRoute,
+} from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
 import { analytics } from '../utils/posthog-analytics';
 import {
@@ -49,6 +52,8 @@ import {
   createTaskInvocationRouteSnapshotFromTask,
   mergeTaskInvocationRoute,
 } from './task-invocation-route';
+import { canAttachProviderRequestIdHeader } from './provider-routing';
+import { generateClientRequestId } from './async-task-recovery';
 import { callGoogleGenerateContentWithLog } from '../utils/gemini-api/logged-calls';
 import { executeVideoAnalysis } from './video-analysis-service';
 import {
@@ -113,6 +118,8 @@ const STORAGE_SYNC_FIELDS = [
   'completedAt',
   'startedAt',
   'remoteId',
+  'clientRequestId',
+  'requestIdRecoverable',
   'invocationRoute',
   'insertedToCanvas',
   'executionPhase',
@@ -454,6 +461,8 @@ class TaskQueueService {
       error: task.error as any,
       progress: task.progress,
       remoteId: task.remoteId,
+      clientRequestId: task.clientRequestId,
+      requestIdRecoverable: task.requestIdRecoverable,
       invocationRoute: task.invocationRoute,
       executionPhase: task.executionPhase,
       savedToLibrary: task.savedToLibrary,
@@ -659,6 +668,39 @@ class TaskQueueService {
           throw new Error(`No audio adapter for model: ${requestedModel}`);
         }
 
+        const invocationRoute = mergeTaskInvocationRoute(
+          task.invocationRoute,
+          createTaskInvocationRouteSnapshotFromTask(task, 'audio')
+        );
+        const clientRequestId = generateClientRequestId();
+        const audioRoute = resolveInvocationRoute(
+          'audio',
+          requestedModelRef || requestedModel
+        );
+        const requestIdRecoverable = canAttachProviderRequestIdHeader(
+          {
+            profileId: audioRoute.profileId || 'runtime',
+            profileName: audioRoute.profileName || 'Runtime',
+            providerType: audioRoute.providerType || 'custom',
+            baseUrl: audioRoute.baseUrl,
+            apiKey: audioRoute.apiKey,
+            authType: 'bearer',
+          },
+          { path: '/suno/submit/music', baseUrlStrategy: 'trim-v1' }
+        );
+        await taskStorageWriter.prepareAsyncSubmission(
+          task.id,
+          clientRequestId,
+          invocationRoute,
+          requestIdRecoverable
+        );
+        this.updateTaskStatus(task.id, TaskStatus.PROCESSING, {
+          clientRequestId,
+          requestIdRecoverable,
+          invocationRoute,
+          executionPhase: TaskExecutionPhase.SUBMITTING,
+        });
+
         const result = await adapter.generateAudio(
           getAdapterContextFromSettings(
             'audio',
@@ -680,20 +722,25 @@ class TaskQueueService {
             infillEndS: task.params.infillEndS,
             params: {
               ...(task.params as any).params,
+              requestId: requestIdRecoverable ? clientRequestId : undefined,
               signal,
               onProgress: (progress: number) => {
                 this.updateTaskProgress(task.id, progress);
                 this.updateTaskStatus(task.id, TaskStatus.PROCESSING, {
-                  executionPhase: TaskExecutionPhase.POLLING,
+                  executionPhase: this.tasks.get(task.id)?.remoteId
+                    ? TaskExecutionPhase.POLLING
+                    : TaskExecutionPhase.SUBMITTING,
                 });
               },
-              onSubmitted: (remoteId: string) => {
+              onSubmitted: async (remoteId: string) => {
+                await taskStorageWriter.updateRemoteId(
+                  task.id,
+                  remoteId,
+                  invocationRoute
+                );
                 this.updateTaskStatus(task.id, TaskStatus.PROCESSING, {
                   remoteId,
-                  invocationRoute: mergeTaskInvocationRoute(
-                    task.invocationRoute,
-                    createTaskInvocationRouteSnapshotFromTask(task, 'audio')
-                  ),
+                  invocationRoute,
                   executionPhase: TaskExecutionPhase.POLLING,
                 });
               },
@@ -1939,7 +1986,7 @@ class TaskQueueService {
     this.tasks.set(task.id, task);
 
     // Persist to IndexedDB
-    this.persistTask(task);
+    const initialPersistPromise = this.persistTaskInternal(task);
 
     // Emit event
     this.emitEvent('taskCreated', task);
@@ -1949,13 +1996,27 @@ class TaskQueueService {
     this.enforceRetentionLimit();
 
     // Execute task asynchronously (fire-and-forget)
-    this.executeTask(task).catch((error) => {
-      console.error('[TaskQueueService] Task execution error:', error);
-    });
+    initialPersistPromise
+      .then(() => {
+        this.stripLargeParams(task.id);
+        return this.executeTask(task);
+      })
+      .catch((error) => {
+        console.error('[TaskQueueService] Task execution error:', error);
+        this.updateTaskStatus(task.id, TaskStatus.FAILED, {
+          error: {
+            code: 'TASK_PERSISTENCE_ERROR',
+            message: '任务状态无法保存，已停止提交以避免刷新后丢失任务',
+            details: {
+              originalError:
+                error instanceof Error ? error.message : String(error),
+              timestamp: Date.now(),
+            },
+          },
+        });
+      });
 
-    // 任务开始执行后剥离大字段（base64 参考图等）
-    this.stripLargeParams(task.id);
-
+    // 初始任务持久化成功后再剥离大字段并开始执行，避免刷新时丢失恢复信息。
     // console.log(`[TaskQueueService] Created task ${task.id} (${type})`);
     return task;
   }
@@ -2194,6 +2255,8 @@ class TaskQueueService {
       startedAt: now, // Set new start time
       completedAt: undefined, // Clear completion time
       remoteId: undefined, // Clear remote ID for fresh submission
+      clientRequestId: undefined,
+      requestIdRecoverable: undefined,
       executionPhase: TaskExecutionPhase.SUBMITTING,
       insertedToCanvas: false,
       progress:
@@ -2327,8 +2390,32 @@ class TaskQueueService {
 
       // Skip if in-memory task is newer or at a more advanced status
       if (existing) {
-        // If in-memory task was updated more recently, keep it
+        // Workflow state can restore a partial task before IndexedDB finishes
+        // loading. Keep the newer live state, but merge durable recovery
+        // credentials so the recovery executor never receives a stale copy.
         if (existing.updatedAt >= task.updatedAt) {
+          const mergedTask: Task = {
+            ...existing,
+            remoteId: existing.remoteId || task.remoteId,
+            clientRequestId:
+              existing.clientRequestId || task.clientRequestId,
+            requestIdRecoverable:
+              existing.requestIdRecoverable ?? task.requestIdRecoverable,
+            invocationRoute:
+              existing.invocationRoute?.providerProfileId ||
+              existing.invocationRoute?.binding?.id
+                ? existing.invocationRoute
+                : task.invocationRoute || existing.invocationRoute,
+            executionPhase:
+              existing.executionPhase || task.executionPhase,
+            result: existing.result || task.result,
+            insertedToCanvas:
+              existing.insertedToCanvas ?? task.insertedToCanvas,
+          };
+          if (hasStorageTaskChanges(existing, mergedTask)) {
+            this.tasks.set(task.id, mergedTask);
+            restoredCount++;
+          }
           return;
         }
       }

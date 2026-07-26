@@ -40,6 +40,9 @@ import {
   createTaskInvocationRouteSnapshot,
   shouldUseStrictTaskInvocationRoute,
 } from './task-invocation-route';
+import { taskStorageWriter } from './media-executor/task-storage-writer';
+import { canAttachProviderRequestIdHeader } from './provider-routing';
+import { generateClientRequestId } from './async-task-recovery';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
@@ -457,6 +460,38 @@ class GenerationAPIService {
         invocationOptions
       );
       logImageAdapterSelection(taskId, adapter, requestedModel, adapterContext);
+      const isAsyncImageRequest =
+        adapterContext.binding?.protocol === 'openai.async.media' ||
+        adapterContext.binding?.requestSchema === 'openai.async.image.form';
+      const invocationRoute = createTaskInvocationRouteSnapshot(
+        'image',
+        requestedModelRef || requestedModel || DEFAULT_IMAGE_MODEL_ID
+      );
+      const clientRequestId = isAsyncImageRequest
+        ? generateClientRequestId()
+        : undefined;
+      const requestIdRecoverable = Boolean(
+        clientRequestId &&
+          adapterContext.provider &&
+          canAttachProviderRequestIdHeader(adapterContext.provider, {
+            path: '/videos',
+            baseUrlStrategy: adapterContext.binding?.baseUrlStrategy,
+          })
+      );
+      if (clientRequestId) {
+        await taskStorageWriter.prepareAsyncSubmission(
+          taskId,
+          clientRequestId,
+          invocationRoute,
+          requestIdRecoverable
+        );
+        taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+          clientRequestId,
+          requestIdRecoverable,
+          invocationRoute,
+          executionPhase: TaskExecutionPhase.SUBMITTING,
+        });
+      }
 
       const result = await adapter.generateImage(adapterContext, {
         prompt: params.prompt,
@@ -491,19 +526,24 @@ class GenerationAPIService {
           quality: (params as any).quality,
           response_format: (params as any).response_format,
           ...(params as any).params,
+          requestId: requestIdRecoverable ? clientRequestId : undefined,
           onProgress: (progress: number) => {
             taskQueueService.updateTaskProgress(taskId, progress);
             taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
-              executionPhase: TaskExecutionPhase.POLLING,
+              executionPhase: taskQueueService.getTask(taskId)?.remoteId
+                ? TaskExecutionPhase.POLLING
+                : TaskExecutionPhase.SUBMITTING,
             });
           },
-          onSubmitted: (remoteId: string) => {
+          onSubmitted: async (remoteId: string) => {
+            await taskStorageWriter.updateRemoteId(
+              taskId,
+              remoteId,
+              invocationRoute
+            );
             taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
               remoteId,
-              invocationRoute: createTaskInvocationRouteSnapshot(
-                'image',
-                requestedModelRef || requestedModel || DEFAULT_IMAGE_MODEL_ID
-              ),
+              invocationRoute,
               executionPhase: TaskExecutionPhase.POLLING,
             });
           },
@@ -621,14 +661,40 @@ class GenerationAPIService {
         executionPhase: TaskExecutionPhase.SUBMITTING,
       });
 
+      const adapterContext = getAdapterContextFromSettings(
+        'video',
+        requestedModelRef || requestedModel
+      );
+      const invocationRoute = createTaskInvocationRouteSnapshot(
+        'video',
+        requestedModelRef || requestedModel
+      );
+      const clientRequestId = generateClientRequestId();
+      const requestIdRecoverable = Boolean(
+        adapter.id === 'gemini-video-adapter' &&
+          adapterContext.provider &&
+          canAttachProviderRequestIdHeader(adapterContext.provider, {
+            path: '/videos',
+            baseUrlStrategy: adapterContext.binding?.baseUrlStrategy,
+          })
+      );
+      await taskStorageWriter.prepareAsyncSubmission(
+        taskId,
+        clientRequestId,
+        invocationRoute,
+        requestIdRecoverable
+      );
+      taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+        clientRequestId,
+        requestIdRecoverable,
+        invocationRoute,
+      });
+
       const referenceImages = await this.extractReferenceImages(params);
       const durationValue = (params as any).duration ?? (params as any).seconds;
 
       const result = await adapter.generateVideo(
-        getAdapterContextFromSettings(
-          'video',
-          requestedModelRef || requestedModel
-        ),
+        adapterContext,
         {
           prompt: params.prompt,
           model: requestedModel,
@@ -640,16 +706,28 @@ class GenerationAPIService {
             referenceImages.length > 0 ? referenceImages : undefined,
           params: {
             ...(params as any).params,
+            requestId: requestIdRecoverable ? clientRequestId : undefined,
             onProgress: (progress: number) => {
               taskQueueService.updateTaskProgress(taskId, progress);
+              taskQueueService.updateTaskStatus(
+                taskId,
+                TaskStatus.PROCESSING,
+                {
+                  executionPhase: taskQueueService.getTask(taskId)?.remoteId
+                    ? TaskExecutionPhase.POLLING
+                    : TaskExecutionPhase.SUBMITTING,
+                }
+              );
             },
-            onSubmitted: (videoId: string) => {
+            onSubmitted: async (videoId: string) => {
+              await taskStorageWriter.updateRemoteId(
+                taskId,
+                videoId,
+                invocationRoute
+              );
               taskQueueService.updateTaskStatus(taskId, 'processing' as any, {
                 remoteId: videoId,
-                invocationRoute: createTaskInvocationRouteSnapshot(
-                  'video',
-                  requestedModelRef || requestedModel
-                ),
+                invocationRoute,
                 executionPhase: TaskExecutionPhase.POLLING,
               });
             },
@@ -705,11 +783,36 @@ class GenerationAPIService {
         executionPhase: TaskExecutionPhase.SUBMITTING,
       });
 
+      const adapterContext = getAdapterContextFromSettings(
+        'audio',
+        requestedModelRef || requestedModel
+      );
+      const invocationRoute = createTaskInvocationRouteSnapshot(
+        'audio',
+        requestedModelRef || requestedModel
+      );
+      const clientRequestId = generateClientRequestId();
+      const requestIdRecoverable = Boolean(
+        adapterContext.provider &&
+          canAttachProviderRequestIdHeader(adapterContext.provider, {
+            path: '/suno/submit/music',
+            baseUrlStrategy: 'trim-v1',
+          })
+      );
+      await taskStorageWriter.prepareAsyncSubmission(
+        taskId,
+        clientRequestId,
+        invocationRoute,
+        requestIdRecoverable
+      );
+      taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+        clientRequestId,
+        requestIdRecoverable,
+        invocationRoute,
+      });
+
       const result = await adapter.generateAudio(
-        getAdapterContextFromSettings(
-          'audio',
-          requestedModelRef || requestedModel
-        ),
+        adapterContext,
         {
           prompt: params.prompt,
           model: requestedModel,
@@ -726,20 +829,25 @@ class GenerationAPIService {
           infillEndS: params.infillEndS,
           params: {
             ...(params as any).params,
+            requestId: requestIdRecoverable ? clientRequestId : undefined,
             signal,
             onProgress: (progress: number) => {
               taskQueueService.updateTaskProgress(taskId, progress);
               taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
-                executionPhase: TaskExecutionPhase.POLLING,
+                executionPhase: taskQueueService.getTask(taskId)?.remoteId
+                  ? TaskExecutionPhase.POLLING
+                  : TaskExecutionPhase.SUBMITTING,
               });
             },
-            onSubmitted: (remoteId: string) => {
+            onSubmitted: async (remoteId: string) => {
+              await taskStorageWriter.updateRemoteId(
+                taskId,
+                remoteId,
+                invocationRoute
+              );
               taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
                 remoteId,
-                invocationRoute: createTaskInvocationRouteSnapshot(
-                  'audio',
-                  requestedModelRef || requestedModel
-                ),
+                invocationRoute,
                 executionPhase: TaskExecutionPhase.POLLING,
               });
             },

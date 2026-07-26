@@ -221,7 +221,7 @@ import { generateImageAsync as sharedGenerateImageAsync } from '../media-api';
  */
 interface AsyncImageOptions {
   onProgress: (progress: number) => void;
-  onSubmitted?: (remoteId: string) => void;
+  onSubmitted?: (remoteId: string) => void | Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -236,6 +236,7 @@ export async function generateAsyncImage(
     size?: string;
     referenceImages?: string[];
     maskImage?: string;
+    requestId?: string;
   },
   config: GeminiConfig,
   options: AsyncImageOptions
@@ -247,6 +248,7 @@ export async function generateAsyncImage(
       size: params.size,
       referenceImages: params.referenceImages,
       maskImage: params.maskImage,
+      requestId: params.requestId,
     },
     {
       apiKey: config.apiKey,

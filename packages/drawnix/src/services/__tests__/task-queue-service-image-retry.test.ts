@@ -609,4 +609,44 @@ describe('task-queue-service image edit retry persistence', () => {
 
     subscription.unsubscribe();
   });
+
+  it('merges durable recovery credentials into a newer in-memory task', async () => {
+    const { taskQueueService } =
+      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
+    const memoryTask: Task = {
+      id: 'task-refresh-merge-1',
+      type: TaskType.VIDEO,
+      status: TaskStatus.PROCESSING,
+      params: { prompt: 'Refresh recovery merge', model: 'veo3.1' },
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+      createdAt: 1,
+      updatedAt: 20,
+    };
+
+    taskQueueService.trackExternalTask(clone(memoryTask));
+    taskQueueService.restoreTasks([
+      {
+        ...clone(memoryTask),
+        updatedAt: 10,
+        clientRequestId: 'client-request-1',
+        requestIdRecoverable: true,
+        invocationRoute: {
+          operation: 'video',
+          providerProfileId: 'tuzi',
+          modelId: 'veo3.1',
+          binding: { id: 'video-binding' },
+        },
+      },
+    ]);
+
+    expect(taskQueueService.getTask(memoryTask.id)).toMatchObject({
+      updatedAt: 20,
+      clientRequestId: 'client-request-1',
+      requestIdRecoverable: true,
+      invocationRoute: {
+        operation: 'video',
+        providerProfileId: 'tuzi',
+      },
+    });
+  });
 });

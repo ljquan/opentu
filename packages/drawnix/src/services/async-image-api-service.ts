@@ -31,6 +31,7 @@ export interface AsyncImageGenerationParams {
   size?: string; // 接口的尺寸/比例字段（枚举 1:1、4:5 等）
   referenceImages?: string[];
   maskImage?: string;
+  requestId?: string;
 }
 
 export interface AsyncImageSubmitResponse {
@@ -60,7 +61,7 @@ interface PollingOptions {
   maxAttempts?: number;
   signal?: AbortSignal;
   onProgress?: (progress: number, status: string) => void;
-  onSubmitted?: (taskId: string) => void;
+  onSubmitted?: (taskId: string) => void | Promise<void>;
   routeModel?: string | ModelRef | null;
 }
 
@@ -170,6 +171,7 @@ class AsyncImageAPIService {
       path: '/videos',
       method: 'POST',
       body: formData,
+      requestId: params.requestId,
       signal,
       timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
     });
@@ -235,7 +237,7 @@ class AsyncImageAPIService {
     const submitResp = await this.submit(params, signal);
 
     if (onSubmitted) {
-      onSubmitted(submitResp.id);
+      await onSubmitted(submitResp.id);
     }
 
     if (onProgress) {

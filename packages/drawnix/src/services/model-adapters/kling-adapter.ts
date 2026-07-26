@@ -461,7 +461,7 @@ export const klingAdapter: VideoModelAdapter = {
       | ((progress: number, status?: string) => void)
       | undefined;
     const onSubmitted = request.params?.onSubmitted as
-      | ((videoId: string) => void)
+      | ((videoId: string) => void | Promise<void>)
       | undefined;
     const modelName = resolveKlingModelName(context, request, action2);
     const aspectRatio =
@@ -530,7 +530,7 @@ export const klingAdapter: VideoModelAdapter = {
     });
 
     const taskId = submitResponse.data.task_id;
-    onSubmitted?.(taskId);
+    await onSubmitted?.(taskId);
     onProgress?.(10, 'processing');
     let attempts = 0;
 

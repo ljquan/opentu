@@ -84,6 +84,8 @@ export interface SWTask {
   };
   progress?: number;
   remoteId?: string;
+  clientRequestId?: string;
+  requestIdRecoverable?: boolean;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: string;
   savedToLibrary?: boolean;
@@ -294,15 +296,39 @@ class TaskStorageWriter {
     invocationRoute?: TaskInvocationRouteSnapshot
   ): Promise<void> {
     const task = await this.getTask(taskId);
-    if (task) {
-      task.remoteId = remoteId;
-      if (invocationRoute) {
-        task.invocationRoute = invocationRoute;
-      }
-      task.updatedAt = Date.now();
-      task.executionPhase = 'polling';
-      await this.saveTask(task);
+    if (!task) {
+      throw new Error(`Task ${taskId} not found while saving remote ID`);
     }
+    task.remoteId = remoteId;
+    if (invocationRoute) {
+      task.invocationRoute = invocationRoute;
+    }
+    task.updatedAt = Date.now();
+    task.executionPhase = 'polling';
+    await this.saveTask(task);
+  }
+
+  /**
+   * 提交异步任务前持久化恢复凭据。
+   */
+  async prepareAsyncSubmission(
+    taskId: string,
+    clientRequestId: string,
+    invocationRoute?: TaskInvocationRouteSnapshot,
+    requestIdRecoverable = false
+  ): Promise<void> {
+    const task = await this.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task ${taskId} not found while preparing submission`);
+    }
+    task.clientRequestId = clientRequestId;
+    task.requestIdRecoverable = requestIdRecoverable;
+    task.executionPhase = 'submitting';
+    if (invocationRoute) {
+      task.invocationRoute = invocationRoute;
+    }
+    task.updatedAt = Date.now();
+    await this.saveTask(task);
   }
 
   /**

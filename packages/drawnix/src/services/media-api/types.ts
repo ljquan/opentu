@@ -66,6 +66,8 @@ export interface ImageGenerationParams {
   quality?: '1k' | '2k' | '4k' | string;
   /** 生成数量 */
   n?: number;
+  /** Stable request identifier used for provider-side submission recovery */
+  requestId?: string;
 }
 
 /**
@@ -82,6 +84,8 @@ export interface VideoGenerationParams {
   referenceImages?: string[];
   /** 额外参数（如 sora_mode） */
   params?: Record<string, unknown>;
+  /** Stable request identifier used for provider-side submission recovery */
+  requestId?: string;
 }
 
 /**
@@ -158,5 +162,5 @@ export interface PollingOptions {
  */
 export interface AsyncImageOptions extends PollingOptions {
   /** 提交成功后的回调，返回远程任务 ID */
-  onSubmitted?: (remoteId: string) => void;
+  onSubmitted?: (remoteId: string) => void | Promise<void>;
 }

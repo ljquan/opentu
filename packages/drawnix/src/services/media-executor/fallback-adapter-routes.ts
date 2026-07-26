@@ -369,8 +369,8 @@ export async function executeVideoViaAdapter(
               phase: safeProgress <= 10 ? 'submitting' : 'polling',
             });
           },
-          onSubmitted: (videoId: string) => {
-            void taskStorageWriter.updateRemoteId(
+          onSubmitted: async (videoId: string) => {
+            await taskStorageWriter.updateRemoteId(
               taskId,
               videoId,
               createTaskInvocationRouteSnapshot(

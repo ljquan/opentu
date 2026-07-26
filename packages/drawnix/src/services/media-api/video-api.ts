@@ -109,6 +109,7 @@ export async function submitVideoGeneration(
     baseUrlStrategy: config.binding?.baseUrlStrategy,
     method: 'POST',
     body: formData,
+    requestId: params.requestId,
     signal,
     fetcher: fetchFn,
   });
@@ -298,14 +299,14 @@ export async function generateVideo(
   params: VideoGenerationParams,
   config: VideoApiConfig,
   options: PollingOptions = {},
-  onRemoteId?: (remoteId: string) => void
+  onRemoteId?: (remoteId: string) => void | Promise<void>
 ): Promise<VideoGenerationResult> {
   const { signal } = options;
 
   // 提交任务
   options.onProgress?.(5);
   const remoteId = await submitVideoGeneration(params, config, signal);
-  onRemoteId?.(remoteId);
+  await onRemoteId?.(remoteId);
 
   // 轮询等待完成
   const result = await pollVideoUntilComplete(remoteId, config, options);
