@@ -677,6 +677,9 @@ function inferVideoBindings(
         responseSchema: 'openai.async.task',
         submitPath: '/videos',
         pollPathTemplate: '/videos/{taskId}',
+        baseUrlStrategy: isTuziProviderProfile(profile)
+          ? 'ensure-v1'
+          : undefined,
         metadata:
           isSoraModel(model) && isOfficialOpenAIProfile(profile)
             ? {

@@ -27,6 +27,8 @@ import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   extractVideoFailureMessage,
+  formatVideoHttpError,
+  resolveVideoBaseUrlStrategy,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -288,9 +290,14 @@ class VideoAPIService {
     // console.log('[VideoAPI] FormData entries:', formDataEntries);
     // console.log('[VideoAPI] Sending request to:', `${this.baseUrl}/v1/videos`);
 
+    const submitPath = '/videos';
     const response = await providerTransport.send(providerContext, {
-      path: '/videos',
-      baseUrlStrategy: binding?.baseUrlStrategy,
+      path: submitPath,
+      baseUrlStrategy: resolveVideoBaseUrlStrategy(
+        providerContext,
+        submitPath,
+        binding
+      ),
       method: 'POST',
       body: formData,
       requestId: params.requestId,
@@ -298,16 +305,19 @@ class VideoAPIService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[VideoAPI] Submit failed:', response.status, errorText);
+      const errorMessage = formatVideoHttpError(
+        'submit',
+        response.status,
+        errorText
+      );
+      console.error('[VideoAPI] Submit failed:', errorMessage);
       const duration = Date.now() - startTime;
       failLLMApiLog(logId, {
         httpStatus: response.status,
         duration,
-        errorMessage: errorText.substring(0, 500),
+        errorMessage,
       });
-      const error = new Error(
-        `视频生成提交失败: ${response.status} - ${errorText}`
-      );
+      const error = new Error(errorMessage);
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
       throw error;
@@ -362,18 +372,26 @@ class VideoAPIService {
       throw new Error('API Key 未配置');
     }
 
+    const pollPath = resolveVideoPollPath(videoId, binding, params);
     const response = await providerTransport.send(providerContext, {
-      path: resolveVideoPollPath(videoId, binding, params),
-      baseUrlStrategy: binding?.baseUrlStrategy,
+      path: pollPath,
+      baseUrlStrategy: resolveVideoBaseUrlStrategy(
+        providerContext,
+        pollPath,
+        binding
+      ),
       method: 'GET',
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[VideoAPI] Query failed:', response.status, errorText);
-      const error = new Error(
-        `视频状态查询失败: ${response.status} - ${errorText}`
+      const errorMessage = formatVideoHttpError(
+        'query',
+        response.status,
+        errorText
       );
+      console.error('[VideoAPI] Query failed:', errorMessage);
+      const error = new Error(errorMessage);
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
       throw error;

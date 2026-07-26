@@ -616,6 +616,29 @@ describe('provider routing', () => {
     ).toBe('trim-v1');
   });
 
+  it('adds /v1 for Tuzi OpenAI-compatible video bindings', () => {
+    const [binding] = inferBindingsForProviderModel(
+      {
+        id: 'provider-tuzi-video',
+        name: 'Tuzi Video',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      },
+      {
+        id: 'veo3.1',
+        label: 'Veo 3.1',
+        type: 'video',
+        vendor: ModelVendor.VEO,
+      }
+    );
+
+    expect(binding?.protocol).toBe('openai.async.video');
+    expect(binding?.submitPath).toBe('/videos');
+    expect(binding?.baseUrlStrategy).toBe('ensure-v1');
+  });
+
   it('routes the same GPT Image model by profile image compatibility', () => {
     const model: ModelConfig = {
       id: 'gpt-image-2',

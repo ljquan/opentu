@@ -8,7 +8,9 @@ import type { VideoModelConfig } from '../types/video.types';
 import type { ModelRef } from '../utils/settings-manager';
 import { providerTransport } from './provider-routing/provider-transport';
 import { resolveInvocationPlanFromRoute } from './provider-routing/settings-repository';
+import { isTuziCompatibleBaseUrl } from './provider-routing/tuzi-api-endpoints';
 import type {
+  ProviderBaseUrlStrategy,
   ProviderModelBinding,
   ProviderVideoBindingMetadata,
   ResolvedProviderContext,
@@ -29,6 +31,67 @@ const KLING_CAMERA_PARAM_IDS = new Set([
   'camera_roll',
   'camera_zoom',
 ]);
+
+const VIDEO_API_PATH_PATTERN = /^\/(?:v1\/)?videos(?:\/|$)/i;
+const HTML_RESPONSE_PATTERN = /^\s*(?:<!doctype\s+html|<html\b)/i;
+
+export function resolveVideoBaseUrlStrategy(
+  provider: ResolvedProviderContext,
+  requestPath: string,
+  binding?: ProviderModelBinding | null
+): ProviderBaseUrlStrategy | undefined {
+  if (binding?.baseUrlStrategy) {
+    return binding.baseUrlStrategy;
+  }
+
+  // Older persisted bindings did not record ensure-v1. Tuzi serves its
+  // OpenAI-compatible video API under /v1/videos; requesting /videos hits the
+  // hosted frontend and returns a Netlify HTML 404 page instead.
+  if (
+    isTuziCompatibleBaseUrl(provider.baseUrl) &&
+    VIDEO_API_PATH_PATTERN.test(requestPath)
+  ) {
+    return 'ensure-v1';
+  }
+
+  return undefined;
+}
+
+export function formatVideoHttpError(
+  operation: 'submit' | 'query',
+  status: number,
+  responseBody: string
+): string {
+  const prefix =
+    operation === 'submit' ? '视频生成提交失败' : '视频状态查询失败';
+  const body = responseBody.trim();
+
+  if (HTML_RESPONSE_PATTERN.test(body)) {
+    return `${prefix}: ${status} - 视频 API 端点不存在，请检查供应商地址和 /v1 路径配置`;
+  }
+
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      const nestedError =
+        parsed.error && typeof parsed.error === 'object'
+          ? (parsed.error as Record<string, unknown>)
+          : undefined;
+      const message =
+        (typeof parsed.message === 'string' && parsed.message) ||
+        (typeof parsed.error === 'string' && parsed.error) ||
+        (typeof nestedError?.message === 'string' && nestedError.message);
+      if (message) {
+        return `${prefix}: ${status} - ${message}`;
+      }
+    } catch {
+      // Fall through to a bounded plain-text preview.
+    }
+  }
+
+  const preview = body.replace(/\s+/g, ' ').slice(0, 300);
+  return preview ? `${prefix}: ${status} - ${preview}` : `${prefix}: ${status}`;
+}
 
 function normalizeStringParams(
   params?: Record<string, unknown> | null

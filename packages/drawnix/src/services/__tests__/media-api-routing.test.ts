@@ -186,4 +186,30 @@ describe('media-api provider routing', () => {
     expect(remoteId).toBe('video-task-1');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('adds /v1 when submitting Tuzi video from an origin-only base URL', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.tu-zi.com/v1/videos');
+      return new Response(
+        JSON.stringify({ id: 'video-task-tuzi', status: 'queued' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+
+    const remoteId = await submitVideoGeneration(
+      { prompt: 'make a video', model: 'veo3.1' },
+      {
+        apiKey: 'video-secret',
+        baseUrl: 'https://api.tu-zi.com',
+        authType: 'bearer',
+        fetchImpl,
+      }
+    );
+
+    expect(remoteId).toBe('video-task-tuzi');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

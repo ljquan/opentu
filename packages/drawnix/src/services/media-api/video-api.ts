@@ -22,6 +22,8 @@ import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   extractVideoFailureMessage,
+  formatVideoHttpError,
+  resolveVideoBaseUrlStrategy,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -104,9 +106,14 @@ export async function submitVideoGeneration(
     }
   }
 
+  const submitPath = '/v1/videos';
   const response = await providerTransport.send(providerContext, {
-    path: '/v1/videos',
-    baseUrlStrategy: config.binding?.baseUrlStrategy,
+    path: submitPath,
+    baseUrlStrategy: resolveVideoBaseUrlStrategy(
+      providerContext,
+      submitPath,
+      config.binding
+    ),
     method: 'POST',
     body: formData,
     requestId: params.requestId,
@@ -116,7 +123,7 @@ export async function submitVideoGeneration(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Video submission failed: ${response.status} - ${errorText}`);
+    throw new Error(formatVideoHttpError('submit', response.status, errorText));
   }
 
   const data = await response.json();
@@ -154,16 +161,26 @@ export async function queryVideoStatus(
   const baseUrl = normalizeApiBase(config.baseUrl);
   const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
 
+  const pollPath = resolveVideoPollPath(
+    videoId,
+    config.binding,
+    config.params
+  );
   const response = await providerTransport.send(providerContext, {
-    path: resolveVideoPollPath(videoId, config.binding, config.params),
-    baseUrlStrategy: config.binding?.baseUrlStrategy,
+    path: pollPath,
+    baseUrlStrategy: resolveVideoBaseUrlStrategy(
+      providerContext,
+      pollPath,
+      config.binding
+    ),
     method: 'GET',
     signal,
     fetcher: fetchFn,
   });
 
   if (!response.ok) {
-    throw new Error(`Video status query failed: ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(formatVideoHttpError('query', response.status, errorText));
   }
 
   return response.json();
@@ -201,9 +218,18 @@ export async function pollVideoUntilComplete(
     }
 
     try {
+      const pollPath = resolveVideoPollPath(
+        videoId,
+        config.binding,
+        config.params
+      );
       const response = await providerTransport.send(providerContext, {
-        path: resolveVideoPollPath(videoId, config.binding, config.params),
-        baseUrlStrategy: config.binding?.baseUrlStrategy,
+        path: pollPath,
+        baseUrlStrategy: resolveVideoBaseUrlStrategy(
+          providerContext,
+          pollPath,
+          config.binding
+        ),
         signal,
         fetcher: fetchFn,
       });

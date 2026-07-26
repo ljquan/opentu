@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { inferBindingsForProviderModel } from '../provider-routing';
 import {
   extractVideoFailureMessage,
+  formatVideoHttpError,
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfig,
+  resolveVideoBaseUrlStrategy,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -21,6 +23,33 @@ afterEach(() => {
 });
 
 describe('video binding utils', () => {
+  it('repairs legacy Tuzi video bindings that omitted /v1', () => {
+    expect(
+      resolveVideoBaseUrlStrategy(
+        {
+          profileId: 'provider-tuzi',
+          profileName: 'Tuzi',
+          providerType: 'openai-compatible',
+          baseUrl: 'https://api.tu-zi.com',
+          apiKey: 'test-key',
+          authType: 'bearer',
+        },
+        '/videos'
+      )
+    ).toBe('ensure-v1');
+  });
+
+  it('turns an HTML video endpoint response into a concise error', () => {
+    const message = formatVideoHttpError(
+      'submit',
+      404,
+      '<!DOCTYPE html><html><head><title>Page not found</title></head></html>'
+    );
+
+    expect(message).toContain('视频 API 端点不存在');
+    expect(message).not.toContain('<!DOCTYPE html>');
+  });
+
   it('prefers provider failure text returned in video_url', () => {
     expect(
       extractVideoFailureMessage({
