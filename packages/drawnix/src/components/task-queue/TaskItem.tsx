@@ -21,7 +21,11 @@ import {
 } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { Task, TaskStatus, TaskType } from '../../types/task.types';
-import { formatDateTime, formatTaskDuration } from '../../utils/task-utils';
+import {
+  formatDateTime,
+  formatTaskDuration,
+  formatTaskErrorMessage,
+} from '../../utils/task-utils';
 import { useUnifiedCache } from '../../hooks/useUnifiedCache';
 import {
   supportsCharacterExtraction,
@@ -976,7 +980,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
             {isFailed && task.error && (
               <div className="task-item__error">
                 <div className="task-item__error-message">
-                  {task.error.message}
+                  {formatTaskErrorMessage(task.error.message)}
                   {task.error.details?.originalError && (
                     <HoverTip
                       content={

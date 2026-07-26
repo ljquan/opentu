@@ -4,7 +4,10 @@ import {
   TaskType,
   type Task,
 } from '../../types/task.types';
-import { isResumableAsyncImageTask } from '../task-utils';
+import {
+  formatTaskErrorMessage,
+  isResumableAsyncImageTask,
+} from '../task-utils';
 
 function createImageTask(overrides: Partial<Task> = {}): Task {
   const now = Date.now();
@@ -23,6 +26,22 @@ function createImageTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('task-utils', () => {
+  describe('formatTaskErrorMessage', () => {
+    it('replaces a persisted HTML 404 page with a concise retry message', () => {
+      expect(
+        formatTaskErrorMessage(
+          '视频生成提交失败: 404 - <!DOCTYPE html><html><title>Page not found</title></html>'
+        )
+      ).toBe(
+        '视频生成提交失败: 404 - 视频 API 端点不存在，请刷新页面后重试'
+      );
+    });
+
+    it('keeps ordinary provider errors unchanged', () => {
+      expect(formatTaskErrorMessage('账户额度不足')).toBe('账户额度不足');
+    });
+  });
+
   describe('isResumableAsyncImageTask', () => {
     it('uses persisted async image binding as resumable source of truth', () => {
       const task = createImageTask({

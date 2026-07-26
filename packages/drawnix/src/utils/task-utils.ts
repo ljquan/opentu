@@ -10,6 +10,29 @@ import { TASK_TIMEOUT } from '../constants/TASK_CONSTANTS';
 import { isAsyncImageModel } from '../constants/model-config';
 import { generateUUID, formatDate } from '@aitu/utils';
 
+const HTML_ERROR_PATTERN = /(?:<!doctype\s+html|<html\b)/i;
+
+/**
+ * Keeps persisted provider error pages from flooding task cards after reload.
+ * Older clients stored the complete Netlify 404 HTML in TaskError.message.
+ */
+export function formatTaskErrorMessage(message?: string): string {
+  const normalized = message?.trim();
+  if (!normalized) {
+    return '生成失败';
+  }
+
+  if (HTML_ERROR_PATTERN.test(normalized)) {
+    const status = normalized.match(/(?:失败|failed)\s*:\s*(\d{3})/i)?.[1];
+    const prefix = status ? `视频生成提交失败: ${status}` : '视频生成提交失败';
+    return `${prefix} - 视频 API 端点不存在，请刷新页面后重试`;
+  }
+
+  return normalized.length > 500
+    ? `${normalized.slice(0, 500)}…`
+    : normalized;
+}
+
 /**
  * Generates a unique task ID using UUID v4 algorithm
  * 
