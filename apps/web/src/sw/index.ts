@@ -4333,7 +4333,26 @@ sw.addEventListener('fetch', (event: FetchEvent) => {
     return;
   }
 
-  // 拦截视频请求以支持 Range 请求
+  // 跨域媒体标签本身可以播放不带 CORS 响应头的视频，但 SW 内部 fetch
+  // 会受到 CORS 限制。若主动本地缓存失败，应直接交给浏览器加载，避免
+  // handleVideoRequest 把可播放的视频转换成 500 响应。
+  if (
+    url.origin !== location.origin &&
+    isVideoRequest(url, event.request)
+  ) {
+    addDebugLog({
+      type: 'fetch',
+      url: event.request.url,
+      method: event.request.method,
+      requestType: 'passthrough',
+      details: 'Passthrough: external video (browser-native media loading)',
+      status: 0,
+      duration: 0,
+    });
+    return;
+  }
+
+  // 拦截同源视频请求以支持 Range 请求
   if (isVideoRequest(url, event.request)) {
     // console.log('Service Worker: Intercepting video request:', url.href);
     const startTime = Date.now();
