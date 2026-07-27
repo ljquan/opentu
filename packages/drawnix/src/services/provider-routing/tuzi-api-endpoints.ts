@@ -106,17 +106,38 @@ export function isTuziCompatibleBaseUrl(url?: string | null): boolean {
 export function resolveManagedTuziBaseUrl(
   profileId: string,
   baseUrl: string,
-  allowLocalDevProxy: boolean
+  allowLocalDevProxy: boolean,
+  runtimeOrigin: string | undefined = globalThis.location?.origin
 ): string {
   const normalizedBaseUrl = baseUrl.trim();
+  const isEmptyLegacyRuntimeBase =
+    profileId === LEGACY_RUNTIME_PROVIDER_PROFILE_ID && !normalizedBaseUrl;
+  if (isEmptyLegacyRuntimeBase) {
+    return TUZI_PUBLIC_API_BASE_URL;
+  }
+
+  let isSameOriginV1Proxy = false;
+  if (runtimeOrigin && /^https?:\/\//i.test(normalizedBaseUrl)) {
+    try {
+      const parsedBaseUrl = new URL(normalizedBaseUrl);
+      const parsedRuntimeOrigin = new URL(runtimeOrigin);
+      isSameOriginV1Proxy =
+        parsedBaseUrl.origin === parsedRuntimeOrigin.origin &&
+        LOCAL_V1_PROXY_PATTERN.test(parsedBaseUrl.pathname);
+    } catch {
+      isSameOriginV1Proxy = false;
+    }
+  }
+  const isPersistedV1Proxy =
+    LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl) || isSameOriginV1Proxy;
   const isLegacyRuntimeProxy =
     profileId === LEGACY_RUNTIME_PROVIDER_PROFILE_ID &&
-    LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl);
+    isPersistedV1Proxy;
   if (
     allowLocalDevProxy ||
     (!MANAGED_TUZI_PROVIDER_PROFILE_IDS.has(profileId) &&
       !isLegacyRuntimeProxy) ||
-    !LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl)
+    !isPersistedV1Proxy
   ) {
     return normalizedBaseUrl;
   }

@@ -212,4 +212,56 @@ describe('media-api provider routing', () => {
     expect(remoteId).toBe('video-task-tuzi');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('repairs a legacy /v1 video base before submitting veo3.1', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.tu-zi.com/v1/videos');
+      return new Response(
+        JSON.stringify({ id: 'video-task-legacy', status: 'queued' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+
+    const remoteId = await submitVideoGeneration(
+      { prompt: 'make a video', model: 'veo3.1' },
+      {
+        apiKey: 'video-secret',
+        baseUrl: '/v1',
+        authType: 'bearer',
+        fetchImpl,
+      }
+    );
+
+    expect(remoteId).toBe('video-task-legacy');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs a legacy video base that was previously normalized to empty', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.tu-zi.com/v1/videos');
+      return new Response(
+        JSON.stringify({ id: 'video-task-empty-base', status: 'queued' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+
+    const remoteId = await submitVideoGeneration(
+      { prompt: 'make a video', model: 'veo3.1' },
+      {
+        apiKey: 'video-secret',
+        baseUrl: '',
+        authType: 'bearer',
+        fetchImpl,
+      }
+    );
+
+    expect(remoteId).toBe('video-task-empty-base');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

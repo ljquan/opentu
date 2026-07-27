@@ -60,14 +60,25 @@ export function resolveVideoBaseUrlStrategy(
 export function formatVideoHttpError(
   operation: 'submit' | 'query',
   status: number,
-  responseBody: string
+  responseBody: string,
+  responseUrl?: string
 ): string {
   const prefix =
     operation === 'submit' ? '视频生成提交失败' : '视频状态查询失败';
   const body = responseBody.trim();
+  let endpoint = '';
+  if (responseUrl) {
+    try {
+      const parsed = new URL(responseUrl);
+      endpoint = `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      endpoint = responseUrl.split(/[?#]/, 1)[0];
+    }
+  }
+  const endpointSuffix = endpoint ? `（请求地址：${endpoint}）` : '';
 
   if (HTML_RESPONSE_PATTERN.test(body)) {
-    return `${prefix}: ${status} - 视频 API 端点不存在，请检查供应商地址和 /v1 路径配置`;
+    return `${prefix}: ${status} - 视频 API 端点返回了网页，请检查供应商地址和 /v1 路径配置${endpointSuffix}`;
   }
 
   if (body) {
@@ -90,7 +101,9 @@ export function formatVideoHttpError(
   }
 
   const preview = body.replace(/\s+/g, ' ').slice(0, 300);
-  return preview ? `${prefix}: ${status} - ${preview}` : `${prefix}: ${status}`;
+  return preview
+    ? `${prefix}: ${status} - ${preview}${endpointSuffix}`
+    : `${prefix}: ${status}${endpointSuffix}`;
 }
 
 function normalizeStringParams(

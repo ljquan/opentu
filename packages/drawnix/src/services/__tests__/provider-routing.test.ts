@@ -395,6 +395,36 @@ describe('provider routing', () => {
     expect(prepared.url).toBe('https://api.tu-zi.com/v1/videos');
   });
 
+  it('restores a same-origin absolute preview proxy for legacy runtime routing', () => {
+    expect(
+      resolveManagedTuziBaseUrl(
+        'runtime',
+        'https://deploy-preview-202--ai-tu.netlify.app/v1',
+        false,
+        'https://deploy-preview-202--ai-tu.netlify.app'
+      )
+    ).toBe('https://api.tu-zi.com/v1');
+  });
+
+  it('restores a legacy runtime base URL that was normalized to empty', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'runtime',
+        profileName: 'Runtime',
+        providerType: 'custom',
+        baseUrl: '',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/videos',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.tu-zi.com/v1/videos');
+  });
+
   it('restores the Business API URL for its managed profile', () => {
     const prepared = providerTransport.prepareRequest(
       {

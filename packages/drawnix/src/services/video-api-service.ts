@@ -308,7 +308,8 @@ class VideoAPIService {
       const errorMessage = formatVideoHttpError(
         'submit',
         response.status,
-        errorText
+        errorText,
+        response.url
       );
       console.error('[VideoAPI] Submit failed:', errorMessage);
       const duration = Date.now() - startTime;
@@ -388,7 +389,8 @@ class VideoAPIService {
       const errorMessage = formatVideoHttpError(
         'query',
         response.status,
-        errorText
+        errorText,
+        response.url
       );
       console.error('[VideoAPI] Query failed:', errorMessage);
       const error = new Error(errorMessage);

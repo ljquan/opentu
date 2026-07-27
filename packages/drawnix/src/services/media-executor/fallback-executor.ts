@@ -1727,17 +1727,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   }
 
   /**
-   * 规范化 baseUrl，移除尾部 / 或 /v1，便于拼接 /v1/videos
-   */
-  private normalizeApiBase(url: string): string {
-    let base = url.replace(/\/+$/, '');
-    if (base.endsWith('/v1')) {
-      base = base.slice(0, -3);
-    }
-    return base;
-  }
-
-  /**
    * 获取 API 配置
    */
   private getConfig(models?: {
@@ -1792,10 +1781,10 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       },
       videoConfig: {
         apiKey: videoRoute.apiKey,
-        // 规范化 baseUrl，移除尾部 / 或 /v1，便于拼接 /v1/videos
-        baseUrl: this.normalizeApiBase(
-          videoRoute.baseUrl || 'https://api.tu-zi.com'
-        ),
+        // Keep the configured version segment. ProviderTransport collapses a
+        // duplicate /v1 at the join boundary, while preserving `/v1` here is
+        // required to repair legacy Vite proxy settings in production.
+        baseUrl: videoRoute.baseUrl || 'https://api.tu-zi.com/v1',
         authType:
           videoPlan?.provider.authType || inferAuthTypeFromRoute(videoRoute),
         providerType:

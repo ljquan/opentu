@@ -59,8 +59,7 @@ export async function submitVideoGeneration(
   signal?: AbortSignal
 ): Promise<string> {
   const fetchFn = config.fetchImpl || fetch;
-  const baseUrl = normalizeApiBase(config.baseUrl);
-  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config);
   const model = params.model || config.defaultModel || 'veo3';
   // seconds can come from duration (number/string) or explicit seconds
   const secondsParam = params.duration ?? (params as any).seconds;
@@ -123,7 +122,9 @@ export async function submitVideoGeneration(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(formatVideoHttpError('submit', response.status, errorText));
+    throw new Error(
+      formatVideoHttpError('submit', response.status, errorText, response.url)
+    );
   }
 
   const data = await response.json();
@@ -158,8 +159,7 @@ export async function queryVideoStatus(
   signal?: AbortSignal
 ): Promise<VideoStatusResponse> {
   const fetchFn = config.fetchImpl || fetch;
-  const baseUrl = normalizeApiBase(config.baseUrl);
-  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config);
 
   const pollPath = resolveVideoPollPath(
     videoId,
@@ -180,7 +180,9 @@ export async function queryVideoStatus(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(formatVideoHttpError('query', response.status, errorText));
+    throw new Error(
+      formatVideoHttpError('query', response.status, errorText, response.url)
+    );
   }
 
   return response.json();
@@ -205,8 +207,7 @@ export async function pollVideoUntilComplete(
     interval = 5000,
   } = options;
   const fetchFn = config.fetchImpl || fetch;
-  const baseUrl = normalizeApiBase(config.baseUrl);
-  const providerContext = buildProviderContextFromApiConfig(config, baseUrl);
+  const providerContext = buildProviderContextFromApiConfig(config);
 
   let attempts = 0;
   let consecutiveErrors = 0;

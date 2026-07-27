@@ -43,10 +43,13 @@ describe('video binding utils', () => {
     const message = formatVideoHttpError(
       'submit',
       404,
-      '<!DOCTYPE html><html><head><title>Page not found</title></head></html>'
+      '<!DOCTYPE html><html><head><title>Page not found</title></head></html>',
+      'https://preview.example.com/v1/videos?token=hidden'
     );
 
-    expect(message).toContain('视频 API 端点不存在');
+    expect(message).toContain('视频 API 端点返回了网页');
+    expect(message).toContain('https://preview.example.com/v1/videos');
+    expect(message).not.toContain('token=hidden');
     expect(message).not.toContain('<!DOCTYPE html>');
   });
 

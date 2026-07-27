@@ -476,6 +476,86 @@ describe('Media Executor Module', () => {
         })
       );
     }, 15000);
+
+    it('routes legacy veo3.1 /v1 settings to the Tuzi video endpoint', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input: RequestInfo | URL) => {
+          expect(String(input)).toBe('https://api.tu-zi.com/v1/videos');
+          return new Response('<!doctype html><title>Not Found</title>', {
+            status: 404,
+            headers: { 'Content-Type': 'text/html' },
+          });
+        });
+
+      vi.doMock('../media-executor/llm-api-logger', () => ({
+        startLLMApiLog: vi.fn(() => 'log-id'),
+        completeLLMApiLog: vi.fn(),
+        failLLMApiLog: vi.fn(),
+        updateLLMApiLogMetadata: vi.fn(),
+      }));
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          updateStatus: vi.fn(async () => {}),
+          prepareAsyncSubmission: vi.fn(async () => {}),
+          updateRemoteId: vi.fn(async () => {}),
+          completeTask: vi.fn(async () => {}),
+          failTask: vi.fn(async () => {}),
+        },
+      }));
+      vi.doMock('../unified-cache-service', () => ({
+        unifiedCacheService: {
+          getImageForAI: vi.fn(),
+          isCached: vi.fn(async () => false),
+          cacheMediaFromBlob: vi.fn(async () => {}),
+        },
+      }));
+      vi.doMock('../../utils/api-auth-error-event', () => ({
+        classifyApiCredentialError: vi.fn(() => null),
+        dispatchApiAuthError: vi.fn(),
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          resolveInvocationRoute: vi.fn(() => ({
+            profileId: null,
+            profileName: null,
+            providerType: 'custom',
+            baseUrl: '/v1',
+            apiKey: 'test-key',
+            modelId: 'veo3.1',
+            source: 'legacy',
+          })),
+        };
+      });
+      vi.doMock('../provider-routing', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../provider-routing')
+        >();
+        return {
+          ...actual,
+          resolveInvocationPlanFromRoute: vi.fn(() => null),
+        };
+      });
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+
+      await expect(
+        executor.generateVideo({
+          taskId: 'task-veo-legacy',
+          prompt: 'A cinematic rabbit',
+          model: 'veo3.1',
+        })
+      ).rejects.toThrow('视频 API 端点返回了网页');
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    }, 15000);
   });
 
   describe('ExecutorFactory', () => {
