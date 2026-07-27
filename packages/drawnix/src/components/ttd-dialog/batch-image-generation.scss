@@ -2,6 +2,43 @@
  * Batch Image Generation Styles
  */
 
+.generated-image-delete-button {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.68);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.16s ease, background-color 0.16s ease;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+    background: #d54941;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generated-image-delete-button {
+    transition: none;
+  }
+}
+
 .batch-image-generation {
   display: flex;
   height: 100%;
@@ -702,37 +739,6 @@
     }
   }
 
-  .generated-image-delete-button {
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    z-index: 2;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: 50%;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.68);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.16s ease, background-color 0.16s ease;
-
-    &:hover,
-    &:focus-visible {
-      opacity: 1;
-      background: #d54941;
-    }
-
-    &:focus-visible {
-      outline: 2px solid #fff;
-      outline-offset: -2px;
-    }
-  }
-
   .preview-thumb:hover .generated-image-delete-button,
   .preview-thumb:focus-within .generated-image-delete-button {
     opacity: 1;
@@ -741,12 +747,6 @@
   @media (hover: none) {
     .generated-image-delete-button {
       opacity: 1;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .generated-image-delete-button {
-      transition: none;
     }
   }
 
