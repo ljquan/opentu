@@ -676,6 +676,7 @@
     align-items: center;
   }
   .preview-thumb {
+    position: relative;
     width: 36px;
     height: 36px;
     border-radius: 6px;
@@ -698,6 +699,54 @@
         z-index: 10;
         border-color: #f39c12;
       }
+    }
+  }
+
+  .generated-image-delete-button {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    z-index: 2;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.68);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.16s ease, background-color 0.16s ease;
+
+    &:hover,
+    &:focus-visible {
+      opacity: 1;
+      background: #d54941;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: -2px;
+    }
+  }
+
+  .preview-thumb:hover .generated-image-delete-button,
+  .preview-thumb:focus-within .generated-image-delete-button {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .generated-image-delete-button {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .generated-image-delete-button {
+      transition: none;
     }
   }
 
@@ -1041,6 +1090,30 @@
     border-top: 1px solid #f0f0f0;
     background: #fff;
     flex-shrink: 0;
+  }
+}
+
+.row-gallery-dialog {
+  .gallery-item {
+    position: relative;
+  }
+
+  .gallery-delete-button {
+    top: 8px;
+    right: 8px;
+    width: 26px;
+    height: 26px;
+  }
+
+  .gallery-item:hover .generated-image-delete-button,
+  .gallery-item:focus-within .generated-image-delete-button {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .generated-image-delete-button {
+      opacity: 1;
+    }
   }
 }
 

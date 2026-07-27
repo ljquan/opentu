@@ -34,6 +34,7 @@
 - [素材库渲染性能经验](./MEDIA_LIBRARY_RENDER_PERFORMANCE_LESSONS.md)：列表、预览和性能优化。
 - [异步任务供应商路由经验](./ASYNC_TASK_PROVIDER_ROUTE_LESSONS.md)：多供应商异步任务提交、恢复查询和路由快照规则。
 - [模型分类优先级经验](./MODEL_CATEGORY_PRIORITY_LESSONS.md)：接口 `category`、`image` 词根和 endpoint 的判定顺序。
+- [批量出图预览单张删除经验](./BATCH_IMAGE_GENERATION_PREVIEW_DELETE_LESSONS.md)：单张结果删除、任务解绑、状态重算与画布边界。
 - [PPT 能力规划](./PPT_CAPABILITY_PLAN.md)：PPT 生成、编辑和导出路线。
 - [PPT Prompt](./PPT_Prompt.md)：PPT 相关提示词资产。
 
