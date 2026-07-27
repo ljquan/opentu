@@ -59,6 +59,7 @@ interface PollingOptions {
   interval?: number;
   maxAttempts?: number;
   signal?: AbortSignal;
+  requestId?: string;
   onProgress?: (progress: number, status: string) => void;
   onSubmitted?: (taskId: string) => void;
   routeModel?: string | ModelRef | null;
@@ -138,7 +139,8 @@ async function appendReferenceImage(
 class AsyncImageAPIService {
   private async submit(
     params: AsyncImageGenerationParams,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    requestId?: string
   ): Promise<AsyncImageSubmitResponse> {
     const providerContext = resolveProviderContext(params.modelRef || params.model);
 
@@ -169,6 +171,7 @@ class AsyncImageAPIService {
     const response = await providerTransport.send(providerContext, {
       path: '/videos',
       method: 'POST',
+      requestId,
       body: formData,
       signal,
       timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
@@ -226,13 +229,14 @@ class AsyncImageAPIService {
       interval = 5000,
       maxAttempts,
       signal,
+      requestId,
       onProgress,
       onSubmitted,
     } = options;
     const maxPollingAttempts =
       maxAttempts ?? getDefaultImagePollingMaxAttempts(interval);
 
-    const submitResp = await this.submit(params, signal);
+    const submitResp = await this.submit(params, signal, requestId);
 
     if (onSubmitted) {
       onSubmitted(submitResp.id);

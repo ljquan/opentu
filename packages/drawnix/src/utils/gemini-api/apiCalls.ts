@@ -486,6 +486,7 @@ export async function callGoogleGenerateContentRaw(
     onChunk?: (content: string) => void;
     signal?: AbortSignal;
     generationConfig?: Record<string, unknown>;
+    requestId?: string;
   } = { stream: false }
 ): Promise<GeminiResponse> {
   const startTime = Date.now();
@@ -527,6 +528,7 @@ export async function callGoogleGenerateContentRaw(
       headers: {
         'Content-Type': 'application/json',
       },
+      requestId: options.requestId,
       query: options.stream ? { alt: 'sse' } : undefined,
       body: JSON.stringify(requestBody),
       signal: timeoutControl.signal,

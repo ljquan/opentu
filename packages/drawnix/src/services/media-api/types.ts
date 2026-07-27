@@ -159,4 +159,6 @@ export interface PollingOptions {
 export interface AsyncImageOptions extends PollingOptions {
   /** 提交成功后的回调，返回远程任务 ID */
   onSubmitted?: (remoteId: string) => void;
+  /** 稳定的本地任务 ID，仅用于首次提交请求。 */
+  requestId?: string;
 }

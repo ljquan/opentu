@@ -43,7 +43,9 @@ describe('media-api provider routing', () => {
           'X-Trace-Id': 'trace-1',
         },
         fetchImpl,
-      }
+      },
+      undefined,
+      'task-sync-image-1'
     );
 
     expect(result.url).toBe('https://cdn.example.com/image.png');
@@ -153,11 +155,18 @@ describe('media-api provider routing', () => {
       {
         interval: 1,
         maxAttempts: 1,
+        requestId: 'task-async-image-1',
       }
     );
 
     expect(result.url).toBe('https://cdn.example.com/final.png');
     expect(fetchImpl).toHaveBeenCalledTimes(4);
+    const pollCall = fetchImpl.mock.calls.find(([input]) =>
+      String(input).endsWith('/videos/task-1')
+    );
+    expect(
+      (pollCall?.[1]?.headers as Record<string, string>)?.['X-Request-Id']
+    ).toBeUndefined();
   });
 
   it('uses bearer auth for shared video submission', async () => {

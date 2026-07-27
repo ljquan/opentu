@@ -447,7 +447,7 @@ describe('provider routing', () => {
     expect(prepared.headers['X-Request-Id']).toBeUndefined();
   });
 
-  it('only enables Tuzi request-id recovery for same-origin requests', () => {
+  it('only enables Tuzi request ID headers for same-origin requests', () => {
     const context: ProviderProfileSnapshot = {
       id: 'provider-tuzi',
       name: 'Tuzi',

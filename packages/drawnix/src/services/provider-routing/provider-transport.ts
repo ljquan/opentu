@@ -283,10 +283,8 @@ function getRuntimeOrigin(): string | undefined {
 }
 
 /**
- * X-Request-Id recovery is a Tuzi-specific capability. Cross-origin browser
- * requests must not carry the header because the public API does not include
- * it in Access-Control-Allow-Headers, which makes the preflight fail before
- * the image request is submitted.
+ * X-Request-Id 只在可信 Tuzi 同源路径启用。跨域浏览器请求若未在 CORS
+ * 中放行该头，会在图片提交前被预检拦截。
  */
 export function canAttachProviderRequestIdHeader(
   context: ResolvedProviderContext,
@@ -363,10 +361,6 @@ export class ProviderTransport {
       signal: timeoutControl.signal,
     });
     const fetcher = request.fetcher || fetch;
-    const requestIdHeaderApplied = Boolean(
-      prepared.headers['X-Request-Id'] || prepared.headers['x-request-id']
-    );
-
     try {
       const response = await fetcher(prepared.url, prepared.init);
       if (!shouldRetryTuziResponse(context, request, response)) {
@@ -401,13 +395,8 @@ export class ProviderTransport {
     } catch (error) {
       if (timeoutControl.didTimeout()) {
         const timeoutMinutes = Math.floor((request.timeoutMs || 0) / 60000);
-        const timeoutError: Error & { requestId?: string } = new Error(
-          `请求超时（>${timeoutMinutes} 分钟）`
-        );
+        const timeoutError = new Error(`请求超时（>${timeoutMinutes} 分钟）`);
         timeoutError.name = 'TimeoutError';
-        if (request.requestId && requestIdHeaderApplied) {
-          timeoutError.requestId = request.requestId;
-        }
         throw timeoutError;
       }
       if (isFetchNetworkError(error)) {

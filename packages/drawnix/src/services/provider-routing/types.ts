@@ -183,10 +183,7 @@ export interface ProviderTransportRequest {
   timeoutMs?: number;
   credentials?: RequestCredentials;
   fetcher?: typeof fetch;
-  /**
-   * Tuzi 同源请求会将其写入 X-Request-Id，用于超时兜底找回。
-   * 其他供应商或跨域请求会忽略该字段，避免触发 CORS 预检失败。
-   */
+  /** 图片提交的本地任务 ID；仅在供应商与运行时允许时写入 X-Request-Id。 */
   requestId?: string;
 }
 

@@ -24,6 +24,7 @@ import {
 } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { normalizeToClosestImageSize } from '../../services/media-api/utils';
+import { generateTaskId } from '../../utils/task-utils';
 import {
   getAdapterContextFromSettings,
   resolveAdapterForInvocation,
@@ -177,7 +178,10 @@ function buildQueueAdapterParams(
 /**
  * 直接调用 API 生成图片（async 模式）
  */
-async function executeAsync(params: ImageGenerationParams): Promise<MCPResult> {
+async function executeAsync(
+  params: ImageGenerationParams,
+  requestId: string
+): Promise<MCPResult> {
   const { prompt, size, referenceImages, modelRef } = params;
 
   const promptError = validatePrompt(prompt);
@@ -205,10 +209,18 @@ async function executeAsync(params: ImageGenerationParams): Promise<MCPResult> {
       };
     }
 
-    const result = await adapter.generateImage(
-      getAdapterContextFromSettings('image', modelRef || requestedModel, {
+    const adapterContext = getAdapterContextFromSettings(
+      'image',
+      modelRef || requestedModel,
+      {
         preferredRequestSchema,
-      }),
+      }
+    );
+    const result = await adapter.generateImage(
+      {
+        ...adapterContext,
+        requestId,
+      },
       {
         prompt,
         model: requestedModel,
@@ -494,7 +506,7 @@ export const imageGenerationTool: MCPTool = {
       );
     }
 
-    return executeAsync(typedParams);
+    return executeAsync(typedParams, options?.retryTaskId || generateTaskId());
   },
 };
 

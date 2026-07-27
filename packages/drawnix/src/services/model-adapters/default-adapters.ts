@@ -177,6 +177,8 @@ export const geminiImageAdapter: ImageModelAdapter = {
           onSubmitted: request.params?.onSubmitted as
             | ((remoteId: string) => void)
             | undefined,
+          requestId: context.requestId,
+          signal: context.signal,
         }
       );
       const { url, format } = asyncImageAPIService.extractUrlAndFormat(result);
@@ -202,6 +204,8 @@ export const geminiImageAdapter: ImageModelAdapter = {
         typeof request.params?.n === 'number' ? request.params.n : undefined,
       model,
       modelRef: request.modelRef || null,
+      requestId: context.requestId,
+      signal: context.signal,
     };
     if (responseFormat) {
       imageOptions.response_format = responseFormat;

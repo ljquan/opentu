@@ -458,7 +458,12 @@ class GenerationAPIService {
       );
       logImageAdapterSelection(taskId, adapter, requestedModel, adapterContext);
 
-      const result = await adapter.generateImage(adapterContext, {
+      const requestContext = {
+        ...adapterContext,
+        requestId: taskId,
+        signal,
+      };
+      const result = await adapter.generateImage(requestContext, {
         prompt: params.prompt,
         model: requestedModel,
         modelRef: requestedModelRef || null,

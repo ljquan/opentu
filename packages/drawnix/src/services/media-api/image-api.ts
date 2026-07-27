@@ -22,134 +22,14 @@ import {
   sleep,
   buildProviderContextFromApiConfig,
 } from './utils';
-import {
-  canAttachProviderRequestIdHeader,
-  providerTransport,
-} from '../provider-routing/provider-transport';
+import { providerTransport } from '../provider-routing/provider-transport';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
-import { emitImageRequestIdDebugLog } from './request-id-debug';
 
 // 重新导出工具函数，方便外部使用
 export { isAsyncImageModel, aspectRatioToSize };
 
-/** /log/get-request 找回接口的短超时，避免兜底本身长时间挂起 */
-const RECOVER_REQUEST_TIMEOUT_MS = 15_000;
-const RECOVER_RETRYABLE_STATUS = new Set(['processing', 'processing_or_not_found']);
-const RECOVER_MAX_ATTEMPTS = 3;
-const RECOVER_RETRY_DELAY_MS = 1200;
-
 function getDefaultImagePollingMaxAttempts(interval: number): number {
   return Math.ceil(IMAGE_GENERATION_TIMEOUT_MS / Math.max(interval, 1));
-}
-
-function generateRequestId(): string {
-  const g = globalThis as { crypto?: { randomUUID?: () => string } };
-  if (typeof g.crypto?.randomUUID === 'function') {
-    return g.crypto.randomUUID();
-  }
-  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isTimeoutError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'TimeoutError' ||
-      /Request timeout|请求超时/.test(error.message))
-  );
-}
-
-export function extractRequestId(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  const uuidMatch = trimmed.match(
-    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i
-  );
-  if (uuidMatch) {
-    return uuidMatch[0];
-  }
-
-  const reqMatch = trimmed.match(/\breq-[a-z0-9-]{8,}\b/i);
-  if (reqMatch) {
-    return reqMatch[0];
-  }
-
-  return trimmed;
-}
-
-function getRecoverStatus(
-  data: Record<string, unknown>
-): string | undefined {
-  return typeof data.status === 'string' ? data.status : undefined;
-}
-
-function isRecoverStatusRetryable(status: string | undefined): boolean {
-  return !!status && RECOVER_RETRYABLE_STATUS.has(status);
-}
-
-/**
- * 通过 X-Request-Id 找回已经生成成功的图片。
- * 用于生图接口超时但服务端实际已扣费/生成成功的兜底场景。
- *
- * 接口：`GET /log/get-request?id={requestId}`
- * 响应结构与 `POST /images/generations` 一致（`{ data: [{ url }] }`），可复用 parseImageResponse。
- */
-export async function recoverImageByRequestId(
-  requestId: string,
-  config: ImageApiConfig,
-  signal?: AbortSignal
-): Promise<ImageGenerationResult> {
-  const normalizedRequestId =
-    typeof requestId === 'string' ? extractRequestId(requestId) : '';
-
-  if (!normalizedRequestId) {
-    throw new Error('recoverImageByRequestId: 缺少 requestId');
-  }
-
-  const fetchFn = config.fetchImpl || fetch;
-  for (let attempt = 1; attempt <= RECOVER_MAX_ATTEMPTS; attempt += 1) {
-    const response = await providerTransport.send(
-      buildProviderContextFromApiConfig(config),
-      {
-        path: '/log/get-request',
-        method: 'GET',
-        query: { id: normalizedRequestId },
-        // /log/get-request 是根路径级 API，不带 /v1 前缀
-        baseUrlStrategy: 'trim-v1',
-        signal,
-        timeoutMs: RECOVER_REQUEST_TIMEOUT_MS,
-        fetcher: fetchFn,
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `找回接口调用失败: ${response.status} - ${errorText.substring(0, 200)}`
-      );
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    const status = getRecoverStatus(data);
-
-    if (!status || status === 'succeeded' || status === 'success') {
-      return parseImageResponse(data);
-    }
-
-    if (isRecoverStatusRetryable(status) && attempt < RECOVER_MAX_ATTEMPTS) {
-      console.info(
-        `[X-Request-Id][recover] ${normalizedRequestId} ${status} retry ${attempt}`
-      );
-      await sleep(RECOVER_RETRY_DELAY_MS);
-      continue;
-    }
-
-    throw new Error(`找回接口返回状态非成功：${status}`);
-  }
-
-  throw new Error('找回接口重试结束但未返回成功结果');
 }
 
 function normalizeImageResultUrl(
@@ -261,7 +141,8 @@ export function parseImageResponse(
 export async function generateImageSync(
   params: ImageGenerationParams,
   config: ImageApiConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestId?: string
 ): Promise<ImageGenerationResult> {
   const fetchFn = config.fetchImpl || fetch;
   const model =
@@ -272,22 +153,9 @@ export async function generateImageSync(
     model,
   });
 
-  const providerContext = buildProviderContextFromApiConfig(config);
-  const requestId = canAttachProviderRequestIdHeader(providerContext, {
-    path: '/images/generations',
-  })
-    ? generateRequestId()
-    : undefined;
-  if (requestId) {
-    emitImageRequestIdDebugLog(requestId, {
-      model,
-      endpoint: '/images/generations',
-      source: 'generateImageSync',
-    });
-  }
-
-  try {
-    const response = await providerTransport.send(providerContext, {
+  const response = await providerTransport.send(
+    buildProviderContextFromApiConfig(config),
+    {
       path: '/images/generations',
       method: 'POST',
       headers: {
@@ -298,44 +166,18 @@ export async function generateImageSync(
       timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
       fetcher: fetchFn,
       requestId,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Image generation failed: ${response.status} - ${errorText}`
-      );
     }
+  );
 
-    const data = await response.json();
-    return parseImageResponse(data);
-  } catch (error) {
-    // 超时兜底：尝试通过 /log/get-request 找回已经生成成功的结果
-    if (isTimeoutError(error) && requestId) {
-      console.warn(
-        `[ImageAPI] 生图请求超时，尝试通过 X-Request-Id 找回结果: ${requestId}`
-      );
-      try {
-        const recovered = await recoverImageByRequestId(
-          requestId,
-          config,
-          signal
-        );
-        console.info(
-          `[ImageAPI] ✅ 通过 X-Request-Id 找回结果成功: ${requestId}`
-        );
-        return recovered;
-      } catch (recoverError) {
-        console.error(
-          `[ImageAPI] ❌ 通过 X-Request-Id 找回结果失败: ${requestId}`,
-          recoverError
-        );
-        // 找回失败，抛出原始超时错误
-        throw error;
-      }
-    }
-    throw error;
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Image generation failed: ${response.status} - ${errorText}`
+    );
   }
+
+  const data = await response.json();
+  return parseImageResponse(data);
 }
 
 /**
@@ -356,6 +198,7 @@ export async function generateImageAsync(
     onProgress,
     onSubmitted,
     signal,
+    requestId,
     interval = 5000,
     maxAttempts,
   } = options;
@@ -407,6 +250,7 @@ export async function generateImageAsync(
   const submitResponse = await providerTransport.send(providerContext, {
     path: '/v1/videos',
     method: 'POST',
+    requestId,
     body: formData,
     signal,
     timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,

@@ -6,15 +6,12 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
 import { Badge } from 'tdesign-react';
 import { ToolButton } from '../tool-button';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import type { Task } from '../../types/task.types';
 import { FeedbackButton } from '../feedback-button/feedback-button';
-import { RequestIdRecoveryPanel } from '../ai-input-bar/RequestIdRecoveryPanel';
 import { FolderIcon, ToolboxIcon, TaskIcon } from '../icons';
-import { useI18n } from '../../i18n';
 import './bottom-actions-section.scss';
 
 const FAILED_TASK_ACK_STORAGE_KEY = 'aitu-task-queue-failed-ack-at';
@@ -70,11 +67,9 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
   onTaskPanelToggle,
 }) => {
   const { activeTasks, completedTasks, failedTasks } = useTaskQueue();
-  const { language } = useI18n();
   const [acknowledgedFailedAt, setAcknowledgedFailedAt] = useState(
     readFailedTaskAckAt
   );
-  const [requestIdPanelOpen, setRequestIdPanelOpen] = useState(false);
 
   const latestFailedAt = useMemo(
     () =>
@@ -145,57 +140,6 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
           onClick={onToolboxDrawerToggle}
         />
       )}
-
-      <div className="bottom-actions-section__request-id-wrapper">
-        <ToolButton
-          type="icon"
-          icon={<Search size={18} />}
-          aria-label={
-            requestIdPanelOpen
-              ? language === 'zh'
-                ? '关闭 X-Request-Id 查询'
-                : 'Close X-Request-Id recovery'
-              : language === 'zh'
-              ? '打开 X-Request-Id 查询'
-              : 'Open X-Request-Id recovery'
-          }
-          tooltip={
-            language === 'zh' ? 'X-Request-Id 查询' : 'X-Request-Id recovery'
-          }
-          tooltipPlacement="right"
-          selected={requestIdPanelOpen}
-          visible={true}
-          data-track="toolbar_click_request_id_recovery"
-          data-testid="toolbar-request-id-recovery"
-          onPointerDown={(e) => {
-            e.event.stopPropagation();
-          }}
-          onClick={() => {
-            setRequestIdPanelOpen((value) => !value);
-          }}
-        />
-
-        {requestIdPanelOpen ? (
-          <div className="bottom-actions-section__request-id-panel-shell">
-            <div className="bottom-actions-section__request-id-panel-header">
-              <div className="bottom-actions-section__request-id-panel-title">
-                X-Request-Id
-              </div>
-              <button
-                type="button"
-                className="bottom-actions-section__request-id-panel-close"
-                onClick={() => {
-                  setRequestIdPanelOpen(false);
-                }}
-                aria-label={language === 'zh' ? '关闭查询面板' : 'Close recovery panel'}
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <RequestIdRecoveryPanel language={language} />
-          </div>
-        ) : null}
-      </div>
 
       {/* 任务队列按钮 - 使用 ToolButton + Badge */}
       <div className="bottom-actions-section__task-wrapper">

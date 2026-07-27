@@ -14,7 +14,7 @@ Failed to fetch
 
 ## 根因
 
-项目为同步图片请求新增了 `X-Request-Id`，用于请求超时后通过 `/log/get-request` 找回已生成结果。
+项目为图片提交请求新增了 `X-Request-Id`，用于把本地图片任务与 API 请求关联起来。
 
 但该请求头被无条件用到了所有图片供应商。浏览器对跨域 `POST` 请求发起 `OPTIONS` 预检时，API 的响应只允许：
 
@@ -64,27 +64,20 @@ authorization,content-type,x-request-id
 
 ### 1. 自定义请求头必须是供应商能力
 
-`X-Request-Id` 不是 OpenAI 兼容协议的通用部分，而是特定供应商的找回能力。传输层不能因为操作类型是 `image` 就向所有供应商注入该头。
+`X-Request-Id` 不是 OpenAI 兼容协议的通用部分。传输层不能因为操作类型是 `image` 就向所有供应商注入该头。
 
 能力判断至少应包含：
 
-- 当前 Base URL 是否属于支持找回接口的受信供应商。
+- 当前 Base URL 是否属于允许该请求头的受信供应商。
 - 最终请求是否与当前页面同源，或是否已由开发代理转成同源请求。
 
-### 2. 找回逻辑必须与实际发送的头一致
+### 2. Request ID 必须来自稳定任务 ID
 
-只有真正发送了 `X-Request-Id` 时，才能：
-
-- 记录 request ID 调试日志。
-- 通过 `onRequestSent` 回传 request ID。
-- 在 `TimeoutError` 上挂载 request ID。
-- 超时后调用 `/log/get-request` 找回结果。
-
-否则应按普通超时失败处理，避免用一个从未发送给服务端的 ID 做无效查询。
+图片提交应复用本地任务 UUID；同一任务重试保持不变，不应由各适配器临时生成随机 ID。异步轮询 `GET` 不携带该请求头。
 
 ### 3. 开发代理与生产跨域是两种环境
 
-本地 Vite 代理可以把指定 API 改写为同源路径，因此可以保留 `X-Request-Id` 找回能力。但生产站点直连外部 API 时，必须服从对方 CORS 声明。
+本地 Vite 代理可以把指定 API 改写为同源路径，因此可携带 `X-Request-Id`。生产站点直连外部 API 时，必须服从对方 CORS 声明。
 
 测试环境也不应被误判为开发代理环境，否则 URL 会被改写为相对路径，导致单元测试无法验证真实的生产跨域行为。
 
@@ -111,8 +104,8 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 ### 自动测试
 
 - 自定义跨域供应商即使传入 request ID，也不应生成 `X-Request-Id` 请求头。
-- Tuzi 跨域请求不应启用 request ID 找回。
-- Tuzi 同源或代理请求应继续启用 request ID 找回。
+- Tuzi 跨域请求不应启用 request ID 请求头。
+- Tuzi 同源或代理请求应继续携带本地任务 ID。
 - 图片 API 响应解析仍应支持远程 URL 和 Base64。
 - `drawnix` 类型检查必须通过。
 - Web 主应用和 Service Worker 生产构建必须通过。
@@ -133,11 +126,11 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 
 ## 长期经验规则
 
-- 协议兼容不等于请求头、CORS、超时找回和异步查询能力完全一致。
+- 协议兼容不等于请求头、CORS 和异步查询能力完全一致。
 - 自定义头必须与 provider capability 或 binding metadata 绑定，不能只按媒体类型全局注入。
 - 排查多供应商问题时，必须分别验证鉴权、协议、CORS、提交、轮询和结果缓存。
 - 命令行基线验证与浏览器端到端验证缺一不可。
-- 超时找回机制不能以破坏正常请求为代价；不支持找回的供应商应稳定降级为普通请求。
+- Request ID 不能以破坏正常跨域请求为代价；不支持该头的供应商应稳定降级为普通请求。
 
 ## 相关代码
 
@@ -146,4 +139,4 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 - `packages/drawnix/src/services/media-api/image-api.ts`
 - `packages/drawnix/src/services/media-executor/fallback-executor.ts`
 - `packages/drawnix/src/services/__tests__/provider-routing.test.ts`
-- `docs/IMAGE_REQUEST_ID_RECOVERY_GUIDE.md`
+- `docs/IMAGE_REQUEST_ID_LESSONS.md`

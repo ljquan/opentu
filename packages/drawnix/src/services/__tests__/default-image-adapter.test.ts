@@ -55,6 +55,7 @@ describe('default image adapter compatibility', () => {
         baseUrl: 'https://gateway.example.com/v1',
         apiKey: 'test-key',
         authType: 'bearer',
+        requestId: 'task-image-1',
       },
       {
         model: 'gpt-image-2',
@@ -79,6 +80,7 @@ describe('default image adapter compatibility', () => {
         model: 'gpt-image-2',
         modelRef: null,
         omitDefaultResponseFormat: true,
+        requestId: 'task-image-1',
       }
     );
     expect(result).toMatchObject({
@@ -136,6 +138,7 @@ describe('default image adapter compatibility', () => {
         baseUrl: 'https://gateway.example.com/v1',
         apiKey: 'test-key',
         authType: 'bearer',
+        requestId: 'task-image-async-1',
         binding: {
           id: 'binding',
           profileId: 'provider',
@@ -178,6 +181,7 @@ describe('default image adapter compatibility', () => {
       },
       expect.objectContaining({
         interval: 5000,
+        requestId: 'task-image-async-1',
       })
     );
     expect(mocks.generateImage).not.toHaveBeenCalled();

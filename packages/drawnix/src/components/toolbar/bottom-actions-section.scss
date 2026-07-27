@@ -11,66 +11,6 @@
   gap: 4px;
   width: 100%;
 
-  &__request-id-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  &__request-id-panel-shell {
-    position: absolute;
-    left: calc(100% + 16px);
-    bottom: -4px;
-    width: min(340px, calc(100vw - 120px));
-    max-height: min(70vh, 640px);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 14px;
-    border-radius: 18px;
-    border: 1px solid rgba(229, 231, 235, 0.95);
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
-    backdrop-filter: blur(14px);
-    z-index: 10;
-  }
-
-  &__request-id-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  &__request-id-panel-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #111827;
-  }
-
-  &__request-id-panel-close {
-    width: 28px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: 1px solid rgba(229, 231, 235, 0.95);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.96);
-    color: #6b7280;
-    cursor: pointer;
-    transition: background-color 160ms ease, color 160ms ease,
-      border-color 160ms ease;
-
-    &:hover {
-      background: #fff7ed;
-      border-color: rgba(245, 158, 11, 0.42);
-      color: #b45309;
-    }
-  }
-
   // 任务按钮包装器 - 添加相对定位以支持状态点
   &__task-wrapper {
     position: relative;
@@ -131,13 +71,6 @@
     &--failed {
       background: var(--td-error-color, #e34d59);
     }
-  }
-}
-
-:root.aitu-toolbar-dock-right {
-  .bottom-actions-section__request-id-panel-shell {
-    left: auto;
-    right: calc(100% + 16px);
   }
 }
 

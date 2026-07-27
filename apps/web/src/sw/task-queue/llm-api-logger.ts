@@ -24,7 +24,6 @@ export interface LLMApiLog {
   endpoint: string; // API endpoint (e.g., /images/generations, /chat/completions)
   model: string; // 使用的模型
   taskType: 'image' | 'video' | 'audio' | 'chat' | 'character' | 'other';
-  requestId?: string; // 请求头 X-Request-Id，用于超时/失败时通过 /log/get-request 找回结果
 
   // 请求参数（脱敏后）
   prompt?: string; // 提示词
@@ -494,7 +493,6 @@ export function startLLMApiLog(params: {
   endpoint: string;
   model: string;
   taskType: LLMApiLog['taskType'];
-  requestId?: string;
   prompt?: string;
   requestBody?: string; // 完整请求体（JSON 格式，用于调试）
   hasReferenceImages?: boolean;
@@ -511,7 +509,6 @@ export function startLLMApiLog(params: {
     endpoint: params.endpoint,
     model: params.model,
     taskType: params.taskType,
-    requestId: params.requestId,
     prompt: params.prompt ? truncatePrompt(params.prompt) : undefined,
     // 对请求体进行脱敏处理，过滤 API Key 等敏感信息
     requestBody: params.requestBody
@@ -607,28 +604,6 @@ export function updateLLMApiLogMetadata(
     updateLogInDB(log);
 
     // 广播
-    if (broadcastCallback) {
-      broadcastCallback({ ...log });
-    }
-  }
-}
-
-/**
- * 补写 LLM API 日志的 requestId 字段
- * 用于 adapter 路径：sendAdapterRequest 内部生成 requestId 后，
- * caller 再通过此接口回填到已创建的日志上。
- */
-export function updateLLMApiLogRequestId(
-  logId: string,
-  requestId: string
-): void {
-  if (!requestId) return;
-  const log = memoryLogs.find((l) => l.id === logId);
-  if (log) {
-    log.requestId = requestId;
-
-    updateLogInDB(log);
-
     if (broadcastCallback) {
       broadcastCallback({ ...log });
     }

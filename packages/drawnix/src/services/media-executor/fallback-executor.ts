@@ -26,7 +26,6 @@ import {
 } from '../../utils/settings-manager';
 import { getDefaultImageModel } from '../../constants/model-config';
 import {
-  canAttachProviderRequestIdHeader,
   providerTransport,
   resolveInvocationPlanFromRoute,
   type ProviderAuthStrategy,
@@ -57,8 +56,7 @@ import {
 } from '../../utils/api-auth-error-event';
 import { extractTextContent, parseToolCalls } from '../agent/tool-parser';
 import { unifiedCacheService } from '../unified-cache-service';
-import { recoverImageByRequestId, submitVideoGeneration } from '../media-api';
-import { emitImageRequestIdDebugLog } from '../media-api/request-id-debug';
+import { submitVideoGeneration } from '../media-api';
 import {
   extractPromptFromMessages,
   buildImageRequestBody,
@@ -107,22 +105,6 @@ function buildProviderContext(config: {
       authType: config.authType || 'bearer',
       extraHeaders: config.extraHeaders,
     }
-  );
-}
-
-function generateRequestIdForImage(): string {
-  const g = globalThis as { crypto?: { randomUUID?: () => string } };
-  if (typeof g.crypto?.randomUUID === 'function') {
-    return g.crypto.randomUUID();
-  }
-  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isTimeoutErrorForRecover(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'TimeoutError' ||
-      /Request timeout|请求超时/.test(error.message))
   );
 }
 
@@ -366,26 +348,11 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       );
     }
 
-    const imageProviderContext = buildProviderContext(config.imageConfig);
-    const requestId = canAttachProviderRequestIdHeader(imageProviderContext, {
-      path: '/images/generations',
-    })
-      ? generateRequestIdForImage()
-      : undefined;
-    if (requestId) {
-      emitImageRequestIdDebugLog(requestId, {
-        model: modelName,
-        endpoint: '/images/generations',
-        source: 'fallbackExecutor',
-      });
-    }
-
     // 开始记录 LLM API 调用
     const logId = startLLMApiLog({
       endpoint: '/images/generations',
       model: modelName,
       taskType: 'image',
-      requestId,
       prompt,
       hasReferenceImages: !!referenceImages && referenceImages.length > 0,
       referenceImageCount: referenceImages?.length,
@@ -420,11 +387,10 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
-      let result;
-      let httpStatus = 200;
-      try {
-        // 直接调用 API
-        const response = await providerTransport.send(imageProviderContext, {
+      // 直接调用 API
+      const response = await providerTransport.send(
+        buildProviderContext(config.imageConfig),
+        {
           path: '/images/generations',
           method: 'POST',
           headers: {
@@ -433,64 +399,38 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           body: JSON.stringify(requestBody),
           signal: options?.signal,
           timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
-          requestId,
+          requestId: taskId,
+        }
+      );
+
+      if (!response.ok) {
+        const duration = Date.now() - startTime;
+        const errorBody = await response
+          .text()
+          .catch(
+            () => `HTTP ${response.status} ${response.statusText || 'Error'}`
+          );
+        failLLMApiLog(logId, {
+          httpStatus: response.status,
+          duration,
+          errorMessage: errorBody.substring(0, 500),
         });
-
-        if (!response.ok) {
-          const duration = Date.now() - startTime;
-          const errorBody = await response
-            .text()
-            .catch(
-              () => `HTTP ${response.status} ${response.statusText || 'Error'}`
-            );
-          failLLMApiLog(logId, {
-            httpStatus: response.status,
-            duration,
-            errorMessage: errorBody.substring(0, 500),
-          });
-          throw new Error(
-            `Image generation failed: ${
-              response.status
-            } - ${errorBody.substring(0, 200)}`
-          );
-        }
-
-        options?.onProgress?.({ progress: 80, phase: 'downloading' });
-
-        const data = await response.json();
-        result = parseImageResponse(data);
-        httpStatus = response.status;
-      } catch (sendError) {
-        // 超时兜底：尝试通过 /log/get-request 找回已经生成成功的结果
-        if (isTimeoutErrorForRecover(sendError) && requestId) {
-          console.warn(
-            `[FallbackMediaExecutor] 生图请求超时，尝试通过 X-Request-Id 找回: ${requestId}`
-          );
-          try {
-            result = await recoverImageByRequestId(
-              requestId,
-              config.imageConfig,
-              options?.signal
-            );
-            console.info(
-              `[FallbackMediaExecutor] ✅ 通过 X-Request-Id 找回结果成功: ${requestId}`
-            );
-          } catch (recoverError) {
-            console.error(
-              `[FallbackMediaExecutor] ❌ 通过 X-Request-Id 找回结果失败: ${requestId}`,
-              recoverError
-            );
-            // 找回失败，抛出原始超时错误交给外层 catch 处理
-            throw sendError;
-          }
-        } else {
-          throw sendError;
-        }
+        throw new Error(
+          `Image generation failed: ${response.status} - ${errorBody.substring(
+            0,
+            200
+          )}`
+        );
       }
+
+      options?.onProgress?.({ progress: 80, phase: 'downloading' });
+
+      const data = await response.json();
+      const result = parseImageResponse(data);
       const duration = Date.now() - startTime;
-      // 记录成功（找回场景也走这里）
+      // 记录成功
       completeLLMApiLog(logId, {
-        httpStatus,
+        httpStatus: response.status,
         duration,
         resultType: 'image',
         resultCount: 1,
@@ -636,6 +576,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             );
           },
           signal: options?.signal,
+          requestId: taskId,
         }
       );
 

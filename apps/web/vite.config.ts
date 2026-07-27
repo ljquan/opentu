@@ -1032,15 +1032,10 @@ export default defineConfig({
       'Content-Security-Policy':
         "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://us.i.posthog.com https://us-assets.i.posthog.com https://wiki.tu-zi.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: https: ws: wss: data:; frame-ancestors 'self' localhost:* 127.0.0.1:* https://api.tu-zi.com;",
     },
-    // dev 代理：让 API 请求走同源，规避浏览器 CORS 拦截自定义头（如 X-Request-Id）
+    // dev 代理：让图片提交请求在本地开发环境按同源方式携带 X-Request-Id
     // 使用方式：把 Provider 的 baseUrl 从 https://api.tu-zi.com/v1 改为 /v1
     proxy: {
       '/v1': {
-        target: 'https://api.tu-zi.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/log/get-request': {
         target: 'https://api.tu-zi.com',
         changeOrigin: true,
         secure: true,

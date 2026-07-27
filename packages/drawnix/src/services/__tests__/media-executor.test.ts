@@ -267,12 +267,104 @@ describe('Media Executor Module', () => {
         }
       );
       expect(generateSpy).toHaveBeenCalledWith(
-        expect.any(Object),
+        expect.objectContaining({
+          requestId: 'task-1',
+        }),
         expect.objectContaining({
           generationMode: 'image_edit',
           referenceImages: ['data:image/png;base64,abc'],
           maskImage: 'data:image/png;base64,mask',
           outputFormat: 'png',
+        })
+      );
+    }, 15000);
+
+    it('uses the local task ID for direct image submissions', async () => {
+      const send = vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ url: 'https://example.com/out.png' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+      vi.doMock('../media-executor/llm-api-logger', () => ({
+        startLLMApiLog: vi.fn(() => 'log-id'),
+        completeLLMApiLog: vi.fn(),
+        failLLMApiLog: vi.fn(),
+      }));
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          updateStatus: vi.fn(async () => {}),
+          completeTask: vi.fn(async () => {}),
+          failTask: vi.fn(async () => {}),
+        },
+      }));
+      vi.doMock('../unified-cache-service', () => ({
+        unifiedCacheService: {
+          getImageForAI: vi.fn(),
+          isCached: vi.fn(async () => false),
+          cacheMediaFromBlob: vi.fn(async () => {}),
+        },
+      }));
+      vi.doMock('../../utils/api-auth-error-event', () => ({
+        classifyApiCredentialError: vi.fn(() => null),
+        dispatchApiAuthError: vi.fn(),
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          resolveInvocationRoute: vi.fn((operation: string) => ({
+            routeType: operation,
+            modelId: operation === 'image' ? 'legacy-image-model' : '',
+            profileId: 'provider-test',
+            profileName: 'Test Provider',
+            providerType: 'custom',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'test-key',
+            source: 'preset',
+          })),
+        };
+      });
+      vi.doMock('../provider-routing', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../provider-routing')>();
+        return {
+          ...actual,
+          providerTransport: { send },
+          resolveInvocationPlanFromRoute: vi.fn(() => null),
+        };
+      });
+      vi.doMock('../model-adapters', () => ({
+        resolveAdapterForInvocation: vi.fn(() => undefined),
+        GPT_IMAGE_EDIT_REQUEST_SCHEMAS: ['openai.image.gpt-edit-form'],
+      }));
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+
+      await executor.generateImage({
+        taskId: 'task-direct-image-1',
+        prompt: '生成一只兔子',
+        model: 'legacy-image-model',
+      });
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: 'https://api.example.com/v1',
+        }),
+        expect.objectContaining({
+          path: '/images/generations',
+          method: 'POST',
+          requestId: 'task-direct-image-1',
         })
       );
     }, 15000);

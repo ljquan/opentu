@@ -223,6 +223,7 @@ interface AsyncImageOptions {
   onProgress: (progress: number) => void;
   onSubmitted?: (remoteId: string) => void;
   signal?: AbortSignal;
+  requestId?: string;
 }
 
 /**
@@ -261,6 +262,7 @@ export async function generateAsyncImage(
       onProgress: options.onProgress,
       onSubmitted: options.onSubmitted,
       signal: options.signal,
+      requestId: options.requestId,
     }
   );
 

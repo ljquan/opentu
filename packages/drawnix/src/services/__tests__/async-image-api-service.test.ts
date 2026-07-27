@@ -74,14 +74,17 @@ describe('async-image-api-service', () => {
       {
         interval: 1,
         maxAttempts: 1,
+        requestId: 'task-async-image-1',
       }
     );
 
     expect(mocks.send).toHaveBeenCalledTimes(2);
     const request = mocks.send.mock.calls[0]?.[1];
+    expect(request.requestId).toBe('task-async-image-1');
     expect(request.body).toBeInstanceOf(FormData);
     const formData = request.body as FormData;
     expect(formData.get('input_reference')).toBeInstanceOf(Blob);
     expect(formData.get('mask')).toBeInstanceOf(Blob);
+    expect(mocks.send.mock.calls[1]?.[1]?.requestId).toBeUndefined();
   });
 });

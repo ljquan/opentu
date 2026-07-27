@@ -319,6 +319,7 @@ describe('task-queue-service image edit retry persistence', () => {
     await flushAsyncWork();
 
     expect(mocks.generateImage).toHaveBeenCalledTimes(2);
+    expect(mocks.generateImage.mock.calls[1]?.[0]?.taskId).toBe(task.id);
     expect(mocks.generateImage.mock.calls[1]?.[0]).toMatchObject({
       generationMode: 'image_to_image',
       referenceImages: ['data:image/png;base64,source'],

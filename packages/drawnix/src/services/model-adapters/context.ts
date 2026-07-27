@@ -1,5 +1,4 @@
 import {
-  canAttachProviderRequestIdHeader,
   providerTransport,
   type ProviderTransportRequest,
   type ResolvedProviderContext,
@@ -13,7 +12,6 @@ import type { ModelType } from '../../constants/model-config';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import { resolveInvocationPlanFromRoute } from '../provider-routing';
 import type { AdapterContext } from './types';
-import { emitImageRequestIdDebugLog } from '../media-api/request-id-debug';
 
 interface AdapterContextRouteOptions {
   bindingId?: string | null;
@@ -87,45 +85,17 @@ export function sendAdapterRequest(
     context,
     baseUrlOverride
   );
-  const supportsRequestId =
-    context.operation === 'image' &&
-    canAttachProviderRequestIdHeader(providerContext, request);
-
-  // 只有受支持的同源 Tuzi 请求才附带 X-Request-Id。
-  let requestId = supportsRequestId ? request.requestId : undefined;
-  if (!requestId && supportsRequestId) {
-    requestId = generateRequestId();
-  }
-
-  if (requestId && context.operation === 'image') {
-    emitImageRequestIdDebugLog(requestId, {
-      endpoint: request.path,
-      source: 'sendAdapterRequest',
-    });
-  }
-
-  if (requestId && context.onRequestSent) {
-    try {
-      context.onRequestSent({ requestId });
-    } catch (err) {
-      // 回调异常不影响主流程
-      console.debug('[sendAdapterRequest] onRequestSent callback error:', err);
-    }
-  }
+  const isSubmissionRequest = (request.method || 'GET').toUpperCase() !== 'GET';
+  const requestId =
+    context.operation === 'image' && context.requestId && isSubmissionRequest
+      ? context.requestId
+      : undefined;
 
   return providerTransport.send(providerContext, {
     ...request,
     requestId,
+    signal: request.signal || context.signal,
     timeoutMs,
     fetcher: context.fetcher || request.fetcher,
   });
-}
-
-function generateRequestId(): string {
-  const g = globalThis as { crypto?: { randomUUID?: () => string } };
-  if (typeof g.crypto?.randomUUID === 'function') {
-    return g.crypto.randomUUID();
-  }
-  // 极端兜底（老环境）：时间戳 + 随机
-  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }

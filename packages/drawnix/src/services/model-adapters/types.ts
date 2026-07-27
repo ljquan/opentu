@@ -16,17 +16,16 @@ export type ModelKind = 'image' | 'video' | 'audio' | 'chat';
 export interface AdapterContext {
   baseUrl: string;
   operation?: ModelType;
+  /** 本地图片任务 ID，透传到图片提交请求的 X-Request-Id。 */
+  requestId?: string;
+  /** 任务取消信号。 */
+  signal?: AbortSignal;
   apiKey?: string;
   authType?: ProviderAuthStrategy;
   extraHeaders?: Record<string, string>;
   provider?: ResolvedProviderContext | null;
   binding?: ProviderModelBinding | null;
   fetcher?: typeof fetch;
-  /**
-   * sendAdapterRequest 仅在 Tuzi 同源图片请求中生成 requestId 并回传。
-   * caller 可在超时时通过 /log/get-request 找回结果。
-   */
-  onRequestSent?: (info: { requestId: string }) => void;
 }
 
 export interface AdapterMetadata {
