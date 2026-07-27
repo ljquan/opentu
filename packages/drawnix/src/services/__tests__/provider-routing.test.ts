@@ -14,6 +14,7 @@ import type {
   ProviderProfileSnapshot,
 } from '../provider-routing';
 import { ModelVendor, type ModelConfig } from '../../constants/model-config';
+import { resolveManagedTuziBaseUrl } from '../provider-routing/tuzi-api-endpoints';
 
 function createRepositories(params: {
   profiles?: ProviderProfileSnapshot[];
@@ -354,6 +355,69 @@ describe('provider routing', () => {
     );
 
     expect(prepared.url).toBe('https://api.tu-zi.com/v1/images/generations');
+  });
+
+  it('restores a persisted Tuzi dev proxy URL in production', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'legacy-default',
+        profileName: 'Tuzi Default',
+        providerType: 'openai-compatible',
+        baseUrl: '/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/videos',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.tu-zi.com/v1/videos');
+  });
+
+  it('restores the Business API URL for its managed profile', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'tuzi-business',
+        profileName: 'Tuzi Business',
+        providerType: 'openai-compatible',
+        baseUrl: 'v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/videos',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://business.tu-zi.com/v1/videos');
+  });
+
+  it('keeps relative proxy URLs for custom providers', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-custom-proxy',
+        profileName: 'Custom Proxy',
+        providerType: 'custom',
+        baseUrl: '/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/videos',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('/v1/videos');
+  });
+
+  it('keeps the managed Tuzi proxy URL during local development', () => {
+    expect(resolveManagedTuziBaseUrl('legacy-default', '/v1', true)).toBe(
+      '/v1'
+    );
   });
 
   it('omits X-Request-Id for custom cross-origin providers', () => {

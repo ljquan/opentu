@@ -6,6 +6,17 @@ export interface TuziApiEndpointSource {
 
 export const TUZI_API_SOURCE_URL = 'https://github.com/tuziapi/tuzi-api';
 export const TUZI_API_STATUS_URL = 'https://api.tu-zi.com/api/status';
+const TUZI_PUBLIC_API_BASE_URL = 'https://api.tu-zi.com/v1';
+const TUZI_BUSINESS_PUBLIC_API_BASE_URL = 'https://business.tu-zi.com/v1';
+const TUZI_BUSINESS_PROVIDER_PROFILE_ID = 'tuzi-business';
+const MANAGED_TUZI_PROVIDER_PROFILE_IDS = new Set([
+  'legacy-default',
+  'tuzi-origin',
+  'tuzi-mix',
+  'tuzi-codex',
+  TUZI_BUSINESS_PROVIDER_PROFILE_ID,
+]);
+const LOCAL_V1_PROXY_PATTERN = /^(?:\.\/|\/)?v1\/?$/i;
 export const TUZI_API_FALLBACK_ENDPOINTS: TuziApiEndpointSource[] = [
   {
     name: '主站点',
@@ -81,6 +92,33 @@ export function isTuziCompatibleBaseUrl(url?: string | null): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Older settings can persist the Vite development proxy path (`/v1`) as the
+ * provider base URL. That path is valid while Vite is running, but a static
+ * production host has no API proxy and would send `/v1/*` back to the SPA.
+ *
+ * Only built-in Tuzi profiles are repaired here. Custom providers may
+ * intentionally use a same-origin relative proxy and must remain untouched.
+ */
+export function resolveManagedTuziBaseUrl(
+  profileId: string,
+  baseUrl: string,
+  allowLocalDevProxy: boolean
+): string {
+  const normalizedBaseUrl = baseUrl.trim();
+  if (
+    allowLocalDevProxy ||
+    !MANAGED_TUZI_PROVIDER_PROFILE_IDS.has(profileId) ||
+    !LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl)
+  ) {
+    return normalizedBaseUrl;
+  }
+
+  return profileId === TUZI_BUSINESS_PROVIDER_PROFILE_ID
+    ? TUZI_BUSINESS_PUBLIC_API_BASE_URL
+    : TUZI_PUBLIC_API_BASE_URL;
 }
 
 function normalizeJsonLikeString(value: string): string {

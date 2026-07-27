@@ -8,6 +8,7 @@ import {
   isTrustedTuziApiBaseUrl,
   loadTuziApiEndpointBaseUrls,
   normalizeTuziApiEndpointUrl,
+  resolveManagedTuziBaseUrl,
 } from './tuzi-api-endpoints';
 
 function trimTrailingSlashes(value: string): string {
@@ -23,13 +24,17 @@ function trimTrailingSlashes(value: string): string {
  */
 const DEV_PROXY_HOSTS: readonly string[] = ['api.tu-zi.com'];
 
+function isDevProxyEnabled(): boolean {
+  return Boolean(
+    typeof import.meta !== 'undefined' &&
+      (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env?.DEV &&
+      (import.meta as { env?: { MODE?: string } }).env?.MODE !== 'test'
+  );
+}
+
 function rewriteBaseUrlForDevProxy(baseUrl: string): string {
   try {
-    const isDev =
-      typeof import.meta !== 'undefined' &&
-      (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env?.DEV &&
-      (import.meta as { env?: { MODE?: string } }).env?.MODE !== 'test';
-    if (!isDev) return baseUrl;
+    if (!isDevProxyEnabled()) return baseUrl;
     if (!/^https?:\/\//i.test(baseUrl)) return baseUrl;
 
     const parsed = new URL(baseUrl);
@@ -39,6 +44,14 @@ function rewriteBaseUrlForDevProxy(baseUrl: string): string {
   } catch {
     return baseUrl;
   }
+}
+
+function resolveContextBaseUrl(context: ResolvedProviderContext): string {
+  return resolveManagedTuziBaseUrl(
+    context.profileId,
+    context.baseUrl,
+    isDevProxyEnabled()
+  );
 }
 
 function applyBaseUrlStrategy(
@@ -284,12 +297,13 @@ export function canAttachProviderRequestIdHeader(
   request: Pick<ProviderTransportRequest, 'path' | 'baseUrlStrategy'>,
   runtimeOrigin: string | undefined = getRuntimeOrigin()
 ): boolean {
-  if (!isTrustedTuziApiBaseUrl(context.baseUrl)) {
+  const contextBaseUrl = resolveContextBaseUrl(context);
+  if (!isTrustedTuziApiBaseUrl(contextBaseUrl)) {
     return false;
   }
 
   const resolvedBaseUrl = applyBaseUrlStrategy(
-    context.baseUrl,
+    contextBaseUrl,
     request.baseUrlStrategy
   );
   const requestUrl = joinUrl(resolvedBaseUrl, request.path);
@@ -313,8 +327,9 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): PreparedProviderTransportRequest {
+    const contextBaseUrl = resolveContextBaseUrl(context);
     const resolvedBaseUrl = applyBaseUrlStrategy(
-      context.baseUrl,
+      contextBaseUrl,
       request.baseUrlStrategy
     );
     const url = `${joinUrl(resolvedBaseUrl, request.path)}${buildQueryString(
@@ -345,11 +360,15 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): Promise<Response> {
+    const resolvedContext = {
+      ...context,
+      baseUrl: resolveContextBaseUrl(context),
+    };
     const timeoutControl = createTimeoutSignal(
       request.signal,
       request.timeoutMs
     );
-    const prepared = this.prepareRequest(context, {
+    const prepared = this.prepareRequest(resolvedContext, {
       ...request,
       signal: timeoutControl.signal,
     });
@@ -360,14 +379,16 @@ export class ProviderTransport {
 
     try {
       const response = await fetcher(prepared.url, prepared.init);
-      if (!shouldRetryTuziResponse(context, request, response)) {
+      if (!shouldRetryTuziResponse(resolvedContext, request, response)) {
         return response;
       }
 
-      const fallbackBaseUrls = await getTuziFallbackBaseUrls(context.baseUrl);
+      const fallbackBaseUrls = await getTuziFallbackBaseUrls(
+        resolvedContext.baseUrl
+      );
       for (const fallbackBaseUrl of fallbackBaseUrls) {
         const fallbackPrepared = this.prepareRequest(
-          { ...context, baseUrl: fallbackBaseUrl },
+          { ...resolvedContext, baseUrl: fallbackBaseUrl },
           { ...request, signal: timeoutControl.signal }
         );
         try {
@@ -375,7 +396,9 @@ export class ProviderTransport {
             fallbackPrepared.url,
             fallbackPrepared.init
           );
-          if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
+          if (
+            !shouldRetryTuziResponse(resolvedContext, request, fallbackResponse)
+          ) {
             return fallbackResponse;
           }
         } catch (fallbackError) {
@@ -402,11 +425,13 @@ export class ProviderTransport {
         throw timeoutError;
       }
       if (isFetchNetworkError(error)) {
-        const fallbackBaseUrls = await getTuziFallbackBaseUrls(context.baseUrl);
+        const fallbackBaseUrls = await getTuziFallbackBaseUrls(
+          resolvedContext.baseUrl
+        );
 
         for (const fallbackBaseUrl of fallbackBaseUrls) {
           const fallbackPrepared = this.prepareRequest(
-            { ...context, baseUrl: fallbackBaseUrl },
+            { ...resolvedContext, baseUrl: fallbackBaseUrl },
             { ...request, signal: timeoutControl.signal }
           );
           try {
