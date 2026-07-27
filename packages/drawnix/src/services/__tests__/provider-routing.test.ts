@@ -376,6 +376,25 @@ describe('provider routing', () => {
     expect(prepared.url).toBe('https://api.tu-zi.com/v1/videos');
   });
 
+  it('restores the legacy runtime proxy used by fallback video routing', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'runtime',
+        profileName: 'Runtime',
+        providerType: 'custom',
+        baseUrl: '/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+      },
+      {
+        path: '/v1/videos',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://api.tu-zi.com/v1/videos');
+  });
+
   it('restores the Business API URL for its managed profile', () => {
     const prepared = providerTransport.prepareRequest(
       {

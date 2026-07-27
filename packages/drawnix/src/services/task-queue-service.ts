@@ -17,7 +17,11 @@ import {
   GenerationParams,
   TaskExecutionPhase,
 } from '../types/task.types';
-import { generateTaskId, isTaskActive } from '../utils/task-utils';
+import {
+  formatTaskErrorMessage,
+  generateTaskId,
+  isTaskActive,
+} from '../utils/task-utils';
 import {
   validateGenerationParams,
   sanitizeGenerationParams,
@@ -1211,7 +1215,9 @@ class TaskQueueService {
           status: TaskStatus.FAILED,
           error: {
             code: 'EXECUTION_ERROR',
-            message: error.message || 'Task execution failed',
+            message: formatTaskErrorMessage(
+              error.message || 'Task execution failed'
+            ),
           },
           updatedAt: now,
           completedAt: now,

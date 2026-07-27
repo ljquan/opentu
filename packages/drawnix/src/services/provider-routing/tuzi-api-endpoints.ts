@@ -17,6 +17,7 @@ const MANAGED_TUZI_PROVIDER_PROFILE_IDS = new Set([
   TUZI_BUSINESS_PROVIDER_PROFILE_ID,
 ]);
 const LOCAL_V1_PROXY_PATTERN = /^(?:\.\/|\/)?v1\/?$/i;
+const LEGACY_RUNTIME_PROVIDER_PROFILE_ID = 'runtime';
 export const TUZI_API_FALLBACK_ENDPOINTS: TuziApiEndpointSource[] = [
   {
     name: '主站点',
@@ -108,9 +109,13 @@ export function resolveManagedTuziBaseUrl(
   allowLocalDevProxy: boolean
 ): string {
   const normalizedBaseUrl = baseUrl.trim();
+  const isLegacyRuntimeProxy =
+    profileId === LEGACY_RUNTIME_PROVIDER_PROFILE_ID &&
+    LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl);
   if (
     allowLocalDevProxy ||
-    !MANAGED_TUZI_PROVIDER_PROFILE_IDS.has(profileId) ||
+    (!MANAGED_TUZI_PROVIDER_PROFILE_IDS.has(profileId) &&
+      !isLegacyRuntimeProxy) ||
     !LOCAL_V1_PROXY_PATTERN.test(normalizedBaseUrl)
   ) {
     return normalizedBaseUrl;
