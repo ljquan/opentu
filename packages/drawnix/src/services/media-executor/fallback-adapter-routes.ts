@@ -32,11 +32,21 @@ import {
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
+import { isTrustedTuziApiBaseUrl } from '../provider-routing/tuzi-api-endpoints';
+import { isAmbiguousImageSubmissionError } from '../image-generation-recovery-service';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageInputFidelity = 'high' | 'low';
 type ImageBackground = 'transparent' | 'opaque' | 'auto';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
+
+function assertCurrentExecutionAttempt(options?: ExecutionOptions): void {
+  if (options?.isCurrentAttempt?.() === false) {
+    const error = new Error('图片提交已被取消或替代');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
 
 function getStringParam(
   params: { params?: Record<string, unknown> },
@@ -87,6 +97,7 @@ export async function executeImageViaAdapter(
   taskId: string,
   adapter: ImageModelAdapter,
   params: {
+    requestId?: string;
     prompt: string;
     model: string;
     modelRef?: ModelRef | null;
@@ -109,6 +120,8 @@ export async function executeImageViaAdapter(
   startTime?: number
 ): Promise<void> {
   const logStartTime = startTime || Date.now();
+  const submissionRequestId = params.requestId || taskId;
+  let submissionAttempted = false;
   const preferredRequestSchema = resolvePreferredRequestSchema(params);
   const adapterContext = getAdapterContextFromSettings(
     'image',
@@ -146,7 +159,11 @@ export async function executeImageViaAdapter(
     const result = await adapter.generateImage(
       {
         ...adapterContext,
-        requestId: taskId,
+        requestId: submissionRequestId,
+        onSubmissionAttempt: async () => {
+          await options?.onSubmissionAttempt?.();
+          submissionAttempted = true;
+        },
         signal: options?.signal,
       },
       {
@@ -173,6 +190,7 @@ export async function executeImageViaAdapter(
         },
       }
     );
+    assertCurrentExecutionAttempt(options);
 
     const duration = Date.now() - logStartTime;
 
@@ -194,17 +212,32 @@ export async function executeImageViaAdapter(
         ? { ...params.assetMetadata }
         : undefined,
     });
+    assertCurrentExecutionAttempt(options);
     const cachedPrimary = cachedUrls[0];
 
-    await taskStorageWriter.completeTask(taskId, {
-      url: cachedPrimary,
-      urls: cachedUrls.length > 1 ? cachedUrls : undefined,
-      format: fmt,
-      size: 0,
-    });
+    const completed = await taskStorageWriter.completeTask(
+      taskId,
+      {
+        url: cachedPrimary,
+        urls: cachedUrls.length > 1 ? cachedUrls : undefined,
+        format: fmt,
+        size: 0,
+      },
+      submissionRequestId
+    );
+    if (completed === false) {
+      const staleAttemptError = new Error('图片提交已被取消或替代');
+      staleAttemptError.name = 'AbortError';
+      throw staleAttemptError;
+    }
   } catch (error: any) {
     const duration = Date.now() - logStartTime;
     const errorMessage = error.message || 'Image generation failed (adapter)';
+
+    if (options?.isCurrentAttempt?.() === false) {
+      failLLMApiLog(logId, { duration, errorMessage });
+      throw error;
+    }
 
     const credentialErrorKind = classifyApiCredentialError(error);
     if (credentialErrorKind) {
@@ -216,10 +249,20 @@ export async function executeImageViaAdapter(
     }
 
     failLLMApiLog(logId, { duration, errorMessage });
-    await taskStorageWriter.failTask(taskId, {
-      code: 'IMAGE_GENERATION_ERROR',
-      message: errorMessage,
-    });
+    const shouldWaitForRecovery =
+      submissionAttempted &&
+      isTrustedTuziApiBaseUrl(adapterContext.baseUrl) &&
+      isAmbiguousImageSubmissionError(error);
+    if (!shouldWaitForRecovery) {
+      await taskStorageWriter.failTask(
+        taskId,
+        {
+          code: 'IMAGE_GENERATION_ERROR',
+          message: errorMessage,
+        },
+        submissionRequestId
+      );
+    }
     throw error;
   }
 }

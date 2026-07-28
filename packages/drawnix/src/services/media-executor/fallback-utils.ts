@@ -221,6 +221,7 @@ import { generateImageAsync as sharedGenerateImageAsync } from '../media-api';
  */
 interface AsyncImageOptions {
   onProgress: (progress: number) => void;
+  onSubmissionAttempt?: () => void | Promise<void>;
   onSubmitted?: (remoteId: string) => void;
   signal?: AbortSignal;
   requestId?: string;
@@ -260,6 +261,7 @@ export async function generateAsyncImage(
     },
     {
       onProgress: options.onProgress,
+      onSubmissionAttempt: options.onSubmissionAttempt,
       onSubmitted: options.onSubmitted,
       signal: options.signal,
       requestId: options.requestId,

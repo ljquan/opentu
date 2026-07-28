@@ -196,6 +196,7 @@ export async function generateImageAsync(
 ): Promise<ImageGenerationResult> {
   const {
     onProgress,
+    onSubmissionAttempt,
     onSubmitted,
     signal,
     requestId,
@@ -247,6 +248,7 @@ export async function generateImageAsync(
 
   onProgress?.(5);
   // 提交异步任务
+  await onSubmissionAttempt?.();
   const submitResponse = await providerTransport.send(providerContext, {
     path: '/v1/videos',
     method: 'POST',
@@ -283,7 +285,7 @@ export async function generateImageAsync(
   }
 
   // 通知调用方保存 remoteId（用于页面刷新后恢复轮询）
-  onSubmitted?.(taskRemoteId);
+  await onSubmitted?.(taskRemoteId);
   onProgress?.(10);
   // 轮询等待结果
   let progress = submitData.progress ?? 0;

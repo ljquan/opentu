@@ -74,6 +74,12 @@ import {
   normalizeGenerationParamsKnowledgeContext,
 } from './generation-context-service';
 import { MAX_VIDEO_GENERATION_PROMPT_LENGTH } from '../components/shared/workflow/prompt-builders';
+import {
+  createImageSubmissionParams,
+  getImageSubmissionRequestId,
+  imageGenerationRecoveryService,
+  shouldRecoverImageSubmission,
+} from './image-generation-recovery-service';
 
 const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
 const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
@@ -427,8 +433,9 @@ class TaskQueueService {
   private static instance: TaskQueueService;
   private tasks: Map<string, Task>;
   private taskUpdates$: Subject<TaskEvent>;
-  private executingTasks = new Set<string>();
+  private executingTasks = new Map<string, AbortController>();
   private taskAbortControllers = new Map<string, AbortController>();
+  private taskStorageOperations = new Map<string, Promise<void>>();
   private blockedTaskIds = new Set<string>();
   private tasksWithStrippedParams = new Set<string>();
 
@@ -465,9 +472,29 @@ class TaskQueueService {
    * Persist task to IndexedDB (async, fire-and-forget)
    */
   private persistTask(task: Task): void {
-    this.persistTaskInternal(task).catch((error) => {
+    this.enqueueTaskStorageOperation(task.id, () =>
+      this.persistTaskInternal(task)
+    ).catch((error) => {
       console.error('[TaskQueueService] Failed to persist task:', error);
     });
+  }
+
+  private enqueueTaskStorageOperation(
+    taskId: string,
+    operation: () => Promise<void>
+  ): Promise<void> {
+    const previous =
+      this.taskStorageOperations.get(taskId) || Promise.resolve();
+    const next = previous.catch(() => undefined).then(operation);
+    this.taskStorageOperations.set(taskId, next);
+    void next
+      .finally(() => {
+        if (this.taskStorageOperations.get(taskId) === next) {
+          this.taskStorageOperations.delete(taskId);
+        }
+      })
+      .catch(() => undefined);
+    return next;
   }
 
   private async persistTaskInternal(task: Task): Promise<void> {
@@ -478,20 +505,47 @@ class TaskQueueService {
     taskStorageReader.invalidateCache();
   }
 
-  private shouldSkipExecutionWriteback(taskId: string): boolean {
+  private shouldSkipExecutionWriteback(
+    taskId: string,
+    execution?: AbortController,
+    requestId?: string
+  ): boolean {
     const task = this.tasks.get(taskId);
     return (
       !task ||
       task.status === TaskStatus.CANCELLED ||
-      this.blockedTaskIds.has(taskId)
+      this.blockedTaskIds.has(taskId) ||
+      Boolean(execution && this.executingTasks.get(taskId) !== execution) ||
+      Boolean(
+        requestId &&
+          task.type === TaskType.IMAGE &&
+          (task.status !== TaskStatus.PROCESSING ||
+            getImageSubmissionRequestId(task) !== requestId)
+      )
     );
   }
 
-  private repersistCancelledTask(taskId: string): void {
+  private async repersistCancelledTask(
+    taskId: string,
+    requestId?: string
+  ): Promise<void> {
     const task = this.tasks.get(taskId);
-    if (task?.status === TaskStatus.CANCELLED) {
-      this.persistTask(task);
+    if (task?.status !== TaskStatus.CANCELLED) {
+      return;
     }
+
+    if (task.type === TaskType.IMAGE && requestId) {
+      await this.updateImageAttemptStorage(taskId, requestId, () =>
+        taskStorageWriter.updateStatus(taskId, 'cancelled', requestId, {
+          allowLegacyRequestId: true,
+        })
+      );
+      return;
+    }
+
+    await this.enqueueTaskStorageOperation(taskId, () =>
+      this.persistTaskInternal(task)
+    );
   }
 
   private async resolveTaskKnowledgeContext(task: Task): Promise<Task> {
@@ -587,14 +641,15 @@ class TaskQueueService {
    * Delete task from IndexedDB (async, fire-and-forget)
    */
   private persistDelete(taskId: string): void {
-    taskStorageWriter.deleteTask(taskId).catch((error) => {
+    this.enqueueTaskStorageOperation(taskId, async () => {
+      await taskStorageWriter.deleteTask(taskId);
+      taskStorageReader.invalidateCache();
+    }).catch((error) => {
       console.error(
         '[TaskQueueService] Failed to delete task from storage:',
         error
       );
     });
-    // Invalidate reader cache after delete
-    taskStorageReader.invalidateCache();
   }
 
   /**
@@ -602,19 +657,44 @@ class TaskQueueService {
    * This is called automatically after task creation
    */
   private async executeTask(task: Task): Promise<void> {
+    const submissionRequestId =
+      task.type === TaskType.IMAGE
+        ? getImageSubmissionRequestId(task)
+        : undefined;
     // 防止同一任务被重复执行（双重调用防护）
-    if (this.executingTasks.has(task.id)) {
+    const currentExecution = this.executingTasks.get(task.id);
+    if (
+      currentExecution &&
+      (!currentExecution.signal.aborted || task.type !== TaskType.IMAGE)
+    ) {
       console.warn(
         `[TaskQueueService] Task ${task.id} is already executing, skipping duplicate`
       );
       return;
     }
-    this.executingTasks.add(task.id);
     const abortController = new AbortController();
+    this.executingTasks.set(task.id, abortController);
     this.taskAbortControllers.set(task.id, abortController);
     const { signal } = abortController;
     try {
-      if (this.shouldSkipExecutionWriteback(task.id)) {
+      if (
+        this.shouldSkipExecutionWriteback(
+          task.id,
+          abortController,
+          submissionRequestId
+        )
+      ) {
+        return;
+      }
+
+      await this.taskStorageOperations.get(task.id);
+      if (
+        this.shouldSkipExecutionWriteback(
+          task.id,
+          abortController,
+          submissionRequestId
+        )
+      ) {
         return;
       }
 
@@ -636,6 +716,15 @@ class TaskQueueService {
         console.warn(
           '[TaskQueueService] No API configuration, cannot execute task'
         );
+        if (task.type === TaskType.IMAGE && submissionRequestId) {
+          await this.failImageAttempt(
+            task.id,
+            submissionRequestId,
+            { code: 'NO_API_KEY', message: '未配置 API Key' },
+            { allowLegacyRequestId: true }
+          );
+          return;
+        }
         this.updateTaskStatus(task.id, TaskStatus.FAILED, {
           error: { code: 'NO_API_KEY', message: '未配置 API Key' },
         });
@@ -701,7 +790,13 @@ class TaskQueueService {
           }
         );
 
-        if (this.shouldSkipExecutionWriteback(task.id)) {
+        if (
+          this.shouldSkipExecutionWriteback(
+            task.id,
+            abortController,
+            submissionRequestId
+          )
+        ) {
           return;
         }
 
@@ -870,8 +965,39 @@ class TaskQueueService {
       // React.memo 比较 prev.task.progress === next.task.progress 时永远相等
       const executionOptions = {
         signal,
+        isCurrentAttempt: () =>
+          !this.shouldSkipExecutionWriteback(
+            task.id,
+            abortController,
+            submissionRequestId
+          ),
+        onSubmissionAttempt: async () => {
+          if (submissionRequestId) {
+            await this.markImageSubmissionAttempted(
+              task.id,
+              submissionRequestId
+            );
+          }
+          if (
+            this.shouldSkipExecutionWriteback(
+              task.id,
+              abortController,
+              submissionRequestId
+            )
+          ) {
+            const error = new Error('图片提交已被取消或替代');
+            error.name = 'AbortError';
+            throw error;
+          }
+        },
         onProgress: (progress: { progress: number; phase?: string }) => {
-          if (this.shouldSkipExecutionWriteback(task.id)) {
+          if (
+            this.shouldSkipExecutionWriteback(
+              task.id,
+              abortController,
+              submissionRequestId
+            )
+          ) {
             return;
           }
 
@@ -917,6 +1043,7 @@ class TaskQueueService {
           await executor.generateImage(
             {
               taskId: task.id,
+              requestId: submissionRequestId,
               prompt: task.params.prompt,
               model: task.params.model,
               modelRef: task.params.modelRef || null,
@@ -1092,7 +1219,13 @@ class TaskQueueService {
           throw new Error(`Unsupported task type: ${task.type}`);
       }
 
-      if (this.shouldSkipExecutionWriteback(task.id)) {
+      if (
+        this.shouldSkipExecutionWriteback(
+          task.id,
+          abortController,
+          submissionRequestId
+        )
+      ) {
         return;
       }
 
@@ -1101,7 +1234,18 @@ class TaskQueueService {
         timeout: IMAGE_GENERATION_TIMEOUT_MS,
         signal,
         onProgress: (updatedTask) => {
-          if (this.shouldSkipExecutionWriteback(task.id)) {
+          if (
+            this.shouldSkipExecutionWriteback(
+              task.id,
+              abortController,
+              submissionRequestId
+            )
+          ) {
+            return;
+          }
+
+          if (task.type === TaskType.IMAGE && submissionRequestId) {
+            this.syncImageAttemptFromStorage(task.id, updatedTask as SWTask);
             return;
           }
 
@@ -1133,8 +1277,17 @@ class TaskQueueService {
       if (
         localTask &&
         result.task &&
-        !this.shouldSkipExecutionWriteback(task.id)
+        !this.shouldSkipExecutionWriteback(
+          task.id,
+          abortController,
+          submissionRequestId
+        )
       ) {
+        if (task.type === TaskType.IMAGE && submissionRequestId) {
+          this.syncImageAttemptFromStorage(task.id, result.task as SWTask);
+          return;
+        }
+
         const finalTask: Task = {
           ...localTask,
           status: result.task.status as TaskStatus,
@@ -1151,7 +1304,13 @@ class TaskQueueService {
         this.emitEvent('taskUpdated', finalTask);
       }
     } catch (error: any) {
-      if (this.shouldSkipExecutionWriteback(task.id)) {
+      if (
+        this.shouldSkipExecutionWriteback(
+          task.id,
+          abortController,
+          submissionRequestId
+        )
+      ) {
         return;
       }
 
@@ -1159,6 +1318,34 @@ class TaskQueueService {
       const localTask = this.tasks.get(task.id);
       if (localTask) {
         const now = Date.now();
+        if (shouldRecoverImageSubmission(localTask, error)) {
+          if (task.type === TaskType.IMAGE && submissionRequestId) {
+            await this.markImageAttemptRecovering(task.id, submissionRequestId);
+            return;
+          }
+
+          const recoveringTask: Task = {
+            ...localTask,
+            status: TaskStatus.PROCESSING,
+            error: undefined,
+            completedAt: undefined,
+            executionPhase: TaskExecutionPhase.POLLING,
+            updatedAt: now,
+            progress: undefined,
+          };
+          this.tasks.set(task.id, recoveringTask);
+          this.persistTask(recoveringTask);
+          this.emitEvent('taskUpdated', recoveringTask);
+          return;
+        }
+        if (task.type === TaskType.IMAGE && submissionRequestId) {
+          await this.failImageAttempt(task.id, submissionRequestId, {
+            code: 'EXECUTION_ERROR',
+            message: error.message || 'Task execution failed',
+          });
+          return;
+        }
+
         const failedTask: Task = {
           ...localTask,
           status: TaskStatus.FAILED,
@@ -1179,8 +1366,10 @@ class TaskQueueService {
       if (this.taskAbortControllers.get(task.id) === abortController) {
         this.taskAbortControllers.delete(task.id);
       }
-      this.repersistCancelledTask(task.id);
-      this.executingTasks.delete(task.id);
+      await this.repersistCancelledTask(task.id, submissionRequestId);
+      if (this.executingTasks.get(task.id) === abortController) {
+        this.executingTasks.delete(task.id);
+      }
     }
   }
 
@@ -1910,11 +2099,16 @@ class TaskQueueService {
 
     // Create new task - starts as PROCESSING since it will be executed immediately
     const now = Date.now();
+    const taskId = generateTaskId();
+    const taskParams =
+      type === TaskType.IMAGE
+        ? createImageSubmissionParams(sanitizedParams, taskId)
+        : sanitizedParams;
     const task: Task = {
-      id: generateTaskId(),
+      id: taskId,
       type,
       status: TaskStatus.PROCESSING,
-      params: sanitizedParams,
+      params: taskParams,
       createdAt: now,
       updatedAt: now,
       startedAt: now,
@@ -1970,7 +2164,8 @@ class TaskQueueService {
   updateTaskStatus(
     taskId: string,
     status: TaskStatus,
-    updates?: Partial<Task>
+    updates?: Partial<Task>,
+    options: { persist?: boolean } = {}
   ): void {
     if (this.blockedTaskIds.has(taskId) && status !== TaskStatus.CANCELLED) {
       return;
@@ -2015,8 +2210,10 @@ class TaskQueueService {
 
     this.tasks.set(taskId, updatedTask);
 
-    // Persist to IndexedDB
-    this.persistTask(updatedTask);
+    if (options.persist !== false) {
+      // Persist to IndexedDB
+      this.persistTask(updatedTask);
+    }
 
     this.emitEvent('taskUpdated', updatedTask);
 
@@ -2059,6 +2256,45 @@ class TaskQueueService {
     this.persistTask(updatedTask);
 
     this.emitEvent('taskUpdated', updatedTask);
+  }
+
+  async markImageSubmissionAttempted(
+    taskId: string,
+    requestId: string
+  ): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (
+      !task ||
+      task.type !== TaskType.IMAGE ||
+      getImageSubmissionRequestId(task) !== requestId ||
+      task.status === TaskStatus.CANCELLED ||
+      this.blockedTaskIds.has(taskId)
+    ) {
+      const error = new Error('图片提交已被取消或替代');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    const marked = await this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.markImageSubmissionAttempted(taskId, requestId)
+    );
+    if (!marked) {
+      const error = new Error('图片提交已被取消或替代');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    const currentTask = this.tasks.get(taskId);
+    if (
+      !currentTask ||
+      currentTask.status === TaskStatus.CANCELLED ||
+      this.blockedTaskIds.has(taskId) ||
+      getImageSubmissionRequestId(currentTask) !== requestId
+    ) {
+      const error = new Error('图片提交已被取消或替代');
+      error.name = 'AbortError';
+      throw error;
+    }
   }
 
   /**
@@ -2147,8 +2383,26 @@ class TaskQueueService {
     }
 
     this.blockedTaskIds.add(taskId);
+    if (task.type === TaskType.IMAGE) {
+      const requestId = getImageSubmissionRequestId(task);
+      this.updateTaskStatus(taskId, TaskStatus.CANCELLED, undefined, {
+        persist: false,
+      });
+      void this.updateImageAttemptStorage(taskId, requestId, () =>
+        taskStorageWriter.updateStatus(taskId, 'cancelled', requestId, {
+          allowLegacyRequestId: true,
+        })
+      ).catch((error) => {
+        console.error(
+          '[TaskQueueService] Failed to cancel image attempt:',
+          error
+        );
+      });
+    } else {
+      this.updateTaskStatus(taskId, TaskStatus.CANCELLED);
+    }
     this.taskAbortControllers.get(taskId)?.abort();
-    this.updateTaskStatus(taskId, TaskStatus.CANCELLED);
+    imageGenerationRecoveryService.stop(taskId);
     // console.log(`[TaskQueueService] Cancelled task ${taskId}`);
   }
 
@@ -2187,8 +2441,15 @@ class TaskQueueService {
       previousErrorCode: task.error?.code,
       previousErrorMessage: task.error?.message,
     });
+    imageGenerationRecoveryService.stop(taskId);
+    this.taskAbortControllers.get(taskId)?.abort();
     this.blockedTaskIds.delete(taskId);
+    const retryParams =
+      task.type === TaskType.IMAGE
+        ? createImageSubmissionParams(task.params, generateTaskId())
+        : task.params;
     this.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+      params: retryParams,
       error: undefined,
       result: undefined,
       startedAt: now, // Set new start time
@@ -2230,6 +2491,8 @@ class TaskQueueService {
     }
 
     this.blockedTaskIds.add(taskId);
+    this.taskAbortControllers.get(taskId)?.abort();
+    imageGenerationRecoveryService.stop(taskId);
     this.tasks.delete(taskId);
     this.tasksWithStrippedParams.delete(taskId);
 
@@ -2305,6 +2568,170 @@ class TaskQueueService {
     };
     this.tasks.set(taskId, updatedTask);
     this.emitEvent('taskUpdated', updatedTask);
+  }
+
+  private syncImageAttemptFromStorage(
+    taskId: string,
+    storageTask: SWTask
+  ): void {
+    const currentTask = this.tasks.get(taskId);
+    if (!currentTask) {
+      return;
+    }
+
+    const storagePatch: Partial<Task> = {
+      status: storageTask.status as TaskStatus,
+      params: {
+        ...currentTask.params,
+        submissionRequestId: storageTask.params.submissionRequestId,
+        imageSubmissionAttempted: storageTask.params.imageSubmissionAttempted,
+      },
+      startedAt: storageTask.startedAt,
+      completedAt: storageTask.completedAt,
+      result: storageTask.result,
+      error: storageTask.error as Task['error'],
+      progress: storageTask.progress,
+      remoteId: storageTask.remoteId,
+      invocationRoute: storageTask.invocationRoute,
+      executionPhase: storageTask.executionPhase as Task['executionPhase'],
+    };
+    const requestIdChanged =
+      currentTask.params.submissionRequestId !==
+      storageTask.params.submissionRequestId;
+    const attemptChanged =
+      requestIdChanged ||
+      currentTask.params.imageSubmissionAttempted !==
+        storageTask.params.imageSubmissionAttempted;
+    const cancellationLostToTerminal =
+      currentTask.status === TaskStatus.CANCELLED &&
+      (storageTask.status === 'completed' || storageTask.status === 'failed');
+    if (!attemptChanged && !hasStorageTaskChanges(currentTask, storagePatch)) {
+      return;
+    }
+
+    if (requestIdChanged || cancellationLostToTerminal) {
+      this.blockedTaskIds.delete(taskId);
+    }
+
+    const updatedTask: Task = {
+      ...currentTask,
+      ...storagePatch,
+      updatedAt: Date.now(),
+    };
+    this.tasks.set(taskId, updatedTask);
+    this.emitEvent('taskUpdated', updatedTask);
+  }
+
+  private async updateImageAttemptStorage(
+    taskId: string,
+    requestId: string,
+    operation: () => Promise<boolean>
+  ): Promise<boolean> {
+    let updated = false;
+    await this.enqueueTaskStorageOperation(taskId, async () => {
+      updated = await operation();
+      taskStorageReader.invalidateCache();
+    });
+
+    const storageTask = await taskStorageWriter.getTask(taskId);
+    if (storageTask) {
+      const currentTask = this.tasks.get(taskId);
+      const currentRequestId =
+        currentTask?.type === TaskType.IMAGE
+          ? getImageSubmissionRequestId(currentTask)
+          : undefined;
+      const storageRequestId = storageTask.params.submissionRequestId;
+      const localAttemptChanged =
+        currentRequestId !== undefined && currentRequestId !== requestId;
+      const storageStillMatchesOperation = storageRequestId === requestId;
+
+      // 本地已开始新重试时，不允许较晚结束的旧事务把内存回滚到旧尝试。
+      // 若存储已是另一个 Request ID，则说明来自其他标签页，仍需同步。
+      if (!localAttemptChanged || !storageStillMatchesOperation) {
+        this.syncImageAttemptFromStorage(taskId, storageTask);
+      }
+    }
+    return updated && storageTask?.params.submissionRequestId === requestId;
+  }
+
+  async activateImageAttempt(
+    taskId: string,
+    requestId: string
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.updateStatus(taskId, 'processing', requestId)
+    );
+  }
+
+  async updateImageAttemptProgress(
+    taskId: string,
+    requestId: string,
+    progress: number,
+    phase?: Task['executionPhase']
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.updateProgress(taskId, progress, phase, requestId)
+    );
+  }
+
+  async updateImageAttemptRemoteId(
+    taskId: string,
+    requestId: string,
+    remoteId: string,
+    invocationRoute?: Task['invocationRoute']
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.updateRemoteId(
+        taskId,
+        remoteId,
+        invocationRoute,
+        requestId
+      )
+    );
+  }
+
+  async markImageAttemptRecovering(
+    taskId: string,
+    requestId: string,
+    options: {
+      allowFailed?: boolean;
+      expectedErrorCodes?: readonly string[];
+      migrateLegacy?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.markImageAttemptRecovering(taskId, requestId, options)
+    );
+  }
+
+  async completeImageAttempt(
+    taskId: string,
+    requestId: string,
+    result: Task['result']
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.completeTask(taskId, result, requestId)
+    );
+  }
+
+  async failImageAttempt(
+    taskId: string,
+    requestId: string,
+    error: NonNullable<Task['error']>,
+    options: {
+      allowPending?: boolean;
+      allowLegacyRequestId?: boolean;
+      clearStartedAt?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    return this.updateImageAttemptStorage(taskId, requestId, () =>
+      taskStorageWriter.failTask(
+        taskId,
+        error as SWTask['error'],
+        requestId,
+        options
+      )
+    );
   }
 
   /**

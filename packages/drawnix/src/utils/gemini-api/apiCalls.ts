@@ -487,6 +487,7 @@ export async function callGoogleGenerateContentRaw(
     signal?: AbortSignal;
     generationConfig?: Record<string, unknown>;
     requestId?: string;
+    onSubmissionAttempt?: () => void | Promise<void>;
   } = { stream: false }
 ): Promise<GeminiResponse> {
   const startTime = Date.now();
@@ -521,6 +522,7 @@ export async function callGoogleGenerateContentRaw(
   const timeoutControl = createTimeoutSignal(options.signal, timeoutMs);
 
   try {
+    await options.onSubmissionAttempt?.();
     const response = await providerTransport.send(providerContext, {
       path: endpoint,
       baseUrlStrategy: config.binding?.baseUrlStrategy,

@@ -65,6 +65,7 @@ export class GeminiClient {
       modelRef?: ModelRef | null;
       requestId?: string;
       signal?: AbortSignal;
+      onSubmissionAttempt?: () => void | Promise<void>;
     } = {}
   ) {
     return generateImageWithGemini(prompt, options);

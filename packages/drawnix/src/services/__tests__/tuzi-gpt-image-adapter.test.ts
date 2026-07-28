@@ -248,4 +248,30 @@ describe('tuzi GPT image adapter', () => {
       'Tuzi GPT Image request failed: 404 (api.tu-zi.com/v1/v1/images/generations)'
     );
   });
+
+  it('preserves the HTTP status on upstream failures for recovery classification', async () => {
+    mocks.sendAdapterRequest.mockResolvedValue(
+      new Response(JSON.stringify({ message: 'internal server error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await expect(
+      tuziGPTImageAdapter.generateImage(
+        {
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'test-key',
+          authType: 'bearer',
+        },
+        {
+          model: 'gpt-image-2',
+          prompt: 'Draw a clean product photo',
+        }
+      )
+    ).rejects.toMatchObject({
+      message: 'internal server error',
+      httpStatus: 500,
+    });
+  });
 });

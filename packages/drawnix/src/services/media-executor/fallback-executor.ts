@@ -80,6 +80,16 @@ import {
   resolveLegacyTaskInvocationRouteModel,
   shouldUseStrictTaskInvocationRoute,
 } from '../task-invocation-route';
+import { isTrustedTuziApiBaseUrl } from '../provider-routing/tuzi-api-endpoints';
+import { isAmbiguousImageSubmissionError } from '../image-generation-recovery-service';
+
+function assertCurrentImageExecutionAttempt(options?: ExecutionOptions): void {
+  if (options?.isCurrentAttempt?.() === false) {
+    const error = new Error('图片提交已被取消或替代');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
 
 function inferAuthTypeFromRoute(
   route: ReturnType<typeof resolveInvocationRoute>
@@ -251,6 +261,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   ): Promise<void> {
     const {
       taskId,
+      requestId = taskId,
       prompt,
       model,
       modelRef,
@@ -272,7 +283,16 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     const config = this.getConfig({ imageModel: modelRef || model });
 
     // 更新任务状态为 processing
-    await taskStorageWriter.updateStatus(taskId, 'processing');
+    const activated = await taskStorageWriter.updateStatus(
+      taskId,
+      'processing',
+      requestId
+    );
+    if (activated === false) {
+      const staleAttemptError = new Error('图片提交已被取消或替代');
+      staleAttemptError.name = 'AbortError';
+      throw staleAttemptError;
+    }
     options?.onProgress?.({ progress: 0, phase: 'submitting' });
 
     const startTime = Date.now();
@@ -296,6 +316,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       return this.generateAsyncImageTask(
         taskId,
         {
+          requestId,
           prompt,
           model: modelName,
           modelRef: modelRef || null,
@@ -325,6 +346,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         taskId,
         imageAdapter,
         {
+          requestId,
           prompt,
           model: modelName,
           modelRef: modelRef || null,
@@ -361,6 +383,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       ),
       taskId,
     });
+    let submissionAttempted = false;
 
     try {
       // 处理参考图片：统一转为 base64（API 要求），并行处理提升性能
@@ -388,6 +411,8 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
       // 直接调用 API
+      await options?.onSubmissionAttempt?.();
+      submissionAttempted = true;
       const response = await providerTransport.send(
         buildProviderContext(config.imageConfig),
         {
@@ -399,7 +424,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           body: JSON.stringify(requestBody),
           signal: options?.signal,
           timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
-          requestId: taskId,
+          requestId,
         }
       );
 
@@ -415,11 +440,13 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           duration,
           errorMessage: errorBody.substring(0, 500),
         });
-        throw new Error(
-          `Image generation failed: ${response.status} - ${errorBody.substring(
-            0,
-            200
-          )}`
+        throw Object.assign(
+          new Error(
+            `Image generation failed: ${
+              response.status
+            } - ${errorBody.substring(0, 200)}`
+          ),
+          { httpStatus: response.status }
         );
       }
 
@@ -427,6 +454,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       const data = await response.json();
       const result = parseImageResponse(data);
+      assertCurrentImageExecutionAttempt(options);
       const duration = Date.now() - startTime;
       // 记录成功
       completeLLMApiLog(logId, {
@@ -447,17 +475,32 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         'image',
         'png'
       );
+      assertCurrentImageExecutionAttempt(options);
 
       // 完成任务
-      await taskStorageWriter.completeTask(taskId, {
-        url: cachedImgUrls[0],
-        urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
-        format: 'png',
-        size: 0,
-      });
+      const completed = await taskStorageWriter.completeTask(
+        taskId,
+        {
+          url: cachedImgUrls[0],
+          urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
+          format: 'png',
+          size: 0,
+        },
+        requestId
+      );
+      if (completed === false) {
+        const staleAttemptError = new Error('图片提交已被取消或替代');
+        staleAttemptError.name = 'AbortError';
+        throw staleAttemptError;
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       const errorMessage = error.message || 'Image generation failed';
+
+      if (options?.isCurrentAttempt?.() === false) {
+        failLLMApiLog(logId, { duration, errorMessage });
+        throw error;
+      }
       console.error(
         '[FallbackMediaExecutor] generateImage failed:',
         errorMessage,
@@ -483,10 +526,20 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      await taskStorageWriter.failTask(taskId, {
-        code: 'IMAGE_GENERATION_ERROR',
-        message: errorMessage,
-      });
+      const shouldWaitForRecovery =
+        submissionAttempted &&
+        isTrustedTuziApiBaseUrl(config.imageConfig.baseUrl) &&
+        isAmbiguousImageSubmissionError(error);
+      if (!shouldWaitForRecovery) {
+        await taskStorageWriter.failTask(
+          taskId,
+          {
+            code: 'IMAGE_GENERATION_ERROR',
+            message: errorMessage,
+          },
+          requestId
+        );
+      }
       throw error;
     }
   }
@@ -498,6 +551,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   private async generateAsyncImageTask(
     taskId: string,
     params: {
+      requestId?: string;
       prompt: string;
       model: string;
       modelRef?: ImageGenerationParams['modelRef'];
@@ -511,6 +565,8 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     startTime?: number
   ): Promise<void> {
     const logStartTime = startTime || Date.now();
+    const submissionRequestId = params.requestId || taskId;
+    let submissionAttempted = false;
 
     // 开始记录 LLM API 调用
     const logId = startLLMApiLog({
@@ -558,6 +614,10 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         },
         config.imageConfig,
         {
+          onSubmissionAttempt: async () => {
+            await options?.onSubmissionAttempt?.();
+            submissionAttempted = true;
+          },
           onProgress: (progress) => {
             options?.onProgress?.({
               progress,
@@ -565,20 +625,30 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             });
           },
           onSubmitted: async (remoteId) => {
+            assertCurrentImageExecutionAttempt(options);
             // 保存 remoteId，用于页面刷新后恢复轮询
-            await taskStorageWriter.updateRemoteId(
+            const updated = await taskStorageWriter.updateRemoteId(
               taskId,
               remoteId,
               createTaskInvocationRouteSnapshot(
                 'image',
                 params.modelRef || params.model
-              )
+              ),
+              submissionRequestId
             );
+            if (updated === false) {
+              const staleAttemptError = new Error(
+                '图片提交已被取消或替代'
+              );
+              staleAttemptError.name = 'AbortError';
+              throw staleAttemptError;
+            }
           },
           signal: options?.signal,
-          requestId: taskId,
+          requestId: submissionRequestId,
         }
       );
+      assertCurrentImageExecutionAttempt(options);
 
       const duration = Date.now() - logStartTime;
 
@@ -606,16 +676,31 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             : undefined,
         }
       );
+      assertCurrentImageExecutionAttempt(options);
 
       // 完成任务
-      await taskStorageWriter.completeTask(taskId, {
-        url: cachedAsyncUrl,
-        format: result.format,
-        size: 0,
-      });
+      const completed = await taskStorageWriter.completeTask(
+        taskId,
+        {
+          url: cachedAsyncUrl,
+          format: result.format,
+          size: 0,
+        },
+        submissionRequestId
+      );
+      if (completed === false) {
+        const staleAttemptError = new Error('图片提交已被取消或替代');
+        staleAttemptError.name = 'AbortError';
+        throw staleAttemptError;
+      }
     } catch (error: any) {
       const duration = Date.now() - logStartTime;
       const errorMessage = error.message || 'Async image generation failed';
+
+      if (options?.isCurrentAttempt?.() === false) {
+        failLLMApiLog(logId, { duration, errorMessage });
+        throw error;
+      }
 
       // 检测认证错误，触发设置弹窗
       const credentialErrorKind = classifyApiCredentialError(error);
@@ -631,10 +716,20 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      await taskStorageWriter.failTask(taskId, {
-        code: 'ASYNC_IMAGE_GENERATION_ERROR',
-        message: errorMessage,
-      });
+      const shouldWaitForRecovery =
+        submissionAttempted &&
+        isTrustedTuziApiBaseUrl(config.imageConfig.baseUrl) &&
+        isAmbiguousImageSubmissionError(error);
+      if (!shouldWaitForRecovery) {
+        await taskStorageWriter.failTask(
+          taskId,
+          {
+            code: 'ASYNC_IMAGE_GENERATION_ERROR',
+            message: errorMessage,
+          },
+          submissionRequestId
+        );
+      }
       throw error;
     }
   }

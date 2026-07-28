@@ -369,6 +369,140 @@ describe('Media Executor Module', () => {
       );
     }, 15000);
 
+    it('keeps an attempted async Tuzi image submission available for recovery', async () => {
+      const failTask = vi.fn(async () => true);
+      const generateAsyncImage = vi.fn(
+        async (_params: unknown, _config: unknown, options: any) => {
+          await options.onSubmissionAttempt?.();
+          throw new Error('Failed to fetch');
+        }
+      );
+
+      vi.doMock('../media-executor/llm-api-logger', () => ({
+        startLLMApiLog: vi.fn(() => 'log-id'),
+        completeLLMApiLog: vi.fn(),
+        failLLMApiLog: vi.fn(),
+      }));
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          updateStatus: vi.fn(async () => true),
+          updateRemoteId: vi.fn(async () => true),
+          completeTask: vi.fn(async () => true),
+          failTask,
+        },
+      }));
+      vi.doMock('../unified-cache-service', () => ({
+        unifiedCacheService: {
+          getImageForAI: vi.fn(),
+          isCached: vi.fn(async () => false),
+          cacheMediaFromBlob: vi.fn(async () => {}),
+        },
+      }));
+      vi.doMock('../../utils/api-auth-error-event', () => ({
+        classifyApiCredentialError: vi.fn(() => null),
+        dispatchApiAuthError: vi.fn(),
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          resolveInvocationRoute: vi.fn((operation: string) => ({
+            routeType: operation,
+            modelId: operation === 'image' ? 'gpt-image-async' : '',
+            profileId: 'tuzi-profile',
+            profileName: 'Tuzi',
+            providerType: 'tuzi',
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'test-key',
+            source: 'preset',
+          })),
+        };
+      });
+      vi.doMock('../provider-routing', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../provider-routing')
+        >();
+        return {
+          ...actual,
+          resolveInvocationPlanFromRoute: vi.fn((operation: string) =>
+            operation === 'image'
+              ? {
+                  provider: {
+                    profileId: 'tuzi-profile',
+                    profileName: 'Tuzi',
+                    providerType: 'tuzi',
+                    baseUrl: 'https://api.tu-zi.com/v1',
+                    apiKey: 'test-key',
+                    authType: 'bearer',
+                  },
+                  binding: {
+                    id: 'tuzi:image:async',
+                    profileId: 'tuzi-profile',
+                    modelId: 'gpt-image-async',
+                    operation: 'image',
+                    protocol: 'openai.async.media',
+                    requestSchema: 'openai.async.image.form',
+                    responseSchema: 'openai.async.task',
+                    submitPath: '/videos',
+                    pollPathTemplate: '/videos/{taskId}',
+                    priority: 700,
+                    confidence: 'high',
+                    source: 'preset',
+                  },
+                }
+              : null
+          ),
+        };
+      });
+      vi.doMock('../model-adapters', () => ({
+        resolveAdapterForInvocation: vi.fn(() => undefined),
+        GPT_IMAGE_EDIT_REQUEST_SCHEMAS: ['openai.image.gpt-edit-form'],
+      }));
+      vi.doMock('../media-executor/fallback-utils', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../media-executor/fallback-utils')
+        >();
+        return {
+          ...actual,
+          generateAsyncImage,
+        };
+      });
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+      const onSubmissionAttempt = vi.fn(async () => undefined);
+
+      await expect(
+        executor.generateImage(
+          {
+            taskId: 'task-async-recovery-1',
+            requestId: 'request-async-recovery-1',
+            prompt: '生成一只兔子',
+            model: 'gpt-image-async',
+          },
+          {
+            onSubmissionAttempt,
+            isCurrentAttempt: () => true,
+          }
+        )
+      ).rejects.toThrow('Failed to fetch');
+
+      expect(generateAsyncImage).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Object),
+        expect.objectContaining({
+          requestId: 'request-async-recovery-1',
+          onSubmissionAttempt: expect.any(Function),
+        })
+      );
+      expect(onSubmissionAttempt).toHaveBeenCalledTimes(1);
+      expect(failTask).not.toHaveBeenCalled();
+    }, 15000);
+
     it('routes Midjourney runtime image models through the MJ adapter', async () => {
       const executeImageViaAdapter = vi.fn(async () => undefined);
       const resolveAdapterForInvocation = vi.fn(() => ({
@@ -413,9 +547,13 @@ describe('Media Executor Module', () => {
           },
         };
       });
-      vi.doMock('../provider-routing', () => ({
-        resolveInvocationPlanFromRoute: vi.fn(() => null),
-      }));
+      vi.doMock('../provider-routing', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../provider-routing')>();
+        return {
+          ...actual,
+          resolveInvocationPlanFromRoute: vi.fn(() => null),
+        };
+      });
       vi.doMock('../model-adapters', () => ({
         resolveAdapterForInvocation,
         getAdapterContextFromSettings: vi.fn(),

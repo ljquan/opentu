@@ -122,7 +122,34 @@ describe('default image adapter compatibility', () => {
     );
   });
 
+  it('forwards the formal submission callback to the basic image client', async () => {
+    const onSubmissionAttempt = vi.fn();
+    mocks.generateImage.mockResolvedValue({
+      data: [{ url: 'https://example.com/basic.png' }],
+    });
+
+    await geminiImageAdapter.generateImage(
+      {
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+        requestId: 'task-image-submit-1',
+        onSubmissionAttempt,
+      },
+      {
+        model: 'gpt-image-2',
+        prompt: 'Draw a clean product photo',
+      }
+    );
+
+    expect(mocks.generateImage).toHaveBeenCalledWith(
+      'Draw a clean product photo',
+      expect.objectContaining({ onSubmissionAttempt })
+    );
+  });
+
   it('uses async image polling when provider binding comes from pricing async-image endpoint', async () => {
+    const onSubmissionAttempt = vi.fn();
     mocks.generateWithPolling.mockResolvedValue({
       id: 'task-1',
       status: 'completed',
@@ -139,6 +166,7 @@ describe('default image adapter compatibility', () => {
         apiKey: 'test-key',
         authType: 'bearer',
         requestId: 'task-image-async-1',
+        onSubmissionAttempt,
         binding: {
           id: 'binding',
           profileId: 'provider',
@@ -182,6 +210,7 @@ describe('default image adapter compatibility', () => {
       expect.objectContaining({
         interval: 5000,
         requestId: 'task-image-async-1',
+        onSubmissionAttempt,
       })
     );
     expect(mocks.generateImage).not.toHaveBeenCalled();

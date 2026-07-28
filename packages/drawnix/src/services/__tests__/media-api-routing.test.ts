@@ -138,7 +138,12 @@ describe('media-api provider routing', () => {
       }
     );
 
-    const result = await generateImageAsync(
+    let resolveSubmissionAttempt!: () => void;
+    const submissionAttempt = new Promise<void>((resolve) => {
+      resolveSubmissionAttempt = resolve;
+    });
+    const onSubmissionAttempt = vi.fn(async () => submissionAttempt);
+    const generationPromise = generateImageAsync(
       {
         prompt: 'edit with reference',
         model: 'gpt-image-2',
@@ -156,8 +161,18 @@ describe('media-api provider routing', () => {
         interval: 1,
         maxAttempts: 1,
         requestId: 'task-async-image-1',
+        onSubmissionAttempt,
       }
     );
+
+    await vi.waitFor(() => expect(onSubmissionAttempt).toHaveBeenCalled());
+    expect(
+      fetchImpl.mock.calls.some(
+        ([input]) => String(input) === 'https://gateway.example.com/v1/videos'
+      )
+    ).toBe(false);
+    resolveSubmissionAttempt();
+    const result = await generationPromise;
 
     expect(result.url).toBe('https://cdn.example.com/final.png');
     expect(fetchImpl).toHaveBeenCalledTimes(4);

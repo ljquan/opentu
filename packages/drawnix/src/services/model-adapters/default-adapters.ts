@@ -177,6 +177,9 @@ export const geminiImageAdapter: ImageModelAdapter = {
           onSubmitted: request.params?.onSubmitted as
             | ((remoteId: string) => void)
             | undefined,
+          ...(context.onSubmissionAttempt
+            ? { onSubmissionAttempt: context.onSubmissionAttempt }
+            : {}),
           requestId: context.requestId,
           signal: context.signal,
         }
@@ -206,6 +209,9 @@ export const geminiImageAdapter: ImageModelAdapter = {
       modelRef: request.modelRef || null,
       requestId: context.requestId,
       signal: context.signal,
+      ...(context.onSubmissionAttempt
+        ? { onSubmissionAttempt: context.onSubmissionAttempt }
+        : {}),
     };
     if (responseFormat) {
       imageOptions.response_format = responseFormat;

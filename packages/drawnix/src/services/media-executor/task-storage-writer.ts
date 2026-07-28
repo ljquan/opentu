@@ -162,7 +162,83 @@ class TaskStorageWriter {
       const request = store.put(task);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || request.error);
+      transaction.onabort = () =>
+        reject(transaction.error || new Error('Task storage transaction aborted'));
+    });
+  }
+
+  private async updateTask(
+    taskId: string,
+    update: (task: SWTask) => void,
+    expectedRequestId?: string,
+    options: {
+      allowPending?: boolean;
+      allowFailed?: boolean;
+      expectedErrorCodes?: readonly string[];
+      allowLegacyRequestId?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    if (!taskId) {
+      return false;
+    }
+
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(TASKS_STORE, 'readwrite');
+      const store = transaction.objectStore(TASKS_STORE);
+      const request = store.get(taskId);
+      let updated = false;
+      let updateError: unknown;
+
+      request.onsuccess = () => {
+        const task = request.result as SWTask | undefined;
+        if (!task) {
+          return;
+        }
+        if (
+          expectedRequestId &&
+          (task.type !== 'image' ||
+            (task.status !== 'processing' &&
+              (!options.allowPending || task.status !== 'pending') &&
+              (!options.allowFailed ||
+                task.status !== 'failed' ||
+                !options.expectedErrorCodes?.includes(
+                  task.error?.code || ''
+                ))) ||
+            (task.params.submissionRequestId !== expectedRequestId &&
+              (!options.allowLegacyRequestId ||
+                task.params.submissionRequestId !== undefined ||
+                task.id !== expectedRequestId)))
+        ) {
+          return;
+        }
+
+        try {
+          update(task);
+          store.put(task);
+          updated = true;
+        } catch (error) {
+          updateError = error;
+          transaction.abort();
+        }
+      };
+
+      transaction.oncomplete = () => resolve(updated);
+      transaction.onerror = () =>
+        reject(
+          updateError ||
+            transaction.error ||
+            request.error ||
+            new Error('Task storage transaction failed')
+        );
+      transaction.onabort = () =>
+        reject(
+          updateError ||
+            transaction.error ||
+            new Error('Task storage transaction aborted')
+        );
     });
   }
 
@@ -211,16 +287,40 @@ class TaskStorageWriter {
   /**
    * 更新任务状态
    */
-  async updateStatus(taskId: string, status: SWTaskStatus): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.status = status;
-      task.updatedAt = Date.now();
-      if (status === 'processing' && !task.startedAt) {
-        task.startedAt = Date.now();
-      }
-      await this.saveTask(task);
-    }
+  async updateStatus(
+    taskId: string,
+    status: SWTaskStatus,
+    expectedRequestId?: string,
+    options: { allowLegacyRequestId?: boolean } = {}
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = status;
+        task.updatedAt = Date.now();
+        if (status === 'processing' && !task.startedAt) {
+          task.startedAt = Date.now();
+        }
+      },
+      expectedRequestId,
+      { allowPending: true, ...options }
+    );
+  }
+
+  async markImageSubmissionAttempted(
+    taskId: string,
+    expectedRequestId: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'processing';
+        task.params.imageSubmissionAttempted = true;
+        task.updatedAt = Date.now();
+      },
+      expectedRequestId,
+      { allowPending: true }
+    );
   }
 
   /**
@@ -229,60 +329,126 @@ class TaskStorageWriter {
   async updateProgress(
     taskId: string,
     progress: number,
-    phase?: string
-  ): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.progress = progress;
-      task.updatedAt = Date.now();
-      if (phase) {
-        task.executionPhase = phase;
+    phase?: string,
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.progress = progress;
+        task.updatedAt = Date.now();
+        if (phase) {
+          task.executionPhase = phase;
+        }
+      },
+      expectedRequestId,
+      { allowPending: true }
+    );
+  }
+
+  /**
+   * 将已正式提交但响应丢失的图片任务切换为 Request ID 恢复轮询。
+   */
+  async markImageAttemptRecovering(
+    taskId: string,
+    expectedRequestId: string,
+    options: {
+      allowFailed?: boolean;
+      expectedErrorCodes?: readonly string[];
+      migrateLegacy?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'processing';
+        task.error = undefined;
+        task.completedAt = undefined;
+        task.executionPhase = 'polling';
+        task.progress = undefined;
+        if (options.migrateLegacy) {
+          task.params.submissionRequestId = expectedRequestId;
+          task.params.imageSubmissionAttempted = true;
+        }
+        task.updatedAt = Date.now();
+      },
+      expectedRequestId,
+      {
+        allowFailed: options.allowFailed,
+        expectedErrorCodes: options.expectedErrorCodes,
+        allowLegacyRequestId: options.migrateLegacy,
       }
-      await this.saveTask(task);
-    }
+    );
   }
 
   /**
    * 完成任务
    */
-  async completeTask(taskId: string, result: SWTask['result']): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      const normalizedResult =
-        task.type === 'image' && result
-          ? {
-              ...result,
-              url: normalizeImageDataUrl(result.url),
-              urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
-              thumbnailUrl: result.thumbnailUrl
-                ? normalizeImageDataUrl(result.thumbnailUrl)
-                : result.thumbnailUrl,
-              thumbnailUrls: result.thumbnailUrls?.map((url) =>
-                normalizeImageDataUrl(url)
-              ),
-            }
-          : result;
+  async completeTask(
+    taskId: string,
+    result: SWTask['result'],
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        const normalizedResult =
+          task.type === 'image' && result
+            ? {
+                ...result,
+                url: normalizeImageDataUrl(result.url),
+                urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
+                thumbnailUrl: result.thumbnailUrl
+                  ? normalizeImageDataUrl(result.thumbnailUrl)
+                  : result.thumbnailUrl,
+                thumbnailUrls: result.thumbnailUrls?.map((url) =>
+                  normalizeImageDataUrl(url)
+                ),
+              }
+            : result;
 
-      task.status = 'completed';
-      task.result = normalizedResult;
-      task.completedAt = Date.now();
-      task.updatedAt = Date.now();
-      task.progress = 100;
-      await this.saveTask(task);
-    }
+        task.status = 'completed';
+        task.result = normalizedResult;
+        task.error = undefined;
+        task.completedAt = Date.now();
+        task.updatedAt = Date.now();
+        task.progress = 100;
+        task.executionPhase = undefined;
+      },
+      expectedRequestId
+    );
   }
 
   /**
    * 任务失败
    */
-  async failTask(taskId: string, error: SWTask['error']): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.status = 'failed';
-      task.error = error;
-      task.updatedAt = Date.now();
-      await this.saveTask(task);
-    }
+  async failTask(
+    taskId: string,
+    error: SWTask['error'],
+    expectedRequestId?: string,
+    options: {
+      allowPending?: boolean;
+      allowLegacyRequestId?: boolean;
+      clearStartedAt?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'failed';
+        task.error = error;
+        const now = Date.now();
+        task.completedAt = now;
+        task.updatedAt = now;
+        task.progress = undefined;
+        task.executionPhase = undefined;
+        if (options.clearStartedAt) {
+          task.startedAt = undefined;
+        }
+      },
+      expectedRequestId,
+      options
+    );
   }
 
   /**
@@ -291,18 +457,21 @@ class TaskStorageWriter {
   async updateRemoteId(
     taskId: string,
     remoteId: string,
-    invocationRoute?: TaskInvocationRouteSnapshot
-  ): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.remoteId = remoteId;
-      if (invocationRoute) {
-        task.invocationRoute = invocationRoute;
-      }
-      task.updatedAt = Date.now();
-      task.executionPhase = 'polling';
-      await this.saveTask(task);
-    }
+    invocationRoute?: TaskInvocationRouteSnapshot,
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.remoteId = remoteId;
+        if (invocationRoute) {
+          task.invocationRoute = invocationRoute;
+        }
+        task.updatedAt = Date.now();
+        task.executionPhase = 'polling';
+      },
+      expectedRequestId
+    );
   }
 
   /**

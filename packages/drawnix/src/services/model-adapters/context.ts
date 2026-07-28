@@ -72,7 +72,7 @@ export function buildProviderContextFromAdapterContext(
   };
 }
 
-export function sendAdapterRequest(
+export async function sendAdapterRequest(
   context: AdapterContext,
   request: ProviderTransportRequest,
   baseUrlOverride?: string
@@ -90,6 +90,10 @@ export function sendAdapterRequest(
     context.operation === 'image' && context.requestId && isSubmissionRequest
       ? context.requestId
       : undefined;
+
+  if (requestId) {
+    await context.onSubmissionAttempt?.();
+  }
 
   return providerTransport.send(providerContext, {
     ...request,

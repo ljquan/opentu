@@ -60,8 +60,9 @@ interface PollingOptions {
   maxAttempts?: number;
   signal?: AbortSignal;
   requestId?: string;
+  onSubmissionAttempt?: () => void | Promise<void>;
   onProgress?: (progress: number, status: string) => void;
-  onSubmitted?: (taskId: string) => void;
+  onSubmitted?: (taskId: string) => void | Promise<void>;
   routeModel?: string | ModelRef | null;
 }
 
@@ -238,16 +239,18 @@ class AsyncImageAPIService {
       maxAttempts,
       signal,
       requestId,
+      onSubmissionAttempt,
       onProgress,
       onSubmitted,
     } = options;
     const maxPollingAttempts =
       maxAttempts ?? getDefaultImagePollingMaxAttempts(interval);
 
+    await onSubmissionAttempt?.();
     const submitResp = await this.submit(params, signal, requestId);
 
     if (onSubmitted) {
-      onSubmitted(submitResp.id);
+      await onSubmitted(submitResp.id);
     }
 
     if (onProgress) {

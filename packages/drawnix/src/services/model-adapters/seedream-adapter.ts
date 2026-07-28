@@ -170,7 +170,9 @@ export const seedreamImageAdapter: ImageModelAdapter = {
           : data?.error?.message ||
             data?.message ||
             `Seedream request failed: ${response.status}`;
-      throw new Error(errMsg);
+      throw Object.assign(new Error(errMsg), {
+        httpStatus: response.status,
+      });
     }
 
     const result = await response.json();
