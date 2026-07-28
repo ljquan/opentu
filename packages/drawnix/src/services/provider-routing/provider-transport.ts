@@ -14,13 +14,7 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-/**
- * DEV-ONLY: 把匹配的 API 站绝对 URL 改写为同源相对路径，
- * 让请求走 vite dev proxy，规避浏览器对自定义头（如 X-Request-Id）的 CORS 拦截。
- *
- * 生产环境（import.meta.env.PROD）该逻辑不生效。
- * 需与 apps/web/vite.config.ts 中的 server.proxy 配置配套使用。
- */
+/** 本地开发仅把主 API 站改写到既有 Vite 同源代理。 */
 const DEV_PROXY_HOSTS: readonly string[] = ['api.tu-zi.com'];
 const LOCAL_DEV_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '::1'];
 
@@ -269,27 +263,27 @@ function createTimeoutSignal(
 function applyRequestIdHeader(
   headers: Record<string, string>,
   requestId: string | undefined,
-  enabled: boolean
+  enabled: boolean,
+  removeExisting: boolean
 ): Record<string, string> {
-  if (!requestId || !enabled) {
+  if ((!requestId || !enabled) && !removeExisting) {
     return headers;
   }
-  return { ...headers, 'X-Request-Id': requestId };
+
+  const nextHeaders = Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() !== 'x-request-id'
+    )
+  );
+  if (requestId && enabled) {
+    nextHeaders['X-Request-Id'] = requestId;
+  }
+  return nextHeaders;
 }
 
-function getRuntimeOrigin(): string | undefined {
-  const origin = globalThis.location?.origin;
-  return typeof origin === 'string' && origin !== 'null' ? origin : undefined;
-}
-
-/**
- * X-Request-Id 只在可信 Tuzi 同源路径启用。跨域浏览器请求若未在 CORS
- * 中放行该头，会在图片提交前被预检拦截。
- */
-export function canAttachProviderRequestIdHeader(
+function isTrustedTuziRequestTarget(
   context: ResolvedProviderContext,
-  request: Pick<ProviderTransportRequest, 'path' | 'baseUrlStrategy'>,
-  runtimeOrigin: string | undefined = getRuntimeOrigin()
+  request: Pick<ProviderTransportRequest, 'path' | 'baseUrlStrategy'>
 ): boolean {
   if (!isTrustedTuziApiBaseUrl(context.baseUrl)) {
     return false;
@@ -301,18 +295,24 @@ export function canAttachProviderRequestIdHeader(
   );
   const requestUrl = joinUrl(resolvedBaseUrl, request.path);
 
-  if (!/^https?:\/\//i.test(requestUrl)) {
-    return true;
-  }
-  if (!runtimeOrigin) {
-    return false;
-  }
+  return (
+    !/^https?:\/\//i.test(requestUrl) || isTrustedTuziApiBaseUrl(requestUrl)
+  );
+}
 
-  try {
-    return new URL(requestUrl).origin === new URL(runtimeOrigin).origin;
-  } catch {
-    return false;
-  }
+/**
+ * X-Request-Id 只在可信 Tuzi 的非 GET 提交请求中启用。
+ * OpenTu 无论部署在本地、局域网还是公网都直连 Tuzi API；跨域预检
+ * 由所有对外 Tuzi API 节点统一放行 X-Request-Id。
+ */
+export function canAttachProviderRequestIdHeader(
+  context: ResolvedProviderContext,
+  request: Pick<ProviderTransportRequest, 'path' | 'method' | 'baseUrlStrategy'>
+): boolean {
+  return (
+    (request.method || 'GET').toUpperCase() !== 'GET' &&
+    isTrustedTuziRequestTarget(context, request)
+  );
 }
 
 export class ProviderTransport {
@@ -329,10 +329,12 @@ export class ProviderTransport {
     )}`;
     const mergedHeaders = mergeHeaders(context.extraHeaders, request.headers);
     const authenticatedHeaders = applyAuthHeaders(context, mergedHeaders);
+    const isTrustedTarget = isTrustedTuziRequestTarget(context, request);
     const finalHeaders = applyRequestIdHeader(
       authenticatedHeaders,
       request.requestId,
-      canAttachProviderRequestIdHeader(context, request)
+      canAttachProviderRequestIdHeader(context, request),
+      isTrustedTarget
     );
 
     return {

@@ -1,6 +1,6 @@
 # 多供应商生图 CORS 预检失败排障经验
 
-更新日期：2026-07-19
+更新日期：2026-07-28
 
 ## 背景
 
@@ -69,7 +69,9 @@ authorization,content-type,x-request-id
 能力判断至少应包含：
 
 - 当前 Base URL 是否属于允许该请求头的受信供应商。
-- 最终请求是否与当前页面同源，或是否已由开发代理转成同源请求。
+- 当前是否为非 `GET` 提交，避免异步轮询被误标记为新任务。
+
+可信 Tuzi API 由所有公网节点统一在 CORS 中放行 `X-Request-Id`。OpenTu 无论部署在官方域名还是第三方公网域名，都直连 API，不新增可被匿名用户滥用的公网中继。
 
 ### 2. Request ID 必须来自稳定任务 ID
 
@@ -77,7 +79,7 @@ authorization,content-type,x-request-id
 
 ### 3. 开发代理与生产跨域是两种环境
 
-本地 Vite 代理可以把指定 API 改写为同源路径，因此可携带 `X-Request-Id`。生产站点直连外部 API 时，必须服从对方 CORS 声明。
+本地 Vite 代理仍可以把主 API 站改写为同源路径。生产站点直连 Tuzi API 时同样携带该标头，由 API 的 CORS 响应放行。
 
 测试环境也不应被误判为开发代理环境，否则 URL 会被改写为相对路径，导致单元测试无法验证真实的生产跨域行为。
 
@@ -104,8 +106,10 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 ### 自动测试
 
 - 自定义跨域供应商即使传入 request ID，也不应生成 `X-Request-Id` 请求头。
-- Tuzi 跨域请求不应启用 request ID 请求头。
-- Tuzi 同源或代理请求应继续携带本地任务 ID。
+- 所有公网 OpenTu 页面直连六个可信 Tuzi 站点时都应携带本地任务 ID。
+- Tuzi API 应用 CORS 与对外节点 Nginx 预检都应放行 `X-Request-Id`。
+- 已存在的任意大小写 `X-Request-Id` 应被当前任务 ID 唯一覆盖。
+- Tuzi 异步轮询 `GET` 不应携带 request ID 请求头。
 - 图片 API 响应解析仍应支持远程 URL 和 Base64。
 - `drawnix` 类型检查必须通过。
 - Web 主应用和 Service Worker 生产构建必须通过。
@@ -115,6 +119,7 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 - 新增供应商后可以获取模型。
 - 可以选择新供应商的图片模型。
 - 提交后任务从生成中进入已完成，不出现 `Failed to fetch`。
+- 从公网 OpenTu 页面提交时，Network 中的跨域正式请求可见唯一的 `X-Request-Id`。
 - 任务队列可以展示结果图和远程链接。
 - 控制台没有本次请求的 CORS 或网络错误。
 

@@ -1,6 +1,6 @@
 # 图片请求 Request ID 经验
 
-更新日期：2026-07-27
+更新日期：2026-07-28
 
 ## 功能目标
 
@@ -39,7 +39,7 @@ X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
 
 1. 图片任务创建时生成本地 UUID。
 2. 执行器把任务 ID 写入适配器上下文的 `requestId`。
-3. 图片适配器在供应商和运行环境允许时写入 `X-Request-Id`。
+3. 图片适配器在可信 Tuzi 的非 `GET` 提交请求中写入 `X-Request-Id`。
 4. 同一任务重试时继续传递原任务 ID。
 
 核心代码位置：
@@ -57,8 +57,10 @@ X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
 ## 实现约束
 
 - 只在图片提交请求中注入，不修改请求体和 URL。
-- 不覆盖鉴权及供应商自定义请求头。
-- 浏览器跨域请求必须遵守供应商 CORS；当前只在可信 Tuzi 同源或本地代理路径自动附加。
+- 不覆盖鉴权；若配置中已有任意大小写形式的 `X-Request-Id`，统一替换为当前任务 ID，避免浏览器合并出两个值。
+- 可信 Tuzi API 的图片非 `GET` 提交始终附加，不受 OpenTu 网页是本地、局域网或公网部署影响。
+- OpenTu 公网部署仍直连可信 Tuzi API，不新增匿名公网代理；Tuzi API 必须在所有对外站点的 CORS `Access-Control-Allow-Headers` 中放行 `X-Request-Id`。
+- 非可信、用户自定义的供应商不自动附加，避免破坏其跨域请求。
 - 不为轮询请求重复生成 ID。
 - Request ID 只是短字符串，不增加图片或文件的内存占用。
 - 不包含查询面板、找回按钮、找回地址、自动找回或 `/log/get-request` 调用。
@@ -67,6 +69,7 @@ X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
 
 ```bash
 pnpm --filter @aitu/drawnix exec vitest run \
+  src/services/__tests__/provider-routing.test.ts \
   src/services/__tests__/model-adapter-context.test.ts \
   src/services/__tests__/gpt-image-adapter.test.ts \
   src/services/__tests__/async-image-api-service.test.ts \
@@ -81,4 +84,4 @@ pnpm exec nx run drawnix:typecheck
 git diff --check
 ```
 
-通过标准：图片提交头等于本地任务 ID、同一任务重试复用原 ID、不同任务 ID 不同、轮询 `GET` 不携带该头。
+通过标准：任意公网 OpenTu 页面直连六个可信 Tuzi 站点时，请求头都等于本地任务 ID；同一任务重试复用原 ID、不同任务 ID 不同、轮询 `GET` 不携带该头、非可信自定义供应商不携带该头。
