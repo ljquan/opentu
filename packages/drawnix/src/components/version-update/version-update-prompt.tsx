@@ -7,7 +7,11 @@ import { useI18n } from '../../i18n';
 import './version-update-prompt.scss';
 
 export const VersionUpdatePrompt: React.FC = () => {
-  const [updateAvailable, setUpdateAvailable] = useState<{ version: string; changelog?: string[] } | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState<{
+    version: string;
+    releaseId?: string;
+    changelog?: string[];
+  } | null>(null);
   const [showChangelog, setShowChangelog] = useState(false);
   const { activeTasks } = useTaskQueue();
   // const { t } = useI18n(); // Assuming i18n is available, if not fallback to strings
@@ -19,9 +23,16 @@ export const VersionUpdatePrompt: React.FC = () => {
       
       const newVersion = customEvent.detail?.version;
       
-      // 获取当前运行的版本（从 HTML meta 标签）
-      const currentVersionMeta = document.querySelector('meta[name="app-version"]');
-      const currentVersion = currentVersionMeta?.getAttribute('content');
+      // 产品版本可以不变，但每次部署的 releaseId 必须不同。
+      // 老页面没有该 meta，视为需要升级，以完成一次性迁移。
+      const currentReleaseMeta = document.querySelector(
+        'meta[name="app-release-id"]'
+      );
+      const currentReleaseId = currentReleaseMeta?.getAttribute('content');
+
+      if (currentReleaseId && newVersion === currentReleaseId) {
+        return;
+      }
       
       try {
         // Fetch detailed version info (changelog)
@@ -29,25 +40,18 @@ export const VersionUpdatePrompt: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           
-          // 如果当前版本已经是最新版本，不显示更新提示
-          if (currentVersion && data.version === currentVersion) {
-            // console.log('[VersionUpdatePrompt] Already on latest version, skipping prompt');
+          if (currentReleaseId && data.releaseId === currentReleaseId) {
             return;
           }
           
-          // Use fetched data if versions match or if event didn't specify version
-          if (!newVersion || data.version === newVersion) {
+          // SW 事件携带 releaseId；界面仍展示易读的产品版本。
+          if (!newVersion || data.releaseId === newVersion) {
             setUpdateAvailable(data);
             return;
           }
         }
       } catch (error) {
         console.warn('Failed to fetch version.json:', error);
-      }
-
-      // 如果无法获取 version.json，但事件带了版本号，检查是否相同
-      if (currentVersion && newVersion && currentVersion === newVersion) {
-        return; // 已经是最新版本
       }
 
       // Fallback to event detail

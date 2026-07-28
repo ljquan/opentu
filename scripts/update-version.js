@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { createReleaseId } = require('./release-id');
 
 // 获取当前版本号
 function getCurrentVersion() {
@@ -32,10 +33,15 @@ function createVersionFile(version) {
     }
   }
   
+  const buildTime = new Date().toISOString();
+  const releaseId = createReleaseId(version, process.env, new Date(buildTime));
+
   const versionInfo = {
     version: version,
-    buildTime: new Date().toISOString(),
-    gitCommit: process.env.GITHUB_SHA || 'unknown',
+    releaseId,
+    buildTime,
+    gitCommit:
+      process.env.COMMIT_REF || process.env.GITHUB_SHA || 'unknown',
     changelog: existingChangelog
   };
   
@@ -67,6 +73,22 @@ function updateHtmlWithVersion(version) {
     htmlContent = htmlContent.replace(
       '    <meta name="viewport" content="width=device-width, initial-scale=1" />',
       `    <meta name="viewport" content="width=device-width, initial-scale=1" />\n${versionMeta}`
+    );
+  }
+
+  const versionInfo = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '../apps/web/public/version.json'), 'utf8')
+  );
+  const releaseId = versionInfo.releaseId || version;
+  if (htmlContent.includes('name="app-release-id"')) {
+    htmlContent = htmlContent.replace(
+      /<meta name="app-release-id" content="[^"]*" \/>/g,
+      `<meta name="app-release-id" content="${releaseId}" />`
+    );
+  } else {
+    htmlContent = htmlContent.replace(
+      /(<meta name="app-version" content="[^"]*" \/>)/,
+      `$1\n    <meta name="app-release-id" content="${releaseId}" />`
     );
   }
   

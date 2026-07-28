@@ -231,8 +231,13 @@ import('./task-queue/llm-api-logger').then(({ setLLMApiLogBroadcast }) => {
 // Service Worker for PWA functionality and handling CORS issues with external images
 // Version will be replaced during build process
 declare const __APP_VERSION__: string;
+declare const __PRODUCT_VERSION__: string;
 const APP_VERSION =
   typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+const PRODUCT_VERSION =
+  typeof __PRODUCT_VERSION__ !== 'undefined'
+    ? __PRODUCT_VERSION__
+    : APP_VERSION;
 const SW_SCOPE_BASE_URL = new URL('./', self.location.href);
 const SW_SCOPE_BASE_PATH = SW_SCOPE_BASE_URL.pathname;
 const CACHE_NAME = `drawnix-v${APP_VERSION}`;
@@ -966,6 +971,19 @@ function getStaticCacheName(version: string): string {
   return `drawnix-static-v${version}`;
 }
 
+async function hasLegacyProductVersionCache(): Promise<boolean> {
+  if (APP_VERSION === PRODUCT_VERSION) {
+    return false;
+  }
+
+  try {
+    const cacheNames = await caches.keys();
+    return cacheNames.includes(getStaticCacheName(PRODUCT_VERSION));
+  } catch {
+    return false;
+  }
+}
+
 function createDefaultVersionState(): SWVersionState {
   return {
     committedVersion: APP_VERSION,
@@ -1227,6 +1245,7 @@ let idlePrefetchTaskQueue: Promise<void> = Promise.resolve();
 let scheduledIdlePrefetchSweepTimer: number | null = null;
 let scheduledIdlePrefetchSweepAt = 0;
 let installingVersionIsUpdate = false;
+let shouldAutoActivateLegacyRelease = false;
 let shouldClaimClientsOnActivate = false;
 
 function logSWDebug(message: string, detail?: unknown): void {
@@ -2735,6 +2754,11 @@ sw.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(
     (async () => {
       await loadFailedDomains();
+      const versionStateBeforeInstall = await readVersionState();
+      shouldAutoActivateLegacyRelease =
+        installingVersionIsUpdate &&
+        (versionStateBeforeInstall.committedVersion === PRODUCT_VERSION ||
+          (await hasLegacyProductVersionCache()));
       await updateVersionState((current) => ({
         committedVersion: current.committedVersion || APP_VERSION,
         pendingVersion: installingVersionIsUpdate ? APP_VERSION : null,
@@ -2772,6 +2796,14 @@ sw.addEventListener('install', (event: ExtendableEvent) => {
         }
 
         await markNewVersionReady(installingVersionIsUpdate);
+        // Releases before releaseId support used the product version as the
+        // cache key. Their UI also suppresses same-product-version update
+        // prompts, so they can never commit a waiting worker themselves.
+        // Auto-activate this one-time migration after the new shell is fully
+        // cached. Existing clients keep their controller until reload.
+        if (shouldAutoActivateLegacyRelease) {
+          sw.skipWaiting();
+        }
       } catch (err) {
         await updateVersionState((current) => ({
           committedVersion: current.committedVersion || APP_VERSION,
@@ -2802,6 +2834,10 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil(
     (async () => {
       const versionStateBeforeActivate = await readVersionState();
+      const isLegacyReleaseMigration =
+        shouldAutoActivateLegacyRelease ||
+        versionStateBeforeActivate.committedVersion === PRODUCT_VERSION ||
+        (await hasLegacyProductVersionCache());
       // SW 一旦激活，committedVersion 就应该是当前版本。
       // 无论是首次安装、用户确认升级、还是所有旧 tab 关闭后自然激活，
       // 都需要更新，否则新 tab 会用旧版本号请求新 hash 资源导致 404。
@@ -2813,7 +2849,7 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
       });
       await postVersionState();
 
-      if (shouldClaimClientsOnActivate) {
+      if (shouldClaimClientsOnActivate || isLegacyReleaseMigration) {
         logSWDebug('activate: before clients.claim');
         await sw.clients.claim();
         logSWDebug('activate: after clients.claim');
@@ -2835,6 +2871,19 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
       if (cm) {
         cm.sendSWActivated(APP_VERSION);
         logSWDebug('activate: sent sw:activated broadcast');
+      }
+      if (isLegacyReleaseMigration) {
+        const clients = await sw.clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true,
+        });
+        await Promise.allSettled(
+          clients.map((client) =>
+            'navigate' in client
+              ? (client as WindowClient).navigate(client.url)
+              : Promise.resolve(null)
+          )
+        );
       }
       setSWBootProgress({
         phase: 'activated',

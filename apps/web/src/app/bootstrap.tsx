@@ -51,9 +51,11 @@ crashRecoveryService.checkUrlSafeMode();
 // 必须尽早初始化，以捕获启动阶段的内存状态和错误
 initCrashLogger();
 
-const APP_VERSION =
-  import.meta.env.VITE_APP_VERSION ||
-  document.querySelector('meta[name="app-version"]')?.getAttribute('content') ||
+const APP_RELEASE_ID =
+  import.meta.env.VITE_APP_RELEASE_ID ||
+  document
+    .querySelector('meta[name="app-release-id"]')
+    ?.getAttribute('content') ||
   '0.0.0';
 const RELEASE_CONTEXT = getAnalyticsReleaseContext();
 const LAZY_CHUNK_RETRY_PARAM = '_lazy_chunk_retry';
@@ -379,10 +381,14 @@ if (shouldUseServiceWorker) {
 
   const swRegistrationPromise =
     window.__OPENTU_SW_REGISTRATION_PROMISE__ ||
-    navigator.serviceWorker.register('./sw.js').catch((error) => {
-      console.warn('[Main] Service worker registration failed:', error);
-      return null;
-    });
+    navigator.serviceWorker
+      .register(`./sw.js?release=${encodeURIComponent(APP_RELEASE_ID)}`, {
+        updateViaCache: 'none',
+      })
+      .catch((error) => {
+        console.warn('[Main] Service worker registration failed:', error);
+        return null;
+      });
 
   window.__OPENTU_SW_REGISTRATION_PROMISE__ = swRegistrationPromise;
 

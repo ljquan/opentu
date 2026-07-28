@@ -14,13 +14,17 @@ const workspaceRoot = path.resolve(__dirname, '../..');
 // Read version from public/version.json
 const versionPath = path.resolve(__dirname, 'public/version.json');
 let appVersion = '0.0.0';
+let appReleaseId = '0.0.0';
 
 try {
   if (fs.existsSync(versionPath)) {
     const versionContent = fs.readFileSync(versionPath, 'utf-8');
     const versionJson = JSON.parse(versionContent);
     appVersion = versionJson.version || '0.0.0';
-    console.log(`[Vite] Loaded version from version.json: ${appVersion}`);
+    appReleaseId = versionJson.releaseId || appVersion;
+    console.log(
+      `[Vite] Loaded version ${appVersion}, release ${appReleaseId}`
+    );
   } else {
     console.warn('[Vite] version.json not found at', versionPath);
   }
@@ -820,7 +824,7 @@ function precacheManifestPlugin(): Plugin {
         // 写入 manifest 文件
         const manifestPath = path.join(outDir, 'precache-manifest.json');
         const manifestContent = {
-          version: appVersion,
+          version: appReleaseId,
           timestamp: new Date().toISOString(),
           files: manifest,
         };
@@ -940,7 +944,7 @@ function idlePrefetchManifestPlugin(): Plugin {
           manifestPath,
           JSON.stringify(
             {
-              version: appVersion,
+              version: appReleaseId,
               timestamp: new Date().toISOString(),
               defaults: [...IDLE_PREFETCH_DEFAULTS],
               groups,
@@ -1013,6 +1017,7 @@ export default defineConfig({
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+    'import.meta.env.VITE_APP_RELEASE_ID': JSON.stringify(appReleaseId),
     'process.env.NODE_ENV': JSON.stringify(reactNodeEnv),
     __APP_VERSION__: JSON.stringify(appVersion),
     // Vue feature flags - @milkdown/crepe 内部使用了 Vue，需要定义这些编译时标志

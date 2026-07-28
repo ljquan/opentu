@@ -5,13 +5,17 @@ import fs from 'fs';
 // Read version from public/version.json
 const versionPath = path.resolve(__dirname, 'public/version.json');
 let appVersion = '0.0.0';
+let appReleaseId = '0.0.0';
 
 try {
   if (fs.existsSync(versionPath)) {
     const versionContent = fs.readFileSync(versionPath, 'utf-8');
     const versionJson = JSON.parse(versionContent);
     appVersion = versionJson.version || '0.0.0';
-    console.log(`[Vite SW] Loaded version from version.json: ${appVersion}`);
+    appReleaseId = versionJson.releaseId || appVersion;
+    console.log(
+      `[Vite SW] Loaded version ${appVersion}, release ${appReleaseId}`
+    );
   } else {
     console.warn('[Vite SW] version.json not found at', versionPath);
   }
@@ -31,7 +35,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      __APP_VERSION__: JSON.stringify(appVersion),
+      __APP_VERSION__: JSON.stringify(appReleaseId),
+      __PRODUCT_VERSION__: JSON.stringify(appVersion),
     },
     build: {
       // Dev mode: output to public so dev server can serve it
