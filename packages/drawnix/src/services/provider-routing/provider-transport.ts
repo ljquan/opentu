@@ -169,7 +169,7 @@ function routeTuziRequestThroughCorsEndpoint(
 
 async function getTuziFallbackBaseUrls(
   baseUrl: string,
-  preferRequestIdCors = false
+  requestIdCorsOnly = false
 ): Promise<string[]> {
   if (!isTrustedTuziApiBaseUrl(baseUrl)) {
     return [];
@@ -177,13 +177,9 @@ async function getTuziFallbackBaseUrls(
 
   const currentOrigin = normalizeTuziApiEndpointUrl(baseUrl);
   const currentPathSuffix = getBaseUrlPathSuffix(baseUrl);
-  const discoveredOrigins = await loadTuziApiEndpointBaseUrls();
-  const tuziOrigins = Array.from(
-    new Set([
-      ...(preferRequestIdCors ? REQUEST_ID_CORS_ORIGINS : []),
-      ...discoveredOrigins,
-    ])
-  );
+  const tuziOrigins = requestIdCorsOnly
+    ? REQUEST_ID_CORS_ORIGINS
+    : await loadTuziApiEndpointBaseUrls();
 
   return tuziOrigins
     .filter((origin) => origin !== currentOrigin)
@@ -409,11 +405,15 @@ export class ProviderTransport {
       context,
       request
     );
-    const preferRequestIdCors =
-      effectiveContext.baseUrl !== context.baseUrl ||
-      REQUEST_ID_CORS_ORIGINS.includes(
-        normalizeTuziApiEndpointUrl(effectiveContext.baseUrl)
-      );
+    const requestIdCorsOnly = Boolean(
+      globalThis.location &&
+        request.requestId &&
+        canAttachProviderRequestIdHeader(effectiveContext, request) &&
+        (effectiveContext.baseUrl !== context.baseUrl ||
+          REQUEST_ID_CORS_ORIGINS.includes(
+            normalizeTuziApiEndpointUrl(effectiveContext.baseUrl)
+          ))
+    );
     const timeoutControl = createTimeoutSignal(
       request.signal,
       request.timeoutMs
@@ -431,7 +431,7 @@ export class ProviderTransport {
 
       const fallbackBaseUrls = await getTuziFallbackBaseUrls(
         effectiveContext.baseUrl,
-        preferRequestIdCors
+        requestIdCorsOnly
       );
       for (const fallbackBaseUrl of fallbackBaseUrls) {
         const fallbackPrepared = this.prepareRequest(
@@ -473,7 +473,7 @@ export class ProviderTransport {
       if (isFetchNetworkError(error)) {
         const fallbackBaseUrls = await getTuziFallbackBaseUrls(
           effectiveContext.baseUrl,
-          preferRequestIdCors
+          requestIdCorsOnly
         );
 
         for (const fallbackBaseUrl of fallbackBaseUrls) {
