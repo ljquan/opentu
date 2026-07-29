@@ -8,6 +8,7 @@ import {
   providerTransport,
   supportsTextBindingImageInput,
 } from '../provider-routing';
+import { isLocalDevHostname } from '../provider-routing/provider-transport';
 import { TUZI_API_FALLBACK_ENDPOINTS } from '../provider-routing/tuzi-api-endpoints';
 import type {
   InvocationPlannerRepositories,
@@ -676,6 +677,25 @@ describe('provider routing', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it.each([
+    'localhost',
+    '127.0.0.1',
+    '::1',
+    '10.0.0.8',
+    '172.16.0.8',
+    '172.31.255.8',
+    '192.168.50.225',
+  ])('recognizes local development host %s', (hostname) => {
+    expect(isLocalDevHostname(hostname)).toBe(true);
+  });
+
+  it.each(['opentu.ai', '172.15.0.8', '172.32.0.8', '8.8.8.8'])(
+    'does not treat public host %s as local development',
+    (hostname) => {
+      expect(isLocalDevHostname(hostname)).toBe(false);
+    }
+  );
 
   it('does not attach request IDs when an absolute path escapes trusted Tuzi', () => {
     vi.stubGlobal('location', {

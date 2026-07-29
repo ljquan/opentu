@@ -14,13 +14,22 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-/** 本地开发仅把主 API 站改写到既有 Vite 同源代理。 */
+/** 本机或私有局域网开发仅把主 API 站改写到既有 Vite 同源代理。 */
 const DEV_PROXY_HOSTS: readonly string[] = ['api.tu-zi.com'];
 const LOCAL_DEV_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '::1'];
 
+export function isLocalDevHostname(hostname?: string): boolean {
+  if (!hostname) return false;
+  return (
+    LOCAL_DEV_HOSTS.includes(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)
+  );
+}
+
 function isLocalDevRuntime(): boolean {
-  const hostname = globalThis.location?.hostname;
-  return typeof hostname === 'string' && LOCAL_DEV_HOSTS.includes(hostname);
+  return isLocalDevHostname(globalThis.location?.hostname);
 }
 
 function rewriteBaseUrlForDevProxy(baseUrl: string): string {
