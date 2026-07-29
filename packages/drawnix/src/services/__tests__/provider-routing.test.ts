@@ -8,10 +8,7 @@ import {
   providerTransport,
   supportsTextBindingImageInput,
 } from '../provider-routing';
-import {
-  TUZI_API_FALLBACK_ENDPOINTS,
-  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
-} from '../provider-routing/tuzi-api-endpoints';
+import { TUZI_API_FALLBACK_ENDPOINTS } from '../provider-routing/tuzi-api-endpoints';
 import type {
   InvocationPlannerRepositories,
   ProviderModelBinding,
@@ -531,7 +528,7 @@ describe('provider routing', () => {
   );
 
   it.each(['opentu.ai', 'pr.opentu.ai', '192.168.50.225'])(
-    'routes request-ID submissions from browser host %s through a CORS-compatible Tuzi node',
+    'keeps request-ID submissions from browser host %s on the configured Tuzi node',
     async (hostname) => {
       vi.stubGlobal('location', {
         hostname,
@@ -562,7 +559,7 @@ describe('provider routing', () => {
         expect(response.ok).toBe(true);
         expect(fetcher).toHaveBeenCalledTimes(1);
         expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-          `${TUZI_API_REQUEST_ID_CORS_ENDPOINTS[0].url}/v1/images/generations`
+          'https://api.tu-zi.com/v1/images/generations'
         );
         expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
           'X-Request-Id': 'public-task-id',
@@ -573,78 +570,11 @@ describe('provider routing', () => {
     }
   );
 
-  it('fails over between CORS-compatible Tuzi nodes for public request-ID submissions', async () => {
+  it('does not switch nodes after a request-ID submission network error', async () => {
     vi.stubGlobal('location', {
       hostname: 'opentu.ai',
       origin: 'https://opentu.ai',
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          data: {
-            api_address_list: [
-              { url: 'https://api.tu-zi.com' },
-              { url: 'https://apius.tu-zi.com' },
-            ],
-          },
-        })
-      )
-    );
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockRejectedValueOnce(new Error('Failed to fetch'))
-      .mockResolvedValueOnce(Response.json({ ok: true }));
-
-    try {
-      const response = await providerTransport.send(
-        {
-          profileId: 'provider-tuzi',
-          profileName: 'Tuzi',
-          providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
-          apiKey: 'secret',
-          authType: 'bearer',
-        },
-        {
-          path: '/images/generations',
-          method: 'POST',
-          requestId: 'public-failover-task-id',
-          fetcher,
-        }
-      );
-
-      expect(response.ok).toBe(true);
-      expect(fetcher).toHaveBeenCalledTimes(2);
-      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-        `${TUZI_API_REQUEST_ID_CORS_ENDPOINTS[0].url}/v1/images/generations`
-      );
-      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-        `${TUZI_API_REQUEST_ID_CORS_ENDPOINTS[1].url}/v1/images/generations`
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('never falls back to legacy Tuzi nodes for public request-ID submissions', async () => {
-    vi.stubGlobal('location', {
-      hostname: 'opentu.ai',
-      origin: 'https://opentu.ai',
-    });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          data: {
-            api_address_list: [
-              { url: 'https://api.tu-zi.com' },
-              { url: 'https://apius.tu-zi.com' },
-            ],
-          },
-        })
-      )
-    );
     const fetcher = vi
       .fn<typeof fetch>()
       .mockRejectedValue(new Error('Failed to fetch'));
@@ -663,19 +593,54 @@ describe('provider routing', () => {
           {
             path: '/images/generations',
             method: 'POST',
-            requestId: 'public-cors-only-task-id',
+            requestId: 'public-network-error-task-id',
             fetcher,
           }
         )
       ).rejects.toThrow('Failed to fetch');
 
-      expect(fetcher).toHaveBeenCalledTimes(
-        TUZI_API_REQUEST_ID_CORS_ENDPOINTS.length
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+        'https://api.tu-zi.com/v1/images/generations'
       );
-      expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(
-        TUZI_API_REQUEST_ID_CORS_ENDPOINTS.map(
-          (endpoint) => `${endpoint.url}/v1/images/generations`
-        )
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not retry request-ID submissions on another node after a 404', async () => {
+    vi.stubGlobal('location', {
+      hostname: 'opentu.ai',
+      origin: 'https://opentu.ai',
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('<!doctype html><title>Not Found</title>', {
+        status: 404,
+      })
+    );
+
+    try {
+      const response = await providerTransport.send(
+        {
+          profileId: 'provider-tuzi',
+          profileName: 'Tuzi',
+          providerType: 'openai-compatible',
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'secret',
+          authType: 'bearer',
+        },
+        {
+          path: '/images/generations',
+          method: 'POST',
+          requestId: 'public-404-task-id',
+          fetcher,
+        }
+      );
+
+      expect(response.status).toBe(404);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+        'https://api.tu-zi.com/v1/images/generations'
       );
     } finally {
       vi.unstubAllGlobals();

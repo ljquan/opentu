@@ -9,10 +9,11 @@ OpenTu 已为每次图片提交发送并持久化 `X-Request-Id`：首次提交�
 ## What Changes
 
 - 所有图片任务入口统一持久化提交 Request ID；可信 Tuzi 同步图片任务仅在正式 POST 已尝试发送后发生网络中断、超时或响应流丢失等模糊错误时进入自动恢复轮询，提交前预处理或参数错误直接失败
+- 正式 POST 始终使用用户配置的原供应商节点，Request ID、网络错误或 `404` 都不得触发跨节点重复提交，避免切换 Token、计费和权限域
 - 页面刷新后使用持久化的当前提交 Request ID 与调用路由继续查询；旧版 `PROCESSING`、`INTERRUPTED` 或 `INTERRUPTED_DURING_SUBMISSION` 任务缺少新字段时兼容回退到任务 ID
 - 通过 `GET /v1/images/generations/result?request_id=<submissionRequestId>` 查询；GET 不携带 `X-Request-Id` 请求头
 - 重试保持任务 ID 不变，但生成新的提交 Request ID，使旧轮询和旧结果自动失效，避免命中上一轮结果
-- 使用原任务对应的供应商身份与用户 Token，并在四个 Request-ID 公网节点间容错，支持任意公网 OpenTu 来源
+- 只读结果查询使用原任务对应的供应商身份与用户 Token，并在四个 Request-ID 公网节点间容错，支持任意公网 OpenTu 来源
 - 使用有界并发、等待队列和带抖动的轮询间隔，批量任务不能因超过并发数而被丢弃
 - 上游成功时复用现有缓存、任务完成与画布插入流程；缓存失败时保留可用远程 URL
 - 上游明确失败时展示真实错误；超过图片任务总时限后给出可重试提示

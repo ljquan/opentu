@@ -71,7 +71,7 @@ authorization,content-type,x-request-id
 - 当前 Base URL 是否属于允许该请求头的受信供应商。
 - 当前是否为非 `GET` 提交，避免异步轮询被误标记为新任务。
 
-可信 Tuzi API 中，`bus.tu-zi.com`、`bus2.tu-zi.com`、`bus3.tu-zi.com`、`business.tu-zi.com` 已经可以从任意公网来源携带 `Authorization`、`Content-Type` 与 `X-Request-Id` 完成浏览器跨域提交。OpenTu 的浏览器提交优先使用这组节点并自动故障切换，不新增可被匿名用户滥用的公网中继。
+可信 Tuzi API 中，`bus.tu-zi.com`、`bus2.tu-zi.com`、`bus3.tu-zi.com`、`business.tu-zi.com` 已验证可从公网来源跨域访问，但不同节点可能拥有独立的 Token、计费和权限域。OpenTu 的正式提交必须保持用户原配置节点，不得为了 CORS 自动改投；四个节点仅用于携带原身份的只读结果查询。
 
 主站及旧备用入口的 Nginx 仍可能使用静态请求头白名单。即使应用层代码已合并，未部署 Nginx 配置的节点仍会在正式 `POST` 前拦截预检，因此不能把“PR 已合并”当作“所有节点已上线”。
 
@@ -81,7 +81,7 @@ authorization,content-type,x-request-id
 
 ### 3. 开发代理与生产跨域是两种环境
 
-本地 Vite 代理仍可以把主 API 站改写为同源路径。生产和局域网页面直连已验证的 Tuzi CORS 节点时同样携带该标头；首节点网络失败后按固定可信列表切换，不再逐个撞到旧预检节点。
+本地 Vite 代理仍可以把主 API 站改写为同源路径。生产和局域网页面直连用户原配置节点并携带该标头；正式提交不跨节点切换，公网可用性依赖原配置节点正确放行 CORS。
 
 测试环境也不应被误判为开发代理环境，否则 URL 会被改写为相对路径，导致单元测试无法验证真实的生产跨域行为。
 
@@ -108,9 +108,9 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 ### 自动测试
 
 - 自定义跨域供应商即使传入 request ID，也不应生成 `X-Request-Id` 请求头。
-- 所有公网或局域网 OpenTu 页面提交时都应路由到已验证的 Tuzi CORS 节点，并携带本地任务 ID。
-- 四个请求 ID CORS 节点应能从真实浏览器完成预检和正式 `POST`；主节点失败时应切换到下一个兼容节点。
-- Tuzi API 应用 CORS 与后续上线的其他对外节点 Nginx 预检也应放行 `X-Request-Id`。
+- 所有公网或局域网 OpenTu 页面提交时都应保持用户原配置节点，并携带当前提交 Request ID。
+- 正式提交遇到网络错误或 `404` 时不得改投其他节点；恢复轮询的只读 `GET` 才可在四个查询节点间切换。
+- 六个 Tuzi API 对外节点的应用 CORS 与 Nginx 预检都应放行 `X-Request-Id`。
 - 已存在的任意大小写 `X-Request-Id` 应被当前任务 ID 唯一覆盖。
 - Tuzi 异步轮询 `GET` 不应携带 request ID 请求头。
 - 图片 API 响应解析仍应支持远程 URL 和 Base64。

@@ -6,6 +6,8 @@ OpenTu 的任务队列与独立媒体生成入口都为每次图片提交持久�
 GET /v1/images/generations/result?request_id=<submissionRequestId>
 ```
 
+正式 POST 必须使用 `invocationRoute` 解析出的用户原配置 Base URL。Request ID 只作为请求头和恢复关联键，不参与提交节点选择；提交遇到网络错误或原始 `404` 时也不得跨节点重发，避免同一 Token 被送入不同的鉴权、计费和权限域。四节点容错只适用于后续只读结果查询。
+
 查询结果包含 `succeeded`、`failed` 和 `processing_or_not_found`。当前缺口在客户端：同步图片没有 `remoteId`，刷新后会被统一中断逻辑标记为失败。
 
 ## Goals / Non-Goals

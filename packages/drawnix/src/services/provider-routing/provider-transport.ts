@@ -8,7 +8,6 @@ import {
   isTrustedTuziApiBaseUrl,
   loadTuziApiEndpointBaseUrls,
   normalizeTuziApiEndpointUrl,
-  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './tuzi-api-endpoints';
 
 function trimTrailingSlashes(value: string): string {
@@ -122,64 +121,14 @@ function shouldRetryTuziResponse(
   );
 }
 
-const REQUEST_ID_CORS_ORIGINS = TUZI_API_REQUEST_ID_CORS_ENDPOINTS.map(
-  (endpoint) => normalizeTuziApiEndpointUrl(endpoint.url)
-);
-
-function shouldRouteTuziRequestThroughCorsEndpoint(
-  context: ResolvedProviderContext,
-  request: Pick<ProviderTransportRequest, 'path' | 'method' | 'requestId'>
-): boolean {
-  if (!request.requestId || !globalThis.location) {
-    return false;
-  }
-  if (
-    import.meta.env.DEV &&
-    import.meta.env.MODE !== 'test' &&
-    isLocalDevRuntime()
-  ) {
-    return false;
-  }
-  if (
-    (request.method || 'GET').toUpperCase() === 'GET' ||
-    /^https?:\/\//i.test(request.path) ||
-    !isTrustedTuziApiBaseUrl(context.baseUrl)
-  ) {
-    return false;
-  }
-
-  const currentOrigin = normalizeTuziApiEndpointUrl(context.baseUrl);
-  return !REQUEST_ID_CORS_ORIGINS.includes(currentOrigin);
-}
-
-function routeTuziRequestThroughCorsEndpoint(
-  context: ResolvedProviderContext,
-  request: Pick<ProviderTransportRequest, 'path' | 'method' | 'requestId'>
-): ResolvedProviderContext {
-  if (!shouldRouteTuziRequestThroughCorsEndpoint(context, request)) {
-    return context;
-  }
-
-  const pathSuffix = getBaseUrlPathSuffix(context.baseUrl);
-  return {
-    ...context,
-    baseUrl: `${REQUEST_ID_CORS_ORIGINS[0]}${pathSuffix}`,
-  };
-}
-
-async function getTuziFallbackBaseUrls(
-  baseUrl: string,
-  requestIdCorsOnly = false
-): Promise<string[]> {
+async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
   if (!isTrustedTuziApiBaseUrl(baseUrl)) {
     return [];
   }
 
   const currentOrigin = normalizeTuziApiEndpointUrl(baseUrl);
   const currentPathSuffix = getBaseUrlPathSuffix(baseUrl);
-  const tuziOrigins = requestIdCorsOnly
-    ? REQUEST_ID_CORS_ORIGINS
-    : await loadTuziApiEndpointBaseUrls();
+  const tuziOrigins = await loadTuziApiEndpointBaseUrls();
 
   return tuziOrigins
     .filter((origin) => origin !== currentOrigin)
@@ -401,41 +350,28 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): Promise<Response> {
-    const effectiveContext = routeTuziRequestThroughCorsEndpoint(
-      context,
-      request
-    );
-    const requestIdCorsOnly = Boolean(
-      globalThis.location &&
-        request.requestId &&
-        canAttachProviderRequestIdHeader(effectiveContext, request) &&
-        (effectiveContext.baseUrl !== context.baseUrl ||
-          REQUEST_ID_CORS_ORIGINS.includes(
-            normalizeTuziApiEndpointUrl(effectiveContext.baseUrl)
-          ))
-    );
     const timeoutControl = createTimeoutSignal(
       request.signal,
       request.timeoutMs
     );
-    const prepared = this.prepareRequest(effectiveContext, {
+    const prepared = this.prepareRequest(context, {
       ...request,
       signal: timeoutControl.signal,
     });
     const fetcher = request.fetcher || fetch;
     try {
       const response = await fetcher(prepared.url, prepared.init);
-      if (!shouldRetryTuziResponse(effectiveContext, request, response)) {
+      if (!shouldRetryTuziResponse(context, request, response)) {
         return response;
       }
 
-      const fallbackBaseUrls = await getTuziFallbackBaseUrls(
-        effectiveContext.baseUrl,
-        requestIdCorsOnly
-      );
+      // 带 Request ID 的正式提交必须保留原鉴权节点，避免 Token、计费和权限域被切换。
+      const fallbackBaseUrls = request.requestId
+        ? []
+        : await getTuziFallbackBaseUrls(context.baseUrl);
       for (const fallbackBaseUrl of fallbackBaseUrls) {
         const fallbackPrepared = this.prepareRequest(
-          { ...effectiveContext, baseUrl: fallbackBaseUrl },
+          { ...context, baseUrl: fallbackBaseUrl },
           { ...request, signal: timeoutControl.signal }
         );
         try {
@@ -443,13 +379,7 @@ export class ProviderTransport {
             fallbackPrepared.url,
             fallbackPrepared.init
           );
-          if (
-            !shouldRetryTuziResponse(
-              effectiveContext,
-              request,
-              fallbackResponse
-            )
-          ) {
+          if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
             return fallbackResponse;
           }
         } catch (fallbackError) {
@@ -471,14 +401,13 @@ export class ProviderTransport {
         throw timeoutError;
       }
       if (isFetchNetworkError(error)) {
-        const fallbackBaseUrls = await getTuziFallbackBaseUrls(
-          effectiveContext.baseUrl,
-          requestIdCorsOnly
-        );
+        const fallbackBaseUrls = request.requestId
+          ? []
+          : await getTuziFallbackBaseUrls(context.baseUrl);
 
         for (const fallbackBaseUrl of fallbackBaseUrls) {
           const fallbackPrepared = this.prepareRequest(
-            { ...effectiveContext, baseUrl: fallbackBaseUrl },
+            { ...context, baseUrl: fallbackBaseUrl },
             { ...request, signal: timeoutControl.signal }
           );
           try {

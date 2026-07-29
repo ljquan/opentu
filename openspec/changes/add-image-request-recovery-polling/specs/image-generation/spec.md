@@ -11,6 +11,14 @@ The system SHALL automatically query a trusted Tuzi image task by the persisted 
 - **AND** every image-task entry point SHALL persist that Request ID and the submitted-attempt marker before sending the POST
 - **AND** persistence SHALL NOT be considered successful until the IndexedDB transaction commits
 
+#### Scenario: Formal submission preserves the configured provider endpoint
+
+- **GIVEN** a trusted Tuzi image task resolves a user-configured provider Base URL
+- **WHEN** the formal submission carries a persisted Request ID
+- **THEN** the POST SHALL use that configured Base URL
+- **AND** a network error or `404` SHALL NOT cause the POST to be repeated against another Tuzi node
+- **AND** cross-node fallback SHALL be limited to subsequent read-only recovery queries
+
 #### Scenario: Retry uses a new submission Request ID
 
 - **GIVEN** an image task is retried
