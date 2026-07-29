@@ -22,7 +22,6 @@ const DEFAULT_JITTER_RATIO = 0.1;
 const RECOVERY_RESULT_PATH = '/images/generations/result';
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_RESULT_URLS = 10;
-const MAX_TERMINAL_DELIVERY_ATTEMPTS = 3;
 const TIMEOUT_RECOVERY_GRACE_MS = 24 * 60 * 60 * 1000;
 const CLOCK_SKEW_TOLERANCE_MS = 60 * 1000;
 
@@ -124,6 +123,8 @@ interface RecoveryEntry {
   terminalDeliveryAttempts: number;
   pollTimer?: ReturnType<typeof setTimeout>;
   requestTimer?: ReturnType<typeof setTimeout>;
+  terminalTimer?: ReturnType<typeof setTimeout>;
+  releaseTerminalWait?: () => void;
   controller?: AbortController;
 }
 
@@ -248,6 +249,62 @@ function normalizePositiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? value
     : undefined;
+}
+
+export function isImageRequestTimeoutRecoveryCandidate(
+  task: Task,
+  now = Date.now(),
+  recoveryWindowMs = TIMEOUT_RECOVERY_GRACE_MS
+): boolean {
+  const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
+  const failedAt =
+    task.status === TaskStatus.PROCESSING && startedAt !== undefined
+      ? startedAt + IMAGE_GENERATION_TIMEOUT_MS
+      : normalizePositiveNumber(
+          task.completedAt ?? task.error?.details?.timestamp ?? task.updatedAt
+        );
+  const elapsed =
+    failedAt === undefined ? Number.POSITIVE_INFINITY : now - failedAt;
+  const timeoutRecoveryStartedAt = normalizePositiveNumber(
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
+  );
+  const route = task.invocationRoute;
+  const hasPersistedRoute = Boolean(
+    route?.operation === 'image' &&
+      normalizeRequiredString(route.providerProfileId) &&
+      normalizeRequiredString(route.modelRef?.modelId || route.modelId)
+  );
+  const isFailedTimeout =
+    task.status === TaskStatus.FAILED &&
+    IMAGE_TIMEOUT_RECOVERY_ERROR_CODES.some(
+      (code) => code === task.error?.code
+    );
+  const isExpiredProcessing =
+    task.status === TaskStatus.PROCESSING && elapsed >= 0;
+  const boundedRecoveryWindowMs = Math.max(1, recoveryWindowMs);
+
+  if (
+    task.type !== TaskType.IMAGE ||
+    (!isFailedTimeout && !isExpiredProcessing) ||
+    !normalizeRequestId(task.id) ||
+    !normalizeRequestId(getImageSubmissionRequestId(task)) ||
+    !hasImageSubmissionAttempt(task) ||
+    !hasPersistedRoute ||
+    startedAt === undefined ||
+    task.remoteId ||
+    task.syncedFromRemote ||
+    elapsed < -CLOCK_SKEW_TOLERANCE_MS ||
+    (timeoutRecoveryStartedAt !== undefined &&
+      timeoutRecoveryStartedAt > now + CLOCK_SKEW_TOLERANCE_MS)
+  ) {
+    return false;
+  }
+
+  if (timeoutRecoveryStartedAt === undefined) {
+    return elapsed <= boundedRecoveryWindowMs;
+  }
+
+  return timeoutRecoveryStartedAt + boundedRecoveryWindowMs > now;
 }
 
 function normalizeUpstreamCode(value: unknown): string | undefined {
@@ -417,7 +474,7 @@ export class ImageGenerationRecoveryService {
     );
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
     this.resolveInvocationPlan =
       options.resolveInvocationPlan ?? resolveInvocationPlanFromRoute;
     this.transport = options.transport ?? providerTransport;
@@ -433,37 +490,12 @@ export class ImageGenerationRecoveryService {
   }
 
   canRecoverTimedOut(task: Task): boolean {
-    const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
-    const failedAt =
-      task.status === TaskStatus.PROCESSING && startedAt !== undefined
-        ? startedAt + IMAGE_GENERATION_TIMEOUT_MS
-        : normalizePositiveNumber(
-            task.completedAt ?? task.error?.details?.timestamp ?? task.updatedAt
-          );
-    const elapsed =
-      failedAt === undefined ? Number.POSITIVE_INFINITY : this.now() - failedAt;
-    const timeoutRecoveryStartedAt = normalizePositiveNumber(
-      task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
-    );
-    const isFailedTimeout =
-      task.status === TaskStatus.FAILED &&
-      IMAGE_TIMEOUT_RECOVERY_ERROR_CODES.some(
-        (code) => code === task.error?.code
-      );
-    const isExpiredProcessing =
-      task.status === TaskStatus.PROCESSING && elapsed >= 0;
     if (
-      task.type !== TaskType.IMAGE ||
-      (!isFailedTimeout && !isExpiredProcessing) ||
-      task.remoteId ||
-      task.syncedFromRemote ||
-      elapsed < -CLOCK_SKEW_TOLERANCE_MS ||
-      (timeoutRecoveryStartedAt === undefined &&
-        elapsed > TIMEOUT_RECOVERY_GRACE_MS) ||
-      (timeoutRecoveryStartedAt !== undefined &&
-        (task.status !== TaskStatus.FAILED ||
-          timeoutRecoveryStartedAt + this.timeoutRecoveryWindowMs <=
-            this.now()))
+      !isImageRequestTimeoutRecoveryCandidate(
+        task,
+        this.now(),
+        this.timeoutRecoveryWindowMs
+      )
     ) {
       return false;
     }
@@ -477,10 +509,13 @@ export class ImageGenerationRecoveryService {
     callbacks: ImageGenerationRecoveryCallbacks
   ): ImageGenerationRecoveryHandle | null {
     const descriptor = this.createTaskDescriptor(task);
+    const plan = descriptor
+      ? this.resolveTrustedInvocationPlan(descriptor)
+      : null;
     if (
       !descriptor ||
       descriptor.deadline <= this.now() ||
-      !this.resolveTrustedInvocationPlan(descriptor)
+      !plan
     ) {
       return null;
     }
@@ -489,6 +524,8 @@ export class ImageGenerationRecoveryService {
     if (
       currentEntry?.task?.requestId === descriptor.requestId &&
       currentEntry.task.startedAt === descriptor.startedAt &&
+      currentEntry.task.deadline === descriptor.deadline &&
+      currentEntry.task.extended === descriptor.extended &&
       currentEntry.state !== 'stopped'
     ) {
       currentEntry.callbacks = callbacks;
@@ -595,9 +632,15 @@ export class ImageGenerationRecoveryService {
       return null;
     }
 
-    const plan = this.resolveInvocationPlan('image', modelRef, {
+    let plan = this.resolveInvocationPlan('image', modelRef, {
       bindingId: task.route.bindingId,
     });
+    // 旧任务持久化的是提交当时的派生 binding ID。设置迁移或重新初始化后，
+    // 同一 profile/model 的 binding 可能被重新生成；精确 ID 不存在时，仅在
+    // 同一供应商与模型范围内重新解析，再继续执行下面的可信与同步协议校验。
+    if (!plan && task.route.bindingId) {
+      plan = this.resolveInvocationPlan('image', modelRef);
+    }
     if (
       !plan ||
       plan.provider.profileId !== task.route.providerProfileId ||
@@ -638,7 +681,7 @@ export class ImageGenerationRecoveryService {
       return;
     }
     if (task.deadline <= this.now()) {
-      this.finishFailure(entry, createTimeoutFailure());
+      this.handleRecoveryDeadline(entry);
       return;
     }
 
@@ -658,6 +701,10 @@ export class ImageGenerationRecoveryService {
         this.finishSuccess(entry, outcome.result);
         return;
       case 'failed':
+        if (outcome.error.code === 'RECOVERY_TIMEOUT' && !task.extended) {
+          this.stopEntry(entry);
+          return;
+        }
         this.finishFailure(entry, outcome.error);
         return;
       case 'stopped':
@@ -894,7 +941,7 @@ export class ImageGenerationRecoveryService {
 
     const remainingMs = task.deadline - this.now();
     if (remainingMs <= 0) {
-      this.finishFailure(entry, createTimeoutFailure());
+      this.handleRecoveryDeadline(entry);
       return;
     }
 
@@ -909,7 +956,7 @@ export class ImageGenerationRecoveryService {
         return;
       }
       if (task.deadline <= this.now()) {
-        this.finishFailure(entry, createTimeoutFailure());
+        this.handleRecoveryDeadline(entry);
         return;
       }
       entry.state = 'queued';
@@ -930,6 +977,22 @@ export class ImageGenerationRecoveryService {
       this.maxBackoffMs,
       Math.max(0, Math.round(baseDelay * jitterMultiplier))
     );
+  }
+
+  private handleRecoveryDeadline(entry: RecoveryEntry): void {
+    const task = entry.task;
+    if (!task || !this.isCurrent(entry)) {
+      return;
+    }
+
+    // 普通实时轮询到达 15 分钟边界时先静默交棒给全局超时检查器，
+    // 由其原子写入 24 小时恢复标记后重启轮询，避免先把任务写成失败。
+    if (!task.extended) {
+      this.stopEntry(entry);
+      return;
+    }
+
+    this.finishFailure(entry, createTimeoutFailure());
   }
 
   private finishSuccess(
@@ -960,9 +1023,24 @@ export class ImageGenerationRecoveryService {
     }
 
     try {
-      await callback(value);
-      if (this.isCurrent(entry)) {
+      const task = entry.task;
+      if (!task) {
         this.stopEntry(entry);
+        return;
+      }
+      const outcome = await this.waitForTerminalCallback(
+        entry,
+        Promise.resolve().then(() => callback(value)),
+        this.now() + this.requestTimeoutMs
+      );
+      if (outcome === 'completed' && this.isCurrent(entry)) {
+        this.stopEntry(entry);
+      }
+      if (outcome === 'deadline' && this.isCurrent(entry)) {
+        console.error(
+          `[ImageGenerationRecovery] Recovered ${terminalType} state writeback did not settle before the writeback watchdog`
+        );
+        this.parkTerminalEntryUntilRecoveryDeadline(entry);
       }
     } catch (error) {
       if (!this.isCurrent(entry)) {
@@ -974,15 +1052,26 @@ export class ImageGenerationRecoveryService {
         `[ImageGenerationRecovery] Failed to persist recovered ${terminalType} state, retrying:`,
         error
       );
-      if (entry.terminalDeliveryAttempts >= MAX_TERMINAL_DELIVERY_ATTEMPTS) {
+      const task = entry.task;
+      if (!task) {
+        this.stopEntry(entry);
+        return;
+      }
+
+      const remainingMs = task.deadline - this.now();
+      if (remainingMs <= 0) {
         console.error(
-          `[ImageGenerationRecovery] Giving up recovered ${terminalType} state after ${MAX_TERMINAL_DELIVERY_ATTEMPTS} attempts`
+          `[ImageGenerationRecovery] Recovered ${terminalType} state could not be persisted before the recovery deadline`
         );
         this.stopEntry(entry);
         return;
       }
 
       entry.state = 'waiting';
+      const retryDelay = Math.min(
+        this.nextDelay(entry.terminalDeliveryAttempts),
+        remainingMs
+      );
       entry.pollTimer = setTimeout(() => {
         entry.pollTimer = undefined;
         if (!this.isCurrent(entry)) {
@@ -990,8 +1079,80 @@ export class ImageGenerationRecoveryService {
         }
         entry.state = 'inflight';
         void this.deliverTerminalCallback(entry, callback, value, terminalType);
-      }, this.pollIntervalMs);
+      }, retryDelay);
     }
+  }
+
+  private waitForTerminalCallback(
+    entry: RecoveryEntry,
+    callbackPromise: Promise<void>,
+    deadline: number
+  ): Promise<'completed' | 'deadline' | 'stopped'> {
+    return new Promise((resolve, reject) => {
+      let activeEntry: RecoveryEntry | null = entry;
+
+      const clearWait = (): boolean => {
+        const currentEntry = activeEntry;
+        if (!currentEntry) {
+          return false;
+        }
+        activeEntry = null;
+
+        if (currentEntry.terminalTimer) {
+          clearTimeout(currentEntry.terminalTimer);
+          currentEntry.terminalTimer = undefined;
+        }
+        currentEntry.releaseTerminalWait = undefined;
+        return true;
+      };
+
+      const settle = (outcome: 'completed' | 'deadline' | 'stopped') => {
+        if (!clearWait()) {
+          return;
+        }
+        resolve(outcome);
+      };
+      const rejectCallback = (error: unknown) => {
+        if (!clearWait()) {
+          return;
+        }
+        reject(error);
+      };
+
+      entry.releaseTerminalWait = () => settle('stopped');
+      const remainingMs = deadline - this.now();
+      if (remainingMs <= 0) {
+        settle('deadline');
+        return;
+      }
+
+      entry.terminalTimer = setTimeout(() => settle('deadline'), remainingMs);
+      callbackPromise.then(() => settle('completed'), rejectCallback);
+    });
+  }
+
+  private parkTerminalEntryUntilRecoveryDeadline(entry: RecoveryEntry): void {
+    const task = entry.task;
+    if (!task || !this.isCurrent(entry)) {
+      return;
+    }
+
+    const remainingMs = task.deadline - this.now();
+    if (remainingMs <= 0) {
+      this.stopEntry(entry);
+      return;
+    }
+
+    // 写回 Promise 永久悬挂时不能并行创建更多 IndexedDB 写入。保留一个不含
+    // 结果数据的轻量占位直到恢复截止时间，周期扫描只会复用它，不会重复查询或写入。
+    entry.callbacks = null;
+    entry.state = 'waiting';
+    entry.pollTimer = setTimeout(() => {
+      entry.pollTimer = undefined;
+      if (this.isCurrent(entry)) {
+        this.stopEntry(entry);
+      }
+    }, remainingMs);
   }
 
   private stopEntry(entry: RecoveryEntry, removeFromQueue = true): void {
@@ -1006,6 +1167,12 @@ export class ImageGenerationRecoveryService {
     if (entry.requestTimer) {
       clearTimeout(entry.requestTimer);
       entry.requestTimer = undefined;
+    }
+    entry.releaseTerminalWait?.();
+    entry.releaseTerminalWait = undefined;
+    if (entry.terminalTimer) {
+      clearTimeout(entry.terminalTimer);
+      entry.terminalTimer = undefined;
     }
     entry.controller?.abort();
     entry.controller = undefined;
@@ -1029,16 +1196,32 @@ const LEGACY_RECOVERABLE_ERROR_CODES = new Set([
 
 export function isImageRequestRecoveryTask(task: Task): boolean {
   return (
-    task.status === TaskStatus.PROCESSING &&
-    task.executionPhase === TaskExecutionPhase.POLLING &&
-    !task.remoteId &&
-    !task.syncedFromRemote &&
+    isImageRequestRecoveryCandidate(task) &&
     imageGenerationRecoveryService.canRecover(task)
   );
 }
 
+export function isImageRequestRecoveryCandidate(task: Task): boolean {
+  const route = task.invocationRoute;
+  return (
+    task.type === TaskType.IMAGE &&
+    task.status === TaskStatus.PROCESSING &&
+    Boolean(normalizeRequestId(task.id)) &&
+    Boolean(normalizeRequestId(getImageSubmissionRequestId(task))) &&
+    hasImageSubmissionAttempt(task) &&
+    route?.operation === 'image' &&
+    Boolean(normalizeRequiredString(route.providerProfileId)) &&
+    Boolean(
+      normalizeRequiredString(route.modelRef?.modelId || route.modelId)
+    ) &&
+    task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+    !task.remoteId &&
+    !task.syncedFromRemote
+  );
+}
+
 export function isTimedOutImageRequestRecoveryTask(task: Task): boolean {
-  return imageGenerationRecoveryService.canRecoverTimedOut(task);
+  return isImageRequestTimeoutRecoveryCandidate(task);
 }
 
 export function isLegacyInterruptedImageRequestTask(task: Task): boolean {
@@ -1086,10 +1269,17 @@ export function isCurrentImageRecoveryAttempt(
   requestId: string,
   startedAt: number
 ): task is Task {
+  const expectedRequestId = normalizeRequestId(requestId);
   return Boolean(
     task &&
-      isImageRequestRecoveryTask(task) &&
-      getImageSubmissionRequestId(task) === requestId &&
-      task.startedAt === startedAt
+      task.type === TaskType.IMAGE &&
+      task.status === TaskStatus.PROCESSING &&
+      expectedRequestId &&
+      normalizeRequestId(getImageSubmissionRequestId(task)) ===
+        expectedRequestId &&
+      hasImageSubmissionAttempt(task) &&
+      (task.startedAt ?? task.createdAt) === startedAt &&
+      !task.remoteId &&
+      !task.syncedFromRemote
   );
 }

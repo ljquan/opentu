@@ -2628,7 +2628,9 @@ class TaskQueueService {
     const attemptChanged =
       requestIdChanged ||
       currentTask.params.imageSubmissionAttempted !==
-        storageTask.params.imageSubmissionAttempted;
+        storageTask.params.imageSubmissionAttempted ||
+      currentTask.params.imageTimeoutRecoveryAttemptedAt !==
+        storageTask.params.imageTimeoutRecoveryAttemptedAt;
     const cancellationLostToTerminal =
       currentTask.status === TaskStatus.CANCELLED &&
       (storageTask.status === 'completed' || storageTask.status === 'failed');
@@ -2652,7 +2654,8 @@ class TaskQueueService {
   private async updateImageAttemptStorage(
     taskId: string,
     requestId: string,
-    operation: () => Promise<boolean>
+    operation: () => Promise<boolean>,
+    validateStoredTask: (task: SWTask) => boolean = () => true
   ): Promise<boolean> {
     let updated = false;
     await this.enqueueTaskStorageOperation(taskId, async () => {
@@ -2678,7 +2681,11 @@ class TaskQueueService {
         this.syncImageAttemptFromStorage(taskId, storageTask);
       }
     }
-    return updated && storageTask?.params.submissionRequestId === requestId;
+    return Boolean(
+      updated &&
+        storageTask?.params.submissionRequestId === requestId &&
+        validateStoredTask(storageTask)
+    );
   }
 
   private async handoffTimedOutImageAttemptToRecovery(
@@ -2768,8 +2775,14 @@ class TaskQueueService {
     requestId: string,
     result: Task['result']
   ): Promise<boolean> {
-    return this.updateImageAttemptStorage(taskId, requestId, () =>
-      taskStorageWriter.completeTask(taskId, result, requestId)
+    return this.updateImageAttemptStorage(
+      taskId,
+      requestId,
+      () => taskStorageWriter.completeTask(taskId, result, requestId),
+      (storedTask) =>
+        storedTask.status === 'completed' &&
+        typeof storedTask.result?.url === 'string' &&
+        storedTask.result.url.length > 0
     );
   }
 
@@ -2783,13 +2796,17 @@ class TaskQueueService {
       clearStartedAt?: boolean;
     } = {}
   ): Promise<boolean> {
-    return this.updateImageAttemptStorage(taskId, requestId, () =>
-      taskStorageWriter.failTask(
-        taskId,
-        error as SWTask['error'],
-        requestId,
-        options
-      )
+    return this.updateImageAttemptStorage(
+      taskId,
+      requestId,
+      () =>
+        taskStorageWriter.failTask(
+          taskId,
+          error as SWTask['error'],
+          requestId,
+          options
+        ),
+      (storedTask) => storedTask.status === 'failed'
     );
   }
 

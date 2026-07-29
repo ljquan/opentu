@@ -99,6 +99,7 @@ async function setupTaskQueueServiceHarness(
           (task) => {
             task.status = TaskStatus.PROCESSING;
             task.params.imageSubmissionAttempted = true;
+            task.executionPhase = TaskExecutionPhase.POLLING;
           },
           { allowPending: true }
         )
@@ -599,6 +600,81 @@ describe('task-queue-service image edit retry persistence', () => {
     expect(mocks.waitForTaskCompletion).not.toHaveBeenCalled();
   });
 
+  it('starts read-only recovery eligibility before the original POST response settles', async () => {
+    const { taskQueueService, storedTasks, mocks } =
+      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED], {
+        trustedImageRecovery: true,
+      });
+    let resolveOriginalPost!: () => void;
+    mocks.generateImage.mockImplementationOnce(async (_params, options) => {
+      await options?.onSubmissionAttempt?.();
+      await new Promise<void>((resolve) => {
+        resolveOriginalPost = resolve;
+      });
+    });
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Poll while the original response is still pending',
+        model: 'gpt-image-2',
+        modelRef: {
+          profileId: 'tuzi-profile',
+          modelId: 'gpt-image-2',
+        },
+      },
+      TaskType.IMAGE
+    );
+    await vi.waitFor(() =>
+      expect(storedTasks.get(task.id)).toMatchObject({
+        status: TaskStatus.PROCESSING,
+        executionPhase: TaskExecutionPhase.POLLING,
+        params: { imageSubmissionAttempted: true },
+      })
+    );
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.PROCESSING,
+      executionPhase: TaskExecutionPhase.POLLING,
+    });
+    expect(mocks.waitForTaskCompletion).not.toHaveBeenCalled();
+
+    resolveOriginalPost();
+    await flushAsyncWork();
+  });
+
+  it('does not report image completion when the same Request ID reads back as processing', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'task-readback-processing',
+      type: TaskType.IMAGE,
+      status: TaskStatus.PROCESSING,
+      params: {
+        prompt: 'Verify terminal readback',
+        submissionRequestId: 'request-current',
+        imageSubmissionAttempted: true,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      startedAt: 1,
+      executionPhase: TaskExecutionPhase.POLLING,
+    };
+    taskQueueService.trackExternalTask(clone(task));
+    await flushAsyncWork();
+    mocks.completeTask.mockResolvedValueOnce(true);
+
+    await expect(
+      taskQueueService.completeImageAttempt(task.id, 'request-current', {
+        url: 'https://example.com/not-committed.png',
+        format: 'png',
+        size: 0,
+      })
+    ).resolves.toBe(false);
+    expect(taskQueueService.getTask(task.id)?.status).toBe(
+      TaskStatus.PROCESSING
+    );
+  });
+
   it('starts extended read-only recovery when the live image execution reaches its timeout', async () => {
     const { taskQueueService, storedTasks, mocks } =
       await setupTaskQueueServiceHarness([TaskStatus.FAILED], {
@@ -630,14 +706,16 @@ describe('task-queue-service image edit retry persistence', () => {
       task.id,
       { timeoutRecoveryAttemptedAt: expect.any(Number) }
     );
-    expect(taskQueueService.getTask(task.id)).toMatchObject({
-      status: TaskStatus.PROCESSING,
-      executionPhase: TaskExecutionPhase.POLLING,
-      error: undefined,
-      params: {
-        imageTimeoutRecoveryAttemptedAt: expect.any(Number),
-      },
-    });
+    await vi.waitFor(() =>
+      expect(taskQueueService.getTask(task.id)).toMatchObject({
+        status: TaskStatus.PROCESSING,
+        executionPhase: TaskExecutionPhase.POLLING,
+        error: undefined,
+        params: {
+          imageTimeoutRecoveryAttemptedAt: expect.any(Number),
+        },
+      })
+    );
     expect(storedTasks.get(task.id)?.status).toBe(TaskStatus.PROCESSING);
     expect(mocks.failTask).not.toHaveBeenCalled();
     expect(mocks.generateImage).toHaveBeenCalledTimes(1);

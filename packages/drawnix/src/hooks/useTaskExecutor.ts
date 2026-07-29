@@ -27,7 +27,7 @@ import {
   getImageSubmissionRequestId,
   imageGenerationRecoveryService,
   isCurrentImageRecoveryAttempt,
-  isImageRequestRecoveryTask,
+  isImageRequestRecoveryCandidate,
   isTimedOutImageRequestRecoveryTask,
   shouldRecoverImageSubmission,
 } from '../services/image-generation-recovery-service';
@@ -204,23 +204,27 @@ const MAX_CONCURRENT_TASKS = AI_GENERATION_CONCURRENCY_LIMIT;
 // 页面加载后延迟执行积压任务，避免与页面初始化竞争资源
 const STARTUP_DELAY_MS = 2000;
 
-export function useTaskExecutor(): void {
+export function useTaskExecutor(isTaskStorageReady = true): void {
   const executingTasksRef = useRef<Set<string>>(new Set());
   const pendingQueueRef = useRef<Task[]>([]);
   const timeoutCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    if (!isTaskStorageReady) {
+      return;
+    }
+
     let isActive = true;
 
-    const startImageRequestRecovery = (task: Task) => {
-      if (!isImageRequestRecoveryTask(task)) {
+    const startImageRequestRecovery = (task: Task): boolean => {
+      if (!isImageRequestRecoveryCandidate(task)) {
         imageGenerationRecoveryService.stop(task.id);
-        return;
+        return false;
       }
 
       const requestId = getImageSubmissionRequestId(task);
-      const startedAt = task.startedAt || task.createdAt;
-      imageGenerationRecoveryService.start(task, {
+      const startedAt = task.startedAt ?? task.createdAt;
+      const handle = imageGenerationRecoveryService.start(task, {
         onSucceeded: async (result) => {
           if (!isActive) return;
           let current = legacyTaskQueueService.getTask(task.id);
@@ -277,9 +281,18 @@ export function useTaskExecutor(): void {
           current = legacyTaskQueueService.getTask(task.id);
           if (
             !current ||
-            current.status !== TaskStatus.COMPLETED ||
-            getImageSubmissionRequestId(current) !== requestId
+            getImageSubmissionRequestId(current) !== requestId ||
+            (current.startedAt || current.createdAt) !== startedAt
           ) {
+            return;
+          }
+          if (
+            current.status !== TaskStatus.COMPLETED ||
+            !current.result?.url
+          ) {
+            if (isCurrentImageRecoveryAttempt(current, requestId, startedAt)) {
+              throw new Error('恢复图片结果尚未写入完成，稍后重试');
+            }
             return;
           }
 
@@ -326,6 +339,7 @@ export function useTaskExecutor(): void {
           }
         },
       });
+      return Boolean(handle);
     };
 
     // All tasks execute in main thread
@@ -607,7 +621,7 @@ export function useTaskExecutor(): void {
         );
       };
 
-      if (isImageRequestRecoveryTask(task)) {
+      if (isImageRequestRecoveryCandidate(task)) {
         startImageRequestRecovery(task);
         return;
       }
@@ -808,11 +822,11 @@ export function useTaskExecutor(): void {
           task.status === TaskStatus.PROCESSING
       );
       const recoverableImageRequestTasks = tasks.filter(
-        isImageRequestRecoveryTask
+        isImageRequestRecoveryCandidate
       );
 
       console.warn(
-        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${resumableTasks.length} resumable-image, ${resumableAudioTasks.length} resumable-audio, ${executingTasksRef.current.size} executing`
+        `[TaskExecutor] processPendingTasks: ${tasks.length} total, ${pendingTasks.length} pending, ${resumableTasks.length} resumable-image, ${resumableAudioTasks.length} resumable-audio, ${recoverableImageRequestTasks.length} recoverable-image, ${executingTasksRef.current.size} executing`
       );
 
       pendingTasks.forEach((task) => {
@@ -837,16 +851,32 @@ export function useTaskExecutor(): void {
       );
 
       processingTasks.forEach((task) => {
-        if (isImageRequestRecoveryTask(task)) {
-          return;
+        if (isImageRequestRecoveryCandidate(task)) {
+          // 页面恢复时，首次扫描可能因配置尚未完成初始化或路由暂不可解析而
+          // 无法启动。结构候选必须在每轮定时检查直接重试，不依赖新的任务事件。
+          if (startImageRequestRecovery(task)) {
+            return;
+          }
         }
         if (isTaskTimeout(task)) {
           console.warn(`[TaskExecutor] Task ${task.id} timed out`);
 
+          const persistedTimeoutRecoveryStartedAt =
+            typeof task.params.imageTimeoutRecoveryAttemptedAt === 'number' &&
+            Number.isFinite(task.params.imageTimeoutRecoveryAttemptedAt) &&
+            task.params.imageTimeoutRecoveryAttemptedAt >= 0
+              ? task.params.imageTimeoutRecoveryAttemptedAt
+              : undefined;
           if (
             task.type === TaskType.IMAGE &&
             isTimedOutImageRequestRecoveryTask(task)
           ) {
+            // 延长恢复窗口已经持久化后，即使当前配置暂时不可解析也继续保留
+            // PROCESSING + POLLING，由后续周期扫描重新接管，不能落回 TIMEOUT。
+            if (persistedTimeoutRecoveryStartedAt !== undefined) {
+              return;
+            }
+
             const requestId = getImageSubmissionRequestId(task);
             const timeoutRecoveryAttemptedAt = Date.now();
             void legacyTaskQueueService
@@ -878,11 +908,16 @@ export function useTaskExecutor(): void {
             originalError: `Task ${task.id} timed out after processing`,
             timestamp: Date.now(),
           };
+          const isExtendedRecoveryExpired =
+            task.type === TaskType.IMAGE &&
+            persistedTimeoutRecoveryStartedAt !== undefined;
 
           // Check if we should retry - disabled, mark as failed directly
           const timeoutError = {
-            code: 'TIMEOUT',
-            message: '任务执行超时',
+            code: isExtendedRecoveryExpired ? 'RECOVERY_TIMEOUT' : 'TIMEOUT',
+            message: isExtendedRecoveryExpired
+              ? '暂未查询到上游结果，可重试'
+              : '任务执行超时',
             details: timeoutDetails,
           };
           if (task.type === TaskType.IMAGE) {
@@ -923,7 +958,7 @@ export function useTaskExecutor(): void {
         if (event.type === 'taskCreated' || event.type === 'taskUpdated') {
           const task = event.task;
 
-          if (isImageRequestRecoveryTask(task)) {
+          if (isImageRequestRecoveryCandidate(task)) {
             startImageRequestRecovery(task);
             return;
           }
@@ -977,5 +1012,5 @@ export function useTaskExecutor(): void {
       executingTasksRef.current.clear();
       imageGenerationRecoveryService.stopAll();
     };
-  }, []);
+  }, [isTaskStorageReady]);
 }

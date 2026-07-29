@@ -26,7 +26,8 @@ import {
   getImageSubmissionRequestId,
   IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM,
   IMAGE_TIMEOUT_RECOVERY_ERROR_CODES,
-  imageGenerationRecoveryService,
+  isImageRequestRecoveryCandidate,
+  isImageRequestTimeoutRecoveryCandidate,
   isLegacyInterruptedImageRequestTask,
   isTimedOutImageRequestRecoveryTask,
 } from '../services/image-generation-recovery-service';
@@ -122,15 +123,16 @@ export function useTaskStorage(): boolean {
                       }
                     : task
                   : null;
-              const isImageRequestRecoverable = Boolean(
+              const isImageStructuralRecoveryCandidate = Boolean(
                 imageRecoveryTask &&
-                  imageGenerationRecoveryService.canRecover(imageRecoveryTask)
+                  isImageRequestRecoveryCandidate({
+                    ...imageRecoveryTask,
+                    executionPhase: TaskExecutionPhase.POLLING,
+                  })
               );
               const isImageTimeoutRecoveryCandidate = Boolean(
                 imageRecoveryTask &&
-                  imageGenerationRecoveryService.canRecoverTimedOut(
-                    imageRecoveryTask
-                  )
+                  isImageRequestTimeoutRecoveryCandidate(imageRecoveryTask)
               );
 
               const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
@@ -144,7 +146,7 @@ export function useTaskStorage(): boolean {
                   isVideoResumable ||
                   isAudioResumable ||
                   isAsyncImageResumable ||
-                  isImageRequestRecoverable ||
+                  isImageStructuralRecoveryCandidate ||
                   isImageTimeoutRecoveryCandidate
                     ? 'KEEP'
                     : 'MARK_FAILED'
@@ -156,13 +158,14 @@ export function useTaskStorage(): boolean {
                 isVideoResumable ||
                 isAudioResumable ||
                 isAsyncImageResumable ||
-                isImageRequestRecoverable ||
+                isImageStructuralRecoveryCandidate ||
                 isImageTimeoutRecoveryCandidate
               ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
                 if (
                   imageRecoveryTask &&
-                  (isImageRequestRecoverable || isImageTimeoutRecoveryCandidate)
+                  (isImageStructuralRecoveryCandidate ||
+                    isImageTimeoutRecoveryCandidate)
                 ) {
                   const requestId = getImageSubmissionRequestId(imageRecoveryTask);
                   await legacyTaskQueueService.markImageAttemptRecovering(

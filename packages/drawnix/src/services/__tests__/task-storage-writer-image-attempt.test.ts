@@ -331,6 +331,25 @@ describe('task-storage-writer image attempt guards', () => {
     });
   });
 
+  it('enters read-only polling as soon as the formal image submission is persisted', async () => {
+    await taskStorageWriter.saveTask(createImageTask('request-current'));
+
+    expect(
+      await taskStorageWriter.markImageSubmissionAttempted(
+        'image-task-1',
+        'request-current'
+      )
+    ).toBe(true);
+    expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
+      status: 'processing',
+      executionPhase: 'polling',
+      params: {
+        submissionRequestId: 'request-current',
+        imageSubmissionAttempted: true,
+      },
+    });
+  });
+
   it('does not write into cancelled or already completed attempts', async () => {
     await taskStorageWriter.saveTask(
       createImageTask('request-current', 'cancelled')

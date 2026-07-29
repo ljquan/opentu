@@ -12,6 +12,8 @@ import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
   isAmbiguousImageSubmissionError,
+  isCurrentImageRecoveryAttempt,
+  isImageRequestTimeoutRecoveryCandidate,
 } from '../image-generation-recovery-service';
 
 function createPlan() {
@@ -91,6 +93,40 @@ describe('image generation recovery service', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('calls the default browser fetch with the global receiver', async () => {
+    const fetcher = vi.fn(function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve(
+        Response.json({
+          status: 'succeeded',
+          data: [{ url: 'https://images.example.com/default-fetch.png' }],
+        })
+      );
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const onSucceeded = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      jitterRatio: 0,
+    });
+
+    service.start(createTask('task-default-fetch'), {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(onSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://images.example.com/default-fetch.png',
+      })
+    );
   });
 
   it('queries the configured provider first with auth and no Request-ID header', async () => {
@@ -128,6 +164,50 @@ describe('image generation recovery service', () => {
         url: 'https://images.example.com/result.png',
       })
     );
+  });
+
+  it('re-resolves the same provider and model when a persisted binding ID no longer exists', async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        status: 'succeeded',
+        data: [{ url: 'https://images.example.com/rebound.png' }],
+      })
+    );
+    const resolveInvocationPlan = vi.fn(
+      (_operation, _modelRef, options?: { bindingId?: string }) =>
+        options?.bindingId ? null : createPlan()
+    );
+    const onSucceeded = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: resolveInvocationPlan as any,
+      jitterRatio: 0,
+    });
+
+    service.start(createTask('task-stale-binding'), {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
+
+    expect(resolveInvocationPlan).toHaveBeenNthCalledWith(
+      1,
+      'image',
+      expect.objectContaining({
+        profileId: 'tuzi-profile',
+        modelId: 'gpt-image-2',
+      }),
+      { bindingId: 'tuzi-sync-image' }
+    );
+    expect(resolveInvocationPlan).toHaveBeenNthCalledWith(
+      2,
+      'image',
+      expect.objectContaining({
+        profileId: 'tuzi-profile',
+        modelId: 'gpt-image-2',
+      })
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('falls back across the four public query nodes after the configured provider fails', async () => {
@@ -288,7 +368,7 @@ describe('image generation recovery service', () => {
     );
   });
 
-  it('retries a recovered result when the first terminal writeback rejects', async () => {
+  it('keeps retrying the same recovered result after three terminal writeback failures', async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async () =>
       Response.json({
@@ -299,12 +379,15 @@ describe('image generation recovery service', () => {
     const onSucceeded = vi
       .fn()
       .mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+      .mockRejectedValueOnce(new Error('IndexedDB still unavailable'))
+      .mockRejectedValueOnce(new Error('IndexedDB transaction blocked'))
       .mockResolvedValueOnce(undefined);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const service = new ImageGenerationRecoveryService({
       fetcher,
       resolveInvocationPlan: vi.fn(() => createPlan()),
       pollIntervalMs: 5,
+      maxBackoffMs: 20,
       jitterRatio: 0,
     });
 
@@ -315,12 +398,96 @@ describe('image generation recovery service', () => {
     await flushMicrotasks();
     expect(onSucceeded).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(5);
+    await vi.advanceTimersByTimeAsync(5 + 10 + 20);
     await flushMicrotasks();
 
-    expect(onSucceeded).toHaveBeenCalledTimes(2);
+    expect(onSucceeded).toHaveBeenCalledTimes(4);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('cleans a pending terminal writeback retry when recovery is stopped', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        status: 'succeeded',
+        data: [{ url: 'https://images.example.com/stopped-writeback.png' }],
+      })
+    );
+    const onSucceeded = vi.fn().mockRejectedValue(new Error('IDB blocked'));
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 5,
+      jitterRatio: 0,
+    });
+
+    const handle = service.start(createTask('task-stop-writeback'), {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await flushMicrotasks();
+    expect(onSucceeded).toHaveBeenCalledTimes(1);
+
+    handle?.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushMicrotasks();
+
+    expect(onSucceeded).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans a hung terminal writeback when the recovery deadline expires', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        status: 'succeeded',
+        data: [{ url: 'https://images.example.com/hung-writeback.png' }],
+      })
+    );
+    const onSucceeded = vi.fn(() => new Promise<void>(() => undefined));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      requestTimeoutMs: 20,
+      timeoutRecoveryWindowMs: 50,
+      jitterRatio: 0,
+    });
+    const task = createTask('task-hung-writeback');
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
+
+    service.start(task, {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await flushMicrotasks(20);
+
+    expect(onSucceeded).toHaveBeenCalledTimes(1);
+    expect((service as any).entries.size).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(21);
+    await flushMicrotasks();
+
+    expect((service as any).entries.size).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('did not settle before the writeback watchdog')
+    );
+
+    service.start(task, {
+      onSucceeded: vi.fn(),
+      onFailed: vi.fn(),
+    });
+    await flushMicrotasks();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30);
+    await flushMicrotasks();
+
+    expect((service as any).entries.size).toBe(0);
   });
 
   it('queues more than the concurrency limit without dropping tasks', async () => {
@@ -488,7 +655,7 @@ describe('image generation recovery service', () => {
     );
   });
 
-  it('fails with recovery timeout without resetting the original task budget', async () => {
+  it('stops the live poller at its original deadline without failing before extended handoff', async () => {
     vi.useFakeTimers();
     const now = Date.now();
     vi.setSystemTime(now);
@@ -511,9 +678,44 @@ describe('image generation recovery service', () => {
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(11);
 
-    expect(onFailed).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'RECOVERY_TIMEOUT' })
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalled();
+  });
+
+  it('replaces the live poller when the same attempt enters extended recovery', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const fetcher = vi.fn(async () =>
+      Response.json({ status: 'processing_or_not_found', data: [] })
     );
+    const onFailed = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 5,
+      maxBackoffMs: 10,
+      timeoutRecoveryWindowMs: 100,
+      jitterRatio: 0,
+    });
+    const startedAt = now - IMAGE_GENERATION_TIMEOUT_MS + 10;
+    const task = createTask(
+      'task-live-to-extended',
+      'submission-live-to-extended',
+      startedAt
+    );
+    const callbacks = { onSucceeded: vi.fn(), onFailed };
+
+    service.start(task, callbacks);
+    await flushMicrotasks(20);
+
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
+    service.start(task, callbacks);
+    await vi.advanceTimersByTimeAsync(20);
+    await flushMicrotasks(20);
+
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1);
+    expect(onFailed).not.toHaveBeenCalled();
   });
 
   it('allows a recent timeout task to enter extended read-only recovery', () => {
@@ -553,6 +755,39 @@ describe('image generation recovery service', () => {
 
     expect(service.canRecover(task)).toBe(false);
     expect(service.canRecoverTimedOut(task)).toBe(true);
+  });
+
+  it('keeps timeout-window eligibility independent from temporarily unavailable provider settings', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      resolveInvocationPlan: vi.fn(() => null),
+    });
+    const task = createTask(
+      'task-expired-before-settings-ready',
+      'submission-expired-before-settings-ready',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+
+    expect(isImageRequestTimeoutRecoveryCandidate(task, now)).toBe(true);
+    expect(service.canRecoverTimedOut(task)).toBe(false);
+  });
+
+  it('keeps a marked processing attempt eligible while extended recovery settings are unavailable', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      resolveInvocationPlan: vi.fn(() => null),
+    });
+    const task = createTask(
+      'task-extended-settings-unavailable',
+      'submission-extended-settings-unavailable',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 1_000;
+
+    expect(isImageRequestTimeoutRecoveryCandidate(task, now)).toBe(true);
+    expect(service.canRecoverTimedOut(task)).toBe(false);
   });
 
   it('does not compensate a timeout older than 24 hours', () => {
@@ -675,5 +910,40 @@ describe('image generation recovery service', () => {
     expect(getImageSubmissionRequestId({ id: 'task-1', params })).toBe(
       'new-submission'
     );
+  });
+
+  it('accepts the same recovered attempt after its current route becomes unavailable', () => {
+    const task = createTask('task-terminal-writeback', 'submission-terminal');
+    const startedAt = task.startedAt!;
+    task.invocationRoute = undefined;
+
+    expect(
+      isCurrentImageRecoveryAttempt(task, 'submission-terminal', startedAt)
+    ).toBe(true);
+  });
+
+  it('uses createdAt to identify a restored attempt without startedAt', () => {
+    const task = createTask('task-created-at', 'submission-created-at');
+    task.startedAt = undefined;
+
+    expect(
+      isCurrentImageRecoveryAttempt(
+        task,
+        'submission-created-at',
+        task.createdAt
+      )
+    ).toBe(true);
+  });
+
+  it('rejects a recovered result from an older submission attempt', () => {
+    const task = createTask('task-new-retry', 'submission-new');
+
+    expect(
+      isCurrentImageRecoveryAttempt(
+        task,
+        'submission-old',
+        task.startedAt!
+      )
+    ).toBe(false);
   });
 });

@@ -9,6 +9,34 @@ import {
   type Task,
 } from '../../types/task.types';
 
+const IMAGE_TIMEOUT_MS = 15 * 60 * 1000;
+
+function isTimeoutRecoveryCandidate(task: Task): boolean {
+  const now = Date.now();
+  const recoveryStartedAt = task.params.imageTimeoutRecoveryAttemptedAt;
+  const activePersistedWindow =
+    typeof recoveryStartedAt === 'number' &&
+    now - recoveryStartedAt < 24 * 60 * 60 * 1000;
+  const timeoutAt = (task.startedAt || task.createdAt) + IMAGE_TIMEOUT_MS;
+  const failedAt = task.completedAt || task.updatedAt;
+
+  return (
+    task.type === TaskType.IMAGE &&
+    task.params.imageSubmissionAttempted === true &&
+    !task.remoteId &&
+    !task.syncedFromRemote &&
+    ((task.status === TaskStatus.PROCESSING &&
+      recoveryStartedAt === undefined &&
+      now >= timeoutAt &&
+      now - timeoutAt <= 24 * 60 * 60 * 1000) ||
+      (task.status === TaskStatus.FAILED &&
+        ['TIMEOUT', 'RECOVERY_TIMEOUT'].includes(task.error?.code || '') &&
+        (activePersistedWindow ||
+          (recoveryStartedAt === undefined &&
+            now - failedAt <= 24 * 60 * 60 * 1000))))
+  );
+}
+
 const mocks = vi.hoisted(() => ({
   storedTasks: [] as Task[],
   restoreTasks: vi.fn(),
@@ -18,22 +46,8 @@ const mocks = vi.hoisted(() => ({
   canRecover: vi.fn((task: Task) =>
     Boolean(task.params.imageSubmissionAttempted)
   ),
-  canRecoverTimedOut: vi.fn((task: Task) => {
-    const recoveryStartedAt = task.params.imageTimeoutRecoveryAttemptedAt;
-    const activePersistedWindow =
-      typeof recoveryStartedAt === 'number' &&
-      Date.now() - recoveryStartedAt < 24 * 60 * 60 * 1000;
-    return (
-      task.type === TaskType.IMAGE &&
-      ((task.status === TaskStatus.FAILED &&
-        ['TIMEOUT', 'RECOVERY_TIMEOUT'].includes(task.error?.code || '') &&
-        (recoveryStartedAt === undefined || activePersistedWindow)) ||
-        (task.status === TaskStatus.PROCESSING &&
-          task.params.expiredForTest === true &&
-          recoveryStartedAt === undefined)) &&
-      task.params.imageSubmissionAttempted === true
-    );
-  }),
+  canRecoverTimedOut: vi.fn(() => false),
+  isTimeoutRecoveryCandidate: vi.fn(),
 }));
 
 vi.mock('../../services/task-queue', () => ({
@@ -82,6 +96,15 @@ vi.mock('../../services/image-generation-recovery-service', () => ({
     canRecover: mocks.canRecover,
     canRecoverTimedOut: mocks.canRecoverTimedOut,
   },
+  isImageRequestRecoveryCandidate: (task: Task) =>
+    task.type === TaskType.IMAGE &&
+    task.status === TaskStatus.PROCESSING &&
+    task.params.imageSubmissionAttempted === true &&
+    task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+    !task.remoteId &&
+    !task.syncedFromRemote,
+  isImageRequestTimeoutRecoveryCandidate:
+    mocks.isTimeoutRecoveryCandidate,
   isLegacyInterruptedImageRequestTask: (task: Task) =>
     task.type === TaskType.IMAGE &&
     task.status === TaskStatus.FAILED &&
@@ -90,7 +113,7 @@ vi.mock('../../services/image-generation-recovery-service', () => ({
       task.error?.code || ''
     ),
   isTimedOutImageRequestRecoveryTask: (task: Task) =>
-    mocks.canRecoverTimedOut(task),
+    mocks.isTimeoutRecoveryCandidate(task),
 }));
 
 function createImageTask(
@@ -131,8 +154,15 @@ describe('useTaskStorage image request recovery', () => {
     mocks.updateTaskStatus.mockReset();
     mocks.markImageAttemptRecovering.mockReset().mockResolvedValue(true);
     mocks.failImageAttempt.mockReset().mockResolvedValue(true);
-    mocks.canRecover.mockClear();
-    mocks.canRecoverTimedOut.mockClear();
+    mocks.canRecover
+      .mockReset()
+      .mockImplementation((task: Task) =>
+        Boolean(task.params.imageSubmissionAttempted)
+      );
+    mocks.canRecoverTimedOut.mockReset().mockReturnValue(false);
+    mocks.isTimeoutRecoveryCandidate
+      .mockReset()
+      .mockImplementation(isTimeoutRecoveryCandidate);
     mocks.storedTasks = [];
   });
 
@@ -170,6 +200,24 @@ describe('useTaskStorage image request recovery', () => {
     );
   });
 
+  it('keeps a submitted image recoverable while provider settings are temporarily unavailable', async () => {
+    mocks.canRecover.mockReturnValue(false);
+    mocks.storedTasks = [
+      createImageTask(TaskStatus.PROCESSING, true, 'submission-delayed-key'),
+    ];
+    const { useTaskStorage } = await import('../useTaskStorage');
+    const { result } = renderHook(() => useTaskStorage());
+
+    await waitFor(() => expect(result.current).toBe(true));
+
+    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
+      'image-task-1',
+      'submission-delayed-key',
+      { allowFailed: false, migrateLegacy: false }
+    );
+    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+  });
+
   it('migrates a legacy processing image task by falling back to the task ID', async () => {
     mocks.storedTasks = [createImageTask(TaskStatus.PROCESSING)];
     const { useTaskStorage } = await import('../useTaskStorage');
@@ -184,14 +232,15 @@ describe('useTaskStorage image request recovery', () => {
     );
   });
 
-  it('rechecks an expired processing image instead of marking it interrupted', async () => {
+  it('starts the extended window for an expired image even while provider settings are unavailable', async () => {
     const task = createImageTask(
       TaskStatus.PROCESSING,
       true,
       'submission-expired-1'
     );
-    task.params.expiredForTest = true;
-    mocks.canRecover.mockReturnValueOnce(false);
+    task.startedAt = Date.now() - IMAGE_TIMEOUT_MS - 1_000;
+    mocks.canRecover.mockReturnValue(false);
+    mocks.canRecoverTimedOut.mockReturnValue(false);
     mocks.storedTasks = [task];
     const { useTaskStorage } = await import('../useTaskStorage');
     const { result } = renderHook(() => useTaskStorage());
@@ -208,6 +257,7 @@ describe('useTaskStorage image request recovery', () => {
       }
     );
     expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+    expect(mocks.canRecoverTimedOut).not.toHaveBeenCalled();
   });
 
   it('migrates a legacy interrupted image task by falling back to the task ID', async () => {

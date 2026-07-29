@@ -34,25 +34,31 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 - 当前提交 Request ID 存在；旧版 `PROCESSING` 或 `INTERRUPTED` 任务缺少字段时按迁移规则回退到任务 ID
 - 持久化调用路由可解析到可信 Tuzi 节点
 - `imageSubmissionAttempted === true`，即正式 POST 已经发起
-- 任务仍处于图片任务 15 分钟总时限内
+- 任务仍处于正常 15 分钟窗口，或持久化的 24 小时延长恢复窗口内
 - 任务没有被用户取消、删除或被新一次重试替代
 
-恢复中的任务继续使用 `TaskStatus.PROCESSING` 与现有 `TaskExecutionPhase.POLLING`。不新增 `imageRecovery` 结果实体，也不把恢复状态塞进 `task.error`。
+恢复中的任务继续使用 `TaskStatus.PROCESSING`。正式提交标记提交后通常进入现有 `TaskExecutionPhase.POLLING`；原 POST 已收到响应头并进入 `DOWNLOADING` 时仍保持只读恢复资格，不能仅因阶段变化停止轮询。不新增 `imageRecovery` 结果实体，也不把恢复状态塞进 `task.error`。
 
 所有图片入口都必须在正式 POST 前等待 `imageSubmissionAttempted=true` 对应的 IndexedDB 读写事务完成；仅 `put` 请求成功但事务尚未提交，不视为持久化完成。
 
-启动恢复的入口有两个：
+启动恢复的入口有四个：
 
+- 正式 POST 的提交标记事务完成后立即启动只读查询，与原响应连接并行等待；两条链路由同一 Request ID 条件终态写入竞争，首个合法终态生效
 - 正式 POST 已尝试后，因页面生命周期、网络错误、超时或连接终止而出现模糊响应丢失
 - 页面初始化发现符合条件的 `PROCESSING` 任务，或旧版本写入的 `FAILED + INTERRUPTED/INTERRUPTED_DURING_SUBMISSION` 任务
+- 页面初始化时供应商配置尚未就绪而暂时漏过的任务，由周期检查在配置可解析后重新接管
 
-当前页面运行到正常 15 分钟窗口时，会先在同一 IndexedDB 事务中写入 `imageTimeoutRecoveryAttemptedAt` 并切换为轮询状态，再中止本地长连接；不得先写 `TIMEOUT` 终态。对于已进入 `FAILED + TIMEOUT/RECOVERY_TIMEOUT` 的旧任务，若超时发生在最近 24 小时内，页面初始化会写入或复用同一标记并恢复轮询。该时间戳作为延长恢复窗口的固定起点：窗口内继续执行只读多节点查询，页面刷新后按剩余时间恢复；命中结果则完成原任务，窗口结束仍未命中才恢复为明确的超时失败。标记会保留在失败/完成任务中，刷新不会重置预算；用户主动重试时创建新提交 Request ID 并清除旧标记。
+任务存储和执行器位于延迟运行时中。页面启动时先用轻量 IndexedDB 扫描检查是否存在结构可恢复的处理中或超时任务；命中时自动唤醒延迟运行时，使存储恢复和执行器在用户未打开生成窗口、任务面板或其他工具窗口时也能挂载。没有可恢复任务时继续保持懒加载，避免扩大普通页面启动成本。
+
+当前页面运行到正常 15 分钟窗口时，实时轮询器只静默交棒，不得抢先写 `RECOVERY_TIMEOUT`；全局超时检查器会在同一 IndexedDB 事务中写入 `imageTimeoutRecoveryAttemptedAt` 并切换为延长轮询，再中止本地长连接。该标记必须同步到内存，并用新的 24 小时截止时间替换同 Request ID 的旧轮询条目。对于已进入 `FAILED + TIMEOUT/RECOVERY_TIMEOUT` 的旧任务，若超时发生在最近 24 小时内，页面初始化会写入或复用同一标记并恢复轮询。该时间戳作为延长恢复窗口的固定起点：窗口内继续执行只读多节点查询，页面刷新后按剩余时间恢复；命中结果则完成原任务，窗口结束仍未命中才恢复为明确的超时失败。标记会保留在失败/完成任务中，刷新不会重置预算；用户主动重试时创建新提交 Request ID 并清除旧标记。
 
 ### 2. 使用查询参数传当前提交 Request ID，GET 不发送 Request-ID 头
 
-每轮查询使用 `request_id=submissionRequestId`。请求通过原任务 `invocationRoute` 解析当前供应商配置和用户凭据，但不复制或持久化 API Key。首次提交 ID 等于任务 ID；重试生成新 ID，旧任务缺少字段时回退到任务 ID。
+每轮查询使用 `request_id=submissionRequestId`。请求通过原任务 `invocationRoute` 解析当前供应商配置和用户凭据，但不复制或持久化 API Key。优先使用提交时保存的精确 binding ID；设置迁移或重新初始化后该派生 ID 已不存在时，只允许在同一 provider profile 与同一模型内重新解析 binding，并再次校验可信节点与同步图片协议。首次提交 ID 等于任务 ID；重试生成新 ID，旧任务缺少字段时回退到任务 ID。
 
 可信 Tuzi GET 必须清除任何大小写形式的 `X-Request-Id`。查询目标由原配置节点和预置的 Request-ID 公网节点组成；绝对 URL 和第三方地址不得继承凭据或提交 Request ID。
+
+浏览器默认传输必须把原生 `fetch` 绑定到当前运行时的 `globalThis` 后再保存和调用，避免类实例方法调用改变 receiver 并触发 Chrome `Illegal invocation`。测试注入的自定义 fetcher 保持原调用语义。
 
 公网 OpenTu 不限制固定页面 Origin。跨域查询仍必须携带用户自己的认证信息，并依赖 Tuzi 后端已有的用户、Token、开放平台应用隔离。提交 Request ID 不得发送到可信列表以外的地址。
 
@@ -83,11 +89,12 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 | `succeeded`               | 校验图片 URL，尝试写入现有缓存，然后通过现有任务完成流程写回结果并触发画布插入 |
 | `failed`                  | 使用上游 message/code 写入 `task.error` 并标记失败                             |
 | `processing_or_not_found` | 保持处理中并继续轮询                                                           |
-| 超过正常与延长恢复总时限  | 标记 `RECOVERY_TIMEOUT`，提示“暂未查询到上游结果，可重试”                      |
+| 达到正常 15 分钟边界      | 静默交棒并原子切换到持久化延长恢复，不先写失败                               |
+| 超过 24 小时延长恢复时限  | 标记 `RECOVERY_TIMEOUT`，提示“暂未查询到上游结果，可重试”                      |
 
-缓存写入失败不改变上游成功事实：任务仍以远程 URL 完成，并沿用现有缓存警告能力。对同一远程结果只尝试一次缓存，避免反复下载和额外内存占用。若 IndexedDB 终态写回瞬时失败，轮询器保留已取得的终态结果并有限次重试写回，不能在写回前删除恢复任务或静默吞掉异常。
+缓存写入失败不改变上游成功事实：任务仍以远程 URL 完成，并沿用现有缓存警告能力。对同一远程结果只尝试一次缓存，避免反复下载和额外内存占用。若 IndexedDB 终态写回失败，轮询器在当前恢复时限内保留已取得的最多 10 个结果 URL，并使用有上限的指数退避持续重试写回；若单次写回 Promise 超过有界 watchdog 仍未结束，则释放结果数据，仅保留同一次提交的轻量占位直到恢复截止时间，阻止周期扫描制造更多并发挂起写入。取消、删除、重试、终态被其他写入抢先完成或恢复时限结束时清理，不能形成永久定时器或无界内存滞留。
 
-任务更新前再次读取当前状态。内存写回只有 `submissionRequestId` 与本轮 `startedAt` 都仍匹配且任务仍为处理中时才能生效；IndexedDB 的完成、失败和异步 `remoteId` 写回必须在同一个 `readwrite` 事务内校验当前 Request ID 与非终态状态后再更新。原请求和轮询同时返回时，第一个合法终态生效；重试轮换 ID 后，旧提交、旧轮询及其迟到结果均被忽略。
+任务更新前再次读取当前状态。内存写回只有 `submissionRequestId` 与本轮 `startedAt` 都仍匹配且任务仍为处理中时才能生效；已收到终态后，该身份校验不得再次解析当前 Token、供应商路由、配置或恢复截止时间，否则配置初始化抖动会把已经取得的成功结果静默丢弃。IndexedDB 的完成、失败和异步 `remoteId` 写回必须在同一个 `readwrite` 事务内校验当前 Request ID 与非终态状态后再更新。原请求和轮询同时返回时，第一个合法终态生效；重试轮换 ID 后，旧提交、旧轮询及其迟到结果均被忽略。
 
 ## Risks / Trade-offs
 
@@ -96,7 +103,8 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 - 多标签页可能重复发送只读查询 → 单标签页内去重，终态写回保持幂等；不为本次能力引入新的跨标签页锁实体
 - 节点版本不一致可能出现 404 → 原配置节点优先并轮换可信查询节点，把原始 404 当作节点兼容故障而不是业务失败
 - 公网节点可能使用独立 Token 域 → 原配置节点的认证结果具有权威性，备用节点 401/403 不覆盖原节点已确认的处理中状态
-- 当前供应商配置被删除或 Token 失效 → 停止轮询并显示可操作的配置错误，不保存旧密钥副本
+- 尚未取得终态前，当前供应商配置被删除或 Token 失效 → 停止轮询并显示可操作的配置错误，不保存旧密钥副本；已经取得的成功或失败终态仍按任务身份写回
+- 已进入延长恢复但页面初始化时配置暂不可解析 → 保留固定恢复起点和 `PROCESSING + POLLING`，由周期扫描继续尝试接管；不得退回普通 `TIMEOUT` 或重置 24 小时预算
 
 ## Migration Plan
 

@@ -110,7 +110,10 @@ import { isCardElement } from './types/card.types';
 import { isFrameElement } from './types/frame.types';
 import { openCardInKnowledgeBase } from './utils/card-actions';
 import { useI18n } from './i18n';
-import { safeReload } from './utils/active-tasks';
+import {
+  hasPersistedRecoverableTasks,
+  safeReload,
+} from './utils/active-tasks';
 import { useTabSync } from './hooks/useTabSync';
 import { canvasAudioPlaybackService } from './services/canvas-audio-playback-service';
 import { useCanvasAudioPlaybackSelector } from './hooks/useCanvasAudioPlayback';
@@ -389,6 +392,27 @@ export const Drawnix: React.FC<DrawnixProps> = ({
 
   const enableGenerationRuntime = useCallback(() => {
     enableDeferredRuntime(TOOL_WINDOW_GROUPS);
+  }, [enableDeferredRuntime]);
+
+  useEffect(() => {
+    let active = true;
+
+    hasPersistedRecoverableTasks()
+      .then((shouldWakeRuntime) => {
+        if (active && shouldWakeRuntime) {
+          enableDeferredRuntime(TOOL_WINDOW_GROUPS);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          '[Drawnix] Failed to inspect persisted recoverable tasks:',
+          error
+        );
+      });
+
+    return () => {
+      active = false;
+    };
   }, [enableDeferredRuntime]);
 
   useEffect(() => {

@@ -316,6 +316,7 @@ class TaskStorageWriter {
       (task) => {
         task.status = 'processing';
         task.params.imageSubmissionAttempted = true;
+        task.executionPhase = 'polling';
         task.updatedAt = Date.now();
       },
       expectedRequestId,
