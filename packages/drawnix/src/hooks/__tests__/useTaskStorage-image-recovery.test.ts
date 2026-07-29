@@ -18,16 +18,22 @@ const mocks = vi.hoisted(() => ({
   canRecover: vi.fn((task: Task) =>
     Boolean(task.params.imageSubmissionAttempted)
   ),
-  canRecoverTimedOut: vi.fn(
-    (task: Task) =>
+  canRecoverTimedOut: vi.fn((task: Task) => {
+    const recoveryStartedAt = task.params.imageTimeoutRecoveryAttemptedAt;
+    const activePersistedWindow =
+      typeof recoveryStartedAt === 'number' &&
+      Date.now() - recoveryStartedAt < 24 * 60 * 60 * 1000;
+    return (
       task.type === TaskType.IMAGE &&
       ((task.status === TaskStatus.FAILED &&
-        ['TIMEOUT', 'RECOVERY_TIMEOUT'].includes(task.error?.code || '')) ||
+        ['TIMEOUT', 'RECOVERY_TIMEOUT'].includes(task.error?.code || '') &&
+        (recoveryStartedAt === undefined || activePersistedWindow)) ||
         (task.status === TaskStatus.PROCESSING &&
-          task.params.expiredForTest === true)) &&
-      task.params.imageSubmissionAttempted === true &&
-      task.params.imageTimeoutRecoveryAttemptedAt === undefined
-  ),
+          task.params.expiredForTest === true &&
+          recoveryStartedAt === undefined)) &&
+      task.params.imageSubmissionAttempted === true
+    );
+  }),
 }));
 
 vi.mock('../../services/task-queue', () => ({
@@ -56,6 +62,7 @@ vi.mock('../../utils/task-utils', () => ({
 }));
 
 vi.mock('../../services/image-generation-recovery-service', () => ({
+  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM: 'imageTimeoutRecoveryAttemptedAt',
   IMAGE_TIMEOUT_RECOVERY_ERROR_CODES: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
   createImageSubmissionParams: (
     params: Task['params'],
@@ -229,7 +236,7 @@ describe('useTaskStorage image request recovery', () => {
     );
   });
 
-  it('rechecks a recent timed-out submitted image once after reload', async () => {
+  it('starts an extended recovery window for a recent timed-out image', async () => {
     const task = createImageTask(
       TaskStatus.FAILED,
       true,
@@ -254,7 +261,7 @@ describe('useTaskStorage image request recovery', () => {
     );
   });
 
-  it('does not recheck a timed-out image after the compensation marker is persisted', async () => {
+  it('resumes a timed-out image with an active persisted recovery window', async () => {
     const task = createImageTask(
       TaskStatus.FAILED,
       true,
@@ -262,7 +269,35 @@ describe('useTaskStorage image request recovery', () => {
     );
     task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
     task.completedAt = Date.now() - 1_000;
-    task.params.imageTimeoutRecoveryAttemptedAt = Date.now() - 2_000;
+    const recoveryStartedAt = Date.now() - 2_000;
+    task.params.imageTimeoutRecoveryAttemptedAt = recoveryStartedAt;
+    mocks.storedTasks = [task];
+    const { useTaskStorage } = await import('../useTaskStorage');
+    const { result } = renderHook(() => useTaskStorage());
+
+    await waitFor(() => expect(result.current).toBe(true));
+
+    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
+      'image-task-1',
+      'submission-timeout-1',
+      {
+        allowFailed: true,
+        expectedErrorCodes: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
+        timeoutRecoveryAttemptedAt: recoveryStartedAt,
+      }
+    );
+  });
+
+  it('does not resume a timed-out image after its persisted recovery window expires', async () => {
+    const task = createImageTask(
+      TaskStatus.FAILED,
+      true,
+      'submission-timeout-expired'
+    );
+    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
+    task.completedAt = Date.now() - 1_000;
+    task.params.imageTimeoutRecoveryAttemptedAt =
+      Date.now() - 24 * 60 * 60 * 1000 - 1;
     mocks.storedTasks = [task];
     const { useTaskStorage } = await import('../useTaskStorage');
     const { result } = renderHook(() => useTaskStorage());

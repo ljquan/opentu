@@ -90,6 +90,7 @@ export interface ImageGenerationRecoveryServiceOptions {
   pollIntervalMs?: number;
   maxBackoffMs?: number;
   requestTimeoutMs?: number;
+  timeoutRecoveryWindowMs?: number;
   jitterRatio?: number;
   now?: () => number;
   random?: () => number;
@@ -109,7 +110,7 @@ interface RecoveryTaskDescriptor {
   requestId: string;
   startedAt: number;
   deadline: number;
-  oneShot: boolean;
+  extended: boolean;
   route: RecoveryRouteDescriptor;
 }
 
@@ -377,6 +378,7 @@ export class ImageGenerationRecoveryService {
   private readonly pollIntervalMs: number;
   private readonly maxBackoffMs: number;
   private readonly requestTimeoutMs: number;
+  private readonly timeoutRecoveryWindowMs: number;
   private readonly jitterRatio: number;
   private readonly now: () => number;
   private readonly random: () => number;
@@ -404,6 +406,10 @@ export class ImageGenerationRecoveryService {
     this.requestTimeoutMs = Math.max(
       1,
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    this.timeoutRecoveryWindowMs = Math.max(
+      1,
+      options.timeoutRecoveryWindowMs ?? TIMEOUT_RECOVERY_GRACE_MS
     );
     this.jitterRatio = Math.min(
       0.5,
@@ -436,6 +442,9 @@ export class ImageGenerationRecoveryService {
           );
     const elapsed =
       failedAt === undefined ? Number.POSITIVE_INFINITY : this.now() - failedAt;
+    const timeoutRecoveryStartedAt = normalizePositiveNumber(
+      task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
+    );
     const isFailedTimeout =
       task.status === TaskStatus.FAILED &&
       IMAGE_TIMEOUT_RECOVERY_ERROR_CODES.some(
@@ -446,11 +455,15 @@ export class ImageGenerationRecoveryService {
     if (
       task.type !== TaskType.IMAGE ||
       (!isFailedTimeout && !isExpiredProcessing) ||
-      task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] !== undefined ||
       task.remoteId ||
       task.syncedFromRemote ||
       elapsed < -CLOCK_SKEW_TOLERANCE_MS ||
-      elapsed > TIMEOUT_RECOVERY_GRACE_MS
+      (timeoutRecoveryStartedAt === undefined &&
+        elapsed > TIMEOUT_RECOVERY_GRACE_MS) ||
+      (timeoutRecoveryStartedAt !== undefined &&
+        (task.status !== TaskStatus.FAILED ||
+          timeoutRecoveryStartedAt + this.timeoutRecoveryWindowMs <=
+            this.now()))
     ) {
       return false;
     }
@@ -521,7 +534,7 @@ export class ImageGenerationRecoveryService {
 
   private createTaskDescriptor(
     task: ImageGenerationRecoveryTask,
-    forceOneShot = false
+    forceExtended = false
   ): RecoveryTaskDescriptor | null {
     if (task.type !== TaskType.IMAGE) {
       return null;
@@ -535,11 +548,11 @@ export class ImageGenerationRecoveryService {
       route?.modelRef?.modelId || route?.modelId
     );
     const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
-    const oneShot =
-      forceOneShot ||
-      normalizePositiveNumber(
-        task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
-      ) !== undefined;
+    const timeoutRecoveryStartedAt = normalizePositiveNumber(
+      task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
+    );
+    const extended = forceExtended || timeoutRecoveryStartedAt !== undefined;
+    const now = this.now();
 
     if (
       !taskId ||
@@ -548,6 +561,8 @@ export class ImageGenerationRecoveryService {
       !providerProfileId ||
       !modelId ||
       startedAt === undefined ||
+      (timeoutRecoveryStartedAt !== undefined &&
+        timeoutRecoveryStartedAt > now + CLOCK_SKEW_TOLERANCE_MS) ||
       !hasImageSubmissionAttempt(task)
     ) {
       return null;
@@ -557,12 +572,10 @@ export class ImageGenerationRecoveryService {
       taskId,
       requestId,
       startedAt,
-      deadline: oneShot
-        ? this.now() +
-          this.requestTimeoutMs *
-            (TUZI_API_REQUEST_ID_CORS_ENDPOINTS.length + 1)
-        : Math.min(startedAt, this.now()) + IMAGE_GENERATION_TIMEOUT_MS,
-      oneShot,
+      deadline: extended
+        ? (timeoutRecoveryStartedAt ?? now) + this.timeoutRecoveryWindowMs
+        : Math.min(startedAt, now) + IMAGE_GENERATION_TIMEOUT_MS,
+      extended,
       route: {
         providerProfileId,
         modelId,
@@ -650,18 +663,10 @@ export class ImageGenerationRecoveryService {
       case 'stopped':
         return;
       case 'processing':
-        if (task.oneShot) {
-          this.finishFailure(entry, createTimeoutFailure());
-          return;
-        }
         entry.failureStreak = 0;
         this.scheduleNextPoll(entry);
         return;
       case 'transient':
-        if (task.oneShot) {
-          this.finishFailure(entry, createTimeoutFailure());
-          return;
-        }
         entry.failureStreak += 1;
         this.scheduleNextPoll(entry);
         return;
@@ -894,7 +899,10 @@ export class ImageGenerationRecoveryService {
     }
 
     entry.state = 'waiting';
-    const delay = Math.min(this.nextDelay(entry.failureStreak), remainingMs);
+    const delay = Math.min(
+      task.extended ? this.maxBackoffMs : this.nextDelay(entry.failureStreak),
+      remainingMs
+    );
     entry.pollTimer = setTimeout(() => {
       entry.pollTimer = undefined;
       if (!this.isCurrent(entry)) {

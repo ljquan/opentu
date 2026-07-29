@@ -96,15 +96,24 @@ The system SHALL limit concurrent recovery queries while retaining every eligibl
 - **THEN** polling SHALL stop
 - **AND** the task SHALL fail with a clear message that no upstream result was found and the user may retry
 
-#### Scenario: A recently timed-out task may already have an upstream result
+#### Scenario: A recently timed-out task may complete after the normal window
 
 - **GIVEN** a trusted Tuzi image task formally submitted its current Request ID
 - **AND** it has exceeded the normal processing window or failed locally with `TIMEOUT` or `RECOVERY_TIMEOUT` within the last 24 hours
-- **WHEN** OpenTu initializes and that submission has not received a timeout compensation query before
-- **THEN** the system SHALL atomically persist a compensation-attempt marker
-- **AND** SHALL perform one read-only query round across the configured provider endpoint and trusted fallback endpoints
-- **AND** SHALL complete the original task when the upstream result exists
-- **AND** SHALL NOT repeat the compensation after a terminal miss or send another image-generation POST
+- **WHEN** OpenTu initializes
+- **THEN** the system SHALL atomically persist or reuse a fixed extended-recovery start marker
+- **AND** SHALL continue bounded read-only polling across the configured provider endpoint and trusted fallback endpoints for at most 24 hours from that marker
+- **AND** a page reload SHALL resume only the remaining recovery window rather than resetting it
+- **AND** SHALL complete the original task whenever the upstream result appears within that window
+- **AND** SHALL NOT send another image-generation POST
+
+#### Scenario: Extended recovery reaches its deadline
+
+- **GIVEN** a timed-out image task has an extended-recovery start marker
+- **WHEN** 24 hours have elapsed from that persisted marker without a terminal upstream result
+- **THEN** polling SHALL stop
+- **AND** the task SHALL remain failed with `RECOVERY_TIMEOUT`
+- **AND** another page reload SHALL NOT restart or extend the expired recovery window
 
 #### Scenario: User stops the task
 

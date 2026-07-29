@@ -18,11 +18,13 @@ import {
   TaskType,
   TaskStatus,
   TaskExecutionPhase,
+  type Task,
 } from '../types/task.types';
 import { isResumableAsyncImageTask } from '../utils/task-utils';
 import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
+  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM,
   IMAGE_TIMEOUT_RECOVERY_ERROR_CODES,
   imageGenerationRecoveryService,
   isLegacyInterruptedImageRequestTask,
@@ -45,6 +47,17 @@ function waitForIdle(timeout = 100): Promise<void> {
       setTimeout(resolve, 0);
     }
   });
+}
+
+function getTimeoutRecoveryStartedAt(task: Pick<Task, 'params'>): number {
+  const value = task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM];
+  const now = Date.now();
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= now + 60_000
+    ? value
+    : now;
 }
 
 /**
@@ -161,7 +174,10 @@ export function useTaskStorage(): boolean {
                         task.params.submissionRequestId === undefined ||
                         task.params.imageSubmissionAttempted === undefined,
                       ...(isImageTimeoutRecoveryCandidate
-                        ? { timeoutRecoveryAttemptedAt: Date.now() }
+                        ? {
+                            timeoutRecoveryAttemptedAt:
+                              getTimeoutRecoveryStartedAt(imageRecoveryTask),
+                          }
                         : {}),
                     }
                   );
@@ -302,7 +318,8 @@ export function useTaskStorage(): boolean {
               isTimedOutImageRequestRecoveryTask(task)
           );
           for (const task of timedOutImageTasks) {
-            const timeoutRecoveryAttemptedAt = Date.now();
+            const timeoutRecoveryAttemptedAt =
+              getTimeoutRecoveryStartedAt(task);
             const recovered =
               await legacyTaskQueueService.markImageAttemptRecovering(
                 task.id,

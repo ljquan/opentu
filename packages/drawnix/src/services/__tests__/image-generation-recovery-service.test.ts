@@ -516,7 +516,7 @@ describe('image generation recovery service', () => {
     );
   });
 
-  it('allows one recent timeout task to perform a read-only compensation query', () => {
+  it('allows a recent timeout task to enter extended read-only recovery', () => {
     const now = Date.now();
     const service = new ImageGenerationRecoveryService({
       now: () => now,
@@ -536,10 +536,10 @@ describe('image generation recovery service', () => {
     expect(service.canRecoverTimedOut(task)).toBe(true);
 
     task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
-    expect(service.canRecoverTimedOut(task)).toBe(false);
+    expect(service.canRecoverTimedOut(task)).toBe(true);
   });
 
-  it('allows an expired processing task to perform the same one-shot compensation', () => {
+  it('allows an expired processing task to enter extended recovery', () => {
     const now = Date.now();
     const service = new ImageGenerationRecoveryService({
       now: () => now,
@@ -574,7 +574,49 @@ describe('image generation recovery service', () => {
     expect(service.canRecoverTimedOut(task)).toBe(false);
   });
 
-  it('checks every trusted node once and does not keep polling after timeout compensation misses', async () => {
+  it('resumes an old one-shot miss while its persisted recovery window is active', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      timeoutRecoveryWindowMs: 60_000,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask(
+      'task-old-one-shot',
+      'submission-old-one-shot',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.status = TaskStatus.FAILED;
+    task.completedAt = now - 1_000;
+    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
+    task.executionPhase = undefined;
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 5_000;
+
+    expect(service.canRecoverTimedOut(task)).toBe(true);
+  });
+
+  it('does not resume an expired persisted recovery window', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      timeoutRecoveryWindowMs: 60_000,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask(
+      'task-expired-recovery',
+      'submission-expired-recovery',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.status = TaskStatus.FAILED;
+    task.completedAt = now - 1_000;
+    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
+    task.executionPhase = undefined;
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 60_001;
+
+    expect(service.canRecoverTimedOut(task)).toBe(false);
+  });
+
+  it('keeps polling after an extended recovery miss and stops at its deadline', async () => {
     vi.useFakeTimers();
     const now = Date.now();
     vi.setSystemTime(now);
@@ -586,11 +628,13 @@ describe('image generation recovery service', () => {
       fetcher,
       resolveInvocationPlan: vi.fn(() => createPlan()),
       pollIntervalMs: 5,
+      maxBackoffMs: 10,
+      timeoutRecoveryWindowMs: 25,
       jitterRatio: 0,
     });
     const task = createTask(
-      'task-one-shot-timeout',
-      'submission-one-shot-timeout',
+      'task-extended-timeout',
+      'submission-extended-timeout',
       now - IMAGE_GENERATION_TIMEOUT_MS - 1
     );
     task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
@@ -601,14 +645,20 @@ describe('image generation recovery service', () => {
     });
     await flushMicrotasks(20);
 
+    const firstRoundQueryCount = fetcher.mock.calls.length;
+    expect(firstRoundQueryCount).toBeGreaterThan(0);
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10);
+    await flushMicrotasks(20);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(firstRoundQueryCount);
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(15);
+    await flushMicrotasks(20);
     expect(onFailed).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'RECOVERY_TIMEOUT' })
     );
-    const queryCount = fetcher.mock.calls.length;
-    expect(queryCount).toBeGreaterThan(0);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(fetcher).toHaveBeenCalledTimes(queryCount);
   });
 
   it('clears the timeout compensation marker when creating a new submission attempt', () => {
