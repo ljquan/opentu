@@ -100,8 +100,9 @@ The system SHALL limit concurrent recovery queries while retaining every eligibl
 
 - **GIVEN** a trusted Tuzi image task formally submitted its current Request ID
 - **AND** it has exceeded the normal processing window or failed locally with `TIMEOUT` or `RECOVERY_TIMEOUT` within the last 24 hours
-- **WHEN** OpenTu initializes
+- **WHEN** the current page reaches the normal timeout or OpenTu initializes an older timed-out task
 - **THEN** the system SHALL atomically persist or reuse a fixed extended-recovery start marker
+- **AND** the current page SHALL enter extended polling without first persisting a `TIMEOUT` terminal state
 - **AND** SHALL continue bounded read-only polling across the configured provider endpoint and trusted fallback endpoints for at most 24 hours from that marker
 - **AND** a page reload SHALL resume only the remaining recovery window rather than resetting it
 - **AND** SHALL complete the original task whenever the upstream result appears within that window

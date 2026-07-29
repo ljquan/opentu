@@ -28,6 +28,7 @@ import {
   imageGenerationRecoveryService,
   isCurrentImageRecoveryAttempt,
   isImageRequestRecoveryTask,
+  isTimedOutImageRequestRecoveryTask,
   shouldRecoverImageSubmission,
 } from '../services/image-generation-recovery-service';
 
@@ -841,6 +842,34 @@ export function useTaskExecutor(): void {
         }
         if (isTaskTimeout(task)) {
           console.warn(`[TaskExecutor] Task ${task.id} timed out`);
+
+          if (
+            task.type === TaskType.IMAGE &&
+            isTimedOutImageRequestRecoveryTask(task)
+          ) {
+            const requestId = getImageSubmissionRequestId(task);
+            const timeoutRecoveryAttemptedAt = Date.now();
+            void legacyTaskQueueService
+              .markImageAttemptRecovering(task.id, requestId, {
+                timeoutRecoveryAttemptedAt,
+              })
+              .then((recovered) => {
+                if (!recovered || !isActive) {
+                  return;
+                }
+
+                // 先持久化恢复状态，再中止本地长连接；迟到的执行回调只能看到
+                // POLLING 状态，不能把同一 Request ID 覆盖成超时失败。
+                generationAPIService.cancelRequest(task.id);
+              })
+              .catch((error) => {
+                console.error(
+                  '[TaskExecutor] Failed to start extended image recovery:',
+                  error
+                );
+              });
+            return;
+          }
 
           // Cancel the API request
           generationAPIService.cancelRequest(task.id);

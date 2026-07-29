@@ -21,6 +21,7 @@ async function setupTaskQueueServiceHarness(
   options: {
     trustedImageRecovery?: boolean;
     hasCredentials?: boolean;
+    timedOutImageRecovery?: boolean;
   } = {}
 ) {
   const storedTasks = new Map<string, any>();
@@ -140,6 +141,7 @@ async function setupTaskQueueServiceHarness(
           allowFailed?: boolean;
           expectedErrorCodes?: readonly string[];
           migrateLegacy?: boolean;
+          timeoutRecoveryAttemptedAt?: number;
         } = {}
       ) =>
         updateStoredImageAttempt(
@@ -154,6 +156,12 @@ async function setupTaskQueueServiceHarness(
             if (updateOptions.migrateLegacy) {
               task.params.submissionRequestId = requestId;
               task.params.imageSubmissionAttempted = true;
+            }
+            if (
+              typeof updateOptions.timeoutRecoveryAttemptedAt === 'number'
+            ) {
+              task.params.imageTimeoutRecoveryAttemptedAt =
+                updateOptions.timeoutRecoveryAttemptedAt;
             }
           },
           {
@@ -462,6 +470,19 @@ async function setupTaskQueueServiceHarness(
     };
   });
 
+  vi.doMock('../image-generation-recovery-service', async (importOriginal) => {
+    const actual = await importOriginal<
+      typeof import('../image-generation-recovery-service')
+    >();
+
+    return {
+      ...actual,
+      isTimedOutImageRequestRecoveryTask: options.timedOutImageRecovery
+        ? vi.fn(() => true)
+        : actual.isTimedOutImageRequestRecoveryTask,
+    };
+  });
+
   const { taskQueueService } = await import('../task-queue-service');
 
   return {
@@ -576,6 +597,169 @@ describe('task-queue-service image edit retry persistence', () => {
       },
     });
     expect(mocks.waitForTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it('starts extended read-only recovery when the live image execution reaches its timeout', async () => {
+    const { taskQueueService, storedTasks, mocks } =
+      await setupTaskQueueServiceHarness([TaskStatus.FAILED], {
+        trustedImageRecovery: true,
+        timedOutImageRecovery: true,
+      });
+    mocks.generateImage.mockImplementationOnce(async (_params, options) => {
+      await options?.onSubmissionAttempt?.();
+      const error = new Error('Image execution timeout');
+      error.name = 'TimeoutError';
+      throw error;
+    });
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Recover this timed out image',
+        model: 'gpt-image-2',
+        modelRef: {
+          profileId: 'tuzi-profile',
+          modelId: 'gpt-image-2',
+        },
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
+      task.id,
+      task.id,
+      { timeoutRecoveryAttemptedAt: expect.any(Number) }
+    );
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.PROCESSING,
+      executionPhase: TaskExecutionPhase.POLLING,
+      error: undefined,
+      params: {
+        imageTimeoutRecoveryAttemptedAt: expect.any(Number),
+      },
+    });
+    expect(storedTasks.get(task.id)?.status).toBe(TaskStatus.PROCESSING);
+    expect(mocks.failTask).not.toHaveBeenCalled();
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a task-queue polling timeout to extended recovery without another POST', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness(
+      [TaskStatus.FAILED],
+      {
+        trustedImageRecovery: true,
+        timedOutImageRecovery: true,
+      }
+    );
+    mocks.generateImage.mockImplementationOnce(async (_params, options) => {
+      await options?.onSubmissionAttempt?.();
+    });
+    mocks.waitForTaskCompletion.mockResolvedValueOnce({
+      success: false,
+      error: 'Polling timeout',
+    });
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Recover task queue timeout',
+        model: 'gpt-image-2',
+        modelRef: {
+          profileId: 'tuzi-profile',
+          modelId: 'gpt-image-2',
+        },
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
+      task.id,
+      task.id,
+      { timeoutRecoveryAttemptedAt: expect.any(Number) }
+    );
+    expect(taskQueueService.getTask(task.id)?.status).toBe(
+      TaskStatus.PROCESSING
+    );
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.failTask).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a newer terminal state when timeout recovery loses the storage race', async () => {
+    const { taskQueueService, storedTasks, mocks } =
+      await setupTaskQueueServiceHarness([TaskStatus.FAILED], {
+        trustedImageRecovery: true,
+        timedOutImageRecovery: true,
+      });
+    mocks.generateImage.mockImplementationOnce(async (_params, options) => {
+      await options?.onSubmissionAttempt?.();
+      throw new Error('Image execution timeout');
+    });
+    mocks.markImageAttemptRecovering.mockImplementationOnce(
+      async (taskId: string) => {
+        const current = clone(storedTasks.get(taskId));
+        storedTasks.set(taskId, {
+          ...current,
+          status: TaskStatus.COMPLETED,
+          progress: 100,
+          result: { url: 'https://example.com/race-winner.png' },
+        });
+        return false;
+      }
+    );
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Keep the terminal race winner',
+        model: 'gpt-image-2',
+        modelRef: {
+          profileId: 'tuzi-profile',
+          modelId: 'gpt-image-2',
+        },
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.COMPLETED,
+      result: { url: 'https://example.com/race-winner.png' },
+    });
+    expect(mocks.failTask).not.toHaveBeenCalled();
+  });
+
+  it('keeps the timed-out attempt active when the recovery marker write rejects', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness(
+      [TaskStatus.FAILED],
+      {
+        trustedImageRecovery: true,
+        timedOutImageRecovery: true,
+      }
+    );
+    mocks.generateImage.mockImplementationOnce(async (_params, options) => {
+      await options?.onSubmissionAttempt?.();
+      throw new Error('Image execution timeout');
+    });
+    mocks.markImageAttemptRecovering.mockRejectedValueOnce(
+      new Error('IndexedDB temporarily unavailable')
+    );
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Retry timeout recovery persistence later',
+        model: 'gpt-image-2',
+        modelRef: {
+          profileId: 'tuzi-profile',
+          modelId: 'gpt-image-2',
+        },
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(taskQueueService.getTask(task.id)?.status).toBe(
+      TaskStatus.PROCESSING
+    );
+    expect(mocks.failTask).not.toHaveBeenCalled();
   });
 
   it('fails normally when the request breaks before the formal image submission attempt', async () => {

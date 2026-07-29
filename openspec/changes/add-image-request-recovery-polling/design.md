@@ -46,7 +46,7 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 - 正式 POST 已尝试后，因页面生命周期、网络错误、超时或连接终止而出现模糊响应丢失
 - 页面初始化发现符合条件的 `PROCESSING` 任务，或旧版本写入的 `FAILED + INTERRUPTED/INTERRUPTED_DURING_SUBMISSION` 任务
 
-对于已超过正常 15 分钟窗口但仍为 `PROCESSING`，或已进入 `FAILED + TIMEOUT/RECOVERY_TIMEOUT` 的任务，若超时发生在最近 24 小时内，页面初始化会在同一 IndexedDB 事务中写入或复用 `imageTimeoutRecoveryAttemptedAt`，并恢复为轮询状态。该时间戳作为延长恢复窗口的固定起点：窗口内继续执行只读多节点查询，页面刷新后按剩余时间恢复；命中结果则完成原任务，窗口结束仍未命中才恢复为明确的超时失败。标记会保留在失败/完成任务中，刷新不会重置预算；用户主动重试时创建新提交 Request ID 并清除旧标记。
+当前页面运行到正常 15 分钟窗口时，会先在同一 IndexedDB 事务中写入 `imageTimeoutRecoveryAttemptedAt` 并切换为轮询状态，再中止本地长连接；不得先写 `TIMEOUT` 终态。对于已进入 `FAILED + TIMEOUT/RECOVERY_TIMEOUT` 的旧任务，若超时发生在最近 24 小时内，页面初始化会写入或复用同一标记并恢复轮询。该时间戳作为延长恢复窗口的固定起点：窗口内继续执行只读多节点查询，页面刷新后按剩余时间恢复；命中结果则完成原任务，窗口结束仍未命中才恢复为明确的超时失败。标记会保留在失败/完成任务中，刷新不会重置预算；用户主动重试时创建新提交 Request ID 并清除旧标记。
 
 ### 2. 使用查询参数传当前提交 Request ID，GET 不发送 Request-ID 头
 
