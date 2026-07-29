@@ -46,6 +46,8 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 - 正式 POST 已尝试后，因页面生命周期、网络错误、超时或连接终止而出现模糊响应丢失
 - 页面初始化发现符合条件的 `PROCESSING` 任务，或旧版本写入的 `FAILED + INTERRUPTED/INTERRUPTED_DURING_SUBMISSION` 任务
 
+对于已超过正常 15 分钟窗口但仍为 `PROCESSING`，或已进入 `FAILED + TIMEOUT/RECOVERY_TIMEOUT` 的任务，若超时发生在最近 24 小时内且尚未补偿查询，页面初始化会在同一 IndexedDB 事务中写入 `imageTimeoutRecoveryAttemptedAt` 并恢复为轮询状态。该状态只执行一轮只读多节点查询；命中结果则完成原任务，未命中则恢复为明确的超时失败。标记会保留在失败/完成任务中，刷新不会无限重启；用户主动重试时创建新提交 Request ID 并清除旧标记。
+
 ### 2. 使用查询参数传当前提交 Request ID，GET 不发送 Request-ID 头
 
 每轮查询使用 `request_id=submissionRequestId`。请求通过原任务 `invocationRoute` 解析当前供应商配置和用户凭据，但不复制或持久化 API Key。首次提交 ID 等于任务 ID；重试生成新 ID，旧任务缺少字段时回退到任务 ID。
@@ -89,6 +91,7 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 ## Risks / Trade-offs
 
 - `processing_or_not_found` 无法区分“仍在处理”和“从未收到请求” → 在总时限内继续查询，超时后明确提示重试，但不自动重提
+- 本地超时可能早于上游结果落库 → 对 24 小时内且尚未补偿的超时任务仅查询一轮，并持久化标记避免刷新请求风暴
 - 多标签页可能重复发送只读查询 → 单标签页内去重，终态写回保持幂等；不为本次能力引入新的跨标签页锁实体
 - 节点版本不一致可能出现 404 → 原配置节点优先并轮换可信查询节点，把原始 404 当作节点兼容故障而不是业务失败
 - 公网节点可能使用独立 Token 域 → 原配置节点的认证结果具有权威性，备用节点 401/403 不覆盖原节点已确认的处理中状态
@@ -98,9 +101,10 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 
 1. 新版本加载任务时识别仍在 15 分钟窗口内的旧中断图片任务。
 2. 旧任务缺少提交元数据时，仅对历史 `PROCESSING`、`INTERRUPTED` 或 `INTERRUPTED_DURING_SUBMISSION` 图片任务使用 `task.id` 作为提交 Request ID，并视作已尝试提交；新任务显式记录为未提交时不得恢复。
-3. 符合可信 Tuzi 路由条件的任务恢复为处理中并开始轮询。
-4. 超出时间窗、路由缺失或非 Tuzi 任务保持原有失败状态。
-5. 回滚时不会破坏旧数据；`PROCESSING + POLLING` 仍是现有任务模型可读取的状态。
+3. 24 小时内已超过正常窗口的 `PROCESSING` 或 `TIMEOUT/RECOVERY_TIMEOUT` 任务在未补偿过时原子写入一次性标记，并只执行一轮只读查询。
+4. 符合可信 Tuzi 路由条件的任务恢复为处理中并开始轮询。
+5. 超出时间窗、路由缺失、已补偿或非 Tuzi 任务保持原有失败状态。
+6. 回滚时不会破坏旧数据；`PROCESSING + POLLING` 仍是现有任务模型可读取的状态。
 
 ## Open Questions
 

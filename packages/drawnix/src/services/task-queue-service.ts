@@ -2585,6 +2585,8 @@ class TaskQueueService {
         ...currentTask.params,
         submissionRequestId: storageTask.params.submissionRequestId,
         imageSubmissionAttempted: storageTask.params.imageSubmissionAttempted,
+        imageTimeoutRecoveryAttemptedAt:
+          storageTask.params.imageTimeoutRecoveryAttemptedAt,
       },
       startedAt: storageTask.startedAt,
       completedAt: storageTask.completedAt,
@@ -2697,6 +2699,7 @@ class TaskQueueService {
       allowFailed?: boolean;
       expectedErrorCodes?: readonly string[];
       migrateLegacy?: boolean;
+      timeoutRecoveryAttemptedAt?: number;
     } = {}
   ): Promise<boolean> {
     return this.updateImageAttemptStorage(taskId, requestId, () =>

@@ -8,6 +8,7 @@ import {
 } from '../../types/task.types';
 import {
   ImageGenerationRecoveryService,
+  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM,
   createImageSubmissionParams,
   getImageSubmissionRequestId,
   isAmbiguousImageSubmissionError,
@@ -512,6 +513,117 @@ describe('image generation recovery service', () => {
 
     expect(onFailed).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'RECOVERY_TIMEOUT' })
+    );
+  });
+
+  it('allows one recent timeout task to perform a read-only compensation query', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask(
+      'task-timeout-compensation',
+      'submission-timeout-compensation',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.status = TaskStatus.FAILED;
+    task.completedAt = now - 1_000;
+    task.error = { code: 'TIMEOUT', message: '任务执行超时' };
+    task.executionPhase = undefined;
+
+    expect(service.canRecover(task)).toBe(false);
+    expect(service.canRecoverTimedOut(task)).toBe(true);
+
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
+    expect(service.canRecoverTimedOut(task)).toBe(false);
+  });
+
+  it('allows an expired processing task to perform the same one-shot compensation', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask(
+      'task-expired-processing',
+      'submission-expired-processing',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+
+    expect(service.canRecover(task)).toBe(false);
+    expect(service.canRecoverTimedOut(task)).toBe(true);
+  });
+
+  it('does not compensate a timeout older than 24 hours', () => {
+    const now = Date.now();
+    const service = new ImageGenerationRecoveryService({
+      now: () => now,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask(
+      'task-old-timeout',
+      'submission-old-timeout',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.status = TaskStatus.FAILED;
+    task.completedAt = now - 24 * 60 * 60 * 1000 - 1;
+    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
+    task.executionPhase = undefined;
+
+    expect(service.canRecoverTimedOut(task)).toBe(false);
+  });
+
+  it('checks every trusted node once and does not keep polling after timeout compensation misses', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const fetcher = vi.fn(async () =>
+      Response.json({ status: 'processing_or_not_found', data: [] })
+    );
+    const onFailed = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 5,
+      jitterRatio: 0,
+    });
+    const task = createTask(
+      'task-one-shot-timeout',
+      'submission-one-shot-timeout',
+      now - IMAGE_GENERATION_TIMEOUT_MS - 1
+    );
+    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
+
+    service.start(task, {
+      onSucceeded: vi.fn(),
+      onFailed,
+    });
+    await flushMicrotasks(20);
+
+    expect(onFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'RECOVERY_TIMEOUT' })
+    );
+    const queryCount = fetcher.mock.calls.length;
+    expect(queryCount).toBeGreaterThan(0);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetcher).toHaveBeenCalledTimes(queryCount);
+  });
+
+  it('clears the timeout compensation marker when creating a new submission attempt', () => {
+    const params = createImageSubmissionParams(
+      {
+        prompt: '兔子',
+        [IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]: Date.now(),
+      },
+      'new-submission',
+      false
+    );
+
+    expect(params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]).toBeUndefined();
+    expect(getImageSubmissionRequestId({ id: 'task-1', params })).toBe(
+      'new-submission'
     );
   });
 });

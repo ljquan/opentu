@@ -356,6 +356,7 @@ class TaskStorageWriter {
       allowFailed?: boolean;
       expectedErrorCodes?: readonly string[];
       migrateLegacy?: boolean;
+      timeoutRecoveryAttemptedAt?: number;
     } = {}
   ): Promise<boolean> {
     return this.updateTask(
@@ -369,6 +370,13 @@ class TaskStorageWriter {
         if (options.migrateLegacy) {
           task.params.submissionRequestId = expectedRequestId;
           task.params.imageSubmissionAttempted = true;
+        }
+        if (
+          typeof options.timeoutRecoveryAttemptedAt === 'number' &&
+          Number.isFinite(options.timeoutRecoveryAttemptedAt)
+        ) {
+          task.params.imageTimeoutRecoveryAttemptedAt =
+            options.timeoutRecoveryAttemptedAt;
         }
         task.updatedAt = Date.now();
       },

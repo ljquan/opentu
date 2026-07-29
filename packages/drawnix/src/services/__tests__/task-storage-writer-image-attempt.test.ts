@@ -205,6 +205,34 @@ describe('task-storage-writer image attempt guards', () => {
     });
   });
 
+  it('atomically claims one timeout compensation query', async () => {
+    const timedOutTask = createImageTask('request-timeout', 'failed');
+    timedOutTask.error = { code: 'TIMEOUT', message: '任务执行超时' };
+    timedOutTask.completedAt = 2;
+    await taskStorageWriter.saveTask(timedOutTask);
+
+    expect(
+      await taskStorageWriter.markImageAttemptRecovering(
+        'image-task-1',
+        'request-timeout',
+        {
+          allowFailed: true,
+          expectedErrorCodes: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
+          timeoutRecoveryAttemptedAt: 3,
+        }
+      )
+    ).toBe(true);
+    expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
+      status: 'processing',
+      executionPhase: 'polling',
+      params: {
+        submissionRequestId: 'request-timeout',
+        imageSubmissionAttempted: true,
+        imageTimeoutRecoveryAttemptedAt: 3,
+      },
+    });
+  });
+
   it('keeps the first terminal write for the same attempt', async () => {
     const completedTask = createImageTask('request-current', 'completed');
     completedTask.result = {

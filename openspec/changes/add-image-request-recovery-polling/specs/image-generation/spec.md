@@ -96,6 +96,16 @@ The system SHALL limit concurrent recovery queries while retaining every eligibl
 - **THEN** polling SHALL stop
 - **AND** the task SHALL fail with a clear message that no upstream result was found and the user may retry
 
+#### Scenario: A recently timed-out task may already have an upstream result
+
+- **GIVEN** a trusted Tuzi image task formally submitted its current Request ID
+- **AND** it has exceeded the normal processing window or failed locally with `TIMEOUT` or `RECOVERY_TIMEOUT` within the last 24 hours
+- **WHEN** OpenTu initializes and that submission has not received a timeout compensation query before
+- **THEN** the system SHALL atomically persist a compensation-attempt marker
+- **AND** SHALL perform one read-only query round across the configured provider endpoint and trusted fallback endpoints
+- **AND** SHALL complete the original task when the upstream result exists
+- **AND** SHALL NOT repeat the compensation after a terminal miss or send another image-generation POST
+
 #### Scenario: User stops the task
 
 - **WHEN** the user cancels, deletes, or retries a recovering task

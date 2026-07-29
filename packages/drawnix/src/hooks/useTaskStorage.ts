@@ -23,8 +23,10 @@ import { isResumableAsyncImageTask } from '../utils/task-utils';
 import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
+  IMAGE_TIMEOUT_RECOVERY_ERROR_CODES,
   imageGenerationRecoveryService,
   isLegacyInterruptedImageRequestTask,
+  isTimedOutImageRequestRecoveryTask,
 } from '../services/image-generation-recovery-service';
 
 // Global flag to prevent multiple initializations (persists across HMR)
@@ -111,6 +113,12 @@ export function useTaskStorage(): boolean {
                 imageRecoveryTask &&
                   imageGenerationRecoveryService.canRecover(imageRecoveryTask)
               );
+              const isImageTimeoutRecoveryCandidate = Boolean(
+                imageRecoveryTask &&
+                  imageGenerationRecoveryService.canRecoverTimedOut(
+                    imageRecoveryTask
+                  )
+              );
 
               const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
               const isAudioResumable =
@@ -123,7 +131,8 @@ export function useTaskStorage(): boolean {
                   isVideoResumable ||
                   isAudioResumable ||
                   isAsyncImageResumable ||
-                  isImageRequestRecoverable
+                  isImageRequestRecoverable ||
+                  isImageTimeoutRecoveryCandidate
                     ? 'KEEP'
                     : 'MARK_FAILED'
                 }`
@@ -134,10 +143,14 @@ export function useTaskStorage(): boolean {
                 isVideoResumable ||
                 isAudioResumable ||
                 isAsyncImageResumable ||
-                isImageRequestRecoverable
+                isImageRequestRecoverable ||
+                isImageTimeoutRecoveryCandidate
               ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
-                if (imageRecoveryTask && isImageRequestRecoverable) {
+                if (
+                  imageRecoveryTask &&
+                  (isImageRequestRecoverable || isImageTimeoutRecoveryCandidate)
+                ) {
                   const requestId = getImageSubmissionRequestId(imageRecoveryTask);
                   await legacyTaskQueueService.markImageAttemptRecovering(
                     task.id,
@@ -147,6 +160,9 @@ export function useTaskStorage(): boolean {
                       migrateLegacy:
                         task.params.submissionRequestId === undefined ||
                         task.params.imageSubmissionAttempted === undefined,
+                      ...(isImageTimeoutRecoveryCandidate
+                        ? { timeoutRecoveryAttemptedAt: Date.now() }
+                        : {}),
                     }
                   );
                 }
@@ -278,6 +294,30 @@ export function useTaskStorage(): boolean {
                 migrateLegacy: true,
               }
             );
+          }
+
+          const timedOutImageTasks = storedTasks.filter(
+            (task) =>
+              task.status === TaskStatus.FAILED &&
+              isTimedOutImageRequestRecoveryTask(task)
+          );
+          for (const task of timedOutImageTasks) {
+            const timeoutRecoveryAttemptedAt = Date.now();
+            const recovered =
+              await legacyTaskQueueService.markImageAttemptRecovering(
+                task.id,
+                getImageSubmissionRequestId(task),
+                {
+                  allowFailed: true,
+                  expectedErrorCodes: [...IMAGE_TIMEOUT_RECOVERY_ERROR_CODES],
+                  timeoutRecoveryAttemptedAt,
+                }
+              );
+            if (!recovered) {
+              console.warn(
+                `[useTaskStorage] Skip timeout recovery for task ${task.id}: state changed before recovery`
+              );
+            }
           }
 
           // Count all incomplete tasks for logging
