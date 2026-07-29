@@ -92,7 +92,7 @@ describe('image generation recovery service', () => {
     vi.restoreAllMocks();
   });
 
-  it('queries the four-node recovery API with auth and no Request-ID header', async () => {
+  it('queries the configured provider first with auth and no Request-ID header', async () => {
     const fetcher = vi.fn(async () =>
       Response.json({
         status: 'succeeded',
@@ -115,7 +115,7 @@ describe('image generation recovery service', () => {
 
     const [url, init] = fetcher.mock.calls[0] || [];
     expect(String(url)).toBe(
-      'https://bus.tu-zi.com/v1/images/generations/result?request_id=submission-1'
+      'https://api.tu-zi.com/v1/images/generations/result?request_id=submission-1'
     );
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
@@ -129,9 +129,10 @@ describe('image generation recovery service', () => {
     );
   });
 
-  it('switches across all four nodes on raw 404, 5xx, and network failure', async () => {
+  it('falls back across the four public query nodes after the configured provider fails', async () => {
     const fetcher = vi
       .fn()
+      .mockResolvedValueOnce(Response.json({}, { status: 404 }))
       .mockResolvedValueOnce(Response.json({}, { status: 404 }))
       .mockResolvedValueOnce(Response.json({}, { status: 503 }))
       .mockRejectedValueOnce(new Error('Failed to fetch'))
@@ -157,11 +158,74 @@ describe('image generation recovery service', () => {
     expect(
       fetcher.mock.calls.map(([url]) => new URL(String(url)).host)
     ).toEqual([
+      'api.tu-zi.com',
       'bus.tu-zi.com',
       'bus2.tu-zi.com',
       'bus3.tu-zi.com',
       'business.tu-zi.com',
     ]);
+  });
+
+  it('continues after one node reports processing and finds a later success', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ status: 'processing_or_not_found', data: [] })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          status: 'succeeded',
+          data: [{ url: 'https://images.example.com/later-node.png' }],
+        })
+      );
+    const onSucceeded = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      jitterRatio: 0,
+    });
+
+    service.start(createTask('task-later-node'), {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
+
+    expect(
+      fetcher.mock.calls.map(([url]) => new URL(String(url)).host)
+    ).toEqual(['api.tu-zi.com', 'bus.tu-zi.com']);
+    expect(onSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://images.example.com/later-node.png',
+      })
+    );
+  });
+
+  it('does not let fallback-node authentication failures override primary processing', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ status: 'processing_or_not_found', data: [] })
+      )
+      .mockResolvedValue(
+        Response.json({ message: 'invalid on fallback' }, { status: 401 })
+      );
+    const onFailed = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 60_000,
+      jitterRatio: 0,
+    });
+
+    service.start(createTask('task-primary-processing'), {
+      onSucceeded: vi.fn(),
+      onFailed,
+    });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5));
+
+    expect(onFailed).not.toHaveBeenCalled();
+    service.stopAll();
   });
 
   it('releases an error response body before switching nodes', async () => {
@@ -221,6 +285,41 @@ describe('image generation recovery service', () => {
         httpStatus: 401,
       })
     );
+  });
+
+  it('retries a recovered result when the first terminal writeback rejects', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        status: 'succeeded',
+        data: [{ url: 'https://images.example.com/retry-writeback.png' }],
+      })
+    );
+    const onSucceeded = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const service = new ImageGenerationRecoveryService({
+      fetcher,
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 5,
+      jitterRatio: 0,
+    });
+
+    service.start(createTask('task-writeback-retry'), {
+      onSucceeded,
+      onFailed: vi.fn(),
+    });
+    await flushMicrotasks();
+    expect(onSucceeded).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5);
+    await flushMicrotasks();
+
+    expect(onSucceeded).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
   });
 
   it('queues more than the concurrency limit without dropping tasks', async () => {

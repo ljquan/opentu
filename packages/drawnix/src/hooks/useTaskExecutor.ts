@@ -262,7 +262,14 @@ export function useTaskExecutor(): void {
               resultKind: 'image',
             }
           );
-          if (!completed || !isActive) {
+          if (!completed) {
+            current = legacyTaskQueueService.getTask(task.id);
+            if (isCurrentImageRecoveryAttempt(current, requestId, startedAt)) {
+              throw new Error('恢复图片结果写入失败，稍后重试');
+            }
+            return;
+          }
+          if (!isActive) {
             return;
           }
 
@@ -298,14 +305,24 @@ export function useTaskExecutor(): void {
           if (!isCurrentImageRecoveryAttempt(current, requestId, startedAt)) {
             return;
           }
-          await legacyTaskQueueService.failImageAttempt(task.id, requestId, {
-            code: error.code,
-            message: error.message,
-            details: {
-              originalError: error.message,
-              timestamp: Date.now(),
-            },
-          });
+          const failed = await legacyTaskQueueService.failImageAttempt(
+            task.id,
+            requestId,
+            {
+              code: error.code,
+              message: error.message,
+              details: {
+                originalError: error.message,
+                timestamp: Date.now(),
+              },
+            }
+          );
+          if (!failed) {
+            const latest = legacyTaskQueueService.getTask(task.id);
+            if (isCurrentImageRecoveryAttempt(latest, requestId, startedAt)) {
+              throw new Error('恢复失败状态写入失败，稍后重试');
+            }
+          }
         },
       });
     };

@@ -10,6 +10,7 @@ import {
 } from './provider-routing';
 import {
   isTrustedTuziApiBaseUrl,
+  normalizeTuziApiEndpointUrl,
   TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './provider-routing/tuzi-api-endpoints';
 
@@ -21,6 +22,7 @@ const DEFAULT_JITTER_RATIO = 0.1;
 const RECOVERY_RESULT_PATH = '/images/generations/result';
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_RESULT_URLS = 10;
+const MAX_TERMINAL_DELIVERY_ATTEMPTS = 3;
 
 export const IMAGE_SUBMISSION_REQUEST_ID_PARAM = 'submissionRequestId';
 export const IMAGE_SUBMISSION_ATTEMPTED_PARAM = 'imageSubmissionAttempted';
@@ -109,6 +111,7 @@ interface RecoveryEntry {
   callbacks: ImageGenerationRecoveryCallbacks | null;
   state: RecoveryEntryState;
   failureStreak: number;
+  terminalDeliveryAttempts: number;
   pollTimer?: ReturnType<typeof setTimeout>;
   requestTimer?: ReturnType<typeof setTimeout>;
   controller?: AbortController;
@@ -443,6 +446,7 @@ export class ImageGenerationRecoveryService {
       callbacks,
       state: 'queued',
       failureStreak: 0,
+      terminalDeliveryAttempts: 0,
     };
     this.entries.set(descriptor.taskId, entry);
     this.queue.push(entry);
@@ -616,7 +620,10 @@ export class ImageGenerationRecoveryService {
       };
     }
 
-    for (const endpoint of TUZI_API_REQUEST_ID_CORS_ENDPOINTS) {
+    const queryTargets = this.createQueryTargets(plan);
+    let sawProcessing = false;
+
+    for (const target of queryTargets) {
       if (!this.isCurrent(entry)) {
         return { type: 'stopped' };
       }
@@ -636,7 +643,7 @@ export class ImageGenerationRecoveryService {
       try {
         const prepared = this.prepareNodeRequest(
           plan,
-          endpoint.url,
+          target.url,
           task.requestId,
           controller.signal
         );
@@ -647,16 +654,19 @@ export class ImageGenerationRecoveryService {
         }
         if (response.status === 401 || response.status === 403) {
           await releaseResponseBody(response);
-          return {
-            type: 'failed',
-            error: {
-              status: 'failed',
-              kind: 'authentication',
-              code: 'RECOVERY_AUTHENTICATION_FAILED',
-              message: '当前供应商凭据不可用，无法继续恢复图片结果',
-              httpStatus: response.status,
-            },
-          };
+          if (target.isOriginalProvider) {
+            return {
+              type: 'failed',
+              error: {
+                status: 'failed',
+                kind: 'authentication',
+                code: 'RECOVERY_AUTHENTICATION_FAILED',
+                message: '当前供应商凭据不可用，无法继续恢复图片结果',
+                httpStatus: response.status,
+              },
+            };
+          }
+          continue;
         }
         if (isNodeFallbackStatus(response.status)) {
           await releaseResponseBody(response);
@@ -680,6 +690,10 @@ export class ImageGenerationRecoveryService {
           await readLimitedJson(response),
           task.requestId
         );
+        if (parsed.type === 'processing') {
+          sawProcessing = true;
+          continue;
+        }
         if (parsed.type !== 'transient') {
           return parsed;
         }
@@ -698,7 +712,29 @@ export class ImageGenerationRecoveryService {
       }
     }
 
-    return { type: 'transient' };
+    return sawProcessing ? { type: 'processing' } : { type: 'transient' };
+  }
+
+  private createQueryTargets(
+    plan: InvocationPlan
+  ): Array<{ url: string; isOriginalProvider: boolean }> {
+    const targets = [
+      { url: plan.provider.baseUrl, isOriginalProvider: true },
+      ...TUZI_API_REQUEST_ID_CORS_ENDPOINTS.map((endpoint) => ({
+        url: endpoint.url,
+        isOriginalProvider: false,
+      })),
+    ];
+    const seenOrigins = new Set<string>();
+
+    return targets.filter((target) => {
+      const origin = normalizeTuziApiEndpointUrl(target.url);
+      if (!origin || seenOrigins.has(origin)) {
+        return false;
+      }
+      seenOrigins.add(origin);
+      return true;
+    });
   }
 
   private prepareNodeRequest(
@@ -828,8 +864,7 @@ export class ImageGenerationRecoveryService {
     result: ImageGenerationRecoverySuccess
   ): void {
     const callback = entry.callbacks?.onSucceeded;
-    this.stopEntry(entry);
-    this.invokeCallback(callback, result);
+    void this.deliverTerminalCallback(entry, callback, result, 'success');
   }
 
   private finishFailure(
@@ -837,24 +872,52 @@ export class ImageGenerationRecoveryService {
     error: ImageGenerationRecoveryFailure
   ): void {
     const callback = entry.callbacks?.onFailed;
-    this.stopEntry(entry);
-    this.invokeCallback(callback, error);
+    void this.deliverTerminalCallback(entry, callback, error, 'failure');
   }
 
-  private invokeCallback<T>(
+  private async deliverTerminalCallback<T>(
+    entry: RecoveryEntry,
     callback: ((value: T) => void | Promise<void>) | undefined,
-    value: T
-  ): void {
+    value: T,
+    terminalType: 'success' | 'failure'
+  ): Promise<void> {
     if (!callback) {
+      this.stopEntry(entry);
       return;
     }
+
     try {
-      const result = callback(value);
-      if (result && typeof result.then === 'function') {
-        void result.catch(() => undefined);
+      await callback(value);
+      if (this.isCurrent(entry)) {
+        this.stopEntry(entry);
       }
-    } catch {
-      // 回调属于任务生命周期层，异常不能让轮询调度器泄漏槽位。
+    } catch (error) {
+      if (!this.isCurrent(entry)) {
+        return;
+      }
+
+      entry.terminalDeliveryAttempts += 1;
+      console.warn(
+        `[ImageGenerationRecovery] Failed to persist recovered ${terminalType} state, retrying:`,
+        error
+      );
+      if (entry.terminalDeliveryAttempts >= MAX_TERMINAL_DELIVERY_ATTEMPTS) {
+        console.error(
+          `[ImageGenerationRecovery] Giving up recovered ${terminalType} state after ${MAX_TERMINAL_DELIVERY_ATTEMPTS} attempts`
+        );
+        this.stopEntry(entry);
+        return;
+      }
+
+      entry.state = 'waiting';
+      entry.pollTimer = setTimeout(() => {
+        entry.pollTimer = undefined;
+        if (!this.isCurrent(entry)) {
+          return;
+        }
+        entry.state = 'inflight';
+        void this.deliverTerminalCallback(entry, callback, value, terminalType);
+      }, this.pollIntervalMs);
     }
   }
 

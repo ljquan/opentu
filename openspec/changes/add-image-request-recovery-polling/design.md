@@ -6,7 +6,7 @@ OpenTu 的任务队列与独立媒体生成入口都为每次图片提交持久�
 GET /v1/images/generations/result?request_id=<submissionRequestId>
 ```
 
-正式 POST 必须使用 `invocationRoute` 解析出的用户原配置 Base URL。Request ID 只作为请求头和恢复关联键，不参与提交节点选择；提交遇到网络错误或原始 `404` 时也不得跨节点重发，避免同一 Token 被送入不同的鉴权、计费和权限域。四节点容错只适用于后续只读结果查询。
+正式 POST 必须使用 `invocationRoute` 解析出的用户原配置 Base URL。Request ID 只作为请求头和恢复关联键，不参与提交节点选择；提交遇到网络错误或原始 `404` 时也不得跨节点重发，避免同一 Token 被送入不同的鉴权、计费和权限域。后续只读结果查询必须先访问原配置节点，再按可信 Request-ID 公网节点容错。
 
 查询结果包含 `succeeded`、`failed` 和 `processing_or_not_found`。当前缺口在客户端：同步图片没有 `remoteId`，刷新后会被统一中断逻辑标记为失败。
 
@@ -50,15 +50,15 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 
 每轮查询使用 `request_id=submissionRequestId`。请求通过原任务 `invocationRoute` 解析当前供应商配置和用户凭据，但不复制或持久化 API Key。首次提交 ID 等于任务 ID；重试生成新 ID，旧任务缺少字段时回退到任务 ID。
 
-可信 Tuzi GET 必须清除任何大小写形式的 `X-Request-Id`。查询只能访问预置的四个 Request-ID 公网节点；绝对 URL 和第三方地址不得继承凭据或提交 Request ID。
+可信 Tuzi GET 必须清除任何大小写形式的 `X-Request-Id`。查询目标由原配置节点和预置的 Request-ID 公网节点组成；绝对 URL 和第三方地址不得继承凭据或提交 Request ID。
 
 公网 OpenTu 不限制固定页面 Origin。跨域查询仍必须携带用户自己的认证信息，并依赖 Tuzi 后端已有的用户、Token、开放平台应用隔离。提交 Request ID 不得发送到可信列表以外的地址。
 
-### 3. 四节点容错不触发重复提交
+### 3. 原节点优先的多节点容错不触发重复提交
 
-轮询仅发送只读 GET。单节点出现网络错误、协议中断、原始 404 或 5xx 时，本轮切换到下一个可信 Request-ID 节点；401/403 视为当前凭据不可用并终止恢复。
+轮询仅发送只读 GET。每轮先查询正式 POST 使用的原配置节点，再查询可信 Request-ID 公网节点。单节点出现网络错误、协议中断、原始 404 或 5xx 时，本轮切换到下一个节点；只有原配置节点的 401/403 才能证明当前供应商凭据不可用，备用节点的独立鉴权失败不得覆盖原节点的处理中状态。
 
-`processing_or_not_found` 保持非终态。系统不得因此重新发送图片生成 POST，避免重复生成和重复计费。
+`processing_or_not_found` 保持非终态，并继续检查本轮剩余节点；仅当所有节点都未返回终态时才进入下一轮。系统不得因此重新发送图片生成 POST，避免重复生成和重复计费。
 
 ### 4. 使用有界调度器而不是固定数量的常驻轮询 Promise
 
@@ -82,7 +82,7 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 | `processing_or_not_found` | 保持处理中并继续轮询                                                           |
 | 超过总时限                | 标记 `RECOVERY_TIMEOUT`，提示“暂未查询到上游结果，可重试”                      |
 
-缓存写入失败不改变上游成功事实：任务仍以远程 URL 完成，并沿用现有缓存警告能力。对同一远程结果只尝试一次缓存，避免反复下载和额外内存占用。
+缓存写入失败不改变上游成功事实：任务仍以远程 URL 完成，并沿用现有缓存警告能力。对同一远程结果只尝试一次缓存，避免反复下载和额外内存占用。若 IndexedDB 终态写回瞬时失败，轮询器保留已取得的终态结果并有限次重试写回，不能在写回前删除恢复任务或静默吞掉异常。
 
 任务更新前再次读取当前状态。内存写回只有 `submissionRequestId` 与本轮 `startedAt` 都仍匹配且任务仍为处理中时才能生效；IndexedDB 的完成、失败和异步 `remoteId` 写回必须在同一个 `readwrite` 事务内校验当前 Request ID 与非终态状态后再更新。原请求和轮询同时返回时，第一个合法终态生效；重试轮换 ID 后，旧提交、旧轮询及其迟到结果均被忽略。
 
@@ -90,7 +90,8 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 
 - `processing_or_not_found` 无法区分“仍在处理”和“从未收到请求” → 在总时限内继续查询，超时后明确提示重试，但不自动重提
 - 多标签页可能重复发送只读查询 → 单标签页内去重，终态写回保持幂等；不为本次能力引入新的跨标签页锁实体
-- 节点版本不一致可能出现 404 → 轮换四个可信节点，并把原始 404 当作节点兼容故障而不是业务失败
+- 节点版本不一致可能出现 404 → 原配置节点优先并轮换可信查询节点，把原始 404 当作节点兼容故障而不是业务失败
+- 公网节点可能使用独立 Token 域 → 原配置节点的认证结果具有权威性，备用节点 401/403 不覆盖原节点已确认的处理中状态
 - 当前供应商配置被删除或 Token 失效 → 停止轮询并显示可操作的配置错误，不保存旧密钥副本
 
 ## Migration Plan

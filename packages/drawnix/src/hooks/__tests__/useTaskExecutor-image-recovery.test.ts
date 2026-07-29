@@ -225,7 +225,17 @@ describe('useTaskExecutor image recovery', () => {
     mocks.cacheRemoteUrls.mockResolvedValue([
       'https://images.example.com/stale.png',
     ]);
-    mocks.completeImageAttempt.mockResolvedValue(false);
+    mocks.completeImageAttempt.mockImplementation(async () => {
+      mocks.currentTask = {
+        ...mocks.currentTask!,
+        params: {
+          ...mocks.currentTask!.params,
+          submissionRequestId: 'submission-2',
+        },
+        startedAt: (mocks.currentTask!.startedAt || 0) + 1,
+      };
+      return false;
+    });
     const { useTaskExecutor } = await import('../useTaskExecutor');
     const { unmount } = renderHook(() => useTaskExecutor());
 
@@ -254,6 +264,35 @@ describe('useTaskExecutor image recovery', () => {
     expect(mocks.registerImageMetadata).not.toHaveBeenCalled();
     expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
 
+    unmount();
+  });
+
+  it('rejects terminal delivery when storage still has the current processing attempt', async () => {
+    mocks.cacheRemoteUrls.mockResolvedValue([
+      'https://images.example.com/retry-writeback.png',
+    ]);
+    mocks.completeImageAttempt.mockResolvedValue(false);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await expect(
+      mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/retry-writeback.png',
+        urls: ['https://images.example.com/retry-writeback.png'],
+      })
+    ).rejects.toThrow('恢复图片结果写入失败，稍后重试');
+
+    expect(mocks.currentTask?.status).toBe(TaskStatus.PROCESSING);
     unmount();
   });
 

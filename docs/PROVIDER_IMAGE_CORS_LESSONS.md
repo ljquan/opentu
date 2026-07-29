@@ -71,7 +71,7 @@ authorization,content-type,x-request-id
 - 当前 Base URL 是否属于允许该请求头的受信供应商。
 - 当前是否为非 `GET` 提交，避免异步轮询被误标记为新任务。
 
-可信 Tuzi API 中，`bus.tu-zi.com`、`bus2.tu-zi.com`、`bus3.tu-zi.com`、`business.tu-zi.com` 已验证可从公网来源跨域访问，但不同节点可能拥有独立的 Token、计费和权限域。OpenTu 的正式提交必须保持用户原配置节点，不得为了 CORS 自动改投；四个节点仅用于携带原身份的只读结果查询。
+可信 Tuzi API 中，`bus.tu-zi.com`、`bus2.tu-zi.com`、`bus3.tu-zi.com`、`business.tu-zi.com` 已验证可从公网来源跨域访问，但不同节点可能拥有独立的 Token、计费和权限域。OpenTu 的正式提交必须保持用户原配置节点，不得为了 CORS 自动改投；只读恢复查询也应先访问原配置节点，再把这些节点作为容错目标。
 
 主站及旧备用入口的 Nginx 仍可能使用静态请求头白名单。即使应用层代码已合并，未部署 Nginx 配置的节点仍会在正式 `POST` 前拦截预检，因此不能把“PR 已合并”当作“所有节点已上线”。
 
@@ -109,7 +109,7 @@ curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。�
 
 - 自定义跨域供应商即使传入 request ID，也不应生成 `X-Request-Id` 请求头。
 - 本机与私有局域网 Vite 页面应通过同源代理转发到原配置节点；公网生产页面应直接请求原配置节点，并携带当前提交 Request ID。
-- 正式提交遇到网络错误或 `404` 时不得改投其他节点；恢复轮询的只读 `GET` 才可在四个查询节点间切换。
+- 正式提交遇到网络错误或 `404` 时不得改投其他节点；恢复轮询的只读 `GET` 先查原配置节点，再在可信查询节点间切换。
 - 六个 Tuzi API 对外节点的应用 CORS 与 Nginx 预检都应放行 `X-Request-Id`。
 - 已存在的任意大小写 `X-Request-Id` 应被当前任务 ID 唯一覆盖。
 - Tuzi 异步轮询 `GET` 不应携带 request ID 请求头。

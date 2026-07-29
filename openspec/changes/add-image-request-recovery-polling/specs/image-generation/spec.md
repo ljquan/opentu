@@ -59,8 +59,16 @@ The system SHALL perform recovery only against trusted Tuzi Request-ID endpoints
 - **AND** the user has a valid Tuzi provider credential
 - **WHEN** a recoverable image task is polled
 - **THEN** the query SHALL use the user's resolved authentication context
+- **AND** SHALL query the configured provider endpoint before public fallback endpoints
 - **AND** recovery SHALL NOT depend on a fixed OpenTu page Origin allowlist
 - **AND** the GET query SHALL NOT carry an `X-Request-Id` header
+
+#### Scenario: One query node has not observed the result yet
+
+- **GIVEN** one trusted query node returns `processing_or_not_found`
+- **WHEN** another trusted node already has a terminal result for the same submission Request ID
+- **THEN** the current polling round SHALL continue checking the remaining nodes
+- **AND** a fallback node authentication failure SHALL NOT override a valid processing response from the configured provider endpoint
 
 #### Scenario: Untrusted provider is not queried
 
@@ -112,6 +120,7 @@ The system SHALL map the upstream query result into the existing image task comp
 - **THEN** the system SHALL complete the original task with that result
 - **AND** SHALL reuse existing cache, batch preview, and canvas insertion behavior
 - **AND** a cache failure SHALL retain the usable remote URL instead of reverting the task to failure
+- **AND** a transient terminal-state persistence failure SHALL retry the same recovered result instead of silently leaving the task processing
 
 #### Scenario: Upstream returns a business failure
 
