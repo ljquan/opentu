@@ -149,12 +149,7 @@ describe('task-storage-writer image attempt guards', () => {
           : action === 'recover'
           ? await taskStorageWriter.markImageAttemptRecovering(
               'image-task-1',
-              'request-a',
-              {
-                allowFailed: true,
-                expectedErrorCodes: ['INTERRUPTED'],
-                migrateLegacy: true,
-              }
+              'request-a'
             )
           : await taskStorageWriter.failTask(
               'image-task-1',
@@ -173,65 +168,6 @@ describe('task-storage-writer image attempt guards', () => {
       });
     }
   );
-
-  it('atomically migrates a legacy interrupted image attempt', async () => {
-    const legacyTask = createImageTask('image-task-1', 'failed');
-    delete legacyTask.params.submissionRequestId;
-    delete legacyTask.params.imageSubmissionAttempted;
-    legacyTask.error = { code: 'INTERRUPTED', message: 'interrupted' };
-    await taskStorageWriter.saveTask(legacyTask);
-
-    expect(
-      await taskStorageWriter.markImageAttemptRecovering(
-        'image-task-1',
-        'image-task-1',
-        {
-          allowFailed: true,
-          expectedErrorCodes: [
-            'INTERRUPTED',
-            'INTERRUPTED_DURING_SUBMISSION',
-          ],
-          migrateLegacy: true,
-        }
-      )
-    ).toBe(true);
-    expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
-      status: 'processing',
-      executionPhase: 'polling',
-      params: {
-        submissionRequestId: 'image-task-1',
-        imageSubmissionAttempted: true,
-      },
-    });
-  });
-
-  it('atomically claims one timeout compensation query', async () => {
-    const timedOutTask = createImageTask('request-timeout', 'failed');
-    timedOutTask.error = { code: 'TIMEOUT', message: '任务执行超时' };
-    timedOutTask.completedAt = 2;
-    await taskStorageWriter.saveTask(timedOutTask);
-
-    expect(
-      await taskStorageWriter.markImageAttemptRecovering(
-        'image-task-1',
-        'request-timeout',
-        {
-          allowFailed: true,
-          expectedErrorCodes: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
-          timeoutRecoveryAttemptedAt: 3,
-        }
-      )
-    ).toBe(true);
-    expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
-      status: 'processing',
-      executionPhase: 'polling',
-      params: {
-        submissionRequestId: 'request-timeout',
-        imageSubmissionAttempted: true,
-        imageTimeoutRecoveryAttemptedAt: 3,
-      },
-    });
-  });
 
   it('keeps the first terminal write for the same attempt', async () => {
     const completedTask = createImageTask('request-current', 'completed');
@@ -270,10 +206,7 @@ describe('task-storage-writer image attempt guards', () => {
         'request-current',
         {
           allowFailed: true,
-          expectedErrorCodes: [
-            'INTERRUPTED',
-            'INTERRUPTED_DURING_SUBMISSION',
-          ],
+          expectedErrorCodes: ['INTERRUPTED', 'INTERRUPTED_DURING_SUBMISSION'],
         }
       )
     ).toBe(false);
@@ -331,7 +264,7 @@ describe('task-storage-writer image attempt guards', () => {
     });
   });
 
-  it('enters read-only polling as soon as the formal image submission is persisted', async () => {
+  it('keeps the live request in submitting phase after formal submission is persisted', async () => {
     await taskStorageWriter.saveTask(createImageTask('request-current'));
 
     expect(
@@ -342,7 +275,7 @@ describe('task-storage-writer image attempt guards', () => {
     ).toBe(true);
     expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
       status: 'processing',
-      executionPhase: 'polling',
+      executionPhase: 'submitting',
       params: {
         submissionRequestId: 'request-current',
         imageSubmissionAttempted: true,

@@ -22,17 +22,9 @@ const DEFAULT_JITTER_RATIO = 0.1;
 const RECOVERY_RESULT_PATH = '/images/generations/result';
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_RESULT_URLS = 10;
-const TIMEOUT_RECOVERY_GRACE_MS = 24 * 60 * 60 * 1000;
-const CLOCK_SKEW_TOLERANCE_MS = 60 * 1000;
 
 export const IMAGE_SUBMISSION_REQUEST_ID_PARAM = 'submissionRequestId';
 export const IMAGE_SUBMISSION_ATTEMPTED_PARAM = 'imageSubmissionAttempted';
-export const IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM =
-  'imageTimeoutRecoveryAttemptedAt';
-export const IMAGE_TIMEOUT_RECOVERY_ERROR_CODES = [
-  'TIMEOUT',
-  'RECOVERY_TIMEOUT',
-] as const;
 
 export type ImageGenerationRecoveryTask = Pick<
   Task,
@@ -89,7 +81,6 @@ export interface ImageGenerationRecoveryServiceOptions {
   pollIntervalMs?: number;
   maxBackoffMs?: number;
   requestTimeoutMs?: number;
-  timeoutRecoveryWindowMs?: number;
   jitterRatio?: number;
   now?: () => number;
   random?: () => number;
@@ -109,7 +100,6 @@ interface RecoveryTaskDescriptor {
   requestId: string;
   startedAt: number;
   deadline: number;
-  extended: boolean;
   route: RecoveryRouteDescriptor;
 }
 
@@ -195,116 +185,17 @@ export function createImageSubmissionParams(
   requestId: string,
   attempted = false
 ): GenerationParams {
-  const {
-    [IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]: _timeoutRecoveryAttemptedAt,
-    ...nextParams
-  } = params;
   return {
-    ...nextParams,
+    ...params,
     [IMAGE_SUBMISSION_REQUEST_ID_PARAM]: requestId,
     [IMAGE_SUBMISSION_ATTEMPTED_PARAM]: attempted,
   };
-}
-
-export function isAmbiguousImageSubmissionError(error: unknown): boolean {
-  const record = asRecord(error);
-  const httpStatus =
-    typeof record?.httpStatus === 'number'
-      ? record.httpStatus
-      : typeof record?.status === 'number'
-      ? record.status
-      : undefined;
-
-  if (httpStatus !== undefined) {
-    if ([400, 401, 403, 404, 409, 422, 429].includes(httpStatus)) {
-      return false;
-    }
-    if (
-      httpStatus === 408 ||
-      [500, 502, 503, 504, 520, 522, 524].includes(httpStatus)
-    ) {
-      return true;
-    }
-  }
-
-  const name = normalizeRequiredString(record?.name) || '';
-  const message =
-    normalizeRequiredString(record?.message) || String(error || '');
-  const text = `${name} ${message}`;
-
-  if (
-    /invalid api|api key|credential|unauthorized|forbidden|quota|balance|rate.?limit|model.?not.?found|moderation|safety|content policy|invalid (?:prompt|parameter)|no .*adapter|未配置|无效|余额|额度|限流|审核|安全策略|参数错误/i.test(
-      text
-    )
-  ) {
-    return false;
-  }
-
-  return /AbortError|TimeoutError|failed to fetch|fetch failed|load failed|networkerror|connectionterminated|remoteprotocolerror|remote protocol|connection reset|socket hang up|unexpected (?:end|eof)|body stream|response (?:closed|lost)|\b50[234]\b|\b52[024]\b|超时|连接.*(?:中断|断开|重置)|网络错误/i.test(
-    text
-  );
 }
 
 function normalizePositiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? value
     : undefined;
-}
-
-export function isImageRequestTimeoutRecoveryCandidate(
-  task: Task,
-  now = Date.now(),
-  recoveryWindowMs = TIMEOUT_RECOVERY_GRACE_MS
-): boolean {
-  const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
-  const failedAt =
-    task.status === TaskStatus.PROCESSING && startedAt !== undefined
-      ? startedAt + IMAGE_GENERATION_TIMEOUT_MS
-      : normalizePositiveNumber(
-          task.completedAt ?? task.error?.details?.timestamp ?? task.updatedAt
-        );
-  const elapsed =
-    failedAt === undefined ? Number.POSITIVE_INFINITY : now - failedAt;
-  const timeoutRecoveryStartedAt = normalizePositiveNumber(
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
-  );
-  const route = task.invocationRoute;
-  const hasPersistedRoute = Boolean(
-    route?.operation === 'image' &&
-      normalizeRequiredString(route.providerProfileId) &&
-      normalizeRequiredString(route.modelRef?.modelId || route.modelId)
-  );
-  const isFailedTimeout =
-    task.status === TaskStatus.FAILED &&
-    IMAGE_TIMEOUT_RECOVERY_ERROR_CODES.some(
-      (code) => code === task.error?.code
-    );
-  const isExpiredProcessing =
-    task.status === TaskStatus.PROCESSING && elapsed >= 0;
-  const boundedRecoveryWindowMs = Math.max(1, recoveryWindowMs);
-
-  if (
-    task.type !== TaskType.IMAGE ||
-    (!isFailedTimeout && !isExpiredProcessing) ||
-    !normalizeRequestId(task.id) ||
-    !normalizeRequestId(getImageSubmissionRequestId(task)) ||
-    !hasImageSubmissionAttempt(task) ||
-    !hasPersistedRoute ||
-    startedAt === undefined ||
-    task.remoteId ||
-    task.syncedFromRemote ||
-    elapsed < -CLOCK_SKEW_TOLERANCE_MS ||
-    (timeoutRecoveryStartedAt !== undefined &&
-      timeoutRecoveryStartedAt > now + CLOCK_SKEW_TOLERANCE_MS)
-  ) {
-    return false;
-  }
-
-  if (timeoutRecoveryStartedAt === undefined) {
-    return elapsed <= boundedRecoveryWindowMs;
-  }
-
-  return timeoutRecoveryStartedAt + boundedRecoveryWindowMs > now;
 }
 
 function normalizeUpstreamCode(value: unknown): string | undefined {
@@ -435,7 +326,6 @@ export class ImageGenerationRecoveryService {
   private readonly pollIntervalMs: number;
   private readonly maxBackoffMs: number;
   private readonly requestTimeoutMs: number;
-  private readonly timeoutRecoveryWindowMs: number;
   private readonly jitterRatio: number;
   private readonly now: () => number;
   private readonly random: () => number;
@@ -464,10 +354,6 @@ export class ImageGenerationRecoveryService {
       1,
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     );
-    this.timeoutRecoveryWindowMs = Math.max(
-      1,
-      options.timeoutRecoveryWindowMs ?? TIMEOUT_RECOVERY_GRACE_MS
-    );
     this.jitterRatio = Math.min(
       0.5,
       Math.max(0, options.jitterRatio ?? DEFAULT_JITTER_RATIO)
@@ -489,21 +375,6 @@ export class ImageGenerationRecoveryService {
     );
   }
 
-  canRecoverTimedOut(task: Task): boolean {
-    if (
-      !isImageRequestTimeoutRecoveryCandidate(
-        task,
-        this.now(),
-        this.timeoutRecoveryWindowMs
-      )
-    ) {
-      return false;
-    }
-
-    const descriptor = this.createTaskDescriptor(task, true);
-    return Boolean(descriptor && this.resolveTrustedInvocationPlan(descriptor));
-  }
-
   start(
     task: ImageGenerationRecoveryTask,
     callbacks: ImageGenerationRecoveryCallbacks
@@ -512,11 +383,7 @@ export class ImageGenerationRecoveryService {
     const plan = descriptor
       ? this.resolveTrustedInvocationPlan(descriptor)
       : null;
-    if (
-      !descriptor ||
-      descriptor.deadline <= this.now() ||
-      !plan
-    ) {
+    if (!descriptor || descriptor.deadline <= this.now() || !plan) {
       return null;
     }
 
@@ -525,7 +392,6 @@ export class ImageGenerationRecoveryService {
       currentEntry?.task?.requestId === descriptor.requestId &&
       currentEntry.task.startedAt === descriptor.startedAt &&
       currentEntry.task.deadline === descriptor.deadline &&
-      currentEntry.task.extended === descriptor.extended &&
       currentEntry.state !== 'stopped'
     ) {
       currentEntry.callbacks = callbacks;
@@ -570,26 +436,22 @@ export class ImageGenerationRecoveryService {
   }
 
   private createTaskDescriptor(
-    task: ImageGenerationRecoveryTask,
-    forceExtended = false
+    task: ImageGenerationRecoveryTask
   ): RecoveryTaskDescriptor | null {
     if (task.type !== TaskType.IMAGE) {
       return null;
     }
 
     const taskId = normalizeRequestId(task.id);
-    const requestId = normalizeRequestId(getImageSubmissionRequestId(task));
+    const requestId = normalizeRequestId(
+      task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM]
+    );
     const route = task.invocationRoute;
     const providerProfileId = normalizeRequiredString(route?.providerProfileId);
     const modelId = normalizeRequiredString(
       route?.modelRef?.modelId || route?.modelId
     );
     const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
-    const timeoutRecoveryStartedAt = normalizePositiveNumber(
-      task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]
-    );
-    const extended = forceExtended || timeoutRecoveryStartedAt !== undefined;
-    const now = this.now();
 
     if (
       !taskId ||
@@ -598,8 +460,6 @@ export class ImageGenerationRecoveryService {
       !providerProfileId ||
       !modelId ||
       startedAt === undefined ||
-      (timeoutRecoveryStartedAt !== undefined &&
-        timeoutRecoveryStartedAt > now + CLOCK_SKEW_TOLERANCE_MS) ||
       !hasImageSubmissionAttempt(task)
     ) {
       return null;
@@ -609,10 +469,7 @@ export class ImageGenerationRecoveryService {
       taskId,
       requestId,
       startedAt,
-      deadline: extended
-        ? (timeoutRecoveryStartedAt ?? now) + this.timeoutRecoveryWindowMs
-        : Math.min(startedAt, now) + IMAGE_GENERATION_TIMEOUT_MS,
-      extended,
+      deadline: startedAt + IMAGE_GENERATION_TIMEOUT_MS,
       route: {
         providerProfileId,
         modelId,
@@ -635,9 +492,9 @@ export class ImageGenerationRecoveryService {
     let plan = this.resolveInvocationPlan('image', modelRef, {
       bindingId: task.route.bindingId,
     });
-    // 旧任务持久化的是提交当时的派生 binding ID。设置迁移或重新初始化后，
-    // 同一 profile/model 的 binding 可能被重新生成；精确 ID 不存在时，仅在
-    // 同一供应商与模型范围内重新解析，再继续执行下面的可信与同步协议校验。
+    // 页面刷新后，提交时持久化的派生 binding ID 可能因设置重新初始化而变化。
+    // 精确 ID 不存在时，仅在同一供应商与模型范围内重新解析，再继续执行下面的
+    // 可信节点与同步图片协议校验。
     if (!plan && task.route.bindingId) {
       plan = this.resolveInvocationPlan('image', modelRef);
     }
@@ -701,10 +558,6 @@ export class ImageGenerationRecoveryService {
         this.finishSuccess(entry, outcome.result);
         return;
       case 'failed':
-        if (outcome.error.code === 'RECOVERY_TIMEOUT' && !task.extended) {
-          this.stopEntry(entry);
-          return;
-        }
         this.finishFailure(entry, outcome.error);
         return;
       case 'stopped':
@@ -738,8 +591,6 @@ export class ImageGenerationRecoveryService {
     }
 
     const queryTargets = this.createQueryTargets(plan);
-    let sawProcessing = false;
-
     for (const target of queryTargets) {
       if (!this.isCurrent(entry)) {
         return { type: 'stopped' };
@@ -808,8 +659,7 @@ export class ImageGenerationRecoveryService {
           task.requestId
         );
         if (parsed.type === 'processing') {
-          sawProcessing = true;
-          continue;
+          return parsed;
         }
         if (parsed.type !== 'transient') {
           return parsed;
@@ -829,7 +679,7 @@ export class ImageGenerationRecoveryService {
       }
     }
 
-    return sawProcessing ? { type: 'processing' } : { type: 'transient' };
+    return { type: 'transient' };
   }
 
   private createQueryTargets(
@@ -946,10 +796,7 @@ export class ImageGenerationRecoveryService {
     }
 
     entry.state = 'waiting';
-    const delay = Math.min(
-      task.extended ? this.maxBackoffMs : this.nextDelay(entry.failureStreak),
-      remainingMs
-    );
+    const delay = Math.min(this.nextDelay(entry.failureStreak), remainingMs);
     entry.pollTimer = setTimeout(() => {
       entry.pollTimer = undefined;
       if (!this.isCurrent(entry)) {
@@ -982,13 +829,6 @@ export class ImageGenerationRecoveryService {
   private handleRecoveryDeadline(entry: RecoveryEntry): void {
     const task = entry.task;
     if (!task || !this.isCurrent(entry)) {
-      return;
-    }
-
-    // 普通实时轮询到达 15 分钟边界时先静默交棒给全局超时检查器，
-    // 由其原子写入 24 小时恢复标记后重启轮询，避免先把任务写成失败。
-    if (!task.extended) {
-      this.stopEntry(entry);
       return;
     }
 
@@ -1189,11 +1029,6 @@ export class ImageGenerationRecoveryService {
 export const imageGenerationRecoveryService =
   new ImageGenerationRecoveryService();
 
-const LEGACY_RECOVERABLE_ERROR_CODES = new Set([
-  'INTERRUPTED',
-  'INTERRUPTED_DURING_SUBMISSION',
-]);
-
 export function isImageRequestRecoveryTask(task: Task): boolean {
   return (
     isImageRequestRecoveryCandidate(task) &&
@@ -1207,60 +1042,18 @@ export function isImageRequestRecoveryCandidate(task: Task): boolean {
     task.type === TaskType.IMAGE &&
     task.status === TaskStatus.PROCESSING &&
     Boolean(normalizeRequestId(task.id)) &&
-    Boolean(normalizeRequestId(getImageSubmissionRequestId(task))) &&
+    Boolean(
+      normalizeRequestId(task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM])
+    ) &&
     hasImageSubmissionAttempt(task) &&
     route?.operation === 'image' &&
     Boolean(normalizeRequiredString(route.providerProfileId)) &&
     Boolean(
       normalizeRequiredString(route.modelRef?.modelId || route.modelId)
     ) &&
-    task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+    task.executionPhase === TaskExecutionPhase.POLLING &&
     !task.remoteId &&
     !task.syncedFromRemote
-  );
-}
-
-export function isTimedOutImageRequestRecoveryTask(task: Task): boolean {
-  return isImageRequestTimeoutRecoveryCandidate(task);
-}
-
-export function isLegacyInterruptedImageRequestTask(task: Task): boolean {
-  const hasAttemptMetadata =
-    task.params[IMAGE_SUBMISSION_ATTEMPTED_PARAM] !== undefined;
-  const legacyTask = hasImageSubmissionAttempt(task)
-    ? task
-    : !hasAttemptMetadata
-    ? {
-        ...task,
-        params: createImageSubmissionParams(
-          task.params,
-          getImageSubmissionRequestId(task),
-          true
-        ),
-      }
-    : null;
-  if (!legacyTask) {
-    return false;
-  }
-  return (
-    task.status === TaskStatus.FAILED &&
-    LEGACY_RECOVERABLE_ERROR_CODES.has(task.error?.code || '') &&
-    !task.remoteId &&
-    !task.syncedFromRemote &&
-    imageGenerationRecoveryService.canRecover(legacyTask)
-  );
-}
-
-export function shouldRecoverImageSubmission(
-  task: Task,
-  error: unknown
-): boolean {
-  return (
-    task.status !== TaskStatus.CANCELLED &&
-    !task.remoteId &&
-    hasImageSubmissionAttempt(task) &&
-    isAmbiguousImageSubmissionError(error) &&
-    imageGenerationRecoveryService.canRecover(task)
   );
 }
 
@@ -1278,6 +1071,7 @@ export function isCurrentImageRecoveryAttempt(
       normalizeRequestId(getImageSubmissionRequestId(task)) ===
         expectedRequestId &&
       hasImageSubmissionAttempt(task) &&
+      task.executionPhase === TaskExecutionPhase.POLLING &&
       (task.startedAt ?? task.createdAt) === startedAt &&
       !task.remoteId &&
       !task.syncedFromRemote

@@ -80,8 +80,6 @@ import {
   resolveLegacyTaskInvocationRouteModel,
   shouldUseStrictTaskInvocationRoute,
 } from '../task-invocation-route';
-import { isTrustedTuziApiBaseUrl } from '../provider-routing/tuzi-api-endpoints';
-import { isAmbiguousImageSubmissionError } from '../image-generation-recovery-service';
 
 function assertCurrentImageExecutionAttempt(options?: ExecutionOptions): void {
   if (options?.isCurrentAttempt?.() === false) {
@@ -383,8 +381,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       ),
       taskId,
     });
-    let submissionAttempted = false;
-
     try {
       // 处理参考图片：统一转为 base64（API 要求），并行处理提升性能
       let processedImages: string[] | undefined;
@@ -412,7 +408,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       // 直接调用 API
       await options?.onSubmissionAttempt?.();
-      submissionAttempted = true;
       const response = await providerTransport.send(
         buildProviderContext(config.imageConfig),
         {
@@ -526,20 +521,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      const shouldWaitForRecovery =
-        submissionAttempted &&
-        isTrustedTuziApiBaseUrl(config.imageConfig.baseUrl) &&
-        isAmbiguousImageSubmissionError(error);
-      if (!shouldWaitForRecovery) {
-        await taskStorageWriter.failTask(
-          taskId,
-          {
-            code: 'IMAGE_GENERATION_ERROR',
-            message: errorMessage,
-          },
-          requestId
-        );
-      }
+      await taskStorageWriter.failTask(
+        taskId,
+        {
+          code: 'IMAGE_GENERATION_ERROR',
+          message: errorMessage,
+        },
+        requestId
+      );
       throw error;
     }
   }
@@ -566,8 +555,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   ): Promise<void> {
     const logStartTime = startTime || Date.now();
     const submissionRequestId = params.requestId || taskId;
-    let submissionAttempted = false;
-
     // 开始记录 LLM API 调用
     const logId = startLLMApiLog({
       endpoint: '/v1/videos (async image)',
@@ -616,7 +603,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         {
           onSubmissionAttempt: async () => {
             await options?.onSubmissionAttempt?.();
-            submissionAttempted = true;
           },
           onProgress: (progress) => {
             options?.onProgress?.({
@@ -637,9 +623,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
               submissionRequestId
             );
             if (updated === false) {
-              const staleAttemptError = new Error(
-                '图片提交已被取消或替代'
-              );
+              const staleAttemptError = new Error('图片提交已被取消或替代');
               staleAttemptError.name = 'AbortError';
               throw staleAttemptError;
             }
@@ -716,20 +700,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      const shouldWaitForRecovery =
-        submissionAttempted &&
-        isTrustedTuziApiBaseUrl(config.imageConfig.baseUrl) &&
-        isAmbiguousImageSubmissionError(error);
-      if (!shouldWaitForRecovery) {
-        await taskStorageWriter.failTask(
-          taskId,
-          {
-            code: 'ASYNC_IMAGE_GENERATION_ERROR',
-            message: errorMessage,
-          },
-          submissionRequestId
-        );
-      }
+      await taskStorageWriter.failTask(
+        taskId,
+        {
+          code: 'ASYNC_IMAGE_GENERATION_ERROR',
+          message: errorMessage,
+        },
+        submissionRequestId
+      );
       throw error;
     }
   }

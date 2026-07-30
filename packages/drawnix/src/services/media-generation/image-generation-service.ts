@@ -30,7 +30,6 @@ import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
 import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
-  shouldRecoverImageSubmission,
 } from '../image-generation-recovery-service';
 
 function buildStoredImageAdapterParams(
@@ -210,24 +209,14 @@ export async function generateImage(
       throw error;
     }
 
-    if (!shouldRecoverImageSubmission(current, error)) {
-      const storedTask = await taskStorageWriter.getTask(taskId);
-      if (storedTask && isCurrentAttempt()) {
-        taskQueueService.syncTaskFromStorage(
-          taskId,
-          storedTask as Partial<typeof current>
-        );
-      }
-      throw error;
+    const storedTask = await taskStorageWriter.getTask(taskId);
+    if (storedTask && isCurrentAttempt()) {
+      taskQueueService.syncTaskFromStorage(
+        taskId,
+        storedTask as Partial<typeof current>
+      );
     }
-
-    const recovering = await taskQueueService.markImageAttemptRecovering(
-      taskId,
-      submissionRequestId
-    );
-    if (!recovering) {
-      throw error;
-    }
+    throw error;
   }
 
   // 等待任务完成（轮询 IndexedDB）

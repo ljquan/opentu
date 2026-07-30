@@ -165,7 +165,9 @@ class TaskStorageWriter {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error || request.error);
       transaction.onabort = () =>
-        reject(transaction.error || new Error('Task storage transaction aborted'));
+        reject(
+          transaction.error || new Error('Task storage transaction aborted')
+        );
     });
   }
 
@@ -316,7 +318,7 @@ class TaskStorageWriter {
       (task) => {
         task.status = 'processing';
         task.params.imageSubmissionAttempted = true;
-        task.executionPhase = 'polling';
+        task.executionPhase = 'submitting';
         task.updatedAt = Date.now();
       },
       expectedRequestId,
@@ -352,13 +354,7 @@ class TaskStorageWriter {
    */
   async markImageAttemptRecovering(
     taskId: string,
-    expectedRequestId: string,
-    options: {
-      allowFailed?: boolean;
-      expectedErrorCodes?: readonly string[];
-      migrateLegacy?: boolean;
-      timeoutRecoveryAttemptedAt?: number;
-    } = {}
+    expectedRequestId: string
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -368,25 +364,9 @@ class TaskStorageWriter {
         task.completedAt = undefined;
         task.executionPhase = 'polling';
         task.progress = undefined;
-        if (options.migrateLegacy) {
-          task.params.submissionRequestId = expectedRequestId;
-          task.params.imageSubmissionAttempted = true;
-        }
-        if (
-          typeof options.timeoutRecoveryAttemptedAt === 'number' &&
-          Number.isFinite(options.timeoutRecoveryAttemptedAt)
-        ) {
-          task.params.imageTimeoutRecoveryAttemptedAt =
-            options.timeoutRecoveryAttemptedAt;
-        }
         task.updatedAt = Date.now();
       },
-      expectedRequestId,
-      {
-        allowFailed: options.allowFailed,
-        expectedErrorCodes: options.expectedErrorCodes,
-        allowLegacyRequestId: options.migrateLegacy,
-      }
+      expectedRequestId
     );
   }
 

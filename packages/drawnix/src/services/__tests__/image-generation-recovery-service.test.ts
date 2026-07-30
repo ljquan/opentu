@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import {
   TaskExecutionPhase,
   TaskStatus,
@@ -8,12 +7,9 @@ import {
 } from '../../types/task.types';
 import {
   ImageGenerationRecoveryService,
-  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM,
   createImageSubmissionParams,
   getImageSubmissionRequestId,
-  isAmbiguousImageSubmissionError,
   isCurrentImageRecoveryAttempt,
-  isImageRequestTimeoutRecoveryCandidate,
 } from '../image-generation-recovery-service';
 
 function createPlan() {
@@ -247,68 +243,6 @@ describe('image generation recovery service', () => {
     ]);
   });
 
-  it('continues after one node reports processing and finds a later success', async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({ status: 'processing_or_not_found', data: [] })
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          status: 'succeeded',
-          data: [{ url: 'https://images.example.com/later-node.png' }],
-        })
-      );
-    const onSucceeded = vi.fn();
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      jitterRatio: 0,
-    });
-
-    service.start(createTask('task-later-node'), {
-      onSucceeded,
-      onFailed: vi.fn(),
-    });
-    await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
-
-    expect(
-      fetcher.mock.calls.map(([url]) => new URL(String(url)).host)
-    ).toEqual(['api.tu-zi.com', 'bus.tu-zi.com']);
-    expect(onSucceeded).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: 'https://images.example.com/later-node.png',
-      })
-    );
-  });
-
-  it('does not let fallback-node authentication failures override primary processing', async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({ status: 'processing_or_not_found', data: [] })
-      )
-      .mockResolvedValue(
-        Response.json({ message: 'invalid on fallback' }, { status: 401 })
-      );
-    const onFailed = vi.fn();
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      pollIntervalMs: 60_000,
-      jitterRatio: 0,
-    });
-
-    service.start(createTask('task-primary-processing'), {
-      onSucceeded: vi.fn(),
-      onFailed,
-    });
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5));
-
-    expect(onFailed).not.toHaveBeenCalled();
-    service.stopAll();
-  });
-
   it('releases an error response body before switching nodes', async () => {
     const cancel = vi.fn();
     const fetcher = vi
@@ -437,59 +371,6 @@ describe('image generation recovery service', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('cleans a hung terminal writeback when the recovery deadline expires', async () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const fetcher = vi.fn(async () =>
-      Response.json({
-        status: 'succeeded',
-        data: [{ url: 'https://images.example.com/hung-writeback.png' }],
-      })
-    );
-    const onSucceeded = vi.fn(() => new Promise<void>(() => undefined));
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      requestTimeoutMs: 20,
-      timeoutRecoveryWindowMs: 50,
-      jitterRatio: 0,
-    });
-    const task = createTask('task-hung-writeback');
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
-
-    service.start(task, {
-      onSucceeded,
-      onFailed: vi.fn(),
-    });
-    await flushMicrotasks(20);
-
-    expect(onSucceeded).toHaveBeenCalledTimes(1);
-    expect((service as any).entries.size).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(21);
-    await flushMicrotasks();
-
-    expect((service as any).entries.size).toBe(1);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('did not settle before the writeback watchdog')
-    );
-
-    service.start(task, {
-      onSucceeded: vi.fn(),
-      onFailed: vi.fn(),
-    });
-    await flushMicrotasks();
-    expect(fetcher).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(30);
-    await flushMicrotasks();
-
-    expect((service as any).entries.size).toBe(0);
-  });
-
   it('queues more than the concurrency limit without dropping tasks', async () => {
     const pending: Array<(response: Response) => void> = [];
     let active = 0;
@@ -611,6 +492,23 @@ describe('image generation recovery service', () => {
     ).toBeNull();
   });
 
+  it('does not guess the task ID when the persisted Request ID is missing', () => {
+    const service = new ImageGenerationRecoveryService({
+      fetcher: vi.fn(),
+      resolveInvocationPlan: vi.fn(() => createPlan()),
+    });
+    const task = createTask('legacy-task-without-request-id');
+    delete task.params.submissionRequestId;
+
+    expect(service.canRecover(task)).toBe(false);
+    expect(
+      service.start(task, {
+        onSucceeded: vi.fn(),
+        onFailed: vi.fn(),
+      })
+    ).toBeNull();
+  });
+
   it('does not query or forward credentials for an untrusted provider route', () => {
     const fetcher = vi.fn();
     const plan = createPlan();
@@ -629,287 +527,6 @@ describe('image generation recovery service', () => {
       })
     ).toBeNull();
     expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it('classifies only ambiguous post-submission failures as recoverable', () => {
-    expect(isAmbiguousImageSubmissionError(new Error('Failed to fetch'))).toBe(
-      true
-    );
-    expect(
-      isAmbiguousImageSubmissionError(
-        Object.assign(new Error('gateway timeout'), { httpStatus: 504 })
-      )
-    ).toBe(true);
-    expect(
-      isAmbiguousImageSubmissionError(
-        Object.assign(new Error('internal server error'), { httpStatus: 500 })
-      )
-    ).toBe(true);
-    expect(
-      isAmbiguousImageSubmissionError(
-        Object.assign(new Error('invalid token'), { httpStatus: 401 })
-      )
-    ).toBe(false);
-    expect(isAmbiguousImageSubmissionError(new Error('参考图格式无效'))).toBe(
-      false
-    );
-  });
-
-  it('stops the live poller at its original deadline without failing before extended handoff', async () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const fetcher = vi.fn(async () =>
-      Response.json({ status: 'processing_or_not_found', data: [] })
-    );
-    const onFailed = vi.fn();
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      pollIntervalMs: 5,
-      jitterRatio: 0,
-    });
-    const startedAt = now - IMAGE_GENERATION_TIMEOUT_MS + 10;
-
-    service.start(createTask('task-timeout', 'task-timeout', startedAt), {
-      onSucceeded: vi.fn(),
-      onFailed,
-    });
-    await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(11);
-
-    expect(onFailed).not.toHaveBeenCalled();
-    expect(fetcher).toHaveBeenCalled();
-  });
-
-  it('replaces the live poller when the same attempt enters extended recovery', async () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const fetcher = vi.fn(async () =>
-      Response.json({ status: 'processing_or_not_found', data: [] })
-    );
-    const onFailed = vi.fn();
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      pollIntervalMs: 5,
-      maxBackoffMs: 10,
-      timeoutRecoveryWindowMs: 100,
-      jitterRatio: 0,
-    });
-    const startedAt = now - IMAGE_GENERATION_TIMEOUT_MS + 10;
-    const task = createTask(
-      'task-live-to-extended',
-      'submission-live-to-extended',
-      startedAt
-    );
-    const callbacks = { onSucceeded: vi.fn(), onFailed };
-
-    service.start(task, callbacks);
-    await flushMicrotasks(20);
-
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
-    service.start(task, callbacks);
-    await vi.advanceTimersByTimeAsync(20);
-    await flushMicrotasks(20);
-
-    expect(fetcher.mock.calls.length).toBeGreaterThan(1);
-    expect(onFailed).not.toHaveBeenCalled();
-  });
-
-  it('allows a recent timeout task to enter extended read-only recovery', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-    });
-    const task = createTask(
-      'task-timeout-compensation',
-      'submission-timeout-compensation',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.status = TaskStatus.FAILED;
-    task.completedAt = now - 1_000;
-    task.error = { code: 'TIMEOUT', message: '任务执行超时' };
-    task.executionPhase = undefined;
-
-    expect(service.canRecover(task)).toBe(false);
-    expect(service.canRecoverTimedOut(task)).toBe(true);
-
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
-    expect(service.canRecoverTimedOut(task)).toBe(true);
-  });
-
-  it('allows an expired processing task to enter extended recovery', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-    });
-    const task = createTask(
-      'task-expired-processing',
-      'submission-expired-processing',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-
-    expect(service.canRecover(task)).toBe(false);
-    expect(service.canRecoverTimedOut(task)).toBe(true);
-  });
-
-  it('keeps timeout-window eligibility independent from temporarily unavailable provider settings', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      resolveInvocationPlan: vi.fn(() => null),
-    });
-    const task = createTask(
-      'task-expired-before-settings-ready',
-      'submission-expired-before-settings-ready',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-
-    expect(isImageRequestTimeoutRecoveryCandidate(task, now)).toBe(true);
-    expect(service.canRecoverTimedOut(task)).toBe(false);
-  });
-
-  it('keeps a marked processing attempt eligible while extended recovery settings are unavailable', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      resolveInvocationPlan: vi.fn(() => null),
-    });
-    const task = createTask(
-      'task-extended-settings-unavailable',
-      'submission-extended-settings-unavailable',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 1_000;
-
-    expect(isImageRequestTimeoutRecoveryCandidate(task, now)).toBe(true);
-    expect(service.canRecoverTimedOut(task)).toBe(false);
-  });
-
-  it('does not compensate a timeout older than 24 hours', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-    });
-    const task = createTask(
-      'task-old-timeout',
-      'submission-old-timeout',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.status = TaskStatus.FAILED;
-    task.completedAt = now - 24 * 60 * 60 * 1000 - 1;
-    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
-    task.executionPhase = undefined;
-
-    expect(service.canRecoverTimedOut(task)).toBe(false);
-  });
-
-  it('resumes an old one-shot miss while its persisted recovery window is active', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      timeoutRecoveryWindowMs: 60_000,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-    });
-    const task = createTask(
-      'task-old-one-shot',
-      'submission-old-one-shot',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.status = TaskStatus.FAILED;
-    task.completedAt = now - 1_000;
-    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
-    task.executionPhase = undefined;
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 5_000;
-
-    expect(service.canRecoverTimedOut(task)).toBe(true);
-  });
-
-  it('does not resume an expired persisted recovery window', () => {
-    const now = Date.now();
-    const service = new ImageGenerationRecoveryService({
-      now: () => now,
-      timeoutRecoveryWindowMs: 60_000,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-    });
-    const task = createTask(
-      'task-expired-recovery',
-      'submission-expired-recovery',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.status = TaskStatus.FAILED;
-    task.completedAt = now - 1_000;
-    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
-    task.executionPhase = undefined;
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now - 60_001;
-
-    expect(service.canRecoverTimedOut(task)).toBe(false);
-  });
-
-  it('keeps polling after an extended recovery miss and stops at its deadline', async () => {
-    vi.useFakeTimers();
-    const now = Date.now();
-    vi.setSystemTime(now);
-    const fetcher = vi.fn(async () =>
-      Response.json({ status: 'processing_or_not_found', data: [] })
-    );
-    const onFailed = vi.fn();
-    const service = new ImageGenerationRecoveryService({
-      fetcher,
-      resolveInvocationPlan: vi.fn(() => createPlan()),
-      pollIntervalMs: 5,
-      maxBackoffMs: 10,
-      timeoutRecoveryWindowMs: 25,
-      jitterRatio: 0,
-    });
-    const task = createTask(
-      'task-extended-timeout',
-      'submission-extended-timeout',
-      now - IMAGE_GENERATION_TIMEOUT_MS - 1
-    );
-    task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM] = now;
-
-    service.start(task, {
-      onSucceeded: vi.fn(),
-      onFailed,
-    });
-    await flushMicrotasks(20);
-
-    const firstRoundQueryCount = fetcher.mock.calls.length;
-    expect(firstRoundQueryCount).toBeGreaterThan(0);
-    expect(onFailed).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(10);
-    await flushMicrotasks(20);
-    expect(fetcher.mock.calls.length).toBeGreaterThan(firstRoundQueryCount);
-    expect(onFailed).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(15);
-    await flushMicrotasks(20);
-    expect(onFailed).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'RECOVERY_TIMEOUT' })
-    );
-  });
-
-  it('clears the timeout compensation marker when creating a new submission attempt', () => {
-    const params = createImageSubmissionParams(
-      {
-        prompt: '兔子',
-        [IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]: Date.now(),
-      },
-      'new-submission',
-      false
-    );
-
-    expect(params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM]).toBeUndefined();
-    expect(getImageSubmissionRequestId({ id: 'task-1', params })).toBe(
-      'new-submission'
-    );
   });
 
   it('accepts the same recovered attempt after its current route becomes unavailable', () => {
@@ -939,11 +556,7 @@ describe('image generation recovery service', () => {
     const task = createTask('task-new-retry', 'submission-new');
 
     expect(
-      isCurrentImageRecoveryAttempt(
-        task,
-        'submission-old',
-        task.startedAt!
-      )
+      isCurrentImageRecoveryAttempt(task, 'submission-old', task.startedAt!)
     ).toBe(false);
   });
 });

@@ -462,6 +462,10 @@ class GenerationAPIService {
         id: taskId,
         params,
       });
+      const progressExecutionPhase =
+        adapterContext.binding?.protocol === 'openai.async.media'
+          ? TaskExecutionPhase.POLLING
+          : TaskExecutionPhase.SUBMITTING;
 
       const requestContext = {
         ...adapterContext,
@@ -512,7 +516,7 @@ class GenerationAPIService {
                 taskId,
                 submissionRequestId,
                 progress,
-                TaskExecutionPhase.POLLING
+                progressExecutionPhase
               )
               .catch((error) => {
                 console.warn(

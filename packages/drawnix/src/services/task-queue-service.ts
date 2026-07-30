@@ -78,8 +78,6 @@ import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
   imageGenerationRecoveryService,
-  isTimedOutImageRequestRecoveryTask,
-  shouldRecoverImageSubmission,
 } from './image-generation-recovery-service';
 
 const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
@@ -1273,20 +1271,6 @@ class TaskQueueService {
         },
       });
 
-      if (
-        task.type === TaskType.IMAGE &&
-        submissionRequestId &&
-        !result.success &&
-        !result.task &&
-        result.error === 'Polling timeout' &&
-        (await this.handoffTimedOutImageAttemptToRecovery(
-          task.id,
-          submissionRequestId
-        ))
-      ) {
-        return;
-      }
-
       // Update final state & persist
       const localTask = this.tasks.get(task.id);
       if (
@@ -1333,36 +1317,6 @@ class TaskQueueService {
       const localTask = this.tasks.get(task.id);
       if (localTask) {
         const now = Date.now();
-        if (
-          task.type === TaskType.IMAGE &&
-          submissionRequestId &&
-          (await this.handoffTimedOutImageAttemptToRecovery(
-            task.id,
-            submissionRequestId
-          ))
-        ) {
-          return;
-        }
-        if (shouldRecoverImageSubmission(localTask, error)) {
-          if (task.type === TaskType.IMAGE && submissionRequestId) {
-            await this.markImageAttemptRecovering(task.id, submissionRequestId);
-            return;
-          }
-
-          const recoveringTask: Task = {
-            ...localTask,
-            status: TaskStatus.PROCESSING,
-            error: undefined,
-            completedAt: undefined,
-            executionPhase: TaskExecutionPhase.POLLING,
-            updatedAt: now,
-            progress: undefined,
-          };
-          this.tasks.set(task.id, recoveringTask);
-          this.persistTask(recoveringTask);
-          this.emitEvent('taskUpdated', recoveringTask);
-          return;
-        }
         if (task.type === TaskType.IMAGE && submissionRequestId) {
           await this.failImageAttempt(task.id, submissionRequestId, {
             code: 'EXECUTION_ERROR',
@@ -2610,8 +2564,6 @@ class TaskQueueService {
         ...currentTask.params,
         submissionRequestId: storageTask.params.submissionRequestId,
         imageSubmissionAttempted: storageTask.params.imageSubmissionAttempted,
-        imageTimeoutRecoveryAttemptedAt:
-          storageTask.params.imageTimeoutRecoveryAttemptedAt,
       },
       startedAt: storageTask.startedAt,
       completedAt: storageTask.completedAt,
@@ -2628,9 +2580,7 @@ class TaskQueueService {
     const attemptChanged =
       requestIdChanged ||
       currentTask.params.imageSubmissionAttempted !==
-        storageTask.params.imageSubmissionAttempted ||
-      currentTask.params.imageTimeoutRecoveryAttemptedAt !==
-        storageTask.params.imageTimeoutRecoveryAttemptedAt;
+        storageTask.params.imageSubmissionAttempted;
     const cancellationLostToTerminal =
       currentTask.status === TaskStatus.CANCELLED &&
       (storageTask.status === 'completed' || storageTask.status === 'failed');
@@ -2688,37 +2638,6 @@ class TaskQueueService {
     );
   }
 
-  private async handoffTimedOutImageAttemptToRecovery(
-    taskId: string,
-    requestId: string
-  ): Promise<boolean> {
-    const task = this.tasks.get(taskId);
-    if (!task || !isTimedOutImageRequestRecoveryTask(task)) {
-      return false;
-    }
-
-    try {
-      const recovered = await this.markImageAttemptRecovering(
-        taskId,
-        requestId,
-        { timeoutRecoveryAttemptedAt: Date.now() }
-      );
-      if (!recovered) {
-        console.warn(
-          `[TaskQueueService] Skip extended image recovery for task ${taskId}: state changed before recovery`
-        );
-      }
-    } catch (error) {
-      // 保持当前状态，交给全局超时检查器在下一轮重试；不得因一次 IDB
-      // 写入失败而覆盖其他标签页已经完成、取消或重试的同一任务。
-      console.error(
-        '[TaskQueueService] Failed to start extended image recovery:',
-        error
-      );
-    }
-    return true;
-  }
-
   async activateImageAttempt(
     taskId: string,
     requestId: string
@@ -2757,16 +2676,10 @@ class TaskQueueService {
 
   async markImageAttemptRecovering(
     taskId: string,
-    requestId: string,
-    options: {
-      allowFailed?: boolean;
-      expectedErrorCodes?: readonly string[];
-      migrateLegacy?: boolean;
-      timeoutRecoveryAttemptedAt?: number;
-    } = {}
+    requestId: string
   ): Promise<boolean> {
     return this.updateImageAttemptStorage(taskId, requestId, () =>
-      taskStorageWriter.markImageAttemptRecovering(taskId, requestId, options)
+      taskStorageWriter.markImageAttemptRecovering(taskId, requestId)
     );
   }
 

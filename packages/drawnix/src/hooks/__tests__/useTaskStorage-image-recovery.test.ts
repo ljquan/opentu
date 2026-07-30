@@ -9,45 +9,12 @@ import {
   type Task,
 } from '../../types/task.types';
 
-const IMAGE_TIMEOUT_MS = 15 * 60 * 1000;
-
-function isTimeoutRecoveryCandidate(task: Task): boolean {
-  const now = Date.now();
-  const recoveryStartedAt = task.params.imageTimeoutRecoveryAttemptedAt;
-  const activePersistedWindow =
-    typeof recoveryStartedAt === 'number' &&
-    now - recoveryStartedAt < 24 * 60 * 60 * 1000;
-  const timeoutAt = (task.startedAt || task.createdAt) + IMAGE_TIMEOUT_MS;
-  const failedAt = task.completedAt || task.updatedAt;
-
-  return (
-    task.type === TaskType.IMAGE &&
-    task.params.imageSubmissionAttempted === true &&
-    !task.remoteId &&
-    !task.syncedFromRemote &&
-    ((task.status === TaskStatus.PROCESSING &&
-      recoveryStartedAt === undefined &&
-      now >= timeoutAt &&
-      now - timeoutAt <= 24 * 60 * 60 * 1000) ||
-      (task.status === TaskStatus.FAILED &&
-        ['TIMEOUT', 'RECOVERY_TIMEOUT'].includes(task.error?.code || '') &&
-        (activePersistedWindow ||
-          (recoveryStartedAt === undefined &&
-            now - failedAt <= 24 * 60 * 60 * 1000))))
-  );
-}
-
 const mocks = vi.hoisted(() => ({
   storedTasks: [] as Task[],
   restoreTasks: vi.fn(),
   updateTaskStatus: vi.fn(),
   markImageAttemptRecovering: vi.fn(),
   failImageAttempt: vi.fn(),
-  canRecover: vi.fn((task: Task) =>
-    Boolean(task.params.imageSubmissionAttempted)
-  ),
-  canRecoverTimedOut: vi.fn(() => false),
-  isTimeoutRecoveryCandidate: vi.fn(),
 }));
 
 vi.mock('../../services/task-queue', () => ({
@@ -76,44 +43,17 @@ vi.mock('../../utils/task-utils', () => ({
 }));
 
 vi.mock('../../services/image-generation-recovery-service', () => ({
-  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM: 'imageTimeoutRecoveryAttemptedAt',
-  IMAGE_TIMEOUT_RECOVERY_ERROR_CODES: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
-  createImageSubmissionParams: (
-    params: Task['params'],
-    requestId: string,
-    attempted = false
-  ) => {
-    const { imageTimeoutRecoveryAttemptedAt: _ignored, ...nextParams } = params;
-    return {
-      ...nextParams,
-      submissionRequestId: requestId,
-      imageSubmissionAttempted: attempted,
-    };
-  },
+  IMAGE_SUBMISSION_REQUEST_ID_PARAM: 'submissionRequestId',
   getImageSubmissionRequestId: (task: Pick<Task, 'id' | 'params'>) =>
     (task.params.submissionRequestId as string | undefined) || task.id,
-  imageGenerationRecoveryService: {
-    canRecover: mocks.canRecover,
-    canRecoverTimedOut: mocks.canRecoverTimedOut,
-  },
   isImageRequestRecoveryCandidate: (task: Task) =>
     task.type === TaskType.IMAGE &&
     task.status === TaskStatus.PROCESSING &&
+    typeof task.params.submissionRequestId === 'string' &&
     task.params.imageSubmissionAttempted === true &&
-    task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+    task.executionPhase === TaskExecutionPhase.POLLING &&
     !task.remoteId &&
     !task.syncedFromRemote,
-  isImageRequestTimeoutRecoveryCandidate:
-    mocks.isTimeoutRecoveryCandidate,
-  isLegacyInterruptedImageRequestTask: (task: Task) =>
-    task.type === TaskType.IMAGE &&
-    task.status === TaskStatus.FAILED &&
-    task.params.imageSubmissionAttempted === undefined &&
-    ['INTERRUPTED', 'INTERRUPTED_DURING_SUBMISSION'].includes(
-      task.error?.code || ''
-    ),
-  isTimedOutImageRequestRecoveryTask: (task: Task) =>
-    mocks.isTimeoutRecoveryCandidate(task),
 }));
 
 function createImageTask(
@@ -128,9 +68,7 @@ function createImageTask(
     params: {
       prompt: '画一只兔子',
       model: 'gpt-image-2',
-      ...(requestId === undefined
-        ? {}
-        : { submissionRequestId: requestId }),
+      ...(requestId === undefined ? {} : { submissionRequestId: requestId }),
       ...(attempted === undefined
         ? {}
         : { imageSubmissionAttempted: attempted }),
@@ -154,15 +92,6 @@ describe('useTaskStorage image request recovery', () => {
     mocks.updateTaskStatus.mockReset();
     mocks.markImageAttemptRecovering.mockReset().mockResolvedValue(true);
     mocks.failImageAttempt.mockReset().mockResolvedValue(true);
-    mocks.canRecover
-      .mockReset()
-      .mockImplementation((task: Task) =>
-        Boolean(task.params.imageSubmissionAttempted)
-      );
-    mocks.canRecoverTimedOut.mockReset().mockReturnValue(false);
-    mocks.isTimeoutRecoveryCandidate
-      .mockReset()
-      .mockImplementation(isTimeoutRecoveryCandidate);
     mocks.storedTasks = [];
   });
 
@@ -173,15 +102,14 @@ describe('useTaskStorage image request recovery', () => {
 
     await waitFor(() => expect(result.current).toBe(true));
 
-    expect(mocks.failImageAttempt).toHaveBeenCalledWith(
+    expect(mocks.updateTaskStatus).toHaveBeenCalledWith(
       'image-task-1',
-      'image-task-1',
+      TaskStatus.FAILED,
       expect.objectContaining({
-        code: 'INTERRUPTED',
-      }),
-      { allowLegacyRequestId: true, clearStartedAt: true }
+        error: expect.objectContaining({ code: 'INTERRUPTED' }),
+      })
     );
-    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
   });
 
   it('resumes a persisted formal submission in polling state after reload', async () => {
@@ -195,159 +123,33 @@ describe('useTaskStorage image request recovery', () => {
 
     expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
       'image-task-1',
-      'submission-1',
-      { allowFailed: false, migrateLegacy: false }
+      'submission-1'
     );
   });
 
-  it('keeps a submitted image recoverable while provider settings are temporarily unavailable', async () => {
-    mocks.canRecover.mockReturnValue(false);
-    mocks.storedTasks = [
-      createImageTask(TaskStatus.PROCESSING, true, 'submission-delayed-key'),
-    ];
+  it('does not guess the task ID for legacy image submissions', async () => {
+    mocks.storedTasks = [createImageTask(TaskStatus.PROCESSING, true)];
     const { useTaskStorage } = await import('../useTaskStorage');
     const { result } = renderHook(() => useTaskStorage());
 
     await waitFor(() => expect(result.current).toBe(true));
 
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'image-task-1',
-      'submission-delayed-key',
-      { allowFailed: false, migrateLegacy: false }
-    );
+    expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
     expect(mocks.failImageAttempt).not.toHaveBeenCalled();
-  });
-
-  it('migrates a legacy processing image task by falling back to the task ID', async () => {
-    mocks.storedTasks = [createImageTask(TaskStatus.PROCESSING)];
-    const { useTaskStorage } = await import('../useTaskStorage');
-    const { result } = renderHook(() => useTaskStorage());
-
-    await waitFor(() => expect(result.current).toBe(true));
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
+    expect(mocks.updateTaskStatus).toHaveBeenCalledWith(
       'image-task-1',
-      'image-task-1',
-      { allowFailed: false, migrateLegacy: true }
+      TaskStatus.FAILED,
+      expect.any(Object)
     );
   });
 
-  it('starts the extended window for an expired image even while provider settings are unavailable', async () => {
+  it('does not recover a task without a persisted submission phase', async () => {
     const task = createImageTask(
       TaskStatus.PROCESSING,
       true,
-      'submission-expired-1'
+      'submission-without-phase'
     );
-    task.startedAt = Date.now() - IMAGE_TIMEOUT_MS - 1_000;
-    mocks.canRecover.mockReturnValue(false);
-    mocks.canRecoverTimedOut.mockReturnValue(false);
-    mocks.storedTasks = [task];
-    const { useTaskStorage } = await import('../useTaskStorage');
-    const { result } = renderHook(() => useTaskStorage());
-
-    await waitFor(() => expect(result.current).toBe(true));
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'image-task-1',
-      'submission-expired-1',
-      {
-        allowFailed: false,
-        migrateLegacy: false,
-        timeoutRecoveryAttemptedAt: expect.any(Number),
-      }
-    );
-    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
-    expect(mocks.canRecoverTimedOut).not.toHaveBeenCalled();
-  });
-
-  it('migrates a legacy interrupted image task by falling back to the task ID', async () => {
-    const task = createImageTask(TaskStatus.FAILED);
-    task.error = {
-      code: 'INTERRUPTED',
-      message: '任务被中断（页面刷新）',
-    };
-    mocks.storedTasks = [task];
-    const { useTaskStorage } = await import('../useTaskStorage');
-    const { result } = renderHook(() => useTaskStorage());
-
-    await waitFor(() => expect(result.current).toBe(true));
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'image-task-1',
-      'image-task-1',
-      {
-        allowFailed: true,
-        expectedErrorCodes: [
-          'INTERRUPTED',
-          'INTERRUPTED_DURING_SUBMISSION',
-        ],
-        migrateLegacy: true,
-      }
-    );
-  });
-
-  it('starts an extended recovery window for a recent timed-out image', async () => {
-    const task = createImageTask(
-      TaskStatus.FAILED,
-      true,
-      'submission-timeout-1'
-    );
-    task.error = { code: 'TIMEOUT', message: '任务执行超时' };
-    task.completedAt = Date.now() - 1_000;
-    mocks.storedTasks = [task];
-    const { useTaskStorage } = await import('../useTaskStorage');
-    const { result } = renderHook(() => useTaskStorage());
-
-    await waitFor(() => expect(result.current).toBe(true));
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'image-task-1',
-      'submission-timeout-1',
-      {
-        allowFailed: true,
-        expectedErrorCodes: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
-        timeoutRecoveryAttemptedAt: expect.any(Number),
-      }
-    );
-  });
-
-  it('resumes a timed-out image with an active persisted recovery window', async () => {
-    const task = createImageTask(
-      TaskStatus.FAILED,
-      true,
-      'submission-timeout-1'
-    );
-    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
-    task.completedAt = Date.now() - 1_000;
-    const recoveryStartedAt = Date.now() - 2_000;
-    task.params.imageTimeoutRecoveryAttemptedAt = recoveryStartedAt;
-    mocks.storedTasks = [task];
-    const { useTaskStorage } = await import('../useTaskStorage');
-    const { result } = renderHook(() => useTaskStorage());
-
-    await waitFor(() => expect(result.current).toBe(true));
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'image-task-1',
-      'submission-timeout-1',
-      {
-        allowFailed: true,
-        expectedErrorCodes: ['TIMEOUT', 'RECOVERY_TIMEOUT'],
-        timeoutRecoveryAttemptedAt: recoveryStartedAt,
-      }
-    );
-  });
-
-  it('does not resume a timed-out image after its persisted recovery window expires', async () => {
-    const task = createImageTask(
-      TaskStatus.FAILED,
-      true,
-      'submission-timeout-expired'
-    );
-    task.error = { code: 'RECOVERY_TIMEOUT', message: '暂未查询到上游结果' };
-    task.completedAt = Date.now() - 1_000;
-    task.params.imageTimeoutRecoveryAttemptedAt =
-      Date.now() - 24 * 60 * 60 * 1000 - 1;
+    task.executionPhase = undefined;
     mocks.storedTasks = [task];
     const { useTaskStorage } = await import('../useTaskStorage');
     const { result } = renderHook(() => useTaskStorage());
@@ -355,5 +157,11 @@ describe('useTaskStorage image request recovery', () => {
     await waitFor(() => expect(result.current).toBe(true));
 
     expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
+    expect(mocks.failImageAttempt).toHaveBeenCalledWith(
+      'image-task-1',
+      'submission-without-phase',
+      expect.objectContaining({ code: 'INTERRUPTED' }),
+      { clearStartedAt: true }
+    );
   });
 });

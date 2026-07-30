@@ -8,7 +8,6 @@ const getStoredTaskMock = vi.fn();
 const trackExternalTaskMock = vi.fn();
 const syncTaskFromStorageMock = vi.fn();
 const markImageSubmissionAttemptedMock = vi.fn(async () => undefined);
-const markImageAttemptRecoveringMock = vi.fn(async () => true);
 const updateTaskStatusMock = vi.fn();
 const getTaskMock = vi.fn();
 const generateImageMock = vi.fn(async (_params?: any, _options?: any) => undefined);
@@ -52,7 +51,6 @@ vi.mock('../task-queue-service', () => ({
     trackExternalTask: trackExternalTaskMock,
     syncTaskFromStorage: syncTaskFromStorageMock,
     markImageSubmissionAttempted: markImageSubmissionAttemptedMock,
-    markImageAttemptRecovering: markImageAttemptRecoveringMock,
     updateTaskStatus: updateTaskStatusMock,
     getTask: getTaskMock,
   },
@@ -70,10 +68,6 @@ vi.mock('../image-generation-recovery-service', () => ({
   }),
   getImageSubmissionRequestId: (task: Task) =>
     task.params.submissionRequestId || task.id,
-  shouldRecoverImageSubmission: (task: Task, error: unknown) =>
-    task.params.imageSubmissionAttempted === true &&
-    error instanceof Error &&
-    error.message === 'Failed to fetch',
 }));
 
 vi.mock('../../utils/task-utils', () => ({
@@ -100,16 +94,6 @@ describe('image-generation-service', () => {
           },
         };
       }
-    });
-    markImageAttemptRecoveringMock.mockImplementation(async () => {
-      if (currentTask) {
-        currentTask = {
-          ...currentTask,
-          status: TaskStatus.PROCESSING,
-          executionPhase: TaskExecutionPhase.POLLING,
-        };
-      }
-      return true;
     });
     updateTaskStatusMock.mockImplementation(
       (_taskId: string, status: TaskStatus, updates: Partial<Task>) => {
@@ -260,32 +244,6 @@ describe('image-generation-service', () => {
       };
     }
     expect(executionOptions?.isCurrentAttempt()).toBe(false);
-  });
-
-  it('continues waiting through recovery after an attempted submission disconnects', async () => {
-    generateImageMock.mockImplementationOnce(async (_params, executionOptions) => {
-      await executionOptions?.onSubmissionAttempt?.();
-      throw new Error('Failed to fetch');
-    });
-    const { generateImage } = await import(
-      '../media-generation/image-generation-service'
-    );
-
-    const result = await generateImage('Draw a rabbit', {
-      forceMainThread: true,
-      model: 'gpt-image-2',
-    });
-
-    expect(markImageAttemptRecoveringMock).toHaveBeenCalledWith(
-      'task-image-1',
-      'task-image-1'
-    );
-    expect(updateTaskStatusMock).not.toHaveBeenCalled();
-    expect(waitForTaskCompletionMock).toHaveBeenCalledWith(
-      'task-image-1',
-      expect.objectContaining({ signal: undefined })
-    );
-    expect(result.url).toBe('https://example.com/out.png');
   });
 
   it('syncs a real pre-submission failure instead of entering recovery', async () => {

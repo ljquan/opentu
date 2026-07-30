@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   completeImageAttempt: vi.fn(),
   failImageAttempt: vi.fn(),
   activateImageAttempt: vi.fn(),
-  markImageAttemptRecovering: vi.fn(),
   cacheRemoteUrls: vi.fn(),
   registerImageMetadata: vi.fn(),
   start: vi.fn(),
@@ -30,21 +29,19 @@ const mocks = vi.hoisted(() => ({
   cancelRequest: vi.fn(),
   generate: vi.fn(),
   isTaskTimeout: vi.fn(() => false),
-  isTimedOutImageRequestRecoveryTask: vi.fn(() => false),
 }));
 
 vi.mock('../../services/task-queue', () => ({
   taskQueueService: {},
   legacyTaskQueueService: {
     getTask: vi.fn(() => mocks.currentTask || undefined),
-    getAllTasks: vi.fn(() =>
-      mocks.allTasks || (mocks.currentTask ? [mocks.currentTask] : [])
+    getAllTasks: vi.fn(
+      () => mocks.allTasks || (mocks.currentTask ? [mocks.currentTask] : [])
     ),
     updateTaskStatus: mocks.updateTaskStatus,
     completeImageAttempt: mocks.completeImageAttempt,
     failImageAttempt: mocks.failImageAttempt,
     activateImageAttempt: mocks.activateImageAttempt,
-    markImageAttemptRecovering: mocks.markImageAttemptRecovering,
     observeTaskUpdates: vi.fn(() => ({
       subscribe: (listener: (event: { type: string; task: Task }) => void) => {
         mocks.taskListener = listener;
@@ -123,16 +120,13 @@ vi.mock('../../services/image-generation-recovery-service', () => ({
   isImageRequestRecoveryTask: (task: Task) =>
     task.status === TaskStatus.PROCESSING &&
     task.params.imageSubmissionAttempted === true &&
-    task.executionPhase !== TaskExecutionPhase.SUBMITTING,
+    task.executionPhase === TaskExecutionPhase.POLLING,
   isImageRequestRecoveryCandidate: (task: Task) =>
     task.type === TaskType.IMAGE &&
     task.status === TaskStatus.PROCESSING &&
     task.params.imageSubmissionAttempted === true &&
-    task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+    task.executionPhase === TaskExecutionPhase.POLLING &&
     !task.remoteId,
-  isTimedOutImageRequestRecoveryTask:
-    mocks.isTimedOutImageRequestRecoveryTask,
-  shouldRecoverImageSubmission: vi.fn(() => false),
 }));
 
 function createRecoveringTask(): Task {
@@ -164,21 +158,19 @@ describe('useTaskExecutor image recovery', () => {
     mocks.completeImageAttempt.mockReset();
     mocks.failImageAttempt.mockReset();
     mocks.activateImageAttempt.mockReset();
-    mocks.markImageAttemptRecovering.mockReset();
     mocks.cacheRemoteUrls.mockReset();
     mocks.registerImageMetadata.mockReset();
-    mocks.start.mockReset().mockImplementation((_task: Task, callbacks: any) => {
-      mocks.recoveryCallbacks = callbacks;
-      return { taskId: _task.id, stop: vi.fn() };
-    });
+    mocks.start
+      .mockReset()
+      .mockImplementation((_task: Task, callbacks: any) => {
+        mocks.recoveryCallbacks = callbacks;
+        return { taskId: _task.id, stop: vi.fn() };
+      });
     mocks.stop.mockReset();
     mocks.stopAll.mockReset();
     mocks.cancelRequest.mockReset();
     mocks.generate.mockReset();
     mocks.isTaskTimeout.mockReset().mockReturnValue(false);
-    mocks.isTimedOutImageRequestRecoveryTask
-      .mockReset()
-      .mockReturnValue(false);
     mocks.updateTaskStatus.mockImplementation(
       (_taskId: string, status: TaskStatus, updates?: Partial<Task>) => {
         mocks.currentTask = {
@@ -200,7 +192,6 @@ describe('useTaskExecutor image recovery', () => {
     );
     mocks.failImageAttempt.mockResolvedValue(true);
     mocks.activateImageAttempt.mockResolvedValue(true);
-    mocks.markImageAttemptRecovering.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -288,90 +279,6 @@ describe('useTaskExecutor image recovery', () => {
       'https://images.example.com/restored.png'
     );
 
-    unmount();
-  });
-
-  it('keeps recovery active while the original POST response body is downloading', async () => {
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { unmount } = renderHook(() => useTaskExecutor());
-    const downloadingTask = {
-      ...mocks.currentTask!,
-      executionPhase: TaskExecutionPhase.DOWNLOADING,
-    };
-    mocks.currentTask = downloadingTask;
-
-    act(() => {
-      mocks.taskListener?.({
-        type: 'taskUpdated',
-        task: downloadingTask,
-      });
-    });
-
-    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
-    expect(mocks.stop).not.toHaveBeenCalledWith(downloadingTask.id);
-    unmount();
-  });
-
-  it('retries a restored structural candidate from the periodic scan without another event', async () => {
-    vi.useFakeTimers();
-    mocks.currentTask = createRecoveringTask();
-    mocks.start
-      .mockImplementationOnce(() => null)
-      .mockImplementation((_task: Task, callbacks: any) => {
-        mocks.recoveryCallbacks = callbacks;
-        return { taskId: _task.id, stop: vi.fn() };
-      });
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { unmount } = renderHook(() => useTaskExecutor());
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-    expect(mocks.recoveryCallbacks).toBeNull();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(8000);
-    });
-
-    expect(mocks.start).toHaveBeenCalledTimes(2);
-    expect(mocks.recoveryCallbacks).not.toBeNull();
-    expect(mocks.stop).not.toHaveBeenCalledWith(mocks.currentTask.id);
-    expect(mocks.generate).not.toHaveBeenCalled();
-    unmount();
-  });
-
-  it('scans every restored task after storage becomes ready', async () => {
-    vi.useFakeTimers();
-    const imageTask = createRecoveringTask();
-    mocks.currentTask = imageTask;
-    mocks.allTasks = [
-      {
-        ...imageTask,
-        id: 'completed-text-first',
-        type: TaskType.CHAT,
-        status: TaskStatus.COMPLETED,
-        params: { prompt: '已完成文本任务', model: 'text-model' },
-      },
-      imageTask,
-    ];
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { rerender, unmount } = renderHook(
-      ({ ready }) => useTaskExecutor(ready),
-      { initialProps: { ready: false } }
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20_000);
-    });
-    expect(mocks.start).not.toHaveBeenCalled();
-
-    rerender({ ready: true });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-
-    expect(mocks.start).toHaveBeenCalledWith(imageTask, expect.any(Object));
-    expect(mocks.generate).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -479,63 +386,6 @@ describe('useTaskExecutor image recovery', () => {
     unmount();
   });
 
-  it('keeps extended recovery processing while provider settings are temporarily unavailable', async () => {
-    vi.useFakeTimers();
-    const extendedTask = createRecoveringTask();
-    mocks.currentTask = {
-      ...extendedTask,
-      params: {
-        ...extendedTask.params,
-        imageTimeoutRecoveryAttemptedAt: Date.now() - 1_000,
-      },
-    };
-    mocks.start.mockReturnValue(null);
-    mocks.isTaskTimeout.mockReturnValue(true);
-    mocks.isTimedOutImageRequestRecoveryTask.mockReturnValue(true);
-
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { unmount } = renderHook(() => useTaskExecutor());
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-
-    expect(mocks.start.mock.calls.length).toBeGreaterThan(1);
-    expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
-    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
-    expect(mocks.cancelRequest).not.toHaveBeenCalled();
-
-    unmount();
-  });
-
-  it('hands a formally submitted image task to extended recovery at the live timeout', async () => {
-    vi.useFakeTimers();
-    mocks.currentTask = {
-      ...createRecoveringTask(),
-      executionPhase: TaskExecutionPhase.SUBMITTING,
-    };
-    mocks.isTaskTimeout.mockReturnValue(true);
-    mocks.isTimedOutImageRequestRecoveryTask.mockReturnValue(true);
-
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { unmount } = renderHook(() => useTaskExecutor());
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
-    });
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledWith(
-      'recover-image-1',
-      'submission-1',
-      { timeoutRecoveryAttemptedAt: expect.any(Number) }
-    );
-    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
-    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
-    expect(mocks.cancelRequest).toHaveBeenCalledWith('recover-image-1');
-
-    unmount();
-  });
-
   it('keeps the original timeout failure for a non-recoverable image task', async () => {
     vi.useFakeTimers();
     mocks.currentTask = {
@@ -551,38 +401,12 @@ describe('useTaskExecutor image recovery', () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
 
-    expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
     expect(mocks.failImageAttempt).toHaveBeenCalledWith(
       'recover-image-1',
       'submission-1',
-      expect.objectContaining({ code: 'TIMEOUT' }),
-      { allowLegacyRequestId: true }
+      expect.objectContaining({ code: 'TIMEOUT' })
     );
     expect(mocks.cancelRequest).toHaveBeenCalledWith('recover-image-1');
-
-    unmount();
-  });
-
-  it('does not cancel or fail an image when the live-timeout recovery write loses a race', async () => {
-    vi.useFakeTimers();
-    mocks.currentTask = {
-      ...createRecoveringTask(),
-      executionPhase: TaskExecutionPhase.SUBMITTING,
-    };
-    mocks.isTaskTimeout.mockReturnValue(true);
-    mocks.isTimedOutImageRequestRecoveryTask.mockReturnValue(true);
-    mocks.markImageAttemptRecovering.mockResolvedValueOnce(false);
-
-    const { useTaskExecutor } = await import('../useTaskExecutor');
-    const { unmount } = renderHook(() => useTaskExecutor());
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
-    });
-
-    expect(mocks.markImageAttemptRecovering).toHaveBeenCalledTimes(1);
-    expect(mocks.cancelRequest).not.toHaveBeenCalled();
-    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
 
     unmount();
   });

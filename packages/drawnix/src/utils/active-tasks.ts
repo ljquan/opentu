@@ -6,7 +6,7 @@
  */
 
 import { taskQueueService } from '../services/task-queue';
-import { TaskStatus, TaskType } from '../types/task.types';
+import { TaskExecutionPhase, TaskStatus, TaskType } from '../types/task.types';
 
 type WorkflowSubmissionServiceLike = {
   getRunningWorkflows: () => Array<unknown>;
@@ -14,14 +14,6 @@ type WorkflowSubmissionServiceLike = {
 
 let cachedWorkflowSubmissionService: WorkflowSubmissionServiceLike | null =
   null;
-
-const RECOVERABLE_PERSISTED_ERROR_CODES = new Set([
-  'INTERRUPTED',
-  'INTERRUPTED_DURING_SUBMISSION',
-  'RESUME_FAILED',
-  'TIMEOUT',
-  'RECOVERY_TIMEOUT',
-]);
 
 /**
  * 检查持久化任务是否需要在页面启动时唤醒延迟运行时。
@@ -36,33 +28,27 @@ export async function hasPersistedRecoverableTasks(): Promise<boolean> {
   ]);
   await migrateFromLegacyDB();
 
-  const [pendingTasks, processingTasks, failedTasks] = await Promise.all([
-    taskStorageReader.getAllTasks({ status: TaskStatus.PENDING, limit: 1 }),
-    taskStorageReader.getAllTasks({ status: TaskStatus.PROCESSING, limit: 1 }),
-    taskStorageReader.getAllTasks({ status: TaskStatus.FAILED }),
-  ]);
-
-  if (pendingTasks.length > 0 || processingTasks.length > 0) {
-    return true;
-  }
-
-  return failedTasks.some((task) => {
-    const errorCode = task.error?.code || '';
-    if (!RECOVERABLE_PERSISTED_ERROR_CODES.has(errorCode)) {
-      return false;
-    }
-
-    if (task.type === TaskType.IMAGE) {
-      return (
-        task.params.imageSubmissionAttempted !== false || Boolean(task.remoteId)
-      );
-    }
-
-    return (
-      (task.type === TaskType.VIDEO || task.type === TaskType.AUDIO) &&
-      Boolean(task.remoteId)
-    );
+  const processingTasks = await taskStorageReader.getAllTasks({
+    status: TaskStatus.PROCESSING,
   });
+
+  return processingTasks.some(
+    (task) =>
+      task.type === TaskType.IMAGE &&
+      !task.remoteId &&
+      !task.syncedFromRemote &&
+      task.params.imageSubmissionAttempted === true &&
+      typeof task.params.submissionRequestId === 'string' &&
+      task.params.submissionRequestId.trim().length > 0 &&
+      task.invocationRoute?.operation === 'image' &&
+      Boolean(task.invocationRoute.providerProfileId) &&
+      Boolean(
+        task.invocationRoute.modelRef?.modelId || task.invocationRoute.modelId
+      ) &&
+      (task.executionPhase === TaskExecutionPhase.SUBMITTING ||
+        task.executionPhase === TaskExecutionPhase.DOWNLOADING ||
+        task.executionPhase === TaskExecutionPhase.POLLING)
+  );
 }
 
 /**

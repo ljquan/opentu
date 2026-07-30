@@ -1,100 +1,74 @@
-# 图片请求 Request ID 经验
+# 图片请求 Request ID 与刷新恢复经验
 
-更新日期：2026-07-28
+更新日期：2026-07-30
 
 ## 功能目标
 
-OpenTu 在图片提交请求中增加 `X-Request-Id`，用于把本地图片任务与 API 请求关联起来。
-
-Request ID 直接复用本地图片任务 ID：
-
-- 每个图片任务创建时由 `generateTaskId()` 生成 UUID。
-- 同一任务的首次提交与重试复用同一个 ID。
-- 不同任务使用不同 ID，避免并发请求互相覆盖。
-- MCP 直调优先复用 `retryTaskId`，新调用生成任务 UUID。
-- 模型评测使用评测条目 `entry.id`。
-- ID 不包含账号、API Key、提示词或图片内容。
-
-请求示例：
+OpenTu 为每次图片正式提交建立稳定的 `submissionRequestId`，并在可信 Tuzi 请求头中发送：
 
 ```http
 POST /v1/images/generations
 X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
 ```
 
-## 覆盖范围
+首次提交使用任务 ID；用户重试时保留任务 ID，但生成新的提交 Request ID。这样旧请求、旧轮询和迟到结果无法覆盖新重试。
 
-`X-Request-Id` 覆盖以下图片提交链路：
+## 请求头规则
 
-- OpenAI-compatible 图片生成与编辑。
-- Tuzi/GPT Image 适配器。
-- Google `generateContent` 图片请求。
-- 异步图片任务的首次提交请求。
-- MCP 图片生成入口。
-- 模型评测图片生成。
+- 图片正式 POST 前先事务持久化提交 Request ID、提交标记和调用路由。
+- 只有可信且明确放行 Request ID CORS 的 Tuzi 目标才附加该头。
+- 当前兼容节点：`bus`、`bus2`、`bus3`、`business.tu-zi.com`。
+- 兼容节点不混入普通请求备用列表，只用于 Request ID 正式提交和只读恢复。
+- 配置的可信节点不兼容时，正式请求确定性路由到兼容节点，但只提交一次。
+- 带 Request ID 的 POST 遇到网络错误、404 或 5xx 不跨节点重提，避免重复生成和计费。
+- GET、第三方地址和不可信供应商不接收任务 Request ID；恢复 GET 会清除已有的大小写变体。
 
-统一适配器只对非 `GET` 的图片提交请求透传 Request ID。异步状态轮询 `GET` 不携带该标头，避免把轮询误认为新的图片提交。
+## 刷新后恢复
 
-## 调用链
+页面刷新后，只恢复同时具有以下持久化信息的同步图片任务：
 
-1. 图片任务创建时生成本地 UUID。
-2. 执行器把任务 ID 写入适配器上下文的 `requestId`。
-3. 图片适配器在可信 Tuzi 的非 `GET` 提交请求中写入 `X-Request-Id`。
-4. 同一任务重试时继续传递原任务 ID。
+- `submissionRequestId`
+- `imageSubmissionAttempted === true`
+- 可信同步图片 `invocationRoute`
+- 状态仍为处理中，且未取消、删除、重试或同步自远端
 
-核心代码位置：
+恢复只发送：
 
-- `packages/drawnix/src/utils/task-utils.ts`
-- `packages/drawnix/src/services/model-adapters/context.ts`
-- `packages/drawnix/src/services/model-adapters/default-adapters.ts`
-- `packages/drawnix/src/services/media-api/image-api.ts`
-- `packages/drawnix/src/services/async-image-api-service.ts`
-- `packages/drawnix/src/services/media-executor/fallback-executor.ts`
-- `packages/drawnix/src/utils/gemini-api/apiCalls.ts`
-- `packages/drawnix/src/mcp/tools/image-generation.ts`
-- `packages/drawnix/src/services/model-benchmark-service.ts`
-
-## 实现约束
-
-- 只在图片提交请求中注入，不修改请求体和 URL。
-- 不覆盖鉴权；若配置中已有任意大小写形式的 `X-Request-Id`，统一替换为当前任务 ID，避免浏览器合并出两个值。
-- 可信 Tuzi API 的图片非 `GET` 提交始终附加，不受 OpenTu 网页是本地、局域网或公网部署影响。
-- OpenTu 公网部署仍直连用户配置的可信 Tuzi API，不新增匿名公网代理，也不因 Request ID 改投其他节点。
-- 带 Request ID 的正式提交遇到网络错误或 `404` 时不跨节点重试，避免同一个 Token 被送入不同的鉴权、计费和权限域；中断后的只读结果查询先访问原配置节点，再使用 `bus` 节点容错。
-- 正式 POST 的提交标记事务完成后立即并行启动同 Request ID 的只读查询；即使原响应连接仍挂起，只要上游结果接口已返回成功，任务就立即完成并渲染，且不会再次发送生成 POST。
-- 原 POST 已收到响应头并进入图片下载阶段时仍保持只读查询，不能因阶段从 `polling` 变为 `downloading` 而停止恢复。
-- 页面恢复后，周期检查会持续扫描已正式提交且仍处于 `PROCESSING + POLLING` 的结构候选；即使首次扫描因配置、路由或初始化时序未能启动，后续也会在无需新任务事件、且不重新提交 POST 的前提下重新接管，避免永久停在 90%。
-- 刷新后即使用户没有打开生成窗口或任务面板，启动轻量扫描也会在发现持久化可恢复任务时自动唤醒延迟任务运行时；没有可恢复任务时仍保持懒加载。
-- 刷新后若提交时保存的派生 binding ID 已因设置迁移而失效，只在同一 provider profile 与同一模型内重新解析，并再次校验可信节点和同步图片协议。
-- 浏览器默认轮询必须绑定 `globalThis.fetch`；把原生 fetch 直接保存后以类实例方法调用会在 Chrome 触发 `Illegal invocation`，导致请求在进入网络前被当成瞬时失败。
-- 本机与私有局域网 Vite 开发使用既有同源代理，代理仍转发到原配置节点；公网生产页面直连原配置节点，因此该节点的 CORS 必须放行 `X-Request-Id`。
-- 非可信、用户自定义的供应商不自动附加，避免破坏其跨域请求。
-- 不为轮询请求重复生成 ID。
-- Request ID 只是短字符串，不增加图片或文件的内存占用。
-- 正式提交在当前页面达到 15 分钟时，实时轮询先静默交棒，再持久化延长恢复起点并刷新同一次提交的轮询截止时间，不先写 `TIMEOUT/RECOVERY_TIMEOUT`；旧的超时任务也可在 24 小时内恢复。延长阶段每 60 秒查询一轮，刷新后继续剩余预算，最长 24 小时，且绝不重新发送生成 POST。
-- 已查询到的成功结果在终态写回失败时保留在有界内存中，并在恢复时限内退避重试；取消、删除或重试会清理旧结果和定时器。
-- 已进入 24 小时延长恢复后，即使页面初始化时配置暂不可解析，也继续保持 `PROCESSING + POLLING` 并周期重试，不回落为普通 `TIMEOUT`，也不重置恢复起点。
-- 单次终态写回 Promise 若超过有界 watchdog 仍不结束，会释放结果数据并仅保留轻量任务占位到恢复截止时间，避免周期扫描重复创建挂起写入或形成无界内存占用。
-- 已收到终态后只按任务 ID、当前提交 Request ID、提交起始身份和处理中状态校验写回，不能因当下 Token、路由或配置暂不可解析而丢弃已生成图片。
-- 不包含查询面板、找回按钮、找回地址或 `/log/get-request` 调用。
-
-## 回归检查
-
-```bash
-pnpm --filter @aitu/drawnix exec vitest run \
-  src/services/__tests__/provider-routing.test.ts \
-  src/services/__tests__/model-adapter-context.test.ts \
-  src/services/__tests__/gpt-image-adapter.test.ts \
-  src/services/__tests__/async-image-api-service.test.ts \
-  src/services/__tests__/media-api-routing.test.ts \
-  src/services/__tests__/default-image-adapter.test.ts \
-  src/services/__tests__/media-executor.test.ts \
-  src/services/__tests__/model-benchmark-service.test.ts \
-  src/services/__tests__/task-queue-service-image-retry.test.ts \
-  src/utils/gemini-api/apiCalls.test.ts \
-  src/mcp/tools/__tests__/image-generation.test.ts
-pnpm exec nx run drawnix:typecheck
-git diff --check
+```text
+GET /v1/images/generations/result?request_id=<submissionRequestId>
 ```
 
-通过标准：本机与私有局域网 Vite 页面通过同源代理转发到用户原配置节点，公网生产页面直接请求原配置节点；正式请求头等于当前提交 Request ID，网络错误或 `404` 不改投其他节点。只读恢复轮询先查原配置节点，再在可信查询节点间故障切换；单节点“处理中或未找到”不遮蔽其他节点终态，轮询 `GET` 不携带该头，非可信自定义供应商不携带该头。
+健康请求不会并行轮询。只有页面恢复流程会把任务切换为 `PROCESSING + POLLING`。
+
+轮询具有有界并发、FIFO 等待队列、请求超时、响应体限制、退避和完整清理。原配置节点优先；网络或协议故障时才切换可信查询节点。收到 `processing_or_not_found` 后等待下一轮，不自动重新提交 POST。
+
+## 卡片渲染
+
+上游返回成功后：
+
+1. 校验结果 URL。
+2. 尝试走现有图片缓存。
+3. 通过 Request ID 条件事务完成原任务。
+4. 复用任务队列事件更新批量预览和原卡片。
+
+缓存失败不会丢弃可用远程 URL。取消、删除、重试或其他终态已抢先写入时，旧结果会被忽略。
+
+正常图片任务仍使用现有 15 分钟总时限；到期明确失败，不提供 24 小时补偿，也不猜测旧任务 ID。
+
+## 核心代码
+
+- `packages/drawnix/src/services/provider-routing/provider-transport.ts`
+- `packages/drawnix/src/services/provider-routing/tuzi-api-endpoints.ts`
+- `packages/drawnix/src/services/image-generation-recovery-service.ts`
+- `packages/drawnix/src/services/media-executor/task-storage-writer.ts`
+- `packages/drawnix/src/services/task-queue-service.ts`
+- `packages/drawnix/src/hooks/useTaskStorage.ts`
+- `packages/drawnix/src/hooks/useTaskExecutor.ts`
+
+## 回归标准
+
+- 公网页面正式图片请求实际 URL 位于兼容可信节点，请求头有唯一正确的 `X-Request-Id`。
+- 正常健康 POST 期间没有结果查询 GET，也没有第二个图片 POST。
+- 刷新后启动只读结果 GET，GET 不携带 `X-Request-Id`。
+- 上游成功后原任务完成，卡片显示图片；缓存失败仍可显示远程图片。
+- 旧任务、未正式提交任务、取消任务和新重试不会被旧轮询覆盖。

@@ -1,150 +1,54 @@
 # 多供应商生图 CORS 预检失败排障经验
 
-更新日期：2026-07-28
+更新日期：2026-07-30
 
-## 背景
+## 典型现象
 
-用户新增图片供应商、选择模型并提交提示词后，任务会进入生成状态，但随后失败并只显示：
+浏览器图片请求只显示 `Failed to fetch`，而 curl 可以访问接口。这通常说明正式 POST 之前的 CORS 预检失败，不能直接归因于模型、提示词或 HTTP 500。
 
-```text
-Failed to fetch
-```
-
-该错误没有 HTTP 状态码和业务错误体，说明浏览器未能把真实响应交给应用层。在多供应商前端直连 API 的架构中，这种现象应优先检查 CORS 预检、DNS/TLS、浏览器扩展拦截和请求中断，不应先归因于模型或提示词。
-
-## 根因
-
-项目为图片提交请求新增了 `X-Request-Id`，用于把本地图片任务与 API 请求关联起来。
-
-但该请求头被无条件用到了所有图片供应商。浏览器对跨域 `POST` 请求发起 `OPTIONS` 预检时，API 的响应只允许：
+加入 `X-Request-Id` 后，浏览器会在 `OPTIONS` 中声明：
 
 ```text
-Authorization
-Content-Type
+Access-Control-Request-Headers: authorization,content-type,x-request-id
 ```
 
-没有在 `Access-Control-Allow-Headers` 中放行 `X-Request-Id`。因此浏览器在正式生图请求发送之前就终止了调用，前端只能收到 `TypeError: Failed to fetch`。
+目标节点必须在 `Access-Control-Allow-Headers` 中明确放行该头。
 
-## 关键证据链
+## 当前可信节点边界
 
-### 1. 先验证凭据与 API 基线
+可信 Tuzi 节点与 Request-ID-CORS 兼容节点必须分开维护。
 
-直接请求 `/v1/models`，能正常返回模型列表，说明 API Key、Base URL 和基础鉴权可用。
+已验证允许 `X-Request-Id`：
 
-再用不带 `X-Request-Id` 的 `/v1/images/generations` 请求生成图片，能获得正常结果，说明模型、请求体与响应解析链路正常。
+- `bus.tu-zi.com`
+- `bus2.tu-zi.com`
+- `bus3.tu-zi.com`
+- `business.tu-zi.com`
 
-### 2. 单独比较 CORS 预检
-
-分别检查两组 `Access-Control-Request-Headers`：
-
-```text
-authorization,content-type
-authorization,content-type,x-request-id
-```
-
-两次 `OPTIONS` 响应都没有在 `Access-Control-Allow-Headers` 中返回 `X-Request-Id`。这就能解释为什么 curl 可以成功，而浏览器会失败：
-
-- curl 不执行浏览器 CORS 策略。
-- 浏览器会先预检，且会拦截未被服务端明确放行的自定义头。
-
-### 3. 在真实项目界面复验
-
-在本地项目中按完整用户路径验证：
-
-1. 新增供应商。
-2. 填写 Base URL 和 API Key。
-3. 获取并添加图片模型。
-4. 从 AI 输入栏选择该供应商模型。
-5. 提交提示词并等待任务完成。
-6. 检查任务队列、结果图片、链接和控制台。
-
-修复后任务成功完成，且没有出现 `Failed to fetch`。
+其他可信节点仍可用于普通请求或只读查询，但不能假设浏览器正式 POST 能携带该头。
+Request-ID-CORS 节点不得混入普通请求的全局备用列表，避免改变其他接口路由。
 
 ## 修复原则
 
-### 1. 自定义请求头必须是供应商能力
+- 自定义头必须由共享 provider transport 统一判断，不能散落在各 adapter。
+- 正式图片 POST 若配置节点不兼容，确定性路由到兼容可信节点。
+- 正式 POST 只发送一次；网络错误和 HTTP 错误不跨节点自动重提。
+- 只读恢复 GET 不携带 Request ID，可在可信节点间按故障容错。
+- 绝对第三方 URL、非可信供应商不得收到任务 ID 或 Tuzi 凭据。
+- localhost 的开发代理不代表公网 CORS 已修复；公网必须用真实浏览器检查 OPTIONS 和 Request Headers。
 
-`X-Request-Id` 不是 OpenAI 兼容协议的通用部分。传输层不能因为操作类型是 `image` 就向所有供应商注入该头。
+## 排障顺序
 
-能力判断至少应包含：
+1. 用无自定义头请求验证 Base URL、Token、模型和请求体。
+2. 单独检查带 `x-request-id` 的 OPTIONS。
+3. 在浏览器 Network 中确认最终 Request URL 和 Request Headers。
+4. 区分请求头 `X-Request-Id` 与响应头 `X-Oneapi-Request-Id`。
+5. 确认失败后没有向其他节点发送第二个图片 POST。
+6. 刷新恢复场景另行确认结果 GET 不携带 Request ID。
 
-- 当前 Base URL 是否属于允许该请求头的受信供应商。
-- 当前是否为非 `GET` 提交，避免异步轮询被误标记为新任务。
+## 安全与性能
 
-可信 Tuzi API 中，`bus.tu-zi.com`、`bus2.tu-zi.com`、`bus3.tu-zi.com`、`business.tu-zi.com` 已验证可从公网来源跨域访问，但不同节点可能拥有独立的 Token、计费和权限域。OpenTu 的正式提交必须保持用户原配置节点，不得为了 CORS 自动改投；只读恢复查询也应先访问原配置节点，再把这些节点作为容错目标。
-
-主站及旧备用入口的 Nginx 仍可能使用静态请求头白名单。即使应用层代码已合并，未部署 Nginx 配置的节点仍会在正式 `POST` 前拦截预检，因此不能把“PR 已合并”当作“所有节点已上线”。
-
-### 2. Request ID 必须来自稳定任务 ID
-
-图片提交应复用本地任务 UUID；同一任务重试保持不变，不应由各适配器临时生成随机 ID。异步轮询 `GET` 不携带该请求头。
-
-### 3. 开发代理与生产跨域是两种环境
-
-本机与私有局域网 Vite 页面把主 API 站改写为同源路径，代理仍转发到用户原配置节点。生产页面直连原配置节点并携带该标头；正式提交不跨节点切换，公网可用性依赖原配置节点正确放行 CORS。
-
-测试环境也不应被误判为开发代理环境，否则 URL 会被改写为相对路径，导致单元测试无法验证真实的生产跨域行为。
-
-## 容易误判的方向
-
-### 1. 把 `Failed to fetch` 当作 HTTP 500
-
-HTTP 4xx/5xx 已经进入应用响应处理，通常能获取 status 和 body。`Failed to fetch` 更像是网络层、安全策略或请求取消问题。
-
-### 2. 只用 curl 证明已修复
-
-curl 成功只能证明 API 基线可用，无法证明浏览器 CORS 正常。前端直连供应商的功能必须在真实浏览器中做端到端验证。
-
-### 3. 只修某一个 adapter
-
-图片生成同时存在 adapter、同步 API 门面、fallback executor 等路径。如果能力规则没有收口到 provider transport 与共享判断函数，其他执行路径仍会重现问题。
-
-### 4. 修图片结果缓存链路
-
-远程图片缓存失败也可能出现 fetch 错误，但本次故障发生在生图请求提交前的预检阶段。应先根据任务进度、Network 面板和服务端是否收到请求区分故障阶段。
-
-## 测试与上线检查清单
-
-### 自动测试
-
-- 自定义跨域供应商即使传入 request ID，也不应生成 `X-Request-Id` 请求头。
-- 本机与私有局域网 Vite 页面应通过同源代理转发到原配置节点；公网生产页面应直接请求原配置节点，并携带当前提交 Request ID。
-- 正式提交遇到网络错误或 `404` 时不得改投其他节点；恢复轮询的只读 `GET` 先查原配置节点，再在可信查询节点间切换。
-- 六个 Tuzi API 对外节点的应用 CORS 与 Nginx 预检都应放行 `X-Request-Id`。
-- 已存在的任意大小写 `X-Request-Id` 应被当前任务 ID 唯一覆盖。
-- Tuzi 异步轮询 `GET` 不应携带 request ID 请求头。
-- 图片 API 响应解析仍应支持远程 URL 和 Base64。
-- `drawnix` 类型检查必须通过。
-- Web 主应用和 Service Worker 生产构建必须通过。
-
-### 真实浏览器验证
-
-- 新增供应商后可以获取模型。
-- 可以选择新供应商的图片模型。
-- 提交后任务从生成中进入已完成，不出现 `Failed to fetch`。
-- 从公网 OpenTu 页面提交时，Network 中的跨域正式请求可见唯一的 `X-Request-Id`。
-- 任务队列可以展示结果图和远程链接。
-- 控制台没有本次请求的 CORS 或网络错误。
-
-### 安全检查
-
-- 不在源码、日志、文档、提交记录或 PR 描述中保留 API Key。
-- 测试完成后删除临时供应商配置与本地测试数据。
-- 已在对话、录屏或截图中暴露的 Key 应尽快轮换。
-
-## 长期经验规则
-
-- 协议兼容不等于请求头、CORS 和异步查询能力完全一致。
-- 自定义头必须与 provider capability 或 binding metadata 绑定，不能只按媒体类型全局注入。
-- 排查多供应商问题时，必须分别验证鉴权、协议、CORS、提交、轮询和结果缓存。
-- 命令行基线验证与浏览器端到端验证缺一不可。
-- Request ID 不能以破坏正常跨域请求为代价；不支持该头的供应商应稳定降级为普通请求。
-
-## 相关代码
-
-- `packages/drawnix/src/services/provider-routing/provider-transport.ts`
-- `packages/drawnix/src/services/model-adapters/context.ts`
-- `packages/drawnix/src/services/media-api/image-api.ts`
-- `packages/drawnix/src/services/media-executor/fallback-executor.ts`
-- `packages/drawnix/src/services/__tests__/provider-routing.test.ts`
-- `docs/IMAGE_REQUEST_ID_LESSONS.md`
+- 不记录或持久化 API Key 副本。
+- 不把 Request ID 发送到不可信地址。
+- 不用健康请求并行轮询来掩盖 CORS 问题。
+- 轮询必须有并发上限、超时、退避、响应体限制和资源清理。

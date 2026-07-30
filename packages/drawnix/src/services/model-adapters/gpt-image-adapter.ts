@@ -414,9 +414,7 @@ export const gptImageAdapter: ImageModelAdapter = {
       bindingRequestSchema: context.binding?.requestSchema,
       bindingSubmitPath: context.binding?.submitPath,
       generationMode: request.generationMode,
-      hasReferenceImages: !!(
-        request.referenceImages && request.referenceImages.length > 0
-      ),
+      hasReferenceImages: !!(request.referenceImages && request.referenceImages.length > 0),
       referenceImagesCount: request.referenceImages?.length ?? 0,
       hasMaskImage: !!request.maskImage,
     });
@@ -448,9 +446,7 @@ export const gptImageAdapter: ImageModelAdapter = {
     });
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), {
-        httpStatus: response.status,
-      });
+      throw new Error(await readErrorMessage(response));
     }
 
     const result = await response.json();

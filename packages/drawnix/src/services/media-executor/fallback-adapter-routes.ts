@@ -32,8 +32,6 @@ import {
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
-import { isTrustedTuziApiBaseUrl } from '../provider-routing/tuzi-api-endpoints';
-import { isAmbiguousImageSubmissionError } from '../image-generation-recovery-service';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageInputFidelity = 'high' | 'low';
@@ -121,7 +119,6 @@ export async function executeImageViaAdapter(
 ): Promise<void> {
   const logStartTime = startTime || Date.now();
   const submissionRequestId = params.requestId || taskId;
-  let submissionAttempted = false;
   const preferredRequestSchema = resolvePreferredRequestSchema(params);
   const adapterContext = getAdapterContextFromSettings(
     'image',
@@ -162,7 +159,6 @@ export async function executeImageViaAdapter(
         requestId: submissionRequestId,
         onSubmissionAttempt: async () => {
           await options?.onSubmissionAttempt?.();
-          submissionAttempted = true;
         },
         signal: options?.signal,
       },
@@ -249,20 +245,14 @@ export async function executeImageViaAdapter(
     }
 
     failLLMApiLog(logId, { duration, errorMessage });
-    const shouldWaitForRecovery =
-      submissionAttempted &&
-      isTrustedTuziApiBaseUrl(adapterContext.baseUrl) &&
-      isAmbiguousImageSubmissionError(error);
-    if (!shouldWaitForRecovery) {
-      await taskStorageWriter.failTask(
-        taskId,
-        {
-          code: 'IMAGE_GENERATION_ERROR',
-          message: errorMessage,
-        },
-        submissionRequestId
-      );
-    }
+    await taskStorageWriter.failTask(
+      taskId,
+      {
+        code: 'IMAGE_GENERATION_ERROR',
+        message: errorMessage,
+      },
+      submissionRequestId
+    );
     throw error;
   }
 }

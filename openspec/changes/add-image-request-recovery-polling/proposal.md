@@ -1,43 +1,30 @@
-# Change: 图片任务按 Request ID 自动恢复轮询
+# Change: 图片请求 ID 与刷新后结果恢复
 
 ## Why
 
-同步图片请求可能已经到达 Tuzi 上游，但浏览器连接会因刷新、网络切换或页面关闭而中断。当前 OpenTu 会把这类任务直接标记为“任务被中断（页面刷新）”，导致上游稍后完成的图片无法回到原任务。
-
-OpenTu 已为每次图片提交发送并持久化 `X-Request-Id`：首次提交使用任务 ID，每次重试生成新的提交 Request ID。Tuzi 也已提供按该 ID 查询最终结果的接口，因此应把结果找回接入现有任务队列，而不是要求用户手动复制 Request ID。
+可信 Tuzi 图片请求可能已成功提交，但页面刷新会中断浏览器连接，导致上游生成完成后原任务仍停留在处理中或被标记为中断。公网浏览器还要求目标节点的 CORS 明确放行 `X-Request-Id`，否则正式请求会在预检阶段失败。
 
 ## What Changes
 
-- 所有图片任务入口统一持久化提交 Request ID；可信 Tuzi 同步图片任务在正式 POST 提交标记落库后立即并行启动只读恢复轮询，不必等待原连接先报错，提交前预处理或参数错误直接失败
-- 正式 POST 始终使用用户配置的原供应商节点，Request ID、网络错误或 `404` 都不得触发跨节点重复提交，避免切换 Token、计费和权限域
-- 页面刷新后使用持久化的当前提交 Request ID 与调用路由继续查询；启动轻量扫描发现可恢复任务时自动唤醒延迟运行时，无需用户先打开生成窗口或任务面板；旧版 `PROCESSING`、`INTERRUPTED` 或 `INTERRUPTED_DURING_SUBMISSION` 任务缺少新字段时兼容回退到任务 ID；初始化扫描未启动轮询时，周期检查必须在无需新任务事件、且不重新提交 POST 的前提下持续重新接管仍满足结构条件的候选
-- 通过 `GET /v1/images/generations/result?request_id=<submissionRequestId>` 查询；GET 不携带 `X-Request-Id` 请求头
-- 重试保持任务 ID 不变，但生成新的提交 Request ID，使旧轮询和旧结果自动失效，避免命中上一轮结果
-- 只读结果查询先使用原任务对应的供应商节点、身份与用户 Token，再在 Request-ID 公网节点间容错；单节点“处理中或未找到”不能遮蔽其他节点已经产生的终态结果
-- 使用有界并发、等待队列和带抖动的轮询间隔，批量任务不能因超过并发数而被丢弃
-- 当前页面达到正常 15 分钟窗口时立即切换到持久化延长恢复；对 24 小时内已落为 `TIMEOUT/RECOVERY_TIMEOUT` 的旧任务也开启有限时长的只读恢复轮询，刷新后继续剩余窗口，找回稍晚完成但未渲染的结果
-- 上游成功时复用现有缓存、任务完成与画布插入流程；缓存失败时保留可用远程 URL；终态到达后的写回身份校验不再依赖当前 Token、路由或配置仍可解析，写回失败时在恢复时限内保留有界结果并退避重试
-- 上游明确失败时展示真实错误；超过图片任务总时限后给出可重试提示
-- 用户主动取消、删除或重试任务时停止旧轮询，防止迟到结果覆盖新状态
+- 图片正式 POST 前持久化当前 `submissionRequestId`、`imageSubmissionAttempted=true` 和调用路由。
+- 可信 Tuzi 图片正式请求统一携带 `X-Request-Id`；若配置节点未放行该请求头，确定性路由到已验证兼容的可信节点，且只提交一次。
+- 页面刷新后，仅恢复具有完整新提交元数据的同步图片任务；使用相同 Request ID 只读轮询上游结果。
+- 恢复成功后复用现有缓存、任务完成和卡片渲染流程；缓存失败时保留可用远程 URL。
+- 取消、删除、重试和超时通过 Request ID 条件写入阻止旧结果覆盖新状态。
 
 ## Non-Goals
 
-- 不恢复独立的“输入 Request ID 找图”面板
-- 不为第三方或不可信供应商自动查询结果
-- 不修改 Tuzi 后端接口或放宽用户、Token 之间的结果访问边界
-- 不自动重新提交同一生图请求，避免重复计费和重复生成
+- 不在健康正式请求期间并行轮询结果。
+- 不恢复缺少提交元数据的旧图片任务。
+- 不提供 24 小时超时补偿或复活失败任务。
+- 不因同页面网络错误自动进入恢复。
+- 不向第三方供应商发送 Request ID、用户凭据或恢复查询。
+- 不自动重新提交图片生成 POST。
 
 ## Impact
 
-- Affected specs:
-  - `image-generation`
-  - `image-generation-feedback`
+- Affected specs: `image-generation`
 - Affected code:
-  - `packages/drawnix/src/services/image-generation-recovery-service.ts`
-  - `packages/drawnix/src/services/task-queue-service.ts`
-  - `packages/drawnix/src/services/media-executor/task-storage-writer.ts`
-  - `packages/drawnix/src/services/media-generation/image-generation-service.ts`
-  - `packages/drawnix/src/hooks/useTaskExecutor.ts`
-  - `packages/drawnix/src/hooks/useTaskStorage.ts`
-  - `packages/drawnix/src/services/provider-routing/`
-  - 定向测试文件
+  - 图片请求入口与 provider transport
+  - 图片任务持久化、恢复轮询与任务执行器
+  - 启动恢复扫描、定向测试、Docs/QA

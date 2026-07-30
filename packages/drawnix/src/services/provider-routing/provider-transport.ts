@@ -6,30 +6,23 @@ import type {
 } from './types';
 import {
   isTrustedTuziApiBaseUrl,
+  isTuziRequestIdCorsBaseUrl,
   loadTuziApiEndpointBaseUrls,
   normalizeTuziApiEndpointUrl,
+  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './tuzi-api-endpoints';
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-/** 本机或私有局域网开发仅把主 API 站改写到既有 Vite 同源代理。 */
+/** 本机开发仅把主 API 站改写到既有 Vite 同源代理。 */
 const DEV_PROXY_HOSTS: readonly string[] = ['api.tu-zi.com'];
 const LOCAL_DEV_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '::1'];
 
-export function isLocalDevHostname(hostname?: string): boolean {
-  if (!hostname) return false;
-  return (
-    LOCAL_DEV_HOSTS.includes(hostname) ||
-    /^10\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)
-  );
-}
-
 function isLocalDevRuntime(): boolean {
-  return isLocalDevHostname(globalThis.location?.hostname);
+  const hostname = globalThis.location?.hostname;
+  return typeof hostname === 'string' && LOCAL_DEV_HOSTS.includes(hostname);
 }
 
 function rewriteBaseUrlForDevProxy(baseUrl: string): string {
@@ -138,6 +131,10 @@ async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
   const currentOrigin = normalizeTuziApiEndpointUrl(baseUrl);
   const currentPathSuffix = getBaseUrlPathSuffix(baseUrl);
   const tuziOrigins = await loadTuziApiEndpointBaseUrls();
+
+  if (!tuziOrigins.includes(currentOrigin)) {
+    return [];
+  }
 
   return tuziOrigins
     .filter((origin) => origin !== currentOrigin)
@@ -305,18 +302,57 @@ function isTrustedTuziRequestTarget(
   );
 }
 
+function isTuziRequestIdSubmission(
+  context: ResolvedProviderContext,
+  request: ProviderTransportRequest
+): boolean {
+  return Boolean(
+    request.requestId &&
+      (request.method || 'GET').toUpperCase() !== 'GET' &&
+      isTrustedTuziRequestTarget(context, request)
+  );
+}
+
+function routeTuziRequestIdSubmission(
+  context: ResolvedProviderContext,
+  request: ProviderTransportRequest
+): ResolvedProviderContext {
+  if (
+    !isTuziRequestIdSubmission(context, request) ||
+    isTuziRequestIdCorsBaseUrl(context.baseUrl)
+  ) {
+    return context;
+  }
+
+  const corsOrigin = TUZI_API_REQUEST_ID_CORS_ENDPOINTS[0]?.url;
+  if (!corsOrigin) {
+    return context;
+  }
+
+  return {
+    ...context,
+    baseUrl: `${normalizeTuziApiEndpointUrl(corsOrigin)}${getBaseUrlPathSuffix(
+      context.baseUrl
+    )}`,
+  };
+}
+
 /**
- * X-Request-Id 只在可信 Tuzi 的非 GET 提交请求中启用。
- * OpenTu 无论部署在本地、局域网还是公网都直连 Tuzi API；跨域预检
- * 由所有对外 Tuzi API 节点统一放行 X-Request-Id。
+ * X-Request-Id 只在明确放行该请求头的可信 Tuzi 节点上启用。
  */
 export function canAttachProviderRequestIdHeader(
   context: ResolvedProviderContext,
   request: Pick<ProviderTransportRequest, 'path' | 'method' | 'baseUrlStrategy'>
 ): boolean {
+  const resolvedBaseUrl = applyBaseUrlStrategy(
+    context.baseUrl,
+    request.baseUrlStrategy
+  );
+  const requestUrl = joinUrl(resolvedBaseUrl, request.path);
   return (
     (request.method || 'GET').toUpperCase() !== 'GET' &&
-    isTrustedTuziRequestTarget(context, request)
+    isTrustedTuziRequestTarget(context, request) &&
+    isTuziRequestIdCorsBaseUrl(requestUrl)
   );
 }
 
@@ -325,21 +361,24 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): PreparedProviderTransportRequest {
+    const routedContext = routeTuziRequestIdSubmission(context, request);
     const resolvedBaseUrl = applyBaseUrlStrategy(
-      context.baseUrl,
+      routedContext.baseUrl,
       request.baseUrlStrategy
     );
     const url = `${joinUrl(resolvedBaseUrl, request.path)}${buildQueryString(
-      applyAuthQuery(context, request.query || {})
+      applyAuthQuery(routedContext, request.query || {})
     )}`;
-    const mergedHeaders = mergeHeaders(context.extraHeaders, request.headers);
-    const authenticatedHeaders = applyAuthHeaders(context, mergedHeaders);
-    const isTrustedTarget = isTrustedTuziRequestTarget(context, request);
+    const mergedHeaders = mergeHeaders(
+      routedContext.extraHeaders,
+      request.headers
+    );
+    const authenticatedHeaders = applyAuthHeaders(routedContext, mergedHeaders);
     const finalHeaders = applyRequestIdHeader(
       authenticatedHeaders,
       request.requestId,
-      canAttachProviderRequestIdHeader(context, request),
-      isTrustedTarget
+      canAttachProviderRequestIdHeader(routedContext, request),
+      Boolean(request.requestId)
     );
 
     return {
@@ -359,6 +398,7 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): Promise<Response> {
+    const requestIdSubmission = isTuziRequestIdSubmission(context, request);
     const timeoutControl = createTimeoutSignal(
       request.signal,
       request.timeoutMs
@@ -374,8 +414,8 @@ export class ProviderTransport {
         return response;
       }
 
-      // 带 Request ID 的正式提交必须保留原鉴权节点，避免 Token、计费和权限域被切换。
-      const fallbackBaseUrls = request.requestId
+      // 带 Request ID 的正式提交固定到一个确定节点，避免跨节点重复生成和计费。
+      const fallbackBaseUrls = requestIdSubmission
         ? []
         : await getTuziFallbackBaseUrls(context.baseUrl);
       for (const fallbackBaseUrl of fallbackBaseUrls) {
@@ -410,7 +450,7 @@ export class ProviderTransport {
         throw timeoutError;
       }
       if (isFetchNetworkError(error)) {
-        const fallbackBaseUrls = request.requestId
+        const fallbackBaseUrls = requestIdSubmission
           ? []
           : await getTuziFallbackBaseUrls(context.baseUrl);
 

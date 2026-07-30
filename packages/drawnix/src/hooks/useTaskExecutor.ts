@@ -14,7 +14,10 @@ import { characterStorageService } from '../services/character-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
 import { Task, TaskStatus, TaskType } from '../types/task.types';
 import { CharacterStatus } from '../types/character.types';
-import { isResumableAsyncImageTask, isTaskTimeout } from '../utils/task-utils';
+import {
+  isResumableAsyncImageTask,
+  isTaskTimeout,
+} from '../utils/task-utils';
 import { AI_GENERATION_CONCURRENCY_LIMIT } from '../constants/TASK_CONSTANTS';
 import { classifyApiCredentialError } from '../utils/api-auth-error-event';
 import {
@@ -28,8 +31,6 @@ import {
   imageGenerationRecoveryService,
   isCurrentImageRecoveryAttempt,
   isImageRequestRecoveryCandidate,
-  isTimedOutImageRequestRecoveryTask,
-  shouldRecoverImageSubmission,
 } from '../services/image-generation-recovery-service';
 
 function inferImageFormat(url: string): string {
@@ -286,10 +287,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
           ) {
             return;
           }
-          if (
-            current.status !== TaskStatus.COMPLETED ||
-            !current.result?.url
-          ) {
+          if (current.status !== TaskStatus.COMPLETED || !current.result?.url) {
             if (isCurrentImageRecoveryAttempt(current, requestId, startedAt)) {
               throw new Error('恢复图片结果尚未写入完成，稍后重试');
             }
@@ -737,16 +735,6 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
         const updatedTask = legacyTaskQueueService.getTask(taskId);
         if (!updatedTask) return;
 
-        if (shouldRecoverImageSubmission(updatedTask, error)) {
-          if (submissionRequestId) {
-            await legacyTaskQueueService.markImageAttemptRecovering(
-              taskId,
-              submissionRequestId
-            );
-          }
-          return;
-        }
-
         // Extract error details - 优先使用 API 返回的详细错误信息
         const errorCode = error.httpStatus
           ? `HTTP_${error.httpStatus}`
@@ -851,55 +839,8 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       );
 
       processingTasks.forEach((task) => {
-        if (isImageRequestRecoveryCandidate(task)) {
-          // 页面恢复时，首次扫描可能因配置尚未完成初始化或路由暂不可解析而
-          // 无法启动。结构候选必须在每轮定时检查直接重试，不依赖新的任务事件。
-          if (startImageRequestRecovery(task)) {
-            return;
-          }
-        }
         if (isTaskTimeout(task)) {
           console.warn(`[TaskExecutor] Task ${task.id} timed out`);
-
-          const persistedTimeoutRecoveryStartedAt =
-            typeof task.params.imageTimeoutRecoveryAttemptedAt === 'number' &&
-            Number.isFinite(task.params.imageTimeoutRecoveryAttemptedAt) &&
-            task.params.imageTimeoutRecoveryAttemptedAt >= 0
-              ? task.params.imageTimeoutRecoveryAttemptedAt
-              : undefined;
-          if (
-            task.type === TaskType.IMAGE &&
-            isTimedOutImageRequestRecoveryTask(task)
-          ) {
-            // 延长恢复窗口已经持久化后，即使当前配置暂时不可解析也继续保留
-            // PROCESSING + POLLING，由后续周期扫描重新接管，不能落回 TIMEOUT。
-            if (persistedTimeoutRecoveryStartedAt !== undefined) {
-              return;
-            }
-
-            const requestId = getImageSubmissionRequestId(task);
-            const timeoutRecoveryAttemptedAt = Date.now();
-            void legacyTaskQueueService
-              .markImageAttemptRecovering(task.id, requestId, {
-                timeoutRecoveryAttemptedAt,
-              })
-              .then((recovered) => {
-                if (!recovered || !isActive) {
-                  return;
-                }
-
-                // 先持久化恢复状态，再中止本地长连接；迟到的执行回调只能看到
-                // POLLING 状态，不能把同一 Request ID 覆盖成超时失败。
-                generationAPIService.cancelRequest(task.id);
-              })
-              .catch((error) => {
-                console.error(
-                  '[TaskExecutor] Failed to start extended image recovery:',
-                  error
-                );
-              });
-            return;
-          }
 
           // Cancel the API request
           generationAPIService.cancelRequest(task.id);
@@ -908,24 +849,16 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
             originalError: `Task ${task.id} timed out after processing`,
             timestamp: Date.now(),
           };
-          const isExtendedRecoveryExpired =
-            task.type === TaskType.IMAGE &&
-            persistedTimeoutRecoveryStartedAt !== undefined;
-
           // Check if we should retry - disabled, mark as failed directly
           const timeoutError = {
-            code: isExtendedRecoveryExpired ? 'RECOVERY_TIMEOUT' : 'TIMEOUT',
-            message: isExtendedRecoveryExpired
-              ? '暂未查询到上游结果，可重试'
-              : '任务执行超时',
+            code: 'TIMEOUT',
+            message: '任务执行超时',
             details: timeoutDetails,
           };
           if (task.type === TaskType.IMAGE) {
             const requestId = getImageSubmissionRequestId(task);
             void legacyTaskQueueService
-              .failImageAttempt(task.id, requestId, timeoutError, {
-                allowLegacyRequestId: true,
-              })
+              .failImageAttempt(task.id, requestId, timeoutError)
               .catch((error) => {
                 console.error(
                   '[TaskExecutor] Failed to persist image timeout:',
@@ -989,7 +922,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
 
     // Process existing pending tasks on mount (delayed to avoid competing with page initialization)
     // The subscription above will catch tasks created/restored after this point
-    const startupTimer = setTimeout(processPendingTasks, STARTUP_DELAY_MS);
+    const startupTimers = [0, 3000, 8000].map((delay) =>
+      setTimeout(processPendingTasks, STARTUP_DELAY_MS + delay)
+    );
 
     // Set up timeout checker (every 10 seconds)
     timeoutCheckIntervalRef.current = setInterval(checkTimeouts, 10000);
@@ -998,7 +933,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
     return () => {
       isActive = false;
       subscription.unsubscribe();
-      clearTimeout(startupTimer);
+      startupTimers.forEach(clearTimeout);
       pendingQueueRef.current = [];
 
       if (timeoutCheckIntervalRef.current) {

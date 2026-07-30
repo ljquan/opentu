@@ -18,18 +18,12 @@ import {
   TaskType,
   TaskStatus,
   TaskExecutionPhase,
-  type Task,
 } from '../types/task.types';
 import { isResumableAsyncImageTask } from '../utils/task-utils';
 import {
-  createImageSubmissionParams,
   getImageSubmissionRequestId,
-  IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM,
-  IMAGE_TIMEOUT_RECOVERY_ERROR_CODES,
+  IMAGE_SUBMISSION_REQUEST_ID_PARAM,
   isImageRequestRecoveryCandidate,
-  isImageRequestTimeoutRecoveryCandidate,
-  isLegacyInterruptedImageRequestTask,
-  isTimedOutImageRequestRecoveryTask,
 } from '../services/image-generation-recovery-service';
 
 // Global flag to prevent multiple initializations (persists across HMR)
@@ -48,17 +42,6 @@ function waitForIdle(timeout = 100): Promise<void> {
       setTimeout(resolve, 0);
     }
   });
-}
-
-function getTimeoutRecoveryStartedAt(task: Pick<Task, 'params'>): number {
-  const value = task.params[IMAGE_TIMEOUT_RECOVERY_ATTEMPTED_AT_PARAM];
-  const now = Date.now();
-  return typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= now + 60_000
-    ? value
-    : now;
 }
 
 /**
@@ -107,21 +90,18 @@ export function useTaskStorage(): boolean {
             console.warn(`[useTaskStorage] Found ${processingTasks.length} interrupted processing tasks`);
 
             for (const task of processingTasks) {
-              const isAsyncImageResumable =
-                isResumableAsyncImageTask(task);
+              const isAsyncImageResumable = isResumableAsyncImageTask(task);
 
               const imageRecoveryTask =
-                task.type === TaskType.IMAGE && !task.remoteId
-                  ? task.params.imageSubmissionAttempted === undefined
-                    ? {
-                        ...task,
-                        params: createImageSubmissionParams(
-                          task.params,
-                          getImageSubmissionRequestId(task),
-                          true
-                        ),
-                      }
-                    : task
+                task.type === TaskType.IMAGE &&
+                !task.remoteId &&
+                (task.executionPhase === TaskExecutionPhase.SUBMITTING ||
+                  task.executionPhase === TaskExecutionPhase.DOWNLOADING ||
+                  task.executionPhase === TaskExecutionPhase.POLLING) &&
+                typeof task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM] ===
+                  'string' &&
+                task.params.imageSubmissionAttempted === true
+                  ? task
                   : null;
               const isImageStructuralRecoveryCandidate = Boolean(
                 imageRecoveryTask &&
@@ -130,12 +110,8 @@ export function useTaskStorage(): boolean {
                     executionPhase: TaskExecutionPhase.POLLING,
                   })
               );
-              const isImageTimeoutRecoveryCandidate = Boolean(
-                imageRecoveryTask &&
-                  isImageRequestTimeoutRecoveryCandidate(imageRecoveryTask)
-              );
-
-              const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
+              const isVideoResumable =
+                task.type === TaskType.VIDEO && !!task.remoteId;
               const isAudioResumable =
                 task.type === TaskType.AUDIO && !!task.remoteId;
 
@@ -146,8 +122,7 @@ export function useTaskStorage(): boolean {
                   isVideoResumable ||
                   isAudioResumable ||
                   isAsyncImageResumable ||
-                  isImageStructuralRecoveryCandidate ||
-                  isImageTimeoutRecoveryCandidate
+                  isImageStructuralRecoveryCandidate
                     ? 'KEEP'
                     : 'MARK_FAILED'
                 }`
@@ -158,31 +133,15 @@ export function useTaskStorage(): boolean {
                 isVideoResumable ||
                 isAudioResumable ||
                 isAsyncImageResumable ||
-                isImageStructuralRecoveryCandidate ||
-                isImageTimeoutRecoveryCandidate
+                isImageStructuralRecoveryCandidate
               ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
-                if (
-                  imageRecoveryTask &&
-                  (isImageStructuralRecoveryCandidate ||
-                    isImageTimeoutRecoveryCandidate)
-                ) {
-                  const requestId = getImageSubmissionRequestId(imageRecoveryTask);
+                if (imageRecoveryTask && isImageStructuralRecoveryCandidate) {
+                  const requestId =
+                    getImageSubmissionRequestId(imageRecoveryTask);
                   await legacyTaskQueueService.markImageAttemptRecovering(
                     task.id,
-                    requestId,
-                    {
-                      allowFailed: false,
-                      migrateLegacy:
-                        task.params.submissionRequestId === undefined ||
-                        task.params.imageSubmissionAttempted === undefined,
-                      ...(isImageTimeoutRecoveryCandidate
-                        ? {
-                            timeoutRecoveryAttemptedAt:
-                              getTimeoutRecoveryStartedAt(imageRecoveryTask),
-                          }
-                        : {}),
-                    }
+                    requestId
                   );
                 }
               } else {
@@ -209,15 +168,26 @@ export function useTaskStorage(): boolean {
                   },
                 };
                 if (task.type === TaskType.IMAGE) {
-                  await legacyTaskQueueService.failImageAttempt(
-                    task.id,
-                    getImageSubmissionRequestId(task),
-                    interruptedError,
-                    {
-                      allowLegacyRequestId: true,
-                      clearStartedAt: true,
-                    }
-                  );
+                  const persistedRequestId =
+                    task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM];
+                  if (typeof persistedRequestId === 'string') {
+                    await legacyTaskQueueService.failImageAttempt(
+                      task.id,
+                      persistedRequestId,
+                      interruptedError,
+                      { clearStartedAt: true }
+                    );
+                  } else {
+                    legacyTaskQueueService.updateTaskStatus(
+                      task.id,
+                      TaskStatus.FAILED,
+                      {
+                        startedAt: undefined,
+                        executionPhase: undefined,
+                        error: interruptedError,
+                      }
+                    );
+                  }
                 } else {
                   legacyTaskQueueService.updateTaskStatus(
                     task.id,
@@ -261,83 +231,26 @@ export function useTaskStorage(): boolean {
               'RESUME_FAILED',
             ]);
 
-            for (const task of failedRemoteTasks) {
+            failedRemoteTasks.forEach((task) => {
               const errorCode = task.error?.code || '';
               if (!RECOVERABLE_ERROR_CODES.has(errorCode)) {
                 console.warn(`[useTaskStorage] Skip recovery for task ${task.id}: terminal failure (${errorCode || 'no error code'})`);
-                continue;
+                return;
               }
 
               console.warn(
                 `[useTaskStorage] Recovering interrupted task ${task.id} (error: ${errorCode}, remoteId: ${task.remoteId})`
               );
 
-              if (task.type === TaskType.IMAGE) {
-                await legacyTaskQueueService.markImageAttemptRecovering(
-                  task.id,
-                  getImageSubmissionRequestId(task),
-                  {
-                    allowFailed: true,
-                    expectedErrorCodes: [...RECOVERABLE_ERROR_CODES],
-                    migrateLegacy:
-                      task.params.submissionRequestId === undefined ||
-                      task.params.imageSubmissionAttempted === undefined,
-                  }
-                );
-              } else {
-                legacyTaskQueueService.updateTaskStatus(
-                  task.id,
-                  TaskStatus.PROCESSING,
-                  {
-                    error: undefined,
-                    executionPhase: TaskExecutionPhase.POLLING,
-                  }
-                );
-              }
-            }
-          }
-
-          const legacyInterruptedImageTasks = storedTasks.filter(
-            isLegacyInterruptedImageRequestTask
-          );
-          for (const task of legacyInterruptedImageTasks) {
-            await legacyTaskQueueService.markImageAttemptRecovering(
-              task.id,
-              getImageSubmissionRequestId(task),
-              {
-                allowFailed: true,
-                expectedErrorCodes: [
-                  'INTERRUPTED',
-                  'INTERRUPTED_DURING_SUBMISSION',
-                ],
-                migrateLegacy: true,
-              }
-            );
-          }
-
-          const timedOutImageTasks = storedTasks.filter(
-            (task) =>
-              task.status === TaskStatus.FAILED &&
-              isTimedOutImageRequestRecoveryTask(task)
-          );
-          for (const task of timedOutImageTasks) {
-            const timeoutRecoveryAttemptedAt =
-              getTimeoutRecoveryStartedAt(task);
-            const recovered =
-              await legacyTaskQueueService.markImageAttemptRecovering(
+              legacyTaskQueueService.updateTaskStatus(
                 task.id,
-                getImageSubmissionRequestId(task),
+                TaskStatus.PROCESSING,
                 {
-                  allowFailed: true,
-                  expectedErrorCodes: [...IMAGE_TIMEOUT_RECOVERY_ERROR_CODES],
-                  timeoutRecoveryAttemptedAt,
+                  error: undefined,
+                  executionPhase: TaskExecutionPhase.POLLING,
                 }
               );
-            if (!recovered) {
-              console.warn(
-                `[useTaskStorage] Skip timeout recovery for task ${task.id}: state changed before recovery`
-              );
-            }
+            });
           }
 
           // Count all incomplete tasks for logging

@@ -59,7 +59,6 @@ export const TUZI_API_FALLBACK_ENDPOINTS: TuziApiEndpointSource[] = [
     url: 'https://apisz.ourzhishi.top',
     description: '深圳地址',
   },
-  ...TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 ];
 
 let tuziApiEndpointSourceCache: TuziApiEndpointSource[] | null = null;
@@ -79,13 +78,24 @@ export function normalizeTuziApiEndpointUrl(url?: string | null): string {
 }
 
 const TRUSTED_TUZI_API_ORIGINS = new Set(
-  TUZI_API_FALLBACK_ENDPOINTS.map((endpoint) =>
+  [...TUZI_API_FALLBACK_ENDPOINTS, ...TUZI_API_REQUEST_ID_CORS_ENDPOINTS].map(
+    (endpoint) =>
+      normalizeTuziApiEndpointUrl(endpoint.url)
+  )
+);
+
+const TUZI_REQUEST_ID_CORS_ORIGINS = new Set(
+  TUZI_API_REQUEST_ID_CORS_ENDPOINTS.map((endpoint) =>
     normalizeTuziApiEndpointUrl(endpoint.url)
   )
 );
 
 export function isTrustedTuziApiBaseUrl(url?: string | null): boolean {
   return TRUSTED_TUZI_API_ORIGINS.has(normalizeTuziApiEndpointUrl(url));
+}
+
+export function isTuziRequestIdCorsBaseUrl(url?: string | null): boolean {
+  return TUZI_REQUEST_ID_CORS_ORIGINS.has(normalizeTuziApiEndpointUrl(url));
 }
 
 export function isTuziCompatibleBaseUrl(url?: string | null): boolean {

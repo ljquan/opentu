@@ -185,9 +185,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     });
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), {
-        httpStatus: response.status,
-      });
+      throw new Error(await readErrorMessage(response));
     }
 
     const result = await response.json();
