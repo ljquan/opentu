@@ -112,6 +112,47 @@ describe('provider routing', () => {
     ).toBe('https://images.example.com/v1');
   });
 
+  it('reports a proxy configuration error instead of parsing SPA HTML as JSON', async () => {
+    vi.stubGlobal('location', { hostname: 'opentu.ai' });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('<!doctype html><html></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    );
+
+    try {
+      await expect(
+        providerTransport.send(
+          {
+            profileId: 'provider-tuzi',
+            profileName: 'Tuzi',
+            providerType: 'openai-compatible',
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'secret',
+            authType: 'bearer',
+          },
+          {
+            path: '/images/generations',
+            method: 'POST',
+            requestId: 'proxy-html-task-id',
+            fetcher,
+          }
+        )
+      ).rejects.toThrow('Tuzi 同源代理未生效');
+      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+        '/__opentu_tuzi_proxy__/api/v1/images/generations'
+      );
+      expect(
+        (fetcher.mock.calls[0]?.[1]?.headers as Record<string, string>)[
+          'X-Request-Id'
+        ]
+      ).toBe('proxy-html-task-id');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('plans the highest-priority binding for the selected provider model', () => {
     const planner = new InvocationPlanner(
       createRepositories({

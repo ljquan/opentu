@@ -94,6 +94,23 @@ function rewriteBaseUrlForSameOriginProxy(baseUrl: string): string {
   );
 }
 
+function assertValidTuziSameOriginProxyResponse(
+  requestUrl: string,
+  response: Response
+): Response {
+  if (!requestUrl.startsWith(`${TUZI_SAME_ORIGIN_PROXY_PREFIX}/`)) {
+    return response;
+  }
+
+  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  if (contentType.includes('text/html')) {
+    throw new Error(
+      'Tuzi 同源代理未生效：接口返回了网页内容，请检查部署代理配置'
+    );
+  }
+  return response;
+}
+
 function applyBaseUrlStrategy(
   baseUrl: string,
   strategy: ProviderBaseUrlStrategy = 'preserve'
@@ -463,7 +480,10 @@ export class ProviderTransport {
     });
     const fetcher = request.fetcher || fetch;
     try {
-      const response = await fetcher(prepared.url, prepared.init);
+      const response = assertValidTuziSameOriginProxyResponse(
+        prepared.url,
+        await fetcher(prepared.url, prepared.init)
+      );
       if (!shouldRetryTuziResponse(context, request, response)) {
         return response;
       }
@@ -478,9 +498,9 @@ export class ProviderTransport {
           { ...request, signal: timeoutControl.signal }
         );
         try {
-          const fallbackResponse = await fetcher(
+          const fallbackResponse = assertValidTuziSameOriginProxyResponse(
             fallbackPrepared.url,
-            fallbackPrepared.init
+            await fetcher(fallbackPrepared.url, fallbackPrepared.init)
           );
           if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
             return fallbackResponse;
@@ -514,7 +534,10 @@ export class ProviderTransport {
             { ...request, signal: timeoutControl.signal }
           );
           try {
-            return await fetcher(fallbackPrepared.url, fallbackPrepared.init);
+            return assertValidTuziSameOriginProxyResponse(
+              fallbackPrepared.url,
+              await fetcher(fallbackPrepared.url, fallbackPrepared.init)
+            );
           } catch (fallbackError) {
             if (
               timeoutControl.didTimeout() ||
