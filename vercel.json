@@ -5,6 +5,30 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/__opentu_tuzi_proxy__/api/:path*",
+      "destination": "https://api.tu-zi.com/:path*"
+    },
+    {
+      "source": "/__opentu_tuzi_proxy__/apius/:path*",
+      "destination": "https://apius.tu-zi.com/:path*"
+    },
+    {
+      "source": "/__opentu_tuzi_proxy__/apicdn/:path*",
+      "destination": "https://apicdn.tu-zi.com/:path*"
+    },
+    {
+      "source": "/__opentu_tuzi_proxy__/sydney/:path*",
+      "destination": "https://api.sydney-ai.com/:path*"
+    },
+    {
+      "source": "/__opentu_tuzi_proxy__/ourzhishi/:path*",
+      "destination": "https://api.ourzhishi.top/:path*"
+    },
+    {
+      "source": "/__opentu_tuzi_proxy__/ourzhishi-sz/:path*",
+      "destination": "https://apisz.ourzhishi.top/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -1033,12 +1033,45 @@ export default defineConfig({
         "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://us.i.posthog.com https://us-assets.i.posthog.com https://wiki.tu-zi.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: https: ws: wss: data:; frame-ancestors 'self' localhost:* 127.0.0.1:* https://api.tu-zi.com;",
     },
     // dev 代理：让图片提交请求在本地开发环境按同源方式携带 X-Request-Id
-    // 使用方式：把 Provider 的 baseUrl 从 https://api.tu-zi.com/v1 改为 /v1
+    // 只允许固定 Tuzi 节点，保留原 Token、计费和权限域。
     proxy: {
-      '/v1': {
+      '/__opentu_tuzi_proxy__/api/': {
         target: 'https://api.tu-zi.com',
         changeOrigin: true,
         secure: true,
+        rewrite: (path) => path.replace(/^\/__opentu_tuzi_proxy__\/api/, ''),
+      },
+      '/__opentu_tuzi_proxy__/apius/': {
+        target: 'https://apius.tu-zi.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/__opentu_tuzi_proxy__\/apius/, ''),
+      },
+      '/__opentu_tuzi_proxy__/apicdn/': {
+        target: 'https://apicdn.tu-zi.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/__opentu_tuzi_proxy__\/apicdn/, ''),
+      },
+      '/__opentu_tuzi_proxy__/sydney/': {
+        target: 'https://api.sydney-ai.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/__opentu_tuzi_proxy__\/sydney/, ''),
+      },
+      '/__opentu_tuzi_proxy__/ourzhishi/': {
+        target: 'https://api.ourzhishi.top',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) =>
+          path.replace(/^\/__opentu_tuzi_proxy__\/ourzhishi/, ''),
+      },
+      '/__opentu_tuzi_proxy__/ourzhishi-sz/': {
+        target: 'https://apisz.ourzhishi.top',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) =>
+          path.replace(/^\/__opentu_tuzi_proxy__\/ourzhishi-sz/, ''),
       },
     },
   },

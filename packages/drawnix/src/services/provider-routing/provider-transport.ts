@@ -16,41 +16,89 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-/** 本机开发仅把主 API 站改写到既有 Vite 同源代理。 */
-const DEV_PROXY_HOSTS: readonly string[] = ['api.tu-zi.com'];
+/**
+ * 固定代理目标，避免开放站点成为任意地址转发器。
+ * 路由名需与 Vite、Vercel、Netlify 及 Nginx 配置保持一致。
+ */
+const TUZI_SAME_ORIGIN_PROXY_ROUTES: Readonly<Record<string, string>> = {
+  'api.tu-zi.com': 'api',
+  'apius.tu-zi.com': 'apius',
+  'apicdn.tu-zi.com': 'apicdn',
+  'api.sydney-ai.com': 'sydney',
+  'api.ourzhishi.top': 'ourzhishi',
+  'apisz.ourzhishi.top': 'ourzhishi-sz',
+};
+const TUZI_SAME_ORIGIN_PROXY_PREFIX = '/__opentu_tuzi_proxy__';
 const LOCAL_DEV_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '::1'];
 
-function isLocalDevRuntime(): boolean {
-  const hostname = globalThis.location?.hostname;
-  return typeof hostname === 'string' && LOCAL_DEV_HOSTS.includes(hostname);
+export function isLocalDevHostname(hostname?: string): boolean {
+  if (!hostname) return false;
+  return (
+    LOCAL_DEV_HOSTS.includes(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)
+  );
 }
 
-function rewriteBaseUrlForDevProxy(baseUrl: string): string {
+export function supportsTuziSameOriginProxyHostname(
+  hostname: string | undefined,
+  isDev: boolean,
+  explicitlyEnabled = false
+): boolean {
+  if (!hostname) return false;
+  if (explicitlyEnabled) return true;
+  if (isDev && isLocalDevHostname(hostname)) return true;
+  return (
+    hostname === 'opentu.ai' ||
+    hostname.endsWith('.opentu.ai') ||
+    hostname.endsWith('.vercel.app') ||
+    hostname.endsWith('.netlify.app')
+  );
+}
+
+export function rewriteTuziBaseUrlForSameOriginProxy(
+  baseUrl: string,
+  hostname: string | undefined,
+  isDev: boolean,
+  explicitlyEnabled = false
+): string {
   try {
-    // 必须直接读取 Vite 的内置环境常量。通过类型断言间接访问
-    // `import.meta.env` 会让生产构建错误地把 DEV 折叠为 true，进而把
-    // https://api.tu-zi.com/v1 改写成当前站点下的 /v1。
-    const isDev =
-      import.meta.env.DEV &&
-      import.meta.env.MODE !== 'test' &&
-      isLocalDevRuntime();
-    if (!isDev) return baseUrl;
+    const enabled = supportsTuziSameOriginProxyHostname(
+      hostname,
+      isDev,
+      explicitlyEnabled
+    );
+    if (!enabled) return baseUrl;
     if (!/^https?:\/\//i.test(baseUrl)) return baseUrl;
 
     const parsed = new URL(baseUrl);
-    if (!DEV_PROXY_HOSTS.includes(parsed.host)) return baseUrl;
-    // 只保留 pathname（如 /v1），改写为同源相对路径
-    return parsed.pathname.replace(/\/+$/, '');
+    const route = TUZI_SAME_ORIGIN_PROXY_ROUTES[parsed.host];
+    if (!route) return baseUrl;
+    const pathname = parsed.pathname === '/' ? '' : parsed.pathname;
+    return `${TUZI_SAME_ORIGIN_PROXY_PREFIX}/${route}${pathname}`.replace(
+      /\/+$/,
+      ''
+    );
   } catch {
     return baseUrl;
   }
+}
+
+function rewriteBaseUrlForSameOriginProxy(baseUrl: string): string {
+  return rewriteTuziBaseUrlForSameOriginProxy(
+    baseUrl,
+    globalThis.location?.hostname,
+    import.meta.env.DEV && import.meta.env.MODE !== 'test',
+    import.meta.env.VITE_TUZI_SAME_ORIGIN_PROXY === '1'
+  );
 }
 
 function applyBaseUrlStrategy(
   baseUrl: string,
   strategy: ProviderBaseUrlStrategy = 'preserve'
 ): string {
-  const rewritten = rewriteBaseUrlForDevProxy(baseUrl);
+  const rewritten = rewriteBaseUrlForSameOriginProxy(baseUrl);
   const normalizedBaseUrl = trimTrailingSlashes(rewritten);
 
   switch (strategy) {
@@ -317,8 +365,13 @@ function routeTuziRequestIdSubmission(
   context: ResolvedProviderContext,
   request: ProviderTransportRequest
 ): ResolvedProviderContext {
+  const resolvedBaseUrl = applyBaseUrlStrategy(
+    context.baseUrl,
+    request.baseUrlStrategy
+  );
   if (
     !isTuziRequestIdSubmission(context, request) ||
+    !/^https?:\/\//i.test(resolvedBaseUrl) ||
     isTuziRequestIdCorsBaseUrl(context.baseUrl)
   ) {
     return context;
@@ -352,7 +405,8 @@ export function canAttachProviderRequestIdHeader(
   return (
     (request.method || 'GET').toUpperCase() !== 'GET' &&
     isTrustedTuziRequestTarget(context, request) &&
-    isTuziRequestIdCorsBaseUrl(requestUrl)
+    (!/^https?:\/\//i.test(requestUrl) ||
+      isTuziRequestIdCorsBaseUrl(requestUrl))
   );
 }
 

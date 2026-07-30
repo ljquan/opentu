@@ -9,6 +9,11 @@ import {
 import { providerTransport } from '../provider-routing';
 import { canAttachProviderRequestIdHeader } from '../provider-routing';
 import {
+  isLocalDevHostname,
+  rewriteTuziBaseUrlForSameOriginProxy,
+  supportsTuziSameOriginProxyHostname,
+} from '../provider-routing/provider-transport';
+import {
   TUZI_API_FALLBACK_ENDPOINTS,
   TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from '../provider-routing/tuzi-api-endpoints';
@@ -42,6 +47,71 @@ function createRepositories(params: {
 }
 
 describe('provider routing', () => {
+  it.each([
+    'localhost',
+    '127.0.0.1',
+    '::1',
+    '10.0.0.8',
+    '172.16.0.8',
+    '172.31.255.8',
+    '192.168.50.225',
+  ])('recognizes local development hostname %s', (hostname) => {
+    expect(isLocalDevHostname(hostname)).toBe(true);
+  });
+
+  it.each(['172.15.0.8', '172.32.0.8', '8.8.8.8', 'example.com'])(
+    'does not treat public hostname %s as local development',
+    (hostname) => {
+      expect(isLocalDevHostname(hostname)).toBe(false);
+    }
+  );
+
+  it('enables fixed same-origin proxy hosts without opening arbitrary origins', () => {
+    expect(supportsTuziSameOriginProxyHostname('192.168.50.225', true)).toBe(
+      true
+    );
+    expect(supportsTuziSameOriginProxyHostname('pr.opentu.ai', false)).toBe(
+      true
+    );
+    expect(
+      supportsTuziSameOriginProxyHostname('preview.vercel.app', false)
+    ).toBe(true);
+    expect(supportsTuziSameOriginProxyHostname('example.com', false)).toBe(
+      false
+    );
+    expect(
+      supportsTuziSameOriginProxyHostname('custom.example.com', false, true)
+    ).toBe(true);
+  });
+
+  it.each([
+    ['api.tu-zi.com', 'api'],
+    ['apius.tu-zi.com', 'apius'],
+    ['apicdn.tu-zi.com', 'apicdn'],
+    ['api.sydney-ai.com', 'sydney'],
+    ['api.ourzhishi.top', 'ourzhishi'],
+    ['apisz.ourzhishi.top', 'ourzhishi-sz'],
+  ])('preserves trusted node %s through fixed route %s', (host, route) => {
+    expect(
+      rewriteTuziBaseUrlForSameOriginProxy(
+        `https://${host}/v1`,
+        '192.168.50.225',
+        true
+      )
+    ).toBe(`/__opentu_tuzi_proxy__/${route}/v1`);
+  });
+
+  it('never turns the fixed proxy into an arbitrary target proxy', () => {
+    expect(
+      rewriteTuziBaseUrlForSameOriginProxy(
+        'https://images.example.com/v1',
+        'custom.example.com',
+        false,
+        true
+      )
+    ).toBe('https://images.example.com/v1');
+  });
+
   it('plans the highest-priority binding for the selected provider model', () => {
     const planner = new InvocationPlanner(
       createRepositories({

@@ -2,7 +2,7 @@
 
 ### Requirement: Trusted Tuzi Image Submissions SHALL Carry A Stable Request ID
 
-The system SHALL persist the current image submission Request ID before the formal POST and SHALL attach it as `X-Request-Id` only to a trusted Request-ID-CORS-compatible Tuzi submission target.
+The system SHALL persist the current image submission Request ID before the formal POST and SHALL attach it as `X-Request-Id` only to a trusted Tuzi submission target reached either through a fixed same-origin proxy or a Request-ID-CORS-compatible endpoint.
 
 #### Scenario: First formal submission
 
@@ -15,9 +15,18 @@ The system SHALL persist the current image submission Request ID before the form
 
 - **GIVEN** the configured Tuzi node is trusted but does not allow `X-Request-Id` in browser preflight
 - **WHEN** the formal image POST is prepared
-- **THEN** the system SHALL deterministically route it to a trusted compatible node
+- **THEN** a supported local, LAN, or public deployment SHALL route it through the fixed same-origin proxy for that configured node
+- **AND** SHALL preserve the configured node, Token, billing, and permission domain
 - **AND** SHALL submit the image POST only once
 - **AND** network or HTTP failure SHALL NOT trigger another image POST on a different node
+
+#### Scenario: Deployment lacks the fixed same-origin proxy
+
+- **GIVEN** the configured Tuzi node lacks Request-ID CORS support
+- **AND** the current deployment does not provide the fixed proxy
+- **WHEN** the formal image POST is prepared
+- **THEN** the system SHALL deterministically route it to a trusted compatible node
+- **AND** SHALL submit the image POST only once
 
 #### Scenario: Compatible trusted node is configured
 

@@ -6,7 +6,7 @@
 GET /v1/images/generations/result?request_id=<submissionRequestId>
 ```
 
-公网浏览器只有在目标节点的 CORS 放行 `X-Request-Id` 时才能发出正式 POST。当前已验证兼容节点为 `bus`、`bus2`、`bus3` 和 `business.tu-zi.com`。
+公网浏览器只有在目标节点的 CORS 放行 `X-Request-Id`，或页面通过固定同源代理转发时，才能发出正式 POST。直接跨域已验证兼容节点为 `bus`、`bus2`、`bus3` 和 `business.tu-zi.com`；六个普通可信节点通过固定代理保留原 Token、计费和权限域。
 
 ## Goals / Non-Goals
 
@@ -24,12 +24,13 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 ### 1. 正式 POST 只提交一次
 
 普通可信 Tuzi 节点集合与 Request-ID-CORS 兼容节点集合分开维护。
-兼容节点不会进入普通请求的全局备用列表。
+本地、局域网、官方域名、Vercel 和 Netlify 使用固定白名单同源代理；自定义公网部署可显式启用相同代理配置。兼容节点不会进入普通请求的全局备用列表。
 
 当图片正式请求携带 Request ID 时：
 
 - 配置节点已兼容 CORS：保持该节点。
-- 配置节点可信但不兼容 CORS：确定性改写到首个兼容节点，并保留原 API 路径后缀。
+- 配置节点是六个普通可信节点且部署支持同源代理：改写为对应固定代理路径，保留原节点与 Token。
+- 配置节点可信但部署不支持同源代理和 CORS：确定性改写到首个兼容节点，并保留原 API 路径后缀。
 - 配置节点不可信或请求路径逃逸到第三方绝对 URL：不附加 Request ID。
 - 网络错误、404 或 5xx 后不得跨节点重复 POST，避免重复生成和计费。
 

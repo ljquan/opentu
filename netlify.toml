@@ -20,6 +20,42 @@
   bundle = true
   minify = true
 
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/api/*"
+  to = "https://api.tu-zi.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/apius/*"
+  to = "https://apius.tu-zi.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/apicdn/*"
+  to = "https://apicdn.tu-zi.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/sydney/*"
+  to = "https://api.sydney-ai.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/ourzhishi/*"
+  to = "https://api.ourzhishi.top/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/__opentu_tuzi_proxy__/ourzhishi-sz/*"
+  to = "https://apisz.ourzhishi.top/:splat"
+  status = 200
+  force = true
+
 # SPA路由重定向规则
 [[redirects]]
   from = "/*"

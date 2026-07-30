@@ -25,17 +25,17 @@ Access-Control-Request-Headers: authorization,content-type,x-request-id
 - `bus3.tu-zi.com`
 - `business.tu-zi.com`
 
-其他可信节点仍可用于普通请求或只读查询，但不能假设浏览器正式 POST 能携带该头。
+六个普通可信节点通过 OpenTu 固定同源代理携带该头，并保持原 Token、计费和权限域。
 Request-ID-CORS 节点不得混入普通请求的全局备用列表，避免改变其他接口路由。
 
 ## 修复原则
 
 - 自定义头必须由共享 provider transport 统一判断，不能散落在各 adapter。
-- 正式图片 POST 若配置节点不兼容，确定性路由到兼容可信节点。
+- 正式图片 POST 优先通过固定同源代理保持原配置节点；部署不支持代理时才确定性路由到兼容可信节点。
 - 正式 POST 只发送一次；网络错误和 HTTP 错误不跨节点自动重提。
 - 只读恢复 GET 不携带 Request ID，可在可信节点间按故障容错。
 - 绝对第三方 URL、非可信供应商不得收到任务 ID 或 Tuzi 凭据。
-- localhost 的开发代理不代表公网 CORS 已修复；公网必须用真实浏览器检查 OPTIONS 和 Request Headers。
+- 本地、局域网、官方域名、Vercel 和 Netlify 使用同一固定代理路由；自定义公网部署需配置代理并设置 `VITE_TUZI_SAME_ORIGIN_PROXY=1`。
 
 ## 排障顺序
 
@@ -49,6 +49,7 @@ Request-ID-CORS 节点不得混入普通请求的全局备用列表，避免改�
 ## 安全与性能
 
 - 不记录或持久化 API Key 副本。
+- 同源代理只允许六个固定 Tuzi 上游，禁止任意目标转发，并关闭请求与响应缓冲以避免大文件占用内存。
 - 不把 Request ID 发送到不可信地址。
 - 不用健康请求并行轮询来掩盖 CORS 问题。
 - 轮询必须有并发上限、超时、退避、响应体限制和资源清理。
