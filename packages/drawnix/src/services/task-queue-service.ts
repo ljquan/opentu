@@ -2286,6 +2286,15 @@ class TaskQueueService {
     return this.tasks.get(taskId);
   }
 
+  /**
+   * 当前页面是否仍持有该任务的真实执行实例。
+   * 页面刷新后内存执行表会自然清空，此时持久化任务才允许进入恢复轮询。
+   */
+  isTaskExecutionActive(taskId: string): boolean {
+    const execution = this.executingTasks.get(taskId);
+    return Boolean(execution && !execution.signal.aborted);
+  }
+
   async getCompleteTask(taskId: string): Promise<Task | undefined> {
     const storedTask = await taskStorageReader.getTask(taskId);
     if (storedTask) {

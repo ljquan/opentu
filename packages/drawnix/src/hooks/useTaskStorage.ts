@@ -83,7 +83,9 @@ export function useTaskStorage(): boolean {
 
           // Handle interrupted processing tasks based on task type and remoteId
           const processingTasks = storedTasks.filter(
-            (task) => task.status === 'processing'
+            (task) =>
+              task.status === 'processing' &&
+              !taskQueueService.isTaskExecutionActive(task.id)
           );
 
           if (processingTasks.length > 0) {

@@ -15,11 +15,13 @@ const mocks = vi.hoisted(() => ({
   updateTaskStatus: vi.fn(),
   markImageAttemptRecovering: vi.fn(),
   failImageAttempt: vi.fn(),
+  isTaskExecutionActive: vi.fn(() => false),
 }));
 
 vi.mock('../../services/task-queue', () => ({
   taskQueueService: {
     restoreTasks: mocks.restoreTasks,
+    isTaskExecutionActive: mocks.isTaskExecutionActive,
   },
   legacyTaskQueueService: {
     updateTaskStatus: mocks.updateTaskStatus,
@@ -92,7 +94,23 @@ describe('useTaskStorage image request recovery', () => {
     mocks.updateTaskStatus.mockReset();
     mocks.markImageAttemptRecovering.mockReset().mockResolvedValue(true);
     mocks.failImageAttempt.mockReset().mockResolvedValue(true);
+    mocks.isTaskExecutionActive.mockReset().mockReturnValue(false);
     mocks.storedTasks = [];
+  });
+
+  it('does not treat an in-page active request as a refreshed task', async () => {
+    mocks.isTaskExecutionActive.mockReturnValue(true);
+    mocks.storedTasks = [
+      createImageTask(TaskStatus.PROCESSING, true, 'submission-live'),
+    ];
+    const { useTaskStorage } = await import('../useTaskStorage');
+    const { result } = renderHook(() => useTaskStorage());
+
+    await waitFor(() => expect(result.current).toBe(true));
+
+    expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
+    expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
   });
 
   it('does not recover a refreshed task that explicitly never submitted its POST', async () => {

@@ -218,6 +218,14 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
     let isActive = true;
 
     const startImageRequestRecovery = (task: Task): boolean => {
+      if (
+        executingTasksRef.current.has(task.id) ||
+        legacyTaskQueueService.isTaskExecutionActive(task.id)
+      ) {
+        imageGenerationRecoveryService.stop(task.id);
+        return false;
+      }
+
       if (!isImageRequestRecoveryCandidate(task)) {
         imageGenerationRecoveryService.stop(task.id);
         return false;
@@ -423,7 +431,10 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       const remoteId = task.remoteId!;
       const requestId = getImageSubmissionRequestId(task);
 
-      if (executingTasksRef.current.has(taskId)) {
+      if (
+        executingTasksRef.current.has(taskId) ||
+        legacyTaskQueueService.isTaskExecutionActive(taskId)
+      ) {
         return;
       }
 

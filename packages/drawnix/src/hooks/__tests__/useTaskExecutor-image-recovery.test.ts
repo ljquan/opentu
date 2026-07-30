@@ -28,6 +28,9 @@ const mocks = vi.hoisted(() => ({
   stopAll: vi.fn(),
   cancelRequest: vi.fn(),
   generate: vi.fn(),
+  resumeAsyncImageGeneration: vi.fn(),
+  isTaskExecutionActive: vi.fn(() => false),
+  isResumableAsyncImageTask: vi.fn(() => false),
   isTaskTimeout: vi.fn(() => false),
 }));
 
@@ -42,6 +45,7 @@ vi.mock('../../services/task-queue', () => ({
     completeImageAttempt: mocks.completeImageAttempt,
     failImageAttempt: mocks.failImageAttempt,
     activateImageAttempt: mocks.activateImageAttempt,
+    isTaskExecutionActive: mocks.isTaskExecutionActive,
     observeTaskUpdates: vi.fn(() => ({
       subscribe: (listener: (event: { type: string; task: Task }) => void) => {
         mocks.taskListener = listener;
@@ -56,7 +60,7 @@ vi.mock('../../services/generation-api-service', () => ({
     generate: mocks.generate,
     cancelRequest: mocks.cancelRequest,
     resumeAudioGeneration: vi.fn(),
-    resumeImageGeneration: vi.fn(),
+    resumeAsyncImageGeneration: mocks.resumeAsyncImageGeneration,
   },
 }));
 
@@ -75,7 +79,7 @@ vi.mock('../../services/unified-cache-service', () => ({
 }));
 
 vi.mock('../../utils/task-utils', () => ({
-  isResumableAsyncImageTask: vi.fn(() => false),
+  isResumableAsyncImageTask: mocks.isResumableAsyncImageTask,
   isTaskTimeout: mocks.isTaskTimeout,
 }));
 
@@ -170,6 +174,9 @@ describe('useTaskExecutor image recovery', () => {
     mocks.stopAll.mockReset();
     mocks.cancelRequest.mockReset();
     mocks.generate.mockReset();
+    mocks.resumeAsyncImageGeneration.mockReset();
+    mocks.isTaskExecutionActive.mockReset().mockReturnValue(false);
+    mocks.isResumableAsyncImageTask.mockReset().mockReturnValue(false);
     mocks.isTaskTimeout.mockReset().mockReturnValue(false);
     mocks.updateTaskStatus.mockImplementation(
       (_taskId: string, status: TaskStatus, updates?: Partial<Task>) => {
@@ -196,6 +203,47 @@ describe('useTaskExecutor image recovery', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('does not start recovery while the current page still owns the request', async () => {
+    mocks.isTaskExecutionActive.mockReturnValue(true);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.stop).toHaveBeenCalledWith('recover-image-1');
+
+    unmount();
+  });
+
+  it('does not resume an async image while the task queue still owns the request', async () => {
+    mocks.currentTask = {
+      ...createRecoveringTask(),
+      id: 'async-image-1',
+      remoteId: 'remote-image-1',
+    };
+    mocks.isResumableAsyncImageTask.mockReturnValue(true);
+    mocks.isTaskExecutionActive.mockReturnValue(true);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+
+    expect(mocks.resumeAsyncImageGeneration).not.toHaveBeenCalled();
+
+    unmount();
   });
 
   it('keeps a valid remote URL when recovered-image caching fails', async () => {

@@ -309,6 +309,29 @@ describe('task-queue-service image edit retry persistence', () => {
     vi.clearAllMocks();
   });
 
+  it('reports only a live in-page execution as active', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    mocks.generateImage.mockImplementation(() => new Promise(() => undefined));
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Keep request in flight',
+        model: 'gpt-image-2',
+        size: '1x1',
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(taskQueueService.isTaskExecutionActive(task.id)).toBe(true);
+
+    taskQueueService.cancelTask(task.id);
+
+    expect(taskQueueService.isTaskExecutionActive(task.id)).toBe(false);
+  });
+
   it('keeps stripped image edit params in IndexedDB so retry can rehydrate them', async () => {
     const { taskQueueService, storedTasks, mocks } =
       await setupTaskQueueServiceHarness([
