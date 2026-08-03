@@ -36,6 +36,7 @@
 - [模型分类优先级经验](./MODEL_CATEGORY_PRIORITY_LESSONS.md)：接口 `category`、`image` 词根和 endpoint 的判定顺序。
 - [图片请求 ID](./IMAGE_REQUEST_ID_LESSONS.md)：本地任务 UUID 的生成、图片提交透传与回归边界。
 - [批量出图预览单张删除经验](./BATCH_IMAGE_GENERATION_PREVIEW_DELETE_LESSONS.md)：单张结果删除、任务解绑、状态重算与画布边界。
+- [AI 任务栏关闭跟随生成新图片](./2026-08-03-AI任务栏关闭跟随生成新图片.md)：关闭目标绑定、生成新图片与重新绑定边界。
 - [PPT 能力规划](./PPT_CAPABILITY_PLAN.md)：PPT 生成、编辑和导出路线。
 - [PPT Prompt](./PPT_Prompt.md)：PPT 相关提示词资产。
 

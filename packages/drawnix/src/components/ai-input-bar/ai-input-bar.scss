@@ -119,6 +119,64 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     }
   }
 
+  &__bound-dismiss {
+    position: absolute;
+    top: 0;
+    right: 28px;
+    z-index: 3;
+    transform: translateY(-50%);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__bound-dismiss-hint {
+    max-width: calc(100vw - 120px);
+    padding: 4px 8px;
+    border: 1px solid rgba(234, 88, 12, 0.28);
+    border-radius: 6px;
+    background: #fff7ed;
+    box-shadow: 0 2px 8px rgba(124, 45, 18, 0.14);
+    color: #9a3412;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
+  &__bound-dismiss-btn {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
+    border: 1px solid #fff;
+    border-radius: 50%;
+    background: $orange-primary;
+    box-shadow: 0 2px 8px rgba(124, 45, 18, 0.26);
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: $orange-dark;
+      box-shadow: 0 3px 10px rgba(124, 45, 18, 0.34);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fb923c;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+  }
+
   &__processing {
     display: flex;
     align-items: center;
@@ -1242,6 +1300,12 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
     }
 
+    &__bound-dismiss-hint {
+      border-color: rgba(251, 146, 60, 0.36);
+      background: #431407;
+      color: #fed7aa;
+    }
+
     &__type-btn {
       border-color: var(--color-border, #444);
       color: var(--color-gray-50, #999);
@@ -1650,6 +1714,10 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       max-width: calc(100% - 80px) !important;
     }
 
+    &__bound-dismiss {
+      right: 24px;
+    }
+
     &__container {
       padding: 6px 8px;
       border-radius: 20px;
@@ -1689,6 +1757,10 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       left: 50% !important;
       width: 100% !important;
       max-width: calc(100% - 16px) !important;
+    }
+
+    &__bound-dismiss {
+      right: 20px;
     }
 
     &__content-preview {

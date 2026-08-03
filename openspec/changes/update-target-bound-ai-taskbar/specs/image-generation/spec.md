@@ -41,3 +41,21 @@ The system SHALL create a new image task for an edited prompt and replace only t
 - **THEN** the system SHALL create a new image task for that target
 - **AND** SHALL NOT inherit a source task, anchor or prompt from another image
 - **AND** SHALL replace the uploaded image in place when generation succeeds
+
+### Requirement: Generation After Detaching SHALL Create A New Image
+
+The system SHALL use the ordinary image generation flow after the user closes the current image binding.
+
+#### Scenario: Submit after closing the binding
+
+- **GIVEN** the user closed the AI input bar binding for an image
+- **WHEN** the user submits the preserved prompt and configuration
+- **THEN** the original image SHALL remain unchanged
+- **AND** the result SHALL be inserted as a new image
+- **AND** the task SHALL NOT include `replaceElementId`, `targetElementId`, `anchorId`, `sourceTaskId` or `sourcePrompt` from the detached target
+
+#### Scenario: Submit without closing the binding
+
+- **GIVEN** the AI input bar remains bound to an image
+- **WHEN** the user submits an edited prompt
+- **THEN** the existing in-place replacement behavior SHALL remain unchanged

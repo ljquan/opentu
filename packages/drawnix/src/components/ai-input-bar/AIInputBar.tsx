@@ -24,7 +24,7 @@ import React, {
   useRef,
   useMemo,
 } from 'react';
-import { Maximize2, Minimize2, Send } from 'lucide-react';
+import { Maximize2, Minimize2, Send, X } from 'lucide-react';
 import { MessagePlugin } from 'tdesign-react';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
@@ -182,6 +182,13 @@ import {
   findWorkflowStepByTaskId,
   findWorkflowStepForTask,
 } from '../../utils/workflow-task-linking';
+import {
+  BOUND_TARGET_DISMISS_HINT_LIMIT,
+  buildBoundTargetGenerationParams,
+  readBoundTargetDismissHintCount,
+  recordBoundTargetDismiss,
+  resolveBoundTargetSuppression,
+} from './target-bound-taskbar-state';
 
 /**
  * 将 WorkflowDefinition 转换为 WorkflowMessageData
@@ -1081,6 +1088,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     // 当前 WorkZone 元素 ID（用于在画布上显示工作流进度）
     const currentWorkZoneIdRef = useRef<string | null>(null);
     const lastBoundImageTargetKeyRef = useRef<string | null>(null);
+    const suppressedBoundImageElementIdRef = useRef<string | null>(null);
     const initialPreferences = loadAIInputPreferences();
 
     const bindCurrentImageAnchorTask = useCallback(
@@ -1322,6 +1330,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [boundImageTarget, setBoundImageTarget] =
       useState<BoundImageTarget | null>(null);
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
+    const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
+      useState(() => readBoundTargetDismissHintCount());
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
@@ -2916,6 +2926,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     const handleBoundImageTargetChange = useCallback(
       (target: BoundImageTarget | null) => {
+        const suppression = resolveBoundTargetSuppression(
+          target?.elementId || null,
+          suppressedBoundImageElementIdRef.current
+        );
+        suppressedBoundImageElementIdRef.current =
+          suppression.nextSuppressedElementId;
+        if (suppression.suppressTarget) {
+          return;
+        }
+
         setBoundImageTarget(target);
         setBoundInputLayoutTick((tick) => tick + 1);
         if (!target) {
@@ -2956,6 +2976,21 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       },
       []
     );
+
+    const handleDismissBoundImageTarget = useCallback(() => {
+      const target = boundImageTarget;
+      if (!target) return;
+
+      suppressedBoundImageElementIdRef.current = target.elementId;
+      lastBoundImageTargetKeyRef.current = null;
+      boundImageTargetRef.current = null;
+      setBoundImageTarget(null);
+      setBoundTargetError(null);
+      setBoundInputLayoutTick((tick) => tick + 1);
+      setBoundTargetDismissHintCount(
+        recordBoundTargetDismiss(boundTargetDismissHintCount)
+      );
+    }, [boundImageTarget, boundTargetDismissHintCount]);
 
     const handleBoundInputViewportChange = useCallback(() => {
       setBoundInputLayoutTick((tick) => tick + 1);
@@ -3548,15 +3583,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ? agentMediaDefaultModelRefs
                 : undefined,
           });
-          if (activeBoundImageTarget) {
+          const boundTargetGenerationParams = buildBoundTargetGenerationParams(
+            activeBoundImageTarget
+          );
+          if (boundTargetGenerationParams) {
             parsedParams.extraParams = {
               ...(parsedParams.extraParams || {}),
-              generationMode: 'image_to_image',
-              replaceElementId: activeBoundImageTarget.elementId,
-              targetElementId: activeBoundImageTarget.elementId,
-              anchorId: activeBoundImageTarget.generationAnchorId,
-              sourceTaskId: activeBoundImageTarget.generationTaskId,
-              sourcePrompt: activeBoundImageTarget.prompt,
+              ...boundTargetGenerationParams,
             };
           }
 
@@ -5255,6 +5288,44 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             onSelectPrompt={handleSelectInspirationPrompt}
             onOpenPromptTool={handleOpenPromptToolFromInspiration}
           />
+
+          {boundImageTarget ? (
+            <div className="ai-input-bar__bound-dismiss">
+              {boundTargetDismissHintCount < BOUND_TARGET_DISMISS_HINT_LIMIT ? (
+                <div className="ai-input-bar__bound-dismiss-hint" role="status">
+                  {language === 'zh'
+                    ? '关闭任务栏跟随，后续生成新图片'
+                    : 'Stop following; generate new images'}
+                </div>
+              ) : null}
+              <HoverTip
+                content={
+                  language === 'zh'
+                    ? '关闭任务栏跟随'
+                    : 'Stop following this image'
+                }
+                showArrow={false}
+              >
+                <button
+                  type="button"
+                  className="ai-input-bar__bound-dismiss-btn"
+                  aria-label={
+                    language === 'zh'
+                      ? '关闭任务栏跟随'
+                      : 'Stop following this image'
+                  }
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={handleDismissBoundImageTarget}
+                  disabled={isSubmitting}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </HoverTip>
+            </div>
+          ) : null}
 
           <AIInputComposerShell
             variant="canvas"
