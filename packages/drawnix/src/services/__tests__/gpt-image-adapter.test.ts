@@ -372,6 +372,8 @@ describe('gpt-image-adapter', () => {
             {
               b64_json:
                 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              width: 1,
+              height: 1,
             },
           ],
         }),
@@ -433,6 +435,8 @@ describe('gpt-image-adapter', () => {
             {
               b64_json:
                 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              width: 1,
+              height: 1,
             },
           ],
         }),
@@ -500,6 +504,8 @@ describe('gpt-image-adapter', () => {
           data: [
             {
               url: 'https://example.com/out.png',
+              width: 1024,
+              height: 1024,
             },
           ],
         }),

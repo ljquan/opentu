@@ -141,7 +141,13 @@ describe('image routing to default registered adapters', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/generated.png' }],
+            data: [
+              {
+                url: 'https://example.com/generated.png',
+                width: 1024,
+                height: 1024,
+              },
+            ],
           }),
           {
             status: 200,
@@ -188,7 +194,13 @@ describe('image routing to default registered adapters', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/generated.png' }],
+            data: [
+              {
+                url: 'https://example.com/generated.png',
+                width: 1024,
+                height: 1024,
+              },
+            ],
           }),
           {
             status: 200,

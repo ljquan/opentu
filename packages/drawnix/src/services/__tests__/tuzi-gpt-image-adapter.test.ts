@@ -98,7 +98,13 @@ describe('tuzi GPT image adapter', () => {
     mocks.sendAdapterRequest.mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: [{ url: 'https://example.com/tuzi.png' }],
+        data: [
+          {
+            url: 'https://example.com/tuzi.png',
+            width: 1024,
+            height: 1024,
+          },
+        ],
       }),
     });
 
@@ -150,7 +156,7 @@ describe('tuzi GPT image adapter', () => {
     mocks.sendAdapterRequest.mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: [{ b64_json: 'ZmFrZQ==' }],
+        data: [{ b64_json: 'ZmFrZQ==', width: 2736, height: 1536 }],
       }),
     });
 
@@ -204,7 +210,13 @@ describe('tuzi GPT image adapter', () => {
     mocks.sendAdapterRequest.mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: [{ url: 'https://example.com/tuzi-edit.png' }],
+        data: [
+          {
+            url: 'https://example.com/tuzi-edit.png',
+            width: 1024,
+            height: 1024,
+          },
+        ],
       }),
     });
 
