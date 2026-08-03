@@ -2,7 +2,10 @@ import {
   resolveOfficialGPTImageQuality,
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
-import { parseGPTImageResponse } from './gpt-image-adapter';
+import {
+  parseGPTImageResponse,
+  resolveGeneratedImageDimensions,
+} from './gpt-image-adapter';
 import { TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA } from './image-request-schemas';
 import { sendAdapterRequest } from './context';
 import { registerModelAdapter } from './registry';
@@ -191,9 +194,12 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     const result = await response.json();
     const responseFormat = getResponseFormat(request);
 
-    return parseGPTImageResponse(
-      result,
-      responseFormat === 'b64_json' ? 'png' : undefined
+    return resolveGeneratedImageDimensions(
+      parseGPTImageResponse(
+        result,
+        responseFormat === 'b64_json' ? 'png' : undefined
+      ),
+      context.signal
     );
   },
 };

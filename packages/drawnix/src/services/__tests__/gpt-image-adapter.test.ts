@@ -4,6 +4,7 @@ import {
   buildGPTImageGenerationBody,
   gptImageAdapter,
   parseGPTImageResponse,
+  resolveGeneratedImageDimensions,
 } from '../model-adapters/gpt-image-adapter';
 
 const tinyPngDataUrl =
@@ -293,6 +294,74 @@ describe('gpt-image-adapter', () => {
 
     expect(result.url).toBe('https://example.com/image.webp');
     expect(result.format).toBe('webp');
+  });
+
+  it.each([
+    [{ width: 1024, height: 1536 }, 1024, 1536],
+    [{ width: '1536', height: '1024' }, 1536, 1024],
+    [{ size: '1024x1536' }, 1024, 1536],
+  ])(
+    'preserves provider image dimensions from %o',
+    (metadata, width, height) => {
+      const result = parseGPTImageResponse({
+        data: [{ url: 'https://example.com/image.png', ...metadata }],
+      });
+
+      expect(result).toMatchObject({ width, height });
+    }
+  );
+
+  it('preserves a provider size shared by the response', () => {
+    const result = parseGPTImageResponse({
+      size: '1024x1536',
+      data: [{ url: 'https://example.com/image.png' }],
+    });
+
+    expect(result).toMatchObject({ width: 1024, height: 1536 });
+  });
+
+  it('does not invent dimensions when provider metadata is invalid', () => {
+    const result = parseGPTImageResponse({
+      data: [
+        {
+          url: 'https://example.com/image.png',
+          width: 0,
+          height: 1536,
+          size: '2x3',
+        },
+      ],
+    });
+
+    expect(result.width).toBeUndefined();
+    expect(result.height).toBeUndefined();
+  });
+
+  it('reads the final upstream image pixel size when response metadata is absent', async () => {
+    class StubImage {
+      naturalWidth = 1024;
+      naturalHeight = 1536;
+      decoding = 'auto';
+      referrerPolicy = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', StubImage);
+
+    try {
+      const result = await resolveGeneratedImageDimensions({
+        url: 'https://example.com/final.png',
+        format: 'png',
+        raw: { data: [{ url: 'https://example.com/final.png' }] },
+      });
+
+      expect(result).toMatchObject({ width: 1024, height: 1536 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('sends official GPT Image requests through provider transport', async () => {

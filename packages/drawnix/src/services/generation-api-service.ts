@@ -549,6 +549,8 @@ class GenerationAPIService {
         urls: result.urls,
         format: result.format || 'png',
         size: 0,
+        width: result.width,
+        height: result.height,
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Image generation error:', error);

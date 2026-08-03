@@ -218,6 +218,8 @@ export async function executeImageViaAdapter(
         urls: cachedUrls.length > 1 ? cachedUrls : undefined,
         format: fmt,
         size: 0,
+        width: result.width,
+        height: result.height,
       },
       submissionRequestId
     );

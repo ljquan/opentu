@@ -21,7 +21,11 @@ import {
 } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { Task, TaskStatus, TaskType } from '../../types/task.types';
-import { formatDateTime, formatTaskDuration } from '../../utils/task-utils';
+import {
+  formatDateTime,
+  formatImageTaskResultSize,
+  formatTaskDuration,
+} from '../../utils/task-utils';
 import { useUnifiedCache } from '../../hooks/useUnifiedCache';
 import {
   supportsCharacterExtraction,
@@ -236,10 +240,6 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     onRegenerate,
     onExtractCharacter,
   }) => {
-    const [imageDimensions, setImageDimensions] = useState<{
-      width: number;
-      height: number;
-    } | null>(null);
     const [internalIsCompact, setInternalIsCompact] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const isCompleted = task.status === TaskStatus.COMPLETED;
@@ -378,30 +378,17 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
       'small' // 任务列表使用小尺寸预览图
     );
 
-    // Load image to get actual dimensions
-    useEffect(() => {
-      if (isCompleted && previewMediaUrl && task.type === TaskType.IMAGE) {
-        const img = new Image();
-        img.onload = () => {
-          setImageDimensions({
-            width: img.naturalWidth,
-            height: img.naturalHeight,
-          });
-        };
-        img.onerror = () => {
-          // If image fails to load, keep dimensions null
-          setImageDimensions(null);
-        };
-        img.src = previewMediaUrl;
-      }
-    }, [isCompleted, previewMediaUrl, task.type]);
-
     // Build detailed tooltip content
     const buildTooltipContent = () => {
-      const displayWidth =
-        imageDimensions?.width || task.result?.width || task.params.width;
-      const displayHeight =
-        imageDimensions?.height || task.result?.height || task.params.height;
+      const imageSizeLabel = formatImageTaskResultSize(task);
+      const displayWidth = task.result?.width || task.params.width;
+      const displayHeight = task.result?.height || task.params.height;
+      const sizeLabel =
+        task.type === TaskType.IMAGE
+          ? imageSizeLabel
+          : displayWidth && displayHeight
+          ? `${displayWidth}x${displayHeight}`
+          : null;
 
       return (
         <div style={{ fontSize: '12px', lineHeight: '1.6' }}>
@@ -443,10 +430,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
               {klingCfgScale}
             </div>
           )}
-          {displayWidth && displayHeight && (
+          {sizeLabel && (
             <div>
               <strong>尺寸：</strong>
-              {displayWidth}x{displayHeight}
+              {sizeLabel}
             </div>
           )}
           {task.type === TaskType.VIDEO && task.params.seconds && (
@@ -787,19 +774,22 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     </span>
                   )}
                   {(() => {
+                    const imageSizeLabel = formatImageTaskResultSize(task);
                     const displayWidth =
-                      imageDimensions?.width ||
-                      task.result?.width ||
-                      task.params.width;
+                      task.result?.width || task.params.width;
                     const displayHeight =
-                      imageDimensions?.height ||
-                      task.result?.height ||
-                      task.params.height;
-                    if (displayWidth && displayHeight) {
+                      task.result?.height || task.params.height;
+                    const sizeLabel =
+                      task.type === TaskType.IMAGE
+                        ? imageSizeLabel
+                        : displayWidth && displayHeight
+                        ? `${displayWidth}x${displayHeight}`
+                        : null;
+                    if (sizeLabel) {
                       return (
                         <span className="task-item__size">
-                          {' '}
-                          · {displayWidth}x{displayHeight}
+                          {' · '}
+                          {sizeLabel}
                         </span>
                       );
                     }

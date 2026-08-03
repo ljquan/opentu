@@ -22,6 +22,25 @@ export function generateTaskId(): string {
   return generateUUID();
 }
 
+export function formatImageTaskResultSize(
+  task: Pick<Task, 'type' | 'status' | 'result'>
+): string | null {
+  if (task.type !== TaskType.IMAGE || task.status !== TaskStatus.COMPLETED) {
+    return null;
+  }
+
+  const width = task.result?.width;
+  const height = task.result?.height;
+  return typeof width === 'number' &&
+    Number.isSafeInteger(width) &&
+    width > 0 &&
+    typeof height === 'number' &&
+    Number.isSafeInteger(height) &&
+    height > 0
+    ? `${width}×${height}`
+    : '未知尺寸';
+}
+
 /**
  * Checks if a task is in an active state (pending or processing)
  * 
