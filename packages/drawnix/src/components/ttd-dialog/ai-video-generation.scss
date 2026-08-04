@@ -23,34 +23,40 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  width: min(100%, 420px);
+  max-width: calc(100vw - 32px);
+  min-height: 32px;
+  padding-left: 10px;
+  border: 1px solid var(--td-border-level-2-color, #dcdcdc);
+  border-radius: 6px;
 
-  &__button,
+  &:focus-within {
+    border-color: var(--td-brand-color, #0052d9);
+  }
+
+  &__input {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
   &__remove {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    min-height: 32px;
-    border: 1px solid var(--td-border-level-2-color, #dcdcdc);
-    border-radius: 6px;
+    justify-content: center;
+    width: 32px;
+    height: 30px;
+    border: 0;
+    border-left: 1px solid var(--td-border-level-2-color, #dcdcdc);
     background: transparent;
     color: inherit;
     cursor: pointer;
-  }
-
-  &__button {
-    padding: 0 10px;
-    max-width: 280px;
-  }
-
-  &__button span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__remove {
-    width: 32px;
-    justify-content: center;
   }
 }
 

@@ -24,6 +24,22 @@ The system SHALL route Seedance 2.0, Seedance 2.0 Fast, and Seedance 2.0 Mini th
 - **WHEN** video generation is submitted
 - **THEN** the system SHALL continue to use the existing Seedance 1.x adapter and resolution model-name transformation
 
+### Requirement: Submit Server-Reachable Seedance 2.0 Reference Media
+
+The system SHALL submit only HTTP(S) or `asset://` reference audio and video addresses for Seedance 2.0 tasks.
+
+#### Scenario: Submit supported reference media
+
+- **GIVEN** a Seedance 2.0 task includes reference audio or video
+- **WHEN** each reference uses an HTTP(S) or `asset://` address
+- **THEN** the system SHALL include the normalized address in the video submission
+
+#### Scenario: Reject browser-local reference media
+
+- **GIVEN** a Seedance 2.0 task includes a Data URL, Blob URL, or malformed reference address
+- **WHEN** video generation is submitted
+- **THEN** the system SHALL reject the request before sending it to the provider
+
 ### Requirement: Expose Seedance 2.0 Confirmed Parameters
 
 The system SHALL constrain Seedance 2.0 controls to the confirmed duration and resolution ranges for each model tier.

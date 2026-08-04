@@ -171,6 +171,43 @@ describe('seedance 2.0 video adapter', () => {
     });
   });
 
+  it('accepts asset references but rejects browser-local media URLs', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: { message: 'stop after request capture' } }, 400)
+    ) as unknown as typeof fetch;
+    const validResult = seedance2VideoAdapter.generateVideo(
+      createContext(fetcher),
+      {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'asset reference',
+        params: { input_audio: ' asset://audio-123 ' },
+      }
+    );
+
+    await expect(validResult).rejects.toThrow('stop after request capture');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      content: [
+        { type: 'text', text: 'asset reference' },
+        {
+          type: 'audio_url',
+          audio_url: { url: 'asset://audio-123' },
+          role: 'reference_audio',
+        },
+      ],
+    });
+
+    fetcher.mockClear();
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'local reference',
+        params: { input_audio: 'data:audio/mpeg;base64,ZmFrZQ==' },
+      })
+    ).rejects.toThrow('Seedance 2.0 参考音频仅支持 HTTP(S) 或 asset:// 地址');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('backs off after transient poll errors and then recovers', async () => {
     let pollCount = 0;
     const fetcher = vi.fn(
@@ -235,6 +272,20 @@ describe('seedance 2.0 video adapter', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await rejection;
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves immediate submission failures without requiring a task ID', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ status: 'failed', error: { message: 'quota exhausted' } })
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'submission failure',
+      })
+    ).rejects.toThrow('quota exhausted');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('fails immediately for non-transient poll HTTP errors', async () => {

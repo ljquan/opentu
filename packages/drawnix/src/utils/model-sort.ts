@@ -16,6 +16,7 @@ const MODEL_NAME_IGNORED_TOKENS = new Set([
   'hd',
   'uhd',
   'flash',
+  'preview',
   'pro',
 ]);
 

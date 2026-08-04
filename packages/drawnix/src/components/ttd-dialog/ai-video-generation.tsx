@@ -55,6 +55,7 @@ import {
 import {
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfigForSelection,
+  isServerReachableMediaUrl,
 } from '../../services/video-binding-utils';
 import {
   formatStoryboardPrompt,
@@ -241,10 +242,7 @@ const AIVideoGeneration = ({
     KnowledgeContextRef[]
   >(initialKnowledgeContextRefs);
   const [error, setError] = useState<string | null>(null);
-  const [referenceAudio, setReferenceAudio] = useState<{
-    url: string;
-    name: string;
-  } | null>(null);
+  const [referenceAudioUrl, setReferenceAudioUrl] = useState('');
 
   // 任务列表面板状态 - 使用像素宽度
   const [isTaskListVisible, setIsTaskListVisible] = useState(true);
@@ -502,8 +500,6 @@ const AIVideoGeneration = ({
       }));
     }
   );
-  const audioInputRef = useRef<HTMLInputElement>(null);
-
   // Storyboard mode state
   const [storyboardEnabled, setStoryboardEnabled] = useState(false);
   const [storyboardScenes, setStoryboardScenes] = useState<StoryboardScene[]>(
@@ -822,7 +818,7 @@ const AIVideoGeneration = ({
     setPrompt('');
     setAllSelectedImages([]); // 清空原始图片
     setUploadedImages([]);
-    setReferenceAudio(null);
+    setReferenceAudioUrl('');
     setError(null);
     setMobilePanel('config');
     // Clear manual edit mode
@@ -838,41 +834,6 @@ const AIVideoGeneration = ({
     );
     window.dispatchEvent(new CustomEvent('ai-video-clear'));
   };
-
-  const handleReferenceAudioChange = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = '';
-      if (!file) return;
-      if (!file.type.startsWith('audio/')) {
-        setError(
-          language === 'zh' ? '请上传音频文件' : 'Please upload an audio file'
-        );
-        return;
-      }
-      if (file.size > 25 * 1024 * 1024) {
-        setError(
-          language === 'zh'
-            ? '音频大小不能超过 25MB'
-            : 'Audio size cannot exceed 25MB'
-        );
-        return;
-      }
-      try {
-        const url = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(file);
-        });
-        setReferenceAudio({ url, name: file.name });
-        setError(null);
-      } catch {
-        setError(language === 'zh' ? '读取音频失败' : 'Failed to read audio');
-      }
-    },
-    [language]
-  );
 
   // Convert ReferenceImage[] to UploadedVideoImage[]
   const referenceImagesToUploadedImages = React.useCallback(
@@ -1061,9 +1022,7 @@ const AIVideoGeneration = ({
       typeof task.params.params?.input_audio === 'string'
         ? task.params.params.input_audio
         : undefined;
-    setReferenceAudio(
-      restoredAudio ? { url: restoredAudio, name: 'reference-audio' } : null
-    );
+    setReferenceAudioUrl(restoredAudio || '');
 
     setError(null);
   };
@@ -1073,6 +1032,23 @@ const AIVideoGeneration = ({
     if (generatingLockRef.current) return;
     generatingLockRef.current = true;
     try {
+      const activeReferenceAudioUrl = currentModel.startsWith(
+        'doubao-seedance-2-0-'
+      )
+        ? referenceAudioUrl.trim()
+        : '';
+      if (
+        activeReferenceAudioUrl &&
+        !isServerReachableMediaUrl(activeReferenceAudioUrl)
+      ) {
+        setError(
+          language === 'zh'
+            ? '参考音频仅支持 HTTP(S) 或 asset:// 地址'
+            : 'Reference audio must use an HTTP(S) or asset:// URL'
+        );
+        return;
+      }
+
       // 验证输入
       if (storyboardEnabled) {
         // 故事场景模式验证
@@ -1182,11 +1158,11 @@ const AIVideoGeneration = ({
               initialAutoInsertToCanvas ??
               getAutoInsertValue(LS_KEYS.AI_VIDEO_AUTO_INSERT),
             ...(extraParams ? { params: extraParams } : {}),
-            ...(referenceAudio
+            ...(activeReferenceAudioUrl
               ? {
                   params: {
                     ...(extraParams || {}),
-                    input_audio: referenceAudio.url,
+                    input_audio: activeReferenceAudioUrl,
                   },
                 }
               : {}),
@@ -1219,7 +1195,7 @@ const AIVideoGeneration = ({
           setPrompt('');
           setAllSelectedImages([]); // 清空原始图片
           setUploadedImages([]);
-          setReferenceAudio(null);
+          setReferenceAudioUrl('');
           setStoryboardEnabled(false);
           setStoryboardScenes([]);
           setError(null);
@@ -1423,40 +1399,34 @@ const AIVideoGeneration = ({
 
             {currentModel.startsWith('doubao-seedance-2-0-') && (
               <div className="seedance-reference-audio">
+                <Music2 size={16} aria-hidden="true" />
                 <input
-                  ref={audioInputRef}
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleReferenceAudioChange}
-                  style={{ display: 'none' }}
-                />
-                <button
-                  type="button"
-                  className="seedance-reference-audio__button"
-                  onClick={() => audioInputRef.current?.click()}
-                  disabled={isGenerating}
-                  title={
-                    language === 'zh'
-                      ? '上传参考音频'
-                      : 'Upload reference audio'
+                  type="text"
+                  inputMode="url"
+                  className="seedance-reference-audio__input"
+                  value={referenceAudioUrl}
+                  onChange={(event) => {
+                    setReferenceAudioUrl(event.target.value);
+                    setError(null);
+                  }}
+                  onBlur={() => setReferenceAudioUrl((value) => value.trim())}
+                  placeholder={
+                    language === 'zh' ? '参考音频 URL' : 'Reference audio URL'
                   }
-                >
-                  <Music2 size={16} />
-                  <span>
-                    {referenceAudio
-                      ? referenceAudio.name
-                      : language === 'zh'
-                      ? '参考音频'
-                      : 'Reference audio'}
-                  </span>
-                </button>
-                {referenceAudio && (
+                  aria-label={
+                    language === 'zh' ? '参考音频 URL' : 'Reference audio URL'
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={isGenerating}
+                />
+                {referenceAudioUrl && (
                   <button
                     type="button"
                     className="seedance-reference-audio__remove"
-                    onClick={() => setReferenceAudio(null)}
+                    onClick={() => setReferenceAudioUrl('')}
                     disabled={isGenerating}
-                    title={language === 'zh' ? '移除参考音频' : 'Remove audio'}
+                    title={language === 'zh' ? '清除参考音频' : 'Clear audio'}
                   >
                     <X size={14} />
                   </button>

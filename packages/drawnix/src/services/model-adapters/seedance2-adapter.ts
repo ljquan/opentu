@@ -10,6 +10,7 @@ import { providerTransport } from '../provider-routing';
 import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
+  isServerReachableMediaUrl,
 } from '../video-binding-utils';
 
 const SEEDANCE_2_MODEL_PREFIX = 'doubao-seedance-2-0-';
@@ -125,6 +126,14 @@ function getStringParam(
   return undefined;
 }
 
+function normalizeReferenceMediaUrl(value: string, label: string): string {
+  const normalized = value.trim();
+  if (!isServerReachableMediaUrl(normalized)) {
+    throw new Error(`Seedance 2.0 ${label}仅支持 HTTP(S) 或 asset:// 地址`);
+  }
+  return normalized;
+}
+
 function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
   const content: Seedance2ContentItem[] = [
     { type: 'text', text: request.prompt },
@@ -140,9 +149,10 @@ function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
     'reference_video',
   ]);
   if (videoUrl) {
+    const normalizedVideoUrl = normalizeReferenceMediaUrl(videoUrl, '参考视频');
     content.push({
       type: 'video_url',
-      video_url: { url: videoUrl },
+      video_url: { url: normalizedVideoUrl },
       role: 'reference_video',
     });
   }
@@ -152,9 +162,10 @@ function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
     'reference_audio',
   ]);
   if (audioUrl) {
+    const normalizedAudioUrl = normalizeReferenceMediaUrl(audioUrl, '参考音频');
     content.push({
       type: 'audio_url',
-      audio_url: { url: audioUrl },
+      audio_url: { url: normalizedAudioUrl },
       role: 'reference_audio',
     });
   }
@@ -238,12 +249,12 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
       fetcher: context.fetcher,
     });
     const submitted = await readJsonResponse(submitResponse, '视频提交');
+    if (submitted.status?.toLowerCase() === 'failed') {
+      throw new Error(extractErrorMessage(submitted.error));
+    }
     const taskId = submitted.task_id || submitted.id;
     if (!taskId) {
       throw new Error('Seedance 2.0 API 未返回任务 ID');
-    }
-    if (submitted.status?.toLowerCase() === 'failed') {
-      throw new Error(extractErrorMessage(submitted.error));
     }
 
     onSubmitted?.(taskId);

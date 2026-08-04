@@ -14,6 +14,25 @@ import type {
   ResolvedProviderContext,
 } from './provider-routing/types';
 
+export function isServerReachableMediaUrl(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+
+  try {
+    const url = new URL(normalized);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return Boolean(url.hostname);
+    }
+    if (url.protocol === 'asset:') {
+      return Boolean(url.hostname || url.pathname.replace(/^\/+/, ''));
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 const FIXED_SORA_DURATION_MODEL_PATTERN = /^sora-2-(\d+)s$/i;
 const DEFAULT_VIDEO_POLL_PATH = '/videos/{taskId}';
 const DEFAULT_VIDEO_DOWNLOAD_PATH = '/videos/{taskId}/content';
@@ -37,17 +56,20 @@ function normalizeStringParams(
     return {};
   }
 
-  return Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
-    if (value === undefined || value === null) {
-      return acc;
-    }
+  return Object.entries(params).reduce<Record<string, string>>(
+    (acc, [key, value]) => {
+      if (value === undefined || value === null) {
+        return acc;
+      }
 
-    const normalized = String(value).trim();
-    if (normalized) {
-      acc[key] = normalized;
-    }
-    return acc;
-  }, {});
+      const normalized = String(value).trim();
+      if (normalized) {
+        acc[key] = normalized;
+      }
+      return acc;
+    },
+    {}
+  );
 }
 
 function normalizeDurationValue(
@@ -105,7 +127,9 @@ function inferDefaultSoraMode(
   const allowedDurations = binding?.metadata?.video?.allowedDurations || [];
   if (
     allowedDurations.length === SORA_API_ALLOWED_DURATIONS.length &&
-    allowedDurations.every((value, index) => value === SORA_API_ALLOWED_DURATIONS[index])
+    allowedDurations.every(
+      (value, index) => value === SORA_API_ALLOWED_DURATIONS[index]
+    )
   ) {
     return 'api';
   }
@@ -121,7 +145,8 @@ function resolveSoraMode(
     return null;
   }
 
-  const selectedMode = normalizeStringParams(params)[SORA_MODE_PARAM_ID]?.toLowerCase();
+  const selectedMode =
+    normalizeStringParams(params)[SORA_MODE_PARAM_ID]?.toLowerCase();
   if (selectedMode && SORA_MODE_VALUES.has(selectedMode)) {
     return selectedMode as 'api' | 'web';
   }
@@ -132,7 +157,8 @@ function resolveSoraMode(
 function getExplicitSoraMode(
   params?: Record<string, unknown> | null
 ): 'api' | 'web' | null {
-  const selectedMode = normalizeStringParams(params)[SORA_MODE_PARAM_ID]?.toLowerCase();
+  const selectedMode =
+    normalizeStringParams(params)[SORA_MODE_PARAM_ID]?.toLowerCase();
   if (selectedMode && SORA_MODE_VALUES.has(selectedMode)) {
     return selectedMode as 'api' | 'web';
   }
@@ -148,7 +174,9 @@ function buildStaticSoraMetadata(
   }
 
   const config = getVideoModelConfig(modelId || 'sora-2');
-  const fixedDurationMatch = (modelId || '').match(FIXED_SORA_DURATION_MODEL_PATTERN);
+  const fixedDurationMatch = (modelId || '').match(
+    FIXED_SORA_DURATION_MODEL_PATTERN
+  );
   const allowedDurations = config.durationOptions.map((option) => option.value);
 
   return {
@@ -287,8 +315,8 @@ export function getEffectiveVideoModelConfig(
   )
     ? (metadata.defaultDuration as string)
     : allowedDurations.includes(baseConfig.defaultDuration)
-      ? baseConfig.defaultDuration
-      : allowedDurations[0];
+    ? baseConfig.defaultDuration
+    : allowedDurations[0];
 
   return {
     ...baseConfig,
@@ -314,7 +342,11 @@ export function getEffectiveVideoDefaultParams(
   duration: string;
   size: string;
 } {
-  const config = getEffectiveVideoModelConfigForSelection(modelId, modelRef, params);
+  const config = getEffectiveVideoModelConfigForSelection(
+    modelId,
+    modelRef,
+    params
+  );
   return {
     duration: config.defaultDuration,
     size: config.defaultSize,
@@ -328,7 +360,11 @@ export function getEffectiveVideoCompatibleParams(
 ): ParamConfig[] {
   const compatibleParams = getCompatibleParams(modelId);
   const plan = resolveInvocationPlanFromRoute('video', modelRef || modelId);
-  const metadata = getResolvedVideoBindingMetadata(modelId, plan?.binding || null, params);
+  const metadata = getResolvedVideoBindingMetadata(
+    modelId,
+    plan?.binding || null,
+    params
+  );
   const selectedKlingAction = resolveSelectedKlingAction(params);
   const effectiveConfig = getEffectiveVideoModelConfigForSelection(
     modelId,
@@ -349,60 +385,60 @@ export function getEffectiveVideoCompatibleParams(
       return true;
     })
     .map((param) => {
-    if (
-      plan?.binding?.protocol === 'kling.video' &&
-      metadata?.versionField === param.id &&
-      param.valueType === 'enum'
-    ) {
-      const actionScopedOptions =
-        (selectedKlingAction &&
-          metadata.versionOptionsByAction?.[selectedKlingAction]) ||
-        metadata.versionOptions ||
-        [];
-      const options =
-        actionScopedOptions.length > 0
-          ? buildDynamicEnumOptions(param, actionScopedOptions)
-          : param.options;
-      const defaultValue =
-        actionScopedOptions.length > 0
-          ? actionScopedOptions.includes(metadata.defaultVersion || '')
-            ? metadata.defaultVersion
-            : actionScopedOptions.includes(param.defaultValue || '')
+      if (
+        plan?.binding?.protocol === 'kling.video' &&
+        metadata?.versionField === param.id &&
+        param.valueType === 'enum'
+      ) {
+        const actionScopedOptions =
+          (selectedKlingAction &&
+            metadata.versionOptionsByAction?.[selectedKlingAction]) ||
+          metadata.versionOptions ||
+          [];
+        const options =
+          actionScopedOptions.length > 0
+            ? buildDynamicEnumOptions(param, actionScopedOptions)
+            : param.options;
+        const defaultValue =
+          actionScopedOptions.length > 0
+            ? actionScopedOptions.includes(metadata.defaultVersion || '')
+              ? metadata.defaultVersion
+              : actionScopedOptions.includes(param.defaultValue || '')
               ? param.defaultValue
               : actionScopedOptions[0]
-          : param.defaultValue;
+            : param.defaultValue;
+
+        return {
+          ...param,
+          options,
+          defaultValue,
+        };
+      }
+
+      if (param.id === 'size') {
+        return {
+          ...param,
+          options: effectiveConfig.sizeOptions.map((option) => ({
+            value: option.value,
+            label: option.label,
+          })),
+          defaultValue: effectiveConfig.defaultSize,
+        };
+      }
+
+      if (param.id !== 'duration') {
+        return param;
+      }
 
       return {
         ...param,
-        options,
-        defaultValue,
-      };
-    }
-
-    if (param.id === 'size') {
-      return {
-        ...param,
-        options: effectiveConfig.sizeOptions.map((option) => ({
+        options: effectiveConfig.durationOptions.map((option) => ({
           value: option.value,
           label: option.label,
         })),
-        defaultValue: effectiveConfig.defaultSize,
+        defaultValue: effectiveConfig.defaultDuration,
       };
-    }
-
-    if (param.id !== 'duration') {
-      return param;
-    }
-
-    return {
-      ...param,
-      options: effectiveConfig.durationOptions.map((option) => ({
-        value: option.value,
-        label: option.label,
-      })),
-      defaultValue: effectiveConfig.defaultDuration,
-    };
-  });
+    });
 }
 
 export function getDefaultVideoExtraParams(
@@ -410,7 +446,11 @@ export function getDefaultVideoExtraParams(
   modelRef?: ModelRef | string | null,
   params?: Record<string, unknown> | null
 ): Record<string, string> {
-  const compatibleParams = getEffectiveVideoCompatibleParams(modelId, modelRef, params);
+  const compatibleParams = getEffectiveVideoCompatibleParams(
+    modelId,
+    modelRef,
+    params
+  );
   const normalizedParams = normalizeStringParams(params);
 
   return compatibleParams.reduce<Record<string, string>>((acc, param) => {
@@ -526,7 +566,8 @@ export function resolveVideoDownloadPath(
   binding?: ProviderModelBinding | null
 ): string {
   const metadata = getResolvedVideoBindingMetadata(modelId, binding);
-  const template = metadata?.downloadPathTemplate || DEFAULT_VIDEO_DOWNLOAD_PATH;
+  const template =
+    metadata?.downloadPathTemplate || DEFAULT_VIDEO_DOWNLOAD_PATH;
   return resolveTemplatePath(template, videoId);
 }
 
@@ -553,7 +594,9 @@ export async function downloadVideoContentToLocalUrl(params: {
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
     throw new Error(
-      `视频内容下载失败: ${response.status}${errorText ? ` - ${errorText}` : ''}`
+      `视频内容下载失败: ${response.status}${
+        errorText ? ` - ${errorText}` : ''
+      }`
     );
   }
 
