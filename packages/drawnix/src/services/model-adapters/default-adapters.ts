@@ -36,6 +36,7 @@ import { registerSeedanceAdapter } from './seedance-adapter';
 import { registerGPTImageAdapter } from './gpt-image-adapter';
 import { registerTuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
 import { registerCustomHttpAdapters } from './custom-http-adapter';
+import { registerSeedance2Adapter } from './seedance2-adapter';
 import {
   isGPTImage2Model,
   resolveImageResolutionTier,
@@ -352,6 +353,7 @@ export function registerDefaultModelAdapters(): void {
   registerTuziGPTImageAdapter();
   registerModelAdapter(geminiImageAdapter);
   registerHappyHorseAdapter();
+  registerSeedance2Adapter();
   registerModelAdapter(geminiVideoAdapter);
   registerModelAdapter(sunoAudioAdapter);
   registerKlingAdapter();

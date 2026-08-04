@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   clearRuntimeModelConfigs,
   getCompatibleParams,
+  getStaticModelsByType,
   getSizeOptionsForModel,
   getStaticModelConfig,
   ModelVendor,
@@ -91,11 +92,12 @@ describe('model-config image size options', () => {
 
     ['mj_ar', 'mj_v', 'mj_style', 'mj_s', 'mj_q', 'mj_seed'].forEach(
       (paramId) => {
-        expect(params.find((param) => param.id === paramId)?.compatibleModels).toEqual([]);
-        expect(params.find((param) => param.id === paramId)?.compatibleTags).toEqual([
-          'mj',
-          'midjourney',
-        ]);
+        expect(
+          params.find((param) => param.id === paramId)?.compatibleModels
+        ).toEqual([]);
+        expect(
+          params.find((param) => param.id === paramId)?.compatibleTags
+        ).toEqual(['mj', 'midjourney']);
       }
     );
   });
@@ -174,9 +176,7 @@ describe('model-config image size options', () => {
     ).toEqual(['true', 'false']);
     expect(
       r2vParams.find((param) => param.id === 'watermark')?.defaultValue
-    ).toBe(
-      'false'
-    );
+    ).toBe('false');
     expect(getStaticModelConfig('happyhorse-1.0-t2v')?.vendor).toBe(
       ModelVendor.HAPPYHORSE
     );
@@ -219,5 +219,38 @@ describe('model-config image size options', () => {
           ?.options?.map((option) => option.value)
       ).toEqual(['1280x720', '720x1280']);
     }
+  });
+
+  it('默认目录新增九个模型并隐藏旧 GPT 入口但保留解析', () => {
+    const textIds = getStaticModelsByType('text').map((model) => model.id);
+    const videoIds = getStaticModelsByType('video').map((model) => model.id);
+
+    expect(textIds.slice(0, 6)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-0731',
+    ]);
+    expect(videoIds).toEqual(
+      expect.arrayContaining([
+        'doubao-seedance-2-0-260128',
+        'doubao-seedance-2-0-fast-260128',
+        'doubao-seedance-2-0-mini-260615',
+      ])
+    );
+    expect(textIds).not.toContain('gpt-5.4');
+    expect(textIds).not.toContain('gpt-5.2');
+    expect(textIds).not.toContain('gpt-5.1');
+    expect(textIds).not.toContain('gpt-5-pro');
+    expect(getStaticModelConfig('gpt-5.4')).toMatchObject({
+      id: 'gpt-5.4',
+      type: 'text',
+    });
+    expect(getStaticModelConfig('gpt-5.1')).toMatchObject({
+      id: 'gpt-5.1',
+      type: 'text',
+    });
   });
 });

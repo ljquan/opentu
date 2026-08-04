@@ -7,9 +7,9 @@ import {
   DEFAULT_AUDIO_MODEL_ID,
   DEFAULT_VIDEO_MODEL_ID,
   DEFAULT_TEXT_MODEL_ID,
-  getModelsByType,
   getStaticModelsByType,
   getStaticModelConfig,
+  isDefaultModelHidden,
   setRuntimeModelConfigs,
 } from '../constants/model-config';
 import { normalizeModelApiBaseUrl } from './provider-base-url';
@@ -1568,7 +1568,7 @@ class RuntimeModelDiscoveryStore {
   }
 
   getPreferredModels(type: ModelType): ModelConfig[] {
-    return getModelsByType(type);
+    return this.getSelectableModels(type);
   }
 
   getSelectableModels(type: ModelType): ModelConfig[] {
@@ -1578,7 +1578,14 @@ class RuntimeModelDiscoveryStore {
         continue;
       }
       runtimeModels.push(
-        ...state.models.filter((model) => model.type === type)
+        ...state.models.filter(
+          (model) =>
+            model.type === type &&
+            !(
+              state.profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
+              isDefaultModelHidden(model.id)
+            )
+        )
       );
     }
     return sortModelsByDisplayPriority([
@@ -1665,7 +1672,14 @@ class RuntimeModelDiscoveryStore {
     type: ModelType
   ): ModelConfig[] {
     const state = this.getCatalogState(profileId);
-    const runtimeModels = state.models.filter((model) => model.type === type);
+    const runtimeModels = state.models.filter(
+      (model) =>
+        model.type === type &&
+        !(
+          profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
+          isDefaultModelHidden(model.id)
+        )
+    );
     return mergeModels(getStaticModelsByType(type), runtimeModels);
   }
 

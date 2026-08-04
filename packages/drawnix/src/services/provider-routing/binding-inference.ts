@@ -166,6 +166,10 @@ function isSeedanceModel(model: ModelConfig): boolean {
   return model.id.toLowerCase().includes('seedance');
 }
 
+function isSeedance2Model(model: ModelConfig): boolean {
+  return model.id.toLowerCase().startsWith('doubao-seedance-2-0-');
+}
+
 function shouldPreferAsyncImageBinding(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
@@ -603,7 +607,7 @@ function inferVideoBindings(
     );
   }
 
-  if (isSeedanceModel(model)) {
+  if (isSeedanceModel(model) && !isSeedance2Model(model)) {
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'seedance.task',
@@ -662,6 +666,32 @@ function inferVideoBindings(
     profile.providerType === 'openai-compatible' ||
     profile.providerType === 'custom'
   ) {
+    const seedance2Metadata = isSeedance2Model(model)
+      ? {
+          video: {
+            allowedDurations: [
+              '4',
+              '5',
+              '6',
+              '7',
+              '8',
+              '9',
+              '10',
+              '11',
+              '12',
+              '13',
+              '14',
+              '15',
+            ],
+            defaultDuration: '5',
+            durationMode: 'request-param' as const,
+            durationField: 'duration',
+            strictDurationValidation: true,
+            resultMode: 'download-content' as const,
+            downloadPathTemplate: '/videos/{taskId}/content',
+          },
+        }
+      : undefined;
     const soraDownloadMetadata = isSoraModel(model)
       ? {
           video: {
@@ -673,12 +703,15 @@ function inferVideoBindings(
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'openai.async.video',
-        requestSchema: 'openai.video.form-input-reference',
+        requestSchema: isSeedance2Model(model)
+          ? 'doubao.seedance-2.video.content-json'
+          : 'openai.video.form-input-reference',
         responseSchema: 'openai.async.task',
         submitPath: '/videos',
         pollPathTemplate: '/videos/{taskId}',
         metadata:
-          isSoraModel(model) && isOfficialOpenAIProfile(profile)
+          seedance2Metadata ||
+          (isSoraModel(model) && isOfficialOpenAIProfile(profile)
             ? {
                 video: {
                   allowedDurations: ['4', '8', '12'],
@@ -690,7 +723,7 @@ function inferVideoBindings(
                   downloadPathTemplate: '/videos/{taskId}/content',
                 },
               }
-            : soraDownloadMetadata,
+            : soraDownloadMetadata),
         priority: profile.providerType === 'openai-compatible' ? 320 : 160,
         confidence:
           profile.providerType === 'openai-compatible' ? 'high' : 'medium',

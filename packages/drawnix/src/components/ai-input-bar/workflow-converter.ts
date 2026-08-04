@@ -389,6 +389,13 @@ export function convertDirectGenerationToWorkflow(
       ) {
         videoParams.input_video = selection.videos[0];
       }
+      if (
+        modelId.startsWith('doubao-seedance-2-0-') &&
+        selection?.videos?.[0] &&
+        !videoParams.input_video
+      ) {
+        videoParams.input_video = selection.videos[0];
+      }
       if (Object.keys(videoParams).length > 0) {
         videoArgs.params = videoParams;
       }

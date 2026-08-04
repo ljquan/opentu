@@ -66,12 +66,33 @@ describe('runtime-model-discovery', () => {
   });
 
   it('主流最新静态模型可被初始选择器解析', async () => {
-    const { getStaticModelConfig } = await import('../../constants/model-config');
+    const { getStaticModelConfig } = await import(
+      '../../constants/model-config'
+    );
 
     expect(getStaticModelConfig('gpt-5.1')?.type).toBe('text');
     expect(getStaticModelConfig('claude-sonnet-4-6')?.type).toBe('text');
     expect(getStaticModelConfig('seedream-v4')?.type).toBe('image');
     expect(getStaticModelConfig('veo3-fast-frames')?.type).toBe('video');
+  });
+
+  it('默认选择器隐藏旧 GPT 入口但仍可钉住历史选择', async () => {
+    const { getPinnedSelectableModel, getSelectableModels } = await import(
+      '../runtime-model-discovery'
+    );
+
+    const selectableIds = getSelectableModels('text').map((model) => model.id);
+    expect(selectableIds.slice(0, 3)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+    ]);
+    expect(selectableIds).not.toContain('gpt-5.4');
+    expect(selectableIds).not.toContain('gpt-5.2');
+    expect(getPinnedSelectableModel('text', 'gpt-5.4')).toMatchObject({
+      id: 'gpt-5.4',
+      type: 'text',
+    });
   });
 
   it('应用模型选择时会返回新增和移除增量', async () => {
@@ -134,14 +155,19 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const result = runtimeModelDiscovery.applySelection('provider-text', [
       'model-b',
       'model-c',
     ]);
 
-    expect(result.models.map((model) => model.id)).toEqual(['model-b', 'model-c']);
+    expect(result.models.map((model) => model.id)).toEqual([
+      'model-b',
+      'model-c',
+    ]);
     expect(result.addedModelIds).toEqual(['model-c']);
     expect(result.removedModelIds).toEqual(['model-a']);
   });
@@ -193,7 +219,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
     const state = runtimeModelDiscovery.getState('provider-happyhorse');
 
     expect(state.discoveredModels[0]).toMatchObject({
@@ -247,7 +275,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const models = await runtimeModelDiscovery.discover(
       'provider-happyhorse',
@@ -315,7 +345,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const models = await runtimeModelDiscovery.discover(
       'provider-video',
@@ -381,7 +413,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     runtimeModelDiscovery.addManualModel('provider-custom', {
       id: 'custom-gpt-image',
@@ -539,7 +573,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     runtimeModelDiscovery.addManualModel('provider-custom', {
       id: 'custom-model',
@@ -623,7 +659,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const models = await runtimeModelDiscovery.discover(
       'provider-tuzi',
@@ -696,7 +734,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const models = await runtimeModelDiscovery.discover(
       'provider-openai',
@@ -771,7 +811,9 @@ describe('runtime-model-discovery', () => {
       },
     }));
 
-    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
 
     const models = await runtimeModelDiscovery.discover(
       'provider-openai',
@@ -780,17 +822,17 @@ describe('runtime-model-discovery', () => {
     );
 
     expect(models).toHaveLength(2);
-    expect(models.find((model) => model.id === 'gpt-4o-image-async')).toMatchObject(
-      {
-        type: 'image',
-        vendor: 'GPT',
-      }
-    );
-    expect(models.find((model) => model.id === 'research-video-preview')).toMatchObject(
-      {
-        type: 'text',
-        vendor: 'GPT',
-      }
-    );
+    expect(
+      models.find((model) => model.id === 'gpt-4o-image-async')
+    ).toMatchObject({
+      type: 'image',
+      vendor: 'GPT',
+    });
+    expect(
+      models.find((model) => model.id === 'research-video-preview')
+    ).toMatchObject({
+      type: 'text',
+      vendor: 'GPT',
+    });
   });
 });

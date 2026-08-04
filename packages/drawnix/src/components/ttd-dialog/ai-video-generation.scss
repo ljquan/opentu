@@ -19,6 +19,41 @@
   position: relative;
 }
 
+.seedance-reference-audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &__button,
+  &__remove {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    border: 1px solid var(--td-border-level-2-color, #dcdcdc);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  &__button {
+    padding: 0 10px;
+    max-width: 280px;
+  }
+
+  &__button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__remove {
+    width: 32px;
+    justify-content: center;
+  }
+}
+
 .ai-generation-mobile-switcher {
   display: none;
 }

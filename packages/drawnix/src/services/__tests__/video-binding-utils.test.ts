@@ -9,6 +9,7 @@ import {
 } from '../video-binding-utils';
 import {
   clearRuntimeModelConfigs,
+  getStaticModelConfig,
   ModelVendor,
   setRuntimeModelConfigs,
   type ModelConfig,
@@ -44,7 +45,11 @@ describe('video binding utils', () => {
       (candidate) => candidate.protocol === 'openai.async.video'
     );
 
-    expect(binding?.metadata?.video?.allowedDurations).toEqual(['4', '8', '12']);
+    expect(binding?.metadata?.video?.allowedDurations).toEqual([
+      '4',
+      '8',
+      '12',
+    ]);
     expect(binding?.metadata?.video?.defaultDuration).toBe('8');
     expect(binding?.metadata?.video?.strictDurationValidation).toBe(true);
     expect(binding?.metadata?.video?.resultMode).toBe('download-content');
@@ -206,26 +211,16 @@ describe('video binding utils', () => {
       '15',
     ]);
 
-    const submission = resolveVideoSubmission(
-      'sora-2',
-      undefined,
-      null,
-      {
-        sora_mode: 'web',
-      }
-    );
+    const submission = resolveVideoSubmission('sora-2', undefined, null, {
+      sora_mode: 'web',
+    });
     expect(submission.duration).toBe('10');
   });
 
   it('does not strictly reject third-party sora api-mode durations', () => {
-    const submission = resolveVideoSubmission(
-      'sora-2',
-      '8',
-      null,
-      {
-        sora_mode: 'api',
-      }
-    );
+    const submission = resolveVideoSubmission('sora-2', '8', null, {
+      sora_mode: 'api',
+    });
 
     expect(submission.duration).toBe('8');
     expect(submission.model).toBe('sora-2');
@@ -303,6 +298,97 @@ describe('video binding utils', () => {
       duration: '8',
       durationField: 'seconds',
     });
+  });
+
+  it('routes Seedance 2.0 with official IDs and confirmed controls', () => {
+    const profile = {
+      id: 'tuzi-default',
+      name: 'Tuzi Default',
+      providerType: 'openai-compatible' as const,
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'test-key',
+      authType: 'bearer' as const,
+    };
+    const standardModel = getStaticModelConfig('doubao-seedance-2-0-260128')!;
+    const fastModel = getStaticModelConfig('doubao-seedance-2-0-fast-260128')!;
+    const standardBindings = inferBindingsForProviderModel(
+      profile,
+      standardModel
+    );
+    const standardBinding = standardBindings.find(
+      (candidate) => candidate.protocol === 'openai.async.video'
+    );
+
+    expect(
+      standardBindings.some(
+        (candidate) => candidate.protocol === 'seedance.task'
+      )
+    ).toBe(false);
+    expect(standardBinding).toMatchObject({
+      submitPath: '/videos',
+      pollPathTemplate: '/videos/{taskId}',
+      requestSchema: 'doubao.seedance-2.video.content-json',
+      metadata: {
+        video: {
+          allowedDurations: [
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '9',
+            '10',
+            '11',
+            '12',
+            '13',
+            '14',
+            '15',
+          ],
+          durationField: 'duration',
+        },
+      },
+    });
+    expect(
+      resolveVideoSubmission(standardModel.id, '15', standardBinding || null)
+    ).toMatchObject({
+      model: standardModel.id,
+      duration: '15',
+      durationField: 'duration',
+    });
+    expect(
+      getEffectiveVideoModelConfig(
+        standardModel.id,
+        standardBinding || null
+      ).sizeOptions.map((option) => option.value)
+    ).toEqual(['720p@16:9', '480p@16:9']);
+    expect(
+      getEffectiveVideoModelConfig(fastModel.id).sizeOptions.map(
+        (option) => option.value
+      )
+    ).toEqual(['720p@16:9', '480p@16:9']);
+  });
+
+  it('keeps Seedance 1.x on the legacy task protocol', () => {
+    const bindings = inferBindingsForProviderModel(
+      {
+        id: 'tuzi-default',
+        name: 'Tuzi Default',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      },
+      getStaticModelConfig('seedance-1.5-pro')!
+    );
+
+    expect(bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          protocol: 'seedance.task',
+          requestSchema: 'seedance.video.form-auto',
+        }),
+      ])
+    );
   });
 
   it('uses Kling capability defaults and exposes model_name for runtime models', () => {

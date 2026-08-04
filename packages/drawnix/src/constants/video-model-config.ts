@@ -31,6 +31,37 @@ const SEEDANCE_SIZE_OPTIONS: SizeOption[] = SEEDANCE_RESOLUTION_OPTIONS.flatMap(
     }))
 );
 
+const SEEDANCE_2_DURATION_OPTIONS: DurationOption[] = Array.from(
+  { length: 12 },
+  (_, index) => {
+    const value = String(index + 4);
+    return { label: `${value}秒`, value };
+  }
+);
+
+const buildSeedance2SizeOptions = (
+  resolutions: readonly string[]
+): SizeOption[] =>
+  resolutions.map((resolution) => ({
+    label: `${resolution === '4k' ? '4K' : resolution} · 横屏 16:9`,
+    value: `${resolution}@16:9`,
+    aspectRatio: '16:9',
+  }));
+
+const SEEDANCE_2_STANDARD_SIZE_OPTIONS = buildSeedance2SizeOptions([
+  '720p',
+  '480p',
+]);
+const SEEDANCE_2_COMPACT_SIZE_OPTIONS = buildSeedance2SizeOptions([
+  '720p',
+  '480p',
+]);
+
+const SEEDANCE_2_REFERENCE_LABELS = Array.from(
+  { length: 9 },
+  (_, index) => `参考图${index + 1}`
+);
+
 const HAPPYHORSE_RESOLUTION_OPTIONS = ['1080P', '720P'] as const;
 
 const HAPPYHORSE_SIZE_OPTIONS: SizeOption[] = HAPPYHORSE_RESOLUTION_OPTIONS.map(
@@ -289,6 +320,51 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
   },
 
   // Seedance models
+  'doubao-seedance-2-0-260128': {
+    id: 'doubao-seedance-2-0-260128',
+    label: 'Seedance 2.0',
+    provider: 'seedance',
+    description: '多模态视频生成，支持 4-15 秒与 480p/720p',
+    durationOptions: SEEDANCE_2_DURATION_OPTIONS,
+    defaultDuration: '5',
+    sizeOptions: SEEDANCE_2_STANDARD_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
+    imageUpload: {
+      maxCount: 9,
+      mode: 'reference',
+      labels: SEEDANCE_2_REFERENCE_LABELS,
+    },
+  },
+  'doubao-seedance-2-0-fast-260128': {
+    id: 'doubao-seedance-2-0-fast-260128',
+    label: 'Seedance 2.0 Fast',
+    provider: 'seedance',
+    description: '高速多模态视频生成，支持 4-15 秒与 480p/720p',
+    durationOptions: SEEDANCE_2_DURATION_OPTIONS,
+    defaultDuration: '5',
+    sizeOptions: SEEDANCE_2_COMPACT_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
+    imageUpload: {
+      maxCount: 9,
+      mode: 'reference',
+      labels: SEEDANCE_2_REFERENCE_LABELS,
+    },
+  },
+  'doubao-seedance-2-0-mini-260615': {
+    id: 'doubao-seedance-2-0-mini-260615',
+    label: 'Seedance 2.0 Mini',
+    provider: 'seedance',
+    description: '轻量多模态视频生成，支持 4-15 秒与 480p/720p',
+    durationOptions: SEEDANCE_2_DURATION_OPTIONS,
+    defaultDuration: '5',
+    sizeOptions: SEEDANCE_2_COMPACT_SIZE_OPTIONS,
+    defaultSize: '720p@16:9',
+    imageUpload: {
+      maxCount: 4,
+      mode: 'reference',
+      labels: ['参考图1', '参考图2', '参考图3', '参考图4'],
+    },
+  },
   'seedance-1.5-pro': {
     id: 'seedance-1.5-pro',
     label: 'Seedance 1.5 Pro',
@@ -424,7 +500,8 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: 'happyhorse-1.0-video-edit',
     label: 'HappyHorse 1.0 Video Edit',
     provider: 'happyhorse',
-    description: 'HappyHorse 视频参考生成视频，时长跟随输入视频，支持保留原音频',
+    description:
+      'HappyHorse 视频参考生成视频，时长跟随输入视频，支持保留原音频',
     durationOptions: [{ label: '跟随原视频', value: '5' }],
     defaultDuration: '5',
     sizeOptions: HAPPYHORSE_SIZE_OPTIONS,

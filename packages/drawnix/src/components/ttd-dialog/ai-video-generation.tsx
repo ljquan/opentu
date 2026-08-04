@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Music2, X } from 'lucide-react';
 import './ttd-dialog.scss';
 import './ai-video-generation.scss';
 import { useI18n } from '../../i18n';
@@ -240,6 +241,10 @@ const AIVideoGeneration = ({
     KnowledgeContextRef[]
   >(initialKnowledgeContextRefs);
   const [error, setError] = useState<string | null>(null);
+  const [referenceAudio, setReferenceAudio] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
 
   // 任务列表面板状态 - 使用像素宽度
   const [isTaskListVisible, setIsTaskListVisible] = useState(true);
@@ -497,6 +502,7 @@ const AIVideoGeneration = ({
       }));
     }
   );
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Storyboard mode state
   const [storyboardEnabled, setStoryboardEnabled] = useState(false);
@@ -727,7 +733,9 @@ const AIVideoGeneration = ({
       prompt: initialPrompt,
       image: initialImage?.url,
       images: initialImages?.map((img) => img.url),
-      knowledgeContextRefs: initialKnowledgeContextRefs.map((ref) => ref.noteId),
+      knowledgeContextRefs: initialKnowledgeContextRefs.map(
+        (ref) => ref.noteId
+      ),
       duration: initialDuration,
       model: initialModel,
       size: initialSize,
@@ -814,6 +822,7 @@ const AIVideoGeneration = ({
     setPrompt('');
     setAllSelectedImages([]); // 清空原始图片
     setUploadedImages([]);
+    setReferenceAudio(null);
     setError(null);
     setMobilePanel('config');
     // Clear manual edit mode
@@ -829,6 +838,41 @@ const AIVideoGeneration = ({
     );
     window.dispatchEvent(new CustomEvent('ai-video-clear'));
   };
+
+  const handleReferenceAudioChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      if (!file.type.startsWith('audio/')) {
+        setError(
+          language === 'zh' ? '请上传音频文件' : 'Please upload an audio file'
+        );
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        setError(
+          language === 'zh'
+            ? '音频大小不能超过 25MB'
+            : 'Audio size cannot exceed 25MB'
+        );
+        return;
+      }
+      try {
+        const url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        setReferenceAudio({ url, name: file.name });
+        setError(null);
+      } catch {
+        setError(language === 'zh' ? '读取音频失败' : 'Failed to read audio');
+      }
+    },
+    [language]
+  );
 
   // Convert ReferenceImage[] to UploadedVideoImage[]
   const referenceImagesToUploadedImages = React.useCallback(
@@ -1013,6 +1057,13 @@ const AIVideoGeneration = ({
       setAllSelectedImages([]);
       setUploadedImages([]);
     }
+    const restoredAudio =
+      typeof task.params.params?.input_audio === 'string'
+        ? task.params.params.input_audio
+        : undefined;
+    setReferenceAudio(
+      restoredAudio ? { url: restoredAudio, name: 'reference-audio' } : null
+    );
 
     setError(null);
   };
@@ -1131,6 +1182,14 @@ const AIVideoGeneration = ({
               initialAutoInsertToCanvas ??
               getAutoInsertValue(LS_KEYS.AI_VIDEO_AUTO_INSERT),
             ...(extraParams ? { params: extraParams } : {}),
+            ...(referenceAudio
+              ? {
+                  params: {
+                    ...(extraParams || {}),
+                    input_audio: referenceAudio.url,
+                  },
+                }
+              : {}),
           };
 
           // 创建任务并添加到队列
@@ -1160,6 +1219,7 @@ const AIVideoGeneration = ({
           setPrompt('');
           setAllSelectedImages([]); // 清空原始图片
           setUploadedImages([]);
+          setReferenceAudio(null);
           setStoryboardEnabled(false);
           setStoryboardScenes([]);
           setError(null);
@@ -1359,6 +1419,49 @@ const AIVideoGeneration = ({
                     : 'Reference Images (Optional)'
                 }
               />
+            )}
+
+            {currentModel.startsWith('doubao-seedance-2-0-') && (
+              <div className="seedance-reference-audio">
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleReferenceAudioChange}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  className="seedance-reference-audio__button"
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={isGenerating}
+                  title={
+                    language === 'zh'
+                      ? '上传参考音频'
+                      : 'Upload reference audio'
+                  }
+                >
+                  <Music2 size={16} />
+                  <span>
+                    {referenceAudio
+                      ? referenceAudio.name
+                      : language === 'zh'
+                      ? '参考音频'
+                      : 'Reference audio'}
+                  </span>
+                </button>
+                {referenceAudio && (
+                  <button
+                    type="button"
+                    className="seedance-reference-audio__remove"
+                    onClick={() => setReferenceAudio(null)}
+                    disabled={isGenerating}
+                    title={language === 'zh' ? '移除参考音频' : 'Remove audio'}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Storyboard mode editor (only for supported models) */}

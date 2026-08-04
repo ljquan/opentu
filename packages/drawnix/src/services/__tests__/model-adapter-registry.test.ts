@@ -84,11 +84,34 @@ const tuziGptImageAdapter: ImageModelAdapter = {
 };
 
 const seedanceVideoAdapter: VideoModelAdapter = {
-  id: 'seedance-video',
+  id: 'seedance-video-adapter',
   label: 'Seedance Video',
   kind: 'video',
   matchProtocols: ['seedance.task'],
   matchRequestSchemas: ['seedance.video.form-auto'],
+  supportedModels: [
+    'seedance-1.5-pro',
+    'seedance-1.0-pro',
+    'seedance-1.0-pro-fast',
+    'seedance-1.0-lite',
+  ],
+  matchPredicate(modelConfig) {
+    return modelConfig.id.startsWith('seedance-1.');
+  },
+  async generateVideo() {
+    throw new Error('not implemented');
+  },
+};
+
+const seedance2VideoAdapter: VideoModelAdapter = {
+  id: 'seedance-2-video-adapter',
+  label: 'Seedance 2.0 Video',
+  kind: 'video',
+  matchProtocols: ['openai.async.video'],
+  matchRequestSchemas: ['doubao.seedance-2.video.content-json'],
+  matchPredicate(modelConfig) {
+    return modelConfig.id.startsWith('doubao-seedance-2-0-');
+  },
   async generateVideo() {
     throw new Error('not implemented');
   },
@@ -135,6 +158,7 @@ describe('model adapter registry', () => {
     registerModelAdapter(gptImageAdapter);
     registerModelAdapter(tuziGptImageAdapter);
     registerModelAdapter(seedanceVideoAdapter);
+    registerModelAdapter(seedance2VideoAdapter);
     registerModelAdapter(happyHorseVideoAdapter);
     registerModelAdapter(genericVideoAdapter);
   });
@@ -217,7 +241,7 @@ describe('model adapter registry', () => {
     expect(adapter?.id).toBe('tuzi-gpt-image');
   });
 
-  it('routes seedance bindings to the seedance adapter before generic video handlers', () => {
+  it('routes Seedance 1.x bindings to the legacy Seedance adapter before generic video handlers', () => {
     const adapter = resolveAdapterForBinding(
       createBinding({
         modelId: 'seedance-1.5-pro',
@@ -230,7 +254,33 @@ describe('model adapter registry', () => {
       'video'
     );
 
-    expect(adapter?.id).toBe('seedance-video');
+    expect(adapter?.id).toBe('seedance-video-adapter');
+  });
+
+  it('routes Seedance 2.0 content-json bindings to the dedicated adapter', () => {
+    const adapter = resolveAdapterForBinding(
+      createBinding({
+        modelId: 'doubao-seedance-2-0-260128',
+        operation: 'video',
+        protocol: 'openai.async.video',
+        requestSchema: 'doubao.seedance-2.video.content-json',
+        responseSchema: 'openai.async.task',
+        submitPath: '/videos',
+        pollPathTemplate: '/videos/{taskId}',
+      }),
+      'video'
+    );
+
+    expect(adapter?.id).toBe('seedance-2-video-adapter');
+  });
+
+  it('keeps Seedance 1.x and 2.0 model IDs on separate adapters', () => {
+    expect(resolveAdapterForModel('seedance-1.5-pro', 'video')?.id).toBe(
+      'seedance-video-adapter'
+    );
+    expect(
+      resolveAdapterForModel('doubao-seedance-2-0-fast-260128', 'video')?.id
+    ).toBe('seedance-2-video-adapter');
   });
 
   it('routes HappyHorse video schemas to the dedicated adapter', () => {

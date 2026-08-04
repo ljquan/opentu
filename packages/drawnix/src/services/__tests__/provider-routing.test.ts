@@ -1590,6 +1590,41 @@ describe('provider routing', () => {
     ]);
   });
 
+  it('keeps Seedance 2.0 on the unified async video protocol', () => {
+    const bindings = inferBindingsForProviderModel(
+      {
+        id: 'provider-a',
+        name: 'Provider A',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api-a.example.com/v1',
+        apiKey: 'key-a',
+        authType: 'bearer',
+      },
+      {
+        id: 'doubao-seedance-2-0-260128',
+        label: 'Seedance 2.0',
+        type: 'video',
+        vendor: ModelVendor.DOUBAO,
+      },
+      {
+        'sora-2 官方异步端点': {
+          path: '/v1/videos',
+          method: 'POST',
+        },
+      }
+    );
+
+    expect(bindings.map((binding) => binding.protocol)).not.toContain(
+      'seedance.task'
+    );
+    expect(bindings).toContainEqual(
+      expect.objectContaining({
+        protocol: 'openai.async.video',
+        requestSchema: 'doubao.seedance-2.video.content-json',
+      })
+    );
+  });
+
   it('keeps pricing /v1/videos binding as video when scenario is not async-image', () => {
     const bindings = inferBindingsForProviderModel(
       {

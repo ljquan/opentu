@@ -328,6 +328,37 @@ describe('workflow-converter', () => {
         expect(workflow.steps[0].args.seconds).toBe('15');
       });
 
+      it('Seedance 2.0 应该透传选中的参考视频', () => {
+        const params = createMockParams({
+          generationType: 'video',
+          modelId: 'doubao-seedance-2-0-260128',
+          selection: {
+            texts: [],
+            images: [],
+            videos: ['https://example.com/reference.mp4'],
+            graphics: [],
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args.params).toMatchObject({
+          input_video: 'https://example.com/reference.mp4',
+        });
+      });
+
+      it('Seedance 2.0 应该保留 480p 分辨率与比例格式', () => {
+        const params = createMockParams({
+          generationType: 'video',
+          modelId: 'doubao-seedance-2-0-260128',
+          size: '480p@16:9',
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args.size).toBe('480p@16:9');
+      });
+
       it('应该使用默认时长 5 秒', () => {
         const params = createMockParams({
           generationType: 'video',
