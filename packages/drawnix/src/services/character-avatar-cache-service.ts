@@ -42,6 +42,37 @@ export interface CachedAvatar {
 class CharacterAvatarCacheService {
   // In-memory object URL cache (to avoid creating multiple URLs for same blob)
   private objectUrlCache: Map<string, string> = new Map();
+  private cacheWritesPaused = false;
+  private activeCacheWrites = 0;
+  private cacheWriteDrainWaiters: Array<() => void> = [];
+
+  private beginCacheWrite(): boolean {
+    if (this.cacheWritesPaused) {
+      return false;
+    }
+    this.activeCacheWrites += 1;
+    return true;
+  }
+
+  private endCacheWrite(): void {
+    this.activeCacheWrites = Math.max(0, this.activeCacheWrites - 1);
+    if (this.activeCacheWrites !== 0) {
+      return;
+    }
+    const waiters = this.cacheWriteDrainWaiters.splice(0);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
+  private waitForActiveCacheWrites(): Promise<void> {
+    if (this.activeCacheWrites === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.cacheWriteDrainWaiters.push(resolve);
+    });
+  }
 
   /**
    * Cache a character avatar from URL
@@ -50,6 +81,9 @@ class CharacterAvatarCacheService {
    * @returns true if cached successfully
    */
   async cacheAvatar(characterId: string, url: string): Promise<boolean> {
+    if (!this.beginCacheWrite()) {
+      return false;
+    }
     try {
       // Check if already cached
       const existing = await this.getCachedAvatar(characterId);
@@ -85,6 +119,8 @@ class CharacterAvatarCacheService {
     } catch (error) {
       console.error('[AvatarCache] Failed to cache avatar:', characterId, error);
       return false;
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -238,7 +274,9 @@ class CharacterAvatarCacheService {
    * @returns true if cleared successfully
    */
   async clearAll(): Promise<boolean> {
+    this.cacheWritesPaused = true;
     try {
+      await this.waitForActiveCacheWrites();
       // Revoke all object URLs
       this.objectUrlCache.forEach((url) => {
         URL.revokeObjectURL(url);
@@ -251,6 +289,8 @@ class CharacterAvatarCacheService {
     } catch (error) {
       console.error('[AvatarCache] Failed to clear all caches:', error);
       return false;
+    } finally {
+      this.cacheWritesPaused = false;
     }
   }
 
