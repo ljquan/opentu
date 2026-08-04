@@ -16,6 +16,8 @@ import {
   clearVirtualUrlImageError,
   handleVirtualUrlImageError,
 } from '../../utils/asset-cleanup';
+import { unifiedCacheService } from '../../services/unified-cache-service';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import {
   getImage3DSourceRectangle,
   getImage3DSvgOverlayGeometry,
@@ -150,6 +152,8 @@ const isVideoElement = (imageItem: any): boolean => {
 export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   const currentImageUrlRef = useRef(props.imageItem.url);
   const cleanupSWRecoveryRef = useRef<(() => void) | null>(null);
+  const fallbackBlobUrlRef = useRef<string | null>(null);
+  const fallbackAttemptedUrlRef = useRef<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const svgOverlayRef = useRef<Image3DOverlayRef | null>(null);
   const pptImageGenerationLockRef = useRef(false);
@@ -159,10 +163,22 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     cleanupSWRecoveryRef.current = null;
   }, []);
 
+  const clearFallbackBlobUrl = useCallback(() => {
+    if (fallbackBlobUrlRef.current) {
+      URL.revokeObjectURL(fallbackBlobUrlRef.current);
+      fallbackBlobUrlRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     currentImageUrlRef.current = props.imageItem.url;
-    return clearSWRecovery;
-  }, [props.imageItem.url, clearSWRecovery]);
+    fallbackAttemptedUrlRef.current = null;
+    clearFallbackBlobUrl();
+    return () => {
+      clearSWRecovery();
+      clearFallbackBlobUrl();
+    };
+  }, [props.imageItem.url, clearFallbackBlobUrl, clearSWRecovery]);
 
   const retryImageAfterSWClaim = useCallback(
     (imageElement: HTMLImageElement) => {
@@ -226,9 +242,32 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
 
   // 处理图片加载失败
   const handleImageError = useCallback(
-    (event: any) => {
+    async (event: any) => {
       const imageElement = event.currentTarget as HTMLImageElement;
       imageElement.style.visibility = 'hidden';
+
+      if (
+        isVirtualMediaUrl(props.imageItem.url) &&
+        fallbackAttemptedUrlRef.current !== props.imageItem.url
+      ) {
+        fallbackAttemptedUrlRef.current = props.imageItem.url;
+        const cachedBlob = await unifiedCacheService.getCachedBlob(
+          props.imageItem.url
+        );
+        if (
+          cachedBlob &&
+          cachedBlob.size > 0 &&
+          imageElement.isConnected &&
+          currentImageUrlRef.current === props.imageItem.url
+        ) {
+          clearFallbackBlobUrl();
+          const blobUrl = URL.createObjectURL(cachedBlob);
+          fallbackBlobUrlRef.current = blobUrl;
+          imageElement.src = blobUrl;
+          return;
+        }
+      }
+
       retryImageAfterSWClaim(imageElement);
 
       const retry = handleVirtualUrlImageError(
@@ -245,7 +284,13 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         }, retry.delay);
       }
     },
-    [props.board, props.element, props.imageItem.url, retryImageAfterSWClaim]
+    [
+      clearFallbackBlobUrl,
+      props.board,
+      props.element,
+      props.imageItem.url,
+      retryImageAfterSWClaim,
+    ]
   );
   const handleImageLoad = useCallback(
     (event: any) => {

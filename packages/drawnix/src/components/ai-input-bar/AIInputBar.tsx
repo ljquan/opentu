@@ -102,6 +102,7 @@ import {
   type WorkflowDefinition,
   type WorkflowStepOptions,
 } from './workflow-converter';
+import { getBoundTaskbarWidth } from './bound-taskbar-layout';
 import { SkillDropdown, type SkillOption } from './SkillDropdown';
 import {
   inferSkillMediaTypes,
@@ -5205,10 +5206,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       const targetTop =
         boardRect.top + (boundImageTarget.rect.y - originY) * zoom;
       const viewportMargin = 12;
-      const targetWidth = boundImageTarget.rect.width * zoom;
-      const barWidth = Math.min(
-        720,
-        Math.max(420, Math.min(window.innerWidth - 96, targetWidth))
+      const barWidth = getBoundTaskbarWidth(
+        containerRef.current?.getBoundingClientRect().width,
+        window.innerWidth
       );
       const left = Math.min(
         Math.max(targetCenterX, viewportMargin + barWidth / 2),
@@ -5221,7 +5221,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? belowTop
           : Math.max(viewportMargin, targetTop - estimatedHeight - 8);
 
-      return { left, top, width: barWidth };
+      return { left, top };
     }, [boundImageTarget, boundInputLayoutTick, shouldKeepExpanded]);
 
     const boundInputStyle = boundInputPosition
@@ -5229,8 +5229,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           left: `${boundInputPosition.left}px`,
           top: `${boundInputPosition.top}px`,
           bottom: 'auto',
-          width: `${boundInputPosition.width}px`,
-          maxWidth: `${boundInputPosition.width}px`,
         } as React.CSSProperties)
       : undefined;
 

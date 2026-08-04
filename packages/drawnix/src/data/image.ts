@@ -17,12 +17,14 @@ import {
   scrollToPointIfNeeded,
 } from '../utils/selection-utils';
 import { assetStorageService } from '../services/asset-storage-service';
+import { unifiedCacheService } from '../services/unified-cache-service';
 import { analytics } from '../utils/posthog-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';
 import { getInsertionPointFromSavedSelection, calculateImageDisplayDimensions } from '../utils/canvas-insertion-layout';
 import { getSupportedImageFileMimeType } from './blob';
+import { isVirtualMediaUrl } from '../utils/virtual-media-url';
 
 export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
@@ -158,6 +160,25 @@ export const loadHTMLImageElementWithRetry = (
     tryLoad();
   });
 };
+
+async function loadImageElementForCanvas(
+  imageUrl: DataURL
+): Promise<HTMLImageElement> {
+  const canUseServiceWorker =
+    typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    !!navigator.serviceWorker.controller;
+
+  if (isVirtualMediaUrl(imageUrl) && !canUseServiceWorker) {
+    const cachedBlob = await unifiedCacheService.getCachedBlob(imageUrl);
+    if (!cachedBlob || cachedBlob.size === 0) {
+      throw new Error('图片缓存不可用，请重新生成或上传');
+    }
+    return loadHTMLImageElementFromBlob(cachedBlob);
+  }
+
+  return loadHTMLImageElementWithRetry(imageUrl, true);
+}
 
 export const buildImage = (
   image: HTMLImageElement,
@@ -410,10 +431,7 @@ export const insertImageFromUrl = async (
   } else {
     // 使用带重试的图片加载函数，支持自动绕过 SW
     // console.log(`[insertImageFromUrl] Loading image with retry...`);
-    const image = await loadHTMLImageElementWithRetry(
-      resolvedUrl as DataURL,
-      true
-    ); // 使用 crossOrigin 以支持外部 URL
+    const image = await loadImageElementForCanvas(resolvedUrl as DataURL);
     imageItem = buildImage(
       image,
       resolvedUrl as DataURL,
@@ -535,7 +553,7 @@ function updateImageSizeAfterLoad(
   referenceDimensions: { width: number; height: number }
 ): void {
   // 使用带重试的加载函数，提高虚拟 URL 场景的可靠性
-  loadHTMLImageElementWithRetry(imageUrl as DataURL, true)
+  loadImageElementForCanvas(imageUrl as DataURL)
     .then((img) => {
       const naturalWidth = img.naturalWidth;
       const naturalHeight = img.naturalHeight;
@@ -617,7 +635,9 @@ export const insertImageFromUrlAndSelect = async (
     // 使用直接加载方式获取图片尺寸（不需要 CORS）
     // 图片会使用原始 URL 存储，浏览器渲染 <img> 标签时不需要 CORS
     // console.log('[insertImageFromUrlAndSelect] Loading image directly:', imageUrl);
-    image = await loadImageDirectly(imageUrl);
+    image = isVirtualMediaUrl(imageUrl)
+      ? await loadImageElementForCanvas(imageUrl as DataURL)
+      : await loadImageDirectly(imageUrl);
     // console.log('[insertImageFromUrlAndSelect] Load successful, dimensions:', image.width, 'x', image.height);
   } catch (error) {
     console.error('[insertImageFromUrlAndSelect] Failed to load image:', error);
