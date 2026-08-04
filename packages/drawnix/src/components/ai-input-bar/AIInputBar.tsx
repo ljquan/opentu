@@ -5103,7 +5103,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         // 检测光标前最后一个字符
         if (cursorPos > 0) {
           const lastChar = newValue[cursorPos - 1];
-          // 检查前一个字符是否为空格或在行首（即符号前没有其���字母）
+          // 检查前一个字符是否为空格或在行首（即符号前没有其他字母）
           const charBefore = cursorPos > 1 ? newValue[cursorPos - 2] : ' ';
           const isValidTrigger =
             charBefore === ' ' || charBefore === '\n' || cursorPos === 1;
