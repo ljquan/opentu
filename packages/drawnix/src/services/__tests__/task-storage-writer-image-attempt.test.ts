@@ -45,12 +45,38 @@ async function saveFromAnotherTab(task: SWTask): Promise<void> {
 describe('task-storage-writer image attempt guards', () => {
   beforeEach(() => {
     taskStorageWriter.close();
+    taskStorageWriter.resumeWrites();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
 
   afterEach(() => {
     taskStorageWriter.close();
+    taskStorageWriter.resumeWrites();
     vi.unstubAllGlobals();
+  });
+
+  it('blocks late writes while still allowing the task store to be cleared', async () => {
+    await taskStorageWriter.saveTask(createImageTask('request-current'));
+    taskStorageWriter.pauseWrites();
+
+    const lateTask = createImageTask('request-late');
+    lateTask.id = 'image-task-late';
+    await taskStorageWriter.saveTask(lateTask);
+    expect(
+      await taskStorageWriter.completeTask(
+        'image-task-1',
+        {
+          url: 'https://example.com/late.png',
+          format: 'png',
+          size: 0,
+        },
+        'request-current'
+      )
+    ).toBe(false);
+    expect(await taskStorageWriter.getTask('image-task-late')).toBeNull();
+
+    await taskStorageWriter.clearAllTasks();
+    expect(await taskStorageWriter.getTask('image-task-1')).toBeNull();
   });
 
   it('waits for the IndexedDB transaction to commit before resolving a save', async () => {

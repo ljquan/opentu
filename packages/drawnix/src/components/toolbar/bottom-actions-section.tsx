@@ -11,8 +11,14 @@ import { ToolButton } from '../tool-button';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import type { Task } from '../../types/task.types';
 import { FeedbackButton } from '../feedback-button/feedback-button';
-import { FolderIcon, ToolboxIcon, TaskIcon } from '../icons';
+import { FolderIcon, ToolboxIcon, TaskIcon, TrashIcon } from '../icons';
 import './bottom-actions-section.scss';
+
+const LocalDataClearDialog = React.lazy(() =>
+  import('../local-data-clear/LocalDataClearDialog').then((module) => ({
+    default: module.LocalDataClearDialog,
+  }))
+);
 
 const FAILED_TASK_ACK_STORAGE_KEY = 'aitu-task-queue-failed-ack-at';
 
@@ -56,6 +62,8 @@ export interface BottomActionsSectionProps {
   taskPanelExpanded: boolean;
   /** 任务面板切换回调 */
   onTaskPanelToggle: () => void;
+  /** 是否显示本地数据清理入口（仅桌面端） */
+  showLocalDataClear?: boolean;
 }
 
 export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
@@ -65,11 +73,12 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
   onToolboxDrawerToggle,
   taskPanelExpanded,
   onTaskPanelToggle,
+  showLocalDataClear = false,
 }) => {
   const { activeTasks, completedTasks, failedTasks } = useTaskQueue();
-  const [acknowledgedFailedAt, setAcknowledgedFailedAt] = useState(
-    readFailedTaskAckAt
-  );
+  const [acknowledgedFailedAt, setAcknowledgedFailedAt] =
+    useState(readFailedTaskAckAt);
+  const [localDataClearOpen, setLocalDataClearOpen] = useState(false);
 
   const latestFailedAt = useMemo(
     () =>
@@ -95,10 +104,12 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
   }, [acknowledgedFailedAt, latestFailedAt, taskPanelExpanded]);
 
   // 准备任务提示内容
-  const totalTasks = activeTasks.length + completedTasks.length + failedTasks.length;
-  const taskTooltip = totalTasks > 0
-    ? `任务队列 (生成中: ${activeTasks.length}, 已完成: ${completedTasks.length}, 失败: ${failedTasks.length})`
-    : '任务队列 (暂无任务)';
+  const totalTasks =
+    activeTasks.length + completedTasks.length + failedTasks.length;
+  const taskTooltip =
+    totalTasks > 0
+      ? `任务队列 (生成中: ${activeTasks.length}, 已完成: ${completedTasks.length}, 失败: ${failedTasks.length})`
+      : '任务队列 (暂无任务)';
 
   return (
     <div className="bottom-actions-section">
@@ -173,6 +184,31 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
           <div className="bottom-actions-section__status bottom-actions-section__status--failed" />
         )}
       </div>
+
+      {showLocalDataClear ? (
+        <>
+          <ToolButton
+            type="icon"
+            icon={<TrashIcon />}
+            aria-label="清理网站数据"
+            tooltip="清理网站数据"
+            tooltipPlacement="right"
+            visible={true}
+            data-track="toolbar_click_clear_local_data"
+            data-testid="toolbar-clear-local-data"
+            onPointerDown={(e) => {
+              e.event.stopPropagation();
+            }}
+            onClick={() => setLocalDataClearOpen(true)}
+          />
+          <React.Suspense fallback={null}>
+            <LocalDataClearDialog
+              open={localDataClearOpen}
+              onOpenChange={setLocalDataClearOpen}
+            />
+          </React.Suspense>
+        </>
+      ) : null}
     </div>
   );
 };

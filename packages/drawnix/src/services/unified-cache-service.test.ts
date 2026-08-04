@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { IDBFactory } from 'fake-indexeddb';
 import {
   afterAll,
@@ -9,14 +10,22 @@ import {
   vi,
 } from 'vitest';
 
+const swChannelMocks = vi.hoisted(() => ({
+  isInitialized: vi.fn(() => true),
+  publish: vi.fn(),
+  clearAllCache: vi.fn(async () => ({ success: true })),
+}));
+
 vi.mock('./sw-channel/client', () => ({
   swChannelClient: {
-    isInitialized: () => true,
+    isInitialized: swChannelMocks.isInitialized,
     setEventHandlers: vi.fn(),
-    publish: vi.fn(),
+    publish: swChannelMocks.publish,
+    clearAllCache: swChannelMocks.clearAllCache,
   },
 }));
 
+// eslint-disable-next-line import/first
 import {
   UNIFIED_BLOB_STORE_NAME,
   UNIFIED_DB_NAME,
@@ -71,6 +80,9 @@ function readBlobAsText(blob: Blob | null): Promise<string | null> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  swChannelMocks.isInitialized.mockReset().mockReturnValue(true);
+  swChannelMocks.publish.mockReset();
+  swChannelMocks.clearAllCache.mockReset().mockResolvedValue({ success: true });
 });
 
 afterAll(() => {
@@ -138,5 +150,93 @@ describe('UnifiedCacheService insecure LAN fallback', () => {
     expect(repaired.url).toBe(first.url);
     expect(repaired.reused).toBe(false);
     expect(await readBlobAsText(restored)).toBe('repair-local-image');
+  });
+});
+
+describe('UnifiedCacheService clear all cache', () => {
+  it('deletes page image and thumbnail caches before notifying the worker', async () => {
+    const deleteCache = vi.fn(async () => true);
+    vi.stubGlobal('caches', { delete: deleteCache });
+
+    await unifiedCacheService.clearAllCache();
+
+    expect(deleteCache).toHaveBeenCalledWith('drawnix-images');
+    expect(deleteCache).toHaveBeenCalledWith('drawnix-images-thumb');
+    expect(swChannelMocks.clearAllCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for an in-flight media write before deleting caches', async () => {
+    const originalFetch = globalThis.fetch;
+    let resolveFetch: ((response: Response) => void) | undefined;
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const put = vi.fn(async () => undefined);
+    const deleteCache = vi.fn(async () => true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => fetchPromise)
+    );
+    vi.stubGlobal('caches', {
+      open: vi.fn(async () => ({ put })),
+      delete: deleteCache,
+    });
+
+    try {
+      const caching = unifiedCacheService.cacheImage(
+        'https://example.com/in-flight.png'
+      );
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      const clearing = unifiedCacheService.clearAllCache();
+      await Promise.resolve();
+      expect(deleteCache).not.toHaveBeenCalled();
+
+      resolveFetch?.(
+        new Response(new Blob(['image'], { type: 'image/png' }), {
+          status: 200,
+        })
+      );
+      await Promise.all([caching, clearing]);
+
+      expect(put).toHaveBeenCalledTimes(1);
+      expect(put.mock.invocationCallOrder[0]).toBeLessThan(
+        deleteCache.mock.invocationCallOrder[0]
+      );
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
+  });
+
+  it('propagates a worker cache-clear RPC failure', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('caches', { delete: vi.fn(async () => true) });
+    swChannelMocks.clearAllCache.mockResolvedValueOnce({
+      success: false,
+      error: 'worker clear failed',
+    });
+
+    await expect(unifiedCacheService.clearAllCache()).rejects.toThrow(
+      'worker clear failed'
+    );
+  });
+
+  it('does not treat a one-way message as success while the worker channel initializes', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('caches', { delete: vi.fn(async () => true) });
+    const postMessage = vi.fn();
+    vi.stubGlobal('navigator', {
+      serviceWorker: { controller: { postMessage } },
+    });
+    swChannelMocks.isInitialized.mockReturnValue(false);
+
+    await expect(unifiedCacheService.clearAllCache()).rejects.toThrow(
+      '缓存服务尚未就绪，请稍后重试'
+    );
+    expect(postMessage).not.toHaveBeenCalled();
   });
 });

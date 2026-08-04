@@ -20,6 +20,7 @@ import {
 import { withTimeout } from './utils/timeout-utils';
 import { RPC_METHODS, SW_EVENTS } from './channel-manager/constants';
 import { getSwRuntimeBridge } from './sw-runtime-bridge';
+import { getMediaCacheEpoch } from './media-cache-epoch';
 
 // 从 channel-manager 模块导入常量
 export { RPC_METHODS, SW_EVENTS } from './channel-manager/constants';
@@ -449,6 +450,7 @@ export class SWChannelManager {
         const data = this.unwrapRpcData<{ url: string }>(rawData);
         return this.handleCacheDelete(data);
       },
+      [RPC_METHODS.CACHE_CLEAR_ALL]: async () => this.handleCacheClearAll(),
 
       // Ping
       [RPC_METHODS.PING]: async () => this.handlePing(),
@@ -467,6 +469,7 @@ export class SWChannelManager {
     data: ThumbnailGenerateParams
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      const requestCacheEpoch = getMediaCacheEpoch();
       const { url, mediaType, blob, mimeType, sizes } = data;
 
       // 动态导入缩略图工具
@@ -480,7 +483,13 @@ export class SWChannelManager {
       });
 
       // 生成缩略图 (参数顺序: blob, url, mediaType)
-      generateThumbnailAsync(mediaBlob, url, mediaType, sizes);
+      generateThumbnailAsync(
+        mediaBlob,
+        url,
+        mediaType,
+        sizes,
+        requestCacheEpoch
+      );
 
       return { success: true };
     } catch (error: any) {
@@ -1094,6 +1103,18 @@ export class SWChannelManager {
       await getSwRuntimeBridge().deleteCacheByUrl?.(data.url);
       // 广播缓存删除事件
       this.sendCacheDeleted(data.url);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  private async handleCacheClearAll(): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      await getSwRuntimeBridge().clearImageCache?.();
       return { success: true };
     } catch (error: any) {
       return { success: false, error: String(error) };

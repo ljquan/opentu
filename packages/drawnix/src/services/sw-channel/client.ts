@@ -892,6 +892,18 @@ export class SWChannelClient {
     );
   }
 
+  /**
+   * 清空图片媒体缓存
+   */
+  async clearAllCache(): Promise<TaskOperationResult> {
+    return callOperation(
+      this.channel,
+      'cache:clearAll',
+      undefined,
+      'Clear cache failed'
+    );
+  }
+
   // ============================================================================
   // 工具方法
   // ============================================================================

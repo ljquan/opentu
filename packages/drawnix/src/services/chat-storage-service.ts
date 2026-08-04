@@ -7,7 +7,11 @@
 import localforage from 'localforage';
 import { generateUUID } from '../utils/runtime-helpers';
 import { CHAT_STORAGE_KEYS, CHAT_CONSTANTS } from '../constants/CHAT_CONSTANTS';
-import type { ChatSession, ChatMessage, DrawerState } from '../types/chat.types';
+import type {
+  ChatSession,
+  ChatMessage,
+  DrawerState,
+} from '../types/chat.types';
 
 // Initialize localforage instances
 const sessionsStore = localforage.createInstance({
@@ -62,7 +66,7 @@ export async function getAllSessions(): Promise<ChatSession[]> {
     sessions.push(value);
   });
   // Wait for browser idle time before sorting to avoid blocking
-  await new Promise<void>(resolve => {
+  await new Promise<void>((resolve) => {
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
       (window as Window).requestIdleCallback(() => resolve(), { timeout: 50 });
     } else {
@@ -181,7 +185,10 @@ export function setDrawerState(state: Partial<DrawerState>): void {
   try {
     const current = getDrawerState();
     const updated = { ...current, ...state };
-    localStorage.setItem(CHAT_STORAGE_KEYS.DRAWER_STATE, JSON.stringify(updated));
+    localStorage.setItem(
+      CHAT_STORAGE_KEYS.DRAWER_STATE,
+      JSON.stringify(updated)
+    );
   } catch (error) {
     console.error('[ChatStorage] Failed to set drawer state:', error);
   }
@@ -195,6 +202,12 @@ export async function clearAllData(): Promise<void> {
   await sessionsStore.clear();
   await messagesStore.clear();
   localStorage.removeItem(CHAT_STORAGE_KEYS.DRAWER_STATE);
+}
+
+export async function clearConversationHistory(): Promise<void> {
+  await sessionsStore.clear();
+  await messagesStore.clear();
+  setDrawerState({ activeSessionId: null });
 }
 
 // ============================================================================
@@ -217,6 +230,7 @@ export const chatStorageService = {
   getDrawerState,
   setDrawerState,
   clearAllData,
+  clearConversationHistory,
   generateId,
   generateTitle,
 };

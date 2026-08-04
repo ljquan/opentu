@@ -16,6 +16,7 @@ export interface SwRuntimeBridge {
   getAppVersion(): string;
   getImageCacheName(): string;
   deleteCacheByUrl(url: string): Promise<void>;
+  clearImageCache(): Promise<void>;
   requestVideoThumbnail(
     url: string,
     timeoutMs: number,

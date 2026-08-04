@@ -137,12 +137,7 @@ function areStorageSyncValuesEqual(left: unknown, right: unknown): boolean {
     return true;
   }
 
-  if (
-    left &&
-    right &&
-    typeof left === 'object' &&
-    typeof right === 'object'
-  ) {
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
     const leftJson = stableStringify(left);
     const rightJson = stableStringify(right);
     return leftJson !== undefined && leftJson === rightJson;
@@ -151,7 +146,10 @@ function areStorageSyncValuesEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-function hasStorageTaskChanges(task: Task, storageTask: Partial<Task>): boolean {
+function hasStorageTaskChanges(
+  task: Task,
+  storageTask: Partial<Task>
+): boolean {
   return STORAGE_SYNC_FIELDS.some((field) => {
     if (!(field in storageTask)) {
       return false;
@@ -240,10 +238,7 @@ function trackTaskAnalytics(
 
 function isTrackedTerminalTaskStatus(
   status: TaskStatus
-): status is
-  | TaskStatus.COMPLETED
-  | TaskStatus.FAILED
-  | TaskStatus.CANCELLED {
+): status is TaskStatus.COMPLETED | TaskStatus.FAILED | TaskStatus.CANCELLED {
   return (
     status === TaskStatus.COMPLETED ||
     status === TaskStatus.FAILED ||
@@ -2306,9 +2301,9 @@ class TaskQueueService {
   }
 
   async findImageTaskByResultUrl(imageUrl: string): Promise<Task | undefined> {
-    const memoryMatch = this
-      .getAllTasks()
-      .find((task) => imageTaskMatchesUrl(task, imageUrl));
+    const memoryMatch = this.getAllTasks().find((task) =>
+      imageTaskMatchesUrl(task, imageUrl)
+    );
     if (memoryMatch) {
       return this.getCompleteTask(memoryMatch.id);
     }
@@ -2399,10 +2394,7 @@ class TaskQueueService {
    *
    * @param taskId - The task ID to retry
    */
-  retryTask(
-    taskId: string,
-    options: { allowCompleted?: boolean } = {}
-  ): void {
+  retryTask(taskId: string, options: { allowCompleted?: boolean } = {}): void {
     const task = this.tasks.get(taskId);
     if (!task) {
       console.warn(`[TaskQueueService] Task ${taskId} not found`);
@@ -2508,6 +2500,36 @@ class TaskQueueService {
     const failedTasks = this.getTasksByStatus(TaskStatus.FAILED);
     failedTasks.forEach((task) => this.deleteTask(task.id));
     // console.log(`[TaskQueueService] Cleared ${failedTasks.length} failed tasks`);
+  }
+
+  /**
+   * 停止所有任务并清空内存与持久化记录。
+   * 先阻止异步写回，再使用单次 store.clear() 避免大量逐条删除。
+   */
+  async clearAllTasks(): Promise<void> {
+    taskStorageWriter.pauseWrites();
+    const tasks = this.getAllTasks();
+
+    for (const task of tasks) {
+      this.blockedTaskIds.add(task.id);
+      this.taskAbortControllers.get(task.id)?.abort();
+      this.executingTasks.get(task.id)?.abort();
+      imageGenerationRecoveryService.stop(task.id);
+    }
+
+    await Promise.allSettled(this.taskStorageOperations.values());
+    this.tasks.clear();
+    this.tasksWithStrippedParams.clear();
+    this.taskAbortControllers.clear();
+    this.executingTasks.clear();
+    this.taskStorageOperations.clear();
+
+    await taskStorageWriter.clearAllTasks();
+    taskStorageReader.invalidateCache();
+
+    for (const task of tasks) {
+      this.emitEvent('taskDeleted', task);
+    }
   }
 
   /**

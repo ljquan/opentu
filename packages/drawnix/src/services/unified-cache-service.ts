@@ -164,6 +164,10 @@ export interface StorageUsage {
   percentage: number;
 }
 
+export interface ClearAllCacheOptions {
+  keepWritesPaused?: boolean;
+}
+
 /** 图片数据类型 */
 export type ImageDataType = 'url' | 'base64';
 
@@ -274,6 +278,9 @@ class UnifiedCacheService {
   private listeners: Set<() => void> = new Set();
   private quotaExceededListeners: Set<() => void> = new Set();
   private cachedUrls: Set<string> = new Set();
+  private cacheWritesPaused = false;
+  private activeCacheWrites = 0;
+  private cacheWriteDrainWaiters: Array<() => void> = [];
 
   constructor() {
     if (typeof indexedDB !== 'undefined') {
@@ -295,6 +302,34 @@ class UnifiedCacheService {
   }
 
   // ==================== IndexedDB 操作 ====================
+
+  private beginCacheWrite(): boolean {
+    if (this.cacheWritesPaused) {
+      return false;
+    }
+    this.activeCacheWrites += 1;
+    return true;
+  }
+
+  private endCacheWrite(): void {
+    this.activeCacheWrites = Math.max(0, this.activeCacheWrites - 1);
+    if (this.activeCacheWrites !== 0) {
+      return;
+    }
+    const waiters = this.cacheWriteDrainWaiters.splice(0);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
+  private waitForActiveCacheWrites(): Promise<void> {
+    if (this.activeCacheWrites === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.cacheWriteDrainWaiters.push(resolve);
+    });
+  }
 
   /**
    * 初始化 IndexedDB
@@ -509,6 +544,9 @@ class UnifiedCacheService {
    * 更新最后使用时间
    */
   private async touch(url: string): Promise<void> {
+    if (!this.beginCacheWrite()) {
+      return;
+    }
     try {
       const item = await this.getItem(url);
       if (item) {
@@ -517,6 +555,8 @@ class UnifiedCacheService {
       }
     } catch (error) {
       console.warn('[UnifiedCache] Failed to touch item:', error);
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -580,6 +620,9 @@ class UnifiedCacheService {
     size: number,
     mimeType: string
   ): Promise<void> {
+    if (!this.beginCacheWrite()) {
+      return;
+    }
     try {
       const normalizedUrl = this.normalizeRemoteCacheUrl(url);
       const existing = await this.getItem(normalizedUrl);
@@ -604,6 +647,8 @@ class UnifiedCacheService {
       // console.log('[UnifiedCache] Image metadata updated:', url);
     } catch (error) {
       console.error('[UnifiedCache] Failed to handle IMAGE_CACHED:', error);
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -614,6 +659,9 @@ class UnifiedCacheService {
     url: string,
     error?: string
   ): Promise<void> {
+    if (!this.beginCacheWrite()) {
+      return;
+    }
     try {
       const normalizedUrl = this.normalizeRemoteCacheUrl(url);
       const existing = await this.getItem(normalizedUrl);
@@ -644,6 +692,8 @@ class UnifiedCacheService {
         '[UnifiedCache] Failed to handle image cache failure:',
         recordError
       );
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -653,7 +703,21 @@ class UnifiedCacheService {
   private async sendMessageToSW(message: MainToSWMessage): Promise<void> {
     try {
       if (!swChannelClient.isInitialized()) {
-        // swChannelClient 尚未初始化，静默跳过
+        const controller =
+          typeof navigator !== 'undefined'
+            ? navigator.serviceWorker?.controller
+            : undefined;
+        if (message.type === 'CLEAR_ALL_CACHE' && controller) {
+          throw new Error('缓存服务尚未就绪，请稍后重试');
+        }
+        controller?.postMessage(message);
+        return;
+      }
+      if (message.type === 'CLEAR_ALL_CACHE') {
+        const result = await swChannelClient.clearAllCache();
+        if (!result.success) {
+          throw new Error(result.error || 'Service Worker cache clear failed');
+        }
         return;
       }
       await swChannelClient.publish(
@@ -662,6 +726,9 @@ class UnifiedCacheService {
       );
     } catch (error) {
       console.warn('[UnifiedCache] Failed to send message to SW:', error);
+      if (message.type === 'CLEAR_ALL_CACHE') {
+        throw error;
+      }
     }
   }
 
@@ -679,6 +746,9 @@ class UnifiedCacheService {
       params?: any;
     }
   ): Promise<void> {
+    if (!this.beginCacheWrite()) {
+      return;
+    }
     try {
       const normalizedUrl = this.normalizeRemoteCacheUrl(url);
       const existing = await this.getItem(normalizedUrl);
@@ -704,6 +774,8 @@ class UnifiedCacheService {
     } catch (error) {
       this.handleQuotaError(error);
       console.error('[UnifiedCache] Failed to register metadata:', error);
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -936,6 +1008,9 @@ class UnifiedCacheService {
    */
   async cacheImage(url: string, metadata?: any): Promise<boolean> {
     const normalizedUrl = this.normalizeRemoteCacheUrl(url);
+    if (!this.beginCacheWrite()) {
+      return false;
+    }
 
     try {
       // 触发缓存（通过 fetch）
@@ -1016,6 +1091,8 @@ class UnifiedCacheService {
       }
 
       return false;
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -1154,8 +1231,11 @@ class UnifiedCacheService {
   /**
    * 清空所有缓存
    */
-  async clearAllCache(): Promise<void> {
+  async clearAllCache(options: ClearAllCacheOptions = {}): Promise<void> {
+    this.cacheWritesPaused = true;
+    let cleared = false;
     try {
+      await this.waitForActiveCacheWrites();
       const db = await this.initDB();
       await new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(
@@ -1169,14 +1249,29 @@ class UnifiedCacheService {
       });
 
       this.cachedUrls.clear();
+      if (typeof caches !== 'undefined') {
+        await Promise.all([
+          caches.delete(IMAGE_CACHE_NAME),
+          caches.delete('drawnix-images-thumb'),
+        ]);
+      }
       await this.sendMessageToSW({ type: 'CLEAR_ALL_CACHE' });
       this.notifyListeners();
+      cleared = true;
 
       // console.log('[UnifiedCache] All cache cleared');
     } catch (error) {
       console.error('[UnifiedCache] Failed to clear all cache:', error);
       throw error;
+    } finally {
+      if (!cleared || !options.keepWritesPaused) {
+        this.cacheWritesPaused = false;
+      }
     }
+  }
+
+  resumeCacheWrites(): void {
+    this.cacheWritesPaused = false;
   }
 
   /**
@@ -1209,6 +1304,9 @@ class UnifiedCacheService {
     url: string,
     updates: Partial<Pick<CachedMedia, 'metadata'>>
   ): Promise<boolean> {
+    if (!this.beginCacheWrite()) {
+      return false;
+    }
     try {
       const item = await this.getItem(url);
       if (!item) return false;
@@ -1224,6 +1322,8 @@ class UnifiedCacheService {
     } catch (error) {
       console.error('[UnifiedCache] Failed to update cached media:', error);
       return false;
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -1238,17 +1338,24 @@ class UnifiedCacheService {
     cachedAt: number,
     metadata?: { name?: string; taskId?: string }
   ): Promise<void> {
-    const item: CachedMedia = {
-      url,
-      type,
-      mimeType,
-      size,
-      cachedAt,
-      lastUsed: Date.now(),
-      metadata: metadata || {},
-    };
-    await this.putItem(item);
-    this.cachedUrls.add(url);
+    if (!this.beginCacheWrite()) {
+      return;
+    }
+    try {
+      const item: CachedMedia = {
+        url,
+        type,
+        mimeType,
+        size,
+        cachedAt,
+        lastUsed: Date.now(),
+        metadata: metadata || {},
+      };
+      await this.putItem(item);
+      this.cachedUrls.add(url);
+    } finally {
+      this.endCacheWrite();
+    }
   }
 
   // ==================== 兼容旧 API ====================
@@ -1258,6 +1365,9 @@ class UnifiedCacheService {
    * 设置 sw-cache-date 响应头用于记录添加时间
    */
   async cacheToCacheStorageOnly(url: string, blob: Blob): Promise<boolean> {
+    if (!this.beginCacheWrite()) {
+      return false;
+    }
     try {
       if (typeof caches === 'undefined') {
         console.warn('[UnifiedCache] caches API not available');
@@ -1277,6 +1387,8 @@ class UnifiedCacheService {
     } catch (error) {
       console.error('[UnifiedCache] Failed to cache to storage only:', error);
       return false;
+    } finally {
+      this.endCacheWrite();
     }
   }
 
@@ -1291,6 +1403,9 @@ class UnifiedCacheService {
     type: CacheMediaType,
     options?: CacheMediaMetadata | CacheMediaFromBlobOptions
   ): Promise<string> {
+    if (!this.beginCacheWrite()) {
+      return this.normalizeRemoteCacheUrl(url);
+    }
     try {
       const cacheUrl = this.normalizeRemoteCacheUrl(url);
       const normalizedOptions =
@@ -1398,6 +1513,8 @@ class UnifiedCacheService {
       this.handleQuotaError(error);
       console.error('[UnifiedCache] Failed to cache media from blob:', error);
       throw error;
+    } finally {
+      this.endCacheWrite();
     }
   }
 

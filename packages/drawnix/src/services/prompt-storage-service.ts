@@ -153,7 +153,11 @@ function normalizePromptHistoryOverride(
     override.sourceSentPrompt ||
     ''
   ).trim();
-  const content = (override.content || override.sentPrompt || sourceContent).trim();
+  const content = (
+    override.content ||
+    override.sentPrompt ||
+    sourceContent
+  ).trim();
 
   if (!sourceContent || !content) {
     return null;
@@ -295,8 +299,9 @@ export async function initPromptStorageCache(): Promise<void> {
     deletedPromptContentsCache = Array.isArray(deletedPromptContents)
       ? deletedPromptContents
       : [];
-    promptHistoryOverridesCache =
-      normalizePromptHistoryOverrides(promptHistoryOverrides);
+    promptHistoryOverridesCache = normalizePromptHistoryOverrides(
+      promptHistoryOverrides
+    );
 
     cacheInitialized = true;
   } catch (error) {
@@ -365,7 +370,10 @@ function ensureCacheInitialized(): void {
 function savePromptHistory(): void {
   if (promptHistoryCache === null) return;
   kvStorageService.set(STORAGE_KEY, promptHistoryCache).catch((error) => {
-    console.error('[PromptStorageService] Failed to save prompt history:', error);
+    console.error(
+      '[PromptStorageService] Failed to save prompt history:',
+      error
+    );
   });
 }
 
@@ -374,9 +382,14 @@ function savePromptHistory(): void {
  */
 function saveImagePromptHistory(): void {
   if (imagePromptHistoryCache === null) return;
-  kvStorageService.set(IMAGE_PROMPT_HISTORY_KEY, imagePromptHistoryCache).catch((error) => {
-    console.error('[PromptStorageService] Failed to save image prompt history:', error);
-  });
+  kvStorageService
+    .set(IMAGE_PROMPT_HISTORY_KEY, imagePromptHistoryCache)
+    .catch((error) => {
+      console.error(
+        '[PromptStorageService] Failed to save image prompt history:',
+        error
+      );
+    });
 }
 
 /**
@@ -384,9 +397,14 @@ function saveImagePromptHistory(): void {
  */
 function saveVideoPromptHistory(): void {
   if (videoPromptHistoryCache === null) return;
-  kvStorageService.set(VIDEO_PROMPT_HISTORY_KEY, videoPromptHistoryCache).catch((error) => {
-    console.error('[PromptStorageService] Failed to save video prompt history:', error);
-  });
+  kvStorageService
+    .set(VIDEO_PROMPT_HISTORY_KEY, videoPromptHistoryCache)
+    .catch((error) => {
+      console.error(
+        '[PromptStorageService] Failed to save video prompt history:',
+        error
+      );
+    });
 }
 
 /**
@@ -466,7 +484,9 @@ export function addPromptHistory(
   let history = promptHistoryCache || [];
 
   // 检查是否已存在相同内容
-  const existingIndex = history.findIndex((item) => item.content === trimmedContent);
+  const existingIndex = history.findIndex(
+    (item) => item.content === trimmedContent
+  );
 
   if (existingIndex >= 0) {
     const existingItem = history[existingIndex];
@@ -511,7 +531,10 @@ export function removePromptHistory(id: string): void {
   const history = promptHistoryCache || [];
   const item = history.find((entry) => entry.id === id);
   if (item && !(deletedPromptContentsCache || []).includes(item.content)) {
-    deletedPromptContentsCache = [...(deletedPromptContentsCache || []), item.content];
+    deletedPromptContentsCache = [
+      ...(deletedPromptContentsCache || []),
+      item.content,
+    ];
     saveDeletedPromptContents();
   }
   promptHistoryCache = history.filter((entry) => entry.id !== id);
@@ -529,14 +552,29 @@ export function clearPromptHistory(): void {
 }
 
 /**
+ * 清空文本、视频和图片提示词历史，保留预设、隐藏记录和用户编辑偏好。
+ */
+export async function clearGenerationPromptHistory(): Promise<void> {
+  promptHistoryCache = [];
+  videoPromptHistoryCache = [];
+  imagePromptHistoryCache = [];
+  await Promise.all([
+    kvStorageService.remove(STORAGE_KEY),
+    kvStorageService.remove(VIDEO_PROMPT_HISTORY_KEY),
+    kvStorageService.remove(IMAGE_PROMPT_HISTORY_KEY),
+  ]);
+  emitPromptStorageChange('delete');
+}
+
+/**
  * 合并远程提示词历史（用于云端同步）
  * 只添加本地不存在的记录，保留本地的置顶状态
  */
 export function mergePromptHistory(remoteHistory: PromptHistoryItem[]): number {
   ensureCacheInitialized();
   const localHistory = promptHistoryCache || [];
-  const localContents = new Set(localHistory.map(item => item.content));
-  
+  const localContents = new Set(localHistory.map((item) => item.content));
+
   let addedCount = 0;
   for (const remoteItem of remoteHistory) {
     if (!localContents.has(remoteItem.content)) {
@@ -682,9 +720,7 @@ export function isPromptContentDeleted(content: string): boolean {
 
 export function deletePromptContents(contents: string[]): void {
   ensureCacheInitialized();
-  const normalized = contents
-    .map((content) => content.trim())
-    .filter(Boolean);
+  const normalized = contents.map((content) => content.trim()).filter(Boolean);
   if (normalized.length === 0) return;
 
   const deleteSet = new Set(normalized);
@@ -754,7 +790,8 @@ export function resolvePromptMetadata(content: string): PromptMetadata {
   ).trim();
 
   return {
-    sourceContent: override?.sourceContent || override?.sourceSentPrompt || source,
+    sourceContent:
+      override?.sourceContent || override?.sourceSentPrompt || source,
     content: resolvedContent,
     title: override?.title,
     tags: override?.tags,
@@ -849,7 +886,9 @@ export function setPromptContentEdited(
   }
 
   const shouldPinNext = normalizedSources.some(
-    (source) => isPromptContentPinned(source) || isPromptContentPinned(resolvePromptContent(source))
+    (source) =>
+      isPromptContentPinned(source) ||
+      isPromptContentPinned(resolvePromptContent(source))
   );
 
   for (const source of normalizedSources) {
@@ -905,7 +944,9 @@ export function addVideoPromptHistory(content: string): void {
   const history = videoPromptHistoryCache || [];
 
   // 检查是否已存在相同内容
-  const existingIndex = history.findIndex((item) => item.content === trimmedContent);
+  const existingIndex = history.findIndex(
+    (item) => item.content === trimmedContent
+  );
 
   if (existingIndex >= 0) {
     // 已存在：更新时间戳并移到最前面
@@ -921,7 +962,9 @@ export function addVideoPromptHistory(content: string): void {
 
   // 新记录插入头部
   const newItem: VideoPromptHistoryItem = {
-    id: `video_prompt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    id: `video_prompt_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`,
     content: trimmedContent,
     timestamp: Date.now(),
   };
@@ -958,11 +1001,13 @@ export function getVideoPromptHistoryContents(): string[] {
 /**
  * 合并远程视频提示词历史（用于云端同步）
  */
-export function mergeVideoPromptHistory(remoteHistory: VideoPromptHistoryItem[]): number {
+export function mergeVideoPromptHistory(
+  remoteHistory: VideoPromptHistoryItem[]
+): number {
   ensureCacheInitialized();
   const localHistory = videoPromptHistoryCache || [];
-  const localContents = new Set(localHistory.map(item => item.content));
-  
+  const localContents = new Set(localHistory.map((item) => item.content));
+
   let addedCount = 0;
   for (const remoteItem of remoteHistory) {
     if (!localContents.has(remoteItem.content)) {
@@ -1013,7 +1058,9 @@ export function addImagePromptHistory(content: string): void {
   const history = imagePromptHistoryCache || [];
 
   // 检查是否已存在相同内容
-  const existingIndex = history.findIndex((item) => item.content === trimmedContent);
+  const existingIndex = history.findIndex(
+    (item) => item.content === trimmedContent
+  );
 
   if (existingIndex >= 0) {
     // 已存在：更新时间戳并移到最前面
@@ -1029,7 +1076,9 @@ export function addImagePromptHistory(content: string): void {
 
   // 新记录插入头部
   const newItem: ImagePromptHistoryItem = {
-    id: `image_prompt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    id: `image_prompt_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`,
     content: trimmedContent,
     timestamp: Date.now(),
   };
@@ -1064,11 +1113,13 @@ export function getImagePromptHistoryContents(): string[] {
 /**
  * 合并远程图片提示词历史（用于云端同步）
  */
-export function mergeImagePromptHistory(remoteHistory: ImagePromptHistoryItem[]): number {
+export function mergeImagePromptHistory(
+  remoteHistory: ImagePromptHistoryItem[]
+): number {
   ensureCacheInitialized();
   const localHistory = imagePromptHistoryCache || [];
-  const localContents = new Set(localHistory.map(item => item.content));
-  
+  const localContents = new Set(localHistory.map((item) => item.content));
+
   let addedCount = 0;
   for (const remoteItem of remoteHistory) {
     if (!localContents.has(remoteItem.content)) {
@@ -1222,8 +1273,12 @@ function sortPresetPrompts(type: PromptType, prompts: string[]): string[] {
     }
     if (leftTypeIndex >= 0) return -1;
     if (rightTypeIndex >= 0) return 1;
-    const leftItem = (promptHistoryCache || []).find((item) => item.content === left);
-    const rightItem = (promptHistoryCache || []).find((item) => item.content === right);
+    const leftItem = (promptHistoryCache || []).find(
+      (item) => item.content === left
+    );
+    const rightItem = (promptHistoryCache || []).find(
+      (item) => item.content === right
+    );
     return (rightItem?.timestamp || 0) - (leftItem?.timestamp || 0);
   });
 
@@ -1247,6 +1302,7 @@ export const promptStorageService = {
   addHistory: addPromptHistory,
   removeHistory: removePromptHistory,
   clearHistory: clearPromptHistory,
+  clearGenerationHistory: clearGenerationPromptHistory,
   togglePin: togglePinPrompt,
   isContentPinned: isPromptContentPinned,
   setContentPinned: setPromptContentPinned,

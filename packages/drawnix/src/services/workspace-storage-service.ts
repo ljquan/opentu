@@ -25,7 +25,11 @@ const IMAGE_CACHE_NAME = 'drawnix-images';
  * 检测 URL 是否为 Base64 data URL
  */
 function isBase64ImageUrl(url: string): boolean {
-  return typeof url === 'string' && url.startsWith('data:image/') && url.includes(';base64,');
+  return (
+    typeof url === 'string' &&
+    url.startsWith('data:image/') &&
+    url.includes(';base64,')
+  );
 }
 
 /**
@@ -47,7 +51,9 @@ async function cacheBase64ImageToVirtualPath(dataUrl: string): Promise<string> {
     const blob = new Blob([bytes], { type: mimeType });
 
     // 生成唯一 ID
-    const id = `img-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+    const id = `img-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2, 10)}`;
     const ext = mimeType.split('/')[1] || 'png';
     const virtualPath = `/__aitu_cache__/image/${id}.${ext}`;
 
@@ -74,7 +80,9 @@ async function cacheBase64ImageToVirtualPath(dataUrl: string): Promise<string> {
  * 迁移画布元素中的 Base64 图片 URL 到虚拟路径
  * 返回是否有元素被迁移
  */
-async function migrateElementsBase64Urls(elements: PlaitElement[]): Promise<boolean> {
+async function migrateElementsBase64Urls(
+  elements: PlaitElement[]
+): Promise<boolean> {
   let migrated = false;
 
   for (const element of elements) {
@@ -91,7 +99,9 @@ async function migrateElementsBase64Urls(elements: PlaitElement[]): Promise<bool
 
     // 递归处理子元素
     if ((element as any).children && Array.isArray((element as any).children)) {
-      const childMigrated = await migrateElementsBase64Urls((element as any).children);
+      const childMigrated = await migrateElementsBase64Urls(
+        (element as any).children
+      );
       if (childMigrated) migrated = true;
     }
   }
@@ -118,7 +128,7 @@ const STATE_KEY = 'workspace_state';
  * Helper to wait for browser idle time
  */
 function waitForIdle(timeout = 50): Promise<void> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
       (window as Window).requestIdleCallback(() => resolve(), { timeout });
     } else {
@@ -133,29 +143,34 @@ function waitForIdle(timeout = 50): Promise<void> {
 async function detectDatabaseVersion(dbName: string): Promise<number> {
   return new Promise((resolve) => {
     if (typeof indexedDB === 'undefined') {
-      console.warn('[WorkspaceStorage] IndexedDB not available, using min version');
+      console.warn(
+        '[WorkspaceStorage] IndexedDB not available, using min version'
+      );
       resolve(WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION);
       return;
     }
-    
+
     // Open without version to get current version
     const request = indexedDB.open(dbName);
-    
+
     request.onsuccess = () => {
       const db = request.result;
       const version = db.version;
       db.close();
-      const targetVersion = Math.max(version, WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION);
+      const targetVersion = Math.max(
+        version,
+        WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION
+      );
       resolve(targetVersion);
     };
-    
+
     request.onerror = (event) => {
       // Try to get version from error event or use a safe high version
       console.error('[WorkspaceStorage] Error detecting DB version:', event);
       // Use a higher version to avoid downgrade - version 10 should be safe
       resolve(10);
     };
-    
+
     request.onblocked = () => {
       // Database is blocked by another connection, use a safe high version
       console.warn('[WorkspaceStorage] DB blocked, using safe version 10');
@@ -173,6 +188,7 @@ class WorkspaceStorageService {
   private stateStore: LocalForage | null = null;
   private initialized: boolean = false;
   private initPromise: Promise<void> | null = null;
+  private writesSuspended = false;
 
   constructor() {
     // Defer store creation until initialization to detect version first
@@ -182,8 +198,10 @@ class WorkspaceStorageService {
    * Create stores with the detected version
    */
   private async createStores(): Promise<void> {
-    const version = await detectDatabaseVersion(WORKSPACE_DB_CONFIG.DATABASE_NAME);
-    
+    const version = await detectDatabaseVersion(
+      WORKSPACE_DB_CONFIG.DATABASE_NAME
+    );
+
     this.foldersStore = localforage.createInstance({
       driver: localforage.INDEXEDDB,
       name: WORKSPACE_DB_CONFIG.DATABASE_NAME,
@@ -214,7 +232,7 @@ class WorkspaceStorageService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     // Ensure we only initialize once even if called concurrently
     if (this.initPromise) {
       await this.initPromise;
@@ -229,7 +247,7 @@ class WorkspaceStorageService {
     try {
       // Create stores with detected version first
       await this.createStores();
-      
+
       await Promise.all([
         this.foldersStore!.ready(),
         this.boardsStore!.ready(),
@@ -238,12 +256,17 @@ class WorkspaceStorageService {
       this.initialized = true;
     } catch (error) {
       console.error('[WorkspaceStorage] Failed to initialize:', error);
-      
+
       // Check if it's a version downgrade error
       const errorMsg = String(error);
-      if (errorMsg.includes("can't be downgraded") || errorMsg.includes('version')) {
-        console.warn('[WorkspaceStorage] Version conflict detected, attempting recovery...');
-        
+      if (
+        errorMsg.includes("can't be downgraded") ||
+        errorMsg.includes('version')
+      ) {
+        console.warn(
+          '[WorkspaceStorage] Version conflict detected, attempting recovery...'
+        );
+
         // Try to delete the database and reinitialize
         try {
           await this.deleteDatabase();
@@ -259,7 +282,7 @@ class WorkspaceStorageService {
           console.error('[WorkspaceStorage] Recovery failed:', recoveryError);
         }
       }
-      
+
       throw new Error('Workspace storage initialization failed');
     }
   }
@@ -273,8 +296,10 @@ class WorkspaceStorageService {
         resolve();
         return;
       }
-      
-      const request = indexedDB.deleteDatabase(WORKSPACE_DB_CONFIG.DATABASE_NAME);
+
+      const request = indexedDB.deleteDatabase(
+        WORKSPACE_DB_CONFIG.DATABASE_NAME
+      );
       request.onsuccess = () => {
         resolve();
       };
@@ -316,6 +341,7 @@ class WorkspaceStorageService {
   // ========== Folder Operations ==========
 
   async saveFolder(folder: Folder): Promise<void> {
+    if (this.writesSuspended) return;
     await this.ensureInitialized();
     await this.getFoldersStore().setItem(folder.id, folder);
   }
@@ -344,6 +370,7 @@ class WorkspaceStorageService {
   // ========== Board Operations ==========
 
   async saveBoard(board: Board): Promise<void> {
+    if (this.writesSuspended) return;
     await this.ensureInitialized();
     await this.getBoardsStore().setItem(board.id, board);
   }
@@ -354,13 +381,16 @@ class WorkspaceStorageService {
     try {
       board = await this.getBoardsStore().getItem<Board>(id);
     } catch (error) {
-      console.error(`[Storage] Failed to load board ${id} from IndexedDB:`, error);
+      console.error(
+        `[Storage] Failed to load board ${id} from IndexedDB:`,
+        error
+      );
       return null;
     }
     if (board && board.elements) {
       // 迁移 fill 数据格式，确保渐变填充不会显示为黑色
       board.elements = migrateElementsFillData(board.elements);
-      
+
       // 迁移 Base64 图片 URL 到虚拟路径（同步等待，确保画布显示迁移后的数据）
       try {
         const migrated = await migrateElementsBase64Urls(board.elements);
@@ -390,7 +420,7 @@ class WorkspaceStorageService {
     });
     // Wait for browser idle time after IndexedDB operation
     await waitForIdle();
-    
+
     // 迁移 Base64 图片 URL 到虚拟路径
     for (const board of boards) {
       if (board.elements) {
@@ -401,11 +431,14 @@ class WorkspaceStorageService {
             // console.log(`[Migration] Board ${board.id}: Base64 URLs migrated and saved`);
           }
         } catch (error) {
-          console.error(`[Migration] Board ${board.id}: Failed to migrate`, error);
+          console.error(
+            `[Migration] Board ${board.id}: Failed to migrate`,
+            error
+          );
         }
       }
     }
-    
+
     return boards.sort((a, b) => a.order - b.order);
   }
 
@@ -433,7 +466,7 @@ class WorkspaceStorageService {
     });
     // Wait for browser idle time after IndexedDB operation
     await waitForIdle();
-    
+
     return boards.sort((a, b) => a.order - b.order);
   }
 
@@ -468,6 +501,7 @@ class WorkspaceStorageService {
   // ========== State Operations ==========
 
   async saveState(state: WorkspaceState): Promise<void> {
+    if (this.writesSuspended) return;
     await this.ensureInitialized();
     await this.getStateStore().setItem(STATE_KEY, state);
   }
@@ -499,6 +533,29 @@ class WorkspaceStorageService {
       this.getBoardsStore().clear(),
       this.getStateStore().clear(),
     ]);
+  }
+
+  /**
+   * 清空本地画板内容，同时保留侧栏宽度和折叠状态等用户偏好。
+   */
+  async clearContent(): Promise<void> {
+    await this.ensureInitialized();
+    const state = await this.loadState();
+    this.writesSuspended = true;
+    try {
+      await Promise.all([
+        this.getFoldersStore().clear(),
+        this.getBoardsStore().clear(),
+        this.getStateStore().setItem(STATE_KEY, {
+          ...state,
+          currentBoardId: null,
+          expandedFolderIds: [],
+        }),
+      ]);
+    } catch (error) {
+      this.writesSuspended = false;
+      throw error;
+    }
   }
 
   private async ensureInitialized(): Promise<void> {

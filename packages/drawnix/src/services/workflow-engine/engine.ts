@@ -29,6 +29,7 @@ export class WorkflowEngine {
   private workflows: Map<string, Workflow> = new Map();
   private abortControllers: Map<string, AbortController> = new Map();
   private events$ = new Subject<WorkflowEvent>();
+  private destroyed = false;
   private options: Omit<WorkflowEngineOptions, 'forceFallbackExecutor'> & {
     stepTimeout: number;
     continueOnError: boolean;
@@ -196,6 +197,9 @@ export class WorkflowEngine {
       await this.executeSteps(workflow, abortController?.signal);
 
       // 检查是否所有步骤都完成
+      if (this.destroyed) {
+        return;
+      }
       const allCompleted = workflow.steps.every(
         (s) => s.status === 'completed' || s.status === 'skipped'
       );
@@ -226,6 +230,9 @@ export class WorkflowEngine {
         });
       }
     } catch (error: any) {
+      if (this.destroyed) {
+        return;
+      }
       // 处理执行错误
       workflow.status = 'failed';
       workflow.error = error.message || 'Workflow execution failed';
@@ -605,6 +612,7 @@ export class WorkflowEngine {
    * 销毁引擎
    */
   destroy(): void {
+    this.destroyed = true;
     // 取消所有正在执行的工作流
     for (const [workflowId, abortController] of this.abortControllers) {
       abortController.abort();

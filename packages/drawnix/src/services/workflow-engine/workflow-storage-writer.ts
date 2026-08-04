@@ -14,6 +14,16 @@ const WORKFLOWS_STORE = APP_DB_STORES.WORKFLOWS;
  * 工作流存储写入器
  */
 class WorkflowStorageWriter {
+  private writesPaused = false;
+
+  pauseWrites(): void {
+    this.writesPaused = true;
+  }
+
+  resumeWrites(): void {
+    this.writesPaused = false;
+  }
+
   /**
    * 检查是否可用
    */
@@ -38,17 +48,28 @@ class WorkflowStorageWriter {
    * 降级模式下 IndexedDB 可能不可用，失败时静默跳过，不阻塞工作流执行
    */
   async saveWorkflow(workflow: Workflow): Promise<void> {
+    if (this.writesPaused) {
+      return;
+    }
+
     try {
       const db = await this.getDB();
-      
+      if (this.writesPaused) {
+        return;
+      }
+
       // 检查 store 是否存在
       if (!db.objectStoreNames.contains(WORKFLOWS_STORE)) {
         return;
       }
-      
+
       await new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(WORKFLOWS_STORE, 'readwrite');
         const store = transaction.objectStore(WORKFLOWS_STORE);
+        if (this.writesPaused) {
+          resolve();
+          return;
+        }
         const request = store.put(workflow);
 
         request.onerror = () => {
@@ -84,11 +105,15 @@ class WorkflowStorageWriter {
    * 删除工作流
    */
   async deleteWorkflow(workflowId: string): Promise<void> {
-    if (!workflowId) {
+    if (!workflowId || this.writesPaused) {
       return;
     }
 
     const db = await this.getDB();
+    if (this.writesPaused) {
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(WORKFLOWS_STORE, 'readwrite');
       const store = transaction.objectStore(WORKFLOWS_STORE);
@@ -96,6 +121,25 @@ class WorkflowStorageWriter {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
+    });
+  }
+
+  async clearAllWorkflows(): Promise<void> {
+    const db = await this.getDB();
+    if (!db.objectStoreNames.contains(WORKFLOWS_STORE)) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(WORKFLOWS_STORE, 'readwrite');
+      transaction.objectStore(WORKFLOWS_STORE).clear();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(transaction.error || new Error('Workflow storage clear failed'));
+      transaction.onabort = () =>
+        reject(
+          transaction.error || new Error('Workflow storage clear aborted')
+        );
     });
   }
 

@@ -27,6 +27,15 @@ import {
   setBroadcastCallback,
 } from './task-queue/utils/message-bus';
 import { setSwRuntimeBridge } from './task-queue/sw-runtime-bridge';
+import {
+  beginMediaCacheOperation,
+  getMediaCacheEpoch,
+  isMediaCacheEpochCurrent,
+  pauseMediaCacheWrites,
+  resumeMediaCacheWrites,
+  waitForMediaCacheOperations,
+} from './task-queue/media-cache-epoch';
+import { clearThumbnailCache } from './task-queue/utils/thumbnail-utils';
 import { getSafeErrorMessage } from './task-queue/utils/sanitize-utils';
 import {
   shouldBypassAppShellCacheForLazyChunkRecovery,
@@ -263,6 +272,7 @@ setSwRuntimeBridge({
   clearCrashSnapshots,
   getCacheStats,
   deleteCacheByUrl,
+  clearImageCache,
   getInternalFetchLogs,
   getAppVersion: () => APP_VERSION,
   getImageCacheName: () => IMAGE_CACHE_NAME,
@@ -3134,6 +3144,7 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
 
   // Handle thumbnail generation request from main thread
   if (event.data && event.data.type === 'GENERATE_THUMBNAIL') {
+    const requestCacheEpoch = getMediaCacheEpoch();
     const { url, mediaType, blob: arrayBuffer, mimeType } = event.data;
     if (url && mediaType && arrayBuffer) {
       // 将 ArrayBuffer 转换为 Blob
@@ -3146,7 +3157,13 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, url, mediaType);
+        generateThumbnailAsync(
+          blob,
+          url,
+          mediaType,
+          undefined,
+          requestCacheEpoch
+        );
       })();
     }
     return;
@@ -3901,18 +3918,43 @@ async function deleteCacheBatch(urls: string[]): Promise<void> {
 
 // 清空所有图片缓存
 async function clearImageCache(): Promise<void> {
+  pauseMediaCacheWrites();
   try {
-    const cache = await caches.open(IMAGE_CACHE_NAME);
-    const requests = await cache.keys();
-
-    for (const request of requests) {
-      await cache.delete(request);
-    }
-
-    // console.log(`Service Worker: Cleared ${requests.length} cache entries`);
+    await waitForMediaCacheOperations();
+    pendingImageRequests.clear();
+    completedImageRequests.clear();
+    pendingVideoRequests.clear();
+    videoBlobCache.clear();
+    cacheFailureNotificationCache.clear();
+    failedUrlCache.clear();
+    await Promise.all([
+      caches.delete(IMAGE_CACHE_NAME),
+      clearThumbnailCache(false),
+    ]);
   } catch (error) {
     console.error('Service Worker: Failed to clear image cache:', error);
     throw error;
+  } finally {
+    resumeMediaCacheWrites();
+  }
+}
+
+async function putMediaCacheEntry(
+  cache: Cache,
+  request: RequestInfo | URL,
+  response: Response,
+  cacheEpoch: number
+): Promise<boolean> {
+  const finishOperation = beginMediaCacheOperation(cacheEpoch);
+  if (!finishOperation) {
+    return false;
+  }
+
+  try {
+    await cache.put(request, response);
+    return true;
+  } finally {
+    finishOperation();
   }
 }
 
@@ -3936,10 +3978,7 @@ async function notifyImageCached(
 function shouldNotifyCacheFailure(url: string): boolean {
   const now = Date.now();
   const lastNotifiedAt = cacheFailureNotificationCache.get(url);
-  if (
-    lastNotifiedAt &&
-    now - lastNotifiedAt < CACHE_FAILURE_NOTIFICATION_TTL
-  ) {
+  if (lastNotifiedAt && now - lastNotifiedAt < CACHE_FAILURE_NOTIFICATION_TTL) {
     return false;
   }
 
@@ -4784,6 +4823,7 @@ async function hasCachedMediaResponse(
 // 处理缓存 URL 请求 (/__aitu_cache__/{type}/{taskId}.{ext})
 // 从 Cache API 获取合并媒体并返回，视频支持 Range 请求
 async function handleCacheUrlRequest(request: Request): Promise<Response> {
+  const requestCacheEpoch = getMediaCacheEpoch();
   const requestId = Math.random().toString(36).substring(2, 10);
   const url = new URL(request.url);
   const rangeHeader = request.headers.get('range');
@@ -4864,7 +4904,13 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, url.pathname, 'image');
+        generateThumbnailAsync(
+          blob,
+          url.pathname,
+          'image',
+          undefined,
+          requestCacheEpoch
+        );
       }
 
       if (isVideo) {
@@ -4912,6 +4958,7 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
 // 处理素材库 URL 请求 (/asset-library/{assetId}.{ext})
 // 从 Cache API 获取素材库媒体并返回，支持 Range 请求（视频）
 async function handleAssetLibraryRequest(request: Request): Promise<Response> {
+  const requestCacheEpoch = getMediaCacheEpoch();
   const requestId = Math.random().toString(36).substring(2, 10);
   const url = new URL(request.url);
   const rangeHeader = request.headers.get('range');
@@ -4988,7 +5035,13 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, cacheKey, 'image');
+        generateThumbnailAsync(
+          blob,
+          cacheKey,
+          'image',
+          undefined,
+          requestCacheEpoch
+        );
       }
 
       if (isVideo && rangeHeader) {
@@ -5040,6 +5093,7 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
 async function handleAudioRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const requestId = Math.random().toString(36).substring(2, 10);
+  const requestCacheEpoch = getMediaCacheEpoch();
   const rangeHeader = request.headers.get('range');
   const dedupeUrl = buildNormalizedCacheUrl(url);
   const dedupeKey = dedupeUrl.toString();
@@ -5076,12 +5130,19 @@ async function handleAudioRequest(request: Request): Promise<Response> {
     }
 
     if (response.type === 'opaque') {
-      cache.put(dedupeKey, response.clone()).catch((error) => {
-        console.warn(
-          `Service Worker [Audio-${requestId}]: Failed to cache opaque audio response:`,
-          error
-        );
-      });
+      if (isMediaCacheEpochCurrent(requestCacheEpoch)) {
+        putMediaCacheEntry(
+          cache,
+          dedupeKey,
+          response.clone(),
+          requestCacheEpoch
+        ).catch((error) => {
+          console.warn(
+            `Service Worker [Audio-${requestId}]: Failed to cache opaque audio response:`,
+            error
+          );
+        });
+      }
       return response;
     }
 
@@ -5105,7 +5166,14 @@ async function handleAudioRequest(request: Request): Promise<Response> {
       },
     });
 
-    await cache.put(dedupeKey, cacheResponse.clone());
+    if (isMediaCacheEpochCurrent(requestCacheEpoch)) {
+      await putMediaCacheEntry(
+        cache,
+        dedupeKey,
+        cacheResponse.clone(),
+        requestCacheEpoch
+      );
+    }
 
     return createAudioResponse(blob, rangeHeader, requestId, mimeType);
   } catch (error) {
@@ -5144,6 +5212,7 @@ const VIDEO_LOAD_ERROR = Symbol('VIDEO_LOAD_ERROR');
 async function handleVideoRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const requestId = Math.random().toString(36).substring(2, 10);
+  const requestCacheEpoch = getMediaCacheEpoch();
   // console.log(`Service Worker [Video-${requestId}]: Handling video request:`, url.href);
 
   try {
@@ -5189,7 +5258,8 @@ async function handleVideoRequest(request: Request): Promise<Response> {
             new Blob([], { type: 'video/mp4' }),
             dedupeKey,
             'video',
-            [thumbnailSize]
+            [thumbnailSize],
+            requestCacheEpoch
           );
         } catch {
           return;
@@ -5264,7 +5334,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
         const videoSizeMB = videoBlob.size / (1024 * 1024);
 
         // 恢复到内存缓存（用于后续快速访问）
-        if (videoSizeMB < 50) {
+        if (videoSizeMB < 50 && isMediaCacheEpochCurrent(requestCacheEpoch)) {
           videoBlobCache.set(dedupeKey, {
             blob: videoBlob,
             timestamp: Date.now(),
@@ -5312,31 +5382,43 @@ async function handleVideoRequest(request: Request): Promise<Response> {
         // console.log(`Service Worker [Video-${requestId}]: 视频下载完成 (大小: ${videoSizeMB.toFixed(2)}MB)`);
 
         // 缓存视频Blob（仅缓存小于50MB的视频）
-        if (videoSizeMB < 50) {
-          // 1. 内存缓存（用于当前会话快速访问）
-          videoBlobCache.set(dedupeKey, {
-            blob: videoBlob,
-            timestamp: Date.now(),
-          });
-          // 2. 持久化到 Cache API（用于跨会话持久化）
+        const finishCacheOperation =
+          videoSizeMB < 50 ? beginMediaCacheOperation(requestCacheEpoch) : null;
+        if (finishCacheOperation) {
           try {
-            const cache = await caches.open(IMAGE_CACHE_NAME);
-            const cacheResponse = new Response(videoBlob, {
-              headers: {
-                'Content-Type': videoBlob.type || 'video/mp4',
-                'Content-Length': videoBlob.size.toString(),
-                [SW_CACHE_DATE_HEADER]: Date.now().toString(),
-                [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
-                'sw-video-size': videoBlob.size.toString(),
-              },
+            // 1. 内存缓存（用于当前会话快速访问）
+            videoBlobCache.set(dedupeKey, {
+              blob: videoBlob,
+              timestamp: Date.now(),
             });
-            await cache.put(dedupeKey, cacheResponse);
-            const { generateThumbnailAsync } = await import(
-              './task-queue/utils/thumbnail-utils'
-            );
-            generateThumbnailAsync(videoBlob, dedupeKey, 'video');
-          } catch {
-            // 持久化到 Cache API 失败，内存缓存仍可用
+            // 2. 持久化到 Cache API（用于跨会话持久化）
+            try {
+              const cache = await caches.open(IMAGE_CACHE_NAME);
+              const cacheResponse = new Response(videoBlob, {
+                headers: {
+                  'Content-Type': videoBlob.type || 'video/mp4',
+                  'Content-Length': videoBlob.size.toString(),
+                  [SW_CACHE_DATE_HEADER]: Date.now().toString(),
+                  [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
+                  'sw-video-size': videoBlob.size.toString(),
+                },
+              });
+              await cache.put(dedupeKey, cacheResponse);
+              const { generateThumbnailAsync } = await import(
+                './task-queue/utils/thumbnail-utils'
+              );
+              generateThumbnailAsync(
+                videoBlob,
+                dedupeKey,
+                'video',
+                undefined,
+                requestCacheEpoch
+              );
+            } catch {
+              // 持久化到 Cache API 失败，内存缓存仍可用
+            }
+          } finally {
+            finishCacheOperation();
           }
         }
 
@@ -5357,7 +5439,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
     // 下载完成后从字典中移除
     downloadPromise.finally(() => {
       const entry = pendingVideoRequests.get(dedupeKey);
-      if (entry) {
+      if (entry?.promise === downloadPromise) {
         // const totalTime = Date.now() - entry.timestamp;
         // console.log(`Service Worker [Video-${requestId}]: 视频下载完成 (耗时${totalTime}ms，请求计数: ${entry.count})`);
         pendingVideoRequests.delete(dedupeKey);
@@ -6094,13 +6176,15 @@ async function handleImageRequest(request: Request): Promise<Response> {
     cleanupStaleRequests();
 
     // 创建请求处理Promise并存储到去重字典
+    const requestCacheEpoch = getMediaCacheEpoch();
     const requestPromise = handleImageRequestInternal(
       originalRequest,
       request.url,
       dedupeKey,
       requestId,
       bypassCache,
-      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined
+      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined,
+      requestCacheEpoch
     );
 
     // 将Promise存储到去重字典中，包含时间戳和计数
@@ -6118,7 +6202,11 @@ async function handleImageRequest(request: Request): Promise<Response> {
     requestPromise
       .then((response) => {
         // 请求成功，将响应存入已完成缓存
-        if (response && response.ok) {
+        if (
+          response &&
+          response.ok &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
           completedImageRequests.set(dedupeKey, {
             response: response.clone(),
             timestamp: Date.now(),
@@ -6131,7 +6219,7 @@ async function handleImageRequest(request: Request): Promise<Response> {
       })
       .finally(() => {
         const entry = pendingImageRequests.get(dedupeKey);
-        if (entry) {
+        if (entry?.promise === requestPromise) {
           // const totalTime = Date.now() - entry.timestamp;
           // const allRequestIds = [entry.originalRequestId, ...entry.duplicateRequestIds || []];
           // console.log(`Service Worker [${requestId}]: 请求完成 (耗时${totalTime}ms，总计数: ${entry.count}，涉及请求IDs: [${allRequestIds.join(', ')}]):`, dedupeKey);
@@ -6186,7 +6274,8 @@ async function handleImageRequestInternal(
   dedupeKey: string,
   requestId: string,
   bypassCache = false,
-  requestedThumbnailSize?: 'small' | 'large'
+  requestedThumbnailSize?: 'small' | 'large',
+  requestCacheEpoch = getMediaCacheEpoch()
 ): Promise<Response> {
   try {
     // console.log(`Service Worker [${requestId}]: 开始处理图片请求:`, dedupeKey);
@@ -6228,11 +6317,20 @@ async function handleImageRequestInternal(
           // 继续执行后面的网络请求逻辑
         } else {
           // 如果是预览图请求且预览图不存在，异步生成预览图（不阻塞响应）
-          if (requestedThumbnailSize) {
+          if (
+            requestedThumbnailSize &&
+            isMediaCacheEpochCurrent(requestCacheEpoch)
+          ) {
             const { generateThumbnailAsync } = await import(
               './task-queue/utils/thumbnail-utils'
             );
-            generateThumbnailAsync(blob, originalRequest.url, 'image');
+            generateThumbnailAsync(
+              blob,
+              originalRequest.url,
+              'image',
+              undefined,
+              requestCacheEpoch
+            );
           }
 
           const cacheDate = cachedResponse.headers.get(SW_CACHE_DATE_HEADER);
@@ -6256,9 +6354,17 @@ async function handleImageRequestInternal(
             });
 
             // 用新时间戳重新缓存（使用 canonical key 作为键）
-            if (originalRequest.url.startsWith('http')) {
-              await cache.put(dedupeKey, refreshedResponse.clone());
-              if (requestUrl !== dedupeKey) {
+            if (
+              originalRequest.url.startsWith('http') &&
+              isMediaCacheEpochCurrent(requestCacheEpoch)
+            ) {
+              const cached = await putMediaCacheEntry(
+                cache,
+                dedupeKey,
+                refreshedResponse.clone(),
+                requestCacheEpoch
+              );
+              if (cached && requestUrl !== dedupeKey) {
                 await cache.delete(requestUrl);
               }
             }
@@ -6278,9 +6384,17 @@ async function handleImageRequestInternal(
               },
             });
 
-            if (originalRequest.url.startsWith('http')) {
-              await cache.put(dedupeKey, refreshedResponse.clone());
-              if (requestUrl !== dedupeKey) {
+            if (
+              originalRequest.url.startsWith('http') &&
+              isMediaCacheEpochCurrent(requestCacheEpoch)
+            ) {
+              const cached = await putMediaCacheEntry(
+                cache,
+                dedupeKey,
+                refreshedResponse.clone(),
+                requestCacheEpoch
+              );
+              if (cached && requestUrl !== dedupeKey) {
                 await cache.delete(requestUrl);
               }
             }
@@ -6553,7 +6667,10 @@ async function handleImageRequestInternal(
       });
       
       try {
-        if (originalRequest.url.startsWith('http')) {
+        if (
+          originalRequest.url.startsWith('http') &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
           await cache.put(originalRequest, corsResponse.clone());
           await notifyImageCached(requestUrl, 0, 'image/png');
           await checkStorageQuota();
@@ -6593,10 +6710,21 @@ async function handleImageRequestInternal(
 
       // 尝试缓存响应，处理存储限制错误
       try {
-        if (originalRequest.url.startsWith('http')) {
-          await cache.put(dedupeKey, corsResponse.clone());
-          if (requestUrl !== dedupeKey) {
+        if (
+          originalRequest.url.startsWith('http') &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
+          const cached = await putMediaCacheEntry(
+            cache,
+            dedupeKey,
+            corsResponse.clone(),
+            requestCacheEpoch
+          );
+          if (cached && requestUrl !== dedupeKey) {
             await cache.delete(requestUrl);
+          }
+          if (!cached) {
+            return corsResponse;
           }
           // console.log(`Service Worker: Normal response cached (${imageSizeMB.toFixed(2)}MB) with 30-day expiry and timestamp`);
           // 通知主线程图片已缓存
@@ -6609,7 +6737,13 @@ async function handleImageRequestInternal(
           const { generateThumbnailAsync } = await import(
             './task-queue/utils/thumbnail-utils'
           );
-          generateThumbnailAsync(blob, dedupeKey, 'image');
+          generateThumbnailAsync(
+            blob,
+            dedupeKey,
+            'image',
+            undefined,
+            requestCacheEpoch
+          );
         }
       } catch (cacheError) {
         console.warn(

@@ -41,6 +41,7 @@ export const RPC_METHODS = {
 
   // Cache management
   CACHE_DELETE: 'cache:delete',
+  CACHE_CLEAR_ALL: 'cache:clearAll',
 
   // Health check
   PING: 'ping',
