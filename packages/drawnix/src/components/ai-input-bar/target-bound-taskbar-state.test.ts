@@ -129,4 +129,18 @@ describe('target-bound-taskbar-state', () => {
       false
     );
   });
+
+  it('选择多张时不生成目标替换参数', () => {
+    expect(
+      buildBoundTargetGenerationParams(
+        {
+          elementId: 'image-a',
+          prompt: '生成多个候选图',
+          generationAnchorId: 'anchor-a',
+          generationTaskId: 'task-a',
+        },
+        5
+      )
+    ).toBeNull();
+  });
 });

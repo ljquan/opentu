@@ -119,9 +119,10 @@ export function resolveBoundTargetSuppression(
 }
 
 export function buildBoundTargetGenerationParams(
-  target: BoundTargetGenerationMetadata | null
+  target: BoundTargetGenerationMetadata | null,
+  count = 1
 ): Record<string, string | undefined> | null {
-  if (!target) return null;
+  if (!target || count > 1) return null;
   return {
     generationMode: 'image_to_image',
     replaceElementId: target.elementId,

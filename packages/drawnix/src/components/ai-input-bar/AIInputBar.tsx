@@ -3478,9 +3478,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           override?.selectedModelRef ?? selectedModelRef;
         const effectiveSelectedParams =
           override?.selectedParams ?? selectedParams;
-        const effectiveSelectedCount = activeBoundImageTarget
-          ? 1
-          : override?.selectedCount ?? selectedCount;
+        const effectiveSelectedCount = override?.selectedCount ?? selectedCount;
         const appendToCurrentChatSession =
           override?.appendToCurrentChatSession ?? false;
         const shouldClearLocalInput = !override && !activeBoundImageTarget;
@@ -3621,8 +3619,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 : undefined,
           });
           const boundTargetGenerationParams = buildBoundTargetGenerationParams(
-            activeBoundImageTarget
+            activeBoundImageTarget,
+            effectiveSelectedCount
           );
+          const replacementBoundImageTarget = boundTargetGenerationParams
+            ? activeBoundImageTarget
+            : null;
           if (boundTargetGenerationParams) {
             parsedParams.extraParams = {
               ...(parsedParams.extraParams || {}),
@@ -3911,8 +3913,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       requestedCount: 1,
                       zoom,
                       prompt: parsedParams.prompt,
-                      targetElementId: activeBoundImageTarget?.elementId,
-                      sourceTaskId: activeBoundImageTarget?.generationTaskId,
+                      targetElementId: replacementBoundImageTarget?.elementId,
+                      sourceTaskId:
+                        replacementBoundImageTarget?.generationTaskId,
                       title: workflowMessageData.name || '图片生成',
                       ...buildImageGenerationAnchorPresentationPatch(
                         'submitted'
@@ -3951,8 +3954,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       ? 1
                       : requestedCount,
                     prompt: parsedParams.prompt,
-                    targetElementId: activeBoundImageTarget?.elementId,
-                    sourceTaskId: activeBoundImageTarget?.generationTaskId,
+                    targetElementId: replacementBoundImageTarget?.elementId,
+                    sourceTaskId: replacementBoundImageTarget?.generationTaskId,
                     batchId: shouldCreateIndependentBatchAnchors
                       ? workflowBatchId
                       : undefined,
