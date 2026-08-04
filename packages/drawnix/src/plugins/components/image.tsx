@@ -170,7 +170,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     }
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentImageUrlRef.current = props.imageItem.url;
     fallbackAttemptedUrlRef.current = null;
     clearFallbackBlobUrl();
