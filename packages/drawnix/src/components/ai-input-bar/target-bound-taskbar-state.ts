@@ -12,6 +12,46 @@ interface BoundTargetGenerationMetadata {
   generationAnchorId?: string;
 }
 
+export interface BoundTargetPromptReuseInput {
+  key: string;
+  currentPrompt: string;
+  suggestion: string | null;
+  isComposing?: boolean;
+  hasModifier?: boolean;
+  menuOpen?: boolean;
+}
+
+export function normalizeBoundTargetPromptSuggestion(
+  prompt: string | null | undefined
+): string | null {
+  const normalizedPrompt = prompt?.trim() || '';
+  return normalizedPrompt ? normalizedPrompt : null;
+}
+
+export function resolveBoundTargetPromptSuggestion(
+  prompt: string | null | undefined,
+  elementId: string,
+  dismissedElementId: string | null
+): string | null {
+  if (elementId === dismissedElementId) return null;
+  return normalizeBoundTargetPromptSuggestion(prompt);
+}
+
+export function shouldReuseBoundTargetPrompt({
+  key,
+  currentPrompt,
+  suggestion,
+  isComposing = false,
+  hasModifier = false,
+  menuOpen = false,
+}: BoundTargetPromptReuseInput): boolean {
+  if (!suggestion || currentPrompt.length > 0 || isComposing || hasModifier) {
+    return false;
+  }
+  if (menuOpen) return false;
+  return key === ' ' || key === 'Spacebar' || key === 'Enter';
+}
+
 function getBrowserStorage(): WritableStorage | null {
   if (typeof window === 'undefined') return null;
   try {

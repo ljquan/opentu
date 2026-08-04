@@ -2,7 +2,7 @@
 
 ### Requirement: Generated Images SHALL Preserve Lightweight Target Metadata
 
-The system SHALL preserve enough metadata to restore prompt editing without storing media binaries or full task history in canvas elements.
+The system SHALL preserve enough metadata to offer prompt reuse without storing media binaries or full task history in canvas elements.
 
 #### Scenario: Insert a generated image
 
@@ -15,4 +15,5 @@ The system SHALL preserve enough metadata to restore prompt editing without stor
 - **GIVEN** a generated image remains on the canvas
 - **AND** detailed task history is unavailable
 - **WHEN** the image is selected
-- **THEN** the AI input bar SHALL restore the prompt from image metadata
+- **THEN** the AI input bar SHALL offer the prompt from image metadata as a reusable suggestion
+- **AND** SHALL NOT insert it into the editable prompt until the user explicitly reuses it

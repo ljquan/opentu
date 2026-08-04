@@ -188,7 +188,9 @@ import {
   buildBoundTargetGenerationParams,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
+  resolveBoundTargetPromptSuggestion,
   resolveBoundTargetSuppression,
+  shouldReuseBoundTargetPrompt,
 } from './target-bound-taskbar-state';
 
 /**
@@ -1331,6 +1333,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [boundImageTarget, setBoundImageTarget] =
       useState<BoundImageTarget | null>(null);
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
+    const [boundPromptSuggestion, setBoundPromptSuggestion] = useState<
+      string | null
+    >(null);
+    const dismissedBoundPromptElementIdRef = useRef<string | null>(null);
     const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
       useState(() => readBoundTargetDismissHintCount());
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
@@ -2938,9 +2944,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         }
 
         setBoundImageTarget(target);
+        boundImageTargetRef.current = target;
         setBoundInputLayoutTick((tick) => tick + 1);
         if (!target) {
           lastBoundImageTargetKeyRef.current = null;
+          dismissedBoundPromptElementIdRef.current = null;
+          setBoundPromptSuggestion(null);
           setBoundTargetError(null);
           return;
         }
@@ -2964,10 +2973,26 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         lastBoundImageTargetKeyRef.current = targetKey;
         setBoundTargetError(null);
         setGenerationType('image');
-        setPrompt(target.prompt);
         if (isNewTarget) {
+          dismissedBoundPromptElementIdRef.current = null;
+          setPrompt('');
+          setBoundPromptSuggestion(
+            resolveBoundTargetPromptSuggestion(
+              target.prompt,
+              target.elementId,
+              dismissedBoundPromptElementIdRef.current
+            )
+          );
           setUploadedContent([]);
           setKnowledgeContextRefs([]);
+        } else {
+          setBoundPromptSuggestion(
+            resolveBoundTargetPromptSuggestion(
+              target.prompt,
+              target.elementId,
+              dismissedBoundPromptElementIdRef.current
+            )
+          );
         }
         setSelectedContent([]);
         selectedFrameRef.current = null;
@@ -2978,6 +3003,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       []
     );
 
+    const dismissBoundPromptSuggestion = useCallback(() => {
+      const elementId = boundImageTargetRef.current?.elementId;
+      dismissedBoundPromptElementIdRef.current = elementId || null;
+      setBoundPromptSuggestion(null);
+    }, []);
+
     const handleDismissBoundImageTarget = useCallback(() => {
       const target = boundImageTarget;
       if (!target) return;
@@ -2986,12 +3017,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       lastBoundImageTargetKeyRef.current = null;
       boundImageTargetRef.current = null;
       setBoundImageTarget(null);
+      dismissBoundPromptSuggestion();
       setBoundTargetError(null);
       setBoundInputLayoutTick((tick) => tick + 1);
       setBoundTargetDismissHintCount(
         recordBoundTargetDismiss(boundTargetDismissHintCount)
       );
-    }, [boundImageTarget, boundTargetDismissHintCount]);
+    }, [
+      boundImageTarget,
+      boundTargetDismissHintCount,
+      dismissBoundPromptSuggestion,
+    ]);
 
     const handleBoundInputViewportChange = useCallback(() => {
       setBoundInputLayoutTick((tick) => tick + 1);
@@ -5048,6 +5084,33 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           return;
         }
 
+        if (
+          boundPromptSuggestion &&
+          shouldReuseBoundTargetPrompt({
+            key: event.key,
+            currentPrompt: prompt,
+            suggestion: boundPromptSuggestion,
+            isComposing: event.nativeEvent.isComposing,
+            hasModifier:
+              event.shiftKey || event.altKey || event.ctrlKey || event.metaKey,
+            menuOpen:
+              modelDropdownOpen || paramsDropdownOpen || countDropdownOpen,
+          })
+        ) {
+          event.preventDefault();
+          setPrompt(boundPromptSuggestion);
+          promptRef.current = boundPromptSuggestion;
+          dismissBoundPromptSuggestion();
+          setIsInspirationSendGuideActive(false);
+          requestAnimationFrame(() => {
+            const input = inputRef.current;
+            if (!input) return;
+            input.selectionStart = input.value.length;
+            input.selectionEnd = input.value.length;
+          });
+          return;
+        }
+
         if (event.key === 'Enter') {
           event.preventDefault();
           analytics.track('ai_input_submit_keyboard');
@@ -5061,7 +5124,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           return;
         }
       },
-      [handleGenerate]
+      [
+        boundPromptSuggestion,
+        countDropdownOpen,
+        dismissBoundPromptSuggestion,
+        handleGenerate,
+        modelDropdownOpen,
+        paramsDropdownOpen,
+        prompt,
+      ]
     );
 
     // Handle input focus
@@ -5094,6 +5165,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newValue = e.target.value;
         const cursorPos = e.target.selectionStart || newValue.length;
+        dismissBoundPromptSuggestion();
         setPrompt(newValue);
         setIsInspirationSendGuideActive(false);
 
@@ -5113,7 +5185,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           }
         }
       },
-      []
+      [dismissBoundPromptSuggestion]
+    );
+
+    const handleTaskbarClickCapture = useCallback(
+      (event: React.MouseEvent<HTMLDivElement>) => {
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest('textarea')) {
+          return;
+        }
+        if (target.closest('button, [role="button"], input, select')) {
+          dismissBoundPromptSuggestion();
+        }
+      },
+      [dismissBoundPromptSuggestion]
     );
 
     const sendButtonTrackParams = useMemo(
@@ -5268,6 +5353,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             }
           )}
           style={boundInputStyle}
+          onClickCapture={handleTaskbarClickCapture}
           data-testid="ai-input-bar"
         >
           <SelectionWatcher
@@ -5589,6 +5675,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       'ai-input-bar__input--focused': shouldKeepExpanded,
                       'ai-input-bar__input--long-text':
                         isPromptManuallyExpanded,
+                      'ai-input-bar__input--prompt-suggestion': Boolean(
+                        boundPromptSuggestion
+                      ),
                     })}
                     value={prompt}
                     onChange={handleInputChange}
@@ -5596,7 +5685,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                     onFocus={handleFocus}
                     onBlur={handleBlur}
                     placeholder={
-                      generationType === 'agent'
+                      boundPromptSuggestion
+                        ? language === 'zh'
+                          ? `按空格或回车复用：${boundPromptSuggestion}`
+                          : `Press Space or Enter to reuse: ${boundPromptSuggestion}`
+                        : generationType === 'agent'
                         ? language === 'zh'
                           ? '输入指令，让 Agent 为你工作...'
                           : 'Type instructions for Agent...'

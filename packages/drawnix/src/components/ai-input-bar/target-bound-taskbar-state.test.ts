@@ -3,9 +3,12 @@ import { LS_KEYS } from '../../constants/storage-keys';
 import {
   BOUND_TARGET_DISMISS_HINT_LIMIT,
   buildBoundTargetGenerationParams,
+  normalizeBoundTargetPromptSuggestion,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
+  resolveBoundTargetPromptSuggestion,
   resolveBoundTargetSuppression,
+  shouldReuseBoundTargetPrompt,
 } from './target-bound-taskbar-state';
 
 function createStorage(initialValue?: string) {
@@ -74,5 +77,56 @@ describe('target-bound-taskbar-state', () => {
       sourceTaskId: 'task-a',
       sourcePrompt: '更新提示词',
     });
+  });
+
+  it('仅保留非空历史提示词作为候选', () => {
+    expect(normalizeBoundTargetPromptSuggestion('  先前提示词  ')).toBe(
+      '先前提示词'
+    );
+    expect(normalizeBoundTargetPromptSuggestion('   ')).toBeNull();
+    expect(normalizeBoundTargetPromptSuggestion(undefined)).toBeNull();
+    expect(
+      resolveBoundTargetPromptSuggestion('先前提示词', 'image-a', 'image-a')
+    ).toBeNull();
+    expect(
+      resolveBoundTargetPromptSuggestion('先前提示词', 'image-b', 'image-a')
+    ).toBe('先前提示词');
+  });
+
+  it.each([' ', 'Spacebar', 'Enter'])('空输入按 %s 时复用候选提示词', (key) => {
+    expect(
+      shouldReuseBoundTargetPrompt({
+        key,
+        currentPrompt: '',
+        suggestion: '先前提示词',
+      })
+    ).toBe(true);
+  });
+
+  it('已有输入、组合输入、修饰键或菜单打开时不复用候选', () => {
+    const base = {
+      key: 'Enter',
+      currentPrompt: '',
+      suggestion: '先前提示词',
+    };
+
+    expect(
+      shouldReuseBoundTargetPrompt({ ...base, currentPrompt: '新提示词' })
+    ).toBe(false);
+    expect(shouldReuseBoundTargetPrompt({ ...base, isComposing: true })).toBe(
+      false
+    );
+    expect(shouldReuseBoundTargetPrompt({ ...base, hasModifier: true })).toBe(
+      false
+    );
+    expect(shouldReuseBoundTargetPrompt({ ...base, menuOpen: true })).toBe(
+      false
+    );
+    expect(shouldReuseBoundTargetPrompt({ ...base, suggestion: null })).toBe(
+      false
+    );
+    expect(shouldReuseBoundTargetPrompt({ ...base, key: 'ArrowLeft' })).toBe(
+      false
+    );
   });
 });

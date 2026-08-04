@@ -9,7 +9,25 @@ The system SHALL reuse the existing AI input bar near a selected generated image
 - **GIVEN** a single image has stored generation prompt metadata
 - **WHEN** the user selects the image
 - **THEN** the AI input bar SHALL move near the image
-- **AND** SHALL restore the image prompt for editing
+- **AND** the editable prompt value SHALL remain empty
+- **AND** the stored prompt SHALL appear as a visually subdued suggestion with instructions to press Space or Enter to reuse it
+
+#### Scenario: Reuse the generated image prompt
+
+- **GIVEN** the AI input bar shows a stored prompt suggestion
+- **AND** the editable prompt is empty
+- **WHEN** the user presses Space or Enter without a modifier or active composition
+- **THEN** the suggestion SHALL be inserted into the editable prompt
+- **AND** the first key press SHALL NOT submit a generation task
+
+#### Scenario: Dismiss the generated image prompt suggestion
+
+- **GIVEN** the AI input bar shows a stored prompt suggestion for image A
+- **WHEN** the user types new content or activates another taskbar control
+- **THEN** the suggestion SHALL disappear without being inserted
+- **AND** metadata refreshes for image A SHALL NOT restore the dismissed suggestion or overwrite current input
+- **WHEN** the user selects image B
+- **THEN** image B MAY show its own stored prompt suggestion
 
 #### Scenario: Clear target selection
 
