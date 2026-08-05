@@ -3,6 +3,7 @@ import { LS_KEYS } from '../../constants/storage-keys';
 import {
   BOUND_TARGET_DISMISS_HINT_LIMIT,
   buildBoundTargetGenerationParams,
+  hasUnsubmittedTaskbarContent,
   normalizeBoundTargetPromptSuggestion,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
@@ -23,6 +24,37 @@ function createStorage(initialValue?: string) {
 }
 
 describe('target-bound-taskbar-state', () => {
+  it('提示词、上传内容或知识引用任一存在时视为未发送草稿', () => {
+    expect(
+      hasUnsubmittedTaskbarContent({
+        prompt: '',
+        visibleContentCount: 0,
+        knowledgeContextCount: 0,
+      })
+    ).toBe(false);
+    expect(
+      hasUnsubmittedTaskbarContent({
+        prompt: '未发送提示词',
+        visibleContentCount: 0,
+        knowledgeContextCount: 0,
+      })
+    ).toBe(true);
+    expect(
+      hasUnsubmittedTaskbarContent({
+        prompt: '',
+        visibleContentCount: 1,
+        knowledgeContextCount: 0,
+      })
+    ).toBe(true);
+    expect(
+      hasUnsubmittedTaskbarContent({
+        prompt: '',
+        visibleContentCount: 0,
+        knowledgeContextCount: 1,
+      })
+    ).toBe(true);
+  });
+
   it('累计五次关闭后固定隐藏提示计数', () => {
     const storage = createStorage();
     let currentCount = 0;

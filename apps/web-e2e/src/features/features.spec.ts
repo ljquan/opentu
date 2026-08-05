@@ -22,6 +22,11 @@ test.describe('@feature 功能测试', () => {
     await aiInput.fill('生成一张美丽的风景图片');
     await expect(aiInput).toHaveValue('生成一张美丽的风景图片');
 
+    // 未发送内容在误触画布、输入框失焦后仍完整保留并保持可见
+    await page.mouse.click(1050, 160);
+    await expect(aiInput).toHaveValue('生成一张美丽的风景图片');
+    await expect(aiInput).toHaveClass(/ai-input-bar__input--focused/);
+
     // 模型选择器（必须通过）
     const modelSelector = page
       .locator('[data-testid="model-selector"]')

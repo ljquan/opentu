@@ -186,6 +186,7 @@ import {
 import {
   BOUND_TARGET_DISMISS_HINT_LIMIT,
   buildBoundTargetGenerationParams,
+  hasUnsubmittedTaskbarContent,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
   resolveBoundTargetPromptSuggestion,
@@ -2975,7 +2976,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setGenerationType('image');
         if (isNewTarget) {
           dismissedBoundPromptElementIdRef.current = null;
-          setPrompt('');
+          // 画布选择变化只更新绑定目标，未发送输入继续由任务栏持有。
           setBoundPromptSuggestion(
             resolveBoundTargetPromptSuggestion(
               target.prompt,
@@ -2983,8 +2984,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               dismissedBoundPromptElementIdRef.current
             )
           );
-          setUploadedContent([]);
-          setKnowledgeContextRefs([]);
         } else {
           setBoundPromptSuggestion(
             resolveBoundTargetPromptSuggestion(
@@ -5232,10 +5231,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const hasSelectedTextContent = selectedContent.some(
       (item) => item.type === 'text' && item.text?.trim()
     );
+    const hasUnsubmittedInputContent = hasUnsubmittedTaskbarContent({
+      prompt,
+      visibleContentCount: displayContent.length,
+      knowledgeContextCount: knowledgeContextRefs.length,
+    });
     const shouldKeepExpanded =
       isPromptManuallyExpanded ||
       isFocused ||
-      displayContent.length > 0 ||
+      hasUnsubmittedInputContent ||
       isPromptOptimizeOpen;
     const inputResizeMode: AIInputResizeMode = isPromptManuallyExpanded
       ? 'long-text'

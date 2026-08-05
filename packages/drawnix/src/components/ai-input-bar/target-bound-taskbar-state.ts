@@ -21,6 +21,22 @@ export interface BoundTargetPromptReuseInput {
   menuOpen?: boolean;
 }
 
+export interface TaskbarDraftContent {
+  prompt: string;
+  visibleContentCount: number;
+  knowledgeContextCount: number;
+}
+
+export function hasUnsubmittedTaskbarContent({
+  prompt,
+  visibleContentCount,
+  knowledgeContextCount,
+}: TaskbarDraftContent): boolean {
+  return (
+    prompt.length > 0 || visibleContentCount > 0 || knowledgeContextCount > 0
+  );
+}
+
 export function normalizeBoundTargetPromptSuggestion(
   prompt: string | null | undefined
 ): string | null {
