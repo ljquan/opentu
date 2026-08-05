@@ -6,7 +6,10 @@
 
 import { PlaitBoard, Point } from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
-import { insertImageFromUrl } from '../../data/image';
+import {
+  insertImageFromUrl,
+  loadImageElementForCanvas,
+} from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
 import {
   insertAudioFromUrl,
@@ -17,8 +20,12 @@ import { scrollToPointIfNeeded } from '../../utils/selection-utils';
 import { parseMarkdownToCards } from '../../utils/markdown-to-cards';
 import { insertCardsToCanvas } from '../../utils/insert-cards';
 import type { MCPResult } from '../../mcp/types';
+import type { DataURL } from '../../types';
 import { parseSizeToPixels } from '../../utils/size-ratio';
-import { insertMediaIntoSelectedFrame } from '../../utils/frame-insertion-utils';
+import {
+  getSelectedInsertionFrame,
+  insertMediaIntoSelectedFrame,
+} from '../../utils/frame-insertion-utils';
 import { getCanvasBoard as readCanvasBoard } from './canvas-board-ref';
 import {
   CANVAS_INSERTION_LAYOUT as LAYOUT_CONSTANTS,
@@ -425,6 +432,13 @@ export async function executeCanvasInsertion(
     if (!params.startPoint && items.length === 1) {
       const item = items[0];
       if (item.type === 'image' || item.type === 'video') {
+        if (
+          item.type === 'image' &&
+          item.waitForImageLoad &&
+          getSelectedInsertionFrame(board)
+        ) {
+          await loadImageElementForCanvas(item.content as DataURL);
+        }
         const inserted = await insertMediaIntoSelectedFrame(
           board,
           item.content,

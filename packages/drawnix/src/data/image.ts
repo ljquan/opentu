@@ -167,7 +167,7 @@ export const loadHTMLImageElementWithRetry = (
   });
 };
 
-async function loadImageElementForCanvas(
+export async function loadImageElementForCanvas(
   imageUrl: DataURL
 ): Promise<HTMLImageElement> {
   const canUseServiceWorker =

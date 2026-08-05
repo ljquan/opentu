@@ -5,6 +5,10 @@ const getCachedBlob = vi.fn();
 const cachedUrls = new Set<string>();
 const isCached = vi.fn(async (url: string) => cachedUrls.has(url));
 const calculateBlobChecksum = vi.fn(async () => 'a'.repeat(64));
+const blobLike = expect.objectContaining({
+  size: expect.any(Number),
+  type: expect.any(String),
+});
 
 vi.mock('@aitu/utils', async () => {
   const actual = await vi.importActual<typeof import('@aitu/utils')>(
@@ -61,12 +65,9 @@ describe('cacheRemoteUrl', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/^data:image\/png;base64,/)
     );
-    expect(cacheMediaFromBlob).toHaveBeenCalledWith(
-      result,
-      expect.any(Blob),
-      'image',
-      { taskId: 'task-raw-b64' }
-    );
+    expect(cacheMediaFromBlob).toHaveBeenCalledWith(result, blobLike, 'image', {
+      taskId: 'task-raw-b64',
+    });
 
     vi.unstubAllGlobals();
   });
@@ -136,7 +137,7 @@ describe('cacheRemoteUrl', () => {
     });
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       remoteUrl,
-      expect.any(Blob),
+      blobLike,
       'audio',
       {
         taskId: 'task-audio',
@@ -170,7 +171,7 @@ describe('cacheRemoteUrl', () => {
     expect(result).toBe(remoteUrl);
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       remoteUrl,
-      expect.any(Blob),
+      blobLike,
       'audio',
       {
         taskId: 'asset:d88312b4-5b86-4f11-b9a6-c4162ba07486',
@@ -204,7 +205,7 @@ describe('cacheRemoteUrl', () => {
     expect(result).toBe(remoteUrl);
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       remoteUrl,
-      expect.any(Blob),
+      blobLike,
       'image',
       {
         taskId: 'task-audio-cover',
@@ -242,7 +243,7 @@ describe('cacheRemoteUrl', () => {
     expect(result).toBe(remoteUrl);
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       remoteUrl,
-      expect.any(Blob),
+      blobLike,
       'image',
       {
         taskId: 'task-cover',
@@ -276,7 +277,7 @@ describe('cacheRemoteUrl', () => {
     expect(result).toBe('/__aitu_cache__/image/insert-123.png');
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       '/__aitu_cache__/image/insert-123.png',
-      expect.any(Blob),
+      blobLike,
       'image',
       {
         taskId: 'insert-123',
@@ -288,10 +289,11 @@ describe('cacheRemoteUrl', () => {
   });
 
   it('重试使用新提交 ID 作为缓存键，不复用上次图片', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) =>
-      new Response(new Blob([String(url)], { type: 'image/png' }), {
-        status: 200,
-      })
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      async (url) =>
+        new Response(new Blob([String(url)], { type: 'image/png' }), {
+          status: 200,
+        })
     );
     vi.stubGlobal('fetch', fetchMock);
 
