@@ -15,6 +15,8 @@ OpenTu 将内置模型作为默认可选目录，并把运行时发现的供应�
   - 不删除旧模型路由或历史数据
   - 不改变其他供应商 Profile 的手动模型目录
   - 不复制模型广场价格数据到静态配置
+  - 不修改模型广场的模型、分组、价格、路由或 endpoint 元数据
+  - 不修改 tuzi-api 代码、配置或数据库
 
 ## Decisions
 
@@ -27,7 +29,7 @@ OpenTu 将内置模型作为默认可选目录，并把运行时发现的供应�
 - Decision: 新增模型保留静态展示元数据，价格和 endpoint 继续由 `/api/pricing` 缓存提供
 
   - 静态配置仅提供 ID、展示名、类型、默认参数和排序提示
-  - 计费与 endpoint 不在 OpenTu 重复维护
+  - 计费与 endpoint 不在 OpenTu 重复维护，且 OpenTu 不向模型广场回写任何数据
 
 - Decision: Seedance 1.x 与 2.0 分开处理
 
