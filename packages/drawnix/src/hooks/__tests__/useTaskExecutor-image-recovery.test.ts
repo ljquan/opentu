@@ -315,6 +315,18 @@ describe('useTaskExecutor image recovery', () => {
       });
     });
 
+    expect(mocks.cacheRemoteUrls).toHaveBeenCalledWith(
+      ['https://images.example.com/restored.png'],
+      'recover-image-1',
+      'image',
+      'png',
+      expect.objectContaining({
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        cacheKey: 'submission-1',
+      })
+    );
+
     expect(mocks.completeImageAttempt).toHaveBeenCalledWith(
       'recover-image-1',
       'submission-1',

@@ -20,11 +20,17 @@ import { assetStorageService } from '../services/asset-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
 import { analytics } from '../utils/posthog-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
-import { normalizeImageDataUrl } from '@aitu/utils';
+import { generateUUID, normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';
-import { getInsertionPointFromSavedSelection, calculateImageDisplayDimensions } from '../utils/canvas-insertion-layout';
+import {
+  getInsertionPointFromSavedSelection,
+  calculateImageDisplayDimensions,
+} from '../utils/canvas-insertion-layout';
 import { getSupportedImageFileMimeType } from './blob';
 import { isVirtualMediaUrl } from '../utils/virtual-media-url';
+
+const createImageLoadError = () =>
+  new Error('图片加载失败，请检查图片地址或缓存');
 
 export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
@@ -37,8 +43,8 @@ export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
     image.onload = () => {
       resolve(image);
     };
-    image.onerror = (error) => {
-      reject(error);
+    image.onerror = () => {
+      reject(createImageLoadError());
     };
     image.src = normalizedURL;
   });
@@ -52,9 +58,9 @@ const loadHTMLImageElementFromBlob = (blob: Blob) => {
       URL.revokeObjectURL(objectUrl);
       resolve(image);
     };
-    image.onerror = (error) => {
+    image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(error);
+      reject(createImageLoadError());
     };
     image.src = objectUrl;
   });
@@ -122,7 +128,7 @@ export const loadHTMLImageElementWithRetry = (
         resolve(image);
       };
 
-      image.onerror = (error) => {
+      image.onerror = () => {
         retryCount++;
 
         if (retryCount <= maxRetries) {
@@ -150,7 +156,7 @@ export const loadHTMLImageElementWithRetry = (
             `[loadHTMLImageElement] 加载失败，已重试 ${maxRetries} 次:`,
             normalizedURL
           );
-          reject(error);
+          reject(createImageLoadError());
         }
       };
 
@@ -313,14 +319,11 @@ export const insertImage = async (
   } else {
     let insertionPoint = startPoint;
     if (!startPoint && !isDrop) {
-      insertionPoint = getInsertionPointFromSavedSelection(
-        board,
-        {
-          align: 'center',
-          targetWidth: imageItem.width,
-          logPrefix: 'image',
-        }
-      );
+      insertionPoint = getInsertionPointFromSavedSelection(board, {
+        align: 'center',
+        targetWidth: imageItem.width,
+        logPrefix: 'image',
+      });
 
       if (!insertionPoint) {
         const calculatedPoint = getInsertionPointForSelectedElements(board);
@@ -375,7 +378,7 @@ export const insertImageFromUrl = async (
   ) {
     const cachedUrl = await cacheRemoteUrl(
       resolvedUrl,
-      `insert-${Date.now()}`,
+      `insert-${generateUUID()}`,
       'image',
       'png',
       undefined,
@@ -455,14 +458,11 @@ export const insertImageFromUrl = async (
   // 只有在没有提供startPoint时才自动计算插入位置
   if (!startPoint && !isDrop) {
     // 优先使用保存的选中元素IDs计算插入位置
-    insertionPoint = getInsertionPointFromSavedSelection(
-      board,
-      {
-        align: 'center',
-        targetWidth: imageItem.width,
-        logPrefix: 'image',
-      }
-    );
+    insertionPoint = getInsertionPointFromSavedSelection(board, {
+      align: 'center',
+      targetWidth: imageItem.width,
+      logPrefix: 'image',
+    });
 
     // 如果没有保存的选中元素,回退到使用当前选中元素(向后兼容)
     if (!insertionPoint) {
@@ -610,7 +610,7 @@ const loadImageDirectly = (imageUrl: string): Promise<HTMLImageElement> => {
     // 不设置 crossOrigin，这样可以加载不支持 CORS 的图片
     image.referrerPolicy = 'no-referrer';
     image.onload = () => resolve(image);
-    image.onerror = (error) => reject(error);
+    image.onerror = () => reject(createImageLoadError());
     image.src = imageUrl;
   });
 };

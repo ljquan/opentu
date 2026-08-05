@@ -14,10 +14,7 @@ import { characterStorageService } from '../services/character-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
 import { Task, TaskStatus, TaskType } from '../types/task.types';
 import { CharacterStatus } from '../types/character.types';
-import {
-  isResumableAsyncImageTask,
-  isTaskTimeout,
-} from '../utils/task-utils';
+import { isResumableAsyncImageTask, isTaskTimeout } from '../utils/task-utils';
 import { AI_GENERATION_CONCURRENCY_LIMIT } from '../constants/TASK_CONSTANTS';
 import { classifyApiCredentialError } from '../utils/api-auth-error-event';
 import {
@@ -249,9 +246,14 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
               task.id,
               'image',
               format,
-              task.params.assetMetadata
-                ? { extraMetadata: { ...task.params.assetMetadata } }
-                : undefined
+              {
+                forceRemoteCache: true,
+                returnLocalCacheUrl: true,
+                cacheKey: requestId,
+                extraMetadata: task.params.assetMetadata
+                  ? { ...task.params.assetMetadata }
+                  : undefined,
+              }
             );
           } catch (error) {
             console.warn(

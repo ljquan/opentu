@@ -831,12 +831,6 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       color: $gray-medium;
     }
 
-    &--prompt-suggestion::placeholder {
-      color: $gray-dark;
-      font-style: italic;
-      opacity: 0.58;
-    }
-
     &:focus {
       outline: none;
       border: none !important;
@@ -1472,11 +1466,6 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
       &::placeholder {
         color: var(--color-gray-60, #666);
-      }
-
-      &--prompt-suggestion::placeholder {
-        color: var(--color-gray-40, #aaa);
-        opacity: 0.58;
       }
     }
 

@@ -468,7 +468,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         allImgUrls,
         taskId,
         'image',
-        'png'
+        'png',
+        {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          cacheKey: requestId,
+        }
       );
       assertCurrentImageExecutionAttempt(options);
 
@@ -655,6 +660,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         result.format,
         undefined,
         {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          cacheKey: submissionRequestId,
           extraMetadata: params.assetMetadata
             ? { ...params.assetMetadata }
             : undefined,

@@ -290,6 +290,7 @@ export async function cacheRemoteUrl(
     source?: 'AI_GENERATED' | 'PLAYBACK_CACHE';
     forceRemoteCache?: boolean;
     returnLocalCacheUrl?: boolean;
+    cacheKey?: string;
     extraMetadata?: Record<string, unknown>;
   }
 ): Promise<string> {
@@ -311,8 +312,38 @@ export async function cacheRemoteUrl(
 
     try {
       const cacheSource = options?.source || 'AI_GENERATED';
-      if (await unifiedCacheService.isCached(normalizedUrl)) {
-        return normalizedUrl;
+      const suffix = index !== undefined ? `_${index}` : '';
+      const cacheKey = encodeURIComponent(options?.cacheKey || taskId);
+      const cacheTargetUrl = options?.returnLocalCacheUrl
+        ? `/__aitu_cache__/${mediaType}/${cacheKey}${suffix}.${format}`
+        : normalizedUrl;
+
+      if (await unifiedCacheService.isCached(cacheTargetUrl)) {
+        return cacheTargetUrl;
+      }
+
+      if (
+        options?.returnLocalCacheUrl &&
+        (await unifiedCacheService.isCached(normalizedUrl))
+      ) {
+        const cachedBlob = await unifiedCacheService.getCachedBlob(
+          normalizedUrl
+        );
+        if (cachedBlob && cachedBlob.size > 0) {
+          const migratedUrl = await unifiedCacheService.cacheMediaFromBlob(
+            cacheTargetUrl,
+            cachedBlob,
+            mediaType,
+            {
+              taskId,
+              source: cacheSource,
+              ...options?.extraMetadata,
+            }
+          );
+          if (migratedUrl) {
+            return migratedUrl;
+          }
+        }
       }
 
       const response = await fetch(normalizedUrl, {
@@ -328,11 +359,6 @@ export async function cacheRemoteUrl(
       if (blob.size === 0) {
         return normalizedUrl;
       }
-
-      const suffix = index !== undefined ? `_${index}` : '';
-      const cacheTargetUrl = options?.returnLocalCacheUrl
-        ? `/__aitu_cache__/${mediaType}/${taskId}${suffix}.${format}`
-        : normalizedUrl;
 
       const cacheUrl = await unifiedCacheService.cacheMediaFromBlob(
         cacheTargetUrl,
@@ -422,6 +448,23 @@ export async function cacheRemoteUrls(
   format: string,
   options?: Parameters<typeof cacheRemoteUrl>[5]
 ): Promise<string[]> {
+  if (options?.forceRemoteCache) {
+    const cachedUrls: string[] = [];
+    for (const [index, url] of urls.entries()) {
+      cachedUrls.push(
+        await cacheRemoteUrl(
+          url,
+          taskId,
+          mediaType,
+          format,
+          urls.length > 1 ? index : undefined,
+          options
+        )
+      );
+    }
+    return cachedUrls;
+  }
+
   return Promise.all(
     urls.map((url, i) =>
       cacheRemoteUrl(
