@@ -14,23 +14,203 @@ import type {
   ResolvedProviderContext,
 } from './provider-routing/types';
 
-export function isServerReachableMediaUrl(value: string): boolean {
+const SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH = 16 * 1024 * 1024;
+
+type Ipv4Parts = [number, number, number, number];
+
+function parseIpv4Address(hostname: string): Ipv4Parts | null {
+  const rawParts = hostname.split('.');
+  const parts = rawParts.map(Number);
+  if (
+    parts.length !== 4 ||
+    parts.some(
+      (part, index) =>
+        !Number.isInteger(part) ||
+        part < 0 ||
+        part > 255 ||
+        String(part) !== rawParts[index]
+    )
+  ) {
+    return null;
+  }
+
+  return parts as Ipv4Parts;
+}
+
+function isNonPublicIpv4Parts(parts: Ipv4Parts): boolean {
+  const [first, second, third] = parts;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 &&
+      second === 0 &&
+      third === 0 &&
+      parts[3] !== 9 &&
+      parts[3] !== 10) ||
+    (first === 192 && second === 0 && third === 2) ||
+    (first === 192 && second === 88 && third === 99) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && (second === 18 || second === 19)) ||
+    (first === 198 && second === 51 && third === 100) ||
+    (first === 203 && second === 0 && third === 113) ||
+    first >= 224
+  );
+}
+
+function isNonPublicIpv4Address(hostname: string): boolean {
+  const parts = parseIpv4Address(hostname);
+  return parts ? isNonPublicIpv4Parts(parts) : false;
+}
+
+function parseIpv6Address(hostname: string): number[] | null {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const halves = normalized.split('::');
+  if (halves.length > 2) return null;
+
+  const parseHalf = (half: string): number[] | null => {
+    if (!half) return [];
+    const groups = half.split(':');
+    const values = groups.map((group) => Number.parseInt(group, 16));
+    return groups.some(
+      (group, index) =>
+        !/^[0-9a-f]{1,4}$/.test(group) || !Number.isInteger(values[index])
+    )
+      ? null
+      : values;
+  };
+
+  const left = parseHalf(halves[0]);
+  const right = parseHalf(halves[1] || '');
+  if (!left || !right) return null;
+  if (halves.length === 1) return left.length === 8 ? left : null;
+
+  const omittedCount = 8 - left.length - right.length;
+  return omittedCount >= 1
+    ? [...left, ...Array<number>(omittedCount).fill(0), ...right]
+    : null;
+}
+
+function isGloballyReachable2001ProtocolAddress(parts: number[]): boolean {
+  const [, second, third, fourth, fifth, sixth, seventh, eighth] = parts;
+  const isProtocolAnycast =
+    second === 1 &&
+    third === 0 &&
+    fourth === 0 &&
+    fifth === 0 &&
+    sixth === 0 &&
+    seventh === 0 &&
+    (eighth === 1 || eighth === 2 || eighth === 3);
+  return (
+    isProtocolAnycast ||
+    second === 3 ||
+    (second === 4 && third === 0x0112) ||
+    (second & 0xfff0) === 0x0020 ||
+    (second & 0xfff0) === 0x0030
+  );
+}
+
+function isNonPublicIpv6Address(hostname: string): boolean {
+  const parts = parseIpv6Address(hostname);
+  if (!parts) return false;
+
+  if (parts.slice(0, 5).every((part) => part === 0) && parts[5] === 0xffff) {
+    return true;
+  }
+
+  const [first, second, third, fourth] = parts;
+  return (
+    first === 0 ||
+    (first === 0x0064 && second === 0xff9b && third === 1) ||
+    (first === 0x0100 && second === 0 && third === 0 && fourth === 0) ||
+    (first === 0x0100 && second === 0 && third === 0 && fourth === 1) ||
+    (first === 0x2001 &&
+      second <= 0x01ff &&
+      !isGloballyReachable2001ProtocolAddress(parts)) ||
+    (first === 0x2001 && second === 0x0db8) ||
+    first === 0x5f00 ||
+    (first === 0x3fff && (second & 0xf000) === 0) ||
+    (first & 0xfe00) === 0xfc00 ||
+    (first & 0xffc0) === 0xfe80 ||
+    (first & 0xff00) === 0xff00
+  );
+}
+
+function isNonPublicMediaHostname(hostname: string): boolean {
+  const normalized = hostname
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+  return (
+    !normalized ||
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized.endsWith('.local') ||
+    isNonPublicIpv4Address(normalized) ||
+    isNonPublicIpv6Address(normalized)
+  );
+}
+
+export function isPublicHttpMediaUrl(value: string): boolean {
   const normalized = value.trim();
   if (!normalized) return false;
 
   try {
     const url = new URL(normalized);
-    if (url.protocol === 'http:' || url.protocol === 'https:') {
-      return Boolean(url.hostname);
-    }
-    if (url.protocol === 'asset:') {
-      return Boolean(url.hostname || url.pathname.replace(/^\/+/, ''));
-    }
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      Boolean(url.hostname) &&
+      !isNonPublicMediaHostname(url.hostname)
+    );
   } catch {
     return false;
   }
+}
 
-  return false;
+export function isSeedanceAudioReference(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (isPublicHttpMediaUrl(normalized)) return true;
+  if (normalized.toLowerCase().startsWith('asset://')) {
+    return /^asset:\/\/[a-z0-9][a-z0-9._/-]*$/i.test(normalized);
+  }
+  if (normalized.startsWith('data:audio/')) {
+    if (normalized.length > SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH) return false;
+    const separatorIndex = normalized.indexOf(',');
+    if (separatorIndex < 0) return false;
+    const header = normalized.slice(0, separatorIndex);
+    const payload = normalized.slice(separatorIndex + 1);
+    if (!/^data:audio\/[a-z0-9.+-]+;base64$/.test(header)) return false;
+    if (!payload || payload.length % 4 !== 0) return false;
+
+    const paddingIndex = payload.indexOf('=');
+    const dataEnd = paddingIndex < 0 ? payload.length : paddingIndex;
+    if (payload.length - dataEnd > 2) return false;
+    for (let index = 0; index < dataEnd; index += 1) {
+      const code = payload.charCodeAt(index);
+      const valid =
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code === 43 ||
+        code === 47;
+      if (!valid) return false;
+    }
+    for (let index = dataEnd; index < payload.length; index += 1) {
+      if (payload.charCodeAt(index) !== 61) return false;
+    }
+    return true;
+  }
+
+  return (
+    normalized.length <= 512 &&
+    /^[a-z0-9][a-z0-9._/-]*$/i.test(normalized) &&
+    !normalized.toLowerCase().startsWith('blob:')
+  );
 }
 
 const FIXED_SORA_DURATION_MODEL_PATTERN = /^sora-2-(\d+)s$/i;

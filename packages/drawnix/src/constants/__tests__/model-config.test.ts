@@ -253,4 +253,46 @@ describe('model-config image size options', () => {
       type: 'text',
     });
   });
+
+  it.each([
+    'doubao-seedance-2-0-260128',
+    'doubao-seedance-2-0-fast-260128',
+    'doubao-seedance-2-0-mini-260615',
+  ])('Seedance 2.0 参数与官方 JSON 契约一致：%s', (modelId) => {
+    const params = getCompatibleParams(modelId);
+    const options = (paramId: string) =>
+      params
+        .find((param) => param.id === paramId)
+        ?.options?.map((option) => option.value);
+
+    expect(options('duration')).toEqual([
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+      '10',
+      '11',
+      '12',
+    ]);
+    expect(options('size')).toEqual(['1080p', '720p', '480p']);
+    expect(options('ratio')).toEqual([
+      '16:9',
+      '4:3',
+      '1:1',
+      '3:4',
+      '9:16',
+      '21:9',
+      'adaptive',
+    ]);
+    expect(params.map((param) => param.id)).toEqual(
+      expect.arrayContaining([
+        'generate_audio',
+        'watermark',
+        'seed',
+        'camera_fixed',
+      ])
+    );
+  });
 });

@@ -228,13 +228,15 @@ describe('ai-input-parser', () => {
         expect(result.size).toBe('9x16');
       });
 
-      it('应该保留 Seedance 分辨率与比例格式', () => {
+      it('应该保留 Seedance 独立分辨率与比例参数', () => {
         const result = parseAIInput('一段视频', createSelection([], 0), {
           generationType: 'video',
           modelId: 'doubao-seedance-2-0-260128',
-          params: { size: '480p@16:9', duration: '5' },
+          params: { size: '1080p', ratio: 'adaptive', duration: '12' },
         });
-        expect(result.size).toBe('480p@16:9');
+        expect(result.size).toBe('1080p');
+        expect(result.duration).toBe('12');
+        expect(result.extraParams).toMatchObject({ ratio: 'adaptive' });
       });
 
       it('没有指定尺寸时应该使用模型默认值', () => {

@@ -55,7 +55,7 @@ import {
 import {
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfigForSelection,
-  isServerReachableMediaUrl,
+  isSeedanceAudioReference,
 } from '../../services/video-binding-utils';
 import {
   formatStoryboardPrompt,
@@ -166,17 +166,28 @@ function getDefaultVideoParamsForSelection(
 }
 
 function mergeVideoToolParams(
+  modelId: string,
   extraParams: Record<string, string>,
   duration?: string | number | null,
   size?: string | null
 ): Record<string, string> {
-  return {
+  const nextParams: Record<string, string> = {
     ...extraParams,
     ...(duration !== undefined && duration !== null
       ? { duration: String(duration) }
       : {}),
     ...(size ? { size } : {}),
   };
+
+  if (modelId.startsWith('doubao-seedance-2-0-') && nextParams.size) {
+    const [resolution, legacyRatio] = nextParams.size.split('@');
+    nextParams.size = resolution;
+    if (legacyRatio && !nextParams.ratio) {
+      nextParams.ratio = legacyRatio;
+    }
+  }
+
+  return nextParams;
 }
 
 function splitVideoToolParams(
@@ -324,6 +335,7 @@ const AIVideoGeneration = ({
     Record<string, string>
   >(() =>
     mergeVideoToolParams(
+      currentModel,
       initialScopedVideoPreferences.extraParams,
       initialDuration?.toString() || initialScopedVideoPreferences.duration,
       initialSize || initialScopedVideoPreferences.size
@@ -656,6 +668,7 @@ const AIVideoGeneration = ({
       getSelectionKey(currentModel, currentModelRef)
     );
     const nextParams = mergeVideoToolParams(
+      currentModel,
       scopedPreferences.extraParams,
       initialDuration !== undefined
         ? initialDuration.toString()
@@ -787,7 +800,12 @@ const AIVideoGeneration = ({
 
     if (initialDuration !== undefined || initialSize) {
       setVideoSelectedParams((prev) =>
-        mergeVideoToolParams(prev, initialDuration, initialSize)
+        mergeVideoToolParams(
+          initialModel || currentModel,
+          prev,
+          initialDuration,
+          initialSize
+        )
       );
     }
 
@@ -798,12 +816,14 @@ const AIVideoGeneration = ({
     initialImages,
     initialKnowledgeContextRefs,
     initialDuration,
+    initialModel,
     initialSize,
     initialResultUrl,
     imageUploadConfig.labels,
     imageUploadConfig.labelsSignature,
     imageUploadConfig.maxCount,
     isManualEdit,
+    currentModel,
   ]);
 
   // Clear errors on mount
@@ -985,6 +1005,7 @@ const AIVideoGeneration = ({
         : {};
     setVideoSelectedParams(
       mergeVideoToolParams(
+        task.params.model || currentModel,
         restoredParams,
         task.params.duration ?? task.params.seconds,
         task.params.size
@@ -1039,12 +1060,20 @@ const AIVideoGeneration = ({
         : '';
       if (
         activeReferenceAudioUrl &&
-        !isServerReachableMediaUrl(activeReferenceAudioUrl)
+        !isSeedanceAudioReference(activeReferenceAudioUrl)
       ) {
         setError(
           language === 'zh'
-            ? '参考音频仅支持 HTTP(S) 或 asset:// 地址'
-            : 'Reference audio must use an HTTP(S) or asset:// URL'
+            ? '参考音频仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+            : 'Reference audio must be an HTTP(S), asset://, audio Data URL, or asset ID'
+        );
+        return;
+      }
+      if (count > 1 && activeReferenceAudioUrl.startsWith('data:audio/')) {
+        setError(
+          language === 'zh'
+            ? '音频 Data URL 仅支持单任务生成，批量生成请使用公网 URL 或素材 ID'
+            : 'Audio Data URLs support one task at a time; use a public URL or asset ID for batches'
         );
         return;
       }
@@ -1411,10 +1440,14 @@ const AIVideoGeneration = ({
                   }}
                   onBlur={() => setReferenceAudioUrl((value) => value.trim())}
                   placeholder={
-                    language === 'zh' ? '参考音频 URL' : 'Reference audio URL'
+                    language === 'zh'
+                      ? '参考音频地址或素材 ID'
+                      : 'Reference audio or asset ID'
                   }
                   aria-label={
-                    language === 'zh' ? '参考音频 URL' : 'Reference audio URL'
+                    language === 'zh'
+                      ? '参考音频地址或素材 ID'
+                      : 'Reference audio or asset ID'
                   }
                   autoComplete="off"
                   spellCheck={false}

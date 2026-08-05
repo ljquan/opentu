@@ -310,6 +310,16 @@ function sanitizeVideoToolParams(
   rawParams: unknown
 ): PersistedParams {
   const persistedParams = asRecord(rawParams);
+  if (
+    modelId.startsWith('doubao-seedance-2-0-') &&
+    persistedParams.size?.includes('@')
+  ) {
+    const [resolution, ratio] = persistedParams.size.split('@');
+    persistedParams.size = resolution;
+    if (ratio && !persistedParams.ratio) {
+      persistedParams.ratio = ratio;
+    }
+  }
   const compatibleParams = getEffectiveVideoCompatibleParams(
     modelId,
     modelId,

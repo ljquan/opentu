@@ -669,20 +669,7 @@ function inferVideoBindings(
     const seedance2Metadata = isSeedance2Model(model)
       ? {
           video: {
-            allowedDurations: [
-              '4',
-              '5',
-              '6',
-              '7',
-              '8',
-              '9',
-              '10',
-              '11',
-              '12',
-              '13',
-              '14',
-              '15',
-            ],
+            allowedDurations: ['4', '5', '6', '7', '8', '9', '10', '11', '12'],
             defaultDuration: '5',
             durationMode: 'request-param' as const,
             durationField: 'duration',

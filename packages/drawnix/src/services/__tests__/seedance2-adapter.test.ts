@@ -58,7 +58,7 @@ describe('seedance 2.0 video adapter', () => {
           id: 'seedance-2-task',
           status: 'completed',
           progress: 100,
-          duration: 15,
+          duration: 12,
           metadata: { url: 'https://cdn.example.com/seedance-2.mp4' },
         });
       }
@@ -69,14 +69,17 @@ describe('seedance 2.0 video adapter', () => {
       {
         model: 'doubao-seedance-2-0-260128',
         prompt: 'camera flies over a glass city',
-        size: '720p@16:9',
-        duration: 15,
+        size: '1080p',
+        duration: 12,
         referenceImages: ['https://assets.example.com/ref.png'],
         params: {
           generate_audio: true,
           watermark: false,
           input_video: 'https://assets.example.com/ref.mp4',
           input_audio: 'https://assets.example.com/ref.mp3',
+          ratio: '9:16',
+          seed: '0',
+          camera_fixed: 'false',
           onProgress,
           onSubmitted,
         },
@@ -89,7 +92,7 @@ describe('seedance 2.0 video adapter', () => {
     expect(result).toMatchObject({
       url: 'https://cdn.example.com/seedance-2.mp4',
       format: 'mp4',
-      duration: 15,
+      duration: 12,
     });
     expect(onSubmitted).toHaveBeenCalledWith('seedance-2-task');
     expect(onProgress).toHaveBeenNthCalledWith(1, 5, 'queued');
@@ -120,11 +123,13 @@ describe('seedance 2.0 video adapter', () => {
           role: 'reference_audio',
         },
       ],
-      resolution: '720p',
-      ratio: '16:9',
-      duration: 15,
+      resolution: '1080p',
+      ratio: '9:16',
+      duration: 12,
       generate_audio: true,
       watermark: false,
+      seed: 0,
+      camera_fixed: false,
     });
     expect(requests[1]?.url).toBe(
       'https://video.example.com/v1/videos/seedance-2-task'
@@ -151,7 +156,7 @@ describe('seedance 2.0 video adapter', () => {
       {
         model: 'doubao-seedance-2-0-mini-260615',
         prompt: 'small product turntable',
-        size: '720p@16:9',
+        size: '720p',
         duration: 4,
       }
     );
@@ -171,7 +176,7 @@ describe('seedance 2.0 video adapter', () => {
     });
   });
 
-  it('accepts asset references but rejects browser-local media URLs', async () => {
+  it('accepts official audio references but rejects browser-local media URLs', async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ error: { message: 'stop after request capture' } }, 400)
     ) as unknown as typeof fetch;
@@ -180,7 +185,7 @@ describe('seedance 2.0 video adapter', () => {
       {
         model: 'doubao-seedance-2-0-260128',
         prompt: 'asset reference',
-        params: { input_audio: ' asset://audio-123 ' },
+        params: { input_audio: ' audio-material-123 ' },
       }
     );
 
@@ -191,7 +196,26 @@ describe('seedance 2.0 video adapter', () => {
         { type: 'text', text: 'asset reference' },
         {
           type: 'audio_url',
-          audio_url: { url: 'asset://audio-123' },
+          audio_url: { url: 'audio-material-123' },
+          role: 'reference_audio',
+        },
+      ],
+    });
+
+    fetcher.mockClear();
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'audio data reference',
+        params: { input_audio: 'data:audio/mpeg;base64,ZmFrZQ==' },
+      })
+    ).rejects.toThrow('stop after request capture');
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      content: [
+        { type: 'text', text: 'audio data reference' },
+        {
+          type: 'audio_url',
+          audio_url: { url: 'data:audio/mpeg;base64,ZmFrZQ==' },
           role: 'reference_audio',
         },
       ],
@@ -202,9 +226,72 @@ describe('seedance 2.0 video adapter', () => {
       seedance2VideoAdapter.generateVideo(createContext(fetcher), {
         model: 'doubao-seedance-2-0-260128',
         prompt: 'local reference',
-        params: { input_audio: 'data:audio/mpeg;base64,ZmFrZQ==' },
+        params: { input_audio: 'blob:https://app.example.com/audio-123' },
       })
-    ).rejects.toThrow('Seedance 2.0 参考音频仅支持 HTTP(S) 或 asset:// 地址');
+    ).rejects.toThrow(
+      'Seedance 2.0 参考音频仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'invalid audio data reference',
+        params: { input_audio: 'data:audio/mpeg;base64,%%%' },
+      })
+    ).rejects.toThrow('Seedance 2.0 参考音频仅支持');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-public reference video addresses before submission', async () => {
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'invalid reference video',
+        params: { input_video: 'asset://video-123' },
+      })
+    ).rejects.toThrow('Seedance 2.0 参考视频仅支持公网 HTTP(S) 地址');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy combined sizes as a compatibility fallback', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: { message: 'captured' } }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'legacy task',
+        size: '480p@21:9',
+        duration: 4,
+      })
+    ).rejects.toThrow('captured');
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      resolution: '480p',
+      ratio: '21:9',
+      duration: 4,
+    });
+  });
+
+  it.each([
+    { duration: 3, message: '视频时长必须为 4-12 秒整数' },
+    { duration: 13, message: '视频时长必须为 4-12 秒整数' },
+    { duration: 4.5, message: '视频时长必须为 4-12 秒整数' },
+  ])('rejects invalid duration $duration before submission', async (entry) => {
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'duration boundary',
+        size: '720p',
+        duration: entry.duration,
+      })
+    ).rejects.toThrow(entry.message);
     expect(fetcher).not.toHaveBeenCalled();
   });
 

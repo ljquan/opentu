@@ -3339,7 +3339,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               selectedModel,
               selectedModelRef
             )}`;
-      const baseParams =
+      const loadedParams =
         generationType === 'agent'
           ? {}
           : selectedParamScopeRef.current === currentScopeKey
@@ -3350,6 +3350,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               getSelectionKey(selectedModel, selectedModelRef),
               selectedParamsRef.current
             );
+      const baseParams = { ...loadedParams };
+      if (
+        selectedModel.startsWith('doubao-seedance-2-0-') &&
+        baseParams.size?.includes('@')
+      ) {
+        const [resolution, legacyRatio] = baseParams.size.split('@');
+        baseParams.size = resolution;
+        if (legacyRatio && !baseParams.ratio) {
+          baseParams.ratio = legacyRatio;
+        }
+      }
       const nextParams: Record<string, string> = {};
 
       const sizeParam = compatibleParams.find((p) => p.id === 'size');

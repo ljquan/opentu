@@ -10,18 +10,34 @@ import { providerTransport } from '../provider-routing';
 import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
-  isServerReachableMediaUrl,
+  isSeedanceAudioReference,
+  isPublicHttpMediaUrl,
 } from '../video-binding-utils';
 
 const SEEDANCE_2_MODEL_PREFIX = 'doubao-seedance-2-0-';
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const MAX_POLL_ATTEMPTS = 1080;
+const SEEDANCE_2_RESOLUTIONS = new Set(['480p', '720p', '1080p']);
+const SEEDANCE_2_RATIOS = new Set([
+  '16:9',
+  '4:3',
+  '1:1',
+  '3:4',
+  '9:16',
+  '21:9',
+  'adaptive',
+]);
 
 interface Seedance2ContentItem {
   type: 'text' | 'image_url' | 'video_url' | 'audio_url';
   text?: string;
-  role?: 'reference_image' | 'reference_video' | 'reference_audio';
+  role?:
+    | 'first_frame'
+    | 'last_frame'
+    | 'reference_image'
+    | 'reference_video'
+    | 'reference_audio';
   image_url?: { url: string };
   video_url?: { url: string };
   audio_url?: { url: string };
@@ -54,21 +70,68 @@ function isSeedance2Model(modelId: string): boolean {
   return modelId.toLowerCase().startsWith(SEEDANCE_2_MODEL_PREFIX);
 }
 
-function parseSize(size?: string): { resolution: string; ratio: string } {
+function parseLegacySize(size?: string): {
+  resolution: string;
+  ratio: string;
+} {
   const [rawResolution, rawRatio] = (size || '720p@16:9').split('@');
   return {
-    resolution: rawResolution === '4K' ? '4k' : rawResolution || '720p',
+    resolution: rawResolution || '720p',
     ratio: rawRatio || '16:9',
   };
 }
 
-function parseBoolean(value: unknown, fallback: boolean): boolean {
+function parseBoolean(
+  value: unknown,
+  fallback: boolean,
+  label: string
+): boolean {
+  if (value === undefined || value === null || value === '') return fallback;
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
     if (value.toLowerCase() === 'true') return true;
     if (value.toLowerCase() === 'false') return false;
   }
-  return fallback;
+  throw new Error(`Seedance 2.0 ${label}必须为布尔值`);
+}
+
+function parseOptionalBoolean(value: unknown, label: string) {
+  if (value === undefined || value === null || value === '') return undefined;
+  return parseBoolean(value, false, label);
+}
+
+function parseOptionalInteger(value: unknown, label: string) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Seedance 2.0 ${label}必须为整数`);
+  }
+  return parsed;
+}
+
+function resolveVideoOptions(request: VideoGenerationRequest): {
+  resolution: string;
+  ratio: string;
+  duration: number;
+} {
+  const legacy = parseLegacySize(request.size);
+  const resolution =
+    getStringParam(request.params, ['resolution']) || legacy.resolution;
+  const ratio =
+    getStringParam(request.params, ['ratio', 'aspect_ratio']) || legacy.ratio;
+  const duration = request.duration ?? 5;
+
+  if (!SEEDANCE_2_RESOLUTIONS.has(resolution)) {
+    throw new Error(`Seedance 2.0 不支持的分辨率：${resolution}`);
+  }
+  if (!SEEDANCE_2_RATIOS.has(ratio)) {
+    throw new Error(`Seedance 2.0 不支持的宽高比：${ratio}`);
+  }
+  if (!Number.isInteger(duration) || duration < 4 || duration > 12) {
+    throw new Error('Seedance 2.0 视频时长必须为 4-12 秒整数');
+  }
+
+  return { resolution, ratio, duration };
 }
 
 function extractErrorMessage(error: Seedance2TaskResponse['error']): string {
@@ -126,10 +189,20 @@ function getStringParam(
   return undefined;
 }
 
-function normalizeReferenceMediaUrl(value: string, label: string): string {
+function normalizeReferenceVideoUrl(value: string): string {
   const normalized = value.trim();
-  if (!isServerReachableMediaUrl(normalized)) {
-    throw new Error(`Seedance 2.0 ${label}仅支持 HTTP(S) 或 asset:// 地址`);
+  if (!isPublicHttpMediaUrl(normalized)) {
+    throw new Error('Seedance 2.0 参考视频仅支持公网 HTTP(S) 地址');
+  }
+  return normalized;
+}
+
+function normalizeReferenceAudio(value: string): string {
+  const normalized = value.trim();
+  if (!isSeedanceAudioReference(normalized)) {
+    throw new Error(
+      'Seedance 2.0 参考音频仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+    );
   }
   return normalized;
 }
@@ -149,7 +222,7 @@ function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
     'reference_video',
   ]);
   if (videoUrl) {
-    const normalizedVideoUrl = normalizeReferenceMediaUrl(videoUrl, '参考视频');
+    const normalizedVideoUrl = normalizeReferenceVideoUrl(videoUrl);
     content.push({
       type: 'video_url',
       video_url: { url: normalizedVideoUrl },
@@ -162,7 +235,7 @@ function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
     'reference_audio',
   ]);
   if (audioUrl) {
-    const normalizedAudioUrl = normalizeReferenceMediaUrl(audioUrl, '参考音频');
+    const normalizedAudioUrl = normalizeReferenceAudio(audioUrl);
     content.push({
       type: 'audio_url',
       audio_url: { url: normalizedAudioUrl },
@@ -205,7 +278,7 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
   id: 'seedance-2-video-adapter',
   label: 'Seedance 2.0 Video',
   kind: 'video',
-  docsUrl: 'https://tuzi-api.apifox.cn/359269497e0',
+  docsUrl: 'https://tuzi-api.apifox.cn/418534831e0',
   matchProtocols: ['openai.async.video'],
   matchRequestSchemas: ['doubao.seedance-2.video.content-json'],
   matchPredicate(modelConfig) {
@@ -222,8 +295,12 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
     }
 
     const provider = buildProviderContextFromAdapterContext(context);
-    const { resolution, ratio } = parseSize(request.size);
-    const duration = request.duration || 5;
+    const { resolution, ratio, duration } = resolveVideoOptions(request);
+    const seed = parseOptionalInteger(request.params?.seed, '随机种子');
+    const cameraFixed = parseOptionalBoolean(
+      request.params?.camera_fixed,
+      '固定镜头'
+    );
     const onProgress = request.params?.onProgress as
       | ((progress: number, status?: string) => void)
       | undefined;
@@ -231,20 +308,28 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
       | ((taskId: string) => void)
       | undefined;
 
+    const submitBody = {
+      model,
+      content: buildContent(request),
+      resolution,
+      ratio,
+      duration,
+      generate_audio: parseBoolean(
+        request.params?.generate_audio,
+        true,
+        '生成音频'
+      ),
+      watermark: parseBoolean(request.params?.watermark, false, '水印'),
+      ...(seed !== undefined ? { seed } : {}),
+      ...(cameraFixed !== undefined ? { camera_fixed: cameraFixed } : {}),
+    };
+
     const submitResponse = await providerTransport.send(provider, {
       path: context.binding?.submitPath || '/videos',
       baseUrlStrategy: context.binding?.baseUrlStrategy,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        content: buildContent(request),
-        resolution,
-        ratio,
-        duration,
-        generate_audio: parseBoolean(request.params?.generate_audio, true),
-        watermark: parseBoolean(request.params?.watermark, false),
-      }),
+      body: JSON.stringify(submitBody),
       signal: context.signal,
       fetcher: context.fetcher,
     });
