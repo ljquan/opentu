@@ -24,8 +24,16 @@ import React, {
   useRef,
   useMemo,
 } from 'react';
-import { Maximize2, Minimize2, Send, X } from 'lucide-react';
-import { MessagePlugin } from 'tdesign-react';
+import {
+  ChevronDown,
+  Maximize2,
+  Minimize2,
+  PinOff,
+  Send,
+  Unlink,
+  X,
+} from 'lucide-react';
+import { Dropdown, MessagePlugin, type DropdownOption } from 'tdesign-react';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
 import { useBoard } from '@plait-board/react-board';
@@ -34,12 +42,14 @@ import { PromptOptimizeButton } from '../shared/PromptOptimizeButton';
 import { KnowledgeNoteContextSelector } from '../shared/KnowledgeNoteContextSelector';
 import {
   getSelectedElements,
+  addSelectedElement,
   ATTACHED_ELEMENT_CLASS_NAME,
   getRectangleByElements,
   PlaitBoard,
   PlaitElement,
   RectangleClient,
   getViewportOrigination,
+  Transforms,
 } from '@plait/core';
 import { useI18n } from '../../i18n';
 import { TaskStatus, type KnowledgeContextRef } from '../../types/task.types';
@@ -188,6 +198,10 @@ import {
   areBoundTargetTaskbarDraftsEqual,
   buildBoundTargetGenerationParams,
   collectBoundTargetElementIds,
+  createBoundImageTargetStateKey,
+  findBoundTargetElement,
+  isBoundTargetReferenceOnly,
+  pinBoundTargetReferenceContent,
   pruneStaleBoundTargetTaskbarDrafts,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
@@ -198,6 +212,7 @@ import {
   storeBoundTargetTaskbarDraft,
   type BoundTargetTaskbarDraft,
   type BoundTargetTaskbarDraftEntry,
+  type BoundImageTargetMode,
 } from './target-bound-taskbar-state';
 
 /**
@@ -663,7 +678,10 @@ interface BoundImageTarget {
   url: string;
   generationTaskId?: string;
   generationAnchorId?: string;
+  referenceOnly: boolean;
 }
+
+type BoundImageTargetDismissMode = 'once' | 'always';
 
 type BoundImageInputDraft = BoundTargetTaskbarDraft<
   SelectedContent,
@@ -774,6 +792,7 @@ async function resolveBoundImageTarget(
         typeof record.generationAnchorId === 'string'
           ? record.generationAnchorId
           : anchor?.id,
+      referenceOnly: isBoundTargetReferenceOnly(record),
     };
   } catch {
     return null;
@@ -782,13 +801,21 @@ async function resolveBoundImageTarget(
 
 function selectedContentFromBoundImage(
   target: BoundImageTarget | null,
-  language: string
+  language: string,
+  referenceOnly = false
 ): SelectedContent | null {
   return target
     ? {
         type: 'image',
         url: target.url,
-        name: language === 'zh' ? '目标图片' : 'Target image',
+        name:
+          language === 'zh'
+            ? referenceOnly
+              ? '参考图'
+              : '目标图片'
+            : referenceOnly
+            ? 'Reference image'
+            : 'Target image',
         width: target.rect.width,
         height: target.rect.height,
       }
@@ -1394,6 +1421,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     ); // 画布选中内容
     const [boundImageTarget, setBoundImageTarget] =
       useState<BoundImageTarget | null>(null);
+    const [boundImageTargetMode, setBoundImageTargetMode] =
+      useState<BoundImageTargetMode>('follow');
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
     const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
       useState(() => readBoundTargetDismissHintCount());
@@ -1701,6 +1730,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedFrameRef.current = null;
         suppressSelectionContentUrlsRef.current = new Set();
         setBoundImageTarget(null);
+        setBoundImageTargetMode('follow');
         setBoundTargetError(null);
         setSelectedContent([]);
         applyTaskbarDraft(unboundTaskbarDraftRef.current);
@@ -1763,9 +1793,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return [...uploadedContent, ...selectedContent];
     }, [uploadedContent, selectedContent]);
     const boundTargetContent = useMemo(
-      () => selectedContentFromBoundImage(boundImageTarget, language),
-      [boundImageTarget, language]
+      () =>
+        selectedContentFromBoundImage(
+          boundImageTarget,
+          language,
+          boundImageTargetMode === 'reference'
+        ),
+      [boundImageTarget, boundImageTargetMode, language]
     );
+    const followedBoundImageTarget =
+      boundImageTargetMode === 'follow' ? boundImageTarget : null;
     const displayContent = useMemo(
       () =>
         boundTargetContent
@@ -3131,13 +3168,41 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         );
         suppressedBoundImageElementIdRef.current =
           suppression.nextSuppressedElementId;
-        if (suppression.suppressTarget) {
+        if (target && (suppression.suppressTarget || target.referenceOnly)) {
+          const referenceTarget =
+            suppression.suppressTarget &&
+            boundImageTargetRef.current?.elementId === target.elementId &&
+            boundImageTargetRef.current.referenceOnly
+              ? { ...target, referenceOnly: true }
+              : target;
+          const targetKey = createBoundImageTargetStateKey(
+            referenceTarget,
+            'reference'
+          );
+          if (lastBoundImageTargetKeyRef.current === targetKey) {
+            return;
+          }
+          lastBoundImageTargetKeyRef.current = targetKey;
+          if (activeDraftElementIdRef.current) {
+            detachTaskbarDraft();
+          } else {
+            saveActiveTaskbarDraft();
+          }
+          boundImageTargetRef.current = referenceTarget;
+          setBoundImageTarget(referenceTarget);
+          setBoundImageTargetMode('reference');
+          setBoundTargetError(null);
+          setSelectedContent([]);
+          selectedFrameRef.current = null;
+          suppressSelectionContentUrlsRef.current = new Set();
+          setBoundInputLayoutTick((tick) => tick + 1);
           return;
         }
 
         const previousTarget = boundImageTargetRef.current;
         boundImageTargetRef.current = target;
         setBoundImageTarget(target);
+        setBoundImageTargetMode('follow');
         setBoundInputLayoutTick((tick) => tick + 1);
         if (!target) {
           if (activeDraftElementIdRef.current) {
@@ -3151,13 +3216,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           return;
         }
 
-        const targetKey = [
-          target.elementId,
-          target.url,
-          target.prompt,
-          target.generationTaskId || '',
-          target.generationAnchorId || '',
-        ].join(':');
+        const targetKey = createBoundImageTargetStateKey(target, 'follow');
         if (lastBoundImageTargetKeyRef.current === targetKey) {
           return;
         }
@@ -3211,21 +3270,74 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ]
     );
 
-    const handleDismissBoundImageTarget = useCallback(() => {
-      const target = boundImageTarget;
-      if (!target) return;
+    const handleDismissBoundImageTarget = useCallback(
+      (mode: BoundImageTargetDismissMode) => {
+        const target = boundImageTarget;
+        const board = SelectionWatcherBoardRef.current;
+        if (!target || !board) return;
 
-      detachTaskbarDraft(true);
-      suppressedBoundImageElementIdRef.current = target.elementId;
-      lastBoundImageTargetKeyRef.current = null;
-      boundImageTargetRef.current = null;
-      setBoundImageTarget(null);
-      setBoundTargetError(null);
-      setBoundInputLayoutTick((tick) => tick + 1);
-      setBoundTargetDismissHintCount(
-        recordBoundTargetDismiss(boundTargetDismissHintCount)
-      );
-    }, [boundImageTarget, boundTargetDismissHintCount, detachTaskbarDraft]);
+        const selectedElement =
+          getSelectedElements(board).find(
+            (element) => element.id === target.elementId
+          ) ||
+          (findBoundTargetElement(
+            board.children,
+            target.elementId
+          ) as PlaitElement | null);
+        if (!selectedElement) {
+          MessagePlugin.error(
+            language === 'zh'
+              ? '无法读取当前图片的跟随设置'
+              : 'Failed to read the follow setting for this image'
+          );
+          return;
+        }
+
+        detachTaskbarDraft(true);
+        let nextTarget = target;
+        if (mode === 'always') {
+          Transforms.setNode(
+            board,
+            { aiTaskbarReferenceOnly: true } as Partial<PlaitElement>,
+            PlaitBoard.findPath(board, selectedElement)
+          );
+          nextTarget = { ...target, referenceOnly: true };
+        }
+        suppressedBoundImageElementIdRef.current = target.elementId;
+
+        const currentElement = findBoundTargetElement(
+          board.children,
+          target.elementId
+        ) as PlaitElement | null;
+        if (
+          currentElement &&
+          !getSelectedElements(board).some(
+            (element) => element.id === target.elementId
+          )
+        ) {
+          addSelectedElement(board, currentElement);
+        }
+
+        lastBoundImageTargetKeyRef.current = createBoundImageTargetStateKey(
+          nextTarget,
+          'reference'
+        );
+        boundImageTargetRef.current = nextTarget;
+        setBoundImageTarget(nextTarget);
+        setBoundImageTargetMode('reference');
+        setBoundTargetError(null);
+        setBoundInputLayoutTick((tick) => tick + 1);
+        setBoundTargetDismissHintCount(
+          recordBoundTargetDismiss(boundTargetDismissHintCount)
+        );
+      },
+      [
+        boundImageTarget,
+        boundTargetDismissHintCount,
+        detachTaskbarDraft,
+        language,
+      ]
+    );
 
     const handleBoundInputViewportChange = useCallback(() => {
       setBoundInputLayoutTick((tick) => tick + 1);
@@ -3247,19 +3359,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [uploadedContent]
     );
 
-    // 同步 allContent 到 ChatDrawer Context
+    const chatDrawerContent =
+      boundImageTargetMode === 'reference' ? generationContent : allContent;
+
+    // 仅作参考模式与生成请求使用同一份内容，确保目标图不会在抽屉中丢失。
     useEffect(() => {
       setSelectedContentRef.current(
-        allContent.map((c) => ({
+        chatDrawerContent.map((c) => ({
           type: c.type,
           url: c.url,
+          maskImage: c.maskImage,
           text: c.text,
           name: c.name,
           width: c.width,
           height: c.height,
         }))
       );
-    }, [allContent]);
+    }, [chatDrawerContent]);
 
     // 处理粘贴图片，仅在 AIInputBar 处于激活状态时接管
     useEffect(() => {
@@ -3675,10 +3791,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           typeof triggerOrOverride === 'string' ? triggerOrOverride : 'button';
         const effectivePrompt = override?.prompt ?? prompt;
         const activeBoundImageTarget =
-          override || !shouldUseBoundTargetForSubmission(generationType)
+          override ||
+          !shouldUseBoundTargetForSubmission(
+            generationType,
+            boundImageTargetMode
+          )
             ? null
             : boundImageTarget;
-        const effectiveContent = override?.content ?? generationContent;
+        const effectiveContent = override
+          ? pinBoundTargetReferenceContent(
+              override.content,
+              boundTargetContent,
+              boundImageTargetMode
+            )
+          : generationContent;
         const effectiveGenerationType = activeBoundImageTarget
           ? 'image'
           : override?.generationType ?? generationType;
@@ -4871,6 +4997,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [
         prompt,
         boundImageTarget,
+        boundImageTargetMode,
+        boundTargetContent,
         generationContent,
         isSubmitting,
         selectedModel,
@@ -5507,7 +5635,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     }, [inputResizeMode, isPromptManuallyExpanded, prompt, shouldKeepExpanded]);
 
     const boundInputPosition = useMemo(() => {
-      if (!boundImageTarget) return null;
+      if (!followedBoundImageTarget) return null;
 
       const board = SelectionWatcherBoardRef.current;
       const boardContainer = board
@@ -5522,14 +5650,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       const originY = origination?.[1] || 0;
       const targetCenterX =
         boardRect.left +
-        (boundImageTarget.rect.x + boundImageTarget.rect.width / 2 - originX) *
+        (followedBoundImageTarget.rect.x +
+          followedBoundImageTarget.rect.width / 2 -
+          originX) *
           zoom;
       const targetBottom =
         boardRect.top +
-        (boundImageTarget.rect.y + boundImageTarget.rect.height - originY) *
+        (followedBoundImageTarget.rect.y +
+          followedBoundImageTarget.rect.height -
+          originY) *
           zoom;
       const targetTop =
-        boardRect.top + (boundImageTarget.rect.y - originY) * zoom;
+        boardRect.top + (followedBoundImageTarget.rect.y - originY) * zoom;
       const viewportMargin = 12;
       const barWidth = getBoundTaskbarWidth(
         containerRef.current?.getBoundingClientRect().width,
@@ -5547,7 +5679,27 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           : Math.max(viewportMargin, targetTop - estimatedHeight - 8);
 
       return { left, top };
-    }, [boundImageTarget, boundInputLayoutTick, shouldKeepExpanded]);
+    }, [boundInputLayoutTick, followedBoundImageTarget, shouldKeepExpanded]);
+
+    const boundTargetDismissOptions = useMemo<DropdownOption[]>(
+      () => [
+        {
+          content:
+            language === 'zh' ? '本次只作参考图' : 'Use as reference this time',
+          value: 'once',
+          prefixIcon: <Unlink size={14} aria-hidden="true" />,
+        },
+        {
+          content:
+            language === 'zh'
+              ? '对此图始终只作参考图'
+              : 'Always use this image as reference',
+          value: 'always',
+          prefixIcon: <PinOff size={14} aria-hidden="true" />,
+        },
+      ],
+      [language]
+    );
 
     const boundInputStyle = boundInputPosition
       ? ({
@@ -5613,41 +5765,71 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             onOpenPromptTool={handleOpenPromptToolFromInspiration}
           />
 
-          {boundImageTarget ? (
+          {followedBoundImageTarget ? (
             <div className="ai-input-bar__bound-dismiss">
               {boundTargetDismissHintCount < BOUND_TARGET_DISMISS_HINT_LIMIT ? (
                 <div className="ai-input-bar__bound-dismiss-hint" role="status">
                   {language === 'zh'
-                    ? '关闭任务栏跟随，后续生成新图片'
-                    : 'Stop following; generate new images'}
+                    ? '关闭跟随，当前图仍作参考图'
+                    : 'Stop following; keep this reference'}
                 </div>
               ) : null}
-              <HoverTip
-                content={
-                  language === 'zh'
-                    ? '关闭任务栏跟随'
-                    : 'Stop following this image'
-                }
-                showArrow={false}
-              >
-                <button
-                  type="button"
-                  className="ai-input-bar__bound-dismiss-btn"
-                  aria-label={
+              <div className="ai-input-bar__bound-dismiss-actions">
+                <HoverTip
+                  content={
                     language === 'zh'
-                      ? '关闭任务栏跟随'
-                      : 'Stop following this image'
+                      ? '本次只作参考图'
+                      : 'Use as reference this time'
                   }
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={handleDismissBoundImageTarget}
-                  disabled={isSubmitting}
+                  showArrow={false}
                 >
-                  <X size={16} aria-hidden="true" />
-                </button>
-              </HoverTip>
+                  <button
+                    type="button"
+                    className="ai-input-bar__bound-dismiss-btn"
+                    aria-label={
+                      language === 'zh'
+                        ? '本次只作参考图'
+                        : 'Use as reference this time'
+                    }
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={() => handleDismissBoundImageTarget('once')}
+                    disabled={isSubmitting}
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </HoverTip>
+                <Dropdown
+                  options={boundTargetDismissOptions}
+                  trigger="click"
+                  placement="top-right"
+                  minColumnWidth={190}
+                  onClick={(data) =>
+                    handleDismissBoundImageTarget(
+                      data.value as BoundImageTargetDismissMode
+                    )
+                  }
+                >
+                  <button
+                    type="button"
+                    className="ai-input-bar__bound-dismiss-menu-btn"
+                    aria-label={
+                      language === 'zh'
+                        ? '选择跟随方式'
+                        : 'Choose follow behavior'
+                    }
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                </Dropdown>
+              </div>
             </div>
           ) : null}
 

@@ -164,14 +164,14 @@ describe('workflow-converter', () => {
         });
       });
 
-      it('应该正确传递参考图片', () => {
+      it('应该保持目标图优先的参考图片顺序', () => {
         const params = createMockParams({
           generationType: 'image',
           prompt: '风格转换',
         });
         const referenceImages = [
-          'https://example.com/ref1.jpg',
-          'https://example.com/ref2.jpg',
+          'https://example.com/target.jpg',
+          'https://example.com/manual-reference.jpg',
         ];
 
         const workflow = convertDirectGenerationToWorkflow(

@@ -12,6 +12,64 @@ interface BoundTargetGenerationMetadata {
   generationAnchorId?: string;
 }
 
+export type BoundImageTargetMode = 'follow' | 'reference';
+
+export function createBoundImageTargetStateKey(
+  target: {
+    elementId: string;
+    url: string;
+    prompt: string;
+    generationTaskId?: string;
+    generationAnchorId?: string;
+    referenceOnly: boolean;
+  },
+  mode: BoundImageTargetMode
+): string {
+  return JSON.stringify([
+    target.elementId,
+    target.url,
+    target.prompt,
+    target.generationTaskId || '',
+    target.generationAnchorId || '',
+    target.referenceOnly,
+    mode,
+  ]);
+}
+
+export function pinBoundTargetReferenceContent<T extends { url?: string }>(
+  content: T[],
+  target: T | null,
+  mode: BoundImageTargetMode
+): T[] {
+  if (mode !== 'reference' || !target?.url) return content;
+  return [target, ...content.filter((item) => item.url !== target.url)];
+}
+
+export function isBoundTargetReferenceOnly(element: unknown): boolean {
+  const record = element as Record<string, unknown> | null;
+  return record?.aiTaskbarReferenceOnly === true;
+}
+
+export function findBoundTargetElement(
+  elements: readonly unknown[],
+  elementId: string
+): Record<string, unknown> | null {
+  const pending = [...elements];
+
+  while (pending.length > 0) {
+    const element = pending.pop();
+    if (!element || typeof element !== 'object') continue;
+
+    const record = element as Record<string, unknown>;
+    if (record.id === elementId) return record;
+    if (Array.isArray(record.children)) {
+      pending.push(...record.children);
+    }
+  }
+
+  return null;
+}
+
 function getBrowserStorage(): WritableStorage | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -226,9 +284,10 @@ export function resolveTaskbarDraftAfterSubmission<
 }
 
 export function shouldUseBoundTargetForSubmission(
-  generationType: string
+  generationType: string,
+  mode: BoundImageTargetMode = 'follow'
 ): boolean {
-  return generationType === 'image';
+  return generationType === 'image' && mode === 'follow';
 }
 
 export function buildBoundTargetGenerationParams(

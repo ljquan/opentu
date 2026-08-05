@@ -5,6 +5,10 @@ import {
   areBoundTargetTaskbarDraftsEqual,
   buildBoundTargetGenerationParams,
   collectBoundTargetElementIds,
+  createBoundImageTargetStateKey,
+  findBoundTargetElement,
+  isBoundTargetReferenceOnly,
+  pinBoundTargetReferenceContent,
   pruneStaleBoundTargetTaskbarDrafts,
   readBoundTargetDismissHintCount,
   recordBoundTargetDismiss,
@@ -27,6 +31,30 @@ function createStorage(initialValue?: string) {
 }
 
 describe('target-bound-taskbar-state', () => {
+  it('仅把显式标记的图片视为永久参考图模式', () => {
+    expect(isBoundTargetReferenceOnly({ aiTaskbarReferenceOnly: true })).toBe(
+      true
+    );
+    expect(isBoundTargetReferenceOnly({ aiTaskbarReferenceOnly: false })).toBe(
+      false
+    );
+    expect(isBoundTargetReferenceOnly({})).toBe(false);
+    expect(isBoundTargetReferenceOnly(null)).toBe(false);
+  });
+
+  it('可从嵌套画板结构中找到永久设置的目标图片', () => {
+    const image = { id: 'image-nested', type: 'image' };
+    const elements = [
+      {
+        id: 'frame-a',
+        children: [{ id: 'group-a', children: [image] }],
+      },
+    ];
+
+    expect(findBoundTargetElement(elements, 'image-nested')).toBe(image);
+    expect(findBoundTargetElement(elements, 'image-missing')).toBeNull();
+  });
+
   it('累计五次关闭后固定隐藏提示计数', () => {
     const storage = createStorage();
     let currentCount = 0;
@@ -62,6 +90,46 @@ describe('target-bound-taskbar-state', () => {
       suppressTarget: false,
       nextSuppressedElementId: null,
     });
+  });
+
+  it('目标状态键区分跟随、临时参考和永久参考', () => {
+    const target = {
+      elementId: 'image-a',
+      url: 'https://example.com/image-a.png',
+      prompt: '海边',
+      generationTaskId: 'task-a',
+      generationAnchorId: 'anchor-a',
+      referenceOnly: false,
+    };
+
+    expect(createBoundImageTargetStateKey(target, 'follow')).not.toBe(
+      createBoundImageTargetStateKey(target, 'reference')
+    );
+    expect(createBoundImageTargetStateKey(target, 'reference')).not.toBe(
+      createBoundImageTargetStateKey(
+        { ...target, referenceOnly: true },
+        'reference'
+      )
+    );
+    expect(createBoundImageTargetStateKey(target, 'reference')).toBe(
+      createBoundImageTargetStateKey({ ...target }, 'reference')
+    );
+  });
+
+  it('从对话抽屉提交时仍将当前图片置于参考图首位', () => {
+    const target = { url: 'target.png', name: '当前图片' };
+    const uploaded = { url: 'uploaded.png', name: '抽屉上传' };
+
+    expect(
+      pinBoundTargetReferenceContent(
+        [uploaded, { ...target }],
+        target,
+        'reference'
+      )
+    ).toEqual([target, uploaded]);
+    expect(
+      pinBoundTargetReferenceContent([uploaded, target], target, 'follow')
+    ).toEqual([uploaded, target]);
   });
 
   it('按图片保存并恢复独立草稿，不把 A 的内容带到 B', () => {
@@ -218,22 +286,29 @@ describe('target-bound-taskbar-state', () => {
   });
 
   it('仅图片模式执行绑定目标原位替换', () => {
-    expect(shouldUseBoundTargetForSubmission('image')).toBe(true);
-    expect(shouldUseBoundTargetForSubmission('video')).toBe(false);
-    expect(shouldUseBoundTargetForSubmission('agent')).toBe(false);
-    expect(shouldUseBoundTargetForSubmission('text')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('image', 'follow')).toBe(true);
+    expect(shouldUseBoundTargetForSubmission('image', 'reference')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('video', 'follow')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('agent', 'follow')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('text', 'follow')).toBe(false);
   });
 
-  it('关闭后不再生成目标替换参数，未关闭时保持原参数', () => {
-    expect(buildBoundTargetGenerationParams(null)).toBeNull();
-    expect(
-      buildBoundTargetGenerationParams({
-        elementId: 'image-a',
-        prompt: '更新提示词',
-        generationAnchorId: 'anchor-a',
-        generationTaskId: 'task-a',
-      })
-    ).toEqual({
+  it('仅作参考时不生成覆盖参数，跟随时保持原参数', () => {
+    const target = {
+      elementId: 'image-a',
+      prompt: '更新提示词',
+      generationAnchorId: 'anchor-a',
+      generationTaskId: 'task-a',
+    };
+    const referenceTarget = shouldUseBoundTargetForSubmission(
+      'image',
+      'reference'
+    )
+      ? target
+      : null;
+
+    expect(buildBoundTargetGenerationParams(referenceTarget)).toBeNull();
+    expect(buildBoundTargetGenerationParams(target)).toEqual({
       generationMode: 'image_to_image',
       replaceElementId: 'image-a',
       targetElementId: 'image-a',

@@ -52,6 +52,7 @@ The system SHALL use the ordinary image generation flow after the user closes th
 - **WHEN** the user submits the preserved prompt and configuration
 - **THEN** the original image SHALL remain unchanged
 - **AND** the result SHALL be inserted as a new image
+- **AND** the selected image SHALL be included as `referenceImages[0]`
 - **AND** the task SHALL NOT include `replaceElementId`, `targetElementId`, `anchorId`, `sourceTaskId` or `sourcePrompt` from the detached target
 
 #### Scenario: Submit without closing the binding
