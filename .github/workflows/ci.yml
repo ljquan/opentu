@@ -48,9 +48,19 @@ jobs:
           else
             echo "base=origin/develop" >> "$GITHUB_OUTPUT"
           fi
+      - name: Detect affected web app
+        id: affected-web
+        shell: bash
+        run: |
+          if npx nx show projects --affected --base=${{ steps.affected-base.outputs.base }} | grep -qx web; then
+            echo "affected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "affected=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: npx nx affected -t test build --base=${{ steps.affected-base.outputs.base }} --verbose
       - run: npx nx affected -t lint --exclude=drawnix --base=${{ steps.affected-base.outputs.base }} --verbose
       - name: Verify startup bundle
+        if: steps.affected-web.outputs.affected == 'true'
         run: pnpm verify:startup
 
       # PR 时运行冒烟测试（快速，约2分钟）
@@ -76,11 +86,11 @@ jobs:
           path: apps/web-e2e/playwright-report/
 
       - name: Check Bundle Size
-        if: always()
+        if: always() && steps.affected-web.outputs.affected == 'true'
         run: pnpm run size
 
       - name: Upload Bundle Stats
-        if: always()
+        if: always() && steps.affected-web.outputs.affected == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: bundle-stats
