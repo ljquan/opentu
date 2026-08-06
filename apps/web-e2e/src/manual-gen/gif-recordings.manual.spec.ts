@@ -15,7 +15,7 @@ import { test, expect, Page } from '@playwright/test';
  * 显示快捷键提示
  * 在屏幕右下角显示按键提示，用于 GIF 演示
  */
-async function showKeyHint(page: Page, key: string, duration: number = 1500) {
+async function showKeyHint(page: Page, key: string, duration = 1500) {
   await page.evaluate(({ keyText, dur }) => {
     // 创建或获取提示容器
     let container = document.getElementById('key-hint-container');
@@ -172,7 +172,7 @@ let firstClickLogged = false;
 /**
  * 点击元素并显示点击效果
  */
-async function clickWithEffect(page: Page, locator: ReturnType<Page['locator']>, label?: string, waitAfter: number = 1500) {
+async function clickWithEffect(page: Page, locator: ReturnType<Page['locator']>, label?: string, waitAfter = 1500) {
   // 记录第一次点击的时间（用于计算裁剪点）
   if (!firstClickLogged && testStartTime) {
     const elapsed = (Date.now() - testStartTime) / 1000;
