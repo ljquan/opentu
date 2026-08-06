@@ -13,6 +13,9 @@ const SEEDANCE_MODELS = [
   'seedance-1.0-lite',
 ];
 
+export const isLegacySeedanceModel = (modelId: string): boolean =>
+  SEEDANCE_MODELS.includes(modelId);
+
 type SeedanceSubmitResponse = {
   id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed';
@@ -203,6 +206,9 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
   matchProtocols: ['seedance.task'],
   matchRequestSchemas: ['seedance.video.form-auto'],
   supportedModels: SEEDANCE_MODELS,
+  matchPredicate(modelConfig) {
+    return isLegacySeedanceModel(modelConfig.id);
+  },
   defaultModel: 'seedance-1.5-pro',
 
   async generateVideo(context, request: VideoGenerationRequest) {
@@ -213,7 +219,9 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
 
     // 宽高比优先取显式参数，其次回退到 size 中的组合值
     const aspectRatio =
-      normalizeAspectRatio(request.params?.aspect_ratio as string | undefined) ||
+      normalizeAspectRatio(
+        request.params?.aspect_ratio as string | undefined
+      ) ||
       normalizeAspectRatio(request.params?.aspectRatio as string | undefined) ||
       parsedSize.aspectRatio ||
       '16:9';
@@ -281,8 +289,8 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
           (status.status === 'failed'
             ? 100
             : status.status === 'completed'
-              ? 100
-              : 0);
+            ? 100
+            : 0);
         onProgress?.(progress, status.status);
 
         if (status.status === 'completed') {

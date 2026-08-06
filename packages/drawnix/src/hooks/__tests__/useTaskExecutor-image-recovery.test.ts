@@ -1,0 +1,473 @@
+// @vitest-environment jsdom
+
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  TaskExecutionPhase,
+  TaskStatus,
+  TaskType,
+  type Task,
+} from '../../types/task.types';
+
+const mocks = vi.hoisted(() => ({
+  currentTask: null as Task | null,
+  allTasks: null as Task[] | null,
+  taskListener: null as ((event: { type: string; task: Task }) => void) | null,
+  recoveryCallbacks: null as null | {
+    onSucceeded(result: any): void | Promise<void>;
+    onFailed(error: any): void | Promise<void>;
+  },
+  updateTaskStatus: vi.fn(),
+  completeImageAttempt: vi.fn(),
+  failImageAttempt: vi.fn(),
+  activateImageAttempt: vi.fn(),
+  cacheRemoteUrls: vi.fn(),
+  registerImageMetadata: vi.fn(),
+  start: vi.fn(),
+  stop: vi.fn(),
+  stopAll: vi.fn(),
+  cancelRequest: vi.fn(),
+  generate: vi.fn(),
+  resumeAsyncImageGeneration: vi.fn(),
+  isTaskExecutionActive: vi.fn(() => false),
+  isResumableAsyncImageTask: vi.fn(() => false),
+  isTaskTimeout: vi.fn(() => false),
+}));
+
+vi.mock('../../services/task-queue', () => ({
+  taskQueueService: {},
+  legacyTaskQueueService: {
+    getTask: vi.fn(() => mocks.currentTask || undefined),
+    getAllTasks: vi.fn(
+      () => mocks.allTasks || (mocks.currentTask ? [mocks.currentTask] : [])
+    ),
+    updateTaskStatus: mocks.updateTaskStatus,
+    completeImageAttempt: mocks.completeImageAttempt,
+    failImageAttempt: mocks.failImageAttempt,
+    activateImageAttempt: mocks.activateImageAttempt,
+    isTaskExecutionActive: mocks.isTaskExecutionActive,
+    observeTaskUpdates: vi.fn(() => ({
+      subscribe: (listener: (event: { type: string; task: Task }) => void) => {
+        mocks.taskListener = listener;
+        return { unsubscribe: vi.fn() };
+      },
+    })),
+  },
+}));
+
+vi.mock('../../services/generation-api-service', () => ({
+  generationAPIService: {
+    generate: mocks.generate,
+    cancelRequest: mocks.cancelRequest,
+    resumeAudioGeneration: vi.fn(),
+    resumeAsyncImageGeneration: mocks.resumeAsyncImageGeneration,
+  },
+}));
+
+vi.mock('../../services/character-api-service', () => ({
+  characterAPIService: {},
+}));
+
+vi.mock('../../services/character-storage-service', () => ({
+  characterStorageService: {},
+}));
+
+vi.mock('../../services/unified-cache-service', () => ({
+  unifiedCacheService: {
+    registerImageMetadata: mocks.registerImageMetadata,
+  },
+}));
+
+vi.mock('../../utils/task-utils', () => ({
+  isResumableAsyncImageTask: mocks.isResumableAsyncImageTask,
+  isTaskTimeout: mocks.isTaskTimeout,
+}));
+
+vi.mock('../../utils/api-auth-error-event', () => ({
+  classifyApiCredentialError: vi.fn(() => null),
+}));
+
+vi.mock('../../services/task-invocation-route', () => ({
+  assertTaskInvocationRouteAvailable: vi.fn(),
+  resolveTaskInvocationRouteModel: vi.fn(),
+  shouldUseStrictTaskInvocationRoute: vi.fn(() => false),
+}));
+
+vi.mock('../../services/media-executor/fallback-utils', () => ({
+  cacheRemoteUrls: mocks.cacheRemoteUrls,
+}));
+
+vi.mock('../../services/image-generation-recovery-service', () => ({
+  getImageSubmissionRequestId: (task: Pick<Task, 'id' | 'params'>) =>
+    (task.params.submissionRequestId as string | undefined) || task.id,
+  imageGenerationRecoveryService: {
+    start: mocks.start,
+    stop: mocks.stop,
+    stopAll: mocks.stopAll,
+  },
+  isCurrentImageRecoveryAttempt: (
+    task: Task | undefined,
+    requestId: string,
+    startedAt: number
+  ) =>
+    Boolean(
+      task &&
+        task.type === TaskType.IMAGE &&
+        task.status === TaskStatus.PROCESSING &&
+        task.params.imageSubmissionAttempted === true &&
+        ((task.params.submissionRequestId as string | undefined) || task.id) ===
+          requestId &&
+        (task.startedAt ?? task.createdAt) === startedAt &&
+        !task.remoteId &&
+        !task.syncedFromRemote
+    ),
+  isImageRequestRecoveryTask: (task: Task) =>
+    task.status === TaskStatus.PROCESSING &&
+    task.params.imageSubmissionAttempted === true &&
+    task.executionPhase === TaskExecutionPhase.POLLING,
+  isImageRequestRecoveryCandidate: (task: Task) =>
+    task.type === TaskType.IMAGE &&
+    task.status === TaskStatus.PROCESSING &&
+    task.params.imageSubmissionAttempted === true &&
+    task.executionPhase === TaskExecutionPhase.POLLING &&
+    !task.remoteId,
+}));
+
+function createRecoveringTask(): Task {
+  const now = Date.now();
+  return {
+    id: 'recover-image-1',
+    type: TaskType.IMAGE,
+    status: TaskStatus.PROCESSING,
+    params: {
+      prompt: '画一只兔子',
+      model: 'gpt-image-2',
+      submissionRequestId: 'submission-1',
+      imageSubmissionAttempted: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    executionPhase: TaskExecutionPhase.POLLING,
+  };
+}
+
+describe('useTaskExecutor image recovery', () => {
+  beforeEach(() => {
+    mocks.currentTask = createRecoveringTask();
+    mocks.allTasks = null;
+    mocks.taskListener = null;
+    mocks.recoveryCallbacks = null;
+    mocks.updateTaskStatus.mockReset();
+    mocks.completeImageAttempt.mockReset();
+    mocks.failImageAttempt.mockReset();
+    mocks.activateImageAttempt.mockReset();
+    mocks.cacheRemoteUrls.mockReset();
+    mocks.registerImageMetadata.mockReset();
+    mocks.start
+      .mockReset()
+      .mockImplementation((_task: Task, callbacks: any) => {
+        mocks.recoveryCallbacks = callbacks;
+        return { taskId: _task.id, stop: vi.fn() };
+      });
+    mocks.stop.mockReset();
+    mocks.stopAll.mockReset();
+    mocks.cancelRequest.mockReset();
+    mocks.generate.mockReset();
+    mocks.resumeAsyncImageGeneration.mockReset();
+    mocks.isTaskExecutionActive.mockReset().mockReturnValue(false);
+    mocks.isResumableAsyncImageTask.mockReset().mockReturnValue(false);
+    mocks.isTaskTimeout.mockReset().mockReturnValue(false);
+    mocks.updateTaskStatus.mockImplementation(
+      (_taskId: string, status: TaskStatus, updates?: Partial<Task>) => {
+        mocks.currentTask = {
+          ...mocks.currentTask!,
+          ...updates,
+          status,
+        };
+      }
+    );
+    mocks.completeImageAttempt.mockImplementation(
+      async (_taskId: string, _requestId: string, result: Task['result']) => {
+        mocks.currentTask = {
+          ...mocks.currentTask!,
+          status: TaskStatus.COMPLETED,
+          result,
+        };
+        return true;
+      }
+    );
+    mocks.failImageAttempt.mockResolvedValue(true);
+    mocks.activateImageAttempt.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not start recovery while the current page still owns the request', async () => {
+    mocks.isTaskExecutionActive.mockReturnValue(true);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.stop).toHaveBeenCalledWith('recover-image-1');
+
+    unmount();
+  });
+
+  it('does not resume an async image while the task queue still owns the request', async () => {
+    mocks.currentTask = {
+      ...createRecoveringTask(),
+      id: 'async-image-1',
+      remoteId: 'remote-image-1',
+    };
+    mocks.isResumableAsyncImageTask.mockReturnValue(true);
+    mocks.isTaskExecutionActive.mockReturnValue(true);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+
+    expect(mocks.resumeAsyncImageGeneration).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('keeps a valid remote URL when recovered-image caching fails', async () => {
+    mocks.cacheRemoteUrls.mockRejectedValue(new Error('cache unavailable'));
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await act(async () => {
+      await mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/recovered.png',
+        urls: ['https://images.example.com/recovered.png'],
+      });
+    });
+
+    expect(mocks.completeImageAttempt).toHaveBeenCalledWith(
+      'recover-image-1',
+      'submission-1',
+      expect.objectContaining({
+        url: 'https://images.example.com/recovered.png',
+        resultKind: 'image',
+      })
+    );
+    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+    expect(mocks.currentTask?.status).toBe(TaskStatus.COMPLETED);
+    expect(mocks.currentTask?.result?.url).toBe(
+      'https://images.example.com/recovered.png'
+    );
+
+    unmount();
+    expect(mocks.stopAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes back a recovered result for a restored task without startedAt', async () => {
+    mocks.currentTask = {
+      ...createRecoveringTask(),
+      startedAt: undefined,
+      invocationRoute: undefined,
+    };
+    mocks.cacheRemoteUrls.mockResolvedValue([
+      'https://images.example.com/restored.png',
+    ]);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await act(async () => {
+      await mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/restored.png',
+        urls: ['https://images.example.com/restored.png'],
+      });
+    });
+
+    expect(mocks.cacheRemoteUrls).toHaveBeenCalledWith(
+      ['https://images.example.com/restored.png'],
+      'recover-image-1',
+      'image',
+      'png',
+      expect.objectContaining({
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        cacheKey: 'submission-1',
+      })
+    );
+
+    expect(mocks.completeImageAttempt).toHaveBeenCalledWith(
+      'recover-image-1',
+      'submission-1',
+      expect.objectContaining({
+        url: 'https://images.example.com/restored.png',
+      })
+    );
+    expect(mocks.currentTask?.status).toBe(TaskStatus.COMPLETED);
+    expect(mocks.currentTask?.result?.url).toBe(
+      'https://images.example.com/restored.png'
+    );
+
+    unmount();
+  });
+
+  it('does not expose or register a stale recovery result after a newer retry', async () => {
+    mocks.cacheRemoteUrls.mockResolvedValue([
+      'https://images.example.com/stale.png',
+    ]);
+    mocks.completeImageAttempt.mockImplementation(async () => {
+      mocks.currentTask = {
+        ...mocks.currentTask!,
+        params: {
+          ...mocks.currentTask!.params,
+          submissionRequestId: 'submission-2',
+        },
+        startedAt: (mocks.currentTask!.startedAt || 0) + 1,
+      };
+      return false;
+    });
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await act(async () => {
+      await mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/stale.png',
+        urls: ['https://images.example.com/stale.png'],
+      });
+    });
+
+    expect(mocks.completeImageAttempt).toHaveBeenCalledWith(
+      'recover-image-1',
+      'submission-1',
+      expect.any(Object)
+    );
+    expect(mocks.registerImageMetadata).not.toHaveBeenCalled();
+    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('rejects terminal delivery when storage still has the current processing attempt', async () => {
+    mocks.cacheRemoteUrls.mockResolvedValue([
+      'https://images.example.com/retry-writeback.png',
+    ]);
+    mocks.completeImageAttempt.mockResolvedValue(false);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await expect(
+      mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/retry-writeback.png',
+        urls: ['https://images.example.com/retry-writeback.png'],
+      })
+    ).rejects.toThrow('恢复图片结果写入失败，稍后重试');
+
+    expect(mocks.currentTask?.status).toBe(TaskStatus.PROCESSING);
+    unmount();
+  });
+
+  it('retries terminal delivery when completion reports success but the current task is still processing', async () => {
+    mocks.cacheRemoteUrls.mockResolvedValue([
+      'https://images.example.com/readback-processing.png',
+    ]);
+    mocks.completeImageAttempt.mockResolvedValue(true);
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+    await waitFor(() => expect(mocks.recoveryCallbacks).not.toBeNull());
+
+    await expect(
+      mocks.recoveryCallbacks?.onSucceeded({
+        status: 'succeeded',
+        requestId: 'submission-1',
+        url: 'https://images.example.com/readback-processing.png',
+        urls: ['https://images.example.com/readback-processing.png'],
+      })
+    ).rejects.toThrow('恢复图片结果尚未写入完成，稍后重试');
+
+    expect(mocks.currentTask?.status).toBe(TaskStatus.PROCESSING);
+    unmount();
+  });
+
+  it('keeps the original timeout failure for a non-recoverable image task', async () => {
+    vi.useFakeTimers();
+    mocks.currentTask = {
+      ...createRecoveringTask(),
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+    };
+    mocks.isTaskTimeout.mockReturnValue(true);
+
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+
+    expect(mocks.failImageAttempt).toHaveBeenCalledWith(
+      'recover-image-1',
+      'submission-1',
+      expect.objectContaining({ code: 'TIMEOUT' })
+    );
+    expect(mocks.cancelRequest).toHaveBeenCalledWith('recover-image-1');
+
+    unmount();
+  });
+});

@@ -93,9 +93,7 @@ export function shouldDebugCanvasInsertion(): boolean {
   }
 
   try {
-    const isDev =
-      typeof process !== 'undefined' && process.env.NODE_ENV !== 'production';
-    return isDev || window.localStorage?.getItem(CANVAS_INSERTION_DEBUG_FLAG) === '1';
+    return window.localStorage?.getItem(CANVAS_INSERTION_DEBUG_FLAG) === '1';
   } catch {
     return false;
   }
@@ -355,6 +353,65 @@ export function precalculateGridLayout(
   return { positions, bounds };
 }
 
+export function precalculateGroupedGridLayout<T extends { groupId?: string }>(
+  startPoint: Point,
+  items: T[],
+  itemSizes: { width: number; height: number }[],
+  options: {
+    canvasWidth?: number;
+    maxColumns?: number;
+    horizontalGap?: number;
+    verticalGap?: number;
+  } = {}
+): { positions: Point[]; bounds: FlowBounds } {
+  const {
+    horizontalGap = CANVAS_INSERTION_LAYOUT.DEFAULT_HORIZONTAL_GAP,
+    verticalGap = CANVAS_INSERTION_LAYOUT.DEFAULT_VERTICAL_GAP,
+  } = options;
+
+  if (items.length === 0) {
+    return {
+      positions: [],
+      bounds: { x: startPoint[0], y: startPoint[1], width: 0, height: 0 },
+    };
+  }
+
+  const groups = groupInsertionItems(items);
+  const positions: Point[] = Array(items.length);
+  let cursorY = startPoint[1];
+  let bounds: FlowBounds | null = null;
+  let offset = 0;
+
+  for (const group of groups) {
+    const groupSizes = itemSizes.slice(offset, offset + group.length);
+    const groupLayout = precalculateGridLayout(
+      [startPoint[0], cursorY],
+      groupSizes,
+      options
+    );
+
+    groupLayout.positions.forEach((point, index) => {
+      positions[offset + index] = point;
+      bounds = mergeFlowBounds(bounds, point, groupSizes[index]);
+    });
+
+    cursorY =
+      groupLayout.bounds.y + groupLayout.bounds.height + verticalGap;
+    offset += group.length;
+  }
+
+  return {
+    positions,
+    bounds:
+      bounds || {
+        x: startPoint[0],
+        y: startPoint[1],
+        width: 0,
+        height: 0,
+      },
+  };
+}
+
 export function getBatchInsertionFlowCenter(
   state: Pick<BatchInsertionFlowState, 'bounds'>
 ): Point | undefined {
@@ -496,35 +553,35 @@ export function estimateCanvasTextSize(
 export function groupInsertionItems<T extends { groupId?: string }>(
   items: T[]
 ): T[][] {
-  const groups = new Map<string, T[]>();
+  const result: T[][] = [];
+  let currentGroup: T[] = [];
+  let currentGroupId: string | undefined;
+
+  const flush = () => {
+    if (currentGroup.length > 0) {
+      result.push(currentGroup);
+      currentGroup = [];
+    }
+  };
 
   for (const item of items) {
     if (!item.groupId) {
+      flush();
+      result.push([item]);
+      currentGroupId = undefined;
       continue;
     }
 
-    const group = groups.get(item.groupId) || [];
-    group.push(item);
-    groups.set(item.groupId, group);
-  }
-
-  const result: T[][] = [];
-  let currentGroupId: string | null = null;
-
-  for (const item of items) {
-    if (item.groupId) {
-      if (currentGroupId !== item.groupId) {
-        currentGroupId = item.groupId;
-        const group = groups.get(item.groupId);
-        if (group) {
-          result.push(group);
-        }
-      }
+    if (currentGroupId === item.groupId) {
+      currentGroup.push(item);
     } else {
-      result.push([item]);
-      currentGroupId = null;
+      flush();
+      currentGroupId = item.groupId;
+      currentGroup = [item];
     }
   }
+
+  flush();
 
   return result;
 }

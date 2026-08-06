@@ -81,6 +81,7 @@
 这类问题不要只按“缓存丢失”判断。实际可能是：
 
 - 图片写入了 IndexedDB 元数据，但 Cache Storage 没有实际响应体
+- 局域网 HTTP 页面没有 Service Worker、Cache Storage 或 `crypto.subtle`
 - 当前页面没有被新版 Service Worker 接管，`/asset-library/...` 请求落到服务器并 404
 - Service Worker 查询缓存 key 与页面写入 key 不一致
 - DOM `<img>` 请求 `/asset-library/...` 失败，但应用代码直接 `getCachedBlob(url)` 能成功
@@ -106,12 +107,20 @@
    - SW 读取时同时兼容 pathname、去控制参数后的完整 URL、当前请求 URL。
    - 页面侧 `getCachedBlob` 也要按同一规则查询。
 
-4. `objectURL` 只能用于临时读尺寸或预览。
+4. 无 Service Worker 时必须有 IndexedDB Blob 降级。
+
+   - 内容哈希仍生成稳定 `/asset-library/content-<hash>.<ext>` URL。
+   - `crypto.subtle` 不可用时使用兼容 SHA-256 实现，不能退回文件名或时间戳去重。
+   - Cache Storage 不可用时，把媒体 Blob 写入 IndexedDB，并由统一缓存服务按稳定 URL 读取。
+   - 元数据存在但 Blob 缺失时不能直接判定缓存可用，应继续验证实际内容。
+
+5. `objectURL` 只能用于临时读尺寸或预览。
 
    - 使用后要立刻 `URL.revokeObjectURL`。
-   - 不要作为画布图片元素的最终 URL。
+   - 可以作为当前 React 图片节点的渲染源，但不要作为画布图片元素的持久化 URL。
+   - 换源时旧异步请求不能覆盖新图，旧 Object URL 必须释放。
 
-5. 调试日志要及时撤掉。
+6. 调试日志要及时撤掉。
    - 定位时可以临时记录 URL、元素 ID、blob size。
    - 修复完成后，正常恢复路径不应刷 `warn` 或 `info`。
    - 只保留真正不可恢复或会影响用户数据的异常日志。
@@ -121,4 +130,4 @@
 - “DOM 加载失败”不等于“缓存不存在”。
 - “Cache 元数据存在”也不等于“Cache 响应体存在”。
 - 画布素材展示要以“可恢复”为优先，避免误删用户内容。
-- 虚拟 URL 链路坏了要修 SW/Cache key，不要用 `blob:` 掩盖主链路问题。
+- 优先修正 SW/Cache key；无 SW 的局域网环境则通过统一缓存服务临时解析 `blob:`，稳定虚拟 URL 保持不变。

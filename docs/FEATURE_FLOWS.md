@@ -830,7 +830,7 @@ async getPaginatedTasks(params: PaginationParams): Promise<PaginatedResult> {
 
 #### 自然激活（所有旧 tab 关闭）
 
-当所有旧 tab 关闭后，waiting SW 自动变为 active。activate 处理器必须无条件将 `committedVersion` 更新为 `APP_VERSION`，否则新 tab 会用旧版本号打开旧缓存、从网络获取新 `index.html`，导致新 hash 资源用旧版本号请求 CDN → 404。
+当所有旧 tab 关闭后，waiting SW 自动变为 active。activate 处理器必须无条件将 `committedVersion` 更新为 `APP_VERSION`，否则新 tab 会用旧版本号打开旧缓存、从网络获取新 `index.html`，导致新 hash 资源用旧版本号请求源站 → 404。
 
 #### 踩坑记录
 
@@ -838,9 +838,7 @@ async getPaginatedTasks(params: PaginationParams): Promise<PaginatedResult> {
 
 2. **statechange 通知需要重试**：`requestSWVersionState(newWorker)` 只发一次，如果 SW 仍在预缓存（`waitUntil` 未完成），响应可能丢失。需要 5 秒后重试 + `visibilitychange` 时重新检查。
 
-3. **CDN URL 版本重写陷阱**：`cleanResourcePath` 会剥离 CDN 路径中的版本前缀（`npm/aitu-app@x.y.z/`），`buildCDNUrl` 再用 `committedVersion` 重建。如果 `committedVersion` 与请求 URL 中的版本不一致，会构造出错误的 CDN URL。防御措施：`extractVersionFromCDNPath` 优先使用 URL 中已有的版本号。
-
-4. **activate 必须无条件更新 committedVersion**：原设计只在首次安装和用户确认时更新，自然激活时遗漏。SW 一旦激活就是当前版本，`committedVersion` 必须与 `APP_VERSION` 一致。
+3. **activate 必须无条件更新 committedVersion**：原设计只在首次安装和用户确认时更新，自然激活时遗漏。SW 一旦激活就是当前版本，`committedVersion` 必须与 `APP_VERSION` 一致。
 
 #### 关键文件
 
@@ -848,7 +846,6 @@ async getPaginatedTasks(params: PaginationParams): Promise<PaginatedResult> {
 |------|------|
 | `apps/web/src/main.tsx` | SW 注册、版本状态监听、升级确认 |
 | `apps/web/src/sw/index.ts` | install/activate 处理、版本状态管理、静态资源拦截 |
-| `apps/web/src/sw/cdn-fallback.ts` | CDN 回退、版本号提取、健康检查 |
 | `packages/drawnix/src/components/version-update/version-update-prompt.tsx` | 升级提示 UI |
 
 ---

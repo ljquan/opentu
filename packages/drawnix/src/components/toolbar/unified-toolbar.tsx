@@ -48,9 +48,7 @@ function clampToolbarLeft(left: number, toolbarWidth = TOOLBAR_CONTENT_WIDTH) {
     viewportWidth - toolbarWidth - TOOLBAR_VIEWPORT_GAP
   );
 
-  return Math.round(
-    Math.max(TOOLBAR_DEFAULT_LEFT, Math.min(left, maxLeft))
-  );
+  return Math.round(Math.max(TOOLBAR_DEFAULT_LEFT, Math.min(left, maxLeft)));
 }
 
 function getToolbarDockSide(
@@ -104,8 +102,7 @@ function syncToolbarPositionVars(left: number, toolbarEl: HTMLElement | null) {
   }
 
   const rect = toolbarEl?.getBoundingClientRect();
-  const width =
-    rect && rect.width > 0 ? rect.width : TOOLBAR_CONTENT_WIDTH;
+  const width = rect && rect.width > 0 ? rect.width : TOOLBAR_CONTENT_WIDTH;
   const viewportWidth =
     typeof window === 'undefined' ? left + width : window.innerWidth;
   const rightEdge = Math.round(left + width);
@@ -570,6 +567,7 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
               onToolboxDrawerToggle={onToolboxDrawerToggle}
               taskPanelExpanded={taskPanelExpanded}
               onTaskPanelToggle={handleTaskPanelToggle}
+              showLocalDataClear={!isMobileOrTablet}
             />
           </div>
         </Island>

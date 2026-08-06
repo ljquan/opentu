@@ -32,6 +32,24 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     }),
     archiveTasks: vi.fn(async () => {}),
     invalidateCache: vi.fn(),
+    updateStatus: vi.fn(
+      async (taskId: string, status: string, expectedRequestId?: string) => {
+        const task = storedTasks.get(taskId);
+        if (
+          !task ||
+          (expectedRequestId &&
+            task.params?.submissionRequestId !== expectedRequestId)
+        ) {
+          return false;
+        }
+        storedTasks.set(taskId, {
+          ...clone(task),
+          status,
+          updatedAt: Date.now(),
+        });
+        return true;
+      }
+    ),
     generateImage: vi.fn(async (_params?: any, _options?: any) => undefined),
   };
 
@@ -86,6 +104,7 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     taskStorageWriter: {
       saveTask: mocks.saveTask,
       getTask: mocks.getStoredTask,
+      updateStatus: mocks.updateStatus,
       deleteTask: mocks.deleteTask,
       archiveTasks: mocks.archiveTasks,
     },
@@ -144,6 +163,9 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
   }));
 
   vi.doMock('../provider-routing', () => ({
+    providerTransport: {
+      prepareRequest: vi.fn(),
+    },
     resolveInvocationPlanFromRoute: vi.fn(
       (operation: string, routeModel?: any) => {
         const profileId =
@@ -255,7 +277,9 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
   }));
 
   vi.doMock('../../utils/task-utils', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../utils/task-utils')>();
+    const actual = await importOriginal<
+      typeof import('../../utils/task-utils')
+    >();
 
     return {
       ...actual,
@@ -283,6 +307,29 @@ describe('task-queue-service image edit retry persistence', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it('reports only a live in-page execution as active', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    mocks.generateImage.mockImplementation(() => new Promise(() => undefined));
+
+    const task = taskQueueService.createTask(
+      {
+        prompt: 'Keep request in flight',
+        model: 'gpt-image-2',
+        size: '1x1',
+      },
+      TaskType.IMAGE
+    );
+    await flushAsyncWork();
+
+    expect(taskQueueService.isTaskExecutionActive(task.id)).toBe(true);
+
+    taskQueueService.cancelTask(task.id);
+
+    expect(taskQueueService.isTaskExecutionActive(task.id)).toBe(false);
   });
 
   it('keeps stripped image edit params in IndexedDB so retry can rehydrate them', async () => {
@@ -319,6 +366,7 @@ describe('task-queue-service image edit retry persistence', () => {
     await flushAsyncWork();
 
     expect(mocks.generateImage).toHaveBeenCalledTimes(2);
+    expect(mocks.generateImage.mock.calls[1]?.[0]?.taskId).toBe(task.id);
     expect(mocks.generateImage.mock.calls[1]?.[0]).toMatchObject({
       generationMode: 'image_to_image',
       referenceImages: ['data:image/png;base64,source'],
@@ -473,8 +521,9 @@ describe('task-queue-service image edit retry persistence', () => {
   });
 
   it('emits storage sync updates when completed result or insertion flag changes without status progress changes', async () => {
-    const { taskQueueService } =
-      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
     const task: Task = {
       id: 'task-storage-sync-1',
       type: TaskType.IMAGE,
@@ -566,8 +615,9 @@ describe('task-queue-service image edit retry persistence', () => {
   });
 
   it('emits storage sync updates when invocation route changes', async () => {
-    const { taskQueueService } =
-      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
     const task: Task = {
       id: 'task-video-route-sync-1',
       type: TaskType.VIDEO,

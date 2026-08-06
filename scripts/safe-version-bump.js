@@ -247,7 +247,7 @@ function updateChangelog(version, commits) {
   if (commits.features.length > 0) {
     newEntry += `### 🚀 Features\n\n`;
     commits.features.forEach(({ message, hash }) => {
-      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/aitu/commit/${hash}))\n`;
+      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/opentu/commit/${hash}))\n`;
     });
     newEntry += '\n';
   }
@@ -256,7 +256,7 @@ function updateChangelog(version, commits) {
   if (commits.fixes.length > 0) {
     newEntry += `### 🩹 Fixes\n\n`;
     commits.fixes.forEach(({ message, hash }) => {
-      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/aitu/commit/${hash}))\n`;
+      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/opentu/commit/${hash}))\n`;
     });
     newEntry += '\n';
   }
@@ -265,7 +265,7 @@ function updateChangelog(version, commits) {
   if (commits.chores.length > 0 || commits.others.length > 0) {
     newEntry += `### 🔧 Chores\n\n`;
     [...commits.chores, ...commits.others].forEach(({ message, hash }) => {
-      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/aitu/commit/${hash}))\n`;
+      newEntry += `- ${message} ([${hash}](https://github.com/ljquan/opentu/commit/${hash}))\n`;
     });
     newEntry += '\n';
   }

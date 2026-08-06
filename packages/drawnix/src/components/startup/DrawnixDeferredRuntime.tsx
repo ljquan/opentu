@@ -530,7 +530,7 @@ export function DrawnixDeferredRuntime({
     };
   }, [board, isTaskStorageReady]);
 
-  useTaskExecutor();
+  useTaskExecutor(isTaskStorageReady);
   useAutoInsertToCanvas({
     enabled: true,
     insertPrompt: false,

@@ -35,17 +35,13 @@ export const RPC_METHODS = {
   DEBUG_GET_CACHE_STATS: 'debug:getCacheStats',
   DEBUG_EXPORT_LOGS: 'debug:exportLogs',
 
-  // CDN
-  CDN_GET_STATUS: 'cdn:getStatus',
-  CDN_RESET_STATUS: 'cdn:resetStatus',
-  CDN_HEALTH_CHECK: 'cdn:healthCheck',
-
   // Upgrade
   UPGRADE_GET_STATUS: 'upgrade:getStatus',
   UPGRADE_FORCE: 'upgrade:force',
 
   // Cache management
   CACHE_DELETE: 'cache:delete',
+  CACHE_CLEAR_ALL: 'cache:clearAll',
 
   // Health check
   PING: 'ping',

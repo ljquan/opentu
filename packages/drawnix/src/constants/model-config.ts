@@ -176,6 +176,12 @@ export interface ModelConfig {
 }
 
 const BUILT_IN_MODEL_RECOMMENDATION_SCORES: Readonly<Record<string, number>> = {
+  'gpt-5.6-sol': 109,
+  'gpt-5.6-terra': 108,
+  'gpt-5.6-luna': 107,
+  'deepseek-v4-pro': 106,
+  'deepseek-v4-flash': 105,
+  'deepseek-v4-flash-0731': 104,
   'gpt-5.5': 99,
   'claude-opus-4-6': 98,
   'gpt-5.4': 97,
@@ -225,6 +231,9 @@ const BUILT_IN_MODEL_RECOMMENDATION_SCORES: Readonly<Record<string, number>> = {
   'gemini-3-pro-image-preview-4k': 41,
 
   kling_video: 98,
+  'doubao-seedance-2-0-260128': 101,
+  'doubao-seedance-2-0-fast-260128': 100,
+  'doubao-seedance-2-0-mini-260615': 99,
   'seedance-1.5-pro': 97,
   'seedance-1.0-pro': 96,
   'seedance-1.0-pro-fast': 95,
@@ -722,6 +731,38 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     videoDefaults: KLING_DEFAULT_PARAMS,
   },
   {
+    id: 'doubao-seedance-2-0-260128',
+    label: 'Seedance 2.0',
+    shortCode: 'sc20',
+    description:
+      'Seedance 2.0 多模态视频生成，支持 4-12 秒与 480p/720p/1080p 输出',
+    type: 'video',
+    vendor: ModelVendor.DOUBAO,
+    isVip: true,
+    videoDefaults: SEEDANCE_DEFAULT_PARAMS,
+    tags: ['new', 'seedance', 'seedance-2'],
+  },
+  {
+    id: 'doubao-seedance-2-0-fast-260128',
+    label: 'Seedance 2.0 Fast',
+    shortCode: 'sc20f',
+    description: 'Seedance 2.0 高速视频生成，支持 4-12 秒与 480p/720p/1080p',
+    type: 'video',
+    vendor: ModelVendor.DOUBAO,
+    videoDefaults: SEEDANCE_DEFAULT_PARAMS,
+    tags: ['new', 'seedance', 'seedance-2'],
+  },
+  {
+    id: 'doubao-seedance-2-0-mini-260615',
+    label: 'Seedance 2.0 Mini',
+    shortCode: 'sc20m',
+    description: 'Seedance 2.0 轻量视频生成，支持 4-12 秒与 480p/720p/1080p',
+    type: 'video',
+    vendor: ModelVendor.DOUBAO,
+    videoDefaults: SEEDANCE_DEFAULT_PARAMS,
+    tags: ['new', 'seedance', 'seedance-2'],
+  },
+  {
     id: 'seedance-1.5-pro',
     label: 'Seedance 1.5 Pro',
     shortCode: 'sc15p',
@@ -798,7 +839,8 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     id: 'happyhorse-1.0-video-edit',
     label: 'HappyHorse 1.0 Video Edit',
     shortCode: 'h10v',
-    description: 'HappyHorse 视频参考生成视频，时长跟随输入视频，支持保留原音频',
+    description:
+      'HappyHorse 视频参考生成视频，时长跟随输入视频，支持保留原音频',
     type: 'video',
     vendor: ModelVendor.HAPPYHORSE,
     supportsTools: true,
@@ -1071,7 +1113,69 @@ export const VIDEO_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
 /**
  * 文本/Agent 模型配置
  */
-export const TEXT_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
+const BUILT_IN_TEXT_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
+  {
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol',
+    shortCode: 'g56s',
+    description: 'GPT-5.6 通用推理、代码与智能体路由',
+    type: 'text',
+    vendor: ModelVendor.GPT,
+    isVip: true,
+    supportsTools: true,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-5.6-terra',
+    label: 'GPT-5.6 Terra',
+    shortCode: 'g56t',
+    description: 'GPT-5.6 通用推理、代码与复杂任务路由',
+    type: 'text',
+    vendor: ModelVendor.GPT,
+    isVip: true,
+    supportsTools: true,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-5.6-luna',
+    label: 'GPT-5.6 Luna',
+    shortCode: 'g56l',
+    description: 'GPT-5.6 高响应文本与代码路由',
+    type: 'text',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    tags: ['new'],
+  },
+  {
+    id: 'deepseek-v4-pro',
+    label: 'DeepSeek V4 Pro',
+    shortCode: 'dsv4p',
+    description: 'DeepSeek V4 通用对话、代码与工具调用路由',
+    type: 'text',
+    vendor: ModelVendor.DEEPSEEK,
+    supportsTools: true,
+    tags: ['new'],
+  },
+  {
+    id: 'deepseek-v4-flash',
+    label: 'DeepSeek V4 Flash',
+    shortCode: 'dsv4f',
+    description: 'DeepSeek V4 低延迟文本与代码路由',
+    type: 'text',
+    vendor: ModelVendor.DEEPSEEK,
+    supportsTools: true,
+    tags: ['new'],
+  },
+  {
+    id: 'deepseek-v4-flash-0731',
+    label: 'DeepSeek V4 Flash 0731',
+    shortCode: 'dsv4f7',
+    description: 'DeepSeek V4 Flash 0731 高速路由',
+    type: 'text',
+    vendor: ModelVendor.DEEPSEEK,
+    supportsTools: true,
+    tags: ['new'],
+  },
   {
     id: 'deepseek-v3.2',
     label: 'DeepSeek V3.2',
@@ -1318,6 +1422,35 @@ export const TEXT_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
   },
 ]);
 
+export const DEFAULT_HIDDEN_MODEL_IDS = new Set([
+  'gpt-5',
+  'gpt-5-all',
+  'gpt-5-chat-latest',
+  'gpt-5-gizmo*',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-5-pro',
+  'gpt-5-pro-all',
+  'gpt-5-pro-async',
+  'gpt-5-thinking-all',
+  'gpt-5.1',
+  'gpt-5.1-all',
+  'gpt-5.1-thinking',
+  'gpt-5.1-thinking-all',
+  'gpt-5.2',
+  'gpt-5.2-all',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+]);
+
+export function isDefaultModelHidden(modelId: string): boolean {
+  return DEFAULT_HIDDEN_MODEL_IDS.has(modelId.toLowerCase());
+}
+
+export const TEXT_MODELS: ModelConfig[] = BUILT_IN_TEXT_MODELS.filter(
+  (model) => !isDefaultModelHidden(model.id)
+);
+
 /**
  * 音频模型
  *
@@ -1396,6 +1529,7 @@ export function getStaticModelsByType(type: ModelType): ModelConfig[] {
 export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
   return (
     ALL_MODELS.find((model) => model.id === modelId) ||
+    BUILT_IN_TEXT_MODELS.find((model) => model.id === modelId) ||
     HIDDEN_VIDEO_MODELS.find((model) => model.id === modelId)
   );
 }
@@ -1560,7 +1694,7 @@ export const AUDIO_MODEL_SELECT_OPTIONS = AUDIO_MODELS.map((model) => ({
 /**
  * 默认图片模型 ID
  */
-export const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2-vip';
+export const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
 
 /**
  * 获取默认图片模型 ID（优先使用环境变量）
@@ -1663,6 +1797,12 @@ const SEEDANCE_MODEL_IDS = [
   'seedance-1.0-pro',
   'seedance-1.0-pro-fast',
   'seedance-1.0-lite',
+];
+
+const SEEDANCE_2_MODEL_IDS = [
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-mini-260615',
 ];
 
 /** HappyHorse 视频模型 ID */
@@ -1832,6 +1972,21 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     compatibleModels: SEEDANCE_MODEL_IDS,
     modelType: 'video',
   },
+  // Seedance 2.0 时长参数（官方 JSON 接口：4-12 秒）
+  {
+    id: 'duration',
+    label: '视频时长',
+    shortLabel: '时长',
+    description: '生成视频的时长（秒）',
+    valueType: 'enum',
+    options: Array.from({ length: 9 }, (_, index) => {
+      const value = String(index + 4);
+      return { value, label: `${value}秒` };
+    }),
+    defaultValue: '5',
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
   // Seedance 分辨率参数（480p/720p/1080p）
   {
     id: 'size',
@@ -1846,6 +2001,93 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     ],
     defaultValue: '720p',
     compatibleModels: SEEDANCE_MODEL_IDS,
+    modelType: 'video',
+  },
+  // Seedance 2.0 官方 JSON 接口将分辨率与比例作为独立字段。
+  {
+    id: 'size',
+    label: '视频分辨率',
+    shortLabel: '分辨率',
+    description: 'Seedance 2.0 resolution',
+    valueType: 'enum',
+    options: [
+      { value: '1080p', label: '1080p' },
+      { value: '720p', label: '720p' },
+      { value: '480p', label: '480p' },
+    ],
+    defaultValue: '720p',
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
+  {
+    id: 'ratio',
+    label: '视频比例',
+    shortLabel: '比例',
+    description: 'Seedance 2.0 ratio',
+    valueType: 'enum',
+    options: [
+      { value: '16:9', label: '16:9 横屏' },
+      { value: '4:3', label: '4:3 横屏' },
+      { value: '1:1', label: '1:1 方形' },
+      { value: '3:4', label: '3:4 竖屏' },
+      { value: '9:16', label: '9:16 竖屏' },
+      { value: '21:9', label: '21:9 超宽' },
+      { value: 'adaptive', label: '自适应' },
+    ],
+    defaultValue: '16:9',
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
+  {
+    id: 'generate_audio',
+    label: '生成音频',
+    shortLabel: '音频',
+    description: '是否为 Seedance 2.0 生成同步音频',
+    valueType: 'enum',
+    options: [
+      { value: 'true', label: '开启' },
+      { value: 'false', label: '关闭' },
+    ],
+    defaultValue: 'true',
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
+  {
+    id: 'watermark',
+    label: '水印',
+    shortLabel: '水印',
+    description: '是否添加 Seedance 2.0 水印',
+    valueType: 'enum',
+    options: [
+      { value: 'true', label: '开启' },
+      { value: 'false', label: '关闭' },
+    ],
+    defaultValue: 'false',
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
+  {
+    id: 'seed',
+    label: '随机种子',
+    shortLabel: 'Seed',
+    description: 'Seedance 2.0 seed，留空则由上游决定',
+    valueType: 'number',
+    step: 1,
+    integer: true,
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    modelType: 'video',
+  },
+  {
+    id: 'camera_fixed',
+    label: '固定镜头',
+    shortLabel: '镜头',
+    description: 'Seedance 2.0 camera_fixed',
+    valueType: 'enum',
+    options: [
+      { value: 'true', label: '开启' },
+      { value: 'false', label: '关闭' },
+    ],
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
     modelType: 'video',
   },
   // Seedance 宽高比参数
@@ -1873,7 +2115,8 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     id: 'duration',
     label: '视频时长',
     shortLabel: '时长',
-    description: 'HappyHorse 视频时长（3-15 秒整数；Video Edit 跟随输入视频，不支持此参数）',
+    description:
+      'HappyHorse 视频时长（3-15 秒整数；Video Edit 跟随输入视频，不支持此参数）',
     valueType: 'enum',
     options: [
       { value: '3', label: '3秒' },

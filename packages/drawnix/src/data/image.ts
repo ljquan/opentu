@@ -17,11 +17,20 @@ import {
   scrollToPointIfNeeded,
 } from '../utils/selection-utils';
 import { assetStorageService } from '../services/asset-storage-service';
+import { unifiedCacheService } from '../services/unified-cache-service';
 import { analytics } from '../utils/posthog-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
-import { normalizeImageDataUrl } from '@aitu/utils';
+import { generateUUID, normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';
-import { getInsertionPointFromSavedSelection, calculateImageDisplayDimensions } from '../utils/canvas-insertion-layout';
+import {
+  getInsertionPointFromSavedSelection,
+  calculateImageDisplayDimensions,
+} from '../utils/canvas-insertion-layout';
+import { getSupportedImageFileMimeType } from './blob';
+import { isVirtualMediaUrl } from '../utils/virtual-media-url';
+
+const createImageLoadError = () =>
+  new Error('图片加载失败，请检查图片地址或缓存');
 
 export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
@@ -34,8 +43,8 @@ export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
     image.onload = () => {
       resolve(image);
     };
-    image.onerror = (error) => {
-      reject(error);
+    image.onerror = () => {
+      reject(createImageLoadError());
     };
     image.src = normalizedURL;
   });
@@ -49,9 +58,9 @@ const loadHTMLImageElementFromBlob = (blob: Blob) => {
       URL.revokeObjectURL(objectUrl);
       resolve(image);
     };
-    image.onerror = (error) => {
+    image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(error);
+      reject(createImageLoadError());
     };
     image.src = objectUrl;
   });
@@ -119,7 +128,7 @@ export const loadHTMLImageElementWithRetry = (
         resolve(image);
       };
 
-      image.onerror = (error) => {
+      image.onerror = () => {
         retryCount++;
 
         if (retryCount <= maxRetries) {
@@ -147,7 +156,7 @@ export const loadHTMLImageElementWithRetry = (
             `[loadHTMLImageElement] 加载失败，已重试 ${maxRetries} 次:`,
             normalizedURL
           );
-          reject(error);
+          reject(createImageLoadError());
         }
       };
 
@@ -157,6 +166,25 @@ export const loadHTMLImageElementWithRetry = (
     tryLoad();
   });
 };
+
+export async function loadImageElementForCanvas(
+  imageUrl: DataURL
+): Promise<HTMLImageElement> {
+  const canUseServiceWorker =
+    typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    !!navigator.serviceWorker.controller;
+
+  if (isVirtualMediaUrl(imageUrl) && !canUseServiceWorker) {
+    const cachedBlob = await unifiedCacheService.getCachedBlob(imageUrl);
+    if (!cachedBlob || cachedBlob.size === 0) {
+      throw new Error('图片缓存不可用，请重新生成或上传');
+    }
+    return loadHTMLImageElementFromBlob(cachedBlob);
+  }
+
+  return loadHTMLImageElementWithRetry(imageUrl, true);
+}
 
 export const buildImage = (
   image: HTMLImageElement,
@@ -239,8 +267,14 @@ export const insertImage = async (
     : getSelectedElements(board)[0] || getElementOfFocusedImage(board);
   const defaultImageWidth = selectedElement ? 240 : 400;
 
-  const image = await loadHTMLImageElementFromBlob(imageFile);
   const imageName = getImageFileName(imageFile);
+  const imageMimeType =
+    getSupportedImageFileMimeType(imageFile) || imageFile.type || 'image/png';
+  const imageBlob =
+    imageFile.type === imageMimeType
+      ? imageFile
+      : imageFile.slice(0, imageFile.size, imageMimeType);
+  const image = await loadHTMLImageElementFromBlob(imageBlob);
   let imageUrl: string;
 
   try {
@@ -249,8 +283,8 @@ export const insertImage = async (
       type: AssetType.IMAGE,
       source: AssetSource.LOCAL,
       name: imageName,
-      blob: imageFile,
-      mimeType: imageFile.type,
+      blob: imageBlob,
+      mimeType: imageMimeType,
     });
     imageUrl = asset.url;
   } catch {
@@ -258,7 +292,7 @@ export const insertImage = async (
       '../services/unified-cache-service'
     );
     const cached = await unifiedCacheService.cacheLocalMediaByContent(
-      imageFile,
+      imageBlob,
       'image',
       {
         source: 'clipboard',
@@ -285,14 +319,11 @@ export const insertImage = async (
   } else {
     let insertionPoint = startPoint;
     if (!startPoint && !isDrop) {
-      insertionPoint = getInsertionPointFromSavedSelection(
-        board,
-        {
-          align: 'center',
-          targetWidth: imageItem.width,
-          logPrefix: 'image',
-        }
-      );
+      insertionPoint = getInsertionPointFromSavedSelection(board, {
+        align: 'center',
+        targetWidth: imageItem.width,
+        logPrefix: 'image',
+      });
 
       if (!insertionPoint) {
         const calculatedPoint = getInsertionPointForSelectedElements(board);
@@ -347,9 +378,11 @@ export const insertImageFromUrl = async (
   ) {
     const cachedUrl = await cacheRemoteUrl(
       resolvedUrl,
-      `insert-${Date.now()}`,
+      `insert-${generateUUID()}`,
       'image',
-      'png'
+      'png',
+      undefined,
+      { forceRemoteCache: true, returnLocalCacheUrl: true }
     );
     if (cachedUrl !== resolvedUrl) {
       resolvedUrl = cachedUrl;
@@ -401,10 +434,7 @@ export const insertImageFromUrl = async (
   } else {
     // 使用带重试的图片加载函数，支持自动绕过 SW
     // console.log(`[insertImageFromUrl] Loading image with retry...`);
-    const image = await loadHTMLImageElementWithRetry(
-      resolvedUrl as DataURL,
-      true
-    ); // 使用 crossOrigin 以支持外部 URL
+    const image = await loadImageElementForCanvas(resolvedUrl as DataURL);
     imageItem = buildImage(
       image,
       resolvedUrl as DataURL,
@@ -428,14 +458,11 @@ export const insertImageFromUrl = async (
   // 只有在没有提供startPoint时才自动计算插入位置
   if (!startPoint && !isDrop) {
     // 优先使用保存的选中元素IDs计算插入位置
-    insertionPoint = getInsertionPointFromSavedSelection(
-      board,
-      {
-        align: 'center',
-        targetWidth: imageItem.width,
-        logPrefix: 'image',
-      }
-    );
+    insertionPoint = getInsertionPointFromSavedSelection(board, {
+      align: 'center',
+      targetWidth: imageItem.width,
+      logPrefix: 'image',
+    });
 
     // 如果没有保存的选中元素,回退到使用当前选中元素(向后兼容)
     if (!insertionPoint) {
@@ -526,7 +553,7 @@ function updateImageSizeAfterLoad(
   referenceDimensions: { width: number; height: number }
 ): void {
   // 使用带重试的加载函数，提高虚拟 URL 场景的可靠性
-  loadHTMLImageElementWithRetry(imageUrl as DataURL, true)
+  loadImageElementForCanvas(imageUrl as DataURL)
     .then((img) => {
       const naturalWidth = img.naturalWidth;
       const naturalHeight = img.naturalHeight;
@@ -540,7 +567,7 @@ function updateImageSizeAfterLoad(
         naturalWidth,
         naturalHeight
       );
-      
+
       let newWidth = displayDimensions.width;
       let newHeight = displayDimensions.height;
 
@@ -583,7 +610,7 @@ const loadImageDirectly = (imageUrl: string): Promise<HTMLImageElement> => {
     // 不设置 crossOrigin，这样可以加载不支持 CORS 的图片
     image.referrerPolicy = 'no-referrer';
     image.onload = () => resolve(image);
-    image.onerror = (error) => reject(error);
+    image.onerror = () => reject(createImageLoadError());
     image.src = imageUrl;
   });
 };
@@ -608,7 +635,9 @@ export const insertImageFromUrlAndSelect = async (
     // 使用直接加载方式获取图片尺寸（不需要 CORS）
     // 图片会使用原始 URL 存储，浏览器渲染 <img> 标签时不需要 CORS
     // console.log('[insertImageFromUrlAndSelect] Loading image directly:', imageUrl);
-    image = await loadImageDirectly(imageUrl);
+    image = isVirtualMediaUrl(imageUrl)
+      ? await loadImageElementForCanvas(imageUrl as DataURL)
+      : await loadImageDirectly(imageUrl);
     // console.log('[insertImageFromUrlAndSelect] Load successful, dimensions:', image.width, 'x', image.height);
   } catch (error) {
     console.error('[insertImageFromUrlAndSelect] Failed to load image:', error);

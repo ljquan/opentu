@@ -63,6 +63,11 @@ export interface ImageGenerationAnchorSubmissionContext {
   workflowId: string;
   taskIds?: string[];
   expectedInsertPosition?: Point;
+  prompt?: string;
+  resultElementId?: string;
+  targetElementId?: string;
+  sourceTaskId?: string;
+  latestTaskId?: string;
   targetFrameId?: string;
   targetFrameDimensions?: { width: number; height: number };
   frameAffinityId?: string;
@@ -125,6 +130,11 @@ export interface PlaitImageGenerationAnchor extends PlaitElement {
   workflowId: string;
   taskIds: string[];
   primaryTaskId?: string;
+  prompt?: string;
+  resultElementId?: string;
+  targetElementId?: string;
+  sourceTaskId?: string;
+  latestTaskId?: string;
   batchId?: string;
   batchIndex?: number;
   batchTotal?: number;

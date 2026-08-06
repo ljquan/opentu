@@ -33,6 +33,8 @@ interface PromptInputProps {
   enableMention?: boolean;
   /** Video model provider (sora, veo, etc.) - used to determine if @ mention should be enabled */
   videoProvider?: 'sora' | 'veo' | string;
+  /** Optional ref for the prompt field root */
+  rootRef?: React.Ref<HTMLDivElement>;
 }
 
 export const PromptInput: React.FC<PromptInputProps> = ({
@@ -45,6 +47,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onError,
   enableMention = true,
   videoProvider,
+  rootRef,
 }) => {
   const [isPresetOpen, setIsPresetOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -270,7 +273,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   };
 
   return (
-    <div className="form-field form-field--prompt">
+    <div ref={rootRef} className="form-field form-field--prompt">
       <div className="form-label-with-icon">
         <label className="form-label">
           {language === 'zh'

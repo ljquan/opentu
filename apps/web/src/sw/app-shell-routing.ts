@@ -35,10 +35,6 @@ export function shouldUseOriginFirstPreload(pathname: string): boolean {
   );
 }
 
-export function shouldUseCDNFirstPreload(pathname: string): boolean {
-  return !shouldUseOriginFirstPreload(pathname);
-}
-
 export function shouldBypassAppShellCacheForLazyChunkRecovery(
   search: string,
   now = Date.now()

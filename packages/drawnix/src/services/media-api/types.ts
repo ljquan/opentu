@@ -157,6 +157,10 @@ export interface PollingOptions {
  * 异步图片生成选项
  */
 export interface AsyncImageOptions extends PollingOptions {
+  /** 图片正式提交请求即将发出。 */
+  onSubmissionAttempt?: () => void | Promise<void>;
   /** 提交成功后的回调，返回远程任务 ID */
-  onSubmitted?: (remoteId: string) => void;
+  onSubmitted?: (remoteId: string) => void | Promise<void>;
+  /** 稳定的本地任务 ID，仅用于首次提交请求。 */
+  requestId?: string;
 }

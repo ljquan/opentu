@@ -356,7 +356,10 @@ async function executeImageBenchmark(
     },
   };
   const result = await adapter.generateImage(
-    getAdapterContextFromSettings('image', modelRef),
+    {
+      ...getAdapterContextFromSettings('image', modelRef),
+      requestId: entry.id,
+    },
     request
   );
   return {

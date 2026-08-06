@@ -190,6 +190,22 @@
       .version-tag.major { background: #7c3aed; color: white; } /* Violet 600 */
       .version-tag.minor { background: var(--tag-bg); color: var(--tag-text); }
       .version-tag.patch { background: #e5e7eb; color: #374151; }
+      .version-tag.withdrawn { background: #fee2e2; color: #b91c1c; }
+
+      .version-card.withdrawn { border-color: #fecaca; }
+
+      .withdrawal-reason {
+        margin-top: 10px;
+        color: #b91c1c;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .version-tag.withdrawn { background: #7f1d1d; color: #fecaca; }
+        .version-card.withdrawn { border-color: #991b1b; }
+        .withdrawal-reason { color: #fca5a5; }
+      }
 
       .version-date {
         font-size: 14px;
@@ -464,12 +480,14 @@
             
             for (var i = 0; i < groupVersions.length; i++) {
                 var entry = groupVersions[i];
+                var isWithdrawn = entry.status === 'withdrawn';
                 var hasDetails = entry.changes && Object.values(entry.changes).some(function(a) { return a && a.length > 0; });
                 var cardId = entry.version.replace(/\./g, '-');
                 
                 var tagClass = 'patch';
                 var tagText = '更新';
-                if (entry.type === 'major') { tagClass = 'major'; tagText = '大版本'; }
+                if (isWithdrawn) { tagClass = 'withdrawn'; tagText = '已撤回'; }
+                else if (entry.type === 'major') { tagClass = 'major'; tagText = '大版本'; }
                 else if (entry.type === 'minor') { tagClass = 'minor'; tagText = '新功能'; }
                 
                 var dateStr = entry.date || '';
@@ -480,23 +498,24 @@
                 html += `
                 <div class="version-item">
                     <div class="version-dot"></div>
-                    <div class="version-card" onclick="${hasDetails ? `toggleDetails('${cardId}')` : ''}">
+                    <div class="version-card ${isWithdrawn ? 'withdrawn' : ''}" onclick="${hasDetails ? `toggleDetails('${cardId}')` : ''}">
                         <div class="version-header">
                             <div class="version-info">
                                 <div class="version-title-row">
                                     <span class="version-number">v${entry.version}</span>
                                     <span class="version-tag ${tagClass}">${tagText}</span>
                                     ${dateStr ? `<span class="version-date">· ${dateStr}</span>` : ''}
-                                    <a href="/releases/${entry.version}/" target="_blank" class="version-link" onclick="event.stopPropagation()">
+                                    ${!isWithdrawn ? `<a href="/releases/${entry.version}/" target="_blank" class="version-link" onclick="event.stopPropagation()">
                                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                                         <polyline points="15 3 21 3 21 9"></polyline>
                                         <line x1="10" y1="14" x2="21" y2="3"></line>
                                       </svg>
                                       进入版本
-                                    </a>
+                                    </a>` : ''}
                                 </div>
                                 ${highlights ? `<div class="version-highlights">${highlights}</div>` : ''}
+                                ${isWithdrawn && entry.withdrawalReason ? `<div class="withdrawal-reason">${entry.withdrawalReason}</div>` : ''}
                             </div>
                             ${hasDetails ? `
                             <svg id="icon-${cardId}" class="expand-icon ${defaultOpen ? 'expanded' : ''}" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

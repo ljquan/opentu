@@ -510,6 +510,56 @@
   white-space: nowrap;
 }
 
+.image-generation-anchor__error-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(280px, 100%);
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(71, 85, 105, 0.92);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-generation-anchor__error-id-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-generation-anchor__copy-button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(100, 116, 139, 0.88);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(245, 158, 11, 0.36);
+    background: rgba(255, 251, 235, 0.98);
+    color: rgba(180, 83, 9, 0.92);
+  }
+}
+
+.image-generation-anchor__copy-button--detail {
+  width: 20px;
+  height: 20px;
+}
+
 .image-generation-anchor__error-link {
   appearance: none;
   padding: 0;
@@ -576,11 +626,21 @@
 }
 
 .image-generation-anchor__detail-value {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
   font-size: 11px;
   line-height: 1.45;
   color: rgba(51, 65, 85, 0.84);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.image-generation-anchor__detail-value-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 .image-generation-anchor__actions {

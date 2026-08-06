@@ -210,4 +210,33 @@ describe('callGoogleGenerateContentRaw', () => {
       })
     );
   });
+
+  it('adds the stable image request ID to Google submissions', async () => {
+    await callGoogleGenerateContentRaw(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com',
+        modelName: 'gemini-image',
+        protocol: 'google.generateContent',
+        authType: 'bearer',
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'draw a cat' }],
+        },
+      ],
+      { stream: false, requestId: 'task-google-image-1' }
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        requestId: 'task-google-image-1',
+      })
+    );
+  });
 });

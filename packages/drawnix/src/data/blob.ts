@@ -8,6 +8,43 @@ import { DrawnixExportedData } from './types';
 import { restoreEmbeddedMedia } from './embedded-media';
 export { restoreEmbeddedMedia };
 
+const IMAGE_MIME_TYPE_BY_EXTENSION: Record<
+  string,
+  ValueOf<typeof IMAGE_MIME_TYPES>
+> = {
+  avif: IMAGE_MIME_TYPES.avif,
+  bmp: IMAGE_MIME_TYPES.bmp,
+  gif: IMAGE_MIME_TYPES.gif,
+  ico: IMAGE_MIME_TYPES.ico,
+  jfif: IMAGE_MIME_TYPES.jfif,
+  jpeg: IMAGE_MIME_TYPES.jpg,
+  jpg: IMAGE_MIME_TYPES.jpg,
+  png: IMAGE_MIME_TYPES.png,
+  svg: IMAGE_MIME_TYPES.svg,
+  webp: IMAGE_MIME_TYPES.webp,
+};
+
+export const getImageMimeTypeFromFileName = (
+  fileName: string | null | undefined
+): ValueOf<typeof IMAGE_MIME_TYPES> | null => {
+  const extension = fileName?.split('.').pop()?.trim().toLowerCase();
+  return extension ? IMAGE_MIME_TYPE_BY_EXTENSION[extension] || null : null;
+};
+
+export const getSupportedImageFileMimeType = (
+  file: File | null | undefined
+): ValueOf<typeof IMAGE_MIME_TYPES> | null => {
+  if (!file) {
+    return null;
+  }
+
+  if (isSupportedImageFileType(file.type)) {
+    return file.type as ValueOf<typeof IMAGE_MIME_TYPES>;
+  }
+
+  return getImageMimeTypeFromFileName(file.name);
+};
+
 export const loadFromBlob = async (board: PlaitBoard, blob: Blob | File) => {
   const contents = await parseFileContents(blob);
   let data: DrawnixExportedData;

@@ -135,7 +135,7 @@ export interface ParsedGenerationParams {
   /** 时长参数（视频） */
   duration?: string;
   /** 额外参数（如 seedream_quality, aspect_ratio 等，透传给 adapter） */
-  extraParams?: Record<string, string>;
+  extraParams?: Record<string, unknown>;
   /** 原始解析结果 */
   parseResult: ParseResult;
   /** 是否有额外内容（除模型/参数/数量外） */
@@ -212,7 +212,14 @@ export function generateDefaultPrompt(
  * 将 "16:9" 转换为 "16x9" 格式（API 使用 x 分隔符）
  */
 function normalizeSize(size: string): string {
-  return size.replace(':', 'x').toLowerCase();
+  const normalized = size.trim().toLowerCase();
+  const separatorIndex = normalized.indexOf('@');
+  if (separatorIndex >= 0) {
+    const resolution = normalized.slice(0, separatorIndex);
+    const ratio = normalized.slice(separatorIndex + 1).replace(/[xX]/g, ':');
+    return `${resolution}@${ratio}`;
+  }
+  return normalized.replace(':', 'x');
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   ttsSettings,
   type TtsSettings,
 } from '../../utils/settings-manager';
+import './project-drawer.scss';
 
 interface VoiceOption {
   uri: string;

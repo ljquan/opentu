@@ -423,7 +423,8 @@
     cursor: pointer;
     position: relative;
 
-    img, video {
+    img,
+    video {
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -431,9 +432,9 @@
       transition: transform 0.2s ease;
     }
 
-    // 图片和视频的 hover 效果
+    // 图片保持完整缩略图；视频保留 hover 放大效果
     &:hover {
-      img, video {
+      video {
         transform: scale(1.05);
       }
     }

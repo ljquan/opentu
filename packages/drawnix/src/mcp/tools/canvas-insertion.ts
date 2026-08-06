@@ -31,7 +31,7 @@ import {
   getViewportAwareCardWidth,
   getViewportCanvasMetrics,
   logCanvasInsertionDebug,
-  precalculateGridLayout,
+  precalculateGroupedGridLayout,
 } from '../../utils/canvas-insertion-layout';
 import {
   normalizeSvg,
@@ -440,12 +440,17 @@ async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MC
       estimateInsertionItemSize(board, item)
     );
 
-    // 使用网格布局预计算所有位置，确保不同比例的素材间距均匀、不叠加
-    const gridLayout = precalculateGridLayout(startPoint, estimatedSizes, {
-      canvasWidth: viewportMetrics.width,
-      horizontalGap,
-      verticalGap,
-    });
+    // 使用分组网格预计算位置：无 groupId 的项纵向推进，同组结果横向排列。
+    const gridLayout = precalculateGroupedGridLayout(
+      startPoint,
+      items,
+      estimatedSizes,
+      {
+        canvasWidth: viewportMetrics.width,
+        horizontalGap,
+        verticalGap,
+      }
+    );
     flowState.bounds = gridLayout.bounds;
 
     const insertedItems: { type: ContentType; point: Point }[] = [];

@@ -77,9 +77,11 @@ describe('model-health-service', () => {
     );
   });
 
-  it('detects tu-zi.com hostnames only', () => {
+  it('detects Tuzi primary and trusted alternate hostnames', () => {
     expect(isTuziApiUrl('https://api.tu-zi.com/v1')).toBe(true);
     expect(isTuziApiUrl('apistatus.tu-zi.com/api')).toBe(true);
+    expect(isTuziApiUrl('https://api.sydney-ai.com/v1')).toBe(true);
+    expect(isTuziApiUrl('https://api.ourzhishi.top/v1')).toBe(true);
     expect(isTuziApiUrl('https://not-tu-zi.com/v1')).toBe(false);
   });
 

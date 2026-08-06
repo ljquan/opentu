@@ -11,6 +11,15 @@ importers:
       '@floating-ui/react':
         specifier: ^0.26.24
         version: 0.26.28(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@milkdown/crepe':
+        specifier: ^7.18.0
+        version: 7.18.0(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(typescript@5.8.2)
+      '@milkdown/kit':
+        specifier: ^7.18.0
+        version: 7.18.0(@codemirror/language@6.12.1)(@codemirror/state@6.5.3)(@codemirror/view@6.39.10)(typescript@5.8.2)
+      '@milkdown/react':
+        specifier: ^7.18.0
+        version: 7.18.0(@codemirror/language@6.12.1)(@codemirror/state@6.5.3)(@codemirror/view@6.39.10)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.2)
       '@plait-board/markdown-to-drawnix':
         specifier: ^0.0.6
         version: 0.0.6
@@ -68,6 +77,9 @@ importers:
       postmessage-duplex:
         specifier: ^1.2.0
         version: 1.2.0
+      pptxgenjs:
+        specifier: ^4.0.1
+        version: 4.0.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -333,6 +345,10 @@ importers:
       web-vitals:
         specifier: ^5.1.0
         version: 5.1.0
+    devDependencies:
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
 
   packages/react-board:
     dependencies:

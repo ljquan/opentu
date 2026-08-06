@@ -14,6 +14,7 @@ import ReactDOM from 'react-dom';
 import { Video, Play, Type, X } from 'lucide-react';
 import type { SelectedContentItem } from '../../types/chat.types';
 import { HoverTip } from './hover';
+import { RetryImage } from '../retry-image';
 import './selected-content-preview.scss';
 
 export interface SelectedContentPreviewProps {
@@ -51,7 +52,7 @@ function renderImageWithMask(
   }
 
   if (!item.maskImage) {
-    return <img src={item.url} alt={item.name} />;
+    return <RetryImage src={item.url} alt={item.name} showSkeleton={false} />;
   }
   const mediaPairStyle =
     item.width && item.height && item.width > 0 && item.height > 0
@@ -62,9 +63,9 @@ function renderImageWithMask(
 
   return (
     <div className={`${className}__media-pair`} style={mediaPairStyle}>
-      <img src={item.url} alt={item.name} />
+      <RetryImage src={item.url} alt={item.name} showSkeleton={false} />
       <div className={`${className}__mask-thumb`}>
-        <img src={item.maskImage} alt={`${item.name} mask`} />
+        <RetryImage src={item.maskImage} alt={`${item.name} mask`} showSkeleton={false} />
       </div>
     </div>
   );

@@ -8,6 +8,9 @@ vi.mock('./kv-storage-service', () => ({
     set: vi.fn(async (key: string, value: unknown) => {
       store.set(key, value);
     }),
+    remove: vi.fn(async (key: string) => {
+      store.delete(key);
+    }),
   },
 }));
 
@@ -122,9 +125,9 @@ describe('prompt-storage-service', () => {
     const service = await loadService();
     await service.initPromptStorageCache();
 
-    expect(service.setPromptContentPinned('不存在的提示词', false, 'image')).toBe(
-      false
-    );
+    expect(
+      service.setPromptContentPinned('不存在的提示词', false, 'image')
+    ).toBe(false);
     expect(service.getPromptHistory()).toEqual([]);
   });
 
@@ -133,12 +136,20 @@ describe('prompt-storage-service', () => {
     await service.initPromptStorageCache();
 
     service.promptStorageService.pinPrompt('image', '图片提示词');
-    expect(service.promptStorageService.isPinned('image', '图片提示词')).toBe(true);
-    expect(service.promptStorageService.isContentPinned('图片提示词')).toBe(true);
+    expect(service.promptStorageService.isPinned('image', '图片提示词')).toBe(
+      true
+    );
+    expect(service.promptStorageService.isContentPinned('图片提示词')).toBe(
+      true
+    );
 
     service.promptStorageService.unpinPrompt('image', '图片提示词');
-    expect(service.promptStorageService.isPinned('image', '图片提示词')).toBe(false);
-    expect(service.promptStorageService.isContentPinned('图片提示词')).toBe(false);
+    expect(service.promptStorageService.isPinned('image', '图片提示词')).toBe(
+      false
+    );
+    expect(service.promptStorageService.isContentPinned('图片提示词')).toBe(
+      false
+    );
   });
 
   it('uses content pin as source of truth and clears stale preset pin order', async () => {
@@ -220,5 +231,25 @@ describe('prompt-storage-service', () => {
         '跨场景提示词',
       ])
     ).toEqual(['跨场景提示词', '普通页面提示词']);
+  });
+
+  it('clears generation history while preserving prompt preferences', async () => {
+    store.set('aitu_prompt_history', [{ content: '文本历史' }]);
+    store.set('aitu_video_prompt_history', [{ prompt: '视频历史' }]);
+    store.set('aitu_image_prompt_history', [{ prompt: '图片历史' }]);
+    store.set('aitu_prompt_deleted_contents', ['已删除历史']);
+    store.set('aitu_prompt_history_overrides', [{ content: '编辑历史' }]);
+    store.set('aitu-prompt-preset-settings', { image: { pinnedPrompts: [] } });
+    const service = await loadService();
+    await service.initPromptStorageCache();
+
+    await service.clearGenerationPromptHistory();
+
+    expect(store.has('aitu_prompt_history')).toBe(false);
+    expect(store.has('aitu_video_prompt_history')).toBe(false);
+    expect(store.has('aitu_image_prompt_history')).toBe(false);
+    expect(store.has('aitu_prompt_deleted_contents')).toBe(true);
+    expect(store.has('aitu_prompt_history_overrides')).toBe(true);
+    expect(store.has('aitu-prompt-preset-settings')).toBe(true);
   });
 });

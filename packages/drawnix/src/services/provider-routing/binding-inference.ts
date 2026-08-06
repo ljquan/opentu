@@ -9,6 +9,7 @@ import {
   OFFICIAL_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
   TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
 } from '../model-adapters/image-request-schemas';
+import { isTuziCompatibleBaseUrl } from './tuzi-api-endpoints';
 import { inferAllBindingHintsFromEndpoints } from './endpoint-binding-inference';
 import type { ProviderModelBinding, ProviderProfileSnapshot } from './types';
 
@@ -165,6 +166,10 @@ function isSeedanceModel(model: ModelConfig): boolean {
   return model.id.toLowerCase().includes('seedance');
 }
 
+function isSeedance2Model(model: ModelConfig): boolean {
+  return model.id.toLowerCase().startsWith('doubao-seedance-2-0-');
+}
+
 function shouldPreferAsyncImageBinding(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
@@ -207,22 +212,7 @@ function isTuziProfile(profile: ProviderProfileSnapshot): boolean {
 }
 
 function isTuziBaseUrl(baseUrl: string): boolean {
-  const normalizedBaseUrl = baseUrl.trim().toLowerCase();
-  if (!normalizedBaseUrl) {
-    return false;
-  }
-
-  try {
-    const url = new URL(
-      /^[a-z][a-z\d+\-.]*:\/\//i.test(normalizedBaseUrl)
-        ? normalizedBaseUrl
-        : `https://${normalizedBaseUrl}`
-    );
-    const hostname = url.hostname.toLowerCase();
-    return hostname === 'tu-zi.com' || hostname.endsWith('.tu-zi.com');
-  } catch {
-    return false;
-  }
+  return isTuziCompatibleBaseUrl(baseUrl);
 }
 
 function normalizeImageApiCompatibilityMode(
@@ -617,7 +607,7 @@ function inferVideoBindings(
     );
   }
 
-  if (isSeedanceModel(model)) {
+  if (isSeedanceModel(model) && !isSeedance2Model(model)) {
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'seedance.task',
@@ -676,6 +666,19 @@ function inferVideoBindings(
     profile.providerType === 'openai-compatible' ||
     profile.providerType === 'custom'
   ) {
+    const seedance2Metadata = isSeedance2Model(model)
+      ? {
+          video: {
+            allowedDurations: ['4', '5', '6', '7', '8', '9', '10', '11', '12'],
+            defaultDuration: '5',
+            durationMode: 'request-param' as const,
+            durationField: 'duration',
+            strictDurationValidation: true,
+            resultMode: 'download-content' as const,
+            downloadPathTemplate: '/videos/{taskId}/content',
+          },
+        }
+      : undefined;
     const soraDownloadMetadata = isSoraModel(model)
       ? {
           video: {
@@ -687,12 +690,15 @@ function inferVideoBindings(
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'openai.async.video',
-        requestSchema: 'openai.video.form-input-reference',
+        requestSchema: isSeedance2Model(model)
+          ? 'doubao.seedance-2.video.content-json'
+          : 'openai.video.form-input-reference',
         responseSchema: 'openai.async.task',
         submitPath: '/videos',
         pollPathTemplate: '/videos/{taskId}',
         metadata:
-          isSoraModel(model) && isOfficialOpenAIProfile(profile)
+          seedance2Metadata ||
+          (isSoraModel(model) && isOfficialOpenAIProfile(profile)
             ? {
                 video: {
                   allowedDurations: ['4', '8', '12'],
@@ -704,7 +710,7 @@ function inferVideoBindings(
                   downloadPathTemplate: '/videos/{taskId}/content',
                 },
               }
-            : soraDownloadMetadata,
+            : soraDownloadMetadata),
         priority: profile.providerType === 'openai-compatible' ? 320 : 160,
         confidence:
           profile.providerType === 'openai-compatible' ? 'high' : 'medium',

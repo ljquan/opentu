@@ -8,6 +8,8 @@ import {
   getInsertionPointFromSavedSelection,
   getViewportAwareCardWidth,
   groupInsertionItems,
+  precalculateGroupedGridLayout,
+  precalculateGridLayout,
 } from '../canvas-insertion-layout';
 
 vi.mock('@plait/core', () => ({
@@ -134,6 +136,20 @@ describe('canvas-insertion-layout', () => {
     ]);
   });
 
+  it('does not merge non-adjacent repeated group ids', () => {
+    const items = [
+      { id: 'a', groupId: 'g1' },
+      { id: 'b' },
+      { id: 'c', groupId: 'g1' },
+    ];
+
+    expect(groupInsertionItems(items)).toEqual([
+      [items[0]],
+      [items[1]],
+      [items[2]],
+    ]);
+  });
+
   it('flows items horizontally until viewport canvas width is full', () => {
     const board = createBoard([], [], { width: 900, height: 600 }, 1);
     let state = createBatchInsertionFlowState(board, [100, 200], {
@@ -182,6 +198,65 @@ describe('canvas-insertion-layout', () => {
     state = advanceBatchInsertionFlow(state, { width: 400, height: 260 }).state;
 
     expect(getBatchInsertionFlowCenter(state)).toEqual([510, 505]);
+  });
+
+  it('keeps grid layout within canvas width for mixed item sizes', () => {
+    const layout = precalculateGridLayout(
+      [100, 100],
+      [
+        { width: 600, height: 300 },
+        { width: 100, height: 100 },
+        { width: 600, height: 300 },
+        { width: 100, height: 100 },
+      ],
+      {
+        canvasWidth: 900,
+        horizontalGap: 20,
+        verticalGap: 50,
+      }
+    );
+
+    expect(layout.bounds.width).toBeLessThanOrEqual(900);
+    expect(layout.positions).toEqual([
+      [100, 100],
+      [720, 100],
+      [100, 450],
+      [720, 450],
+    ]);
+  });
+
+  it('keeps ungrouped prompt above grouped generation results', () => {
+    const items = [
+      { id: 'prompt' },
+      { id: 'image-1', groupId: 'result-group' },
+      { id: 'image-2', groupId: 'result-group' },
+    ];
+    const layout = precalculateGroupedGridLayout(
+      [100, 100],
+      items,
+      [
+        { width: 300, height: 48 },
+        { width: 400, height: 300 },
+        { width: 400, height: 240 },
+      ],
+      {
+        canvasWidth: 900,
+        horizontalGap: 20,
+        verticalGap: 50,
+      }
+    );
+
+    expect(layout.positions).toEqual([
+      [100, 100],
+      [100, 198],
+      [520, 198],
+    ]);
+    expect(layout.bounds).toEqual({
+      x: 100,
+      y: 100,
+      width: 820,
+      height: 398,
+    });
   });
 
   it('uses viewport canvas width for markdown card width', () => {

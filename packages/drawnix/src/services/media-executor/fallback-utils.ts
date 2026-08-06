@@ -221,8 +221,10 @@ import { generateImageAsync as sharedGenerateImageAsync } from '../media-api';
  */
 interface AsyncImageOptions {
   onProgress: (progress: number) => void;
+  onSubmissionAttempt?: () => void | Promise<void>;
   onSubmitted?: (remoteId: string) => void;
   signal?: AbortSignal;
+  requestId?: string;
 }
 
 /**
@@ -259,8 +261,10 @@ export async function generateAsyncImage(
     },
     {
       onProgress: options.onProgress,
+      onSubmissionAttempt: options.onSubmissionAttempt,
       onSubmitted: options.onSubmitted,
       signal: options.signal,
+      requestId: options.requestId,
     }
   );
 
@@ -285,6 +289,8 @@ export async function cacheRemoteUrl(
   options?: {
     source?: 'AI_GENERATED' | 'PLAYBACK_CACHE';
     forceRemoteCache?: boolean;
+    returnLocalCacheUrl?: boolean;
+    cacheKey?: string;
     extraMetadata?: Record<string, unknown>;
   }
 ): Promise<string> {
@@ -306,8 +312,38 @@ export async function cacheRemoteUrl(
 
     try {
       const cacheSource = options?.source || 'AI_GENERATED';
-      if (await unifiedCacheService.isCached(normalizedUrl)) {
-        return normalizedUrl;
+      const suffix = index !== undefined ? `_${index}` : '';
+      const cacheKey = encodeURIComponent(options?.cacheKey || taskId);
+      const cacheTargetUrl = options?.returnLocalCacheUrl
+        ? `/__aitu_cache__/${mediaType}/${cacheKey}${suffix}.${format}`
+        : normalizedUrl;
+
+      if (await unifiedCacheService.isCached(cacheTargetUrl)) {
+        return cacheTargetUrl;
+      }
+
+      if (
+        options?.returnLocalCacheUrl &&
+        (await unifiedCacheService.isCached(normalizedUrl))
+      ) {
+        const cachedBlob = await unifiedCacheService.getCachedBlob(
+          normalizedUrl
+        );
+        if (cachedBlob && cachedBlob.size > 0) {
+          const migratedUrl = await unifiedCacheService.cacheMediaFromBlob(
+            cacheTargetUrl,
+            cachedBlob,
+            mediaType,
+            {
+              taskId,
+              source: cacheSource,
+              ...options?.extraMetadata,
+            }
+          );
+          if (migratedUrl) {
+            return migratedUrl;
+          }
+        }
       }
 
       const response = await fetch(normalizedUrl, {
@@ -324,8 +360,8 @@ export async function cacheRemoteUrl(
         return normalizedUrl;
       }
 
-      await unifiedCacheService.cacheMediaFromBlob(
-        normalizedUrl,
+      const cacheUrl = await unifiedCacheService.cacheMediaFromBlob(
+        cacheTargetUrl,
         blob,
         mediaType,
         {
@@ -334,7 +370,9 @@ export async function cacheRemoteUrl(
           ...options?.extraMetadata,
         }
       );
-      return normalizedUrl;
+      return options?.returnLocalCacheUrl && cacheUrl
+        ? cacheUrl
+        : normalizedUrl;
     } catch (error) {
       console.warn(
         '[cacheRemoteUrl] Remote media cache failed, using original URL:',
@@ -410,6 +448,23 @@ export async function cacheRemoteUrls(
   format: string,
   options?: Parameters<typeof cacheRemoteUrl>[5]
 ): Promise<string[]> {
+  if (options?.forceRemoteCache) {
+    const cachedUrls: string[] = [];
+    for (const [index, url] of urls.entries()) {
+      cachedUrls.push(
+        await cacheRemoteUrl(
+          url,
+          taskId,
+          mediaType,
+          format,
+          urls.length > 1 ? index : undefined,
+          options
+        )
+      );
+    }
+    return cachedUrls;
+  }
+
   return Promise.all(
     urls.map((url, i) =>
       cacheRemoteUrl(

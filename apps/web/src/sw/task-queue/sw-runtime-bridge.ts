@@ -13,12 +13,10 @@ export interface SwRuntimeBridge {
   clearAllConsoleLogs(): Promise<void> | void;
   getCrashSnapshots(): Promise<unknown[]>;
   clearCrashSnapshots(): Promise<void> | void;
-  getCDNStatusReport(): unknown;
-  resetCDNStatus(): void;
-  performHealthCheck(version: string): Promise<Map<string, unknown>>;
   getAppVersion(): string;
   getImageCacheName(): string;
   deleteCacheByUrl(url: string): Promise<void>;
+  clearImageCache(): Promise<void>;
   requestVideoThumbnail(
     url: string,
     timeoutMs: number,

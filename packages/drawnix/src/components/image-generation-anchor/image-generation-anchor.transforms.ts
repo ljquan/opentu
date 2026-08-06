@@ -26,7 +26,8 @@ export const ImageGenerationAnchorTransforms = {
     board: PlaitBoard,
     options: ImageGenerationAnchorCreateOptions
   ): PlaitImageGenerationAnchor {
-    const anchorType = options.anchorType ?? inferImageGenerationAnchorType(options);
+    const anchorType =
+      options.anchorType ?? inferImageGenerationAnchorType(options);
     const size = resolveImageGenerationAnchorSize({
       size: options.size,
       anchorType,
@@ -54,10 +55,16 @@ export const ImageGenerationAnchorTransforms = {
       workflowId: options.workflowId,
       taskIds: options.taskIds ? [...options.taskIds] : [],
       primaryTaskId: options.primaryTaskId,
+      prompt: options.prompt,
+      resultElementId: options.resultElementId,
+      targetElementId: options.targetElementId,
+      sourceTaskId: options.sourceTaskId,
+      latestTaskId: options.latestTaskId,
       batchId: options.batchId,
       batchIndex: options.batchIndex,
       batchTotal: options.batchTotal,
-      expectedInsertPosition: options.expectedInsertPosition ?? options.position,
+      expectedInsertPosition:
+        options.expectedInsertPosition ?? options.position,
       targetFrameId: options.targetFrameId,
       targetFrameDimensions: options.targetFrameDimensions,
       frameAffinityId: options.frameAffinityId,
@@ -80,7 +87,9 @@ export const ImageGenerationAnchorTransforms = {
     elementId: string,
     patch: Partial<PlaitImageGenerationAnchor>
   ): void {
-    const index = board.children.findIndex((element: any) => element.id === elementId);
+    const index = board.children.findIndex(
+      (element: any) => element.id === elementId
+    );
     if (index < 0) {
       return;
     }
@@ -128,7 +137,9 @@ export const ImageGenerationAnchorTransforms = {
   },
 
   removeAnchor(board: PlaitBoard, elementId: string): void {
-    const index = board.children.findIndex((element: any) => element.id === elementId);
+    const index = board.children.findIndex(
+      (element: any) => element.id === elementId
+    );
     if (index < 0) {
       return;
     }
@@ -151,7 +162,8 @@ export const ImageGenerationAnchorTransforms = {
     workflowId: string
   ): PlaitImageGenerationAnchor | null {
     const element = board.children.find(
-      (item) => isImageGenerationAnchorElement(item) && item.workflowId === workflowId
+      (item) =>
+        isImageGenerationAnchorElement(item) && item.workflowId === workflowId
     );
     return element && isImageGenerationAnchorElement(element) ? element : null;
   },
@@ -171,7 +183,8 @@ export const ImageGenerationAnchorTransforms = {
     taskId: string
   ): PlaitImageGenerationAnchor | null {
     const element = board.children.find(
-      (item) => isImageGenerationAnchorElement(item) && item.taskIds.includes(taskId)
+      (item) =>
+        isImageGenerationAnchorElement(item) && item.taskIds.includes(taskId)
     );
     return element && isImageGenerationAnchorElement(element) ? element : null;
   },
@@ -201,6 +214,8 @@ export const ImageGenerationAnchorTransforms = {
   },
 
   getAllAnchors(board: PlaitBoard): PlaitImageGenerationAnchor[] {
-    return board.children.filter(isImageGenerationAnchorElement) as PlaitImageGenerationAnchor[];
+    return board.children.filter(
+      isImageGenerationAnchorElement
+    ) as PlaitImageGenerationAnchor[];
   },
 };

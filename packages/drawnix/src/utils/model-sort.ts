@@ -15,6 +15,9 @@ const MODEL_NAME_IGNORED_TOKENS = new Set([
   'async',
   'hd',
   'uhd',
+  'flash',
+  'preview',
+  'pro',
 ]);
 
 function getModelSortKey(model: ModelConfig): string {
@@ -96,12 +99,7 @@ function compareVersionVectorsDesc(
 }
 
 function getBestVersionVector(model: ModelConfig): VersionVector {
-  const source = [
-    model.id,
-    model.label,
-    model.shortLabel,
-    model.shortCode,
-  ]
+  const source = [model.id, model.label, model.shortLabel, model.shortCode]
     .filter(Boolean)
     .join(' ');
 
@@ -201,10 +199,7 @@ export function compareModelsByDisplayPriority(
 
   const leftRecommendedScore = getRecommendedScore(left);
   const rightRecommendedScore = getRecommendedScore(right);
-  if (
-    leftRecommendedScore !== null ||
-    rightRecommendedScore !== null
-  ) {
+  if (leftRecommendedScore !== null || rightRecommendedScore !== null) {
     if (leftRecommendedScore === null) return 1;
     if (rightRecommendedScore === null) return -1;
     if (leftRecommendedScore !== rightRecommendedScore) {

@@ -15,11 +15,30 @@
       "Bash(git add:*)",
       "Bash(npx tsc:*)",
       "Bash(git push:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(node *)",
+      "Bash(pnpm typecheck *)",
+      "Bash(npx vitest *)",
+      "Bash(pnpm run *)",
+      "Bash(pnpm lint *)",
+      "Bash(grep -E \"^/Users.*\\\\.\\(ts|tsx\\)$\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(git stash *)",
+      "Bash(git add *)",
+      "Bash(git apply *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git status *)",
+      "Bash(cd *)",
+      "Bash(ssh:*)",
+      "Bash(ip addr show)",
+      "Bash(openssl x509:*)",
+      "Bash(certbot certonly:*)",
+      "Bash(getent hosts:*)",
+      "Bash(curl:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "playwright"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

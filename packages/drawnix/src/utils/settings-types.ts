@@ -52,11 +52,71 @@ export interface ProviderProfile {
   pricingGroup?: string;
 }
 
+export type ProviderCatalogManualBindingConfidence = 'high' | 'medium' | 'low';
+export type ProviderCatalogManualBindingSource = 'manual';
+export type ProviderCatalogManualBindingBaseUrlStrategy = 'preserve' | 'trim-v1';
+export type ManualHttpResponseKind = 'text' | 'image' | 'task' | 'audio';
+export type ManualHttpBodyType = 'json' | 'form-data' | 'raw' | 'none';
+export type ManualHttpFormFieldKind = 'text' | 'file' | 'file-list';
+
+export interface ManualHttpResponsePaths {
+  text?: string;
+  imageUrl?: string;
+  imageUrls?: string;
+  b64Json?: string;
+  taskId?: string;
+  status?: string;
+  progress?: string;
+  resultUrl?: string;
+  resultUrls?: string;
+  audioUrl?: string;
+  audioUrls?: string;
+  error?: string;
+}
+
+export interface ManualHttpFormField {
+  name: string;
+  value: string;
+  kind?: ManualHttpFormFieldKind;
+  filename?: string;
+}
+
+export interface ManualHttpTemplateMetadata {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  headers?: Record<string, string>;
+  bodyType?: ManualHttpBodyType;
+  bodyTemplate?: string;
+  formFields?: ManualHttpFormField[];
+  responseKind?: ManualHttpResponseKind;
+  responsePaths?: ManualHttpResponsePaths;
+  pollPaths?: ManualHttpResponsePaths;
+  pollResponsePaths?: ManualHttpResponsePaths;
+}
+
+export interface ProviderCatalogManualBinding {
+  id: string;
+  modelId: string;
+  operation: ModelType;
+  protocol: string;
+  requestSchema: string;
+  responseSchema: string;
+  submitPath: string;
+  baseUrlStrategy?: ProviderCatalogManualBindingBaseUrlStrategy;
+  pollPathTemplate?: string;
+  priority: number;
+  confidence: ProviderCatalogManualBindingConfidence;
+  source: ProviderCatalogManualBindingSource;
+  metadata?: Record<string, unknown> & {
+    manualHttp?: ManualHttpTemplateMetadata;
+  };
+}
+
 export interface ProviderCatalog {
   profileId: string;
   discoveredAt: number | null;
   discoveredModels: ModelConfig[];
   selectedModelIds: string[];
+  manualBindings?: ProviderCatalogManualBinding[];
   sourceBaseUrl?: string;
   signature?: string;
   error?: string | null;
@@ -83,6 +143,7 @@ export interface InvocationPreset {
 
 export interface SettingsMigrations {
   legacyDefaultImageApiCompatibilityV1?: boolean;
+  legacyDefaultImageModelV1?: boolean;
 }
 
 export interface TtsSettings {

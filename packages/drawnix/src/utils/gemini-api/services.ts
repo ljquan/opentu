@@ -190,6 +190,9 @@ export async function generateImageWithGemini(
     count?: number;
     model?: string; // 支持指定模型
     modelRef?: ModelRef | null;
+    requestId?: string;
+    signal?: AbortSignal;
+    onSubmissionAttempt?: () => void | Promise<void>;
   } = {}
 ): Promise<any> {
   // 等待设置管理器初始化完成
@@ -221,6 +224,9 @@ async function generateImageDirect(
     count?: number;
     model?: string;
     modelRef?: ModelRef | null;
+    requestId?: string;
+    signal?: AbortSignal;
+    onSubmissionAttempt?: () => void | Promise<void>;
   },
   modelName: string,
   routeModel?: string | ModelRef | null
@@ -280,6 +286,11 @@ async function generateImageDirect(
         ],
         {
           stream: false,
+          requestId: options.requestId,
+          signal: options.signal,
+          ...(options.onSubmissionAttempt
+            ? { onSubmissionAttempt: options.onSubmissionAttempt }
+            : {}),
           generationConfig: {
             responseModalities: ['IMAGE'],
             imageConfig: {
@@ -348,6 +359,7 @@ async function generateImageDirect(
       data.n = Math.min(Math.max(Math.round(options.count), 1), 10);
     }
 
+    await options.onSubmissionAttempt?.();
     const response = await providerTransport.send(
       buildProviderContextFromConfig(validatedConfig),
       {
@@ -355,7 +367,9 @@ async function generateImageDirect(
         method: 'POST',
         headers,
         body: JSON.stringify(data),
+        signal: options.signal,
         timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
+        requestId: options.requestId,
       }
     );
 

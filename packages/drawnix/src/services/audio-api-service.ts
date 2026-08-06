@@ -28,6 +28,13 @@ import {
   failLLMApiLog,
   updateLLMApiLogMetadata,
 } from './media-executor/llm-api-logger';
+import {
+  buildManualHttpRequestPayload,
+  buildManualHttpVariables,
+  getManualHttpTemplate,
+  normalizeManualTaskResponse,
+  renderTemplate,
+} from './provider-routing/manual-http-template';
 
 export interface AudioGenerationParams {
   model: string;
@@ -852,6 +859,46 @@ function hasResolvedTaskResult(response: AudioTaskResponse): boolean {
     response.lyrics.text.trim().length > 0;
 }
 
+function normalizeManualAudioTaskResponse(
+  payload: unknown,
+  fallbackTaskId = '',
+  binding?: NonNullable<
+    ReturnType<typeof resolveInvocationPlanFromRoute>
+  >['binding'] | null,
+  usePollPaths = false
+): AudioTaskResponse {
+  const template = getManualHttpTemplate(binding?.metadata);
+  const task = normalizeManualTaskResponse(
+    payload,
+    usePollPaths
+      ? template?.pollResponsePaths || template?.pollPaths || template?.responsePaths
+      : template?.responsePaths
+  );
+  const audioUrls = [task.audioUrl, ...(task.audioUrls || [])].filter(
+    (url): url is string => Boolean(url)
+  );
+  const resultUrls = [task.resultUrl, ...(task.resultUrls || [])].filter(
+    (url): url is string => Boolean(url)
+  );
+  const urls = audioUrls.length > 0 ? audioUrls : resultUrls;
+  const status = task.status || (urls.length > 0 ? 'completed' : 'processing');
+
+  return {
+    taskId: task.taskId || fallbackTaskId,
+    status,
+    progress: task.progress,
+    failReason: task.error || '',
+    clips: urls.map((url, index) => ({
+      id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
+      clip_id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
+      status,
+      audio_url: url,
+      batch_index: index,
+    })),
+    raw: payload,
+  };
+}
+
 class AudioAPIService {
   async submitAudioGeneration(
     params: AudioGenerationParams
@@ -860,6 +907,7 @@ class AudioAPIService {
       params.modelRef || params.model
     );
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
+    const manualHttpTemplate = getManualHttpTemplate(binding?.metadata);
 
     if (!providerContext.apiKey) {
       throw new Error('API Key 未配置，请先配置 API Key');
@@ -867,7 +915,26 @@ class AudioAPIService {
 
     const action = resolveRequestedAction(params);
     const submitPath = resolveSubmitPath(params, binding);
-    const body = buildSubmitBody(params);
+    const variables = buildManualHttpVariables({
+      model: params.model,
+      modelRef: params.modelRef || null,
+      prompt: params.prompt,
+      duration: params.params?.duration as string | number | undefined,
+      params: {
+        ...params.params,
+        title: params.title,
+        tags: params.tags,
+        mv: params.mv,
+        sunoAction: params.sunoAction,
+        notifyHook: params.notifyHook,
+      },
+    });
+    const manualPayload = manualHttpTemplate
+      ? await buildManualHttpRequestPayload(manualHttpTemplate, variables)
+      : null;
+    const body = manualHttpTemplate
+      ? manualPayload?.body
+      : buildSubmitBody(params);
     const startTime = Date.now();
 
     const logId = startLLMApiLog({
@@ -881,10 +948,27 @@ class AudioAPIService {
     let response: Response;
     try {
       response = await providerTransport.send(providerContext, {
-        path: submitPath,
+        path: manualHttpTemplate
+          ? (renderTemplate(submitPath, variables) as string)
+          : submitPath,
         baseUrlStrategy,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: manualHttpTemplate?.method || 'POST',
+        headers: {
+          ...(manualPayload?.contentType
+            ? { 'Content-Type': manualPayload.contentType }
+            : {}),
+          ...(!manualPayload?.contentType &&
+          body !== undefined &&
+          !(body instanceof FormData)
+            ? { 'Content-Type': 'application/json' }
+            : {}),
+          ...(manualHttpTemplate
+            ? (renderTemplate(
+                manualHttpTemplate.headers || {},
+                variables
+              ) as Record<string, string>)
+            : {}),
+        },
         body,
       });
     } catch (error: any) {
@@ -912,7 +996,9 @@ class AudioAPIService {
     }
 
     const payload = await response.json();
-    const result = normalizeAudioTaskResponse(payload);
+    const result = manualHttpTemplate
+      ? normalizeManualAudioTaskResponse(payload, '', binding)
+      : normalizeAudioTaskResponse(payload);
     const duration = Date.now() - startTime;
 
     completeLLMApiLog(logId, {
@@ -940,6 +1026,7 @@ class AudioAPIService {
 
     const { providerContext, binding } = resolveAudioPlanContext(routeModel);
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
+    const manualHttpTemplate = getManualHttpTemplate(binding?.metadata);
 
     if (!providerContext.apiKey) {
       throw new Error('API Key 未配置');
@@ -948,11 +1035,22 @@ class AudioAPIService {
     const path = binding?.pollPathTemplate
       ? replaceTaskIdTemplate(binding.pollPathTemplate, taskId)
       : `/suno/fetch/${taskId}`;
+    const variables = buildManualHttpVariables({
+      model: typeof routeModel === 'string' ? routeModel : routeModel?.modelId || '',
+      taskId,
+      params: {},
+    });
 
     const response = await providerTransport.send(providerContext, {
-      path,
+      path: manualHttpTemplate ? (renderTemplate(path, variables) as string) : path,
       baseUrlStrategy,
       method: 'GET',
+      headers: manualHttpTemplate
+        ? (renderTemplate(
+            manualHttpTemplate.headers || {},
+            variables
+          ) as Record<string, string>)
+        : undefined,
     });
 
     if (!response.ok) {
@@ -966,7 +1064,9 @@ class AudioAPIService {
     }
 
     const payload = await response.json();
-    return normalizeAudioTaskResponse(payload, taskId);
+    return manualHttpTemplate
+      ? normalizeManualAudioTaskResponse(payload, taskId, binding, true)
+      : normalizeAudioTaskResponse(payload, taskId);
   }
 
   async generateAudioWithPolling(

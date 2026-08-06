@@ -73,11 +73,7 @@ function normalizeEntryAssetPath(value) {
     }
   }
 
-  normalized = normalized
-    .replace(/^\//, '')
-    .replace(/^\.\//, '')
-    .replace(/^npm\/aitu-app@[^/]+\//, '')
-    .replace(/^aitu-app@[^/]+\//, '');
+  normalized = normalized.replace(/^\//, '').replace(/^\.\//, '');
 
   return normalized;
 }
@@ -90,9 +86,7 @@ function collectEntryAssetsFromHtml(html) {
       /<script\b[^>]*\bsrc\s*=\s*(['"]).*?\1[^>]*><\/script>/gi
     ) || [];
   for (const tag of scriptTags) {
-    const asset = normalizeEntryAssetPath(
-      getTagAttribute(tag, 'data-local-src') || getTagAttribute(tag, 'src')
-    );
+    const asset = normalizeEntryAssetPath(getTagAttribute(tag, 'src'));
     if (asset.startsWith('assets/') && asset.endsWith('.js')) {
       assets.add(asset);
     }
@@ -105,9 +99,7 @@ function collectEntryAssetsFromHtml(html) {
       continue;
     }
 
-    const asset = normalizeEntryAssetPath(
-      getTagAttribute(tag, 'data-local-href') || getTagAttribute(tag, 'href')
-    );
+    const asset = normalizeEntryAssetPath(getTagAttribute(tag, 'href'));
     if (asset.startsWith('assets/') && asset.endsWith('.css')) {
       assets.add(asset);
     }

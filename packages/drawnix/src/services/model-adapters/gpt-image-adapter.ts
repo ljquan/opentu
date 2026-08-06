@@ -21,6 +21,7 @@ const GPT_IMAGE_BACKGROUND_VALUES = new Set(['transparent', 'opaque', 'auto']);
 const GPT_IMAGE_MODERATION_VALUES = new Set(['low', 'auto']);
 const GPT_IMAGE_INPUT_FIDELITY_VALUES = new Set(['high', 'low']);
 const GPT_IMAGE_RESPONSE_FORMAT_VALUES = new Set(['url', 'b64_json']);
+const IMAGE_DIMENSIONS_TIMEOUT_MS = 15_000;
 
 function getStringParam(
   params: Record<string, unknown> | undefined,
@@ -349,6 +350,49 @@ function normalizeImageValue(
   return normalizeImageDataUrl(value, mimeType);
 }
 
+function normalizeImageDimension(value: unknown): number | undefined {
+  const dimension =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^\d+$/.test(value.trim())
+      ? Number(value)
+      : NaN;
+
+  return Number.isSafeInteger(dimension) && dimension > 0
+    ? dimension
+    : undefined;
+}
+
+function readImageDimensions(
+  value: unknown
+): { width: number; height: number } | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const width = normalizeImageDimension(record.width);
+  const height = normalizeImageDimension(record.height);
+  if (width && height) {
+    return { width, height };
+  }
+
+  if (typeof record.size !== 'string') {
+    return undefined;
+  }
+
+  const match = record.size.trim().match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const sizeWidth = normalizeImageDimension(match[1]);
+  const sizeHeight = normalizeImageDimension(match[2]);
+  return sizeWidth && sizeHeight && sizeWidth > 32 && sizeHeight > 32
+    ? { width: sizeWidth, height: sizeHeight }
+    : undefined;
+}
+
 export function parseGPTImageResponse(
   response: unknown,
   fallbackFormat?: string
@@ -361,27 +405,91 @@ export function parseGPTImageResponse(
     typeof data?.output_format === 'string'
       ? data.output_format
       : fallbackFormat;
+  const responseDimensions = readImageDimensions(response);
 
   if (Array.isArray(data?.data)) {
-    const urls = data.data
-      .map((item) =>
-        normalizeImageValue(item.b64_json || item.url, formatHint || 'png')
-      )
-      .filter(Boolean) as string[];
-    const firstUrl = urls[0];
+    const images = data.data.flatMap((item) => {
+      const url = normalizeImageValue(
+        item.b64_json || item.url,
+        formatHint || 'png'
+      );
+      return url
+        ? [{ url, dimensions: readImageDimensions(item) || responseDimensions }]
+        : [];
+    });
+    const firstImage = images[0];
 
-    if (firstUrl) {
-      const format = getFileExtension(firstUrl) || formatHint || 'png';
+    if (firstImage) {
+      const urls = images.map((item) => item.url);
+      const format = getFileExtension(firstImage.url) || formatHint || 'png';
       return {
-        url: firstUrl,
+        url: firstImage.url,
         urls,
         format: format === 'bin' ? formatHint || 'png' : format,
+        ...(firstImage.dimensions || {}),
         raw: response,
       };
     }
   }
 
   throw new Error('GPT Image API 未返回有效的图片数据');
+}
+
+export async function resolveGeneratedImageDimensions(
+  result: ImageGenerationResult,
+  signal?: AbortSignal
+): Promise<ImageGenerationResult> {
+  const width = normalizeImageDimension(result.width);
+  const height = normalizeImageDimension(result.height);
+  if (width && height) {
+    return result;
+  }
+
+  if (typeof Image === 'undefined' || !result.url || signal?.aborted) {
+    return result;
+  }
+
+  const dimensions = await new Promise<
+    { width: number; height: number } | undefined
+  >((resolve) => {
+    const image = new Image();
+    let settled = false;
+
+    const finish = (value?: { width: number; height: number }) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', handleAbort);
+      image.onload = null;
+      image.onerror = null;
+      if (!value) {
+        image.src = '';
+      }
+      resolve(value);
+    };
+    const handleAbort = () => finish();
+    const timeoutId = globalThis.setTimeout(
+      () => finish(),
+      IMAGE_DIMENSIONS_TIMEOUT_MS
+    );
+
+    image.referrerPolicy = 'no-referrer';
+    image.decoding = 'async';
+    image.onload = () => {
+      const actualWidth = normalizeImageDimension(image.naturalWidth);
+      const actualHeight = normalizeImageDimension(image.naturalHeight);
+      finish(
+        actualWidth && actualHeight
+          ? { width: actualWidth, height: actualHeight }
+          : undefined
+      );
+    };
+    image.onerror = () => finish();
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    image.src = result.url;
+  });
+
+  return dimensions ? { ...result, ...dimensions } : result;
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -450,7 +558,10 @@ export const gptImageAdapter: ImageModelAdapter = {
     }
 
     const result = await response.json();
-    return parseGPTImageResponse(result, outputFormat);
+    return resolveGeneratedImageDimensions(
+      parseGPTImageResponse(result, outputFormat),
+      context.signal
+    );
   },
 };
 

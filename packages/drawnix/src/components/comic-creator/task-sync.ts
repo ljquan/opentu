@@ -34,6 +34,17 @@ function getTaskErrorMessage(task: Task): string {
   );
 }
 
+function buildOutlineParseErrorMessage(
+  error: unknown,
+  responseText: string
+): string {
+  const reason = error instanceof Error ? error.message : '返回格式错误';
+  const preview = responseText.trim().replace(/\s+/g, ' ').slice(0, 200);
+  return preview
+    ? `提示词规划未返回可解析 JSON：${reason}。响应预览：${preview}`
+    : `提示词规划未返回可解析 JSON：${reason}`;
+}
+
 export function isComicCreatorTerminalTask(task: Task): task is Task {
   return (
     isComicCreatorTask(task) &&
@@ -84,8 +95,9 @@ export async function syncComicOutlineTask(task: Task): Promise<{
   }
 
   try {
+    const chatResponse = readTaskChatResponse(task);
     const payload = parseComicScriptResponse(
-      readTaskChatResponse(task),
+      chatResponse,
       (task.params as { comicCreatorPageCount?: unknown })
         .comicCreatorPageCount || target.pageCount
     );
@@ -112,10 +124,10 @@ export async function syncComicOutlineTask(task: Task): Promise<{
       target,
       {
         pendingOutlineTaskId: null,
-        outlineError:
-          error instanceof Error
-            ? error.message
-            : '提示词规划返回格式错误，请重试',
+        outlineError: buildOutlineParseErrorMessage(
+          error,
+          readTaskChatResponse(task)
+        ),
         updatedAt: Date.now(),
       },
       updateRecord

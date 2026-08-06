@@ -4,9 +4,13 @@ import { TaskExecutionPhase, TaskStatus } from '../../types/task.types';
 import type { Task } from '../../types/shared/core.types';
 
 const createTaskMock = vi.fn(async () => undefined);
+const getStoredTaskMock = vi.fn();
 const trackExternalTaskMock = vi.fn();
 const syncTaskFromStorageMock = vi.fn();
-const generateImageMock = vi.fn(async () => undefined);
+const markImageSubmissionAttemptedMock = vi.fn(async () => undefined);
+const updateTaskStatusMock = vi.fn();
+const getTaskMock = vi.fn();
+const generateImageMock = vi.fn(async (_params?: any, _options?: any) => undefined);
 const waitForTaskCompletionMock = vi.fn();
 const waitForInitializationMock = vi.fn(async () => undefined);
 const hasInvocationRouteCredentialsMock = vi.fn(() => true);
@@ -17,6 +21,7 @@ const getFallbackExecutorMock = vi.fn(() => ({
 vi.mock('../media-executor/task-storage-writer', () => ({
   taskStorageWriter: {
     createTask: createTaskMock,
+    getTask: getStoredTaskMock,
   },
 }));
 
@@ -28,18 +33,41 @@ vi.mock('../media-executor', () => ({
   waitForTaskCompletion: waitForTaskCompletionMock,
 }));
 
-vi.mock('../../utils/settings-manager', () => ({
-  settingsManager: {
-    waitForInitialization: waitForInitializationMock,
-  },
-  hasInvocationRouteCredentials: hasInvocationRouteCredentialsMock,
-}));
+vi.mock('../../utils/settings-manager', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('../../utils/settings-manager')
+  >();
+  return {
+    ...actual,
+    settingsManager: {
+      waitForInitialization: waitForInitializationMock,
+    },
+    hasInvocationRouteCredentials: hasInvocationRouteCredentialsMock,
+  };
+});
 
 vi.mock('../task-queue-service', () => ({
   taskQueueService: {
     trackExternalTask: trackExternalTaskMock,
     syncTaskFromStorage: syncTaskFromStorageMock,
+    markImageSubmissionAttempted: markImageSubmissionAttemptedMock,
+    updateTaskStatus: updateTaskStatusMock,
+    getTask: getTaskMock,
   },
+}));
+
+vi.mock('../image-generation-recovery-service', () => ({
+  createImageSubmissionParams: (
+    params: Record<string, unknown>,
+    requestId: string,
+    attempted = false
+  ) => ({
+    ...params,
+    submissionRequestId: requestId,
+    imageSubmissionAttempted: attempted,
+  }),
+  getImageSubmissionRequestId: (task: Task) =>
+    task.params.submissionRequestId || task.id,
 }));
 
 vi.mock('../../utils/task-utils', () => ({
@@ -47,8 +75,49 @@ vi.mock('../../utils/task-utils', () => ({
 }));
 
 describe('image-generation-service', () => {
+  let currentTask: Task | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    currentTask = undefined;
+    trackExternalTaskMock.mockImplementation((task: Task) => {
+      currentTask = task;
+    });
+    getTaskMock.mockImplementation(() => currentTask);
+    markImageSubmissionAttemptedMock.mockImplementation(async () => {
+      if (currentTask) {
+        currentTask = {
+          ...currentTask,
+          params: {
+            ...currentTask.params,
+            imageSubmissionAttempted: true,
+          },
+        };
+      }
+    });
+    updateTaskStatusMock.mockImplementation(
+      (_taskId: string, status: TaskStatus, updates: Partial<Task>) => {
+        if (currentTask) {
+          currentTask = { ...currentTask, ...updates, status };
+        }
+      }
+    );
+    getStoredTaskMock.mockResolvedValue({
+      id: 'task-image-1',
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: 'Draw a rabbit',
+        submissionRequestId: 'task-image-1',
+        imageSubmissionAttempted: false,
+      },
+      createdAt: 1,
+      updatedAt: 2,
+      error: {
+        code: 'IMAGE_GENERATION_ERROR',
+        message: 'validation failed',
+      },
+    });
 
     waitForTaskCompletionMock.mockResolvedValue({
       success: true,
@@ -113,6 +182,12 @@ describe('image-generation-service', () => {
           quality: 'high',
           n: 2,
         },
+        submissionRequestId: 'task-image-1',
+        imageSubmissionAttempted: false,
+      }),
+      expect.objectContaining({
+        operation: 'image',
+        modelId: 'gpt-image-2',
       })
     );
 
@@ -133,6 +208,8 @@ describe('image-generation-service', () => {
             quality: 'high',
             n: 2,
           },
+          submissionRequestId: 'task-image-1',
+          imageSubmissionAttempted: false,
         }),
       })
     );
@@ -140,10 +217,56 @@ describe('image-generation-service', () => {
     expect(generateImageMock).toHaveBeenCalledWith(
       expect.objectContaining({
         taskId: 'task-image-1',
+        requestId: 'task-image-1',
       }),
       expect.objectContaining({
         signal: undefined,
+        isCurrentAttempt: expect.any(Function),
+        onSubmissionAttempt: expect.any(Function),
       })
     );
+
+    const executionOptions = generateImageMock.mock.calls[0]?.[1];
+    expect(executionOptions?.isCurrentAttempt()).toBe(true);
+    await executionOptions?.onSubmissionAttempt();
+    expect(markImageSubmissionAttemptedMock).toHaveBeenCalledWith(
+      'task-image-1',
+      'task-image-1'
+    );
+
+    if (currentTask) {
+      currentTask = {
+        ...currentTask,
+        params: {
+          ...currentTask.params,
+          submissionRequestId: 'retry-request-id',
+        },
+      };
+    }
+    expect(executionOptions?.isCurrentAttempt()).toBe(false);
+  });
+
+  it('syncs a real pre-submission failure instead of entering recovery', async () => {
+    generateImageMock.mockRejectedValueOnce(new Error('validation failed'));
+    const { generateImage } = await import(
+      '../media-generation/image-generation-service'
+    );
+
+    await expect(
+      generateImage('Draw a rabbit', {
+        forceMainThread: true,
+        model: 'gpt-image-2',
+      })
+    ).rejects.toThrow('validation failed');
+
+    expect(updateTaskStatusMock).not.toHaveBeenCalled();
+    expect(syncTaskFromStorageMock).toHaveBeenCalledWith(
+      'task-image-1',
+      expect.objectContaining({
+        status: TaskStatus.FAILED,
+        error: expect.objectContaining({ message: 'validation failed' }),
+      })
+    );
+    expect(waitForTaskCompletionMock).not.toHaveBeenCalled();
   });
 });

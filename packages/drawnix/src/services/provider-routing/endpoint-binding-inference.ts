@@ -144,9 +144,12 @@ const PATH_PATTERNS: PathPattern[] = [
   // OpenAI async video（排除 kling 路径）
   {
     test: (p) => /\/videos/i.test(p) && !/\/kling\//i.test(p),
-    hint: () => ({
+    hint: (_path, endpoint) => ({
       protocol: 'openai.async.video',
-      requestSchema: 'openai.video.form-input-reference',
+      requestSchema:
+        endpoint.scenario === 'seedance-2-json'
+          ? 'doubao.seedance-2.video.content-json'
+          : 'openai.video.form-input-reference',
       responseSchema: 'openai.async.task',
       submitPath: '/videos',
       pollPathTemplate: '/videos/{taskId}',

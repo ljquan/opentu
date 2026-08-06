@@ -20,6 +20,11 @@ import {
   TaskExecutionPhase,
 } from '../types/task.types';
 import { isResumableAsyncImageTask } from '../utils/task-utils';
+import {
+  getImageSubmissionRequestId,
+  IMAGE_SUBMISSION_REQUEST_ID_PARAM,
+  isImageRequestRecoveryCandidate,
+} from '../services/image-generation-recovery-service';
 
 // Global flag to prevent multiple initializations (persists across HMR)
 let initializationStarted = false;
@@ -46,7 +51,7 @@ function waitForIdle(timeout = 100): Promise<void> {
  * - Migrate data from legacy databases (sw-task-queue → aitu-app)
  * - Load tasks from IndexedDB on mount
  * - Restore interrupted tasks
- * 
+ *
  * @returns boolean - Whether task storage is initialized and ready
  */
 export function useTaskStorage(): boolean {
@@ -78,23 +83,48 @@ export function useTaskStorage(): boolean {
 
           // Handle interrupted processing tasks based on task type and remoteId
           const processingTasks = storedTasks.filter(
-            (task) => task.status === 'processing'
+            (task) =>
+              task.status === 'processing' &&
+              !taskQueueService.isTaskExecutionActive(task.id)
           );
 
           if (processingTasks.length > 0) {
             console.warn(`[useTaskStorage] Found ${processingTasks.length} interrupted processing tasks`);
 
-            processingTasks.forEach((task) => {
-              const isAsyncImageResumable =
-                isResumableAsyncImageTask(task);
+            for (const task of processingTasks) {
+              const isAsyncImageResumable = isResumableAsyncImageTask(task);
 
-              const isVideoResumable = task.type === TaskType.VIDEO && !!task.remoteId;
+              const imageRecoveryTask =
+                task.type === TaskType.IMAGE &&
+                !task.remoteId &&
+                (task.executionPhase === TaskExecutionPhase.SUBMITTING ||
+                  task.executionPhase === TaskExecutionPhase.DOWNLOADING ||
+                  task.executionPhase === TaskExecutionPhase.POLLING) &&
+                typeof task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM] ===
+                  'string' &&
+                task.params.imageSubmissionAttempted === true
+                  ? task
+                  : null;
+              const isImageStructuralRecoveryCandidate = Boolean(
+                imageRecoveryTask &&
+                  isImageRequestRecoveryCandidate({
+                    ...imageRecoveryTask,
+                    executionPhase: TaskExecutionPhase.POLLING,
+                  })
+              );
+              const isVideoResumable =
+                task.type === TaskType.VIDEO && !!task.remoteId;
               const isAudioResumable =
                 task.type === TaskType.AUDIO && !!task.remoteId;
 
               console.warn(
-                `[useTaskStorage]   task=${task.id} type=${task.type} phase=${task.executionPhase || 'unknown'} remoteId=${task.remoteId || 'none'} → ${
-                  isVideoResumable || isAudioResumable || isAsyncImageResumable
+                `[useTaskStorage]   task=${task.id} type=${task.type} phase=${
+                  task.executionPhase || 'unknown'
+                } remoteId=${task.remoteId || 'none'} → ${
+                  isVideoResumable ||
+                  isAudioResumable ||
+                  isAsyncImageResumable ||
+                  isImageStructuralRecoveryCandidate
                     ? 'KEEP'
                     : 'MARK_FAILED'
                 }`
@@ -104,9 +134,18 @@ export function useTaskStorage(): boolean {
               if (
                 isVideoResumable ||
                 isAudioResumable ||
-                isAsyncImageResumable
+                isAsyncImageResumable ||
+                isImageStructuralRecoveryCandidate
               ) {
                 // 留待 FallbackMediaExecutor.resumePendingTasks() 恢复
+                if (imageRecoveryTask && isImageStructuralRecoveryCandidate) {
+                  const requestId =
+                    getImageSubmissionRequestId(imageRecoveryTask);
+                  await legacyTaskQueueService.markImageAttemptRecovering(
+                    task.id,
+                    requestId
+                  );
+                }
               } else {
                 // 其他任务视为中断失败
                 let errorMessage = '任务被中断（页面刷新）';
@@ -120,26 +159,50 @@ export function useTaskStorage(): boolean {
                   errorCode = 'INTERRUPTED_DURING_SUBMISSION';
                 }
 
-                legacyTaskQueueService.updateTaskStatus(
-                  task.id,
-                  TaskStatus.FAILED,
-                  {
-                    startedAt: undefined,
-                    executionPhase: undefined,
-                    error: {
-                      code: errorCode,
-                      message: errorMessage,
-                      details: {
-                        originalError: `Task interrupted by page refresh before completion (phase: ${
-                          task.executionPhase || 'unknown'
-                        })`,
-                        timestamp: Date.now(),
-                      },
-                    },
+                const interruptedError = {
+                  code: errorCode,
+                  message: errorMessage,
+                  details: {
+                    originalError: `Task interrupted by page refresh before completion (phase: ${
+                      task.executionPhase || 'unknown'
+                    })`,
+                    timestamp: Date.now(),
+                  },
+                };
+                if (task.type === TaskType.IMAGE) {
+                  const persistedRequestId =
+                    task.params[IMAGE_SUBMISSION_REQUEST_ID_PARAM];
+                  if (typeof persistedRequestId === 'string') {
+                    await legacyTaskQueueService.failImageAttempt(
+                      task.id,
+                      persistedRequestId,
+                      interruptedError,
+                      { clearStartedAt: true }
+                    );
+                  } else {
+                    legacyTaskQueueService.updateTaskStatus(
+                      task.id,
+                      TaskStatus.FAILED,
+                      {
+                        startedAt: undefined,
+                        executionPhase: undefined,
+                        error: interruptedError,
+                      }
+                    );
                   }
-                );
+                } else {
+                  legacyTaskQueueService.updateTaskStatus(
+                    task.id,
+                    TaskStatus.FAILED,
+                    {
+                      startedAt: undefined,
+                      executionPhase: undefined,
+                      error: interruptedError,
+                    }
+                  );
+                }
               }
-            });
+            }
           }
 
           // Check for failed remote tasks that can be recovered

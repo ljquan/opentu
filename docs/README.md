@@ -14,9 +14,8 @@
 
 - [版本控制](./VERSION_CONTROL.md)：版本号、发布流程和缓存策略。
 - [版本更新策略](./VERSION_UPDATE_STRATEGY.md)：版本文件、changelog 与发布验证。
-- [NPM CDN 部署](./NPM_CDN_DEPLOY.md)：npm 包与 CDN 发布链路。
-- [CDN 部署](./CDN_DEPLOYMENT.md)：混合部署、CDN 回退与线上排查。
 - [Cloudflare Pages 部署](./CFPAGE-DEPLOY.md)：静态托管配置。
+- [CDN 方案下线经验](./CDN_TO_SELF_HOSTED_LESSONS.md)：为什么放弃 jsDelivr/npm 发布，全量转自建服务器直发。
 
 ## UI 与品牌
 
@@ -31,10 +30,14 @@
 
 - [统一缓存设计](./UNIFIED_CACHE_DESIGN.md)：缓存模型、存储和清理策略。
 - [统一缓存实现总结](./UNIFIED_CACHE_IMPLEMENTATION_SUMMARY.md)：落地细节和验证要点。
+- [网站数据清理交接文档](./2026-08-04-网站数据清理-交接文档.md)：桌面清理入口、两档清理范围、配置保留、迟到写回防护与失败恢复。
 - [素材库插入经验](./MEDIA_LIBRARY_INSERTION_LESSONS.md)：素材插入、选择和画布联动。
 - [素材库渲染性能经验](./MEDIA_LIBRARY_RENDER_PERFORMANCE_LESSONS.md)：列表、预览和性能优化。
 - [异步任务供应商路由经验](./ASYNC_TASK_PROVIDER_ROUTE_LESSONS.md)：多供应商异步任务提交、恢复查询和路由快照规则。
 - [模型分类优先级经验](./MODEL_CATEGORY_PRIORITY_LESSONS.md)：接口 `category`、`image` 词根和 endpoint 的判定顺序。
+- [图片请求 ID](./IMAGE_REQUEST_ID_LESSONS.md)：本地任务 UUID 的生成、图片提交透传与回归边界。
+- [批量出图预览单张删除经验](./BATCH_IMAGE_GENERATION_PREVIEW_DELETE_LESSONS.md)：单张结果删除、任务解绑、状态重算与画布边界。
+- [AI 任务栏关闭跟随生成新图片](./2026-08-03-AI任务栏关闭跟随生成新图片.md)：关闭目标绑定、生成新图片与重新绑定边界。
 - [PPT 能力规划](./PPT_CAPABILITY_PLAN.md)：PPT 生成、编辑和导出路线。
 - [PPT Prompt](./PPT_Prompt.md)：PPT 相关提示词资产。
 

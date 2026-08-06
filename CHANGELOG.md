@@ -1,3 +1,580 @@
+## 1.0.12 (2026-08-04)
+
+### 🚀 Features
+
+- 增加网站本地数据清理入口 (#212) ([e780ab9a](https://github.com/ljquan/opentu/commit/e780ab9a))
+
+### 🔧 Chores
+
+- ci: publish GHCR without Docker Hub credentials ([edc6f389](https://github.com/ljquan/opentu/commit/edc6f389))
+- 功能：任务栏历史提示词按需复用 (#213) ([a20ed894](https://github.com/ljquan/opentu/commit/a20ed894))
+- 修复任务栏多图生成覆盖原图 (#210) ([87e9ffb2](https://github.com/ljquan/opentu/commit/87e9ffb2))
+- 功能：刷新默认模型目录并接入 Seedance 2.0 (#211) ([79490ee3](https://github.com/ljquan/opentu/commit/79490ee3))
+- 修复 AI 任务栏跟随尺寸与局域网图片插入 (#209) ([3befb62b](https://github.com/ljquan/opentu/commit/3befb62b))
+- 功能：支持关闭图片任务栏跟随并生成新图片 (#208) ([eedd3d90](https://github.com/ljquan/opentu/commit/eedd3d90))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+- selwen-0102 <2548530499@qq.com>
+
+## 1.0.11 (2026-08-03)
+
+### 🩹 Fixes
+
+- 展示上游图片实际尺寸 (#207) ([9c087628](https://github.com/ljquan/aitu/commit/9c087628))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
+## 1.0.10 (2026-07-30)
+
+### 🚀 Features
+
+- 图片请求中断后按 Request ID 自动恢复轮询 (#206) ([a1096831](https://github.com/ljquan/opentu/commit/a1096831))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
+## 1.0.9 (2026-07-27)
+
+### 🚀 Features
+
+- 图片请求使用稳定任务 ID (#205) ([2b39eaf2](https://github.com/ljquan/opentu/commit/2b39eaf2))
+- 支持批量出图预览删除单张结果 (#204) ([f70251d1](https://github.com/ljquan/opentu/commit/f70251d1))
+
+### 🔧 Chores
+
+- 撤回不安全的发布版本 ([508c8b3f](https://github.com/ljquan/opentu/commit/508c8b3f))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+- gongchengtu <1817063960@qq.com>
+
+## 1.0.8 (2026-07-23)
+
+### 🔧 Chores
+
+- fix restrict API dev proxy to local hosts ([9e1efb87](https://github.com/ljquan/aitu/commit/9e1efb87))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+
+## 1.0.7 (2026-07-23)
+
+> **撤回说明：** 生产构建仍可能把供应商 API 地址改写到 PR 域名，已由 1.0.8 替代，禁止部署或回滚到此版本。
+
+### 🔧 Chores
+
+- fix production provider API routing ([f3d41708](https://github.com/ljquan/aitu/commit/f3d41708))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+
+## 1.0.6 (2026-07-23)
+
+> **撤回说明：** 包含有缺陷的供应商 API 路由构建，已从发布服务器移除，禁止部署或回滚到此版本。
+
+### 🚀 Features
+
+- add pr.opentu.ai prerelease staging with promote workflow ([83df6ecd](https://github.com/ljquan/aitu/commit/83df6ecd))
+- 支持供应商添加自定义模型 ([3677379a](https://github.com/ljquan/aitu/commit/3677379a))
+- 支持AI任务栏跟随生成图片目标 ([46550083](https://github.com/ljquan/aitu/commit/46550083))
+- 完善图片请求 ID 找回与失败重试体验 ([071d3986](https://github.com/ljquan/aitu/commit/071d3986))
+- 新增 omni-flash 视频模型支持 ([248af3f7](https://github.com/ljquan/aitu/commit/248af3f7))
+- 画布图片选中状态锁定优化 ([12517bd7](https://github.com/ljquan/aitu/commit/12517bd7))
+- 供应商设置增加「图片优先使用异步接口」开关 ([1fc6aadc](https://github.com/ljquan/aitu/commit/1fc6aadc))
+- sync media library batch select functionality across AIInputBar and EnhancedChatInput ([cffb6b42](https://github.com/ljquan/aitu/commit/cffb6b42))
+- reply to workflow image results ([0124290c](https://github.com/ljquan/aitu/commit/0124290c))
+- 添加批量插入功能 ([344c28a2](https://github.com/ljquan/aitu/commit/344c28a2))
+- improve chat drawer workflow generation ([5da07cac](https://github.com/ljquan/aitu/commit/5da07cac))
+- 为绘图工具添加键盘快捷键调整大小功能 ([26049f2d](https://github.com/ljquan/aitu/commit/26049f2d))
+- support AI image mask editing ([3a33e873](https://github.com/ljquan/aitu/commit/3a33e873))
+- 优化长提示词输入框展开体验 ([241a18fe](https://github.com/ljquan/aitu/commit/241a18fe))
+- add image generate-again prefill ([9812fd10](https://github.com/ljquan/aitu/commit/9812fd10))
+- 为视频生成 prompt 添加参考图用途说明 ([95b7722d](https://github.com/ljquan/aitu/commit/95b7722d))
+- 支持异步图片生成和生成素材重置 ([d5fdb613](https://github.com/ljquan/aitu/commit/d5fdb613))
+- 添加目标总时长配置并优化UI与错误处理 ([abff6536](https://github.com/ljquan/aitu/commit/abff6536))
+- 优化价格展示增加Bussiness ([a2ba39ae](https://github.com/ljquan/aitu/commit/a2ba39ae))
+- update app version to 0.6.96 and add image generation message type ([65b5cf71](https://github.com/ljquan/aitu/commit/65b5cf71))
+- enhance audio asset handling in workflow export and improve caching logic ([55000ab6](https://github.com/ljquan/aitu/commit/55000ab6))
+- 优化视频工作流批量生成 ([80732a5d](https://github.com/ljquan/aitu/commit/80732a5d))
+- add image 3d transform panel ([97fc60e4](https://github.com/ljquan/aitu/commit/97fc60e4))
+- enhance service worker handling and update video generation logic ([37fc4ee2](https://github.com/ljquan/aitu/commit/37fc4ee2))
+- 在历史记录中显示创建时间并调整排序 ([db7d44a4](https://github.com/ljquan/aitu/commit/db7d44a4))
+- 新增 HappyHorse 视频模型支持并重构工作流外壳 ([7f297f5e](https://github.com/ljquan/aitu/commit/7f297f5e))
+- 完善多图生成视觉提示词工作流 ([0f11b9c7](https://github.com/ljquan/aitu/commit/0f11b9c7))
+- 优化多图生成提示词预览 ([459b4e31](https://github.com/ljquan/aitu/commit/459b4e31))
+- 支持完整环境备份与覆盖恢复 ([9e593e94](https://github.com/ljquan/aitu/commit/9e593e94))
+- 添加PPT生成参考图片支持并修复React组件卸载问题 ([b470e504](https://github.com/ljquan/aitu/commit/b470e504))
+
+### 🩹 Fixes
+
+- 修复本地缓存哈希识别与测试隔离 ([c564c400](https://github.com/ljquan/aitu/commit/c564c400))
+- 修复本地图片目标跟随与缩略图串图 ([fb7c6a36](https://github.com/ljquan/aitu/commit/fb7c6a36))
+- repair Tuzi routing and image endpoint fallback (#201) ([f52012b9](https://github.com/ljquan/aitu/commit/f52012b9))
+- stabilize provider endpoints and image generation (#200) ([e0e31ac1](https://github.com/ljquan/aitu/commit/e0e31ac1))
+- 下线 jsDelivr/npm CDN 发布方案，改用自建服务器直发 ([b0631900](https://github.com/ljquan/aitu/commit/b0631900))
+- 修复任务栏PR检查失败 ([07ca3183](https://github.com/ljquan/aitu/commit/07ca3183))
+- preserve remote media cache URL contract ([d4541c8c](https://github.com/ljquan/aitu/commit/d4541c8c))
+- 支持无分界线拼图智能拆图 ([3677c2b7](https://github.com/ljquan/aitu/commit/3677c2b7))
+- 统一图片尺寸计算机制，修复批量插入叠加问题 ([6c166910](https://github.com/ljquan/aitu/commit/6c166910))
+- 修复图片尺寸相关问题（真实尺寸更新、批量插入叠加） ([b04cfc27](https://github.com/ljquan/aitu/commit/b04cfc27))
+- 补修 MCP 路径 lockReferenceDimensions=true，更新完整审计文档 ([6006c7ff](https://github.com/ljquan/aitu/commit/6006c7ff))
+- 修复图片生成比例错误和 API 参数兼容性问题 | 修复 buildImageRequestBody 中 size 为比例格式时未转换像素尺寸(所有非1:1比例都生成1:1) | 移除 response_format url 参数(rix API 不支持) | 修复 lockReferenceDimensions 导致非正方形图片被压缩 ([982e6271](https://github.com/ljquan/aitu/commit/982e6271))
+- 修复 MJ 运行时模型参数与调度路由 ([fb464a86](https://github.com/ljquan/aitu/commit/fb464a86))
+- 修复异步图片接口开关路由 ([e6d10834](https://github.com/ljquan/aitu/commit/e6d10834))
+- 移除图片接口默认 response_format ([c1207e2f](https://github.com/ljquan/aitu/commit/c1207e2f))
+- 异步接口开关持久化 + 图片任务刷新后恢复轮询 ([08f05614](https://github.com/ljquan/aitu/commit/08f05614))
+- split batch media action copy by target context ([3332459b](https://github.com/ljquan/aitu/commit/3332459b))
+- support bulk media insertion and image generation compatibility ([3156c1ac](https://github.com/ljquan/aitu/commit/3156c1ac))
+- 修复批量导入图片弹窗显示异常 ([77e6df4c](https://github.com/ljquan/aitu/commit/77e6df4c))
+- 修复蒙版画笔导出和预览样式问题 ([69f94d26](https://github.com/ljquan/aitu/commit/69f94d26))
+- keep send button visible ([ef75dadb](https://github.com/ljquan/aitu/commit/ef75dadb))
+- resume async image tasks after reload ([4ed9402f](https://github.com/ljquan/aitu/commit/4ed9402f))
+- 优化参考图描述和提示词优先级协议 ([457cc0e7](https://github.com/ljquan/aitu/commit/457cc0e7))
+- allow hand panning while drawing ([7beb5c86](https://github.com/ljquan/aitu/commit/7beb5c86))
+- address regenerate prefill review findings ([ff39ffef](https://github.com/ljquan/aitu/commit/ff39ffef))
+- 移除生成视频时重复的提示词构建逻辑 ([7edd47d9](https://github.com/ljquan/aitu/commit/7edd47d9))
+- 强化爆款视频首尾帧角色一致性 ([743a7afa](https://github.com/ljquan/aitu/commit/743a7afa))
+- 绑定异步任务供应商路由 ([3a56d795](https://github.com/ljquan/aitu/commit/3a56d795))
+- unify generated image retry rendering ([70acfa65](https://github.com/ljquan/aitu/commit/70acfa65))
+- parallelize character reference generation ([1b17f80a](https://github.com/ljquan/aitu/commit/1b17f80a))
+- pass image transform context to AI ([e642f466](https://github.com/ljquan/aitu/commit/e642f466))
+- 优化页面卡片布局并修复提示词回填逻辑 ([4770cf33](https://github.com/ljquan/aitu/commit/4770cf33))
+- 强化历史收藏入口并放宽 AI 并发 ([4e952541](https://github.com/ljquan/aitu/commit/4e952541))
+- 防止复制粘贴事件在可编辑元素中触发 ([00d767f4](https://github.com/ljquan/aitu/commit/00d767f4))
+- 修正任务队列批量序号显示 ([ae172b8d](https://github.com/ljquan/aitu/commit/ae172b8d))
+- 修复多图生成队列参数并记录经验 ([dac73844](https://github.com/ljquan/aitu/commit/dac73844))
+- 优化媒体预览缩放同步 ([269c02d5](https://github.com/ljquan/aitu/commit/269c02d5))
+- 优化媒体预览自适应展示 ([d30183f2](https://github.com/ljquan/aitu/commit/d30183f2))
+- 修复 Milkdown 节点上下文注册顺序 ([a8bf269d](https://github.com/ljquan/aitu/commit/a8bf269d))
+- 改进部署包关键资源检查逻辑 ([1a457d02](https://github.com/ljquan/aitu/commit/1a457d02))
+- 修复图片生成完成后画布自动插入卡住 ([e383c362](https://github.com/ljquan/aitu/commit/e383c362))
+- 改进动态导入错误恢复机制并优化错误处理 ([3781c354](https://github.com/ljquan/aitu/commit/3781c354))
+- guard toImage fetch failures ([dff2f46a](https://github.com/ljquan/aitu/commit/dff2f46a))
+
+### 🔧 Chores
+
+- bump version to 1.0.5 ([d5c34698](https://github.com/ljquan/aitu/commit/d5c34698))
+- 同步更新web应用版本至1.0.4并更新构建时间 ([ac0fc937](https://github.com/ljquan/aitu/commit/ac0fc937))
+- bump version to 1.0.4 ([bfdcdf73](https://github.com/ljquan/aitu/commit/bfdcdf73))
+- 发布v1.0.3并完成多项优化修复 ([4fd3488e](https://github.com/ljquan/aitu/commit/4fd3488e))
+- 收口任务栏PR修改范围 ([0ae7a3e3](https://github.com/ljquan/aitu/commit/0ae7a3e3))
+- 同步 1.0.0 前端版本元数据 ([6b10d071](https://github.com/ljquan/aitu/commit/6b10d071))
+- bump version to 1.0.0 ([938067d9](https://github.com/ljquan/aitu/commit/938067d9))
+- bump version to 0.9.11 ([350b1eee](https://github.com/ljquan/aitu/commit/350b1eee))
+- bump version to 0.9.10 ([e2e514cc](https://github.com/ljquan/aitu/commit/e2e514cc))
+- bump version to 0.9.9 ([26ed328a](https://github.com/ljquan/aitu/commit/26ed328a))
+- bump version to 0.9.8 ([db9efd71](https://github.com/ljquan/aitu/commit/db9efd71))
+- bump version to 0.9.7 ([35aba9f3](https://github.com/ljquan/aitu/commit/35aba9f3))
+- 更新版本号至0.9.6并同步构建时间 ([9b9fb552](https://github.com/ljquan/aitu/commit/9b9fb552))
+- bump version to 0.9.6 ([b4c97e0d](https://github.com/ljquan/aitu/commit/b4c97e0d))
+- 更新应用版本至0.9.5并刷新构建时间 ([ec03ee90](https://github.com/ljquan/aitu/commit/ec03ee90))
+- bump version to 0.9.5 ([6ab0617b](https://github.com/ljquan/aitu/commit/6ab0617b))
+- bump version to 0.9.4 ([46e13e11](https://github.com/ljquan/aitu/commit/46e13e11))
+- bump version to 0.9.3 ([6d26b892](https://github.com/ljquan/aitu/commit/6d26b892))
+- 更新版本号至0.9.2并刷新构建时间 ([0c4b383d](https://github.com/ljquan/aitu/commit/0c4b383d))
+- bump version to 0.9.2 ([0eb87e63](https://github.com/ljquan/aitu/commit/0eb87e63))
+- 更新版本至0.9.0并增强部署脚本 ([38adcb97](https://github.com/ljquan/aitu/commit/38adcb97))
+- bump version to 0.9.1 ([c1617975](https://github.com/ljquan/aitu/commit/c1617975))
+- bump version to 0.9.0 ([e66a8b43](https://github.com/ljquan/aitu/commit/e66a8b43))
+- bump version to 0.8.0 ([ea01d364](https://github.com/ljquan/aitu/commit/ea01d364))
+- bump version to 0.7.0 ([5e409295](https://github.com/ljquan/aitu/commit/5e409295))
+- 更新应用版本号至0.6.99并同步构建时间 ([60daf04e](https://github.com/ljquan/aitu/commit/60daf04e))
+- bump version to 0.6.99 ([7da6ffdc](https://github.com/ljquan/aitu/commit/7da6ffdc))
+- 更新应用版本至0.6.98并同步构建时间 ([a09a6a0e](https://github.com/ljquan/aitu/commit/a09a6a0e))
+- bump version to 0.6.98 ([126612d1](https://github.com/ljquan/aitu/commit/126612d1))
+- 更新应用版本至0.6.97 ([dc254677](https://github.com/ljquan/aitu/commit/dc254677))
+- bump version to 0.6.97 ([1df3a822](https://github.com/ljquan/aitu/commit/1df3a822))
+- bump version to 0.6.96 ([d25b58c7](https://github.com/ljquan/aitu/commit/d25b58c7))
+- 补充视频主体引用经验 ([24363fcd](https://github.com/ljquan/aitu/commit/24363fcd))
+- 更新应用版本号至0.6.95并刷新构建时间 ([a6a8aed9](https://github.com/ljquan/aitu/commit/a6a8aed9))
+- bump version to 0.6.95 ([6a0fe4af](https://github.com/ljquan/aitu/commit/6a0fe4af))
+- 更新应用版本号至0.6.94并刷新构建时间 ([34659c05](https://github.com/ljquan/aitu/commit/34659c05))
+- bump version to 0.6.94 ([c53b5973](https://github.com/ljquan/aitu/commit/c53b5973))
+- 更新应用版本至0.6.93并刷新构建时间 ([fcc19f31](https://github.com/ljquan/aitu/commit/fcc19f31))
+- bump version to 0.6.93 ([6c3609b9](https://github.com/ljquan/aitu/commit/6c3609b9))
+- 更新应用版本号至0.6.92并同步构建时间 ([abf59634](https://github.com/ljquan/aitu/commit/abf59634))
+- bump version to 0.6.92 ([2bd99838](https://github.com/ljquan/aitu/commit/2bd99838))
+- 同步 0.6.91 Web 版本元数据 ([50fe68d0](https://github.com/ljquan/aitu/commit/50fe68d0))
+- bump version to 0.6.91 ([17a20fcc](https://github.com/ljquan/aitu/commit/17a20fcc))
+- 更新应用版本至0.6.90并刷新构建时间 ([2ca0b092](https://github.com/ljquan/aitu/commit/2ca0b092))
+- bump version to 0.6.90 ([f7234c63](https://github.com/ljquan/aitu/commit/f7234c63))
+- 更新应用版本号至0.6.89 ([9ebe98d3](https://github.com/ljquan/aitu/commit/9ebe98d3))
+- bump version to 0.6.89 ([383a95fb](https://github.com/ljquan/aitu/commit/383a95fb))
+- 添加 mermaid 依赖用于图表渲染 ([2999f6f1](https://github.com/ljquan/aitu/commit/2999f6f1))
+- 更新应用版本号至0.6.88并同步构建时间 ([84e6f206](https://github.com/ljquan/aitu/commit/84e6f206))
+- bump version to 0.6.88 ([74817273](https://github.com/ljquan/aitu/commit/74817273))
+- 更新应用版本号至0.6.87并同步构建时间 ([aa97f83f](https://github.com/ljquan/aitu/commit/aa97f83f))
+- fix provider endpoint styles and logo routing ([24aef7da](https://github.com/ljquan/aitu/commit/24aef7da))
+- docs: add initial deployment notes and update local settings ([a748e438](https://github.com/ljquan/aitu/commit/a748e438))
+- 修复 tuzi-api 端点路由兜底 ([fe000ed1](https://github.com/ljquan/aitu/commit/fe000ed1))
+- 修复 PR190 合并阻塞问题 ([b23a6018](https://github.com/ljquan/aitu/commit/b23a6018))
+- 修复 CI pnpm 缺失导致构建失败 ([5bc123bd](https://github.com/ljquan/aitu/commit/5bc123bd))
+- Disable CDN entry asset rewrites ([65fa9150](https://github.com/ljquan/aitu/commit/65fa9150))
+- 修复 PR185 硬边界拆图误判风险 ([efb2b64f](https://github.com/ljquan/aitu/commit/efb2b64f))
+- 修复 PR188 文本内容数组归一化 ([0f845b33](https://github.com/ljquan/aitu/commit/0f845b33))
+- 修复多图生成 JSON 解析和默认模型迁移 ([624cb9ea](https://github.com/ljquan/aitu/commit/624cb9ea))
+- 修复首帧生图窗口复用状态 ([e07097a8](https://github.com/ljquan/aitu/commit/e07097a8))
+- docs: 补充跨 AI 提供商兼容性分析size 比例转换不影响其他 API 生图 ([edb129b7](https://github.com/ljquan/aitu/commit/edb129b7))
+- docs: 图片生成API参数兼容性与比例转换修复经验总结 ([5c06b488](https://github.com/ljquan/aitu/commit/5c06b488))
+- 文档：补充模型分类优先级经验 ([b5f1d169](https://github.com/ljquan/aitu/commit/b5f1d169))
+- 调整运行时模型分类优先级并补充 category 回归测试 ([805014d3](https://github.com/ljquan/aitu/commit/805014d3))
+- 发布 ([9bce5497](https://github.com/ljquan/aitu/commit/9bce5497))
+- 修复：同步聊天抽屉素材库批量选择 ([06fee16e](https://github.com/ljquan/aitu/commit/06fee16e))
+- 更新应用版本到 0.9.8 ([a70d1053](https://github.com/ljquan/aitu/commit/a70d1053))
+- Refactor canvas batch insertion to viewport flow layout ([04f42a12](https://github.com/ljquan/aitu/commit/04f42a12))
+- 修复对话输入框内层描边并抽出共享壳 ([8be4a467](https://github.com/ljquan/aitu/commit/8be4a467))
+- 聊天抽屉图片预览收口到列表层 ([8afea976](https://github.com/ljquan/aitu/commit/8afea976))
+- 补充首屏壳层与 chunk 守门经验 ([f8f4b8f7](https://github.com/ljquan/aitu/commit/f8f4b8f7))
+- 修复素材库配色与多选架构，补充UI规范和架构说明 ([8c233640](https://github.com/ljquan/aitu/commit/8c233640))
+- 修复：蒙版预览缓存不进入素材库 ([94dbf95e](https://github.com/ljquan/aitu/commit/94dbf95e))
+- Bump web app version to 0.9.7 ([3bc2abe0](https://github.com/ljquan/aitu/commit/3bc2abe0))
+- revert: restore original image generation behavior ([e12dec48](https://github.com/ljquan/aitu/commit/e12dec48))
+- Stop idle-prefetch retries from blocking SW updates ([d2d51319](https://github.com/ljquan/aitu/commit/d2d51319))
+- refactor(settings-dialog): 提取 MessagePlugin 工具并移除供应商域名字段 ([47708bb2](https://github.com/ljquan/aitu/commit/47708bb2))
+- refactor: 统一 AI JSON 响应解析并优化样式与功能 ([dc91f938](https://github.com/ljquan/aitu/commit/dc91f938))
+- refactor: 合并创作 Brief 用途场景字段 ([f95fde73](https://github.com/ljquan/aitu/commit/f95fde73))
+- style(组件样式): 统一复选框样式并使用CSS变量 ([f7411cb1](https://github.com/ljquan/aitu/commit/f7411cb1))
+- refactor(drawnix): 统一 HoverTip 提示规范 ([533b06a1](https://github.com/ljquan/aitu/commit/533b06a1))
+- Refresh docs, CI, and Docker build ([a614f3e5](https://github.com/ljquan/aitu/commit/a614f3e5))
+- perf(changelog): 限制解析的版本数量以避免内存问题 ([647d77b7](https://github.com/ljquan/aitu/commit/647d77b7))
+- style(project-drawer): 重构PPT大纲面板样式以改进布局结构 ([c77741bb](https://github.com/ljquan/aitu/commit/c77741bb))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+- ljquan <ljquan@qq.com>
+- 李泓震 <3029956183@qq.com>
+- liquid <ljquan@qq.com>
+- liangkaijun <2290804689@qq.com>
+- SaulgoodMan-C <271131037+SaulgoodMan-C@users.noreply.github.com>
+- 李泓震 <15900797+AiW520@user.noreply.gitee.com>
+- lichenyi <lichenyi@qq.com>
+- SkyzcYou <youzhengcai@gmail.com>
+
+## 1.0.5 (2026-07-19)
+
+### 🚀 Features
+
+- 完善图片请求 ID 找回与失败重试体验 ([071d3986](https://github.com/ljquan/aitu/commit/071d3986))
+- 新增 omni-flash 视频模型支持 ([248af3f7](https://github.com/ljquan/aitu/commit/248af3f7))
+- 画布图片选中状态锁定优化 ([12517bd7](https://github.com/ljquan/aitu/commit/12517bd7))
+- 供应商设置增加「图片优先使用异步接口」开关 ([1fc6aadc](https://github.com/ljquan/aitu/commit/1fc6aadc))
+- sync media library batch select functionality across AIInputBar and EnhancedChatInput ([cffb6b42](https://github.com/ljquan/aitu/commit/cffb6b42))
+- reply to workflow image results ([0124290c](https://github.com/ljquan/aitu/commit/0124290c))
+- 添加批量插入功能 ([344c28a2](https://github.com/ljquan/aitu/commit/344c28a2))
+- improve chat drawer workflow generation ([5da07cac](https://github.com/ljquan/aitu/commit/5da07cac))
+- 为绘图工具添加键盘快捷键调整大小功能 ([26049f2d](https://github.com/ljquan/aitu/commit/26049f2d))
+- support AI image mask editing ([3a33e873](https://github.com/ljquan/aitu/commit/3a33e873))
+- 优化长提示词输入框展开体验 ([241a18fe](https://github.com/ljquan/aitu/commit/241a18fe))
+- add image generate-again prefill ([9812fd10](https://github.com/ljquan/aitu/commit/9812fd10))
+- 为视频生成 prompt 添加参考图用途说明 ([95b7722d](https://github.com/ljquan/aitu/commit/95b7722d))
+- 支持异步图片生成和生成素材重置 ([d5fdb613](https://github.com/ljquan/aitu/commit/d5fdb613))
+- 添加目标总时长配置并优化UI与错误处理 ([abff6536](https://github.com/ljquan/aitu/commit/abff6536))
+- 优化价格展示增加Bussiness ([a2ba39ae](https://github.com/ljquan/aitu/commit/a2ba39ae))
+- update app version to 0.6.96 and add image generation message type ([65b5cf71](https://github.com/ljquan/aitu/commit/65b5cf71))
+- enhance audio asset handling in workflow export and improve caching logic ([55000ab6](https://github.com/ljquan/aitu/commit/55000ab6))
+- 优化视频工作流批量生成 ([80732a5d](https://github.com/ljquan/aitu/commit/80732a5d))
+- add image 3d transform panel ([97fc60e4](https://github.com/ljquan/aitu/commit/97fc60e4))
+- enhance service worker handling and update video generation logic ([37fc4ee2](https://github.com/ljquan/aitu/commit/37fc4ee2))
+- 在历史记录中显示创建时间并调整排序 ([db7d44a4](https://github.com/ljquan/aitu/commit/db7d44a4))
+- 新增 HappyHorse 视频模型支持并重构工作流外壳 ([7f297f5e](https://github.com/ljquan/aitu/commit/7f297f5e))
+- 完善多图生成视觉提示词工作流 ([0f11b9c7](https://github.com/ljquan/aitu/commit/0f11b9c7))
+- 优化多图生成提示词预览 ([459b4e31](https://github.com/ljquan/aitu/commit/459b4e31))
+- 支持完整环境备份与覆盖恢复 ([9e593e94](https://github.com/ljquan/aitu/commit/9e593e94))
+- 添加PPT生成参考图片支持并修复React组件卸载问题 ([b470e504](https://github.com/ljquan/aitu/commit/b470e504))
+
+### 🩹 Fixes
+
+- stabilize provider endpoints and image generation (#200) ([e0e31ac1](https://github.com/ljquan/aitu/commit/e0e31ac1))
+- 下线 jsDelivr/npm CDN 发布方案，改用自建服务器直发 ([b0631900](https://github.com/ljquan/aitu/commit/b0631900))
+- preserve remote media cache URL contract ([d4541c8c](https://github.com/ljquan/aitu/commit/d4541c8c))
+- 支持无分界线拼图智能拆图 ([3677c2b7](https://github.com/ljquan/aitu/commit/3677c2b7))
+- 统一图片尺寸计算机制，修复批量插入叠加问题 ([6c166910](https://github.com/ljquan/aitu/commit/6c166910))
+- 修复图片尺寸相关问题（真实尺寸更新、批量插入叠加） ([b04cfc27](https://github.com/ljquan/aitu/commit/b04cfc27))
+- 补修 MCP 路径 lockReferenceDimensions=true，更新完整审计文档 ([6006c7ff](https://github.com/ljquan/aitu/commit/6006c7ff))
+- 修复图片生成比例错误和 API 参数兼容性问题 | 修复 buildImageRequestBody 中 size 为比例格式时未转换像素尺寸(所有非1:1比例都生成1:1) | 移除 response_format url 参数(rix API 不支持) | 修复 lockReferenceDimensions 导致非正方形图片被压缩 ([982e6271](https://github.com/ljquan/aitu/commit/982e6271))
+- 修复 MJ 运行时模型参数与调度路由 ([fb464a86](https://github.com/ljquan/aitu/commit/fb464a86))
+- 修复异步图片接口开关路由 ([e6d10834](https://github.com/ljquan/aitu/commit/e6d10834))
+- 移除图片接口默认 response_format ([c1207e2f](https://github.com/ljquan/aitu/commit/c1207e2f))
+- 异步接口开关持久化 + 图片任务刷新后恢复轮询 ([08f05614](https://github.com/ljquan/aitu/commit/08f05614))
+- split batch media action copy by target context ([3332459b](https://github.com/ljquan/aitu/commit/3332459b))
+- support bulk media insertion and image generation compatibility ([3156c1ac](https://github.com/ljquan/aitu/commit/3156c1ac))
+- 修复批量导入图片弹窗显示异常 ([77e6df4c](https://github.com/ljquan/aitu/commit/77e6df4c))
+- 修复蒙版画笔导出和预览样式问题 ([69f94d26](https://github.com/ljquan/aitu/commit/69f94d26))
+- keep send button visible ([ef75dadb](https://github.com/ljquan/aitu/commit/ef75dadb))
+- resume async image tasks after reload ([4ed9402f](https://github.com/ljquan/aitu/commit/4ed9402f))
+- 优化参考图描述和提示词优先级协议 ([457cc0e7](https://github.com/ljquan/aitu/commit/457cc0e7))
+- allow hand panning while drawing ([7beb5c86](https://github.com/ljquan/aitu/commit/7beb5c86))
+- address regenerate prefill review findings ([ff39ffef](https://github.com/ljquan/aitu/commit/ff39ffef))
+- 移除生成视频时重复的提示词构建逻辑 ([7edd47d9](https://github.com/ljquan/aitu/commit/7edd47d9))
+- 强化爆款视频首尾帧角色一致性 ([743a7afa](https://github.com/ljquan/aitu/commit/743a7afa))
+- 绑定异步任务供应商路由 ([3a56d795](https://github.com/ljquan/aitu/commit/3a56d795))
+- unify generated image retry rendering ([70acfa65](https://github.com/ljquan/aitu/commit/70acfa65))
+- parallelize character reference generation ([1b17f80a](https://github.com/ljquan/aitu/commit/1b17f80a))
+- pass image transform context to AI ([e642f466](https://github.com/ljquan/aitu/commit/e642f466))
+- 优化页面卡片布局并修复提示词回填逻辑 ([4770cf33](https://github.com/ljquan/aitu/commit/4770cf33))
+- 强化历史收藏入口并放宽 AI 并发 ([4e952541](https://github.com/ljquan/aitu/commit/4e952541))
+- 防止复制粘贴事件在可编辑元素中触发 ([00d767f4](https://github.com/ljquan/aitu/commit/00d767f4))
+- 修正任务队列批量序号显示 ([ae172b8d](https://github.com/ljquan/aitu/commit/ae172b8d))
+- 修复多图生成队列参数并记录经验 ([dac73844](https://github.com/ljquan/aitu/commit/dac73844))
+- 优化媒体预览缩放同步 ([269c02d5](https://github.com/ljquan/aitu/commit/269c02d5))
+- 优化媒体预览自适应展示 ([d30183f2](https://github.com/ljquan/aitu/commit/d30183f2))
+- 修复 Milkdown 节点上下文注册顺序 ([a8bf269d](https://github.com/ljquan/aitu/commit/a8bf269d))
+- 改进部署包关键资源检查逻辑 ([1a457d02](https://github.com/ljquan/aitu/commit/1a457d02))
+- 修复图片生成完成后画布自动插入卡住 ([e383c362](https://github.com/ljquan/aitu/commit/e383c362))
+- 改进动态导入错误恢复机制并优化错误处理 ([3781c354](https://github.com/ljquan/aitu/commit/3781c354))
+- guard toImage fetch failures ([dff2f46a](https://github.com/ljquan/aitu/commit/dff2f46a))
+
+### 🔧 Chores
+
+- 同步更新web应用版本至1.0.4并更新构建时间 ([ac0fc937](https://github.com/ljquan/aitu/commit/ac0fc937))
+- bump version to 1.0.4 ([bfdcdf73](https://github.com/ljquan/aitu/commit/bfdcdf73))
+- 发布v1.0.3并完成多项优化修复 ([4fd3488e](https://github.com/ljquan/aitu/commit/4fd3488e))
+- 同步 1.0.0 前端版本元数据 ([6b10d071](https://github.com/ljquan/aitu/commit/6b10d071))
+- bump version to 1.0.0 ([938067d9](https://github.com/ljquan/aitu/commit/938067d9))
+- bump version to 0.9.11 ([350b1eee](https://github.com/ljquan/aitu/commit/350b1eee))
+- bump version to 0.9.10 ([e2e514cc](https://github.com/ljquan/aitu/commit/e2e514cc))
+- bump version to 0.9.9 ([26ed328a](https://github.com/ljquan/aitu/commit/26ed328a))
+- bump version to 0.9.8 ([db9efd71](https://github.com/ljquan/aitu/commit/db9efd71))
+- bump version to 0.9.7 ([35aba9f3](https://github.com/ljquan/aitu/commit/35aba9f3))
+- 更新版本号至0.9.6并同步构建时间 ([9b9fb552](https://github.com/ljquan/aitu/commit/9b9fb552))
+- bump version to 0.9.6 ([b4c97e0d](https://github.com/ljquan/aitu/commit/b4c97e0d))
+- 更新应用版本至0.9.5并刷新构建时间 ([ec03ee90](https://github.com/ljquan/aitu/commit/ec03ee90))
+- bump version to 0.9.5 ([6ab0617b](https://github.com/ljquan/aitu/commit/6ab0617b))
+- bump version to 0.9.4 ([46e13e11](https://github.com/ljquan/aitu/commit/46e13e11))
+- bump version to 0.9.3 ([6d26b892](https://github.com/ljquan/aitu/commit/6d26b892))
+- 更新版本号至0.9.2并刷新构建时间 ([0c4b383d](https://github.com/ljquan/aitu/commit/0c4b383d))
+- bump version to 0.9.2 ([0eb87e63](https://github.com/ljquan/aitu/commit/0eb87e63))
+- 更新版本至0.9.0并增强部署脚本 ([38adcb97](https://github.com/ljquan/aitu/commit/38adcb97))
+- bump version to 0.9.1 ([c1617975](https://github.com/ljquan/aitu/commit/c1617975))
+- bump version to 0.9.0 ([e66a8b43](https://github.com/ljquan/aitu/commit/e66a8b43))
+- bump version to 0.8.0 ([ea01d364](https://github.com/ljquan/aitu/commit/ea01d364))
+- bump version to 0.7.0 ([5e409295](https://github.com/ljquan/aitu/commit/5e409295))
+- 更新应用版本号至0.6.99并同步构建时间 ([60daf04e](https://github.com/ljquan/aitu/commit/60daf04e))
+- bump version to 0.6.99 ([7da6ffdc](https://github.com/ljquan/aitu/commit/7da6ffdc))
+- 更新应用版本至0.6.98并同步构建时间 ([a09a6a0e](https://github.com/ljquan/aitu/commit/a09a6a0e))
+- bump version to 0.6.98 ([126612d1](https://github.com/ljquan/aitu/commit/126612d1))
+- 更新应用版本至0.6.97 ([dc254677](https://github.com/ljquan/aitu/commit/dc254677))
+- bump version to 0.6.97 ([1df3a822](https://github.com/ljquan/aitu/commit/1df3a822))
+- bump version to 0.6.96 ([d25b58c7](https://github.com/ljquan/aitu/commit/d25b58c7))
+- 补充视频主体引用经验 ([24363fcd](https://github.com/ljquan/aitu/commit/24363fcd))
+- 更新应用版本号至0.6.95并刷新构建时间 ([a6a8aed9](https://github.com/ljquan/aitu/commit/a6a8aed9))
+- bump version to 0.6.95 ([6a0fe4af](https://github.com/ljquan/aitu/commit/6a0fe4af))
+- 更新应用版本号至0.6.94并刷新构建时间 ([34659c05](https://github.com/ljquan/aitu/commit/34659c05))
+- bump version to 0.6.94 ([c53b5973](https://github.com/ljquan/aitu/commit/c53b5973))
+- 更新应用版本至0.6.93并刷新构建时间 ([fcc19f31](https://github.com/ljquan/aitu/commit/fcc19f31))
+- bump version to 0.6.93 ([6c3609b9](https://github.com/ljquan/aitu/commit/6c3609b9))
+- 更新应用版本号至0.6.92并同步构建时间 ([abf59634](https://github.com/ljquan/aitu/commit/abf59634))
+- bump version to 0.6.92 ([2bd99838](https://github.com/ljquan/aitu/commit/2bd99838))
+- 同步 0.6.91 Web 版本元数据 ([50fe68d0](https://github.com/ljquan/aitu/commit/50fe68d0))
+- bump version to 0.6.91 ([17a20fcc](https://github.com/ljquan/aitu/commit/17a20fcc))
+- 更新应用版本至0.6.90并刷新构建时间 ([2ca0b092](https://github.com/ljquan/aitu/commit/2ca0b092))
+- bump version to 0.6.90 ([f7234c63](https://github.com/ljquan/aitu/commit/f7234c63))
+- 更新应用版本号至0.6.89 ([9ebe98d3](https://github.com/ljquan/aitu/commit/9ebe98d3))
+- bump version to 0.6.89 ([383a95fb](https://github.com/ljquan/aitu/commit/383a95fb))
+- 添加 mermaid 依赖用于图表渲染 ([2999f6f1](https://github.com/ljquan/aitu/commit/2999f6f1))
+- 更新应用版本号至0.6.88并同步构建时间 ([84e6f206](https://github.com/ljquan/aitu/commit/84e6f206))
+- bump version to 0.6.88 ([74817273](https://github.com/ljquan/aitu/commit/74817273))
+- 更新应用版本号至0.6.87并同步构建时间 ([aa97f83f](https://github.com/ljquan/aitu/commit/aa97f83f))
+- 修复 tuzi-api 端点路由兜底 ([fe000ed1](https://github.com/ljquan/aitu/commit/fe000ed1))
+- 修复 PR190 合并阻塞问题 ([b23a6018](https://github.com/ljquan/aitu/commit/b23a6018))
+- 修复 CI pnpm 缺失导致构建失败 ([5bc123bd](https://github.com/ljquan/aitu/commit/5bc123bd))
+- Disable CDN entry asset rewrites ([65fa9150](https://github.com/ljquan/aitu/commit/65fa9150))
+- 修复 PR185 硬边界拆图误判风险 ([efb2b64f](https://github.com/ljquan/aitu/commit/efb2b64f))
+- 修复 PR188 文本内容数组归一化 ([0f845b33](https://github.com/ljquan/aitu/commit/0f845b33))
+- 修复多图生成 JSON 解析和默认模型迁移 ([624cb9ea](https://github.com/ljquan/aitu/commit/624cb9ea))
+- 修复首帧生图窗口复用状态 ([e07097a8](https://github.com/ljquan/aitu/commit/e07097a8))
+- docs: 补充跨 AI 提供商兼容性分析size 比例转换不影响其他 API 生图 ([edb129b7](https://github.com/ljquan/aitu/commit/edb129b7))
+- docs: 图片生成API参数兼容性与比例转换修复经验总结 ([5c06b488](https://github.com/ljquan/aitu/commit/5c06b488))
+- 文档：补充模型分类优先级经验 ([b5f1d169](https://github.com/ljquan/aitu/commit/b5f1d169))
+- 调整运行时模型分类优先级并补充 category 回归测试 ([805014d3](https://github.com/ljquan/aitu/commit/805014d3))
+- 发布 ([9bce5497](https://github.com/ljquan/aitu/commit/9bce5497))
+- 修复：同步聊天抽屉素材库批量选择 ([06fee16e](https://github.com/ljquan/aitu/commit/06fee16e))
+- 更新应用版本到 0.9.8 ([a70d1053](https://github.com/ljquan/aitu/commit/a70d1053))
+- Refactor canvas batch insertion to viewport flow layout ([04f42a12](https://github.com/ljquan/aitu/commit/04f42a12))
+- 修复对话输入框内层描边并抽出共享壳 ([8be4a467](https://github.com/ljquan/aitu/commit/8be4a467))
+- 聊天抽屉图片预览收口到列表层 ([8afea976](https://github.com/ljquan/aitu/commit/8afea976))
+- 补充首屏壳层与 chunk 守门经验 ([f8f4b8f7](https://github.com/ljquan/aitu/commit/f8f4b8f7))
+- 修复素材库配色与多选架构，补充UI规范和架构说明 ([8c233640](https://github.com/ljquan/aitu/commit/8c233640))
+- 修复：蒙版预览缓存不进入素材库 ([94dbf95e](https://github.com/ljquan/aitu/commit/94dbf95e))
+- Bump web app version to 0.9.7 ([3bc2abe0](https://github.com/ljquan/aitu/commit/3bc2abe0))
+- revert: restore original image generation behavior ([e12dec48](https://github.com/ljquan/aitu/commit/e12dec48))
+- Stop idle-prefetch retries from blocking SW updates ([d2d51319](https://github.com/ljquan/aitu/commit/d2d51319))
+- refactor(settings-dialog): 提取 MessagePlugin 工具并移除供应商域名字段 ([47708bb2](https://github.com/ljquan/aitu/commit/47708bb2))
+- refactor: 统一 AI JSON 响应解析并优化样式与功能 ([dc91f938](https://github.com/ljquan/aitu/commit/dc91f938))
+- refactor: 合并创作 Brief 用途场景字段 ([f95fde73](https://github.com/ljquan/aitu/commit/f95fde73))
+- style(组件样式): 统一复选框样式并使用CSS变量 ([f7411cb1](https://github.com/ljquan/aitu/commit/f7411cb1))
+- refactor(drawnix): 统一 HoverTip 提示规范 ([533b06a1](https://github.com/ljquan/aitu/commit/533b06a1))
+- Refresh docs, CI, and Docker build ([a614f3e5](https://github.com/ljquan/aitu/commit/a614f3e5))
+- perf(changelog): 限制解析的版本数量以避免内存问题 ([647d77b7](https://github.com/ljquan/aitu/commit/647d77b7))
+- style(project-drawer): 重构PPT大纲面板样式以改进布局结构 ([c77741bb](https://github.com/ljquan/aitu/commit/c77741bb))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- liquid <ljquan@qq.com>
+- gongchengtu <1817063960@qq.com>
+- liangkaijun <2290804689@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+- SaulgoodMan-C <271131037+SaulgoodMan-C@users.noreply.github.com>
+- 李泓震 <15900797+AiW520@user.noreply.gitee.com>
+- lichenyi <lichenyi@qq.com>
+- SkyzcYou <youzhengcai@gmail.com>
+
+## 1.0.4 (2026-07-18)
+
+### 🚀 Features
+
+- 完善图片请求 ID 找回与失败重试体验 ([071d3986](https://github.com/ljquan/aitu/commit/071d3986))
+
+### 🩹 Fixes
+
+- 下线 jsDelivr/npm CDN 发布方案，改用自建服务器直发 ([b0631900](https://github.com/ljquan/aitu/commit/b0631900))
+- preserve remote media cache URL contract ([d4541c8c](https://github.com/ljquan/aitu/commit/d4541c8c))
+
+### 🔧 Chores
+
+- 发布v1.0.3并完成多项优化修复 ([4fd3488e](https://github.com/ljquan/aitu/commit/4fd3488e))
+- 修复 tuzi-api 端点路由兜底 ([fe000ed1](https://github.com/ljquan/aitu/commit/fe000ed1))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- gongchengtu <1817063960@qq.com>
+- liangkaijun <2290804689@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+
+## 1.0.3 (2026-07-18)
+
+### 🔧 Chores
+
+- bump version to 1.0.1 ([bdb82fb5](https://github.com/ljquan/aitu/commit/bdb82fb5))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+
+## 1.0.2 (2026-07-18)
+
+### 🚀 Features
+
+- 完善图片请求 ID 找回与失败重试体验 ([071d3986](https://github.com/ljquan/aitu/commit/071d3986))
+
+### 🩹 Fixes
+
+- preserve remote media cache URL contract ([d4541c8c](https://github.com/ljquan/aitu/commit/d4541c8c))
+
+### 🔧 Chores
+
+- bump version to 1.0.1 ([551cf9fc](https://github.com/ljquan/aitu/commit/551cf9fc))
+- 修复 tuzi-api 端点路由兜底 ([fe000ed1](https://github.com/ljquan/aitu/commit/fe000ed1))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- gongchengtu <1817063960@qq.com>
+- liangkaijun <2290804689@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+
+## 1.0.1 (2026-06-11)
+
+### 🚀 Features
+
+- reply to workflow image results ([0124290c](https://github.com/ljquan/aitu/commit/0124290c))
+
+### 🩹 Fixes
+
+- 支持无分界线拼图智能拆图 ([3677c2b7](https://github.com/ljquan/aitu/commit/3677c2b7))
+
+### 🔧 Chores
+
+- 同步 1.0.0 前端版本元数据 ([6b10d071](https://github.com/ljquan/aitu/commit/6b10d071))
+- bump version to 1.0.0 ([938067d9](https://github.com/ljquan/aitu/commit/938067d9))
+- bump version to 0.9.11 ([350b1eee](https://github.com/ljquan/aitu/commit/350b1eee))
+- bump version to 0.9.10 ([e2e514cc](https://github.com/ljquan/aitu/commit/e2e514cc))
+- 修复 PR190 合并阻塞问题 ([b23a6018](https://github.com/ljquan/aitu/commit/b23a6018))
+- 修复 CI pnpm 缺失导致构建失败 ([5bc123bd](https://github.com/ljquan/aitu/commit/5bc123bd))
+- Disable CDN entry asset rewrites ([65fa9150](https://github.com/ljquan/aitu/commit/65fa9150))
+- 修复 PR185 硬边界拆图误判风险 ([efb2b64f](https://github.com/ljquan/aitu/commit/efb2b64f))
+- 修复 PR188 文本内容数组归一化 ([0f845b33](https://github.com/ljquan/aitu/commit/0f845b33))
+- 修复多图生成 JSON 解析和默认模型迁移 ([624cb9ea](https://github.com/ljquan/aitu/commit/624cb9ea))
+- 修复首帧生图窗口复用状态 ([e07097a8](https://github.com/ljquan/aitu/commit/e07097a8))
+
+### ❤️  Thank You
+
+- liquid <ljquan@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+- SaulgoodMan-C <271131037+SaulgoodMan-C@users.noreply.github.com>
+
+## 1.0.0 (2026-05-26)
+
+### 🩹 Fixes
+
+- 统一图片尺寸计算机制，修复批量插入叠加问题 ([6c166910](https://github.com/ljquan/aitu/commit/6c166910))
+- 修复图片尺寸相关问题（真实尺寸更新、批量插入叠加） ([b04cfc27](https://github.com/ljquan/aitu/commit/b04cfc27))
+
+### ❤️  Thank You
+
+- 李泓震 <15900797+AiW520@user.noreply.gitee.com>
+
+## 0.9.11 (2026-05-23)
+
+### 🚀 Features
+
+- 新增 omni-flash 视频模型支持 ([248af3f7](https://github.com/ljquan/aitu/commit/248af3f7))
+
+### 🩹 Fixes
+
+- 补修 MCP 路径 lockReferenceDimensions=true，更新完整审计文档 ([6006c7ff](https://github.com/ljquan/aitu/commit/6006c7ff))
+- 修复图片生成比例错误和 API 参数兼容性问题 | 修复 buildImageRequestBody 中 size 为比例格式时未转换像素尺寸(所有非1:1比例都生成1:1) | 移除 response_format url 参数(rix API 不支持) | 修复 lockReferenceDimensions 导致非正方形图片被压缩 ([982e6271](https://github.com/ljquan/aitu/commit/982e6271))
+- 修复 MJ 运行时模型参数与调度路由 ([fb464a86](https://github.com/ljquan/aitu/commit/fb464a86))
+
+### 🔧 Chores
+
+- docs: 补充跨 AI 提供商兼容性分析size 比例转换不影响其他 API 生图 ([edb129b7](https://github.com/ljquan/aitu/commit/edb129b7))
+- docs: 图片生成API参数兼容性与比例转换修复经验总结 ([5c06b488](https://github.com/ljquan/aitu/commit/5c06b488))
+
+### ❤️  Thank You
+
+- 李泓震 <15900797+AiW520@user.noreply.gitee.com>
+- gongchengtu <1817063960@qq.com>
+
+## 0.9.10 (2026-05-21)
+
+### 🚀 Features
+
+- 画布图片选中状态锁定优化 ([12517bd7](https://github.com/ljquan/aitu/commit/12517bd7))
+- sync media library batch select functionality across AIInputBar and EnhancedChatInput ([cffb6b42](https://github.com/ljquan/aitu/commit/cffb6b42))
+
+### 🩹 Fixes
+
+- 修复异步图片接口开关路由 ([e6d10834](https://github.com/ljquan/aitu/commit/e6d10834))
+- 移除图片接口默认 response_format ([c1207e2f](https://github.com/ljquan/aitu/commit/c1207e2f))
+
+### 🔧 Chores
+
+- bump version to 0.9.9 ([26ed328a](https://github.com/ljquan/aitu/commit/26ed328a))
+- 文档：补充模型分类优先级经验 ([b5f1d169](https://github.com/ljquan/aitu/commit/b5f1d169))
+- 调整运行时模型分类优先级并补充 category 回归测试 ([805014d3](https://github.com/ljquan/aitu/commit/805014d3))
+- 发布 ([9bce5497](https://github.com/ljquan/aitu/commit/9bce5497))
+
+### ❤️  Thank You
+
+- 李泓震 <15900797+AiW520@user.noreply.gitee.com>
+- liquid <ljquan@qq.com>
+- liangkaijun <2290804689@qq.com>
+- gongchengtu <1817063960@qq.com>
+- lichenyi <lichenyi@qq.com>
+
 ## 0.9.9 (2026-05-18)
 
 ### 🚀 Features

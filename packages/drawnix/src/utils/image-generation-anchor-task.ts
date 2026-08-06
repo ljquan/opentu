@@ -13,7 +13,9 @@ export function getImageGenerationAnchorTaskWorkflowId(
 export function getImageGenerationAnchorTaskBatchId(
   task: Task
 ): string | undefined {
-  return typeof task.params.batchId === 'string' ? task.params.batchId : undefined;
+  return typeof task.params.batchId === 'string'
+    ? task.params.batchId
+    : undefined;
 }
 
 export function getImageGenerationAnchorTaskBatchIndex(
@@ -56,7 +58,12 @@ export function getImageGenerationTaskInsertGroupKey(
   const workflowId = getImageGenerationAnchorTaskWorkflowId(task);
   const batchId = getImageGenerationAnchorTaskBatchId(task);
   const batchIndex = getImageGenerationAnchorTaskBatchIndex(task);
-  const fallbackGroupKey = workflowId || task.params.prompt || `task:${task.id}`;
+  const fallbackGroupKey =
+    workflowId || task.params.prompt || `task:${task.id}`;
+
+  if (typeof task.params.replaceElementId === 'string') {
+    return `replace-image:${task.params.replaceElementId}:${task.id}`;
+  }
 
   if (task.type !== TaskType.IMAGE) {
     const taskGroupType =
@@ -64,7 +71,10 @@ export function getImageGenerationTaskInsertGroupKey(
     return `${taskGroupType}:${fallbackGroupKey}`;
   }
 
-  if (task.params.pptSlideImage && typeof task.params.targetFrameId === 'string') {
+  if (
+    task.params.pptSlideImage &&
+    typeof task.params.targetFrameId === 'string'
+  ) {
     return `ppt-slide:${task.params.targetFrameId}:${batchId || task.id}`;
   }
 
@@ -109,6 +119,13 @@ export function doesTaskBelongToImageGenerationAnchor(
     return true;
   }
 
+  if (
+    typeof task.params.anchorId === 'string' &&
+    task.params.anchorId === anchor.id
+  ) {
+    return true;
+  }
+
   const taskWorkflowId = getImageGenerationAnchorTaskWorkflowId(task);
   const taskBatchId = getImageGenerationAnchorTaskBatchId(task);
   const taskBatchIndex = getImageGenerationAnchorTaskBatchIndex(task);
@@ -132,9 +149,7 @@ export function doesTaskBelongToImageGenerationAnchor(
     return Boolean(taskBatchId) || taskWorkflowId === anchor.workflowId;
   }
 
-  return (
-    taskWorkflowId === anchor.workflowId
-  );
+  return taskWorkflowId === anchor.workflowId;
 }
 
 export function getTasksForImageGenerationAnchor(
@@ -182,5 +197,7 @@ export function selectPrimaryImageGenerationAnchorTask(
     return activeTask;
   }
 
-  return tasks.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+  return (
+    tasks.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+  );
 }

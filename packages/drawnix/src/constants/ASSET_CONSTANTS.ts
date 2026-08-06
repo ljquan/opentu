@@ -14,7 +14,7 @@ export const ASSET_CONSTANTS = {
   STORAGE_CRITICAL_THRESHOLD: 0.95, // 95%
 
   // 文件类型
-  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/x-icon', 'image/avif', 'image/jfif'],
   ALLOWED_VIDEO_TYPES: [
     'video/mp4',
     'video/webm',

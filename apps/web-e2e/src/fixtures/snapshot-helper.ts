@@ -347,7 +347,7 @@ export class SnapshotHelper {
     }
     
     // 等待加载完成
-    await loadingIndicator.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+    await loadingIndicator.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => undefined);
     await this.page.waitForTimeout(300);
     
     // 加载完成状态
@@ -374,7 +374,7 @@ export class SnapshotHelper {
     
     // 等待错误提示出现
     const errorElement = container.locator(errorSelector);
-    await errorElement.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    await errorElement.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
     await this.page.waitForTimeout(300);
     
     // 截图

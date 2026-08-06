@@ -24,6 +24,7 @@ import {
   resolveInvocationRoute,
   type ModelRef,
 } from '../../utils/settings-manager';
+import { getDefaultImageModel } from '../../constants/model-config';
 import {
   providerTransport,
   resolveInvocationPlanFromRoute,
@@ -41,6 +42,13 @@ import {
   callApiWithRetry,
   callGoogleGenerateContentRaw,
 } from '../../utils/gemini-api/apiCalls';
+import {
+  buildManualHttpRequestPayload,
+  buildManualHttpVariables,
+  getManualHttpTemplate,
+  normalizeManualTextResponse,
+  renderTemplate,
+} from '../provider-routing/manual-http-template';
 import type { GeminiMessage as UnifiedGeminiMessage } from '../../utils/gemini-api/types';
 import {
   classifyApiCredentialError,
@@ -73,6 +81,14 @@ import {
   shouldUseStrictTaskInvocationRoute,
 } from '../task-invocation-route';
 
+function assertCurrentImageExecutionAttempt(options?: ExecutionOptions): void {
+  if (options?.isCurrentAttempt?.() === false) {
+    const error = new Error('图片提交已被取消或替代');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
 function inferAuthTypeFromRoute(
   route: ReturnType<typeof resolveInvocationRoute>
 ): ProviderAuthStrategy {
@@ -98,6 +114,67 @@ function buildProviderContext(config: {
       extraHeaders: config.extraHeaders,
     }
   );
+}
+
+async function readResponseTextPreview(
+  response: Response,
+  limit = 1000
+): Promise<string> {
+  if (!response.body) {
+    try {
+      return (await response.clone().text()).slice(0, limit);
+    } catch {
+      return '';
+    }
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+
+  try {
+    while (text.length < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    if (text.length >= limit) {
+      await reader.cancel().catch(() => undefined);
+    }
+  } catch {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return text.slice(0, limit);
+}
+
+function extractProviderErrorMessage(rawText: string): string {
+  const trimmed = rawText.trim();
+  if (!trimmed) return '';
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      message?: string;
+      detail?: string;
+      error?:
+        | string
+        | {
+            message?: string;
+            details?: string;
+          };
+    };
+    if (typeof parsed.error === 'string') return parsed.error;
+    return (
+      parsed.error?.message ||
+      parsed.error?.details ||
+      parsed.message ||
+      parsed.detail ||
+      ''
+    ).trim();
+  } catch {
+    return trimmed.replace(/\s+/g, ' ');
+  }
 }
 
 /** 从 uploadedImages 提取 URL 列表，与 SW ImageHandler 逻辑一致 */
@@ -182,6 +259,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   ): Promise<void> {
     const {
       taskId,
+      requestId = taskId,
       prompt,
       model,
       modelRef,
@@ -203,11 +281,25 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     const config = this.getConfig({ imageModel: modelRef || model });
 
     // 更新任务状态为 processing
-    await taskStorageWriter.updateStatus(taskId, 'processing');
+    const activated = await taskStorageWriter.updateStatus(
+      taskId,
+      'processing',
+      requestId
+    );
+    if (activated === false) {
+      const staleAttemptError = new Error('图片提交已被取消或替代');
+      staleAttemptError.name = 'AbortError';
+      throw staleAttemptError;
+    }
     options?.onProgress?.({ progress: 0, phase: 'submitting' });
 
     const startTime = Date.now();
-    const modelName = model || config.imageConfig.modelName;
+    const modelName =
+      modelRef?.modelId ||
+      config.imageConfig.binding?.modelId ||
+      config.imageConfig.modelName ||
+      model ||
+      getDefaultImageModel();
 
     // 异步图片模型：使用 /v1/videos 接口（仅当 binding 为 async-image 时）
     const imagePlan = resolveInvocationPlanFromRoute(
@@ -222,6 +314,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       return this.generateAsyncImageTask(
         taskId,
         {
+          requestId,
           prompt,
           model: modelName,
           modelRef: modelRef || null,
@@ -251,6 +344,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         taskId,
         imageAdapter,
         {
+          requestId,
           prompt,
           model: modelName,
           modelRef: modelRef || null,
@@ -287,7 +381,6 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       ),
       taskId,
     });
-
     try {
       // 处理参考图片：统一转为 base64（API 要求），并行处理提升性能
       let processedImages: string[] | undefined;
@@ -314,6 +407,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
       // 直接调用 API
+      await options?.onSubmissionAttempt?.();
       const response = await providerTransport.send(
         buildProviderContext(config.imageConfig),
         {
@@ -325,6 +419,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           body: JSON.stringify(requestBody),
           signal: options?.signal,
           timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
+          requestId,
         }
       );
 
@@ -340,11 +435,13 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           duration,
           errorMessage: errorBody.substring(0, 500),
         });
-        throw new Error(
-          `Image generation failed: ${response.status} - ${errorBody.substring(
-            0,
-            200
-          )}`
+        throw Object.assign(
+          new Error(
+            `Image generation failed: ${
+              response.status
+            } - ${errorBody.substring(0, 200)}`
+          ),
+          { httpStatus: response.status }
         );
       }
 
@@ -352,6 +449,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       const data = await response.json();
       const result = parseImageResponse(data);
+      assertCurrentImageExecutionAttempt(options);
       const duration = Date.now() - startTime;
       // 记录成功
       completeLLMApiLog(logId, {
@@ -370,19 +468,39 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         allImgUrls,
         taskId,
         'image',
-        'png'
+        'png',
+        {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          cacheKey: requestId,
+        }
       );
+      assertCurrentImageExecutionAttempt(options);
 
       // 完成任务
-      await taskStorageWriter.completeTask(taskId, {
-        url: cachedImgUrls[0],
-        urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
-        format: 'png',
-        size: 0,
-      });
+      const completed = await taskStorageWriter.completeTask(
+        taskId,
+        {
+          url: cachedImgUrls[0],
+          urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
+          format: 'png',
+          size: 0,
+        },
+        requestId
+      );
+      if (completed === false) {
+        const staleAttemptError = new Error('图片提交已被取消或替代');
+        staleAttemptError.name = 'AbortError';
+        throw staleAttemptError;
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       const errorMessage = error.message || 'Image generation failed';
+
+      if (options?.isCurrentAttempt?.() === false) {
+        failLLMApiLog(logId, { duration, errorMessage });
+        throw error;
+      }
       console.error(
         '[FallbackMediaExecutor] generateImage failed:',
         errorMessage,
@@ -408,10 +526,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      await taskStorageWriter.failTask(taskId, {
-        code: 'IMAGE_GENERATION_ERROR',
-        message: errorMessage,
-      });
+      await taskStorageWriter.failTask(
+        taskId,
+        {
+          code: 'IMAGE_GENERATION_ERROR',
+          message: errorMessage,
+        },
+        requestId
+      );
       throw error;
     }
   }
@@ -423,6 +545,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
   private async generateAsyncImageTask(
     taskId: string,
     params: {
+      requestId?: string;
       prompt: string;
       model: string;
       modelRef?: ImageGenerationParams['modelRef'];
@@ -436,7 +559,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     startTime?: number
   ): Promise<void> {
     const logStartTime = startTime || Date.now();
-
+    const submissionRequestId = params.requestId || taskId;
     // 开始记录 LLM API 调用
     const logId = startLLMApiLog({
       endpoint: '/v1/videos (async image)',
@@ -483,6 +606,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         },
         config.imageConfig,
         {
+          onSubmissionAttempt: async () => {
+            await options?.onSubmissionAttempt?.();
+          },
           onProgress: (progress) => {
             options?.onProgress?.({
               progress,
@@ -490,19 +616,28 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             });
           },
           onSubmitted: async (remoteId) => {
+            assertCurrentImageExecutionAttempt(options);
             // 保存 remoteId，用于页面刷新后恢复轮询
-            await taskStorageWriter.updateRemoteId(
+            const updated = await taskStorageWriter.updateRemoteId(
               taskId,
               remoteId,
               createTaskInvocationRouteSnapshot(
                 'image',
                 params.modelRef || params.model
-              )
+              ),
+              submissionRequestId
             );
+            if (updated === false) {
+              const staleAttemptError = new Error('图片提交已被取消或替代');
+              staleAttemptError.name = 'AbortError';
+              throw staleAttemptError;
+            }
           },
           signal: options?.signal,
+          requestId: submissionRequestId,
         }
       );
+      assertCurrentImageExecutionAttempt(options);
 
       const duration = Date.now() - logStartTime;
 
@@ -525,21 +660,39 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         result.format,
         undefined,
         {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          cacheKey: submissionRequestId,
           extraMetadata: params.assetMetadata
             ? { ...params.assetMetadata }
             : undefined,
         }
       );
+      assertCurrentImageExecutionAttempt(options);
 
       // 完成任务
-      await taskStorageWriter.completeTask(taskId, {
-        url: cachedAsyncUrl,
-        format: result.format,
-        size: 0,
-      });
+      const completed = await taskStorageWriter.completeTask(
+        taskId,
+        {
+          url: cachedAsyncUrl,
+          format: result.format,
+          size: 0,
+        },
+        submissionRequestId
+      );
+      if (completed === false) {
+        const staleAttemptError = new Error('图片提交已被取消或替代');
+        staleAttemptError.name = 'AbortError';
+        throw staleAttemptError;
+      }
     } catch (error: any) {
       const duration = Date.now() - logStartTime;
       const errorMessage = error.message || 'Async image generation failed';
+
+      if (options?.isCurrentAttempt?.() === false) {
+        failLLMApiLog(logId, { duration, errorMessage });
+        throw error;
+      }
 
       // 检测认证错误，触发设置弹窗
       const credentialErrorKind = classifyApiCredentialError(error);
@@ -555,10 +708,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         duration,
         errorMessage,
       });
-      await taskStorageWriter.failTask(taskId, {
-        code: 'ASYNC_IMAGE_GENERATION_ERROR',
-        message: errorMessage,
-      });
+      await taskStorageWriter.failTask(
+        taskId,
+        {
+          code: 'ASYNC_IMAGE_GENERATION_ERROR',
+          message: errorMessage,
+        },
+        submissionRequestId
+      );
       throw error;
     }
   }
@@ -1006,56 +1163,149 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         await taskStorageWriter.updateProgress(taskId, 30, 'submitting');
       }
 
-      const data =
-        config.textConfig.protocol === 'google.generateContent'
-          ? await callGoogleGenerateContentRaw(config.textConfig, messages, {
-              stream: false,
+      const manualHttpTemplate = getManualHttpTemplate(
+        config.textConfig.binding?.metadata
+      );
+      const manualVariables = manualHttpTemplate
+        ? buildManualHttpVariables({
+            model: modelName,
+            modelRef: config.textConfig.binding?.modelId
+              ? {
+                  profileId: config.textConfig.binding.profileId,
+                  modelId: config.textConfig.binding.modelId,
+                }
+              : null,
+            prompt: normalizedPrompt,
+            messages,
+            images: referenceImages,
+            params: extraParams,
+          })
+        : null;
+      const manualPayload =
+        manualHttpTemplate && manualVariables
+          ? await buildManualHttpRequestPayload(
+              manualHttpTemplate,
+              manualVariables
+            )
+          : null;
+      const data = manualHttpTemplate
+        ? await providerTransport
+            .send(buildProviderContext(config.textConfig), {
+              path: renderTemplate(
+                config.textConfig.binding?.submitPath || '/chat/completions',
+                manualVariables || {}
+              ) as string,
+              baseUrlStrategy: config.textConfig.binding?.baseUrlStrategy,
+              method:
+                manualHttpTemplate.method ||
+                (manualPayload?.body === undefined ? 'GET' : 'POST'),
+              headers: {
+                ...(manualPayload?.contentType
+                  ? { 'Content-Type': manualPayload.contentType }
+                  : {}),
+                ...(!manualPayload?.contentType &&
+                manualPayload?.body !== undefined &&
+                !(manualPayload.body instanceof FormData)
+                  ? { 'Content-Type': 'application/json' }
+                  : {}),
+                ...(renderTemplate(
+                  manualHttpTemplate.headers || {},
+                  manualVariables || {}
+                ) as Record<string, string>),
+              },
+              body: manualPayload?.body,
               signal: options?.signal,
-              generationConfig: {
+            })
+            .then(async (response) => {
+              if (!response.ok) {
+                const rawError = await readResponseTextPreview(response);
+                const providerMessage = extractProviderErrorMessage(rawError);
+                throw new Error(
+                  `HTTP ${response.status}: ${
+                    providerMessage ||
+                    response.statusText ||
+                    'Text generation failed'
+                  }`
+                );
+              }
+              const rawText = await response.text();
+              let payload: unknown = rawText;
+              if (rawText.trim()) {
+                try {
+                  payload = JSON.parse(rawText);
+                } catch {
+                  payload = rawText;
+                }
+              }
+              return normalizeManualTextResponse(
+                payload,
+                manualHttpTemplate.responsePaths
+              );
+            })
+        : config.textConfig.protocol === 'google.generateContent'
+        ? await callGoogleGenerateContentRaw(config.textConfig, messages, {
+            stream: false,
+            signal: options?.signal,
+            generationConfig: {
+              ...(toNumber(extraParams?.temperature) !== undefined
+                ? { temperature: toNumber(extraParams?.temperature) }
+                : {}),
+              ...(toNumber(extraParams?.top_p) !== undefined
+                ? { topP: toNumber(extraParams?.top_p) }
+                : {}),
+              ...(toNumber(extraParams?.max_tokens) !== undefined
+                ? { maxOutputTokens: toNumber(extraParams?.max_tokens) }
+                : {}),
+              ...(typeof extraParams?.response_mime_type === 'string' &&
+              extraParams.response_mime_type.trim()
+                ? {
+                    responseMimeType: extraParams.response_mime_type.trim(),
+                  }
+                : {}),
+            },
+          })
+        : await providerTransport
+            .send(buildProviderContext(config.textConfig), {
+              path:
+                config.textConfig.binding?.submitPath || '/chat/completions',
+              baseUrlStrategy: config.textConfig.binding?.baseUrlStrategy,
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: modelName,
+                messages,
+                stream: false,
                 ...(toNumber(extraParams?.temperature) !== undefined
                   ? { temperature: toNumber(extraParams?.temperature) }
                   : {}),
                 ...(toNumber(extraParams?.top_p) !== undefined
-                  ? { topP: toNumber(extraParams?.top_p) }
+                  ? { top_p: toNumber(extraParams?.top_p) }
                   : {}),
                 ...(toNumber(extraParams?.max_tokens) !== undefined
-                  ? { maxOutputTokens: toNumber(extraParams?.max_tokens) }
+                  ? { max_tokens: toNumber(extraParams?.max_tokens) }
                   : {}),
-              },
+                ...(typeof extraParams?.response_format === 'object'
+                  ? { response_format: extraParams.response_format }
+                  : {}),
+              }),
+              signal: options?.signal,
             })
-          : await providerTransport
-              .send(buildProviderContext(config.textConfig), {
-                path: '/chat/completions',
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: modelName,
-                  messages,
-                  stream: false,
-                  ...(toNumber(extraParams?.temperature) !== undefined
-                    ? { temperature: toNumber(extraParams?.temperature) }
-                    : {}),
-                  ...(toNumber(extraParams?.top_p) !== undefined
-                    ? { top_p: toNumber(extraParams?.top_p) }
-                    : {}),
-                  ...(toNumber(extraParams?.max_tokens) !== undefined
-                    ? { max_tokens: toNumber(extraParams?.max_tokens) }
-                    : {}),
-                }),
-                signal: options?.signal,
-              })
-              .then(async (response) => {
-                if (!response.ok) {
-                  throw new Error(
-                    `HTTP ${response.status}: ${
-                      response.statusText || 'Text generation failed'
-                    }`
-                  );
-                }
-                return response.json();
-              });
+            .then(async (response) => {
+              if (!response.ok) {
+                const rawError = await readResponseTextPreview(response);
+                const providerMessage = extractProviderErrorMessage(rawError);
+                throw new Error(
+                  `HTTP ${response.status}: ${
+                    providerMessage ||
+                    response.statusText ||
+                    'Text generation failed'
+                  }`
+                );
+              }
+              return response.json();
+            });
 
       const fullResponse = data.choices?.[0]?.message?.content || '';
       options?.onProgress?.({ progress: 100 });

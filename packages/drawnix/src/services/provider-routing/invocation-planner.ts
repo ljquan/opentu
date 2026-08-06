@@ -89,6 +89,9 @@ function findPriorityBinding(
   profile: ProviderProfileSnapshot
 ): ProviderModelBinding | undefined {
   if (!profile.preferAsyncImageEndpoint) return undefined;
+  if (bindings.some((candidate) => candidate.source === 'manual')) {
+    return undefined;
+  }
   return bindings.find(
     (candidate) =>
       candidate.operation === 'image' &&
@@ -152,11 +155,16 @@ export class InvocationPlanner {
     const preferredSchemas = normalizePreferredRequestSchemas(
       request.preferredRequestSchema
     );
+    const manualBinding = bindings.find(
+      (candidate) => candidate.source === 'manual'
+    );
     const priorityBinding = request.bindingId
       ? undefined
       : findPriorityBinding(bindings, profile);
     const binding = request.bindingId
       ? bindings.find((candidate) => candidate.id === request.bindingId)
+      : manualBinding
+      ? manualBinding
       : priorityBinding
       ? priorityBinding
       : preferredSchemas.length > 0

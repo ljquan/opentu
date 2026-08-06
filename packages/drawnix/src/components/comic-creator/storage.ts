@@ -4,19 +4,37 @@ import {
   loadRecordsByKey,
   saveRecordsByKey,
   updateRecordById,
-} from '../shared/workflow';
+} from '../shared/workflow/record-storage';
 import type { ComicRecord } from './types';
 import { stripLargeImageDataFromComicPage } from './utils';
 
 const STORAGE_KEY = 'comic-creator:records';
 const MAX_RECORDS = 50;
+const LEGACY_DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2-vip';
+const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
 
-function sanitizeRecord(record: ComicRecord): ComicRecord {
+function normalizeLegacyImageModel(record: ComicRecord): ComicRecord {
+  if (
+    record.imageModel !== LEGACY_DEFAULT_IMAGE_MODEL_ID ||
+    record.imageModelRef?.profileId
+  ) {
+    return record;
+  }
+
   return {
     ...record,
-    starred: !!record.starred,
-    pages: Array.isArray(record.pages)
-      ? record.pages.map(stripLargeImageDataFromComicPage)
+    imageModel: DEFAULT_IMAGE_MODEL_ID,
+    imageModelRef: null,
+  };
+}
+
+function sanitizeRecord(record: ComicRecord): ComicRecord {
+  const normalizedRecord = normalizeLegacyImageModel(record);
+  return {
+    ...normalizedRecord,
+    starred: !!normalizedRecord.starred,
+    pages: Array.isArray(normalizedRecord.pages)
+      ? normalizedRecord.pages.map(stripLargeImageDataFromComicPage)
       : [],
   };
 }

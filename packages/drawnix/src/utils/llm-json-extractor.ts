@@ -50,9 +50,32 @@ function collectString(value: unknown, output: string[]): void {
   }
 }
 
+export function normalizeLlmTextContent(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (!Array.isArray(value)) return '';
+
+  return value
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return '';
+      const text = (part as { text?: unknown }).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function collectTextFromContentParts(value: unknown, output: string[]): void {
+  collectString(normalizeLlmTextContent(value), output);
+}
+
 function collectKnownLlmPayloads(value: unknown): string[] {
   const output: string[] = [];
   const root = value as {
+    candidates?: unknown;
     choices?: unknown;
     output_text?: unknown;
     text?: unknown;
@@ -64,6 +87,16 @@ function collectKnownLlmPayloads(value: unknown): string[] {
   collectString(root.output_text, output);
   collectString(root.text, output);
   collectString(root.content, output);
+  collectTextFromContentParts(root.content, output);
+
+  if (Array.isArray(root.candidates)) {
+    for (const candidate of root.candidates) {
+      const item = candidate as {
+        content?: { parts?: unknown };
+      } | null;
+      collectTextFromContentParts(item?.content?.parts, output);
+    }
+  }
 
   if (Array.isArray(root.choices)) {
     for (const choice of root.choices) {
@@ -76,6 +109,8 @@ function collectKnownLlmPayloads(value: unknown): string[] {
       collectString(item.message?.content, output);
       collectString(item.delta?.content, output);
       collectString(item.text, output);
+      collectTextFromContentParts(item.message?.content, output);
+      collectTextFromContentParts(item.delta?.content, output);
     }
   }
 
@@ -121,7 +156,7 @@ function buildJsonSearchSources(text: string): string[] {
   const envelopePayloads = collectEnvelopePayloadSources(directSources);
 
   return uniqueSources([
-    ...envelopePayloads.flatMap(payload => [
+    ...envelopePayloads.flatMap((payload) => [
       ...getFenceContents(payload),
       payload,
     ]),

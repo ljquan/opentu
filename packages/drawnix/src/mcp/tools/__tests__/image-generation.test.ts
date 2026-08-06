@@ -114,7 +114,7 @@ describe('image-generation MCP tool', () => {
         outputCompression: 80,
         count: 3,
       },
-      { mode: 'async' }
+      { mode: 'async', retryTaskId: 'workflow-image-request-1' }
     );
 
     expect(mocks.resolveAdapterForInvocation).toHaveBeenCalledWith(
@@ -141,6 +141,7 @@ describe('image-generation MCP tool', () => {
     expect(mocks.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
         baseUrl: 'https://api.openai.com/v1',
+        requestId: 'workflow-image-request-1',
       }),
       expect.objectContaining({
         prompt: 'Create an edited image',

@@ -16,11 +16,14 @@ import type {
   WorkflowMessageData,
   AgentLogEntry,
 } from '../../types/chat.types';
+import { MediaViewer } from '../shared/MediaViewer';
+import { useMediaViewer } from '../../hooks/useMediaViewer';
 import MarkdownReadonly from '../MarkdownReadonly';
 import {
   getWorkflowBubbleStatus,
   normalizeWorkflowStepsForDisplay,
 } from '../../utils/workflow-bubble-status';
+import { collectWorkflowMediaResults } from './workflow-media-results';
 import './workflow-message-bubble.scss';
 
 const MermaidRenderer = lazy(() =>
@@ -48,6 +51,13 @@ const STATUS_LABELS: Record<StepStatus, string> = {
   failed: '失败',
   skipped: '已跳过',
 };
+
+const WORKFLOW_STATUS_LABELS = {
+  pending: '待开始',
+  running: '执行中',
+  completed: '已完成',
+  failed: '执行失败',
+} as const;
 
 function renderWorkflowCodeBlock(
   code: string,
@@ -219,7 +229,9 @@ const AgentLogItem: React.FC<AgentLogItemProps> = ({ log }) => {
     return (
       <div className="agent-log agent-log--thinking">
         <div className="agent-log__header">
-          <span className="agent-log__icon">💭</span>
+          <span className="agent-log__icon" role="img" aria-label="思考">
+            💭
+          </span>
           <span className="agent-log__title">AI 分析</span>
         </div>
         <div className="agent-log__content">
@@ -247,7 +259,9 @@ const AgentLogItem: React.FC<AgentLogItemProps> = ({ log }) => {
           className="agent-log__header agent-log__header--clickable"
           onClick={() => setExpanded(!expanded)}
         >
-          <span className="agent-log__icon">🔧</span>
+          <span className="agent-log__icon" role="img" aria-label="工具">
+            🔧
+          </span>
           <span className="agent-log__title">调用工具: {log.toolName}</span>
           <span
             className={`agent-log__expand ${
@@ -271,6 +285,7 @@ const AgentLogItem: React.FC<AgentLogItemProps> = ({ log }) => {
   if (log.type === 'tool_result') {
     const statusClass = log.success ? 'success' : 'error';
     const statusIcon = log.success ? '✅' : '❌';
+    const statusIconLabel = log.success ? '成功' : '失败';
     const hasData = log.data !== undefined && log.data !== null;
 
     return (
@@ -281,7 +296,13 @@ const AgentLogItem: React.FC<AgentLogItemProps> = ({ log }) => {
           className="agent-log__header agent-log__header--clickable"
           onClick={() => setExpanded(!expanded)}
         >
-          <span className="agent-log__icon">{statusIcon}</span>
+          <span
+            className="agent-log__icon"
+            role="img"
+            aria-label={statusIconLabel}
+          >
+            {statusIcon}
+          </span>
           <span className="agent-log__title">
             {log.toolName} {log.success ? '执行成功' : '执行失败'}
           </span>
@@ -313,7 +334,9 @@ const AgentLogItem: React.FC<AgentLogItemProps> = ({ log }) => {
     return (
       <div className="agent-log agent-log--retry">
         <div className="agent-log__header">
-          <span className="agent-log__icon">🔄</span>
+          <span className="agent-log__icon" role="img" aria-label="重试">
+            🔄
+          </span>
           <span className="agent-log__title">
             重试 #{log.attempt}: {log.reason}
           </span>
@@ -332,6 +355,8 @@ interface WorkflowMessageBubbleProps {
   className?: string;
   /** 重试回调，从指定步骤索引开始重试 */
   onRetry?: (stepIndex: number) => void;
+  /** 基于该工作流结果继续生成 */
+  onReply?: () => void;
   /** 是否正在重试 */
   isRetrying?: boolean;
 }
@@ -340,6 +365,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   workflow,
   className = '',
   onRetry,
+  onReply,
   isRetrying = false,
 }) => {
   const normalizedSteps = useMemo(() => {
@@ -358,20 +384,35 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
       : 0;
 
   // 状态标签（考虑后处理状态）
-  const statusLabel = useMemo(() => {
-    const baseLabels: Record<typeof workflowStatus.status, string> = {
-      pending: '待开始',
-      running: '执行中',
-      completed: '已完成',
-      failed: '执行失败',
-    };
-
-    return baseLabels[workflowStatus.status];
-  }, [workflowStatus.status]);
+  const statusLabel = WORKFLOW_STATUS_LABELS[workflowStatus.status];
 
   const isCompleted = workflowStatus.status === 'completed';
   const isFailed = workflowStatus.status === 'failed';
   const isRunning = workflowStatus.status === 'running';
+  const { openViewer, viewerProps } = useMediaViewer({
+    showNavbar: true,
+    showToolbar: true,
+    showTitle: true,
+  });
+  const mediaResults = useMemo(
+    () => collectWorkflowMediaResults(workflow, normalizedSteps),
+    [workflow, normalizedSteps]
+  );
+  const mediaViewerItems = useMemo(
+    () =>
+      mediaResults.map((item, index) => ({
+        url: item.url,
+        type: item.type,
+        title: item.title || `生成结果 ${index + 1}`,
+        alt: item.title || `生成结果 ${index + 1}`,
+        posterUrl: item.thumbnailUrl,
+      })),
+    [mediaResults]
+  );
+
+  const handleMediaPreview = (index: number): void => {
+    openViewer(mediaViewerItems, index);
+  };
 
   /**
    * 获取工作流最后一个 content
@@ -438,6 +479,10 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
       return { variant: 'info' as const, icon: '❌', text: '生成失败' };
     }
 
+    if (mediaResults.length > 0) {
+      return null;
+    }
+
     // 直接展示最后一个 content
     if (lastContent) {
       return {
@@ -454,7 +499,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
 
     // 没有任何内容
     return { variant: 'info' as const, icon: 'ℹ️', text: '未生成任何内容' };
-  }, [isCompleted, isFailed, lastContent, hasMediaGeneration]);
+  }, [isCompleted, isFailed, lastContent, hasMediaGeneration, mediaResults]);
 
   const markdownSummary = useMemo(() => {
     if (!summaryView || summaryView.variant !== 'markdown') return null;
@@ -494,8 +539,6 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
   const shouldShowDetailsToggle =
     shouldCollapseCompletedDetails && hasDetailsContent;
 
-  // 当前执行步骤的 ref，用于自动滚动
-  const currentStepRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   // 当步骤状态变化时，自动滚动到当前执行的步骤
@@ -578,28 +621,98 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
           </div>
         )}
 
-        {shouldShowDetailsToggle && (
-          <button
-            type="button"
-            className="workflow-bubble__details-toggle"
-            onClick={() => setShowCompletedDetails((value) => !value)}
-            aria-expanded={showCompletedDetails}
-            aria-label={
-              showCompletedDetails ? '收起执行详情' : '查看执行详情'
-            }
+        {isCompleted && mediaResults.length > 0 && (
+          <div
+            className={`workflow-bubble__media-grid workflow-bubble__media-grid--${Math.min(
+              mediaResults.length,
+              4
+            )}`}
+            aria-label="生成结果"
           >
-            <span>{showCompletedDetails ? '收起详情' : '查看详情'}</span>
-            <span
-              className={`workflow-bubble__details-toggle-icon ${
-                showCompletedDetails
-                  ? 'workflow-bubble__details-toggle-icon--open'
-                  : ''
-              }`}
-              aria-hidden="true"
+            {mediaResults.map((item, index) => (
+              <button
+                key={`${item.url}-${index}`}
+                type="button"
+                className="workflow-bubble__media-item"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  handleMediaPreview(index);
+                }}
+                aria-label={`查看生成结果 ${index + 1}`}
+              >
+                {item.type === 'video' ? (
+                  <video
+                    className="workflow-bubble__media-preview"
+                    src={item.url}
+                    poster={item.thumbnailUrl}
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
+                ) : item.type === 'audio' ? (
+                  <div className="workflow-bubble__audio-preview">
+                    {item.thumbnailUrl ? (
+                      <img
+                        src={item.thumbnailUrl}
+                        alt={item.title || `生成结果 ${index + 1}`}
+                        className="workflow-bubble__media-preview"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="workflow-bubble__audio-icon">♪</span>
+                    )}
+                  </div>
+                ) : (
+                  <img
+                    src={item.thumbnailUrl || item.url}
+                    alt={item.title || `生成结果 ${index + 1}`}
+                    className="workflow-bubble__media-preview"
+                    loading="lazy"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {shouldShowDetailsToggle && (
+          <div className="workflow-bubble__actions">
+            <button
+              type="button"
+              className="workflow-bubble__details-toggle"
+              onClick={() => setShowCompletedDetails((value) => !value)}
+              aria-expanded={showCompletedDetails}
+              aria-label={
+                showCompletedDetails ? '收起执行详情' : '查看执行详情'
+              }
             >
-              ▼
-            </span>
-          </button>
+              <span>{showCompletedDetails ? '收起详情' : '查看详情'}</span>
+              <span
+                className={`workflow-bubble__details-toggle-icon ${
+                  showCompletedDetails
+                    ? 'workflow-bubble__details-toggle-icon--open'
+                    : ''
+                }`}
+                aria-hidden="true"
+              >
+                ▼
+              </span>
+            </button>
+            {onReply && mediaResults.length > 0 && (
+              <button
+                type="button"
+                className="workflow-bubble__reply-btn"
+                onClick={onReply}
+              >
+                回复
+              </button>
+            )}
+          </div>
         )}
 
         {/* 步骤列表 */}
@@ -662,7 +775,13 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
         {/* 失败提示 */}
         {isFailed && (
           <div className="workflow-bubble__summary workflow-bubble__summary--error">
-            <span className="workflow-bubble__summary-icon">❌</span>
+            <span
+              className="workflow-bubble__summary-icon"
+              role="img"
+              aria-label="失败"
+            >
+              ❌
+            </span>
             <span>执行失败，请重试</span>
             {canRetry && onRetry && (
               <button
@@ -670,12 +789,19 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
                 onClick={handleRetry}
                 disabled={isRetrying}
               >
-                {isRetrying ? '重试中...' : '🔄 从失败步骤重试'}
+                {isRetrying ? (
+                  '重试中...'
+                ) : (
+                  <>
+                    <span aria-hidden="true">🔄</span> 从失败步骤重试
+                  </>
+                )}
               </button>
             )}
           </div>
         )}
       </div>
+      <MediaViewer {...viewerProps} />
     </div>
   );
 };

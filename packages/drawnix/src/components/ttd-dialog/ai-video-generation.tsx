@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Music2, X } from 'lucide-react';
 import './ttd-dialog.scss';
 import './ai-video-generation.scss';
 import { useI18n } from '../../i18n';
@@ -54,6 +55,7 @@ import {
 import {
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfigForSelection,
+  isSeedanceAudioReference,
 } from '../../services/video-binding-utils';
 import {
   formatStoryboardPrompt,
@@ -164,17 +166,28 @@ function getDefaultVideoParamsForSelection(
 }
 
 function mergeVideoToolParams(
+  modelId: string,
   extraParams: Record<string, string>,
   duration?: string | number | null,
   size?: string | null
 ): Record<string, string> {
-  return {
+  const nextParams: Record<string, string> = {
     ...extraParams,
     ...(duration !== undefined && duration !== null
       ? { duration: String(duration) }
       : {}),
     ...(size ? { size } : {}),
   };
+
+  if (modelId.startsWith('doubao-seedance-2-0-') && nextParams.size) {
+    const [resolution, legacyRatio] = nextParams.size.split('@');
+    nextParams.size = resolution;
+    if (legacyRatio && !nextParams.ratio) {
+      nextParams.ratio = legacyRatio;
+    }
+  }
+
+  return nextParams;
 }
 
 function splitVideoToolParams(
@@ -240,6 +253,7 @@ const AIVideoGeneration = ({
     KnowledgeContextRef[]
   >(initialKnowledgeContextRefs);
   const [error, setError] = useState<string | null>(null);
+  const [referenceAudioUrl, setReferenceAudioUrl] = useState('');
 
   // 任务列表面板状态 - 使用像素宽度
   const [isTaskListVisible, setIsTaskListVisible] = useState(true);
@@ -321,6 +335,7 @@ const AIVideoGeneration = ({
     Record<string, string>
   >(() =>
     mergeVideoToolParams(
+      currentModel,
       initialScopedVideoPreferences.extraParams,
       initialDuration?.toString() || initialScopedVideoPreferences.duration,
       initialSize || initialScopedVideoPreferences.size
@@ -497,7 +512,6 @@ const AIVideoGeneration = ({
       }));
     }
   );
-
   // Storyboard mode state
   const [storyboardEnabled, setStoryboardEnabled] = useState(false);
   const [storyboardScenes, setStoryboardScenes] = useState<StoryboardScene[]>(
@@ -654,6 +668,7 @@ const AIVideoGeneration = ({
       getSelectionKey(currentModel, currentModelRef)
     );
     const nextParams = mergeVideoToolParams(
+      currentModel,
       scopedPreferences.extraParams,
       initialDuration !== undefined
         ? initialDuration.toString()
@@ -727,7 +742,9 @@ const AIVideoGeneration = ({
       prompt: initialPrompt,
       image: initialImage?.url,
       images: initialImages?.map((img) => img.url),
-      knowledgeContextRefs: initialKnowledgeContextRefs.map((ref) => ref.noteId),
+      knowledgeContextRefs: initialKnowledgeContextRefs.map(
+        (ref) => ref.noteId
+      ),
       duration: initialDuration,
       model: initialModel,
       size: initialSize,
@@ -783,7 +800,12 @@ const AIVideoGeneration = ({
 
     if (initialDuration !== undefined || initialSize) {
       setVideoSelectedParams((prev) =>
-        mergeVideoToolParams(prev, initialDuration, initialSize)
+        mergeVideoToolParams(
+          initialModel || currentModel,
+          prev,
+          initialDuration,
+          initialSize
+        )
       );
     }
 
@@ -794,12 +816,14 @@ const AIVideoGeneration = ({
     initialImages,
     initialKnowledgeContextRefs,
     initialDuration,
+    initialModel,
     initialSize,
     initialResultUrl,
     imageUploadConfig.labels,
     imageUploadConfig.labelsSignature,
     imageUploadConfig.maxCount,
     isManualEdit,
+    currentModel,
   ]);
 
   // Clear errors on mount
@@ -814,6 +838,7 @@ const AIVideoGeneration = ({
     setPrompt('');
     setAllSelectedImages([]); // 清空原始图片
     setUploadedImages([]);
+    setReferenceAudioUrl('');
     setError(null);
     setMobilePanel('config');
     // Clear manual edit mode
@@ -980,6 +1005,7 @@ const AIVideoGeneration = ({
         : {};
     setVideoSelectedParams(
       mergeVideoToolParams(
+        task.params.model || currentModel,
         restoredParams,
         task.params.duration ?? task.params.seconds,
         task.params.size
@@ -1013,6 +1039,11 @@ const AIVideoGeneration = ({
       setAllSelectedImages([]);
       setUploadedImages([]);
     }
+    const restoredAudio =
+      typeof task.params.params?.input_audio === 'string'
+        ? task.params.params.input_audio
+        : undefined;
+    setReferenceAudioUrl(restoredAudio || '');
 
     setError(null);
   };
@@ -1022,6 +1053,31 @@ const AIVideoGeneration = ({
     if (generatingLockRef.current) return;
     generatingLockRef.current = true;
     try {
+      const activeReferenceAudioUrl = currentModel.startsWith(
+        'doubao-seedance-2-0-'
+      )
+        ? referenceAudioUrl.trim()
+        : '';
+      if (
+        activeReferenceAudioUrl &&
+        !isSeedanceAudioReference(activeReferenceAudioUrl)
+      ) {
+        setError(
+          language === 'zh'
+            ? '参考音频仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+            : 'Reference audio must be an HTTP(S), asset://, audio Data URL, or asset ID'
+        );
+        return;
+      }
+      if (count > 1 && activeReferenceAudioUrl.startsWith('data:audio/')) {
+        setError(
+          language === 'zh'
+            ? '音频 Data URL 仅支持单任务生成，批量生成请使用公网 URL 或素材 ID'
+            : 'Audio Data URLs support one task at a time; use a public URL or asset ID for batches'
+        );
+        return;
+      }
+
       // 验证输入
       if (storyboardEnabled) {
         // 故事场景模式验证
@@ -1131,6 +1187,14 @@ const AIVideoGeneration = ({
               initialAutoInsertToCanvas ??
               getAutoInsertValue(LS_KEYS.AI_VIDEO_AUTO_INSERT),
             ...(extraParams ? { params: extraParams } : {}),
+            ...(activeReferenceAudioUrl
+              ? {
+                  params: {
+                    ...(extraParams || {}),
+                    input_audio: activeReferenceAudioUrl,
+                  },
+                }
+              : {}),
           };
 
           // 创建任务并添加到队列
@@ -1160,6 +1224,7 @@ const AIVideoGeneration = ({
           setPrompt('');
           setAllSelectedImages([]); // 清空原始图片
           setUploadedImages([]);
+          setReferenceAudioUrl('');
           setStoryboardEnabled(false);
           setStoryboardScenes([]);
           setError(null);
@@ -1340,6 +1405,7 @@ const AIVideoGeneration = ({
                 disabled={isGenerating}
                 multiple={imageUploadConfig.maxCount > 1}
                 maxCount={imageUploadConfig.maxCount}
+                onError={setError}
                 slotLabels={
                   imageUploadConfig.mode === 'frames'
                     ? imageUploadConfig.labels
@@ -1359,6 +1425,47 @@ const AIVideoGeneration = ({
                     : 'Reference Images (Optional)'
                 }
               />
+            )}
+
+            {currentModel.startsWith('doubao-seedance-2-0-') && (
+              <div className="seedance-reference-audio">
+                <Music2 size={16} aria-hidden="true" />
+                <input
+                  type="text"
+                  inputMode="url"
+                  className="seedance-reference-audio__input"
+                  value={referenceAudioUrl}
+                  onChange={(event) => {
+                    setReferenceAudioUrl(event.target.value);
+                    setError(null);
+                  }}
+                  onBlur={() => setReferenceAudioUrl((value) => value.trim())}
+                  placeholder={
+                    language === 'zh'
+                      ? '参考音频地址或素材 ID'
+                      : 'Reference audio or asset ID'
+                  }
+                  aria-label={
+                    language === 'zh'
+                      ? '参考音频地址或素材 ID'
+                      : 'Reference audio or asset ID'
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={isGenerating}
+                />
+                {referenceAudioUrl && (
+                  <button
+                    type="button"
+                    className="seedance-reference-audio__remove"
+                    onClick={() => setReferenceAudioUrl('')}
+                    disabled={isGenerating}
+                    title={language === 'zh' ? '清除参考音频' : 'Clear audio'}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Storyboard mode editor (only for supported models) */}

@@ -19,6 +19,7 @@ import { useDrawnix } from '../../hooks/use-drawnix';
 import { removeElementsByAssetIds, removeElementsByAssetUrls, isCacheUrl } from '../../utils/asset-cleanup';
 import { isZipFile, extractMediaFromZip } from '../../utils/zip-utils';
 import { buildAssetDownloadItem, smartDownload } from '../../utils/download-utils';
+import { getSupportedImageFileMimeType } from '../../data/blob';
 import './MediaLibraryModal.scss';
 
 export function MediaLibraryModal({
@@ -224,7 +225,7 @@ export function MediaLibraryModal({
       // 处理普通媒体文件
       const validFiles: File[] = [];
       for (const file of mediaFiles) {
-        const isImage = file.type.startsWith('image/');
+        const isImage = !!getSupportedImageFileMimeType(file);
         const isVideo = file.type.startsWith('video/');
         const isAudio = file.type.startsWith('audio/');
 
@@ -275,7 +276,7 @@ export function MediaLibraryModal({
       // 上传普通媒体文件
       try {
         for (const file of validFiles) {
-          const isImage = file.type.startsWith('image/');
+          const isImage = !!getSupportedImageFileMimeType(file);
           const isAudio = file.type.startsWith('audio/');
           const type = isImage ? AssetType.IMAGE : isAudio ? AssetType.AUDIO : AssetType.VIDEO;
           await addAsset(file, type, AssetSource.LOCAL);

@@ -40,6 +40,7 @@ import {
   createTaskInvocationRouteSnapshot,
   shouldUseStrictTaskInvocationRoute,
 } from './task-invocation-route';
+import { getImageSubmissionRequestId } from './image-generation-recovery-service';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
@@ -457,8 +458,26 @@ class GenerationAPIService {
         invocationOptions
       );
       logImageAdapterSelection(taskId, adapter, requestedModel, adapterContext);
+      const submissionRequestId = getImageSubmissionRequestId({
+        id: taskId,
+        params,
+      });
+      const progressExecutionPhase =
+        adapterContext.binding?.protocol === 'openai.async.media'
+          ? TaskExecutionPhase.POLLING
+          : TaskExecutionPhase.SUBMITTING;
 
-      const result = await adapter.generateImage(adapterContext, {
+      const requestContext = {
+        ...adapterContext,
+        requestId: submissionRequestId,
+        onSubmissionAttempt: () =>
+          taskQueueService.markImageSubmissionAttempted(
+            taskId,
+            submissionRequestId
+          ),
+        signal,
+      };
+      const result = await adapter.generateImage(requestContext, {
         prompt: params.prompt,
         model: requestedModel,
         modelRef: requestedModelRef || null,
@@ -492,20 +511,35 @@ class GenerationAPIService {
           response_format: (params as any).response_format,
           ...(params as any).params,
           onProgress: (progress: number) => {
-            taskQueueService.updateTaskProgress(taskId, progress);
-            taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
-              executionPhase: TaskExecutionPhase.POLLING,
-            });
+            void taskQueueService
+              .updateImageAttemptProgress(
+                taskId,
+                submissionRequestId,
+                progress,
+                progressExecutionPhase
+              )
+              .catch((error) => {
+                console.warn(
+                  `[GenerationAPI] Failed to persist image progress for task ${taskId}:`,
+                  error
+                );
+              });
           },
-          onSubmitted: (remoteId: string) => {
-            taskQueueService.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
+          onSubmitted: async (remoteId: string) => {
+            const updated = await taskQueueService.updateImageAttemptRemoteId(
+              taskId,
+              submissionRequestId,
               remoteId,
-              invocationRoute: createTaskInvocationRouteSnapshot(
+              createTaskInvocationRouteSnapshot(
                 'image',
                 requestedModelRef || requestedModel || DEFAULT_IMAGE_MODEL_ID
-              ),
-              executionPhase: TaskExecutionPhase.POLLING,
-            });
+              )
+            );
+            if (!updated) {
+              const staleAttemptError = new Error('图片提交已被取消或替代');
+              staleAttemptError.name = 'AbortError';
+              throw staleAttemptError;
+            }
           },
         },
       });
@@ -515,6 +549,8 @@ class GenerationAPIService {
         urls: result.urls,
         format: result.format || 'png',
         size: 0,
+        width: result.width,
+        height: result.height,
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Image generation error:', error);
@@ -538,7 +574,8 @@ class GenerationAPIService {
   async resumeAsyncImageGeneration(
     taskId: string,
     remoteId: string,
-    routeModel?: string | ModelRef | null
+    routeModel?: string | ModelRef | null,
+    requestId?: string
   ): Promise<TaskResult> {
     const timeout = TASK_TIMEOUT.IMAGE;
     const abortController = new AbortController();
@@ -560,7 +597,23 @@ class GenerationAPIService {
           routeModel,
           signal: abortController.signal,
           onProgress: (progress) => {
-            taskQueueService.updateTaskProgress(taskId, progress);
+            if (!requestId) {
+              taskQueueService.updateTaskProgress(taskId, progress);
+              return;
+            }
+            void taskQueueService
+              .updateImageAttemptProgress(
+                taskId,
+                requestId,
+                progress,
+                TaskExecutionPhase.POLLING
+              )
+              .catch((error) => {
+                console.warn(
+                  `[GenerationAPI] Failed to persist resumed image progress for task ${taskId}:`,
+                  error
+                );
+              });
           },
         }),
         timeoutPromise,

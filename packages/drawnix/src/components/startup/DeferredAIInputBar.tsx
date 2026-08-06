@@ -5,6 +5,7 @@ import { AIInputBar } from '../ai-input-bar/AIInputBar';
 
 interface DeferredAIInputBarProps {
   isDataReady: boolean;
+  currentBoardId?: string | null;
   activationKey: number;
   onEnableToolWindows?: () => void;
   onEnableRuntime?: () => void;
@@ -12,6 +13,7 @@ interface DeferredAIInputBarProps {
 
 export function DeferredAIInputBar({
   isDataReady,
+  currentBoardId,
   activationKey,
   onEnableToolWindows,
   onEnableRuntime,
@@ -41,6 +43,7 @@ export function DeferredAIInputBar({
         <div ref={containerRef}>
           <AIInputBar
             isDataReady={isDataReady}
+            currentBoardId={currentBoardId}
             onEnableToolWindows={onEnableToolWindows}
             onEnableRuntime={onEnableRuntime}
           />

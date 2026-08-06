@@ -162,6 +162,74 @@
     font-style: italic;
   }
 
+  &__media-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: $spacing-md;
+
+    &--1 {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    &--3,
+    &--4 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  &__media-item {
+    display: block;
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    width: 100%;
+    padding: 0;
+    border: 1px solid var(--td-component-border);
+    border-radius: 8px;
+    background: var(--td-bg-color-secondarycontainer);
+    cursor: zoom-in;
+    appearance: none;
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.2s ease;
+
+    &:hover {
+      border-color: var(--td-brand-color);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      transform: translateY(-1px);
+    }
+  }
+
+  &__media-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &__audio-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__audio-icon {
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 $spacing-md;
+  }
+
   // 步骤列表
   &__steps {
     display: flex;
@@ -177,7 +245,6 @@
     align-items: center;
     align-self: flex-start;
     gap: 6px;
-    margin-bottom: $spacing-md;
     padding: 4px 8px;
     background: var(--td-bg-color-container);
     border: 1px solid var(--td-component-border);
@@ -195,6 +262,31 @@
       background: var(--td-bg-color-container-hover);
       border-color: var(--td-brand-color);
       color: var(--td-brand-color);
+    }
+  }
+
+  &__reply-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 4px 10px;
+    background: var(--td-brand-color-light);
+    border: 1px solid rgba(var(--td-brand-color-rgb), 0.18);
+    border-radius: 6px;
+    color: var(--td-brand-color);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease;
+
+    &:hover {
+      background: rgba(var(--td-brand-color-rgb), 0.12);
+      border-color: var(--td-brand-color);
     }
   }
 

@@ -6,7 +6,7 @@
  */
 
 import { taskQueueService } from '../services/task-queue';
-import { TaskStatus } from '../types/task.types';
+import { TaskExecutionPhase, TaskStatus, TaskType } from '../types/task.types';
 
 type WorkflowSubmissionServiceLike = {
   getRunningWorkflows: () => Array<unknown>;
@@ -14,6 +14,42 @@ type WorkflowSubmissionServiceLike = {
 
 let cachedWorkflowSubmissionService: WorkflowSubmissionServiceLike | null =
   null;
+
+/**
+ * 检查持久化任务是否需要在页面启动时唤醒延迟运行时。
+ *
+ * 只读取任务状态和少量恢复标记，不加载媒体大字段；没有待恢复任务时仍保持
+ * 工具运行时按需加载。
+ */
+export async function hasPersistedRecoverableTasks(): Promise<boolean> {
+  const [{ migrateFromLegacyDB }, { taskStorageReader }] = await Promise.all([
+    import('../services/app-database'),
+    import('../services/task-storage-reader'),
+  ]);
+  await migrateFromLegacyDB();
+
+  const processingTasks = await taskStorageReader.getAllTasks({
+    status: TaskStatus.PROCESSING,
+  });
+
+  return processingTasks.some(
+    (task) =>
+      task.type === TaskType.IMAGE &&
+      !task.remoteId &&
+      !task.syncedFromRemote &&
+      task.params.imageSubmissionAttempted === true &&
+      typeof task.params.submissionRequestId === 'string' &&
+      task.params.submissionRequestId.trim().length > 0 &&
+      task.invocationRoute?.operation === 'image' &&
+      Boolean(task.invocationRoute.providerProfileId) &&
+      Boolean(
+        task.invocationRoute.modelRef?.modelId || task.invocationRoute.modelId
+      ) &&
+      (task.executionPhase === TaskExecutionPhase.SUBMITTING ||
+        task.executionPhase === TaskExecutionPhase.DOWNLOADING ||
+        task.executionPhase === TaskExecutionPhase.POLLING)
+  );
+}
 
 /**
  * 检查是否有活跃的 LLM 任务（正在执行的任务或工作流）

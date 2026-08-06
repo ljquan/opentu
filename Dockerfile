@@ -2,6 +2,9 @@ FROM node:20 AS builder
 
 WORKDIR /builder
 
+ARG GITHUB_SHA=unknown
+ENV GITHUB_SHA=${GITHUB_SHA}
+
 COPY . /builder
 
 RUN corepack enable pnpm \

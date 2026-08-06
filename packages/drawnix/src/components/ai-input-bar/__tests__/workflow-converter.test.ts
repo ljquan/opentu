@@ -16,10 +16,23 @@ import type { ParsedGenerationParams } from '../../../utils/ai-input-parser';
 import { initializeMCP } from '../../../mcp';
 
 vi.hoisted(() => {
+  const storage = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      clear: () => storage.clear(),
+    },
+    configurable: true,
+  });
+
   const createObjectStore = () => ({
     createIndex: () => undefined,
     count: () => ({ onsuccess: null, onerror: null, result: 0 }),
     get: () => ({ onsuccess: null, onerror: null, result: undefined }),
+    getAll: () => ({ onsuccess: null, onerror: null, result: [] }),
+    getAllKeys: () => ({ onsuccess: null, onerror: null, result: [] }),
     put: () => ({ onsuccess: null, onerror: null }),
   });
   const createDatabase = () => ({
@@ -56,7 +69,9 @@ vi.hoisted(() => {
 });
 
 // Helper to create mock ParsedGenerationParams
-const createMockParams = (overrides: Partial<ParsedGenerationParams> = {}): ParsedGenerationParams => ({
+const createMockParams = (
+  overrides: Partial<ParsedGenerationParams> = {}
+): ParsedGenerationParams => ({
   scenario: 'direct_generation',
   generationType: 'image',
   modelId: 'gemini-3-pro-image-preview',
@@ -149,16 +164,53 @@ describe('workflow-converter', () => {
         });
       });
 
-      it('应该正确传递参考图片', () => {
+      it('应该保持目标图优先的参考图片顺序', () => {
         const params = createMockParams({
           generationType: 'image',
           prompt: '风格转换',
         });
-        const referenceImages = ['https://example.com/ref1.jpg', 'https://example.com/ref2.jpg'];
+        const referenceImages = [
+          'https://example.com/target.jpg',
+          'https://example.com/manual-reference.jpg',
+        ];
 
-        const workflow = convertDirectGenerationToWorkflow(params, referenceImages);
+        const workflow = convertDirectGenerationToWorkflow(
+          params,
+          referenceImages
+        );
 
         expect(workflow.steps[0].args.referenceImages).toEqual(referenceImages);
+      });
+
+      it('应该把目标图片绑定字段放在任务参数顶层', () => {
+        const params = createMockParams({
+          generationType: 'image',
+          prompt: '保留构图，改成夜景',
+          extraParams: {
+            generationMode: 'image_to_image',
+            replaceElementId: 'image-1',
+            targetElementId: 'image-1',
+            anchorId: 'anchor-1',
+            sourceTaskId: 'task-old',
+            sourcePrompt: '白天城市街景',
+            quality: 'high',
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params, [
+          'https://example.com/original.png',
+        ]);
+
+        expect(workflow.steps[0].args).toMatchObject({
+          generationMode: 'image_to_image',
+          referenceImages: ['https://example.com/original.png'],
+          replaceElementId: 'image-1',
+          targetElementId: 'image-1',
+          anchorId: 'anchor-1',
+          sourceTaskId: 'task-old',
+          sourcePrompt: '白天城市街景',
+          params: { quality: 'high' },
+        });
       });
 
       it('单张图片带蒙版时应该创建 image_edit 请求参数', () => {
@@ -274,6 +326,41 @@ describe('workflow-converter', () => {
         const workflow = convertDirectGenerationToWorkflow(params);
 
         expect(workflow.steps[0].args.seconds).toBe('15');
+      });
+
+      it('Seedance 2.0 应该透传选中的参考视频', () => {
+        const params = createMockParams({
+          generationType: 'video',
+          modelId: 'doubao-seedance-2-0-260128',
+          selection: {
+            texts: [],
+            images: [],
+            videos: ['https://example.com/reference.mp4'],
+            graphics: [],
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args.params).toMatchObject({
+          input_video: 'https://example.com/reference.mp4',
+        });
+      });
+
+      it('Seedance 2.0 应该独立透传分辨率与比例', () => {
+        const params = createMockParams({
+          generationType: 'video',
+          modelId: 'doubao-seedance-2-0-260128',
+          size: '1080p',
+          extraParams: { ratio: 'adaptive' },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args.size).toBe('1080p');
+        expect(workflow.steps[0].args.params).toMatchObject({
+          ratio: 'adaptive',
+        });
       });
 
       it('应该使用默认时长 5 秒', () => {
@@ -431,10 +518,16 @@ describe('workflow-converter', () => {
       const workflow = convertAgentFlowToWorkflow(params, referenceImages);
 
       expect(workflow.steps[0].args.context).toBeDefined();
-      expect((workflow.steps[0].args.context as any).finalPrompt).toBe('复杂任务描述');
+      expect((workflow.steps[0].args.context as any).finalPrompt).toBe(
+        '复杂任务描述'
+      );
       expect((workflow.steps[0].args.context as any).selection).toBeDefined();
-      expect((workflow.steps[0].args.context as any).defaultModels.image).toBe('gpt-image-2');
-      expect((workflow.steps[0].args.context as any).defaultModelRefs.image).toEqual({
+      expect((workflow.steps[0].args.context as any).defaultModels.image).toBe(
+        'gpt-image-2'
+      );
+      expect(
+        (workflow.steps[0].args.context as any).defaultModelRefs.image
+      ).toEqual({
         profileId: 'image-profile',
         modelId: 'gpt-image-2',
       });
@@ -452,9 +545,9 @@ describe('workflow-converter', () => {
       expect(workflow.steps[0].args.knowledgeContextRefs).toEqual(
         knowledgeContextRefs
       );
-      expect((workflow.steps[0].args.context as any).knowledgeContextRefs).toEqual(
-        knowledgeContextRefs
-      );
+      expect(
+        (workflow.steps[0].args.context as any).knowledgeContextRefs
+      ).toEqual(knowledgeContextRefs);
       expect(workflow.metadata.knowledgeContextRefs).toEqual(
         knowledgeContextRefs
       );
@@ -631,9 +724,9 @@ describe('workflow-converter', () => {
       expect(workflow.steps[0].args.knowledgeContextRefs).toEqual(
         knowledgeContextRefs
       );
-      expect((workflow.steps[0].args.context as any).knowledgeContextRefs).toEqual(
-        knowledgeContextRefs
-      );
+      expect(
+        (workflow.steps[0].args.context as any).knowledgeContextRefs
+      ).toEqual(knowledgeContextRefs);
     });
   });
 
@@ -642,7 +735,11 @@ describe('workflow-converter', () => {
       const response = JSON.stringify({
         content: 'analysis',
         next: [
-          { mcp: 'generate_image', args: { prompt: 'test' }, description: '生成图片' },
+          {
+            mcp: 'generate_image',
+            args: { prompt: 'test' },
+            description: '生成图片',
+          },
           { mcp: 'add_text', args: { text: 'hello' }, description: '添加文字' },
         ],
       });
@@ -739,9 +836,27 @@ describe('workflow-converter', () => {
       scenarioType: 'direct_generation',
       generationType: 'image',
       steps: [
-        { id: 'step-1', mcp: 'test1', args: {}, description: 'Step 1', status: 'pending' },
-        { id: 'step-2', mcp: 'test2', args: {}, description: 'Step 2', status: 'pending' },
-        { id: 'step-3', mcp: 'test3', args: {}, description: 'Step 3', status: 'pending' },
+        {
+          id: 'step-1',
+          mcp: 'test1',
+          args: {},
+          description: 'Step 1',
+          status: 'pending',
+        },
+        {
+          id: 'step-2',
+          mcp: 'test2',
+          args: {},
+          description: 'Step 2',
+          status: 'pending',
+        },
+        {
+          id: 'step-3',
+          mcp: 'test3',
+          args: {},
+          description: 'Step 3',
+          status: 'pending',
+        },
       ],
       createdAt: Date.now(),
     });
@@ -770,7 +885,13 @@ describe('workflow-converter', () => {
       const workflow = createMockWorkflow();
       const error = 'Generation failed';
 
-      const updated = updateStepStatus(workflow, 'step-1', 'failed', undefined, error);
+      const updated = updateStepStatus(
+        workflow,
+        'step-1',
+        'failed',
+        undefined,
+        error
+      );
 
       expect(updated.steps[0].status).toBe('failed');
       expect(updated.steps[0].error).toBe(error);
@@ -779,7 +900,14 @@ describe('workflow-converter', () => {
     it('应该更新步骤的 duration', () => {
       const workflow = createMockWorkflow();
 
-      const updated = updateStepStatus(workflow, 'step-1', 'completed', undefined, undefined, 5000);
+      const updated = updateStepStatus(
+        workflow,
+        'step-1',
+        'completed',
+        undefined,
+        undefined,
+        5000
+      );
 
       expect(updated.steps[0].duration).toBe(5000);
     });
@@ -812,14 +940,28 @@ describe('workflow-converter', () => {
       description: 'Test',
       scenarioType: 'agent_flow',
       generationType: 'image',
-      steps: [{ id: 'step-1', mcp: 'analyze', args: {}, description: 'Analyze', status: 'completed' }],
+      steps: [
+        {
+          id: 'step-1',
+          mcp: 'analyze',
+          args: {},
+          description: 'Analyze',
+          status: 'completed',
+        },
+      ],
       createdAt: Date.now(),
     });
 
     it('应该添加新步骤到工作流', () => {
       const workflow = createMockWorkflow();
       const newSteps: WorkflowStep[] = [
-        { id: 'step-2', mcp: 'generate', args: {}, description: 'Generate', status: 'pending' },
+        {
+          id: 'step-2',
+          mcp: 'generate',
+          args: {},
+          description: 'Generate',
+          status: 'pending',
+        },
       ];
 
       const updated = addStepsToWorkflow(workflow, newSteps);
@@ -831,7 +973,13 @@ describe('workflow-converter', () => {
     it('应该保持原有步骤不变', () => {
       const workflow = createMockWorkflow();
       const newSteps: WorkflowStep[] = [
-        { id: 'step-2', mcp: 'new', args: {}, description: 'New', status: 'pending' },
+        {
+          id: 'step-2',
+          mcp: 'new',
+          args: {},
+          description: 'New',
+          status: 'pending',
+        },
       ];
 
       const updated = addStepsToWorkflow(workflow, newSteps);
@@ -842,9 +990,27 @@ describe('workflow-converter', () => {
     it('应该支持添加多个步骤', () => {
       const workflow = createMockWorkflow();
       const newSteps: WorkflowStep[] = [
-        { id: 'step-2', mcp: 'step2', args: {}, description: 'Step 2', status: 'pending' },
-        { id: 'step-3', mcp: 'step3', args: {}, description: 'Step 3', status: 'pending' },
-        { id: 'step-4', mcp: 'step4', args: {}, description: 'Step 4', status: 'pending' },
+        {
+          id: 'step-2',
+          mcp: 'step2',
+          args: {},
+          description: 'Step 2',
+          status: 'pending',
+        },
+        {
+          id: 'step-3',
+          mcp: 'step3',
+          args: {},
+          description: 'Step 3',
+          status: 'pending',
+        },
+        {
+          id: 'step-4',
+          mcp: 'step4',
+          args: {},
+          description: 'Step 4',
+          status: 'pending',
+        },
       ];
 
       const updated = addStepsToWorkflow(workflow, newSteps);
@@ -855,7 +1021,13 @@ describe('workflow-converter', () => {
     it('应该保持不可变性', () => {
       const workflow = createMockWorkflow();
       const newSteps: WorkflowStep[] = [
-        { id: 'step-2', mcp: 'new', args: {}, description: 'New', status: 'pending' },
+        {
+          id: 'step-2',
+          mcp: 'new',
+          args: {},
+          description: 'New',
+          status: 'pending',
+        },
       ];
 
       const updated = addStepsToWorkflow(workflow, newSteps);
@@ -866,7 +1038,9 @@ describe('workflow-converter', () => {
   });
 
   describe('getWorkflowStatus', () => {
-    const createWorkflowWithSteps = (statuses: WorkflowStep['status'][]): WorkflowDefinition => ({
+    const createWorkflowWithSteps = (
+      statuses: WorkflowStep['status'][]
+    ): WorkflowDefinition => ({
       id: 'test',
       name: 'Test',
       description: 'Test',
@@ -883,7 +1057,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该在所有步骤完成时返回 completed', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'completed', 'completed']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'completed',
+        'completed',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -893,7 +1071,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该在有失败步骤时返回 failed', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'failed', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'failed',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -901,7 +1083,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该在有运行中步骤时返回 running', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'running', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'running',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -911,7 +1097,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该在所有步骤都是 pending 时返回 pending', () => {
-      const workflow = createWorkflowWithSteps(['pending', 'pending', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'pending',
+        'pending',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -919,7 +1109,12 @@ describe('workflow-converter', () => {
     });
 
     it('应该正确计算已完成步骤数', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'completed', 'running', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'completed',
+        'running',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -928,7 +1123,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该返回当前运行中的步骤', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'running', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'running',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 
@@ -937,7 +1136,11 @@ describe('workflow-converter', () => {
     });
 
     it('应该在没有运行中步骤时返回第一个 pending 步骤', () => {
-      const workflow = createWorkflowWithSteps(['completed', 'completed', 'pending']);
+      const workflow = createWorkflowWithSteps([
+        'completed',
+        'completed',
+        'pending',
+      ]);
 
       const status = getWorkflowStatus(workflow);
 

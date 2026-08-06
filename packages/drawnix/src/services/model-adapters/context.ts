@@ -72,7 +72,7 @@ export function buildProviderContextFromAdapterContext(
   };
 }
 
-export function sendAdapterRequest(
+export async function sendAdapterRequest(
   context: AdapterContext,
   request: ProviderTransportRequest,
   baseUrlOverride?: string
@@ -81,12 +81,25 @@ export function sendAdapterRequest(
     request.timeoutMs ??
     (context.operation === 'image' ? IMAGE_GENERATION_TIMEOUT_MS : undefined);
 
-  return providerTransport.send(
-    buildProviderContextFromAdapterContext(context, baseUrlOverride),
-    {
-      ...request,
-      timeoutMs,
-      fetcher: context.fetcher || request.fetcher,
-    }
+  const providerContext = buildProviderContextFromAdapterContext(
+    context,
+    baseUrlOverride
   );
+  const isSubmissionRequest = (request.method || 'GET').toUpperCase() !== 'GET';
+  const requestId =
+    context.operation === 'image' && context.requestId && isSubmissionRequest
+      ? context.requestId
+      : undefined;
+
+  if (requestId) {
+    await context.onSubmissionAttempt?.();
+  }
+
+  return providerTransport.send(providerContext, {
+    ...request,
+    requestId,
+    signal: request.signal || context.signal,
+    timeoutMs,
+    fetcher: context.fetcher || request.fetcher,
+  });
 }

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { Point } from '@plait/core';
+import { Transforms, type PlaitBoard, type Point } from '@plait/core';
 import { getTaskQueueService } from '../services/task-queue';
 import { workflowCompletionService } from '../services/workflow-completion-service';
 import { resolveAudioResultUrls } from '../services/audio-task-result-utils';
@@ -31,7 +31,10 @@ import {
   AUDIO_CARD_DEFAULT_HEIGHT,
   AUDIO_CARD_DEFAULT_WIDTH,
 } from '../data/audio';
-import { getInsertionPointBelowBottommostElement } from '../utils/selection-utils';
+import {
+  getInsertionPointBelowBottommostElement,
+  notifyAISelectionContentRefresh,
+} from '../utils/selection-utils';
 import { ImageGenerationAnchorTransforms } from '../plugins/with-image-generation-anchor';
 import { WorkZoneTransforms } from '../plugins/with-workzone';
 import {
@@ -152,6 +155,129 @@ function releaseTaskInsertion(taskId: string): void {
 function finalizeTaskInsertion(taskId: string): void {
   insertedTaskIds.add(taskId);
   getTaskQueueService().markAsInserted(taskId, 'auto_insert');
+}
+
+function readTaskParamString(task: Task, key: string): string | undefined {
+  const value = task.params?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function getTaskReplaceElementId(task: Task): string | undefined {
+  return readTaskParamString(task, 'replaceElementId');
+}
+
+function buildImageGenerationElementPatch(
+  task: Task,
+  anchor?: PlaitImageGenerationAnchor | null
+): Record<string, unknown> {
+  const prompt = readTaskParamString(task, 'prompt');
+  const generationAnchorId =
+    anchor?.id || readTaskParamString(task, 'anchorId');
+  return {
+    ...(prompt ? { prompt, aiPrompt: prompt, generationPrompt: prompt } : {}),
+    generationTaskId: task.id,
+    ...(generationAnchorId ? { generationAnchorId } : {}),
+  };
+}
+
+function syncImageTargetBindingAfterInsert(
+  board: PlaitBoard,
+  anchor: PlaitImageGenerationAnchor | null,
+  task: Task,
+  insertedElementId?: string,
+  previewImageUrl?: string,
+  updateElement = true
+): void {
+  if (insertedElementId && updateElement) {
+    const elementIndex = board.children.findIndex(
+      (element: { id?: string }) => element.id === insertedElementId
+    );
+    if (elementIndex >= 0) {
+      Transforms.setNode(
+        board,
+        buildImageGenerationElementPatch(task, anchor) as Partial<
+          PlaitBoard['children'][number]
+        >,
+        [elementIndex]
+      );
+    }
+  }
+
+  if (!anchor) return;
+
+  const prompt = readTaskParamString(task, 'prompt');
+  const sourceTaskId = readTaskParamString(task, 'sourceTaskId');
+  const targetElementId =
+    readTaskParamString(task, 'targetElementId') ||
+    getTaskReplaceElementId(task);
+  const taskIds = anchor.taskIds.includes(task.id)
+    ? anchor.taskIds
+    : [...anchor.taskIds, task.id];
+
+  ImageGenerationAnchorTransforms.updateAnchor(board, anchor.id, {
+    taskIds,
+    primaryTaskId: anchor.primaryTaskId || task.id,
+    latestTaskId: task.id,
+    ...(prompt ? { prompt } : {}),
+    ...(sourceTaskId ? { sourceTaskId } : {}),
+    ...(targetElementId ? { targetElementId } : {}),
+    ...(insertedElementId ? { resultElementId: insertedElementId } : {}),
+    ...(previewImageUrl ? { previewImageUrl } : {}),
+  });
+}
+
+function replaceGeneratedImageTarget(
+  board: PlaitBoard,
+  task: Task,
+  imageUrl: string,
+  fallbackSize?: { width: number; height: number }
+): {
+  point?: Point;
+  elementId: string;
+  size?: { width: number; height: number };
+} | null {
+  const replaceElementId = getTaskReplaceElementId(task);
+  if (!replaceElementId) return null;
+
+  const elementIndex = board.children.findIndex(
+    (element: { id?: string }) => element.id === replaceElementId
+  );
+  if (elementIndex < 0) return null;
+
+  const element = board.children[elementIndex] as { points?: [Point, Point] };
+  const points = element.points;
+  const existingSize =
+    points?.length === 2
+      ? {
+          width: Math.abs(points[1][0] - points[0][0]),
+          height: Math.abs(points[1][1] - points[0][1]),
+        }
+      : undefined;
+  const anchor = findImageGenerationAnchorForTask(task);
+
+  Transforms.setNode(
+    board,
+    {
+      ...buildImageGenerationElementPatch(task, anchor),
+      url: imageUrl,
+    } as Partial<PlaitBoard['children'][number]>,
+    [elementIndex]
+  );
+  syncImageTargetBindingAfterInsert(
+    board,
+    anchor,
+    task,
+    replaceElementId,
+    imageUrl,
+    false
+  );
+  notifyAISelectionContentRefresh();
+
+  return {
+    point: points?.[0],
+    elementId: replaceElementId,
+    size: existingSize || fallbackSize,
+  };
 }
 
 function updatePPTSlideImageAfterInsert(
@@ -358,6 +484,15 @@ function getInsertionResultGeometry(
     position,
     size,
   };
+}
+
+function getInsertionResultItems(
+  result: unknown,
+  type: ContentType
+): CanvasInsertionResultData['items'] {
+  const data = (result as { data?: CanvasInsertionResultData } | undefined)
+    ?.data;
+  return data?.items.filter((item) => item.type === type) || [];
 }
 
 function resolvePendingInsertContext(
@@ -665,6 +800,33 @@ export function useAutoInsertToCanvas(
                 ? task.result.urls
                 : [url as string];
 
+            if (type === 'image' && getTaskReplaceElementId(task)) {
+              const replacement = replaceGeneratedImageTarget(
+                board,
+                task,
+                allUrls[0],
+                dimensions
+              );
+              if (!replacement) {
+                releaseTaskInsertion(task.id);
+                workflowCompletionService.failPostProcessing(
+                  task.id,
+                  'Target image is no longer available'
+                );
+                continue;
+              }
+
+              workflowCompletionService.completePostProcessing(
+                task.id,
+                1,
+                replacement.point,
+                replacement.elementId,
+                replacement.size
+              );
+              finalizeTaskInsertion(task.id);
+              continue;
+            }
+
             // 检查是否需要插入到 Frame 内部
             const taskFrameId =
               targetFrameId ||
@@ -954,6 +1116,16 @@ export function useAutoInsertToCanvas(
               );
             }
 
+            if (type === 'image') {
+              syncImageTargetBindingAfterInsert(
+                board,
+                imageAnchor,
+                task,
+                insertedElementId,
+                allUrls[0]
+              );
+            }
+
             workflowCompletionService.completePostProcessing(
               task.id,
               allUrls.length,
@@ -1031,6 +1203,17 @@ export function useAutoInsertToCanvas(
                     }));
                   })
                 : [];
+            const imageGroupItems =
+              firstInsertTask.type === TaskType.IMAGE && !isLyricsAudioTask
+                ? inserts.flatMap(({ task }) => {
+                    const anchor = findImageGenerationAnchorForTask(task);
+                    return getImageResultUrls(task).map((url) => ({
+                      task,
+                      anchor,
+                      url,
+                    }));
+                  })
+                : [];
 
             if (urls.length === 0) {
               // console.log(`[AutoInsert] No valid URLs in group, skipping`);
@@ -1072,6 +1255,7 @@ export function useAutoInsertToCanvas(
             let insertedPoint = resolvedInsertionPoint;
             let insertedElementId: string | undefined;
             let insertedSize = groupImageDimensions;
+            let insertedImageItems: CanvasInsertionResultData['items'] = [];
 
             // console.log(`[AutoInsert] Inserting group of ${urls.length} ${type}s`);
 
@@ -1145,7 +1329,12 @@ export function useAutoInsertToCanvas(
                   url: resultUrl,
                   dimensions,
                   metadata:
-                    type === 'audio'
+                    type === 'image'
+                      ? buildImageGenerationElementPatch(
+                          imageGroupItems[index]?.task || firstInsertTask,
+                          imageGroupItems[index]?.anchor
+                        )
+                      : type === 'audio'
                       ? {
                           ...audioGroupItems[index]?.metadata,
                         }
@@ -1154,6 +1343,10 @@ export function useAutoInsertToCanvas(
                 resolvedInsertionPoint
               );
               if (type === 'image') {
+                insertedImageItems = getInsertionResultItems(
+                  insertionResult,
+                  'image'
+                );
                 const insertionGeometry = getInsertionResultGeometry(
                   insertionResult,
                   resolvedInsertionPoint,
@@ -1186,6 +1379,10 @@ export function useAutoInsertToCanvas(
                   urls,
                   resolvedInsertionPoint,
                   dimensions
+                );
+                insertedImageItems = getInsertionResultItems(
+                  insertionResult,
+                  'image'
                 );
                 const insertionGeometry = getInsertionResultGeometry(
                   insertionResult,
@@ -1259,13 +1456,39 @@ export function useAutoInsertToCanvas(
               });
             }
 
+            const insertedImageItemByTaskId = new Map<
+              string,
+              CanvasInsertionResultData['items'][number]
+            >();
+            if (type === 'image') {
+              imageGroupItems.forEach((item, index) => {
+                const insertedItem = insertedImageItems[index];
+                if (!insertedItem?.elementId) return;
+                syncImageTargetBindingAfterInsert(
+                  board,
+                  item.anchor,
+                  item.task,
+                  insertedItem.elementId,
+                  item.url
+                );
+                if (!insertedImageItemByTaskId.has(item.task.id)) {
+                  insertedImageItemByTaskId.set(item.task.id, insertedItem);
+                }
+              });
+            }
+
             for (const { task } of inserts) {
+              const insertedImageItem = insertedImageItemByTaskId.get(task.id);
               workflowCompletionService.completePostProcessing(
                 task.id,
                 1,
-                insertedPoint,
-                type === 'image' ? insertedElementId : undefined,
-                type === 'image' ? insertedSize : undefined
+                insertedImageItem?.point || insertedPoint,
+                type === 'image'
+                  ? insertedImageItem?.elementId || insertedElementId
+                  : undefined,
+                type === 'image'
+                  ? insertedImageItem?.size || insertedSize
+                  : undefined
               );
               finalizeTaskInsertion(task.id);
             }
@@ -1344,6 +1567,7 @@ export function useAutoInsertToCanvas(
       const linkedImageAnchor = findImageGenerationAnchorForTask(task);
       const shouldAutoInsert =
         task.params.autoInsertToCanvas ||
+        !!getTaskReplaceElementId(task) ||
         !!linkedWorkzone ||
         !!linkedImageAnchor;
 
@@ -1472,11 +1696,13 @@ export function useAutoInsertToCanvas(
     };
 
     const recoverCompletedAutoInsertTasks = () => {
-      getTaskQueueService().getAllTasks().forEach((task) => {
-        if (task.status === TaskStatus.COMPLETED) {
-          handleTaskCompleted(task);
-        }
-      });
+      getTaskQueueService()
+        .getAllTasks()
+        .forEach((task) => {
+          if (task.status === TaskStatus.COMPLETED) {
+            handleTaskCompleted(task);
+          }
+        });
     };
 
     /**
@@ -1586,8 +1812,12 @@ export function useAutoInsertToCanvas(
       const taskId = event.detail?.taskId;
       const anchorId = event.detail?.anchorId;
       const updateRetryAnchor = (
-        state: Parameters<typeof buildImageGenerationAnchorPresentationPatch>[0],
-        options?: Parameters<typeof buildImageGenerationAnchorPresentationPatch>[1]
+        state: Parameters<
+          typeof buildImageGenerationAnchorPresentationPatch
+        >[0],
+        options?: Parameters<
+          typeof buildImageGenerationAnchorPresentationPatch
+        >[1]
       ) => {
         if (!anchorId) {
           return;

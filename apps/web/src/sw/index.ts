@@ -28,17 +28,17 @@ import {
 } from './task-queue/utils/message-bus';
 import { setSwRuntimeBridge } from './task-queue/sw-runtime-bridge';
 import {
-  fetchFromCDNWithFallback,
-  extractVersionFromCDNPath,
-  getCDNStatusReport,
-  resetCDNStatus,
-  performHealthCheck,
-  setCDNPreference,
-} from './cdn-fallback';
+  beginMediaCacheOperation,
+  getMediaCacheEpoch,
+  isMediaCacheEpochCurrent,
+  pauseMediaCacheWrites,
+  resumeMediaCacheWrites,
+  waitForMediaCacheOperations,
+} from './task-queue/media-cache-epoch';
+import { clearThumbnailCache } from './task-queue/utils/thumbnail-utils';
 import { getSafeErrorMessage } from './task-queue/utils/sanitize-utils';
 import {
   shouldBypassAppShellCacheForLazyChunkRecovery,
-  shouldUseCDNFirstPreload,
   shouldUseOriginFirstPreload,
   shouldUseAppShellStrategy,
 } from './app-shell-routing';
@@ -65,9 +65,6 @@ export {
   deleteCacheByUrl,
   // Re-export from imports
   getInternalFetchLogs,
-  getCDNStatusReport,
-  resetCDNStatus,
-  performHealthCheck,
   // Constants
   APP_VERSION,
   IMAGE_CACHE_NAME,
@@ -275,10 +272,8 @@ setSwRuntimeBridge({
   clearCrashSnapshots,
   getCacheStats,
   deleteCacheByUrl,
+  clearImageCache,
   getInternalFetchLogs,
-  getCDNStatusReport,
-  resetCDNStatus,
-  performHealthCheck,
   getAppVersion: () => APP_VERSION,
   getImageCacheName: () => IMAGE_CACHE_NAME,
   requestVideoThumbnail: async (url, timeoutMs, maxSize) => {
@@ -1250,22 +1245,6 @@ function logSWDebug(message: string, detail?: unknown): void {
   }
 }
 
-function getUnavailableCDNSnapshot(): Array<{
-  name: string;
-  failCount: number;
-  remainingCooldownMs: number;
-  lastFailureReason?: string;
-}> {
-  return getCDNStatusReport()
-    .filter((item) => item.remainingCooldownMs > 0 && !item.status.isHealthy)
-    .map((item) => ({
-      name: item.name,
-      failCount: item.status.failCount,
-      remainingCooldownMs: item.remainingCooldownMs,
-      lastFailureReason: item.status.lastFailureReason,
-    }));
-}
-
 function logStatic503Decision(
   stage: string,
   request: Request,
@@ -1276,7 +1255,6 @@ function logStatic503Decision(
     requestUrl: request.url,
     destination: request.destination,
     mode: request.mode,
-    unavailableCDNs: getUnavailableCDNSnapshot(),
     ...detail,
   });
 }
@@ -1914,15 +1892,6 @@ function isVersionedStaticResource(request: Request, url: URL): boolean {
   );
 }
 
-function normalizeAituPackageResourcePath(pathnameWithSearch: string): string {
-  const [pathname, search = ''] = pathnameWithSearch.split(/([?#].*)/, 2);
-  const normalizedPathname = pathname
-    .replace(/^\/npm\/aitu-app@[^/]+\//, '/')
-    .replace(/^\/aitu-app@[^/]+\//, '/');
-
-  return `${normalizedPathname}${search}`;
-}
-
 function normalizeScopedResourcePath(pathnameWithSearch: string): string {
   const [pathname, search = ''] = pathnameWithSearch.split(/([?#].*)/, 2);
   return `${getScopeRelativePathname(pathname)}${search}`;
@@ -1935,8 +1904,8 @@ function resolveStaticResourceFetchTargets(inputUrl: string): {
   originFetchUrl: string;
 } {
   const requestUrl = new URL(inputUrl, self.location.origin);
-  const resourcePath = normalizeAituPackageResourcePath(
-    normalizeScopedResourcePath(`${requestUrl.pathname}${requestUrl.search}`)
+  const resourcePath = normalizeScopedResourcePath(
+    `${requestUrl.pathname}${requestUrl.search}`
   );
   const normalizedResourceUrl = createScopeUrl(resourcePath);
 
@@ -2113,9 +2082,7 @@ async function deleteStaticCacheLookupKeys(
 }
 
 /**
- * 缓存单个文件
- * - 根壳与版本元数据保持同源优先，确保升级协议稳定
- * - manifest 已知的其他静态资源统一优先走 CDN，失败后回退服务器
+ * 缓存单个文件，全部走同源服务器
  */
 async function cacheFile(
   cache: Cache,
@@ -2146,37 +2113,9 @@ async function cacheFile(
       }
     }
 
-    let response: Response | null = null;
-    let source = 'server';
-    let fetchTarget = targets.originFetchUrl;
-
-    if (
-      shouldUseCDNFirstPreload(
-        getScopeRelativePathname(targets.requestUrl.pathname)
-      )
-    ) {
-      const cdnResult = await fetchFromCDNWithFallback(
-        targets.resourcePath,
-        APP_VERSION,
-        SW_SCOPE_BASE_URL.href.replace(/\/$/, ''),
-        {
-          preferLocal: false,
-          requestKind: 'background-prefetch',
-        }
-      );
-
-      if (cdnResult?.response.ok) {
-        response = cdnResult.response;
-        source = cdnResult.source;
-        fetchTarget = cdnResult.targetUrl;
-      }
-    }
-
-    if (!response) {
-      response = await fetch(targets.originFetchUrl, { cache: 'reload' });
-      source = 'server';
-      fetchTarget = targets.originFetchUrl;
-    }
+    const response = await fetch(targets.originFetchUrl, { cache: 'reload' });
+    const source = 'server';
+    const fetchTarget = targets.originFetchUrl;
 
     if (
       response.ok &&
@@ -2221,8 +2160,7 @@ async function cacheFile(
 
 /**
  * 预缓存静态资源
- * 使用并发控制避免同时发起太多请求
- * 根壳与发布元数据保持同源优先，其余 manifest 静态资源统一 CDN 优先
+ * 使用并发控制避免同时发起太多请求，全部走同源服务器
  */
 async function precacheStaticFiles(
   cache: Cache,
@@ -2231,8 +2169,6 @@ async function precacheStaticFiles(
   total: number;
   successCount: number;
   failCount: number;
-  cdnCount: number;
-  serverCount: number;
 }> {
   const CONCURRENCY = 6; // 并发数
   const allResults: Array<{
@@ -2354,20 +2290,12 @@ async function precacheStaticFiles(
 
   const successCount = allResults.filter((r) => r.success).length;
   const failCount = allResults.length - successCount;
-  const cdnCount = allResults.filter(
-    (r) => r.success && r.source && r.source !== 'server'
-  ).length;
-  const serverCount = allResults.filter(
-    (r) => r.success && r.source === 'server'
-  ).length;
   const cacheEntriesAfter = await getCacheEntryCount(cache);
 
   logSWDebug('precacheStaticFiles finished', {
     total,
     successCount,
     failCount,
-    cdnCount,
-    serverCount,
     cacheEntriesBefore,
     cacheEntriesAfter,
   });
@@ -2376,8 +2304,6 @@ async function precacheStaticFiles(
     total,
     successCount,
     failCount,
-    cdnCount,
-    serverCount,
   };
 }
 
@@ -2897,15 +2823,6 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
       });
       await postVersionState();
 
-      // 预热 CDN 偏好，后续静态资源请求可以直接复用
-      // 失败仅影响优先级排序，不影响激活
-      try {
-        const { ensureCDNPreferenceLoaded } = await import('./cdn-fallback');
-        await ensureCDNPreferenceLoaded();
-      } catch (error) {
-        console.warn('Failed to load persisted CDN preference:', error);
-      }
-
       if (shouldClaimClientsOnActivate) {
         logSWDebug('activate: before clients.claim');
         await sw.clients.claim();
@@ -3050,72 +2967,58 @@ function broadcastPostMessageLog(entry: PostMessageLogEntry): void {
   }
 }
 
-async function tryFetchStaticResourceFromCDN(
+async function tryFetchVersionedStaticResourceFromOrigin(
   cache: Cache,
   request: Request,
   resourcePath: string,
   appVersion: string
 ): Promise<Response | null> {
-  if (isDevelopment) {
-    return null;
-  }
-
   try {
     const targets = resolveStaticResourceFetchTargets(request.url);
-    const cdnResult = await fetchFromCDNWithFallback(
-      resourcePath,
-      appVersion,
-      SW_SCOPE_BASE_URL.href.replace(/\/$/, ''),
-      {
-        // 运行时 hash 资源优先走 CDN，失败后再回源站兜底。
-        preferLocal: false,
-        requestKind: 'interactive-runtime',
-      }
-    );
+    const response = await fetch(targets.originFetchUrl, { cache: 'reload' });
 
-    if (!cdnResult?.response.ok) {
-      console.warn(
-        '[SW CDN] Static resource unavailable from all fallback sources',
-        {
-          requestUrl: request.url,
-          resourcePath,
-          appVersion,
-          unavailableCDNs: getUnavailableCDNSnapshot(),
-        }
-      );
+    if (!response.ok) {
+      console.warn('[SW] Static resource unavailable from origin', {
+        requestUrl: request.url,
+        resourcePath,
+        appVersion,
+        status: response.status,
+      });
       return null;
     }
 
     const requestUrl = new URL(request.url);
-    if (isStaticHtmlFallbackResponse(request, requestUrl, cdnResult.response)) {
+    if (isStaticHtmlFallbackResponse(request, requestUrl, response)) {
       return null;
     }
 
     const cachedResponse = await cacheStaticResponse(
       cache,
       targets.cacheKey,
-      cdnResult.response,
+      response,
       {
-        source: cdnResult.source,
+        source: 'server',
         revision: 'runtime',
-        fetchTarget: cdnResult.targetUrl,
+        fetchTarget: targets.originFetchUrl,
         appVersion,
       }
     );
 
     if (targets.cacheKey !== request.url) {
-      logSWDebug('tryFetchStaticResourceFromCDN: cached under normalized key', {
-        requestUrl: request.url,
-        normalizedCacheKey: targets.cacheKey,
-        resourcePath,
-        source: cdnResult.source,
-        fetchTarget: cdnResult.targetUrl,
-      });
+      logSWDebug(
+        'tryFetchVersionedStaticResourceFromOrigin: cached under normalized key',
+        {
+          requestUrl: request.url,
+          normalizedCacheKey: targets.cacheKey,
+          resourcePath,
+          fetchTarget: targets.originFetchUrl,
+        }
+      );
     }
 
     return cachedResponse;
-  } catch (cdnError) {
-    console.warn('[SW CDN] CDN fallback failed:', cdnError);
+  } catch (fetchError) {
+    console.warn('[SW] Origin fetch failed for static resource:', fetchError);
     return null;
   }
 }
@@ -3241,6 +3144,7 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
 
   // Handle thumbnail generation request from main thread
   if (event.data && event.data.type === 'GENERATE_THUMBNAIL') {
+    const requestCacheEpoch = getMediaCacheEpoch();
     const { url, mediaType, blob: arrayBuffer, mimeType } = event.data;
     if (url && mediaType && arrayBuffer) {
       // 将 ArrayBuffer 转换为 Blob
@@ -3253,21 +3157,15 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, url, mediaType);
+        generateThumbnailAsync(
+          blob,
+          url,
+          mediaType,
+          undefined,
+          requestCacheEpoch
+        );
       })();
     }
-    return;
-  }
-
-  if (event.data && event.data.type === 'SW_CDN_SET_PREFERENCE') {
-    event.waitUntil(
-      setCDNPreference({
-        cdn: event.data.cdn,
-        latency: event.data.latency,
-        timestamp: event.data.timestamp,
-        version: event.data.version,
-      })
-    );
     return;
   }
 
@@ -4020,18 +3918,43 @@ async function deleteCacheBatch(urls: string[]): Promise<void> {
 
 // 清空所有图片缓存
 async function clearImageCache(): Promise<void> {
+  pauseMediaCacheWrites();
   try {
-    const cache = await caches.open(IMAGE_CACHE_NAME);
-    const requests = await cache.keys();
-
-    for (const request of requests) {
-      await cache.delete(request);
-    }
-
-    // console.log(`Service Worker: Cleared ${requests.length} cache entries`);
+    await waitForMediaCacheOperations();
+    pendingImageRequests.clear();
+    completedImageRequests.clear();
+    pendingVideoRequests.clear();
+    videoBlobCache.clear();
+    cacheFailureNotificationCache.clear();
+    failedUrlCache.clear();
+    await Promise.all([
+      caches.delete(IMAGE_CACHE_NAME),
+      clearThumbnailCache(false),
+    ]);
   } catch (error) {
     console.error('Service Worker: Failed to clear image cache:', error);
     throw error;
+  } finally {
+    resumeMediaCacheWrites();
+  }
+}
+
+async function putMediaCacheEntry(
+  cache: Cache,
+  request: RequestInfo | URL,
+  response: Response,
+  cacheEpoch: number
+): Promise<boolean> {
+  const finishOperation = beginMediaCacheOperation(cacheEpoch);
+  if (!finishOperation) {
+    return false;
+  }
+
+  try {
+    await cache.put(request, response);
+    return true;
+  } finally {
+    finishOperation();
   }
 }
 
@@ -4055,10 +3978,7 @@ async function notifyImageCached(
 function shouldNotifyCacheFailure(url: string): boolean {
   const now = Date.now();
   const lastNotifiedAt = cacheFailureNotificationCache.get(url);
-  if (
-    lastNotifiedAt &&
-    now - lastNotifiedAt < CACHE_FAILURE_NOTIFICATION_TTL
-  ) {
+  if (lastNotifiedAt && now - lastNotifiedAt < CACHE_FAILURE_NOTIFICATION_TTL) {
     return false;
   }
 
@@ -4903,6 +4823,7 @@ async function hasCachedMediaResponse(
 // 处理缓存 URL 请求 (/__aitu_cache__/{type}/{taskId}.{ext})
 // 从 Cache API 获取合并媒体并返回，视频支持 Range 请求
 async function handleCacheUrlRequest(request: Request): Promise<Response> {
+  const requestCacheEpoch = getMediaCacheEpoch();
   const requestId = Math.random().toString(36).substring(2, 10);
   const url = new URL(request.url);
   const rangeHeader = request.headers.get('range');
@@ -4983,7 +4904,13 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, url.pathname, 'image');
+        generateThumbnailAsync(
+          blob,
+          url.pathname,
+          'image',
+          undefined,
+          requestCacheEpoch
+        );
       }
 
       if (isVideo) {
@@ -5031,6 +4958,7 @@ async function handleCacheUrlRequest(request: Request): Promise<Response> {
 // 处理素材库 URL 请求 (/asset-library/{assetId}.{ext})
 // 从 Cache API 获取素材库媒体并返回，支持 Range 请求（视频）
 async function handleAssetLibraryRequest(request: Request): Promise<Response> {
+  const requestCacheEpoch = getMediaCacheEpoch();
   const requestId = Math.random().toString(36).substring(2, 10);
   const url = new URL(request.url);
   const rangeHeader = request.headers.get('range');
@@ -5107,7 +5035,13 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
         const { generateThumbnailAsync } = await import(
           './task-queue/utils/thumbnail-utils'
         );
-        generateThumbnailAsync(blob, cacheKey, 'image');
+        generateThumbnailAsync(
+          blob,
+          cacheKey,
+          'image',
+          undefined,
+          requestCacheEpoch
+        );
       }
 
       if (isVideo && rangeHeader) {
@@ -5159,6 +5093,7 @@ async function handleAssetLibraryRequest(request: Request): Promise<Response> {
 async function handleAudioRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const requestId = Math.random().toString(36).substring(2, 10);
+  const requestCacheEpoch = getMediaCacheEpoch();
   const rangeHeader = request.headers.get('range');
   const dedupeUrl = buildNormalizedCacheUrl(url);
   const dedupeKey = dedupeUrl.toString();
@@ -5195,12 +5130,19 @@ async function handleAudioRequest(request: Request): Promise<Response> {
     }
 
     if (response.type === 'opaque') {
-      cache.put(dedupeKey, response.clone()).catch((error) => {
-        console.warn(
-          `Service Worker [Audio-${requestId}]: Failed to cache opaque audio response:`,
-          error
-        );
-      });
+      if (isMediaCacheEpochCurrent(requestCacheEpoch)) {
+        putMediaCacheEntry(
+          cache,
+          dedupeKey,
+          response.clone(),
+          requestCacheEpoch
+        ).catch((error) => {
+          console.warn(
+            `Service Worker [Audio-${requestId}]: Failed to cache opaque audio response:`,
+            error
+          );
+        });
+      }
       return response;
     }
 
@@ -5224,7 +5166,14 @@ async function handleAudioRequest(request: Request): Promise<Response> {
       },
     });
 
-    await cache.put(dedupeKey, cacheResponse.clone());
+    if (isMediaCacheEpochCurrent(requestCacheEpoch)) {
+      await putMediaCacheEntry(
+        cache,
+        dedupeKey,
+        cacheResponse.clone(),
+        requestCacheEpoch
+      );
+    }
 
     return createAudioResponse(blob, rangeHeader, requestId, mimeType);
   } catch (error) {
@@ -5263,6 +5212,7 @@ const VIDEO_LOAD_ERROR = Symbol('VIDEO_LOAD_ERROR');
 async function handleVideoRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const requestId = Math.random().toString(36).substring(2, 10);
+  const requestCacheEpoch = getMediaCacheEpoch();
   // console.log(`Service Worker [Video-${requestId}]: Handling video request:`, url.href);
 
   try {
@@ -5308,7 +5258,8 @@ async function handleVideoRequest(request: Request): Promise<Response> {
             new Blob([], { type: 'video/mp4' }),
             dedupeKey,
             'video',
-            [thumbnailSize]
+            [thumbnailSize],
+            requestCacheEpoch
           );
         } catch {
           return;
@@ -5383,7 +5334,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
         const videoSizeMB = videoBlob.size / (1024 * 1024);
 
         // 恢复到内存缓存（用于后续快速访问）
-        if (videoSizeMB < 50) {
+        if (videoSizeMB < 50 && isMediaCacheEpochCurrent(requestCacheEpoch)) {
           videoBlobCache.set(dedupeKey, {
             blob: videoBlob,
             timestamp: Date.now(),
@@ -5431,31 +5382,43 @@ async function handleVideoRequest(request: Request): Promise<Response> {
         // console.log(`Service Worker [Video-${requestId}]: 视频下载完成 (大小: ${videoSizeMB.toFixed(2)}MB)`);
 
         // 缓存视频Blob（仅缓存小于50MB的视频）
-        if (videoSizeMB < 50) {
-          // 1. 内存缓存（用于当前会话快速访问）
-          videoBlobCache.set(dedupeKey, {
-            blob: videoBlob,
-            timestamp: Date.now(),
-          });
-          // 2. 持久化到 Cache API（用于跨会话持久化）
+        const finishCacheOperation =
+          videoSizeMB < 50 ? beginMediaCacheOperation(requestCacheEpoch) : null;
+        if (finishCacheOperation) {
           try {
-            const cache = await caches.open(IMAGE_CACHE_NAME);
-            const cacheResponse = new Response(videoBlob, {
-              headers: {
-                'Content-Type': videoBlob.type || 'video/mp4',
-                'Content-Length': videoBlob.size.toString(),
-                [SW_CACHE_DATE_HEADER]: Date.now().toString(),
-                [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
-                'sw-video-size': videoBlob.size.toString(),
-              },
+            // 1. 内存缓存（用于当前会话快速访问）
+            videoBlobCache.set(dedupeKey, {
+              blob: videoBlob,
+              timestamp: Date.now(),
             });
-            await cache.put(dedupeKey, cacheResponse);
-            const { generateThumbnailAsync } = await import(
-              './task-queue/utils/thumbnail-utils'
-            );
-            generateThumbnailAsync(videoBlob, dedupeKey, 'video');
-          } catch {
-            // 持久化到 Cache API 失败，内存缓存仍可用
+            // 2. 持久化到 Cache API（用于跨会话持久化）
+            try {
+              const cache = await caches.open(IMAGE_CACHE_NAME);
+              const cacheResponse = new Response(videoBlob, {
+                headers: {
+                  'Content-Type': videoBlob.type || 'video/mp4',
+                  'Content-Length': videoBlob.size.toString(),
+                  [SW_CACHE_DATE_HEADER]: Date.now().toString(),
+                  [SW_CACHE_CREATED_AT_HEADER]: Date.now().toString(),
+                  'sw-video-size': videoBlob.size.toString(),
+                },
+              });
+              await cache.put(dedupeKey, cacheResponse);
+              const { generateThumbnailAsync } = await import(
+                './task-queue/utils/thumbnail-utils'
+              );
+              generateThumbnailAsync(
+                videoBlob,
+                dedupeKey,
+                'video',
+                undefined,
+                requestCacheEpoch
+              );
+            } catch {
+              // 持久化到 Cache API 失败，内存缓存仍可用
+            }
+          } finally {
+            finishCacheOperation();
           }
         }
 
@@ -5476,7 +5439,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
     // 下载完成后从字典中移除
     downloadPromise.finally(() => {
       const entry = pendingVideoRequests.get(dedupeKey);
-      if (entry) {
+      if (entry?.promise === downloadPromise) {
         // const totalTime = Date.now() - entry.timestamp;
         // console.log(`Service Worker [Video-${requestId}]: 视频下载完成 (耗时${totalTime}ms，请求计数: ${entry.count})`);
         pendingVideoRequests.delete(dedupeKey);
@@ -5813,11 +5776,12 @@ async function handleStaticRequest(request: Request): Promise<Response> {
     await deleteStaticCacheLookupKeys(cache, request, normalizedCacheKey);
   }
 
-  // Cache miss - determine if this is a CDN-cacheable static resource
+  // Cache miss - versioned static assets (hashed js/css/images/fonts) get
+  // an old-cache/browser-cache lookup before falling back to origin fetch.
   const resourcePath = staticTargets.resourcePath;
-  const isSmartCDNResource = isVersionedStaticResource(request, url);
+  const isVersionedAsset = isVersionedStaticResource(request, url);
 
-  if (isSmartCDNResource) {
+  if (isVersionedAsset) {
     if (request.url !== normalizedCacheKey) {
       logSWDebug('handleStaticRequest: cross-origin static cache miss', {
         requestUrl: request.url,
@@ -5842,25 +5806,19 @@ async function handleStaticRequest(request: Request): Promise<Response> {
       return browserCachedResponse;
     }
 
-    // 请求 URL 中已包含 CDN 版本号时优先使用，避免版本重写导致 404
-    const embeddedVersion = extractVersionFromCDNPath(url.pathname);
-    const cdnVersion = embeddedVersion || committedVersion;
-
-    const smartResponse = await tryFetchStaticResourceFromCDN(
+    const originResponse = await tryFetchVersionedStaticResourceFromOrigin(
       cache,
       request,
       resourcePath,
-      cdnVersion
+      committedVersion
     );
-    if (smartResponse) {
-      return smartResponse;
+    if (originResponse) {
+      return originResponse;
     }
 
-    logStatic503Decision('smart-cdn-resource-failed', request, {
+    logStatic503Decision('versioned-resource-origin-failed', request, {
       resourcePath,
       committedVersion,
-      hasEmbeddedVersion: Boolean(embeddedVersion),
-      attemptedVersion: cdnVersion,
     });
     return new Response('Resource unavailable offline', {
       status: 503,
@@ -6218,13 +6176,15 @@ async function handleImageRequest(request: Request): Promise<Response> {
     cleanupStaleRequests();
 
     // 创建请求处理Promise并存储到去重字典
+    const requestCacheEpoch = getMediaCacheEpoch();
     const requestPromise = handleImageRequestInternal(
       originalRequest,
       request.url,
       dedupeKey,
       requestId,
       bypassCache,
-      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined
+      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined,
+      requestCacheEpoch
     );
 
     // 将Promise存储到去重字典中，包含时间戳和计数
@@ -6242,7 +6202,11 @@ async function handleImageRequest(request: Request): Promise<Response> {
     requestPromise
       .then((response) => {
         // 请求成功，将响应存入已完成缓存
-        if (response && response.ok) {
+        if (
+          response &&
+          response.ok &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
           completedImageRequests.set(dedupeKey, {
             response: response.clone(),
             timestamp: Date.now(),
@@ -6255,7 +6219,7 @@ async function handleImageRequest(request: Request): Promise<Response> {
       })
       .finally(() => {
         const entry = pendingImageRequests.get(dedupeKey);
-        if (entry) {
+        if (entry?.promise === requestPromise) {
           // const totalTime = Date.now() - entry.timestamp;
           // const allRequestIds = [entry.originalRequestId, ...entry.duplicateRequestIds || []];
           // console.log(`Service Worker [${requestId}]: 请求完成 (耗时${totalTime}ms，总计数: ${entry.count}，涉及请求IDs: [${allRequestIds.join(', ')}]):`, dedupeKey);
@@ -6310,7 +6274,8 @@ async function handleImageRequestInternal(
   dedupeKey: string,
   requestId: string,
   bypassCache = false,
-  requestedThumbnailSize?: 'small' | 'large'
+  requestedThumbnailSize?: 'small' | 'large',
+  requestCacheEpoch = getMediaCacheEpoch()
 ): Promise<Response> {
   try {
     // console.log(`Service Worker [${requestId}]: 开始处理图片请求:`, dedupeKey);
@@ -6352,11 +6317,20 @@ async function handleImageRequestInternal(
           // 继续执行后面的网络请求逻辑
         } else {
           // 如果是预览图请求且预览图不存在，异步生成预览图（不阻塞响应）
-          if (requestedThumbnailSize) {
+          if (
+            requestedThumbnailSize &&
+            isMediaCacheEpochCurrent(requestCacheEpoch)
+          ) {
             const { generateThumbnailAsync } = await import(
               './task-queue/utils/thumbnail-utils'
             );
-            generateThumbnailAsync(blob, originalRequest.url, 'image');
+            generateThumbnailAsync(
+              blob,
+              originalRequest.url,
+              'image',
+              undefined,
+              requestCacheEpoch
+            );
           }
 
           const cacheDate = cachedResponse.headers.get(SW_CACHE_DATE_HEADER);
@@ -6380,9 +6354,17 @@ async function handleImageRequestInternal(
             });
 
             // 用新时间戳重新缓存（使用 canonical key 作为键）
-            if (originalRequest.url.startsWith('http')) {
-              await cache.put(dedupeKey, refreshedResponse.clone());
-              if (requestUrl !== dedupeKey) {
+            if (
+              originalRequest.url.startsWith('http') &&
+              isMediaCacheEpochCurrent(requestCacheEpoch)
+            ) {
+              const cached = await putMediaCacheEntry(
+                cache,
+                dedupeKey,
+                refreshedResponse.clone(),
+                requestCacheEpoch
+              );
+              if (cached && requestUrl !== dedupeKey) {
                 await cache.delete(requestUrl);
               }
             }
@@ -6402,9 +6384,17 @@ async function handleImageRequestInternal(
               },
             });
 
-            if (originalRequest.url.startsWith('http')) {
-              await cache.put(dedupeKey, refreshedResponse.clone());
-              if (requestUrl !== dedupeKey) {
+            if (
+              originalRequest.url.startsWith('http') &&
+              isMediaCacheEpochCurrent(requestCacheEpoch)
+            ) {
+              const cached = await putMediaCacheEntry(
+                cache,
+                dedupeKey,
+                refreshedResponse.clone(),
+                requestCacheEpoch
+              );
+              if (cached && requestUrl !== dedupeKey) {
                 await cache.delete(requestUrl);
               }
             }
@@ -6677,7 +6667,10 @@ async function handleImageRequestInternal(
       });
       
       try {
-        if (originalRequest.url.startsWith('http')) {
+        if (
+          originalRequest.url.startsWith('http') &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
           await cache.put(originalRequest, corsResponse.clone());
           await notifyImageCached(requestUrl, 0, 'image/png');
           await checkStorageQuota();
@@ -6717,10 +6710,21 @@ async function handleImageRequestInternal(
 
       // 尝试缓存响应，处理存储限制错误
       try {
-        if (originalRequest.url.startsWith('http')) {
-          await cache.put(dedupeKey, corsResponse.clone());
-          if (requestUrl !== dedupeKey) {
+        if (
+          originalRequest.url.startsWith('http') &&
+          isMediaCacheEpochCurrent(requestCacheEpoch)
+        ) {
+          const cached = await putMediaCacheEntry(
+            cache,
+            dedupeKey,
+            corsResponse.clone(),
+            requestCacheEpoch
+          );
+          if (cached && requestUrl !== dedupeKey) {
             await cache.delete(requestUrl);
+          }
+          if (!cached) {
+            return corsResponse;
           }
           // console.log(`Service Worker: Normal response cached (${imageSizeMB.toFixed(2)}MB) with 30-day expiry and timestamp`);
           // 通知主线程图片已缓存
@@ -6733,7 +6737,13 @@ async function handleImageRequestInternal(
           const { generateThumbnailAsync } = await import(
             './task-queue/utils/thumbnail-utils'
           );
-          generateThumbnailAsync(blob, dedupeKey, 'image');
+          generateThumbnailAsync(
+            blob,
+            dedupeKey,
+            'image',
+            undefined,
+            requestCacheEpoch
+          );
         }
       } catch (cacheError) {
         console.warn(

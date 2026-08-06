@@ -1,5 +1,7 @@
 # 离线 CDN 资源缓存回退经验
 
+> **已废弃（2026-07-18）**：项目已彻底下线 jsDelivr/npm 发布的 CDN 方案，全量转自建服务器直发。本文档仅作历史记录保留，当前实现请参考 [CDN 方案下线经验](./CDN_TO_SELF_HOSTED_LESSONS.md)。
+
 ## 背景
 
 离线打开已访问过的工作台时，启动进度停在 82%。控制台显示入口 CSS/JS、`cdn-config.js`、`manifest.json` 等 CDN 资源在断网环境下请求失败，最终 Service Worker 返回 503。

@@ -14,7 +14,21 @@ export function findImageGenerationAnchorForTaskOnBoard(
   taskOrTaskId: Task | string
 ): PlaitImageGenerationAnchor | null {
   if (typeof taskOrTaskId === 'string') {
-    return ImageGenerationAnchorTransforms.getAnchorByTaskId(board, taskOrTaskId);
+    return ImageGenerationAnchorTransforms.getAnchorByTaskId(
+      board,
+      taskOrTaskId
+    );
+  }
+
+  const explicitAnchorId = taskOrTaskId.params?.anchorId;
+  if (typeof explicitAnchorId === 'string' && explicitAnchorId.trim()) {
+    const byAnchorId = ImageGenerationAnchorTransforms.getAnchorById(
+      board,
+      explicitAnchorId.trim()
+    );
+    if (byAnchorId) {
+      return byAnchorId;
+    }
   }
 
   const byTaskId = ImageGenerationAnchorTransforms.getAnchorByTaskId(
@@ -59,10 +73,8 @@ export function findImageGenerationAnchorForTaskOnBoard(
   }
 
   if (workflowId) {
-    const workflowAnchors = ImageGenerationAnchorTransforms.getAnchorsByWorkflowId(
-      board,
-      workflowId
-    );
+    const workflowAnchors =
+      ImageGenerationAnchorTransforms.getAnchorsByWorkflowId(board, workflowId);
     const legacyWorkflowAnchor = workflowAnchors.find(
       (anchor) => !hasExplicitBatchBinding(anchor)
     );

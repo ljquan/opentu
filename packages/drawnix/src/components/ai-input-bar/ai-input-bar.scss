@@ -63,6 +63,11 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
   align-items: center;
   gap: 8px;
 
+  &--bound-image {
+    transform: translateX(-50%);
+    transition: top 0.18s ease, left 0.18s ease, bottom 0.18s ease;
+  }
+
   // 当有灵感板时，移除 gap 实现无缝连接，并添加统一阴影
   &--with-inspiration {
     gap: 0;
@@ -97,6 +102,142 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     width: 100%; // 占满第一行
     flex-shrink: 0;
     box-sizing: border-box;
+  }
+
+  &__bound-status {
+    width: calc(100% - 24px);
+    margin-left: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.35;
+
+    &--failed {
+      border: 1px solid rgba(220, 38, 38, 0.24);
+      background: rgba(254, 242, 242, 0.92);
+      color: #991b1b;
+    }
+  }
+
+  &__bound-dismiss {
+    position: absolute;
+    top: 0;
+    right: 28px;
+    z-index: 3;
+    transform: translateY(-50%);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__bound-dismiss-hint {
+    max-width: calc(100vw - 150px);
+    padding: 4px 8px;
+    border: 1px solid rgba(234, 88, 12, 0.28);
+    border-radius: 6px;
+    background: #fff7ed;
+    box-shadow: 0 2px 8px rgba(124, 45, 18, 0.14);
+    color: #9a3412;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
+  &__bound-dismiss-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  &__bound-dismiss-btn {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
+    border: 1px solid #fff;
+    border-radius: 50%;
+    background: $orange-primary;
+    box-shadow: 0 2px 8px rgba(124, 45, 18, 0.26);
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: $orange-dark;
+      box-shadow: 0 3px 10px rgba(124, 45, 18, 0.34);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fb923c;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+  }
+
+  &__bound-dismiss-menu-btn {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    padding: 0;
+    border: 1px solid rgba(234, 88, 12, 0.36);
+    border-radius: 50%;
+    background: #fff7ed;
+    color: $orange-primary;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: #ffedd5;
+      color: $orange-dark;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fb923c;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+  }
+
+  &__bound-follow-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 5px;
+    border: 1px solid rgba(234, 88, 12, 0.2);
+    border-radius: 12px;
+    background: var(--island-bg-color, #fff);
+    box-shadow: 0 2px 8px rgba(124, 45, 18, 0.16);
+
+    .t-switch.t-size-s {
+      min-width: 28px;
+    }
+  }
+
+  &__bound-follow-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   &__processing {
@@ -1574,6 +1715,23 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
     }
 
+    &__bound-dismiss-hint {
+      border-color: rgba(251, 146, 60, 0.36);
+      background: #431407;
+      color: #fed7aa;
+    }
+
+    &__bound-dismiss-menu-btn {
+      border-color: rgba(251, 146, 60, 0.42);
+      background: #431407;
+      color: #fdba74;
+
+      &:hover:not(:disabled) {
+        background: #7c2d12;
+        color: #ffedd5;
+      }
+    }
+
     &__type-btn {
       border-color: var(--color-border, #444);
       color: var(--color-gray-50, #999);
@@ -1900,6 +2058,12 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
 // Dark mode for prompt suggestion panel
 :root[data-theme='dark'] {
+  .ai-input-bar__bound-status--failed {
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(127, 29, 29, 0.32);
+    color: #fecaca;
+  }
+
   .prompt-suggestion-panel {
     background: var(--color-surface-high, #2a2a2a);
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -1968,6 +2132,18 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     max-width: calc(100% - 80px); // 给左侧工具栏留空间
     left: calc(50% + 30px); // 稍微右偏以避开工具栏
 
+    &--bound-image {
+      top: auto !important;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+      left: calc(50% + 30px) !important;
+      width: 100% !important;
+      max-width: calc(100% - 80px) !important;
+    }
+
+    &__bound-dismiss {
+      right: 24px;
+    }
+
     &__container {
       padding: 6px 8px;
       border-radius: 20px;
@@ -2000,6 +2176,18 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     transform: translateX(-50%);
     max-width: calc(100% - 16px);
     width: 100%;
+
+    &--bound-image {
+      top: auto !important;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+      left: 50% !important;
+      width: 100% !important;
+      max-width: calc(100% - 16px) !important;
+    }
+
+    &__bound-dismiss {
+      right: 20px;
+    }
 
     &__content-preview {
       gap: 4px;

@@ -6,6 +6,12 @@ import { findImageGenerationAnchorForTaskOnBoard } from '../image-generation-anc
 
 vi.mock('../../plugins/with-image-generation-anchor', () => ({
   ImageGenerationAnchorTransforms: {
+    getAnchorById: (board: PlaitBoard, anchorId: string) =>
+      ((board as unknown as { children: unknown[] }).children ?? []).find(
+        (anchor) =>
+          (anchor as { type?: string }).type === 'generation-anchor' &&
+          (anchor as { id?: string }).id === anchorId
+      ) ?? null,
     getAnchorByTaskId: (board: PlaitBoard, taskId: string) =>
       ((board as unknown as { children: unknown[] }).children ?? []).find(
         (anchor) =>
@@ -24,7 +30,8 @@ vi.mock('../../plugins/with-image-generation-anchor', () => ({
       ((board as unknown as { children: unknown[] }).children ?? []).find(
         (anchor) =>
           (anchor as { type?: string }).type === 'generation-anchor' &&
-          (anchor as { workflowId?: string }).workflowId === options.workflowId &&
+          (anchor as { workflowId?: string }).workflowId ===
+            options.workflowId &&
           (anchor as { batchId?: string }).batchId === options.batchId &&
           (anchor as { batchIndex?: number }).batchIndex === options.batchIndex
       ) ?? null,
@@ -107,6 +114,25 @@ function createBoard(children: unknown[]): PlaitBoard {
 }
 
 describe('image-generation-anchor-lookup', () => {
+  it('prefers an explicit anchor id from task params', () => {
+    const board = createBoard([
+      createAnchor({ id: 'anchor-explicit', workflowId: 'wf-other' }),
+      createAnchor({ id: 'anchor-workflow' }),
+    ]);
+    const task = createTask({
+      params: {
+        prompt: '生成图片',
+        workflowId: 'wf-1',
+        anchorId: 'anchor-explicit',
+        size: '16x9',
+      },
+    });
+
+    expect(findImageGenerationAnchorForTaskOnBoard(board, task)?.id).toBe(
+      'anchor-explicit'
+    );
+  });
+
   it('prefers an exact batch-slot anchor when available', () => {
     const board = createBoard([
       createAnchor({

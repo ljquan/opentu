@@ -2,7 +2,10 @@ import {
   resolveOfficialGPTImageQuality,
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
-import { parseGPTImageResponse } from './gpt-image-adapter';
+import {
+  parseGPTImageResponse,
+  resolveGeneratedImageDimensions,
+} from './gpt-image-adapter';
 import { TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA } from './image-request-schemas';
 import { sendAdapterRequest } from './context';
 import { registerModelAdapter } from './registry';
@@ -36,9 +39,12 @@ function getResolvedOfficialSize(
   return resolveOfficialGPTImageSize(model, requestedSize, request.params);
 }
 
-function getRequestedCount(request: ImageGenerationRequest): number | undefined {
+function getRequestedCount(
+  request: ImageGenerationRequest
+): number | undefined {
   const count =
-    getNumberParam(request.params, 'n') ?? getNumberParam(request.params, 'count');
+    getNumberParam(request.params, 'n') ??
+    getNumberParam(request.params, 'count');
 
   return count !== undefined && count >= 1 && count <= 10 ? count : undefined;
 }
@@ -108,7 +114,16 @@ export function buildTuziGPTImageRequestBody(
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  const data = await response.json().catch(() => null);
+  const rawText = await response.text().catch(() => '');
+  const data = rawText
+    ? (() => {
+        try {
+          return JSON.parse(rawText);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   if (typeof data?.error === 'string') {
     return data.error;
   }
@@ -118,13 +133,37 @@ async function readErrorMessage(response: Response): Promise<string> {
   if (typeof data?.message === 'string') {
     return data.message;
   }
-  return `Tuzi GPT Image request failed: ${response.status}`;
+
+  const plainText = rawText.trim();
+  if (plainText && !/^<!doctype|^<html/i.test(plainText)) {
+    return plainText.slice(0, 300);
+  }
+
+  let endpoint = '';
+  try {
+    const url = new URL(response.url);
+    endpoint = `${url.hostname}${url.pathname}`;
+  } catch {
+    endpoint = (response.url || '').split(/[?#]/, 1)[0];
+  }
+
+  return `Tuzi GPT Image request failed: ${response.status}${
+    endpoint ? ` (${endpoint})` : ''
+  }`;
 }
 
-function resolveTuziGPTImagePath(
-  context: { binding?: { submitPath?: string } | null }
-): string {
-  return context.binding?.submitPath || '/images/generations';
+function resolveTuziGPTImagePath(context: {
+  binding?: { submitPath?: string } | null;
+}): string {
+  const submitPath = context.binding?.submitPath?.trim();
+  if (submitPath && /\/images\/generations\/?$/i.test(submitPath)) {
+    return '/images/generations';
+  }
+
+  // Tuzi's simplified GPT Image JSON schema uses the generations endpoint
+  // for both text-to-image and reference-image requests. Old persisted
+  // bindings can still point at the official multipart edits endpoint.
+  return '/images/generations';
 }
 
 export const tuziGPTImageAdapter: ImageModelAdapter = {
@@ -140,6 +179,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   async generateImage(context, request) {
     const response = await sendAdapterRequest(context, {
       path: resolveTuziGPTImagePath(context),
+      baseUrlStrategy: 'ensure-v1',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -154,9 +194,12 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     const result = await response.json();
     const responseFormat = getResponseFormat(request);
 
-    return parseGPTImageResponse(
-      result,
-      responseFormat === 'b64_json' ? 'png' : undefined
+    return resolveGeneratedImageDimensions(
+      parseGPTImageResponse(
+        result,
+        responseFormat === 'b64_json' ? 'png' : undefined
+      ),
+      context.signal
     );
   },
 };

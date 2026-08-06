@@ -18,6 +18,7 @@ import {
   type ImageApiCompatibility,
   type InvocationPreset,
   type ModelRef,
+  type ProviderCatalogManualBinding,
   type ProviderAuthType,
   type ProviderCapabilities,
   type ProviderCatalog,
@@ -46,6 +47,7 @@ export {
   type ImageApiCompatibility,
   type InvocationPreset,
   type ModelRef,
+  type ProviderCatalogManualBinding,
   type ProviderAuthType,
   type ProviderCapabilities,
   type ProviderCatalog,
@@ -74,6 +76,7 @@ export const TUZI_ORIGINAL_PROVIDER_NAME = '原价分组';
 export const TUZI_MIX_PROVIDER_NAME = 'gemini-mix 分组';
 export const TUZI_CODEX_PROVIDER_NAME = 'codex 分组';
 export const TUZI_BUSINESS_PROVIDER_NAME = 'Business';
+const LEGACY_DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2-vip';
 
 const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   supportsModelsEndpoint: true,
@@ -91,7 +94,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: TUZI_PROVIDER_DEFAULT_BASE_URL,
     chatModel: getDefaultTextModel(),
     audioModelName: 'suno_music',
-    imageModelName: 'gpt-image-2-vip',
+    imageModelName: getDefaultImageModel(),
     videoModelName: 'seedance-1.5-pro',
     textModelName: getDefaultTextModel(),
   },
@@ -390,6 +393,7 @@ class SettingsManager {
     return {
       legacyDefaultImageApiCompatibilityV1:
         migrations.legacyDefaultImageApiCompatibilityV1 === true,
+      legacyDefaultImageModelV1: migrations.legacyDefaultImageModelV1 === true,
     };
   }
 
@@ -454,6 +458,19 @@ class SettingsManager {
       : DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY;
   }
 
+  private migrateLegacyDefaultImageModel(
+    gemini: GeminiSettings
+  ): GeminiSettings {
+    if (gemini.imageModelName !== LEGACY_DEFAULT_IMAGE_MODEL_ID) {
+      return gemini;
+    }
+
+    return {
+      ...gemini,
+      imageModelName: getDefaultImageModel(),
+    };
+  }
+
   private normalizeCapabilities(value: unknown): ProviderCapabilities {
     const capabilities =
       value && typeof value === 'object'
@@ -482,6 +499,115 @@ class SettingsManager {
     }, {});
 
     return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private normalizeModelType(value: unknown): ModelType | null {
+    return value === 'image' ||
+      value === 'video' ||
+      value === 'text' ||
+      value === 'audio'
+      ? value
+      : null;
+  }
+
+  private normalizeManualBindingConfidence(
+    value: unknown
+  ): ProviderCatalogManualBinding['confidence'] {
+    return value === 'high' || value === 'medium' || value === 'low'
+      ? value
+      : 'high';
+  }
+
+  private normalizeManualBindingBaseUrlStrategy(
+    value: unknown
+  ): ProviderCatalogManualBinding['baseUrlStrategy'] {
+    return value === 'trim-v1' || value === 'preserve' ? value : undefined;
+  }
+
+  private normalizeManualBindingMetadata(
+    value: unknown
+  ): Record<string, unknown> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+
+    return this.cloneValue(value as Record<string, unknown>);
+  }
+
+  private normalizeProviderCatalogManualBindings(
+    bindings: unknown
+  ): ProviderCatalogManualBinding[] {
+    if (!Array.isArray(bindings)) {
+      return [];
+    }
+
+    const result = new Map<string, ProviderCatalogManualBinding>();
+
+    bindings.forEach((binding) => {
+      if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+        return;
+      }
+
+      const draft = binding as Partial<ProviderCatalogManualBinding>;
+      const id = typeof draft.id === 'string' ? draft.id.trim() : '';
+      const modelId =
+        typeof draft.modelId === 'string' ? draft.modelId.trim() : '';
+      const operation = this.normalizeModelType(draft.operation);
+      const protocol =
+        typeof draft.protocol === 'string' ? draft.protocol.trim() : '';
+      const requestSchema =
+        typeof draft.requestSchema === 'string'
+          ? draft.requestSchema.trim()
+          : '';
+      const responseSchema =
+        typeof draft.responseSchema === 'string'
+          ? draft.responseSchema.trim()
+          : '';
+      const submitPath =
+        typeof draft.submitPath === 'string' ? draft.submitPath.trim() : '';
+
+      if (
+        !id ||
+        !modelId ||
+        !operation ||
+        !protocol ||
+        !requestSchema ||
+        !responseSchema ||
+        !submitPath
+      ) {
+        return;
+      }
+
+      const pollPathTemplate =
+        typeof draft.pollPathTemplate === 'string' &&
+        draft.pollPathTemplate.trim()
+          ? draft.pollPathTemplate.trim()
+          : undefined;
+      const priority =
+        typeof draft.priority === 'number' && Number.isFinite(draft.priority)
+          ? draft.priority
+          : 900;
+
+      result.set(id, {
+        id,
+        modelId,
+        operation,
+        protocol,
+        requestSchema,
+        responseSchema,
+        submitPath,
+        baseUrlStrategy: this.normalizeManualBindingBaseUrlStrategy(
+          draft.baseUrlStrategy
+        ),
+        pollPathTemplate,
+        priority,
+        confidence: this.normalizeManualBindingConfidence(draft.confidence),
+        source: 'manual',
+        metadata: this.normalizeManualBindingMetadata(draft.metadata),
+      });
+    });
+
+    return [...result.values()];
   }
 
   private buildLegacyDefaultProfile(
@@ -812,6 +938,9 @@ class SettingsManager {
               (id): id is string => typeof id === 'string'
             )
           : [],
+        manualBindings: this.normalizeProviderCatalogManualBindings(
+          draft.manualBindings
+        ),
         sourceBaseUrl:
           typeof draft.sourceBaseUrl === 'string'
             ? draft.sourceBaseUrl
@@ -954,8 +1083,12 @@ class SettingsManager {
     const migrations: SettingsMigrations = { ...settings.migrations };
     const shouldRunLegacyDefaultImageMigration =
       migrations.legacyDefaultImageApiCompatibilityV1 !== true;
-    const legacyBaseUrl =
-      settings.gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl;
+    const shouldRunLegacyDefaultImageModelMigration =
+      migrations.legacyDefaultImageModelV1 !== true;
+    const gemini = shouldRunLegacyDefaultImageModelMigration
+      ? this.migrateLegacyDefaultImageModel(settings.gemini)
+      : settings.gemini;
+    const legacyBaseUrl = gemini.baseUrl || DEFAULT_SETTINGS.gemini.baseUrl;
     const legacyProfileForBuild =
       shouldRunLegacyDefaultImageMigration &&
       this.shouldMigrateLegacyDefaultImageApiCompatibility(
@@ -973,9 +1106,15 @@ class SettingsManager {
       migrations.legacyDefaultImageApiCompatibilityV1 = true;
       this.shouldPersistSettingsAfterInitialization = true;
     }
+    if (shouldRunLegacyDefaultImageModelMigration) {
+      migrations.legacyDefaultImageModelV1 = true;
+      if (gemini !== settings.gemini) {
+        this.shouldPersistSettingsAfterInitialization = true;
+      }
+    }
 
     const legacyProfile = {
-      ...this.buildLegacyDefaultProfile(settings.gemini, legacyProfileForBuild),
+      ...this.buildLegacyDefaultProfile(gemini, legacyProfileForBuild),
       extraHeaders: this.normalizeStringRecord(
         existingLegacyProfile?.extraHeaders
       ),
@@ -993,7 +1132,7 @@ class SettingsManager {
     const tuziBusinessProfile = this.buildTuziBusinessProfile(
       existingTuziBusinessProfile
     );
-    const legacyPreset = this.buildLegacyDefaultPreset(settings.gemini);
+    const legacyPreset = this.buildLegacyDefaultPreset(gemini);
 
     const providerProfiles = [
       legacyProfile,
@@ -1159,6 +1298,7 @@ class SettingsManager {
 
     return {
       ...settings,
+      gemini,
       migrations,
       providerProfiles,
       providerCatalogs,
@@ -1725,6 +1865,66 @@ class SettingsManager {
     );
   }
 
+  private getUniqueManualBindingProfileId(
+    routeType: ModelType,
+    modelId?: string | null
+  ): string | null {
+    const normalizedModelId = normalizeNullableString(modelId);
+    if (!normalizedModelId) {
+      return null;
+    }
+
+    const enabledProfileIds = new Set(
+      this.settings.providerProfiles
+        .filter(
+          (profile) =>
+            profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
+            profile.enabled !== false
+        )
+        .map((profile) => profile.id)
+    );
+    const matchingProfileIds = new Set<string>();
+
+    for (const catalog of this.settings.providerCatalogs) {
+      if (!enabledProfileIds.has(catalog.profileId)) {
+        continue;
+      }
+
+      const hasSelectedModel =
+        catalog.selectedModelIds.includes(normalizedModelId);
+      const hasSelectedModelType = catalog.discoveredModels.some(
+        (model) => model.id === normalizedModelId && model.type === routeType
+      );
+      const hasManualBinding = (catalog.manualBindings || []).some(
+        (binding) =>
+          binding.modelId === normalizedModelId &&
+          binding.operation === routeType &&
+          binding.source === 'manual'
+      );
+      const reusableCustomHttpBindings = (catalog.manualBindings || []).filter(
+        (binding) =>
+          binding.operation === routeType &&
+          binding.source === 'manual' &&
+          binding.protocol === 'custom-http' &&
+          binding.requestSchema === 'custom-http' &&
+          Boolean(binding.metadata?.manualHttp)
+      );
+      const hasUniqueReusableCustomHttpBinding =
+        hasSelectedModelType && reusableCustomHttpBindings.length === 1;
+
+      if (
+        hasSelectedModel &&
+        (hasManualBinding || hasUniqueReusableCustomHttpBinding)
+      ) {
+        matchingProfileIds.add(catalog.profileId);
+      }
+    }
+
+    return matchingProfileIds.size === 1
+      ? Array.from(matchingProfileIds)[0]
+      : null;
+  }
+
   public getActiveInvocationPreset(): InvocationPreset | null {
     const preset = this.getActiveInvocationPresetInternal();
     return preset ? this.cloneValue(preset) : null;
@@ -1812,6 +2012,12 @@ class SettingsManager {
           );
     const normalizedRequestedModelId = requestedModelRef?.modelId || null;
     const normalizedPresetModelId = presetModelRef?.modelId || null;
+    const manualBindingProfileId = requestedModelRef?.profileId
+      ? null
+      : this.getUniqueManualBindingProfileId(
+          routeType,
+          normalizedRequestedModelId
+        );
     const requestedStaticModel = normalizedRequestedModelId
       ? getModelConfig(normalizedRequestedModelId)
       : null;
@@ -1822,6 +2028,7 @@ class SettingsManager {
       !requestedStaticModel;
     const profile = this.getProviderProfileById(
       requestedModelRef?.profileId ||
+        manualBindingProfileId ||
         (shouldInheritPresetProfile ? presetModelRef?.profileId : null) ||
         null
     );

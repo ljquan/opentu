@@ -16,11 +16,7 @@ import type {
   TaskCreatedEvent,
 } from './task';
 
-import type {
-  ChatChunkEvent,
-  ChatDoneEvent,
-  ChatErrorEvent,
-} from './chat';
+import type { ChatChunkEvent, ChatDoneEvent, ChatErrorEvent } from './chat';
 
 import type {
   WorkflowStatusEvent,
@@ -53,7 +49,7 @@ import type {
 
 /**
  * 初始化参数
- * 
+ *
  * 配置参数现在是可选的：
  * - 主线程会自动同步配置到 IndexedDB
  * - SW 从 IndexedDB 读取配置
@@ -210,8 +206,12 @@ export interface MCPToolResultEvent {
  */
 export interface SWMethods extends Methods {
   // Thumbnail
-  'thumbnail:generate': (params: ThumbnailGenerateParams) => TaskOperationResult;
-  'thumbnail:videoResponse': (params: ThumbnailVideoResponseParams) => TaskOperationResult;
+  'thumbnail:generate': (
+    params: ThumbnailGenerateParams
+  ) => TaskOperationResult;
+  'thumbnail:videoResponse': (
+    params: ThumbnailVideoResponseParams
+  ) => TaskOperationResult;
 
   // Crash monitoring
   'crash:snapshot': (params: CrashSnapshotParams) => TaskOperationResult;
@@ -219,6 +219,10 @@ export interface SWMethods extends Methods {
 
   // Console
   'console:report': (params: ConsoleReportParams) => TaskOperationResult;
+
+  // Cache
+  'cache:delete': (params: { url: string }) => TaskOperationResult;
+  'cache:clearAll': (params?: undefined) => TaskOperationResult;
 
   // Debug
   'debug:getStatus': (params?: undefined) => DebugStatusResult;

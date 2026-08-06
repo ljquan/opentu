@@ -1,6 +1,5 @@
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { useDeviceType } from '../../hooks/useDeviceType';
-import '../ai-input-bar/ai-input-bar.scss';
 import './settings-dialog.scss';
 import {
   memo,
@@ -35,10 +34,7 @@ import {
 import { LS_KEYS } from '../../constants/storage-keys';
 import { ModelDiscoveryDialog } from './model-discovery-dialog';
 import { PricingFieldGroup } from './pricing-field-group';
-import {
-  useModelPriceText,
-  useModelMeta,
-} from '../../hooks/use-model-pricing';
+import { useModelPriceText, useModelMeta } from '../../hooks/use-model-pricing';
 import {
   getDefaultAudioModel,
   getDefaultImageModel,
@@ -74,12 +70,18 @@ import {
   TUZI_CODEX_PROVIDER_PROFILE_ID,
   TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
   TUZI_PROVIDER_DEFAULT_BASE_URL,
+  updateActiveInvocationRouteModel,
   type ImageApiCompatibility,
   type InvocationPreset,
   type ModelRef,
   type ProviderProfile,
   type RouteConfig,
 } from '../../utils/settings-manager';
+import type {
+  ManualHttpBodyType,
+  ManualHttpFormField,
+  ManualHttpTemplateMetadata,
+} from '../../utils/settings-types';
 import {
   DISCOVERY_VENDOR_ORDER,
   getDiscoveryVendorLabel,
@@ -103,7 +105,18 @@ import {
 import { modelBenchmarkService } from '../../services/model-benchmark-service';
 import { HoverTip } from '../shared/hover';
 import { createProviderProfileDraft } from './provider-profile-draft';
+import {
+  normalizeEndpointApiBaseUrl,
+  normalizeEndpointUrl,
+  resolveEndpointSelectionUrl,
+} from './provider-endpoint-utils';
 import { MessagePlugin } from '../../utils/message-plugin';
+import {
+  isTrustedTuziApiBaseUrl,
+  loadTuziApiEndpointSources,
+  TUZI_API_FALLBACK_ENDPOINTS,
+  type TuziApiEndpointSource,
+} from '../../services/provider-routing/tuzi-api-endpoints';
 
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
@@ -112,21 +125,49 @@ type SettingsView = 'providers' | 'presets' | 'canvas' | 'speech';
 type CompactPanelMode = 'catalog' | 'detail';
 type EndpointSelectionMode = 'auto' | 'manual';
 type EndpointLatency = number | 'failed' | null;
+type CustomModelInterfacePreset =
+  | 'custom-http'
+  | 'openai-chat-completions'
+  | 'openai-chat-vision'
+  | 'tuzi-image-edit-json'
+  | 'openai-image-generation-json'
+  | 'openai-image-edit-form'
+  | 'async-image-task'
+  | 'openai-async-video'
+  | 'kling-video'
+  | 'seedance-video'
+  | 'happyhorse-video'
+  | 'tuzi-suno-music';
 type ProviderNavigationIntent =
   | { action: 'select'; profileId: string }
   | { action: 'create' };
 
 const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 const SETTINGS_DIALOG_COMPACT_BREAKPOINT = 980;
-const TUZI_SWITCH_CODEX_PRESETS_URL =
-  'https://raw.githubusercontent.com/tuziapi/tuzi-switch/main/src/config/codexProviderPresets.ts';
-let tuziSwitchEndpointCache: EndpointOption[] | null = null;
+const TUZI_PROVIDER_PROFILE_IDS = new Set([
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+  TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
+  TUZI_MIX_PROVIDER_PROFILE_ID,
+  TUZI_CODEX_PROVIDER_PROFILE_ID,
+  TUZI_BUSINESS_PROVIDER_PROFILE_ID,
+]);
+let tuziApiEndpointCache: EndpointOption[] | null = null;
 
 interface EndpointOption {
   id: string;
   url: string;
   shortLabel: string;
+  name?: string;
+  description?: string;
   removable?: boolean;
+}
+
+function isTuziProviderProfile(profile?: ProviderProfile | null): boolean {
+  return Boolean(
+    profile &&
+      (TUZI_PROVIDER_PROFILE_IDS.has(profile.id) ||
+        isTrustedTuziApiBaseUrl(profile.baseUrl))
+  );
 }
 
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
@@ -169,6 +210,352 @@ const MODEL_GROUP_LABELS: Record<ModelType, string> = {
   audio: '音频模型',
   text: '文本模型',
 };
+
+const CUSTOM_MODEL_INTERFACE_PRESETS: Record<
+  CustomModelInterfacePreset,
+  {
+    label: string;
+    modelType: ModelType | 'any';
+    protocol: string;
+    requestSchema: string;
+    responseSchema: string;
+    submitPath: string;
+    pollPathTemplate?: string;
+    baseUrlStrategy?: 'preserve' | 'trim-v1';
+    description: string;
+    metadata?: {
+      text?: {
+        supportsImageInput?: boolean;
+        imageInputMode?: 'openai-image_url';
+        maxImageCount?: number;
+      };
+      audio?: {
+        submitPathByAction?: Record<string, string>;
+      };
+    };
+  }
+> = {
+  'custom-http': {
+    label: '自定义 HTTP API',
+    modelType: 'any',
+    protocol: 'custom-http',
+    requestSchema: 'custom-http',
+    responseSchema: 'custom-http.image',
+    submitPath: '/images/generations',
+    description:
+      '为这个模型单独配置请求地址、请求体和返回字段，不走站内固定模型识别。',
+  },
+  'openai-chat-completions': {
+    label: 'OpenAI 文本对话调用',
+    modelType: 'text',
+    protocol: 'openai.chat.completions',
+    requestSchema: 'openai.chat.messages',
+    responseSchema: 'openai.chat.choices',
+    submitPath: '/chat/completions',
+    description:
+      '复用站内文本模型调用：POST /chat/completions，自动传入模型、消息和提示词。',
+  },
+  'openai-chat-vision': {
+    label: 'OpenAI 多模态文本调用',
+    modelType: 'text',
+    protocol: 'openai.chat.completions',
+    requestSchema: 'openai.chat.messages',
+    responseSchema: 'openai.chat.choices',
+    submitPath: '/chat/completions',
+    description: '复用站内多模态文本调用：自动传入文本和参考图片。',
+    metadata: {
+      text: {
+        supportsImageInput: true,
+        imageInputMode: 'openai-image_url',
+        maxImageCount: 6,
+      },
+    },
+  },
+  'tuzi-image-edit-json': {
+    label: 'Tuzi 图片生成/编辑调用',
+    modelType: 'image',
+    protocol: 'openai.images.edits',
+    requestSchema: 'tuzi.image.gpt-edit-json',
+    responseSchema: 'openai.image.data',
+    submitPath: '/images/edits',
+    description: '复用站内 Tuzi 图片调用：自动传入提示词、参考图、尺寸和画质。',
+  },
+  'openai-image-generation-json': {
+    label: 'OpenAI 图片生成/编辑调用',
+    modelType: 'image',
+    protocol: 'openai.images.generations',
+    requestSchema: 'openai.image.gpt-generation-json',
+    responseSchema: 'openai.image.data',
+    submitPath: '/images/generations',
+    description:
+      '复用站内 OpenAI 图片调用：文生图走 generations，有参考图时自动走 edits。',
+  },
+  'openai-image-edit-form': {
+    label: 'OpenAI 图片编辑调用',
+    modelType: 'image',
+    protocol: 'openai.images.edits',
+    requestSchema: 'openai.image.gpt-edit-form',
+    responseSchema: 'openai.image.data',
+    submitPath: '/images/edits',
+    description:
+      '复用站内 OpenAI 图片编辑调用：自动上传参考图、蒙版并传入编辑参数。',
+  },
+  'async-image-task': {
+    label: '异步图片任务调用',
+    modelType: 'image',
+    protocol: 'openai.async.media',
+    requestSchema: 'openai.async.image.form',
+    responseSchema: 'openai.async.task',
+    submitPath: '/videos',
+    pollPathTemplate: '/videos/{taskId}',
+    description: '复用站内异步图片任务：提交后自动查询任务状态并取回图片。',
+  },
+  'openai-async-video': {
+    label: 'OpenAI 异步视频调用',
+    modelType: 'video',
+    protocol: 'openai.async.video',
+    requestSchema: 'openai.video.form-input-reference',
+    responseSchema: 'openai.async.task',
+    submitPath: '/videos',
+    pollPathTemplate: '/videos/{taskId}',
+    description:
+      '复用站内通用视频调用：自动传入提示词、参考图、尺寸和时长并轮询结果。',
+  },
+  'kling-video': {
+    label: 'Kling 视频调用',
+    modelType: 'video',
+    protocol: 'kling.video',
+    requestSchema: 'kling.video.auto-action-json',
+    responseSchema: 'kling.video.task',
+    submitPath: '/kling/v1/videos/{action}',
+    pollPathTemplate: '/kling/v1/videos/{action}/{taskId}',
+    description: '复用站内 Kling 视频调用和任务查询方式。',
+  },
+  'seedance-video': {
+    label: 'Seedance 视频调用',
+    modelType: 'video',
+    protocol: 'seedance.task',
+    requestSchema: 'seedance.video.form-auto',
+    responseSchema: 'seedance.video.task',
+    submitPath: '/videos',
+    pollPathTemplate: '/videos/{taskId}',
+    description: '复用站内 Seedance 视频调用和任务查询方式。',
+  },
+  'happyhorse-video': {
+    label: 'HappyHorse 视频调用',
+    modelType: 'video',
+    protocol: 'happyhorse.video',
+    requestSchema: 'happyhorse.video.json',
+    responseSchema: 'happyhorse.video.task',
+    submitPath: '/videos',
+    pollPathTemplate: '/videos/{taskId}',
+    description: '复用站内 HappyHorse 视频调用和任务查询方式。',
+  },
+  'tuzi-suno-music': {
+    label: 'Suno 音乐/歌词调用',
+    modelType: 'audio',
+    protocol: 'tuzi.suno.music',
+    requestSchema: 'tuzi.suno.music.submit',
+    responseSchema: 'tuzi.suno.task',
+    submitPath: '/suno/submit/music',
+    pollPathTemplate: '/suno/fetch/{taskId}',
+    baseUrlStrategy: 'trim-v1',
+    description: '复用站内 Suno 调用：自动提交音乐或歌词任务并轮询结果。',
+    metadata: {
+      audio: {
+        submitPathByAction: {
+          music: '/suno/submit/music',
+          lyrics: '/suno/submit/lyrics',
+        },
+      },
+    },
+  },
+};
+
+const DEFAULT_CUSTOM_MODEL_PRESET_BY_TYPE: Record<
+  ModelType,
+  CustomModelInterfacePreset
+> = {
+  text: 'custom-http',
+  image: 'custom-http',
+  video: 'custom-http',
+  audio: 'custom-http',
+};
+
+interface CustomHttpDraft {
+  method: NonNullable<ManualHttpTemplateMetadata['method']>;
+  bodyType: ManualHttpBodyType;
+  submitPath: string;
+  bodyTemplate: string;
+  formFieldsTemplate: string;
+  headersTemplate: string;
+  responsePath: string;
+  pollPath: string;
+  taskIdPath: string;
+  statusPath: string;
+  pollResultPath: string;
+  errorPath: string;
+}
+
+const CUSTOM_HTTP_DEFAULTS: Record<ModelType, CustomHttpDraft> = {
+  text: {
+    method: 'POST',
+    bodyType: 'json',
+    submitPath: '/chat/completions',
+    bodyTemplate: JSON.stringify(
+      { model: '{{model}}', messages: '{{messages}}' },
+      null,
+      2
+    ),
+    formFieldsTemplate: '[]',
+    headersTemplate: '{}',
+    responsePath: 'choices.0.message.content',
+    pollPath: '',
+    taskIdPath: 'task_id',
+    statusPath: 'status',
+    pollResultPath: 'result.text',
+    errorPath: 'error.message',
+  },
+  image: {
+    method: 'POST',
+    bodyType: 'json',
+    submitPath: '/images/generations',
+    bodyTemplate: JSON.stringify(
+      {
+        model: '{{model}}',
+        prompt: '{{prompt}}',
+        size: '{{size}}',
+      },
+      null,
+      2
+    ),
+    formFieldsTemplate: JSON.stringify(
+      [
+        { name: 'model', value: '{{model}}' },
+        { name: 'prompt', value: '{{prompt}}' },
+        { name: 'image', value: '{{images}}', kind: 'file-list' },
+      ],
+      null,
+      2
+    ),
+    headersTemplate: '{}',
+    responsePath: 'data.*.url',
+    pollPath: '',
+    taskIdPath: 'task_id',
+    statusPath: 'status',
+    pollResultPath: 'result.url',
+    errorPath: 'error.message',
+  },
+  video: {
+    method: 'POST',
+    bodyType: 'json',
+    submitPath: '/videos',
+    bodyTemplate: JSON.stringify(
+      {
+        model: '{{model}}',
+        prompt: '{{prompt}}',
+        image: '{{image}}',
+        size: '{{size}}',
+        duration: '{{duration}}',
+      },
+      null,
+      2
+    ),
+    formFieldsTemplate: '[]',
+    headersTemplate: '{}',
+    responsePath: 'url',
+    pollPath: '',
+    taskIdPath: 'task_id',
+    statusPath: 'status',
+    pollResultPath: 'result.url',
+    errorPath: 'error.message',
+  },
+  audio: {
+    method: 'POST',
+    bodyType: 'json',
+    submitPath: '/audio/generations',
+    bodyTemplate: JSON.stringify(
+      {
+        model: '{{model}}',
+        prompt: '{{prompt}}',
+        title: '{{params.title}}',
+        tags: '{{params.tags}}',
+      },
+      null,
+      2
+    ),
+    formFieldsTemplate: '[]',
+    headersTemplate: '{}',
+    responsePath: 'clips.*.audio_url',
+    pollPath: '',
+    taskIdPath: 'task_id',
+    statusPath: 'status',
+    pollResultPath: 'clips.*.audio_url',
+    errorPath: 'error.message',
+  },
+};
+
+function getCustomModelPresetOptions(
+  modelType: ModelType
+): CustomModelInterfacePreset[] {
+  return (
+    Object.keys(CUSTOM_MODEL_INTERFACE_PRESETS) as CustomModelInterfacePreset[]
+  ).filter(
+    (presetKey) =>
+      CUSTOM_MODEL_INTERFACE_PRESETS[presetKey].modelType === 'any' ||
+      CUSTOM_MODEL_INTERFACE_PRESETS[presetKey].modelType === modelType
+  );
+}
+
+function parseJsonObject(
+  value: string,
+  fieldLabel: string
+): Record<string, string> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${fieldLabel}必须是 JSON 对象`);
+  }
+  const result: Record<string, string> = {};
+  Object.entries(parsed).forEach(([key, item]) => {
+    if (typeof item !== 'string') {
+      throw new Error(`${fieldLabel}的值必须是字符串`);
+    }
+    result[key] = item;
+  });
+  return result;
+}
+
+function parseFormFields(value: string): ManualHttpFormField[] {
+  const parsed = JSON.parse(value.trim() || '[]') as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error('FormData 字段必须是 JSON 数组');
+  }
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`FormData 第 ${index + 1} 项格式错误`);
+    }
+    const field = item as Partial<ManualHttpFormField>;
+    if (typeof field.name !== 'string' || typeof field.value !== 'string') {
+      throw new Error(`FormData 第 ${index + 1} 项缺少 name 或 value`);
+    }
+    if (
+      field.kind !== undefined &&
+      field.kind !== 'text' &&
+      field.kind !== 'file' &&
+      field.kind !== 'file-list'
+    ) {
+      throw new Error(`FormData 第 ${index + 1} 项 kind 无效`);
+    }
+    return {
+      name: field.name,
+      value: field.value,
+      kind: field.kind,
+      filename: typeof field.filename === 'string' ? field.filename : undefined,
+    };
+  });
+}
 
 const ModelPriceLabel = memo(function ModelPriceLabel({
   profileId,
@@ -661,81 +1048,46 @@ function buildPresetRouteModels(
   );
 }
 
-function normalizeEndpointUrl(url?: string | null): string {
-  const trimmed = (url || '').trim();
-  if (!trimmed) return TUZI_PROVIDER_DEFAULT_BASE_URL;
-  const withoutTrailingSlash = trimmed.replace(/\/+$/, '');
-  try {
-    const parsed = new URL(
-      /^[a-z][a-z\d+\-.]*:\/\//i.test(withoutTrailingSlash)
-        ? withoutTrailingSlash
-        : `https://${withoutTrailingSlash}`
-    );
-    const pathname = parsed.pathname.replace(/\/+$/, '');
-    return `${parsed.origin}${pathname === '/' ? '' : pathname}`;
-  } catch {
-    return withoutTrailingSlash || TUZI_PROVIDER_DEFAULT_BASE_URL;
-  }
-}
-
 function createEndpointOption(
-  url: string,
+  endpoint:
+    | string
+    | {
+        name?: string;
+        url?: string;
+        description?: string;
+      },
   index: number,
   removable = false
 ): EndpointOption {
+  const url = typeof endpoint === 'string' ? endpoint : endpoint.url || '';
   const normalizedUrl = normalizeEndpointUrl(url);
   return {
-    id: `${removable ? 'custom' : 'switch'}-${index}-${normalizedUrl}`,
+    id: `${removable ? 'custom' : 'tuzi-api'}-${index}-${normalizedUrl}`,
     url: normalizedUrl,
-    shortLabel: removable ? '自定义' : index === 0 ? '主' : `S${index + 1}`,
+    shortLabel: removable
+      ? '自定义'
+      : typeof endpoint === 'string'
+      ? index === 0
+        ? '主'
+        : `S${index + 1}`
+      : endpoint.name || (index === 0 ? '主' : `S${index + 1}`),
+    name: typeof endpoint === 'string' ? undefined : endpoint.name,
+    description:
+      typeof endpoint === 'string' ? undefined : endpoint.description,
     removable,
   };
 }
 
-function extractTuziSwitchEndpointUrls(source: string): string[] {
-  const urls = new Set<string>();
-  const pushUrl = (value: string) => {
-    const normalized = normalizeEndpointUrl(value);
-    if (
-      normalized &&
-      !/YOUR_RESOURCE_NAME|example\.com/i.test(normalized)
-    ) {
-      urls.add(normalized);
-    }
-  };
-
-  for (const block of source.matchAll(/endpointCandidates\s*:\s*\[([\s\S]*?)\]/g)) {
-    for (const value of block[1].matchAll(/["'](https?:\/\/[^"']+)["']/g)) {
-      pushUrl(value[1]);
-    }
+async function loadTuziApiEndpointOptions(): Promise<EndpointOption[]> {
+  if (tuziApiEndpointCache) {
+    return tuziApiEndpointCache;
   }
 
-  for (const call of source.matchAll(
-    /generateThirdPartyConfig\s*\(\s*["'][^"']+["']\s*,\s*["'](https?:\/\/[^"']+)["']/g
-  )) {
-    pushUrl(call[1]);
-  }
-
-  return Array.from(urls);
-}
-
-async function loadTuziSwitchEndpointOptions(): Promise<EndpointOption[]> {
-  if (tuziSwitchEndpointCache) {
-    return tuziSwitchEndpointCache;
-  }
-
-  const response = await fetch(TUZI_SWITCH_CODEX_PRESETS_URL, {
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load tuzi-switch endpoints: ${response.status}`);
-  }
-
-  const source = await response.text();
-  tuziSwitchEndpointCache = extractTuziSwitchEndpointUrls(source).map((url, index) =>
-    createEndpointOption(url, index)
+  const sourceEndpoints = await loadTuziApiEndpointSources();
+  tuziApiEndpointCache = sourceEndpoints.map((endpoint, index) =>
+    createEndpointOption(endpoint, index)
   );
-  return tuziSwitchEndpointCache;
+  return tuziApiEndpointCache;
 }
 
 async function measureEndpointLatency(url: string): Promise<EndpointLatency> {
@@ -793,6 +1145,21 @@ export const SettingsDialog = ({
   const [showWorkZoneCard, setShowWorkZoneCard] = useState(true);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [discoveryDialogOpen, setDiscoveryDialogOpen] = useState(false);
+  const [customModelId, setCustomModelId] = useState('');
+  const [customModelType, setCustomModelType] = useState<ModelType>('image');
+  const [customModelLabel, setCustomModelLabel] = useState('');
+  const [customModelDescription, setCustomModelDescription] = useState('');
+  const [customModelInterfacePreset, setCustomModelInterfacePreset] =
+    useState<CustomModelInterfacePreset>(
+      DEFAULT_CUSTOM_MODEL_PRESET_BY_TYPE.image
+    );
+  const [customHttpDraft, setCustomHttpDraft] = useState<CustomHttpDraft>(
+    () => ({
+      ...CUSTOM_HTTP_DEFAULTS.image,
+    })
+  );
+  const [customHttpAdvancedOpen, setCustomHttpAdvancedOpen] = useState(true);
+  const [customModelError, setCustomModelError] = useState('');
   const [initialDraftSignature, setInitialDraftSignature] = useState('');
   const [isPersisting, setIsPersisting] = useState(false);
   const [compactProviderMode, setCompactProviderMode] =
@@ -808,7 +1175,7 @@ export const SettingsDialog = ({
   const [selectedEndpointUrl, setSelectedEndpointUrl] = useState(() =>
     normalizeEndpointUrl(geminiSettings.get().baseUrl)
   );
-  const [switchEndpointOptions, setSwitchEndpointOptions] = useState<
+  const [tuziApiEndpointOptions, setTuziApiEndpointOptions] = useState<
     EndpointOption[]
   >([]);
   const [customEndpointOptions, setCustomEndpointOptions] = useState<
@@ -820,7 +1187,7 @@ export const SettingsDialog = ({
   const [isEndpointTesting, setIsEndpointTesting] = useState(false);
   const [customEndpointUrl, setCustomEndpointUrl] = useState('');
   const [endpointAddError, setEndpointAddError] = useState('');
-  const [switchEndpointLoadError, setSwitchEndpointLoadError] = useState('');
+  const [tuziApiEndpointLoadError, setTuziApiEndpointLoadError] = useState('');
 
   const toggleGroupCollapse = (type: ModelType) => {
     setCollapsedGroups((prev) => {
@@ -838,6 +1205,7 @@ export const SettingsDialog = ({
     profilesDraft.find((profile) => profile.id === selectedProfileId) ||
     profilesDraft[0] ||
     null;
+  const isSelectedTuziProfile = isTuziProviderProfile(selectedProfile);
   const selectedImageApiCompatibilityHint = selectedProfile
     ? getImageApiCompatibilityHint(selectedProfile)
     : '同一个图片模型在不同 API Key 或网关下可能需要不同接口格式；不确定时使用自动。';
@@ -899,16 +1267,11 @@ export const SettingsDialog = ({
       map.set(normalizedUrl, { ...option, url: normalizedUrl });
     };
 
-    switchEndpointOptions.forEach(push);
-    push({
-      id: 'current-profile-base-url',
-      url: normalizeEndpointUrl(selectedProfile?.baseUrl),
-      shortLabel: '当前',
-    });
+    tuziApiEndpointOptions.forEach(push);
     customEndpointOptions.forEach(push);
 
     return Array.from(map.values());
-  }, [customEndpointOptions, selectedProfile?.baseUrl, switchEndpointOptions]);
+  }, [customEndpointOptions, tuziApiEndpointOptions]);
 
   const bestEndpoint = useMemo(() => {
     const measured = endpointOptions
@@ -925,12 +1288,14 @@ export const SettingsDialog = ({
     return (
       measured[0]?.endpoint ||
       endpointOptions[0] || {
-        id: 'fallback-current-profile-base-url',
-        url: normalizeEndpointUrl(selectedProfile?.baseUrl),
-        shortLabel: '当前',
+        id: 'fallback-tuzi-api-primary',
+        url: normalizeEndpointUrl(TUZI_API_FALLBACK_ENDPOINTS[0].url),
+        shortLabel: TUZI_API_FALLBACK_ENDPOINTS[0].name,
+        name: TUZI_API_FALLBACK_ENDPOINTS[0].name,
+        description: TUZI_API_FALLBACK_ENDPOINTS[0].description,
       }
     );
-  }, [endpointLatencies, endpointOptions, selectedProfile?.baseUrl]);
+  }, [endpointLatencies, endpointOptions]);
 
   const activeEndpoint =
     endpointOptions.find((endpoint) => endpoint.url === selectedEndpointUrl) ||
@@ -1170,20 +1535,25 @@ export const SettingsDialog = ({
     }
 
     let cancelled = false;
-    loadTuziSwitchEndpointOptions()
+    loadTuziApiEndpointOptions()
       .then((options) => {
         if (cancelled) {
           return;
         }
-        setSwitchEndpointOptions(options);
-        setSwitchEndpointLoadError('');
+        setTuziApiEndpointOptions(options);
+        setTuziApiEndpointLoadError('');
       })
       .catch((error) => {
         if (cancelled) {
           return;
         }
-        console.warn('[SettingsDialog] 加载 tuzi-switch 端点失败:', error);
-        setSwitchEndpointLoadError('switch 端点加载失败，已使用当前配置');
+        console.warn('[SettingsDialog] 加载 tuzi-api 端点失败:', error);
+        setTuziApiEndpointOptions(
+          TUZI_API_FALLBACK_ENDPOINTS.map((endpoint, index) =>
+            createEndpointOption(endpoint, index)
+          )
+        );
+        setTuziApiEndpointLoadError('tuzi-api 端点加载失败，已使用内置站点');
       });
 
     return () => {
@@ -1195,8 +1565,15 @@ export const SettingsDialog = ({
     if (!selectedProfile) {
       return;
     }
-    const normalizedUrl = normalizeEndpointUrl(selectedProfile.baseUrl);
-    setSelectedEndpointUrl(normalizedUrl);
+    setSelectedEndpointUrl(
+      resolveEndpointSelectionUrl(
+        selectedProfile.baseUrl,
+        endpointOptions.map((endpoint) => endpoint.url)
+      )
+    );
+  }, [endpointOptions, selectedProfile?.baseUrl, selectedProfile?.id]);
+
+  useEffect(() => {
     setEndpointSelectionMode('auto');
   }, [selectedProfile?.id]);
 
@@ -1228,20 +1605,21 @@ export const SettingsDialog = ({
         return;
       }
       const normalizedUrl = normalizeEndpointUrl(url);
+      const normalizedApiBaseUrl = normalizeEndpointApiBaseUrl(normalizedUrl);
       setEndpointSelectionMode(mode);
       setSelectedEndpointUrl(normalizedUrl);
       updateProfile(selectedProfile.id, (profile) => ({
         ...profile,
-        baseUrl: normalizedUrl,
+        baseUrl: normalizedApiBaseUrl,
       }));
       if (selectedProfile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
         void geminiSettings.update({
           ...geminiSettings.get(),
-          baseUrl: normalizedUrl,
+          baseUrl: normalizedApiBaseUrl,
         });
       }
     },
-    [selectedProfile?.id]
+    [endpointOptions, selectedProfile?.id]
   );
 
   const handleEndpointAutoSelectChange = useCallback(
@@ -1408,6 +1786,57 @@ export const SettingsDialog = ({
       MessagePlugin.error('预设保存失败，请重试');
       return false;
     }
+  };
+
+  const activateCustomModelForCurrentPreset = async (
+    profileId: string,
+    modelId: string,
+    modelType: ModelType
+  ): Promise<boolean> => {
+    const fallbackPreset =
+      presetsDraft.length === 0
+        ? createPreset(profileId, {
+            audio: audioModelName || getDefaultAudioModel(),
+            image: imageModelName || getDefaultImageModel(),
+            video: videoModelName || getDefaultVideoModel(),
+            text: textModelName || getDefaultTextModel(),
+          })
+        : null;
+    const basePresets = fallbackPreset ? [fallbackPreset] : presetsDraft;
+    const targetPresetId =
+      basePresets.find((preset) => preset.id === activePresetIdDraft)?.id ||
+      basePresets[0]?.id ||
+      DEFAULT_INVOCATION_PRESET_ID;
+    const nextModelRef = createModelRef(profileId, modelId);
+    const nextPresets = basePresets.map((preset) =>
+      preset.id === targetPresetId
+        ? updatePresetRoute(preset, modelType, {
+            defaultModelRef: nextModelRef,
+          })
+        : preset
+    );
+
+    setSelectedPresetId(targetPresetId);
+    const persisted = await persistPresetConfiguration(
+      nextPresets,
+      targetPresetId
+    );
+    if (!persisted) {
+      return false;
+    }
+
+    await updateActiveInvocationRouteModel(modelType, nextModelRef);
+    setPresetsDraft((current) =>
+      current.map((preset) =>
+        preset.id === targetPresetId
+          ? updatePresetRoute(preset, modelType, {
+              defaultModelRef: nextModelRef,
+            })
+          : preset
+      )
+    );
+
+    return true;
   };
 
   const handleProviderEnabledChange = async (
@@ -1802,7 +2231,10 @@ export const SettingsDialog = ({
       await runtimeModelDiscovery.discover(
         selectedProfile.id,
         normalizedBaseUrl,
-        trimmedApiKey
+        trimmedApiKey,
+        isSelectedTuziProfile
+          ? tuziApiEndpointOptions.map((endpoint) => endpoint.url)
+          : []
       );
       analytics.trackUIInteraction({
         area: 'settings',
@@ -1832,6 +2264,48 @@ export const SettingsDialog = ({
     }
   };
 
+  const syncLegacyDefaultModelNamesAfterSelection = (
+    selectedModels: ModelConfig[]
+  ) => {
+    const nextImageModels = selectedModels.filter(
+      (model) => model.type === 'image'
+    );
+    const nextVideoModels = selectedModels.filter(
+      (model) => model.type === 'video'
+    );
+    const nextTextModels = selectedModels.filter(
+      (model) => model.type === 'text'
+    );
+    const discoveredImageIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'image')
+      .map((model) => model.id);
+    const discoveredVideoIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'video')
+      .map((model) => model.id);
+    const discoveredTextIds = runtimeState.discoveredModels
+      .filter((model) => model.type === 'text')
+      .map((model) => model.id);
+
+    if (
+      !nextImageModels.some((model) => model.id === imageModelName) &&
+      discoveredImageIds.includes(imageModelName)
+    ) {
+      setImageModelName(nextImageModels[0]?.id || getDefaultImageModel());
+    }
+    if (
+      !nextVideoModels.some((model) => model.id === videoModelName) &&
+      discoveredVideoIds.includes(videoModelName)
+    ) {
+      setVideoModelName(nextVideoModels[0]?.id || getDefaultVideoModel());
+    }
+    if (
+      !nextTextModels.some((model) => model.id === textModelName) &&
+      discoveredTextIds.includes(textModelName)
+    ) {
+      setTextModelName(nextTextModels[0]?.id || getDefaultTextModel());
+    }
+  };
+
   const handleApplySelectedModels = (
     selectedModelIds: string[],
     options?: {
@@ -1849,43 +2323,7 @@ export const SettingsDialog = ({
     const selectedModels = selectionChange.models;
 
     if (selectedProfile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
-      const nextImageModels = selectedModels.filter(
-        (model) => model.type === 'image'
-      );
-      const nextVideoModels = selectedModels.filter(
-        (model) => model.type === 'video'
-      );
-      const nextTextModels = selectedModels.filter(
-        (model) => model.type === 'text'
-      );
-      const discoveredImageIds = runtimeState.discoveredModels
-        .filter((model) => model.type === 'image')
-        .map((model) => model.id);
-      const discoveredVideoIds = runtimeState.discoveredModels
-        .filter((model) => model.type === 'video')
-        .map((model) => model.id);
-      const discoveredTextIds = runtimeState.discoveredModels
-        .filter((model) => model.type === 'text')
-        .map((model) => model.id);
-
-      if (
-        !nextImageModels.some((model) => model.id === imageModelName) &&
-        discoveredImageIds.includes(imageModelName)
-      ) {
-        setImageModelName(nextImageModels[0]?.id || getDefaultImageModel());
-      }
-      if (
-        !nextVideoModels.some((model) => model.id === videoModelName) &&
-        discoveredVideoIds.includes(videoModelName)
-      ) {
-        setVideoModelName(nextVideoModels[0]?.id || getDefaultVideoModel());
-      }
-      if (
-        !nextTextModels.some((model) => model.id === textModelName) &&
-        discoveredTextIds.includes(textModelName)
-      ) {
-        setTextModelName(nextTextModels[0]?.id || getDefaultTextModel());
-      }
+      syncLegacyDefaultModelNamesAfterSelection(selectedModels);
     }
 
     const successMessage =
@@ -1915,16 +2353,278 @@ export const SettingsDialog = ({
     setDiscoveryDialogOpen(false);
   };
 
+  const handleCustomModelInterfacePresetChange = (
+    value: CustomModelInterfacePreset
+  ) => {
+    const preset = CUSTOM_MODEL_INTERFACE_PRESETS[value];
+    setCustomModelInterfacePreset(value);
+    if (preset.modelType !== 'any') {
+      setCustomModelType(preset.modelType);
+    }
+    if (value === 'custom-http') {
+      setCustomHttpAdvancedOpen(true);
+    }
+    setCustomModelError('');
+  };
+
+  const handleCustomModelTypeChange = (value: ModelType) => {
+    const presetKey = DEFAULT_CUSTOM_MODEL_PRESET_BY_TYPE[value];
+    const preset = CUSTOM_MODEL_INTERFACE_PRESETS[presetKey];
+    setCustomModelType(value);
+    setCustomModelInterfacePreset(presetKey);
+    setCustomHttpDraft({ ...CUSTOM_HTTP_DEFAULTS[value] });
+    setCustomModelError('');
+  };
+
+  const updateCustomHttpDraft = <K extends keyof CustomHttpDraft>(
+    key: K,
+    value: CustomHttpDraft[K]
+  ) => {
+    setCustomHttpDraft((current) => ({ ...current, [key]: value }));
+    setCustomModelError('');
+  };
+
+  const buildCustomHttpInvocation = () => {
+    const submitPath = customHttpDraft.submitPath.trim();
+    if (!submitPath) {
+      throw new Error('请填写请求地址');
+    }
+
+    let headers: Record<string, string> | undefined;
+    let formFields: ManualHttpFormField[] | undefined;
+    try {
+      const parsedHeaders = parseJsonObject(
+        customHttpDraft.headersTemplate,
+        '请求头'
+      );
+      headers =
+        Object.keys(parsedHeaders).length > 0 ? parsedHeaders : undefined;
+      if (customHttpDraft.bodyType === 'form-data') {
+        formFields = parseFormFields(customHttpDraft.formFieldsTemplate);
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error('请求头或 FormData 字段不是有效 JSON');
+      }
+      throw error;
+    }
+
+    if (
+      customHttpDraft.bodyType === 'json' &&
+      customHttpDraft.bodyTemplate.trim()
+    ) {
+      try {
+        JSON.parse(customHttpDraft.bodyTemplate);
+      } catch {
+        throw new Error('JSON 请求体模板格式错误');
+      }
+    }
+
+    const pollPathTemplate = customHttpDraft.pollPath.trim() || undefined;
+    const responsePath = customHttpDraft.responsePath.trim();
+    const responsePaths: NonNullable<
+      ManualHttpTemplateMetadata['responsePaths']
+    > = {};
+    if (customModelType === 'text') responsePaths.text = responsePath;
+    if (customModelType === 'image') responsePaths.imageUrls = responsePath;
+    if (customModelType === 'video') responsePaths.resultUrl = responsePath;
+    if (customModelType === 'audio') responsePaths.audioUrls = responsePath;
+    if (pollPathTemplate) {
+      responsePaths.taskId = customHttpDraft.taskIdPath.trim() || 'task_id';
+    }
+
+    const pollResponsePaths = pollPathTemplate
+      ? {
+          status: customHttpDraft.statusPath.trim() || 'status',
+          ...(customModelType === 'audio'
+            ? {
+                audioUrls:
+                  customHttpDraft.pollResultPath.trim() ||
+                  customHttpDraft.responsePath.trim(),
+              }
+            : {
+                resultUrl:
+                  customHttpDraft.pollResultPath.trim() ||
+                  customHttpDraft.responsePath.trim(),
+              }),
+          error: customHttpDraft.errorPath.trim() || 'error.message',
+        }
+      : undefined;
+    const manualHttp: ManualHttpTemplateMetadata = {
+      method: customHttpDraft.method,
+      bodyType: customHttpDraft.bodyType,
+      headers,
+      bodyTemplate:
+        customHttpDraft.bodyType === 'json' ||
+        customHttpDraft.bodyType === 'raw'
+          ? customHttpDraft.bodyTemplate
+          : undefined,
+      formFields,
+      responseKind: customModelType === 'video' ? 'task' : customModelType,
+      responsePaths,
+      pollResponsePaths,
+    };
+
+    return {
+      protocol: 'custom-http',
+      requestSchema: 'custom-http',
+      responseSchema: `custom-http.${
+        customModelType === 'video' ? 'task' : customModelType
+      }`,
+      submitPath,
+      pollPathTemplate,
+      metadata: { manualHttp },
+    };
+  };
+
+  const buildCustomModelPresetMetadata = (
+    preset: (typeof CUSTOM_MODEL_INTERFACE_PRESETS)[CustomModelInterfacePreset]
+  ) => {
+    const baseMetadata = (() => {
+      if (customModelType === 'image') {
+        return {
+          image: {
+            action:
+              preset.protocol === 'openai.images.edits' ? 'edit' : 'generation',
+          },
+        };
+      }
+
+      if (customModelType === 'audio') {
+        return {
+          audio: {
+            action: 'music',
+            defaultAction: 'music',
+            ...preset.metadata?.audio,
+          },
+        };
+      }
+
+      if (customModelType === 'video') {
+        return {
+          video: {
+            durationMode: 'request-param',
+          },
+        };
+      }
+
+      if (customModelType === 'text') {
+        return preset.metadata?.text
+          ? {
+              text: {
+                ...preset.metadata.text,
+                capabilitySource: 'manual',
+                capabilityConfidence: 'high',
+              },
+            }
+          : undefined;
+      }
+
+      return undefined;
+    })();
+
+    return baseMetadata;
+  };
+
+  const handleAddCustomModel = async () => {
+    if (!selectedProfile) {
+      MessagePlugin.warning('请先选择供应商配置');
+      return;
+    }
+
+    const modelId = customModelId.trim();
+    if (!modelId) {
+      setCustomModelError('请填写模型 ID');
+      return;
+    }
+
+    if (hasPendingChanges) {
+      const saved = await persistDrafts(false);
+      if (!saved) {
+        return;
+      }
+    }
+
+    try {
+      const preset = CUSTOM_MODEL_INTERFACE_PRESETS[customModelInterfacePreset];
+      const invocation =
+        customModelInterfacePreset === 'custom-http'
+          ? buildCustomHttpInvocation()
+          : {
+              protocol: preset.protocol,
+              requestSchema: preset.requestSchema,
+              responseSchema: preset.responseSchema,
+              submitPath: preset.submitPath,
+              baseUrlStrategy: preset.baseUrlStrategy,
+              pollPathTemplate: preset.pollPathTemplate,
+              metadata: buildCustomModelPresetMetadata(preset),
+            };
+      runtimeModelDiscovery.addManualModel(selectedProfile.id, {
+        id: modelId,
+        type: customModelType,
+        label: customModelLabel,
+        description: customModelDescription,
+        invocation,
+      });
+
+      const activated = await activateCustomModelForCurrentPreset(
+        selectedProfile.id,
+        modelId,
+        customModelType
+      );
+
+      setCustomModelId('');
+      setCustomModelLabel('');
+      setCustomModelDescription('');
+      setCustomModelError('');
+      MessagePlugin.success(
+        activated
+          ? `已添加并切换到自定义模型 ${modelId}`
+          : `已添加自定义模型 ${modelId}`
+      );
+      analytics.trackUIInteraction({
+        area: 'settings',
+        action: 'custom_model_added',
+        control: 'custom_model_form',
+        source: 'settings_dialog',
+        metadata: {
+          profileId: selectedProfile.id,
+          modelType: customModelType,
+          interfacePreset: customModelInterfacePreset,
+          submitPath: invocation.submitPath,
+        },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '自定义模型添加失败';
+      setCustomModelError(message);
+      MessagePlugin.error(message);
+    }
+  };
+
   const handleRemoveModel = (modelId: string) => {
     if (!selectedProfile) return;
     if (!runtimeState.selectedModelIds.includes(modelId)) {
       MessagePlugin.warning('该模型不是当前分组动态添加的模型，无法在此移除');
       return;
     }
-    const nextIds = runtimeState.selectedModelIds.filter(
-      (id) => id !== modelId
+    const selectionChange = runtimeModelDiscovery.removeModel(
+      selectedProfile.id,
+      modelId
     );
-    handleApplySelectedModels(nextIds);
+    const selectedModels = selectionChange.models;
+    if (selectedProfile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+      syncLegacyDefaultModelNamesAfterSelection(selectedModels);
+    }
+    const successMessage = buildModelSelectionChangeMessage(
+      selectedProfile.name,
+      selectionChange.addedModelIds.length,
+      selectionChange.removedModelIds.length,
+      selectionChange.models.length
+    );
+    if (successMessage) {
+      MessagePlugin.success(successMessage);
+    }
   };
 
   const closeSettingsDialog = () => {
@@ -2102,7 +2802,9 @@ export const SettingsDialog = ({
           closeAfterSave,
           profilesCount: normalizedProfiles.length,
           presetsCount: normalizedPresets.length,
-          enabledProfilesCount: normalizedProfiles.filter((profile) => profile.enabled).length,
+          enabledProfilesCount: normalizedProfiles.filter(
+            (profile) => profile.enabled
+          ).length,
         },
       });
 
@@ -2557,7 +3259,15 @@ export const SettingsDialog = ({
               </span>
             </div>
 
-            <div className="settings-dialog__field settings-dialog__field--full" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div
+              className="settings-dialog__field settings-dialog__field--full"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
               <label className="settings-dialog__label" style={{ margin: 0 }}>
                 图片优先使用异步接口（实验功能，建议不要开，还未上线）
               </label>
@@ -2579,7 +3289,10 @@ export const SettingsDialog = ({
                   );
                 }}
               />
-              <span className="settings-dialog__field-hint" style={{ width: '100%' }}>
+              <span
+                className="settings-dialog__field-hint"
+                style={{ width: '100%' }}
+              >
                 开启后，支持异步接口的图片模型将优先使用 /v1/videos 异步接口生成
               </span>
             </div>
@@ -2621,162 +3334,186 @@ export const SettingsDialog = ({
                 }
                 placeholder={TUZI_PROVIDER_DEFAULT_BASE_URL}
               />
-              <div className="settings-dialog__endpoint-panel ai-input-bar__site-panel">
-                <div className="ai-input-bar__site-panel-toolbar">
-                  <div className="ai-input-bar__site-title">
-                    <div className="ai-input-bar__site-count">
-                      {endpointOptions.length} 个端点
+              {isSelectedTuziProfile ? (
+                <div className="settings-dialog__endpoint-panel">
+                  <div className="settings-dialog__endpoint-toolbar">
+                    <div className="settings-dialog__endpoint-title">
+                      <div className="settings-dialog__endpoint-count">
+                        {endpointOptions.length} 个端点
+                      </div>
+                      <div className="settings-dialog__endpoint-source">
+                        来源: tuzi-api
+                      </div>
                     </div>
-                    <div className="ai-input-bar__site-source">
-                      来源: tuzi-switch
-                    </div>
-                  </div>
-                  <div className="ai-input-bar__site-actions">
-                    <label className="ai-input-bar__site-auto">
-                      <input
-                        type="checkbox"
-                        checked={endpointSelectionMode === 'auto'}
-                        onChange={(event) =>
-                          handleEndpointAutoSelectChange(event.target.checked)
-                        }
-                      />
-                      <span>自动选择</span>
-                    </label>
-                    <button
-                      type="button"
-                      className="ai-input-bar__site-test-btn"
-                      onClick={() => void handleRunEndpointSpeedTest()}
-                      disabled={
-                        isEndpointTesting || endpointOptions.length === 0
-                      }
-                    >
-                      {isEndpointTesting ? (
-                        <Loader2
-                          size={14}
-                          className="ai-input-bar__site-spin"
-                        />
-                      ) : (
-                        <Zap size={15} />
-                      )}
-                      <span>测速</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="ai-input-bar__site-list">
-                  {endpointOptions.map((endpoint) => {
-                    const selected =
-                      endpoint.url === activeEndpoint.url ||
-                      (endpointSelectionMode === 'auto' &&
-                        endpoint.url === bestEndpoint.url);
-                    const latency = endpointLatencies[endpoint.url];
-                    const latencyText =
-                      typeof latency === 'number'
-                        ? `${latency}ms`
-                        : latency === 'failed'
-                        ? '失败'
-                        : '—';
-
-                    return (
-                      <div
-                        key={endpoint.id}
-                        role="button"
-                        tabIndex={0}
-                        className={classNames('ai-input-bar__site-row', {
-                          'ai-input-bar__site-row--selected': selected,
-                        })}
-                        onClick={() =>
-                          handleEndpointSelect(endpoint.url, 'manual')
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            handleEndpointSelect(endpoint.url, 'manual');
+                    <div className="settings-dialog__endpoint-actions">
+                      <label className="settings-dialog__endpoint-auto">
+                        <input
+                          type="checkbox"
+                          checked={endpointSelectionMode === 'auto'}
+                          onChange={(event) =>
+                            handleEndpointAutoSelectChange(event.target.checked)
                           }
-                        }}
+                        />
+                        <span>自动选择</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="settings-dialog__endpoint-test-btn"
+                        onClick={() => void handleRunEndpointSpeedTest()}
+                        disabled={
+                          isEndpointTesting || endpointOptions.length === 0
+                        }
                       >
-                        <span className="ai-input-bar__site-row-dot" />
-                        <span className="ai-input-bar__site-row-url">
-                          {endpoint.url}
-                        </span>
-                        <span
+                        {isEndpointTesting ? (
+                          <Loader2
+                            size={14}
+                            className="settings-dialog__endpoint-spin"
+                          />
+                        ) : (
+                          <Zap size={15} />
+                        )}
+                        <span>测速</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="settings-dialog__endpoint-list">
+                    {endpointOptions.map((endpoint) => {
+                      const selected =
+                        endpoint.url === activeEndpoint.url ||
+                        (endpointSelectionMode === 'auto' &&
+                          endpoint.url === bestEndpoint.url);
+                      const latency = endpointLatencies[endpoint.url];
+                      const latencyText =
+                        typeof latency === 'number'
+                          ? `${latency}ms`
+                          : latency === 'failed'
+                          ? '失败'
+                          : '—';
+                      const latencyState =
+                        latency === 'failed'
+                          ? 'failed'
+                          : typeof latency === 'number' && latency < 300
+                          ? 'fast'
+                          : typeof latency === 'number' && latency >= 800
+                          ? 'slow'
+                          : null;
+
+                      return (
+                        <div
+                          key={endpoint.id}
+                          role="button"
+                          tabIndex={0}
                           className={classNames(
-                            'ai-input-bar__site-row-latency',
+                            'settings-dialog__endpoint-row',
                             {
-                              'ai-input-bar__site-row-latency--fast':
-                                typeof latency === 'number' && latency < 300,
-                              'ai-input-bar__site-row-latency--slow':
-                                typeof latency === 'number' && latency >= 800,
-                              'ai-input-bar__site-row-latency--failed':
-                                latency === 'failed',
+                              'settings-dialog__endpoint-row--selected':
+                                selected,
                             }
                           )}
-                        >
-                          {isEndpointTesting && latency == null ? (
-                            <Loader2
-                              size={14}
-                              className="ai-input-bar__site-spin"
-                            />
-                          ) : (
-                            latencyText
-                          )}
-                        </span>
-                        {endpoint.removable ? (
-                          <button
-                            type="button"
-                            className="ai-input-bar__site-remove"
-                            onClick={(event) => {
+                          onClick={() => {
+                            handleEndpointSelect(endpoint.url, 'manual');
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault();
-                              event.stopPropagation();
-                              handleRemoveCustomEndpoint(endpoint);
-                            }}
-                          >
-                            <X size={17} />
-                          </button>
-                        ) : (
-                          <span className="ai-input-bar__site-remove-placeholder">
-                            —
+                              handleEndpointSelect(endpoint.url, 'manual');
+                            }
+                          }}
+                        >
+                          <span className="settings-dialog__endpoint-row-dot" />
+                          <span className="settings-dialog__endpoint-row-copy">
+                            <span className="settings-dialog__endpoint-row-name">
+                              {endpoint.name || endpoint.shortLabel}
+                            </span>
+                            <span className="settings-dialog__endpoint-row-url">
+                              {endpoint.url}
+                            </span>
+                            {endpoint.description ? (
+                              <span className="settings-dialog__endpoint-row-desc">
+                                {endpoint.description}
+                              </span>
+                            ) : null}
                           </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                          <span
+                            className={classNames(
+                              'settings-dialog__endpoint-row-latency',
+                              {
+                                'settings-dialog__endpoint-row-latency--fast':
+                                  latencyState === 'fast',
+                                'settings-dialog__endpoint-row-latency--slow':
+                                  latencyState === 'slow',
+                                'settings-dialog__endpoint-row-latency--failed':
+                                  latencyState === 'failed',
+                              }
+                            )}
+                          >
+                            {isEndpointTesting && latency == null ? (
+                              <Loader2
+                                size={14}
+                                className="settings-dialog__endpoint-spin"
+                              />
+                            ) : (
+                              latencyText
+                            )}
+                          </span>
+                          {endpoint.removable ? (
+                            <button
+                              type="button"
+                              className="settings-dialog__endpoint-remove"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleRemoveCustomEndpoint(endpoint);
+                              }}
+                            >
+                              <X size={17} />
+                            </button>
+                          ) : (
+                            <span className="settings-dialog__endpoint-remove-placeholder">
+                              —
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
 
-                <div className="ai-input-bar__site-add">
-                  <input
-                    value={customEndpointUrl}
-                    placeholder="https://api.example.com"
-                    onChange={(event) => {
-                      setCustomEndpointUrl(event.target.value);
-                      setEndpointAddError('');
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        handleAddCustomEndpoint();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="ai-input-bar__site-add-btn"
-                    onClick={handleAddCustomEndpoint}
-                  >
-                    <Plus size={18} />
-                  </button>
+                  <div className="settings-dialog__endpoint-add">
+                    <input
+                      value={customEndpointUrl}
+                      placeholder="https://api.example.com"
+                      onChange={(event) => {
+                        setCustomEndpointUrl(event.target.value);
+                        setEndpointAddError('');
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleAddCustomEndpoint();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="settings-dialog__endpoint-add-btn"
+                      onClick={handleAddCustomEndpoint}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                  {endpointAddError ? (
+                    <div className="settings-dialog__endpoint-error">
+                      {endpointAddError}
+                    </div>
+                  ) : null}
+                  {tuziApiEndpointLoadError ? (
+                    <div className="settings-dialog__endpoint-error">
+                      {tuziApiEndpointLoadError}
+                    </div>
+                  ) : null}
                 </div>
-                {endpointAddError ? (
-                  <div className="ai-input-bar__site-error">
-                    {endpointAddError}
-                  </div>
-                ) : null}
-                {switchEndpointLoadError ? (
-                  <div className="ai-input-bar__site-error">
-                    {switchEndpointLoadError}
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
             </div>
 
             <div className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
@@ -2876,7 +3613,11 @@ export const SettingsDialog = ({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => setIsApiKeyVisible((visible) => !visible)}
                     >
-                      {isApiKeyVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {isApiKeyVisible ? (
+                        <EyeOff size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )}
                     </button>
                   </HoverTip>
                 </div>
@@ -2942,6 +3683,7 @@ export const SettingsDialog = ({
       modality: ModelType;
       modelId?: string;
       compareMode: 'cross-provider' | 'cross-model' | 'custom';
+      autoRun?: boolean;
     }) => {
       if (!payload.profileId) {
         return;
@@ -2951,6 +3693,7 @@ export const SettingsDialog = ({
         modelId: payload.modelId,
         modality: payload.modality,
         compareMode: payload.compareMode,
+        autoRun: payload.autoRun,
       });
       analytics.trackUIInteraction({
         area: 'settings',
@@ -2962,6 +3705,7 @@ export const SettingsDialog = ({
           modality: payload.modality,
           compareMode: payload.compareMode,
           hasModel: !!payload.modelId,
+          autoRun: !!payload.autoRun,
         },
       });
     },
@@ -3063,6 +3807,367 @@ export const SettingsDialog = ({
           </div>
         ) : null}
 
+        {canManageModels ? (
+          <div className="settings-dialog__custom-model-panel">
+            <div className="settings-dialog__custom-model-grid">
+              <label className="settings-dialog__field settings-dialog__field--column">
+                <span className="settings-dialog__label settings-dialog__label--stacked">
+                  模型 ID
+                </span>
+                <input
+                  type="text"
+                  className="settings-dialog__input"
+                  value={customModelId}
+                  onChange={(event) => {
+                    setCustomModelId(event.target.value);
+                    setCustomModelError('');
+                  }}
+                  placeholder="gpt-image-2"
+                />
+              </label>
+              <label className="settings-dialog__field settings-dialog__field--column">
+                <span className="settings-dialog__label settings-dialog__label--stacked">
+                  模型类型
+                </span>
+                <select
+                  className="settings-dialog__select"
+                  value={customModelType}
+                  onChange={(event) =>
+                    handleCustomModelTypeChange(event.target.value as ModelType)
+                  }
+                >
+                  {MODEL_SUMMARY_GROUP_ORDER.map((modelType) => (
+                    <option key={modelType} value={modelType}>
+                      {MODEL_GROUP_LABELS[modelType]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-dialog__field settings-dialog__field--column">
+                <span className="settings-dialog__label settings-dialog__label--stacked">
+                  调用方式
+                </span>
+                <select
+                  className="settings-dialog__select"
+                  value={customModelInterfacePreset}
+                  onChange={(event) =>
+                    handleCustomModelInterfacePresetChange(
+                      event.target.value as CustomModelInterfacePreset
+                    )
+                  }
+                >
+                  {getCustomModelPresetOptions(customModelType).map(
+                    (presetKey) => (
+                      <option key={presetKey} value={presetKey}>
+                        {CUSTOM_MODEL_INTERFACE_PRESETS[presetKey].label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+              <div className="settings-dialog__custom-model-note settings-dialog__field--full">
+                {
+                  CUSTOM_MODEL_INTERFACE_PRESETS[customModelInterfacePreset]
+                    .description
+                }
+                {customModelInterfacePreset === 'custom-http'
+                  ? ' 提示词、参考图、尺寸和时长仍在原生成面板填写，这里只配置调用方法。'
+                  : ' 模型 ID 必须填写供应商接口实际接受的值；提示词、参考图、尺寸等仍在原生成面板填写。'}
+              </div>
+              {customModelInterfacePreset === 'custom-http' ? (
+                <>
+                  <button
+                    type="button"
+                    className="settings-dialog__custom-model-advanced-toggle settings-dialog__field--full"
+                    onClick={() =>
+                      setCustomHttpAdvancedOpen((current) => !current)
+                    }
+                  >
+                    {customHttpAdvancedOpen ? (
+                      <ChevronDown size={15} />
+                    ) : (
+                      <ChevronRight size={15} />
+                    )}
+                    <span>自定义接口配置</span>
+                    <span className="settings-dialog__custom-model-advanced-state">
+                      {customHttpAdvancedOpen ? '已展开' : '已收起'}
+                    </span>
+                  </button>
+                  {customHttpAdvancedOpen ? (
+                    <div className="settings-dialog__custom-model-advanced">
+                      <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          请求地址
+                        </span>
+                        <input
+                          type="text"
+                          className="settings-dialog__input"
+                          value={customHttpDraft.submitPath}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'submitPath',
+                              event.target.value
+                            )
+                          }
+                          placeholder="/images/generations 或完整 https:// 地址"
+                        />
+                      </label>
+                      <label className="settings-dialog__field settings-dialog__field--column">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          Method
+                        </span>
+                        <select
+                          className="settings-dialog__select"
+                          value={customHttpDraft.method}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'method',
+                              event.target.value as CustomHttpDraft['method']
+                            )
+                          }
+                        >
+                          {['POST', 'GET', 'PUT', 'PATCH', 'DELETE'].map(
+                            (method) => (
+                              <option key={method} value={method}>
+                                {method}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </label>
+                      <label className="settings-dialog__field settings-dialog__field--column">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          请求体类型
+                        </span>
+                        <select
+                          className="settings-dialog__select"
+                          value={customHttpDraft.bodyType}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'bodyType',
+                              event.target.value as ManualHttpBodyType
+                            )
+                          }
+                        >
+                          <option value="json">JSON</option>
+                          <option value="form-data">FormData</option>
+                          <option value="raw">Raw Text</option>
+                          <option value="none">无请求体</option>
+                        </select>
+                      </label>
+                      {customHttpDraft.bodyType === 'json' ||
+                      customHttpDraft.bodyType === 'raw' ? (
+                        <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                          <span className="settings-dialog__label settings-dialog__label--stacked">
+                            请求体模板
+                          </span>
+                          <textarea
+                            className="settings-dialog__textarea settings-dialog__textarea--code"
+                            value={customHttpDraft.bodyTemplate}
+                            onChange={(event) =>
+                              updateCustomHttpDraft(
+                                'bodyTemplate',
+                                event.target.value
+                              )
+                            }
+                          />
+                        </label>
+                      ) : null}
+                      {customHttpDraft.bodyType === 'form-data' ? (
+                        <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                          <span className="settings-dialog__label settings-dialog__label--stacked">
+                            FormData 字段
+                          </span>
+                          <textarea
+                            className="settings-dialog__textarea settings-dialog__textarea--code"
+                            value={customHttpDraft.formFieldsTemplate}
+                            onChange={(event) =>
+                              updateCustomHttpDraft(
+                                'formFieldsTemplate',
+                                event.target.value
+                              )
+                            }
+                          />
+                        </label>
+                      ) : null}
+                      <div className="settings-dialog__custom-model-template-tip settings-dialog__field--full">
+                        可用变量：{'{{model}}'}、{'{{prompt}}'}、
+                        {'{{messages}}'}、{'{{image}}'}、{'{{images}}'}、
+                        {'{{size}}'}、{'{{duration}}'}、{'{{params.xxx}}'}
+                        。参考图上传请使用 FormData 的 <code>file</code> 或{' '}
+                        <code>file-list</code>。
+                      </div>
+                      <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          额外请求头 JSON
+                        </span>
+                        <textarea
+                          className="settings-dialog__textarea settings-dialog__textarea--code settings-dialog__textarea--compact"
+                          value={customHttpDraft.headersTemplate}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'headersTemplate',
+                              event.target.value
+                            )
+                          }
+                          placeholder='{"X-Custom-Header":"value"}'
+                        />
+                      </label>
+                      <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          {customModelType === 'text'
+                            ? '文本返回字段'
+                            : customModelType === 'image'
+                            ? '图片 URL 返回字段'
+                            : customModelType === 'video'
+                            ? '视频 URL 返回字段'
+                            : '音频 URL 返回字段'}
+                        </span>
+                        <input
+                          type="text"
+                          className="settings-dialog__input"
+                          value={customHttpDraft.responsePath}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'responsePath',
+                              event.target.value
+                            )
+                          }
+                          placeholder="data.*.url"
+                        />
+                      </label>
+                      <label className="settings-dialog__field settings-dialog__field--column settings-dialog__field--full">
+                        <span className="settings-dialog__label settings-dialog__label--stacked">
+                          轮询地址（可选）
+                        </span>
+                        <input
+                          type="text"
+                          className="settings-dialog__input"
+                          value={customHttpDraft.pollPath}
+                          onChange={(event) =>
+                            updateCustomHttpDraft(
+                              'pollPath',
+                              event.target.value
+                            )
+                          }
+                          placeholder="/tasks/{{taskId}}"
+                        />
+                      </label>
+                      {customHttpDraft.pollPath.trim() ? (
+                        <>
+                          <label className="settings-dialog__field settings-dialog__field--column">
+                            <span className="settings-dialog__label settings-dialog__label--stacked">
+                              任务 ID 字段
+                            </span>
+                            <input
+                              type="text"
+                              className="settings-dialog__input"
+                              value={customHttpDraft.taskIdPath}
+                              onChange={(event) =>
+                                updateCustomHttpDraft(
+                                  'taskIdPath',
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="settings-dialog__field settings-dialog__field--column">
+                            <span className="settings-dialog__label settings-dialog__label--stacked">
+                              状态字段
+                            </span>
+                            <input
+                              type="text"
+                              className="settings-dialog__input"
+                              value={customHttpDraft.statusPath}
+                              onChange={(event) =>
+                                updateCustomHttpDraft(
+                                  'statusPath',
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="settings-dialog__field settings-dialog__field--column">
+                            <span className="settings-dialog__label settings-dialog__label--stacked">
+                              轮询结果字段
+                            </span>
+                            <input
+                              type="text"
+                              className="settings-dialog__input"
+                              value={customHttpDraft.pollResultPath}
+                              onChange={(event) =>
+                                updateCustomHttpDraft(
+                                  'pollResultPath',
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="settings-dialog__field settings-dialog__field--column">
+                            <span className="settings-dialog__label settings-dialog__label--stacked">
+                              错误字段
+                            </span>
+                            <input
+                              type="text"
+                              className="settings-dialog__input"
+                              value={customHttpDraft.errorPath}
+                              onChange={(event) =>
+                                updateCustomHttpDraft(
+                                  'errorPath',
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+              <label className="settings-dialog__field settings-dialog__field--column">
+                <span className="settings-dialog__label settings-dialog__label--stacked">
+                  显示名称
+                </span>
+                <input
+                  type="text"
+                  className="settings-dialog__input"
+                  value={customModelLabel}
+                  onChange={(event) => setCustomModelLabel(event.target.value)}
+                  placeholder="可选"
+                />
+              </label>
+              <label className="settings-dialog__field settings-dialog__field--column">
+                <span className="settings-dialog__label settings-dialog__label--stacked">
+                  描述
+                </span>
+                <input
+                  type="text"
+                  className="settings-dialog__input"
+                  value={customModelDescription}
+                  onChange={(event) =>
+                    setCustomModelDescription(event.target.value)
+                  }
+                  placeholder="可选"
+                />
+              </label>
+              <button
+                type="button"
+                className="settings-dialog__button settings-dialog__custom-model-submit"
+                onClick={() => void handleAddCustomModel()}
+              >
+                <Plus size={15} />
+                <span>添加自定义模型</span>
+              </button>
+            </div>
+            {customModelError ? (
+              <div className="settings-dialog__custom-model-error">
+                {customModelError}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {modelGroups.length > 0 ? (
           <div className="settings-dialog__model-type-groups">
             {modelGroups.map(({ type, models }) => {
@@ -3112,6 +4217,7 @@ export const SettingsDialog = ({
                             profileId: selectedProfile.id,
                             modality: type,
                             compareMode: 'cross-model',
+                            autoRun: true,
                           });
                         }}
                         disabled={!canLaunchBenchmark}
@@ -3210,6 +4316,7 @@ export const SettingsDialog = ({
                                         modality: type,
                                         modelId: model.id,
                                         compareMode: 'cross-provider',
+                                        autoRun: true,
                                       });
                                     }}
                                     disabled={!canLaunchBenchmark}
@@ -3688,6 +4795,7 @@ export const SettingsDialog = ({
             modelId,
             modality: model?.type || 'image',
             compareMode: 'cross-provider',
+            autoRun: true,
           });
         }}
       />

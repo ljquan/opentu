@@ -25,8 +25,6 @@ import { MediaLibraryIcon } from '../icons';
 import { ModelDropdown } from '../ai-input-bar/ModelDropdown';
 import { ParametersDropdown } from '../ai-input-bar/ParametersDropdown';
 import {
-  DEFAULT_IMAGE_MODEL_ID,
-  DEFAULT_TEXT_MODEL_ID,
   ModelVendor,
   getCompatibleParams,
   type ModelConfig,
@@ -40,7 +38,11 @@ import {
   type ModelRef,
 } from '../../utils/settings-manager';
 import { promptForApiKey } from '../../utils/gemini-api';
-import { getSelectionKey } from '../../utils/model-selection';
+import {
+  findMatchingSelectableModel,
+  getModelRefFromConfig,
+  getSelectionKey,
+} from '../../utils/model-selection';
 import { generateUUID } from '../../utils/runtime-helpers';
 import { taskQueueService } from '../../services/task-queue';
 import { unifiedCacheService } from '../../services/unified-cache-service';
@@ -144,6 +146,10 @@ const COMIC_ANALYTICS_UV_EVENT = 'multi_image_generation_unique_view';
 const COMIC_ANALYTICS_DAILY_UV_KEY =
   'comic-creator:analytics:daily-unique-view';
 const COMIC_IMAGE_COUNT_OPTIONS = [1, 2, 3, 4];
+const COMIC_DEFAULT_TEXT_MODEL_ID = 'gemini-2.5-pro-all';
+const COMIC_DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
+const LEGACY_COMIC_DEFAULT_TEXT_MODEL_ID = 'gpt-5.5';
+const LEGACY_COMIC_DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2-vip';
 
 interface ComicPdfAttachment {
   cacheUrl: string;
@@ -311,15 +317,56 @@ function getModelRefForOption(model: ModelConfig): ModelRef | null {
     : null;
 }
 
+function getModelRefForSelection(model: ModelConfig): ModelRef | null {
+  return getModelRefFromConfig(model);
+}
+
+function selectFallbackModel(
+  models: ModelConfig[],
+  fallbackModelId: string
+): ModelConfig | undefined {
+  return (
+    findMatchingSelectableModel(models, fallbackModelId, null) ||
+    models.find((model) => !model.isVip) ||
+    models[0]
+  );
+}
+
+function readComicModelSelection(
+  storageKey: string,
+  models: ModelConfig[],
+  fallbackModelId: string,
+  legacyFallbackModelId: string
+): { modelId: string; modelRef: ModelRef | null } {
+  const stored = readStoredModelSelection(storageKey, fallbackModelId);
+  const isLegacyFallback =
+    stored.modelId === legacyFallbackModelId && !stored.modelRef?.profileId;
+  const matchedStored = findMatchingSelectableModel(
+    models,
+    stored.modelId,
+    stored.modelRef
+  );
+
+  if (matchedStored && !isLegacyFallback) {
+    return {
+      modelId: matchedStored.id,
+      modelRef: getModelRefForSelection(matchedStored),
+    };
+  }
+
+  const fallback = selectFallbackModel(models, fallbackModelId);
+  return {
+    modelId: fallback?.id || fallbackModelId,
+    modelRef: fallback ? getModelRefForSelection(fallback) : null,
+  };
+}
+
 function isSelectedModelInList(
   models: ModelConfig[],
   modelId: string,
   modelRef?: ModelRef | null
 ): boolean {
-  const selectedKey = getSelectionKey(modelId, modelRef);
-  return models.some(
-    (model) => (model.selectionKey || model.id) === selectedKey
-  );
+  return Boolean(findMatchingSelectableModel(models, modelId, modelRef));
 }
 
 function formatFileSize(size: number): string {
@@ -584,13 +631,23 @@ const ComicCreator: React.FC = () => {
   );
   const initialTextSelection = useMemo(
     () =>
-      readStoredModelSelection(STORAGE_KEY_TEXT_MODEL, DEFAULT_TEXT_MODEL_ID),
-    []
+      readComicModelSelection(
+        STORAGE_KEY_TEXT_MODEL,
+        textModels,
+        COMIC_DEFAULT_TEXT_MODEL_ID,
+        LEGACY_COMIC_DEFAULT_TEXT_MODEL_ID
+      ),
+    [textModels]
   );
   const initialImageSelection = useMemo(
     () =>
-      readStoredModelSelection(STORAGE_KEY_IMAGE_MODEL, DEFAULT_IMAGE_MODEL_ID),
-    []
+      readComicModelSelection(
+        STORAGE_KEY_IMAGE_MODEL,
+        imageModels,
+        COMIC_DEFAULT_IMAGE_MODEL_ID,
+        LEGACY_COMIC_DEFAULT_IMAGE_MODEL_ID
+      ),
+    [imageModels]
   );
   const initialPromptMode = useMemo(
     () => currentRecord?.sourcePromptMode || readSessionPromptMode(),
@@ -848,6 +905,60 @@ const ComicCreator: React.FC = () => {
     },
     [imageModel]
   );
+
+  useEffect(() => {
+    if (selectableTextModels.length === 0) return;
+    const isLegacyFallback =
+      textModel === LEGACY_COMIC_DEFAULT_TEXT_MODEL_ID &&
+      !textModelRef?.profileId;
+    const matchedModel = findMatchingSelectableModel(
+      selectableTextModels,
+      textModel,
+      textModelRef
+    );
+    if (matchedModel && !isLegacyFallback) return;
+
+    const fallback = selectFallbackModel(
+      selectableTextModels,
+      COMIC_DEFAULT_TEXT_MODEL_ID
+    );
+    if (!fallback) return;
+
+    const nextRef = getModelRefForSelection(fallback);
+    if (
+      getSelectionKey(textModel, textModelRef) !==
+      getSelectionKey(fallback.id, nextRef)
+    ) {
+      setTextModel(fallback.id, nextRef);
+    }
+  }, [selectableTextModels, setTextModel, textModel, textModelRef]);
+
+  useEffect(() => {
+    if (imageModels.length === 0) return;
+    const isLegacyFallback =
+      imageModel === LEGACY_COMIC_DEFAULT_IMAGE_MODEL_ID &&
+      !imageModelRef?.profileId;
+    const matchedModel = findMatchingSelectableModel(
+      imageModels,
+      imageModel,
+      imageModelRef
+    );
+    if (matchedModel && !isLegacyFallback) return;
+
+    const fallback = selectFallbackModel(
+      imageModels,
+      COMIC_DEFAULT_IMAGE_MODEL_ID
+    );
+    if (!fallback) return;
+
+    const nextRef = getModelRefForSelection(fallback);
+    if (
+      getSelectionKey(imageModel, imageModelRef) !==
+      getSelectionKey(fallback.id, nextRef)
+    ) {
+      setImageModel(fallback.id, nextRef);
+    }
+  }, [imageModel, imageModelRef, imageModels, setImageModel]);
 
   const handleImageParamChange = useCallback(
     (paramId: string, value: string) => {
@@ -1180,6 +1291,10 @@ const ComicCreator: React.FC = () => {
           knowledgeContextRefs,
           model: textModel,
           modelRef: textModelRef,
+          params: {
+            response_mime_type: 'application/json',
+            response_format: { type: 'json_object' },
+          },
           comicCreatorAction: 'outline',
           comicCreatorRecordId: record.id,
           comicCreatorScenarioId: scenarioId,

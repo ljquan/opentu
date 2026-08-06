@@ -1399,6 +1399,57 @@ $drawer-input-max-height: 280px;
     align-items: center;
   }
 
+  &__selection--implicit {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 2px 2px;
+    padding: 8px 10px;
+    background: rgba(var(--td-brand-color-rgb), 0.04);
+    border: 1px solid rgba(var(--td-brand-color-rgb), 0.12);
+    border-radius: 10px;
+  }
+
+  &__implicit-reference-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__implicit-reference-label {
+    min-width: 0;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__implicit-reference-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    color: var(--td-text-color-placeholder);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: var(--td-text-color-secondary);
+    }
+  }
+
   &__textarea {
     position: relative;
     z-index: 2;
@@ -1419,6 +1470,14 @@ $drawer-input-max-height: 280px;
 
     &::placeholder {
       color: var(--td-text-color-placeholder);
+    }
+  }
+
+  & &__textarea {
+    &:hover,
+    &:focus {
+      border: none;
+      box-shadow: none;
     }
   }
 }

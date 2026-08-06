@@ -39,10 +39,16 @@ import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
 import { HoverTip } from '../shared';
 import { useChatDrawerGenerationControls } from './useChatDrawerGenerationControls';
+import { shouldUseImplicitWorkflowReferences } from './workflow-media-results';
 import '../ai-input-bar/ai-input-bar.scss';
 
 interface EnhancedChatInputProps {
   selectedContent: SelectedContentItem[];
+  implicitReferenceContent?: SelectedContentItem[];
+  implicitReferenceLabel?: string;
+  implicitReferencePinned?: boolean;
+  onClearImplicitReference?: () => void;
+  onImplicitReferenceConsumed?: () => void;
   onSend: (message: Message) => void | Promise<void>;
   disabled?: boolean;
   placeholder?: string;
@@ -65,7 +71,17 @@ export const EnhancedChatInput = forwardRef<
   EnhancedChatInputProps
 >(
   (
-    { selectedContent, onSend, disabled = false, placeholder = '输入消息...' },
+    {
+      selectedContent,
+      implicitReferenceContent = [],
+      implicitReferenceLabel,
+      implicitReferencePinned = false,
+      onClearImplicitReference,
+      onImplicitReferenceConsumed,
+      onSend,
+      disabled = false,
+      placeholder = '输入消息...',
+    },
     ref
   ) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +96,7 @@ export const EnhancedChatInput = forwardRef<
       () => [...uploadedContent, ...selectedContent],
       [selectedContent, uploadedContent]
     );
+    const hasExplicitContent = allContent.length > 0;
     const hasSelection = allContent.length > 0;
     const { addHistory: addPromptHistory } = usePromptHistory();
     const { language } = useI18n();
@@ -240,9 +257,18 @@ export const EnhancedChatInput = forwardRef<
     // 发送消息
     const submitGeneration = useCallback(
       async (trimmedInput: string) => {
+        const shouldUseImplicitReferences =
+          allContent.length === 0 &&
+          implicitReferenceContent.length > 0 &&
+          generationControls.generationType !== 'agent' &&
+          (implicitReferencePinned ||
+            shouldUseImplicitWorkflowReferences(trimmedInput));
+        const generationContent = shouldUseImplicitReferences
+          ? implicitReferenceContent
+          : allContent;
         const submitted = await chatDrawerControl.submitGenerationFromDrawer({
           prompt: trimmedInput,
-          selectedContent: allContent,
+          selectedContent: generationContent,
           generationType: generationControls.generationType,
           selectedModel: generationControls.selectedModel,
           selectedModelRef: generationControls.selectedModelRef,
@@ -257,6 +283,9 @@ export const EnhancedChatInput = forwardRef<
 
         setInput('');
         setUploadedContent([]);
+        if (shouldUseImplicitReferences) {
+          onImplicitReferenceConsumed?.();
+        }
       },
       [
         chatDrawerControl,
@@ -266,6 +295,9 @@ export const EnhancedChatInput = forwardRef<
         generationControls.selectedModelRef,
         generationControls.selectedParams,
         allContent,
+        implicitReferenceContent,
+        implicitReferencePinned,
+        onImplicitReferenceConsumed,
       ]
     );
 
@@ -299,7 +331,7 @@ export const EnhancedChatInput = forwardRef<
               mediaType: 'image/png',
               url: item.url || '',
             },
-          } as any);
+          });
         } else if (item.type === 'video') {
           parts.push({
             type: 'data-file',
@@ -308,7 +340,7 @@ export const EnhancedChatInput = forwardRef<
               mediaType: 'video/mp4',
               url: item.url || '',
             },
-          } as any);
+          });
         }
       });
 
@@ -328,6 +360,14 @@ export const EnhancedChatInput = forwardRef<
       });
       setInput('');
       setUploadedContent([]);
+      if (
+        allContent.length === 0 &&
+        implicitReferenceContent.length > 0 &&
+        (implicitReferencePinned ||
+          shouldUseImplicitWorkflowReferences(trimmedInput))
+      ) {
+        onImplicitReferenceConsumed?.();
+      }
     }, [
       input,
       allContent,
@@ -336,6 +376,9 @@ export const EnhancedChatInput = forwardRef<
       onSend,
       addPromptHistory,
       hasSelection,
+      implicitReferenceContent,
+      implicitReferencePinned,
+      onImplicitReferenceConsumed,
     ]);
 
     // 键盘事件处理
@@ -382,6 +425,63 @@ export const EnhancedChatInput = forwardRef<
       );
     };
 
+    const renderImplicitReferenceContent = () => {
+      const shouldShowImplicitReferences =
+        !hasExplicitContent &&
+        implicitReferenceContent.length > 0 &&
+        (implicitReferencePinned ||
+          shouldUseImplicitWorkflowReferences(input));
+
+      if (!shouldShowImplicitReferences) {
+        return null;
+      }
+
+      return (
+        <div className="enhanced-chat-input__selection enhanced-chat-input__selection--implicit">
+          <div className="enhanced-chat-input__implicit-reference-header">
+            <span className="enhanced-chat-input__implicit-reference-label">
+              {implicitReferenceLabel ||
+                (language === 'zh'
+                  ? '输入修改描述后，将以上一次生成结果作为参考'
+                  : 'Using the previous generated results as references')}
+            </span>
+            {onClearImplicitReference && (
+              <button
+                type="button"
+                className="enhanced-chat-input__implicit-reference-clear"
+                onClick={onClearImplicitReference}
+                aria-label={language === 'zh' ? '取消回复' : 'Cancel reply'}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <SelectedContentPreview
+            items={implicitReferenceContent}
+            language="zh"
+            enableHoverPreview={true}
+          />
+        </div>
+      );
+    };
+
+    const renderComposerPreview = () => {
+      const selectedPreview = renderSelectedContent();
+      const implicitPreview = renderImplicitReferenceContent();
+
+      if (!selectedPreview && !implicitPreview) {
+        return null;
+      }
+
+      return (
+        <>
+          {selectedPreview}
+          {implicitPreview}
+        </>
+      );
+    };
+
+    const composerPreview = renderComposerPreview();
     const isActive = (input.trim() || allContent.length > 0) && !disabled;
     const isGenerationMode = generationControls.generationType !== 'agent';
 
@@ -390,9 +490,9 @@ export const EnhancedChatInput = forwardRef<
         <div className="enhanced-chat-input__composer-scope ai-input-bar">
           <AIInputComposerShell
             variant="drawer"
-            expanded={Boolean(input.trim()) || allContent.length > 0}
+            expanded={Boolean(input.trim()) || Boolean(composerPreview)}
             disabled={disabled}
-            preview={renderSelectedContent()}
+            preview={composerPreview}
             textarea={
               <textarea
                 ref={textareaRef}

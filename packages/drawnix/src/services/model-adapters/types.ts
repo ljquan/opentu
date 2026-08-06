@@ -16,6 +16,12 @@ export type ModelKind = 'image' | 'video' | 'audio' | 'chat';
 export interface AdapterContext {
   baseUrl: string;
   operation?: ModelType;
+  /** 本地图片任务 ID，透传到图片提交请求的 X-Request-Id。 */
+  requestId?: string;
+  /** 图片正式提交请求即将发出。 */
+  onSubmissionAttempt?: () => void | Promise<void>;
+  /** 任务取消信号。 */
+  signal?: AbortSignal;
   apiKey?: string;
   authType?: ProviderAuthStrategy;
   extraHeaders?: Record<string, string>;

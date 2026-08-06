@@ -1,11 +1,23 @@
+// @vitest-environment jsdom
+
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { EnhancedChatInput } from '../EnhancedChatInput';
+
+const submitGenerationFromDrawerMock = vi.fn(async () => true);
+type GenerationType = 'image' | 'video' | 'audio' | 'text' | 'agent';
+let generationTypeMock: GenerationType = 'agent';
 
 vi.mock('../../../contexts/ChatDrawerContext', () => ({
   useChatDrawerControl: () => ({
-    submitGenerationFromDrawer: async () => true,
+    submitGenerationFromDrawer: submitGenerationFromDrawerMock,
   }),
 }));
 
@@ -29,7 +41,7 @@ vi.mock('../../../contexts/AssetContext', () => ({
 
 vi.mock('../useChatDrawerGenerationControls', () => ({
   useChatDrawerGenerationControls: () => ({
-    generationType: 'agent',
+    generationType: generationTypeMock,
     setGenerationType: () => undefined,
     selectedModel: 'gpt-5.4',
     selectedModelRef: null,
@@ -75,6 +87,11 @@ vi.mock('../../icons', () => ({
   ImageUploadIcon: () => <span aria-hidden="true">upload</span>,
   MediaLibraryIcon: () => <span aria-hidden="true">library</span>,
 }));
+
+beforeEach(() => {
+  generationTypeMock = 'agent';
+  submitGenerationFromDrawerMock.mockClear();
+});
 
 afterEach(() => {
   cleanup();
@@ -124,5 +141,96 @@ describe('EnhancedChatInput placeholder', () => {
     );
 
     expect(screen.getByPlaceholderText('描述你想要的效果...')).toBeTruthy();
+  });
+});
+
+describe('EnhancedChatInput implicit workflow references', () => {
+  const implicitReferenceContent = [
+    {
+      type: 'image' as const,
+      name: '上一次生成结果',
+      url: '/previous-result.png',
+    },
+  ];
+
+  it('uses implicit references for image edits that mention prior results', async () => {
+    generationTypeMock = 'image';
+
+    render(
+      <EnhancedChatInput
+        selectedContent={[]}
+        implicitReferenceContent={implicitReferenceContent}
+        onSend={() => undefined}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '把上面的人改成小李子' },
+    });
+    fireEvent.click(screen.getByTestId('drawer-ai-send-btn'));
+
+    expect(submitGenerationFromDrawerMock).toHaveBeenCalledTimes(1);
+    expect(submitGenerationFromDrawerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '把上面的人改成小李子',
+        selectedContent: implicitReferenceContent,
+        generationType: 'image',
+      })
+    );
+  });
+
+  it('does not use implicit references for unrelated image prompts', async () => {
+    generationTypeMock = 'image';
+
+    render(
+      <EnhancedChatInput
+        selectedContent={[]}
+        implicitReferenceContent={implicitReferenceContent}
+        onSend={() => undefined}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '生成一只猫' },
+    });
+    fireEvent.click(screen.getByTestId('drawer-ai-send-btn'));
+
+    expect(submitGenerationFromDrawerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedContent: [],
+      })
+    );
+  });
+
+  it('uses pinned reply references and consumes them after submit', async () => {
+    generationTypeMock = 'image';
+    const onImplicitReferenceConsumed = vi.fn();
+
+    render(
+      <EnhancedChatInput
+        selectedContent={[]}
+        implicitReferenceContent={implicitReferenceContent}
+        implicitReferenceLabel="回复：图片生成"
+        implicitReferencePinned
+        onImplicitReferenceConsumed={onImplicitReferenceConsumed}
+        onSend={() => undefined}
+      />
+    );
+
+    expect(screen.getByText('回复：图片生成')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '换成小李子' },
+    });
+    fireEvent.click(screen.getByTestId('drawer-ai-send-btn'));
+
+    expect(submitGenerationFromDrawerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedContent: implicitReferenceContent,
+      })
+    );
+    await waitFor(() => {
+      expect(onImplicitReferenceConsumed).toHaveBeenCalledTimes(1);
+    });
   });
 });

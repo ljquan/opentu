@@ -27,6 +27,10 @@ import {
   TaskExecutionPhase,
 } from '../../types/task.types';
 import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
+import {
+  createImageSubmissionParams,
+  getImageSubmissionRequestId,
+} from '../image-generation-recovery-service';
 
 function buildStoredImageAdapterParams(
   options: ImageGenerationOptions
@@ -119,9 +123,10 @@ export async function generateImage(
   // 创建任务记录
   const taskId = generateTaskId();
   const now = Date.now();
-  const persistedTaskParams = buildStoredImageTaskParams(
-    sanitizedParams.prompt,
-    options
+  const submissionRequestId = taskId;
+  const persistedTaskParams = createImageSubmissionParams(
+    buildStoredImageTaskParams(sanitizedParams.prompt, options),
+    submissionRequestId
   );
   const invocationRoute = createTaskInvocationRouteSnapshot(
     'image',
@@ -153,6 +158,7 @@ export async function generateImage(
   // 构建 executor 参数
   const executorParams: ImageGenerationParams = {
     taskId,
+    requestId: submissionRequestId,
     prompt: sanitizedParams.prompt,
     model: options.model,
     modelRef: options.modelRef || null,
@@ -177,13 +183,49 @@ export async function generateImage(
     ? executorFactory.getFallbackExecutor()
     : await executorFactory.getExecutor();
 
-  await executor.generateImage(executorParams, { signal: options.signal });
+  const isCurrentAttempt = () => {
+    const current = taskQueueService.getTask(taskId);
+    return Boolean(
+      current &&
+        current.status === QueueTaskStatus.PROCESSING &&
+        getImageSubmissionRequestId(current) === submissionRequestId &&
+        (current.startedAt || current.createdAt) === now
+    );
+  };
+
+  try {
+    await executor.generateImage(executorParams, {
+      signal: options.signal,
+      isCurrentAttempt,
+      onSubmissionAttempt: () =>
+        taskQueueService.markImageSubmissionAttempted(
+          taskId,
+          submissionRequestId
+        ),
+    });
+  } catch (error) {
+    const current = taskQueueService.getTask(taskId);
+    if (!current || !isCurrentAttempt()) {
+      throw error;
+    }
+
+    const storedTask = await taskStorageWriter.getTask(taskId);
+    if (storedTask && isCurrentAttempt()) {
+      taskQueueService.syncTaskFromStorage(
+        taskId,
+        storedTask as Partial<typeof current>
+      );
+    }
+    throw error;
+  }
 
   // 等待任务完成（轮询 IndexedDB）
   const result = await waitForTaskCompletion(taskId, {
     signal: options.signal,
     onProgress: (updatedTask) => {
-      taskQueueService.syncTaskFromStorage(taskId, updatedTask);
+      if (isCurrentAttempt()) {
+        taskQueueService.syncTaskFromStorage(taskId, updatedTask);
+      }
     },
   });
 

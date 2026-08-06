@@ -60,6 +60,7 @@ import {
   isLegacyCacheUrl,
 } from '../utils/virtual-media-url';
 import { isInternalLibraryExcludedCache } from '../utils/asset-utils';
+import { getSupportedImageFileMimeType } from '../data/blob';
 
 /**
  * Asset Provider Props
@@ -1034,8 +1035,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
           name || (file instanceof File ? file.name : `asset-${Date.now()}`);
 
         const mimeType =
-          file instanceof File
-            ? file.type
+          type === AssetTypeEnum.IMAGE && file instanceof File
+            ? getSupportedImageFileMimeType(file) || file.type
             : file.type || 'application/octet-stream';
 
         // console.log('[AssetContext] Calling assetStorageService.addAsset...');

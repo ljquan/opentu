@@ -17,10 +17,17 @@ vi.mock('../settings-manager', () => ({
       videoModelName: 'veo-3',
     })),
   },
+  providerPricingCacheSettings: {
+    get: vi.fn(() => []),
+    set: vi.fn(),
+  },
 }));
 
 // Helper function
-const createSelection = (texts: string[] = [], imageCount: number = 0): SelectionInfo => ({
+const createSelection = (
+  texts: string[] = [],
+  imageCount: number = 0
+): SelectionInfo => ({
   texts,
   images: Array(imageCount).fill('mock-image-url'),
   videos: [],
@@ -75,11 +82,15 @@ describe('ai-input-parser', () => {
     });
 
     it('应该在组合标记但无额外内容时返回 false', () => {
-      expect(shouldUseAgentFlow('#gemini-3-pro-image-preview -size=1024x768 +2')).toBe(false);
+      expect(
+        shouldUseAgentFlow('#gemini-3-pro-image-preview -size=1024x768 +2')
+      ).toBe(false);
     });
 
     it('应该在组合标记且有额外内容时返回 true', () => {
-      expect(shouldUseAgentFlow('#gemini-3-pro-image-preview 一只可爱的猫')).toBe(true);
+      expect(
+        shouldUseAgentFlow('#gemini-3-pro-image-preview 一只可爱的猫')
+      ).toBe(true);
     });
 
     it('应该在空输入时返回 false', () => {
@@ -96,7 +107,10 @@ describe('ai-input-parser', () => {
       });
 
       it('场景2: 输入内容有模型、参数 -> direct_generation', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview -size=1024x768', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview -size=1024x768',
+          createSelection([], 1)
+        );
         expect(result.scenario).toBe('direct_generation');
         expect(result.hasExtraContent).toBe(false);
       });
@@ -108,13 +122,19 @@ describe('ai-input-parser', () => {
       });
 
       it('场景4: 输入内容包含其他内容 -> agent_flow', () => {
-        const result = parseAIInput('请生成一张可爱的猫的图片', createSelection([], 0));
+        const result = parseAIInput(
+          '请生成一张可爱的猫的图片',
+          createSelection([], 0)
+        );
         expect(result.scenario).toBe('agent_flow');
         expect(result.hasExtraContent).toBe(true);
       });
 
       it('混合场景: 有模型标记和额外内容 -> agent_flow', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview 一只可爱的猫', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview 一只可爱的猫',
+          createSelection([], 1)
+        );
         expect(result.scenario).toBe('agent_flow');
         expect(result.hasExtraContent).toBe(true);
       });
@@ -127,7 +147,10 @@ describe('ai-input-parser', () => {
       });
 
       it('选择图片模型时应该是图片生成', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview',
+          createSelection([], 1)
+        );
         expect(result.generationType).toBe('image');
         expect(result.modelId).toBe('gemini-3-pro-image-preview');
       });
@@ -141,7 +164,10 @@ describe('ai-input-parser', () => {
 
     describe('提示词处理', () => {
       it('应该使用清理后的输入文本作为提示词', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview 一只可爱的猫', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview 一只可爱的猫',
+          createSelection([], 1)
+        );
         expect(result.prompt).toBe('一只可爱的猫');
       });
 
@@ -178,7 +204,10 @@ describe('ai-input-parser', () => {
       });
 
       it('应该正确解析组合输入中的数量', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview +3', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview +3',
+          createSelection([], 1)
+        );
         expect(result.count).toBe(3);
       });
     });
@@ -199,29 +228,54 @@ describe('ai-input-parser', () => {
         expect(result.size).toBe('9x16');
       });
 
+      it('应该保留 Seedance 独立分辨率与比例参数', () => {
+        const result = parseAIInput('一段视频', createSelection([], 0), {
+          generationType: 'video',
+          modelId: 'doubao-seedance-2-0-260128',
+          params: { size: '1080p', ratio: 'adaptive', duration: '12' },
+        });
+        expect(result.size).toBe('1080p');
+        expect(result.duration).toBe('12');
+        expect(result.extraParams).toMatchObject({ ratio: 'adaptive' });
+      });
+
       it('没有指定尺寸时应该使用模型默认值', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview',
+          createSelection([], 1)
+        );
         expect(result.size).toBe('1x1');
       });
     });
 
     describe('时长参数解析', () => {
       it('应该正确解析视频时长 -duration=8', () => {
-        const result = parseAIInput('#veo3 -duration=8', createSelection([], 1));
+        const result = parseAIInput(
+          '#veo3 -duration=8',
+          createSelection([], 1)
+        );
         expect(result.duration).toBe('8');
       });
 
       it('应该正确解析视频时长 -duration=16', () => {
-        const result = parseAIInput('#sora-2-pro -duration=16', createSelection([], 1));
+        const result = parseAIInput(
+          '#sora-2-pro -duration=16',
+          createSelection([], 1)
+        );
         expect(result.duration).toBe('16');
       });
     });
 
     describe('parseResult 保留', () => {
       it('应该保留原始解析结果', () => {
-        const result = parseAIInput('#gemini-3-pro-image-preview +2 一只猫', createSelection([], 1));
+        const result = parseAIInput(
+          '#gemini-3-pro-image-preview +2 一只猫',
+          createSelection([], 1)
+        );
         expect(result.parseResult).toBeDefined();
-        expect(result.parseResult.selectedImageModel).toBe('gemini-3-pro-image-preview');
+        expect(result.parseResult.selectedImageModel).toBe(
+          'gemini-3-pro-image-preview'
+        );
         expect(result.parseResult.selectedCount).toBe(2);
         expect(result.parseResult.cleanText).toBe('一只猫');
       });
@@ -275,12 +329,18 @@ describe('ai-input-parser', () => {
 
     describe('模型大小写不敏感', () => {
       it('应该支持大写模型名', () => {
-        const result = parseAIInput('#GEMINI-3-PRO-IMAGE-PREVIEW', createSelection([], 1));
+        const result = parseAIInput(
+          '#GEMINI-3-PRO-IMAGE-PREVIEW',
+          createSelection([], 1)
+        );
         expect(result.modelId).toBe('gemini-3-pro-image-preview');
       });
 
       it('应该支持混合大小写模型名', () => {
-        const result = parseAIInput('#Gemini-3-Pro-Image-Preview', createSelection([], 1));
+        const result = parseAIInput(
+          '#Gemini-3-Pro-Image-Preview',
+          createSelection([], 1)
+        );
         expect(result.modelId).toBe('gemini-3-pro-image-preview');
       });
     });
@@ -310,7 +370,11 @@ describe('ai-input-parser', () => {
           selectedCount: 2,
           cleanText: '一只可爱的橘猫',
         });
-        expect(result.parseResult.selectedParams.some((p: any) => p.id === 'size' && p.value === '1:1')).toBe(true);
+        expect(
+          result.parseResult.selectedParams.some(
+            (p: any) => p.id === 'size' && p.value === '1:1'
+          )
+        ).toBe(true);
       });
 
       it('视频生成场景 - 完整参数', () => {
@@ -336,8 +400,16 @@ describe('ai-input-parser', () => {
           selectedCount: undefined,
           cleanText: '一只猫在跳舞',
         });
-        expect(result.parseResult.selectedParams.some((p: any) => p.id === 'duration' && p.value === '8')).toBe(true);
-        expect(result.parseResult.selectedParams.some((p: any) => p.id === 'size' && p.value === '16:9')).toBe(true);
+        expect(
+          result.parseResult.selectedParams.some(
+            (p: any) => p.id === 'duration' && p.value === '8'
+          )
+        ).toBe(true);
+        expect(
+          result.parseResult.selectedParams.some(
+            (p: any) => p.id === 'size' && p.value === '16:9'
+          )
+        ).toBe(true);
       });
 
       it('直接生成场景 - 无额外内容', () => {

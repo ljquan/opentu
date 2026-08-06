@@ -1,6 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAutoInsertToCanvas, clearInsertedTaskIds } from '../useAutoInsertToCanvas';
+import {
+  useAutoInsertToCanvas,
+  clearInsertedTaskIds,
+} from '../useAutoInsertToCanvas';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import { IMAGE_GENERATION_ANCHOR_RETRY_EVENT } from '../../types/image-generation-anchor.types';
 
@@ -17,6 +20,7 @@ const mocks = vi.hoisted(() => {
     completionListeners,
     taskState,
     quickInsert: vi.fn(),
+    insertImageGroup: vi.fn(),
     markAsInserted: vi.fn(),
     registerTask: vi.fn(),
     startPostProcessing: vi.fn(),
@@ -26,6 +30,18 @@ const mocks = vi.hoisted(() => {
     getPostProcessingStatus: vi.fn(),
     retryTask: vi.fn(),
     updateAnchor: vi.fn(),
+    setNode: vi.fn(),
+  };
+});
+
+vi.mock('@plait/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@plait/core')>();
+  return {
+    ...actual,
+    Transforms: {
+      ...actual.Transforms,
+      setNode: mocks.setNode,
+    },
   };
 });
 
@@ -86,7 +102,7 @@ vi.mock('../../services/canvas-operations', () => ({
   getCanvasBoard: () => mocks.board,
   executeCanvasInsertion: vi.fn(),
   insertAIFlow: vi.fn(),
-  insertImageGroup: vi.fn(),
+  insertImageGroup: mocks.insertImageGroup,
   parseSizeToPixels: vi.fn(() => ({ width: 512, height: 512 })),
   quickInsert: mocks.quickInsert,
 }));
@@ -98,6 +114,7 @@ vi.mock('../../data/audio', () => ({
 
 vi.mock('../../plugins/with-image-generation-anchor', () => ({
   ImageGenerationAnchorTransforms: {
+    getAnchorById: vi.fn(() => null),
     getAnchorByTaskId: vi.fn(() => null),
     getAnchorByBatchSlot: vi.fn(() => null),
     getAnchorsByWorkflowId: vi.fn(() => []),
@@ -122,6 +139,7 @@ vi.mock('../../services/media-result-handler', () => ({
 
 vi.mock('../../utils/selection-utils', () => ({
   getInsertionPointBelowBottommostElement: vi.fn(() => [100, 100]),
+  notifyAISelectionContentRefresh: vi.fn(),
 }));
 
 vi.mock('../../utils/frame-insertion-utils', () => ({
@@ -151,7 +169,10 @@ function createCompletedImageTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function emitTaskEvent(task: Task, type: 'taskUpdated' | 'taskCreated' = 'taskUpdated') {
+function emitTaskEvent(
+  task: Task,
+  type: 'taskUpdated' | 'taskCreated' = 'taskUpdated'
+) {
   mocks.taskListeners.forEach((listener) => {
     listener({
       type,
@@ -187,6 +208,30 @@ describe('useAutoInsertToCanvas', () => {
         firstElementSize: { width: 512, height: 512 },
       },
     });
+    mocks.insertImageGroup.mockReset();
+    mocks.insertImageGroup.mockResolvedValue({
+      success: true,
+      data: {
+        insertedCount: 2,
+        items: [
+          {
+            type: 'image',
+            point: [100, 100],
+            elementId: 'image-1',
+            size: { width: 512, height: 512 },
+          },
+          {
+            type: 'image',
+            point: [632, 100],
+            elementId: 'image-2',
+            size: { width: 512, height: 512 },
+          },
+        ],
+        firstElementId: 'image-1',
+        firstElementPosition: [100, 100],
+        firstElementSize: { width: 512, height: 512 },
+      },
+    });
     mocks.markAsInserted.mockReset();
     mocks.registerTask.mockReset();
     mocks.startPostProcessing.mockReset();
@@ -197,6 +242,7 @@ describe('useAutoInsertToCanvas', () => {
     mocks.getPostProcessingStatus.mockReturnValue(undefined);
     mocks.retryTask.mockReset();
     mocks.updateAnchor.mockReset();
+    mocks.setNode.mockReset();
   });
 
   afterEach(() => {
@@ -259,6 +305,198 @@ describe('useAutoInsertToCanvas', () => {
 
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+  });
+
+  it('binds each grouped image result to its own task metadata', async () => {
+    const firstTask = createCompletedImageTask({
+      id: 'task-batch-1',
+      params: {
+        prompt: '批量图片',
+        size: '1:1',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/image/batch-1.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const secondTask = createCompletedImageTask({
+      id: 'task-batch-2',
+      params: {
+        prompt: '批量图片',
+        size: '1:1',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/image/batch-2.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    mocks.board = {
+      children: [
+        {
+          id: 'image-1',
+          points: [
+            [100, 100],
+            [612, 612],
+          ],
+        },
+        {
+          id: 'image-2',
+          points: [
+            [632, 100],
+            [1144, 612],
+          ],
+        },
+      ],
+    };
+    mocks.taskState.tasks = [firstTask, secondTask];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.insertImageGroup).toHaveBeenCalledWith(
+      [
+        '/__aitu_cache__/image/batch-1.png',
+        '/__aitu_cache__/image/batch-2.png',
+      ],
+      [100, 100],
+      { width: 512, height: 512 }
+    );
+    expect(mocks.setNode).toHaveBeenNthCalledWith(
+      1,
+      mocks.board,
+      expect.objectContaining({ generationTaskId: 'task-batch-1' }),
+      [0]
+    );
+    expect(mocks.setNode).toHaveBeenNthCalledWith(
+      2,
+      mocks.board,
+      expect.objectContaining({ generationTaskId: 'task-batch-2' }),
+      [1]
+    );
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      'task-batch-1',
+      1,
+      [100, 100],
+      'image-1',
+      { width: 512, height: 512 }
+    );
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      'task-batch-2',
+      1,
+      [632, 100],
+      'image-2',
+      { width: 512, height: 512 }
+    );
+  });
+
+  it('replaces the bound image in place and preserves its geometry', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-replace',
+      params: {
+        prompt: '夜景城市',
+        size: '1:1',
+        replaceElementId: 'image-target',
+        targetElementId: 'image-target',
+        anchorId: 'anchor-target',
+        sourceTaskId: 'task-old',
+      },
+      result: {
+        url: '/__aitu_cache__/image/replaced.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const originalElement = {
+      id: 'image-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/original.png',
+      points: [
+        [20, 30],
+        [420, 330],
+      ],
+    };
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/replaced.png',
+        generationPrompt: '夜景城市',
+        generationTaskId: 'task-replace',
+        generationAnchorId: 'anchor-target',
+      }),
+      [0]
+    );
+    expect(mocks.setNode).toHaveBeenCalledTimes(1);
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [20, 30],
+      'image-target',
+      { width: 400, height: 300 }
+    );
+    expect(mocks.board.children).toHaveLength(1);
+    expect(mocks.board.children[0]).toBe(originalElement);
+  });
+
+  it('does not insert a new image when the bound target was removed', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-missing-target',
+      params: {
+        prompt: '更新目标图',
+        size: '1:1',
+        replaceElementId: 'missing-image',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.setNode).not.toHaveBeenCalled();
+    expect(mocks.failPostProcessing).toHaveBeenCalledWith(
+      task.id,
+      'Target image is no longer available'
+    );
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
   });
 
   it('does not retry a completed task that is already marked inserted', async () => {
@@ -395,7 +633,10 @@ describe('useAutoInsertToCanvas', () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent(IMAGE_GENERATION_ANCHOR_RETRY_EVENT, {
-          detail: { taskId: task.id, anchorId: 'anchor-post-processing-failed' },
+          detail: {
+            taskId: task.id,
+            anchorId: 'anchor-post-processing-failed',
+          },
         })
       );
     });

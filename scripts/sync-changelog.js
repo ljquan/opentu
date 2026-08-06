@@ -79,6 +79,13 @@ function parseChangelog(content) {
 
     if (!current) continue;
 
+    const withdrawalMatch = line.match(/^> \*\*撤回说明[:：]\*\*\s*(.+)$/);
+    if (withdrawalMatch) {
+      current.status = 'withdrawn';
+      current.withdrawalReason = withdrawalMatch[1].trim();
+      continue;
+    }
+
     const sMatch = line.match(sectionRegex);
     if (sMatch) {
       const title = sMatch[1].trim();

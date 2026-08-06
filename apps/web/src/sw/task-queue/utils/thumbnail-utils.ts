@@ -1,11 +1,19 @@
 /**
  * Thumbnail Utilities for Service Worker
- * 
+ *
  * 预览图工具函数：在图片/视频缓存时自动生成预览图
  * 预览图存储在独立的 Cache Storage (drawnix-images-thumb) 中，使用原URL作为key
  */
 
 import { getSwRuntimeBridge } from '../sw-runtime-bridge';
+import {
+  beginMediaCacheOperation,
+  getMediaCacheEpoch,
+  isMediaCacheEpochCurrent,
+  pauseMediaCacheWrites,
+  resumeMediaCacheWrites,
+  waitForMediaCacheOperations,
+} from '../media-cache-epoch';
 
 const IMAGE_CACHE_NAME_THUMB = 'drawnix-images-thumb';
 const THUMBNAIL_MAX_SIZE_SMALL = 128; // 小尺寸：用于任务列表、缩略图导航
@@ -13,6 +21,24 @@ const THUMBNAIL_MAX_SIZE_LARGE = 400; // 大尺寸：用于素材库大图预览
 const THUMBNAIL_QUALITY = 0.8;
 
 export type ThumbnailSize = 'small' | 'large';
+
+export async function clearThumbnailCache(
+  manageWriteBarrier = true
+): Promise<void> {
+  if (manageWriteBarrier) {
+    pauseMediaCacheWrites();
+  }
+  try {
+    if (manageWriteBarrier) {
+      await waitForMediaCacheOperations();
+    }
+    await caches.delete(IMAGE_CACHE_NAME_THUMB);
+  } finally {
+    if (manageWriteBarrier) {
+      resumeMediaCacheWrites();
+    }
+  }
+}
 
 /**
  * 计算预览图尺寸（保持宽高比）
@@ -23,10 +49,10 @@ function calculateThumbnailSize(
   maxSize: number
 ): { width: number; height: number } {
   const aspectRatio = originalWidth / originalHeight;
-  
+
   let width = maxSize;
   let height = maxSize;
-  
+
   if (aspectRatio > 1) {
     // 横向图片
     height = maxSize / aspectRatio;
@@ -34,7 +60,7 @@ function calculateThumbnailSize(
     // 纵向图片
     width = maxSize * aspectRatio;
   }
-  
+
   return {
     width: Math.round(width),
     height: Math.round(height),
@@ -47,7 +73,10 @@ function calculateThumbnailSize(
  * @param size 预览图尺寸
  * @returns 预览图缓存key
  */
-function getThumbnailCacheKey(originalUrl: string, size: ThumbnailSize): string {
+function getThumbnailCacheKey(
+  originalUrl: string,
+  size: ThumbnailSize
+): string {
   try {
     // 如果 originalUrl 已经是完整 URL，直接使用；否则使用 self.location.origin 作为 base
     let url: URL;
@@ -67,7 +96,9 @@ function getThumbnailCacheKey(originalUrl: string, size: ThumbnailSize): string 
     // 如果 URL 解析失败，直接拼接参数
     const separator = originalUrl.includes('?') ? '&' : '?';
     // 移除可能存在的 thumbnail 参数
-    const cleanUrl = originalUrl.replace(/[?&]thumbnail=[^&]*/g, '').replace(/thumbnail=[^&]*&?/, '');
+    const cleanUrl = originalUrl
+      .replace(/[?&]thumbnail=[^&]*/g, '')
+      .replace(/thumbnail=[^&]*&?/, '');
     return `${cleanUrl}${separator}_thumb=${size}`;
   }
 }
@@ -81,16 +112,26 @@ function getThumbnailCacheKey(originalUrl: string, size: ThumbnailSize): string 
 export async function generateImageThumbnail(
   blob: Blob,
   originalUrl: string,
-  sizes: ThumbnailSize[] = ['small', 'large']
+  sizes: ThumbnailSize[] = ['small', 'large'],
+  cacheEpoch = getMediaCacheEpoch()
 ): Promise<void> {
+  const finishOperation = beginMediaCacheOperation(cacheEpoch);
+  if (!finishOperation) {
+    return;
+  }
   try {
     // 生成所有需要的尺寸
     for (const size of sizes) {
-      await generateThumbnailForSize(blob, originalUrl, size);
+      if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+        return;
+      }
+      await generateThumbnailForSize(blob, originalUrl, size, cacheEpoch);
     }
   } catch (error) {
     console.warn('[ThumbnailUtils] Failed to generate image thumbnail:', error);
     // 生成失败不影响主流程，静默失败
+  } finally {
+    finishOperation();
   }
 }
 
@@ -100,15 +141,21 @@ export async function generateImageThumbnail(
 async function generateThumbnailForSize(
   blob: Blob,
   originalUrl: string,
-  size: ThumbnailSize
+  size: ThumbnailSize,
+  cacheEpoch: number
 ): Promise<void> {
   try {
-    const maxSize = size === 'large' ? THUMBNAIL_MAX_SIZE_LARGE : THUMBNAIL_MAX_SIZE_SMALL;
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
+    const maxSize =
+      size === 'large' ? THUMBNAIL_MAX_SIZE_LARGE : THUMBNAIL_MAX_SIZE_SMALL;
     const cacheKey = getThumbnailCacheKey(originalUrl, size);
-    
+
     // 1. 检查预览图是否已存在
     const thumbCache = await caches.open(IMAGE_CACHE_NAME_THUMB);
-    
+
     // 尝试多种格式匹配（兼容不同的URL格式）
     let existingThumbnail = await thumbCache.match(cacheKey);
     if (!existingThumbnail) {
@@ -125,7 +172,7 @@ async function generateThumbnailForSize(
         // URL解析失败，忽略
       }
     }
-    
+
     if (existingThumbnail) {
       return; // 已存在，无需重复生成
     }
@@ -142,7 +189,10 @@ async function generateThumbnailForSize(
       imageBitmap = await createImageBitmap(blob);
     } catch (decodeError) {
       // InvalidStateError: 源图片无法解码（损坏/格式错误/非图片内容）
-      if (decodeError instanceof Error && decodeError.name === 'InvalidStateError') {
+      if (
+        decodeError instanceof Error &&
+        decodeError.name === 'InvalidStateError'
+      ) {
         return; // 静默跳过，不重试
       }
       throw decodeError;
@@ -170,27 +220,40 @@ async function generateThumbnailForSize(
       type: 'image/jpeg',
       quality: THUMBNAIL_QUALITY,
     });
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
 
     // 3. 缓存预览图到独立的Cache（使用带尺寸标识的key）
     // 为每个缓存 key 创建独立的 Response 对象，避免 body 被消费后无法 clone
-    const createResponse = () => new Response(thumbnailBlob, {
-      headers: {
-        'Content-Type': 'image/jpeg',
-        'Content-Length': thumbnailBlob.size.toString(),
-      },
-    });
-    
+    const createResponse = () =>
+      new Response(thumbnailBlob, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': thumbnailBlob.size.toString(),
+        },
+      });
+
     // 使用 Request 对象作为key，确保与查找时一致
     const thumbnailRequest = new Request(cacheKey, { method: 'GET' });
     await thumbCache.put(thumbnailRequest, createResponse());
-    
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
     // 同时使用URL字符串作为key（兼容性）
     await thumbCache.put(cacheKey, createResponse());
-    
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
     // 对于 /__aitu_cache__/ 路径，也使用pathname作为key（但需要包含 _thumb 参数）
     try {
       const url = new URL(cacheKey);
-      if (url.pathname.startsWith('/__aitu_cache__/') || url.pathname.startsWith('/asset-library/')) {
+      if (
+        url.pathname.startsWith('/__aitu_cache__/') ||
+        url.pathname.startsWith('/asset-library/')
+      ) {
         // 使用带 _thumb 参数的完整 URL 作为 key，而不是只使用 pathname
         await thumbCache.put(cacheKey, createResponse());
       }
@@ -212,16 +275,26 @@ async function generateThumbnailForSize(
 export async function generateVideoThumbnail(
   blob: Blob,
   originalUrl: string,
-  sizes: ThumbnailSize[] = ['small', 'large']
+  sizes: ThumbnailSize[] = ['small', 'large'],
+  cacheEpoch = getMediaCacheEpoch()
 ): Promise<void> {
+  const finishOperation = beginMediaCacheOperation(cacheEpoch);
+  if (!finishOperation) {
+    return;
+  }
   try {
     // 生成所有需要的尺寸
     for (const size of sizes) {
-      await generateVideoThumbnailForSize(blob, originalUrl, size);
+      if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+        return;
+      }
+      await generateVideoThumbnailForSize(blob, originalUrl, size, cacheEpoch);
     }
   } catch (error) {
     console.warn('[ThumbnailUtils] Failed to generate video thumbnail:', error);
     // 生成失败不影响主流程，静默失败
+  } finally {
+    finishOperation();
   }
 }
 
@@ -231,14 +304,19 @@ export async function generateVideoThumbnail(
 async function generateVideoThumbnailForSize(
   blob: Blob,
   originalUrl: string,
-  size: ThumbnailSize
+  size: ThumbnailSize,
+  cacheEpoch: number
 ): Promise<void> {
   try {
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
     const cacheKey = getThumbnailCacheKey(originalUrl, size);
-    
+
     // 1. 检查预览图是否已存在
     const thumbCache = await caches.open(IMAGE_CACHE_NAME_THUMB);
-    
+
     // 尝试多种格式匹配（兼容不同的URL格式）
     let existingThumbnail = await thumbCache.match(cacheKey);
     if (!existingThumbnail) {
@@ -255,39 +333,59 @@ async function generateVideoThumbnailForSize(
         // URL解析失败，忽略
       }
     }
-    
+
     if (existingThumbnail) {
       return; // 已存在，无需重复生成
     }
 
     // 2. 通过 channelManager 委托主线程生成视频预览图（使用指定尺寸）
-    const maxSize = size === 'large' ? THUMBNAIL_MAX_SIZE_LARGE : THUMBNAIL_MAX_SIZE_SMALL;
-    const thumbnailBlob = await requestVideoThumbnailFromMainThread(originalUrl, blob, maxSize);
+    const maxSize =
+      size === 'large' ? THUMBNAIL_MAX_SIZE_LARGE : THUMBNAIL_MAX_SIZE_SMALL;
+    const thumbnailBlob = await requestVideoThumbnailFromMainThread(
+      originalUrl,
+      blob,
+      maxSize
+    );
     if (!thumbnailBlob) {
-      console.warn(`[ThumbnailUtils] Failed to generate ${size} video thumbnail from main thread`);
+      console.warn(
+        `[ThumbnailUtils] Failed to generate ${size} video thumbnail from main thread`
+      );
+      return;
+    }
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
       return;
     }
 
     // 3. 缓存预览图到独立的Cache（使用带尺寸标识的key）
     // 为每个缓存 key 创建独立的 Response 对象，避免 body 被消费后无法 clone
-    const createResponse = () => new Response(thumbnailBlob, {
-      headers: {
-        'Content-Type': 'image/jpeg',
-        'Content-Length': thumbnailBlob.size.toString(),
-      },
-    });
-    
+    const createResponse = () =>
+      new Response(thumbnailBlob, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': thumbnailBlob.size.toString(),
+        },
+      });
+
     // 使用 Request 对象作为key，确保与查找时一致
     const thumbnailRequest = new Request(cacheKey, { method: 'GET' });
     await thumbCache.put(thumbnailRequest, createResponse());
-    
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
     // 同时使用URL字符串作为key（兼容性）
     await thumbCache.put(cacheKey, createResponse());
-    
+    if (!isMediaCacheEpochCurrent(cacheEpoch)) {
+      return;
+    }
+
     // 对于 /__aitu_cache__/ 路径，也使用带 _thumb 参数的完整 URL 作为 key
     try {
       const url = new URL(cacheKey);
-      if (url.pathname.startsWith('/__aitu_cache__/') || url.pathname.startsWith('/asset-library/')) {
+      if (
+        url.pathname.startsWith('/__aitu_cache__/') ||
+        url.pathname.startsWith('/asset-library/')
+      ) {
         // 使用带 _thumb 参数的完整 URL 作为 key，而不是只使用 pathname
         await thumbCache.put(cacheKey, createResponse());
       }
@@ -295,7 +393,10 @@ async function generateVideoThumbnailForSize(
       // URL解析失败，忽略
     }
   } catch (error) {
-    console.warn(`[ThumbnailUtils] ❌ Failed to generate ${size} video thumbnail:`, error);
+    console.warn(
+      `[ThumbnailUtils] ❌ Failed to generate ${size} video thumbnail:`,
+      error
+    );
     // 生成失败不影响主流程，静默失败
   }
 }
@@ -303,32 +404,41 @@ async function generateVideoThumbnailForSize(
 /**
  * 通过 channelManager 请求主线程生成视频预览图
  * 使用 postmessage-duplex 双工通讯：SW publish -> 主线程 subscribe 处理 -> 返回响应
- * 
+ *
  * @param url 视频 URL（主线程用于获取视频数据）
  * @param _blob 视频 Blob（未使用，保留参数兼容性）
  * @param _maxSize 最大尺寸（未使用，由主线程决定）
  */
-async function requestVideoThumbnailFromMainThread(url: string, _blob: Blob, maxSize: number = THUMBNAIL_MAX_SIZE_LARGE): Promise<Blob | null> {
+async function requestVideoThumbnailFromMainThread(
+  url: string,
+  _blob: Blob,
+  maxSize: number = THUMBNAIL_MAX_SIZE_LARGE
+): Promise<Blob | null> {
   const requestVideoThumbnail = getSwRuntimeBridge().requestVideoThumbnail;
 
   if (!requestVideoThumbnail) {
-    console.warn('[ThumbnailUtils] No connected clients for video thumbnail generation');
+    console.warn(
+      '[ThumbnailUtils] No connected clients for video thumbnail generation'
+    );
     return null;
   }
-  
+
   // 直接使用 publish 发起请求，等待主线程响应（双工通讯）
   const thumbnailUrl = await requestVideoThumbnail(url, 30000, maxSize);
-  
+
   if (!thumbnailUrl) {
     return null;
   }
-  
+
   // 将 Data URL 转换为 Blob
   try {
     const response = await fetch(thumbnailUrl);
     return await response.blob();
   } catch (error) {
-    console.warn('[ThumbnailUtils] Failed to convert thumbnail URL to blob:', error);
+    console.warn(
+      '[ThumbnailUtils] Failed to convert thumbnail URL to blob:',
+      error
+    );
     return null;
   }
 }
@@ -339,7 +449,10 @@ async function requestVideoThumbnailFromMainThread(url: string, _blob: Blob, max
  * @param size 预览图尺寸（默认 small）
  * @returns 预览图 URL（带 ?thumbnail={size} 参数）
  */
-export function getThumbnailUrl(originalUrl: string, size: ThumbnailSize = 'small'): string {
+export function getThumbnailUrl(
+  originalUrl: string,
+  size: ThumbnailSize = 'small'
+): string {
   try {
     const url = new URL(originalUrl, self.location.origin);
     url.searchParams.set('thumbnail', size);
@@ -361,23 +474,37 @@ export async function ensureThumbnail(
   originalUrl: string,
   type: 'image' | 'video'
 ): Promise<string> {
+  const cacheEpoch = getMediaCacheEpoch();
   // 预览图不存在，尝试从原媒体生成（生成两种尺寸）
   try {
     // 从原始 Cache 获取媒体
     const cache = await caches.open('drawnix-images');
     const cachedResponse = await cache.match(originalUrl);
-    
+
     if (cachedResponse) {
       const blob = await cachedResponse.blob();
-      
+
       if (type === 'image') {
-        await generateImageThumbnail(blob, originalUrl, ['small', 'large']);
+        await generateImageThumbnail(
+          blob,
+          originalUrl,
+          ['small', 'large'],
+          cacheEpoch
+        );
       } else {
-        await generateVideoThumbnail(blob, originalUrl, ['small', 'large']);
+        await generateVideoThumbnail(
+          blob,
+          originalUrl,
+          ['small', 'large'],
+          cacheEpoch
+        );
       }
     }
   } catch (error) {
-    console.warn('[ThumbnailUtils] Failed to generate thumbnail on demand:', error);
+    console.warn(
+      '[ThumbnailUtils] Failed to generate thumbnail on demand:',
+      error
+    );
   }
 
   // 返回预览图 URL（小尺寸，即使生成失败，SW 会回退到原图）
@@ -399,16 +526,16 @@ export async function findThumbnail(
   try {
     const thumbCache = await caches.open(IMAGE_CACHE_NAME_THUMB);
     const thumbCacheKey = getThumbnailCacheKey(cacheKey, size);
-    
+
     // 1. 尝试使用完整 URL（带 _thumb 参数）
     let thumbnailResponse = await thumbCache.match(thumbCacheKey);
-    
+
     // 2. 尝试使用 Request 对象匹配
     if (!thumbnailResponse) {
       const thumbnailRequest = new Request(thumbCacheKey, { method: 'GET' });
       thumbnailResponse = await thumbCache.match(thumbnailRequest);
     }
-    
+
     // 3. 尝试备用 key（如 pathname）
     if (!thumbnailResponse && fallbackKeys) {
       for (const fallbackKey of fallbackKeys) {
@@ -419,7 +546,7 @@ export async function findThumbnail(
         }
       }
     }
-    
+
     return thumbnailResponse ? thumbnailResponse : null;
   } catch (error) {
     console.warn('[ThumbnailUtils] Error finding thumbnail:', error);
@@ -440,20 +567,24 @@ export async function findThumbnailWithFallback(
   fallbackKeys?: string[]
 ): Promise<{ response: Response; size: ThumbnailSize } | null> {
   // 1. 首先尝试查找请求的尺寸
-  let thumbnailResponse = await findThumbnail(cacheKey, requestedSize, fallbackKeys);
-  
+  let thumbnailResponse = await findThumbnail(
+    cacheKey,
+    requestedSize,
+    fallbackKeys
+  );
+
   if (thumbnailResponse) {
     return { response: thumbnailResponse, size: requestedSize };
   }
-  
+
   // 2. 如果没找到，尝试降级到另一个尺寸
   const fallbackSize = requestedSize === 'small' ? 'large' : 'small';
   thumbnailResponse = await findThumbnail(cacheKey, fallbackSize, fallbackKeys);
-  
+
   if (thumbnailResponse) {
     return { response: thumbnailResponse, size: fallbackSize };
   }
-  
+
   return null;
 }
 
@@ -485,17 +616,21 @@ export function generateThumbnailAsync(
   blob: Blob,
   originalUrl: string,
   mediaType: 'image' | 'video',
-  sizes: ThumbnailSize[] = ['small', 'large']
+  sizes: ThumbnailSize[] = ['small', 'large'],
+  cacheEpoch = getMediaCacheEpoch()
 ): void {
   (async () => {
     try {
       if (mediaType === 'image') {
-        await generateImageThumbnail(blob, originalUrl, sizes);
+        await generateImageThumbnail(blob, originalUrl, sizes, cacheEpoch);
       } else {
-        await generateVideoThumbnail(blob, originalUrl, sizes);
+        await generateVideoThumbnail(blob, originalUrl, sizes, cacheEpoch);
       }
     } catch (error) {
-      console.warn(`[ThumbnailUtils] Failed to generate ${mediaType} thumbnail:`, error);
+      console.warn(
+        `[ThumbnailUtils] Failed to generate ${mediaType} thumbnail:`,
+        error
+      );
     }
   })();
 }

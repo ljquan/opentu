@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import React from 'react';
 import {
   afterEach,
@@ -14,6 +16,27 @@ import {
   getWorkflowBubbleStatus,
   normalizeWorkflowStepsForDisplay,
 } from '../../../utils/workflow-bubble-status';
+
+vi.mock('../../shared/MediaViewer', () => ({
+  MediaViewer: ({
+    visible,
+    items,
+    initialIndex = 0,
+  }: {
+    visible: boolean;
+    items: Array<{ url: string; type: string; title?: string }>;
+    initialIndex?: number;
+  }) =>
+    visible ? (
+      <div
+        data-testid="media-viewer"
+        data-initial-index={initialIndex}
+        data-item-urls={items.map((item) => item.url).join('|')}
+      >
+        {items.length} items
+      </div>
+    ) : null,
+}));
 
 function createImageWorkflow(
   overrides: Partial<WorkflowMessageData> = {}
@@ -112,6 +135,9 @@ describe('WorkflowMessageBubble rendering', () => {
     expect(screen.getByText('3/3')).toBeTruthy();
     expect(screen.queryByText('生成图片 (1/3)')).toBeNull();
     expect(screen.queryByText('已生成')).toBeNull();
+    expect(screen.getByRole('img', { name: '生成结果 1' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '生成结果 2' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '生成结果 3' })).toBeTruthy();
     expect(
       screen
         .getByRole('button', { name: '查看执行详情' })
@@ -128,6 +154,38 @@ describe('WorkflowMessageBubble rendering', () => {
     expect(screen.getByText('生成图片 (1/3)')).toBeTruthy();
     expect(screen.getByText('生成图片 (2/3)')).toBeTruthy();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens generated media in the shared preview on double click', () => {
+    render(<WorkflowMessageBubble workflow={createImageWorkflow()} />);
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: '查看生成结果 2' }));
+
+    const viewer = screen.getByTestId('media-viewer');
+    expect(viewer.getAttribute('data-initial-index')).toBe('1');
+    expect(viewer.getAttribute('data-item-urls')).toBe(
+      [
+        '/__aitu_cache__/image/task-1.png',
+        '/__aitu_cache__/image/task-2.png',
+        '/__aitu_cache__/image/task-3.png',
+      ].join('|')
+    );
+    expect(viewer.textContent).toBe('3 items');
+  });
+
+  it('exposes a reply action for completed generated media workflows', () => {
+    const onReply = vi.fn();
+
+    render(
+      <WorkflowMessageBubble
+        workflow={createImageWorkflow()}
+        onReply={onReply}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '回复' }));
+
+    expect(onReply).toHaveBeenCalledTimes(1);
   });
 
   it('keeps running workflow steps visible immediately', () => {

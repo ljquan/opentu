@@ -119,8 +119,14 @@ function isCachedUrl(url: string): boolean {
  * 检测 URL 是否是虚拟路径（需要 SW 拦截）
  */
 function isVirtualUrl(url: string): boolean {
-  return url.startsWith('/__aitu_cache__/') || 
-         url.startsWith('/asset-library/');
+  try {
+    const pathname = new URL(url, window.location.origin).pathname;
+    return pathname.startsWith('/__aitu_cache__/') ||
+           pathname.startsWith('/asset-library/');
+  } catch {
+    return url.startsWith('/__aitu_cache__/') ||
+           url.startsWith('/asset-library/');
+  }
 }
 
 /**
@@ -163,6 +169,37 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
   // 存储降级创建的 blob URL，用于清理
   const blobUrlRef = useRef<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentSourceRef = useRef(normalizedSrc);
+  const mountedRef = useRef(true);
+  const sourceVersionRef = useRef(0);
+  currentSourceRef.current = normalizedSrc;
+
+  const isCurrentSource = useCallback((source: string, sourceVersion?: number) => {
+    return mountedRef.current &&
+           currentSourceRef.current === source &&
+           (sourceVersion === undefined || sourceVersionRef.current === sourceVersion);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const adoptBlobUrl = useCallback((source: string, blobUrl: string, sourceVersion?: number): boolean => {
+    if (!isCurrentSource(source, sourceVersion)) {
+      URL.revokeObjectURL(blobUrl);
+      return false;
+    }
+
+    if (blobUrlRef.current && blobUrlRef.current !== blobUrl) {
+      URL.revokeObjectURL(blobUrlRef.current);
+    }
+    blobUrlRef.current = blobUrl;
+    setImageSrc(blobUrl);
+    return true;
+  }, [isCurrentSource]);
   
   /**
    * 尝试将虚拟路径降级为 blob URL
@@ -206,7 +243,13 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
 
   // Handle image load error with retry logic
   const handleError = useCallback(async (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    if (normalizedSrc.startsWith('data:')) {
+    const sourceAtError = normalizedSrc;
+    const sourceVersionAtError = sourceVersionRef.current;
+    if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+      return;
+    }
+
+    if (sourceAtError.startsWith('data:')) {
       setIsLoading(false);
       setHasError(true);
       onError?.(event);
@@ -226,18 +269,23 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
       }
       
       // 对于虚拟路径，在绕过 SW 后尝试降级到 blob URL
-      if (shouldBypassSW && isVirtualUrl(normalizedSrc) && !blobUrlRef.current) {
-        const blobUrl = await tryFallbackToBlobUrl(normalizedSrc);
-        if (blobUrl) {
-          blobUrlRef.current = blobUrl;
+      if (shouldBypassSW && isVirtualUrl(sourceAtError) && !blobUrlRef.current) {
+        const blobUrl = await tryFallbackToBlobUrl(sourceAtError);
+        if (blobUrl && adoptBlobUrl(sourceAtError, blobUrl, sourceVersionAtError)) {
           setRetryCount(nextRetryCount);
-          setImageSrc(blobUrl);
           return;
         }
+      }
+
+      if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+        return;
       }
       
       // Schedule retry
       retryTimeoutRef.current = setTimeout(() => {
+        if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+          return;
+        }
         setRetryCount(nextRetryCount);
         
         // 如果已经有 blob URL，继续使用它
@@ -248,7 +296,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
         }
         
         // 构建重试 URL
-        let retryUrl = normalizedSrc;
+        let retryUrl = sourceAtError;
         
         // 如果需要绕过 SW，添加 bypass_sw 参数
         if (shouldBypassSW || bypassSW) {
@@ -269,11 +317,13 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
       const error = new Error(`Failed to load image after ${maxRetries} retries`);
       onLoadFailure?.(error);
     }
-  }, [retryCount, maxRetries, normalizedSrc, getRetryDelay, onError, onLoadFailure, bypassSW, bypassSWAfterRetries, tryFallbackToBlobUrl]);
+  }, [retryCount, maxRetries, normalizedSrc, getRetryDelay, onError, onLoadFailure, bypassSW, bypassSWAfterRetries, tryFallbackToBlobUrl, adoptBlobUrl, isCurrentSource]);
 
   // Reset state when src changes and handle virtual path fallback
   useEffect(() => {
     // 清理之前的 blob URL
+    sourceVersionRef.current += 1;
+    const sourceVersion = sourceVersionRef.current;
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -283,15 +333,23 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
     setIsLoading(true);
     setHasError(false);
     setBypassSW(false);
+    setImageSrc(normalizedSrc);
+
+    let active = true;
 
     // 检查是否需要虚拟路径降级
     // 条件：是虚拟路径 && SW 不可用
     if (isVirtualUrl(normalizedSrc) && !isSWAvailable()) {
       // 异步尝试降级
       tryFallbackToBlobUrl(normalizedSrc).then((blobUrl) => {
+        if (!active || !isCurrentSource(normalizedSrc, sourceVersion)) {
+          if (blobUrl) {
+            URL.revokeObjectURL(blobUrl);
+          }
+          return;
+        }
         if (blobUrl) {
-          blobUrlRef.current = blobUrl;
-          setImageSrc(blobUrl);
+          adoptBlobUrl(normalizedSrc, blobUrl, sourceVersion);
         } else {
           // 降级失败，仍然使用原始 URL（可能会失败，但有重试机制）
           setImageSrc(normalizedSrc);
@@ -303,11 +361,13 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
 
     // Clear any pending retry timeouts
     return () => {
+      active = false;
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
       }
     };
-  }, [normalizedSrc, tryFallbackToBlobUrl]);
+  }, [normalizedSrc, tryFallbackToBlobUrl, adoptBlobUrl, isCurrentSource]);
 
   // Cleanup on unmount
   useEffect(() => {

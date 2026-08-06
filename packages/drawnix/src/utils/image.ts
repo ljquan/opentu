@@ -6,6 +6,7 @@ import { IMAGE_MIME_TYPES } from '../constants';
 import { insertImage } from '../data/image';
 import { MessagePlugin } from './message-plugin';
 import { getImageNaturalSize } from './image-natural-size';
+import { getSupportedImageFileMimeType } from '../data/blob';
 
 export { getImageNaturalSize } from './image-natural-size';
 
@@ -94,11 +95,22 @@ export const addImage = async (board: PlaitBoard) => {
         IMAGE_MIME_TYPES
       ) as (keyof typeof IMAGE_MIME_TYPES)[],
     });
-    insertImage(board, imageFile);
+    const imageMimeType = getSupportedImageFileMimeType(imageFile);
+    if (!imageMimeType) {
+      MessagePlugin.error('不支持该图片格式');
+      return;
+    }
+
+    const normalizedImageFile =
+      imageFile.type === imageMimeType
+        ? imageFile
+        : new File([imageFile], imageFile.name, { type: imageMimeType });
+    await insertImage(board, normalizedImageFile);
   } catch (error) {
     if (isFileSystemAbortError(error)) {
       return;
     }
-    throw error;
+    console.error('[ImageImport] Failed to insert local image:', error);
+    MessagePlugin.error('插入本地图片失败，请检查图片格式或存储空间');
   }
 };

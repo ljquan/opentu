@@ -59,18 +59,6 @@ const RELEASE_CONTEXT = getAnalyticsReleaseContext();
 const LAZY_CHUNK_RETRY_PARAM = '_lazy_chunk_retry';
 const LAZY_CHUNK_RETRY_TS_PARAM = '_t';
 
-type CDNName = 'jsdelivr' | 'unpkg' | 'local';
-
-interface RuntimeCDNPreference {
-  cdn: CDNName;
-  latency: number;
-  timestamp: number;
-}
-
-interface RuntimeCDNApi {
-  selectBestCDN: () => Promise<RuntimeCDNPreference | null>;
-}
-
 interface BootProgressOptions {
   title?: string;
   tip?: string;
@@ -87,10 +75,6 @@ interface BootController {
 
 declare global {
   interface Window {
-    __OPENTU_CDN__?: RuntimeCDNPreference | null;
-    __AITU_CDN__?: RuntimeCDNPreference | null;
-    __OPENTU_CDN_API__?: RuntimeCDNApi;
-    __AITU_CDN_API__?: RuntimeCDNApi;
     __OPENTU_BOOT__?: BootController;
     __OPENTU_SW_REGISTRATION_PROMISE__?: Promise<ServiceWorkerRegistration | null>;
   }
@@ -118,10 +102,6 @@ function cleanupLazyChunkRecoveryParams(): void {
 
 cleanupLazyChunkRecoveryParams();
 
-function isValidCDNName(value: unknown): value is CDNName {
-  return value === 'jsdelivr' || value === 'unpkg' || value === 'local';
-}
-
 function getBootController(): BootController | null {
   return window.__OPENTU_BOOT__ || null;
 }
@@ -136,82 +116,6 @@ interface RuntimeSWVersionState {
   pendingReadyAt: number | null;
   upgradeState: 'idle' | 'prewarming' | 'ready' | 'committing';
   swVersion: string;
-}
-
-function getRuntimeCDNPreference(): RuntimeCDNPreference | null {
-  const preference = window.__OPENTU_CDN__ || window.__AITU_CDN__;
-  if (!preference || !isValidCDNName(preference.cdn)) {
-    return null;
-  }
-
-  return {
-    cdn: preference.cdn,
-    latency:
-      Number.isFinite(preference.latency) && preference.latency >= 0
-        ? preference.latency
-        : 0,
-    timestamp:
-      Number.isFinite(preference.timestamp) && preference.timestamp > 0
-        ? preference.timestamp
-        : Date.now(),
-  };
-}
-
-function postCDNPreferenceToServiceWorker(
-  registration: ServiceWorkerRegistration | null
-): void {
-  const preference = getRuntimeCDNPreference();
-  if (!preference) {
-    return;
-  }
-
-  const payload = {
-    type: 'SW_CDN_SET_PREFERENCE' as const,
-    ...preference,
-    version: APP_VERSION,
-  };
-
-  const targets = new Set<ServiceWorker>();
-  const maybeWorkers = [
-    navigator.serviceWorker.controller,
-    registration?.active,
-    registration?.waiting,
-    registration?.installing,
-  ];
-
-  for (const worker of maybeWorkers) {
-    if (worker) {
-      targets.add(worker);
-    }
-  }
-
-  targets.forEach((worker) => {
-    worker.postMessage(payload);
-  });
-}
-
-function scheduleCDNPreferenceSync(
-  registration: ServiceWorkerRegistration | null
-): void {
-  postCDNPreferenceToServiceWorker(registration);
-
-  const api = window.__OPENTU_CDN_API__ || window.__AITU_CDN_API__;
-  if (api?.selectBestCDN) {
-    api
-      .selectBestCDN()
-      .then((preference) => {
-        if (preference && isValidCDNName(preference.cdn)) {
-          window.__OPENTU_CDN__ = preference;
-        }
-        postCDNPreferenceToServiceWorker(registration);
-      })
-      .catch((error) => {
-        console.warn(
-          '[Main] Failed to sync CDN preference to Service Worker:',
-          error
-        );
-      });
-  }
 }
 
 function cleanupDisabledServiceWorker(): void {
@@ -505,7 +409,6 @@ if (shouldUseServiceWorker) {
         source: 'phase',
         progress: 72,
       });
-      scheduleCDNPreferenceSync(registration);
 
       // 在开发模式下，强制检查更新并处理等待中的Worker
       if (isDevelopment) {
@@ -695,7 +598,6 @@ if (shouldUseServiceWorker) {
   // 监听controller变化（新的Service Worker接管）
   // 只有用户主动确认升级后才刷新页面
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    scheduleCDNPreferenceSync(swRegistration);
     requestSWVersionState();
     scheduleConfirmedUpgradeReload('controllerchange');
   });

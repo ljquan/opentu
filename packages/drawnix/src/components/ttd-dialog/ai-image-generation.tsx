@@ -271,6 +271,7 @@ const AIImageGeneration = ({
   );
   const [mobilePanel, setMobilePanel] = useState<'config' | 'tasks'>('config');
   const containerRef = useRef<HTMLDivElement>(null);
+  const promptPasteScopeRef = useRef<HTMLDivElement>(null);
   const { viewportWidth } = useDeviceType();
   const isCompactLayout = viewportWidth <= 768;
 
@@ -1047,6 +1048,7 @@ const AIImageGeneration = ({
                   : 'Reference Images (Optional)'
               }
               onError={setError}
+              pasteScopeRef={promptPasteScopeRef}
             />
 
             <PromptInput
@@ -1057,6 +1059,7 @@ const AIImageGeneration = ({
               type="image"
               disabled={isGenerating}
               onError={setError}
+              rootRef={promptPasteScopeRef}
             />
 
             <KnowledgeNoteContextSelector

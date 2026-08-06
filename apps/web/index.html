@@ -154,12 +154,12 @@
         ]
       }
     </script>
-    <!-- base href 由构建工具处理，CDN 模式下使用相对路径 -->
+    <!-- base href 由构建工具处理，静态资源使用相对路径 -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
     />
-    <meta name="app-version" content="0.9.9" />
+    <meta name="app-version" content="1.0.10" />
     <style>
       :root {
         --app-boot-bg: radial-gradient(
@@ -678,14 +678,9 @@
           }
         }, 4000);
         var removeTimer = 0;
-        var cdnConfigLoadStarted = false;
         var resolveMainEntryReady = null;
-        var BOOT_CDN_PACKAGE_NAME = 'aitu-app';
-        var BOOT_CDN_BASE_URL = 'https://cdn.jsdelivr.net/npm/';
-        var BOOT_LOCAL_RETRY_STORAGE_KEY = '__OPENTU_BOOT_LOCAL_RETRY_AT__';
         var BOOT_IMPORT_RETRY_STORAGE_KEY = '__OPENTU_BOOT_IMPORT_RETRY_AT__';
-        var BOOT_LOCAL_RETRY_TTL_MS = 2 * 60 * 1000;
-        var forceLocalBootAssets = false;
+        var BOOT_IMPORT_RETRY_TTL_MS = 2 * 60 * 1000;
         window.__OPENTU_START_MAIN_ENTRY__ = new Promise(function (resolve) {
           resolveMainEntryReady = resolve;
         });
@@ -710,60 +705,12 @@
           }
         })();
 
-        (function initializeBootLocalRetryFlag() {
+        function clearBootImportRetryFlag() {
           try {
-            var retryAtRaw = window.sessionStorage.getItem(
-              BOOT_LOCAL_RETRY_STORAGE_KEY
-            );
-            if (!retryAtRaw) {
-              return;
-            }
-
-            var retryAt = Number(retryAtRaw);
-            if (
-              !isFinite(retryAt) ||
-              Date.now() - retryAt > BOOT_LOCAL_RETRY_TTL_MS
-            ) {
-              window.sessionStorage.removeItem(BOOT_LOCAL_RETRY_STORAGE_KEY);
-              return;
-            }
-
-            forceLocalBootAssets = true;
-          } catch (_error) {
-            forceLocalBootAssets = false;
-          }
-        })();
-
-        function clearBootLocalRetryFlag() {
-          forceLocalBootAssets = false;
-          try {
-            window.sessionStorage.removeItem(BOOT_LOCAL_RETRY_STORAGE_KEY);
             window.sessionStorage.removeItem(BOOT_IMPORT_RETRY_STORAGE_KEY);
           } catch (_error) {
             // ignore sessionStorage cleanup failures
           }
-        }
-
-        function scheduleBootSelfHealReload() {
-          if (isBootLocalDevelopment() || forceLocalBootAssets) {
-            return false;
-          }
-
-          try {
-            window.sessionStorage.setItem(
-              BOOT_LOCAL_RETRY_STORAGE_KEY,
-              String(Date.now())
-            );
-          } catch (_error) {
-            return false;
-          }
-
-          var tip = document.querySelector('[data-app-boot-tip]');
-          if (tip) {
-            tip.textContent = '首屏资源回退中，正在自动重试...';
-          }
-          window.location.reload();
-          return true;
         }
 
         function isRecoverableBootImportError(error) {
@@ -849,7 +796,7 @@
             );
             if (
               isFinite(lastRetryAt) &&
-              Date.now() - lastRetryAt <= BOOT_LOCAL_RETRY_TTL_MS
+              Date.now() - lastRetryAt <= BOOT_IMPORT_RETRY_TTL_MS
             ) {
               return false;
             }
@@ -915,146 +862,6 @@
             window.location.hostname === '127.0.0.1' ||
             window.location.hostname.endsWith('.localhost')
           );
-        }
-
-        function toPreferredBootAssetUrl(localPath) {
-          if (!localPath || isBootLocalDevelopment() || forceLocalBootAssets) {
-            return localPath;
-          }
-
-          var normalizedPath = String(localPath).trim();
-
-          if (/^https?:\/\//i.test(normalizedPath)) {
-            return normalizedPath;
-          }
-
-          normalizedPath = normalizedPath
-            .replace(/^\.?\//, '')
-            .replace(/^npm\/aitu-app@[^/]+\//, '')
-            .replace(/^aitu-app@[^/]+\//, '');
-
-          return (
-            BOOT_CDN_BASE_URL +
-            BOOT_CDN_PACKAGE_NAME +
-            '@' +
-            getBootAppVersion() +
-            '/' +
-            normalizedPath
-          );
-        }
-
-        function isManagedBootFallbackTarget(target) {
-          return !!(
-            target &&
-            typeof target.getAttribute === 'function' &&
-            target.getAttribute('data-cdn-fallback-managed') === '1'
-          );
-        }
-
-        function createLocalBootAssetNode(target, localUrl) {
-          var replacement = target.cloneNode(false);
-          replacement.setAttribute('data-fallback-attempted', '1');
-          replacement.removeAttribute('onerror');
-
-          var failureMessage =
-            target.tagName === 'SCRIPT'
-              ? '首屏脚本加载失败，请刷新页面后重试。'
-              : target.getAttribute('rel') === 'stylesheet'
-              ? '首屏样式加载失败，请刷新页面后重试。'
-              : '首屏资源加载失败，请刷新页面后重试。';
-
-          if (target.tagName === 'SCRIPT') {
-            replacement.setAttribute('src', localUrl);
-            replacement.onerror = function () {
-              markError(failureMessage);
-            };
-            return replacement;
-          }
-
-          replacement.setAttribute('href', localUrl);
-          replacement.onerror = function () {
-            markError(failureMessage);
-          };
-          return replacement;
-        }
-
-        window.__OPENTU_BOOT_ASSET_FALLBACK__ = function (target) {
-          if (!target) {
-            return false;
-          }
-
-          var localUrl =
-            target.getAttribute('data-local-src') ||
-            target.getAttribute('data-local-href');
-
-          if (!localUrl) {
-            return false;
-          }
-
-          if (target.getAttribute('data-fallback-attempted') === '1') {
-            markError(
-              target.tagName === 'SCRIPT'
-                ? '首屏脚本加载失败，请刷新页面后重试。'
-                : target.getAttribute('rel') === 'stylesheet'
-                ? '首屏样式加载失败，请刷新页面后重试。'
-                : '首屏资源加载失败，请刷新页面后重试。'
-            );
-            return true;
-          }
-
-          if (
-            target.tagName === 'SCRIPT' &&
-            target.getAttribute('type') === 'module' &&
-            scheduleBootSelfHealReload()
-          ) {
-            return true;
-          }
-
-          var replacement = createLocalBootAssetNode(target, localUrl);
-          if (target.parentNode) {
-            target.parentNode.replaceChild(replacement, target);
-          }
-          return true;
-        };
-
-        function appendManagedBootScript(localPath, onload, onfinalerror) {
-          var preferredUrl = toPreferredBootAssetUrl(localPath);
-          var script = document.createElement('script');
-          script.async = true;
-          script.setAttribute('data-cdn-fallback-managed', '1');
-          script.setAttribute('data-local-src', localPath);
-
-          var handleFinalFailure = function () {
-            if (typeof onfinalerror === 'function') {
-              onfinalerror();
-            }
-          };
-
-          if (!preferredUrl || preferredUrl === localPath) {
-            script.src = localPath;
-            script.onload = onload;
-            script.onerror = handleFinalFailure;
-            document.head.appendChild(script);
-            return;
-          }
-
-          script.src = preferredUrl;
-          script.onload = onload;
-          script.onerror = function () {
-            var localScript = document.createElement('script');
-            localScript.async = true;
-            localScript.src = localPath;
-            localScript.setAttribute('data-cdn-fallback-managed', '1');
-            localScript.setAttribute('data-fallback-attempted', '1');
-            localScript.onload = onload;
-            localScript.onerror = handleFinalFailure;
-            if (script.parentNode) {
-              script.parentNode.removeChild(script);
-            }
-            document.head.appendChild(localScript);
-          };
-
-          document.head.appendChild(script);
         }
 
         function clampProgress(value) {
@@ -1142,7 +949,7 @@
             return;
           }
           document.documentElement.classList.add('app-ready');
-          clearBootLocalRetryFlag();
+          clearBootImportRetryFlag();
           setProgress(100, {
             tip: '启动完成，正在进入工作台...',
           });
@@ -1186,113 +993,6 @@
           markError: markError,
           setProgress: setProgress,
         };
-
-        function getRuntimeCDNPreference() {
-          var preference = window.__OPENTU_CDN__ || window.__AITU_CDN__;
-          if (!preference || typeof preference !== 'object') {
-            return null;
-          }
-
-          var cdn = preference.cdn;
-          if (cdn !== 'jsdelivr' && cdn !== 'unpkg' && cdn !== 'local') {
-            return null;
-          }
-
-          return {
-            cdn: cdn,
-            latency:
-              typeof preference.latency === 'number' &&
-              isFinite(preference.latency)
-                ? Math.max(0, preference.latency)
-                : 0,
-            timestamp:
-              typeof preference.timestamp === 'number' &&
-              isFinite(preference.timestamp) &&
-              preference.timestamp > 0
-                ? preference.timestamp
-                : Date.now(),
-          };
-        }
-
-        function postCDNPreferenceToRegistration(registration, preference) {
-          if (!registration || !preference) {
-            return;
-          }
-
-          var payload = {
-            type: 'SW_CDN_SET_PREFERENCE',
-            cdn: preference.cdn,
-            latency: preference.latency,
-            timestamp: preference.timestamp,
-            version: (function () {
-              var versionMeta = document.querySelector(
-                'meta[name="app-version"]'
-              );
-              return versionMeta
-                ? versionMeta.getAttribute('content') || '0.0.0'
-                : '0.0.0';
-            })(),
-          };
-
-          var targets = [];
-          var maybeWorkers = [
-            navigator.serviceWorker.controller,
-            registration.active,
-            registration.waiting,
-            registration.installing,
-          ];
-
-          for (var i = 0; i < maybeWorkers.length; i++) {
-            var worker = maybeWorkers[i];
-            if (worker && targets.indexOf(worker) === -1) {
-              targets.push(worker);
-            }
-          }
-
-          for (var j = 0; j < targets.length; j++) {
-            targets[j].postMessage(payload);
-          }
-        }
-
-        function syncEarlyCDNPreference(registration) {
-          var cachedPreference = getRuntimeCDNPreference();
-          if (cachedPreference) {
-            postCDNPreferenceToRegistration(registration, cachedPreference);
-          }
-
-          var api = window.__OPENTU_CDN_API__ || window.__AITU_CDN_API__;
-          if (!api || typeof api.selectBestCDN !== 'function') {
-            return;
-          }
-
-          api
-            .selectBestCDN()
-            .then(function (preference) {
-              if (!preference || typeof preference !== 'object') {
-                return;
-              }
-
-              window.__OPENTU_CDN__ = preference;
-              window.__AITU_CDN__ = preference;
-              postCDNPreferenceToRegistration(registration, {
-                cdn: preference.cdn,
-                latency:
-                  typeof preference.latency === 'number' &&
-                  isFinite(preference.latency)
-                    ? Math.max(0, preference.latency)
-                    : 0,
-                timestamp:
-                  typeof preference.timestamp === 'number' &&
-                  isFinite(preference.timestamp) &&
-                  preference.timestamp > 0
-                    ? preference.timestamp
-                    : Date.now(),
-              });
-            })
-            .catch(function (error) {
-              console.warn('[Boot] Early CDN preference sync failed:', error);
-            });
-        }
 
         function shouldEnableEarlyServiceWorkerBootstrap() {
           try {
@@ -1353,7 +1053,6 @@
             window.__OPENTU_SW_REGISTRATION_PROMISE__ = navigator.serviceWorker
               .register('./sw.js')
               .then(function (registration) {
-                syncEarlyCDNPreference(registration);
                 setProgress(54, {
                   tip: '启动缓存服务已连接，正在准备资源清单...',
                   source: 'phase',
@@ -1383,55 +1082,22 @@
                 });
                 return null;
               });
-          } else {
-            window.__OPENTU_SW_REGISTRATION_PROMISE__.then(function (
-              registration
-            ) {
-              syncEarlyCDNPreference(registration);
-            });
           }
-        }
-
-        function loadCDNConfigAndBootstrap() {
-          if (cdnConfigLoadStarted) {
-            return;
-          }
-          cdnConfigLoadStarted = true;
-
-          appendManagedBootScript(
-            './cdn-config.js',
-            function () {
-              setupEarlyServiceWorkerBootstrap();
-              if (resolveMainEntryReady) {
-                resolveMainEntryReady();
-                resolveMainEntryReady = null;
-              }
-            },
-            function () {
-              console.warn(
-                '[Boot] CDN config load failed, fallback to local bootstrap'
-              );
-              setupEarlyServiceWorkerBootstrap();
-              if (resolveMainEntryReady) {
-                resolveMainEntryReady();
-                resolveMainEntryReady = null;
-              }
-            }
-          );
         }
 
         renderProgress();
         startSimulatedProgress();
-        loadCDNConfigAndBootstrap();
+        setupEarlyServiceWorkerBootstrap();
+        if (resolveMainEntryReady) {
+          resolveMainEntryReady();
+          resolveMainEntryReady = null;
+        }
 
         window.addEventListener(
           'error',
           function (event) {
             var target = event && event.target;
             if (target && target !== window && (target.src || target.href)) {
-              if (isManagedBootFallbackTarget(target)) {
-                return;
-              }
               var resourceUrl = target.src || target.href || '';
               var resourceName = resourceUrl.split('/').pop() || '资源文件';
               markError(resourceName + ' 加载失败，请刷新页面后重试。');

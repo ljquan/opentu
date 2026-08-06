@@ -24,7 +24,12 @@ type SWTaskType =
   | 'character'
   | 'inspiration_board'
   | 'chat';
-type SWTaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+type SWTaskStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 /**
  * SW 端的任务结构（与 SWTask 保持一致）
@@ -109,6 +114,15 @@ export interface SWTask {
 class TaskStorageWriter {
   private db: IDBDatabase | null = null;
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private writesPaused = false;
+
+  pauseWrites(): void {
+    this.writesPaused = true;
+  }
+
+  resumeWrites(): void {
+    this.writesPaused = false;
+  }
 
   /**
    * 获取数据库连接
@@ -155,14 +169,108 @@ class TaskStorageWriter {
    * 保存任务
    */
   async saveTask(task: SWTask): Promise<void> {
+    if (this.writesPaused) {
+      return;
+    }
+
     const db = await this.getDB();
+    if (this.writesPaused) {
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(TASKS_STORE, 'readwrite');
       const store = transaction.objectStore(TASKS_STORE);
       const request = store.put(task);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || request.error);
+      transaction.onabort = () =>
+        reject(
+          transaction.error || new Error('Task storage transaction aborted')
+        );
+    });
+  }
+
+  private async updateTask(
+    taskId: string,
+    update: (task: SWTask) => void,
+    expectedRequestId?: string,
+    options: {
+      allowPending?: boolean;
+      allowFailed?: boolean;
+      expectedErrorCodes?: readonly string[];
+      allowLegacyRequestId?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    if (!taskId || this.writesPaused) {
+      return false;
+    }
+
+    const db = await this.getDB();
+    if (this.writesPaused) {
+      return false;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(TASKS_STORE, 'readwrite');
+      const store = transaction.objectStore(TASKS_STORE);
+      const request = store.get(taskId);
+      let updated = false;
+      let updateError: unknown;
+
+      request.onsuccess = () => {
+        if (this.writesPaused) {
+          return;
+        }
+
+        const task = request.result as SWTask | undefined;
+        if (!task) {
+          return;
+        }
+        if (
+          expectedRequestId &&
+          (task.type !== 'image' ||
+            (task.status !== 'processing' &&
+              (!options.allowPending || task.status !== 'pending') &&
+              (!options.allowFailed ||
+                task.status !== 'failed' ||
+                !options.expectedErrorCodes?.includes(
+                  task.error?.code || ''
+                ))) ||
+            (task.params.submissionRequestId !== expectedRequestId &&
+              (!options.allowLegacyRequestId ||
+                task.params.submissionRequestId !== undefined ||
+                task.id !== expectedRequestId)))
+        ) {
+          return;
+        }
+
+        try {
+          update(task);
+          store.put(task);
+          updated = true;
+        } catch (error) {
+          updateError = error;
+          transaction.abort();
+        }
+      };
+
+      transaction.oncomplete = () => resolve(updated);
+      transaction.onerror = () =>
+        reject(
+          updateError ||
+            transaction.error ||
+            request.error ||
+            new Error('Task storage transaction failed')
+        );
+      transaction.onabort = () =>
+        reject(
+          updateError ||
+            transaction.error ||
+            new Error('Task storage transaction aborted')
+        );
     });
   }
 
@@ -211,16 +319,41 @@ class TaskStorageWriter {
   /**
    * 更新任务状态
    */
-  async updateStatus(taskId: string, status: SWTaskStatus): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.status = status;
-      task.updatedAt = Date.now();
-      if (status === 'processing' && !task.startedAt) {
-        task.startedAt = Date.now();
-      }
-      await this.saveTask(task);
-    }
+  async updateStatus(
+    taskId: string,
+    status: SWTaskStatus,
+    expectedRequestId?: string,
+    options: { allowLegacyRequestId?: boolean } = {}
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = status;
+        task.updatedAt = Date.now();
+        if (status === 'processing' && !task.startedAt) {
+          task.startedAt = Date.now();
+        }
+      },
+      expectedRequestId,
+      { allowPending: true, ...options }
+    );
+  }
+
+  async markImageSubmissionAttempted(
+    taskId: string,
+    expectedRequestId: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'processing';
+        task.params.imageSubmissionAttempted = true;
+        task.executionPhase = 'submitting';
+        task.updatedAt = Date.now();
+      },
+      expectedRequestId,
+      { allowPending: true }
+    );
   }
 
   /**
@@ -229,60 +362,112 @@ class TaskStorageWriter {
   async updateProgress(
     taskId: string,
     progress: number,
-    phase?: string
-  ): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.progress = progress;
-      task.updatedAt = Date.now();
-      if (phase) {
-        task.executionPhase = phase;
-      }
-      await this.saveTask(task);
-    }
+    phase?: string,
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.progress = progress;
+        task.updatedAt = Date.now();
+        if (phase) {
+          task.executionPhase = phase;
+        }
+      },
+      expectedRequestId,
+      { allowPending: true }
+    );
+  }
+
+  /**
+   * 将已正式提交但响应丢失的图片任务切换为 Request ID 恢复轮询。
+   */
+  async markImageAttemptRecovering(
+    taskId: string,
+    expectedRequestId: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'processing';
+        task.error = undefined;
+        task.completedAt = undefined;
+        task.executionPhase = 'polling';
+        task.progress = undefined;
+        task.updatedAt = Date.now();
+      },
+      expectedRequestId
+    );
   }
 
   /**
    * 完成任务
    */
-  async completeTask(taskId: string, result: SWTask['result']): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      const normalizedResult =
-        task.type === 'image' && result
-          ? {
-              ...result,
-              url: normalizeImageDataUrl(result.url),
-              urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
-              thumbnailUrl: result.thumbnailUrl
-                ? normalizeImageDataUrl(result.thumbnailUrl)
-                : result.thumbnailUrl,
-              thumbnailUrls: result.thumbnailUrls?.map((url) =>
-                normalizeImageDataUrl(url)
-              ),
-            }
-          : result;
+  async completeTask(
+    taskId: string,
+    result: SWTask['result'],
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        const normalizedResult =
+          task.type === 'image' && result
+            ? {
+                ...result,
+                url: normalizeImageDataUrl(result.url),
+                urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
+                thumbnailUrl: result.thumbnailUrl
+                  ? normalizeImageDataUrl(result.thumbnailUrl)
+                  : result.thumbnailUrl,
+                thumbnailUrls: result.thumbnailUrls?.map((url) =>
+                  normalizeImageDataUrl(url)
+                ),
+              }
+            : result;
 
-      task.status = 'completed';
-      task.result = normalizedResult;
-      task.completedAt = Date.now();
-      task.updatedAt = Date.now();
-      task.progress = 100;
-      await this.saveTask(task);
-    }
+        task.status = 'completed';
+        task.result = normalizedResult;
+        task.error = undefined;
+        task.completedAt = Date.now();
+        task.updatedAt = Date.now();
+        task.progress = 100;
+        task.executionPhase = undefined;
+      },
+      expectedRequestId
+    );
   }
 
   /**
    * 任务失败
    */
-  async failTask(taskId: string, error: SWTask['error']): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.status = 'failed';
-      task.error = error;
-      task.updatedAt = Date.now();
-      await this.saveTask(task);
-    }
+  async failTask(
+    taskId: string,
+    error: SWTask['error'],
+    expectedRequestId?: string,
+    options: {
+      allowPending?: boolean;
+      allowLegacyRequestId?: boolean;
+      clearStartedAt?: boolean;
+    } = {}
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.status = 'failed';
+        task.error = error;
+        const now = Date.now();
+        task.completedAt = now;
+        task.updatedAt = now;
+        task.progress = undefined;
+        task.executionPhase = undefined;
+        if (options.clearStartedAt) {
+          task.startedAt = undefined;
+        }
+      },
+      expectedRequestId,
+      options
+    );
   }
 
   /**
@@ -291,29 +476,36 @@ class TaskStorageWriter {
   async updateRemoteId(
     taskId: string,
     remoteId: string,
-    invocationRoute?: TaskInvocationRouteSnapshot
-  ): Promise<void> {
-    const task = await this.getTask(taskId);
-    if (task) {
-      task.remoteId = remoteId;
-      if (invocationRoute) {
-        task.invocationRoute = invocationRoute;
-      }
-      task.updatedAt = Date.now();
-      task.executionPhase = 'polling';
-      await this.saveTask(task);
-    }
+    invocationRoute?: TaskInvocationRouteSnapshot,
+    expectedRequestId?: string
+  ): Promise<boolean> {
+    return this.updateTask(
+      taskId,
+      (task) => {
+        task.remoteId = remoteId;
+        if (invocationRoute) {
+          task.invocationRoute = invocationRoute;
+        }
+        task.updatedAt = Date.now();
+        task.executionPhase = 'polling';
+      },
+      expectedRequestId
+    );
   }
 
   /**
    * 删除任务
    */
   async deleteTask(taskId: string): Promise<void> {
-    if (!taskId) {
+    if (!taskId || this.writesPaused) {
       return;
     }
 
     const db = await this.getDB();
+    if (this.writesPaused) {
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(TASKS_STORE, 'readwrite');
       const store = transaction.objectStore(TASKS_STORE);
@@ -327,7 +519,7 @@ class TaskStorageWriter {
   /**
    * 批量导入任务（用于云同步恢复）
    * 只导入不存在的任务，已存在的跳过
-   * 
+   *
    * @returns 成功导入的任务数量
    */
   async importTasks(
@@ -337,6 +529,9 @@ class TaskStorageWriter {
     if (tasks.length === 0) {
       return { imported: 0, skipped: 0 };
     }
+    if (this.writesPaused) {
+      return { imported: 0, skipped: tasks.length };
+    }
 
     const db = await this.getDB();
     const batchSize = Math.max(1, options.batchSize ?? 200);
@@ -345,49 +540,23 @@ class TaskStorageWriter {
 
     for (let i = 0; i < tasks.length; i += batchSize) {
       const batch = tasks.slice(i, i + batchSize);
-      const result = await new Promise<{ imported: number; skipped: number }>((resolve, reject) => {
-        const transaction = db.transaction(TASKS_STORE, 'readwrite');
-        const store = transaction.objectStore(TASKS_STORE);
+      if (this.writesPaused) {
+        totalSkipped += tasks.length - i;
+        break;
+      }
 
-        let imported = 0;
-        let skipped = 0;
-        let completed = 0;
+      const result = await new Promise<{ imported: number; skipped: number }>(
+        (resolve, reject) => {
+          const transaction = db.transaction(TASKS_STORE, 'readwrite');
+          const store = transaction.objectStore(TASKS_STORE);
 
-        // 处理每个任务
-        for (const task of batch) {
-          if (options.replaceExisting) {
-            const putRequest = store.put(task);
-            putRequest.onsuccess = () => {
-              imported++;
-              completed++;
-              if (completed === batch.length) {
-                resolve({ imported, skipped });
-              }
-            };
-            putRequest.onerror = () => {
-              // 单个任务失败不影响其他任务
-              skipped++;
-              completed++;
-              if (completed === batch.length) {
-                resolve({ imported, skipped });
-              }
-            };
-            continue;
-          }
+          let imported = 0;
+          let skipped = 0;
+          let completed = 0;
 
-          // 先检查是否存在
-          const getRequest = store.get(task.id);
-
-          getRequest.onsuccess = () => {
-            if (getRequest.result) {
-              // 任务已存在，跳过
-              skipped++;
-              completed++;
-              if (completed === batch.length) {
-                resolve({ imported, skipped });
-              }
-            } else {
-              // 任务不存在，插入
+          // 处理每个任务
+          for (const task of batch) {
+            if (options.replaceExisting) {
               const putRequest = store.put(task);
               putRequest.onsuccess = () => {
                 imported++;
@@ -404,23 +573,56 @@ class TaskStorageWriter {
                   resolve({ imported, skipped });
                 }
               };
+              continue;
             }
-          };
 
-          getRequest.onerror = () => {
-            skipped++;
-            completed++;
-            if (completed === batch.length) {
-              resolve({ imported, skipped });
-            }
-          };
+            // 先检查是否存在
+            const getRequest = store.get(task.id);
+
+            getRequest.onsuccess = () => {
+              if (this.writesPaused || getRequest.result) {
+                // 任务已存在，跳过
+                skipped++;
+                completed++;
+                if (completed === batch.length) {
+                  resolve({ imported, skipped });
+                }
+              } else {
+                // 任务不存在，插入
+                const putRequest = store.put(task);
+                putRequest.onsuccess = () => {
+                  imported++;
+                  completed++;
+                  if (completed === batch.length) {
+                    resolve({ imported, skipped });
+                  }
+                };
+                putRequest.onerror = () => {
+                  // 单个任务失败不影响其他任务
+                  skipped++;
+                  completed++;
+                  if (completed === batch.length) {
+                    resolve({ imported, skipped });
+                  }
+                };
+              }
+            };
+
+            getRequest.onerror = () => {
+              skipped++;
+              completed++;
+              if (completed === batch.length) {
+                resolve({ imported, skipped });
+              }
+            };
+          }
+
+          transaction.onerror = () => reject(transaction.error);
         }
-
-        transaction.onerror = () => reject(transaction.error);
-      });
+      );
       totalImported += result.imported;
       totalSkipped += result.skipped;
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     return { imported: totalImported, skipped: totalSkipped };
@@ -458,8 +660,10 @@ class TaskStorageWriter {
    * 批量归档任务
    */
   async archiveTasks(taskIds: string[]): Promise<void> {
-    if (taskIds.length === 0) return;
+    if (taskIds.length === 0 || this.writesPaused) return;
     const db = await this.getDB();
+    if (this.writesPaused) return;
+
     return new Promise((resolve, reject) => {
       const tx = db.transaction(TASKS_STORE, 'readwrite');
       const store = tx.objectStore(TASKS_STORE);
@@ -468,6 +672,11 @@ class TaskStorageWriter {
       for (const id of taskIds) {
         const getReq = store.get(id);
         getReq.onsuccess = () => {
+          if (this.writesPaused) {
+            processed++;
+            return;
+          }
+
           const task = getReq.result;
           if (task) {
             task.archived = true;

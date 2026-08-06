@@ -38,6 +38,18 @@ type ImageInputFidelity = 'high' | 'low';
 type ImageBackground = 'transparent' | 'opaque' | 'auto';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
 
+const supportsRemoteImageReferences = (requestSchema?: string): boolean =>
+  requestSchema === 'tuzi.image.gpt-generation-json' ||
+  requestSchema === 'tuzi.image.gpt-edit-json';
+
+function assertCurrentExecutionAttempt(options?: ExecutionOptions): void {
+  if (options?.isCurrentAttempt?.() === false) {
+    const error = new Error('图片提交已被取消或替代');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
 function getStringParam(
   params: { params?: Record<string, unknown> },
   keys: string[]
@@ -87,6 +99,7 @@ export async function executeImageViaAdapter(
   taskId: string,
   adapter: ImageModelAdapter,
   params: {
+    requestId?: string;
     prompt: string;
     model: string;
     modelRef?: ModelRef | null;
@@ -109,7 +122,13 @@ export async function executeImageViaAdapter(
   startTime?: number
 ): Promise<void> {
   const logStartTime = startTime || Date.now();
+  const submissionRequestId = params.requestId || taskId;
   const preferredRequestSchema = resolvePreferredRequestSchema(params);
+  const adapterContext = getAdapterContextFromSettings(
+    'image',
+    params.modelRef || params.model,
+    { preferredRequestSchema }
+  );
 
   const logId = startLLMApiLog({
     endpoint: `adapter:${adapter.id}`,
@@ -130,6 +149,14 @@ export async function executeImageViaAdapter(
     if (params.referenceImages && params.referenceImages.length > 0) {
       processedImages = await Promise.all(
         params.referenceImages.map(async (imgUrl) => {
+          if (
+            supportsRemoteImageReferences(
+              adapterContext.binding?.requestSchema
+            ) &&
+            /^https?:\/\//i.test(imgUrl)
+          ) {
+            return imgUrl;
+          }
           const imageData = await unifiedCacheService.getImageForAI(imgUrl);
           return ensureBase64ForAI(imageData, options?.signal);
         })
@@ -139,9 +166,14 @@ export async function executeImageViaAdapter(
     options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
     const result = await adapter.generateImage(
-      getAdapterContextFromSettings('image', params.modelRef || params.model, {
-        preferredRequestSchema,
-      }),
+      {
+        ...adapterContext,
+        requestId: submissionRequestId,
+        onSubmissionAttempt: async () => {
+          await options?.onSubmissionAttempt?.();
+        },
+        signal: options?.signal,
+      },
       {
         prompt: params.prompt,
         model: params.model,
@@ -166,6 +198,7 @@ export async function executeImageViaAdapter(
         },
       }
     );
+    assertCurrentExecutionAttempt(options);
 
     const duration = Date.now() - logStartTime;
 
@@ -183,21 +216,41 @@ export async function executeImageViaAdapter(
     const fmt = result.format || 'png';
     const allUrls = result.urls?.length ? result.urls : [result.url];
     const cachedUrls = await cacheRemoteUrls(allUrls, taskId, 'image', fmt, {
+      forceRemoteCache: true,
+      returnLocalCacheUrl: true,
+      cacheKey: submissionRequestId,
       extraMetadata: params.assetMetadata
         ? { ...params.assetMetadata }
         : undefined,
     });
+    assertCurrentExecutionAttempt(options);
     const cachedPrimary = cachedUrls[0];
 
-    await taskStorageWriter.completeTask(taskId, {
-      url: cachedPrimary,
-      urls: cachedUrls.length > 1 ? cachedUrls : undefined,
-      format: fmt,
-      size: 0,
-    });
+    const completed = await taskStorageWriter.completeTask(
+      taskId,
+      {
+        url: cachedPrimary,
+        urls: cachedUrls.length > 1 ? cachedUrls : undefined,
+        format: fmt,
+        size: 0,
+        width: result.width,
+        height: result.height,
+      },
+      submissionRequestId
+    );
+    if (completed === false) {
+      const staleAttemptError = new Error('图片提交已被取消或替代');
+      staleAttemptError.name = 'AbortError';
+      throw staleAttemptError;
+    }
   } catch (error: any) {
     const duration = Date.now() - logStartTime;
     const errorMessage = error.message || 'Image generation failed (adapter)';
+
+    if (options?.isCurrentAttempt?.() === false) {
+      failLLMApiLog(logId, { duration, errorMessage });
+      throw error;
+    }
 
     const credentialErrorKind = classifyApiCredentialError(error);
     if (credentialErrorKind) {
@@ -209,10 +262,14 @@ export async function executeImageViaAdapter(
     }
 
     failLLMApiLog(logId, { duration, errorMessage });
-    await taskStorageWriter.failTask(taskId, {
-      code: 'IMAGE_GENERATION_ERROR',
-      message: errorMessage,
-    });
+    await taskStorageWriter.failTask(
+      taskId,
+      {
+        code: 'IMAGE_GENERATION_ERROR',
+        message: errorMessage,
+      },
+      submissionRequestId
+    );
     throw error;
   }
 }

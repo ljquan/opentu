@@ -67,6 +67,37 @@ describe('image-generation-anchor-task', () => {
     ).toBe(true);
   });
 
+  it('matches a task to its explicit anchor id', () => {
+    expect(
+      doesTaskBelongToImageGenerationAnchor(
+        createAnchor({ id: 'anchor-explicit', workflowId: 'wf-other' }),
+        createTask({
+          params: {
+            prompt: '生成图片',
+            workflowId: 'wf-1',
+            anchorId: 'anchor-explicit',
+            size: '16x9',
+          },
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('isolates image replacement tasks from normal prompt grouping', () => {
+    const task = createTask({
+      id: 'task-replace',
+      params: {
+        prompt: '更新目标图',
+        workflowId: 'wf-1',
+        replaceElementId: 'image-1',
+      },
+    });
+
+    expect(getImageGenerationTaskInsertGroupKey(task)).toBe(
+      'replace-image:image-1:task-replace'
+    );
+  });
+
   it('matches a batched independent anchor only when batch slot matches', () => {
     const anchor = createAnchor({
       batchId: 'wf_batch_wf-1',
@@ -312,8 +343,6 @@ describe('image-generation-anchor-task', () => {
       },
     });
 
-    expect(getImageGenerationTaskInsertGroupKey(task)).toBe(
-      'lyrics:wf-lyrics'
-    );
+    expect(getImageGenerationTaskInsertGroupKey(task)).toBe('lyrics:wf-lyrics');
   });
 });

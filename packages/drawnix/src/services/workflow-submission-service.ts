@@ -17,7 +17,10 @@ import type { ParsedGenerationParams } from '../utils/ai-input-parser';
 import { swCapabilitiesHandler } from './sw-capabilities';
 import type { DelegatedOperation } from './sw-capabilities';
 import { workflowStorageReader } from './workflow-storage-reader';
-import { WorkflowEngine as MainThreadWorkflowEngine } from './workflow-engine';
+import {
+  WorkflowEngine as MainThreadWorkflowEngine,
+  workflowStorageWriter,
+} from './workflow-engine';
 import { executorFactory } from './media-executor';
 import { geminiSettings, type ModelRef } from '../utils/settings-manager';
 import type {
@@ -703,6 +706,18 @@ class WorkflowSubmissionService {
     if (this.fallbackEngine) {
       await this.fallbackEngine.cancelWorkflow(workflowId);
     }
+  }
+
+  /**
+   * 中止全部运行中的工作流并清空页面内存状态。
+   */
+  async clearAllWorkflows(): Promise<void> {
+    workflowStorageWriter.pauseWrites();
+    this.fallbackEngine?.destroy();
+    this.fallbackEngine = null;
+    this.workflows.clear();
+    workflowStorageReader.invalidateCache();
+    await workflowStorageWriter.clearAllWorkflows();
   }
 
   /**

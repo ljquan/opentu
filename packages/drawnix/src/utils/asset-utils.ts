@@ -67,7 +67,7 @@ export function validateMimeType(
   if (!allowedTypes.includes(mimeType as any)) {
     return {
       valid: false,
-      error: `不支持的文件类型: ${mimeType}。只支持图片（JPG, PNG, GIF, WebP）、视频（MP4, WebM, OGG, MOV, M4V）和音频（MP3, WAV, OGG, AAC, FLAC）。`,
+      error: `不支持的文件类型: ${mimeType}。只支持图片（JPG, PNG, GIF, WebP, SVG, BMP, ICO, AVIF, JFIF）、视频（MP4, WebM, OGG, MOV, M4V）和音频（MP3, WAV, OGG, AAC, FLAC）。`,
     };
   }
   return { valid: true };

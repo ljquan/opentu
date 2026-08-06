@@ -280,17 +280,20 @@ export function convertDirectGenerationToWorkflow(
     if (generationType === 'image') {
       // 构建图片生成参数，size 为 undefined 时不传（让模型自动决定）
       // 注意：batchId 等参数直接放在 args 中，确保传输时不会丢失
-      const imageArgs: Record<string, unknown> = withKnowledgeContextRefs({
-        prompt,
-        model: modelId,
-        modelRef,
-        workflowId,
-        // 批量生成参数直接放在 args 中
-        batchId,
-        batchIndex: i + 1,
-        batchTotal: count,
-        globalIndex: i + 1,
-      }, normalizedKnowledgeContextRefs);
+      const imageArgs: Record<string, unknown> = withKnowledgeContextRefs(
+        {
+          prompt,
+          model: modelId,
+          modelRef,
+          workflowId,
+          // 批量生成参数直接放在 args 中
+          batchId,
+          batchIndex: i + 1,
+          batchTotal: count,
+          globalIndex: i + 1,
+        },
+        normalizedKnowledgeContextRefs
+      );
       if (size) {
         imageArgs.size = size;
       }
@@ -307,9 +310,38 @@ export function convertDirectGenerationToWorkflow(
           imageArgs.maskImage = selection.maskImage;
         }
       }
+      const {
+        generationMode,
+        referenceImages: targetReferenceImages,
+        replaceElementId,
+        targetElementId,
+        anchorId,
+        sourceTaskId,
+        sourcePrompt,
+        ...adapterExtraParams
+      } = extraParams || {};
+      if (
+        generationMode === 'text_to_image' ||
+        generationMode === 'image_to_image' ||
+        generationMode === 'image_edit'
+      ) {
+        imageArgs.generationMode = generationMode;
+      }
+      if (
+        Array.isArray(targetReferenceImages) &&
+        targetReferenceImages.every((url) => typeof url === 'string') &&
+        targetReferenceImages.length > 0
+      ) {
+        imageArgs.referenceImages = targetReferenceImages;
+      }
+      if (replaceElementId) imageArgs.replaceElementId = replaceElementId;
+      if (targetElementId) imageArgs.targetElementId = targetElementId;
+      if (anchorId) imageArgs.anchorId = anchorId;
+      if (sourceTaskId) imageArgs.sourceTaskId = sourceTaskId;
+      if (sourcePrompt) imageArgs.sourcePrompt = sourcePrompt;
       // 透传额外参数（如 seedream_quality）
-      if (extraParams) {
-        imageArgs.params = extraParams;
+      if (Object.keys(adapterExtraParams).length > 0) {
+        imageArgs.params = adapterExtraParams;
       }
 
       steps.push({
@@ -323,18 +355,21 @@ export function convertDirectGenerationToWorkflow(
     } else if (generationType === 'video') {
       // 构建视频生成参数，size 为 undefined 时不传（让模型自动决定）
       // 注意：batchId 等参数直接放在 args 中，确保传输时不会丢失
-      const videoArgs: Record<string, unknown> = withKnowledgeContextRefs({
-        prompt,
-        model: modelId,
-        modelRef,
-        seconds: duration || '5',
-        workflowId,
-        // 批量生成参数直接放在 args 中
-        batchId,
-        batchIndex: i + 1,
-        batchTotal: count,
-        globalIndex: i + 1,
-      }, normalizedKnowledgeContextRefs);
+      const videoArgs: Record<string, unknown> = withKnowledgeContextRefs(
+        {
+          prompt,
+          model: modelId,
+          modelRef,
+          seconds: duration || '5',
+          workflowId,
+          // 批量生成参数直接放在 args 中
+          batchId,
+          batchIndex: i + 1,
+          batchTotal: count,
+          globalIndex: i + 1,
+        },
+        normalizedKnowledgeContextRefs
+      );
       if (size) {
         videoArgs.size = size;
       }
@@ -342,9 +377,20 @@ export function convertDirectGenerationToWorkflow(
         videoArgs.referenceImages = referenceImages;
       }
       // 透传额外参数（如 ratio）
-      const videoParams: Record<string, string> = { ...(extraParams || {}) };
+      const videoParams = Object.fromEntries(
+        Object.entries(extraParams || {}).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string'
+        )
+      );
       if (
         modelId === 'happyhorse-1.0-video-edit' &&
+        selection?.videos?.[0] &&
+        !videoParams.input_video
+      ) {
+        videoParams.input_video = selection.videos[0];
+      }
+      if (
+        modelId.startsWith('doubao-seedance-2-0-') &&
         selection?.videos?.[0] &&
         !videoParams.input_video
       ) {
@@ -368,17 +414,20 @@ export function convertDirectGenerationToWorkflow(
           ? extraParams.sunoAction
           : 'music';
       const isLyricsAction = sunoAction === 'lyrics';
-      const audioArgs: Record<string, unknown> = withKnowledgeContextRefs({
-        prompt,
-        model: modelId,
-        modelRef,
-        sunoAction,
-        workflowId,
-        batchId,
-        batchIndex: i + 1,
-        batchTotal: count,
-        globalIndex: i + 1,
-      }, normalizedKnowledgeContextRefs);
+      const audioArgs: Record<string, unknown> = withKnowledgeContextRefs(
+        {
+          prompt,
+          model: modelId,
+          modelRef,
+          sunoAction,
+          workflowId,
+          batchId,
+          batchIndex: i + 1,
+          batchTotal: count,
+          globalIndex: i + 1,
+        },
+        normalizedKnowledgeContextRefs
+      );
 
       // 从 Markdown 卡片内容解析 title/tags/lyrics（仅 music 动作且用户未手动设置时）
       if (!isLyricsAction && prompt) {
@@ -435,17 +484,20 @@ export function convertDirectGenerationToWorkflow(
         status: 'pending',
       });
     } else {
-      const textArgs: Record<string, unknown> = withKnowledgeContextRefs({
-        prompt,
-        model: modelId,
-        modelRef,
-        rawInput,
-        workflowId,
-        batchId,
-        batchIndex: i + 1,
-        batchTotal: count,
-        globalIndex: i + 1,
-      }, normalizedKnowledgeContextRefs);
+      const textArgs: Record<string, unknown> = withKnowledgeContextRefs(
+        {
+          prompt,
+          model: modelId,
+          modelRef,
+          rawInput,
+          workflowId,
+          batchId,
+          batchIndex: i + 1,
+          batchTotal: count,
+          globalIndex: i + 1,
+        },
+        normalizedKnowledgeContextRefs
+      );
       if (referenceImages.length > 0) {
         textArgs.referenceImages = referenceImages;
       }

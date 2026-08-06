@@ -15,18 +15,22 @@ jobs:
   main:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # Cache node_modules
-      - uses: actions/setup-node@v3
+      # 安装 pnpm 后再启用 setup-node 的 pnpm 缓存，否则 runner PATH 中找不到 pnpm
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.21.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: 'pnpm'
 
-      - run: corepack enable pnpm
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
 
 
@@ -35,8 +39,29 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # lint、test、build
-      - run: npx nx affected -t test build --base=origin/develop --verbose
-      - run: npx nx affected -t lint --exclude=drawnix --base=origin/develop --verbose
+      - name: Resolve affected base
+        id: affected-base
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=origin/develop" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Detect affected web app
+        id: affected-web
+        shell: bash
+        run: |
+          if npx nx show projects --affected --base=${{ steps.affected-base.outputs.base }} | grep -qx web; then
+            echo "affected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "affected=false" >> "$GITHUB_OUTPUT"
+          fi
+      - run: npx nx affected -t test build --base=${{ steps.affected-base.outputs.base }} --verbose
+      - run: npx nx affected -t lint --exclude=drawnix --base=${{ steps.affected-base.outputs.base }} --verbose
+      - name: Verify startup bundle
+        if: steps.affected-web.outputs.affected == 'true'
+        run: pnpm verify:startup
 
       # PR 时运行冒烟测试（快速，约2分钟）
       - name: Run Smoke Tests
@@ -44,7 +69,7 @@ jobs:
         
       - name: Upload Smoke Test Results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: smoke-test-results
           path: apps/web-e2e/test-results/
@@ -55,18 +80,18 @@ jobs:
         
       - name: Upload Visual Test Report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: visual-diff-report
           path: apps/web-e2e/playwright-report/
 
       - name: Check Bundle Size
-        if: always()
+        if: always() && steps.affected-web.outputs.affected == 'true'
         run: pnpm run size
 
       - name: Upload Bundle Stats
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: always() && steps.affected-web.outputs.affected == 'true'
+        uses: actions/upload-artifact@v6
         with:
           name: bundle-stats
           path: dist/apps/web/stats.html
@@ -77,17 +102,21 @@ jobs:
     # 仅在 main 分支 push 或手动触发时运行
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v3
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.21.0
+          run_install: false
+
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: 'pnpm'
 
-      - run: corepack enable pnpm
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
 
       # 安装所有浏览器用于完整测试
       - name: Install Playwright Browsers
@@ -112,7 +141,7 @@ jobs:
       # 上传测试报告
       - name: Upload E2E Test Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-test-report
           path: apps/web-e2e/playwright-report/
@@ -120,14 +149,14 @@ jobs:
       # 上传测试结果（包含截图）
       - name: Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-test-results
           path: apps/web-e2e/test-results/
 
       # 上传用户手册
       - name: Upload User Manual
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: user-manual
           path: docs/user-manual/

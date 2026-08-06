@@ -5,6 +5,8 @@
  * 使用单例模式控制接口调用频率（最小间隔 1 分钟）
  */
 
+import { isTuziCompatibleBaseUrl } from './provider-routing/tuzi-api-endpoints';
+
 // 健康状态响应类型
 export interface ModelHealthResponse {
     rule_id: string;
@@ -66,11 +68,13 @@ class ModelHealthFetcher {
     // 缓存的数据
     private cachedData: ModelHealthResponse[] = [];
     // 上次成功请求的时间
-    private lastFetchTime: number = 0;
+    private lastFetchTime = 0;
     // 当前进行中的请求 Promise（用于防止并发）
     private pendingFetch: Promise<ModelHealthResponse[]> | null = null;
 
-    private constructor() {}
+    private constructor() {
+        // Singleton instance only.
+    }
 
     static getInstance(): ModelHealthFetcher {
         if (!ModelHealthFetcher.instance) {
@@ -84,7 +88,7 @@ class ModelHealthFetcher {
      * @param intervalMinutes 查询的时间范围（分钟），默认 5 分钟
      * @param force 是否强制刷新（忽略缓存间隔限制）
      */
-    async fetch(intervalMinutes: number = 5, force: boolean = false): Promise<ModelHealthResponse[]> {
+    async fetch(intervalMinutes = 5, force = false): Promise<ModelHealthResponse[]> {
         const now = Date.now();
         
         // 检查是否在最小间隔内（非强制模式）
@@ -272,22 +276,7 @@ export function buildHealthMap(
  * 检查 baseUrl 是否为 tu-zi.com
  */
 export function isTuziApiUrl(baseUrl: string): boolean {
-    const trimmed = baseUrl.trim();
-    if (!trimmed) {
-        return false;
-    }
-
-    try {
-        const url = new URL(
-            /^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)
-                ? trimmed
-                : `https://${trimmed}`
-        );
-        const hostname = url.hostname.toLowerCase();
-        return hostname === 'tu-zi.com' || hostname.endsWith('.tu-zi.com');
-    } catch {
-        return false;
-    }
+    return isTuziCompatibleBaseUrl(baseUrl);
 }
 
 export function shouldFetchModelHealthForSelections(

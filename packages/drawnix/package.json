@@ -27,6 +27,9 @@
     "pptxgenjs": "^4.0.1",
     "web-vitals": "^5.1.0"
   },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  },
   "exports": {
     ".": {
       "types": "./index.d.ts",

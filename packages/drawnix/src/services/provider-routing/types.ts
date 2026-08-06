@@ -1,6 +1,7 @@
 import type { ModelType } from '../../constants/model-config';
 import type {
   ImageApiCompatibility,
+  ManualHttpTemplateMetadata,
   ModelRef,
   ProviderProfile,
 } from '../../utils/settings-types';
@@ -27,7 +28,7 @@ export type ProviderBindingConfidence = 'high' | 'medium' | 'low';
 export type ProviderBindingSource = 'discovered' | 'template' | 'manual';
 
 export type ProviderAuthStrategy = 'bearer' | 'header' | 'query' | 'custom';
-export type ProviderBaseUrlStrategy = 'preserve' | 'trim-v1';
+export type ProviderBaseUrlStrategy = 'preserve' | 'trim-v1' | 'ensure-v1';
 export type ProviderVideoDurationMode = 'request-param' | 'model-alias';
 export type ProviderVideoResultMode = 'inline-url' | 'download-content';
 export type ProviderTextImageInputMode =
@@ -70,6 +71,7 @@ export interface ProviderBindingMetadata {
   image?: ProviderImageBindingMetadata;
   video?: ProviderVideoBindingMetadata;
   audio?: ProviderAudioBindingMetadata;
+  manualHttp?: ManualHttpTemplateMetadata;
   [key: string]: unknown;
 }
 
@@ -181,6 +183,8 @@ export interface ProviderTransportRequest {
   timeoutMs?: number;
   credentials?: RequestCredentials;
   fetcher?: typeof fetch;
+  /** 图片提交的本地任务 ID；仅在供应商与运行时允许时写入 X-Request-Id。 */
+  requestId?: string;
 }
 
 export interface PreparedProviderTransportRequest {

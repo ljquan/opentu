@@ -11,6 +11,7 @@ export * from './gpt-image-adapter';
 export * from './seedream-adapter';
 export * from './seedance-adapter';
 export * from './tuzi-gpt-image-adapter';
+export * from './custom-http-adapter';
 export * from './image-request-schemas';
 export * from './context';
 

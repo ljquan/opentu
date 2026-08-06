@@ -16,9 +16,9 @@ import {
   WritableClipboardOperationType,
 } from '@plait/core';
 import {
-  isSupportedImageFileType,
   isSupportedAudioFileType,
   getSupportedVideoFileMimeType,
+  getSupportedImageFileMimeType,
 } from '../data/blob';
 import { insertImage, insertImageFromUrlAndSelect } from '../data/image';
 import { insertVideoFromUrl } from '../data/video';
@@ -56,8 +56,9 @@ function getDroppedMediaFiles(files: FileList): DroppedMediaFile[] {
 
   for (let index = 0; index < files.length; index++) {
     const file = files[index];
-    if (isSupportedImageFileType(file.type)) {
-      mediaFiles.push({ file, kind: 'image', mimeType: file.type });
+    const imageMimeType = getSupportedImageFileMimeType(file);
+    if (imageMimeType) {
+      mediaFiles.push({ file, kind: 'image', mimeType: imageMimeType });
       continue;
     }
 
@@ -360,7 +361,7 @@ export const withImagePlugin = (board: PlaitBoard) => {
   ) => {
     if (
       clipboardData?.files?.length &&
-      isSupportedImageFileType(clipboardData.files[0].type)
+      getSupportedImageFileMimeType(clipboardData.files[0])
     ) {
       const imageFile = clipboardData.files[0];
       insertImage(board, imageFile, targetPoint, false).catch(() => {});
