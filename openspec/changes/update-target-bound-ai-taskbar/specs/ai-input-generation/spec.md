@@ -9,25 +9,22 @@ The system SHALL reuse the existing AI input bar near a selected generated image
 - **GIVEN** a single image has stored generation prompt metadata
 - **WHEN** the user selects the image
 - **THEN** the AI input bar SHALL move near the image
-- **AND** the editable prompt value SHALL remain empty
-- **AND** the stored prompt SHALL appear as a visually subdued suggestion with instructions to press Space or Enter to reuse it
+- **AND** the image's current taskbar draft SHALL be restored
+- **AND** the stored prompt SHALL initialize the editable prompt when the image has no saved draft
 
-#### Scenario: Reuse the generated image prompt
+#### Scenario: Restore an image-specific draft
 
-- **GIVEN** the AI input bar shows a stored prompt suggestion
-- **AND** the editable prompt is empty
-- **WHEN** the user presses Space or Enter without a modifier or active composition
-- **THEN** the suggestion SHALL be inserted into the editable prompt
-- **AND** the first key press SHALL NOT submit a generation task
+- **GIVEN** image A has an edited prompt, manual references and knowledge context
+- **WHEN** the user selects image B and then selects image A again
+- **THEN** image A's prompt, manual references and knowledge context SHALL be restored
+- **AND** image B's draft SHALL remain independent
 
-#### Scenario: Dismiss the generated image prompt suggestion
+#### Scenario: Refresh prompt metadata for the same image
 
-- **GIVEN** the AI input bar shows a stored prompt suggestion for image A
-- **WHEN** the user types new content or activates another taskbar control
-- **THEN** the suggestion SHALL disappear without being inserted
-- **AND** metadata refreshes for image A SHALL NOT restore the dismissed suggestion or overwrite current input
-- **WHEN** the user selects image B
-- **THEN** image B MAY show its own stored prompt suggestion
+- **GIVEN** image A remains selected
+- **WHEN** image A's stored prompt metadata changes
+- **THEN** an unedited default prompt SHALL update to the new metadata
+- **AND** a user-edited prompt SHALL NOT be overwritten
 
 #### Scenario: Clear target selection
 
@@ -60,14 +57,14 @@ The system SHALL reuse the existing AI input bar near a selected generated image
 
 ### Requirement: AI Input Bar SHALL Allow Detaching The Current Image Target
 
-The system SHALL let the user close the current image binding without changing the selected image or the existing target-following behavior.
+The system SHALL let the user stop following and replacing the current image while keeping the selected image as a reference.
 
 #### Scenario: Close the current binding
 
 - **GIVEN** the AI input bar is bound to a single image
-- **WHEN** the user activates the close button at the top-right edge of the input bar
+- **WHEN** the user activates the temporary close action at the top-right edge of the input bar
 - **THEN** the input bar SHALL return to its default bottom position
-- **AND** the automatic target thumbnail SHALL be removed
+- **AND** the selected image SHALL remain visible as a reference thumbnail
 - **AND** the prompt, model, parameters, manually added references and knowledge context SHALL remain unchanged
 
 #### Scenario: Keep the same image selected after closing
@@ -77,18 +74,30 @@ The system SHALL let the user close the current image binding without changing t
 - **WHEN** viewport or pointer events refresh the selection
 - **THEN** the input bar SHALL NOT automatically bind to image A again
 
-#### Scenario: Selection changes after closing
+#### Scenario: Selection changes after temporary closing
 
-- **GIVEN** the user closed the binding for image A
+- **GIVEN** the user temporarily closed the binding for image A
 - **WHEN** the user clears the selection, selects other content or selects an image again
 - **THEN** the suppression SHALL be cleared
 - **AND** the existing target-following behavior SHALL work normally for the newly selected image
+
+#### Scenario: Always use one image as a reference
+
+- **GIVEN** the AI input bar is bound to image A
+- **WHEN** the user chooses to always use image A as a reference
+- **THEN** image A SHALL store a lightweight reference-only marker
+- **AND** the input bar SHALL return to its default bottom position
+- **AND** image A SHALL remain visible as a reference thumbnail
+- **WHEN** the board is reloaded and image A is selected again
+- **THEN** the input bar SHALL NOT follow image A
+- **AND** image A SHALL still be used as a reference
+- **AND** other images SHALL keep their existing target-following behavior
 
 #### Scenario: Hide the close guidance after five uses
 
 - **GIVEN** the binding close button is visible
 - **WHEN** the user has closed a real image binding fewer than five times in the current browser
-- **THEN** the input bar SHALL prominently show `关闭任务栏跟随，后续生成新图片` beside the button
+- **THEN** the input bar SHALL prominently show `关闭跟随，当前图仍作参考图` beside the button
 - **WHEN** the fifth close is recorded
 - **THEN** the guidance SHALL remain hidden across page reloads and boards
 - **AND** the close button SHALL remain available

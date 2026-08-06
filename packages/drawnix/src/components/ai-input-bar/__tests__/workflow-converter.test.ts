@@ -164,14 +164,14 @@ describe('workflow-converter', () => {
         });
       });
 
-      it('应该正确传递参考图片', () => {
+      it('应该保持目标图优先的参考图片顺序', () => {
         const params = createMockParams({
           generationType: 'image',
           prompt: '风格转换',
         });
         const referenceImages = [
-          'https://example.com/ref1.jpg',
-          'https://example.com/ref2.jpg',
+          'https://example.com/target.jpg',
+          'https://example.com/manual-reference.jpg',
         ];
 
         const workflow = convertDirectGenerationToWorkflow(
@@ -347,16 +347,20 @@ describe('workflow-converter', () => {
         });
       });
 
-      it('Seedance 2.0 应该保留 480p 分辨率与比例格式', () => {
+      it('Seedance 2.0 应该独立透传分辨率与比例', () => {
         const params = createMockParams({
           generationType: 'video',
           modelId: 'doubao-seedance-2-0-260128',
-          size: '480p@16:9',
+          size: '1080p',
+          extraParams: { ratio: 'adaptive' },
         });
 
         const workflow = convertDirectGenerationToWorkflow(params);
 
-        expect(workflow.steps[0].args.size).toBe('480p@16:9');
+        expect(workflow.steps[0].args.size).toBe('1080p');
+        expect(workflow.steps[0].args.params).toMatchObject({
+          ratio: 'adaptive',
+        });
       });
 
       it('应该使用默认时长 5 秒', () => {

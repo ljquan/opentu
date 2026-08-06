@@ -3,6 +3,8 @@ import { inferBindingsForProviderModel } from '../provider-routing';
 import {
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfig,
+  isPublicHttpMediaUrl,
+  isSeedanceAudioReference,
   resolveVideoPollPath,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
@@ -21,6 +23,67 @@ afterEach(() => {
 });
 
 describe('video binding utils', () => {
+  it('validates official Seedance media inputs without accepting local video assets', () => {
+    expect(isPublicHttpMediaUrl('https://example.com/reference.mp4')).toBe(
+      true
+    );
+    expect(isPublicHttpMediaUrl('https://8.8.8.8/reference.mp4')).toBe(true);
+    expect(isPublicHttpMediaUrl('https://192.0.0.9/reference.mp4')).toBe(true);
+    expect(isPublicHttpMediaUrl('https://192.0.0.10/reference.mp4')).toBe(true);
+    expect(
+      isPublicHttpMediaUrl('https://[2001:4860:4860::8888]/reference.mp4')
+    ).toBe(true);
+    expect(isPublicHttpMediaUrl('https://[2001:3::1]/reference.mp4')).toBe(
+      true
+    );
+    expect(isPublicHttpMediaUrl('https://[2001:20::1]/reference.mp4')).toBe(
+      true
+    );
+    expect(isPublicHttpMediaUrl('http://localhost/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('http://127.0.0.1/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('http://192.168.1.10/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://169.254.1.10/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://192.0.0.8/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('http://[::1]/reference.mp4')).toBe(false);
+    expect(
+      isPublicHttpMediaUrl('http://[::ffff:127.0.0.1]/reference.mp4')
+    ).toBe(false);
+    expect(isPublicHttpMediaUrl('http://[::ffff:8.8.8.8]/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://[fc00::1]/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('http://[100::1]/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('http://[100:0:0:1::1]/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://[2001:2::1]/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://[2001:5::1]/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('http://[3fff::1]/reference.mp4')).toBe(false);
+    expect(isPublicHttpMediaUrl('https://camera.local/reference.mp4')).toBe(
+      false
+    );
+    expect(isPublicHttpMediaUrl('asset://reference-video')).toBe(false);
+    expect(isSeedanceAudioReference('audio-material-123')).toBe(true);
+    expect(isSeedanceAudioReference('data:audio/mpeg;base64,ZmFrZQ==')).toBe(
+      true
+    );
+    expect(isSeedanceAudioReference('data:audio/mpeg;base64,%%%')).toBe(false);
+    expect(isSeedanceAudioReference('data:audio/WAV;base64,ZmFrZQ==')).toBe(
+      false
+    );
+    expect(
+      isSeedanceAudioReference('http://127.0.0.1/reference-audio.mp3')
+    ).toBe(false);
+  });
+
   it('overrides official OpenAI sora bindings with raw Sora capabilities', () => {
     const model: ModelConfig = {
       id: 'sora-2',
@@ -330,42 +393,32 @@ describe('video binding utils', () => {
       requestSchema: 'doubao.seedance-2.video.content-json',
       metadata: {
         video: {
-          allowedDurations: [
-            '4',
-            '5',
-            '6',
-            '7',
-            '8',
-            '9',
-            '10',
-            '11',
-            '12',
-            '13',
-            '14',
-            '15',
-          ],
+          allowedDurations: ['4', '5', '6', '7', '8', '9', '10', '11', '12'],
           durationField: 'duration',
         },
       },
     });
     expect(
-      resolveVideoSubmission(standardModel.id, '15', standardBinding || null)
+      resolveVideoSubmission(standardModel.id, '12', standardBinding || null)
     ).toMatchObject({
       model: standardModel.id,
-      duration: '15',
+      duration: '12',
       durationField: 'duration',
     });
+    expect(() =>
+      resolveVideoSubmission(standardModel.id, '13', standardBinding || null)
+    ).toThrow('视频时长 13s 不受支持');
     expect(
       getEffectiveVideoModelConfig(
         standardModel.id,
         standardBinding || null
       ).sizeOptions.map((option) => option.value)
-    ).toEqual(['720p@16:9', '480p@16:9']);
+    ).toEqual(['1080p', '720p', '480p']);
     expect(
       getEffectiveVideoModelConfig(fastModel.id).sizeOptions.map(
         (option) => option.value
       )
-    ).toEqual(['720p@16:9', '480p@16:9']);
+    ).toEqual(['1080p', '720p', '480p']);
   });
 
   it('keeps Seedance 1.x on the legacy task protocol', () => {

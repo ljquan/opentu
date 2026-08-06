@@ -1699,6 +1699,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
           <Suspense fallback={null}>
             <DeferredAIInputBar
               isDataReady={isDataReady}
+              currentBoardId={currentBoardId}
               activationKey={0}
               onEnableToolWindows={enableToolWindows}
               onEnableRuntime={enableGenerationRuntime}

@@ -132,7 +132,7 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
   }
 
   &__bound-dismiss-hint {
-    max-width: calc(100vw - 120px);
+    max-width: calc(100vw - 150px);
     padding: 4px 8px;
     border: 1px solid rgba(234, 88, 12, 0.28);
     border-radius: 6px;
@@ -143,6 +143,12 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     font-weight: 600;
     line-height: 18px;
     white-space: nowrap;
+  }
+
+  &__bound-dismiss-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
   }
 
   &__bound-dismiss-btn {
@@ -164,6 +170,37 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     &:hover:not(:disabled) {
       background: $orange-dark;
       box-shadow: 0 3px 10px rgba(124, 45, 18, 0.34);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fb923c;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+  }
+
+  &__bound-dismiss-menu-btn {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    padding: 0;
+    border: 1px solid rgba(234, 88, 12, 0.36);
+    border-radius: 50%;
+    background: #fff7ed;
+    color: $orange-primary;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: #ffedd5;
+      color: $orange-dark;
     }
 
     &:focus-visible {
@@ -831,12 +868,6 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       color: $gray-medium;
     }
 
-    &--prompt-suggestion::placeholder {
-      color: $gray-dark;
-      font-style: italic;
-      opacity: 0.58;
-    }
-
     &:focus {
       outline: none;
       border: none !important;
@@ -1312,6 +1343,17 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       color: #fed7aa;
     }
 
+    &__bound-dismiss-menu-btn {
+      border-color: rgba(251, 146, 60, 0.42);
+      background: #431407;
+      color: #fdba74;
+
+      &:hover:not(:disabled) {
+        background: #7c2d12;
+        color: #ffedd5;
+      }
+    }
+
     &__type-btn {
       border-color: var(--color-border, #444);
       color: var(--color-gray-50, #999);
@@ -1472,11 +1514,6 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
       &::placeholder {
         color: var(--color-gray-60, #666);
-      }
-
-      &--prompt-suggestion::placeholder {
-        color: var(--color-gray-40, #aaa);
-        opacity: 0.58;
       }
     }
 

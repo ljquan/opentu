@@ -24,38 +24,49 @@ The system SHALL route Seedance 2.0, Seedance 2.0 Fast, and Seedance 2.0 Mini th
 - **WHEN** video generation is submitted
 - **THEN** the system SHALL continue to use the existing Seedance 1.x adapter and resolution model-name transformation
 
-### Requirement: Submit Server-Reachable Seedance 2.0 Reference Media
+### Requirement: Submit Official Seedance 2.0 Reference Media
 
-The system SHALL submit only HTTP(S) or `asset://` reference audio and video addresses for Seedance 2.0 tasks.
+The system SHALL encode Seedance 2.0 reference media as typed `content` items using the formats allowed for each official media type.
 
 #### Scenario: Submit supported reference media
 
-- **GIVEN** a Seedance 2.0 task includes reference audio or video
-- **WHEN** each reference uses an HTTP(S) or `asset://` address
+- **GIVEN** a Seedance 2.0 task includes reference video or audio
+- **WHEN** a video uses a public HTTP(S) address, and audio uses HTTP(S), `asset://`, a valid bounded audio Data URL, or a material ID
 - **THEN** the system SHALL include the normalized address in the video submission
 
 #### Scenario: Reject browser-local reference media
 
-- **GIVEN** a Seedance 2.0 task includes a Data URL, Blob URL, or malformed reference address
+- **GIVEN** a Seedance 2.0 task includes a Blob URL, malformed media value, or a Data URL with the wrong media type
 - **WHEN** video generation is submitted
 - **THEN** the system SHALL reject the request before sending it to the provider
 
+#### Scenario: Prevent inline audio amplification
+
+- **GIVEN** a Seedance 2.0 task uses an audio Data URL
+- **WHEN** the user requests multiple generated videos in one submission
+- **THEN** the system SHALL require a single task or a reusable public URL or material ID
+
 ### Requirement: Expose Seedance 2.0 Confirmed Parameters
 
-The system SHALL constrain Seedance 2.0 controls to the confirmed duration and resolution ranges for each model tier.
+The system SHALL expose and submit Seedance 2.0 controls according to the official JSON request contract.
 
 #### Scenario: Standard model parameter options
 
 - **GIVEN** the selected model is Seedance 2.0 standard
 - **WHEN** generation controls are rendered
-- **THEN** durations from 4 through 15 seconds SHALL be available
-- **AND** only the currently priced 480p and 720p resolutions SHALL be available
-- **AND** the aspect ratio SHALL be constrained to 16:9
+- **THEN** durations from 4 through 12 seconds SHALL be available
+- **AND** 480p, 720p, and 1080p resolutions SHALL be available independently from aspect ratio
+- **AND** 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, and adaptive ratios SHALL be available
+- **AND** generate-audio, watermark, seed, and camera-fixed controls SHALL map to their official JSON fields
 
 #### Scenario: Fast and Mini parameter options
 
 - **GIVEN** the selected model is Seedance 2.0 Fast or Seedance 2.0 Mini
 - **WHEN** generation controls are rendered
-- **THEN** durations from 4 through 15 seconds SHALL be available
-- **AND** only 480p and 720p resolutions SHALL be available
-- **AND** the aspect ratio SHALL be constrained to 16:9
+- **THEN** the same official 4-12 second, resolution, ratio, and optional control fields SHALL be available
+
+#### Scenario: Restore a historical combined size
+
+- **GIVEN** a historical Seedance 2.0 task stores `resolution@ratio` in its size field
+- **WHEN** the task is edited or retried
+- **THEN** the system SHALL split the legacy value into the official resolution and ratio fields

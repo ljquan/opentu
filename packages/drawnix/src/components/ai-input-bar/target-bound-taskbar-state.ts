@@ -12,60 +12,62 @@ interface BoundTargetGenerationMetadata {
   generationAnchorId?: string;
 }
 
-export interface BoundTargetPromptReuseInput {
-  key: string;
-  currentPrompt: string;
-  suggestion: string | null;
-  isComposing?: boolean;
-  hasModifier?: boolean;
-  menuOpen?: boolean;
+export type BoundImageTargetMode = 'follow' | 'reference';
+
+export function createBoundImageTargetStateKey(
+  target: {
+    elementId: string;
+    url: string;
+    prompt: string;
+    generationTaskId?: string;
+    generationAnchorId?: string;
+    referenceOnly: boolean;
+  },
+  mode: BoundImageTargetMode
+): string {
+  return JSON.stringify([
+    target.elementId,
+    target.url,
+    target.prompt,
+    target.generationTaskId || '',
+    target.generationAnchorId || '',
+    target.referenceOnly,
+    mode,
+  ]);
 }
 
-export interface TaskbarDraftContent {
-  prompt: string;
-  visibleContentCount: number;
-  knowledgeContextCount: number;
+export function pinBoundTargetReferenceContent<T extends { url?: string }>(
+  content: T[],
+  target: T | null,
+  mode: BoundImageTargetMode
+): T[] {
+  if (mode !== 'reference' || !target?.url) return content;
+  return [target, ...content.filter((item) => item.url !== target.url)];
 }
 
-export function hasUnsubmittedTaskbarContent({
-  prompt,
-  visibleContentCount,
-  knowledgeContextCount,
-}: TaskbarDraftContent): boolean {
-  return (
-    prompt.length > 0 || visibleContentCount > 0 || knowledgeContextCount > 0
-  );
+export function isBoundTargetReferenceOnly(element: unknown): boolean {
+  const record = element as Record<string, unknown> | null;
+  return record?.aiTaskbarReferenceOnly === true;
 }
 
-export function normalizeBoundTargetPromptSuggestion(
-  prompt: string | null | undefined
-): string | null {
-  const normalizedPrompt = prompt?.trim() || '';
-  return normalizedPrompt ? normalizedPrompt : null;
-}
+export function findBoundTargetElement(
+  elements: readonly unknown[],
+  elementId: string
+): Record<string, unknown> | null {
+  const pending = [...elements];
 
-export function resolveBoundTargetPromptSuggestion(
-  prompt: string | null | undefined,
-  elementId: string,
-  dismissedElementId: string | null
-): string | null {
-  if (elementId === dismissedElementId) return null;
-  return normalizeBoundTargetPromptSuggestion(prompt);
-}
+  while (pending.length > 0) {
+    const element = pending.pop();
+    if (!element || typeof element !== 'object') continue;
 
-export function shouldReuseBoundTargetPrompt({
-  key,
-  currentPrompt,
-  suggestion,
-  isComposing = false,
-  hasModifier = false,
-  menuOpen = false,
-}: BoundTargetPromptReuseInput): boolean {
-  if (!suggestion || currentPrompt.length > 0 || isComposing || hasModifier) {
-    return false;
+    const record = element as Record<string, unknown>;
+    if (record.id === elementId) return record;
+    if (Array.isArray(record.children)) {
+      pending.push(...record.children);
+    }
   }
-  if (menuOpen) return false;
-  return key === ' ' || key === 'Spacebar' || key === 'Enter';
+
+  return null;
 }
 
 function getBrowserStorage(): WritableStorage | null {
@@ -132,6 +134,160 @@ export function resolveBoundTargetSuppression(
     };
   }
   return { suppressTarget: false, nextSuppressedElementId: null };
+}
+
+export interface BoundTargetTaskbarDraft<
+  TUploadedContent = unknown,
+  TKnowledgeContext = unknown
+> {
+  prompt: string;
+  uploadedContent: TUploadedContent[];
+  knowledgeContextRefs: TKnowledgeContext[];
+}
+
+export interface BoundTargetTaskbarDraftEntry<TDraft> {
+  draft: TDraft;
+  baseline: TDraft;
+}
+
+function areShallowArraysEqual<T>(left: T[], right: T[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => item === right[index])
+  );
+}
+
+function cloneBoundTargetTaskbarDraft<TDraft extends BoundTargetTaskbarDraft>(
+  draft: TDraft
+): TDraft {
+  return {
+    ...draft,
+    uploadedContent: [...draft.uploadedContent],
+    knowledgeContextRefs: [...draft.knowledgeContextRefs],
+  };
+}
+
+export function areBoundTargetTaskbarDraftsEqual<TUploaded, TKnowledge>(
+  left: BoundTargetTaskbarDraft<TUploaded, TKnowledge>,
+  right: BoundTargetTaskbarDraft<TUploaded, TKnowledge>
+): boolean {
+  return (
+    left.prompt === right.prompt &&
+    areShallowArraysEqual(left.uploadedContent, right.uploadedContent) &&
+    areShallowArraysEqual(left.knowledgeContextRefs, right.knowledgeContextRefs)
+  );
+}
+
+export function storeBoundTargetTaskbarDraft<
+  TDraft extends BoundTargetTaskbarDraft
+>(
+  drafts: Map<string, BoundTargetTaskbarDraftEntry<TDraft>>,
+  elementId: string,
+  draft: TDraft,
+  baseline: TDraft
+): void {
+  if (areBoundTargetTaskbarDraftsEqual(draft, baseline)) {
+    drafts.delete(elementId);
+    return;
+  }
+  drafts.set(elementId, {
+    draft: cloneBoundTargetTaskbarDraft(draft),
+    baseline: cloneBoundTargetTaskbarDraft(baseline),
+  });
+}
+
+export function pruneStaleBoundTargetTaskbarDrafts<TDraft>(
+  drafts: Map<string, TDraft>,
+  existingElementIds: ReadonlySet<string>
+): void {
+  for (const elementId of drafts.keys()) {
+    if (!existingElementIds.has(elementId)) {
+      drafts.delete(elementId);
+    }
+  }
+}
+
+export function collectBoundTargetElementIds(
+  elements: readonly unknown[]
+): Set<string> {
+  const elementIds = new Set<string>();
+  const pending = [...elements];
+
+  while (pending.length > 0) {
+    const element = pending.pop();
+    if (!element || typeof element !== 'object') continue;
+
+    const record = element as { id?: unknown; children?: unknown };
+    if (typeof record.id === 'string' && record.id) {
+      elementIds.add(record.id);
+    }
+    if (Array.isArray(record.children)) {
+      pending.push(...record.children);
+    }
+  }
+
+  return elementIds;
+}
+
+export function resolveBoundTargetTaskbarDraft<
+  TDraft extends BoundTargetTaskbarDraft
+>(
+  drafts: ReadonlyMap<string, BoundTargetTaskbarDraftEntry<TDraft>>,
+  elementId: string,
+  fallback: TDraft
+): BoundTargetTaskbarDraftEntry<TDraft> {
+  const stored = drafts.get(elementId);
+  if (!stored) {
+    return {
+      draft: cloneBoundTargetTaskbarDraft(fallback),
+      baseline: cloneBoundTargetTaskbarDraft(fallback),
+    };
+  }
+  const baseline = {
+    ...stored.baseline,
+    prompt: fallback.prompt,
+  };
+  const draft = {
+    ...stored.draft,
+    prompt:
+      stored.draft.prompt === stored.baseline.prompt
+        ? fallback.prompt
+        : stored.draft.prompt,
+  };
+  return {
+    draft: cloneBoundTargetTaskbarDraft(draft),
+    baseline: cloneBoundTargetTaskbarDraft(baseline),
+  };
+}
+
+export function resolveTaskbarDraftAfterSubmission<
+  TDraft extends BoundTargetTaskbarDraft
+>(
+  currentDraft: TDraft,
+  submittedDraft: TDraft,
+  clearedDraft: TDraft,
+  clearSubmittedInput: boolean
+): BoundTargetTaskbarDraftEntry<TDraft> & { hasNewerInput: boolean } {
+  const hasNewerInput = !areBoundTargetTaskbarDraftsEqual(
+    currentDraft,
+    submittedDraft
+  );
+  return {
+    draft: cloneBoundTargetTaskbarDraft(
+      clearSubmittedInput && !hasNewerInput ? clearedDraft : currentDraft
+    ),
+    baseline: cloneBoundTargetTaskbarDraft(
+      clearSubmittedInput && !hasNewerInput ? clearedDraft : submittedDraft
+    ),
+    hasNewerInput,
+  };
+}
+
+export function shouldUseBoundTargetForSubmission(
+  generationType: string,
+  mode: BoundImageTargetMode = 'follow'
+): boolean {
+  return generationType === 'image' && mode === 'follow';
 }
 
 export function buildBoundTargetGenerationParams(

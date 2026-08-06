@@ -341,6 +341,32 @@ describe('ai-generation-preferences-service', () => {
     });
   });
 
+  it('迁移 Seedance 2.0 的旧组合尺寸偏好', async () => {
+    const { loadScopedAIVideoToolPreferences, saveScopedAIInputModelParams } =
+      await import('../ai-generation-preferences-service');
+
+    saveScopedAIInputModelParams(
+      'video',
+      'doubao-seedance-2-0-260128',
+      {
+        duration: '8',
+        size: '480p@21:9',
+      },
+      'provider-a::doubao-seedance-2-0-260128'
+    );
+
+    expect(
+      loadScopedAIVideoToolPreferences(
+        'doubao-seedance-2-0-260128',
+        'provider-a::doubao-seedance-2-0-260128'
+      )
+    ).toMatchObject({
+      duration: '8',
+      size: '480p',
+      extraParams: expect.objectContaining({ ratio: '21:9' }),
+    });
+  });
+
   it('AI 视频工具保存参数时同步回 AI 输入栏', async () => {
     const {
       loadScopedAIInputModelParams,

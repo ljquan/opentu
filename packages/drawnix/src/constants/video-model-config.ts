@@ -32,30 +32,20 @@ const SEEDANCE_SIZE_OPTIONS: SizeOption[] = SEEDANCE_RESOLUTION_OPTIONS.flatMap(
 );
 
 const SEEDANCE_2_DURATION_OPTIONS: DurationOption[] = Array.from(
-  { length: 12 },
+  { length: 9 },
   (_, index) => {
     const value = String(index + 4);
     return { label: `${value}秒`, value };
   }
 );
 
-const buildSeedance2SizeOptions = (
-  resolutions: readonly string[]
-): SizeOption[] =>
-  resolutions.map((resolution) => ({
-    label: `${resolution === '4k' ? '4K' : resolution} · 横屏 16:9`,
-    value: `${resolution}@16:9`,
-    aspectRatio: '16:9',
-  }));
-
-const SEEDANCE_2_STANDARD_SIZE_OPTIONS = buildSeedance2SizeOptions([
-  '720p',
-  '480p',
-]);
-const SEEDANCE_2_COMPACT_SIZE_OPTIONS = buildSeedance2SizeOptions([
-  '720p',
-  '480p',
-]);
+const SEEDANCE_2_SIZE_OPTIONS: SizeOption[] = ['1080p', '720p', '480p'].map(
+  (resolution) => ({
+    label: resolution,
+    value: resolution,
+    aspectRatio: 'resolution',
+  })
+);
 
 const SEEDANCE_2_REFERENCE_LABELS = Array.from(
   { length: 9 },
@@ -324,11 +314,11 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: 'doubao-seedance-2-0-260128',
     label: 'Seedance 2.0',
     provider: 'seedance',
-    description: '多模态视频生成，支持 4-15 秒与 480p/720p',
+    description: '多模态视频生成，支持 4-12 秒与 480p/720p/1080p',
     durationOptions: SEEDANCE_2_DURATION_OPTIONS,
     defaultDuration: '5',
-    sizeOptions: SEEDANCE_2_STANDARD_SIZE_OPTIONS,
-    defaultSize: '720p@16:9',
+    sizeOptions: SEEDANCE_2_SIZE_OPTIONS,
+    defaultSize: '720p',
     imageUpload: {
       maxCount: 9,
       mode: 'reference',
@@ -339,11 +329,11 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: 'doubao-seedance-2-0-fast-260128',
     label: 'Seedance 2.0 Fast',
     provider: 'seedance',
-    description: '高速多模态视频生成，支持 4-15 秒与 480p/720p',
+    description: '高速多模态视频生成，支持 4-12 秒与 480p/720p/1080p',
     durationOptions: SEEDANCE_2_DURATION_OPTIONS,
     defaultDuration: '5',
-    sizeOptions: SEEDANCE_2_COMPACT_SIZE_OPTIONS,
-    defaultSize: '720p@16:9',
+    sizeOptions: SEEDANCE_2_SIZE_OPTIONS,
+    defaultSize: '720p',
     imageUpload: {
       maxCount: 9,
       mode: 'reference',
@@ -354,11 +344,11 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: 'doubao-seedance-2-0-mini-260615',
     label: 'Seedance 2.0 Mini',
     provider: 'seedance',
-    description: '轻量多模态视频生成，支持 4-15 秒与 480p/720p',
+    description: '轻量多模态视频生成，支持 4-12 秒与 480p/720p/1080p',
     durationOptions: SEEDANCE_2_DURATION_OPTIONS,
     defaultDuration: '5',
-    sizeOptions: SEEDANCE_2_COMPACT_SIZE_OPTIONS,
-    defaultSize: '720p@16:9',
+    sizeOptions: SEEDANCE_2_SIZE_OPTIONS,
+    defaultSize: '720p',
     imageUpload: {
       maxCount: 4,
       mode: 'reference',

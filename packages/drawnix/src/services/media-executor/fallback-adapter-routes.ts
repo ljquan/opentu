@@ -204,6 +204,9 @@ export async function executeImageViaAdapter(
     const fmt = result.format || 'png';
     const allUrls = result.urls?.length ? result.urls : [result.url];
     const cachedUrls = await cacheRemoteUrls(allUrls, taskId, 'image', fmt, {
+      forceRemoteCache: true,
+      returnLocalCacheUrl: true,
+      cacheKey: submissionRequestId,
       extraMetadata: params.assetMetadata
         ? { ...params.assetMetadata }
         : undefined,

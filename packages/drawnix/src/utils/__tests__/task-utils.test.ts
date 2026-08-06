@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  TaskStatus,
-  TaskType,
-  type Task,
-} from '../../types/task.types';
+import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import {
   formatImageTaskResultSize,
   isResumableAsyncImageTask,
+  resolveImageTaskInsertionDimensions,
 } from '../task-utils';
 
 function createImageTask(overrides: Partial<Task> = {}): Task {
@@ -105,6 +102,65 @@ describe('task-utils', () => {
       });
 
       expect(formatImageTaskResultSize(task)).toBeNull();
+    });
+  });
+
+  describe('resolveImageTaskInsertionDimensions', () => {
+    it('优先按结果真实尺寸比例计算画布展示尺寸', () => {
+      const task = createImageTask({
+        params: { prompt: 'draw a cat', size: '1x1' },
+        result: {
+          url: 'https://example.com/cat.png',
+          format: 'png',
+          size: 0,
+          width: 1024,
+          height: 1536,
+        },
+      });
+
+      expect(resolveImageTaskInsertionDimensions(task)).toEqual({
+        width: 400,
+        height: 600,
+      });
+    });
+
+    it('结果无尺寸时回退到请求比例', () => {
+      const task = createImageTask({
+        params: { prompt: 'draw a cat', size: '16x9' },
+      });
+
+      expect(resolveImageTaskInsertionDimensions(task)).toEqual({
+        width: 400,
+        height: 225,
+      });
+    });
+
+    it('限制极端比例的最终尺寸', () => {
+      const task = createImageTask({
+        result: {
+          url: 'https://example.com/extreme.png',
+          format: 'png',
+          size: 0,
+          width: 1,
+          height: 1_000_000,
+        },
+      });
+
+      expect(resolveImageTaskInsertionDimensions(task)).toEqual({
+        width: 1,
+        height: 600,
+      });
+    });
+
+    it('忽略非有限的请求比例', () => {
+      const task = createImageTask({
+        params: { prompt: 'draw a cat', size: `${'9'.repeat(400)}x1` },
+      });
+
+      expect(resolveImageTaskInsertionDimensions(task)).toEqual({
+        width: 400,
+        height: 400,
+      });
     });
   });
 
