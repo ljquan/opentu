@@ -3256,8 +3256,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setSelectedContent([]);
         selectedFrameRef.current = null;
         suppressSelectionContentUrlsRef.current = new Set();
-        setIsFocused(true);
-        requestAnimationFrame(() => inputRef.current?.focus());
       },
       [
         applyTaskbarDraft,

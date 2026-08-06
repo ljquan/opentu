@@ -1,11 +1,90 @@
 /**
  * @tags feature
  * 功能测试 - 基于实际页面元素和状态
- * 仅 3 次页面加载，覆盖所有核心功能
+ * 仅 4 次页面加载，覆盖所有核心功能
  */
 import { test, expect } from '../fixtures/test-base';
 
+type DrawnixTestBoard = {
+  children: Array<{ id?: string }>;
+  apply: (operation: unknown) => void;
+};
+
+type DrawnixTestWindow = Window & {
+  __drawnixBoard: DrawnixTestBoard;
+};
+
 test.describe('@feature 功能测试', () => {
+  test('选中图片：Delete 和 Backspace 保持画布删除能力', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.board-host-svg')).toBeVisible();
+    await page.waitForFunction(() =>
+      Boolean((window as unknown as DrawnixTestWindow).__drawnixBoard)
+    );
+    await expect(
+      page.locator('[data-testid="inspiration-board"]')
+    ).toBeVisible();
+
+    const insertImage = async (id: string, prompt: string) => {
+      await page.evaluate(
+        ({ id, prompt }) => {
+          const board = (window as unknown as DrawnixTestWindow).__drawnixBoard;
+          board.apply({
+            type: 'insert_node',
+            path: [board.children.length],
+            node: {
+              id,
+              type: 'image',
+              url: '/logo-tuzi.png',
+              points: [
+                [300, 200],
+                [500, 400],
+              ],
+              angle: 0,
+              generationPrompt: prompt,
+            },
+          });
+        },
+        { id, prompt }
+      );
+    };
+    const hasImage = (id: string) =>
+      page.evaluate((imageId) => {
+        const board = (window as unknown as DrawnixTestWindow).__drawnixBoard;
+        return board.children.some((element) => element.id === imageId);
+      }, id);
+    const selectImage = async (id: string, prompt: string) => {
+      await page
+        .locator(`.foreign-object-image:has(img[src="/logo-tuzi.png"])`)
+        .last()
+        .click();
+      await expect(page.locator('.ai-input-bar--bound-image')).toBeVisible();
+      const input = page.locator('[data-testid="ai-input-textarea"]');
+      await expect(input).toHaveValue(prompt);
+      await expect(input).not.toBeFocused();
+      expect(await hasImage(id)).toBe(true);
+    };
+
+    await insertImage('typing-delete-image', 'abc');
+    await selectImage('typing-delete-image', 'abc');
+    const input = page.locator('[data-testid="ai-input-textarea"]');
+    await input.focus();
+    await input.press('End');
+    await input.press('Backspace');
+    await expect(input).toHaveValue('ab');
+    expect(await hasImage('typing-delete-image')).toBe(true);
+
+    await page.locator('.foreign-object-image .image-origin').last().click();
+    await expect(input).not.toBeFocused();
+    await page.keyboard.press('Delete');
+    await expect.poll(() => hasImage('typing-delete-image')).toBe(false);
+
+    await insertImage('backspace-key-image', 'Backspace 提示词');
+    await selectImage('backspace-key-image', 'Backspace 提示词');
+    await page.keyboard.press('Backspace');
+    await expect.poll(() => hasImage('backspace-key-image')).toBe(false);
+  });
+
   /**
    * 测试1：主画布交互功能
    * AI输入栏、模型选择、灵感板、绘图工具
