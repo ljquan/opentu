@@ -193,7 +193,7 @@ class BackupImportService {
         if (importMode === 'replace') {
           await taskStorageWriter.clearAllTasks();
         }
-        result.tasks = await this.importTasks(zip, importMode);
+        result.tasks = await this.importTasks(zip, importMode, result.errors);
         result.domains!.tasks = result.tasks;
       }
 
@@ -668,7 +668,8 @@ class BackupImportService {
 
   private async importTasks(
     zip: JSZip,
-    mode: 'merge' | 'replace'
+    mode: 'merge' | 'replace',
+    errors: string[]
   ): Promise<{ imported: number; skipped: number }> {
     let imported = 0;
     let skipped = 0;
@@ -689,8 +690,12 @@ class BackupImportService {
           tasks as unknown as SWTask[],
           { replaceExisting: true }
         );
-        taskQueueService.restoreTasks(tasks);
-        return writeResult;
+        imported = writeResult.imported;
+        skipped += writeResult.skipped;
+        await taskQueueService.restoreTasks(tasks, {
+          allowDeletedTaskRestore: true,
+        });
+        return { imported, skipped };
       }
 
       const writeResult = await taskStorageWriter.importTasks(
@@ -698,11 +703,14 @@ class BackupImportService {
       );
       imported = writeResult.imported;
       skipped += writeResult.skipped;
-      if (imported > 0) {
-        taskQueueService.restoreTasks(tasks);
-      }
+      await taskQueueService.restoreTasks(tasks, {
+        allowDeletedTaskRestore: true,
+        deletedTasksOnly: imported === 0,
+      });
     } catch (error) {
       console.warn('[BackupRestore] Failed to import tasks:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`任务数据导入失败：${message}`);
     }
 
     return { imported, skipped };

@@ -5,6 +5,7 @@ import {
   customHttpVideoAdapter,
 } from '../model-adapters/custom-http-adapter';
 import type { AdapterContext } from '../model-adapters/types';
+import { IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE } from '../provider-routing';
 
 function buildContext(fetcher: typeof fetch): AdapterContext {
   return {
@@ -269,6 +270,181 @@ describe('custom-http-adapter', () => {
         }),
       })
     );
+  });
+
+  it('propagates an interrupted trusted synchronous image response', async () => {
+    let emittedPartialBody = false;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!emittedPartialBody) {
+              emittedPartialBody = true;
+              controller.enqueue(new TextEncoder().encode('{"data":['));
+              return;
+            }
+            controller.error(new Error('response stream disconnected'));
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    const context = buildContext(fetcher);
+    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.requestId = 'custom-http-interrupted-response';
+    context.provider = {
+      ...context.provider!,
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    context.binding = {
+      ...context.binding!,
+      submitPath: '/images/generations',
+    };
+
+    await expect(
+      customHttpImageAdapter.generateImage(context, {
+        model: 'custom-image',
+        prompt: 'draw cat',
+      })
+    ).rejects.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the implicit POST method for recoverable custom image submissions', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error('Failed to fetch'));
+    const context = buildContext(fetcher);
+    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.requestId = 'custom-http-implicit-post';
+    context.provider = {
+      ...context.provider!,
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    context.binding = {
+      ...context.binding!,
+      submitPath: '/images/generations',
+      metadata: {
+        manualHttp: {
+          bodyTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+        },
+      },
+    };
+
+    await expect(
+      customHttpImageAdapter.generateImage(context, {
+        model: 'custom-image',
+        prompt: 'draw cat',
+      })
+    ).rejects.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://bus.tu-zi.com/v1/images/generations',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('propagates a cleanly closed truncated synchronous image response', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('{"data":[', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const context = buildContext(fetcher);
+    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.requestId = 'custom-http-truncated-response';
+    context.provider = {
+      ...context.provider!,
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    context.binding = {
+      ...context.binding!,
+      submitPath: '/images/generations',
+    };
+
+    const thrown = await customHttpImageAdapter
+      .generateImage(context, {
+        model: 'custom-image',
+        prompt: 'draw cat',
+      })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toMatchObject({
+      message: '自定义接口未按配置返回图片 URL',
+    });
+    expect(thrown).not.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves a complete non-JSON response as a protocol error', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('[plain text', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      })
+    );
+    const context = buildContext(fetcher);
+    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.requestId = 'custom-http-complete-non-json';
+    context.provider = {
+      ...context.provider!,
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    context.binding = {
+      ...context.binding!,
+      submitPath: '/images/generations',
+    };
+
+    const thrown = await customHttpImageAdapter
+      .generateImage(context, {
+        model: 'custom-image',
+        prompt: 'draw cat',
+      })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toMatchObject({
+      message: '自定义接口未按配置返回图片 URL',
+    });
+    expect(thrown).not.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps custom async image submissions out of synchronous recovery', async () => {
+    const networkError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
+    const context = buildContext(fetcher);
+    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.requestId = 'custom-http-async-response';
+    context.provider = {
+      ...context.provider!,
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    context.binding = {
+      ...context.binding!,
+      submitPath: '/images/generations',
+      pollPathTemplate: '/custom/tasks/{taskId}',
+    };
+
+    await expect(
+      customHttpImageAdapter.generateImage(context, {
+        model: 'custom-image',
+        prompt: 'draw cat',
+      })
+    ).rejects.toBe(networkError);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes direct video result URLs from configured paths', async () => {

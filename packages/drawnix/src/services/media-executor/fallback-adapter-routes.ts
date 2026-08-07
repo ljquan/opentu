@@ -32,6 +32,7 @@ import {
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
+import { isImageSubmissionOutcomeUnknownError } from '../provider-routing';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageInputFidelity = 'high' | 'low';
@@ -42,12 +43,22 @@ const supportsRemoteImageReferences = (requestSchema?: string): boolean =>
   requestSchema === 'tuzi.image.gpt-generation-json' ||
   requestSchema === 'tuzi.image.gpt-edit-json';
 
+function isCurrentExecutionAttempt(options?: ExecutionOptions): boolean {
+  return !options?.signal?.aborted && options?.isCurrentAttempt?.() !== false;
+}
+
 function assertCurrentExecutionAttempt(options?: ExecutionOptions): void {
-  if (options?.isCurrentAttempt?.() === false) {
-    const error = new Error('图片提交已被取消或替代');
+  if (!isCurrentExecutionAttempt(options)) {
+    const error = new Error('任务执行已被取消或替代');
     error.name = 'AbortError';
     throw error;
   }
+}
+
+function createStorageWriteGuard(options?: ExecutionOptions): {
+  shouldUpdate: () => boolean;
+} {
+  return { shouldUpdate: () => isCurrentExecutionAttempt(options) };
 }
 
 function getStringParam(
@@ -129,6 +140,11 @@ export async function executeImageViaAdapter(
     params.modelRef || params.model,
     { preferredRequestSchema }
   );
+  const invocationRoute = createTaskInvocationRouteSnapshot(
+    'image',
+    params.modelRef || params.model,
+    { bindingId: adapterContext.binding?.id }
+  );
 
   const logId = startLLMApiLog({
     endpoint: `adapter:${adapter.id}`,
@@ -170,7 +186,7 @@ export async function executeImageViaAdapter(
         ...adapterContext,
         requestId: submissionRequestId,
         onSubmissionAttempt: async () => {
-          await options?.onSubmissionAttempt?.();
+          await options?.onSubmissionAttempt?.(invocationRoute);
         },
         signal: options?.signal,
       },
@@ -236,7 +252,8 @@ export async function executeImageViaAdapter(
         width: result.width,
         height: result.height,
       },
-      submissionRequestId
+      submissionRequestId,
+      createStorageWriteGuard(options)
     );
     if (completed === false) {
       const staleAttemptError = new Error('图片提交已被取消或替代');
@@ -262,13 +279,17 @@ export async function executeImageViaAdapter(
     }
 
     failLLMApiLog(logId, { duration, errorMessage });
+    if (isImageSubmissionOutcomeUnknownError(error)) {
+      throw error;
+    }
     await taskStorageWriter.failTask(
       taskId,
       {
         code: 'IMAGE_GENERATION_ERROR',
         message: errorMessage,
       },
-      submissionRequestId
+      submissionRequestId,
+      createStorageWriteGuard(options)
     );
     throw error;
   }
@@ -298,6 +319,7 @@ export async function executeVideoViaAdapter(
   startTime?: number
 ): Promise<void> {
   const logStartTime = startTime || Date.now();
+  let remoteIdWrite: Promise<unknown> | undefined;
 
   const refUrls =
     (params.referenceImages && params.referenceImages.length > 0
@@ -331,6 +353,7 @@ export async function executeVideoViaAdapter(
         })
       );
     }
+    assertCurrentExecutionAttempt(options);
 
     options?.onProgress?.({ progress: 10, phase: 'submitting' });
 
@@ -350,6 +373,12 @@ export async function executeVideoViaAdapter(
         params: {
           ...params.params,
           onProgress: (progress: number) => {
+            if (
+              options?.signal?.aborted ||
+              options?.isCurrentAttempt?.() === false
+            ) {
+              return;
+            }
             const safeProgress = Math.min(100, Math.max(10, progress));
             options?.onProgress?.({
               progress: safeProgress,
@@ -357,18 +386,29 @@ export async function executeVideoViaAdapter(
             });
           },
           onSubmitted: (videoId: string) => {
-            void taskStorageWriter.updateRemoteId(
+            if (
+              options?.signal?.aborted ||
+              options?.isCurrentAttempt?.() === false
+            ) {
+              return;
+            }
+            remoteIdWrite = taskStorageWriter.updateRemoteId(
               taskId,
               videoId,
               createTaskInvocationRouteSnapshot(
                 'video',
                 params.modelRef || params.model
-              )
+              ),
+              undefined,
+              createStorageWriteGuard(options)
             );
           },
         },
       }
     );
+    assertCurrentExecutionAttempt(options);
+    await remoteIdWrite;
+    assertCurrentExecutionAttempt(options);
 
     const duration = Date.now() - logStartTime;
 
@@ -388,18 +428,31 @@ export async function executeVideoViaAdapter(
       result.url,
       taskId,
       'video',
-      videoFmt
+      videoFmt,
+      undefined,
+      { signal: options?.signal }
     );
+    assertCurrentExecutionAttempt(options);
 
-    await taskStorageWriter.completeTask(taskId, {
-      url: cachedVideoUrl,
-      format: videoFmt,
-      size: 0,
-      duration: result.duration,
-    });
+    await taskStorageWriter.completeTask(
+      taskId,
+      {
+        url: cachedVideoUrl,
+        format: videoFmt,
+        size: 0,
+        duration: result.duration,
+      },
+      undefined,
+      createStorageWriteGuard(options)
+    );
   } catch (error: any) {
     const duration = Date.now() - logStartTime;
     const errorMessage = error.message || 'Video generation failed (adapter)';
+
+    if (options?.signal?.aborted || options?.isCurrentAttempt?.() === false) {
+      failLLMApiLog(logId, { duration, errorMessage });
+      throw error;
+    }
 
     const credentialErrorKind = classifyApiCredentialError(error);
     if (credentialErrorKind) {
@@ -411,10 +464,15 @@ export async function executeVideoViaAdapter(
     }
 
     failLLMApiLog(logId, { duration, errorMessage });
-    await taskStorageWriter.failTask(taskId, {
-      code: error.code || 'VIDEO_GENERATION_ERROR',
-      message: errorMessage,
-    });
+    await taskStorageWriter.failTask(
+      taskId,
+      {
+        code: error.code || 'VIDEO_GENERATION_ERROR',
+        message: errorMessage,
+      },
+      undefined,
+      createStorageWriteGuard(options)
+    );
     throw error;
   }
 }

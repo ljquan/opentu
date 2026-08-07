@@ -8,6 +8,10 @@ import {
 } from './gpt-image-adapter';
 import { TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA } from './image-request-schemas';
 import { sendAdapterRequest } from './context';
+import {
+  readProviderResponseJson,
+  readProviderResponseText,
+} from '../provider-routing';
 import { registerModelAdapter } from './registry';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 
@@ -114,7 +118,7 @@ export function buildTuziGPTImageRequestBody(
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  const rawText = await response.text().catch(() => '');
+  const rawText = await readProviderResponseText(response).catch(() => '');
   const data = rawText
     ? (() => {
         try {
@@ -191,7 +195,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
       throw new Error(await readErrorMessage(response));
     }
 
-    const result = await response.json();
+    const result = await readProviderResponseJson(response);
     const responseFormat = getResponseFormat(request);
 
     return resolveGeneratedImageDimensions(

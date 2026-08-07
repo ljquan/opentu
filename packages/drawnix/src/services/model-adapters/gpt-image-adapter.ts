@@ -9,6 +9,7 @@ import {
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
 import { sendAdapterRequest } from './context';
+import { readProviderResponseJson } from '../provider-routing';
 import { registerModelAdapter } from './registry';
 import type {
   ImageGenerationRequest,
@@ -493,7 +494,9 @@ export async function resolveGeneratedImageDimensions(
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  const data = await response.json().catch(() => null);
+  const data = await readProviderResponseJson<Record<string, any>>(
+    response
+  ).catch(() => null);
   if (typeof data?.error === 'string') {
     return data.error;
   }
@@ -557,7 +560,7 @@ export const gptImageAdapter: ImageModelAdapter = {
       throw new Error(await readErrorMessage(response));
     }
 
-    const result = await response.json();
+    const result = await readProviderResponseJson(response);
     return resolveGeneratedImageDimensions(
       parseGPTImageResponse(result, outputFormat),
       context.signal

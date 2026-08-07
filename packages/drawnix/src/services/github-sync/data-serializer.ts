@@ -1136,7 +1136,9 @@ class DataSerializer {
         
         logDebug('DataSerializer: Calling restoreTasks with tasks', { count: processedTasks.length });
         try {
-          taskQueueService.restoreTasks(processedTasks);
+          await taskQueueService.restoreTasks(processedTasks, {
+            allowDeletedTaskRestore: true,
+          });
           tasksApplied = processedTasks.length;
           logDebug('DataSerializer: Tasks restored:', { count: tasksApplied });
         } catch (err) {

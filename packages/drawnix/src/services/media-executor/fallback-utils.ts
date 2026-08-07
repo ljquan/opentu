@@ -88,17 +88,24 @@ export async function pollVideoStatus(
   videoId: string,
   config: VideoAPIConfig,
   onProgress: (progress: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  isCurrentAttempt: () => boolean = () => true
 ): Promise<{ url: string }> {
   const maxAttempts = 120; // 最多轮询 10 分钟
   const interval = 5000; // 5 秒轮询间隔
   const maxConsecutiveErrors = 3; // 连续 HTTP 错误超过此数才放弃
   let consecutiveErrors = 0;
+  const assertPollingActive = () => {
+    signal?.throwIfAborted();
+    if (!isCurrentAttempt()) {
+      const error = new Error('视频轮询已被取消或替代');
+      error.name = 'AbortError';
+      throw error;
+    }
+  };
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (signal?.aborted) {
-      throw new Error('Video generation cancelled');
-    }
+    assertPollingActive();
     let data: any;
     try {
       const statusPath = resolveVideoPollPath(
@@ -123,6 +130,7 @@ export async function pollVideoStatus(
           signal,
         }
       );
+      assertPollingActive();
 
       if (!response.ok) {
         consecutiveErrors++;
@@ -135,10 +143,12 @@ export async function pollVideoStatus(
           );
         }
         await new Promise((resolve) => setTimeout(resolve, interval));
+        assertPollingActive();
         continue;
       }
 
       data = await response.json();
+      assertPollingActive();
     } catch (error: any) {
       // 网络错误（fetch 本身失败）也计入连续错误
       if (error?.name === 'AbortError') throw error;
@@ -150,6 +160,7 @@ export async function pollVideoStatus(
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, interval));
+      assertPollingActive();
       continue;
     }
 
@@ -185,6 +196,7 @@ export async function pollVideoStatus(
               cacheKey: videoId,
             })
           : undefined);
+      assertPollingActive();
       if (!url) {
         throw new Error('No video URL in completed response');
       }
@@ -208,6 +220,7 @@ export async function pollVideoStatus(
 
     // 等待下一次轮询
     await new Promise((resolve) => setTimeout(resolve, interval));
+    assertPollingActive();
   }
 
   throw new Error('Video generation timeout');
@@ -292,8 +305,10 @@ export async function cacheRemoteUrl(
     returnLocalCacheUrl?: boolean;
     cacheKey?: string;
     extraMetadata?: Record<string, unknown>;
+    signal?: AbortSignal;
   }
 ): Promise<string> {
+  options?.signal?.throwIfAborted();
   const normalizedUrl =
     mediaType === 'image' ? normalizeImageDataUrl(remoteUrl) : remoteUrl;
 
@@ -321,6 +336,7 @@ export async function cacheRemoteUrl(
       if (await unifiedCacheService.isCached(cacheTargetUrl)) {
         return cacheTargetUrl;
       }
+      options?.signal?.throwIfAborted();
 
       if (
         options?.returnLocalCacheUrl &&
@@ -329,6 +345,7 @@ export async function cacheRemoteUrl(
         const cachedBlob = await unifiedCacheService.getCachedBlob(
           normalizedUrl
         );
+        options?.signal?.throwIfAborted();
         if (cachedBlob && cachedBlob.size > 0) {
           const migratedUrl = await unifiedCacheService.cacheMediaFromBlob(
             cacheTargetUrl,
@@ -340,6 +357,7 @@ export async function cacheRemoteUrl(
               ...options?.extraMetadata,
             }
           );
+          options?.signal?.throwIfAborted();
           if (migratedUrl) {
             return migratedUrl;
           }
@@ -350,12 +368,15 @@ export async function cacheRemoteUrl(
         credentials: 'omit',
         cache: 'no-store',
         referrerPolicy: 'no-referrer',
+        ...(options?.signal ? { signal: options.signal } : {}),
       });
+      options?.signal?.throwIfAborted();
       if (!response.ok) {
         return normalizedUrl;
       }
 
       const blob = await response.blob();
+      options?.signal?.throwIfAborted();
       if (blob.size === 0) {
         return normalizedUrl;
       }
@@ -370,10 +391,12 @@ export async function cacheRemoteUrl(
           ...options?.extraMetadata,
         }
       );
+      options?.signal?.throwIfAborted();
       return options?.returnLocalCacheUrl && cacheUrl
         ? cacheUrl
         : normalizedUrl;
     } catch (error) {
+      options?.signal?.throwIfAborted();
       console.warn(
         '[cacheRemoteUrl] Remote media cache failed, using original URL:',
         error
@@ -393,8 +416,12 @@ export async function cacheRemoteUrl(
   try {
     // data URL / 原始 base64：直接转 Blob 再缓存，避免把大串 base64 存进任务结果
     if (isDataURL(normalizedUrl)) {
-      const response = await fetch(normalizedUrl);
+      const response = options?.signal
+        ? await fetch(normalizedUrl, { signal: options.signal })
+        : await fetch(normalizedUrl);
+      options?.signal?.throwIfAborted();
       const blob = await response.blob();
+      options?.signal?.throwIfAborted();
       if (blob.size === 0) {
         console.warn(
           '[cacheRemoteUrl] Empty data URL blob, using original URL'
@@ -402,6 +429,7 @@ export async function cacheRemoteUrl(
         return normalizedUrl;
       }
       const contentHash = await calculateBlobChecksum(blob);
+      options?.signal?.throwIfAborted();
       const hashedFormat = getFileExtension('', blob.type);
       const contentAddressedUrl =
         mediaType === 'audio'
@@ -426,6 +454,7 @@ export async function cacheRemoteUrl(
           ...options?.extraMetadata,
         }
       );
+      options?.signal?.throwIfAborted();
       return (await unifiedCacheService.isCached(contentAddressedUrl))
         ? contentAddressedUrl
         : normalizedUrl;
@@ -433,6 +462,7 @@ export async function cacheRemoteUrl(
 
     return normalizedUrl;
   } catch (error) {
+    options?.signal?.throwIfAborted();
     console.warn('[cacheRemoteUrl] Cache failed, using original URL:', error);
     return normalizedUrl;
   }

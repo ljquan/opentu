@@ -4,18 +4,26 @@ import type {
   ManualHttpTemplateMetadata,
   ModelRef,
 } from '../../utils/settings-types';
-import type { GeminiMessage, GeminiResponse } from '../../utils/gemini-api/types';
+import type {
+  GeminiMessage,
+  GeminiResponse,
+} from '../../utils/gemini-api/types';
 import type { ImageGenerationResult } from '../model-adapters/types';
 import {
   base64ToBlob,
   getFileExtension,
   normalizeImageDataUrl,
 } from '@aitu/utils';
+import { isPublicHttpMediaUrl } from '../../utils/virtual-media-url';
 
 const MAX_PATH_DEPTH = 16;
 const MAX_PATH_RESULTS = 64;
 const MAX_FORM_FIELDS = 64;
 const MAX_FORM_FILE_ITEMS = 16;
+const MAX_FORM_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_FORM_TOTAL_FILE_BYTES = 64 * 1024 * 1024;
+const MAX_FORM_TOTAL_TEXT_BYTES = 1 * 1024 * 1024;
+const INITIAL_FORM_FILE_BUFFER_BYTES = 64 * 1024;
 const TEMPLATE_EXPR_RE = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
 const TEMPLATE_TOKEN_RE = /\{\{\s*([^}]+?)\s*\}\}/g;
 
@@ -56,7 +64,10 @@ function tokenizePath(path: string): string[] {
     .slice(0, MAX_PATH_DEPTH);
 }
 
-function resolveVariable(name: string, variables: ManualHttpVariables): unknown {
+function resolveVariable(
+  name: string,
+  variables: ManualHttpVariables
+): unknown {
   const normalized = name.trim();
   if (!normalized) return undefined;
   if (Object.prototype.hasOwnProperty.call(variables, normalized)) {
@@ -170,6 +181,25 @@ export function buildManualHttpRequestBody(
   return renderTemplate(parseBodyTemplate(bodyTemplate), variables);
 }
 
+export function resolveManualHttpRequestMethod(
+  template: ManualHttpTemplateMetadata,
+  methodOverride?: string
+): string {
+  const configuredMethod = methodOverride || template.method;
+  if (configuredMethod) {
+    return configuredMethod;
+  }
+
+  const bodyType = template.bodyType || 'json';
+  if (bodyType === 'none') {
+    return 'GET';
+  }
+  if (bodyType === 'form-data') {
+    return 'POST';
+  }
+  return template.bodyTemplate?.trim() ? 'POST' : 'GET';
+}
+
 function getBlobExtension(blob: Blob, source: string): string {
   const sourceExtension = getFileExtension(source, blob.type);
   if (sourceExtension && sourceExtension !== 'bin') {
@@ -180,27 +210,245 @@ function getBlobExtension(blob: Blob, source: string): string {
   return mimeExtension === 'bin' ? 'png' : mimeExtension;
 }
 
+function createFileReadAbortError(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) {
+    return signal.reason;
+  }
+
+  return Object.assign(new Error('自定义接口文件读取已取消'), {
+    name: 'AbortError',
+  });
+}
+
+function throwIfFileReadAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createFileReadAbortError(signal);
+  }
+}
+
+function createFileTooLargeError(maxBytes = MAX_FORM_FILE_BYTES): Error {
+  return new Error(
+    maxBytes < MAX_FORM_FILE_BYTES
+      ? '自定义接口表单文件总大小超过 64 MiB'
+      : '自定义接口文件超过 20 MiB'
+  );
+}
+
+function discardFileResponse(response: Response, reason: unknown): void {
+  if (!response.body || response.bodyUsed) {
+    return;
+  }
+
+  try {
+    void response.body.cancel(reason).catch(() => undefined);
+  } catch {
+    // Cleanup must not replace the validation error.
+  }
+}
+
+function parseDeclaredFileSize(response: Response): number | undefined {
+  const value = response.headers.get('content-length')?.trim();
+  if (!value || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function dataUrlToLimitedImageBlob(
+  value: string,
+  maxBytes = MAX_FORM_FILE_BYTES
+): Blob {
+  const separatorIndex = value.indexOf(',');
+  const metadata = separatorIndex >= 0 ? value.slice(5, separatorIndex) : '';
+  const metadataParts = metadata.split(';').map((part) => part.trim());
+  const mimeType = metadataParts[0]?.toLowerCase() || '';
+  const encodedLength = value.length - separatorIndex - 1;
+  const maxEncodedLength = Math.ceil((maxBytes / 3) * 4) + 2;
+
+  if (
+    separatorIndex < 0 ||
+    !mimeType.startsWith('image/') ||
+    !metadataParts.some((part) => part.toLowerCase() === 'base64')
+  ) {
+    throw new Error('自定义接口文件不是有效的图片数据');
+  }
+  if (encodedLength > maxEncodedLength) {
+    throw createFileTooLargeError(maxBytes);
+  }
+
+  const blob = base64ToBlob(value);
+  if (!blob.type.toLowerCase().startsWith('image/')) {
+    throw new Error('自定义接口文件不是图片');
+  }
+  if (blob.size === 0) {
+    throw new Error('自定义接口图片文件为空');
+  }
+  if (blob.size > maxBytes) {
+    throw createFileTooLargeError(maxBytes);
+  }
+  return blob;
+}
+
+function assertTrustedBlobUrl(value: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('自定义接口文件地址无效');
+  }
+
+  const currentOrigin = globalThis.location?.origin;
+  if (!currentOrigin || parsed.origin !== currentOrigin) {
+    throw new Error('自定义接口文件地址不安全');
+  }
+}
+
+function assertAllowedImageUrl(value: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value, globalThis.location?.href);
+  } catch {
+    throw new Error('自定义接口文件地址无效');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('自定义接口文件地址不安全');
+  }
+
+  const currentOrigin = globalThis.location?.origin;
+  if (
+    (!currentOrigin || parsed.origin !== currentOrigin) &&
+    !isPublicHttpMediaUrl(parsed.href)
+  ) {
+    throw new Error('自定义接口文件地址不安全');
+  }
+}
+
+async function readLimitedImageBlob(
+  response: Response,
+  signal?: AbortSignal,
+  maxBytes = MAX_FORM_FILE_BYTES
+): Promise<Blob> {
+  throwIfFileReadAborted(signal);
+
+  if (response.redirected) {
+    const error = new Error('自定义接口文件不允许重定向');
+    discardFileResponse(response, error);
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(`自定义接口文件读取失败: ${response.status}`);
+    discardFileResponse(response, error);
+    throw error;
+  }
+
+  const contentType =
+    response.headers
+      .get('content-type')
+      ?.split(';', 1)[0]
+      ?.trim()
+      .toLowerCase() || '';
+  if (!contentType.startsWith('image/')) {
+    const error = new Error('自定义接口文件不是图片');
+    discardFileResponse(response, error);
+    throw error;
+  }
+
+  const declaredSize = parseDeclaredFileSize(response);
+  if (declaredSize !== undefined && declaredSize > maxBytes) {
+    const error = createFileTooLargeError(maxBytes);
+    discardFileResponse(response, error);
+    throw error;
+  }
+
+  if (!response.body) {
+    throw new Error('自定义接口图片文件为空');
+  }
+
+  const reader = response.body.getReader();
+  const abort = () => {
+    void reader
+      .cancel(createFileReadAbortError(signal!))
+      .catch(() => undefined);
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+
+  let totalBytes = 0;
+  let bytes = new Uint8Array(
+    Math.max(1, Math.min(INITIAL_FORM_FILE_BUFFER_BYTES, maxBytes))
+  );
+
+  try {
+    for (;;) {
+      throwIfFileReadAborted(signal);
+      const { done, value } = await reader.read();
+      throwIfFileReadAborted(signal);
+      if (done) break;
+
+      const nextTotalBytes = totalBytes + value.byteLength;
+      if (nextTotalBytes > maxBytes) {
+        const error = createFileTooLargeError(maxBytes);
+        void reader.cancel(error).catch(() => undefined);
+        throw error;
+      }
+
+      if (nextTotalBytes > bytes.byteLength) {
+        let nextCapacity = bytes.byteLength;
+        while (nextCapacity < nextTotalBytes) {
+          nextCapacity = Math.min(maxBytes, nextCapacity * 2);
+        }
+        const nextBytes = new Uint8Array(nextCapacity);
+        nextBytes.set(bytes.subarray(0, totalBytes));
+        bytes = nextBytes;
+      }
+      bytes.set(value, totalBytes);
+      totalBytes = nextTotalBytes;
+    }
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    reader.releaseLock();
+  }
+
+  if (totalBytes === 0) {
+    throw new Error('自定义接口图片文件为空');
+  }
+
+  return new Blob([bytes.subarray(0, totalBytes)], { type: contentType });
+}
+
 async function valueToBlob(
   value: string,
   filenamePrefix: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+  maxBytes = MAX_FORM_FILE_BYTES
 ): Promise<{ blob: Blob; filename: string }> {
   const normalized = normalizeImageDataUrl(value, 'image/png');
+  throwIfFileReadAborted(signal);
 
   if (normalized.startsWith('data:')) {
-    const blob = base64ToBlob(normalized);
+    const blob = dataUrlToLimitedImageBlob(normalized, maxBytes);
     return {
       blob,
       filename: `${filenamePrefix}.${getBlobExtension(blob, normalized)}`,
     };
   }
 
-  const response = await fetcher(normalized);
-  if (!response.ok) {
-    throw new Error(`自定义接口文件读取失败: ${response.status}`);
+  if (normalized.startsWith('blob:')) {
+    assertTrustedBlobUrl(normalized);
+  } else {
+    assertAllowedImageUrl(normalized);
   }
 
-  const blob = await response.blob();
+  const response = await fetcher(normalized, {
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+    redirect: 'error',
+    signal,
+  });
+  const blob = await readLimitedImageBlob(response, signal, maxBytes);
   return {
     blob,
     filename: `${filenamePrefix}.${getBlobExtension(blob, normalized)}`,
@@ -218,23 +466,60 @@ function expandFormFieldValue(value: unknown): unknown[] {
   return [value];
 }
 
+function getUtf8ByteLengthUpTo(value: string, limit: number): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (
+      code >= 0xd800 &&
+      code <= 0xdbff &&
+      index + 1 < value.length &&
+      value.charCodeAt(index + 1) >= 0xdc00 &&
+      value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4;
+      index += 1;
+    } else {
+      bytes += 3;
+    }
+
+    if (bytes > limit) {
+      return bytes;
+    }
+  }
+  return bytes;
+}
+
 function appendTextFormField(
   formData: FormData,
   fieldName: string,
-  value: unknown
-): void {
+  value: unknown,
+  remainingBytes: number
+): number {
   if (shouldOmitFormValue(value)) {
-    return;
+    return 0;
   }
-  if (typeof value === 'string') {
-    formData.append(fieldName, value);
-    return;
+
+  const text =
+    typeof value === 'string'
+      ? value
+      : typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : JSON.stringify(value);
+  if (text === undefined) {
+    return 0;
   }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    formData.append(fieldName, String(value));
-    return;
+
+  const byteLength = getUtf8ByteLengthUpTo(text, remainingBytes);
+  if (byteLength > remainingBytes) {
+    throw new Error('自定义接口表单文本总大小超过 1 MiB');
   }
-  formData.append(fieldName, JSON.stringify(value));
+  formData.append(fieldName, text);
+  return byteLength;
 }
 
 async function appendFileFormField(
@@ -242,10 +527,12 @@ async function appendFileFormField(
   field: ManualHttpFormField,
   value: unknown,
   index: number,
-  fetcher?: typeof fetch
-): Promise<void> {
+  remainingBytes: number,
+  fetcher?: typeof fetch,
+  signal?: AbortSignal
+): Promise<number> {
   if (typeof value !== 'string' || !value.trim()) {
-    return;
+    return 0;
   }
 
   const filenamePrefix =
@@ -255,17 +542,24 @@ async function appendFileFormField(
   const { blob, filename } = await valueToBlob(
     value,
     index > 0 ? `${filenamePrefix}-${index + 1}` : filenamePrefix,
-    fetcher
+    fetcher,
+    signal,
+    Math.min(MAX_FORM_FILE_BYTES, Math.max(0, remainingBytes))
   );
   formData.append(field.name, blob, filename);
+  return blob.size;
 }
 
 export async function buildManualHttpFormData(
   fields: ManualHttpFormField[] | undefined,
   variables: ManualHttpVariables,
-  fetcher?: typeof fetch
+  fetcher?: typeof fetch,
+  signal?: AbortSignal
 ): Promise<FormData> {
   const formData = new FormData();
+  let totalTextBytes = 0;
+  let totalFileBytes = 0;
+  let totalFileItems = 0;
   for (const field of (fields || []).slice(0, MAX_FORM_FIELDS)) {
     const name = field.name?.trim();
     if (!name) {
@@ -275,20 +569,38 @@ export async function buildManualHttpFormData(
     const rendered = renderTemplate(field.value ?? '', variables);
     const kind = field.kind || 'text';
     if (kind === 'text') {
-      appendTextFormField(formData, name, rendered);
+      totalTextBytes += appendTextFormField(
+        formData,
+        name,
+        rendered,
+        MAX_FORM_TOTAL_TEXT_BYTES - totalTextBytes
+      );
       continue;
     }
 
     const values =
       kind === 'file-list' ? expandFormFieldValue(rendered) : [rendered];
     for (let index = 0; index < values.length; index += 1) {
-      await appendFileFormField(
+      const fileValue = values[index];
+      if (typeof fileValue !== 'string' || !fileValue.trim()) {
+        continue;
+      }
+      if (totalFileItems >= MAX_FORM_FILE_ITEMS) {
+        throw new Error('自定义接口表单文件数量超过 16 个');
+      }
+      totalFileBytes += await appendFileFormField(
         formData,
         { ...field, name },
-        values[index],
+        fileValue,
         index,
-        fetcher
+        MAX_FORM_TOTAL_FILE_BYTES - totalFileBytes,
+        fetcher,
+        signal
       );
+      totalFileItems += 1;
+      if (totalFileBytes > MAX_FORM_TOTAL_FILE_BYTES) {
+        throw new Error('自定义接口表单文件总大小超过 64 MiB');
+      }
     }
   }
 
@@ -298,7 +610,8 @@ export async function buildManualHttpFormData(
 export async function buildManualHttpRequestPayload(
   template: ManualHttpTemplateMetadata,
   variables: ManualHttpVariables,
-  fetcher?: typeof fetch
+  fetcher?: typeof fetch,
+  signal?: AbortSignal
 ): Promise<{
   body: BodyInit | undefined;
   contentType?: string;
@@ -310,7 +623,12 @@ export async function buildManualHttpRequestPayload(
 
   if (bodyType === 'form-data') {
     return {
-      body: await buildManualHttpFormData(template.formFields, variables, fetcher),
+      body: await buildManualHttpFormData(
+        template.formFields,
+        variables,
+        fetcher,
+        signal
+      ),
     };
   }
 

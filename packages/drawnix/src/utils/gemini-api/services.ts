@@ -28,6 +28,8 @@ import {
 } from '../settings-manager';
 import {
   providerTransport,
+  readProviderResponseJson,
+  readProviderResponseText,
   resolveInvocationPlanFromRoute,
   type ResolvedProviderContext,
   type ProviderAuthStrategy,
@@ -326,15 +328,15 @@ async function generateImageDirect(
 
     // 构建请求体 - 强调生成图片
     const enhancedPrompt = `Generate an image: ${prompt}`;
-  const data: any = {
-    model: validatedConfig.modelName || 'gemini-3-pro-image-preview-vip',
-    prompt: enhancedPrompt,
-  };
-  if (options.response_format) {
-    data.response_format = options.response_format;
-  } else if (!options.omitDefaultResponseFormat) {
-    data.response_format = 'url'; // 默认返回 url
-  }
+    const data: any = {
+      model: validatedConfig.modelName || 'gemini-3-pro-image-preview-vip',
+      prompt: enhancedPrompt,
+    };
+    if (options.response_format) {
+      data.response_format = options.response_format;
+    } else if (!options.omitDefaultResponseFormat) {
+      data.response_format = 'url'; // 默认返回 url
+    }
 
     // size 参数可选，不传则由 API 自动决定（对应 auto）
     if (options.size && options.size !== 'auto') {
@@ -370,11 +372,12 @@ async function generateImageDirect(
         signal: options.signal,
         timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
         requestId: options.requestId,
+        controlledResponseBody: true,
       }
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readProviderResponseText(response);
       console.error('[ImageAPI] Request failed:', response.status, errorText);
       const duration = Date.now() - startTime;
       failLLMApiLog(logId, {
@@ -390,7 +393,9 @@ async function generateImageDirect(
       throw error;
     }
 
-    const result = await response.json();
+    const result = await readProviderResponseJson<Record<string, any>>(
+      response
+    );
     const duration = Date.now() - startTime;
 
     // 提取结果 URL

@@ -5,7 +5,11 @@
  */
 
 import type { ResolvedProviderContext } from '../../services/provider-routing';
-import { providerTransport } from '../../services/provider-routing';
+import {
+  providerTransport,
+  readProviderResponseJson,
+  readProviderResponseText,
+} from '../../services/provider-routing';
 import {
   GeminiConfig,
   GeminiMessage,
@@ -367,8 +371,9 @@ export function normalizeGoogleImageResponse(response: Record<string, any>): {
 }
 
 async function readGoogleError(response: Response): Promise<string> {
+  const text = await readProviderResponseText(response);
   try {
-    const payload = await response.json();
+    const payload = JSON.parse(text);
     return (
       payload?.error?.message ||
       payload?.error?.status ||
@@ -376,7 +381,7 @@ async function readGoogleError(response: Response): Promise<string> {
       response.statusText
     );
   } catch {
-    return (await response.text().catch(() => '')) || response.statusText;
+    return text || response.statusText;
   }
 }
 
@@ -426,7 +431,9 @@ async function callManualHttpTextRaw(
   });
   const requestPayload = await buildManualHttpRequestPayload(
     template,
-    variables
+    variables,
+    undefined,
+    options.signal
   );
   const headers = renderTemplate(template.headers || {}, variables) as
     | Record<string, string>
@@ -534,6 +541,7 @@ export async function callGoogleGenerateContentRaw(
       query: options.stream ? { alt: 'sse' } : undefined,
       body: JSON.stringify(requestBody),
       signal: timeoutControl.signal,
+      controlledResponseBody: true,
     });
 
     if (!response.ok) {
@@ -555,7 +563,9 @@ export async function callGoogleGenerateContentRaw(
     }
 
     if (!options.stream) {
-      const result = (await response.json()) as Record<string, any>;
+      const result = await readProviderResponseJson<Record<string, any>>(
+        response
+      );
       const normalized = normalizeGoogleResponse(result);
       const duration = Date.now() - startTime;
       analytics.trackAPICallSuccess({

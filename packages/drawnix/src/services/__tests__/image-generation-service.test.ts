@@ -10,7 +10,9 @@ const syncTaskFromStorageMock = vi.fn();
 const markImageSubmissionAttemptedMock = vi.fn(async () => undefined);
 const updateTaskStatusMock = vi.fn();
 const getTaskMock = vi.fn();
-const generateImageMock = vi.fn(async (_params?: any, _options?: any) => undefined);
+const generateImageMock = vi.fn(
+  async (_params?: any, _options?: any) => undefined
+);
 const waitForTaskCompletionMock = vi.fn();
 const waitForInitializationMock = vi.fn(async () => undefined);
 const hasInvocationRouteCredentialsMock = vi.fn(() => true);
@@ -228,10 +230,22 @@ describe('image-generation-service', () => {
 
     const executionOptions = generateImageMock.mock.calls[0]?.[1];
     expect(executionOptions?.isCurrentAttempt()).toBe(true);
-    await executionOptions?.onSubmissionAttempt();
+    const actualInvocationRoute = {
+      operation: 'image' as const,
+      providerProfileId: 'tuzi-profile',
+      modelId: 'gpt-image-2',
+      binding: {
+        id: 'tuzi-image-edit',
+        protocol: 'openai.images.edits',
+        submitPath: '/images/edits',
+        baseUrlStrategy: 'ensure-v1' as const,
+      },
+    };
+    await executionOptions?.onSubmissionAttempt(actualInvocationRoute);
     expect(markImageSubmissionAttemptedMock).toHaveBeenCalledWith(
       'task-image-1',
-      'task-image-1'
+      'task-image-1',
+      actualInvocationRoute
     );
 
     if (currentTask) {

@@ -94,6 +94,18 @@ function rewriteBaseUrlForSameOriginProxy(baseUrl: string): string {
   );
 }
 
+function discardResponseBody(response: Response): void {
+  if (!response.body || response.bodyUsed) {
+    return;
+  }
+
+  try {
+    void response.body.cancel().catch(() => undefined);
+  } catch {
+    // Response body cleanup must not replace the request's actual outcome.
+  }
+}
+
 function assertValidTuziSameOriginProxyResponse(
   requestUrl: string,
   response: Response
@@ -104,6 +116,7 @@ function assertValidTuziSameOriginProxyResponse(
 
   const contentType = response.headers.get('content-type')?.toLowerCase() || '';
   if (contentType.includes('text/html')) {
+    discardResponseBody(response);
     throw new Error(
       'Tuzi 同源代理未生效：接口返回了网页内容，请检查部署代理配置'
     );
@@ -167,11 +180,276 @@ function getBaseUrlPathSuffix(baseUrl: string): string {
   }
 }
 
-function isFetchNetworkError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
+function isAmbiguousNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const cause = (error as Error & { cause?: unknown }).cause;
+  const causeError = cause instanceof Error ? cause : undefined;
+  const causeCode =
+    cause && typeof cause === 'object' && 'code' in cause
+      ? String((cause as { code?: unknown }).code || '')
+      : '';
+  const details = [
+    error.name,
+    error.message,
+    causeError?.name,
+    causeError?.message,
+    causeCode,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return /Failed to fetch|fetch failed|Load failed|Network\s?Error|network (?:connection was lost|changed)|connection (?:reset|closed|terminated)|socket hang up|remoteprotocolerror|\b(?:ECONNRESET|ENETRESET|EPIPE|ERR_NETWORK|ERR_HTTP2_PROTOCOL_ERROR|ERR_QUIC_PROTOCOL_ERROR)\b|\bterminated\b/i.test(
+    details
+  );
+}
+
+export const IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE =
+  'IMAGE_SUBMISSION_OUTCOME_UNKNOWN';
+const MAX_PROVIDER_SUCCESS_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_PROVIDER_ERROR_RESPONSE_BYTES = 1 * 1024 * 1024;
+const INITIAL_RESPONSE_BUFFER_BYTES = 64 * 1024;
+const MAX_INITIAL_RESPONSE_BUFFER_BYTES = 1 * 1024 * 1024;
+
+class ImageSubmissionOutcomeUnknownError extends Error {
+  readonly code = IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE;
+
+  constructor(cause: unknown) {
+    super('图片请求连接中断，正在确认生成结果');
+    this.name = 'ImageSubmissionOutcomeUnknownError';
+    (this as Error & { cause?: unknown }).cause = cause;
   }
-  return /Failed to fetch|Load failed|NetworkError/i.test(error.message);
+}
+
+class ProviderResponseTooLargeError extends Error {
+  readonly code = 'PROVIDER_RESPONSE_TOO_LARGE';
+
+  constructor(maxBytes: number) {
+    super(`供应商响应超过 ${Math.floor(maxBytes / 1024 / 1024)} MiB 限制`);
+    this.name = 'ProviderResponseTooLargeError';
+  }
+}
+
+export function isImageSubmissionOutcomeUnknownError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      (error as { code?: unknown }).code ===
+        IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE
+  );
+}
+
+interface ProviderResponseReadContext {
+  signal?: AbortSignal;
+  upstreamSignal?: AbortSignal;
+  timeoutMs?: number;
+  didTimeout: () => boolean;
+  cleanup: () => void;
+  allowImageSubmissionOutcomeUnknown: boolean;
+}
+
+const providerResponseReads = new WeakMap<
+  Response,
+  ProviderResponseReadContext
+>();
+
+function createRequestTimeoutError(timeoutMs?: number): Error {
+  const timeoutMinutes = Math.floor((timeoutMs || 0) / 60000);
+  const timeoutError = new Error(`请求超时（>${timeoutMinutes} 分钟）`);
+  timeoutError.name = 'TimeoutError';
+  return timeoutError;
+}
+
+function createRequestAbortError(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) {
+    return signal.reason;
+  }
+  const abortError = new Error('The operation was aborted');
+  abortError.name = 'AbortError';
+  return abortError;
+}
+
+function getProviderResponseByteLimit(response: Response): number {
+  return response.ok
+    ? MAX_PROVIDER_SUCCESS_RESPONSE_BYTES
+    : MAX_PROVIDER_ERROR_RESPONSE_BYTES;
+}
+
+function getDeclaredContentLength(response: Response): number | undefined {
+  const value = response.headers.get('content-length')?.trim();
+  if (!value || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function createResponseTooLargeError(response: Response): Error {
+  return new ProviderResponseTooLargeError(
+    getProviderResponseByteLimit(response)
+  );
+}
+
+async function readProviderResponseBody(response: Response): Promise<string> {
+  const bodyAlreadyUsed = response.bodyUsed;
+  const context = providerResponseReads.get(response);
+  if (context) {
+    providerResponseReads.delete(response);
+  }
+
+  try {
+    const maxBytes = getProviderResponseByteLimit(response);
+    const declaredContentLength = getDeclaredContentLength(response);
+    if (
+      declaredContentLength !== undefined &&
+      declaredContentLength > maxBytes
+    ) {
+      discardResponseBody(response);
+      throw createResponseTooLargeError(response);
+    }
+
+    let result: string;
+    if (!response.body || bodyAlreadyUsed) {
+      result = await response.text();
+    } else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const readStream = (async () => {
+        let bodyBytes = new Uint8Array(0);
+        let totalBytes = 0;
+        try {
+          let readResult = await reader.read();
+          while (!readResult.done) {
+            const chunk = readResult.value;
+            const nextTotalBytes = totalBytes + chunk.byteLength;
+            if (nextTotalBytes > maxBytes) {
+              const error = createResponseTooLargeError(response);
+              void reader.cancel(error).catch(() => undefined);
+              throw error;
+            }
+
+            if (nextTotalBytes > bodyBytes.byteLength) {
+              const initialCapacity = Math.min(
+                Math.max(
+                  declaredContentLength ?? INITIAL_RESPONSE_BUFFER_BYTES,
+                  INITIAL_RESPONSE_BUFFER_BYTES
+                ),
+                MAX_INITIAL_RESPONSE_BUFFER_BYTES
+              );
+              const nextCapacity = Math.min(
+                maxBytes,
+                Math.max(
+                  nextTotalBytes,
+                  bodyBytes.byteLength > 0
+                    ? bodyBytes.byteLength * 2
+                    : initialCapacity
+                )
+              );
+              const expanded = new Uint8Array(nextCapacity);
+              expanded.set(bodyBytes.subarray(0, totalBytes));
+              bodyBytes = expanded;
+            }
+            bodyBytes.set(chunk, totalBytes);
+            totalBytes = nextTotalBytes;
+            readResult = await reader.read();
+          }
+          return decoder.decode(bodyBytes.subarray(0, totalBytes));
+        } finally {
+          reader.releaseLock();
+        }
+      })();
+      void readStream.catch(() => undefined);
+
+      if (!context?.signal) {
+        result = await readStream;
+      } else {
+        const signal = context.signal;
+        let abortTimer: ReturnType<typeof setTimeout> | undefined;
+        let removeAbortListener: () => void = () => undefined;
+        const aborted = new Promise<never>((_, reject) => {
+          const abort = () => {
+            const reason =
+              signal.reason !== undefined
+                ? signal.reason
+                : createRequestAbortError(signal);
+            abortTimer = setTimeout(() => {
+              try {
+                void reader.cancel(reason).catch(() => undefined);
+              } catch {
+                // A concurrently failed stream can already be unlocked here.
+              }
+              reject(reason);
+            }, 0);
+          };
+
+          if (signal.aborted) {
+            abort();
+            return;
+          }
+          signal.addEventListener('abort', abort, { once: true });
+          removeAbortListener = () =>
+            signal.removeEventListener('abort', abort);
+        });
+
+        try {
+          result = await Promise.race([readStream, aborted]);
+        } finally {
+          if (abortTimer !== undefined) {
+            clearTimeout(abortTimer);
+          }
+          removeAbortListener();
+        }
+      }
+    }
+    if (context?.didTimeout()) {
+      throw createRequestTimeoutError(context.timeoutMs);
+    }
+    if (context?.upstreamSignal?.aborted) {
+      throw createRequestAbortError(context.upstreamSignal);
+    }
+    return result;
+  } catch (error) {
+    if (!context || bodyAlreadyUsed) {
+      throw error;
+    }
+    if (context.didTimeout()) {
+      throw createRequestTimeoutError(context.timeoutMs);
+    }
+    if (context.upstreamSignal?.aborted) {
+      throw error;
+    }
+    if (error instanceof ProviderResponseTooLargeError) {
+      throw error;
+    }
+    if (isImageSubmissionOutcomeUnknownError(error)) {
+      throw error;
+    }
+    if (!context.allowImageSubmissionOutcomeUnknown) {
+      throw error;
+    }
+    throw new ImageSubmissionOutcomeUnknownError(error);
+  } finally {
+    context?.cleanup();
+  }
+}
+
+/**
+ * 通过有界 reader 读取非流式响应。可信同步图片的 2xx 响应流中断会
+ * 归类为提交结果未知；reader 正常结束后的 JSON 解析错误保持协议错误。
+ */
+export async function readProviderResponseJson<T = unknown>(
+  response: Response
+): Promise<T> {
+  const text = await readProviderResponseText(response);
+  return JSON.parse(text) as T;
+}
+
+/** 正常 EOF 后不根据文本内容猜测响应流是否中断。 */
+export async function readProviderResponseText(
+  response: Response
+): Promise<string> {
+  return readProviderResponseBody(response);
 }
 
 function shouldRetryTuziResponse(
@@ -299,31 +577,44 @@ function createTimeoutSignal(
 
   const controller = new AbortController();
   let didTimeout = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const cleanup = () => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+      timeoutId = undefined;
+    }
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream);
+  };
 
   const abortFromUpstream = () => {
     controller.abort(upstreamSignal?.reason);
+    cleanup();
   };
 
   if (upstreamSignal?.aborted) {
     controller.abort(upstreamSignal.reason);
+    return {
+      signal: controller.signal,
+      didTimeout: () => false,
+      cleanup,
+    };
   } else if (upstreamSignal) {
     upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true });
   }
 
-  const timeoutId = setTimeout(() => {
+  timeoutId = setTimeout(() => {
     didTimeout = true;
     const error = new Error(`Request timeout after ${timeoutMs}ms`);
     error.name = 'TimeoutError';
     controller.abort(error);
+    cleanup();
   }, timeoutMs);
 
   return {
     signal: controller.signal,
     didTimeout: () => didTimeout,
-    cleanup: () => {
-      clearTimeout(timeoutId);
-      upstreamSignal?.removeEventListener('abort', abortFromUpstream);
-    },
+    cleanup,
   };
 }
 
@@ -367,15 +658,78 @@ function isTrustedTuziRequestTarget(
   );
 }
 
+function isReadOnlyRequestMethod(method?: string): boolean {
+  const normalizedMethod = (method || 'GET').toUpperCase();
+  return normalizedMethod === 'GET' || normalizedMethod === 'HEAD';
+}
+
+function isPostRequestMethod(method?: string): boolean {
+  return (method || 'GET').toUpperCase() === 'POST';
+}
+
+function getAbsoluteHttpOrigin(url: string): string | null {
+  if (!/^https?:\/\//i.test(url)) {
+    return null;
+  }
+
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function shouldInheritProviderCredentials(
+  context: ResolvedProviderContext,
+  requestUrl: string
+): boolean {
+  if (!/^https?:\/\//i.test(requestUrl)) {
+    return true;
+  }
+
+  if (
+    isTrustedTuziApiBaseUrl(context.baseUrl) &&
+    isTrustedTuziApiBaseUrl(requestUrl)
+  ) {
+    return true;
+  }
+
+  const profileOrigin = getAbsoluteHttpOrigin(context.baseUrl);
+  const requestOrigin = getAbsoluteHttpOrigin(requestUrl);
+  return Boolean(profileOrigin && requestOrigin === profileOrigin);
+}
+
 function isTuziRequestIdSubmission(
   context: ResolvedProviderContext,
   request: ProviderTransportRequest
 ): boolean {
   return Boolean(
     request.requestId &&
-      (request.method || 'GET').toUpperCase() !== 'GET' &&
+      isPostRequestMethod(request.method) &&
       isTrustedTuziRequestTarget(context, request)
   );
+}
+
+function isRecoverableTuziImageRequestIdSubmission(
+  context: ResolvedProviderContext,
+  request: ProviderTransportRequest,
+  prepared: PreparedProviderTransportRequest
+): boolean {
+  const requestPath = request.path.split(/[?#]/, 1)[0] || '';
+  const attachedRequestId = Object.entries(prepared.headers).find(
+    ([name]) => name.toLowerCase() === 'x-request-id'
+  )?.[1];
+  return (
+    request.allowImageSubmissionOutcomeRecovery !== false &&
+    isTuziRequestIdSubmission(context, request) &&
+    attachedRequestId === request.requestId &&
+    isPostRequestMethod(request.method) &&
+    /\/images\/(?:generations|edits)\/?$/i.test(requestPath)
+  );
+}
+
+function allowsNetworkFallback(request: ProviderTransportRequest): boolean {
+  return isReadOnlyRequestMethod(request.method);
 }
 
 function routeTuziRequestIdSubmission(
@@ -420,7 +774,7 @@ export function canAttachProviderRequestIdHeader(
   );
   const requestUrl = joinUrl(resolvedBaseUrl, request.path);
   return (
-    (request.method || 'GET').toUpperCase() !== 'GET' &&
+    isPostRequestMethod(request.method) &&
     isTrustedTuziRequestTarget(context, request) &&
     (!/^https?:\/\//i.test(requestUrl) ||
       isTuziRequestIdCorsBaseUrl(requestUrl))
@@ -437,19 +791,29 @@ export class ProviderTransport {
       routedContext.baseUrl,
       request.baseUrlStrategy
     );
-    const url = `${joinUrl(resolvedBaseUrl, request.path)}${buildQueryString(
-      applyAuthQuery(routedContext, request.query || {})
+    const requestUrl = joinUrl(resolvedBaseUrl, request.path);
+    const credentialContext = shouldInheritProviderCredentials(
+      context,
+      requestUrl
+    )
+      ? routedContext
+      : { ...routedContext, apiKey: '', extraHeaders: undefined };
+    const url = `${requestUrl}${buildQueryString(
+      applyAuthQuery(credentialContext, request.query || {})
     )}`;
     const mergedHeaders = mergeHeaders(
-      routedContext.extraHeaders,
+      credentialContext.extraHeaders,
       request.headers
     );
-    const authenticatedHeaders = applyAuthHeaders(routedContext, mergedHeaders);
+    const authenticatedHeaders = applyAuthHeaders(
+      credentialContext,
+      mergedHeaders
+    );
     const finalHeaders = applyRequestIdHeader(
       authenticatedHeaders,
       request.requestId,
       canAttachProviderRequestIdHeader(routedContext, request),
-      Boolean(request.requestId)
+      Boolean(request.requestId) || isReadOnlyRequestMethod(request.method)
     );
 
     return {
@@ -478,52 +842,89 @@ export class ProviderTransport {
       ...request,
       signal: timeoutControl.signal,
     });
+    const recoverableImageSubmission =
+      isRecoverableTuziImageRequestIdSubmission(context, request, prepared);
     const fetcher = request.fetcher || fetch;
+    let responseCleanupDeferred = false;
+    const returnResponse = (
+      response: Response,
+      allowImageSubmissionOutcomeUnknown = false
+    ): Response => {
+      if (
+        !request.controlledResponseBody &&
+        !allowImageSubmissionOutcomeUnknown
+      ) {
+        return response;
+      }
+      providerResponseReads.set(response, {
+        signal: timeoutControl.signal,
+        upstreamSignal: request.signal,
+        timeoutMs: request.timeoutMs,
+        didTimeout: timeoutControl.didTimeout,
+        cleanup: timeoutControl.cleanup,
+        allowImageSubmissionOutcomeUnknown,
+      });
+      responseCleanupDeferred = true;
+      return response;
+    };
     try {
       const response = assertValidTuziSameOriginProxyResponse(
         prepared.url,
         await fetcher(prepared.url, prepared.init)
       );
       if (!shouldRetryTuziResponse(context, request, response)) {
-        return response;
+        return returnResponse(
+          response,
+          recoverableImageSubmission && response.ok
+        );
       }
 
       // 带 Request ID 的正式提交固定到一个确定节点，避免跨节点重复生成和计费。
       const fallbackBaseUrls = requestIdSubmission
         ? []
         : await getTuziFallbackBaseUrls(context.baseUrl);
+      let retryResponse = response;
       for (const fallbackBaseUrl of fallbackBaseUrls) {
-        const fallbackPrepared = this.prepareRequest(
-          { ...context, baseUrl: fallbackBaseUrl },
-          { ...request, signal: timeoutControl.signal }
-        );
         try {
+          const fallbackPrepared = this.prepareRequest(
+            { ...context, baseUrl: fallbackBaseUrl },
+            { ...request, signal: timeoutControl.signal }
+          );
           const fallbackResponse = assertValidTuziSameOriginProxyResponse(
             fallbackPrepared.url,
             await fetcher(fallbackPrepared.url, fallbackPrepared.init)
           );
           if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
-            return fallbackResponse;
+            discardResponseBody(retryResponse);
+            return returnResponse(fallbackResponse);
           }
+          discardResponseBody(retryResponse);
+          retryResponse = fallbackResponse;
         } catch (fallbackError) {
           if (
             timeoutControl.didTimeout() ||
-            !isFetchNetworkError(fallbackError)
+            !isAmbiguousNetworkError(fallbackError) ||
+            !allowsNetworkFallback(request)
           ) {
+            discardResponseBody(retryResponse);
             throw fallbackError;
           }
         }
       }
 
-      return response;
+      return returnResponse(retryResponse);
     } catch (error) {
       if (timeoutControl.didTimeout()) {
-        const timeoutMinutes = Math.floor((request.timeoutMs || 0) / 60000);
-        const timeoutError = new Error(`请求超时（>${timeoutMinutes} 分钟）`);
-        timeoutError.name = 'TimeoutError';
-        throw timeoutError;
+        throw createRequestTimeoutError(request.timeoutMs);
       }
-      if (isFetchNetworkError(error)) {
+      if (
+        recoverableImageSubmission &&
+        !request.signal?.aborted &&
+        isAmbiguousNetworkError(error)
+      ) {
+        throw new ImageSubmissionOutcomeUnknownError(error);
+      }
+      if (isAmbiguousNetworkError(error) && allowsNetworkFallback(request)) {
         const fallbackBaseUrls = requestIdSubmission
           ? []
           : await getTuziFallbackBaseUrls(context.baseUrl);
@@ -534,14 +935,16 @@ export class ProviderTransport {
             { ...request, signal: timeoutControl.signal }
           );
           try {
-            return assertValidTuziSameOriginProxyResponse(
-              fallbackPrepared.url,
-              await fetcher(fallbackPrepared.url, fallbackPrepared.init)
+            return returnResponse(
+              assertValidTuziSameOriginProxyResponse(
+                fallbackPrepared.url,
+                await fetcher(fallbackPrepared.url, fallbackPrepared.init)
+              )
             );
           } catch (fallbackError) {
             if (
               timeoutControl.didTimeout() ||
-              !isFetchNetworkError(fallbackError)
+              !isAmbiguousNetworkError(fallbackError)
             ) {
               throw fallbackError;
             }
@@ -550,7 +953,9 @@ export class ProviderTransport {
       }
       throw error;
     } finally {
-      timeoutControl.cleanup();
+      if (!responseCleanupDeferred) {
+        timeoutControl.cleanup();
+      }
     }
   }
 }

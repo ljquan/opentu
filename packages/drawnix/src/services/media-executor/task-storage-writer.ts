@@ -202,6 +202,8 @@ class TaskStorageWriter {
       allowFailed?: boolean;
       expectedErrorCodes?: readonly string[];
       allowLegacyRequestId?: boolean;
+      expectedStartedAt?: number;
+      shouldUpdate?: () => boolean;
     } = {}
   ): Promise<boolean> {
     if (!taskId || this.writesPaused) {
@@ -227,6 +229,13 @@ class TaskStorageWriter {
 
         const task = request.result as SWTask | undefined;
         if (!task) {
+          return;
+        }
+        if (
+          (options.expectedStartedAt !== undefined &&
+            (task.startedAt ?? task.createdAt) !== options.expectedStartedAt) ||
+          (options.shouldUpdate && !options.shouldUpdate())
+        ) {
           return;
         }
         if (
@@ -323,7 +332,10 @@ class TaskStorageWriter {
     taskId: string,
     status: SWTaskStatus,
     expectedRequestId?: string,
-    options: { allowLegacyRequestId?: boolean } = {}
+    options: {
+      allowLegacyRequestId?: boolean;
+      shouldUpdate?: () => boolean;
+    } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -341,7 +353,8 @@ class TaskStorageWriter {
 
   async markImageSubmissionAttempted(
     taskId: string,
-    expectedRequestId: string
+    expectedRequestId: string,
+    invocationRoute?: TaskInvocationRouteSnapshot
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -349,6 +362,9 @@ class TaskStorageWriter {
         task.status = 'processing';
         task.params.imageSubmissionAttempted = true;
         task.executionPhase = 'submitting';
+        if (invocationRoute) {
+          task.invocationRoute = invocationRoute;
+        }
         task.updatedAt = Date.now();
       },
       expectedRequestId,
@@ -363,7 +379,8 @@ class TaskStorageWriter {
     taskId: string,
     progress: number,
     phase?: string,
-    expectedRequestId?: string
+    expectedRequestId?: string,
+    options: { shouldUpdate?: () => boolean } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -375,7 +392,7 @@ class TaskStorageWriter {
         }
       },
       expectedRequestId,
-      { allowPending: true }
+      { allowPending: true, ...options }
     );
   }
 
@@ -384,7 +401,11 @@ class TaskStorageWriter {
    */
   async markImageAttemptRecovering(
     taskId: string,
-    expectedRequestId: string
+    expectedRequestId: string,
+    options: {
+      expectedStartedAt?: number;
+      shouldUpdate?: () => boolean;
+    } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -396,7 +417,8 @@ class TaskStorageWriter {
         task.progress = undefined;
         task.updatedAt = Date.now();
       },
-      expectedRequestId
+      expectedRequestId,
+      options
     );
   }
 
@@ -406,7 +428,8 @@ class TaskStorageWriter {
   async completeTask(
     taskId: string,
     result: SWTask['result'],
-    expectedRequestId?: string
+    expectedRequestId?: string,
+    options: { shouldUpdate?: () => boolean } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -434,7 +457,8 @@ class TaskStorageWriter {
         task.progress = 100;
         task.executionPhase = undefined;
       },
-      expectedRequestId
+      expectedRequestId,
+      options
     );
   }
 
@@ -449,6 +473,8 @@ class TaskStorageWriter {
       allowPending?: boolean;
       allowLegacyRequestId?: boolean;
       clearStartedAt?: boolean;
+      expectedStartedAt?: number;
+      shouldUpdate?: () => boolean;
     } = {}
   ): Promise<boolean> {
     return this.updateTask(
@@ -477,7 +503,8 @@ class TaskStorageWriter {
     taskId: string,
     remoteId: string,
     invocationRoute?: TaskInvocationRouteSnapshot,
-    expectedRequestId?: string
+    expectedRequestId?: string,
+    options: { shouldUpdate?: () => boolean } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
@@ -489,7 +516,8 @@ class TaskStorageWriter {
         task.updatedAt = Date.now();
         task.executionPhase = 'polling';
       },
-      expectedRequestId
+      expectedRequestId,
+      options
     );
   }
 

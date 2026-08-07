@@ -1,6 +1,11 @@
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../constants/TASK_CONSTANTS';
-import type { GenerationParams, Task } from '../types/task.types';
+import type {
+  GenerationParams,
+  Task,
+  TaskInvocationBindingSnapshot,
+} from '../types/task.types';
 import { TaskExecutionPhase, TaskStatus, TaskType } from '../types/task.types';
+import { CryptoUtils } from '../utils/crypto-utils';
 import { createModelRef } from '../utils/settings-manager';
 import {
   providerTransport,
@@ -8,6 +13,10 @@ import {
   type InvocationPlan,
   type PreparedProviderTransportRequest,
 } from './provider-routing';
+import {
+  getManualHttpTemplate,
+  resolveManualHttpRequestMethod,
+} from './provider-routing/manual-http-template';
 import {
   isTrustedTuziApiBaseUrl,
   normalizeTuziApiEndpointUrl,
@@ -19,14 +28,15 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_JITTER_RATIO = 0.1;
+const TERMINAL_ABORT_GRACE_MS = 5_000;
 const RECOVERY_RESULT_PATH = '/images/generations/result';
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_RESULT_URLS = 10;
 
 export const IMAGE_SUBMISSION_REQUEST_ID_PARAM = 'submissionRequestId';
-export const IMAGE_SUBMISSION_ATTEMPTED_PARAM = 'imageSubmissionAttempted';
+const IMAGE_SUBMISSION_ATTEMPTED_PARAM = 'imageSubmissionAttempted';
 
-export type ImageGenerationRecoveryTask = Pick<
+type ImageGenerationRecoveryTask = Pick<
   Task,
   | 'id'
   | 'type'
@@ -35,11 +45,12 @@ export type ImageGenerationRecoveryTask = Pick<
   | 'createdAt'
   | 'startedAt'
   | 'remoteId'
+  | 'syncedFromRemote'
   | 'invocationRoute'
   | 'executionPhase'
 >;
 
-export interface ImageGenerationRecoverySuccess {
+interface ImageGenerationRecoverySuccess {
   status: 'succeeded';
   requestId: string;
   url: string;
@@ -47,14 +58,14 @@ export interface ImageGenerationRecoverySuccess {
   created?: number;
 }
 
-export type ImageGenerationRecoveryFailureKind =
+type ImageGenerationRecoveryFailureKind =
   | 'upstream'
   | 'authentication'
   | 'timeout'
   | 'configuration'
   | 'protocol';
 
-export interface ImageGenerationRecoveryFailure {
+interface ImageGenerationRecoveryFailure {
   status: 'failed';
   kind: ImageGenerationRecoveryFailureKind;
   code: string;
@@ -63,20 +74,41 @@ export interface ImageGenerationRecoveryFailure {
   httpStatus?: number;
 }
 
-export interface ImageGenerationRecoveryCallbacks {
-  onSucceeded(result: ImageGenerationRecoverySuccess): void | Promise<void>;
-  onFailed(error: ImageGenerationRecoveryFailure): void | Promise<void>;
+interface ImageGenerationRecoveryCallbacks {
+  onSucceeded(
+    result: ImageGenerationRecoverySuccess,
+    signal: AbortSignal
+  ): void | Promise<void>;
+  onFailed(
+    error: ImageGenerationRecoveryFailure,
+    signal: AbortSignal
+  ): void | Promise<void>;
 }
 
-export interface ImageGenerationRecoveryHandle {
+interface ImageGenerationRecoveryHandle {
   readonly taskId: string;
   stop(): void;
 }
 
+type ImageGenerationRecoveryStartFailureReason =
+  | 'invalid-task'
+  | 'expired'
+  | 'route-unavailable';
+
+type ImageGenerationRecoveryStartResult =
+  | {
+      readonly status: 'started';
+      readonly handle: ImageGenerationRecoveryHandle;
+    }
+  | {
+      readonly status: 'rejected';
+      readonly reason: ImageGenerationRecoveryStartFailureReason;
+    };
+
 type InvocationResolver = typeof resolveInvocationPlanFromRoute;
 type RequestPreparer = Pick<typeof providerTransport, 'prepareRequest'>;
 
-export interface ImageGenerationRecoveryServiceOptions {
+interface ImageGenerationRecoveryServiceOptions {
   concurrency?: number;
   pollIntervalMs?: number;
   maxBackoffMs?: number;
@@ -93,6 +125,15 @@ interface RecoveryRouteDescriptor {
   providerProfileId: string;
   modelId: string;
   bindingId?: string;
+  binding: RecoveryBindingFingerprint;
+}
+
+interface RecoveryBindingFingerprint {
+  protocol: string;
+  method: string;
+  submitPath: string;
+  pollPathTemplate: string | null;
+  baseUrlStrategy: 'preserve' | 'trim-v1' | 'ensure-v1';
 }
 
 interface RecoveryTaskDescriptor {
@@ -103,7 +144,7 @@ interface RecoveryTaskDescriptor {
   route: RecoveryRouteDescriptor;
 }
 
-type RecoveryEntryState = 'queued' | 'inflight' | 'waiting' | 'stopped';
+type RecoveryEntryState = 'queued' | 'inflight' | 'waiting';
 
 interface RecoveryEntry {
   task: RecoveryTaskDescriptor | null;
@@ -116,6 +157,7 @@ interface RecoveryEntry {
   terminalTimer?: ReturnType<typeof setTimeout>;
   releaseTerminalWait?: () => void;
   controller?: AbortController;
+  terminalDelivery?: () => Promise<void>;
 }
 
 interface ProcessingOutcome {
@@ -124,10 +166,6 @@ interface ProcessingOutcome {
 
 interface TransientOutcome {
   type: 'transient';
-}
-
-interface StoppedOutcome {
-  type: 'stopped';
 }
 
 interface SuccessOutcome {
@@ -143,7 +181,6 @@ interface FailureOutcome {
 type PollOutcome =
   | ProcessingOutcome
   | TransientOutcome
-  | StoppedOutcome
   | SuccessOutcome
   | FailureOutcome;
 
@@ -258,11 +295,78 @@ function isNodeFallbackStatus(status: number): boolean {
   );
 }
 
-function isSynchronousImagePlan(plan: InvocationPlan): boolean {
-  const protocol = plan.binding.protocol;
+function createRecoveryBindingFingerprint(
+  binding:
+    | Pick<
+        TaskInvocationBindingSnapshot,
+        | 'protocol'
+        | 'submitPath'
+        | 'pollPathTemplate'
+        | 'baseUrlStrategy'
+        | 'metadata'
+      >
+    | null
+    | undefined
+): RecoveryBindingFingerprint | null {
+  const protocol = normalizeRequiredString(binding?.protocol);
+  const submitPath = normalizeRequiredString(binding?.submitPath);
+  const pollPathTemplate = normalizeRequiredString(binding?.pollPathTemplate);
+  const baseUrlStrategy = binding?.baseUrlStrategy ?? 'preserve';
+  if (
+    !protocol ||
+    !submitPath ||
+    !['preserve', 'trim-v1', 'ensure-v1'].includes(baseUrlStrategy)
+  ) {
+    return null;
+  }
+
+  let method = 'POST';
+  if (protocol === 'custom-http') {
+    const manualHttp = getManualHttpTemplate(binding?.metadata);
+    if (!manualHttp) {
+      return null;
+    }
+    method = resolveManualHttpRequestMethod(manualHttp).toUpperCase();
+  }
+
+  return {
+    protocol,
+    method,
+    submitPath,
+    pollPathTemplate,
+    baseUrlStrategy,
+  };
+}
+
+function isSameRecoveryBinding(
+  left: RecoveryBindingFingerprint,
+  right: RecoveryBindingFingerprint
+): boolean {
   return (
-    protocol === 'openai.images.generations' ||
-    protocol === 'openai.images.edits'
+    left.protocol === right.protocol &&
+    left.method === right.method &&
+    left.submitPath === right.submitPath &&
+    left.pollPathTemplate === right.pollPathTemplate &&
+    left.baseUrlStrategy === right.baseUrlStrategy
+  );
+}
+
+function isSynchronousImageBinding(
+  binding: RecoveryBindingFingerprint
+): boolean {
+  const submitPath = binding.submitPath.split(/[?#]/, 1)[0] || '';
+  if (
+    binding.method !== 'POST' ||
+    binding.pollPathTemplate ||
+    !/\/images\/(?:generations|edits)\/?$/i.test(submitPath)
+  ) {
+    return false;
+  }
+
+  return (
+    binding.protocol === 'openai.images.generations' ||
+    binding.protocol === 'openai.images.edits' ||
+    binding.protocol === 'custom-http'
   );
 }
 
@@ -275,43 +379,124 @@ function createTimeoutFailure(): ImageGenerationRecoveryFailure {
   };
 }
 
-async function readLimitedJson(response: Response): Promise<unknown> {
+async function readLimitedJson(
+  response: Response,
+  signal?: AbortSignal
+): Promise<unknown> {
   if (!response.body) {
+    signal?.throwIfAborted();
     return response.json();
   }
 
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error('图片恢复接口响应过大');
+  const readBody = (async () => {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          const error = new Error('图片恢复接口响应过大');
+          void reader.cancel(error).catch(() => undefined);
+          throw error;
+        }
+        chunks.push(value);
       }
-      chunks.push(value);
+    } finally {
+      reader.releaseLock();
     }
-  } finally {
-    reader.releaseLock();
+
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  })();
+  void readBody.catch(() => undefined);
+
+  if (!signal) {
+    return readBody;
   }
 
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
+  let removeAbortListener: () => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    const abort = () => {
+      const reason =
+        signal.reason ??
+        Object.assign(new Error('Aborted'), {
+          name: 'AbortError',
+        });
+      try {
+        void reader.cancel(reason).catch(() => undefined);
+      } catch {
+        // The stream may have completed between the abort and cancellation.
+      }
+      reject(reason);
+    };
+
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    removeAbortListener = () => signal.removeEventListener('abort', abort);
+  });
+
+  try {
+    return await Promise.race([readBody, aborted]);
+  } finally {
+    removeAbortListener();
   }
-  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-async function releaseResponseBody(response: Response): Promise<void> {
+function releaseResponseBody(response: Response): void {
   try {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => undefined);
   } catch {
     // 释放失败不应阻断下一可信节点的查询。
+  }
+}
+
+async function waitForFetchResponse(
+  fetchPromise: Promise<Response>,
+  signal: AbortSignal
+): Promise<Response> {
+  void fetchPromise.then(
+    (response) => {
+      if (signal.aborted) {
+        releaseResponseBody(response);
+      }
+    },
+    () => undefined
+  );
+
+  let removeAbortListener: () => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    const abort = () => {
+      reject(
+        signal.reason ??
+          Object.assign(new Error('Aborted'), {
+            name: 'AbortError',
+          })
+      );
+    };
+
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    removeAbortListener = () => signal.removeEventListener('abort', abort);
+  });
+
+  try {
+    return await Promise.race([fetchPromise, aborted]);
+  } finally {
+    removeAbortListener();
   }
 }
 
@@ -378,26 +563,32 @@ export class ImageGenerationRecoveryService {
   start(
     task: ImageGenerationRecoveryTask,
     callbacks: ImageGenerationRecoveryCallbacks
-  ): ImageGenerationRecoveryHandle | null {
+  ): ImageGenerationRecoveryStartResult {
     const descriptor = this.createTaskDescriptor(task);
-    const plan = descriptor
-      ? this.resolveTrustedInvocationPlan(descriptor)
-      : null;
-    if (!descriptor || descriptor.deadline <= this.now() || !plan) {
-      return null;
+    if (!descriptor) {
+      return { status: 'rejected', reason: 'invalid-task' };
+    }
+    if (descriptor.deadline <= this.now()) {
+      return { status: 'rejected', reason: 'expired' };
+    }
+    const plan = this.resolveTrustedInvocationPlan(descriptor);
+    if (!plan) {
+      return { status: 'rejected', reason: 'route-unavailable' };
     }
 
     const currentEntry = this.entries.get(descriptor.taskId);
     if (
       currentEntry?.task?.requestId === descriptor.requestId &&
       currentEntry.task.startedAt === descriptor.startedAt &&
-      currentEntry.task.deadline === descriptor.deadline &&
-      currentEntry.state !== 'stopped'
+      currentEntry.task.deadline === descriptor.deadline
     ) {
       currentEntry.callbacks = callbacks;
       return Object.freeze({
-        taskId: descriptor.taskId,
-        stop: () => this.stopEntry(currentEntry),
+        status: 'started' as const,
+        handle: Object.freeze({
+          taskId: descriptor.taskId,
+          stop: () => this.stopEntry(currentEntry),
+        }),
       });
     }
 
@@ -415,8 +606,11 @@ export class ImageGenerationRecoveryService {
     this.drainQueue();
 
     return Object.freeze({
-      taskId: descriptor.taskId,
-      stop: () => this.stopEntry(entry),
+      status: 'started' as const,
+      handle: Object.freeze({
+        taskId: descriptor.taskId,
+        stop: () => this.stopEntry(entry),
+      }),
     });
   }
 
@@ -435,10 +629,26 @@ export class ImageGenerationRecoveryService {
     this.queue = [];
   }
 
+  hasPendingTerminalWriteback(taskId: string): boolean {
+    const entry = this.entries.get(taskId);
+    return Boolean(
+      entry?.callbacks &&
+        (entry.terminalTimer ||
+          entry.terminalDelivery ||
+          entry.terminalDeliveryAttempts > 0)
+    );
+  }
+
   private createTaskDescriptor(
     task: ImageGenerationRecoveryTask
   ): RecoveryTaskDescriptor | null {
-    if (task.type !== TaskType.IMAGE) {
+    if (
+      task.type !== TaskType.IMAGE ||
+      task.status !== TaskStatus.PROCESSING ||
+      task.executionPhase !== TaskExecutionPhase.POLLING ||
+      Boolean(task.remoteId) ||
+      Boolean(task.syncedFromRemote)
+    ) {
       return null;
     }
 
@@ -451,6 +661,7 @@ export class ImageGenerationRecoveryService {
     const modelId = normalizeRequiredString(
       route?.modelRef?.modelId || route?.modelId
     );
+    const binding = createRecoveryBindingFingerprint(route?.binding);
     const startedAt = normalizePositiveNumber(task.startedAt ?? task.createdAt);
 
     if (
@@ -459,6 +670,8 @@ export class ImageGenerationRecoveryService {
       route?.operation !== 'image' ||
       !providerProfileId ||
       !modelId ||
+      !binding ||
+      !isSynchronousImageBinding(binding) ||
       startedAt === undefined ||
       !hasImageSubmissionAttempt(task)
     ) {
@@ -474,6 +687,7 @@ export class ImageGenerationRecoveryService {
         providerProfileId,
         modelId,
         bindingId: normalizeRequiredString(route.binding?.id) || undefined,
+        binding,
       },
     };
   }
@@ -498,13 +712,37 @@ export class ImageGenerationRecoveryService {
     if (!plan && task.route.bindingId) {
       plan = this.resolveInvocationPlan('image', modelRef);
     }
+    const resolvedBinding = plan
+      ? createRecoveryBindingFingerprint(plan.binding)
+      : null;
     if (
       !plan ||
+      !resolvedBinding ||
       plan.provider.profileId !== task.route.providerProfileId ||
+      plan.modelRef.modelId !== task.route.modelId ||
       !plan.provider.apiKey?.trim() ||
+      CryptoUtils.isEncrypted(plan.provider.apiKey.trim()) ||
       !isTrustedTuziApiBaseUrl(plan.provider.baseUrl) ||
-      !isSynchronousImagePlan(plan)
+      !isSynchronousImageBinding(resolvedBinding) ||
+      !isSameRecoveryBinding(task.route.binding, resolvedBinding)
     ) {
+      return null;
+    }
+
+    try {
+      const preparedSubmission = this.transport.prepareRequest(plan.provider, {
+        path: resolvedBinding.submitPath,
+        method: resolvedBinding.method,
+        baseUrlStrategy: resolvedBinding.baseUrlStrategy,
+        requestId: task.requestId,
+      });
+      const preparedRequestId = Object.entries(preparedSubmission.headers).find(
+        ([name]) => name.toLowerCase() === 'x-request-id'
+      )?.[1];
+      if (preparedRequestId !== task.requestId) {
+        return null;
+      }
+    } catch {
       return null;
     }
 
@@ -537,8 +775,14 @@ export class ImageGenerationRecoveryService {
     if (!task || !this.isCurrent(entry)) {
       return;
     }
+    const terminalDelivery = entry.terminalDelivery;
+    if (terminalDelivery) {
+      entry.terminalDelivery = undefined;
+      await terminalDelivery();
+      return;
+    }
     if (task.deadline <= this.now()) {
-      this.handleRecoveryDeadline(entry);
+      await this.finishFailure(entry, createTimeoutFailure());
       return;
     }
 
@@ -555,20 +799,22 @@ export class ImageGenerationRecoveryService {
 
     switch (outcome.type) {
       case 'succeeded':
-        this.finishSuccess(entry, outcome.result);
+        await this.finishSuccess(entry, outcome.result);
         return;
       case 'failed':
-        this.finishFailure(entry, outcome.error);
-        return;
-      case 'stopped':
+        await this.finishFailure(entry, outcome.error);
         return;
       case 'processing':
         entry.failureStreak = 0;
-        this.scheduleNextPoll(entry);
+        if (!this.scheduleNextPoll(entry)) {
+          await this.finishFailure(entry, createTimeoutFailure());
+        }
         return;
       case 'transient':
         entry.failureStreak += 1;
-        this.scheduleNextPoll(entry);
+        if (!this.scheduleNextPoll(entry)) {
+          await this.finishFailure(entry, createTimeoutFailure());
+        }
         return;
     }
   }
@@ -593,7 +839,7 @@ export class ImageGenerationRecoveryService {
     const queryTargets = this.createQueryTargets(plan);
     for (const target of queryTargets) {
       if (!this.isCurrent(entry)) {
-        return { type: 'stopped' };
+        return { type: 'transient' };
       }
       const remainingMs = task.deadline - this.now();
       if (remainingMs <= 0) {
@@ -615,13 +861,17 @@ export class ImageGenerationRecoveryService {
           task.requestId,
           controller.signal
         );
-        const response = await this.fetcher(prepared.url, prepared.init);
+        const response = await waitForFetchResponse(
+          this.fetcher(prepared.url, prepared.init),
+          controller.signal
+        );
 
         if (!this.isCurrent(entry)) {
-          return { type: 'stopped' };
+          releaseResponseBody(response);
+          return { type: 'transient' };
         }
         if (response.status === 401 || response.status === 403) {
-          await releaseResponseBody(response);
+          releaseResponseBody(response);
           if (target.isOriginalProvider) {
             return {
               type: 'failed',
@@ -637,11 +887,11 @@ export class ImageGenerationRecoveryService {
           continue;
         }
         if (isNodeFallbackStatus(response.status)) {
-          await releaseResponseBody(response);
+          releaseResponseBody(response);
           continue;
         }
         if (!response.ok) {
-          await releaseResponseBody(response);
+          releaseResponseBody(response);
           return {
             type: 'failed',
             error: {
@@ -655,7 +905,7 @@ export class ImageGenerationRecoveryService {
         }
 
         const parsed = this.parseResponse(
-          await readLimitedJson(response),
+          await readLimitedJson(response, controller.signal),
           task.requestId
         );
         if (parsed.type === 'processing') {
@@ -666,7 +916,7 @@ export class ImageGenerationRecoveryService {
         }
       } catch {
         if (!this.isCurrent(entry)) {
-          return { type: 'stopped' };
+          return { type: 'transient' };
         }
       } finally {
         if (entry.requestTimer) {
@@ -733,6 +983,15 @@ export class ImageGenerationRecoveryService {
       return { type: 'transient' };
     }
 
+    for (const echoedRequestId of [object.request_id, object.requestId]) {
+      if (echoedRequestId === undefined || echoedRequestId === null) {
+        continue;
+      }
+      if (normalizeRequestId(echoedRequestId) !== requestId) {
+        return { type: 'processing' };
+      }
+    }
+
     if (status === 'processing_or_not_found') {
       return { type: 'processing' };
     }
@@ -783,16 +1042,15 @@ export class ImageGenerationRecoveryService {
     return { type: 'transient' };
   }
 
-  private scheduleNextPoll(entry: RecoveryEntry): void {
+  private scheduleNextPoll(entry: RecoveryEntry): boolean {
     const task = entry.task;
     if (!task || !this.isCurrent(entry)) {
-      return;
+      return true;
     }
 
     const remainingMs = task.deadline - this.now();
     if (remainingMs <= 0) {
-      this.handleRecoveryDeadline(entry);
-      return;
+      return false;
     }
 
     entry.state = 'waiting';
@@ -802,14 +1060,11 @@ export class ImageGenerationRecoveryService {
       if (!this.isCurrent(entry)) {
         return;
       }
-      if (task.deadline <= this.now()) {
-        this.handleRecoveryDeadline(entry);
-        return;
-      }
       entry.state = 'queued';
       this.queue.push(entry);
       this.drainQueue();
     }, delay);
+    return true;
   }
 
   private nextDelay(failureStreak: number): number {
@@ -826,34 +1081,27 @@ export class ImageGenerationRecoveryService {
     );
   }
 
-  private handleRecoveryDeadline(entry: RecoveryEntry): void {
-    const task = entry.task;
-    if (!task || !this.isCurrent(entry)) {
-      return;
-    }
-
-    this.finishFailure(entry, createTimeoutFailure());
-  }
-
   private finishSuccess(
     entry: RecoveryEntry,
     result: ImageGenerationRecoverySuccess
-  ): void {
+  ): Promise<void> {
     const callback = entry.callbacks?.onSucceeded;
-    void this.deliverTerminalCallback(entry, callback, result, 'success');
+    return this.deliverTerminalCallback(entry, callback, result, 'success');
   }
 
   private finishFailure(
     entry: RecoveryEntry,
     error: ImageGenerationRecoveryFailure
-  ): void {
+  ): Promise<void> {
     const callback = entry.callbacks?.onFailed;
-    void this.deliverTerminalCallback(entry, callback, error, 'failure');
+    return this.deliverTerminalCallback(entry, callback, error, 'failure');
   }
 
   private async deliverTerminalCallback<T>(
     entry: RecoveryEntry,
-    callback: ((value: T) => void | Promise<void>) | undefined,
+    callback:
+      | ((value: T, signal: AbortSignal) => void | Promise<void>)
+      | undefined,
     value: T,
     terminalType: 'success' | 'failure'
   ): Promise<void> {
@@ -862,21 +1110,46 @@ export class ImageGenerationRecoveryService {
       return;
     }
 
+    let callbackController: AbortController | undefined;
     try {
       const task = entry.task;
       if (!task) {
         this.stopEntry(entry);
         return;
       }
-      const outcome = await this.waitForTerminalCallback(
+      const controller = new AbortController();
+      callbackController = controller;
+      entry.controller = controller;
+      const callbackDeadline = this.now() + this.requestTimeoutMs;
+      const callbackPromise = Promise.resolve().then(() =>
+        callback(value, controller.signal)
+      );
+      let outcome = await this.waitForTerminalCallback(
         entry,
-        Promise.resolve().then(() => callback(value)),
-        this.now() + this.requestTimeoutMs
+        callbackPromise,
+        callbackDeadline
       );
       if (outcome === 'completed' && this.isCurrent(entry)) {
         this.stopEntry(entry);
       }
       if (outcome === 'deadline' && this.isCurrent(entry)) {
+        const timeoutError = new Error(
+          'Image recovery terminal callback timed out'
+        );
+        timeoutError.name = 'TimeoutError';
+        controller.abort(timeoutError);
+        outcome = await this.waitForTerminalCallback(
+          entry,
+          callbackPromise,
+          this.now() + TERMINAL_ABORT_GRACE_MS
+        );
+        if (outcome === 'completed' && this.isCurrent(entry)) {
+          this.stopEntry(entry);
+          return;
+        }
+        if (outcome === 'stopped') {
+          return;
+        }
         console.error(
           `[ImageGenerationRecovery] Recovered ${terminalType} state writeback did not settle before the writeback watchdog`
         );
@@ -917,9 +1190,16 @@ export class ImageGenerationRecoveryService {
         if (!this.isCurrent(entry)) {
           return;
         }
-        entry.state = 'inflight';
-        void this.deliverTerminalCallback(entry, callback, value, terminalType);
+        entry.state = 'queued';
+        entry.terminalDelivery = () =>
+          this.deliverTerminalCallback(entry, callback, value, terminalType);
+        this.queue.push(entry);
+        this.drainQueue();
       }, retryDelay);
+    } finally {
+      if (callbackController && entry.controller === callbackController) {
+        entry.controller = undefined;
+      }
     }
   }
 
@@ -1016,7 +1296,7 @@ export class ImageGenerationRecoveryService {
     }
     entry.controller?.abort();
     entry.controller = undefined;
-    entry.state = 'stopped';
+    entry.terminalDelivery = undefined;
     entry.task = null;
     entry.callbacks = null;
 
@@ -1029,15 +1309,9 @@ export class ImageGenerationRecoveryService {
 export const imageGenerationRecoveryService =
   new ImageGenerationRecoveryService();
 
-export function isImageRequestRecoveryTask(task: Task): boolean {
-  return (
-    isImageRequestRecoveryCandidate(task) &&
-    imageGenerationRecoveryService.canRecover(task)
-  );
-}
-
 export function isImageRequestRecoveryCandidate(task: Task): boolean {
   const route = task.invocationRoute;
+  const binding = createRecoveryBindingFingerprint(route?.binding);
   return (
     task.type === TaskType.IMAGE &&
     task.status === TaskStatus.PROCESSING &&
@@ -1051,6 +1325,7 @@ export function isImageRequestRecoveryCandidate(task: Task): boolean {
     Boolean(
       normalizeRequiredString(route.modelRef?.modelId || route.modelId)
     ) &&
+    Boolean(binding && isSynchronousImageBinding(binding)) &&
     task.executionPhase === TaskExecutionPhase.POLLING &&
     !task.remoteId &&
     !task.syncedFromRemote

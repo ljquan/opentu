@@ -6,6 +6,7 @@ import type {
 import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
 import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
+import { readProviderResponseJson } from '../provider-routing';
 
 const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';
 const SEEDREAM_MODELS = [
@@ -163,7 +164,9 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     );
 
     if (!response.ok) {
-      const data = await response.json().catch(() => null);
+      const data = await readProviderResponseJson<Record<string, any>>(
+        response
+      ).catch(() => null);
       const errMsg =
         typeof data?.error === 'string'
           ? data.error
@@ -173,7 +176,9 @@ export const seedreamImageAdapter: ImageModelAdapter = {
       throw new Error(errMsg);
     }
 
-    const result = await response.json();
+    const result = await readProviderResponseJson<Record<string, any>>(
+      response
+    );
 
     // 提取图片 URL（支持多图）
     if (result?.data && Array.isArray(result.data) && result.data.length > 0) {

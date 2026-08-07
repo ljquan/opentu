@@ -25,6 +25,18 @@ function createImageTask(
   };
 }
 
+function createVideoTask(): SWTask {
+  return {
+    id: 'video-task-1',
+    type: 'video',
+    status: 'processing',
+    params: { prompt: 'Generate a video' },
+    createdAt: 1,
+    updatedAt: 1,
+    startedAt: 1,
+  };
+}
+
 async function saveFromAnotherTab(task: SWTask): Promise<void> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(APP_DB_NAME);
@@ -218,6 +230,82 @@ describe('task-storage-writer image attempt guards', () => {
     });
   });
 
+  it.each(['status', 'progress', 'remoteId', 'complete', 'fail'] as const)(
+    'checks execution ownership inside the %s transaction',
+    async (operation) => {
+      await taskStorageWriter.saveTask(createVideoTask());
+      const shouldUpdate = vi.fn(() => false);
+
+      const updated =
+        operation === 'status'
+          ? await taskStorageWriter.updateStatus(
+              'video-task-1',
+              'cancelled',
+              undefined,
+              { shouldUpdate }
+            )
+          : operation === 'progress'
+          ? await taskStorageWriter.updateProgress(
+              'video-task-1',
+              50,
+              'polling',
+              undefined,
+              { shouldUpdate }
+            )
+          : operation === 'remoteId'
+          ? await taskStorageWriter.updateRemoteId(
+              'video-task-1',
+              'remote-old',
+              undefined,
+              undefined,
+              { shouldUpdate }
+            )
+          : operation === 'complete'
+          ? await taskStorageWriter.completeTask(
+              'video-task-1',
+              {
+                url: 'https://example.com/old.mp4',
+                format: 'mp4',
+                size: 0,
+              },
+              undefined,
+              { shouldUpdate }
+            )
+          : await taskStorageWriter.failTask(
+              'video-task-1',
+              { code: 'OLD_FAILURE', message: 'old failure' },
+              undefined,
+              { shouldUpdate }
+            );
+
+      expect(updated).toBe(false);
+      expect(shouldUpdate).toHaveBeenCalledOnce();
+      expect(await taskStorageWriter.getTask('video-task-1')).toEqual(
+        createVideoTask()
+      );
+    }
+  );
+
+  it('rejects a deferred recovery write after the stored start time changes', async () => {
+    const replacement = createImageTask('request-current');
+    replacement.startedAt = 2;
+    await taskStorageWriter.saveTask(replacement);
+
+    expect(
+      await taskStorageWriter.markImageAttemptRecovering(
+        replacement.id,
+        'request-current',
+        { expectedStartedAt: 1 }
+      )
+    ).toBe(false);
+    const storedTask = await taskStorageWriter.getTask(replacement.id);
+    expect(storedTask).toMatchObject({
+      status: 'processing',
+      startedAt: 2,
+    });
+    expect(storedTask?.executionPhase).toBeUndefined();
+  });
+
   it('does not recover a same-request upstream failure from an old interrupted snapshot', async () => {
     const failedTask = createImageTask('request-current', 'failed');
     failedTask.error = {
@@ -293,10 +381,23 @@ describe('task-storage-writer image attempt guards', () => {
   it('keeps the live request in submitting phase after formal submission is persisted', async () => {
     await taskStorageWriter.saveTask(createImageTask('request-current'));
 
+    const invocationRoute = {
+      operation: 'image' as const,
+      providerProfileId: 'tuzi-profile',
+      modelId: 'gpt-image-2',
+      binding: {
+        id: 'tuzi-image-edit',
+        protocol: 'openai.images.edits',
+        submitPath: '/images/edits',
+        baseUrlStrategy: 'ensure-v1' as const,
+      },
+    };
+
     expect(
       await taskStorageWriter.markImageSubmissionAttempted(
         'image-task-1',
-        'request-current'
+        'request-current',
+        invocationRoute
       )
     ).toBe(true);
     expect(await taskStorageWriter.getTask('image-task-1')).toMatchObject({
@@ -306,6 +407,7 @@ describe('task-storage-writer image attempt guards', () => {
         submissionRequestId: 'request-current',
         imageSubmissionAttempted: true,
       },
+      invocationRoute,
     });
   });
 

@@ -7,6 +7,7 @@ import { registerModelAdapter } from './registry';
 import { ModelVendor } from '../../constants/model-config';
 import { sendAdapterRequest } from './context';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
+import { readProviderResponseJson } from '../provider-routing';
 
 type FluxSubmitResponse = {
   id: string;
@@ -121,7 +122,9 @@ const submitFluxImage = async (
   );
 
   if (!response.ok) {
-    const data = await response.json().catch(() => null);
+    const data = await readProviderResponseJson<Record<string, any>>(response).catch(
+      () => null
+    );
     const errMsg =
       typeof data?.error === 'string'
         ? data.error
@@ -129,7 +132,7 @@ const submitFluxImage = async (
     throw new Error(errMsg);
   }
 
-  return response.json();
+  return readProviderResponseJson<FluxSubmitResponse>(response);
 };
 
 /**
@@ -153,7 +156,9 @@ const queryFluxResult = async (
   );
 
   if (!response.ok) {
-    const data = await response.json().catch(() => null);
+    const data = await readProviderResponseJson<Record<string, any>>(response).catch(
+      () => null
+    );
     const errMsg =
       typeof data?.error === 'string'
         ? data.error
@@ -161,7 +166,7 @@ const queryFluxResult = async (
     throw new Error(errMsg);
   }
 
-  return response.json();
+  return readProviderResponseJson<FluxResultResponse>(response);
 };
 
 export const fluxImageAdapter: ImageModelAdapter = {

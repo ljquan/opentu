@@ -12,7 +12,10 @@ import {
 import { seedreamImageAdapter } from '../model-adapters/seedream-adapter';
 import { tuziGPTImageAdapter } from '../model-adapters/tuzi-gpt-image-adapter';
 import type { ImageModelAdapter } from '../model-adapters/types';
-import { inferBindingsForProviderModel } from '../provider-routing';
+import {
+  IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+  inferBindingsForProviderModel,
+} from '../provider-routing';
 import type { ProviderProfileSnapshot } from '../provider-routing';
 
 const defaultBasicImageAdapter: ImageModelAdapter = {
@@ -348,5 +351,93 @@ describe('image routing to default registered adapters', () => {
       const binding = firstImageBinding(tuziProfile, model);
       expect(resolveAdapterForBinding(binding, 'image')?.id).toBe(adapterId);
     });
+  });
+
+  it.each([
+    ['GPT Image', gptImageAdapter],
+    ['Tuzi GPT Image', tuziGPTImageAdapter],
+  ])(
+    'propagates an interrupted %s response as an unknown submission outcome',
+    async (_label, adapter) => {
+      let emittedPartialBody = false;
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (!emittedPartialBody) {
+                emittedPartialBody = true;
+                controller.enqueue(new TextEncoder().encode('{"data":['));
+                return;
+              }
+              controller.error(new Error('response stream disconnected'));
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await expect(
+        adapter.generateImage(
+          {
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'test-key',
+            authType: 'bearer',
+            operation: 'image',
+            requestId: `interrupted-${adapter.id}`,
+            fetcher,
+            binding: null,
+          },
+          {
+            model: 'gpt-image-2',
+            prompt: 'Draw a clean product photo',
+          }
+        )
+      ).rejects.toMatchObject({
+        code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('propagates an interrupted Seedream response as an unknown submission outcome', async () => {
+    let emittedPartialBody = false;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!emittedPartialBody) {
+              emittedPartialBody = true;
+              controller.enqueue(new TextEncoder().encode('{"data":['));
+              return;
+            }
+            controller.error(new Error('response stream disconnected'));
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    await expect(
+      seedreamImageAdapter.generateImage(
+        {
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'test-key',
+          authType: 'bearer',
+          operation: 'image',
+          requestId: 'seedream-interrupted-response',
+          fetcher,
+          binding: null,
+        },
+        {
+          model: 'doubao-seedream-5-0-260128',
+          prompt: 'Draw a clean product photo',
+        }
+      )
+    ).rejects.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

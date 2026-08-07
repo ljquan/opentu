@@ -119,7 +119,10 @@ export function DrawnixDeferredRuntime({
       return;
     }
 
-    return runWhenIdle(() => {
+    let disposed = false;
+    let taskSubscription: { unsubscribe: () => void } | undefined;
+    let cancelVideoRecoveries: (() => void) | undefined;
+    const cancelIdle = runWhenIdle(() => {
       const resumeTasks = async () => {
         try {
           const { workflowRecoveryPromise } = await import(
@@ -138,10 +141,46 @@ export function DrawnixDeferredRuntime({
             import('../../services/media-executor/fallback-executor'),
             import('../../services/task-queue'),
           ]);
-        const allTasks = taskQueueService.getAllTasks();
-        fallbackMediaExecutor.resumePendingTasks((taskId, status, updates) => {
-          taskQueueService.updateTaskStatus(taskId, status, updates);
-        }, allTasks);
+        if (disposed) return;
+        cancelVideoRecoveries = () =>
+          fallbackMediaExecutor.cancelAllPendingTaskRecoveries();
+
+        const resumeVideoTasks = (
+          tasks: ReturnType<typeof taskQueueService.getAllTasks>
+        ) =>
+          fallbackMediaExecutor.resumePendingTasks(
+            (taskId, status, updates) => {
+              taskQueueService.updateTaskStatus(taskId, status, updates);
+            },
+            tasks,
+            (taskId) => {
+              const token = taskQueueService.getTaskExecutionToken(taskId);
+              return () =>
+                Boolean(
+                  token &&
+                    taskQueueService.isTaskExecutionTokenCurrent(taskId, token)
+                );
+            }
+          );
+
+        taskSubscription = taskQueueService
+          .observeTaskUpdates()
+          .subscribe((event) => {
+            const task = event.task;
+            if (event.type === 'taskDeleted') {
+              fallbackMediaExecutor.cancelPendingTask(task.id);
+            } else if (event.type === 'taskCreated') {
+              void resumeVideoTasks([task]);
+            } else if (
+              event.type === 'taskUpdated' &&
+              task.type === 'video' &&
+              task.status === 'processing' &&
+              task.remoteId
+            ) {
+              void resumeVideoTasks([task]);
+            }
+          });
+        await resumeVideoTasks(taskQueueService.getAllTasks());
       };
 
       resumeTasks().catch((error) => {
@@ -151,6 +190,13 @@ export function DrawnixDeferredRuntime({
         );
       });
     }, 5000);
+
+    return () => {
+      disposed = true;
+      cancelIdle();
+      taskSubscription?.unsubscribe();
+      cancelVideoRecoveries?.();
+    };
   }, [isTaskStorageReady]);
 
   useEffect(() => {

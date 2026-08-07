@@ -185,6 +185,10 @@ export interface ProviderTransportRequest {
   fetcher?: typeof fetch;
   /** 图片提交的本地任务 ID；仅在供应商与运行时允许时写入 X-Request-Id。 */
   requestId?: string;
+  /** 是否允许同步图片请求在网络结果未知时进入 Request ID 恢复。 */
+  allowImageSubmissionOutcomeRecovery?: boolean;
+  /** 响应体将通过 provider transport 的有界 reader 读取。 */
+  controlledResponseBody?: boolean;
 }
 
 export interface PreparedProviderTransportRequest {

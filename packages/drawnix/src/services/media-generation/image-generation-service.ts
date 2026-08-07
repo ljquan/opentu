@@ -197,10 +197,11 @@ export async function generateImage(
     await executor.generateImage(executorParams, {
       signal: options.signal,
       isCurrentAttempt,
-      onSubmissionAttempt: () =>
+      onSubmissionAttempt: (actualInvocationRoute) =>
         taskQueueService.markImageSubmissionAttempted(
           taskId,
-          submissionRequestId
+          submissionRequestId,
+          actualInvocationRoute
         ),
     });
   } catch (error) {
