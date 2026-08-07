@@ -219,6 +219,7 @@ import {
   resolveBoundTargetTaskbarDraft,
   resolveBoundTargetSuppression,
   resolveTaskbarDraftAfterSubmission,
+  shouldReleaseBoundTargetPromptDismissal,
   shouldUseBoundTargetForSubmission,
   storeBoundTargetTaskbarDraft,
   type BoundTargetTaskbarDraft,
@@ -1439,6 +1440,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       useState<BoundImageTargetMode>('follow');
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
     const dismissedPromptElementIdRef = useRef<string | null>(null);
+    const dismissedPromptGenerationTaskIdRef = useRef<string | null>(null);
     const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
       useState(() => readBoundTargetDismissHintCount());
     const [boundTargetFollowEnabled, setBoundTargetFollowEnabled] = useState(
@@ -1735,8 +1737,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       setPromptSuggestion(suggestion);
     }, []);
     const dismissPromptSuggestion = useCallback(() => {
-      dismissedPromptElementIdRef.current =
-        boundImageTargetRef.current?.elementId || null;
+      const target = boundImageTargetRef.current;
+      dismissedPromptElementIdRef.current = target?.elementId || null;
+      dismissedPromptGenerationTaskIdRef.current =
+        target?.generationTaskId || null;
       updatePromptSuggestion(null);
     }, [updatePromptSuggestion]);
     const resetBoundTaskbarDraftsForBoard = useCallback(
@@ -1753,6 +1757,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         lastBoundImageTargetKeyRef.current = null;
         suppressedBoundImageElementIdRef.current = null;
         dismissedPromptElementIdRef.current = null;
+        dismissedPromptGenerationTaskIdRef.current = null;
         lastPrunedBoardChildrenRef.current = null;
         boundImageTargetRef.current = null;
         selectedContentRef.current = [];
@@ -2177,6 +2182,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               if (task.status === TaskStatus.COMPLETED) {
                 const nextTargetPrompt =
                   task.params.prompt || currentBoundTarget.prompt;
+                if (
+                  shouldReleaseBoundTargetPromptDismissal(
+                    currentBoundTarget.elementId,
+                    task.id,
+                    dismissedPromptElementIdRef.current,
+                    dismissedPromptGenerationTaskIdRef.current
+                  )
+                ) {
+                  dismissedPromptElementIdRef.current = null;
+                  dismissedPromptGenerationTaskIdRef.current = null;
+                }
                 setBoundImageTarget((current) =>
                   current?.elementId === currentBoundTarget.elementId
                     ? {
@@ -3244,6 +3260,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           lastBoundImageTargetKeyRef.current = null;
           setBoundTargetError(null);
           dismissedPromptElementIdRef.current = null;
+          dismissedPromptGenerationTaskIdRef.current = null;
           updatePromptSuggestion(null);
           return;
         }
@@ -3259,6 +3276,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         if (activeDraftElementIdRef.current !== target.elementId) {
           saveActiveTaskbarDraft();
           dismissedPromptElementIdRef.current = null;
+          dismissedPromptGenerationTaskIdRef.current = null;
           const fallback = createBoundImageInputDraft();
           const restored = resolveBoundTargetTaskbarDraft(
             boundTargetDraftsRef.current,

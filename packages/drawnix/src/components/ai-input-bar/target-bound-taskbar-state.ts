@@ -40,6 +40,18 @@ export function resolveBoundTargetPromptSuggestion(
   return normalizeBoundTargetPromptSuggestion(prompt);
 }
 
+export function shouldReleaseBoundTargetPromptDismissal(
+  targetElementId: string,
+  completedTaskId: string,
+  dismissedElementId: string | null,
+  dismissedGenerationTaskId: string | null
+): boolean {
+  return (
+    targetElementId === dismissedElementId &&
+    completedTaskId !== dismissedGenerationTaskId
+  );
+}
+
 export function resolveBoundTargetPromptSuggestionAction({
   suggestion,
   currentPrompt,

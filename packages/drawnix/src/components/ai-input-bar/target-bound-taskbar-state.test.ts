@@ -22,6 +22,7 @@ import {
   resolveBoundTargetTaskbarDraft,
   resolveBoundTargetSuppression,
   resolveTaskbarDraftAfterSubmission,
+  shouldReleaseBoundTargetPromptDismissal,
   shouldUseBoundTargetForSubmission,
   storeBoundTargetTaskbarDraft,
 } from './target-bound-taskbar-state';
@@ -60,6 +61,33 @@ describe('target-bound-taskbar-state', () => {
     expect(
       resolveBoundTargetPromptSuggestion('海边日落', 'image-a', null)
     ).toBe('海边日落');
+  });
+
+  it('同一图片完成新一轮生成时解除旧提示词候选屏蔽', () => {
+    expect(
+      shouldReleaseBoundTargetPromptDismissal(
+        'image-a',
+        'task-new',
+        'image-a',
+        'task-old'
+      )
+    ).toBe(true);
+    expect(
+      shouldReleaseBoundTargetPromptDismissal(
+        'image-a',
+        'task-old',
+        'image-a',
+        'task-old'
+      )
+    ).toBe(false);
+    expect(
+      shouldReleaseBoundTargetPromptDismissal(
+        'image-b',
+        'task-new',
+        'image-a',
+        'task-old'
+      )
+    ).toBe(false);
   });
 
   it('空输入按空格或回车时只复用候选提示词', () => {

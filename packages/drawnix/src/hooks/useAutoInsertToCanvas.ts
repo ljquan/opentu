@@ -789,7 +789,12 @@ export function useAutoInsertToCanvas(
                     clipIds: task.result?.clipIds,
                   }
                 : undefined;
-            const metadata = type === 'audio' ? audioMetadata : undefined;
+            const metadata =
+              type === 'image'
+                ? buildImageGenerationElementPatch(task)
+                : type === 'audio'
+                ? audioMetadata
+                : undefined;
             // 展开多图：优先使用 urls 数组
             const allUrls =
               type === 'text'
@@ -932,7 +937,9 @@ export function useAutoInsertToCanvas(
                   url: u,
                   dimensions,
                   metadata:
-                    type === 'audio'
+                    type === 'image'
+                      ? buildImageGenerationElementPatch(task, imageAnchor)
+                      : type === 'audio'
                       ? {
                           ...audioMetadata,
                           title:
@@ -1124,6 +1131,7 @@ export function useAutoInsertToCanvas(
                 insertedElementId,
                 allUrls[0]
               );
+              notifyAISelectionContentRefresh();
             }
 
             workflowCompletionService.completePostProcessing(
@@ -1475,6 +1483,7 @@ export function useAutoInsertToCanvas(
                   insertedImageItemByTaskId.set(item.task.id, insertedItem);
                 }
               });
+              notifyAISelectionContentRefresh();
             }
 
             for (const { task } of inserts) {
