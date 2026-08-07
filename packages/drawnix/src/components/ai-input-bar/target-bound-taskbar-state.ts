@@ -12,6 +12,65 @@ interface BoundTargetGenerationMetadata {
   generationAnchorId?: string;
 }
 
+export type BoundTargetPromptSuggestionAction = 'reuse' | 'dismiss' | 'none';
+
+export interface BoundTargetPromptSuggestionInput {
+  suggestion: string | null;
+  currentPrompt: string;
+  key: string;
+  code?: string;
+  isComposing?: boolean;
+  hasModifier?: boolean;
+  menuOpen?: boolean;
+}
+
+export function normalizeBoundTargetPromptSuggestion(
+  prompt: string | null | undefined
+): string | null {
+  const normalizedPrompt = prompt?.trim() || '';
+  return normalizedPrompt || null;
+}
+
+export function resolveBoundTargetPromptSuggestion(
+  prompt: string | null | undefined,
+  elementId: string,
+  dismissedElementId: string | null
+): string | null {
+  if (elementId === dismissedElementId) return null;
+  return normalizeBoundTargetPromptSuggestion(prompt);
+}
+
+export function resolveBoundTargetPromptSuggestionAction({
+  suggestion,
+  currentPrompt,
+  key,
+  code,
+  isComposing = false,
+  hasModifier = false,
+  menuOpen = false,
+}: BoundTargetPromptSuggestionInput): BoundTargetPromptSuggestionAction {
+  if (!suggestion || isComposing || menuOpen) return 'none';
+
+  if (
+    currentPrompt.length === 0 &&
+    !hasModifier &&
+    (key === 'Enter' || key === ' ' || key === 'Spacebar' || code === 'Space')
+  ) {
+    return 'reuse';
+  }
+
+  return 'dismiss';
+}
+
+export function formatBoundTargetPromptSuggestion(
+  suggestion: string,
+  language: 'zh' | 'en'
+): string {
+  return language === 'zh'
+    ? `按空格或回车复用提示词：${suggestion}`
+    : `Press Space or Enter to reuse: ${suggestion}`;
+}
+
 export type BoundImageTargetMode = 'follow' | 'reference';
 
 export function createBoundImageTargetStateKey(

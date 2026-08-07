@@ -894,6 +894,11 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       color: $gray-medium;
     }
 
+    &--suggestion::placeholder {
+      color: rgba($gray-medium, 0.78);
+      font-style: italic;
+    }
+
     &:focus {
       outline: none;
       border: none !important;

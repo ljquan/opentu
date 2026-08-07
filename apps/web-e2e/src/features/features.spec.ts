@@ -60,7 +60,11 @@ test.describe('@feature 功能测试', () => {
         .click();
       await expect(page.locator('.ai-input-bar--bound-image')).toBeVisible();
       const input = page.locator('[data-testid="ai-input-textarea"]');
-      await expect(input).toHaveValue(prompt);
+      await expect(input).toHaveValue('');
+      await expect(input).toHaveAttribute(
+        'placeholder',
+        `按空格或回车复用提示词：${prompt}`
+      );
       await expect(input).not.toBeFocused();
       expect(await hasImage(id)).toBe(true);
     };
@@ -69,6 +73,8 @@ test.describe('@feature 功能测试', () => {
     await selectImage('typing-delete-image', 'abc');
     const input = page.locator('[data-testid="ai-input-textarea"]');
     await input.focus();
+    await input.press('Enter');
+    await expect(input).toHaveValue('abc');
     await input.press('End');
     await input.press('Backspace');
     await expect(input).toHaveValue('ab');

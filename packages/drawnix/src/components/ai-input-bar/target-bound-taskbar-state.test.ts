@@ -7,7 +7,9 @@ import {
   collectBoundTargetElementIds,
   createBoundImageTargetStateKey,
   findBoundTargetElement,
+  formatBoundTargetPromptSuggestion,
   isBoundTargetReferenceOnly,
+  normalizeBoundTargetPromptSuggestion,
   pinBoundTargetReferenceContent,
   pruneStaleBoundTargetTaskbarDrafts,
   readBoundTargetDismissHintCount,
@@ -15,6 +17,8 @@ import {
   recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
   resolveBoundTargetForPosition,
+  resolveBoundTargetPromptSuggestion,
+  resolveBoundTargetPromptSuggestionAction,
   resolveBoundTargetTaskbarDraft,
   resolveBoundTargetSuppression,
   resolveTaskbarDraftAfterSubmission,
@@ -45,6 +49,88 @@ function createFollowStorage(initialValue?: string) {
 }
 
 describe('target-bound-taskbar-state', () => {
+  it('将历史提示词规范化为候选，并抑制已取消目标的异步回显', () => {
+    expect(normalizeBoundTargetPromptSuggestion('  海边日落  ')).toBe(
+      '海边日落'
+    );
+    expect(normalizeBoundTargetPromptSuggestion('   ')).toBeNull();
+    expect(
+      resolveBoundTargetPromptSuggestion('海边日落', 'image-a', 'image-a')
+    ).toBeNull();
+    expect(
+      resolveBoundTargetPromptSuggestion('海边日落', 'image-a', null)
+    ).toBe('海边日落');
+  });
+
+  it('空输入按空格或回车时只复用候选提示词', () => {
+    for (const input of [
+      { key: ' ', code: 'Space' },
+      { key: 'Spacebar' },
+      { key: 'Enter' },
+    ]) {
+      expect(
+        resolveBoundTargetPromptSuggestionAction({
+          suggestion: '兔子',
+          currentPrompt: '',
+          ...input,
+        })
+      ).toBe('reuse');
+    }
+  });
+
+  it('直接输入、已有正文和组合键都会取消候选', () => {
+    expect(
+      resolveBoundTargetPromptSuggestionAction({
+        suggestion: '兔子',
+        currentPrompt: '',
+        key: 'a',
+      })
+    ).toBe('dismiss');
+    expect(
+      resolveBoundTargetPromptSuggestionAction({
+        suggestion: '兔子',
+        currentPrompt: '已有内容',
+        key: 'Enter',
+      })
+    ).toBe('dismiss');
+    expect(
+      resolveBoundTargetPromptSuggestionAction({
+        suggestion: '兔子',
+        currentPrompt: '',
+        key: 'Enter',
+        hasModifier: true,
+      })
+    ).toBe('dismiss');
+  });
+
+  it('输入法组合和下拉菜单操作期间不处理候选', () => {
+    expect(
+      resolveBoundTargetPromptSuggestionAction({
+        suggestion: '兔子',
+        currentPrompt: '',
+        key: 'Enter',
+        isComposing: true,
+      })
+    ).toBe('none');
+    expect(
+      resolveBoundTargetPromptSuggestionAction({
+        suggestion: '兔子',
+        currentPrompt: '',
+        key: 'Enter',
+        menuOpen: true,
+      })
+    ).toBe('none');
+  });
+
+  it('提示文案明确说明空格和回车复用', () => {
+    expect(formatBoundTargetPromptSuggestion('兔子', 'zh')).toBe(
+      '按空格或回车复用提示词：兔子'
+    );
+    expect(formatBoundTargetPromptSuggestion('rabbit', 'en')).toBe(
+      'Press Space or Enter to reuse: rabbit'
+    );
+  });
+
   it('仅把显式标记的图片视为永久参考图模式', () => {
     expect(isBoundTargetReferenceOnly({ aiTaskbarReferenceOnly: true })).toBe(
       true
