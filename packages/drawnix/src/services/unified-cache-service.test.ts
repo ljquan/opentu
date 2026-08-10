@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import {
   afterAll,
   afterEach,
@@ -29,6 +29,7 @@ vi.mock('./sw-channel/client', () => ({
 import {
   UNIFIED_BLOB_STORE_NAME,
   UNIFIED_DB_NAME,
+  UNIFIED_STORE_NAME,
   unifiedCacheService,
 } from './unified-cache-service';
 
@@ -75,6 +76,41 @@ function readBlobAsText(blob: Blob | null): Promise<string | null> {
     reader.onload = () => resolve(String(reader.result ?? ''));
     reader.onerror = () => reject(reader.error);
     reader.readAsText(blob);
+  });
+}
+
+function createMemoryCache() {
+  const entries = new Map<string, Response>();
+  const getKey = (input: unknown) =>
+    typeof input === 'string' ? input : (input as Request).url;
+  const cache = {
+    match: vi.fn(async (input: unknown) => entries.get(getKey(input))?.clone()),
+    put: vi.fn(async (input: unknown, response: Response) => {
+      entries.set(getKey(input), response.clone());
+    }),
+    delete: vi.fn(async (input: unknown) => entries.delete(getKey(input))),
+  };
+  return { cache, entries };
+}
+
+function failMetadataPutOnCall(callNumber: number): void {
+  const originalPut = IDBObjectStore.prototype.put;
+  let metadataPutCount = 0;
+
+  vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    value: unknown,
+    key?: IDBValidKey
+  ) {
+    if (this.name === UNIFIED_STORE_NAME) {
+      metadataPutCount += 1;
+      if (metadataPutCount === callNumber) {
+        throw new Error('metadata write failed');
+      }
+    }
+    return key === undefined
+      ? originalPut.call(this, value)
+      : originalPut.call(this, value, key);
   });
 }
 
@@ -214,6 +250,92 @@ describe('UnifiedCacheService insecure LAN fallback', () => {
     expect(repaired.url).toBe(first.url);
     expect(repaired.reused).toBe(false);
     expect(await readBlobAsText(restored)).toBe('repair-local-image');
+  });
+});
+
+describe('UnifiedCacheService atomic media writes', () => {
+  it('rolls back a new Cache Storage response when metadata commit fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { cache, entries } = createMemoryCache();
+    vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+    failMetadataPutOnCall(1);
+    const cacheUrl = '/__aitu_cache__/image/metadata-failure.png';
+
+    await expect(
+      unifiedCacheService.cacheMediaFromBlob(
+        cacheUrl,
+        new Blob(['new-image'], { type: 'image/png' }),
+        'image',
+        { contentHash: 'metadata-failure' }
+      )
+    ).rejects.toThrow('metadata write failed');
+
+    expect(cache.delete).toHaveBeenCalledWith(cacheUrl);
+    expect(entries.has(cacheUrl)).toBe(false);
+    await expect(
+      unifiedCacheService.getCachedBlob(cacheUrl)
+    ).resolves.toBeNull();
+    expect(
+      (await unifiedCacheService.getAllCachedMedia()).some(
+        (item) => item.url === cacheUrl
+      )
+    ).toBe(false);
+  });
+
+  it('rolls back the IndexedDB Blob when metadata commit fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('caches', undefined);
+    failMetadataPutOnCall(1);
+    const cacheUrl = '/__aitu_cache__/image/idb-metadata-failure.png';
+
+    await expect(
+      unifiedCacheService.cacheMediaFromBlob(
+        cacheUrl,
+        new Blob(['idb-image'], { type: 'image/png' }),
+        'image',
+        { contentHash: 'idb-metadata-failure' }
+      )
+    ).rejects.toThrow('metadata write failed');
+
+    await expect(
+      unifiedCacheService.getCachedBlob(cacheUrl)
+    ).resolves.toBeNull();
+    expect(
+      (await unifiedCacheService.getAllCachedMedia()).some(
+        (item) => item.url === cacheUrl
+      )
+    ).toBe(false);
+  });
+
+  it('preserves a concurrent valid response when a later metadata commit fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { cache, entries } = createMemoryCache();
+    vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
+    failMetadataPutOnCall(2);
+    const cacheUrl = '/__aitu_cache__/image/concurrent-metadata-failure.png';
+    const firstBlob = new Blob(['first'], { type: 'image/png' });
+    const secondBlob = new Blob(['second-image'], { type: 'image/png' });
+
+    const [first, second] = await Promise.allSettled([
+      unifiedCacheService.cacheMediaFromBlob(cacheUrl, firstBlob, 'image', {
+        contentHash: 'first-content',
+      }),
+      unifiedCacheService.cacheMediaFromBlob(cacheUrl, secondBlob, 'image', {
+        contentHash: 'second-content',
+      }),
+    ]);
+
+    expect(first.status).toBe('fulfilled');
+    expect(second.status).toBe('rejected');
+    expect(entries.get(cacheUrl)?.headers.get('Content-Length')).toBe(
+      firstBlob.size.toString()
+    );
+    expect(cache.delete).not.toHaveBeenCalled();
+    expect(
+      (await unifiedCacheService.getAllCachedMedia()).find(
+        (item) => item.url === cacheUrl
+      )?.contentHash
+    ).toBe('first-content');
   });
 });
 

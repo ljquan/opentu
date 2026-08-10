@@ -38,6 +38,7 @@ const LEGACY_DB_NAMES = {
 
 /** Service Worker 图片缓存名称 */
 const IMAGE_CACHE_NAME = 'drawnix-images';
+const CACHE_WRITE_ID_HEADER = 'x-aitu-cache-write-id';
 
 const VOLATILE_REMOTE_CACHE_QUERY_PARAMS = new Set([
   '_t',
@@ -281,6 +282,7 @@ class UnifiedCacheService {
   private cacheWritesPaused = false;
   private activeCacheWrites = 0;
   private cacheWriteDrainWaiters: Array<() => void> = [];
+  private mediaWriteQueues = new Map<string, Promise<void>>();
 
   constructor() {
     if (typeof indexedDB !== 'undefined') {
@@ -329,6 +331,29 @@ class UnifiedCacheService {
     return new Promise((resolve) => {
       this.cacheWriteDrainWaiters.push(resolve);
     });
+  }
+
+  private async withMediaWriteLock<T>(
+    url: string,
+    write: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.mediaWriteQueues.get(url) || Promise.resolve();
+    let release: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.mediaWriteQueues.set(url, tail);
+
+    await previous;
+    try {
+      return await write();
+    } finally {
+      release();
+      if (this.mediaWriteQueues.get(url) === tail) {
+        this.mediaWriteQueues.delete(url);
+      }
+    }
   }
 
   /**
@@ -490,6 +515,78 @@ class UnifiedCacheService {
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
+  }
+
+  private async commitMediaBlobAndMetadata(
+    url: string,
+    blob: Blob | null,
+    item: CachedMedia
+  ): Promise<void> {
+    const db = await this.initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(
+        [UNIFIED_STORE_NAME, UNIFIED_BLOB_STORE_NAME],
+        'readwrite'
+      );
+      let operationError: unknown;
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(
+          operationError ||
+            transaction.error ||
+            new Error('Failed to commit cached media')
+        );
+      transaction.onabort = () =>
+        reject(
+          operationError ||
+            transaction.error ||
+            new Error('Cached media transaction aborted')
+        );
+
+      try {
+        const blobStore = transaction.objectStore(UNIFIED_BLOB_STORE_NAME);
+        const blobRequest = blob
+          ? blobStore.put(blob, url)
+          : blobStore.delete(url);
+        const metadataRequest = transaction
+          .objectStore(UNIFIED_STORE_NAME)
+          .put(item);
+        const captureRequestError = (request: IDBRequest) => {
+          request.onerror = () => {
+            operationError = operationError || request.error;
+          };
+        };
+        captureRequestError(blobRequest);
+        captureRequestError(metadataRequest);
+      } catch (error) {
+        operationError = error;
+        try {
+          transaction.abort();
+        } catch {
+          // The transaction may already be inactive after a synchronous failure.
+        }
+        reject(error);
+      }
+    });
+  }
+
+  private async rollbackCacheStorageWrite(
+    cache: Cache,
+    url: string,
+    writeId: string,
+    previousResponse?: Response
+  ): Promise<void> {
+    const currentResponse = await cache.match(url);
+    if (currentResponse?.headers.get(CACHE_WRITE_ID_HEADER) !== writeId) {
+      return;
+    }
+
+    if (previousResponse) {
+      await cache.put(url, previousResponse);
+    } else {
+      await cache.delete(url);
+    }
   }
 
   private buildContentAddressedUrl(
@@ -1409,11 +1506,11 @@ class UnifiedCacheService {
     type: CacheMediaType,
     options?: CacheMediaMetadata | CacheMediaFromBlobOptions
   ): Promise<string> {
+    const cacheUrl = this.normalizeRemoteCacheUrl(url);
     if (!this.beginCacheWrite()) {
-      return this.normalizeRemoteCacheUrl(url);
+      return cacheUrl;
     }
     try {
-      const cacheUrl = this.normalizeRemoteCacheUrl(url);
       const normalizedOptions =
         options &&
         !('metadata' in options) &&
@@ -1434,70 +1531,6 @@ class UnifiedCacheService {
           : cachedAt;
       const contentHash =
         normalizedOptions?.contentHash || (await calculateBlobChecksum(blob));
-
-      let storedInCacheStorage = false;
-
-      // 1. 优先放入 Cache API；局域网 HTTP 不具备安全上下文时回退到 IndexedDB。
-      if (typeof caches !== 'undefined') {
-        try {
-          const cache = await caches.open(IMAGE_CACHE_NAME);
-          const response = new Response(blob, {
-            headers: {
-              'Content-Type': blob.type || 'application/octet-stream',
-              'Content-Length': blob.size.toString(),
-              'sw-cache-date': lastUsed.toString(),
-              'sw-cache-created-at': cachedAt.toString(),
-              'sw-image-size': blob.size.toString(),
-            },
-          });
-          await cache.put(cacheUrl, response);
-          storedInCacheStorage = true;
-
-          // 异步生成预览图（不阻塞主流程）
-          if (
-            typeof navigator !== 'undefined' &&
-            navigator.serviceWorker &&
-            swChannelClient.isInitialized()
-          ) {
-            blob
-              .arrayBuffer()
-              .then((arrayBuffer) => {
-                swChannelClient
-                  .publish('GENERATE_THUMBNAIL', {
-                    url: cacheUrl,
-                    mediaType: type,
-                    blob: arrayBuffer,
-                    mimeType: blob.type,
-                  })
-                  .catch((err) => {
-                    console.warn(
-                      '[UnifiedCache] Failed to request thumbnail generation:',
-                      err
-                    );
-                  });
-              })
-              .catch((err) => {
-                console.warn(
-                  '[UnifiedCache] Failed to convert blob to arrayBuffer:',
-                  err
-                );
-              });
-          }
-        } catch (error) {
-          console.warn(
-            '[UnifiedCache] Cache Storage unavailable, using IndexedDB blob fallback:',
-            error
-          );
-        }
-      }
-
-      if (storedInCacheStorage) {
-        await this.deleteBlobItem(cacheUrl);
-      } else {
-        await this.putBlobItem(cacheUrl, blob);
-      }
-
-      // 2. 存储元数据到 IndexedDB
       const item: CachedMedia = {
         url: cacheUrl,
         type,
@@ -1509,12 +1542,105 @@ class UnifiedCacheService {
         metadata: normalizedOptions?.metadata || {},
       };
 
-      await this.putItem(item);
-      this.cachedUrls.add(cacheUrl);
-      this.notifyListeners();
+      return await this.withMediaWriteLock(cacheUrl, async () => {
+        let cacheStorage: Cache | null = null;
+        let previousCacheResponse: Response | undefined;
+        let storedInCacheStorage = false;
+        const cacheWriteId = `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`;
 
-      // console.log('[UnifiedCache] Media cached from blob:', { url, type, size: blob.size });
-      return cacheUrl;
+        // 1. 优先放入 Cache API；局域网 HTTP 不具备安全上下文时回退到 IndexedDB。
+        if (typeof caches !== 'undefined') {
+          try {
+            cacheStorage = await caches.open(IMAGE_CACHE_NAME);
+            previousCacheResponse = await cacheStorage.match(cacheUrl);
+            const response = new Response(blob, {
+              headers: {
+                'Content-Type': blob.type || 'application/octet-stream',
+                'Content-Length': blob.size.toString(),
+                'sw-cache-date': lastUsed.toString(),
+                'sw-cache-created-at': cachedAt.toString(),
+                'sw-image-size': blob.size.toString(),
+                [CACHE_WRITE_ID_HEADER]: cacheWriteId,
+              },
+            });
+            await cacheStorage.put(cacheUrl, response);
+            storedInCacheStorage = true;
+          } catch (error) {
+            cacheStorage = null;
+            previousCacheResponse = undefined;
+            console.warn(
+              '[UnifiedCache] Cache Storage unavailable, using IndexedDB blob fallback:',
+              error
+            );
+          }
+        }
+
+        try {
+          // Blob 回退存储与元数据必须在同一 IDB 事务中提交。
+          await this.commitMediaBlobAndMetadata(
+            cacheUrl,
+            storedInCacheStorage ? null : blob,
+            item
+          );
+        } catch (error) {
+          if (storedInCacheStorage && cacheStorage) {
+            try {
+              await this.rollbackCacheStorageWrite(
+                cacheStorage,
+                cacheUrl,
+                cacheWriteId,
+                previousCacheResponse
+              );
+            } catch (rollbackError) {
+              console.warn(
+                '[UnifiedCache] Failed to roll back Cache Storage write:',
+                rollbackError
+              );
+            }
+          }
+          throw error;
+        }
+
+        this.cachedUrls.add(cacheUrl);
+        this.notifyListeners();
+
+        // 元数据提交后再生成预览图，避免失败写入留下孤儿任务。
+        if (
+          storedInCacheStorage &&
+          typeof navigator !== 'undefined' &&
+          navigator.serviceWorker &&
+          swChannelClient.isInitialized()
+        ) {
+          blob
+            .arrayBuffer()
+            .then((arrayBuffer) => {
+              swChannelClient
+                .publish('GENERATE_THUMBNAIL', {
+                  url: cacheUrl,
+                  mediaType: type,
+                  blob: arrayBuffer,
+                  mimeType: blob.type,
+                })
+                .catch((err) => {
+                  console.warn(
+                    '[UnifiedCache] Failed to request thumbnail generation:',
+                    err
+                  );
+                });
+            })
+            .catch((err) => {
+              console.warn(
+                '[UnifiedCache] Failed to convert blob to arrayBuffer:',
+                err
+              );
+            });
+        }
+
+        // console.log('[UnifiedCache] Media cached from blob:', { url, type, size: blob.size });
+        return cacheUrl;
+      });
     } catch (error) {
       this.handleQuotaError(error);
       console.error('[UnifiedCache] Failed to cache media from blob:', error);

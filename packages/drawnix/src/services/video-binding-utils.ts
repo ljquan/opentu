@@ -6,7 +6,6 @@ import {
 import { getVideoModelConfig } from '../constants/video-model-config';
 import type { VideoModelConfig } from '../types/video.types';
 import type { ModelRef } from '../utils/settings-manager';
-import { isPublicHttpMediaUrl } from '../utils/virtual-media-url';
 import { providerTransport } from './provider-routing/provider-transport';
 import { resolveInvocationPlanFromRoute } from './provider-routing/settings-repository';
 import type {
@@ -15,51 +14,11 @@ import type {
   ResolvedProviderContext,
 } from './provider-routing/types';
 
-const SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH = 16 * 1024 * 1024;
-
-export { isPublicHttpMediaUrl } from '../utils/virtual-media-url';
-
-export function isSeedanceAudioReference(value: string): boolean {
-  const normalized = value.trim();
-  if (!normalized) return false;
-  if (isPublicHttpMediaUrl(normalized)) return true;
-  if (normalized.toLowerCase().startsWith('asset://')) {
-    return /^asset:\/\/[a-z0-9][a-z0-9._/-]*$/i.test(normalized);
-  }
-  if (normalized.startsWith('data:audio/')) {
-    if (normalized.length > SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH) return false;
-    const separatorIndex = normalized.indexOf(',');
-    if (separatorIndex < 0) return false;
-    const header = normalized.slice(0, separatorIndex);
-    const payload = normalized.slice(separatorIndex + 1);
-    if (!/^data:audio\/[a-z0-9.+-]+;base64$/.test(header)) return false;
-    if (!payload || payload.length % 4 !== 0) return false;
-
-    const paddingIndex = payload.indexOf('=');
-    const dataEnd = paddingIndex < 0 ? payload.length : paddingIndex;
-    if (payload.length - dataEnd > 2) return false;
-    for (let index = 0; index < dataEnd; index += 1) {
-      const code = payload.charCodeAt(index);
-      const valid =
-        (code >= 48 && code <= 57) ||
-        (code >= 65 && code <= 90) ||
-        (code >= 97 && code <= 122) ||
-        code === 43 ||
-        code === 47;
-      if (!valid) return false;
-    }
-    for (let index = dataEnd; index < payload.length; index += 1) {
-      if (payload.charCodeAt(index) !== 61) return false;
-    }
-    return true;
-  }
-
-  return (
-    normalized.length <= 512 &&
-    /^[a-z0-9][a-z0-9._/-]*$/i.test(normalized) &&
-    !normalized.toLowerCase().startsWith('blob:')
-  );
-}
+export {
+  areSeedanceAudioDataUrlsWithinLimit,
+  isPublicHttpMediaUrl,
+  isSeedanceAudioReference,
+} from '../utils/virtual-media-url';
 
 const FIXED_SORA_DURATION_MODEL_PATTERN = /^sora-2-(\d+)s$/i;
 const DEFAULT_VIDEO_POLL_PATH = '/videos/{taskId}';

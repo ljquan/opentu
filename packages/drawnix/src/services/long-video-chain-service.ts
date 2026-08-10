@@ -10,15 +10,30 @@
 
 import { taskQueueService } from './task-queue';
 import { TaskStatus, TaskType, Task } from '../types/task.types';
+import type { CanvasAssociationRef } from '../types/task.types';
 import { extractLastFrame } from '@aitu/utils';
-import { mergeVideos, type MergeProgressCallback, type TransitionConfig } from './video-merge-webcodecs';
+import {
+  mergeVideos,
+  type MergeProgressCallback,
+  type TransitionConfig,
+} from './video-merge-webcodecs';
 import type { TransitionHint } from '../mcp/tools/video-analyze';
 import {
   createLongVideoSegmentTask,
   type LongVideoMeta,
   type VideoSegmentScript,
 } from './canvas-operations/long-video';
-import { quickInsert } from './canvas-operations/canvas-insertion';
+import {
+  getCanvasBoardBinding,
+  quickInsert,
+} from './canvas-operations/canvas-insertion';
+import {
+  canInsertCanvasAssociationsOnBoard,
+  createCanvasAssociationLines,
+} from '../plugins/canvas-association';
+import { workspaceService } from './workspace-service';
+
+const MAX_COMPLETED_BATCH_TOMBSTONES = 256;
 
 /** 长视频批次跟踪信息 */
 interface LongVideoBatch {
@@ -37,6 +52,12 @@ interface LongVideoBatch {
   characterReferenceUrls?: string[];
   /** 角色一致性描述，传递给每个片段任务 */
   characterDescription?: string;
+  /** 最终合并结果需要连接的画布来源快照 */
+  canvasAssociations?: CanvasAssociationRef[];
+  /** 已完成但尚未写回来源画板的合并结果 */
+  mergedVideoUrl?: string;
+  /** 已插入但因切板尚未完成联想连线的结果元素 */
+  mergedResultElementId?: string;
 }
 
 /**
@@ -62,6 +83,8 @@ class LongVideoChainService {
   private isInitialized = false;
   /** 跟踪每个批次的完成状态 */
   private batches: Map<string, LongVideoBatch> = new Map();
+  /** 最近成功插入的批次，防止清理后的迟到完成通知重复合并 */
+  private completedBatchIds = new Set<string>();
   /** 服务初始化时间戳，用于过滤旧任务 */
   private initTimestamp: number = 0;
 
@@ -85,7 +108,7 @@ class LongVideoChainService {
     // console.log('[LongVideoChain] Service initialized at', this.initTimestamp);
 
     // 订阅任务更新事件
-    taskQueueService.observeTaskUpdates().subscribe(event => {
+    taskQueueService.observeTaskUpdates().subscribe((event) => {
       // 只处理视频任务完成事件
       if (
         event.type === 'taskUpdated' &&
@@ -100,10 +123,18 @@ class LongVideoChainService {
           return;
         }
 
-        this.handleSegmentCompleted(event.task).catch(error => {
-          console.error('[LongVideoChain] Error handling completed segment:', error);
+        this.handleSegmentCompleted(event.task).catch((error) => {
+          console.error(
+            '[LongVideoChain] Error handling completed segment:',
+            error
+          );
         });
       }
+    });
+
+    workspaceService.observeEvents().subscribe((event) => {
+      if (event.type !== 'boardSwitched') return;
+      setTimeout(() => this.retryPendingMerges(), 0);
     });
   }
 
@@ -116,6 +147,10 @@ class LongVideoChainService {
 
     const { segmentIndex, totalSegments, scripts, batchId } = meta;
     const videoUrl = task.result?.url;
+
+    if (this.completedBatchIds.has(batchId)) {
+      return;
+    }
 
     // 获取或创建批次跟踪
     let batch = this.batches.get(batchId);
@@ -131,6 +166,9 @@ class LongVideoChainService {
         scripts: scripts || [],
         characterReferenceUrls: meta.characterReferenceUrls,
         characterDescription: meta.characterDescription,
+        canvasAssociations: meta.canvasAssociations
+          ?.slice(0, 20)
+          .map((association) => ({ ...association })),
       };
       this.batches.set(batchId, batch);
     }
@@ -168,7 +206,14 @@ class LongVideoChainService {
     if (segmentIndex < totalSegments) {
       batch.creatingNextFor = segmentIndex;
       try {
-        await this.createNextSegment(task, meta, scripts, videoUrl, batch.characterReferenceUrls, batch.characterDescription);
+        await this.createNextSegment(
+          task,
+          meta,
+          scripts,
+          videoUrl,
+          batch.characterReferenceUrls,
+          batch.characterDescription
+        );
       } finally {
         batch.creatingNextFor = null;
       }
@@ -187,10 +232,12 @@ class LongVideoChainService {
     characterDescription?: string
   ): Promise<void> {
     const nextIndex = currentMeta.segmentIndex + 1;
-    const nextScript = scripts.find(s => s.index === nextIndex);
+    const nextScript = scripts.find((s) => s.index === nextIndex);
 
     if (!nextScript) {
-      console.error(`[LongVideoChain] Script not found for segment ${nextIndex}`);
+      console.error(
+        `[LongVideoChain] Script not found for segment ${nextIndex}`
+      );
       return;
     }
 
@@ -212,12 +259,18 @@ class LongVideoChainService {
       ...currentMeta,
       segmentIndex: nextIndex,
       needsLastFrame: nextIndex < currentMeta.totalSegments,
-      characterReferenceUrls: characterReferenceUrls ?? currentMeta.characterReferenceUrls,
-      characterDescription: characterDescription ?? currentMeta.characterDescription,
+      characterReferenceUrls:
+        characterReferenceUrls ?? currentMeta.characterReferenceUrls,
+      characterDescription:
+        characterDescription ?? currentMeta.characterDescription,
     };
 
     // 创建任务
-    const task = createLongVideoSegmentTask(nextScript, nextMeta, lastFrameDataUrl);
+    const task = createLongVideoSegmentTask(
+      nextScript,
+      nextMeta,
+      lastFrameDataUrl
+    );
     // console.log(`[LongVideoChain] Created segment ${nextIndex}/${currentMeta.totalSegments}: ${task.id}`);
   }
 
@@ -229,49 +282,71 @@ class LongVideoChainService {
       return;
     }
 
+    if (!this.canProcessBatchOnActiveBoard(batch)) {
+      console.warn(
+        '[LongVideoChain] Source board is not active; merged result insertion deferred'
+      );
+      return;
+    }
+
     batch.isMerging = true;
     // console.log(`[LongVideoChain] Starting merge for batch ${batch.batchId}`);
 
     try {
-      // 按顺序收集所有视频URL
-      const videoUrls: string[] = [];
-      for (let i = 1; i <= batch.totalSegments; i++) {
-        const url = batch.completedSegments.get(i);
-        if (url) {
-          videoUrls.push(url);
+      if (!batch.mergedVideoUrl) {
+        // 按顺序收集所有视频URL
+        const videoUrls: string[] = [];
+        for (let i = 1; i <= batch.totalSegments; i++) {
+          const url = batch.completedSegments.get(i);
+          if (url) {
+            videoUrls.push(url);
+          }
         }
+
+        if (videoUrls.length === 0) {
+          console.error('[LongVideoChain] No video URLs to merge');
+          return;
+        }
+
+        // console.log(`[LongVideoChain] Merging ${videoUrls.length} videos...`);
+
+        // 从任务 meta 中提取转场信息
+        const transitions = this.extractTransitions(batch);
+
+        // 合并视频
+        const onProgress: MergeProgressCallback = (
+          progress,
+          stage,
+          message
+        ) => {
+          const msg = message || `${stage} ${progress.toFixed(1)}%`;
+          // console.log(`[LongVideoChain] Merge progress: ${msg}`);
+          // TODO: 可以在这里更新 UI 显示进度
+        };
+
+        const result = await mergeVideos(videoUrls, onProgress, {
+          transitions,
+          transitionDuration: 0.5,
+        });
+        batch.mergedVideoUrl = result.url;
       }
-
-      if (videoUrls.length === 0) {
-        console.error('[LongVideoChain] No video URLs to merge');
-        return;
-      }
-
-      // console.log(`[LongVideoChain] Merging ${videoUrls.length} videos...`);
-
-      // 从任务 meta 中提取转场信息
-      const transitions = this.extractTransitions(batch);
-
-      // 合并视频
-      const onProgress: MergeProgressCallback = (progress, stage, message) => {
-        const msg = message || `${stage} ${progress.toFixed(1)}%`;
-        // console.log(`[LongVideoChain] Merge progress: ${msg}`);
-        // TODO: 可以在这里更新 UI 显示进度
-      };
-
-      const result = await mergeVideos(videoUrls, onProgress, {
-        transitions,
-        transitionDuration: 0.5,
-      });
 
       // console.log(`[LongVideoChain] Merge completed, duration: ${result.duration}s`);
 
       // 插入画布
-      await this.insertMergedVideo(result.url);
+      const mergedVideoUrl = batch.mergedVideoUrl;
+      if (!mergedVideoUrl) {
+        throw new Error('长视频合并结果缺少可用地址');
+      }
+      const inserted = await this.insertMergedVideo(mergedVideoUrl, batch);
+      if (!inserted) {
+        return;
+      }
 
       batch.mergeCompleted = true;
+      this.rememberCompletedBatch(batch.batchId);
       // console.log(`[LongVideoChain] Merged video inserted to canvas`);
-      
+
       // 清理 batch 释放内存
       this.cleanupBatch(batch.batchId);
     } catch (error) {
@@ -286,15 +361,169 @@ class LongVideoChainService {
   /**
    * 将合并后的视频插入画布
    */
-  private async insertMergedVideo(videoUrl: string): Promise<void> {
+  private async insertMergedVideo(
+    videoUrl: string,
+    batch: LongVideoBatch
+  ): Promise<boolean> {
     try {
-      // 使用 quickInsert 插入视频
-      await quickInsert('video', videoUrl);
+      const binding = getCanvasBoardBinding();
+      const board = binding?.board || null;
+      const associations = batch.canvasAssociations || [];
+      const sourceBoardIds = new Set(
+        associations
+          .map((association) => association.boardId.trim())
+          .filter(Boolean)
+      );
+      const sourceBoardId =
+        sourceBoardIds.size === 1
+          ? sourceBoardIds.values().next().value
+          : undefined;
+      const canLinkBeforeInsert = Boolean(
+        board &&
+          sourceBoardId &&
+          binding?.boardId === sourceBoardId &&
+          canInsertCanvasAssociationsOnBoard(
+            associations,
+            workspaceService.getState().currentBoardId
+          )
+      );
+      const insertionBoardId = workspaceService.getState().currentBoardId;
+
+      if (associations.length > 0 && !canLinkBeforeInsert) {
+        console.warn(
+          '[LongVideoChain] Source board is not active; merged result insertion deferred'
+        );
+        return false;
+      }
+
+      let resultElementId: unknown = batch.mergedResultElementId;
+      if (!batch.mergedResultElementId) {
+        // 使用 quickInsert 插入视频。插入成功后缓存元素 ID，后续切板重试只补连线。
+        const insertionResult = await quickInsert(
+          'video',
+          videoUrl,
+          undefined,
+          undefined,
+          undefined,
+          board || undefined,
+          board
+            ? () =>
+                getCanvasBoardBinding()?.board === board &&
+                getCanvasBoardBinding()?.boardId === insertionBoardId &&
+                workspaceService.getState().currentBoardId === insertionBoardId
+            : undefined
+        );
+        if (!insertionResult.success) {
+          if (
+            associations.length > 0 &&
+            !this.canProcessBatchOnActiveBoard(batch)
+          ) {
+            return false;
+          }
+          throw new Error(insertionResult.error || '长视频合并结果插入失败');
+        }
+
+        resultElementId = (
+          insertionResult.data as { firstElementId?: unknown } | undefined
+        )?.firstElementId;
+        if (typeof resultElementId === 'string' && resultElementId.trim()) {
+          batch.mergedResultElementId = resultElementId.trim();
+        }
+      }
+
+      if (associations.length === 0 || !canLinkBeforeInsert || !board) {
+        return true;
+      }
+
+      if (
+        getCanvasBoardBinding()?.board !== board ||
+        getCanvasBoardBinding()?.boardId !== insertionBoardId ||
+        !canInsertCanvasAssociationsOnBoard(
+          associations,
+          workspaceService.getState().currentBoardId
+        )
+      ) {
+        console.warn(
+          '[LongVideoChain] Active board changed while inserting; merged result insertion deferred'
+        );
+        return false;
+      }
+
+      if (typeof resultElementId !== 'string' || !resultElementId.trim()) {
+        console.warn(
+          '[LongVideoChain] Merged result has no stable element ID; association lines skipped'
+        );
+        return true;
+      }
+
+      if (sourceBoardId) {
+        const normalizedResultElementId = resultElementId.trim();
+        if (
+          !board.children.some(
+            (element) => element.id === normalizedResultElementId
+          )
+        ) {
+          console.warn(
+            '[LongVideoChain] Merged result is not on the active source board; association lines skipped'
+          );
+          return true;
+        }
+
+        try {
+          createCanvasAssociationLines(board, {
+            boardId: sourceBoardId,
+            sourceElementIds: associations
+              .filter(
+                (association) => association.boardId.trim() === sourceBoardId
+              )
+              .map((association) => association.elementId.trim()),
+            resultElementId: normalizedResultElementId,
+          });
+        } catch (error) {
+          console.warn(
+            '[LongVideoChain] Failed to create canvas association lines:',
+            error
+          );
+        }
+      }
       // console.log(`[LongVideoChain] Merged video inserted to canvas`);
+      return true;
     } catch (error) {
-      console.error('[LongVideoChain] Failed to insert video to canvas:', error);
+      console.error(
+        '[LongVideoChain] Failed to insert video to canvas:',
+        error
+      );
       // 回退：输出视频URL供用户手动下载
       // console.log(`[LongVideoChain] Merged video URL: ${videoUrl}`);
+      throw error;
+    }
+  }
+
+  private canProcessBatchOnActiveBoard(batch: LongVideoBatch): boolean {
+    const associations = batch.canvasAssociations || [];
+    if (associations.length === 0) return true;
+
+    const binding = getCanvasBoardBinding();
+    const currentBoardId = workspaceService.getState().currentBoardId;
+    return Boolean(
+      binding?.board &&
+        binding.boardId === currentBoardId &&
+        canInsertCanvasAssociationsOnBoard(associations, currentBoardId)
+    );
+  }
+
+  private retryPendingMerges(): void {
+    for (const batch of this.batches.values()) {
+      if (
+        batch.completedSegments.size !== batch.totalSegments ||
+        batch.isMerging ||
+        batch.mergeCompleted
+      ) {
+        continue;
+      }
+      this.mergeAndInsert(batch).catch((error) => {
+        console.error('[LongVideoChain] Failed to retry pending merge:', error);
+      });
     }
   }
 
@@ -306,7 +535,18 @@ class LongVideoChainService {
     return batch.scripts
       .sort((a, b) => a.index - b.index)
       .slice(0, -1)
-      .map(s => ((s as any).transition_hint as TransitionHint) || 'cut');
+      .map((s) => ((s as any).transition_hint as TransitionHint) || 'cut');
+  }
+
+  private rememberCompletedBatch(batchId: string): void {
+    this.completedBatchIds.delete(batchId);
+    this.completedBatchIds.add(batchId);
+
+    while (this.completedBatchIds.size > MAX_COMPLETED_BATCH_TOMBSTONES) {
+      const oldestBatchId = this.completedBatchIds.values().next().value;
+      if (typeof oldestBatchId !== 'string') break;
+      this.completedBatchIds.delete(oldestBatchId);
+    }
   }
 
   /**

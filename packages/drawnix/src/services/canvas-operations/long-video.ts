@@ -10,7 +10,7 @@
 
 import type { MCPExecuteOptions, MCPTaskResult } from '../../mcp/types';
 import { taskQueueService } from '../task-queue';
-import { TaskType } from '../../types/task.types';
+import { TaskType, type CanvasAssociationRef } from '../../types/task.types';
 import type { VideoModel } from '../../types/video.types';
 import { VIDEO_MODEL_CONFIGS } from '../../constants/video-model-config';
 import { defaultGeminiClient } from '../../utils/gemini-api';
@@ -40,6 +40,8 @@ export interface LongVideoGenerationParams {
   size?: string;
   /** 首帧参考图片 URL（可选，用于第一段视频） */
   firstFrameImage?: string;
+  /** 任务提交时选中的画布联想来源 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**
@@ -80,6 +82,8 @@ export interface LongVideoMeta {
   characterReferenceUrls?: string[];
   /** 角色一致性描述，注入每段 prompt 以锚定角色外观 */
   characterDescription?: string;
+  /** 最终合并结果需要连接的画布来源快照 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**
@@ -132,13 +136,14 @@ function getScriptGenerationPrompt(
  */
 function parseVideoScript(response: string): VideoSegmentScript[] {
   try {
-    const parsed = extractJsonObject<{ segments?: any[] }>(
-      response,
-      value => Array.isArray((value as { segments?: unknown }).segments)
+    const parsed = extractJsonObject<{ segments?: any[] }>(response, (value) =>
+      Array.isArray((value as { segments?: unknown }).segments)
     );
 
     if (!Array.isArray(parsed.segments)) {
-      console.error('[LongVideo] Invalid script format: segments is not an array');
+      console.error(
+        '[LongVideo] Invalid script format: segments is not an array'
+      );
       return [];
     }
 
@@ -221,9 +226,10 @@ export function createLongVideoSegmentTask(
   }
 
   // 构建参考图列表：角色参考图（用于保持角色一致性）
-  const referenceImages = meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
-    ? meta.characterReferenceUrls
-    : undefined;
+  const referenceImages =
+    meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
+      ? meta.characterReferenceUrls
+      : undefined;
 
   // 创建任务
   const task = taskQueueService.createTask(
@@ -261,6 +267,7 @@ export async function createLongVideoTask(
     model = DEFAULT_LONG_VIDEO_MODEL,
     size = '16x9',
     firstFrameImage,
+    canvasAssociations,
   } = params;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -274,7 +281,9 @@ export async function createLongVideoTask(
   // 检查模型是否支持首尾帧
   const modelConfig = VIDEO_MODEL_CONFIGS[model];
   if (!modelConfig || modelConfig.imageUpload.mode !== 'frames') {
-    console.warn(`[LongVideo] Model ${model} does not support first/last frame, using veo3.1`);
+    console.warn(
+      `[LongVideo] Model ${model} does not support first/last frame, using veo3.1`
+    );
   }
 
   try {
@@ -282,7 +291,9 @@ export async function createLongVideoTask(
     const segmentCount = Math.ceil(totalDuration / segmentDuration);
 
     // 通知 AI 分析阶段开始
-    options?.onChunk?.(`正在为您规划 ${totalDuration} 秒的长视频，分为 ${segmentCount} 个片段...\n\n`);
+    options?.onChunk?.(
+      `正在为您规划 ${totalDuration} 秒的长视频，分为 ${segmentCount} 个片段...\n\n`
+    );
 
     // 1. 调用文本模型生成视频脚本
     const scripts = await generateVideoScript(
@@ -314,33 +325,48 @@ export async function createLongVideoTask(
       scripts,
       model,
       size,
+      canvasAssociations: canvasAssociations
+        ?.slice(0, 20)
+        .map((association) => ({ ...association })),
     };
 
-    const firstTask = createLongVideoSegmentTask(firstScript, meta, firstFrameImage);
+    const firstTask = createLongVideoSegmentTask(
+      firstScript,
+      meta,
+      firstFrameImage
+    );
 
     // 只添加第一个视频片段步骤到工作流
-    options?.onAddSteps?.([{
-      id: firstTask.id,
-      mcp: 'generate_video',
-      args: { prompt: firstScript.prompt, model, size },
-      description: `生成视频片段 1/${scripts.length}: ${firstScript.prompt.substring(0, 50)}...`,
-      status: 'completed',
-      options: {
-        mode: 'queue' as const,
-        batchId,
-        batchIndex: 1,
-        batchTotal: scripts.length,
-        globalIndex: 1,
+    options?.onAddSteps?.([
+      {
+        id: firstTask.id,
+        mcp: 'generate_video',
+        args: { prompt: firstScript.prompt, model, size },
+        description: `生成视频片段 1/${
+          scripts.length
+        }: ${firstScript.prompt.substring(0, 50)}...`,
+        status: 'completed',
+        options: {
+          mode: 'queue' as const,
+          batchId,
+          batchIndex: 1,
+          batchTotal: scripts.length,
+          globalIndex: 1,
+        },
       },
-    }]);
+    ]);
 
     options?.onChunk?.(`\n✓ 已创建第 1 个视频生成任务\n`);
     options?.onChunk?.(`\n📊 **长视频生成计划**：\n`);
     options?.onChunk?.(`- 总时长：${totalDuration} 秒\n`);
-    options?.onChunk?.(`- 片段数：${scripts.length} 个（每段 ${segmentDuration} 秒）\n`);
+    options?.onChunk?.(
+      `- 片段数：${scripts.length} 个（每段 ${segmentDuration} 秒）\n`
+    );
     options?.onChunk?.(`- 生成方式：串行生成（前一段完成后自动创建下一段）\n`);
     options?.onChunk?.(`\n💡 **温馨提示**：\n`);
-    options?.onChunk?.(`- 每段视频生成完成后，系统会自动提取尾帧作为下一段的首帧，确保画面连贯\n`);
+    options?.onChunk?.(
+      `- 每段视频生成完成后，系统会自动提取尾帧作为下一段的首帧，确保画面连贯\n`
+    );
     options?.onChunk?.(`- 所有片段生成完成后会自动合并并插入画布\n`);
     options?.onChunk?.(`- 您可以在任务队列中查看实时进度\n`);
 

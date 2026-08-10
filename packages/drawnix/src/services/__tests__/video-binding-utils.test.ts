@@ -72,10 +72,25 @@ describe('video binding utils', () => {
     );
     expect(isPublicHttpMediaUrl('asset://reference-video')).toBe(false);
     expect(isSeedanceAudioReference('audio-material-123')).toBe(true);
+    expect(
+      isSeedanceAudioReference(
+        '/__aitu_generated__/audio/content-reference.mp3'
+      )
+    ).toBe(true);
+    expect(
+      isSeedanceAudioReference('/__aitu_cache__/audio/reference.mp3')
+    ).toBe(true);
+    expect(
+      isSeedanceAudioReference('/__aitu_cache__/image/reference.png')
+    ).toBe(false);
     expect(isSeedanceAudioReference('data:audio/mpeg;base64,ZmFrZQ==')).toBe(
       true
     );
     expect(isSeedanceAudioReference('data:audio/mpeg;base64,%%%')).toBe(false);
+    expect(isSeedanceAudioReference('data:audio/mpeg;base64,Zm=F')).toBe(false);
+    expect(isSeedanceAudioReference('data:audio/mpeg;base64,ZmFrZQ===')).toBe(
+      false
+    );
     expect(isSeedanceAudioReference('data:audio/WAV;base64,ZmFrZQ==')).toBe(
       false
     );

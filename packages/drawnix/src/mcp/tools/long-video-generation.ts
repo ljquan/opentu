@@ -8,21 +8,31 @@
  * 3. 后续任务由 long-video-chain-service 在前一个完成后串行创建
  */
 
-import type { MCPTool, MCPResult, MCPExecuteOptions, MCPTaskResult } from '../types';
+import type {
+  MCPTool,
+  MCPResult,
+  MCPExecuteOptions,
+  MCPTaskResult,
+} from '../types';
 import { taskQueueService } from '../../services/task-queue';
-import { TaskType } from '../../types/task.types';
+import { TaskType, type CanvasAssociationRef } from '../../types/task.types';
 import type { VideoModel } from '../../types/video.types';
 import { VIDEO_MODEL_CONFIGS } from '../../constants/video-model-config';
 import { defaultGeminiClient } from '../../utils/gemini-api';
 import { geminiSettings } from '../../utils/settings-manager';
 import type { GeminiMessage } from '../../utils/gemini-api/types';
 import { extractJsonObject } from '../../utils/llm-json-extractor';
+import { generateTaskId } from '../../utils/task-utils';
 
 /** 默认片段时长（秒） */
 const DEFAULT_SEGMENT_DURATION = 8;
 
 /** 默认长视频模型（支持首尾帧） */
 const DEFAULT_LONG_VIDEO_MODEL: VideoModel = 'veo3.1';
+
+export function generateLongVideoBatchId(): string {
+  return `long_video_${Date.now()}_${generateTaskId()}`;
+}
 
 /**
  * 长视频生成参数
@@ -42,6 +52,8 @@ export interface LongVideoGenerationParams {
   firstFrameImage?: string;
   /** 角色一致性描述（如"a young woman with black hair, red jacket"），注入每段 prompt 以锚定角色外观 */
   characterDescription?: string;
+  /** 任务提交时选中的画布联想来源 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**
@@ -82,6 +94,8 @@ export interface LongVideoMeta {
   characterReferenceUrls?: string[];
   /** 角色一致性描述，注入每段 prompt 以锚定角色外观 */
   characterDescription?: string;
+  /** 最终合并结果需要连接的画布来源快照 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**
@@ -142,13 +156,14 @@ ${characterRule}
  */
 function parseVideoScript(response: string): VideoSegmentScript[] {
   try {
-    const parsed = extractJsonObject<{ segments?: any[] }>(
-      response,
-      value => Array.isArray((value as { segments?: unknown }).segments)
+    const parsed = extractJsonObject<{ segments?: any[] }>(response, (value) =>
+      Array.isArray((value as { segments?: unknown }).segments)
     );
 
     if (!Array.isArray(parsed.segments)) {
-      console.error('[LongVideo] Invalid script format: segments is not an array');
+      console.error(
+        '[LongVideo] Invalid script format: segments is not an array'
+      );
       return [];
     }
 
@@ -178,7 +193,11 @@ async function generateVideoScript(
   const settings = geminiSettings.get();
   const textModel = settings.textModelName;
 
-  const systemPrompt = getScriptGenerationPrompt(segmentCount, segmentDuration, characterDescription);
+  const systemPrompt = getScriptGenerationPrompt(
+    segmentCount,
+    segmentDuration,
+    characterDescription
+  );
 
   const messages: GeminiMessage[] = [
     {
@@ -234,9 +253,10 @@ export function createLongVideoSegmentTask(
   }
 
   // 构建参考图列表：角色参考图（用于保持角色一致性）
-  const referenceImages = meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
-    ? meta.characterReferenceUrls
-    : undefined;
+  const referenceImages =
+    meta.characterReferenceUrls && meta.characterReferenceUrls.length > 0
+      ? meta.characterReferenceUrls
+      : undefined;
 
   // 创建任务
   const task = taskQueueService.createTask(
@@ -277,6 +297,7 @@ async function executeLongVideoGeneration(
     size = '16x9',
     firstFrameImage,
     characterDescription,
+    canvasAssociations,
   } = params;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -290,7 +311,9 @@ async function executeLongVideoGeneration(
   // 检查模型是否支持首尾帧
   const modelConfig = VIDEO_MODEL_CONFIGS[model];
   if (!modelConfig || modelConfig.imageUpload.mode !== 'frames') {
-    console.warn(`[LongVideo] Model ${model} does not support first/last frame, using veo3.1`);
+    console.warn(
+      `[LongVideo] Model ${model} does not support first/last frame, using veo3.1`
+    );
   }
 
   try {
@@ -300,7 +323,9 @@ async function executeLongVideoGeneration(
     // console.log(`[LongVideo] Generating ${segmentCount} segments for ${totalDuration}s video`);
 
     // 通知 AI 分析阶段开始
-    options.onChunk?.(`正在为您规划 ${totalDuration} 秒的长视频，分为 ${segmentCount} 个片段...\n\n`);
+    options.onChunk?.(
+      `正在为您规划 ${totalDuration} 秒的长视频，分为 ${segmentCount} 个片段...\n\n`
+    );
 
     // 1. 调用文本模型生成视频脚本
     const scripts = await generateVideoScript(
@@ -322,7 +347,7 @@ async function executeLongVideoGeneration(
     options.onChunk?.(`\n\n✓ 脚本生成完成，共 ${scripts.length} 个片段\n\n`);
 
     // 2. 只创建第一个视频任务，后续任务由 chain service 串行创建
-    const batchId = `long_video_${Date.now()}`;
+    const batchId = generateLongVideoBatchId();
     const firstScript = scripts[0];
 
     const meta: LongVideoMeta = {
@@ -334,32 +359,47 @@ async function executeLongVideoGeneration(
       model,
       size,
       characterDescription,
+      canvasAssociations: canvasAssociations
+        ?.slice(0, 20)
+        .map((association) => ({ ...association })),
     };
 
-    const firstTask = createLongVideoSegmentTask(firstScript, meta, firstFrameImage);
+    const firstTask = createLongVideoSegmentTask(
+      firstScript,
+      meta,
+      firstFrameImage
+    );
     // 后续片段和合并由 long-video-chain-service 自动处理，不在工作流中显示
-    options.onAddSteps?.([{
-      id: firstTask.id,
-      mcp: 'generate_video',
-      args: { prompt: firstScript.prompt, model, size },
-      description: `生成视频片段 1/${scripts.length}: ${firstScript.prompt.substring(0, 50)}...`,
-      status: 'completed', // 任务已创建，标记为已完成避免重复执行
-      options: {
-        mode: 'queue' as const,
-        batchId,
-        batchIndex: 1,
-        batchTotal: scripts.length,
-        globalIndex: 1,
+    options.onAddSteps?.([
+      {
+        id: firstTask.id,
+        mcp: 'generate_video',
+        args: { prompt: firstScript.prompt, model, size },
+        description: `生成视频片段 1/${
+          scripts.length
+        }: ${firstScript.prompt.substring(0, 50)}...`,
+        status: 'completed', // 任务已创建，标记为已完成避免重复执行
+        options: {
+          mode: 'queue' as const,
+          batchId,
+          batchIndex: 1,
+          batchTotal: scripts.length,
+          globalIndex: 1,
+        },
       },
-    }]);
+    ]);
 
     options.onChunk?.(`\n✓ 已创建第 1 个视频生成任务\n`);
     options.onChunk?.(`\n📊 **长视频生成计划**：\n`);
     options.onChunk?.(`- 总时长：${totalDuration} 秒\n`);
-    options.onChunk?.(`- 片段数：${scripts.length} 个（每段 ${segmentDuration} 秒）\n`);
+    options.onChunk?.(
+      `- 片段数：${scripts.length} 个（每段 ${segmentDuration} 秒）\n`
+    );
     options.onChunk?.(`- 生成方式：串行生成（前一段完成后自动创建下一段）\n`);
     options.onChunk?.(`\n💡 **温馨提示**：\n`);
-    options.onChunk?.(`- 每段视频生成完成后，系统会自动提取尾帧作为下一段的首帧，确保画面连贯\n`);
+    options.onChunk?.(
+      `- 每段视频生成完成后，系统会自动提取尾帧作为下一段的首帧，确保画面连贯\n`
+    );
     options.onChunk?.(`- 所有片段生成完成后会自动合并并插入画布\n`);
     options.onChunk?.(`- 您可以在任务队列中查看实时进度\n`);
 
@@ -445,14 +485,18 @@ export const longVideoGenerationTool: MCPTool = {
   supportedModes: ['queue'],
 
   promptGuidance: {
-    whenToUse: '当用户想要生成超过15秒的长视频时使用，特别是1分钟视频。关键词：长视频、1分钟、完整故事、多场景。',
+    whenToUse:
+      '当用户想要生成超过15秒的长视频时使用，特别是1分钟视频。关键词：长视频、1分钟、完整故事、多场景。',
 
     parameterGuidance: {
-      prompt: '用户的视频主题或故事描述，可以是一个完整的故事大纲。工具会自动将其拆分为多个连贯的片段。',
-      totalDuration: '默认60秒（1分钟）。用户说"1分钟视频"时设为60，"30秒"设为30。',
+      prompt:
+        '用户的视频主题或故事描述，可以是一个完整的故事大纲。工具会自动将其拆分为多个连贯的片段。',
+      totalDuration:
+        '默认60秒（1分钟）。用户说"1分钟视频"时设为60，"30秒"设为30。',
       segmentDuration: '每段视频时长，默认8秒。这个值通常不需要用户指定。',
       model: '默认使用 veo3.1，因为它支持首尾帧，能保证片段间的连贯性。',
-      firstFrameImage: '可选参数。当用户选中图片并希望从该图片开始生成视频时使用。传递 "[图片1]" 等占位符，系统会自动替换为真实URL。',
+      firstFrameImage:
+        '可选参数。当用户选中图片并希望从该图片开始生成视频时使用。传递 "[图片1]" 等占位符，系统会自动替换为真实URL。',
     },
 
     bestPractices: [
@@ -466,21 +510,24 @@ export const longVideoGenerationTool: MCPTool = {
       {
         input: '帮我生成一个1分钟的视频，讲述一只猫咪从早到晚的一天',
         args: {
-          prompt: '一只可爱的橘猫从早到晚的一天生活：清晨在窗台晒太阳、中午在厨房偷吃鱼、下午追逐蝴蝶玩耍、傍晚蜷缩在沙发上打盹、夜晚望着月亮',
+          prompt:
+            '一只可爱的橘猫从早到晚的一天生活：清晨在窗台晒太阳、中午在厨房偷吃鱼、下午追逐蝴蝶玩耍、傍晚蜷缩在沙发上打盹、夜晚望着月亮',
           totalDuration: 60,
         },
       },
       {
         input: '创作一个30秒的日落延时视频',
         args: {
-          prompt: '从太阳开始下山到完全落入地平线的日落延时摄影，天空从金色渐变为橙色再到粉紫色',
+          prompt:
+            '从太阳开始下山到完全落入地平线的日落延时摄影，天空从金色渐变为橙色再到粉紫色',
           totalDuration: 30,
         },
       },
       {
         input: '[图片1] 让这个场景动起来，生成30秒视频',
         args: {
-          prompt: 'Cinematic video starting from this scene, camera slowly panning around, natural ambient movement, objects gently swaying, dynamic lighting changes, smooth transitions',
+          prompt:
+            'Cinematic video starting from this scene, camera slowly panning around, natural ambient movement, objects gently swaying, dynamic lighting changes, smooth transitions',
           totalDuration: 30,
           firstFrameImage: '[图片1]',
         },
@@ -494,7 +541,10 @@ export const longVideoGenerationTool: MCPTool = {
     ],
   },
 
-  execute: async (params: Record<string, unknown>, options?: MCPExecuteOptions): Promise<MCPResult> => {
+  execute: async (
+    params: Record<string, unknown>,
+    options?: MCPExecuteOptions
+  ): Promise<MCPResult> => {
     const typedParams = params as unknown as LongVideoGenerationParams;
     return executeLongVideoGeneration(typedParams, options || {});
   },

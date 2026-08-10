@@ -119,6 +119,29 @@ export interface KnowledgeContextRef {
   updatedAt?: number;
 }
 
+export type CanvasAssociationKind =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'text'
+  | 'graphics'
+  | 'frame'
+  | 'card'
+  | 'other';
+
+/** Lightweight canvas source identity shared by the main thread and SW. */
+export interface CanvasAssociationRef {
+  referenceId: string;
+  boardId: string;
+  elementId: string;
+  kind: CanvasAssociationKind;
+  label: string;
+  /** Start offset of the trusted inline mention in the taskbar prompt. */
+  mentionStart?: number;
+  /** End offset (exclusive) of the trusted inline mention. */
+  mentionEnd?: number;
+}
+
 export interface GenerationAssetMetadata {
   category?: 'GENERAL' | 'CHARACTER';
   characterName?: string;
@@ -128,6 +151,8 @@ export interface GenerationAssetMetadata {
 export interface GenerationParams {
   /** Text prompt describing the desired content */
   prompt: string;
+  /** Lightweight canvas sources explicitly mentioned for this request */
+  canvasAssociations?: CanvasAssociationRef[];
   /** Lightweight asset-library metadata for generated media */
   assetMetadata?: GenerationAssetMetadata;
   /** Lightweight Knowledge Base note references used as generation context */

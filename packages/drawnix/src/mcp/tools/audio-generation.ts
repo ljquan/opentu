@@ -5,7 +5,11 @@
  */
 
 import type { MCPExecuteOptions, MCPResult, MCPTool } from '../types';
-import { TaskType, type KnowledgeContextRef } from '../../types/task.types';
+import {
+  TaskType,
+  type CanvasAssociationRef,
+  type KnowledgeContextRef,
+} from '../../types/task.types';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { getDefaultAudioModel } from '../../constants/model-config';
 import {
@@ -43,6 +47,8 @@ export interface AudioGenerationParams {
   promptMeta?: PromptLineageMeta;
   /** 本次生成使用的知识库笔记轻量引用 */
   knowledgeContextRefs?: KnowledgeContextRef[];
+  /** 本次生成显式提及的画布元素轻量引用 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 export function getCurrentAudioModel(): string {
@@ -90,7 +96,8 @@ async function executeAsync(params: AudioGenerationParams): Promise<MCPResult> {
         lyricsTags: result.lyricsTags,
         duration: result.duration,
         imageUrl: result.imageUrl,
-        format: result.format || (result.resultKind === 'lyrics' ? 'lyrics' : 'mp3'),
+        format:
+          result.format || (result.resultKind === 'lyrics' ? 'lyrics' : 'mp3'),
         providerTaskId: result.providerTaskId,
         primaryClipId: result.primaryClipId,
         clipIds: result.clipIds,
@@ -130,7 +137,8 @@ function getAudioQueueConfig(params: AudioGenerationParams) {
       infillEndS: params.infillEndS,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
-      ...((params.params || params.continueSource)
+      canvasAssociations: params.canvasAssociations,
+      ...(params.params || params.continueSource
         ? {
             params: {
               ...(params.params || {}),
@@ -191,7 +199,8 @@ export const audioGenerationTool: MCPTool = {
       },
       mv: {
         type: 'string',
-        description: 'Suno 版本字段，如 chirp-v5-5、chirp-v5、chirp-v4-5、chirp-v4、chirp-v3-5',
+        description:
+          'Suno 版本字段，如 chirp-v5-5、chirp-v5、chirp-v4-5、chirp-v4、chirp-v3-5',
       },
       continueClipId: {
         type: 'string',

@@ -13,7 +13,11 @@ import type {
   MCPExecuteOptions,
   MCPTaskResult,
 } from '../types';
-import { TaskType, type KnowledgeContextRef } from '../../types/task.types';
+import {
+  TaskType,
+  type CanvasAssociationRef,
+  type KnowledgeContextRef,
+} from '../../types/task.types';
 import type { VideoModel } from '../../types/video.types';
 import { VIDEO_MODEL_CONFIGS } from '../../constants/video-model-config';
 import { getDefaultVideoModel } from '../../constants/model-config';
@@ -94,6 +98,8 @@ export interface VideoGenerationParams {
   promptMeta?: PromptLineageMeta;
   /** 本次生成使用的知识库笔记轻量引用 */
   knowledgeContextRefs?: KnowledgeContextRef[];
+  /** 本次生成显式提及的画布元素轻量引用 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**
@@ -198,6 +204,7 @@ function getVideoQueueConfig(params: VideoGenerationParams) {
       params: params.params,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
+      canvasAssociations: params.canvasAssociations,
     }),
     buildResultData: () => ({
       size: params.size || '16x9',

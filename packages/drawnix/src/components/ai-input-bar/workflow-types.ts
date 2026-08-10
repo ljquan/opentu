@@ -5,6 +5,7 @@ import type {
 } from '../../utils/ai-input-parser';
 import type { ModelRef } from '../../utils/settings-types';
 import type { KnowledgeContextRef } from '../../types/task.types';
+import type { CanvasAssociationRef } from '../../types/shared/core.types';
 
 /**
  * 工作流步骤执行选项（批量参数等）
@@ -98,6 +99,8 @@ export interface WorkflowDefinition {
     selection: SelectionInfo;
     /** 本次生成使用的知识库笔记轻量引用 */
     knowledgeContextRefs?: KnowledgeContextRef[];
+    /** 本次生成显式提及的画布元素轻量引用 */
+    canvasAssociations?: CanvasAssociationRef[];
     /** 解析方式标记（用于调试和数据分析） */
     parseMethod?: 'regex' | 'llm' | 'agent_fallback';
   };
@@ -111,6 +114,7 @@ export interface WorkflowDefinition {
     model?: string;
     modelRef?: ModelRef | null;
     referenceImages?: string[];
+    canvasAssociations?: CanvasAssociationRef[];
   };
   /** 错误信息（失败时） */
   error?: string;
