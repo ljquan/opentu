@@ -90,6 +90,7 @@ describe('custom-http-adapter', () => {
       if (url === 'https://example.com/ref.png') {
         return new Response(new Blob(['image'], { type: 'image/png' }), {
           status: 200,
+          headers: { 'Content-Type': 'image/png' },
         });
       }
       return new Response(

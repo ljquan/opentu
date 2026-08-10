@@ -32,12 +32,14 @@ describe('tuzi GPT image adapter', () => {
       }
     }
     vi.stubGlobal('Image', StubImage);
-    mocks.sendAdapterRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [{ url: 'https://example.com/tuzi.png' }],
-      }),
-    });
+    mocks.sendAdapterRequest.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ url: 'https://example.com/tuzi.png' }],
+        }),
+        { status: 200 }
+      )
+    );
 
     const result = await tuziGPTImageAdapter.generateImage(
       {
@@ -95,18 +97,20 @@ describe('tuzi GPT image adapter', () => {
   });
 
   it('preserves official quality and defaults GPT Image 2 sizing to 1k when resolution is unset', async () => {
-    mocks.sendAdapterRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            url: 'https://example.com/tuzi.png',
-            width: 1024,
-            height: 1024,
-          },
-        ],
-      }),
-    });
+    mocks.sendAdapterRequest.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              url: 'https://example.com/tuzi.png',
+              width: 1024,
+              height: 1024,
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
 
     const result = await tuziGPTImageAdapter.generateImage(
       {
@@ -153,12 +157,14 @@ describe('tuzi GPT image adapter', () => {
   });
 
   it('routes edit requests through the dedicated Tuzi edit schema', async () => {
-    mocks.sendAdapterRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [{ b64_json: 'ZmFrZQ==', width: 2736, height: 1536 }],
-      }),
-    });
+    mocks.sendAdapterRequest.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ b64_json: 'ZmFrZQ==', width: 2736, height: 1536 }],
+        }),
+        { status: 200 }
+      )
+    );
 
     await tuziGPTImageAdapter.generateImage(
       {
@@ -207,18 +213,20 @@ describe('tuzi GPT image adapter', () => {
   });
 
   it('repairs legacy Tuzi edit bindings to the JSON generations endpoint', async () => {
-    mocks.sendAdapterRequest.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            url: 'https://example.com/tuzi-edit.png',
-            width: 1024,
-            height: 1024,
-          },
-        ],
-      }),
-    });
+    mocks.sendAdapterRequest.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              url: 'https://example.com/tuzi-edit.png',
+              width: 1024,
+              height: 1024,
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
 
     await tuziGPTImageAdapter.generateImage(
       {
@@ -264,6 +272,7 @@ describe('tuzi GPT image adapter', () => {
     mocks.sendAdapterRequest.mockResolvedValue({
       ok: false,
       status: 404,
+      headers: new Headers(),
       url: 'https://api.tu-zi.com/v1/v1/images/generations?token=hidden',
       text: async () => '<!doctype html><title>Not Found</title>',
     });

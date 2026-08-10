@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { callGoogleGenerateContentRaw } from './apiCalls';
 
 const { sendMock, analyticsMock } = vi.hoisted(() => ({
   sendMock: vi.fn(),
@@ -13,6 +14,9 @@ vi.mock('../../services/provider-routing', () => ({
   providerTransport: {
     send: (...args: unknown[]) => sendMock(...args),
   },
+  readProviderResponseJson: <T>(response: Response) =>
+    response.json() as Promise<T>,
+  readProviderResponseText: (response: Response) => response.text(),
 }));
 
 vi.mock('../posthog-analytics', () => ({
@@ -27,8 +31,6 @@ vi.mock('../posthog-analytics', () => ({
     };
   },
 }));
-
-import { callGoogleGenerateContentRaw } from './apiCalls';
 
 describe('callGoogleGenerateContentRaw', () => {
   beforeEach(() => {
