@@ -16,7 +16,11 @@ import { MessagePlugin, Input, Button } from 'tdesign-react';
 import { SearchIcon, DeleteIcon } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { executeCanvasInsertion } from '../../services/canvas-operations';
-import { resolveImageTaskInsertionDimensions } from '../../utils/task-utils';
+import {
+  getImageTaskResultDimensions,
+  resolveImageTaskInsertionDimensions,
+} from '../../utils/task-utils';
+import { bindImageTaskToCanvasInsertion } from '../../utils/canvas-media-preview';
 import { taskQueueService } from '../../services/task-queue';
 import { taskStorageReader } from '../../services/task-storage-reader';
 import { hasAIImageDraftContent } from '../../utils/ai-image-draft-state';
@@ -239,6 +243,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
         if (!insertionResult.success) {
           throw new Error(insertionResult.error || '图片插入失败');
         }
+        bindImageTaskToCanvasInsertion(board, insertionResult, task.id);
         MessagePlugin.success(
           urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板'
         );
@@ -448,6 +453,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
           task.type === TaskType.VIDEO
             ? ('video' as const)
             : ('image' as const);
+        const dimensions = getImageTaskResultDimensions(task);
 
         for (let i = 0; i < urls.length; i++) {
           items.push({
@@ -455,6 +461,8 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
             url:
               mediaType === 'image' ? normalizeImageDataUrl(urls[i]) : urls[i],
             type: mediaType,
+            width: dimensions?.width,
+            height: dimensions?.height,
             title:
               urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
           });

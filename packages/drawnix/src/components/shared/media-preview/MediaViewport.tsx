@@ -41,6 +41,22 @@ const VIEWPORT_HORIZONTAL_PADDING = 32;
 const IMAGE_VERTICAL_RESERVE = 88;
 const VIDEO_VERTICAL_RESERVE = 140;
 
+export const formatMediaItemDimensions = (
+  item: MediaViewportProps['item']
+): string | null => {
+  if (item?.type !== 'image') return null;
+
+  const { width, height } = item;
+  return typeof width === 'number' &&
+    Number.isSafeInteger(width) &&
+    width > 0 &&
+    typeof height === 'number' &&
+    Number.isSafeInteger(height) &&
+    height > 0
+    ? `${width}×${height}`
+    : null;
+};
+
 const clampZoomLevel = (zoom: number) =>
   Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, zoom));
 
@@ -216,6 +232,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
     : '';
   const posterUrl = item?.posterUrl ? normalizeImageDataUrl(item.posterUrl) : '';
   const mediaIdentity = item ? `${item.type}:${item.id || item.url}` : 'empty';
+  const dimensionsLabel = formatMediaItemDimensions(item);
   const needsAutoFitGate = Boolean(item?.url && !isAudio && !isCompareMode && !imageLoadFailed);
 
   const clearPromptHideTimer = useCallback(() => {
@@ -873,6 +890,18 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
         </div>
 
         <div className="media-viewport__toolbar-divider" />
+
+        {dimensionsLabel && (
+          <>
+            <span
+              className="media-viewport__dimensions"
+              aria-label={`图片尺寸 ${dimensionsLabel} 像素`}
+            >
+              {dimensionsLabel}
+            </span>
+            <div className="media-viewport__toolbar-divider" />
+          </>
+        )}
 
         {/* 旋转控制 */}
         <div className="media-viewport__toolbar-group">

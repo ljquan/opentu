@@ -36,7 +36,11 @@ import {
   insertAudioFromUrl,
 } from '../../data/audio';
 import { executeCanvasInsertion } from '../../services/canvas-operations';
-import { resolveImageTaskInsertionDimensions } from '../../utils/task-utils';
+import {
+  getImageTaskResultDimensions,
+  resolveImageTaskInsertionDimensions,
+} from '../../utils/task-utils';
+import { bindImageTaskToCanvasInsertion } from '../../utils/canvas-media-preview';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import {
   buildTaskDownloadItems,
@@ -618,6 +622,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
         if (!insertionResult.success) {
           throw new Error(insertionResult.error || '图片插入失败');
         }
+        bindImageTaskToCanvasInsertion(board, insertionResult, task.id);
         MessagePlugin.success(
           urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板'
         );
@@ -908,6 +913,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           task.type === TaskType.VIDEO
             ? ('video' as const)
             : ('image' as const);
+        const dimensions = getImageTaskResultDimensions(task);
 
         for (let i = 0; i < urls.length; i++) {
           const normalizedUrl =
@@ -916,6 +922,8 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
             id: urls.length > 1 ? `${task.id}-${i}` : task.id,
             url: normalizedUrl,
             type: mediaType,
+            width: dimensions?.width,
+            height: dimensions?.height,
             title:
               urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
           });
