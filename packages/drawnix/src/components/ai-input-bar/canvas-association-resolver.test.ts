@@ -321,15 +321,17 @@ describe('canvas association resolver', () => {
       height: 180,
     });
     expect(convertElementsToImage).toHaveBeenCalledTimes(1);
-    expect(cacheLocalMediaByContent).toHaveBeenCalledWith(
-      expect.any(Blob),
-      'image',
-      {
-        source: 'CANVAS_ASSOCIATION',
-        boardId: 'board-a',
-        elementId: 'shape-1',
-      }
-    );
+    const [cachedBlob, cachedType, cachedMetadata] = vi.mocked(
+      cacheLocalMediaByContent
+    ).mock.calls[0];
+    expect(cachedBlob.size).toBe(3);
+    expect(cachedBlob.type).toBe('image/png');
+    expect(cachedType).toBe('image');
+    expect(cachedMetadata).toEqual({
+      source: 'CANVAS_ASSOCIATION',
+      boardId: 'board-a',
+      elementId: 'shape-1',
+    });
   });
 
   it('replaces inline image and audio payloads with verified virtual URLs', async () => {
