@@ -209,7 +209,7 @@ describe('canvas association resolver', () => {
     expect(result.content).toEqual([
       expect.objectContaining({ type: 'graphics' }),
     ]);
-    expect(convertElementsToImage).toHaveBeenCalledWith(board, [rectangle]);
+    expect(convertElementsToImage).toHaveBeenCalledWith(board, [rectangle], 2);
   });
 
   it('resolves ordinary image and text references after 200 board elements', async () => {
@@ -597,7 +597,7 @@ describe('canvas association resolver', () => {
     ]);
   });
 
-  it('rejects a frame with more than 200 raster candidates', async () => {
+  it('resolves every raster candidate in a frame without an element limit', async () => {
     const frame = {
       id: 'frame-1',
       type: 'frame',
@@ -622,14 +622,21 @@ describe('canvas association resolver', () => {
       [createReference('frame-1', 'graphics')]
     );
 
-    expect(result.content).toEqual([]);
-    expect(result.errors).toEqual([
-      expect.objectContaining({ code: 'raster_limit' }),
+    expect(result.errors).toEqual([]);
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: 'graphics' }),
     ]);
-    expect(convertElementsToImage).not.toHaveBeenCalled();
+    expect(convertElementsToImage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(frameElements),
+      2
+    );
+    expect(vi.mocked(convertElementsToImage).mock.calls[0][1]).toHaveLength(
+      201
+    );
   });
 
-  it('rejects a group with more than 200 raster candidates', async () => {
+  it('resolves every raster candidate in a group without an element limit', async () => {
     const group = {
       id: 'group-1',
       type: 'group',
@@ -653,21 +660,24 @@ describe('canvas association resolver', () => {
       [createReference('group-1', 'graphics')]
     );
 
-    expect(result.content).toEqual([]);
-    expect(result.errors).toEqual([
-      expect.objectContaining({ code: 'raster_limit' }),
+    expect(result.errors).toEqual([]);
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: 'graphics' }),
     ]);
-    expect(convertElementsToImage).not.toHaveBeenCalled();
+    expect(vi.mocked(convertElementsToImage).mock.calls[0][1]).toHaveLength(
+      201
+    );
+    expect(vi.mocked(convertElementsToImage).mock.calls[0][2]).toBe(2);
   });
 
-  it('rejects an oversized raster surface before rendering it', async () => {
+  it('downscales an oversized raster surface instead of rejecting it', async () => {
     const board = createBoard([
       {
         id: 'shape-large',
         type: 'graphics',
         points: [
           [0, 0],
-          [3000, 100],
+          [200_000, 100],
         ],
       } as PlaitElement,
     ]);
@@ -678,11 +688,90 @@ describe('canvas association resolver', () => {
       [createReference('shape-large', 'graphics')]
     );
 
-    expect(result.content).toEqual([]);
-    expect(result.errors).toEqual([
-      expect.objectContaining({ code: 'raster_limit' }),
+    expect(result.errors).toEqual([]);
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: 'graphics' }),
     ]);
-    expect(convertElementsToImage).not.toHaveBeenCalled();
+    const ratio = vi.mocked(convertElementsToImage).mock.calls[0][2];
+    expect(ratio).toBeCloseTo(2048 / 200_000);
+    expect(100 * ratio).toBeGreaterThan(1);
+  });
+
+  it('downscales a large-area raster surface within the output pixel budget', async () => {
+    const board = createBoard([
+      {
+        id: 'shape-large-area',
+        type: 'graphics',
+        points: [
+          [0, 0],
+          [2000, 2000],
+        ],
+      } as PlaitElement,
+    ]);
+
+    const result = await resolveCanvasAssociationsForSubmission(
+      board,
+      'board-a',
+      [createReference('shape-large-area', 'graphics')]
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.content).toEqual([
+      expect.objectContaining({ type: 'graphics' }),
+    ]);
+    expect(vi.mocked(convertElementsToImage).mock.calls[0][2]).toBeCloseTo(
+      Math.sqrt(2_500_000 / 4_000_000)
+    );
+  });
+
+  it('resolves multiple large raster references sequentially', async () => {
+    let activeRasters = 0;
+    let maxActiveRasters = 0;
+    let cachedRasterIndex = 0;
+    convertElementsToImage.mockImplementation(async () => {
+      activeRasters += 1;
+      maxActiveRasters = Math.max(maxActiveRasters, activeRasters);
+      await Promise.resolve();
+      activeRasters -= 1;
+      return 'data:image/png;base64,YWFh';
+    });
+    cacheLocalMediaByContent.mockImplementation(async () => ({
+      url: `/__aitu_cache__/image/content-raster-${++cachedRasterIndex}.png`,
+      contentHash: `content-raster-${cachedRasterIndex}`,
+      reused: false,
+    }));
+    const board = createBoard([
+      {
+        id: 'shape-large-1',
+        type: 'graphics',
+        points: [
+          [0, 0],
+          [4000, 4000],
+        ],
+      } as PlaitElement,
+      {
+        id: 'shape-large-2',
+        type: 'graphics',
+        points: [
+          [5000, 5000],
+          [9000, 9000],
+        ],
+      } as PlaitElement,
+    ]);
+
+    const result = await resolveCanvasAssociationsForSubmission(
+      board,
+      'board-a',
+      [
+        createReference('shape-large-1', 'graphics'),
+        createReference('shape-large-2', 'graphics'),
+      ]
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.content).toHaveLength(2);
+    expect(convertElementsToImage).toHaveBeenCalledTimes(2);
+    expect(maxActiveRasters).toBe(1);
   });
 
   it('rejects unsupported modalities before request submission', () => {

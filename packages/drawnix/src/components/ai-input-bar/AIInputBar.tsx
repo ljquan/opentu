@@ -331,9 +331,17 @@ function getWorkflowCanvasAssociationLineContext(
   workflow: WorkflowDefinition,
   currentBoardId: string | null
 ): { boardId: string; sourceElementIds: string[] } | null {
-  const associations = snapshotCanvasAssociationRefs(
-    workflow.metadata.canvasAssociations || []
+  return getCanvasAssociationLineContext(
+    workflow.metadata.canvasAssociations || [],
+    currentBoardId
   );
+}
+
+function getCanvasAssociationLineContext(
+  inputAssociations: readonly CanvasAssociationRef[],
+  currentBoardId: string | null
+): { boardId: string; sourceElementIds: string[] } | null {
+  const associations = snapshotCanvasAssociationRefs(inputAssociations);
   const associationBoardIds = new Set(
     associations.map((association) => association.boardId)
   );
@@ -352,25 +360,37 @@ function linkWorkflowCanvasAssociationsToTaskTarget(
   board: PlaitBoard,
   workflow: WorkflowDefinition,
   targetElementId: string,
-  currentBoardId: string | null
-): void {
-  const context = getWorkflowCanvasAssociationLineContext(
-    workflow,
-    currentBoardId
-  );
-  if (!context || !targetElementId.trim()) return;
+  currentBoardId: string | null,
+  submittedAssociations?: readonly CanvasAssociationRef[]
+): number {
+  const context = submittedAssociations
+    ? getCanvasAssociationLineContext(submittedAssociations, currentBoardId)
+    : getWorkflowCanvasAssociationLineContext(workflow, currentBoardId);
+  if (!context || !targetElementId.trim()) return 0;
 
   try {
-    createCanvasAssociationLines(board, {
+    const lines = createCanvasAssociationLines(board, {
       ...context,
       resultElementId: targetElementId,
       workflowId: workflow.id,
     });
+    const expectedLineCount = new Set(
+      context.sourceElementIds.filter(
+        (sourceElementId) => sourceElementId !== targetElementId
+      )
+    ).size;
+    if (lines.length < expectedLineCount) {
+      console.warn(
+        `[AIInputBar] Canvas association task links incomplete for workflow ${workflow.id}: expected ${expectedLineCount}, created ${lines.length}`
+      );
+    }
+    return lines.length;
   } catch (error) {
     console.warn(
       `[AIInputBar] Failed to link canvas associations to task target for workflow ${workflow.id}:`,
       error
     );
+    return 0;
   }
 }
 
@@ -5398,6 +5418,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 );
               }, 100);
             }
+          }
+
+          if (board && publishedTaskTargetElementId) {
+            // 任务节点已可见；异步提交返回后的建线仍作为幂等重试。
+            linkWorkflowCanvasAssociationsToTaskTarget(
+              board,
+              workflow,
+              publishedTaskTargetElementId,
+              submittedDraftBoardId,
+              resolvedCanvasAssociations
+            );
           }
 
           const imageRoute = resolveInvocationRoute('image');

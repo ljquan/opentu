@@ -85,7 +85,7 @@ The system SHALL insert removable, ordered `@object` references at their origina
 
 ### Requirement: Generation SHALL Consume Typed Canvas References
 
-The system SHALL resolve and validate a bounded snapshot of previewed canvas references before sending a generation request.
+The system SHALL resolve and validate a snapshot of at most 20 previewed canvas references before sending a generation request. The reference-count limit SHALL NOT impose a source-element-count or logical-dimension limit on any individual reference.
 
 #### Scenario: Submit supported references
 
@@ -101,6 +101,16 @@ The system SHALL resolve and validate a bounded snapshot of previewed canvas ref
 - **WHEN** the user submits the prompt
 - **THEN** the system SHALL keep the input intact
 - **AND** it SHALL identify the invalid reference and stop submission
+
+#### Scenario: Rasterize a source with unrestricted logical scale
+
+- **GIVEN** a valid rasterizable canvas reference contains any number of supported source elements or spans any finite positive logical bounds
+- **WHEN** the user submits the prompt
+- **THEN** the system SHALL NOT reject that reference solely because of its source-element count, logical width, logical height or logical area
+- **AND** it SHALL resolve raster references sequentially, with at most one source rasterization active at a time
+- **AND** it SHALL derive a render scale no greater than the existing 2x sampling ceiling from fixed maximum output-pixel and output-edge budgets
+- **AND** an over-budget source SHALL be rasterized by preserving its complete logical bounds and aspect ratio while adaptively downsampling the output
+- **AND** an actual traversal, rendering or encoding failure MAY stop submission without allowing a partial request
 
 #### Scenario: Selected model cannot consume a reference
 
@@ -195,7 +205,7 @@ The system SHALL immediately connect referenced source elements to a newly publi
 
 ### Requirement: Canvas Association SHALL Bound Persistent And Runtime Data
 
-The system SHALL keep canvas association metadata lightweight and resource use bounded.
+The system SHALL keep canvas association metadata and generated media payloads lightweight and resource use bounded without imposing source-element-count or logical-dimension rejection thresholds.
 
 #### Scenario: Persist association state
 
@@ -209,6 +219,14 @@ The system SHALL keep canvas association metadata lightweight and resource use b
 - **WHEN** the user tries to add another unique reference
 - **THEN** the system SHALL refuse the additional reference with recoverable feedback
 - **AND** existing prompt content and references SHALL remain unchanged
+
+#### Scenario: Bound output rather than source scale
+
+- **GIVEN** one or more referenced frames, groups, cards or graphics exceed the configured output raster budget at their native logical scale
+- **WHEN** the system resolves them for generation
+- **THEN** it SHALL process the references sequentially
+- **AND** it SHALL reduce each raster output to the fixed pixel and edge budgets before it enters compression, caching or request payloads
+- **AND** it SHALL NOT truncate source elements, crop the logical bounds or mutate the canvas source
 
 #### Scenario: Reach the deferred-link limit
 

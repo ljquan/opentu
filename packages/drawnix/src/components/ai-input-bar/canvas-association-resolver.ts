@@ -33,11 +33,10 @@ import {
   SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH,
 } from '../../utils/virtual-media-url';
 
-const MAX_RASTER_ELEMENTS_PER_REFERENCE = 200;
-const MAX_RASTER_SOURCE_DIMENSION = 2048;
-const MAX_RASTER_SOURCE_AREA = 2_500_000;
+const DEFAULT_RASTER_OUTPUT_RATIO = 2;
+const MAX_RASTER_OUTPUT_DIMENSION = 2048;
+const MAX_RASTER_OUTPUT_AREA = 2_500_000;
 const SEEDANCE_2_MODEL_PREFIX = 'doubao-seedance-2-0-';
-const RASTER_LIMIT_ERROR = 'RASTER_LIMIT';
 const INLINE_MEDIA_PAYLOAD_LIMIT_ERROR = 'INLINE_MEDIA_PAYLOAD_LIMIT';
 
 export type CanvasAssociationResolvedContentType =
@@ -252,7 +251,7 @@ function isElementInsideFrame(
   }
 }
 
-function collectBoundedRasterElements(
+function collectRasterCandidates(
   elements: readonly PlaitElement[],
   predicate: (element: PlaitElement) => boolean = () => true
 ): PlaitElement[] {
@@ -260,9 +259,6 @@ function collectBoundedRasterElements(
   visitCanvasAssociationElements(elements, (element) => {
     if (!isCanvasAssociationCandidate(element) || !predicate(element)) {
       return true;
-    }
-    if (result.length >= MAX_RASTER_ELEMENTS_PER_REFERENCE) {
-      throw new Error(RASTER_LIMIT_ERROR);
     }
     result.push(element);
     return true;
@@ -276,14 +272,28 @@ function collectRasterElements(
 ): PlaitElement[] {
   if (isFrameElement(element)) {
     const frameBounds = getRectangleByElements(board, [element], false);
-    return collectBoundedRasterElements(
+    return collectRasterCandidates(
       board.children as PlaitElement[],
       (candidate) =>
         isElementInsideFrame(board, candidate, element, frameBounds)
     );
   }
 
-  return collectBoundedRasterElements([element]);
+  return collectRasterCandidates([element]);
+}
+
+function getRasterOutputRatio(bounds: {
+  width: number;
+  height: number;
+}): number {
+  return Math.min(
+    DEFAULT_RASTER_OUTPUT_RATIO,
+    MAX_RASTER_OUTPUT_DIMENSION / bounds.width,
+    MAX_RASTER_OUTPUT_DIMENSION / bounds.height,
+    Math.sqrt(MAX_RASTER_OUTPUT_AREA) /
+      Math.sqrt(bounds.width) /
+      Math.sqrt(bounds.height)
+  );
 }
 
 function uniqueContent(
@@ -488,22 +498,20 @@ async function resolveReferenceContent(
   }
 
   const rasterElements = collectRasterElements(board, element);
-  if (rasterElements.length > MAX_RASTER_ELEMENTS_PER_REFERENCE) {
-    throw new Error(RASTER_LIMIT_ERROR);
-  }
   const rasterBounds = getRectangleByElements(board, rasterElements, false);
   if (
     !Number.isFinite(rasterBounds.width) ||
     !Number.isFinite(rasterBounds.height) ||
     rasterBounds.width <= 0 ||
-    rasterBounds.height <= 0 ||
-    rasterBounds.width > MAX_RASTER_SOURCE_DIMENSION ||
-    rasterBounds.height > MAX_RASTER_SOURCE_DIMENSION ||
-    rasterBounds.width * rasterBounds.height > MAX_RASTER_SOURCE_AREA
+    rasterBounds.height <= 0
   ) {
-    throw new Error(RASTER_LIMIT_ERROR);
+    throw new Error('INVALID_RASTER_BOUNDS');
   }
-  const url = await convertElementsToImage(board, rasterElements);
+  const url = await convertElementsToImage(
+    board,
+    rasterElements,
+    getRasterOutputRatio(rasterBounds)
+  );
   if (!url) return [];
   const dimensions = await getImageDimensionsFromUrl(url);
   const cachedUrl = await cacheInlineReferenceMedia(url, 'image', reference);
@@ -612,7 +620,6 @@ export async function resolveCanvasAssociationsForSubmission(
       content.push(...resolved);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '';
-      const rasterLimit = errorMessage === RASTER_LIMIT_ERROR;
       const inlineMediaLimit =
         errorMessage === INLINE_MEDIA_PAYLOAD_LIMIT_ERROR;
       const audioPayloadLimit = inlineMediaLimit && isAudioNodeElement(element);
@@ -624,9 +631,6 @@ export async function resolveCanvasAssociationsForSubmission(
       } else if (inlineMediaLimit) {
         code = 'raster_limit';
         message = `“${reference.label}”图片数据过大，无法作为联想引用`;
-      } else if (rasterLimit) {
-        code = 'raster_limit';
-        message = `“${reference.label}”包含的元素或画布范围过大，无法作为联想引用`;
       }
       errors.push({
         reference,

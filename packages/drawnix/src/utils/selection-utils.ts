@@ -792,7 +792,8 @@ const copyFillDefsToElements = async (
  */
 export const convertElementsToImage = async (
   board: PlaitBoard,
-  elements: PlaitElement[]
+  elements: PlaitElement[],
+  ratio = 2
 ): Promise<string | null> => {
   try {
     if (elements.length === 0) {
@@ -803,9 +804,12 @@ export const convertElementsToImage = async (
 
     // Sort elements by their original order in the board to maintain layer hierarchy
     // Elements that appear later in the board.children array should be on top
+    const boardElementOrder = new Map(
+      board.children.map((child, index) => [child.id, index])
+    );
     const sortedElements = elements.slice().sort((a, b) => {
-      const indexA = board.children.findIndex((child) => child.id === a.id);
-      const indexB = board.children.findIndex((child) => child.id === b.id);
+      const indexA = boardElementOrder.get(a.id) ?? -1;
+      const indexB = boardElementOrder.get(b.id) ?? -1;
 
       // If either element is not found in board.children, maintain original order
       if (indexA === -1 && indexB === -1) return 0;
@@ -832,7 +836,7 @@ export const convertElementsToImage = async (
         fillStyle: 'white', // White background for AI image generation
         inlineStyleClassNames: '.extend,.emojis,.text', // Include style classes for proper rendering
         padding: 20, // Add padding around elements
-        ratio: 2, // Higher resolution for better quality (reduced from 4 to avoid too large images)
+        ratio,
       });
     } finally {
       // 清理添加的填充定义（确保即使异常也会清理）
