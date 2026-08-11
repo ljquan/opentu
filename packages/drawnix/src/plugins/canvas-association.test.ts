@@ -399,6 +399,70 @@ describe('canvas association', () => {
     expect(board.children.filter(isCanvasAssociationLine)).toHaveLength(1);
   });
 
+  it('backfills a second source without duplicating the existing line or using the task target as a source', () => {
+    const board = createBoard([
+      createElement('source-1', [
+        [0, 0],
+        [100, 100],
+      ]),
+      createElement('source-2', [
+        [0, 200],
+        [100, 300],
+      ]),
+      createElement(
+        'workzone-1',
+        [
+          [300, 100],
+          [420, 220],
+        ],
+        'workzone'
+      ),
+    ]);
+    const [firstLine] = createCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1'],
+      resultElementId: 'workzone-1',
+      workflowId: 'workflow-1',
+    });
+
+    const lines = createCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: [
+        'source-1',
+        ' source-1 ',
+        'source-2',
+        'workzone-1',
+        '',
+      ],
+      resultElementId: 'workzone-1',
+      workflowId: 'workflow-1',
+    });
+    const persistedLines = board.children.filter(isCanvasAssociationLine);
+
+    expect(lines).toHaveLength(2);
+    expect(persistedLines).toHaveLength(2);
+    expect(
+      new Set(
+        persistedLines.map((line) => line.canvasAssociation.sourceElementId)
+      )
+    ).toEqual(new Set(['source-1', 'source-2']));
+    expect(
+      persistedLines.find(
+        (line) => line.canvasAssociation.sourceElementId === 'source-1'
+      )?.id
+    ).toBe(firstLine.id);
+    expect(
+      persistedLines.some(
+        (line) => line.canvasAssociation.sourceElementId === 'workzone-1'
+      )
+    ).toBe(false);
+    expect(
+      persistedLines.every(
+        (line) => line.strokeColor === '#000000' && line.strokeWidth === 2
+      )
+    ).toBe(true);
+  });
+
   it('creates and retargets one persistent line for each distinct source', () => {
     const board = createBoard([
       createElement('source-1', [
