@@ -94,6 +94,10 @@ export interface VideoGenerationParams {
   promptMeta?: PromptLineageMeta;
   /** 本次生成使用的知识库笔记轻量引用 */
   knowledgeContextRefs?: KnowledgeContextRef[];
+  /** 重新生成时需要原地替换的画布元素 ID */
+  replaceElementId?: string;
+  /** 重新生成前的原始提示词 */
+  sourcePrompt?: string;
 }
 
 /**
@@ -198,6 +202,8 @@ function getVideoQueueConfig(params: VideoGenerationParams) {
       params: params.params,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
+      replaceElementId: params.replaceElementId,
+      sourcePrompt: params.sourcePrompt,
     }),
     buildResultData: () => ({
       size: params.size || '16x9',

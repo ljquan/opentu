@@ -418,7 +418,7 @@ export async function insertAudioFromUrl(
   startPoint?: Point,
   isDrop?: boolean,
   skipScroll?: boolean
-): Promise<void> {
+) {
   if (!board) {
     throw new Error('Board is required for audio insertion');
   }
@@ -466,7 +466,7 @@ export async function insertAudioFromUrl(
   }
 
   const finalPoint = insertionPoint || [100, 100] as Point;
-  AudioNodeTransforms.insertAudioNode(board, {
+  const audioNode = AudioNodeTransforms.insertAudioNode(board, {
     audioUrl: resolvedAudioUrl,
     position: finalPoint,
     size: {
@@ -496,6 +496,8 @@ export async function insertAudioFromUrl(
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
+
+  return audioNode;
 }
 
 export function getAudioFileDuration(file: File): Promise<number | undefined> {

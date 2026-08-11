@@ -29,11 +29,9 @@ import { taskStorageReader } from '../../services/task-storage-reader';
 import { taskQueueService } from '../../services/task-queue';
 import { useDrawnix, DialogType } from '../../hooks/use-drawnix';
 import { insertImageFromUrl } from '../../data/image';
-import { insertVideoFromUrl } from '../../data/video';
 import {
   AUDIO_CARD_DEFAULT_HEIGHT,
   AUDIO_CARD_DEFAULT_WIDTH,
-  insertAudioFromUrl,
 } from '../../data/audio';
 import { executeCanvasInsertion } from '../../services/canvas-operations';
 import {
@@ -384,8 +382,9 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     const retryableSelectedIds = Array.from(selectedTaskIds).filter((id) => {
       const task = tasks.find((t) => t.id === id);
       return (
-        task?.status === TaskStatus.FAILED ||
-        task?.status === TaskStatus.CANCELLED
+        task?.params.agentAnalysis !== true &&
+        (task?.status === TaskStatus.FAILED ||
+          task?.status === TaskStatus.CANCELLED)
       );
     });
     if (retryableSelectedIds.length === 0) {
@@ -403,8 +402,9 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     return Array.from(selectedTaskIds).filter((id) => {
       const task = tasks.find((t) => t.id === id);
       return (
-        task?.status === TaskStatus.FAILED ||
-        task?.status === TaskStatus.CANCELLED
+        task?.params.agentAnalysis !== true &&
+        (task?.status === TaskStatus.FAILED ||
+          task?.status === TaskStatus.CANCELLED)
       );
     }).length;
   }, [selectedTaskIds, tasks]);
@@ -590,6 +590,10 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               type: 'text',
               content: chatResponse,
               label: promptLabel,
+              metadata: {
+                prompt: task.params.prompt,
+                generationTaskId: task.id,
+              },
             },
           ],
         });
@@ -627,9 +631,22 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板'
         );
       } else if (task.type === TaskType.VIDEO) {
-        // 插入视频到白板
-        await insertVideoFromUrl(board, taskResult.url);
-        // console.log('Video inserted to board:', taskId);
+        const insertionResult = await executeCanvasInsertion({
+          board,
+          items: [
+            {
+              type: 'video',
+              content: taskResult.url,
+              metadata: {
+                prompt: task.params.prompt,
+                generationTaskId: task.id,
+              },
+            },
+          ],
+        });
+        if (!insertionResult.success) {
+          throw new Error(insertionResult.error || '视频插入失败');
+        }
         MessagePlugin.success('视频已插入到白板');
       } else if (task.type === TaskType.AUDIO) {
         if (isLyricsTask(task)) {
@@ -653,6 +670,8 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                     task.params.title || task.params.prompt
                   ),
                   tags: getLyricsTags(taskResult),
+                  prompt: task.params.prompt,
+                  generationTaskId: task.id,
                 },
               },
             ],
@@ -683,42 +702,44 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
             taskResult.clips?.[0]?.id ||
             taskResult.clipIds?.[0],
           clipIds: taskResult.clipIds,
+          generationTaskId: task.id,
         };
 
-        if (urls.length === 1) {
-          await insertAudioFromUrl(board, urls[0], baseMetadata);
-        } else {
-          await executeCanvasInsertion({
-            board,
-            items: urls.map((audioUrl, index) => ({
-              type: 'audio',
-              content: audioUrl,
-              groupId: `task-audio-${task.id}`,
-              dimensions: {
-                width: AUDIO_CARD_DEFAULT_WIDTH,
-                height: AUDIO_CARD_DEFAULT_HEIGHT,
-              },
-              metadata: {
-                ...baseMetadata,
-                title:
-                  taskResult.clips?.[index]?.title ||
-                  `${baseMetadata.title || 'Audio'} ${index + 1}`,
-                previewImageUrl:
-                  taskResult.clips?.[index]?.imageLargeUrl ||
-                  taskResult.clips?.[index]?.imageUrl ||
-                  baseMetadata.previewImageUrl,
-                duration:
-                  typeof taskResult.clips?.[index]?.duration === 'number'
-                    ? taskResult.clips[index]!.duration || undefined
-                    : baseMetadata.duration,
-                clipId:
-                  taskResult.clips?.[index]?.clipId ||
-                  taskResult.clips?.[index]?.id ||
-                  taskResult.clipIds?.[index] ||
-                  baseMetadata.clipId,
-              },
-            })),
-          });
+        const insertionResult = await executeCanvasInsertion({
+          board,
+          items: urls.map((audioUrl, index) => ({
+            type: 'audio',
+            content: audioUrl,
+            groupId: urls.length > 1 ? `task-audio-${task.id}` : undefined,
+            dimensions: {
+              width: AUDIO_CARD_DEFAULT_WIDTH,
+              height: AUDIO_CARD_DEFAULT_HEIGHT,
+            },
+            metadata: {
+              ...baseMetadata,
+              title:
+                taskResult.clips?.[index]?.title ||
+                (urls.length > 1
+                  ? `${baseMetadata.title || 'Audio'} ${index + 1}`
+                  : baseMetadata.title),
+              previewImageUrl:
+                taskResult.clips?.[index]?.imageLargeUrl ||
+                taskResult.clips?.[index]?.imageUrl ||
+                baseMetadata.previewImageUrl,
+              duration:
+                typeof taskResult.clips?.[index]?.duration === 'number'
+                  ? taskResult.clips[index]!.duration || undefined
+                  : baseMetadata.duration,
+              clipId:
+                taskResult.clips?.[index]?.clipId ||
+                taskResult.clips?.[index]?.id ||
+                taskResult.clipIds?.[index] ||
+                baseMetadata.clipId,
+            },
+          })),
+        });
+        if (!insertionResult.success) {
+          throw new Error(insertionResult.error || '音频插入失败');
         }
 
         MessagePlugin.success(
@@ -735,6 +756,10 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               type: 'text',
               content: chatResponse,
               label: promptLabel,
+              metadata: {
+                prompt: task.params.prompt,
+                generationTaskId: task.id,
+              },
             },
           ],
         });
@@ -744,7 +769,12 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       onTaskAction?.('insert', taskId);
     } catch (error) {
       console.error('Failed to insert to board:', error);
-      const message = error instanceof Error ? error.message : '未知错误';
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : typeof error === 'string' && error.trim()
+          ? error
+          : '未知错误';
       MessagePlugin.error(
         message.startsWith('插入失败') ? message : `插入失败: ${message}`
       );
@@ -871,6 +901,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                   ? clip.duration
                   : task.result?.duration,
               prompt: task.params.prompt,
+              generationTaskId: task.id,
               tags:
                 typeof task.params.tags === 'string'
                   ? task.params.tags
@@ -897,6 +928,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                 posterUrl: task.result?.previewImageUrl,
                 duration: task.result?.duration,
                 prompt: task.params.prompt,
+                generationTaskId: task.id,
                 tags:
                   typeof task.params.tags === 'string'
                     ? task.params.tags
@@ -926,6 +958,8 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
             height: dimensions?.height,
             title:
               urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
+            prompt: task.params.prompt,
+            generationTaskId: task.id,
           });
         }
       }

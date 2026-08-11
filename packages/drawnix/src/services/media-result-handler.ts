@@ -97,13 +97,18 @@ export function isGridImageTask(params: TaskParams): boolean {
  * 检查是否为灵感图任务
  */
 export function isInspirationBoardTask(params: TaskParams): boolean {
-  return !!(params.isInspirationBoard && params.inspirationBoardLayoutStyle === 'inspiration-board');
+  return !!(
+    params.isInspirationBoard &&
+    params.inspirationBoardLayoutStyle === 'inspiration-board'
+  );
 }
 
 /**
  * 获取默认插入位置
  */
-export function getDefaultInsertionPoint(offset: number = 800): Point | undefined {
+export function getDefaultInsertionPoint(
+  offset: number = 800
+): Point | undefined {
   const board = getCanvasBoard();
   if (!board) return undefined;
   return getInsertionPointBelowBottommostElement(board, offset);
@@ -130,6 +135,10 @@ export async function handleSplitAndInsertTask(
   try {
     const result = await splitAndInsertImages(board, url, {
       scrollToResult: config.scrollToResult ?? true,
+      metadata: {
+        prompt: params.prompt,
+        generationTaskId: taskId,
+      },
     });
 
     const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
@@ -144,18 +153,36 @@ export async function handleSplitAndInsertTask(
       return { success: true, count: result.count };
     } else {
       // 拆分失败，回退到直接插入原图
-      console.warn(`[MediaResultHandler] Split failed: ${result.error}, falling back to direct insert`);
+      console.warn(
+        `[MediaResultHandler] Split failed: ${result.error}, falling back to direct insert`
+      );
 
       const insertResult = await executeCanvasInsertion({
-        items: [{ type: 'image', content: url }],
+        items: [
+          {
+            type: 'image',
+            content: url,
+            metadata: {
+              prompt: params.prompt,
+              generationTaskId: taskId,
+            },
+          },
+        ],
         startPoint: insertionPoint,
       });
       if (insertResult.success) {
         // console.log(`[MediaResultHandler] Fallback insert success, calling completePostProcessing for task ${taskId}`);
-        workflowCompletionService.completePostProcessing(taskId, 1, insertionPoint);
+        workflowCompletionService.completePostProcessing(
+          taskId,
+          1,
+          insertionPoint
+        );
         return { success: true, count: 1 };
       } else {
-        workflowCompletionService.failPostProcessing(taskId, result.error || 'Split and insert failed');
+        workflowCompletionService.failPostProcessing(
+          taskId,
+          result.error || 'Split and insert failed'
+        );
         return { success: false, count: 0, error: result.error };
       }
     }
@@ -196,9 +223,14 @@ export async function handleSingleMediaInsert(
             height: AUDIO_CARD_DEFAULT_HEIGHT,
           }
         : parseSizeToPixels(params.size);
+    const generationMetadata = {
+      prompt: params.prompt,
+      generationTaskId: taskId,
+    };
     const metadata =
       type === 'audio'
         ? {
+            ...generationMetadata,
             title: result?.title || params.title,
             duration:
               typeof result?.clips?.[0]?.duration === 'number'
@@ -219,7 +251,7 @@ export async function handleSingleMediaInsert(
               result?.clipIds?.[0],
             clipIds: result?.clipIds,
           }
-        : undefined;
+        : generationMetadata;
 
     if (config.insertPrompt) {
       await insertAIFlow(
@@ -245,7 +277,12 @@ export async function handleSingleMediaInsert(
  * 处理多个同组媒体任务的插入（水平排列）
  */
 export async function handleGroupMediaInsert(
-  tasks: Array<{ taskId: string; type: MediaType; url: string; params: TaskParams }>,
+  tasks: Array<{
+    taskId: string;
+    type: MediaType;
+    url: string;
+    params: TaskParams;
+  }>,
   config: InsertConfig = {}
 ): Promise<{ success: boolean; error?: string }> {
   const board = getCanvasBoard();
@@ -268,35 +305,51 @@ export async function handleGroupMediaInsert(
     const firstTask = tasks[0];
     const dimensions = parseSizeToPixels(firstTask.params.size);
 
-    const urls = tasks.map(t => t.url);
+    const urls = tasks.map((task) => task.url);
+    const results = tasks.map((task) => ({
+      type: task.type,
+      url: task.url,
+      dimensions,
+      metadata: {
+        prompt: task.params.prompt,
+        generationTaskId: task.taskId,
+      },
+    }));
 
     if (config.insertPrompt) {
-      await insertAIFlow(
-        firstTask.params.prompt,
-        urls.map(url => ({ type: firstTask.type, url, dimensions })),
-        insertionPoint
-      );
+      await insertAIFlow(firstTask.params.prompt, results, insertionPoint);
     } else {
       if (firstTask.type === 'image') {
         await executeCanvasInsertion({
-          items: urls.map((url) => ({
+          items: tasks.map((task) => ({
             type: 'image',
-            content: url,
+            content: task.url,
             dimensions,
+            metadata: {
+              prompt: task.params.prompt,
+              generationTaskId: task.taskId,
+            },
           })),
           startPoint: insertionPoint,
         });
       } else {
         // 视频逐个插入
-        for (const url of urls) {
-          await quickInsert('video', url, insertionPoint, dimensions);
+        for (const task of tasks) {
+          await quickInsert('video', task.url, insertionPoint, dimensions, {
+            prompt: task.params.prompt,
+            generationTaskId: task.taskId,
+          });
         }
       }
     }
 
     // 标记所有任务完成
     for (const task of tasks) {
-      workflowCompletionService.completePostProcessing(task.taskId, 1, insertionPoint);
+      workflowCompletionService.completePostProcessing(
+        task.taskId,
+        1,
+        insertionPoint
+      );
     }
 
     return { success: true };
@@ -359,7 +412,8 @@ export async function handleMediaResult(
     workflowCompletionService.registerTask(taskId, params.batchId);
     workflowCompletionService.startPostProcessing(taskId, 'direct_insert');
     try {
-      const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
+      const insertionPoint =
+        config.insertionPoint || getDefaultInsertionPoint();
       const dimensions =
         type === 'audio'
           ? {
@@ -392,6 +446,7 @@ export async function handleMediaResult(
               tags: typeof params.tags === 'string' ? params.tags : undefined,
               mv: typeof params.mv === 'string' ? params.mv : undefined,
               prompt: params.prompt,
+              generationTaskId: taskId,
               providerTaskId: result.providerTaskId,
               clipId:
                 result.clips?.[index]?.clipId ||
@@ -408,11 +463,19 @@ export async function handleMediaResult(
             type: 'image',
             content: imageUrl,
             dimensions,
+            metadata: {
+              prompt: params.prompt,
+              generationTaskId: taskId,
+            },
           })),
           startPoint: insertionPoint,
         });
       }
-      workflowCompletionService.completePostProcessing(taskId, resultUrls.length, insertionPoint);
+      workflowCompletionService.completePostProcessing(
+        taskId,
+        resultUrls.length,
+        insertionPoint
+      );
       return { success: true, count: resultUrls.length };
     } catch (error) {
       const errorMsg = String(error);
@@ -446,7 +509,7 @@ export function createCanvasInsertItems(
   result: MediaResult
 ): Array<{ type: string; url: string }> {
   if (result.urls && result.urls.length > 1) {
-    return result.urls.map(url => ({ type, url }));
+    return result.urls.map((url) => ({ type, url }));
   }
   return [{ type, url: result.url }];
 }

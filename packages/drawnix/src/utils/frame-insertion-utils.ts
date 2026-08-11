@@ -127,6 +127,45 @@ function isImageElement(element: any): boolean {
   return element?.type === 'image' && typeof element.url === 'string';
 }
 
+function readMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readMetadataString(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readMetadataString(metadata, 'generationPrompt') ||
+    readMetadataString(metadata, 'aiPrompt');
+  const generationTaskId = readMetadataString(metadata, 'generationTaskId');
+  const generationAnchorId = readMetadataString(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
+}
+
 function normalizeHistoryPrompt(prompt?: string): string | undefined {
   const normalized = prompt?.trim();
   return normalized ? normalized : undefined;
@@ -526,7 +565,8 @@ export function syncEditedPPTSlideImage(
 
   const pptMeta = getFramePPTMeta(board, frameId);
   const isCurrentPPTSlideImage =
-    element.pptSlideImage === true || pptMeta?.slideImageElementId === elementId;
+    element.pptSlideImage === true ||
+    pptMeta?.slideImageElementId === elementId;
   if (!isCurrentPPTSlideImage) {
     return;
   }
@@ -598,7 +638,9 @@ export function insertPPTImagePlaceholder(
   Transforms.insertNode(board, placeholderElement, [board.children.length]);
 }
 
-export function getSelectedInsertionFrame(board: PlaitBoard): PlaitFrame | null {
+export function getSelectedInsertionFrame(
+  board: PlaitBoard
+): PlaitFrame | null {
   const selectedElements = getSelectedElements(board);
   if (selectedElements.length > 0) {
     const selectedElement = selectedElements[0];
@@ -623,7 +665,7 @@ export async function insertMediaIntoSelectedFrame(
   mediaUrl: string,
   mediaType: 'image' | 'video',
   mediaDimensions?: { width: number; height: number },
-  options?: { fit?: 'contain' | 'stretch' }
+  options?: { fit?: 'contain' | 'stretch'; metadata?: Record<string, unknown> }
 ): Promise<FrameMediaInsertionResult> {
   const frame = getSelectedInsertionFrame(board);
   if (!frame) return undefined;
@@ -666,8 +708,10 @@ export async function insertMediaIntoFrame(
   frameDimensions: { width: number; height: number },
   mediaDimensions?: { width: number; height: number },
   targetRegion?: { x: number; y: number; width: number; height: number },
-  options?: { fit?: 'contain' | 'stretch' }
+  options?: { fit?: 'contain' | 'stretch'; metadata?: Record<string, unknown> }
 ): Promise<FrameMediaInsertionResult> {
+  const resolvedMediaUrl = mediaUrl;
+
   // 查找目标 Frame
   const frameElement = board.children.find(
     (el) => el.id === frameId && isFrameElement(el)
@@ -734,13 +778,25 @@ export async function insertMediaIntoFrame(
   const insertY = region.y + (region.height - mediaHeight) / 2;
   const insertionPoint: Point = [insertX, insertY];
 
-  // 记录插入前的 children 数量，用于找到新插入的元素
-  const childrenCountBefore = board.children.length;
+  if (mediaType === 'image' && shouldLoadImageForContain) {
+    try {
+      const image = await loadFrameImageElement(resolvedMediaUrl);
+      const fitted = fitMediaIntoRegion(
+        { width: image.width, height: image.height },
+        regionDimensions
+      );
+      mediaWidth = fitted.width;
+      mediaHeight = fitted.height;
+    } catch {
+      // 图片尺寸不可读时沿用目标区域尺寸，保持插入不中断。
+    }
+  }
 
+  const existingElementIds = new Set(board.children.map((child) => child.id));
   if (mediaType === 'video') {
-    const videoWithFragment = mediaUrl.includes('#')
-      ? mediaUrl
-      : `${mediaUrl}#video`;
+    const videoWithFragment = resolvedMediaUrl.includes('#')
+      ? resolvedMediaUrl
+      : `${resolvedMediaUrl}#video`;
     DrawTransforms.insertImage(
       board,
       {
@@ -753,30 +809,22 @@ export async function insertMediaIntoFrame(
       insertionPoint
     );
   } else {
-    if (shouldLoadImageForContain) {
-      try {
-        const image = await loadFrameImageElement(mediaUrl);
-        const fitted = fitMediaIntoRegion(
-          { width: image.width, height: image.height },
-          regionDimensions
-        );
-        mediaWidth = fitted.width;
-        mediaHeight = fitted.height;
-      } catch {
-        // 图片尺寸不可读时沿用目标区域尺寸，保持插入不中断。
-      }
-    }
-
     DrawTransforms.insertImage(
       board,
       {
-        url: mediaUrl,
+        url: resolvedMediaUrl,
         width: mediaWidth,
         height: mediaHeight,
       },
       insertionPoint
     );
   }
+  const newElement = board.children.find(
+    (child) => !existingElementIds.has(child.id)
+  );
+  const newElementIndex = newElement
+    ? board.children.findIndex((child) => child.id === newElement.id)
+    : -1;
 
   let finalPoint = insertionPoint;
   let finalSize = {
@@ -784,54 +832,51 @@ export async function insertMediaIntoFrame(
     height: mediaHeight,
   };
 
-  // 查找新插入的元素并绑定到 Frame
-  if (board.children.length > childrenCountBefore) {
-    const newElement = board.children[childrenCountBefore];
-    if (newElement) {
-      if (
-        mediaType === 'image' &&
-        shouldLoadImageForContain &&
-        (newElement as any).points?.length >= 2
-      ) {
-        const insertedRect = RectangleClient.getRectangleByPoints(
-          (newElement as any).points
-        );
-        const centeredRect = {
-          x: region.x + (region.width - insertedRect.width) / 2,
-          y: region.y + (region.height - insertedRect.height) / 2,
-          width: insertedRect.width,
-          height: insertedRect.height,
-        };
-        finalPoint = [centeredRect.x, centeredRect.y];
-        finalSize = {
-          width: centeredRect.width,
-          height: centeredRect.height,
-        };
-        Transforms.setNode(
-          board,
-          {
-            points: [
-              [centeredRect.x, centeredRect.y],
-              [
-                centeredRect.x + centeredRect.width,
-                centeredRect.y + centeredRect.height,
-              ],
+  // 按稳定 ID 查找新插入的元素并绑定到 Frame。
+  if (newElement && newElementIndex >= 0) {
+    if (
+      mediaType === 'image' &&
+      shouldLoadImageForContain &&
+      (newElement as any).points?.length >= 2
+    ) {
+      const insertedRect = RectangleClient.getRectangleByPoints(
+        (newElement as any).points
+      );
+      const centeredRect = {
+        x: region.x + (region.width - insertedRect.width) / 2,
+        y: region.y + (region.height - insertedRect.height) / 2,
+        width: insertedRect.width,
+        height: insertedRect.height,
+      };
+      finalPoint = [centeredRect.x, centeredRect.y];
+      finalSize = {
+        width: centeredRect.width,
+        height: centeredRect.height,
+      };
+      Transforms.setNode(
+        board,
+        {
+          points: [
+            [centeredRect.x, centeredRect.y],
+            [
+              centeredRect.x + centeredRect.width,
+              centeredRect.y + centeredRect.height,
             ],
-          } as any,
-          [childrenCountBefore]
-        );
-      }
-      FrameTransforms.bindToFrame(board, newElement, frameElement);
+          ],
+        } as any,
+        [newElementIndex]
+      );
     }
+    const generationPatch = buildGenerationMetadataPatch(options?.metadata);
+    if (Object.keys(generationPatch).length > 0) {
+      Transforms.setNode(board, generationPatch as any, [newElementIndex]);
+    }
+    FrameTransforms.bindToFrame(board, newElement, frameElement);
   }
-
-  const insertedElement = board.children[childrenCountBefore] as
-    | { id?: string }
-    | undefined;
 
   return {
     point: finalPoint,
-    elementId: insertedElement?.id,
+    elementId: newElement?.id,
     size: finalSize,
   };
 }

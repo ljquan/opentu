@@ -31,6 +31,8 @@ export interface TextGenerationParams {
   batchTotal?: number;
   globalIndex?: number;
   autoInsertToCanvas?: boolean;
+  replaceElementId?: string;
+  sourcePrompt?: string;
   params?: Record<string, unknown>;
   promptMeta?: PromptLineageMeta;
   knowledgeContextRefs?: KnowledgeContextRef[];
@@ -99,6 +101,8 @@ function getTextQueueConfig(params: TextGenerationParams) {
       model: params.model || getCurrentTextModel(),
       modelRef: params.modelRef || null,
       referenceImages: params.referenceImages,
+      replaceElementId: params.replaceElementId,
+      sourcePrompt: params.sourcePrompt,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
       ...(params.params ? { params: params.params } : {}),

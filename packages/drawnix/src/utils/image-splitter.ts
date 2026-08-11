@@ -1827,6 +1827,8 @@ export interface SplitAndInsertOptions {
   startPoint?: Point;
   /** 是否滚动到插入位置（默认 true） */
   scrollToResult?: boolean;
+  /** AI 生成结果的轻量来源元数据 */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -1845,7 +1847,12 @@ export async function splitAndInsertImages(
   options?: SplitAndInsertOptions
 ): Promise<{ success: boolean; count: number; error?: string }> {
   const endTrack = trackMemory('图片分割');
-  const { sourceRect, startPoint, scrollToResult = true } = options || {};
+  const {
+    sourceRect,
+    startPoint,
+    scrollToResult = true,
+    metadata,
+  } = options || {};
   try {
     let elements: SplitImageElement[] = [];
     // 标记是否为标准宫格（用于决定是否跳过子图去白边）
@@ -2131,10 +2138,23 @@ export async function splitAndInsertImages(
       // 仅缓存到 Cache Storage（不存 IndexedDB 元数据，分割图片不需要在素材库显示）
       await unifiedCacheService.cacheToCacheStorageOnly(stableUrl, blob);
 
+      const prompt =
+        typeof metadata?.prompt === 'string' && metadata.prompt.trim()
+          ? metadata.prompt.trim()
+          : undefined;
+      const generationTaskId =
+        typeof metadata?.generationTaskId === 'string' &&
+        metadata.generationTaskId.trim()
+          ? metadata.generationTaskId.trim()
+          : undefined;
       const imageItem = {
         url: stableUrl,
         width: scaledWidth,
         height: scaledHeight,
+        ...(prompt
+          ? { prompt, aiPrompt: prompt, generationPrompt: prompt }
+          : {}),
+        ...(generationTaskId ? { generationTaskId } : {}),
       };
 
       DrawTransforms.insertImage(board, imageItem, [insertX, insertY] as Point);

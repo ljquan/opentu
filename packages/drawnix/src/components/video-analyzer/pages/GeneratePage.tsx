@@ -525,9 +525,17 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         throw new Error('画布未就绪');
       }
       setCanvasBoard(board);
+      const sourcePrompt =
+        currentRecord.productInfo?.prompt ||
+        (currentRecord.sourceSnapshot?.type === 'prompt'
+          ? currentRecord.sourceSnapshot.prompt
+          : currentRecord.sourceLabel || '');
       const result = await quickInsert(
         'text',
-        formatShotsMarkdown(currentShots, currentRecord.analysis, currentRecord.productInfo)
+        formatShotsMarkdown(currentShots, currentRecord.analysis, currentRecord.productInfo),
+        undefined,
+        undefined,
+        sourcePrompt.trim() ? { prompt: sourcePrompt.trim() } : undefined
       );
       if (!result.success) {
         throw new Error(result.error || '插入失败，请确认画布已打开');
@@ -547,13 +555,22 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     }
   }, [board]);
 
-  const insertGeneratedVideoToCanvas = useCallback(async (videoUrl: string) => {
+  const insertGeneratedVideoToCanvas = useCallback(async (
+    videoUrl: string,
+    prompt?: string
+  ) => {
     if (!board) {
       return false;
     }
     try {
       setCanvasBoard(board);
-      const result = await quickInsert('video', videoUrl);
+      const result = await quickInsert(
+        'video',
+        videoUrl,
+        undefined,
+        undefined,
+        prompt?.trim() ? { prompt: prompt.trim() } : undefined
+      );
       if (!result.success) {
         throw new Error(result.error || '插入失败，请确认画布已打开');
       }
@@ -1744,7 +1761,12 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
             if (waitResult.success && task && videoUrl) {
               await writeShotVideoResult(currentShot.id, videoUrl);
               if (shouldInsertToCanvas) {
-                await insertGeneratedVideoToCanvas(videoUrl);
+                await insertGeneratedVideoToCanvas(
+                  videoUrl,
+                  typeof task.params.prompt === 'string'
+                    ? task.params.prompt
+                    : undefined
+                );
               }
               break;
             }

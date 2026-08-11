@@ -4,7 +4,7 @@
  * 将AI生成的内容（文本、图片、视频）插入到画布中
  */
 
-import { PlaitBoard, Point } from '@plait/core';
+import { PlaitBoard, Point, Transforms } from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
 import {
   insertImageFromUrl,
@@ -111,6 +111,80 @@ export interface CanvasInsertionResultData {
   };
 }
 
+export interface MediaFlowResult {
+  type: 'image' | 'video' | 'audio';
+  url: string;
+  dimensions?: { width: number; height: number };
+  metadata?: Record<string, unknown>;
+}
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+interface InsertedCanvasItem {
+  elementIds: string[];
+  size: { width: number; height: number };
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readStringMetadata(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readStringMetadata(metadata, 'generationPrompt') ||
+    readStringMetadata(metadata, 'aiPrompt');
+  const generationTaskId = readStringMetadata(metadata, 'generationTaskId');
+  const generationAnchorId = readStringMetadata(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
+}
+
+function attachGenerationMetadataToInsertedElements(
+  board: PlaitBoard,
+  elementIds: readonly string[],
+  metadata: Record<string, unknown> | undefined
+): void {
+  const patch = buildGenerationMetadataPatch(metadata);
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
+
+  for (const elementId of elementIds) {
+    const index = board.children.findIndex(
+      (element) => element.id === elementId
+    );
+    if (index < 0) continue;
+    Transforms.setNode(
+      board,
+      patch as Partial<PlaitBoard['children'][number]>,
+      [index]
+    );
+  }
+}
+
 /**
  * 插入单个文本项到画布
  * - 有 title 时 → 直接以 Card 方式插入
@@ -122,29 +196,51 @@ async function insertTextToCanvas(
   text: string,
   point: Point,
   title?: string,
-  cardWidth: number = getViewportAwareCardWidth(board)
-): Promise<{ width: number; height: number }> {
+  cardWidth: number = getViewportAwareCardWidth(board),
+  metadata?: Record<string, unknown>
+): Promise<InsertedCanvasItem> {
   // 有 title 时，直接以 Card 方式插入（跳过 Markdown 检测）
   if (title) {
-    insertCardsToCanvas(board, [{ title, body: text }], point, cardWidth);
-    return { width: cardWidth, height: 120 };
+    const elementIds = insertCardsToCanvas(
+      board,
+      [{ title, body: text }],
+      point,
+      cardWidth
+    );
+    attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
+    return {
+      elementIds,
+      size: { width: cardWidth, height: 120 },
+    };
   }
 
   // 尝试解析为 Markdown Card 块
   const cardBlocks = parseMarkdownToCards(text);
   if (cardBlocks && cardBlocks.length > 0) {
-    insertCardsToCanvas(board, cardBlocks, point, cardWidth);
+    const elementIds = insertCardsToCanvas(board, cardBlocks, point, cardWidth);
+    attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
     const cols = Math.min(cardBlocks.length, 3);
     const rows = Math.ceil(cardBlocks.length / 3);
     return {
-      width: cols * (cardWidth + 20) - 20,
-      height: rows * (120 + 20) - 20,
+      elementIds,
+      size: {
+        width: cols * (cardWidth + 20) - 20,
+        height: rows * (120 + 20) - 20,
+      },
     };
   }
 
   // 普通文本 → 直接插入
+  const existingElementIds = new Set(board.children.map((child) => child.id));
   DrawTransforms.insertText(board, point, text);
-  return estimateCanvasTextSize(text);
+  const elementIds = board.children
+    .filter((child) => !existingElementIds.has(child.id))
+    .map((child) => child.id);
+  attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
+  return {
+    elementIds,
+    size: estimateCanvasTextSize(text),
+  };
 }
 
 function estimateTextInsertionSize(
@@ -223,8 +319,9 @@ async function insertImageToCanvas(
   imageUrl: string,
   point: Point,
   dimensions?: { width: number; height: number },
-  waitForImageLoad = false
-): Promise<{ width: number; height: number }> {
+  waitForImageLoad = false,
+  metadata?: Record<string, unknown>
+): Promise<InsertedCanvasItem> {
   const size = dimensions || {
     width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
     height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
@@ -238,7 +335,7 @@ async function insertImageToCanvas(
   // 自动插入可先用默认尺寸；用户主动插入会等待加载验证
   // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
   // 提供尺寸时锁定布局，避免批量图片异步放大后互相重叠
-  await insertImageFromUrl(
+  const elementId = await insertImageFromUrl(
     board,
     imageUrl,
     point,
@@ -249,7 +346,9 @@ async function insertImageToCanvas(
     Boolean(dimensions),
     true
   );
-  return size;
+  const elementIds = elementId ? [elementId] : [];
+  attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
+  return { elementIds, size };
 }
 
 /**
@@ -260,11 +359,15 @@ async function insertVideoToCanvas(
   board: PlaitBoard,
   videoUrl: string,
   point: Point,
-  dimensions?: { width: number; height: number }
-): Promise<{ width: number; height: number }> {
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
+): Promise<InsertedCanvasItem> {
+  let elementId: string | undefined;
+  let size: { width: number; height: number };
+
   // 如果提供了尺寸，直接使用
   if (dimensions) {
-    await insertVideoFromUrl(
+    elementId = await insertVideoFromUrl(
       board,
       videoUrl,
       point,
@@ -273,26 +376,28 @@ async function insertVideoToCanvas(
       true,
       true
     );
-    return dimensions;
+    size = dimensions;
+  } else {
+    // 否则使用默认 16:9 尺寸立即插入
+    size = {
+      width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
+      height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)),
+    };
+    elementId = await insertVideoFromUrl(
+      board,
+      videoUrl,
+      point,
+      false,
+      size,
+      true,
+      true
+    );
   }
 
-  // 否则使用默认 16:9 尺寸立即插入
-  const defaultSize = {
-    width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
-    height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)),
-  };
-  await insertVideoFromUrl(
-    board,
-    videoUrl,
-    point,
-    false,
-    defaultSize,
-    true,
-    true
-  );
-
+  const elementIds = elementId ? [elementId] : [];
+  attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
   // 异步获取真实尺寸并在以后更新（可选），目前为了响应速度，直接返回默认尺寸
-  return defaultSize;
+  return { elementIds, size };
 }
 
 async function insertAudioToCanvas(
@@ -301,13 +406,13 @@ async function insertAudioToCanvas(
   point: Point,
   dimensions?: { width: number; height: number },
   metadata?: Record<string, unknown>
-): Promise<{ width: number; height: number }> {
+): Promise<InsertedCanvasItem> {
   const size = resolveAudioCardDimensions({
     ...(metadata as AudioCardMetadata | undefined),
     width: dimensions?.width,
     height: dimensions?.height,
   });
-  await insertAudioFromUrl(
+  const audioNode = await insertAudioFromUrl(
     board,
     audioUrl,
     {
@@ -319,7 +424,9 @@ async function insertAudioToCanvas(
     false,
     true
   );
-  return size;
+  const elementIds = [audioNode.id];
+  attachGenerationMetadataToInsertedElements(board, elementIds, metadata);
+  return { elementIds, size };
 }
 
 /**
@@ -329,7 +436,7 @@ async function insertSvgToCanvas(
   board: PlaitBoard,
   svgCode: string,
   point: Point
-): Promise<{ width: number; height: number }> {
+): Promise<InsertedCanvasItem> {
   const normalized = normalizeSvg(svgCode);
   const dimensions = parseSvgDimensions(normalized);
 
@@ -347,8 +454,15 @@ async function insertSvgToCanvas(
     height: targetHeight,
   };
 
+  const existingElementIds = new Set(board.children.map((child) => child.id));
   DrawTransforms.insertImage(board, imageItem, point);
-  return { width: targetWidth, height: targetHeight };
+  const elementIds = board.children
+    .filter((child) => !existingElementIds.has(child.id))
+    .map((child) => child.id);
+  return {
+    elementIds,
+    size: { width: targetWidth, height: targetHeight },
+  };
 }
 
 async function insertItemToCanvas(
@@ -356,28 +470,36 @@ async function insertItemToCanvas(
   item: InsertionItem,
   point: Point
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
-  const childrenCountBefore = board.children.length;
-  let size: { width: number; height: number } | undefined;
+  let inserted: InsertedCanvasItem | undefined;
 
   if (item.type === 'text') {
-    size = await insertTextToCanvas(board, item.content, point, item.label);
+    inserted = await insertTextToCanvas(
+      board,
+      item.content,
+      point,
+      item.label,
+      undefined,
+      item.metadata
+    );
   } else if (item.type === 'image') {
-    size = await insertImageToCanvas(
+    inserted = await insertImageToCanvas(
       board,
       item.content,
       point,
       item.dimensions,
-      item.waitForImageLoad
+      item.waitForImageLoad,
+      item.metadata
     );
   } else if (item.type === 'video') {
-    size = await insertVideoToCanvas(
+    inserted = await insertVideoToCanvas(
       board,
       item.content,
       point,
-      item.dimensions
+      item.dimensions,
+      item.metadata
     );
   } else if (item.type === 'audio') {
-    size = await insertAudioToCanvas(
+    inserted = await insertAudioToCanvas(
       board,
       item.content,
       point,
@@ -385,16 +507,12 @@ async function insertItemToCanvas(
       item.metadata
     );
   } else if (item.type === 'svg') {
-    size = await insertSvgToCanvas(board, item.content, point);
+    inserted = await insertSvgToCanvas(board, item.content, point);
   }
 
-  const insertedElement = board.children[childrenCountBefore] as
-    | { id?: string }
-    | undefined;
-
   return {
-    elementId: insertedElement?.id,
-    size: size || estimateInsertionItemSize(board, item),
+    elementId: inserted?.elementIds[0],
+    size: inserted?.size || estimateInsertionItemSize(board, item),
   };
 }
 
@@ -443,7 +561,8 @@ export async function executeCanvasInsertion(
           board,
           item.content,
           item.type,
-          item.dimensions
+          item.dimensions,
+          { metadata: item.metadata }
         );
         if (inserted) {
           return {
@@ -573,11 +692,17 @@ export async function executeCanvasInsertion(
       },
       type: 'text',
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[CanvasInsertion] Failed to insert content:', error);
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message
+        : typeof error === 'string' && error.trim()
+        ? error
+        : '未知错误';
     return {
       success: false,
-      error: `插入失败: ${error.message || '未知错误'}`,
+      error: `插入失败: ${message}`,
       type: 'error',
     };
   }
@@ -605,16 +730,84 @@ export async function quickInsert(
 export async function insertImageGroup(
   imageUrls: string[],
   point?: Point,
-  dimensions?: { width: number; height: number }
+  dimensions?: { width: number; height: number },
+  prompt?: string,
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
+  const promptMetadata = {
+    ...metadata,
+    ...(prompt?.trim()
+      ? { prompt: prompt.trim(), generationPrompt: prompt.trim() }
+      : {}),
+  };
   return executeCanvasInsertion({
     items: imageUrls.map((url) => ({
       type: 'image' as ContentType,
       content: url,
       groupId,
       dimensions,
+      metadata:
+        Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,
     })),
+    startPoint: point,
+  });
+}
+
+/**
+ * 便捷函数：插入图片生成结果，提示词作为图片元数据跟随展示
+ */
+export async function insertGeneratedImageFlow(
+  prompt: string | undefined,
+  results: MediaFlowResult[],
+  point?: Point
+): Promise<MCPResult> {
+  const normalizedPrompt = prompt?.trim() || '';
+  const imageResults = results.filter((result) => result.type === 'image');
+  const imageItems: InsertionItem[] = [];
+
+  if (imageResults.length === 1) {
+    const [result] = imageResults;
+    imageItems.push({
+      type: 'image',
+      content: result.url,
+      dimensions: result.dimensions,
+      metadata: {
+        ...result.metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
+    });
+  } else if (imageResults.length > 1) {
+    const groupId = `generated-image-group-${Date.now()}`;
+    imageResults.forEach((result) => {
+      imageItems.push({
+        type: 'image',
+        content: result.url,
+        groupId,
+        dimensions: result.dimensions,
+        metadata: {
+          ...result.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
+      });
+    });
+  }
+
+  if (imageItems.length === 0) {
+    return executeCanvasInsertion({
+      items: normalizedPrompt
+        ? [{ type: 'text', content: normalizedPrompt, label: 'Prompt' }]
+        : [],
+      startPoint: point,
+    });
+  }
+
+  return executeCanvasInsertion({
+    items: imageItems,
     startPoint: point,
   });
 }
@@ -624,14 +817,10 @@ export async function insertImageGroup(
  */
 export async function insertAIFlow(
   prompt: string,
-  results: Array<{
-    type: 'image' | 'video' | 'audio';
-    url: string;
-    dimensions?: { width: number; height: number };
-    metadata?: Record<string, unknown>;
-  }>,
+  results: MediaFlowResult[],
   point?: Point
 ): Promise<MCPResult> {
+  const normalizedPrompt = prompt.trim();
   const items: InsertionItem[] = [
     { type: 'text', content: prompt, label: 'Prompt' },
   ];
@@ -641,7 +830,12 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
-      metadata: results[0].metadata,
+      metadata: {
+        ...results[0].metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
     });
   } else {
     const groupId = `result-group-${Date.now()}`;
@@ -651,7 +845,12 @@ export async function insertAIFlow(
         content: r.url,
         groupId,
         dimensions: r.dimensions,
-        metadata: r.metadata,
+        metadata: {
+          ...r.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
       });
     });
   }

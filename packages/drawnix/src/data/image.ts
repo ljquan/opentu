@@ -398,7 +398,7 @@ export const insertImageFromUrl = async (
       resolvedUrl,
       'image'
     );
-    if (inserted) return;
+    if (inserted) return inserted.elementId;
   }
   // console.log(`[insertImageFromUrl] Called with:`, {
   //   imageUrl: imageUrl?.substring(0, 80),
@@ -488,6 +488,7 @@ export const insertImageFromUrl = async (
   const childrenCountBefore = board.children.length;
 
   DrawTransforms.insertImage(board, imageItem, insertionPoint);
+  const newElement = board.children[childrenCountBefore];
 
   // 埋点：图片插入画布
   analytics.track('asset_insert_canvas', {
@@ -503,7 +504,6 @@ export const insertImageFromUrl = async (
 
   // 选中新插入的图片元素（如果没有跳过选中）
   if (!skipSelect) {
-    const newElement = board.children[childrenCountBefore];
     if (newElement) {
       clearSelectedElement(board);
       addSelectedElement(board, newElement);
@@ -513,8 +513,7 @@ export const insertImageFromUrl = async (
   // 如果跳过了图片加载，异步加载图片并更新元素尺寸
   if (shouldUpdateSizeAfterLoad && referenceDimensions) {
     // 同步捕获新插入元素的 ID，避免异步回调中索引失效
-    const newElement = board.children[childrenCountBefore] as any;
-    const elementId = newElement?.id as string | undefined;
+    const elementId = newElement?.id;
     if (elementId) {
       updateImageSizeAfterLoad(
         board,
@@ -538,6 +537,8 @@ export const insertImageFromUrl = async (
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
+
+  return newElement?.id;
 };
 
 /**

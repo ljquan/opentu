@@ -476,7 +476,20 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       const currentRecord = latestRecordRef.current;
       const currentShots = latestShotsRef.current;
       setCanvasBoard(board);
-      const result = await quickInsert('text', formatMVShotsMarkdown(currentRecord, currentShots));
+      const sourcePrompt =
+        currentRecord.rewritePrompt ||
+        currentRecord.creationPrompt ||
+        currentRecord.musicLyrics ||
+        currentRecord.musicTitle ||
+        currentRecord.sourceLabel ||
+        '';
+      const result = await quickInsert(
+        'text',
+        formatMVShotsMarkdown(currentRecord, currentShots),
+        undefined,
+        undefined,
+        sourcePrompt.trim() ? { prompt: sourcePrompt.trim() } : undefined
+      );
       if (!result.success) {
         throw new Error(result.error || '插入失败，请确认画布已打开');
       }
@@ -495,13 +508,22 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     }
   }, [board]);
 
-  const insertGeneratedVideoToCanvas = useCallback(async (videoUrl: string) => {
+  const insertGeneratedVideoToCanvas = useCallback(async (
+    videoUrl: string,
+    prompt?: string
+  ) => {
     if (!board) {
       return false;
     }
     try {
       setCanvasBoard(board);
-      const result = await quickInsert('video', videoUrl);
+      const result = await quickInsert(
+        'video',
+        videoUrl,
+        undefined,
+        undefined,
+        prompt?.trim() ? { prompt: prompt.trim() } : undefined
+      );
       if (!result.success) {
         throw new Error(result.error || '插入失败，请确认画布已打开');
       }
@@ -1714,7 +1736,12 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           if (waitResult.success && task && videoUrl) {
             await writeShotVideoResult(latestShotsRef.current, index, videoUrl);
             if (shouldInsertToCanvas) {
-              await insertGeneratedVideoToCanvas(videoUrl);
+              await insertGeneratedVideoToCanvas(
+                videoUrl,
+                typeof task.params.prompt === 'string'
+                  ? task.params.prompt
+                  : undefined
+              );
             }
             markShotDone(index, retryCount);
             break;

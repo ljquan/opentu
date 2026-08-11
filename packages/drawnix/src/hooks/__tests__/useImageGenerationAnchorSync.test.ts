@@ -449,6 +449,9 @@ describe('useImageGenerationAnchorSync', () => {
     expect(anchor.phase).toBe('completed');
     expect(anchor.expectedInsertPosition).toEqual([200, 300]);
     expect(anchor.previewImageUrl).toBe('https://example.com/generated.png');
+    expect(anchor.resultElementId).toBe('image-1');
+    expect(anchor.prompt).toBe('生成图片');
+    expect(anchor.latestTaskId).toBe('task-1');
     expect(anchor.points).toEqual([
       [200, 300],
       [690, 578],

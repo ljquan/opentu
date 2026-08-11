@@ -211,12 +211,12 @@ export const insertVideoFromUrl = async (
       const { insertMediaIntoSelectedFrame } = await import(
         '../utils/frame-insertion-utils'
       );
-      const inserted = await insertMediaIntoSelectedFrame(
-        board,
-        videoUrl,
-        'video'
-      );
-      if (inserted) return;
+    const inserted = await insertMediaIntoSelectedFrame(
+      board,
+      videoUrl,
+      'video'
+    );
+      if (inserted) return inserted.elementId;
     }
 
     // 使用默认尺寸立即插入，不等待获取视频真实尺寸
@@ -298,7 +298,9 @@ export const insertVideoFromUrl = async (
 
     // 使用DrawTransforms插入视频元素
     const { DrawTransforms } = await import('@plait/draw');
+    const childrenCountBefore = board.children.length;
     DrawTransforms.insertImage(board, videoAsImageElement, insertionPoint);
+    const newElement = board.children[childrenCountBefore];
 
     // 埋点：视频插入画布
     analytics.track('asset_insert_canvas', {
@@ -322,6 +324,7 @@ export const insertVideoFromUrl = async (
       });
     }
 
+    return newElement?.id;
   } catch (error) {
     console.error('Failed to insert video:', error);
     throw new Error(`Video insertion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

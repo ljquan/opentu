@@ -11,7 +11,6 @@ import { VirtualTaskList } from './VirtualTaskList';
 import { useFilteredTaskQueue } from '../../hooks/useFilteredTaskQueue';
 import { Task, TaskType, TaskStatus } from '../../types/task.types';
 import { useDrawnix, DialogType } from '../../hooks/use-drawnix';
-import { insertVideoFromUrl } from '../../data/video';
 import { MessagePlugin, Input, Button } from 'tdesign-react';
 import { SearchIcon, DeleteIcon } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
@@ -248,12 +247,32 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
           urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板'
         );
       } else if (task.type === TaskType.VIDEO) {
-        await insertVideoFromUrl(board, task.result.url);
+        const insertionResult = await executeCanvasInsertion({
+          board,
+          items: [
+            {
+              type: 'video',
+              content: task.result.url,
+              metadata: {
+                prompt: task.params.prompt,
+                generationTaskId: task.id,
+              },
+            },
+          ],
+        });
+        if (!insertionResult.success) {
+          throw new Error(insertionResult.error || '视频插入失败');
+        }
         MessagePlugin.success('视频已插入到白板');
       }
     } catch (error) {
       console.error('Failed to insert to board:', error);
-      const message = error instanceof Error ? error.message : '未知错误';
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : typeof error === 'string' && error.trim()
+          ? error
+          : '未知错误';
       MessagePlugin.error(
         message.startsWith('插入失败') ? message : `插入失败: ${message}`
       );
@@ -411,6 +430,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
                   ? clip.duration
                   : task.result?.duration,
               prompt: task.params.prompt,
+              generationTaskId: task.id,
               tags:
                 typeof task.params.tags === 'string'
                   ? task.params.tags
@@ -437,6 +457,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
                 posterUrl: task.result?.previewImageUrl,
                 duration: task.result?.duration,
                 prompt: task.params.prompt,
+                generationTaskId: task.id,
                 tags:
                   typeof task.params.tags === 'string'
                     ? task.params.tags
@@ -465,6 +486,8 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
             height: dimensions?.height,
             title:
               urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
+            prompt: task.params.prompt,
+            generationTaskId: task.id,
           });
         }
       }

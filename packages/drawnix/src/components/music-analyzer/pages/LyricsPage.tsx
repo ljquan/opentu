@@ -352,7 +352,16 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
           .map((item) => item.trim())
           .filter(Boolean),
         lyricsDraft,
-      })
+      }),
+      undefined,
+      undefined,
+      {
+        prompt:
+          record.rewritePrompt ||
+          record.creationPrompt ||
+          record.sourceLabel ||
+          lyricsDraft,
+      }
     );
     if (!result.success) {
       setError(result.error || '插入失败，请确认画布已打开');
