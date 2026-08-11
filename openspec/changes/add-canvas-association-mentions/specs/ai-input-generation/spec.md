@@ -8,7 +8,7 @@ The system SHALL provide a persistent canvas-association toggle beside the asset
 
 - **GIVEN** canvas association is disabled
 - **WHEN** the user enables `开启联想`
-- **THEN** the AI input bar SHALL enable standalone `@` canvas picking
+- **THEN** the AI input bar SHALL enable canvas picking for newly typed `@` characters
 - **AND** the enabled preference SHALL persist for the same browser origin
 
 #### Scenario: Keep at-sign as text while disabled
@@ -29,21 +29,21 @@ The system SHALL provide a persistent canvas-association toggle beside the asset
 
 The system SHALL insert removable, ordered `@object` references at their original cursor positions in the prompt.
 
-#### Scenario: Pick a canvas element after standalone at-sign
+#### Scenario: Pick a canvas element after a newly typed at-sign
 
 - **GIVEN** canvas association is enabled
-- **AND** the user typed `@` at the start of the prompt or immediately after whitespace
-- **AND** the `@` is not immediately followed by a non-whitespace character
+- **AND** the user directly typed `@` at any cursor position, including after existing non-whitespace text or before an existing suffix
+- **AND** the caret remains immediately after that newly typed `@`
 - **WHEN** the user clicks a referencable element on the current board
 - **THEN** the trigger character SHALL be replaced by an inline `@label` reference and the caret SHALL move after it
 - **AND** the visible label SHALL remain part of the ordered prompt semantics
 - **AND** the chip SHALL retain the current board ID, element ID, type and a bounded display label
 - **AND** clicking an image SHALL NOT activate image replacement binding for that pick
 
-#### Scenario: Keep non-standalone at-sign as prompt text
+#### Scenario: Keep non-typed at-sign as prompt text
 
 - **GIVEN** canvas association is enabled
-- **WHEN** the prompt contains an at-sign immediately after a non-whitespace character, such as `a@`, or immediately before a non-whitespace character, such as `@foo`
+- **WHEN** the prompt receives a pasted, historical or programmatically filled at-sign, or the user continues typing after a pending trigger
 - **THEN** canvas picking SHALL NOT start for that at-sign
 - **AND** the at-sign and surrounding text SHALL remain ordinary prompt text
 

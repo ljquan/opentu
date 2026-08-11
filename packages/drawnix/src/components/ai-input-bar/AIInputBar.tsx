@@ -56,6 +56,8 @@ import {
   PlaitElement,
   RectangleClient,
   getViewportOrigination,
+  BoardTransforms,
+  PlaitPointerType,
   Transforms,
 } from '@plait/core';
 import { useI18n } from '../../i18n';
@@ -173,7 +175,6 @@ import type {
   PostProcessingStatus,
 } from '../../types/chat.types';
 import { workflowCompletionService } from '../../services/workflow-completion-service';
-import { BoardTransforms } from '@plait/core';
 import { ImageGenerationAnchorTransforms } from '../../plugins/with-image-generation-anchor';
 import { buildImageGenerationAnchorCreateOptions } from '../../utils/image-generation-anchor-submission';
 import { resolveImageGenerationBatchAnchorPositions } from '../../utils/image-generation-anchor-placement';
@@ -247,6 +248,7 @@ import {
   areCanvasAssociationRefsEqual,
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
+  hasInsertedCanvasAssociationAtSign,
   hasCanvasAssociationOverwriteContent,
   isCanvasAssociationTriggerActive,
   persistCanvasAssociationEnabled,
@@ -2892,6 +2894,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const promptHighlightLayerRef = useRef<HTMLDivElement>(null);
     const isInputComposingRef = useRef(false);
+    const compositionInsertedAtSignRef = useRef(false);
     const pendingCanvasAssociationEditRef =
       useRef<CanvasAssociationBeforeInputSnapshot | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -3024,9 +3027,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       const board = SelectionWatcherBoardRef.current;
       const boardContainer = board ? PlaitBoard.getBoardContainer(board) : null;
       if (!boardContainer) return;
+      const previousPointer = board.pointer;
+      BoardTransforms.updatePointerType(board, PlaitPointerType.selection);
       boardContainer.classList.add('canvas-association-picking');
       return () => {
         boardContainer.classList.remove('canvas-association-picking');
+        if (PlaitBoard.isPointer(board, PlaitPointerType.selection)) {
+          BoardTransforms.updatePointerType(board, previousPointer);
+        }
       };
     }, [canvasAssociationTrigger, currentBoardId]);
 
@@ -6652,6 +6660,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const isComposing = Boolean(
           nativeInputEvent.isComposing || isInputComposingRef.current
         );
+        if (
+          isComposing &&
+          (hasInsertedCanvasAssociationAtSign(
+            previousPrompt,
+            newValue,
+            promptEdit
+          ) ||
+            (typeof nativeInputEvent.data === 'string' &&
+              nativeInputEvent.data.includes('@')))
+        ) {
+          compositionInsertedAtSignRef.current = true;
+        }
         const mayStartCanvasAssociationPicking =
           shouldStartCanvasAssociationPicking(
             beforeInputSnapshot?.inputType,
@@ -6705,13 +6725,22 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     const handleInputCompositionStart = useCallback(() => {
       isInputComposingRef.current = true;
+      compositionInsertedAtSignRef.current = false;
       pendingCanvasAssociationEditRef.current = null;
     }, []);
 
     const handleInputCompositionEnd = useCallback(
       (event: React.CompositionEvent<HTMLTextAreaElement>) => {
         isInputComposingRef.current = false;
-        syncCanvasAssociationTrigger(event.currentTarget, false, true);
+        const allowNewTrigger =
+          compositionInsertedAtSignRef.current ||
+          event.data?.includes('@') === true;
+        compositionInsertedAtSignRef.current = false;
+        syncCanvasAssociationTrigger(
+          event.currentTarget,
+          false,
+          allowNewTrigger
+        );
       },
       [syncCanvasAssociationTrigger]
     );

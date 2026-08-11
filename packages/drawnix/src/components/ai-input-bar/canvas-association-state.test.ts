@@ -8,6 +8,7 @@ import {
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
   getCanvasAssociationMentionText,
+  hasInsertedCanvasAssociationAtSign,
   hasCanvasAssociationOverwriteContent,
   isCanvasAssociationTriggerActive,
   normalizeCanvasAssociationLabel,
@@ -80,7 +81,7 @@ describe('canvas-association-state', () => {
     expect(persistCanvasAssociationEnabled(true, null)).toBe(true);
   });
 
-  it('识别任意位置刚输入的 @，并忽略输入法组合', () => {
+  it('识别光标紧邻的任意位置 @，不要求两侧空白，并忽略输入法组合', () => {
     expect(findCanvasAssociationTrigger('@', 1)).toEqual({ start: 0, end: 1 });
     expect(findCanvasAssociationTrigger('画面 @', 4)).toEqual({
       start: 3,
@@ -90,14 +91,29 @@ describe('canvas-association-state', () => {
       start: 3,
       end: 4,
     });
-    expect(findCanvasAssociationTrigger('a@', 2)).toBeNull();
-    expect(findCanvasAssociationTrigger('@foo', 1)).toBeNull();
-    expect(findCanvasAssociationTrigger('@ foo', 1)).toEqual({
+    expect(findCanvasAssociationTrigger('首帧用这个@', 6)).toEqual({
+      start: 5,
+      end: 6,
+    });
+    expect(findCanvasAssociationTrigger('English@', 8)).toEqual({
+      start: 7,
+      end: 8,
+    });
+    expect(findCanvasAssociationTrigger('a@', 2)).toEqual({
+      start: 1,
+      end: 2,
+    });
+    // 新插入到已有后缀前的 @ 仍是候选；AIInputBar 的输入事件门控会区分旧文本。
+    expect(findCanvasAssociationTrigger('foo@bar', 4)).toEqual({
+      start: 3,
+      end: 4,
+    });
+    expect(findCanvasAssociationTrigger('@foo', 1)).toEqual({
       start: 0,
       end: 1,
     });
     expect(findCanvasAssociationTrigger('@a', 2)).toBeNull();
-    expect(findCanvasAssociationTrigger('@', 1, true)).toBeNull();
+    expect(findCanvasAssociationTrigger('首帧用这个@', 6, true)).toBeNull();
     expect(findCanvasAssociationTrigger('@', 2)).toBeNull();
   });
 
@@ -108,6 +124,7 @@ describe('canvas-association-state', () => {
     ['onChange 组合输入回退', undefined, 'insertCompositionText', true],
     ['beforeinput 粘贴优先', 'insertFromPaste', 'insertText', false],
     ['onChange 粘贴回退', '', 'insertFromPaste', false],
+    ['移动光标到已有 @', undefined, undefined, false],
     ['程序化回填', undefined, undefined, false],
     ['删除操作', 'deleteContentBackward', 'insertText', false],
   ] as const)(
@@ -119,11 +136,30 @@ describe('canvas-association-state', () => {
     }
   );
 
+  it('只把本次可信文本编辑插入的 @ 交给组合结束触发判断', () => {
+    expect(
+      hasInsertedCanvasAssociationAtSign('首帧用这个', '首帧用这个@', {
+        start: 5,
+        end: 5,
+      })
+    ).toBe(true);
+    expect(
+      hasInsertedCanvasAssociationAtSign('首帧用这个@', '首帧用这个@好', {
+        start: 6,
+        end: 6,
+      })
+    ).toBe(false);
+    expect(
+      hasInsertedCanvasAssociationAtSign('首帧用这个@', '首帧用这个@', null)
+    ).toBe(false);
+  });
+
   it('输入或选区变化后仅保留光标紧邻的最新 @ 触发', () => {
     const trigger = { start: 0, end: 1 };
 
     expect(isCanvasAssociationTriggerActive('@', 1, 1, trigger)).toBe(true);
     expect(isCanvasAssociationTriggerActive('@a', 2, 2, trigger)).toBe(false);
+    expect(isCanvasAssociationTriggerActive('@foo', 2, 2, trigger)).toBe(false);
     expect(isCanvasAssociationTriggerActive('@', 0, 0, trigger)).toBe(false);
     expect(isCanvasAssociationTriggerActive('@', 0, 1, trigger)).toBe(false);
     expect(isCanvasAssociationTriggerActive('@', 0, 0, trigger, true)).toBe(

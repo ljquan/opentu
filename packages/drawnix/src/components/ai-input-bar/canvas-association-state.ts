@@ -114,6 +114,7 @@ export function findCanvasAssociationTrigger(
   cursorPosition: number,
   isComposing = false
 ): CanvasAssociationTrigger | null {
+  // 是否为新输入由输入事件层判定；提示词两侧允许任意正文字符。
   if (
     isComposing ||
     !Number.isInteger(cursorPosition) ||
@@ -124,15 +125,7 @@ export function findCanvasAssociationTrigger(
     return null;
   }
 
-  const start = cursorPosition - 1;
-  if (start > 0 && !/\s/.test(prompt[start - 1])) {
-    return null;
-  }
-  if (cursorPosition < prompt.length && !/\s/.test(prompt[cursorPosition])) {
-    return null;
-  }
-
-  return { start, end: cursorPosition };
+  return { start: cursorPosition - 1, end: cursorPosition };
 }
 
 export function shouldStartCanvasAssociationPicking(
@@ -389,6 +382,28 @@ export function resolveCanvasAssociationPromptEditFromInputEvent(
     end: insertionStart + replacedLength,
   };
   return isValidPromptEdit(previousPrompt, nextPrompt, edit) ? edit : null;
+}
+
+/**
+ * Returns whether a trusted text/composition edit inserted an at-sign. The
+ * caller still checks the final caret, so an inserted `@` followed by more
+ * composed text does not start picking.
+ */
+export function hasInsertedCanvasAssociationAtSign(
+  previousPrompt: string,
+  nextPrompt: string,
+  edit: CanvasAssociationPromptEdit | null
+): boolean {
+  if (!edit || !isValidPromptEdit(previousPrompt, nextPrompt, edit)) {
+    return false;
+  }
+
+  const insertedLength =
+    nextPrompt.length - (previousPrompt.length - (edit.end - edit.start));
+  return (
+    insertedLength > 0 &&
+    nextPrompt.slice(edit.start, edit.start + insertedLength).includes('@')
+  );
 }
 
 /**
