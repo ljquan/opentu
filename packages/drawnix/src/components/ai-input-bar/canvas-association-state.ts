@@ -40,6 +40,7 @@ export interface CanvasAssociationBeforeInputSnapshot {
   selectionStart: number;
   selectionEnd: number;
   inputType: string;
+  data?: string | null;
 }
 
 export interface CanvasAssociationInputEventSnapshot {
@@ -128,12 +129,50 @@ export function findCanvasAssociationTrigger(
   return { start: cursorPosition - 1, end: cursorPosition };
 }
 
+export function isCanvasAssociationInputTypeTrusted(
+  inputType: string | null | undefined
+): boolean {
+  return inputType === 'insertText' || inputType === 'insertCompositionText';
+}
+
+export function hasCanvasAssociationUntrustedInputType(
+  ...inputTypes: Array<string | null | undefined>
+): boolean {
+  return inputTypes.some(
+    (inputType) =>
+      typeof inputType === 'string' &&
+      inputType.length > 0 &&
+      !isCanvasAssociationInputTypeTrusted(inputType)
+  );
+}
+
+export function shouldAllowCanvasAssociationCompositionTrigger(
+  compositionInsertedAtSign: boolean,
+  compositionHasUntrustedEdit: boolean,
+  compositionData: string | null | undefined
+): boolean {
+  return (
+    !compositionHasUntrustedEdit &&
+    (compositionInsertedAtSign || compositionData?.includes('@') === true)
+  );
+}
+
 export function shouldStartCanvasAssociationPicking(
   beforeInputType: string | null | undefined,
-  changeInputType: string | null | undefined
+  changeInputType: string | null | undefined,
+  beforeInputData?: string | null,
+  hasExplicitUntrustedInput = false
 ): boolean {
-  const inputType = beforeInputType || changeInputType || '';
-  return inputType === 'insertText' || inputType === 'insertCompositionText';
+  if (hasExplicitUntrustedInput) return false;
+  return (
+    !hasCanvasAssociationUntrustedInputType(beforeInputType, changeInputType) &&
+    ([beforeInputType, changeInputType].some(
+      isCanvasAssociationInputTypeTrusted
+    ) ||
+      ((!beforeInputType || beforeInputType.length === 0) &&
+        (!changeInputType || changeInputType.length === 0) &&
+        beforeInputData?.includes('@') === true))
+  );
 }
 
 export function isCanvasAssociationTriggerActive(
@@ -403,6 +442,43 @@ export function hasInsertedCanvasAssociationAtSign(
   return (
     insertedLength > 0 &&
     nextPrompt.slice(edit.start, edit.start + insertedLength).includes('@')
+  );
+}
+
+export function isCanvasAssociationPickingSessionCurrent(
+  pickingAtPointer: boolean,
+  pickingNow: boolean,
+  pointerEpoch: number,
+  currentEpoch: number,
+  pointerBoardId: string | null | undefined,
+  currentBoardId: string | null | undefined,
+  sameBoard: boolean
+): boolean {
+  // Non-association pointerups keep the existing delayed selection refresh.
+  if (!pickingAtPointer) return true;
+  return (
+    pickingNow &&
+    pointerEpoch === currentEpoch &&
+    pointerBoardId === currentBoardId &&
+    sameBoard
+  );
+}
+
+export interface CanvasAssociationPointerOwnership {
+  forcedPointer: string;
+  previousBoardPointer: string;
+  previousAppStatePointer?: string | null;
+}
+
+/** Restore only while the board and toolbar state still belong to the picker. */
+export function shouldRestoreCanvasAssociationPointer(
+  ownership: CanvasAssociationPointerOwnership,
+  currentBoardPointer: string | null | undefined,
+  currentAppStatePointer: string | null | undefined
+): boolean {
+  return (
+    currentBoardPointer === ownership.forcedPointer &&
+    currentAppStatePointer === ownership.previousAppStatePointer
   );
 }
 

@@ -8,8 +8,11 @@ import {
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
   getCanvasAssociationMentionText,
-  hasInsertedCanvasAssociationAtSign,
   hasCanvasAssociationOverwriteContent,
+  hasCanvasAssociationUntrustedInputType,
+  hasInsertedCanvasAssociationAtSign,
+  isCanvasAssociationInputTypeTrusted,
+  isCanvasAssociationPickingSessionCurrent,
   isCanvasAssociationTriggerActive,
   normalizeCanvasAssociationLabel,
   persistCanvasAssociationEnabled,
@@ -23,7 +26,9 @@ import {
   resolveCanvasAssociationPromptEditFromInputEvent,
   resolveCanvasAssociationTaskLinkTiming,
   snapshotCanvasAssociationRefs,
+  shouldAllowCanvasAssociationCompositionTrigger,
   shouldClearSubmittedCanvasAssociations,
+  shouldRestoreCanvasAssociationPointer,
   shouldStartCanvasAssociationPicking,
   type CanvasAssociationRef,
 } from './canvas-association-state';
@@ -118,12 +123,18 @@ describe('canvas-association-state', () => {
   });
 
   it.each([
-    ['beforeinput 文本输入', 'insertText', 'insertFromPaste', true],
-    ['beforeinput 组合输入', 'insertCompositionText', 'insertFromPaste', true],
+    ['beforeinput 文本输入', 'insertText', undefined, true],
+    ['beforeinput 组合输入', 'insertCompositionText', undefined, true],
+    ['两端可信输入', 'insertCompositionText', 'insertText', true],
     ['onChange 文本输入回退', '', 'insertText', true],
     ['onChange 组合输入回退', undefined, 'insertCompositionText', true],
-    ['beforeinput 粘贴优先', 'insertFromPaste', 'insertText', false],
+    ['beforeinput 文本但实际粘贴', 'insertText', 'insertFromPaste', false],
+    ['beforeinput 粘贴但实际文本', 'insertFromPaste', 'insertText', false],
     ['onChange 粘贴回退', '', 'insertFromPaste', false],
+    ['拖放', 'insertFromDrop', undefined, false],
+    ['历史撤销', 'historyUndo', undefined, false],
+    ['历史重做', undefined, 'historyRedo', false],
+    ['替换输入', 'insertReplacementText', undefined, false],
     ['移动光标到已有 @', undefined, undefined, false],
     ['程序化回填', undefined, undefined, false],
     ['删除操作', 'deleteContentBackward', 'insertText', false],
@@ -132,6 +143,71 @@ describe('canvas-association-state', () => {
     (_label, beforeInputType, changeInputType, expected) => {
       expect(
         shouldStartCanvasAssociationPicking(beforeInputType, changeInputType)
+      ).toBe(expected);
+    }
+  );
+
+  it('inputType 缺失时仅接受真实 beforeinput 的 @ 数据', () => {
+    expect(shouldStartCanvasAssociationPicking(undefined, undefined, '@')).toBe(
+      true
+    );
+    expect(
+      shouldStartCanvasAssociationPicking(undefined, undefined, '正文')
+    ).toBe(false);
+    expect(
+      shouldStartCanvasAssociationPicking(undefined, undefined, '@图片', true)
+    ).toBe(false);
+    expect(
+      shouldStartCanvasAssociationPicking('insertText', undefined, '@', true)
+    ).toBe(false);
+    expect(
+      shouldStartCanvasAssociationPicking('insertFromPaste', undefined, '@')
+    ).toBe(false);
+  });
+
+  it.each([
+    ['insertText', true],
+    ['insertCompositionText', true],
+    ['insertFromPaste', false],
+    ['insertFromDrop', false],
+    ['historyUndo', false],
+    ['', false],
+    [undefined, false],
+  ] as const)('%s 是可信联想输入类型：%s', (inputType, expected) => {
+    expect(isCanvasAssociationInputTypeTrusted(inputType)).toBe(expected);
+  });
+
+  it('任一显式非可信 inputType 都会阻断联想', () => {
+    expect(hasCanvasAssociationUntrustedInputType('insertText', '')).toBe(
+      false
+    );
+    expect(
+      hasCanvasAssociationUntrustedInputType('insertText', 'insertFromPaste')
+    ).toBe(true);
+    expect(hasCanvasAssociationUntrustedInputType('insertFromDrop')).toBe(true);
+    expect(hasCanvasAssociationUntrustedInputType('historyUndo')).toBe(true);
+    expect(hasCanvasAssociationUntrustedInputType(undefined, null, '')).toBe(
+      false
+    );
+  });
+
+  it.each([
+    ['可信编辑插入 @', true, false, undefined, true],
+    ['组合结束 data 插入 @', false, false, '@', true],
+    ['组合结束普通文本', false, false, '中文', false],
+    ['组合期粘贴含 @', false, true, '@', false],
+    ['组合期拖放含 @', true, true, '@', false],
+    ['组合期历史编辑含 @', true, true, '@', false],
+    ['无 @ 证据', false, false, undefined, false],
+  ] as const)(
+    '%s 时组合结束是否允许拾取：%s',
+    (_label, insertedAtSign, hasUntrustedEdit, data, expected) => {
+      expect(
+        shouldAllowCanvasAssociationCompositionTrigger(
+          insertedAtSign,
+          hasUntrustedEdit,
+          data
+        )
       ).toBe(expected);
     }
   );
@@ -152,6 +228,105 @@ describe('canvas-association-state', () => {
     expect(
       hasInsertedCanvasAssociationAtSign('首帧用这个@', '首帧用这个@', null)
     ).toBe(false);
+  });
+
+  it('延迟拾取回调只接受同一 @ 触发批次', () => {
+    expect(
+      isCanvasAssociationPickingSessionCurrent(true, true, 4, 4, 'a', 'a', true)
+    ).toBe(true);
+    expect(
+      isCanvasAssociationPickingSessionCurrent(true, true, 4, 5, 'a', 'a', true)
+    ).toBe(false);
+    expect(
+      isCanvasAssociationPickingSessionCurrent(
+        true,
+        false,
+        4,
+        4,
+        'a',
+        'a',
+        true
+      )
+    ).toBe(false);
+  });
+
+  it('延迟拾取回调在画板 ID 或 board 实例变化时失效', () => {
+    expect(
+      isCanvasAssociationPickingSessionCurrent(true, true, 4, 4, 'a', 'b', true)
+    ).toBe(false);
+    expect(
+      isCanvasAssociationPickingSessionCurrent(
+        true,
+        true,
+        4,
+        4,
+        'a',
+        'a',
+        false
+      )
+    ).toBe(false);
+  });
+
+  it('普通选择的延迟刷新不受联想 session guard 影响', () => {
+    expect(
+      isCanvasAssociationPickingSessionCurrent(
+        false,
+        false,
+        0,
+        0,
+        'a',
+        'a',
+        true
+      )
+    ).toBe(true);
+    expect(
+      isCanvasAssociationPickingSessionCurrent(
+        false,
+        true,
+        0,
+        1,
+        'a',
+        'b',
+        false
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    ['拾取仍拥有临时工具', 'selection', 'felt-tip-pen', true],
+    ['用户主动选择 selection', 'selection', 'selection', false],
+    ['画布指针已被用户切换', 'hand', 'selection', false],
+    ['工具栏指针已被用户切换', 'selection', 'hand', false],
+    ['AppState 后来不可用', 'selection', undefined, false],
+  ] as const)(
+    '%s 时恢复进入拾取前的工具：%s',
+    (_label, currentBoardPointer, currentAppStatePointer, expected) => {
+      expect(
+        shouldRestoreCanvasAssociationPointer(
+          {
+            forcedPointer: 'selection',
+            previousBoardPointer: 'felt-tip-pen',
+            previousAppStatePointer: 'felt-tip-pen',
+          },
+          currentBoardPointer,
+          currentAppStatePointer
+        )
+      ).toBe(expected);
+    }
+  );
+
+  it('AppState 始终不可用时仍可恢复联想临时工具', () => {
+    expect(
+      shouldRestoreCanvasAssociationPointer(
+        {
+          forcedPointer: 'selection',
+          previousBoardPointer: 'felt-tip-pen',
+          previousAppStatePointer: undefined,
+        },
+        'selection',
+        undefined
+      )
+    ).toBe(true);
   });
 
   it('输入或选区变化后仅保留光标紧邻的最新 @ 触发', () => {

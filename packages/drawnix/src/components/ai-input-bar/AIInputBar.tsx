@@ -248,8 +248,10 @@ import {
   areCanvasAssociationRefsEqual,
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
+  hasCanvasAssociationUntrustedInputType,
   hasInsertedCanvasAssociationAtSign,
   hasCanvasAssociationOverwriteContent,
+  isCanvasAssociationPickingSessionCurrent,
   isCanvasAssociationTriggerActive,
   persistCanvasAssociationEnabled,
   readCanvasAssociationEnabled,
@@ -259,9 +261,12 @@ import {
   resolveCanvasAssociationPromptEdit,
   resolveCanvasAssociationPromptEditFromInputEvent,
   snapshotCanvasAssociationRefs,
+  shouldAllowCanvasAssociationCompositionTrigger,
   shouldClearSubmittedCanvasAssociations,
+  shouldRestoreCanvasAssociationPointer,
   shouldStartCanvasAssociationPicking,
   type CanvasAssociationBeforeInputSnapshot,
+  type CanvasAssociationPointerOwnership,
   type CanvasAssociationTrigger,
 } from './canvas-association-state';
 import { getCanvasAssociationPickElements } from './canvas-association-picking';
@@ -993,6 +998,25 @@ function selectedContentFromBoundImage(
     : null;
 }
 
+type CanvasAssociationAppState = {
+  pointer?: string;
+};
+
+type CanvasAssociationPointerBoard = PlaitBoard & {
+  appState?: CanvasAssociationAppState;
+};
+
+interface CanvasAssociationPointerSession {
+  token: symbol;
+  ownership: CanvasAssociationPointerOwnership;
+}
+
+// A WeakMap keeps delayed cleanups isolated per board without retaining boards.
+const canvasAssociationPointerSessions = new WeakMap<
+  PlaitBoard,
+  CanvasAssociationPointerSession
+>();
+
 /**
  * 独立的选择内容监听组件
  * 将 useBoard 隔离在这个组件中，避免 board context 变化导致主组件重渲染
@@ -1002,6 +1026,7 @@ const SelectionWatcher: React.FC<{
   currentBoardId?: string | null;
   onSelectionChange: (content: SelectedContent[]) => void;
   canvasAssociationPicking?: boolean;
+  canvasAssociationPickingToken?: CanvasAssociationTrigger | null;
   onCanvasAssociationSelection?: (
     board: PlaitBoard,
     elements: PlaitElement[]
@@ -1024,6 +1049,7 @@ const SelectionWatcher: React.FC<{
     currentBoardId,
     onSelectionChange,
     canvasAssociationPicking,
+    canvasAssociationPickingToken,
     onCanvasAssociationSelection,
     onBoundImageTargetChange,
     onBoundInputViewportChange,
@@ -1095,6 +1121,20 @@ const SelectionWatcher: React.FC<{
 
     const canvasAssociationPickingRef = useRef(canvasAssociationPicking);
     canvasAssociationPickingRef.current = canvasAssociationPicking;
+    const canvasAssociationPickingTokenRef = useRef(
+      canvasAssociationPickingToken
+    );
+    const canvasAssociationPickingEpochRef = useRef(0);
+    useLayoutEffect(() => {
+      if (
+        canvasAssociationPickingTokenRef.current !==
+        canvasAssociationPickingToken
+      ) {
+        canvasAssociationPickingTokenRef.current =
+          canvasAssociationPickingToken;
+        canvasAssociationPickingEpochRef.current += 1;
+      }
+    }, [canvasAssociationPickingToken]);
 
     const onCanvasAssociationSelectionRef = useRef(
       onCanvasAssociationSelection
@@ -1248,6 +1288,10 @@ const SelectionWatcher: React.FC<{
       let selectionChangeTimer: ReturnType<typeof setTimeout> | null = null;
       const handlePointerUp = (event: PointerEvent) => {
         const currentBoard = boardRef.current;
+        const pointerBoard = currentBoard;
+        const pointerBoardId = currentBoardIdRef.current;
+        const pickingAtPointer = Boolean(canvasAssociationPickingRef.current);
+        const pointerPickingEpoch = canvasAssociationPickingEpochRef.current;
         const boardContainer = currentBoard
           ? PlaitBoard.getBoardContainer(currentBoard)
           : null;
@@ -1259,7 +1303,7 @@ const SelectionWatcher: React.FC<{
             !pointerTarget.closest(`.${ATTACHED_ELEMENT_CLASS_NAME}`)
         );
 
-        if (canvasAssociationPickingRef.current && !isCanvasPointer) {
+        if (pickingAtPointer && !isCanvasPointer) {
           return;
         }
         const pointer = {
@@ -1273,10 +1317,21 @@ const SelectionWatcher: React.FC<{
         selectionChangeTimer = setTimeout(() => {
           selectionChangeTimer = null;
           const activeBoard = boardRef.current;
+          if (
+            !isCanvasAssociationPickingSessionCurrent(
+              pickingAtPointer,
+              Boolean(canvasAssociationPickingRef.current),
+              pointerPickingEpoch,
+              canvasAssociationPickingEpochRef.current,
+              pointerBoardId,
+              currentBoardIdRef.current,
+              activeBoard === pointerBoard
+            )
+          ) {
+            return;
+          }
           const pickElements =
-            isCanvasPointer &&
-            canvasAssociationPickingRef.current &&
-            activeBoard
+            isCanvasPointer && pickingAtPointer && activeBoard
               ? getCanvasAssociationPickElements(activeBoard, pointer)
               : undefined;
           void handleSelectionChange(pickElements);
@@ -2895,10 +2950,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const promptHighlightLayerRef = useRef<HTMLDivElement>(null);
     const isInputComposingRef = useRef(false);
     const compositionInsertedAtSignRef = useRef(false);
+    const compositionHasUntrustedEditRef = useRef(false);
+    const pendingCanvasAssociationUntrustedInputRef = useRef(false);
+    const pendingCanvasAssociationUntrustedInputTimerRef = useRef<
+      number | null
+    >(null);
     const pendingCanvasAssociationEditRef =
       useRef<CanvasAssociationBeforeInputSnapshot | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const clearPendingCanvasAssociationUntrustedInput = useCallback(() => {
+      pendingCanvasAssociationUntrustedInputRef.current = false;
+      if (pendingCanvasAssociationUntrustedInputTimerRef.current !== null) {
+        window.clearTimeout(
+          pendingCanvasAssociationUntrustedInputTimerRef.current
+        );
+        pendingCanvasAssociationUntrustedInputTimerRef.current = null;
+      }
+    }, []);
+
+    useEffect(
+      () => () => clearPendingCanvasAssociationUntrustedInput(),
+      [clearPendingCanvasAssociationUntrustedInput]
+    );
 
     const cancelCanvasAssociationPicking = useCallback(
       (focusInput = true) => {
@@ -3024,17 +3099,56 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     useEffect(() => {
       if (!canvasAssociationTrigger) return;
-      const board = SelectionWatcherBoardRef.current;
-      const boardContainer = board ? PlaitBoard.getBoardContainer(board) : null;
+      const board =
+        SelectionWatcherBoardRef.current as CanvasAssociationPointerBoard | null;
+      if (!board) return;
+      const boardContainer = PlaitBoard.getBoardContainer(board);
       if (!boardContainer) return;
-      const previousPointer = board.pointer;
-      BoardTransforms.updatePointerType(board, PlaitPointerType.selection);
+
+      const forcedPointer = PlaitPointerType.selection;
+      const existingSession = canvasAssociationPointerSessions.get(board);
+      const currentAppStatePointer = board.appState?.pointer;
+      const ownership =
+        existingSession &&
+        shouldRestoreCanvasAssociationPointer(
+          existingSession.ownership,
+          board.pointer,
+          currentAppStatePointer
+        )
+          ? existingSession.ownership
+          : {
+              forcedPointer,
+              previousBoardPointer: board.pointer,
+              previousAppStatePointer: currentAppStatePointer,
+            };
+      const token = Symbol('canvas-association-pointer-session');
+      canvasAssociationPointerSessions.set(board, { token, ownership });
+
+      BoardTransforms.updatePointerType(board, forcedPointer);
       boardContainer.classList.add('canvas-association-picking');
+
       return () => {
         boardContainer.classList.remove('canvas-association-picking');
-        if (PlaitBoard.isPointer(board, PlaitPointerType.selection)) {
-          BoardTransforms.updatePointerType(board, previousPointer);
-        }
+        requestAnimationFrame(() => {
+          const activeSession = canvasAssociationPointerSessions.get(board);
+          if (activeSession?.token !== token) return;
+          canvasAssociationPointerSessions.delete(board);
+
+          if (
+            !shouldRestoreCanvasAssociationPointer(
+              ownership,
+              board.pointer,
+              board.appState?.pointer
+            )
+          ) {
+            return;
+          }
+
+          BoardTransforms.updatePointerType(
+            board,
+            ownership.previousBoardPointer
+          );
+        });
       };
     }, [canvasAssociationTrigger, currentBoardId]);
 
@@ -6590,13 +6704,26 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       (event: React.FormEvent<HTMLTextAreaElement>) => {
         const input = event.currentTarget;
         const nativeEvent = event.nativeEvent as InputEvent;
+        const inputType =
+          typeof nativeEvent.inputType === 'string'
+            ? nativeEvent.inputType
+            : '';
+        const data =
+          typeof nativeEvent.data === 'string' ? nativeEvent.data : null;
+        if (hasCanvasAssociationUntrustedInputType(inputType)) {
+          pendingCanvasAssociationUntrustedInputRef.current = true;
+        }
+        if (
+          isInputComposingRef.current &&
+          pendingCanvasAssociationUntrustedInputRef.current
+        ) {
+          compositionHasUntrustedEditRef.current = true;
+        }
         pendingCanvasAssociationEditRef.current = {
           selectionStart: input.selectionStart,
           selectionEnd: input.selectionEnd,
-          inputType:
-            typeof nativeEvent.inputType === 'string'
-              ? nativeEvent.inputType
-              : '',
+          inputType,
+          data,
         };
       },
       []
@@ -6612,6 +6739,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const previousPrompt = promptRef.current;
         const beforeInputSnapshot = pendingCanvasAssociationEditRef.current;
         pendingCanvasAssociationEditRef.current = null;
+        const hasExplicitUntrustedInput =
+          pendingCanvasAssociationUntrustedInputRef.current;
+        clearPendingCanvasAssociationUntrustedInput();
         const promptEdit =
           resolveCanvasAssociationPromptEdit(
             previousPrompt,
@@ -6660,8 +6790,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const isComposing = Boolean(
           nativeInputEvent.isComposing || isInputComposingRef.current
         );
+        const changeInputType =
+          typeof nativeInputEvent.inputType === 'string'
+            ? nativeInputEvent.inputType
+            : '';
+        const hasUntrustedInputType = hasCanvasAssociationUntrustedInputType(
+          beforeInputSnapshot?.inputType,
+          changeInputType
+        );
         if (
           isComposing &&
+          (hasUntrustedInputType || hasExplicitUntrustedInput)
+        ) {
+          compositionHasUntrustedEditRef.current = true;
+        }
+        if (
+          isComposing &&
+          !compositionHasUntrustedEditRef.current &&
           (hasInsertedCanvasAssociationAtSign(
             previousPrompt,
             newValue,
@@ -6675,9 +6820,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const mayStartCanvasAssociationPicking =
           shouldStartCanvasAssociationPicking(
             beforeInputSnapshot?.inputType,
-            typeof nativeInputEvent.inputType === 'string'
-              ? nativeInputEvent.inputType
-              : ''
+            changeInputType,
+            beforeInputSnapshot?.data,
+            hasExplicitUntrustedInput
           );
         if (
           syncCanvasAssociationTrigger(
@@ -6707,6 +6852,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       },
       [
         applyCanvasAssociationRefs,
+        clearPendingCanvasAssociationUntrustedInput,
         dismissPromptSuggestion,
         saveActiveCanvasAssociationDraft,
         syncCanvasAssociationTrigger,
@@ -6726,24 +6872,50 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const handleInputCompositionStart = useCallback(() => {
       isInputComposingRef.current = true;
       compositionInsertedAtSignRef.current = false;
+      compositionHasUntrustedEditRef.current = false;
+      clearPendingCanvasAssociationUntrustedInput();
       pendingCanvasAssociationEditRef.current = null;
-    }, []);
+    }, [clearPendingCanvasAssociationUntrustedInput]);
 
     const handleInputCompositionEnd = useCallback(
       (event: React.CompositionEvent<HTMLTextAreaElement>) => {
         isInputComposingRef.current = false;
-        const allowNewTrigger =
-          compositionInsertedAtSignRef.current ||
-          event.data?.includes('@') === true;
+        const allowNewTrigger = shouldAllowCanvasAssociationCompositionTrigger(
+          compositionInsertedAtSignRef.current,
+          compositionHasUntrustedEditRef.current,
+          event.data
+        );
         compositionInsertedAtSignRef.current = false;
+        compositionHasUntrustedEditRef.current = false;
+        clearPendingCanvasAssociationUntrustedInput();
         syncCanvasAssociationTrigger(
           event.currentTarget,
           false,
           allowNewTrigger
         );
       },
-      [syncCanvasAssociationTrigger]
+      [
+        clearPendingCanvasAssociationUntrustedInput,
+        syncCanvasAssociationTrigger,
+      ]
     );
+
+    const handleInputUntrustedInsertion = useCallback(() => {
+      if (pendingCanvasAssociationUntrustedInputTimerRef.current !== null) {
+        window.clearTimeout(
+          pendingCanvasAssociationUntrustedInputTimerRef.current
+        );
+      }
+      pendingCanvasAssociationUntrustedInputRef.current = true;
+      pendingCanvasAssociationUntrustedInputTimerRef.current =
+        window.setTimeout(() => {
+          pendingCanvasAssociationUntrustedInputRef.current = false;
+          pendingCanvasAssociationUntrustedInputTimerRef.current = null;
+        }, 0);
+      if (isInputComposingRef.current) {
+        compositionHasUntrustedEditRef.current = true;
+      }
+    }, []);
 
     const handleTaskbarControlPointerDown = useCallback(
       (event: React.PointerEvent<HTMLDivElement>) => {
@@ -6969,6 +7141,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             currentBoardId={currentBoardId}
             onSelectionChange={handleSelectionChange}
             canvasAssociationPicking={Boolean(canvasAssociationTrigger)}
+            canvasAssociationPickingToken={canvasAssociationTrigger}
             onCanvasAssociationSelection={handleCanvasAssociationSelection}
             onBoundImageTargetChange={handleBoundImageTargetChange}
             onBoundInputViewportChange={handleBoundInputViewportChange}
@@ -7430,6 +7603,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                     onSelect={handleInputSelect}
                     onCompositionStart={handleInputCompositionStart}
                     onCompositionEnd={handleInputCompositionEnd}
+                    onPaste={handleInputUntrustedInsertion}
+                    onDrop={handleInputUntrustedInsertion}
                     onKeyDown={handleKeyDown}
                     onScroll={(event) => {
                       if (promptHighlightLayerRef.current) {
