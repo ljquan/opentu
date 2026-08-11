@@ -18,6 +18,10 @@ export interface MediaItem {
   posterUrl?: string;
   /** 媒体时长（秒） */
   duration?: number;
+  /** 上游返回的实际图片宽度（像素） */
+  width?: number;
+  /** 上游返回的实际图片高度（像素） */
+  height?: number;
   /** 生成提示词 */
   prompt?: string;
   /** 音频风格标签 */

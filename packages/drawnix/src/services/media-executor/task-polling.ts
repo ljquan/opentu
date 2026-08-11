@@ -19,6 +19,8 @@ export interface PollingOptions {
   timeout?: number;
   /** 取消信号 */
   signal?: AbortSignal;
+  /** 当前执行实例是否仍拥有该任务 */
+  isCurrentAttempt?: () => boolean;
   /** 进度回调 */
   onProgress?: (task: Task) => void;
 }
@@ -49,6 +51,7 @@ export async function waitForTaskCompletion(
     interval = 1000,
     timeout = IMAGE_GENERATION_TIMEOUT_MS,
     signal,
+    isCurrentAttempt,
     onProgress,
   } = options;
 
@@ -57,7 +60,7 @@ export async function waitForTaskCompletion(
   return new Promise((resolve) => {
     const poll = async () => {
       // 检查是否已取消
-      if (signal?.aborted) {
+      if (signal?.aborted || isCurrentAttempt?.() === false) {
         resolve({ success: false, error: 'Polling cancelled' });
         return;
       }
@@ -74,6 +77,10 @@ export async function waitForTaskCompletion(
 
         // 获取任务状态
         const task = await taskStorageReader.getTask(taskId);
+        if (signal?.aborted || isCurrentAttempt?.() === false) {
+          resolve({ success: false, error: 'Polling cancelled' });
+          return;
+        }
 
         if (!task) {
           // 任务不存在，继续等待（可能还在创建中）

@@ -85,7 +85,8 @@ export async function sendAdapterRequest(
     context,
     baseUrlOverride
   );
-  const isSubmissionRequest = (request.method || 'GET').toUpperCase() !== 'GET';
+  const isSubmissionRequest =
+    (request.method || 'GET').toUpperCase() === 'POST';
   const requestId =
     context.operation === 'image' && context.requestId && isSubmissionRequest
       ? context.requestId
@@ -98,6 +99,11 @@ export async function sendAdapterRequest(
   return providerTransport.send(providerContext, {
     ...request,
     requestId,
+    allowImageSubmissionOutcomeRecovery:
+      request.allowImageSubmissionOutcomeRecovery ??
+      !context.binding?.pollPathTemplate,
+    controlledResponseBody:
+      request.controlledResponseBody ?? context.operation === 'image',
     signal: request.signal || context.signal,
     timeoutMs,
     fetcher: context.fetcher || request.fetcher,

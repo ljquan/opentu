@@ -100,6 +100,21 @@ export async function generateVideo(
     executionPhase: TaskExecutionPhase.SUBMITTING,
     progress: 0,
   });
+  const executionToken = taskQueueService.getTaskExecutionToken(taskId);
+  const isCurrentAttempt = () =>
+    Boolean(
+      executionToken &&
+        taskQueueService.isTaskExecutionTokenCurrent(taskId, executionToken)
+    );
+  const assertCurrentAttempt = () => {
+    options.signal?.throwIfAborted();
+    if (!isCurrentAttempt()) {
+      const error = new Error('视频任务已被取消或替代');
+      error.name = 'AbortError';
+      throw error;
+    }
+  };
+  assertCurrentAttempt();
 
   // 通知调用方 taskId，以便提前持久化到工作流步骤
   options.onTaskCreated?.(taskId);
@@ -123,15 +138,23 @@ export async function generateVideo(
     ? executorFactory.getFallbackExecutor()
     : await executorFactory.getExecutor();
 
-  await executor.generateVideo(executorParams, { signal: options.signal });
+  await executor.generateVideo(executorParams, {
+    signal: options.signal,
+    isCurrentAttempt,
+  });
+  assertCurrentAttempt();
 
   // 等待任务完成（轮询 IndexedDB）
   const result = await waitForTaskCompletion(taskId, {
     signal: options.signal,
+    isCurrentAttempt,
     onProgress: (updatedTask) => {
-      taskQueueService.syncTaskFromStorage(taskId, updatedTask);
+      if (isCurrentAttempt()) {
+        taskQueueService.syncTaskFromStorage(taskId, updatedTask);
+      }
     },
   });
+  assertCurrentAttempt();
 
   if (!result.success || !result.task) {
     const errorTask = result.task || {

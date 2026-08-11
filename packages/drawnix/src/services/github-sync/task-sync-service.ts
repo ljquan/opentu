@@ -486,7 +486,9 @@ class TaskSyncService {
       if (page) {
         // 恢复下载的任务到本地
         const tasksToRestore = page.tasks.map(compact => this.compactToTask(compact));
-        await taskQueueService.restoreTasks(tasksToRestore);
+        await taskQueueService.restoreTasks(tasksToRestore, {
+          allowDeletedTaskRestore: true,
+        });
         downloaded += page.tasks.length;
       }
       // 每处理 2 个分页让出主线程

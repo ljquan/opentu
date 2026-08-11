@@ -1,6 +1,45 @@
 {
   "versions": [
     {
+      "version": "1.0.16",
+      "date": "2026-08-10",
+      "changes": {
+        "features": [
+          "图片预览显示实际尺寸 (#225)"
+        ],
+        "fixes": [
+          "修复 Gemini 3.1 图片渲染失败 (#224)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "图片预览显示实际尺寸 (#225)"
+    },
+    {
+      "version": "1.0.13",
+      "date": "2026-08-10",
+      "changes": {
+        "features": [
+          "支持在 AI 生图描述框粘贴参考图"
+        ],
+        "fixes": [],
+        "improvements": [
+          "修复图片请求中断恢复与任务执行生命周期竞态",
+          "修复：恢复任务栏历史提示词虚化复用 (#222)",
+          "修复选中图片 Delete/Backspace 删除能力 (#218)",
+          "修复：支持 AI 生成素材导入参考图",
+          "文档：记录 PR 基线检查结果",
+          "功能：增加 AI 任务栏跟随永久开关",
+          "修复 AI 任务栏未发送草稿误触丢失 (#214)",
+          "功能：支持 AI 任务栏单图永久仅作参考 (#217)",
+          "功能：刷新默认模型并对齐 Seedance 2.0 官方接口 (#216)",
+          "修复：按图片保留任务栏草稿并增强图片插入可靠性 (#215)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "支持在 AI 生图描述框粘贴参考图"
+    },
+    {
       "version": "1.0.12",
       "date": "2026-08-04",
       "changes": {
@@ -990,37 +1029,6 @@
       },
       "type": "patch",
       "highlights": "新增 OpenTu SEO 首页"
-    },
-    {
-      "version": "0.6.75",
-      "date": "2026-04-25",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "离线时跳过 idle prefetch 清单预热"
-        ],
-        "improvements": [
-          "更新应用版本号至0.6.74并同步构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "离线时跳过 idle prefetch 清单预热"
-    },
-    {
-      "version": "0.6.74",
-      "date": "2026-04-24",
-      "changes": {
-        "features": [
-          "添加UI交互埋点并优化剪贴板权限检测",
-          "为缓存失败的媒体添加下载提示角标"
-        ],
-        "fixes": [
-          "修复离线 CDN 资源缓存回退"
-        ],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "添加UI交互埋点并优化剪贴板权限检测"
     }
   ]
 }

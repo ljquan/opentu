@@ -42,6 +42,7 @@ import {
   shouldUseOriginFirstPreload,
   shouldUseAppShellStrategy,
 } from './app-shell-routing';
+import { isUsableImageFetchResponse } from './image-fetch-response';
 
 // fix: self redeclaration error and type casting
 const sw = self as unknown as ServiceWorkerGlobalScope;
@@ -6429,7 +6430,7 @@ async function handleImageRequestInternal(
     }
 
     // 尝试多种获取方式，每种方式都支持重试和域名切换
-    let response;
+    let response: Response | undefined;
     const fetchOptions = [
       // 1. 优先尝试cors模式（可以缓存响应）
       {
@@ -6479,6 +6480,7 @@ async function handleImageRequestInternal(
       }
 
       for (const options of fetchOptions) {
+        response = undefined;
         try {
           // console.log(`Service Worker [${requestId}]: Trying fetch with options (${isUsingFallback ? 'fallback' : 'original'} URL, mode: ${options.mode || 'default'}):`, options);
 
@@ -6488,16 +6490,21 @@ async function handleImageRequestInternal(
           for (let attempt = 0; attempt <= 2; attempt++) {
             try {
               // console.log(`Service Worker [${requestId}]: Fetch attempt ${attempt + 1}/3 with options on ${isUsingFallback ? 'fallback' : 'original'} URL`);
-              response = await fetch(currentUrl, options);
+              const fetchedResponse = await fetch(currentUrl, options);
 
-              // 成功条件：status !== 0 或者是 opaque 响应（no-cors 模式）
-              if (
-                response &&
-                (response.status !== 0 || response.type === 'opaque')
-              ) {
+              if (isUsableImageFetchResponse(fetchedResponse)) {
+                response = fetchedResponse;
                 // console.log(`Service Worker [${requestId}]: Fetch successful with status: ${response.status}, type: ${response.type} from ${isUsingFallback ? 'fallback' : 'original'} URL`);
                 break;
               }
+
+              // 4xx/5xx 是有效的 HTTP 响应，但不能作为图片返回。
+              // 同一模式重试不会改变结果，直接切换到下一种 fetch 模式。
+              lastError = new Error(
+                `HTTP ${fetchedResponse.status}: ${fetchedResponse.statusText}`
+              );
+              finalError = lastError;
+              break;
             } catch (fetchError: any) {
               // console.warn(`Service Worker [${requestId}]: Fetch attempt ${attempt + 1} failed on ${isUsingFallback ? 'fallback' : 'original'} URL:`, fetchError);
               lastError = fetchError;
@@ -6565,11 +6572,7 @@ async function handleImageRequestInternal(
             });
           }
 
-          // 成功条件：status !== 0 或者是 opaque 响应（no-cors 模式）
-          if (
-            response &&
-            (response.status !== 0 || response.type === 'opaque')
-          ) {
+          if (isUsableImageFetchResponse(response)) {
             break;
           }
 
@@ -6585,8 +6588,7 @@ async function handleImageRequestInternal(
       }
 
       // 如果当前URL成功获取到响应，跳出URL循环
-      // 成功条件：status !== 0 或者是 opaque 响应（no-cors 模式）
-      if (response && (response.status !== 0 || response.type === 'opaque')) {
+      if (isUsableImageFetchResponse(response)) {
         break;
       } else {
         // 如果是配置的域名且是第一次尝试（原始URL），标记为失败域名
@@ -6606,8 +6608,8 @@ async function handleImageRequestInternal(
       }
     }
 
-    // 检查是否获取失败（排除 opaque 响应，那是 no-cors 模式的正常结果）
-    if (!response || (response.status === 0 && response.type !== 'opaque')) {
+    // 检查是否获取失败（opaque 响应是 no-cors 模式的正常结果）
+    if (!response || !isUsableImageFetchResponse(response)) {
       let errorMessage = 'All fetch attempts failed';
 
       if (domainConfig && domainConfig.fallbackDomain) {

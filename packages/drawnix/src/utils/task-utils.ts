@@ -23,9 +23,14 @@ export function generateTaskId(): string {
   return generateUUID();
 }
 
-export function formatImageTaskResultSize(
+export interface ImageTaskResultDimensions {
+  width: number;
+  height: number;
+}
+
+export function getImageTaskResultDimensions(
   task: Pick<Task, 'type' | 'status' | 'result'>
-): string | null {
+): ImageTaskResultDimensions | null {
   if (task.type !== TaskType.IMAGE || task.status !== TaskStatus.COMPLETED) {
     return null;
   }
@@ -38,8 +43,19 @@ export function formatImageTaskResultSize(
     typeof height === 'number' &&
     Number.isSafeInteger(height) &&
     height > 0
-    ? `${width}×${height}`
-    : '未知尺寸';
+    ? { width, height }
+    : null;
+}
+
+export function formatImageTaskResultSize(
+  task: Pick<Task, 'type' | 'status' | 'result'>
+): string | null {
+  if (task.type !== TaskType.IMAGE || task.status !== TaskStatus.COMPLETED) {
+    return null;
+  }
+
+  const dimensions = getImageTaskResultDimensions(task);
+  return dimensions ? `${dimensions.width}×${dimensions.height}` : '未知尺寸';
 }
 
 export function resolveImageTaskInsertionDimensions(

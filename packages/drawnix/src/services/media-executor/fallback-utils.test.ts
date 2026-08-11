@@ -5,6 +5,7 @@ const getCachedBlob = vi.fn();
 const cachedUrls = new Set<string>();
 const isCached = vi.fn(async (url: string) => cachedUrls.has(url));
 const calculateBlobChecksum = vi.fn(async () => 'a'.repeat(64));
+const providerSend = vi.fn();
 const blobLike = expect.objectContaining({
   size: expect.any(Number),
   type: expect.any(String),
@@ -27,6 +28,55 @@ vi.mock('../unified-cache-service', () => ({
     isCached,
   },
 }));
+
+vi.mock('../provider-routing/provider-transport', () => ({
+  providerTransport: { send: providerSend },
+}));
+
+describe('pollVideoStatus', () => {
+  beforeEach(() => {
+    providerSend.mockReset();
+  });
+
+  it('stops polling after the execution attempt is replaced', async () => {
+    vi.useFakeTimers();
+    try {
+      providerSend.mockResolvedValue(
+        new Response(JSON.stringify({ status: 'processing', progress: 25 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+      const { pollVideoStatus } = await import('./fallback-utils');
+      let current = true;
+      const polling = pollVideoStatus(
+        'remote-old',
+        {
+          apiKey: 'test-key',
+          baseUrl: 'https://api.example.com',
+        },
+        vi.fn(),
+        undefined,
+        () => current
+      );
+      const rejected = expect(polling).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+
+      for (let turn = 0; turn < 6; turn += 1) {
+        await Promise.resolve();
+      }
+      expect(providerSend).toHaveBeenCalledOnce();
+
+      current = false;
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+      expect(providerSend).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('cacheRemoteUrl', () => {
   beforeEach(() => {
@@ -398,6 +448,97 @@ describe('cacheRemoteUrl', () => {
       '/__aitu_cache__/image/task-images_1.png',
     ]);
 
+    vi.unstubAllGlobals();
+  });
+
+  it('passes the recovery abort signal to a remote cache fetch', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Blob(['image-binary'], { type: 'image/png' }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    await cacheRemoteUrl(
+      'https://cdn.example.com/generated/signal.png',
+      'task-signal',
+      'image',
+      'png',
+      undefined,
+      { forceRemoteCache: true, signal: controller.signal }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://cdn.example.com/generated/signal.png',
+      expect.objectContaining({ signal: controller.signal })
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('propagates cache-fetch cancellation instead of returning the remote URL', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason),
+            { once: true }
+          );
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const cachePromise = cacheRemoteUrl(
+      'https://cdn.example.com/generated/abort.png',
+      'task-abort',
+      'image',
+      'png',
+      undefined,
+      { forceRemoteCache: true, signal: controller.signal }
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const stopError = new Error('recovery stopped');
+    controller.abort(stopError);
+
+    await expect(cachePromise).rejects.toBe(stopError);
+    expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('stops sequential remote caching before the next URL after cancellation', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason),
+            { once: true }
+          );
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrls } = await import('./fallback-utils');
+    const cachePromise = cacheRemoteUrls(
+      [
+        'https://cdn.example.com/generated/abort-1.png',
+        'https://cdn.example.com/generated/abort-2.png',
+      ],
+      'task-abort-many',
+      'image',
+      'png',
+      { forceRemoteCache: true, signal: controller.signal }
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    controller.abort(new Error('recovery stopped'));
+
+    await expect(cachePromise).rejects.toThrow('recovery stopped');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
 

@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
     retryTask: vi.fn(),
     updateAnchor: vi.fn(),
     setNode: vi.fn(),
+    notifySelectionRefresh: vi.fn(),
   };
 });
 
@@ -139,7 +140,7 @@ vi.mock('../../services/media-result-handler', () => ({
 
 vi.mock('../../utils/selection-utils', () => ({
   getInsertionPointBelowBottommostElement: vi.fn(() => [100, 100]),
-  notifyAISelectionContentRefresh: vi.fn(),
+  notifyAISelectionContentRefresh: mocks.notifySelectionRefresh,
 }));
 
 vi.mock('../../utils/frame-insertion-utils', () => ({
@@ -243,6 +244,7 @@ describe('useAutoInsertToCanvas', () => {
     mocks.retryTask.mockReset();
     mocks.updateAnchor.mockReset();
     mocks.setNode.mockReset();
+    mocks.notifySelectionRefresh.mockReset();
   });
 
   afterEach(() => {
@@ -276,6 +278,19 @@ describe('useAutoInsertToCanvas', () => {
     });
 
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/task-1.png',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        prompt: '生成一张图',
+        aiPrompt: '生成一张图',
+        generationPrompt: '生成一张图',
+        generationTaskId: 'task-1',
+      })
+    );
+    expect(mocks.notifySelectionRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       task.id,
@@ -386,6 +401,7 @@ describe('useAutoInsertToCanvas', () => {
       expect.objectContaining({ generationTaskId: 'task-batch-2' }),
       [1]
     );
+    expect(mocks.notifySelectionRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       'task-batch-1',
       1,

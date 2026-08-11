@@ -7,6 +7,10 @@ import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import { ModelVendor } from '../../constants/model-config';
+import {
+  readProviderResponseJson,
+  readProviderResponseText,
+} from '../provider-routing';
 
 type MJSubmitResponse = {
   code: number;
@@ -71,11 +75,11 @@ const submitMJImagine = async (
   );
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = await readProviderResponseText(response);
     throw new Error(`MJ submit failed: ${response.status} - ${errorText}`);
   }
 
-  return response.json();
+  return readProviderResponseJson<MJSubmitResponse>(response);
 };
 
 const queryMJTask = async (
@@ -93,11 +97,11 @@ const queryMJTask = async (
   );
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = await readProviderResponseText(response);
     throw new Error(`MJ query failed: ${response.status} - ${errorText}`);
   }
 
-  return response.json();
+  return readProviderResponseJson<MJQueryResponse>(response);
 };
 
 export const mjImageAdapter: ImageModelAdapter = {

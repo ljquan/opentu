@@ -5,6 +5,7 @@ import {
   normalizeManualImageResponse,
   normalizeManualTaskResponse,
   renderTemplate,
+  resolveManualHttpRequestMethod,
 } from '../provider-routing/manual-http-template';
 import type {
   AdapterContext,
@@ -18,6 +19,7 @@ import type {
 import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
 import { getFileExtension } from '@aitu/utils';
+import { readProviderResponseText } from '../provider-routing';
 
 function getTemplate(context: AdapterContext) {
   const template = getManualHttpTemplate(context.binding?.metadata);
@@ -28,7 +30,7 @@ function getTemplate(context: AdapterContext) {
 }
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
+  const text = await readProviderResponseText(response);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
   }
@@ -55,7 +57,8 @@ async function submitManualHttp(
   const payload = await buildManualHttpRequestPayload(
     request.template,
     request.variables,
-    context.fetcher
+    context.fetcher,
+    context.signal
   );
   const headers = renderTemplate(request.headers || {}, request.variables) as
     | Record<string, string>
@@ -63,7 +66,7 @@ async function submitManualHttp(
   const response = await sendAdapterRequest(context, {
     path: renderTemplate(request.path, request.variables) as string,
     baseUrlStrategy: context.binding?.baseUrlStrategy,
-    method: request.method || (payload.body === undefined ? 'GET' : 'POST'),
+    method: resolveManualHttpRequestMethod(request.template, request.method),
     headers: {
       ...(payload.contentType ? { 'Content-Type': payload.contentType } : {}),
       ...(!payload.contentType &&

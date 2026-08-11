@@ -41,6 +41,7 @@ import {
   shouldUseStrictTaskInvocationRoute,
 } from './task-invocation-route';
 import { getImageSubmissionRequestId } from './image-generation-recovery-service';
+import { isImageSubmissionOutcomeUnknownError } from './provider-routing';
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
@@ -466,6 +467,11 @@ class GenerationAPIService {
         adapterContext.binding?.protocol === 'openai.async.media'
           ? TaskExecutionPhase.POLLING
           : TaskExecutionPhase.SUBMITTING;
+      const invocationRoute = createTaskInvocationRouteSnapshot(
+        'image',
+        requestedModelRef || requestedModel || DEFAULT_IMAGE_MODEL_ID,
+        { bindingId: adapterContext.binding?.id }
+      );
 
       const requestContext = {
         ...adapterContext,
@@ -473,7 +479,8 @@ class GenerationAPIService {
         onSubmissionAttempt: () =>
           taskQueueService.markImageSubmissionAttempted(
             taskId,
-            submissionRequestId
+            submissionRequestId,
+            invocationRoute
           ),
         signal,
       };
@@ -554,6 +561,9 @@ class GenerationAPIService {
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Image generation error:', error);
+      if (isImageSubmissionOutcomeUnknownError(error)) {
+        throw error;
+      }
       const wrappedError = new Error(error.message || '图片生成失败');
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;

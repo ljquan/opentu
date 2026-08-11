@@ -6,7 +6,13 @@ import {
   InvocationPlanningError,
   supportsTextBindingImageInput,
 } from '../provider-routing';
-import { providerTransport } from '../provider-routing';
+import {
+  IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+  isImageSubmissionOutcomeUnknownError,
+  providerTransport,
+  readProviderResponseJson,
+  readProviderResponseText,
+} from '../provider-routing';
 import { canAttachProviderRequestIdHeader } from '../provider-routing';
 import {
   isLocalDevHostname,
@@ -44,6 +50,64 @@ function createRepositories(params: {
       );
     },
   };
+}
+
+const tuziTransportContext = {
+  profileId: 'provider-tuzi',
+  profileName: 'Tuzi',
+  providerType: 'openai-compatible',
+  baseUrl: 'https://api.tu-zi.com/v1',
+  apiKey: 'secret',
+  authType: 'bearer',
+} as const;
+
+function sendTuzi(
+  request: Parameters<typeof providerTransport.send>[1]
+): Promise<Response> {
+  return providerTransport.send(tuziTransportContext, request);
+}
+
+const didNotSettle = Symbol('did not settle');
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs = 100) {
+  return new Promise<T | typeof didNotSettle>((resolve, reject) => {
+    const timeoutId = setTimeout(() => resolve(didNotSettle), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
+function stubTuziEndpoints() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        data: {
+          api_address_list: [
+            { url: 'https://api.tu-zi.com' },
+            { url: 'https://apius.tu-zi.com' },
+            { url: 'https://apicdn.tu-zi.com' },
+          ],
+        },
+      })
+    )
+  );
+}
+
+function spyOnResponseBodyCancel(response: Response) {
+  const body = response.body;
+  if (!body) {
+    throw new Error('Expected response body');
+  }
+  return vi.spyOn(body, 'cancel');
 }
 
 describe('provider routing', () => {
@@ -114,31 +178,21 @@ describe('provider routing', () => {
 
   it('reports a proxy configuration error instead of parsing SPA HTML as JSON', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response('<!doctype html><html></html>', {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      })
-    );
+    const htmlResponse = new Response('<!doctype html><html></html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+    const cancelHtmlBody = spyOnResponseBodyCancel(htmlResponse);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse);
 
     try {
       await expect(
-        providerTransport.send(
-          {
-            profileId: 'provider-tuzi',
-            profileName: 'Tuzi',
-            providerType: 'openai-compatible',
-            baseUrl: 'https://api.tu-zi.com/v1',
-            apiKey: 'secret',
-            authType: 'bearer',
-          },
-          {
-            path: '/images/generations',
-            method: 'POST',
-            requestId: 'proxy-html-task-id',
-            fetcher,
-          }
-        )
+        sendTuzi({
+          path: '/images/generations',
+          method: 'POST',
+          requestId: 'proxy-html-task-id',
+          fetcher,
+        })
       ).rejects.toThrow('Tuzi 同源代理未生效');
       expect(String(fetcher.mock.calls[0]?.[0])).toBe(
         '/__opentu_tuzi_proxy__/api/v1/images/generations'
@@ -148,6 +202,7 @@ describe('provider routing', () => {
           'X-Request-Id'
         ]
       ).toBe('proxy-html-task-id');
+      expect(cancelHtmlBody).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -622,90 +677,719 @@ describe('provider routing', () => {
     }
   );
 
-  it('never retries a Request-ID submission on another node', async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockRejectedValue(new Error('Failed to fetch'));
+  it.each(['/images/generations', '/images/edits'])(
+    'never retries a Request-ID submission to %s on another node',
+    async (path) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new Error('Failed to fetch'));
+
+      await expect(
+        sendTuzi({
+          path,
+          method: 'POST',
+          requestId: 'single-submit-task-id',
+          fetcher,
+        })
+      ).rejects.toMatchObject({
+        code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+        name: 'ImageSubmissionOutcomeUnknownError',
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+        `https://bus.tu-zi.com/v1${path}`
+      );
+    }
+  );
+
+  it('preserves a fetch error when image recovery is explicitly disabled', async () => {
+    const networkError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
 
     await expect(
-      providerTransport.send(
+      sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        requestId: 'disabled-network-recovery',
+        allowImageSubmissionOutcomeRecovery: false,
+        fetcher,
+      })
+    ).rejects.toBe(networkError);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'fetch failed',
+    'connection terminated',
+    'read ECONNRESET',
+    'ERR_HTTP2_PROTOCOL_ERROR',
+    'network connection was lost',
+  ])(
+    'recognizes %s as an unknown image submission outcome',
+    async (message) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new Error(message));
+
+      await expect(
+        sendTuzi({
+          path: '/images/generations',
+          method: 'POST',
+          requestId: 'expanded-network-error-task-id',
+          fetcher,
+        })
+      ).rejects.toMatchObject({
+        code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(['Failed to fetch', 'connection terminated'])(
+    'does not retry a non-image POST after %s without a Request ID',
+    async (message) => {
+      const networkError = new Error(message);
+      const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
+
+      await expect(
+        sendTuzi({
+          path: '/videos',
+          method: 'POST',
+          fetcher,
+        })
+      ).rejects.toBe(networkError);
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not recover an image submission when the prepared request omits Request ID', async () => {
+    const networkError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
+
+    await expect(
+      sendTuzi({
+        path: 'https://apius.tu-zi.com/v1/images/generations',
+        method: 'POST',
+        requestId: 'request-id-not-sent',
+        fetcher,
+      })
+    ).rejects.toBe(networkError);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      'X-Request-Id'
+    );
+  });
+
+  it('marks an interrupted successful image response body as an unknown outcome', async () => {
+    let emittedPartialBody = false;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!emittedPartialBody) {
+              emittedPartialBody = true;
+              controller.enqueue(new TextEncoder().encode('{"data":['));
+              return;
+            }
+            controller.error(new Error('response stream disconnected'));
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'body-stream-task-id',
+      fetcher,
+    });
+
+    await expect(readProviderResponseJson(response)).rejects.toMatchObject({
+      code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a large b64_json response split across many stream chunks', async () => {
+    const b64Json = 'A'.repeat(4 * 1024 * 1024);
+    const encodedPayload = new TextEncoder().encode(
+      JSON.stringify({ data: [{ b64_json: b64Json }] })
+    );
+    let offset = 0;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (offset >= encodedPayload.byteLength) {
+              controller.close();
+              return;
+            }
+
+            const nextOffset = Math.min(
+              offset + 1024,
+              encodedPayload.byteLength
+            );
+            controller.enqueue(encodedPayload.subarray(offset, nextOffset));
+            offset = nextOffset;
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'large-chunked-body-task-id',
+      fetcher,
+    });
+    const result = await readProviderResponseJson<{
+      data: Array<{ b64_json: string }>;
+    }>(response);
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.b64_json).toBe(b64Json);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an oversized successful response from Content-Length before reading it', async () => {
+    const oversizedResponse = new Response('{"data":[]}', {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(64 * 1024 * 1024 + 1),
+      },
+    });
+    const cancelBody = spyOnResponseBodyCancel(oversizedResponse);
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'oversized-content-length-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(oversizedResponse),
+    });
+
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toMatchObject({
+      name: 'ProviderResponseTooLargeError',
+      code: 'PROVIDER_RESPONSE_TOO_LARGE',
+    });
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an error response when streamed bytes exceed the smaller limit', async () => {
+    const chunk = new Uint8Array(600 * 1024);
+    const cancelBody = vi.fn();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(chunk);
+        },
+        cancel: cancelBody,
+      }),
+      { status: 500 }
+    );
+
+    const thrown = await readProviderResponseText(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toMatchObject({
+      name: 'ProviderResponseTooLargeError',
+      code: 'PROVIDER_RESPONSE_TOO_LARGE',
+    });
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves a response stream error when image recovery is explicitly disabled', async () => {
+    const streamError = new Error('response stream disconnected');
+    let emittedPartialBody = false;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!emittedPartialBody) {
+              emittedPartialBody = true;
+              controller.enqueue(new TextEncoder().encode('{"data":['));
+              return;
+            }
+            controller.error(streamError);
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'disabled-stream-recovery',
+      allowImageSubmissionOutcomeRecovery: false,
+      fetcher,
+    });
+
+    await expect(readProviderResponseJson(response)).rejects.toBe(streamError);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats normally closed incomplete JSON as a definite protocol error', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'truncated-body-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{"data":[', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ),
+    });
+
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(SyntaxError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('preserves bracket-prefixed plain text from a custom image response', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'plain-text-response-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('[plain text', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        })
+      ),
+    });
+
+    await expect(readProviderResponseText(response)).resolves.toBe(
+      '[plain text'
+    );
+  });
+
+  it('does not infer a stream interruption from normally closed JSON-like text', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'declared-json-response-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('[plain text', {
+          status: 200,
+          headers: { 'Content-Type': 'application/problem+json' },
+        })
+      ),
+    });
+
+    await expect(readProviderResponseText(response)).resolves.toBe(
+      '[plain text'
+    );
+  });
+
+  it('preserves a complete malformed JSON response as a protocol error', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'malformed-json-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('not-json', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ),
+    });
+
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(SyntaxError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('treats normally closed JSON with an unterminated string as a protocol error', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'unterminated-string-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{"data":"unterminated}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ),
+    });
+
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(SyntaxError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('does not classify an already consumed response body as an unknown outcome', async () => {
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'consumed-body-task-id',
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{"data":[]}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ),
+    });
+
+    await response.text();
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('preserves cancellation while reading an image response body', async () => {
+    const requestController = new AbortController();
+    const bodyError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const signal = init?.signal;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"data":['));
+            signal?.addEventListener(
+              'abort',
+              () => controller.error(bodyError),
+              { once: true }
+            );
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'cancelled-body-task-id',
+      signal: requestController.signal,
+      fetcher,
+    });
+
+    const readPromise = readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+    requestController.abort();
+    const thrown = await readPromise;
+
+    expect(thrown).toBe(bodyError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('preserves timeout semantics while reading an image response body', async () => {
+    const bodyError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const signal = init?.signal;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            signal?.addEventListener(
+              'abort',
+              () => controller.error(bodyError),
+              { once: true }
+            );
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'timed-out-body-task-id',
+      timeoutMs: 5,
+      fetcher,
+    });
+
+    const thrown = await readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+
+    expect(thrown).toMatchObject({ name: 'TimeoutError' });
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+  });
+
+  it('times out while reading a hanging image error response body', async () => {
+    const cancelBody = vi.fn();
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'hanging-error-body-task-id',
+      timeoutMs: 5,
+      controlledResponseBody: true,
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(new ReadableStream<Uint8Array>({ cancel: cancelBody }), {
+          status: 500,
+        })
+      ),
+    });
+
+    const readPromise = readProviderResponseText(response).catch(
+      (error: unknown) => error
+    );
+    const thrown = await settleWithin(readPromise);
+
+    expect(thrown).not.toBe(didNotSettle);
+    expect(thrown).toMatchObject({ name: 'TimeoutError' });
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('times out a hanging non-recoverable success body without image recovery', async () => {
+    const cancelBody = vi.fn();
+    const response = await sendTuzi({
+      path: '/chat/completions',
+      method: 'POST',
+      timeoutMs: 5,
+      controlledResponseBody: true,
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(new ReadableStream<Uint8Array>({ cancel: cancelBody }), {
+          status: 200,
+        })
+      ),
+    });
+
+    const readPromise = readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+    const thrown = await settleWithin(readPromise);
+
+    expect(thrown).not.toBe(didNotSettle);
+    expect(thrown).toMatchObject({ name: 'TimeoutError' });
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up response timeout state when the caller uses a native body reader', async () => {
+    let transportSignal: AbortSignal | undefined;
+    const response = await sendTuzi({
+      path: '/chat/completions',
+      method: 'POST',
+      timeoutMs: 5,
+      fetcher: vi.fn<typeof fetch>(async (_url, init) => {
+        transportSignal = init?.signal || undefined;
+        return Response.json({ choices: [] });
+      }),
+    });
+
+    await expect(response.json()).resolves.toEqual({ choices: [] });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(transportSignal?.aborted).toBe(false);
+  });
+
+  it('settles timeout when a response stream ignores abort and never closes', async () => {
+    let failBody: ((error: Error) => void) | undefined;
+    const cancelBody = vi.fn();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"data":['));
+            failBody = (error) => controller.error(error);
+          },
+          cancel: cancelBody,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'ignored-timeout-task-id',
+      timeoutMs: 5,
+      fetcher,
+    });
+
+    const readPromise = readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+    const thrown = await settleWithin(readPromise);
+    if (thrown === didNotSettle) {
+      failBody?.(new Error('test cleanup'));
+      await readPromise;
+    }
+
+    expect(thrown).not.toBe(didNotSettle);
+    expect(thrown).toMatchObject({ name: 'TimeoutError' });
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles cancellation when a response stream ignores abort and never closes', async () => {
+    const requestController = new AbortController();
+    const cancellation = new Error('cancelled by user');
+    let failBody: ((error: Error) => void) | undefined;
+    const cancelBody = vi.fn();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"data":['));
+            failBody = (error) => controller.error(error);
+          },
+          cancel: cancelBody,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'ignored-cancellation-task-id',
+      signal: requestController.signal,
+      fetcher,
+    });
+
+    const readPromise = readProviderResponseJson(response).catch(
+      (error: unknown) => error
+    );
+    requestController.abort(cancellation);
+    const thrown = await settleWithin(readPromise);
+    if (thrown === didNotSettle) {
+      failBody?.(new Error('test cleanup'));
+      await readPromise;
+    }
+
+    expect(thrown).not.toBe(didNotSettle);
+    expect(thrown).toBe(cancellation);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat an aborted Request-ID submission as an unknown outcome', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const networkError = new Error('Failed to fetch');
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
+
+    let thrown: unknown;
+    try {
+      await sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        requestId: 'cancelled-task-id',
+        signal: controller.signal,
+        fetcher,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(networkError);
+    expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['video submission', '/videos'],
+    [
+      'generateContent submission',
+      '/v1beta/models/gemini-3-pro-image-preview:generateContent',
+    ],
+  ])(
+    'does not mark a trusted Tuzi %s network error as an unknown image outcome',
+    async (_label, path) => {
+      const networkError = new Error('Failed to fetch');
+      const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
+
+      let thrown: unknown;
+      try {
+        await sendTuzi({
+          path,
+          method: 'POST',
+          requestId: 'non-image-submission-id',
+          fetcher,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(networkError);
+      expect(isImageSubmissionOutcomeUnknownError(thrown)).toBe(false);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(['GET', 'HEAD'])(
+    'removes Request ID headers from trusted Tuzi %s requests',
+    (method) => {
+      const prepared = providerTransport.prepareRequest(
         {
           profileId: 'provider-tuzi',
           profileName: 'Tuzi',
           providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
+          baseUrl: 'https://bus.tu-zi.com/v1',
           apiKey: 'secret',
           authType: 'bearer',
+          extraHeaders: { 'x-request-id': 'stale-profile-id' },
         },
         {
-          path: '/images/generations',
-          method: 'POST',
-          requestId: 'single-submit-task-id',
-          fetcher,
+          path: '/images/generations/result',
+          method,
+          headers: { 'X-REQUEST-ID': 'stale-request-id' },
         }
-      )
-    ).rejects.toThrow('Failed to fetch');
+      );
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-      'https://bus.tu-zi.com/v1/images/generations'
-    );
-  });
+      expect(
+        Object.keys(prepared.headers).some(
+          (name) => name.toLowerCase() === 'x-request-id'
+        )
+      ).toBe(false);
+    }
+  );
 
-  it('removes Request ID headers from trusted Tuzi GET requests', () => {
-    const prepared = providerTransport.prepareRequest(
-      {
-        profileId: 'provider-tuzi',
-        profileName: 'Tuzi',
-        providerType: 'openai-compatible',
-        baseUrl: 'https://bus.tu-zi.com/v1',
-        apiKey: 'secret',
-        authType: 'bearer',
-        extraHeaders: { 'x-request-id': 'stale-profile-id' },
-      },
-      {
+  it.each([
+    ['GET', 'Failed to fetch'],
+    ['GET', 'connection terminated'],
+    ['HEAD', 'connection terminated'],
+  ])(
+    'keeps normal node fallback for %s requests after %s',
+    async (method, message) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockRejectedValueOnce(new Error(message))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await sendTuzi({
         path: '/images/generations/result',
-        method: 'GET',
-        headers: { 'X-REQUEST-ID': 'stale-request-id' },
-        requestId: 'task-id-that-must-not-be-sent',
-      }
-    );
-
-    expect(
-      Object.keys(prepared.headers).some(
-        (name) => name.toLowerCase() === 'x-request-id'
-      )
-    ).toBe(false);
-  });
-
-  it('keeps normal node fallback for GET requests even if a Request ID was provided', async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockRejectedValueOnce(new Error('Failed to fetch'))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
-
-    await providerTransport.send(
-      {
-        profileId: 'provider-tuzi',
-        profileName: 'Tuzi',
-        providerType: 'openai-compatible',
-        baseUrl: 'https://api.tu-zi.com/v1',
-        apiKey: 'secret',
-        authType: 'bearer',
-      },
-      {
-        path: '/images/generations/result',
-        method: 'GET',
+        method,
         requestId: 'get-request-id-that-must-not-change-routing',
         fetcher,
-      }
-    );
+      });
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-      'https://apius.tu-zi.com/v1/images/generations/result'
-    );
-  });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
+        'https://apius.tu-zi.com/v1/images/generations/result'
+      );
+      expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+        'X-Request-Id'
+      );
+    }
+  );
 
   it('does not leak Request ID to an absolute third-party path', () => {
     const prepared = providerTransport.prepareRequest(
@@ -716,7 +1400,10 @@ describe('provider routing', () => {
         baseUrl: 'https://api.tu-zi.com/v1',
         apiKey: 'secret',
         authType: 'bearer',
-        extraHeaders: { 'x-request-id': 'stale-profile-request-id' },
+        extraHeaders: {
+          'x-request-id': 'stale-profile-request-id',
+          'X-Tuzi-Profile': 'must-not-leak',
+        },
       },
       {
         path: 'https://images.example.com/v1/images/generations',
@@ -733,6 +1420,128 @@ describe('provider routing', () => {
         (name) => name.toLowerCase() === 'x-request-id'
       )
     ).toBe(false);
+    expect(prepared.headers.Authorization).toBeUndefined();
+    expect(prepared.headers['X-Tuzi-Profile']).toBeUndefined();
+  });
+
+  it('does not leak Tuzi query credentials to an absolute third-party path', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-tuzi-query',
+        profileName: 'Tuzi Query',
+        providerType: 'custom',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'secret-query-key',
+        authType: 'query',
+      },
+      {
+        path: 'https://images.example.com/v1/images/generations',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe(
+      'https://images.example.com/v1/images/generations'
+    );
+    expect(prepared.url).not.toContain('secret-query-key');
+  });
+
+  it.each([
+    ['bearer', 'Authorization'],
+    ['header', 'X-API-Key'],
+  ] as const)(
+    'does not leak generic provider %s credentials or profile headers across origins',
+    (authType, credentialHeader) => {
+      const body = JSON.stringify({ prompt: 'keep explicit body' });
+      const prepared = providerTransport.prepareRequest(
+        {
+          profileId: `provider-generic-${authType}`,
+          profileName: 'Generic Provider',
+          providerType: 'custom',
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'secret-profile-key',
+          authType,
+          extraHeaders: {
+            'X-Profile-Secret': 'must-not-leak',
+          },
+        },
+        {
+          path: 'https://uploads.example.net/v1/images/generations',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Explicit-Request': 'keep-me',
+          },
+          body,
+        }
+      );
+
+      expect(prepared.url).toBe(
+        'https://uploads.example.net/v1/images/generations'
+      );
+      expect(prepared.headers[credentialHeader]).toBeUndefined();
+      expect(prepared.headers['X-Profile-Secret']).toBeUndefined();
+      expect(prepared.headers['X-Explicit-Request']).toBe('keep-me');
+      expect(prepared.init.body).toBe(body);
+    }
+  );
+
+  it('does not leak generic provider query credentials across origins', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-generic-query',
+        profileName: 'Generic Query Provider',
+        providerType: 'gemini-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret-query-key',
+        authType: 'query',
+        extraHeaders: {
+          'X-Profile-Secret': 'must-not-leak',
+        },
+      },
+      {
+        path: 'https://uploads.example.net/v1/images/generations',
+        method: 'POST',
+        query: {
+          trace: 'keep-explicit-query',
+          api_key: 'explicit-request-key',
+        },
+      }
+    );
+
+    const preparedUrl = new URL(prepared.url);
+    expect(`${preparedUrl.origin}${preparedUrl.pathname}`).toBe(
+      'https://uploads.example.net/v1/images/generations'
+    );
+    expect(preparedUrl.searchParams.get('trace')).toBe('keep-explicit-query');
+    expect(preparedUrl.searchParams.get('api_key')).toBe(
+      'explicit-request-key'
+    );
+    expect(prepared.url).not.toContain('secret-query-key');
+    expect(prepared.headers['X-Profile-Secret']).toBeUndefined();
+  });
+
+  it('keeps generic provider credentials for an absolute same-origin path', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-generic-same-origin',
+        profileName: 'Generic Same-Origin Provider',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'same-origin-secret',
+        authType: 'bearer',
+        extraHeaders: {
+          'X-Provider-Scope': 'keep-me',
+        },
+      },
+      {
+        path: 'https://api.example.com/v2/images/generations',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.headers.Authorization).toBe('Bearer same-origin-secret');
+    expect(prepared.headers['X-Provider-Scope']).toBe('keep-me');
   });
 
   it('prepares query-auth transport requests', () => {
@@ -776,56 +1585,22 @@ describe('provider routing', () => {
     );
   });
 
-  it('falls back to another tuzi endpoint on transient gateway responses', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          data: {
-            api_address_list: [
-              { url: 'https://api.tu-zi.com' },
-              { url: 'https://apius.tu-zi.com' },
-            ],
-          },
-        })
-      )
+  it('does not replay an image POST after a gateway response', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response('status_code=504, bad response status code 504', {
+        status: 504,
+      })
     );
 
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response('status_code=504, bad response status code 504', {
-          status: 504,
-        })
-      )
-      .mockResolvedValueOnce(Response.json({ ok: true }));
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      body: '{}',
+      fetcher,
+    });
 
-    try {
-      const response = await providerTransport.send(
-        {
-          profileId: 'provider-tuzi',
-          profileName: 'Tuzi',
-          providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
-          apiKey: 'secret',
-          authType: 'bearer',
-        },
-        {
-          path: '/images/generations',
-          method: 'POST',
-          body: '{}',
-          fetcher,
-        }
-      );
-
-      expect(response.ok).toBe(true);
-      expect(fetcher).toHaveBeenCalledTimes(2);
-      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-        'https://apius.tu-zi.com/v1/images/generations'
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    expect(response.status).toBe(504);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('returns deterministic model_not_found responses without switching Tuzi endpoints', async () => {
@@ -856,22 +1631,12 @@ describe('provider routing', () => {
     );
 
     try {
-      const response = await providerTransport.send(
-        {
-          profileId: 'provider-tuzi',
-          profileName: 'Tuzi',
-          providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
-          apiKey: 'secret',
-          authType: 'bearer',
-        },
-        {
-          path: '/images/generations',
-          method: 'POST',
-          body: '{}',
-          fetcher,
-        }
-      );
+      const response = await sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        body: '{}',
+        fetcher,
+      });
 
       expect(response.status).toBe(503);
       expect(fetcher).toHaveBeenCalledTimes(1);
@@ -880,83 +1645,34 @@ describe('provider routing', () => {
     }
   });
 
-  it('falls back to another tuzi endpoint on remote protocol termination', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          data: {
-            api_address_list: [
-              { url: 'https://api.tu-zi.com' },
-              { url: 'https://apius.tu-zi.com' },
-            ],
-          },
-        })
-      )
+  it('does not replay an image POST after remote protocol termination', async () => {
+    const networkError = new Error(
+      'UpstreamRemoteProtocolError: <ConnectionTerminated error_code:ErrorCodes.NO_ERROR, last_stream_id:1, additional_data:None> | cause=RemoteProtocolError: <ConnectionTerminated error_code:ErrorCodes.NO_ERROR, last_stream_id:1, additional_data:None> | channel=CH#18 兔子 | url=https://api.tu-zi.com | body=2198889bytes | send_took=59866ms | active_upstream=2 | elapsed=61101ms'
     );
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(networkError);
 
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockRejectedValueOnce(
-        new Error(
-          'UpstreamRemoteProtocolError: <ConnectionTerminated error_code:ErrorCodes.NO_ERROR, last_stream_id:1, additional_data:None> | cause=RemoteProtocolError: <ConnectionTerminated error_code:ErrorCodes.NO_ERROR, last_stream_id:1, additional_data:None> | channel=CH#18 兔子 | url=https://api.tu-zi.com | body=2198889bytes | send_took=59866ms | active_upstream=2 | elapsed=61101ms'
-        )
-      )
-      .mockResolvedValueOnce(Response.json({ ok: true }));
+    await expect(
+      sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        body: '{}',
+        fetcher,
+      })
+    ).rejects.toBe(networkError);
 
-    try {
-      const response = await providerTransport.send(
-        {
-          profileId: 'provider-tuzi',
-          profileName: 'Tuzi',
-          providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
-          apiKey: 'secret',
-          authType: 'bearer',
-        },
-        {
-          path: '/images/generations',
-          method: 'POST',
-          body: '{}',
-          fetcher,
-        }
-      );
-
-      expect(response.ok).toBe(true);
-      expect(fetcher).toHaveBeenCalledTimes(2);
-      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-        'https://apius.tu-zi.com/v1/images/generations'
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('retries Tuzi image 404 responses on a trusted fallback endpoint', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: {
-                api_address_list: [
-                  { url: 'https://api.tu-zi.com' },
-                  { url: 'https://apius.tu-zi.com' },
-                ],
-              },
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } }
-          )
-      )
+    stubTuziEndpoints();
+    const initialResponse = new Response(
+      '<!doctype html><title>Not Found</title>',
+      { status: 404 }
     );
+    const cancelInitialBody = spyOnResponseBodyCancel(initialResponse);
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(
-        new Response('<!doctype html><title>Not Found</title>', {
-          status: 404,
-        })
-      )
+      .mockResolvedValueOnce(initialResponse)
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ data: [{ url: 'fallback.png' }] }), {
           status: 200,
@@ -965,24 +1681,14 @@ describe('provider routing', () => {
       );
 
     try {
-      const response = await providerTransport.send(
-        {
-          profileId: 'provider-tuzi',
-          profileName: 'Tuzi',
-          providerType: 'openai-compatible',
-          baseUrl: 'https://api.tu-zi.com/v1',
-          apiKey: 'secret',
-          authType: 'bearer',
-        },
-        {
-          path: '/images/generations',
-          baseUrlStrategy: 'ensure-v1',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'gpt-image-2', prompt: 'test' }),
-          fetcher,
-        }
-      );
+      const response = await sendTuzi({
+        path: '/images/generations',
+        baseUrlStrategy: 'ensure-v1',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-image-2', prompt: 'test' }),
+        fetcher,
+      });
 
       expect(response.status).toBe(200);
       expect(fetcher).toHaveBeenNthCalledWith(
@@ -994,6 +1700,123 @@ describe('provider routing', () => {
         2,
         'https://apius.tu-zi.com/v1/images/generations',
         expect.any(Object)
+      );
+      expect(fetcher.mock.calls[1]?.[1]?.headers).toMatchObject({
+        Authorization: 'Bearer secret',
+      });
+      expect(cancelInitialBody).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('releases each replaced 404 body before returning a later fallback', async () => {
+    stubTuziEndpoints();
+    const initialResponse = new Response('initial 404', { status: 404 });
+    const firstFallbackResponse = new Response('fallback 404', {
+      status: 404,
+    });
+    const cancelInitialBody = spyOnResponseBodyCancel(initialResponse);
+    const cancelFirstFallbackBody = spyOnResponseBodyCancel(
+      firstFallbackResponse
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(initialResponse)
+      .mockResolvedValueOnce(firstFallbackResponse)
+      .mockResolvedValueOnce(new Response('{"data":[]}', { status: 200 }));
+
+    try {
+      const response = await sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        body: '{}',
+        fetcher,
+      });
+
+      expect(response.status).toBe(200);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(cancelInitialBody).toHaveBeenCalledTimes(1);
+      expect(cancelFirstFallbackBody).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('returns the final 404 body when every Tuzi fallback is exhausted', async () => {
+    stubTuziEndpoints();
+    const responses: Response[] = [];
+    const getCancelCallCounts: Array<() => number> = [];
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      const response = new Response(`404 response ${responses.length + 1}`, {
+        status: 404,
+      });
+      responses.push(response);
+      const cancelBody = spyOnResponseBodyCancel(response);
+      getCancelCallCounts.push(() => cancelBody.mock.calls.length);
+      return response;
+    });
+
+    try {
+      const response = await sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        body: '{}',
+        fetcher,
+      });
+
+      expect(fetcher.mock.calls.length).toBeGreaterThan(1);
+      expect(response).toBe(responses.at(-1));
+      expect(await response.text()).toBe(
+        `404 response ${fetcher.mock.calls.length}`
+      );
+      getCancelCallCounts.slice(0, -1).forEach((getCancelCallCount) => {
+        expect(getCancelCallCount()).toBe(1);
+      });
+      expect(getCancelCallCounts.at(-1)?.()).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('stops after a fallback image POST loses its connection', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                api_address_list: [
+                  { url: 'https://api.tu-zi.com' },
+                  { url: 'https://apius.tu-zi.com' },
+                  { url: 'https://apicdn.tu-zi.com' },
+                ],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+      )
+    );
+    const fallbackNetworkError = new Error('Failed to fetch');
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+      .mockRejectedValueOnce(fallbackNetworkError);
+
+    try {
+      await expect(
+        sendTuzi({
+          path: '/images/generations',
+          method: 'POST',
+          body: '{}',
+          fetcher,
+        })
+      ).rejects.toBe(fallbackNetworkError);
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
+        'https://apius.tu-zi.com/v1/images/generations'
       );
     } finally {
       vi.unstubAllGlobals();
@@ -1136,8 +1959,8 @@ describe('provider routing', () => {
       'tuzi.image.gpt-generation-json',
       'tuzi.image.gpt-edit-json',
     ]);
-    expect(tuziBindings[1]?.protocol).toBe('openai.images.edits');
-    expect(tuziBindings[1]?.submitPath).toBe('/images/edits');
+    expect(tuziBindings[1]?.protocol).toBe('openai.images.generations');
+    expect(tuziBindings[1]?.submitPath).toBe('/images/generations');
     expect(tuziBindings[0]?.metadata?.image).toMatchObject({
       action: 'generation',
       imageApiCompatibility: 'auto',
@@ -1260,7 +2083,7 @@ describe('provider routing', () => {
       'tuzi.image.gpt-generation-json',
       'tuzi.image.gpt-edit-json',
     ]);
-    expect(bindings[1]?.submitPath).toBe('/images/edits');
+    expect(bindings[1]?.submitPath).toBe('/images/generations');
     expect(bindings[0]?.metadata?.image).toMatchObject({
       imageApiCompatibility: 'auto',
       resolvedImageApiCompatibility: 'tuzi-gpt-image',
@@ -1336,7 +2159,7 @@ describe('provider routing', () => {
       'tuzi.image.gpt-generation-json',
       'tuzi.image.gpt-edit-json',
     ]);
-    expect(bindings[1]?.submitPath).toBe('/images/edits');
+    expect(bindings[1]?.submitPath).toBe('/images/generations');
   });
 
   it('prefers pricing async-image /v1/videos binding for image models', () => {

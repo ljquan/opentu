@@ -1,3 +1,42 @@
+## 1.0.16 (2026-08-10)
+
+### 🚀 Features
+
+- 图片预览显示实际尺寸 (#225) ([3116e324](https://github.com/ljquan/opentu/commit/3116e324))
+
+### 🩹 Fixes
+
+- 修复 Gemini 3.1 图片渲染失败 (#224) ([0b448b32](https://github.com/ljquan/opentu/commit/0b448b32))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+- 李泓震 <3029956183@qq.com>
+
+## 1.0.13 (2026-08-10)
+
+### 🚀 Features
+
+- 支持在 AI 生图描述框粘贴参考图 ([b8b8d41a](https://github.com/ljquan/opentu/commit/b8b8d41a))
+
+### 🔧 Chores
+
+- 修复图片请求中断恢复与任务执行生命周期竞态 ([84b57328](https://github.com/ljquan/opentu/commit/84b57328))
+- 修复：恢复任务栏历史提示词虚化复用 (#222) ([5f5c8b94](https://github.com/ljquan/opentu/commit/5f5c8b94))
+- 修复选中图片 Delete/Backspace 删除能力 (#218) ([6b3ddd65](https://github.com/ljquan/opentu/commit/6b3ddd65))
+- 修复：支持 AI 生成素材导入参考图 ([c21fed4a](https://github.com/ljquan/opentu/commit/c21fed4a))
+- 文档：记录 PR 基线检查结果 ([d702a8f5](https://github.com/ljquan/opentu/commit/d702a8f5))
+- 功能：增加 AI 任务栏跟随永久开关 ([8c6ba863](https://github.com/ljquan/opentu/commit/8c6ba863))
+- 修复 AI 任务栏未发送草稿误触丢失 (#214) ([ad4d0851](https://github.com/ljquan/opentu/commit/ad4d0851))
+- 功能：支持 AI 任务栏单图永久仅作参考 (#217) ([addaa9e6](https://github.com/ljquan/opentu/commit/addaa9e6))
+- 功能：刷新默认模型并对齐 Seedance 2.0 官方接口 (#216) ([fe84d59c](https://github.com/ljquan/opentu/commit/fe84d59c))
+- 修复：按图片保留任务栏草稿并增强图片插入可靠性 (#215) ([26dd1d22](https://github.com/ljquan/opentu/commit/26dd1d22))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+
 ## 1.0.12 (2026-08-04)
 
 ### 🚀 Features
