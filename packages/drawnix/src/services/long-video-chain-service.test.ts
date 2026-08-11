@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getCanvasBoard: vi.fn(),
   mergeVideos: vi.fn(),
   quickInsert: vi.fn(),
+  retargetCanvasAssociationLines: vi.fn(),
   subscribers: [] as Array<(event: { type: string; task: Task }) => void>,
   workspaceSubscribers: [] as Array<(event: { type: string }) => void>,
 }));
@@ -59,6 +60,7 @@ vi.mock('../plugins/canvas-association', () => ({
     return boardIds.size === 1 && boardIds.has(currentBoardId || '');
   },
   createCanvasAssociationLines: mocks.createCanvasAssociationLines,
+  retargetCanvasAssociationLines: mocks.retargetCanvasAssociationLines,
 }));
 
 vi.mock('./workspace-service', () => ({
@@ -75,8 +77,13 @@ vi.mock('./workspace-service', () => ({
 
 function createCompletedLongVideoTask(
   batchId: string,
-  sourceBoardId: string
+  sourceBoardId: string,
+  options: {
+    sourceElementIds?: string[];
+    workflowId?: string;
+  } = {}
 ): Task {
+  const sourceElementIds = options.sourceElementIds || [`source-${batchId}`];
   return {
     id: `task-${batchId}`,
     type: TaskType.VIDEO,
@@ -85,15 +92,13 @@ function createCompletedLongVideoTask(
     params: {
       longVideoMeta: {
         batchId,
-        canvasAssociations: [
-          {
-            referenceId: `ref-${batchId}`,
-            boardId: sourceBoardId,
-            elementId: `source-${batchId}`,
-            kind: 'image',
-            label: '来源图片',
-          },
-        ],
+        canvasAssociations: sourceElementIds.map((elementId, index) => ({
+          referenceId: `ref-${batchId}-${index + 1}`,
+          boardId: sourceBoardId,
+          elementId,
+          kind: 'image',
+          label: `来源图片${index + 1}`,
+        })),
         model: 'veo3.1',
         needsLastFrame: false,
         scripts: [
@@ -106,6 +111,7 @@ function createCompletedLongVideoTask(
         segmentIndex: 1,
         size: '16x9',
         totalSegments: 1,
+        workflowId: options.workflowId,
       },
     },
     result: { url: `segment-${batchId}.mp4` },
@@ -123,6 +129,7 @@ describe('long video canvas associations', () => {
     mocks.getCanvasBoard.mockReset();
     mocks.mergeVideos.mockReset();
     mocks.quickInsert.mockReset();
+    mocks.retargetCanvasAssociationLines.mockReset();
     mocks.subscribers.length = 0;
     mocks.workspaceSubscribers.length = 0;
 
@@ -141,7 +148,7 @@ describe('long video canvas associations', () => {
     });
   });
 
-  it('defers insertion until the source board is active and then links', async () => {
+  it('defers insertion until the source board is active and then retargets the task link', async () => {
     const consoleWarn = vi
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
@@ -150,29 +157,36 @@ describe('long video canvas associations', () => {
     );
     initializeLongVideoChainService();
     const subscriber = mocks.subscribers[0];
-    const matchingTask = createCompletedLongVideoTask('matching', 'board-1');
+    const matchingTask = createCompletedLongVideoTask('matching', 'board-1', {
+      sourceElementIds: ['source-first-frame', 'source-last-frame'],
+      workflowId: 'workflow-matching',
+    });
     const sourceBoard = mocks.activeBoard;
 
     subscriber({ type: 'taskUpdated', task: matchingTask });
     subscriber({ type: 'taskUpdated', task: matchingTask });
 
     await vi.waitFor(() => {
-      expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(1);
+      expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1);
     });
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
-    expect(mocks.createCanvasAssociationLines).toHaveBeenCalledWith(
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledWith(
       sourceBoard,
       {
         boardId: 'board-1',
         resultElementId: 'merged-result-1',
-        sourceElementIds: ['source-matching'],
+        sourceElementIds: ['source-first-frame', 'source-last-frame'],
+        workflowId: 'workflow-matching',
       }
     );
+    expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
 
     mocks.currentBoardId = 'board-2';
     mocks.boundBoardId = 'board-2';
     mocks.activeBoard = { children: [] };
-    const switchedTask = createCompletedLongVideoTask('switched', 'board-1');
+    const switchedTask = createCompletedLongVideoTask('switched', 'board-1', {
+      workflowId: 'workflow-switched',
+    });
     subscriber({
       type: 'taskUpdated',
       task: switchedTask,
@@ -185,7 +199,7 @@ describe('long video canvas associations', () => {
     );
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
-    expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(1);
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1);
 
     const reloadedSourceBoard = { children: [] };
     mocks.currentBoardId = 'board-1';
@@ -197,12 +211,13 @@ describe('long video canvas associations', () => {
 
     await vi.waitFor(() => expect(mocks.quickInsert).toHaveBeenCalledTimes(2));
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(2);
-    expect(mocks.createCanvasAssociationLines).toHaveBeenLastCalledWith(
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenLastCalledWith(
       reloadedSourceBoard,
       {
         boardId: 'board-1',
         resultElementId: 'merged-result-1',
         sourceElementIds: ['source-switched'],
+        workflowId: 'workflow-switched',
       }
     );
 
@@ -210,7 +225,108 @@ describe('long video canvas associations', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(2);
     expect(mocks.quickInsert).toHaveBeenCalledTimes(2);
-    expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(2);
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(2);
+    expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
+
+    consoleWarn.mockRestore();
+  });
+
+  it('keeps concurrent batches for one source isolated by workflow ID', async () => {
+    let insertionIndex = 0;
+    mocks.quickInsert.mockImplementation(async () => {
+      insertionIndex += 1;
+      const firstElementId = `merged-result-${insertionIndex}`;
+      mocks.activeBoard?.children.push({ id: firstElementId });
+      return {
+        success: true,
+        data: { firstElementId },
+        type: 'video',
+      };
+    });
+    const { initializeLongVideoChainService } = await import(
+      './long-video-chain-service'
+    );
+    initializeLongVideoChainService();
+    const subscriber = mocks.subscribers[0];
+
+    subscriber({
+      type: 'taskUpdated',
+      task: createCompletedLongVideoTask('concurrent-a', 'board-1', {
+        sourceElementIds: ['shared-source'],
+        workflowId: 'workflow-a',
+      }),
+    });
+    subscriber({
+      type: 'taskUpdated',
+      task: createCompletedLongVideoTask('concurrent-b', 'board-1', {
+        sourceElementIds: ['shared-source'],
+        workflowId: 'workflow-b',
+      }),
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledWith(
+      mocks.activeBoard,
+      {
+        boardId: 'board-1',
+        resultElementId: 'merged-result-1',
+        sourceElementIds: ['shared-source'],
+        workflowId: 'workflow-a',
+      }
+    );
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledWith(
+      mocks.activeBoard,
+      {
+        boardId: 'board-1',
+        resultElementId: 'merged-result-2',
+        sourceElementIds: ['shared-source'],
+        workflowId: 'workflow-b',
+      }
+    );
+    expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
+  });
+
+  it('retries a cached result after a transient association retarget failure', async () => {
+    mocks.retargetCanvasAssociationLines.mockImplementationOnce(() => {
+      throw new Error('temporary transform failure');
+    });
+    const consoleWarn = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const { initializeLongVideoChainService } = await import(
+      './long-video-chain-service'
+    );
+    initializeLongVideoChainService();
+    const subscriber = mocks.subscribers[0];
+    const task = createCompletedLongVideoTask('retry-retarget', 'board-1', {
+      workflowId: 'workflow-retry',
+    });
+
+    subscriber({ type: 'taskUpdated', task });
+    await vi.waitFor(() =>
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[LongVideoChain] Failed to retarget canvas association lines:',
+        expect.any(Error)
+      )
+    );
+    expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1);
+
+    mocks.workspaceSubscribers.forEach((workspaceSubscriber) =>
+      workspaceSubscriber({ type: 'boardSwitched' })
+    );
+    await vi.waitFor(() =>
+      expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(2)
+    );
+    expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+
+    subscriber({ type: 'taskUpdated', task });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(2);
 
     consoleWarn.mockRestore();
   });
@@ -259,6 +375,7 @@ describe('long video canvas associations', () => {
         '[LongVideoChain] Active board changed while inserting; merged result insertion deferred'
       )
     );
+    expect(mocks.retargetCanvasAssociationLines).not.toHaveBeenCalled();
     expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
 
@@ -269,7 +386,7 @@ describe('long video canvas associations', () => {
       workspaceSubscriber({ type: 'boardSwitched' })
     );
     await vi.waitFor(() =>
-      expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(1)
+      expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1)
     );
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
@@ -317,6 +434,7 @@ describe('long video canvas associations', () => {
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
     expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
+    expect(mocks.retargetCanvasAssociationLines).not.toHaveBeenCalled();
 
     consoleWarn.mockRestore();
   });
@@ -331,7 +449,7 @@ describe('long video canvas associations', () => {
 
     subscriber({ type: 'taskUpdated', task });
     await vi.waitFor(() => {
-      expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(1);
+      expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1);
     });
 
     subscriber({ type: 'taskUpdated', task });
@@ -339,6 +457,7 @@ describe('long video canvas associations', () => {
 
     expect(mocks.mergeVideos).toHaveBeenCalledTimes(1);
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
-    expect(mocks.createCanvasAssociationLines).toHaveBeenCalledTimes(1);
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledTimes(1);
+    expect(mocks.createCanvasAssociationLines).not.toHaveBeenCalled();
   });
 });

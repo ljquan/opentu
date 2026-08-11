@@ -42,6 +42,8 @@ export interface LongVideoGenerationParams {
   firstFrameImage?: string;
   /** 任务提交时选中的画布联想来源 */
   canvasAssociations?: CanvasAssociationRef[];
+  /** 画布关系线所属的工作流 ID（内部注入） */
+  workflowId?: string;
 }
 
 /**
@@ -84,6 +86,8 @@ export interface LongVideoMeta {
   characterDescription?: string;
   /** 最终合并结果需要连接的画布来源快照 */
   canvasAssociations?: CanvasAssociationRef[];
+  /** 画布关系线所属的工作流 ID */
+  workflowId?: string;
 }
 
 /**
@@ -268,6 +272,7 @@ export async function createLongVideoTask(
     size = '16x9',
     firstFrameImage,
     canvasAssociations,
+    workflowId,
   } = params;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -328,6 +333,7 @@ export async function createLongVideoTask(
       canvasAssociations: canvasAssociations
         ?.slice(0, 20)
         .map((association) => ({ ...association })),
+      workflowId: workflowId?.trim() || undefined,
     };
 
     const firstTask = createLongVideoSegmentTask(

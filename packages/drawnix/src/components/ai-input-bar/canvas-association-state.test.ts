@@ -8,6 +8,7 @@ import {
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
   getCanvasAssociationMentionText,
+  getNextCanvasAssociationLabel,
   hasCanvasAssociationOverwriteContent,
   hasCanvasAssociationUntrustedInputType,
   hasInsertedCanvasAssociationAtSign,
@@ -28,6 +29,7 @@ import {
   snapshotCanvasAssociationRefs,
   shouldAllowCanvasAssociationCompositionTrigger,
   shouldClearSubmittedCanvasAssociations,
+  shouldRecoverCanvasAssociationMentions,
   shouldRestoreCanvasAssociationPointer,
   shouldStartCanvasAssociationPicking,
   type CanvasAssociationRef,
@@ -125,6 +127,7 @@ describe('canvas-association-state', () => {
   it.each([
     ['beforeinput 文本输入', 'insertText', undefined, true],
     ['beforeinput 组合输入', 'insertCompositionText', undefined, true],
+    ['beforeinput 组合提交', 'insertFromComposition', undefined, true],
     ['两端可信输入', 'insertCompositionText', 'insertText', true],
     ['onChange 文本输入回退', '', 'insertText', true],
     ['onChange 组合输入回退', undefined, 'insertCompositionText', true],
@@ -147,6 +150,23 @@ describe('canvas-association-state', () => {
     }
   );
 
+  it('仅对直接键入开放唯一 token 恢复，拒绝粘贴、历史和程序化输入', () => {
+    expect(
+      shouldRecoverCanvasAssociationMentions('insertCompositionText', '', null)
+    ).toBe(true);
+    expect(
+      shouldRecoverCanvasAssociationMentions('insertFromComposition', '', null)
+    ).toBe(true);
+    expect(shouldRecoverCanvasAssociationMentions('', '', '中')).toBe(true);
+    expect(shouldRecoverCanvasAssociationMentions('', '', null)).toBe(false);
+    expect(
+      shouldRecoverCanvasAssociationMentions('insertFromPaste', '', '中')
+    ).toBe(false);
+    expect(shouldRecoverCanvasAssociationMentions('', '', '中', true)).toBe(
+      false
+    );
+  });
+
   it('inputType 缺失时仅接受真实 beforeinput 的 @ 数据', () => {
     expect(shouldStartCanvasAssociationPicking(undefined, undefined, '@')).toBe(
       true
@@ -168,6 +188,7 @@ describe('canvas-association-state', () => {
   it.each([
     ['insertText', true],
     ['insertCompositionText', true],
+    ['insertFromComposition', true],
     ['insertFromPaste', false],
     ['insertFromDrop', false],
     ['historyUndo', false],
@@ -565,6 +586,15 @@ describe('canvas-association-state', () => {
     );
     expect(edit).toEqual({ start: 4, end: 4 });
     expect(references).toEqual([reference]);
+
+    expect(
+      resolveCanvasAssociationPromptEditFromInputEvent('@图片1', '@图片1，', {
+        selectionStart: 5,
+        selectionEnd: 5,
+        inputType: 'insertFromComposition',
+        data: '，',
+      })
+    ).toEqual({ start: 4, end: 4 });
   });
 
   it('InputEvent 回退能区分重复同名 mention 的对象身份', () => {
@@ -657,6 +687,324 @@ describe('canvas-association-state', () => {
     expect(normalizeCanvasAssociationLabel('x'.repeat(100))).toHaveLength(
       CANVAS_ASSOCIATION_LABEL_LIMIT
     );
+  });
+
+  it('按类型稳定分配可区分的引用编号，删除后不重排现有标签', () => {
+    const image1 = createReference('image-a', { label: '图片1' });
+    const image2 = createReference('image-b', { label: '图片2' });
+    const video1 = createReference('video-a', {
+      kind: 'video',
+      label: '视频1',
+    });
+
+    expect(getNextCanvasAssociationLabel('image', [])).toBe('图片1');
+    expect(getNextCanvasAssociationLabel('video', [image1])).toBe('视频1');
+    expect(getNextCanvasAssociationLabel('text', [image1, video1])).toBe(
+      '文本1'
+    );
+    expect(getNextCanvasAssociationLabel('image', [image1, video1])).toBe(
+      '图片2'
+    );
+    expect(getNextCanvasAssociationLabel('image', [image2])).toBe('图片3');
+    expect(
+      getNextCanvasAssociationLabel('image', [
+        createReference('legacy', { label: '兔子' }),
+        createReference('image-d', { label: '图片4' }),
+      ])
+    ).toBe('图片5');
+  });
+
+  it('浏览器遗漏编辑范围时保留唯一编号 token，并完成两图引用序列', () => {
+    let prompt = '首帧用这个照片@';
+    let references: CanvasAssociationRef[] = [];
+    const firstRaw = createReference('image-a', {
+      label: getNextCanvasAssociationLabel('image', references),
+    });
+    const firstInsertion = replaceCanvasAssociationTriggerWithMention(
+      prompt,
+      { start: prompt.length - 1, end: prompt.length },
+      firstRaw
+    );
+    prompt = firstInsertion.prompt;
+    references = appendCanvasAssociationRef(
+      references,
+      firstInsertion.reference
+    ).references;
+
+    for (const character of '，尾帧用这个照片@') {
+      const nextPrompt = `${prompt}${character}`;
+      const edit = resolveCanvasAssociationPromptEditFromInputEvent(
+        prompt,
+        nextPrompt,
+        {
+          selectionStart: nextPrompt.length,
+          selectionEnd: nextPrompt.length,
+          inputType: '',
+          data: null,
+        }
+      );
+      references = reconcileCanvasAssociationRefsForPromptEdit(
+        prompt,
+        nextPrompt,
+        references,
+        edit
+      );
+      prompt = nextPrompt;
+    }
+    const secondRaw = createReference('image-b', {
+      label: getNextCanvasAssociationLabel('image', references),
+    });
+    const secondInsertion = replaceCanvasAssociationTriggerWithMention(
+      prompt,
+      { start: prompt.length - 1, end: prompt.length },
+      secondRaw
+    );
+    references = reconcileCanvasAssociationRefsForPromptEdit(
+      prompt,
+      secondInsertion.prompt,
+      references,
+      { start: prompt.length - 1, end: prompt.length }
+    );
+    references = appendCanvasAssociationRef(
+      references,
+      secondInsertion.reference
+    ).references;
+    prompt = secondInsertion.prompt;
+
+    for (const character of '，生成一个有很多兔子的视频') {
+      const nextPrompt = `${prompt}${character}`;
+      const edit = resolveCanvasAssociationPromptEditFromInputEvent(
+        prompt,
+        nextPrompt,
+        {
+          selectionStart: nextPrompt.length,
+          selectionEnd: nextPrompt.length,
+          inputType: '',
+          data: null,
+        }
+      );
+      references = reconcileCanvasAssociationRefsForPromptEdit(
+        prompt,
+        nextPrompt,
+        references,
+        edit
+      );
+      prompt = nextPrompt;
+    }
+    const finalPrompt = prompt;
+
+    expect(finalPrompt).toBe(
+      '首帧用这个照片@图片1，尾帧用这个照片@图片2，生成一个有很多兔子的视频'
+    );
+    expect(
+      references.map(({ elementId, label }) => ({ elementId, label }))
+    ).toEqual([
+      { elementId: 'image-a', label: '图片1' },
+      { elementId: 'image-b', label: '图片2' },
+    ]);
+    expect(
+      references.map((reference) =>
+        finalPrompt.slice(reference.mentionStart, reference.mentionEnd)
+      )
+    ).toEqual(['@图片1', '@图片2']);
+  });
+
+  it('恢复编号 token 时不把图片1误认成图片10的前缀', () => {
+    const previousPrompt = '@图片1 @图片10';
+    const nextPrompt = `续写 ${previousPrompt}`;
+    const references = [
+      createReference('image-a', {
+        label: '图片1',
+        mentionStart: 0,
+        mentionEnd: 4,
+      }),
+      createReference('image-j', {
+        label: '图片10',
+        mentionStart: 5,
+        mentionEnd: 10,
+      }),
+    ];
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        previousPrompt,
+        nextPrompt,
+        references,
+        null,
+        { allowUniqueMentionRecovery: true }
+      ).map(({ elementId, mentionStart, mentionEnd }) => ({
+        elementId,
+        mentionStart,
+        mentionEnd,
+      }))
+    ).toEqual([
+      { elementId: 'image-a', mentionStart: 3, mentionEnd: 7 },
+      { elementId: 'image-j', mentionStart: 8, mentionEnd: 13 },
+    ]);
+  });
+
+  it('粘贴或历史等未知编辑默认不移动现有对象身份', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1 原文',
+        '新位置 @图片1',
+        [reference]
+      )
+    ).toEqual([]);
+  });
+
+  it('可信事件元数据全缺失时仅推导尾部追加编辑', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+    const edit = resolveCanvasAssociationPromptEditFromInputEvent(
+      '@图片1',
+      '@图片1，尾帧',
+      {
+        selectionStart: 7,
+        selectionEnd: 7,
+        inputType: '',
+        data: null,
+      }
+    );
+
+    expect(edit).toEqual({ start: 4, end: 4 });
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片1，尾帧',
+        [reference],
+        edit
+      )
+    ).toEqual([reference]);
+    expect(
+      resolveCanvasAssociationPromptEditFromInputEvent(
+        '@图片1',
+        '@图片1，尾帧',
+        {
+          selectionStart: 7,
+          selectionEnd: 7,
+          inputType: '',
+          data: null,
+        }
+      )
+    ).toEqual({ start: 4, end: 4 });
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片10',
+        [reference],
+        { start: 4, end: 4 }
+      )
+    ).toEqual([]);
+  });
+
+  it('可信键入范围过宽时仍按唯一 token 恢复已有身份', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片1，尾帧用这个照片',
+        [reference],
+        { start: 0, end: 4 }
+      )
+    ).toEqual([]);
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片1，尾帧用这个照片',
+        [reference],
+        { start: 0, end: 4 },
+        {
+          allowUniqueMentionRecovery: true,
+          recoveryInputData: '，尾帧用这个照片',
+        }
+      )
+    ).toEqual([reference]);
+  });
+
+  it('真实交叉替换即使保留同名字面量也不恢复旧对象身份', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1旧',
+        '@图片1新',
+        [reference],
+        { start: 0, end: 5 },
+        {
+          allowUniqueMentionRecovery: true,
+          recoveryInputData: '@图片1新',
+        }
+      )
+    ).toEqual([]);
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1旧',
+        '@图片1新',
+        [reference],
+        null,
+        {
+          allowUniqueMentionRecovery: true,
+          recoveryInputData: '@图片1新',
+        }
+      )
+    ).toEqual([]);
+  });
+
+  it('恢复数据中的图片10不会误判为重建图片1', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片1引用@图片10',
+        [reference],
+        null,
+        {
+          allowUniqueMentionRecovery: true,
+          recoveryInputData: '引用@图片10',
+        }
+      )
+    ).toEqual([reference]);
+  });
+
+  it('编号 token 后继续输入数字会删除旧对象身份', () => {
+    const reference = createReference('image-a', {
+      label: '图片1',
+      mentionStart: 0,
+      mentionEnd: 4,
+    });
+
+    expect(
+      reconcileCanvasAssociationRefsForPromptEdit(
+        '@图片1',
+        '@图片10',
+        [reference],
+        { start: 4, end: 4 }
+      )
+    ).toEqual([]);
   });
 
   it('按画板和元素去重，不修改调用方数组', () => {

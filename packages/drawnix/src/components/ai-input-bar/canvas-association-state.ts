@@ -1,5 +1,8 @@
 import { LS_KEYS } from '../../constants/storage-keys';
-import type { CanvasAssociationRef } from '../../types/shared/core.types';
+import type {
+  CanvasAssociationKind,
+  CanvasAssociationRef,
+} from '../../types/shared/core.types';
 
 export type {
   CanvasAssociationKind,
@@ -34,6 +37,12 @@ export interface CanvasAssociationPromptEdit {
   /** Range in the prompt before the textarea edit. */
   start: number;
   end: number;
+}
+
+export interface CanvasAssociationReconcileOptions {
+  allowUniqueMentionRecovery?: boolean;
+  /** Text reported by the trusted InputEvent for this edit, when available. */
+  recoveryInputData?: string | null;
 }
 
 export interface CanvasAssociationBeforeInputSnapshot {
@@ -132,7 +141,11 @@ export function findCanvasAssociationTrigger(
 export function isCanvasAssociationInputTypeTrusted(
   inputType: string | null | undefined
 ): boolean {
-  return inputType === 'insertText' || inputType === 'insertCompositionText';
+  return (
+    inputType === 'insertText' ||
+    inputType === 'insertCompositionText' ||
+    inputType === 'insertFromComposition'
+  );
 }
 
 export function hasCanvasAssociationUntrustedInputType(
@@ -143,6 +156,31 @@ export function hasCanvasAssociationUntrustedInputType(
       typeof inputType === 'string' &&
       inputType.length > 0 &&
       !isCanvasAssociationInputTypeTrusted(inputType)
+  );
+}
+
+export function shouldRecoverCanvasAssociationMentions(
+  beforeInputType: string | null | undefined,
+  changeInputType: string | null | undefined,
+  beforeInputData: string | null | undefined,
+  hasExplicitUntrustedInput = false
+): boolean {
+  if (
+    hasExplicitUntrustedInput ||
+    hasCanvasAssociationUntrustedInputType(beforeInputType, changeInputType)
+  ) {
+    return false;
+  }
+  if (
+    [beforeInputType, changeInputType].some(isCanvasAssociationInputTypeTrusted)
+  ) {
+    return true;
+  }
+  return (
+    (!beforeInputType || beforeInputType.length === 0) &&
+    (!changeInputType || changeInputType.length === 0) &&
+    typeof beforeInputData === 'string' &&
+    beforeInputData.length > 0
   );
 }
 
@@ -244,10 +282,96 @@ export function normalizeCanvasAssociationLabel(
   return normalized.slice(0, CANVAS_ASSOCIATION_LABEL_LIMIT);
 }
 
+const CANVAS_ASSOCIATION_KIND_LABELS: Record<CanvasAssociationKind, string> = {
+  image: '图片',
+  video: '视频',
+  audio: '音频',
+  text: '文本',
+  graphics: '图形',
+  frame: '画框',
+  card: '卡片',
+  other: '画布元素',
+};
+
+/** Allocate a stable, per-kind label without rewriting existing mentions. */
+export function getNextCanvasAssociationLabel(
+  kind: CanvasAssociationKind,
+  references: readonly Pick<CanvasAssociationRef, 'kind' | 'label'>[]
+): string {
+  const baseLabel = CANVAS_ASSOCIATION_KIND_LABELS[kind];
+  const usedNumbers = new Set<number>();
+  let sameKindCount = 0;
+  let maxNumber = 0;
+
+  for (const reference of references) {
+    if (reference.kind !== kind) continue;
+    sameKindCount += 1;
+    const label = normalizeCanvasAssociationLabel(reference.label);
+    if (!label.startsWith(baseLabel)) continue;
+    const suffix = label.slice(baseLabel.length);
+    if (!/^[1-9]\d*$/.test(suffix)) continue;
+    const parsed = Number(suffix);
+    if (!Number.isSafeInteger(parsed)) continue;
+    usedNumbers.add(parsed);
+    maxNumber = Math.max(maxNumber, parsed);
+  }
+
+  let nextNumber = Math.max(sameKindCount, maxNumber) + 1;
+  if (!Number.isSafeInteger(nextNumber)) {
+    nextNumber = 1;
+    while (usedNumbers.has(nextNumber)) nextNumber += 1;
+  }
+  return `${baseLabel}${nextNumber}`;
+}
+
 export function getCanvasAssociationMentionText(
   reference: Pick<CanvasAssociationRef, 'label'>
 ): string {
   return `@${normalizeCanvasAssociationLabel(reference.label)}`;
+}
+
+function findUniqueCanvasAssociationMentionStart(
+  prompt: string,
+  mentionText: string
+): number {
+  const needsNumericBoundary = /\d$/.test(mentionText);
+  let foundStart = -1;
+  let searchStart = 0;
+
+  while (searchStart <= prompt.length - mentionText.length) {
+    const matchStart = prompt.indexOf(mentionText, searchStart);
+    if (matchStart < 0) break;
+    const nextCharacter = prompt[matchStart + mentionText.length];
+    const isNumberPrefix =
+      needsNumericBoundary && nextCharacter >= '0' && nextCharacter <= '9';
+    if (!isNumberPrefix) {
+      if (foundStart >= 0) return -1;
+      foundStart = matchStart;
+    }
+    searchStart = matchStart + 1;
+  }
+
+  return foundStart;
+}
+
+function containsCanvasAssociationMention(
+  prompt: string,
+  mentionText: string
+): boolean {
+  const needsNumericBoundary = /\d$/.test(mentionText);
+  let searchStart = 0;
+
+  while (searchStart <= prompt.length - mentionText.length) {
+    const matchStart = prompt.indexOf(mentionText, searchStart);
+    if (matchStart < 0) return false;
+    const nextCharacter = prompt[matchStart + mentionText.length];
+    const isNumberPrefix =
+      needsNumericBoundary && nextCharacter >= '0' && nextCharacter <= '9';
+    if (!isNumberPrefix) return true;
+    searchStart = matchStart + 1;
+  }
+
+  return false;
 }
 
 export function replaceCanvasAssociationTriggerWithMention(
@@ -302,14 +426,21 @@ function hasTrustedMentionRange(
   mentionEnd: number;
 } {
   const { mentionStart, mentionEnd } = reference;
+  const mentionText = getCanvasAssociationMentionText(reference);
+  const nextCharacter = prompt[mentionEnd as number];
+  const hasNumericBoundary =
+    !/\d$/.test(mentionText) ||
+    nextCharacter === undefined ||
+    nextCharacter < '0' ||
+    nextCharacter > '9';
   return Boolean(
     Number.isInteger(mentionStart) &&
       Number.isInteger(mentionEnd) &&
       (mentionStart as number) >= 0 &&
       (mentionEnd as number) > (mentionStart as number) &&
       (mentionEnd as number) <= prompt.length &&
-      prompt.slice(mentionStart, mentionEnd) ===
-        getCanvasAssociationMentionText(reference)
+      prompt.slice(mentionStart, mentionEnd) === mentionText &&
+      hasNumericBoundary
   );
 }
 
@@ -391,9 +522,18 @@ export function resolveCanvasAssociationPromptEditFromInputEvent(
   snapshot: CanvasAssociationInputEventSnapshot | null
 ): CanvasAssociationPromptEdit | null {
   if (
+    snapshot &&
+    Number.isInteger(snapshot.selectionStart) &&
+    snapshot.selectionStart === snapshot.selectionEnd &&
+    snapshot.selectionEnd === nextPrompt.length &&
+    nextPrompt.length > previousPrompt.length &&
+    nextPrompt.startsWith(previousPrompt)
+  ) {
+    return { start: previousPrompt.length, end: previousPrompt.length };
+  }
+  if (
     !snapshot ||
-    (snapshot.inputType !== 'insertText' &&
-      snapshot.inputType !== 'insertCompositionText') ||
+    !isCanvasAssociationInputTypeTrusted(snapshot.inputType) ||
     typeof snapshot.data !== 'string' ||
     snapshot.data.length === 0 ||
     !Number.isInteger(snapshot.selectionStart) ||
@@ -482,6 +622,100 @@ export function shouldRestoreCanvasAssociationPointer(
   );
 }
 
+function recoverUniqueCanvasAssociationRefs(
+  previousPrompt: string,
+  nextPrompt: string,
+  references: readonly CanvasAssociationRef[],
+  recoveryInputData?: string | null
+): CanvasAssociationRef[] {
+  const trustedReferences = references
+    .filter((reference) => hasTrustedMentionRange(previousPrompt, reference))
+    .sort(
+      (left, right) =>
+        (left.mentionStart as number) - (right.mentionStart as number)
+    );
+  const recovered: CanvasAssociationRef[] = [];
+  let nextCursor = 0;
+
+  for (const reference of trustedReferences) {
+    const mentionText = getCanvasAssociationMentionText(reference);
+    // Replacing a selection with text that contains the same visible token
+    // must not transfer the old canvas identity to the newly typed token.
+    if (
+      recoveryInputData &&
+      containsCanvasAssociationMention(recoveryInputData, mentionText)
+    ) {
+      continue;
+    }
+    const previousStart = findUniqueCanvasAssociationMentionStart(
+      previousPrompt,
+      mentionText
+    );
+    if (previousStart !== reference.mentionStart) continue;
+
+    const nextStart = findUniqueCanvasAssociationMentionStart(
+      nextPrompt,
+      mentionText
+    );
+    if (nextStart < nextCursor) continue;
+    const nextReference = {
+      ...reference,
+      mentionStart: nextStart,
+      mentionEnd: nextStart + mentionText.length,
+    };
+    if (!hasTrustedMentionRange(nextPrompt, nextReference)) continue;
+    recovered.push(nextReference);
+    nextCursor = nextReference.mentionEnd;
+  }
+  return recovered;
+}
+
+function resolveCanvasAssociationRecoveryEdit(
+  previousPrompt: string,
+  nextPrompt: string,
+  reportedEdit: CanvasAssociationPromptEdit,
+  recoveryInputData: string | null | undefined
+): CanvasAssociationPromptEdit | null {
+  if (!recoveryInputData) return null;
+
+  let commonPrefixLength = 0;
+  const prefixLimit = Math.min(previousPrompt.length, nextPrompt.length);
+  while (
+    commonPrefixLength < prefixLimit &&
+    previousPrompt[commonPrefixLength] === nextPrompt[commonPrefixLength]
+  ) {
+    commonPrefixLength += 1;
+  }
+
+  let commonSuffixLength = 0;
+  while (
+    commonSuffixLength < previousPrompt.length - commonPrefixLength &&
+    commonSuffixLength < nextPrompt.length - commonPrefixLength &&
+    previousPrompt[previousPrompt.length - commonSuffixLength - 1] ===
+      nextPrompt[nextPrompt.length - commonSuffixLength - 1]
+  ) {
+    commonSuffixLength += 1;
+  }
+
+  const minimalEdit = {
+    start: commonPrefixLength,
+    end: previousPrompt.length - commonSuffixLength,
+  };
+  const minimalInsertedText = nextPrompt.slice(
+    commonPrefixLength,
+    nextPrompt.length - commonSuffixLength
+  );
+  const reportedIsBroader =
+    reportedEdit.start <= minimalEdit.start &&
+    reportedEdit.end >= minimalEdit.end &&
+    (reportedEdit.start !== minimalEdit.start ||
+      reportedEdit.end !== minimalEdit.end);
+
+  return reportedIsBroader && minimalInsertedText === recoveryInputData
+    ? minimalEdit
+    : null;
+}
+
 /**
  * Reconciles trusted mention ranges after one textarea edit. Plain text that
  * merely looks like a mention never gains an element identity.
@@ -490,7 +724,8 @@ export function reconcileCanvasAssociationRefsForPromptEdit(
   previousPrompt: string,
   nextPrompt: string,
   references: readonly CanvasAssociationRef[],
-  edit: CanvasAssociationPromptEdit | null = null
+  edit: CanvasAssociationPromptEdit | null = null,
+  options: CanvasAssociationReconcileOptions = {}
 ): CanvasAssociationRef[] {
   if (references.length === 0) return [];
   if (previousPrompt === nextPrompt) {
@@ -498,14 +733,33 @@ export function reconcileCanvasAssociationRefsForPromptEdit(
       .filter((reference) => hasTrustedMentionRange(previousPrompt, reference))
       .map((reference) => ({ ...reference }));
   }
-  // Without a trustworthy pre-edit selection, repeated equal labels make it
-  // impossible to know which visible token was edited. Dropping identity is
-  // safer than silently associating the text with the wrong canvas element.
-  if (!edit || !isValidPromptEdit(previousPrompt, nextPrompt, edit)) return [];
+  if (!edit || !isValidPromptEdit(previousPrompt, nextPrompt, edit)) {
+    // A uniquely numbered token can be recovered even when a browser omits
+    // beforeinput details (notably during some IME sequences). Ambiguous or
+    // duplicated visible text still loses identity instead of being guessed.
+    return options.allowUniqueMentionRecovery
+      ? recoverUniqueCanvasAssociationRefs(
+          previousPrompt,
+          nextPrompt,
+          references,
+          options.recoveryInputData
+        )
+      : [];
+  }
 
+  const effectiveEdit =
+    options.allowUniqueMentionRecovery &&
+    resolveCanvasAssociationRecoveryEdit(
+      previousPrompt,
+      nextPrompt,
+      edit,
+      options.recoveryInputData
+    );
+  const appliedEdit = effectiveEdit || edit;
   const insertedLength =
-    nextPrompt.length - (previousPrompt.length - (edit.end - edit.start));
-  const delta = insertedLength - (edit.end - edit.start);
+    nextPrompt.length -
+    (previousPrompt.length - (appliedEdit.end - appliedEdit.start));
+  const delta = insertedLength - (appliedEdit.end - appliedEdit.start);
   const reconciled: CanvasAssociationRef[] = [];
 
   for (const reference of references) {
@@ -513,10 +767,10 @@ export function reconcileCanvasAssociationRefsForPromptEdit(
 
     let mentionStart = reference.mentionStart;
     let mentionEnd = reference.mentionEnd;
-    if (edit.end <= mentionStart) {
+    if (appliedEdit.end <= mentionStart) {
       mentionStart += delta;
       mentionEnd += delta;
-    } else if (edit.start < mentionEnd) {
+    } else if (appliedEdit.start < mentionEnd) {
       // The edit intersects the mention. Keep the readable text, but remove
       // its trusted canvas identity.
       continue;
@@ -527,7 +781,6 @@ export function reconcileCanvasAssociationRefsForPromptEdit(
       reconciled.push(nextReference);
     }
   }
-
   return reconciled;
 }
 

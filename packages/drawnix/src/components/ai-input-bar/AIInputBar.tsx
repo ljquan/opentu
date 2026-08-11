@@ -248,6 +248,7 @@ import {
   areCanvasAssociationRefsEqual,
   buildCanvasAssociationHighlightSegments,
   findCanvasAssociationTrigger,
+  getNextCanvasAssociationLabel,
   hasCanvasAssociationUntrustedInputType,
   hasInsertedCanvasAssociationAtSign,
   hasCanvasAssociationOverwriteContent,
@@ -263,6 +264,7 @@ import {
   snapshotCanvasAssociationRefs,
   shouldAllowCanvasAssociationCompositionTrigger,
   shouldClearSubmittedCanvasAssociations,
+  shouldRecoverCanvasAssociationMentions,
   shouldRestoreCanvasAssociationPointer,
   shouldStartCanvasAssociationPicking,
   type CanvasAssociationBeforeInputSnapshot,
@@ -560,9 +562,13 @@ function enrichStepArgsWithPromptMeta<
           knowledgeContextRefs,
         }
       : step.args;
+  const argsWithWorkflowContext =
+    step.mcp === 'generate_long_video'
+      ? { ...argsWithKnowledgeContext, workflowId: workflow.id }
+      : argsWithKnowledgeContext;
 
   if (
-    argsWithKnowledgeContext.promptMeta ||
+    argsWithWorkflowContext.promptMeta ||
     ![
       'generate_image',
       'generate_video',
@@ -573,14 +579,14 @@ function enrichStepArgsWithPromptMeta<
   ) {
     return {
       ...step,
-      args: argsWithKnowledgeContext,
+      args: argsWithWorkflowContext,
     };
   }
 
   return {
     ...step,
     args: {
-      ...argsWithKnowledgeContext,
+      ...argsWithWorkflowContext,
       promptMeta: buildPromptLineageMeta(workflow, step),
     },
   };
@@ -3007,12 +3013,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           return false;
         }
 
-        const reference = createCanvasAssociationRef(
+        const rawReference = createCanvasAssociationRef(
           board,
           currentBoardId,
           elements[0]
         );
-        if (!reference) {
+        if (!rawReference) {
           MessagePlugin.warning(
             language === 'zh'
               ? '该元素不能作为联想引用'
@@ -3020,6 +3026,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           );
           return false;
         }
+        const reference = {
+          ...rawReference,
+          label: getNextCanvasAssociationLabel(
+            rawReference.kind,
+            canvasAssociationRefsRef.current
+          ),
+        };
 
         const insertion = replaceCanvasAssociationTriggerWithMention(
           promptRef.current,
@@ -4580,6 +4593,57 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           }
           return true;
         };
+        const clearSubmittedCanvasAssociations = () => {
+          if (
+            override ||
+            !submittedTaskbarDraft ||
+            activeTaskbarBoardIdRef.current !== submittedDraftBoardId
+          ) {
+            return;
+          }
+
+          const activeElementId = activeDraftElementIdRef.current;
+          const currentTaskbarDraft = submittedDraftElementId
+            ? activeElementId === submittedDraftElementId
+              ? readCurrentTaskbarDraft()
+              : boundTargetDraftsRef.current.get(submittedDraftElementId)?.draft
+            : activeElementId === null
+            ? readCurrentTaskbarDraft()
+            : unboundTaskbarDraftRef.current;
+          const currentReferences = submittedDraftElementId
+            ? activeElementId === submittedDraftElementId
+              ? canvasAssociationRefsRef.current
+              : boundCanvasAssociationDraftsRef.current.get(
+                  submittedDraftElementId
+                ) || []
+            : activeElementId === null
+            ? canvasAssociationRefsRef.current
+            : unboundCanvasAssociationDraftRef.current;
+          if (
+            !currentTaskbarDraft ||
+            !areBoundTargetTaskbarDraftsEqual(
+              currentTaskbarDraft,
+              submittedTaskbarDraft
+            ) ||
+            !areCanvasAssociationRefsEqual(
+              currentReferences,
+              submittedCanvasAssociations
+            )
+          ) {
+            return;
+          }
+
+          if (submittedDraftElementId) {
+            boundCanvasAssociationDraftsRef.current.delete(
+              submittedDraftElementId
+            );
+          } else {
+            unboundCanvasAssociationDraftRef.current = [];
+          }
+          if (activeElementId === submittedDraftElementId) {
+            applyCanvasAssociationRefs([]);
+          }
+        };
         const clearSubmittedLocalInput = () => {
           if (
             activeTaskbarBoardIdRef.current !== submittedDraftBoardId &&
@@ -4587,6 +4651,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ) {
             return;
           }
+          clearSubmittedCanvasAssociations();
           if (finalizeSubmittedBoundDraft(true)) return;
 
           if (
@@ -4613,44 +4678,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           unboundTaskbarDraftRef.current = emptyDraft;
           applyTaskbarDraft(emptyDraft);
           setSelectedContent([]);
-        };
-        const clearSubmittedCanvasAssociations = () => {
-          if (
-            override ||
-            activeTaskbarBoardIdRef.current !== submittedDraftBoardId
-          ) {
-            return;
-          }
-
-          const activeElementId = activeDraftElementIdRef.current;
-          const currentReferences = submittedDraftElementId
-            ? activeElementId === submittedDraftElementId
-              ? canvasAssociationRefsRef.current
-              : boundCanvasAssociationDraftsRef.current.get(
-                  submittedDraftElementId
-                ) || []
-            : activeElementId === null
-            ? canvasAssociationRefsRef.current
-            : unboundCanvasAssociationDraftRef.current;
-          if (
-            !areCanvasAssociationRefsEqual(
-              currentReferences,
-              submittedCanvasAssociations
-            )
-          ) {
-            return;
-          }
-
-          if (submittedDraftElementId) {
-            boundCanvasAssociationDraftsRef.current.delete(
-              submittedDraftElementId
-            );
-          } else {
-            unboundCanvasAssociationDraftRef.current = [];
-          }
-          if (activeElementId === submittedDraftElementId) {
-            applyCanvasAssociationRefs([]);
-          }
         };
         const effectiveKnowledgeContextRefs = override
           ? []
@@ -6742,6 +6769,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const hasExplicitUntrustedInput =
           pendingCanvasAssociationUntrustedInputRef.current;
         clearPendingCanvasAssociationUntrustedInput();
+        const changeInputType =
+          typeof nativeInputEvent.inputType === 'string'
+            ? nativeInputEvent.inputType
+            : '';
+        const changeInputData =
+          typeof nativeInputEvent.data === 'string'
+            ? nativeInputEvent.data
+            : null;
+        const recoveryInputData = beforeInputSnapshot?.data || changeInputData;
         const promptEdit =
           resolveCanvasAssociationPromptEdit(
             previousPrompt,
@@ -6754,14 +6790,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             {
               selectionStart: input.selectionStart,
               selectionEnd: input.selectionEnd,
-              inputType:
-                typeof nativeInputEvent.inputType === 'string'
-                  ? nativeInputEvent.inputType
-                  : undefined,
-              data:
-                typeof nativeInputEvent.data === 'string'
-                  ? nativeInputEvent.data
-                  : null,
+              inputType: changeInputType,
+              data: changeInputData,
             }
           );
         const nextCanvasAssociationRefs =
@@ -6769,7 +6799,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             previousPrompt,
             newValue,
             canvasAssociationRefsRef.current,
-            promptEdit
+            promptEdit,
+            {
+              allowUniqueMentionRecovery:
+                shouldRecoverCanvasAssociationMentions(
+                  beforeInputSnapshot?.inputType,
+                  changeInputType,
+                  recoveryInputData,
+                  hasExplicitUntrustedInput
+                ),
+              recoveryInputData,
+            }
           );
         dismissPromptSuggestion();
         promptRef.current = newValue;
@@ -6790,10 +6830,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const isComposing = Boolean(
           nativeInputEvent.isComposing || isInputComposingRef.current
         );
-        const changeInputType =
-          typeof nativeInputEvent.inputType === 'string'
-            ? nativeInputEvent.inputType
-            : '';
         const hasUntrustedInputType = hasCanvasAssociationUntrustedInputType(
           beforeInputSnapshot?.inputType,
           changeInputType

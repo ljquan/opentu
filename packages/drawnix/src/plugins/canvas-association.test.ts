@@ -238,6 +238,74 @@ describe('canvas association', () => {
     expect(board.history.undos).toHaveLength(0);
   });
 
+  it('migrates persisted association lines to the managed black style without undo history', () => {
+    const persistedBoard = createBoard([
+      createElement('source-1', [
+        [0, 0],
+        [100, 100],
+      ]),
+      createElement('result-1', [
+        [300, 0],
+        [400, 100],
+      ]),
+    ]);
+    const [persistedLine] = createCanvasAssociationLines(persistedBoard, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1'],
+      resultElementId: 'result-1',
+    });
+    persistedBoard.children = persistedBoard.children.map((element) =>
+      element.id === persistedLine.id
+        ? { ...element, strokeColor: '#8b8b8b', strokeWidth: 1 }
+        : element
+    );
+
+    const board = createHistoryBoard(
+      persistedBoard.children as TestingElement[]
+    );
+    const line = board.children.find(isCanvasAssociationLine);
+
+    expect(line?.strokeColor).toBe('#000000');
+    expect(line?.strokeWidth).toBe(2);
+    expect(board.history.undos).toHaveLength(0);
+  });
+
+  it('immediately migrates legacy line styles when a reused board receives a loaded snapshot', () => {
+    const persistedBoard = createBoard([
+      createElement('source-b', [
+        [0, 0],
+        [100, 100],
+      ]),
+      createElement('result-b', [
+        [300, 0],
+        [400, 100],
+      ]),
+    ]);
+    const [persistedLine] = createCanvasAssociationLines(persistedBoard, {
+      boardId: 'board-b',
+      sourceElementIds: ['source-b'],
+      resultElementId: 'result-b',
+    });
+    const loadedChildren = persistedBoard.children.map((element) =>
+      element.id === persistedLine.id
+        ? { ...element, strokeColor: '#8b8b8b', strokeWidth: 1 }
+        : element
+    );
+    const board = createHistoryBoard([
+      createElement('source-a', [
+        [0, 0],
+        [100, 100],
+      ]),
+    ]);
+
+    board.children = loadedChildren;
+    const line = board.children.find(isCanvasAssociationLine);
+
+    expect(line?.strokeColor).toBe('#000000');
+    expect(line?.strokeWidth).toBe(2);
+    expect(board.history.undos).toHaveLength(0);
+  });
+
   it('uses the facing horizontal edges when the result is to the right', () => {
     expect(
       getCanvasAssociationEndpointPoints(
@@ -293,6 +361,8 @@ describe('canvas association', () => {
     expect(board.children).toContain(line);
     expect(isCanvasAssociationLine(line)).toBe(true);
     expect(line.locked).toBe(true);
+    expect(line.strokeColor).toBe('#000000');
+    expect(line.strokeWidth).toBe(2);
     expect(line.source.boundId).toBeUndefined();
     expect(line.target.boundId).toBeUndefined();
     expect(line.canvasAssociation).toMatchObject({
@@ -327,6 +397,59 @@ describe('canvas association', () => {
     expect(first).toHaveLength(1);
     expect(retried).toEqual(first);
     expect(board.children.filter(isCanvasAssociationLine)).toHaveLength(1);
+  });
+
+  it('creates and retargets one persistent line for each distinct source', () => {
+    const board = createBoard([
+      createElement('source-1', [
+        [0, 0],
+        [100, 100],
+      ]),
+      createElement('source-2', [
+        [0, 200],
+        [100, 300],
+      ]),
+      createElement('task-1', [
+        [300, 100],
+        [420, 220],
+      ]),
+      createElement('result-1', [
+        [600, 100],
+        [720, 220],
+      ]),
+    ]);
+
+    const created = createCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1', 'source-2'],
+      resultElementId: 'task-1',
+      workflowId: 'workflow-1',
+    });
+    const lineIdsBySource = new Map(
+      created.map((line) => [line.canvasAssociation.sourceElementId, line.id])
+    );
+    const retargeted = retargetCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1', 'source-2'],
+      previousResultElementId: 'task-1',
+      resultElementId: 'result-1',
+      workflowId: 'workflow-1',
+    });
+
+    expect(created).toHaveLength(2);
+    expect(retargeted).toHaveLength(2);
+    expect(
+      new Set(retargeted.map((line) => line.canvasAssociation.sourceElementId))
+    ).toEqual(new Set(['source-1', 'source-2']));
+    expect(retargeted.map((line) => line.id).sort()).toEqual(
+      Array.from(lineIdsBySource.values()).sort()
+    );
+    expect(
+      retargeted.every(
+        (line) => line.canvasAssociation.resultElementId === 'result-1'
+      )
+    ).toBe(true);
+    expect(retargeted[0].points).not.toEqual(retargeted[1].points);
   });
 
   it.each(['generation-anchor', 'workzone'])(
@@ -422,6 +545,60 @@ describe('canvas association', () => {
       [100, 50],
       [600, 50],
     ]);
+  });
+
+  it('does not retarget another workflow when legacy context has no workflow id', () => {
+    const board = createBoard([
+      createElement('source-1', [
+        [0, 0],
+        [100, 100],
+      ]),
+      createElement(
+        'workzone-a',
+        [
+          [300, 0],
+          [400, 100],
+        ],
+        'workzone'
+      ),
+      createElement(
+        'workzone-b',
+        [
+          [300, 200],
+          [400, 300],
+        ],
+        'workzone'
+      ),
+      createElement('result-legacy', [
+        [600, 0],
+        [700, 100],
+      ]),
+    ]);
+    const [workflowALine] = createCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1'],
+      resultElementId: 'workzone-a',
+      workflowId: 'workflow-a',
+    });
+    const [workflowBLine] = createCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1'],
+      resultElementId: 'workzone-b',
+      workflowId: 'workflow-b',
+    });
+
+    const [legacyResultLine] = retargetCanvasAssociationLines(board, {
+      boardId: 'board-1',
+      sourceElementIds: ['source-1'],
+      resultElementId: 'result-legacy',
+    });
+
+    expect(legacyResultLine.id).not.toBe(workflowALine.id);
+    expect(legacyResultLine.id).not.toBe(workflowBLine.id);
+    expect(legacyResultLine.canvasAssociation.workflowId).toBeUndefined();
+    expect(workflowALine.canvasAssociation.resultElementId).toBe('workzone-a');
+    expect(workflowBLine.canvasAssociation.resultElementId).toBe('workzone-b');
+    expect(board.children.filter(isCanvasAssociationLine)).toHaveLength(3);
   });
 
   it('keeps the migrated line when the temporary task target is removed', async () => {

@@ -35,8 +35,9 @@ The system SHALL insert removable, ordered `@object` references at their origina
 - **AND** the user directly typed `@` at any cursor position, including after existing non-whitespace text or before an existing suffix
 - **AND** the caret remains immediately after that newly typed `@`
 - **WHEN** the user clicks a referencable element on the current board
-- **THEN** the trigger character SHALL be replaced by an inline `@label` reference and the caret SHALL move after it
+- **THEN** the trigger character SHALL be replaced by an inline type-and-sequence reference such as `@图片1`, `@图片2`, `@视频1` or `@文本1`, and the caret SHALL move after it
 - **AND** the visible label SHALL remain part of the ordered prompt semantics
+- **AND** numbering SHALL be independent per type and existing labels SHALL NOT be renumbered after deletion
 - **AND** the chip SHALL retain the current board ID, element ID, type and a bounded display label
 - **AND** clicking an image SHALL NOT activate image replacement binding for that pick
 
@@ -114,6 +115,7 @@ The system SHALL resolve and validate a bounded snapshot of previewed canvas ref
 - **WHEN** the user edits references, switches boards or starts another request before completion
 - **THEN** each workflow SHALL keep an independent immutable source-ID snapshot
 - **AND** later input changes SHALL NOT alter relationships for an accepted workflow
+- **AND** completion of the accepted workflow SHALL NOT clear newer prompt or reference edits
 
 ### Requirement: Published Tasks SHALL Establish And Preserve Canvas Association Links
 
@@ -124,6 +126,7 @@ The system SHALL immediately connect referenced source elements to a newly publi
 - **GIVEN** a valid workflow has one or more canvas references
 - **WHEN** publishing creates a `generation-anchor` or `workzone` task node on the same board
 - **THEN** the system SHALL immediately create one relationship line from each existing unique source to the first new task node
+- **AND** each relationship line SHALL use the managed high-contrast black style
 - **AND** the task node SHALL be allowed only as an association target, not as a prompt-reference source
 - **AND** a publish failure before task-node creation SHALL NOT create relationship lines
 
@@ -142,6 +145,7 @@ The system SHALL immediately connect referenced source elements to a newly publi
 - **WHEN** a final result with a stable element ID is inserted on the same board
 - **THEN** the system SHALL migrate each existing relationship line from the task node to that result
 - **AND** it SHALL preserve the relationship identity and lightweight board, workflow, source and result IDs
+- **AND** concurrent workflows using the same source SHALL retarget only lines carrying their own workflow ID
 - **AND** it SHALL NOT create a second relationship line for the same source and workflow
 
 #### Scenario: Completion is delivered more than once
@@ -150,6 +154,13 @@ The system SHALL immediately connect referenced source elements to a newly publi
 - **WHEN** recovery, polling or completion notification is processed again
 - **THEN** the system SHALL reuse the relationship identity
 - **AND** it SHALL NOT create a duplicate line
+
+#### Scenario: Retargeting temporarily fails
+
+- **GIVEN** a final result was inserted with a stable element ID
+- **WHEN** retargeting its relationship lines fails transiently
+- **THEN** the system SHALL retain bounded result and source context for retry
+- **AND** it SHALL NOT merge or insert the final result again during that retry
 
 #### Scenario: Published task fails or is deleted
 

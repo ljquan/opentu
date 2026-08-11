@@ -20,8 +20,8 @@ import type { CanvasAssociationRef } from '../types/shared/core.types';
 
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
 
-const ASSOCIATION_STROKE_COLOR = '#8b8b8b';
-const ASSOCIATION_STROKE_WIDTH = 1;
+const ASSOCIATION_STROKE_COLOR = '#000000';
+const ASSOCIATION_STROKE_WIDTH = 2;
 const SYSTEM_ELEMENT_TYPES = new Set(['generation-anchor', 'workzone']);
 const MAX_DEFERRED_ASSOCIATION_LINKS = 256;
 
@@ -504,6 +504,14 @@ function findRetargetableAssociationLine(
       return false;
     }
 
+    if (
+      !workflowId &&
+      !previousResultElementId &&
+      metadata.workflowId?.trim()
+    ) {
+      return false;
+    }
+
     if (previousResultElementId) {
       return metadata.resultElementId === previousResultElementId;
     }
@@ -771,6 +779,7 @@ export function reconcileCanvasAssociationLines(
     index: number;
     points: [Point, Point];
     restoreManagedState: boolean;
+    restoreManagedStyle: boolean;
   }> = [];
 
   associationLineEntries.forEach(({ element, index }) => {
@@ -795,8 +804,20 @@ export function reconcileCanvasAssociationLines(
       element.locked !== true ||
       Boolean(element.source.boundId || element.source.connection) ||
       Boolean(element.target.boundId || element.target.connection);
-    if (!arePointsEqual(element.points, points) || restoreManagedState) {
-      updates.push({ index, points, restoreManagedState });
+    const restoreManagedStyle =
+      element.strokeColor !== ASSOCIATION_STROKE_COLOR ||
+      element.strokeWidth !== ASSOCIATION_STROKE_WIDTH;
+    if (
+      !arePointsEqual(element.points, points) ||
+      restoreManagedState ||
+      restoreManagedStyle
+    ) {
+      updates.push({
+        index,
+        points,
+        restoreManagedState,
+        restoreManagedStyle,
+      });
     }
   });
 
@@ -808,6 +829,10 @@ export function reconcileCanvasAssociationLines(
       patch.locked = true;
       patch.source = { marker: ArrowLineMarkerType.none };
       patch.target = { marker: ArrowLineMarkerType.none };
+    }
+    if (update.restoreManagedStyle) {
+      patch.strokeColor = ASSOCIATION_STROKE_COLOR;
+      patch.strokeWidth = ASSOCIATION_STROKE_WIDTH;
     }
     Transforms.setNode(board, patch, [update.index]);
   }
@@ -842,6 +867,7 @@ function reconcileAffectedCanvasAssociationLines(
     index: number;
     points: [Point, Point];
     restoreManagedState: boolean;
+    restoreManagedStyle: boolean;
   }> = [];
 
   for (const lineId of affectedLineIds) {
@@ -878,8 +904,20 @@ function reconcileAffectedCanvasAssociationLines(
       line.locked !== true ||
       Boolean(line.source.boundId || line.source.connection) ||
       Boolean(line.target.boundId || line.target.connection);
-    if (!arePointsEqual(line.points, points) || restoreManagedState) {
-      updates.push({ index: lineIndex, points, restoreManagedState });
+    const restoreManagedStyle =
+      line.strokeColor !== ASSOCIATION_STROKE_COLOR ||
+      line.strokeWidth !== ASSOCIATION_STROKE_WIDTH;
+    if (
+      !arePointsEqual(line.points, points) ||
+      restoreManagedState ||
+      restoreManagedStyle
+    ) {
+      updates.push({
+        index: lineIndex,
+        points,
+        restoreManagedState,
+        restoreManagedStyle,
+      });
     }
   }
 
@@ -891,6 +929,10 @@ function reconcileAffectedCanvasAssociationLines(
       patch.locked = true;
       patch.source = { marker: ArrowLineMarkerType.none };
       patch.target = { marker: ArrowLineMarkerType.none };
+    }
+    if (update.restoreManagedStyle) {
+      patch.strokeColor = ASSOCIATION_STROKE_COLOR;
+      patch.strokeWidth = ASSOCIATION_STROKE_WIDTH;
     }
     const lineId = board.children[update.index]?.id;
     if (lineId) managedLineOperationIds.add(lineId);
@@ -936,22 +978,6 @@ export const withCanvasAssociation: PlaitPlugin = (board) => {
   let childrenReplacedSinceChange = false;
   let pendingReconcileShouldSave = false;
 
-  // Wrapper board reuse replaces children directly when switching boards, so
-  // no Slate operation is available for the incremental index to consume.
-  // Track every assignment and rebuild once before the next afterChange.
-  let currentChildren = board.children;
-  Object.defineProperty(board, 'children', {
-    configurable: true,
-    enumerable: true,
-    get: () => currentChildren,
-    set: (nextChildren: PlaitElement[]) => {
-      if (applyingOperationDepth === 0) {
-        childrenReplacedSinceChange = true;
-      }
-      currentChildren = nextChildren;
-    },
-  });
-
   const rebuildIndexAfterChildrenReplacement = (): void => {
     index = createCanvasAssociationIndex(board.children);
     pendingElementIds.clear();
@@ -963,6 +989,37 @@ export const withCanvasAssociation: PlaitPlugin = (board) => {
     }
     childrenReplacedSinceChange = false;
   };
+
+  const reconcileChildrenReplacement = (): void => {
+    reconciling = true;
+    try {
+      PlaitHistoryBoard.withoutSaving(board, () => {
+        reconcileCanvasAssociationLines(board);
+      });
+    } finally {
+      reconciling = false;
+    }
+    rebuildIndexAfterChildrenReplacement();
+  };
+
+  // Wrapper board reuse replaces children directly and renders immediately
+  // without afterChange, so reconcile the loaded snapshot synchronously.
+  let currentChildren = board.children;
+  Object.defineProperty(board, 'children', {
+    configurable: true,
+    enumerable: true,
+    get: () => currentChildren,
+    set: (nextChildren: PlaitElement[]) => {
+      const isSnapshotReplacement = applyingOperationDepth === 0;
+      if (isSnapshotReplacement) {
+        childrenReplacedSinceChange = true;
+      }
+      currentChildren = nextChildren;
+      if (isSnapshotReplacement) {
+        reconcileChildrenReplacement();
+      }
+    },
+  });
 
   board.afterChange = () => {
     const childrenWereReplaced = childrenReplacedSinceChange;

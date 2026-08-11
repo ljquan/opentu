@@ -29,7 +29,7 @@ import {
 } from './canvas-operations/canvas-insertion';
 import {
   canInsertCanvasAssociationsOnBoard,
-  createCanvasAssociationLines,
+  retargetCanvasAssociationLines,
 } from '../plugins/canvas-association';
 import { workspaceService } from './workspace-service';
 
@@ -38,6 +38,8 @@ const MAX_COMPLETED_BATCH_TOMBSTONES = 256;
 /** 长视频批次跟踪信息 */
 interface LongVideoBatch {
   batchId: string;
+  /** 提交工作流 ID，用于并发任务的关系线隔离 */
+  workflowId?: string;
   totalSegments: number;
   completedSegments: Map<number, string>; // segmentIndex -> videoUrl
   /** 已处理的片段索引（防止重复处理） */
@@ -157,6 +159,7 @@ class LongVideoChainService {
     if (!batch) {
       batch = {
         batchId,
+        workflowId: meta.workflowId?.trim() || undefined,
         totalSegments,
         completedSegments: new Map(),
         processedSegments: new Set(),
@@ -470,7 +473,7 @@ class LongVideoChainService {
         }
 
         try {
-          createCanvasAssociationLines(board, {
+          retargetCanvasAssociationLines(board, {
             boardId: sourceBoardId,
             sourceElementIds: associations
               .filter(
@@ -478,12 +481,14 @@ class LongVideoChainService {
               )
               .map((association) => association.elementId.trim()),
             resultElementId: normalizedResultElementId,
+            ...(batch.workflowId ? { workflowId: batch.workflowId } : {}),
           });
         } catch (error) {
           console.warn(
-            '[LongVideoChain] Failed to create canvas association lines:',
+            '[LongVideoChain] Failed to retarget canvas association lines:',
             error
           );
+          return false;
         }
       }
       // console.log(`[LongVideoChain] Merged video inserted to canvas`);
