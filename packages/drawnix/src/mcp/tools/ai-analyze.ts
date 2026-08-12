@@ -30,6 +30,14 @@ import {
 import type { KnowledgeContextRef } from '../../types/task.types';
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
 
+const GENERATION_CONTEXT_TOOLS = new Set([
+  'generate_image',
+  'generate_video',
+  'generate_long_video',
+  'generate_audio',
+  'generate_text',
+]);
+
 /**
  * AI 分析参数
  */
@@ -134,6 +142,9 @@ export const aiAnalyzeTool: MCPTool = {
         normalizedKnowledgeContextRefs.length > 0
           ? normalizedKnowledgeContextRefs
           : undefined,
+      canvasAssociations: context.canvasAssociations
+        ?.slice(0, 20)
+        .map((reference) => ({ ...reference })),
     };
 
     try {
@@ -168,16 +179,20 @@ export const aiAnalyzeTool: MCPTool = {
           );
           if (
             normalizedKnowledgeContextRefs.length > 0 &&
-            [
-              'generate_image',
-              'generate_video',
-              'generate_long_video',
-              'generate_audio',
-              'generate_text',
-            ].includes(toolCall.name) &&
+            GENERATION_CONTEXT_TOOLS.has(toolCall.name) &&
             !toolArgs.knowledgeContextRefs
           ) {
             toolArgs.knowledgeContextRefs = normalizedKnowledgeContextRefs;
+          }
+          if (GENERATION_CONTEXT_TOOLS.has(toolCall.name)) {
+            if (executionContext.canvasAssociations?.length) {
+              toolArgs.canvasAssociations =
+                executionContext.canvasAssociations.map((reference) => ({
+                  ...reference,
+                }));
+            } else {
+              delete toolArgs.canvasAssociations;
+            }
           }
 
           // 创建新的工作流步骤

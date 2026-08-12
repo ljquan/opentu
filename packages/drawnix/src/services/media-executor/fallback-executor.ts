@@ -67,6 +67,7 @@ import {
   pollVideoStatus,
   generateAsyncImage,
   ensureBase64ForAI,
+  materializeReferenceImagesSequentially,
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
@@ -83,6 +84,7 @@ import {
   resolveLegacyTaskInvocationRouteModel,
   shouldUseStrictTaskInvocationRoute,
 } from '../task-invocation-route';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 
 function isCurrentExecutionAttempt(options?: ExecutionOptions): boolean {
   return !options?.signal?.aborted && options?.isCurrentAttempt?.() !== false;
@@ -94,6 +96,24 @@ function assertCurrentExecutionAttempt(options?: ExecutionOptions): void {
     error.name = 'AbortError';
     throw error;
   }
+}
+
+function requireRestoredVirtualImage(
+  sourceUrl: string,
+  imageData: { type: string; value: string } | null | undefined
+): string {
+  const restoredValue =
+    typeof imageData?.value === 'string' ? imageData.value.trim() : '';
+  const payloadStart = restoredValue.indexOf(',');
+  if (
+    imageData?.type !== 'base64' ||
+    !/^data:image\/[a-z0-9.+-]+;base64,/i.test(restoredValue) ||
+    payloadStart < 0 ||
+    payloadStart === restoredValue.length - 1
+  ) {
+    throw new Error(`虚拟参考图片缓存不可用: ${sourceUrl}`);
+  }
+  return restoredValue;
 }
 
 function createStorageWriteGuard(options?: ExecutionOptions): {
@@ -417,15 +437,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       taskId,
     });
     try {
-      // 处理参考图片：统一转为 base64（API 要求），并行处理提升性能
+      // 处理参考图片：统一转为 base64（API 要求）
       let processedImages: string[] | undefined;
       if (referenceImages && referenceImages.length > 0) {
-        const t0 = performance.now();
-        processedImages = await Promise.all(
-          referenceImages.map(async (imgUrl) => {
-            const imageData = await unifiedCacheService.getImageForAI(imgUrl);
-            return ensureBase64ForAI(imageData, options?.signal);
-          })
+        processedImages = await materializeReferenceImagesSequentially(
+          referenceImages,
+          options
         );
       }
 
@@ -620,15 +637,12 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     });
 
     try {
-      // 处理参考图片：统一转为 base64（与同步路径一致），并行处理
+      // 处理参考图片：统一转为 base64（与同步路径一致）
       let processedImages: string[] | undefined;
       if (params.referenceImages && params.referenceImages.length > 0) {
-        const t0 = performance.now();
-        processedImages = await Promise.all(
-          params.referenceImages.map(async (imgUrl) => {
-            const imageData = await unifiedCacheService.getImageForAI(imgUrl);
-            return ensureBase64ForAI(imageData, options?.signal);
-          })
+        processedImages = await materializeReferenceImagesSequentially(
+          params.referenceImages,
+          options
         );
       }
       let processedMaskImage: string | undefined;
@@ -858,17 +872,14 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         (params.inputReference ? [params.inputReference] : undefined);
       let referenceImages: string[] | undefined;
       if (refUrls && refUrls.length > 0) {
-        const t0 = performance.now();
         const isVirtual = (u: string) =>
           u.startsWith('/__aitu_cache__/') || u.startsWith('/asset-library/');
-        referenceImages = await Promise.all(
-          refUrls.map(async (url) => {
-            if (isVirtual(url)) {
-              const imageData = await unifiedCacheService.getImageForAI(url);
-              return ensureBase64ForAI(imageData, options?.signal);
-            }
-            return url;
-          })
+        referenceImages = await materializeReferenceImagesSequentially(
+          refUrls,
+          {
+            ...options,
+            preserveUrl: (url) => !isVirtual(url),
+          }
         );
       }
       assertCurrentExecutionAttempt(options);
@@ -1204,6 +1215,22 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     });
     const modelName = model || config.textConfig.modelName;
     const normalizedPrompt = prompt.trim();
+    let resolvedReferenceImages = referenceImages;
+    if (referenceImages?.some(isVirtualMediaUrl)) {
+      resolvedReferenceImages = [];
+      for (const url of referenceImages) {
+        assertCurrentExecutionAttempt(options);
+        if (!isVirtualMediaUrl(url)) {
+          resolvedReferenceImages.push(url);
+          continue;
+        }
+        const imageData = await unifiedCacheService.getImageForAI(url);
+        resolvedReferenceImages.push(
+          requireRestoredVirtualImage(url, imageData)
+        );
+      }
+      assertCurrentExecutionAttempt(options);
+    }
     const messages: UnifiedGeminiMessage[] = [
       {
         role: 'user',
@@ -1212,7 +1239,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             ? [{ type: 'text' as const, text: normalizedPrompt }]
             : []),
           ...((inlineDataParts || []).map((part) => part) || []),
-          ...((referenceImages || []).map((url) => ({
+          ...((resolvedReferenceImages || []).map((url) => ({
             type: 'image_url' as const,
             image_url: { url },
           })) || []),
@@ -1279,7 +1306,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
               : null,
             prompt: normalizedPrompt,
             messages,
-            images: referenceImages,
+            images: resolvedReferenceImages,
             params: extraParams,
           })
         : null;

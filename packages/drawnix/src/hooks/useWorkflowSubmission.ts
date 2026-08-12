@@ -20,9 +20,15 @@ import {
 } from '../services/workflow-submission-service';
 import { useWorkflowControl } from '../contexts/WorkflowContext';
 import { useChatDrawerControl } from '../contexts/ChatDrawerContext';
-import type { WorkflowMessageData, WorkflowRetryContext } from '../types/chat.types';
+import type {
+  WorkflowMessageData,
+  WorkflowRetryContext,
+} from '../types/chat.types';
 import type { ParsedGenerationParams } from '../utils/ai-input-parser';
-import { convertToWorkflow, type WorkflowDefinition as LegacyWorkflowDefinition } from '../components/ai-input-bar/workflow-converter';
+import {
+  convertToWorkflow,
+  type WorkflowDefinition as LegacyWorkflowDefinition,
+} from '../components/ai-input-bar/workflow-converter';
 import { WorkZoneTransforms } from '../plugins/with-workzone';
 import { PlaitBoard } from '@plait/core';
 import { geminiSettings } from '../utils/settings-manager';
@@ -80,27 +86,40 @@ export interface UseWorkflowSubmissionReturn {
 /**
  * Handle canvas insert operation
  */
-async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): Promise<void> {
+async function handleCanvasInsert(
+  board: PlaitBoard,
+  event: CanvasInsertEvent
+): Promise<void> {
   const { operation, params } = event;
-  
+
   try {
     // Dynamically import canvas operations to avoid circular dependencies
     const { insertImageFromUrl } = await import('../data/image');
     const { insertVideoFromUrl } = await import('../data/video');
     const { insertAudioFromUrl } = await import('../data/audio');
     const { getSmartInsertionPoint } = await import('../utils/selection-utils');
-    
+
     // Get insertion point
-    const insertPoint = params.position 
-      ? [params.position.x, params.position.y] as [number, number]
-      : getSmartInsertionPoint(board) || [100, 100] as [number, number];
-    
+    const insertPoint = params.position
+      ? ([params.position.x, params.position.y] as [number, number])
+      : getSmartInsertionPoint(board) || ([100, 100] as [number, number]);
+
     if (operation === 'canvas_insert' && params.items) {
       // Handle batch insert
       for (const item of params.items) {
         if (item.type === 'image' && item.url) {
           // skipSelect: true - 工作流自动插入不选中新图片，避免覆盖用户当前选中状态
-          await insertImageFromUrl(board, item.url, insertPoint, false, undefined, undefined, undefined, undefined, true);
+          await insertImageFromUrl(
+            board,
+            item.url,
+            insertPoint,
+            false,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            true
+          );
         } else if (item.type === 'video' && item.url) {
           await insertVideoFromUrl(board, item.url, insertPoint);
         } else if (item.type === 'audio' && item.url) {
@@ -109,7 +128,17 @@ async function handleCanvasInsert(board: PlaitBoard, event: CanvasInsertEvent): 
       }
     } else if (operation === 'insert_image' && params.url) {
       // skipSelect: true - 工作流自动插入不选中新图片，避免覆盖用户当前选中状态
-      await insertImageFromUrl(board, params.url, insertPoint, false, undefined, undefined, undefined, undefined, true);
+      await insertImageFromUrl(
+        board,
+        params.url,
+        insertPoint,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true
+      );
     } else if (operation === 'insert_video' && params.url) {
       await insertVideoFromUrl(board, params.url, insertPoint);
     } else if ((operation as string) === 'insert_audio' && params.url) {
@@ -134,12 +163,17 @@ export function useWorkflowSubmission(
 
   // Refs for callbacks to avoid stale closures
   const sendWorkflowMessageRef = useRef(chatDrawerControl.sendWorkflowMessage);
-  const updateWorkflowMessageRef = useRef(chatDrawerControl.updateWorkflowMessage);
+  const updateWorkflowMessageRef = useRef(
+    chatDrawerControl.updateWorkflowMessage
+  );
 
   useEffect(() => {
     sendWorkflowMessageRef.current = chatDrawerControl.sendWorkflowMessage;
     updateWorkflowMessageRef.current = chatDrawerControl.updateWorkflowMessage;
-  }, [chatDrawerControl.sendWorkflowMessage, chatDrawerControl.updateWorkflowMessage]);
+  }, [
+    chatDrawerControl.sendWorkflowMessage,
+    chatDrawerControl.updateWorkflowMessage,
+  ]);
 
   // Sync task queue state changes to workflow steps (retry → Workzone/ChatDrawer)
   useTaskWorkflowSync({
@@ -160,15 +194,21 @@ export function useWorkflowSubmission(
   const hasRecoveredRef = useRef(false);
 
   // Ref to hold handleWorkflowEvent to avoid TDZ issues
-  const handleWorkflowEventRef = useRef<((
-    event: WorkflowEvent,
-    legacyWorkflow: LegacyWorkflowDefinition,
-    retryContext: WorkflowRetryContext
-  ) => Promise<void>) | null>(null);
+  const handleWorkflowEventRef = useRef<
+    | ((
+        event: WorkflowEvent,
+        legacyWorkflow: LegacyWorkflowDefinition,
+        retryContext: WorkflowRetryContext
+      ) => Promise<void>)
+    | null
+  >(null);
 
   const shouldSyncWorkZone = useCallback(
-    (generationType?: WorkflowMessageData['generationType'] | LegacyWorkflowDefinition['generationType']) =>
-      generationType !== 'image',
+    (
+      generationType?:
+        | WorkflowMessageData['generationType']
+        | LegacyWorkflowDefinition['generationType']
+    ) => generationType !== 'image',
     []
   );
 
@@ -182,7 +222,10 @@ export function useWorkflowSubmission(
     try {
       await workflowSubmissionService.recoverWorkflows();
     } catch (error) {
-      console.warn('[useWorkflowSubmission] Failed to recover workflows:', error);
+      console.warn(
+        '[useWorkflowSubmission] Failed to recover workflows:',
+        error
+      );
     } finally {
       workflowRecoveryResolve?.();
     }
@@ -203,14 +246,18 @@ export function useWorkflowSubmission(
     const eventSub = workflowSubmissionService.subscribeToAllEvents(
       (event: WorkflowEvent) => {
         if (event.type === 'recovered' && event.workflow) {
-          const recoveredWorkflow = event.workflow as unknown as LegacyWorkflowDefinition;
-          
+          const recoveredWorkflow =
+            event.workflow as unknown as LegacyWorkflowDefinition;
+
           // 只恢复活跃状态和最近失败的工作流
-          const isActive = recoveredWorkflow.status === 'running' || recoveredWorkflow.status === 'pending';
-          const isRecentlyFailed = recoveredWorkflow.status === 'failed' && 
-            recoveredWorkflow.updatedAt && 
-            (Date.now() - recoveredWorkflow.updatedAt) < 5 * 60 * 1000;
-          
+          const isActive =
+            recoveredWorkflow.status === 'running' ||
+            recoveredWorkflow.status === 'pending';
+          const isRecentlyFailed =
+            recoveredWorkflow.status === 'failed' &&
+            recoveredWorkflow.updatedAt &&
+            Date.now() - recoveredWorkflow.updatedAt < 5 * 60 * 1000;
+
           if (!isActive && !isRecentlyFailed) return;
 
           workflowControl.restoreWorkflow?.(recoveredWorkflow);
@@ -231,7 +278,9 @@ export function useWorkflowSubmission(
                 isExplicit: true,
               },
               defaultModels: {
-                image: globalSettings.imageModelName || 'gemini-3-pro-image-preview-vip',
+                image:
+                  globalSettings.imageModelName ||
+                  'gemini-3-pro-image-preview-vip',
                 video: globalSettings.videoModelName || 'veo3.1',
                 audio: globalSettings.audioModelName || 'suno_music',
               } as any,
@@ -243,12 +292,18 @@ export function useWorkflowSubmission(
               },
               selection: { texts: [], images: [], videos: [], graphics: [] },
               finalPrompt: recoveredWorkflow.metadata?.prompt || '',
+              canvasAssociations:
+                recoveredWorkflow.context?.canvasAssociations ||
+                recoveredWorkflow.metadata?.canvasAssociations,
             } as any,
             referenceImages: recoveredWorkflow.context?.referenceImages || [],
             textModel: globalSettings.textModelName,
           };
 
-          const workflowData = toWorkflowMessageData(recoveredWorkflow, retryContext);
+          const workflowData = toWorkflowMessageData(
+            recoveredWorkflow,
+            retryContext
+          );
           updateWorkflowMessageRef.current(workflowData);
 
           const board = boardRef.current;
@@ -264,7 +319,11 @@ export function useWorkflowSubmission(
           const workflowSub = workflowSubmissionService.subscribeToWorkflow(
             recoveredWorkflow.id,
             async (evt: WorkflowEvent) => {
-              await handleWorkflowEventRef.current?.(evt, recoveredWorkflow, retryContext);
+              await handleWorkflowEventRef.current?.(
+                evt,
+                recoveredWorkflow,
+                retryContext
+              );
             }
           );
           subscriptionsRef.current.push(workflowSub);
@@ -277,7 +336,7 @@ export function useWorkflowSubmission(
     recoverWorkflowsOnMount();
 
     return () => {
-      subscriptionsRef.current.forEach(sub => sub.unsubscribe());
+      subscriptionsRef.current.forEach((sub) => sub.unsubscribe());
       subscriptionsRef.current = [];
     };
   }, []);
@@ -285,167 +344,211 @@ export function useWorkflowSubmission(
   /**
    * Handle workflow events
    */
-  const handleWorkflowEvent = useCallback(async (
-    event: WorkflowEvent,
-    legacyWorkflow: LegacyWorkflowDefinition,
-    retryContext: WorkflowRetryContext
-  ) => {
-    const board = boardRef.current;
-    const workZoneId = workZoneIdRef.current;
-    const syncWorkZone = shouldSyncWorkZone(legacyWorkflow.generationType);
+  const handleWorkflowEvent = useCallback(
+    async (
+      event: WorkflowEvent,
+      legacyWorkflow: LegacyWorkflowDefinition,
+      retryContext: WorkflowRetryContext
+    ) => {
+      const board = boardRef.current;
+      const workZoneId = workZoneIdRef.current;
+      const syncWorkZone = shouldSyncWorkZone(legacyWorkflow.generationType);
 
-    switch (event.type) {
-      case 'step': {
-        // console.log('[useWorkflowSubmission] Step event:', event.stepId, '->', event.status);
-        // Update step in WorkflowContext
-        workflowControl.updateStep(
-          event.stepId,
-          event.status as any,
-          event.result,
-          event.error,
-          event.duration
-        );
+      switch (event.type) {
+        case 'step': {
+          // console.log('[useWorkflowSubmission] Step event:', event.stepId, '->', event.status);
+          // Update step in WorkflowContext
+          workflowControl.updateStep(
+            event.stepId,
+            event.status as any,
+            event.result,
+            event.error,
+            event.duration
+          );
 
-        // Sync to ChatDrawer and WorkZone
-        const updatedWorkflow = workflowControl.getWorkflow();
-        if (updatedWorkflow) {
-          const workflowData = toWorkflowMessageData(updatedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-          }
-        }
-        break;
-      }
-
-      case 'completed': {
-
-        // Update steps to completed status, but skip steps with taskId (they're waiting for task completion)
-        const currentWorkflow = workflowControl.getWorkflow();
-        let hasQueuedTasks = false;
-        
-        if (currentWorkflow) {
-          // Mark remaining steps as completed, except those with taskId (queue tasks)
-          currentWorkflow.steps.forEach(step => {
-            const stepResult = step.result as { taskId?: string } | undefined;
-            const hasTaskId = stepResult?.taskId;
-            
-            // 检查所有状态的步骤是否有 taskId
-            if (hasTaskId) {
-              hasQueuedTasks = true;
-              // console.log('[useWorkflowSubmission] Step has taskId:', step.id, step.mcp, 'taskId:', hasTaskId);
-            }
-            
-            // 只更新 running/pending 状态的步骤（如果没有 taskId 的话）
-            if ((step.status === 'running' || step.status === 'pending') && !hasTaskId) {
-              workflowControl.updateStep(step.id, 'completed');
-            }
-          });
-        }
-
-        // Sync final state to ChatDrawer and WorkZone
-        const completedWorkflow = workflowControl.getWorkflow();
-        if (completedWorkflow) {
-          const workflowData = toWorkflowMessageData(completedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
-
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
-            
-            // 检查是否还有 pending 或 running 步骤（AI 分析可能会添加后续步骤）
-            const hasPendingSteps = completedWorkflow.steps.some(
-              step => step.status === 'pending' || step.status === 'running'
+          // Sync to ChatDrawer and WorkZone
+          const updatedWorkflow = workflowControl.getWorkflow();
+          if (updatedWorkflow) {
+            const workflowData = toWorkflowMessageData(
+              updatedWorkflow,
+              retryContext
             );
-            
-            // 如果还有 pending 步骤，不要删除 WorkZone
-            if (hasPendingSteps) {
-              // console.log('[useWorkflowSubmission] Workflow has pending steps, not removing WorkZone');
-              break;
-            }
-            
-            // If no queued tasks (like generate_image), remove WorkZone after a delay
-            // Queued tasks will be handled by useAutoInsertToCanvas when they complete AND are inserted
-            if (!hasQueuedTasks) {
-              setTimeout(() => {
-                WorkZoneTransforms.removeWorkZone(board, workZoneId);
-              }, 1500);
-            } else {
-              // 检查是否所有队列任务的后处理已经完成（可能在工作流完成前就已经插入了）
-              const { workflowCompletionService } = await import('../services/workflow-completion-service');
-              const allPostProcessingFinished = completedWorkflow.steps.every(step => {
-                const stepResult = step.result as { taskId?: string } | undefined;
-                if (stepResult?.taskId) {
-                  const isCompleted = workflowCompletionService.isPostProcessingCompleted(stepResult.taskId);
-                  return isCompleted;
-                }
-                return true;
-              });
+            updateWorkflowMessageRef.current(workflowData);
 
-              if (allPostProcessingFinished) {
+            if (syncWorkZone && workZoneId && board) {
+              WorkZoneTransforms.updateWorkflow(
+                board,
+                workZoneId,
+                workflowData
+              );
+            }
+          }
+          break;
+        }
+
+        case 'completed': {
+          // Update steps to completed status, but skip steps with taskId (they're waiting for task completion)
+          const currentWorkflow = workflowControl.getWorkflow();
+          let hasQueuedTasks = false;
+
+          if (currentWorkflow) {
+            // Mark remaining steps as completed, except those with taskId (queue tasks)
+            currentWorkflow.steps.forEach((step) => {
+              const stepResult = step.result as { taskId?: string } | undefined;
+              const hasTaskId = stepResult?.taskId;
+
+              // 检查所有状态的步骤是否有 taskId
+              if (hasTaskId) {
+                hasQueuedTasks = true;
+                // console.log('[useWorkflowSubmission] Step has taskId:', step.id, step.mcp, 'taskId:', hasTaskId);
+              }
+
+              // 只更新 running/pending 状态的步骤（如果没有 taskId 的话）
+              if (
+                (step.status === 'running' || step.status === 'pending') &&
+                !hasTaskId
+              ) {
+                workflowControl.updateStep(step.id, 'completed');
+              }
+            });
+          }
+
+          // Sync final state to ChatDrawer and WorkZone
+          const completedWorkflow = workflowControl.getWorkflow();
+          if (completedWorkflow) {
+            const workflowData = toWorkflowMessageData(
+              completedWorkflow,
+              retryContext
+            );
+            updateWorkflowMessageRef.current(workflowData);
+
+            if (syncWorkZone && workZoneId && board) {
+              WorkZoneTransforms.updateWorkflow(
+                board,
+                workZoneId,
+                workflowData
+              );
+
+              // 检查是否还有 pending 或 running 步骤（AI 分析可能会添加后续步骤）
+              const hasPendingSteps = completedWorkflow.steps.some(
+                (step) => step.status === 'pending' || step.status === 'running'
+              );
+
+              // 如果还有 pending 步骤，不要删除 WorkZone
+              if (hasPendingSteps) {
+                // console.log('[useWorkflowSubmission] Workflow has pending steps, not removing WorkZone');
+                break;
+              }
+
+              // If no queued tasks (like generate_image), remove WorkZone after a delay
+              // Queued tasks will be handled by useAutoInsertToCanvas when they complete AND are inserted
+              if (!hasQueuedTasks) {
                 setTimeout(() => {
                   WorkZoneTransforms.removeWorkZone(board, workZoneId);
                 }, 1500);
+              } else {
+                // 检查是否所有队列任务的后处理已经完成（可能在工作流完成前就已经插入了）
+                const { workflowCompletionService } = await import(
+                  '../services/workflow-completion-service'
+                );
+                const allPostProcessingFinished = completedWorkflow.steps.every(
+                  (step) => {
+                    const stepResult = step.result as
+                      | { taskId?: string }
+                      | undefined;
+                    if (stepResult?.taskId) {
+                      const isCompleted =
+                        workflowCompletionService.isPostProcessingCompleted(
+                          stepResult.taskId
+                        );
+                      return isCompleted;
+                    }
+                    return true;
+                  }
+                );
+
+                if (allPostProcessingFinished) {
+                  setTimeout(() => {
+                    WorkZoneTransforms.removeWorkZone(board, workZoneId);
+                  }, 1500);
+                }
               }
             }
           }
+          break;
         }
-        break;
-      }
 
-      case 'failed': {
-        workflowControl.abortWorkflow();
+        case 'failed': {
+          workflowControl.abortWorkflow();
 
-        // Sync failed state to ChatDrawer and WorkZone
-        const failedWorkflow = workflowControl.getWorkflow();
-        if (failedWorkflow) {
-          const workflowData = toWorkflowMessageData(failedWorkflow, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
+          // Sync failed state to ChatDrawer and WorkZone
+          const failedWorkflow = workflowControl.getWorkflow();
+          if (failedWorkflow) {
+            const workflowData = toWorkflowMessageData(
+              failedWorkflow,
+              retryContext
+            );
+            updateWorkflowMessageRef.current(workflowData);
 
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
+            if (syncWorkZone && workZoneId && board) {
+              WorkZoneTransforms.updateWorkflow(
+                board,
+                workZoneId,
+                workflowData
+              );
+            }
           }
+          break;
         }
-        break;
-      }
 
-      case 'steps_added': {
-        // console.log('[useWorkflowSubmission] Steps added:', event.steps?.length);
-        // Add new steps to WorkflowContext
-        const stepsAddedEvent = event as WorkflowStepsAddedEvent;
-        workflowControl.addSteps(stepsAddedEvent.steps.map((step: any) => ({
-          id: step.id,
-          mcp: step.mcp,
-          args: step.args,
-          description: step.description,
-          status: step.status,
-        })));
+        case 'steps_added': {
+          // console.log('[useWorkflowSubmission] Steps added:', event.steps?.length);
+          // Add new steps to WorkflowContext
+          const stepsAddedEvent = event as WorkflowStepsAddedEvent;
+          workflowControl.addSteps(
+            stepsAddedEvent.steps.map((step: any) => ({
+              id: step.id,
+              mcp: step.mcp,
+              args: step.args,
+              description: step.description,
+              status: step.status,
+            }))
+          );
 
-        // Sync to ChatDrawer and WorkZone
-        const workflowWithNewSteps = workflowControl.getWorkflow();
-        if (workflowWithNewSteps) {
-          const workflowData = toWorkflowMessageData(workflowWithNewSteps, retryContext);
-          updateWorkflowMessageRef.current(workflowData);
+          // Sync to ChatDrawer and WorkZone
+          const workflowWithNewSteps = workflowControl.getWorkflow();
+          if (workflowWithNewSteps) {
+            const workflowData = toWorkflowMessageData(
+              workflowWithNewSteps,
+              retryContext
+            );
+            updateWorkflowMessageRef.current(workflowData);
 
-          if (syncWorkZone && workZoneId && board) {
-            WorkZoneTransforms.updateWorkflow(board, workZoneId, workflowData);
+            if (syncWorkZone && workZoneId && board) {
+              WorkZoneTransforms.updateWorkflow(
+                board,
+                workZoneId,
+                workflowData
+              );
+            }
           }
+          break;
         }
-        break;
-      }
 
-      case 'canvas_insert': {
-        // Handle canvas insert operation
-        const canvasEvent = event as CanvasInsertEvent;
-        // console.log('[useWorkflowSubmission] Canvas insert:', canvasEvent.operation, canvasEvent.params);
-        
-        if (board) {
-          handleCanvasInsert(board, canvasEvent);
+        case 'canvas_insert': {
+          // Handle canvas insert operation
+          const canvasEvent = event as CanvasInsertEvent;
+          // console.log('[useWorkflowSubmission] Canvas insert:', canvasEvent.operation, canvasEvent.params);
+
+          if (board) {
+            handleCanvasInsert(board, canvasEvent);
+          }
+          break;
         }
-        break;
       }
-    }
-  }, [workflowControl, boardRef, workZoneIdRef, shouldSyncWorkZone]);
+    },
+    [workflowControl, boardRef, workZoneIdRef, shouldSyncWorkZone]
+  );
 
   // Update ref when handleWorkflowEvent changes
   useEffect(() => {
@@ -455,132 +558,158 @@ export function useWorkflowSubmission(
   /**
    * Submit a workflow (always uses main thread)
    */
-  const submitWorkflow = useCallback(async (
-    parsedInput: ParsedGenerationParams,
-    referenceImages: string[],
-    retryContext?: WorkflowRetryContext,
-    existingWorkflow?: LegacyWorkflowDefinition,
-    options?: {
-      appendToCurrentChatSession?: boolean;
-    }
-  ): Promise<{ workflowId: string; usedSW: boolean }> => {
-    // Use existing workflow if provided, otherwise create a new one
-    const legacyWorkflow = existingWorkflow || convertToWorkflow(parsedInput, referenceImages);
+  const submitWorkflow = useCallback(
+    async (
+      parsedInput: ParsedGenerationParams,
+      referenceImages: string[],
+      retryContext?: WorkflowRetryContext,
+      existingWorkflow?: LegacyWorkflowDefinition,
+      options?: {
+        appendToCurrentChatSession?: boolean;
+      }
+    ): Promise<{ workflowId: string; usedSW: boolean }> => {
+      // Use existing workflow if provided, otherwise create a new one
+      const legacyWorkflow =
+        existingWorkflow || convertToWorkflow(parsedInput, referenceImages);
 
-    // Start workflow in WorkflowContext
-    workflowControl.startWorkflow(legacyWorkflow);
+      // Start workflow in WorkflowContext
+      workflowControl.startWorkflow(legacyWorkflow);
 
-    // Build retry context
-    const globalSettings = geminiSettings.get();
-    const textModel = globalSettings.textModelName;
+      // Build retry context
+      const globalSettings = geminiSettings.get();
+      const textModel = globalSettings.textModelName;
 
-    const finalRetryContext: WorkflowRetryContext = retryContext || {
-      aiContext: {
-        rawInput: parsedInput.rawInput || parsedInput.userInstruction,
-        userInstruction: parsedInput.userInstruction,
-        model: {
-          id: parsedInput.modelId,
-          type: parsedInput.generationType,
-          isExplicit: parsedInput.isModelExplicit,
-        },
-        modelRef: parsedInput.modelRef,
-        defaultModels: {
-          image:
-            parsedInput.defaultModels?.image ||
-            globalSettings.imageModelName ||
-            'gemini-3-pro-image-preview-vip',
-          video:
-            parsedInput.defaultModels?.video ||
-            globalSettings.videoModelName ||
-            'veo3.1',
-          audio:
-            parsedInput.defaultModels?.audio ||
-            globalSettings.audioModelName ||
-            'suno_music',
-        },
-        defaultModelRefs: parsedInput.defaultModelRefs,
-        params: {
-          count: parsedInput.count,
-          size: parsedInput.size,
-          duration: parsedInput.duration,
-        },
-        selection: parsedInput.selection || { texts: [], images: [], videos: [], graphics: [] },
-        finalPrompt: parsedInput.prompt,
-        knowledgeContextRefs: parsedInput.knowledgeContextRefs,
-      },
-      referenceImages,
-      textModel,
-    } as any;
-    currentRetryContextRef.current = finalRetryContext;
+      const finalRetryContext: WorkflowRetryContext =
+        retryContext ||
+        ({
+          aiContext: {
+            rawInput: parsedInput.rawInput || parsedInput.userInstruction,
+            userInstruction: parsedInput.userInstruction,
+            model: {
+              id: parsedInput.modelId,
+              type: parsedInput.generationType,
+              isExplicit: parsedInput.isModelExplicit,
+            },
+            modelRef: parsedInput.modelRef,
+            defaultModels: {
+              image:
+                parsedInput.defaultModels?.image ||
+                globalSettings.imageModelName ||
+                'gemini-3-pro-image-preview-vip',
+              video:
+                parsedInput.defaultModels?.video ||
+                globalSettings.videoModelName ||
+                'veo3.1',
+              audio:
+                parsedInput.defaultModels?.audio ||
+                globalSettings.audioModelName ||
+                'suno_music',
+            },
+            defaultModelRefs: parsedInput.defaultModelRefs,
+            params: {
+              count: parsedInput.count,
+              size: parsedInput.size,
+              duration: parsedInput.duration,
+            },
+            selection: parsedInput.selection || {
+              texts: [],
+              images: [],
+              videos: [],
+              graphics: [],
+            },
+            finalPrompt: parsedInput.prompt,
+            knowledgeContextRefs: parsedInput.knowledgeContextRefs,
+            canvasAssociations: parsedInput.canvasAssociations,
+          },
+          referenceImages,
+          textModel,
+        } as any);
+      currentRetryContextRef.current = finalRetryContext;
 
-    // Send to ChatDrawer
-    const workflowMessageData = toWorkflowMessageData(legacyWorkflow, finalRetryContext);
-    await sendWorkflowMessageRef.current({
-      context: finalRetryContext.aiContext,
-      workflow: workflowMessageData,
-      textModel,
-      autoOpen: false,
-      appendToCurrentSession: options?.appendToCurrentChatSession,
-    });
+      // Send to ChatDrawer
+      const workflowMessageData = toWorkflowMessageData(
+        legacyWorkflow,
+        finalRetryContext
+      );
+      await sendWorkflowMessageRef.current({
+        context: finalRetryContext.aiContext,
+        workflow: workflowMessageData,
+        textModel,
+        autoOpen: false,
+        appendToCurrentSession: options?.appendToCurrentChatSession,
+      });
 
-    // Always use main thread execution
-    return { workflowId: legacyWorkflow.id, usedSW: false };
-  }, [workflowControl]);
+      // Always use main thread execution
+      return { workflowId: legacyWorkflow.id, usedSW: false };
+    },
+    [workflowControl]
+  );
 
   /**
    * Cancel a workflow
    */
-  const cancelWorkflow = useCallback(async (workflowId: string): Promise<void> => {
-    await workflowSubmissionService.cancel(workflowId);
-    workflowControl.abortWorkflow();
-  }, [workflowControl]);
+  const cancelWorkflow = useCallback(
+    async (workflowId: string): Promise<void> => {
+      await workflowSubmissionService.cancel(workflowId);
+      workflowControl.abortWorkflow();
+    },
+    [workflowControl]
+  );
 
   /**
    * Retry a workflow from a specific step
    */
-  const retryWorkflow = useCallback(async (
-    workflowMessageData: WorkflowMessageData,
-    startStepIndex: number
-  ): Promise<void> => {
-    const retryContext = workflowMessageData.retryContext;
-    if (!retryContext) {
-      console.error('[useWorkflowSubmission] No retry context available');
-      return;
-    }
+  const retryWorkflow = useCallback(
+    async (
+      workflowMessageData: WorkflowMessageData,
+      startStepIndex: number
+    ): Promise<void> => {
+      const retryContext = workflowMessageData.retryContext;
+      if (!retryContext) {
+        console.error('[useWorkflowSubmission] No retry context available');
+        return;
+      }
 
-    // console.log(`[useWorkflowSubmission] Retrying from step ${startStepIndex}`);
+      // console.log(`[useWorkflowSubmission] Retrying from step ${startStepIndex}`);
 
-    // Reconstruct parsed input from retry context
-    const parsedInput: ParsedGenerationParams = {
-      prompt: workflowMessageData.prompt,
-      userInstruction: retryContext.aiContext.userInstruction,
-      rawInput: retryContext.aiContext.rawInput,
-      modelId: retryContext.aiContext.model.id,
-      modelRef: retryContext.aiContext.modelRef,
-      defaultModels: retryContext.aiContext.defaultModels,
-      defaultModelRefs: retryContext.aiContext.defaultModelRefs,
-      isModelExplicit: retryContext.aiContext.model.isExplicit,
-      generationType: retryContext.aiContext.model.type as
-        | 'image'
-        | 'video'
-        | 'audio'
-        | 'text'
-        | 'agent',
-      count: workflowMessageData.count || 1,
-      size: retryContext.aiContext.params.size,
-      duration: retryContext.aiContext.params.duration,
-      scenario:
-        retryContext.aiContext.model.type === 'agent'
-          ? 'agent_flow'
-          : 'direct_generation',
-      selection: retryContext.aiContext.selection,
-      parseResult: {} as any, // Not needed for retry
-      hasExtraContent: false,
-    };
+      // Reconstruct parsed input from retry context
+      const parsedInput: ParsedGenerationParams = {
+        prompt: workflowMessageData.prompt,
+        userInstruction: retryContext.aiContext.userInstruction,
+        rawInput: retryContext.aiContext.rawInput,
+        modelId: retryContext.aiContext.model.id,
+        modelRef: retryContext.aiContext.modelRef,
+        defaultModels: retryContext.aiContext.defaultModels,
+        defaultModelRefs: retryContext.aiContext.defaultModelRefs,
+        isModelExplicit: retryContext.aiContext.model.isExplicit,
+        generationType: retryContext.aiContext.model.type as
+          | 'image'
+          | 'video'
+          | 'audio'
+          | 'text'
+          | 'agent',
+        count: workflowMessageData.count || 1,
+        size: retryContext.aiContext.params.size,
+        duration: retryContext.aiContext.params.duration,
+        scenario:
+          retryContext.aiContext.model.type === 'agent'
+            ? 'agent_flow'
+            : 'direct_generation',
+        selection: retryContext.aiContext.selection,
+        canvasAssociations: retryContext.aiContext.canvasAssociations,
+        parseResult: {} as any, // Not needed for retry
+        hasExtraContent: false,
+      };
 
-    // Submit as new workflow
-    await submitWorkflow(parsedInput, retryContext.referenceImages || [], retryContext);
-  }, [submitWorkflow]);
+      // Submit as new workflow
+      await submitWorkflow(
+        parsedInput,
+        retryContext.referenceImages || [],
+        retryContext
+      );
+    },
+    [submitWorkflow]
+  );
 
   /**
    * Get current retry context

@@ -367,7 +367,8 @@ export const insertImageFromUrl = async (
   // 如果为 true，图片加载后不再按真实比例改写尺寸
   lockReferenceDimensions?: boolean,
   // 如果为 true，插入图片后不自动选中（用于自动插入场景，避免覆盖用户当前选中状态）
-  skipSelect?: boolean
+  skipSelect?: boolean,
+  boardGuard?: () => boolean
 ) => {
   // 外部 URL 和 data URL 先缓存到本地
   let resolvedUrl = normalizeImageDataUrl(imageUrl);
@@ -387,6 +388,9 @@ export const insertImageFromUrl = async (
     if (cachedUrl !== resolvedUrl) {
       resolvedUrl = cachedUrl;
     }
+    if (boardGuard && !boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
   }
 
   if (!startPoint && !isDrop && !referenceDimensions) {
@@ -396,9 +400,11 @@ export const insertImageFromUrl = async (
     const inserted = await insertMediaIntoSelectedFrame(
       board,
       resolvedUrl,
-      'image'
+      'image',
+      undefined,
+      { boardGuard }
     );
-    if (inserted) return;
+    if (inserted) return inserted.elementId;
   }
   // console.log(`[insertImageFromUrl] Called with:`, {
   //   imageUrl: imageUrl?.substring(0, 80),
@@ -435,6 +441,9 @@ export const insertImageFromUrl = async (
     // 使用带重试的图片加载函数，支持自动绕过 SW
     // console.log(`[insertImageFromUrl] Loading image with retry...`);
     const image = await loadImageElementForCanvas(resolvedUrl as DataURL);
+    if (boardGuard && !boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
     imageItem = buildImage(
       image,
       resolvedUrl as DataURL,
@@ -449,7 +458,7 @@ export const insertImageFromUrl = async (
   if (isDrop && element && MindElement.isMindElement(board, element)) {
     MindTransforms.setImage(board, element as MindElement, imageItem);
     // console.log(`[insertImageFromUrl] Set image to MindElement`);
-    return;
+    return element.id;
   }
 
   // 处理插入点逻辑
@@ -487,7 +496,13 @@ export const insertImageFromUrl = async (
   // 记录插入前的 children 数量，用于后续找到新插入的元素
   const childrenCountBefore = board.children.length;
 
+  if (boardGuard && !boardGuard()) {
+    throw new Error('画板已切换，取消本次插入');
+  }
+
   DrawTransforms.insertImage(board, imageItem, insertionPoint);
+  const newElement = board.children[childrenCountBefore];
+  const insertedElementId = newElement?.id;
 
   // 埋点：图片插入画布
   analytics.track('asset_insert_canvas', {
@@ -503,7 +518,6 @@ export const insertImageFromUrl = async (
 
   // 选中新插入的图片元素（如果没有跳过选中）
   if (!skipSelect) {
-    const newElement = board.children[childrenCountBefore];
     if (newElement) {
       clearSelectedElement(board);
       addSelectedElement(board, newElement);
@@ -512,14 +526,11 @@ export const insertImageFromUrl = async (
 
   // 如果跳过了图片加载，异步加载图片并更新元素尺寸
   if (shouldUpdateSizeAfterLoad && referenceDimensions) {
-    // 同步捕获新插入元素的 ID，避免异步回调中索引失效
-    const newElement = board.children[childrenCountBefore] as any;
-    const elementId = newElement?.id as string | undefined;
-    if (elementId) {
+    if (insertedElementId) {
       updateImageSizeAfterLoad(
         board,
         resolvedUrl,
-        elementId,
+        insertedElementId,
         referenceDimensions
       );
     }
@@ -538,6 +549,8 @@ export const insertImageFromUrl = async (
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
+
+  return insertedElementId;
 };
 
 /**

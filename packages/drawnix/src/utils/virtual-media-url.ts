@@ -2,6 +2,7 @@ export const ASSET_LIBRARY_URL_PREFIX = '/asset-library/';
 export const CACHE_URL_PREFIX = '/__aitu_cache__/';
 export const AI_GENERATED_URL_PREFIX = '/__aitu_generated__/';
 export const AI_GENERATED_AUDIO_URL_PREFIX = `${AI_GENERATED_URL_PREFIX}audio/`;
+export const SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH = 16 * 1024 * 1024;
 
 type Ipv4Parts = [number, number, number, number];
 
@@ -156,6 +157,73 @@ export function isPublicHttpMediaUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isVirtualAudioMediaUrl(value: string): boolean {
+  const path = normalizeVirtualMediaUrl(value).toLowerCase();
+  return (
+    path.startsWith(AI_GENERATED_AUDIO_URL_PREFIX) ||
+    path.startsWith(`${CACHE_URL_PREFIX}audio/`) ||
+    (path.startsWith(ASSET_LIBRARY_URL_PREFIX) &&
+      /\.(?:aac|flac|m4a|mp3|ogg|opus|wav|webm)$/.test(path))
+  );
+}
+
+export function isSeedanceAudioReference(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (isPublicHttpMediaUrl(normalized)) return true;
+  if (isVirtualAudioMediaUrl(normalized)) return true;
+  if (normalized.toLowerCase().startsWith('asset://')) {
+    return /^asset:\/\/[a-z0-9][a-z0-9._/-]*$/i.test(normalized);
+  }
+  if (normalized.startsWith('data:audio/')) {
+    if (normalized.length > SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH) return false;
+    const separatorIndex = normalized.indexOf(',');
+    if (separatorIndex < 0) return false;
+    const header = normalized.slice(0, separatorIndex);
+    if (!/^data:audio\/[a-z0-9.+-]+;base64$/.test(header)) return false;
+    const payloadStart = separatorIndex + 1;
+    const payloadLength = normalized.length - payloadStart;
+    if (payloadLength <= 0 || payloadLength % 4 !== 0) return false;
+
+    const paddingIndex = normalized.indexOf('=', payloadStart);
+    const dataEnd = paddingIndex < 0 ? normalized.length : paddingIndex;
+    if (normalized.length - dataEnd > 2) return false;
+    for (let index = payloadStart; index < dataEnd; index += 1) {
+      const code = normalized.charCodeAt(index);
+      const valid =
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code === 43 ||
+        code === 47;
+      if (!valid) return false;
+    }
+    for (let index = dataEnd; index < normalized.length; index += 1) {
+      if (normalized.charCodeAt(index) !== 61) return false;
+    }
+    return true;
+  }
+
+  return (
+    normalized.length <= 512 &&
+    /^[a-z0-9][a-z0-9._/-]*$/i.test(normalized) &&
+    !normalized.toLowerCase().startsWith('blob:')
+  );
+}
+
+export function areSeedanceAudioDataUrlsWithinLimit(
+  values: readonly string[]
+): boolean {
+  let totalLength = 0;
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized.startsWith('data:audio/')) continue;
+    totalLength += normalized.length;
+    if (totalLength > SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH) return false;
+  }
+  return true;
 }
 
 export function normalizeVirtualMediaUrl(url: string): string {

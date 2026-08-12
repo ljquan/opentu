@@ -4,7 +4,13 @@
  * 将AI生成的内容（文本、图片、视频）插入到画布中
  */
 
-import { PlaitBoard, Point } from '@plait/core';
+import {
+  createBoard,
+  PlaitBoard,
+  Point,
+  Transforms,
+  type PlaitElement,
+} from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
 import {
   insertImageFromUrl,
@@ -45,7 +51,12 @@ import {
   svgToDataUrl,
 } from '../../utils/svg-utils';
 
-export { setCanvasBoard, getCanvasBoard } from './canvas-board-ref';
+export {
+  setCanvasBoard,
+  clearCanvasBoard,
+  getCanvasBoard,
+  getCanvasBoardBinding,
+} from './canvas-board-ref';
 
 export { parseSizeToPixels };
 
@@ -88,6 +99,8 @@ export interface CanvasInsertionParams {
   verticalGap?: number;
   /** 水平间距（默认20px） */
   horizontalGap?: number;
+  /** 画板切换后阻止异步插入写入复用的 Board 实例。 */
+  boardGuard?: () => boolean;
 }
 
 export interface CanvasInsertionResultItem {
@@ -122,29 +135,58 @@ async function insertTextToCanvas(
   text: string,
   point: Point,
   title?: string,
-  cardWidth: number = getViewportAwareCardWidth(board)
-): Promise<{ width: number; height: number }> {
+  cardWidth: number = getViewportAwareCardWidth(board),
+  boardGuard?: () => boolean
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
+  if (boardGuard && !boardGuard()) {
+    throw new Error('画板已切换，取消本次插入');
+  }
   // 有 title 时，直接以 Card 方式插入（跳过 Markdown 检测）
   if (title) {
-    insertCardsToCanvas(board, [{ title, body: text }], point, cardWidth);
-    return { width: cardWidth, height: 120 };
+    const insertedIds = insertCardsToCanvas(
+      board,
+      [{ title, body: text }],
+      point,
+      cardWidth,
+      true
+    );
+    return {
+      elementId: insertedIds[0],
+      size: { width: cardWidth, height: 120 },
+    };
   }
 
   // 尝试解析为 Markdown Card 块
   const cardBlocks = parseMarkdownToCards(text);
   if (cardBlocks && cardBlocks.length > 0) {
-    insertCardsToCanvas(board, cardBlocks, point, cardWidth);
+    const insertedIds = insertCardsToCanvas(
+      board,
+      cardBlocks,
+      point,
+      cardWidth,
+      true
+    );
     const cols = Math.min(cardBlocks.length, 3);
     const rows = Math.ceil(cardBlocks.length / 3);
     return {
-      width: cols * (cardWidth + 20) - 20,
-      height: rows * (120 + 20) - 20,
+      elementId: insertedIds[0],
+      size: {
+        width: cols * (cardWidth + 20) - 20,
+        height: rows * (120 + 20) - 20,
+      },
     };
   }
 
   // 普通文本 → 直接插入
+  const childrenCountBefore = board.children.length;
   DrawTransforms.insertText(board, point, text);
-  return estimateCanvasTextSize(text);
+  const insertedElement = board.children[childrenCountBefore] as
+    | { id?: string }
+    | undefined;
+  return {
+    elementId: insertedElement?.id,
+    size: estimateCanvasTextSize(text),
+  };
 }
 
 function estimateTextInsertionSize(
@@ -223,8 +265,9 @@ async function insertImageToCanvas(
   imageUrl: string,
   point: Point,
   dimensions?: { width: number; height: number },
-  waitForImageLoad = false
-): Promise<{ width: number; height: number }> {
+  waitForImageLoad = false,
+  boardGuard?: () => boolean
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const size = dimensions || {
     width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
     height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
@@ -238,7 +281,7 @@ async function insertImageToCanvas(
   // 自动插入可先用默认尺寸；用户主动插入会等待加载验证
   // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
   // 提供尺寸时锁定布局，避免批量图片异步放大后互相重叠
-  await insertImageFromUrl(
+  const elementId = await insertImageFromUrl(
     board,
     imageUrl,
     point,
@@ -247,9 +290,10 @@ async function insertImageToCanvas(
     true,
     !waitForImageLoad,
     Boolean(dimensions),
-    true
+    true,
+    boardGuard
   );
-  return size;
+  return { elementId, size };
 }
 
 /**
@@ -260,20 +304,23 @@ async function insertVideoToCanvas(
   board: PlaitBoard,
   videoUrl: string,
   point: Point,
-  dimensions?: { width: number; height: number }
-): Promise<{ width: number; height: number }> {
+  dimensions?: { width: number; height: number },
+  boardGuard?: () => boolean
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   // 如果提供了尺寸，直接使用
   if (dimensions) {
-    await insertVideoFromUrl(
+    const elementId = await insertVideoFromUrl(
       board,
       videoUrl,
       point,
       false,
       dimensions,
       true,
-      true
+      true,
+      undefined,
+      boardGuard
     );
-    return dimensions;
+    return { elementId, size: dimensions };
   }
 
   // 否则使用默认 16:9 尺寸立即插入
@@ -281,18 +328,20 @@ async function insertVideoToCanvas(
     width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
     height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)),
   };
-  await insertVideoFromUrl(
+  const elementId = await insertVideoFromUrl(
     board,
     videoUrl,
     point,
     false,
     defaultSize,
     true,
-    true
+    true,
+    undefined,
+    boardGuard
   );
 
   // 异步获取真实尺寸并在以后更新（可选），目前为了响应速度，直接返回默认尺寸
-  return defaultSize;
+  return { elementId, size: defaultSize };
 }
 
 async function insertAudioToCanvas(
@@ -300,14 +349,15 @@ async function insertAudioToCanvas(
   audioUrl: string,
   point: Point,
   dimensions?: { width: number; height: number },
-  metadata?: Record<string, unknown>
-): Promise<{ width: number; height: number }> {
+  metadata?: Record<string, unknown>,
+  boardGuard?: () => boolean
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const size = resolveAudioCardDimensions({
     ...(metadata as AudioCardMetadata | undefined),
     width: dimensions?.width,
     height: dimensions?.height,
   });
-  await insertAudioFromUrl(
+  const elementId = await insertAudioFromUrl(
     board,
     audioUrl,
     {
@@ -317,9 +367,10 @@ async function insertAudioToCanvas(
     },
     point,
     false,
-    true
+    true,
+    boardGuard
   );
-  return size;
+  return { elementId, size };
 }
 
 /**
@@ -328,8 +379,9 @@ async function insertAudioToCanvas(
 async function insertSvgToCanvas(
   board: PlaitBoard,
   svgCode: string,
-  point: Point
-): Promise<{ width: number; height: number }> {
+  point: Point,
+  boardGuard?: () => boolean
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const normalized = normalizeSvg(svgCode);
   const dimensions = parseSvgDimensions(normalized);
 
@@ -347,55 +399,159 @@ async function insertSvgToCanvas(
     height: targetHeight,
   };
 
+  if (boardGuard && !boardGuard()) {
+    throw new Error('画板已切换，取消本次插入');
+  }
+
+  const childrenCountBefore = board.children.length;
   DrawTransforms.insertImage(board, imageItem, point);
-  return { width: targetWidth, height: targetHeight };
+  const insertedElement = board.children[childrenCountBefore] as
+    | { id?: string }
+    | undefined;
+  return {
+    elementId: insertedElement?.id,
+    size: { width: targetWidth, height: targetHeight },
+  };
 }
 
 async function insertItemToCanvas(
   board: PlaitBoard,
   item: InsertionItem,
-  point: Point
+  point: Point,
+  boardGuard?: () => boolean,
+  cardWidth?: number
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
-  const childrenCountBefore = board.children.length;
-  let size: { width: number; height: number } | undefined;
-
   if (item.type === 'text') {
-    size = await insertTextToCanvas(board, item.content, point, item.label);
-  } else if (item.type === 'image') {
-    size = await insertImageToCanvas(
+    return insertTextToCanvas(
       board,
       item.content,
       point,
-      item.dimensions,
-      item.waitForImageLoad
+      item.label,
+      cardWidth,
+      boardGuard
     );
-  } else if (item.type === 'video') {
-    size = await insertVideoToCanvas(
-      board,
-      item.content,
-      point,
-      item.dimensions
-    );
-  } else if (item.type === 'audio') {
-    size = await insertAudioToCanvas(
-      board,
-      item.content,
-      point,
-      item.dimensions,
-      item.metadata
-    );
-  } else if (item.type === 'svg') {
-    size = await insertSvgToCanvas(board, item.content, point);
   }
 
-  const insertedElement = board.children[childrenCountBefore] as
-    | { id?: string }
-    | undefined;
+  if (item.type === 'image') {
+    return insertImageToCanvas(
+      board,
+      item.content,
+      point,
+      item.dimensions,
+      item.waitForImageLoad,
+      boardGuard
+    );
+  }
+
+  if (item.type === 'video') {
+    return insertVideoToCanvas(
+      board,
+      item.content,
+      point,
+      item.dimensions,
+      boardGuard
+    );
+  }
+
+  if (item.type === 'audio') {
+    return insertAudioToCanvas(
+      board,
+      item.content,
+      point,
+      item.dimensions,
+      item.metadata,
+      boardGuard
+    );
+  }
+
+  if (item.type === 'svg') {
+    return insertSvgToCanvas(board, item.content, point, boardGuard);
+  }
+
+  return { size: estimateInsertionItemSize(board, item) };
+}
+
+interface StagedCanvasInsertion {
+  elements: PlaitElement[];
+  items: CanvasInsertionResultItem[];
+}
+
+async function stageCanvasInsertion(
+  sourceBoard: PlaitBoard,
+  items: InsertionItem[],
+  positions: Point[],
+  boardGuard?: () => boolean
+): Promise<StagedCanvasInsertion> {
+  const stagingBoard = createBoard([]);
+  const cardWidth = getViewportAwareCardWidth(sourceBoard);
+  const stagedItems: CanvasInsertionResultItem[] = [];
+
+  for (const [index, item] of items.entries()) {
+    if (boardGuard && !boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
+
+    const point = positions[index];
+    const childrenCountBefore = stagingBoard.children.length;
+    const stagedItem =
+      (item.type === 'image' || item.type === 'video') && !item.dimensions
+        ? {
+            ...item,
+            dimensions: estimateInsertionItemSize(sourceBoard, item),
+          }
+        : item;
+    const inserted = await insertItemToCanvas(
+      stagingBoard,
+      stagedItem,
+      point,
+      boardGuard,
+      cardWidth
+    );
+    if (boardGuard && !boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
+
+    const firstInsertedElement = stagingBoard.children[childrenCountBefore];
+    stagedItems.push({
+      type: item.type,
+      point,
+      elementId: firstInsertedElement?.id || inserted.elementId,
+      size: inserted.size,
+    });
+  }
 
   return {
-    elementId: insertedElement?.id,
-    size: size || estimateInsertionItemSize(board, item),
+    elements: [...stagingBoard.children],
+    items: stagedItems,
   };
+}
+
+function commitStagedCanvasInsertion(
+  board: PlaitBoard,
+  staged: StagedCanvasInsertion,
+  boardGuard?: () => boolean
+): void {
+  if (boardGuard && !boardGuard()) {
+    throw new Error('画板已切换，取消本次插入');
+  }
+
+  const committedElementIds: string[] = [];
+  try {
+    for (const element of staged.elements) {
+      const committedElement = structuredClone(element) as PlaitElement;
+      Transforms.insertNode(board, committedElement, [board.children.length]);
+      committedElementIds.push(committedElement.id);
+    }
+    staged.elements.length = 0;
+  } catch (error) {
+    for (const elementId of committedElementIds.reverse()) {
+      const index = board.children.findIndex(
+        (element) => element.id === elementId
+      );
+      if (index >= 0) Transforms.removeNode(board, [index]);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -429,6 +585,9 @@ export async function executeCanvasInsertion(
   }
 
   try {
+    if (params.boardGuard && !params.boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
     if (!params.startPoint && items.length === 1) {
       const item = items[0];
       if (item.type === 'image' || item.type === 'video') {
@@ -443,7 +602,8 @@ export async function executeCanvasInsertion(
           board,
           item.content,
           item.type,
-          item.dimensions
+          item.dimensions,
+          { boardGuard: params.boardGuard }
         );
         if (inserted) {
           return {
@@ -523,27 +683,64 @@ export async function executeCanvasInsertion(
     );
     flowState.bounds = gridLayout.bounds;
 
-    const insertedItems: CanvasInsertionResultItem[] = [];
+    if (items.length === 1) {
+      const item = items[0];
+      const point = gridLayout.positions[0];
+      const inserted = await insertItemToCanvas(
+        board,
+        item,
+        point,
+        params.boardGuard,
+        getViewportAwareCardWidth(board)
+      );
+      if (params.boardGuard && !params.boardGuard()) {
+        throw new Error('画板已切换，取消本次插入');
+      }
+
+      requestAnimationFrame(() => {
+        if (!params.boardGuard || params.boardGuard()) {
+          scrollToPointIfNeeded(board, point);
+        }
+      });
+
+      return {
+        success: true,
+        data: {
+          insertedCount: 1,
+          items: [
+            {
+              type: item.type,
+              point,
+              elementId: inserted.elementId,
+              size: inserted.size,
+            },
+          ],
+          firstElementId: inserted.elementId,
+          firstElementPosition: point,
+          firstElementSize: inserted.size,
+        },
+        type: 'text',
+      };
+    }
 
     for (const [index, item] of items.entries()) {
-      const point = gridLayout.positions[index];
-
       logCanvasInsertionDebug('[CanvasInsertion][Service] item layout', {
         index,
         type: item.type,
         groupId: item.groupId || null,
         estimatedSize: estimatedSizes[index],
-        point,
-      });
-
-      const inserted = await insertItemToCanvas(board, item, point);
-      insertedItems.push({
-        type: item.type,
-        point,
-        elementId: inserted.elementId,
-        size: inserted.size,
+        point: gridLayout.positions[index],
       });
     }
+
+    const staged = await stageCanvasInsertion(
+      board,
+      items,
+      gridLayout.positions,
+      params.boardGuard
+    );
+    commitStagedCanvasInsertion(board, staged, params.boardGuard);
+    const insertedItems = staged.items;
 
     if (insertedItems.length > 0) {
       const centerPoint =
@@ -555,7 +752,9 @@ export async function executeCanvasInsertion(
         bounds: flowState.bounds,
       });
       requestAnimationFrame(() => {
-        scrollToPointIfNeeded(board, centerPoint);
+        if (!params.boardGuard || params.boardGuard()) {
+          scrollToPointIfNeeded(board, centerPoint);
+        }
       });
     }
 
@@ -591,11 +790,15 @@ export async function quickInsert(
   content: string,
   point?: Point,
   dimensions?: { width: number; height: number },
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  board?: PlaitBoard,
+  boardGuard?: () => boolean
 ): Promise<MCPResult> {
   return executeCanvasInsertion({
+    board,
     items: [{ type, content, dimensions, metadata }],
     startPoint: point,
+    boardGuard,
   });
 }
 
@@ -605,10 +808,13 @@ export async function quickInsert(
 export async function insertImageGroup(
   imageUrls: string[],
   point?: Point,
-  dimensions?: { width: number; height: number }
+  dimensions?: { width: number; height: number },
+  board?: PlaitBoard,
+  boardGuard?: () => boolean
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
   return executeCanvasInsertion({
+    board,
     items: imageUrls.map((url) => ({
       type: 'image' as ContentType,
       content: url,
@@ -616,6 +822,7 @@ export async function insertImageGroup(
       dimensions,
     })),
     startPoint: point,
+    boardGuard,
   });
 }
 
@@ -630,7 +837,9 @@ export async function insertAIFlow(
     dimensions?: { width: number; height: number };
     metadata?: Record<string, unknown>;
   }>,
-  point?: Point
+  point?: Point,
+  board?: PlaitBoard,
+  boardGuard?: () => boolean
 ): Promise<MCPResult> {
   const items: InsertionItem[] = [
     { type: 'text', content: prompt, label: 'Prompt' },
@@ -657,7 +866,9 @@ export async function insertAIFlow(
   }
 
   return executeCanvasInsertion({
+    board,
     items,
     startPoint: point,
+    boardGuard,
   });
 }

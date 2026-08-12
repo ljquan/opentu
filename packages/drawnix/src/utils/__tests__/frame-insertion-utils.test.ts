@@ -1,9 +1,10 @@
-import { createTestingBoard } from '@plait/core';
-import { describe, expect, it, vi } from 'vitest';
+import { createTestingBoard, Transforms } from '@plait/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   findPreviousPPTSlideImage,
   findPPTSlideImage,
   getPPTSlidePrompt,
+  insertMediaIntoFrame,
   insertMediaIntoSelectedFrame,
   markPPTSlideImage,
   replacePPTSlideImage,
@@ -14,16 +15,20 @@ import {
 vi.mock('@plait/draw', () => ({
   DrawTransforms: {
     insertImage: (board: any, imageItem: any, point: [number, number]) => {
-      board.children.push({
-        id: `mock-image-${board.children.length}`,
-        type: 'image',
-        ...imageItem,
-        points: [
-          point,
-          [point[0] + imageItem.width, point[1] + imageItem.height],
-        ],
-        children: [],
-      });
+      Transforms.insertNode(
+        board,
+        {
+          id: `mock-image-${board.children.length}`,
+          type: 'image',
+          ...imageItem,
+          points: [
+            point,
+            [point[0] + imageItem.width, point[1] + imageItem.height],
+          ],
+          children: [],
+        },
+        [board.children.length]
+      );
     },
   },
 }));
@@ -45,6 +50,10 @@ function createFrame(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('frame-insertion-utils PPT helpers', () => {
   it('uses slidePrompt first and falls back to legacy imagePrompt', () => {
@@ -298,9 +307,9 @@ describe('frame-insertion-utils PPT helpers', () => {
       }
     );
 
-    expect(board.children.some((element: any) => element.id === 'old-image')).toBe(
-      false
-    );
+    expect(
+      board.children.some((element: any) => element.id === 'old-image')
+    ).toBe(false);
     expect(findPPTSlideImage(board, 'frame-1')?.elementId).toBe('new-image');
     expect(board.children[0].pptMeta).toMatchObject({
       slidePrompt: 'regenerated prompt',
@@ -603,5 +612,169 @@ describe('frame-insertion-utils PPT helpers', () => {
         [1680, 1080],
       ],
     });
+  });
+
+  it('binds and returns the image inserted after an interleaved canvas update', async () => {
+    let finishImageLoad: (() => void) | undefined;
+
+    class PendingImage {
+      width = 800;
+      height = 400;
+      crossOrigin = '';
+      referrerPolicy = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        finishImageLoad = () => this.onload?.();
+      }
+    }
+
+    vi.stubGlobal('Image', PendingImage);
+
+    const board = createBoard([createFrame()]);
+    const insertion = insertMediaIntoFrame(
+      board,
+      'https://example.com/image.png',
+      'image',
+      'frame-1',
+      { width: 1920, height: 1080 }
+    );
+
+    await vi.waitFor(() => expect(finishImageLoad).toBeTypeOf('function'));
+
+    const interleavedElement = {
+      id: 'interleaved-element',
+      type: 'shape',
+      frameId: 'other-frame',
+      points: [
+        [20, 30],
+        [120, 130],
+      ],
+      children: [],
+    };
+    board.children.push(interleavedElement);
+
+    finishImageLoad?.();
+    const result = await insertion;
+    const insertedImage = board.children.find(
+      (element: any) => element.url === 'https://example.com/image.png'
+    );
+
+    expect(result).toMatchObject({
+      elementId: insertedImage.id,
+      point: [0, 60],
+      size: { width: 1920, height: 960 },
+    });
+    expect(insertedImage).toMatchObject({
+      frameId: 'frame-1',
+      points: [
+        [0, 60],
+        [1920, 1020],
+      ],
+    });
+    expect(interleavedElement).toEqual({
+      id: 'interleaved-element',
+      type: 'shape',
+      frameId: 'other-frame',
+      points: [
+        [20, 30],
+        [120, 130],
+      ],
+      children: [],
+    });
+  });
+
+  it('does not insert a delayed Frame image after the board guard changes', async () => {
+    let finishImageLoad: (() => void) | undefined;
+    let isCurrentBoard = true;
+
+    class PendingImage {
+      width = 800;
+      height = 400;
+      crossOrigin = '';
+      referrerPolicy = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        finishImageLoad = () => this.onload?.();
+      }
+    }
+
+    vi.stubGlobal('Image', PendingImage);
+
+    const board = createBoard([createFrame()]);
+    const insertion = insertMediaIntoFrame(
+      board,
+      'https://example.com/delayed.png',
+      'image',
+      'frame-1',
+      { width: 1920, height: 1080 },
+      undefined,
+      undefined,
+      { boardGuard: () => isCurrentBoard }
+    );
+
+    await vi.waitFor(() => expect(finishImageLoad).toBeTypeOf('function'));
+    isCurrentBoard = false;
+    finishImageLoad?.();
+
+    await expect(insertion).rejects.toThrow('画板已切换');
+    expect(board.children).toEqual([createFrame()]);
+  });
+
+  it('binds and returns each concurrent image when loads finish out of order', async () => {
+    const pendingLoads = new Map<string, () => void>();
+
+    class PendingImage {
+      width = 800;
+      height = 400;
+      crossOrigin = '';
+      referrerPolicy = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(value: string) {
+        pendingLoads.set(value, () => this.onload?.());
+      }
+    }
+
+    vi.stubGlobal('Image', PendingImage);
+
+    const board = createBoard([createFrame()]);
+    const firstUrl = 'https://example.com/first.png';
+    const secondUrl = 'https://example.com/second.png';
+    const firstInsertion = insertMediaIntoFrame(
+      board,
+      firstUrl,
+      'image',
+      'frame-1'
+    );
+    const secondInsertion = insertMediaIntoFrame(
+      board,
+      secondUrl,
+      'image',
+      'frame-1'
+    );
+
+    await vi.waitFor(() => expect(pendingLoads.size).toBe(2));
+
+    pendingLoads.get(secondUrl)?.();
+    const secondResult = await secondInsertion;
+    pendingLoads.get(firstUrl)?.();
+    const firstResult = await firstInsertion;
+    const firstImage = board.children.find(
+      (element: any) => element.url === firstUrl
+    );
+    const secondImage = board.children.find(
+      (element: any) => element.url === secondUrl
+    );
+
+    expect(firstResult.elementId).toBe(firstImage.id);
+    expect(secondResult.elementId).toBe(secondImage.id);
+    expect(firstResult.elementId).not.toBe(secondResult.elementId);
+    expect(firstImage.frameId).toBe('frame-1');
+    expect(secondImage.frameId).toBe('frame-1');
   });
 });

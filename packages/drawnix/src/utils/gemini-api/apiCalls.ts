@@ -26,6 +26,8 @@ import {
   normalizeManualTextResponse,
   renderTemplate,
 } from '../../services/provider-routing/manual-http-template';
+import { unifiedCacheService } from '../../services/unified-cache-service';
+import { isVirtualMediaUrl } from '../virtual-media-url';
 
 type GoogleInlineData = {
   mime_type?: string;
@@ -201,12 +203,21 @@ async function toGoogleInlineData(url: string): Promise<GoogleInlineData> {
     };
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to load image input: ${response.status}`);
+  let blob: Blob;
+  if (isVirtualMediaUrl(url)) {
+    const cachedBlob = await unifiedCacheService.getCachedBlob(url);
+    if (!cachedBlob) {
+      throw new Error(`Cached image input not found: ${url}`);
+    }
+    blob = cachedBlob;
+  } else {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load image input: ${response.status}`);
+    }
+    blob = await response.blob();
   }
 
-  const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
   const parsed = parseDataUrl(dataUrl);
   return {

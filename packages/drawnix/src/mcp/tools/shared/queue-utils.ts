@@ -28,6 +28,7 @@ export interface BaseGenerationParams {
   batchTotal?: number;
   globalIndex?: number;
   referenceImages?: string[];
+  canvasAssociations?: GenerationParams['canvasAssociations'];
   params?: Record<string, unknown>;
   autoInsertToCanvas?: boolean;
   targetFrameId?: string;
@@ -107,7 +108,8 @@ export function createQueueTask(
   config: QueueTaskConfig
 ): MCPTaskResult {
   const promptError = validatePrompt(params.prompt);
-  if (promptError) return { ...promptError, taskId: undefined, task: undefined };
+  if (promptError)
+    return { ...promptError, taskId: undefined, task: undefined };
 
   const {
     count = 1,
@@ -121,8 +123,11 @@ export function createQueueTask(
   try {
     const maxCount = config.maxCount ?? 10;
     const actualCount = Math.min(Math.max(1, count), maxCount);
-    const batchId = paramsBatchId || (actualCount > 1 ? `batch_${Date.now()}` : options.batchId);
-    const batchTotal = paramsBatchTotal || (actualCount > 1 ? actualCount : undefined);
+    const batchId =
+      paramsBatchId ||
+      (actualCount > 1 ? `batch_${Date.now()}` : options.batchId);
+    const batchTotal =
+      paramsBatchTotal || (actualCount > 1 ? actualCount : undefined);
     const globalIndex = paramsGlobalIndex || options.globalIndex;
 
     const createdTasks: any[] = [];

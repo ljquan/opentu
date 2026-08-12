@@ -104,6 +104,7 @@ import { withGradientFill } from './plugins/with-gradient-fill';
 import { withFrameResize } from './plugins/with-frame-resize';
 import { withLassoSelection } from './plugins/with-lasso-selection';
 import { withLockedElement } from './plugins/with-locked-element';
+import { withCanvasAssociation } from './plugins/canvas-association';
 import {
   API_AUTH_ERROR_EVENT,
   ApiAuthErrorDetail,
@@ -115,10 +116,7 @@ import { isCardElement } from './types/card.types';
 import { isFrameElement } from './types/frame.types';
 import { openCardInKnowledgeBase } from './utils/card-actions';
 import { useI18n } from './i18n';
-import {
-  hasPersistedRecoverableTasks,
-  safeReload,
-} from './utils/active-tasks';
+import { hasPersistedRecoverableTasks, safeReload } from './utils/active-tasks';
 import { useTabSync } from './hooks/useTabSync';
 import { canvasAudioPlaybackService } from './services/canvas-audio-playback-service';
 import { useCanvasAudioPlaybackSelector } from './hooks/useCanvasAudioPlayback';
@@ -298,10 +296,11 @@ function detectMobileViewport(): boolean {
     return false;
   }
 
-  const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-  const compactViewport = window.matchMedia?.('(max-width: 768px)').matches ?? false;
-  const touchCapable =
-    navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+  const coarsePointer =
+    window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const compactViewport =
+    window.matchMedia?.('(max-width: 768px)').matches ?? false;
+  const touchCapable = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
 
   return compactViewport || (coarsePointer && touchCapable);
 }
@@ -799,6 +798,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     withDefaultFill, // 默认填充 - 让新创建的图形有白色填充，方便双击编辑
     withGradientFill, // 渐变填充 - 支持渐变和图片填充渲染
     withLassoSelection, // 套索选择 - 自由路径框选元素
+    withCanvasAssociation, // 画布联想 - 持久关联线的端点同步与失效清理
     withLockedElement, // 锁定元素 - 阻止选中和移动被锁定的元素
     withTracking,
     withUnknownElementFallback, // 必须最后 — 捕获未知元素类型避免崩溃

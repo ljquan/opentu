@@ -9,7 +9,7 @@
  * 这个服务抽象了 useAutoInsertToCanvas 和 workflow-executor 中的共同逻辑
  */
 
-import type { Point } from '@plait/core';
+import type { PlaitBoard, Point } from '@plait/core';
 import type { Task, TaskType } from '../types/task.types';
 import { TaskStatus } from '../types/task.types';
 import {
@@ -18,6 +18,7 @@ import {
   quickInsert,
   insertAIFlow,
   parseSizeToPixels,
+  type CanvasInsertionResultData,
 } from './canvas-operations';
 import {
   AUDIO_CARD_DEFAULT_HEIGHT,
@@ -69,6 +70,10 @@ export interface InsertConfig {
   insertionPoint?: Point;
   /** 是否滚动到结果位置 */
   scrollToResult?: boolean;
+  /** 已校验的目标画布，避免异步期间切板后写入其他画布 */
+  board?: PlaitBoard;
+  /** 异步处理期间确认目标画板仍然有效 */
+  boardGuard?: () => boolean;
 }
 
 /**
@@ -97,14 +102,19 @@ export function isGridImageTask(params: TaskParams): boolean {
  * 检查是否为灵感图任务
  */
 export function isInspirationBoardTask(params: TaskParams): boolean {
-  return !!(params.isInspirationBoard && params.inspirationBoardLayoutStyle === 'inspiration-board');
+  return !!(
+    params.isInspirationBoard &&
+    params.inspirationBoardLayoutStyle === 'inspiration-board'
+  );
 }
 
 /**
  * 获取默认插入位置
  */
-export function getDefaultInsertionPoint(offset: number = 800): Point | undefined {
-  const board = getCanvasBoard();
+export function getDefaultInsertionPoint(
+  offset: number = 800,
+  board: PlaitBoard | null = getCanvasBoard()
+): Point | undefined {
   if (!board) return undefined;
   return getInsertionPointBelowBottommostElement(board, offset);
 }
@@ -117,8 +127,13 @@ export async function handleSplitAndInsertTask(
   url: string,
   params: TaskParams,
   config: InsertConfig = {}
-): Promise<{ success: boolean; count: number; error?: string }> {
-  const board = getCanvasBoard();
+): Promise<{
+  success: boolean;
+  count: number;
+  firstElementId?: string;
+  error?: string;
+}> {
+  const board = config.board || getCanvasBoard();
   if (!board) {
     return { success: false, count: 0, error: 'Board not available' };
   }
@@ -130,32 +145,64 @@ export async function handleSplitAndInsertTask(
   try {
     const result = await splitAndInsertImages(board, url, {
       scrollToResult: config.scrollToResult ?? true,
+      boardGuard: config.boardGuard,
     });
 
-    const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
+    if (config.boardGuard && !config.boardGuard()) {
+      throw new Error('画板已切换，取消本次插入');
+    }
+
+    const insertionPoint =
+      config.insertionPoint || getDefaultInsertionPoint(800, board);
 
     if (result.success) {
       // console.log(`[MediaResultHandler] Split success, calling completePostProcessing for task ${taskId}`);
       workflowCompletionService.completePostProcessing(
         taskId,
         result.count,
-        insertionPoint
+        result.firstElementPosition || insertionPoint,
+        result.firstElementId,
+        result.firstElementSize
       );
-      return { success: true, count: result.count };
+      return {
+        success: true,
+        count: result.count,
+        firstElementId: result.firstElementId,
+      };
     } else {
       // 拆分失败，回退到直接插入原图
-      console.warn(`[MediaResultHandler] Split failed: ${result.error}, falling back to direct insert`);
+      console.warn(
+        `[MediaResultHandler] Split failed: ${result.error}, falling back to direct insert`
+      );
 
       const insertResult = await executeCanvasInsertion({
+        board,
+        boardGuard: config.boardGuard,
         items: [{ type: 'image', content: url }],
         startPoint: insertionPoint,
       });
       if (insertResult.success) {
+        const insertionData = insertResult.data as
+          | CanvasInsertionResultData
+          | undefined;
         // console.log(`[MediaResultHandler] Fallback insert success, calling completePostProcessing for task ${taskId}`);
-        workflowCompletionService.completePostProcessing(taskId, 1, insertionPoint);
-        return { success: true, count: 1 };
+        workflowCompletionService.completePostProcessing(
+          taskId,
+          1,
+          insertionData?.firstElementPosition || insertionPoint,
+          insertionData?.firstElementId,
+          insertionData?.firstElementSize
+        );
+        return {
+          success: true,
+          count: 1,
+          firstElementId: insertionData?.firstElementId,
+        };
       } else {
-        workflowCompletionService.failPostProcessing(taskId, result.error || 'Split and insert failed');
+        workflowCompletionService.failPostProcessing(
+          taskId,
+          result.error || 'Split and insert failed'
+        );
         return { success: false, count: 0, error: result.error };
       }
     }
@@ -245,7 +292,12 @@ export async function handleSingleMediaInsert(
  * 处理多个同组媒体任务的插入（水平排列）
  */
 export async function handleGroupMediaInsert(
-  tasks: Array<{ taskId: string; type: MediaType; url: string; params: TaskParams }>,
+  tasks: Array<{
+    taskId: string;
+    type: MediaType;
+    url: string;
+    params: TaskParams;
+  }>,
   config: InsertConfig = {}
 ): Promise<{ success: boolean; error?: string }> {
   const board = getCanvasBoard();
@@ -268,12 +320,12 @@ export async function handleGroupMediaInsert(
     const firstTask = tasks[0];
     const dimensions = parseSizeToPixels(firstTask.params.size);
 
-    const urls = tasks.map(t => t.url);
+    const urls = tasks.map((t) => t.url);
 
     if (config.insertPrompt) {
       await insertAIFlow(
         firstTask.params.prompt,
-        urls.map(url => ({ type: firstTask.type, url, dimensions })),
+        urls.map((url) => ({ type: firstTask.type, url, dimensions })),
         insertionPoint
       );
     } else {
@@ -296,7 +348,11 @@ export async function handleGroupMediaInsert(
 
     // 标记所有任务完成
     for (const task of tasks) {
-      workflowCompletionService.completePostProcessing(task.taskId, 1, insertionPoint);
+      workflowCompletionService.completePostProcessing(
+        task.taskId,
+        1,
+        insertionPoint
+      );
     }
 
     return { success: true };
@@ -359,7 +415,8 @@ export async function handleMediaResult(
     workflowCompletionService.registerTask(taskId, params.batchId);
     workflowCompletionService.startPostProcessing(taskId, 'direct_insert');
     try {
-      const insertionPoint = config.insertionPoint || getDefaultInsertionPoint();
+      const insertionPoint =
+        config.insertionPoint || getDefaultInsertionPoint();
       const dimensions =
         type === 'audio'
           ? {
@@ -412,7 +469,11 @@ export async function handleMediaResult(
           startPoint: insertionPoint,
         });
       }
-      workflowCompletionService.completePostProcessing(taskId, resultUrls.length, insertionPoint);
+      workflowCompletionService.completePostProcessing(
+        taskId,
+        resultUrls.length,
+        insertionPoint
+      );
       return { success: true, count: resultUrls.length };
     } catch (error) {
       const errorMsg = String(error);
@@ -446,7 +507,7 @@ export function createCanvasInsertItems(
   result: MediaResult
 ): Array<{ type: string; url: string }> {
   if (result.urls && result.urls.length > 1) {
-    return result.urls.map(url => ({ type, url }));
+    return result.urls.map((url) => ({ type, url }));
   }
   return [{ type, url: result.url }];
 }

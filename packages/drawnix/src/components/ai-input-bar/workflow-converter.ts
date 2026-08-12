@@ -34,6 +34,8 @@ import { applyMediaModelDefaultsToArgs } from '../../services/agent/media-model-
 import type { SkillOutputType } from './skill-media-type';
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
 import type { KnowledgeContextRef } from '../../types/task.types';
+import type { CanvasAssociationRef } from '../../types/shared/core.types';
+import { snapshotCanvasAssociationRefs } from './canvas-association-state';
 import type {
   WorkflowDefinition,
   WorkflowStep,
@@ -118,6 +120,10 @@ const GENERATION_CONTEXT_MCP_TOOLS = new Set([
   'generate_audio',
   'generate_text',
 ]);
+const CANVAS_ASSOCIATION_MCP_TOOLS = new Set([
+  ...GENERATION_CONTEXT_MCP_TOOLS,
+  'ai_analyze',
+]);
 
 function normalizeWorkflowKnowledgeContextRefs(
   refs?: KnowledgeContextRef[] | null
@@ -156,6 +162,33 @@ function applyKnowledgeContextToWorkflowSteps(
     return {
       ...step,
       args: withKnowledgeContextRefs(step.args, refs),
+    };
+  });
+}
+
+function normalizeWorkflowCanvasAssociations(
+  refs?: CanvasAssociationRef[] | null
+): CanvasAssociationRef[] {
+  return snapshotCanvasAssociationRefs(refs || []);
+}
+
+function applyCanvasAssociationsToWorkflowSteps(
+  steps: WorkflowStep[],
+  refs: CanvasAssociationRef[]
+): WorkflowStep[] {
+  return steps.map((step) => {
+    if (!CANVAS_ASSOCIATION_MCP_TOOLS.has(step.mcp)) {
+      return step;
+    }
+    const args = { ...step.args };
+    if (refs.length === 0) {
+      delete args.canvasAssociations;
+    } else {
+      args.canvasAssociations = refs.map((reference) => ({ ...reference }));
+    }
+    return {
+      ...step,
+      args,
     };
   });
 }
@@ -252,9 +285,12 @@ export function convertDirectGenerationToWorkflow(
     defaultModels,
     defaultModelRefs,
     knowledgeContextRefs,
+    canvasAssociations,
   } = params;
   const normalizedKnowledgeContextRefs =
     normalizeWorkflowKnowledgeContextRefs(knowledgeContextRefs);
+  const normalizedCanvasAssociations =
+    normalizeWorkflowCanvasAssociations(canvasAssociations);
 
   const steps: WorkflowStep[] = [];
 
@@ -377,7 +413,7 @@ export function convertDirectGenerationToWorkflow(
         videoArgs.referenceImages = referenceImages;
       }
       // 透传额外参数（如 ratio）
-      const videoParams = Object.fromEntries(
+      const videoParams: Record<string, unknown> = Object.fromEntries(
         Object.entries(extraParams || {}).filter(
           (entry): entry is [string, string] => typeof entry[1] === 'string'
         )
@@ -395,6 +431,14 @@ export function convertDirectGenerationToWorkflow(
         !videoParams.input_video
       ) {
         videoParams.input_video = selection.videos[0];
+      }
+      if (modelId.startsWith('doubao-seedance-2-0-')) {
+        if (selection?.videos?.length && !videoParams.input_videos) {
+          videoParams.input_videos = selection.videos;
+        }
+        if (selection?.audios?.length && !videoParams.input_audios) {
+          videoParams.input_audios = selection.audios;
+        }
       }
       if (Object.keys(videoParams).length > 0) {
         videoArgs.params = videoParams;
@@ -547,7 +591,10 @@ export function convertDirectGenerationToWorkflow(
     }`,
     scenarioType: 'direct_generation',
     generationType,
-    steps,
+    steps: applyCanvasAssociationsToWorkflowSteps(
+      steps,
+      normalizedCanvasAssociations
+    ),
     metadata: {
       prompt,
       userInstruction,
@@ -565,6 +612,10 @@ export function convertDirectGenerationToWorkflow(
       knowledgeContextRefs:
         normalizedKnowledgeContextRefs.length > 0
           ? normalizedKnowledgeContextRefs
+          : undefined,
+      canvasAssociations:
+        normalizedCanvasAssociations.length > 0
+          ? normalizedCanvasAssociations
           : undefined,
     },
     createdAt: Date.now(),
@@ -598,9 +649,12 @@ export function convertAgentFlowToWorkflow(
     defaultModels,
     defaultModelRefs,
     knowledgeContextRefs,
+    canvasAssociations,
   } = params;
   const normalizedKnowledgeContextRefs =
     normalizeWorkflowKnowledgeContextRefs(knowledgeContextRefs);
+  const normalizedCanvasAssociations =
+    normalizeWorkflowCanvasAssociations(canvasAssociations);
 
   // 使用唯一 ID（每次提交都是新的工作流）
   const workflowId = generateWorkflowId();
@@ -630,6 +684,10 @@ export function convertAgentFlowToWorkflow(
     knowledgeContextRefs:
       normalizedKnowledgeContextRefs.length > 0
         ? normalizedKnowledgeContextRefs
+        : undefined,
+    canvasAssociations:
+      normalizedCanvasAssociations.length > 0
+        ? normalizedCanvasAssociations
         : undefined,
   };
 
@@ -693,7 +751,10 @@ export function convertAgentFlowToWorkflow(
     description: 'AI 分析用户请求并执行相应操作',
     scenarioType: 'agent_flow',
     generationType,
-    steps,
+    steps: applyCanvasAssociationsToWorkflowSteps(
+      steps,
+      normalizedCanvasAssociations
+    ),
     metadata: {
       prompt,
       userInstruction,
@@ -711,6 +772,10 @@ export function convertAgentFlowToWorkflow(
       knowledgeContextRefs:
         normalizedKnowledgeContextRefs.length > 0
           ? normalizedKnowledgeContextRefs
+          : undefined,
+      canvasAssociations:
+        normalizedCanvasAssociations.length > 0
+          ? normalizedCanvasAssociations
           : undefined,
     },
     createdAt: Date.now(),
@@ -818,9 +883,12 @@ export async function convertSkillFlowToWorkflow(
     defaultModels,
     defaultModelRefs,
     knowledgeContextRefs,
+    canvasAssociations,
   } = params;
   const normalizedKnowledgeContextRefs =
     normalizeWorkflowKnowledgeContextRefs(knowledgeContextRefs);
+  const normalizedCanvasAssociations =
+    normalizeWorkflowCanvasAssociations(canvasAssociations);
 
   const workflowId = generateWorkflowId();
 
@@ -859,12 +927,15 @@ export async function convertSkillFlowToWorkflow(
     userInputText
   );
   if (regexResult) {
-    const steps = applyKnowledgeContextToWorkflowSteps(
-      applyReferenceImagesToWorkflowSteps(
-        applyMediaDefaultsToWorkflowSteps(regexResult.steps, params, true),
-        referenceImages
+    const steps = applyCanvasAssociationsToWorkflowSteps(
+      applyKnowledgeContextToWorkflowSteps(
+        applyReferenceImagesToWorkflowSteps(
+          applyMediaDefaultsToWorkflowSteps(regexResult.steps, params, true),
+          referenceImages
+        ),
+        normalizedKnowledgeContextRefs
       ),
-      normalizedKnowledgeContextRefs
+      normalizedCanvasAssociations
     );
     return {
       id: workflowId,
@@ -892,6 +963,10 @@ export async function convertSkillFlowToWorkflow(
         knowledgeContextRefs:
           normalizedKnowledgeContextRefs.length > 0
             ? normalizedKnowledgeContextRefs
+            : undefined,
+        canvasAssociations:
+          normalizedCanvasAssociations.length > 0
+            ? normalizedCanvasAssociations
             : undefined,
         parseMethod: 'regex',
       },
@@ -924,6 +999,10 @@ export async function convertSkillFlowToWorkflow(
     knowledgeContextRefs:
       normalizedKnowledgeContextRefs.length > 0
         ? normalizedKnowledgeContextRefs
+        : undefined,
+    canvasAssociations:
+      normalizedCanvasAssociations.length > 0
+        ? normalizedCanvasAssociations
         : undefined,
   };
 
@@ -1027,7 +1106,10 @@ export async function convertSkillFlowToWorkflow(
       scenarioType: 'skill_flow',
       skillId,
       generationType,
-      steps,
+      steps: applyCanvasAssociationsToWorkflowSteps(
+        steps,
+        normalizedCanvasAssociations
+      ),
       metadata: {
         prompt,
         userInstruction,
@@ -1046,6 +1128,10 @@ export async function convertSkillFlowToWorkflow(
         knowledgeContextRefs:
           normalizedKnowledgeContextRefs.length > 0
             ? normalizedKnowledgeContextRefs
+            : undefined,
+        canvasAssociations:
+          normalizedCanvasAssociations.length > 0
+            ? normalizedCanvasAssociations
             : undefined,
         parseMethod: 'agent_fallback',
       },
@@ -1106,7 +1192,10 @@ export async function convertSkillFlowToWorkflow(
     scenarioType: 'skill_flow',
     skillId,
     generationType,
-    steps: roleSteps,
+    steps: applyCanvasAssociationsToWorkflowSteps(
+      roleSteps,
+      normalizedCanvasAssociations
+    ),
     metadata: {
       prompt,
       userInstruction,
@@ -1124,6 +1213,10 @@ export async function convertSkillFlowToWorkflow(
       knowledgeContextRefs:
         normalizedKnowledgeContextRefs.length > 0
           ? normalizedKnowledgeContextRefs
+          : undefined,
+      canvasAssociations:
+        normalizedCanvasAssociations.length > 0
+          ? normalizedCanvasAssociations
           : undefined,
       parseMethod: 'agent_fallback',
     },

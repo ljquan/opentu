@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cacheMediaFromBlob = vi.fn();
 const getCachedBlob = vi.fn();
+const getImageForAI = vi.fn();
 const cachedUrls = new Set<string>();
 const isCached = vi.fn(async (url: string) => cachedUrls.has(url));
 const calculateBlobChecksum = vi.fn(async () => 'a'.repeat(64));
@@ -25,6 +26,7 @@ vi.mock('../unified-cache-service', () => ({
   unifiedCacheService: {
     cacheMediaFromBlob,
     getCachedBlob,
+    getImageForAI,
     isCached,
   },
 }));
@@ -32,6 +34,69 @@ vi.mock('../unified-cache-service', () => ({
 vi.mock('../provider-routing/provider-transport', () => ({
   providerTransport: { send: providerSend },
 }));
+
+describe('materializeReferenceImagesSequentially', () => {
+  beforeEach(() => {
+    getImageForAI.mockReset();
+  });
+
+  it('materializes local references one at a time while preserving order and remote URLs', async () => {
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const first = '/__aitu_cache__/image/first.png';
+    const remote = 'https://cdn.example.com/reference.png';
+    const second = '/asset-library/second.png';
+
+    getImageForAI.mockImplementation(async (url: string) => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await Promise.resolve();
+      activeReads -= 1;
+      return {
+        type: 'base64',
+        value: `data:image/png;base64,${
+          url === first ? 'RklSU1Q=' : 'U0VDT05E'
+        }`,
+      };
+    });
+
+    const { materializeReferenceImagesSequentially } = await import(
+      './fallback-utils'
+    );
+    const result = await materializeReferenceImagesSequentially(
+      [first, remote, second],
+      { preserveUrl: (url) => /^https?:\/\//i.test(url) }
+    );
+
+    expect(maxActiveReads).toBe(1);
+    expect(getImageForAI).toHaveBeenCalledTimes(2);
+    expect(getImageForAI).toHaveBeenNthCalledWith(1, first);
+    expect(getImageForAI).toHaveBeenNthCalledWith(2, second);
+    expect(result).toEqual([
+      'data:image/png;base64,RklSU1Q=',
+      remote,
+      'data:image/png;base64,U0VDT05E',
+    ]);
+  });
+
+  it('stops before reading the next reference after abort', async () => {
+    const controller = new AbortController();
+    getImageForAI.mockImplementationOnce(async () => {
+      controller.abort();
+      return { type: 'base64', value: 'data:image/png;base64,RklSU1Q=' };
+    });
+
+    const { materializeReferenceImagesSequentially } = await import(
+      './fallback-utils'
+    );
+    await expect(
+      materializeReferenceImagesSequentially(['first', 'second'], {
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(getImageForAI).toHaveBeenCalledOnce();
+  });
+});
 
 describe('pollVideoStatus', () => {
   beforeEach(() => {

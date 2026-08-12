@@ -13,10 +13,7 @@ export type { InspirationBoardParams } from './inspiration-board';
 export { analyzeWithAI } from './ai-analyze';
 export type { AIAnalyzeParams, AIAnalyzeResult } from './ai-analyze';
 
-export {
-  createLongVideoTask,
-  createLongVideoSegmentTask,
-} from './long-video';
+export { createLongVideoTask, createLongVideoSegmentTask } from './long-video';
 export type {
   LongVideoGenerationParams,
   LongVideoMeta,
@@ -29,7 +26,9 @@ export {
   insertAIFlow,
   executeCanvasInsertion,
   setCanvasBoard,
+  clearCanvasBoard,
   getCanvasBoard,
+  getCanvasBoardBinding,
 } from './canvas-insertion';
 export { parseSizeToPixels } from '../../utils/size-ratio';
 export type {
