@@ -12,6 +12,33 @@ interface BoundTargetGenerationMetadata {
   generationAnchorId?: string;
 }
 
+export type BoundGenerationTargetType = 'image' | 'video' | 'text' | 'audio';
+
+export function readBoundTargetGenerationPrompt(
+  element: unknown,
+  targetType: BoundGenerationTargetType
+): string {
+  const record = element as Record<string, unknown> | null;
+  const promptKeys =
+    targetType === 'image' || targetType === 'audio'
+      ? ['generationPrompt', 'aiPrompt', 'prompt']
+      : ['generationPrompt', 'aiPrompt'];
+  for (const key of promptKeys) {
+    const value = record?.[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+export function shouldBindGenerationTarget(
+  targetType: BoundGenerationTargetType,
+  prompt: string
+): boolean {
+  return targetType === 'image' || Boolean(prompt.trim());
+}
+
 export type BoundTargetPromptSuggestionAction = 'reuse' | 'dismiss' | 'none';
 
 export interface BoundTargetPromptSuggestionInput {
@@ -85,9 +112,22 @@ export function formatBoundTargetPromptSuggestion(
 
 export type BoundImageTargetMode = 'follow' | 'reference';
 
+/**
+ * 图片、视频和文本目标支持在任务栏上切换是否跟随目标位置。
+ * 音频暂时保持原有的目标定位行为。
+ */
+export function supportsBoundTargetFollowControls(
+  targetType: BoundGenerationTargetType
+): boolean {
+  return (
+    targetType === 'image' || targetType === 'video' || targetType === 'text'
+  );
+}
+
 export function createBoundImageTargetStateKey(
   target: {
     elementId: string;
+    type?: BoundGenerationTargetType;
     url: string;
     prompt: string;
     generationTaskId?: string;
@@ -98,6 +138,7 @@ export function createBoundImageTargetStateKey(
 ): string {
   return JSON.stringify([
     target.elementId,
+    target.type || 'image',
     target.url,
     target.prompt,
     target.generationTaskId || '',
@@ -107,13 +148,17 @@ export function createBoundImageTargetStateKey(
   ]);
 }
 
-export function pinBoundTargetReferenceContent<T extends { url?: string }>(
-  content: T[],
-  target: T | null,
-  mode: BoundImageTargetMode
-): T[] {
-  if (mode !== 'reference' || !target?.url) return content;
-  return [target, ...content.filter((item) => item.url !== target.url)];
+export function pinBoundTargetReferenceContent<
+  T extends { type?: string; url?: string; text?: string }
+>(content: T[], target: T | null, mode: BoundImageTargetMode): T[] {
+  if (mode !== 'reference' || !target) return content;
+
+  const matchesTarget = target.url
+    ? (item: T) => item.url === target.url
+    : target.text
+    ? (item: T) => item.type === target.type && item.text === target.text
+    : (item: T) => item === target;
+  return [target, ...content.filter((item) => !matchesTarget(item))];
 }
 
 export function isBoundTargetReferenceOnly(element: unknown): boolean {
@@ -211,11 +256,16 @@ export function persistBoundTargetFollowEnabled(
   return enabled;
 }
 
-export function resolveBoundTargetForPosition<T>(
-  target: T | null,
-  followEnabled: boolean
-): T | null {
-  return followEnabled ? target : null;
+export function resolveBoundTargetForPosition<
+  T extends { type?: BoundGenerationTargetType }
+>(target: T | null, followEnabled: boolean): T | null {
+  if (
+    !followEnabled &&
+    (!target?.type || supportsBoundTargetFollowControls(target.type))
+  ) {
+    return null;
+  }
+  return target;
 }
 
 export function resolveBoundTargetSuppression(
@@ -388,7 +438,10 @@ export function shouldUseBoundTargetForSubmission(
   generationType: string,
   mode: BoundImageTargetMode = 'follow'
 ): boolean {
-  return generationType === 'image' && mode === 'follow';
+  return (
+    mode === 'follow' &&
+    ['image', 'video', 'audio', 'text'].includes(generationType)
+  );
 }
 
 export function buildBoundTargetGenerationParams(

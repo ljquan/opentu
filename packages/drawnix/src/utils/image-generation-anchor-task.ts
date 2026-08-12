@@ -65,6 +65,10 @@ export function getImageGenerationTaskInsertGroupKey(
     return `replace-image:${task.params.replaceElementId}:${task.id}`;
   }
 
+  if (typeof task.params.replaceElementId === 'string') {
+    return `replace-media:${task.params.replaceElementId}:${task.id}`;
+  }
+
   if (task.type !== TaskType.IMAGE) {
     const taskGroupType =
       task.type === TaskType.AUDIO && isLyricsTask(task) ? 'lyrics' : task.type;

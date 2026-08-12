@@ -41,6 +41,7 @@ export type FrameMediaInsertionResult =
 export interface FrameMediaInsertionOptions {
   fit?: 'contain' | 'stretch';
   boardGuard?: () => boolean;
+  metadata?: Record<string, unknown>;
 }
 
 function assertFrameInsertionBoardCurrent(boardGuard?: () => boolean): void {
@@ -136,6 +137,45 @@ export function setFramePPTMeta(
 
 function isImageElement(element: any): boolean {
   return element?.type === 'image' && typeof element.url === 'string';
+}
+
+function readMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readMetadataString(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readMetadataString(metadata, 'generationPrompt') ||
+    readMetadataString(metadata, 'aiPrompt');
+  const generationTaskId = readMetadataString(metadata, 'generationTaskId');
+  const generationAnchorId = readMetadataString(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
 }
 
 function normalizeHistoryPrompt(prompt?: string): string | undefined {
@@ -811,7 +851,6 @@ export async function insertMediaIntoFrame(
       insertionPoint
     );
   }
-
   let finalPoint = insertionPoint;
   let finalSize = {
     width: mediaWidth,
@@ -856,6 +895,10 @@ export async function insertMediaIntoFrame(
         } as any,
         [insertedElementIndex]
       );
+    }
+    const generationPatch = buildGenerationMetadataPatch(options?.metadata);
+    if (Object.keys(generationPatch).length > 0 && insertedElementIndex >= 0) {
+      Transforms.setNode(board, generationPatch as any, [insertedElementIndex]);
     }
     FrameTransforms.bindToFrame(board, insertedElement, frameElement);
   }

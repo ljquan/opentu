@@ -23,6 +23,7 @@ export type {
 export {
   quickInsert,
   insertImageGroup,
+  insertGeneratedImageFlow,
   insertAIFlow,
   executeCanvasInsertion,
   setCanvasBoard,
@@ -37,4 +38,5 @@ export type {
   CanvasInsertionParams,
   CanvasInsertionResultData,
   CanvasInsertionResultItem,
+  MediaFlowResult,
 } from './canvas-insertion';

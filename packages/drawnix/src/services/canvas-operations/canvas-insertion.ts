@@ -124,6 +124,80 @@ export interface CanvasInsertionResultData {
   };
 }
 
+export interface MediaFlowResult {
+  type: 'image' | 'video' | 'audio';
+  url: string;
+  dimensions?: { width: number; height: number };
+  metadata?: Record<string, unknown>;
+}
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+interface InsertedCanvasItem {
+  elementIds: string[];
+  size: { width: number; height: number };
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readStringMetadata(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readStringMetadata(metadata, 'generationPrompt') ||
+    readStringMetadata(metadata, 'aiPrompt');
+  const generationTaskId = readStringMetadata(metadata, 'generationTaskId');
+  const generationAnchorId = readStringMetadata(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
+}
+
+function attachGenerationMetadataToInsertedElements(
+  board: PlaitBoard,
+  elementIds: readonly string[],
+  metadata: Record<string, unknown> | undefined
+): void {
+  const patch = buildGenerationMetadataPatch(metadata);
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
+
+  for (const elementId of elementIds) {
+    const index = board.children.findIndex(
+      (element) => element.id === elementId
+    );
+    if (index < 0) continue;
+    Transforms.setNode(
+      board,
+      patch as Partial<PlaitBoard['children'][number]>,
+      [index]
+    );
+  }
+}
+
 /**
  * 插入单个文本项到画布
  * - 有 title 时 → 直接以 Card 方式插入
@@ -357,7 +431,7 @@ async function insertAudioToCanvas(
     width: dimensions?.width,
     height: dimensions?.height,
   });
-  const elementId = await insertAudioFromUrl(
+  const insertedAudio: unknown = await insertAudioFromUrl(
     board,
     audioUrl,
     {
@@ -370,6 +444,14 @@ async function insertAudioToCanvas(
     true,
     boardGuard
   );
+  const elementId =
+    typeof insertedAudio === 'string'
+      ? insertedAudio
+      : typeof insertedAudio === 'object' &&
+        insertedAudio !== null &&
+        typeof (insertedAudio as { id?: unknown }).id === 'string'
+      ? (insertedAudio as { id: string }).id
+      : undefined;
   return { elementId, size };
 }
 
@@ -511,7 +593,13 @@ async function stageCanvasInsertion(
       throw new Error('画板已切换，取消本次插入');
     }
 
-    const firstInsertedElement = stagingBoard.children[childrenCountBefore];
+    const insertedElements = stagingBoard.children.slice(childrenCountBefore);
+    attachGenerationMetadataToInsertedElements(
+      stagingBoard,
+      insertedElements.map((element) => element.id),
+      item.metadata
+    );
+    const firstInsertedElement = insertedElements[0];
     stagedItems.push({
       type: item.type,
       point,
@@ -539,7 +627,11 @@ function commitStagedCanvasInsertion(
   try {
     for (const element of staged.elements) {
       const committedElement = structuredClone(element) as PlaitElement;
-      Transforms.insertNode(board, committedElement, [board.children.length]);
+      if (typeof board.apply === 'function') {
+        Transforms.insertNode(board, committedElement, [board.children.length]);
+      } else {
+        board.children.push(committedElement);
+      }
       committedElementIds.push(committedElement.id);
     }
     staged.elements.length = 0;
@@ -548,7 +640,12 @@ function commitStagedCanvasInsertion(
       const index = board.children.findIndex(
         (element) => element.id === elementId
       );
-      if (index >= 0) Transforms.removeNode(board, [index]);
+      if (index < 0) continue;
+      if (typeof board.apply === 'function') {
+        Transforms.removeNode(board, [index]);
+      } else {
+        board.children.splice(index, 1);
+      }
     }
     throw error;
   }
@@ -603,7 +700,7 @@ export async function executeCanvasInsertion(
           item.content,
           item.type,
           item.dimensions,
-          { boardGuard: params.boardGuard }
+          { boardGuard: params.boardGuard, metadata: item.metadata }
         );
         if (inserted) {
           return {
@@ -686,6 +783,10 @@ export async function executeCanvasInsertion(
     if (items.length === 1) {
       const item = items[0];
       const point = gridLayout.positions[0];
+      const existingElementIds =
+        item.type === 'text'
+          ? new Set(board.children.map((element) => element.id))
+          : null;
       const inserted = await insertItemToCanvas(
         board,
         item,
@@ -696,6 +797,17 @@ export async function executeCanvasInsertion(
       if (params.boardGuard && !params.boardGuard()) {
         throw new Error('画板已切换，取消本次插入');
       }
+      attachGenerationMetadataToInsertedElements(
+        board,
+        item.type === 'text' && existingElementIds
+          ? board.children
+              .filter((element) => !existingElementIds.has(element.id))
+              .map((element) => element.id)
+          : inserted.elementId
+          ? [inserted.elementId]
+          : [],
+        item.metadata
+      );
 
       requestAnimationFrame(() => {
         if (!params.boardGuard || params.boardGuard()) {
@@ -772,11 +884,17 @@ export async function executeCanvasInsertion(
       },
       type: 'text',
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[CanvasInsertion] Failed to insert content:', error);
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message
+        : typeof error === 'string' && error.trim()
+        ? error
+        : '未知错误';
     return {
       success: false,
-      error: `插入失败: ${error.message || '未知错误'}`,
+      error: `插入失败: ${message}`,
       type: 'error',
     };
   }
@@ -810,9 +928,17 @@ export async function insertImageGroup(
   point?: Point,
   dimensions?: { width: number; height: number },
   board?: PlaitBoard,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  prompt?: string,
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
+  const promptMetadata = {
+    ...metadata,
+    ...(prompt?.trim()
+      ? { prompt: prompt.trim(), generationPrompt: prompt.trim() }
+      : {}),
+  };
   return executeCanvasInsertion({
     board,
     items: imageUrls.map((url) => ({
@@ -820,7 +946,73 @@ export async function insertImageGroup(
       content: url,
       groupId,
       dimensions,
+      metadata:
+        Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,
     })),
+    startPoint: point,
+    boardGuard,
+  });
+}
+
+/**
+ * 便捷函数：插入图片生成结果，提示词作为图片元数据跟随展示
+ */
+export async function insertGeneratedImageFlow(
+  prompt: string | undefined,
+  results: MediaFlowResult[],
+  point?: Point,
+  board?: PlaitBoard,
+  boardGuard?: () => boolean
+): Promise<MCPResult> {
+  const normalizedPrompt = prompt?.trim() || '';
+  const imageResults = results.filter((result) => result.type === 'image');
+  const imageItems: InsertionItem[] = [];
+
+  if (imageResults.length === 1) {
+    const [result] = imageResults;
+    imageItems.push({
+      type: 'image',
+      content: result.url,
+      dimensions: result.dimensions,
+      metadata: {
+        ...result.metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
+    });
+  } else if (imageResults.length > 1) {
+    const groupId = `generated-image-group-${Date.now()}`;
+    imageResults.forEach((result) => {
+      imageItems.push({
+        type: 'image',
+        content: result.url,
+        groupId,
+        dimensions: result.dimensions,
+        metadata: {
+          ...result.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
+      });
+    });
+  }
+
+  if (imageItems.length === 0) {
+    return executeCanvasInsertion({
+      board,
+      items: normalizedPrompt
+        ? [{ type: 'text', content: normalizedPrompt, label: 'Prompt' }]
+        : [],
+      startPoint: point,
+      boardGuard,
+    });
+  }
+
+  return executeCanvasInsertion({
+    board,
+    items: imageItems,
     startPoint: point,
     boardGuard,
   });
@@ -841,6 +1033,7 @@ export async function insertAIFlow(
   board?: PlaitBoard,
   boardGuard?: () => boolean
 ): Promise<MCPResult> {
+  const normalizedPrompt = prompt.trim();
   const items: InsertionItem[] = [
     { type: 'text', content: prompt, label: 'Prompt' },
   ];
@@ -850,7 +1043,12 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
-      metadata: results[0].metadata,
+      metadata: {
+        ...results[0].metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
     });
   } else {
     const groupId = `result-group-${Date.now()}`;
@@ -860,7 +1058,12 @@ export async function insertAIFlow(
         content: r.url,
         groupId,
         dimensions: r.dimensions,
-        metadata: r.metadata,
+        metadata: {
+          ...r.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
       });
     });
   }

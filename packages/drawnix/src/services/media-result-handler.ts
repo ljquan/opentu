@@ -243,9 +243,14 @@ export async function handleSingleMediaInsert(
             height: AUDIO_CARD_DEFAULT_HEIGHT,
           }
         : parseSizeToPixels(params.size);
+    const generationMetadata = {
+      prompt: params.prompt,
+      generationTaskId: taskId,
+    };
     const metadata =
       type === 'audio'
         ? {
+            ...generationMetadata,
             title: result?.title || params.title,
             duration:
               typeof result?.clips?.[0]?.duration === 'number'
@@ -266,7 +271,7 @@ export async function handleSingleMediaInsert(
               result?.clipIds?.[0],
             clipIds: result?.clipIds,
           }
-        : undefined;
+        : generationMetadata;
 
     if (config.insertPrompt) {
       await insertAIFlow(
@@ -331,17 +336,24 @@ export async function handleGroupMediaInsert(
     } else {
       if (firstTask.type === 'image') {
         await executeCanvasInsertion({
-          items: urls.map((url) => ({
+          items: tasks.map((task) => ({
             type: 'image',
-            content: url,
+            content: task.url,
             dimensions,
+            metadata: {
+              prompt: task.params.prompt,
+              generationTaskId: task.taskId,
+            },
           })),
           startPoint: insertionPoint,
         });
       } else {
         // 视频逐个插入
-        for (const url of urls) {
-          await quickInsert('video', url, insertionPoint, dimensions);
+        for (const task of tasks) {
+          await quickInsert('video', task.url, insertionPoint, dimensions, {
+            prompt: task.params.prompt,
+            generationTaskId: task.taskId,
+          });
         }
       }
     }
@@ -449,6 +461,7 @@ export async function handleMediaResult(
               tags: typeof params.tags === 'string' ? params.tags : undefined,
               mv: typeof params.mv === 'string' ? params.mv : undefined,
               prompt: params.prompt,
+              generationTaskId: taskId,
               providerTaskId: result.providerTaskId,
               clipId:
                 result.clips?.[index]?.clipId ||
@@ -465,6 +478,10 @@ export async function handleMediaResult(
             type: 'image',
             content: imageUrl,
             dimensions,
+            metadata: {
+              prompt: params.prompt,
+              generationTaskId: taskId,
+            },
           })),
           startPoint: insertionPoint,
         });

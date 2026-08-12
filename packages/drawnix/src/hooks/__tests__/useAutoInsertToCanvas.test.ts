@@ -6,6 +6,7 @@ import {
 } from '../useAutoInsertToCanvas';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import { IMAGE_GENERATION_ANCHOR_RETRY_EVENT } from '../../types/image-generation-anchor.types';
+import { STORAGE_LIMITS } from '../../constants/TASK_CONSTANTS';
 
 const mocks = vi.hoisted(() => {
   const taskListeners: Array<(event: any) => void> = [];
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
     taskState,
     quickInsert: vi.fn(),
     executeCanvasInsertion: vi.fn(),
+    insertGeneratedImageFlow: vi.fn(),
     insertAIFlow: vi.fn(),
     insertImageGroup: vi.fn(),
     markAsInserted: vi.fn(),
@@ -36,7 +38,7 @@ const mocks = vi.hoisted(() => {
     updateAnchor: vi.fn(),
     setNode: vi.fn(),
     removeNode: vi.fn(),
-    notifySelectionRefresh: vi.fn(),
+    notifyAISelectionContentRefresh: vi.fn(),
     retargetCanvasAssociationLines: vi.fn(),
     imageAnchorByTask: null as any,
     isGridImageTask: vi.fn(),
@@ -118,6 +120,7 @@ vi.mock('../../services/canvas-operations', () => ({
   getCanvasBoardBinding: () =>
     mocks.board ? { board: mocks.board, boardId: mocks.boundBoardId } : null,
   executeCanvasInsertion: mocks.executeCanvasInsertion,
+  insertGeneratedImageFlow: mocks.insertGeneratedImageFlow,
   insertAIFlow: mocks.insertAIFlow,
   insertImageGroup: mocks.insertImageGroup,
   parseSizeToPixels: vi.fn(() => ({ width: 512, height: 512 })),
@@ -160,6 +163,7 @@ vi.mock('../../services/workspace-service', () => ({
 vi.mock('../../data/audio', () => ({
   AUDIO_CARD_DEFAULT_HEIGHT: 144,
   AUDIO_CARD_DEFAULT_WIDTH: 360,
+  buildAudioImageElement: vi.fn(),
 }));
 
 vi.mock('../../plugins/with-image-generation-anchor', () => ({
@@ -193,7 +197,7 @@ vi.mock('../../utils/image-splitter', () => ({
 
 vi.mock('../../utils/selection-utils', () => ({
   getInsertionPointBelowBottommostElement: vi.fn(() => [100, 100]),
-  notifyAISelectionContentRefresh: mocks.notifySelectionRefresh,
+  notifyAISelectionContentRefresh: mocks.notifyAISelectionContentRefresh,
 }));
 
 vi.mock('../../utils/frame-insertion-utils', () => ({
@@ -343,6 +347,37 @@ describe('useAutoInsertToCanvas', () => {
         firstElementSize: { width: 512, height: 512 },
       },
     });
+    mocks.insertGeneratedImageFlow.mockReset();
+    mocks.insertGeneratedImageFlow.mockResolvedValue({
+      success: true,
+      data: {
+        insertedCount: 1,
+        items: [
+          {
+            type: 'image',
+            point: [100, 100],
+            elementId: 'image-1',
+            size: { width: 512, height: 512 },
+          },
+        ],
+        firstElementId: 'image-1',
+        firstElementPosition: [100, 100],
+        firstElementSize: { width: 512, height: 512 },
+      },
+    });
+    mocks.insertAIFlow.mockReset();
+    mocks.insertAIFlow.mockResolvedValue({
+      success: true,
+      data: {
+        insertedCount: 2,
+        items: [
+          { type: 'text', point: [100, 100], elementId: 'prompt-1' },
+          { type: 'video', point: [100, 220], elementId: 'media-1' },
+        ],
+        firstElementId: 'prompt-1',
+        firstElementPosition: [100, 100],
+      },
+    });
     mocks.markAsInserted.mockReset();
     mocks.registerTask.mockReset();
     mocks.startPostProcessing.mockReset();
@@ -355,7 +390,7 @@ describe('useAutoInsertToCanvas', () => {
     mocks.updateAnchor.mockReset();
     mocks.setNode.mockReset();
     mocks.removeNode.mockReset();
-    mocks.notifySelectionRefresh.mockReset();
+    mocks.notifyAISelectionContentRefresh.mockReset();
     mocks.retargetCanvasAssociationLines.mockReset();
     mocks.imageAnchorByTask = null;
     mocks.isGridImageTask.mockReset();
@@ -378,6 +413,7 @@ describe('useAutoInsertToCanvas', () => {
         enabled: true,
         groupSimilarTasks: true,
         groupTimeWindow: 10,
+        maxGroupWait: 0,
       })
     );
 
@@ -411,7 +447,8 @@ describe('useAutoInsertToCanvas', () => {
       mocks.board,
       expect.any(Function)
     );
-    expect(mocks.notifySelectionRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       task.id,
@@ -1259,6 +1296,364 @@ describe('useAutoInsertToCanvas', () => {
     });
 
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/task-1.png',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        prompt: '生成一张图',
+        aiPrompt: '生成一张图',
+        generationPrompt: '生成一张图',
+        generationTaskId: 'task-restored',
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+  });
+
+  it('preserves generation metadata when inserting a video result', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-video',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: '海边延时摄影',
+        size: '16:9',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/video/task-video.mp4',
+        format: 'mp4',
+        size: 456,
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'video',
+      '/__aitu_cache__/video/task-video.mp4',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        prompt: '海边延时摄影',
+        generationTaskId: 'task-video',
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+  });
+
+  it('preserves generation metadata when inserting an audio result', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-audio',
+      type: TaskType.AUDIO,
+      params: {
+        prompt: '安静的钢琴背景音乐',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/audio/task-audio.mp3',
+        format: 'mp3',
+        size: 456,
+        title: '钢琴背景音乐',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'audio',
+      '/__aitu_cache__/audio/task-audio.mp3',
+      [100, 100],
+      { width: 360, height: 144 },
+      expect.objectContaining({
+        prompt: '安静的钢琴背景音乐',
+        generationTaskId: 'task-audio',
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+  });
+
+  it.each([
+    {
+      type: TaskType.VIDEO,
+      id: 'task-video-flow',
+      prompt: '雨夜延时视频',
+      url: '/__aitu_cache__/video/task-video-flow.mp4',
+      format: 'mp4',
+    },
+    {
+      type: TaskType.AUDIO,
+      id: 'task-audio-flow',
+      prompt: '雨声环境音乐',
+      url: '/__aitu_cache__/audio/task-audio-flow.mp3',
+      format: 'mp3',
+    },
+  ])(
+    'preserves generation metadata for $type results when inserting the prompt flow',
+    async ({ type, id, prompt, url, format }) => {
+      const task = createCompletedImageTask({
+        id,
+        type,
+        params: {
+          prompt,
+          size: '16:9',
+          autoInsertToCanvas: true,
+        },
+        result: { url, format, size: 456 },
+      });
+      mocks.board = { children: [] };
+      mocks.taskState.tasks = [task];
+
+      renderHook(() =>
+        useAutoInsertToCanvas({
+          enabled: true,
+          insertPrompt: true,
+          groupSimilarTasks: true,
+          groupTimeWindow: 10,
+        })
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+
+      expect(mocks.insertAIFlow).toHaveBeenCalledWith(
+        prompt,
+        [
+          expect.objectContaining({
+            type: type === TaskType.VIDEO ? 'video' : 'audio',
+            url,
+            metadata: expect.objectContaining({
+              prompt,
+              generationTaskId: id,
+            }),
+          }),
+        ],
+        [100, 100],
+        mocks.board,
+        expect.any(Function)
+      );
+    }
+  );
+
+  it('binds every result from one multi-image task to that task', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-multi-image',
+      params: {
+        prompt: '同一任务多图',
+        size: '1:1',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/image/multi-1.png',
+        urls: [
+          '/__aitu_cache__/image/multi-1.png',
+          '/__aitu_cache__/image/multi-2.png',
+        ],
+        format: 'png',
+        size: 123,
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.insertImageGroup).toHaveBeenCalledWith(
+      task.result?.urls,
+      [100, 100],
+      { width: 512, height: 512 },
+      mocks.board,
+      expect.any(Function),
+      '同一任务多图',
+      expect.objectContaining({
+        prompt: '同一任务多图',
+        generationTaskId: 'task-multi-image',
+      })
+    );
+  });
+
+  it('binds every result from one multi-audio task to that task', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-multi-audio',
+      type: TaskType.AUDIO,
+      params: {
+        prompt: '两段环境音乐',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/audio/multi-1.mp3',
+        urls: [
+          '/__aitu_cache__/audio/multi-1.mp3',
+          '/__aitu_cache__/audio/multi-2.mp3',
+        ],
+        format: 'mp3',
+        size: 456,
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledWith(
+      expect.objectContaining({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            prompt: '两段环境音乐',
+            generationTaskId: 'task-multi-audio',
+          }),
+        }),
+      ]),
+      startPoint: [100, 100],
+        board: mocks.board,
+        boardGuard: expect.any(Function),
+      })
+    );
+    expect(mocks.executeCanvasInsertion.mock.calls[0][0].items).toHaveLength(2);
+  });
+
+  it('preserves generation metadata when inserting a text result', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-text',
+      type: TaskType.CHAT,
+      params: {
+        prompt: '总结会议纪要',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '',
+        format: 'text',
+        size: 0,
+        chatResponse: '会议结论',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() => useAutoInsertToCanvas({ enabled: true }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledWith(
+      expect.objectContaining({
+      items: [
+        expect.objectContaining({
+          type: 'text',
+          metadata: {
+            prompt: '总结会议纪要',
+            generationTaskId: 'task-text',
+          },
+        }),
+      ],
+        board: mocks.board,
+        boardGuard: expect.any(Function),
+      })
+    );
+  });
+
+  it('releases a text task reservation when canvas insertion fails', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-text-retry',
+      type: TaskType.CHAT,
+      params: {
+        prompt: '总结失败后重试',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '',
+        format: 'text',
+        size: 0,
+        chatResponse: '重试后应插入的文本',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+    mocks.executeCanvasInsertion.mockResolvedValueOnce({
+      success: false,
+      error: '文本写入失败',
+    });
+
+    renderHook(() => useAutoInsertToCanvas({ enabled: true }));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.completePostProcessing).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    expect(mocks.failPostProcessing).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining('文本写入失败')
+    );
+
+    act(() => {
+      emitTaskEvent(task);
+    });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledTimes(2);
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [100, 100],
+      'text-1',
+      { width: 320, height: 120 }
+    );
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
   });
 
@@ -1329,7 +1724,8 @@ describe('useAutoInsertToCanvas', () => {
       [100, 100],
       { width: 512, height: 512 },
       mocks.board,
-      expect.any(Function)
+      expect.any(Function),
+      '批量图片'
     );
     expect(mocks.setNode).toHaveBeenNthCalledWith(
       1,
@@ -1343,7 +1739,7 @@ describe('useAutoInsertToCanvas', () => {
       expect.objectContaining({ generationTaskId: 'task-batch-2' }),
       [1]
     );
-    expect(mocks.notifySelectionRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       'task-batch-1',
       1,
@@ -1357,6 +1753,74 @@ describe('useAutoInsertToCanvas', () => {
       [632, 100],
       'image-2',
       { width: 512, height: 512 }
+    );
+  });
+
+  it('binds grouped video results to their own task metadata', async () => {
+    const tasks = [
+      createCompletedImageTask({
+        id: 'task-video-batch-1',
+        type: TaskType.VIDEO,
+        params: {
+          prompt: '批量视频',
+          size: '16:9',
+          autoInsertToCanvas: true,
+        },
+        result: {
+          url: '/__aitu_cache__/video/batch-1.mp4',
+          format: 'mp4',
+          size: 456,
+        },
+      }),
+      createCompletedImageTask({
+        id: 'task-video-batch-2',
+        type: TaskType.VIDEO,
+        params: {
+          prompt: '批量视频',
+          size: '16:9',
+          autoInsertToCanvas: true,
+        },
+        result: {
+          url: '/__aitu_cache__/video/batch-2.mp4',
+          format: 'mp4',
+          size: 456,
+        },
+      }),
+    ];
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = tasks;
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenNthCalledWith(
+      1,
+      'video',
+      '/__aitu_cache__/video/batch-1.mp4',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({ generationTaskId: 'task-video-batch-1' }),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.quickInsert).toHaveBeenNthCalledWith(
+      2,
+      'video',
+      '/__aitu_cache__/video/batch-2.mp4',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({ generationTaskId: 'task-video-batch-2' }),
+      mocks.board,
+      expect.any(Function)
     );
   });
 
@@ -1422,6 +1886,7 @@ describe('useAutoInsertToCanvas', () => {
     );
     expect(mocks.board.children).toHaveLength(1);
     expect(mocks.board.children[0]).toBe(originalElement);
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('does not insert a new image when the bound target was removed', async () => {
@@ -1457,6 +1922,200 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.markAsInserted).not.toHaveBeenCalled();
   });
 
+  it('replaces a bound video in place and preserves its geometry', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-video-replace',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: '更新目标视频',
+        size: '16:9',
+        replaceElementId: 'video-target',
+      },
+      result: {
+        url: '/__aitu_cache__/video/replaced.mp4',
+        format: 'mp4',
+        size: 456,
+      },
+    });
+    const originalElement = {
+      id: 'video-target',
+      type: 'image',
+      url: '/__aitu_cache__/video/original.mp4#video',
+      isVideo: true,
+      videoType: 'video',
+      points: [
+        [40, 50],
+        [440, 275],
+      ],
+    };
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/video/replaced.mp4#video',
+        generationPrompt: '更新目标视频',
+        generationTaskId: 'task-video-replace',
+      }),
+      [0]
+    );
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [40, 50],
+      'video-target',
+      { width: 400, height: 225 }
+    );
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a bound text card in place and preserves its geometry', async () => {
+    const task: Task = {
+      ...createCompletedImageTask(),
+      id: 'task-text-replace',
+      type: TaskType.CHAT,
+      params: {
+        prompt: '重写文本卡片',
+        replaceElementId: 'card-target',
+      },
+      result: {
+        url: '',
+        format: 'text',
+        size: 0,
+        chatResponse: '这是更新后的正文',
+      },
+    };
+    const originalElement = {
+      id: 'card-target',
+      type: 'card',
+      title: '原标题',
+      body: '原正文',
+      fillColor: '#ffffff',
+      points: [
+        [30, 40],
+        [390, 240],
+      ],
+    };
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() => useAutoInsertToCanvas({ enabled: true }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        body: '这是更新后的正文',
+        generationPrompt: '重写文本卡片',
+        generationTaskId: 'task-text-replace',
+      }),
+      [0]
+    );
+    expect(mocks.setNode).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCanvasInsertion).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [30, 40],
+      'card-target',
+      { width: 360, height: 200 }
+    );
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.board.children).toHaveLength(1);
+    expect(mocks.board.children[0]).toBe(originalElement);
+  });
+
+  it('replaces a bound native audio node in place and preserves its geometry', async () => {
+    const task: Task = {
+      ...createCompletedImageTask(),
+      id: 'task-audio-replace',
+      type: TaskType.AUDIO,
+      params: {
+        prompt: '生成新的背景音乐',
+        title: '新音乐',
+        mv: 'chirp-v4',
+        replaceElementId: 'audio-target',
+      },
+      result: {
+        url: '/__aitu_cache__/audio/replaced.mp3',
+        format: 'mp3',
+        size: 456,
+        title: '新音乐',
+        duration: 187,
+        previewImageUrl: '/__aitu_cache__/audio/cover.png',
+      },
+    };
+    const originalElement = {
+      id: 'audio-target',
+      type: 'audio',
+      audioUrl: '/__aitu_cache__/audio/original.mp3',
+      title: '原音乐',
+      createdAt: 1,
+      points: [
+        [50, 60],
+        [390, 188],
+      ],
+    };
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        audioUrl: '/__aitu_cache__/audio/replaced.mp3',
+        title: '新音乐',
+        duration: 187,
+        previewImageUrl: '/__aitu_cache__/audio/cover.png',
+        generationPrompt: '生成新的背景音乐',
+        generationTaskId: 'task-audio-replace',
+      }),
+      [0]
+    );
+    expect(mocks.setNode).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCanvasInsertion).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [50, 60],
+      'audio-target',
+      { width: 340, height: 128 }
+    );
+    expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.board.children).toHaveLength(1);
+    expect(mocks.board.children[0]).toBe(originalElement);
+  });
+
   it('does not retry a completed task that is already marked inserted', async () => {
     const task = createCompletedImageTask({ insertedToCanvas: true });
     mocks.board = { children: [] };
@@ -1483,8 +2142,64 @@ describe('useAutoInsertToCanvas', () => {
     });
 
     expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
     expect(mocks.clearTask).not.toHaveBeenCalled();
     expect(mocks.markAsInserted).not.toHaveBeenCalled();
+  });
+
+  it('bounds completed task tracking and evicts the least recently used task', async () => {
+    const insertedTasks = Array.from(
+      { length: STORAGE_LIMITS.MAX_RETAINED_TASKS + 1 },
+      (_, index) =>
+        createCompletedImageTask({
+          id: `task-inserted-${index}`,
+          insertedToCanvas: true,
+        })
+    );
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = insertedTasks;
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    const oldestTask = {
+      ...insertedTasks[0],
+      insertedToCanvas: false,
+    };
+    act(() => {
+      emitTaskEvent(oldestTask);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(
+      oldestTask.id,
+      'auto_insert'
+    );
+
+    const newestTask = {
+      ...insertedTasks[insertedTasks.length - 1],
+      insertedToCanvas: false,
+    };
+    act(() => {
+      emitTaskEvent(newestTask);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).not.toHaveBeenCalledWith(
+      newestTask.id,
+      'auto_insert'
+    );
   });
 
   it('does not retry a completed task whose post-processing already completed', async () => {
@@ -1519,6 +2234,7 @@ describe('useAutoInsertToCanvas', () => {
     });
 
     expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
     expect(mocks.clearTask).not.toHaveBeenCalled();
     expect(mocks.markAsInserted).not.toHaveBeenCalled();
   });
@@ -1612,6 +2328,7 @@ describe('useAutoInsertToCanvas', () => {
       allowCompleted: true,
     });
     expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
   });
 
   it('keeps the failed state visible when retry task has been removed', async () => {

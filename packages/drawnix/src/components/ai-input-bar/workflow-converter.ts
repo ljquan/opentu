@@ -412,6 +412,14 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         videoArgs.referenceImages = referenceImages;
       }
+      const { replaceElementId, sourcePrompt, ...adapterVideoParams } =
+        extraParams || {};
+      if (replaceElementId) {
+        videoArgs.replaceElementId = replaceElementId;
+      }
+      if (sourcePrompt) {
+        videoArgs.sourcePrompt = sourcePrompt;
+      }
       // 透传额外参数（如 ratio）
       const videoParams: Record<string, unknown> = Object.fromEntries(
         Object.entries(extraParams || {}).filter(
@@ -453,9 +461,11 @@ export function convertDirectGenerationToWorkflow(
         status: 'pending',
       });
     } else if (generationType === 'audio') {
+      const { replaceElementId, sourcePrompt, ...adapterAudioParams } =
+        extraParams || {};
       const sunoAction =
-        typeof extraParams?.sunoAction === 'string'
-          ? extraParams.sunoAction
+        typeof adapterAudioParams.sunoAction === 'string'
+          ? adapterAudioParams.sunoAction
           : 'music';
       const isLyricsAction = sunoAction === 'lyrics';
       const audioArgs: Record<string, unknown> = withKnowledgeContextRefs(
@@ -472,45 +482,51 @@ export function convertDirectGenerationToWorkflow(
         },
         normalizedKnowledgeContextRefs
       );
+      if (replaceElementId) {
+        audioArgs.replaceElementId = replaceElementId;
+      }
+      if (sourcePrompt) {
+        audioArgs.sourcePrompt = sourcePrompt;
+      }
 
       // 从 Markdown 卡片内容解析 title/tags/lyrics（仅 music 动作且用户未手动设置时）
       if (!isLyricsAction && prompt) {
         const parsed = parseSunoFieldsFromMarkdown(prompt);
         if (parsed.title || parsed.tags) {
           audioArgs.prompt = parsed.lyrics;
-          if (parsed.title && !extraParams?.title) {
+          if (parsed.title && !adapterAudioParams.title) {
             audioArgs.title = parsed.title;
           }
-          if (parsed.tags && !extraParams?.tags) {
+          if (parsed.tags && !adapterAudioParams.tags) {
             audioArgs.tags = parsed.tags;
           }
         }
       }
 
-      if (extraParams) {
-        audioArgs.params = extraParams;
-        if (extraParams.notifyHook) {
-          audioArgs.notifyHook = extraParams.notifyHook;
+      if (Object.keys(adapterAudioParams).length > 0) {
+        audioArgs.params = adapterAudioParams;
+        if (adapterAudioParams.notifyHook) {
+          audioArgs.notifyHook = adapterAudioParams.notifyHook;
         }
-        if (!isLyricsAction && extraParams.mv) {
-          audioArgs.mv = extraParams.mv;
+        if (!isLyricsAction && adapterAudioParams.mv) {
+          audioArgs.mv = adapterAudioParams.mv;
         }
-        if (!isLyricsAction && extraParams.title) {
-          audioArgs.title = extraParams.title;
+        if (!isLyricsAction && adapterAudioParams.title) {
+          audioArgs.title = adapterAudioParams.title;
         }
-        if (!isLyricsAction && extraParams.tags) {
-          audioArgs.tags = extraParams.tags;
+        if (!isLyricsAction && adapterAudioParams.tags) {
+          audioArgs.tags = adapterAudioParams.tags;
         }
-        if (!isLyricsAction && extraParams.continueClipId) {
-          audioArgs.continueClipId = extraParams.continueClipId;
+        if (!isLyricsAction && adapterAudioParams.continueClipId) {
+          audioArgs.continueClipId = adapterAudioParams.continueClipId;
         }
         if (
           !isLyricsAction &&
-          extraParams.continueAt !== undefined &&
-          extraParams.continueAt !== null &&
-          extraParams.continueAt !== ''
+          adapterAudioParams.continueAt !== undefined &&
+          adapterAudioParams.continueAt !== null &&
+          adapterAudioParams.continueAt !== ''
         ) {
-          audioArgs.continueAt = Number(extraParams.continueAt);
+          audioArgs.continueAt = Number(adapterAudioParams.continueAt);
         }
       }
 
@@ -545,8 +561,16 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         textArgs.referenceImages = referenceImages;
       }
-      if (extraParams) {
-        textArgs.params = extraParams;
+      const { replaceElementId, sourcePrompt, ...adapterTextParams } =
+        extraParams || {};
+      if (replaceElementId) {
+        textArgs.replaceElementId = replaceElementId;
+      }
+      if (sourcePrompt) {
+        textArgs.sourcePrompt = sourcePrompt;
+      }
+      if (Object.keys(adapterTextParams).length > 0) {
+        textArgs.params = adapterTextParams;
       }
 
       steps.push({

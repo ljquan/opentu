@@ -8,7 +8,7 @@
  */
 
 import type { MCPTool, MCPResult } from '../types';
-import type { PlaitBoard, Point } from '@plait/core';
+import { Transforms, type PlaitBoard, type Point } from '@plait/core';
 import {
   executeCanvasInsertion as executeSharedCanvasInsertion,
   type InsertionItem as SharedInsertionItem,
@@ -57,6 +57,73 @@ export interface CanvasInsertionParams {
  */
 let boardRef: PlaitBoard | null = null;
 let boardBindingVersion = 0;
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+interface InsertedCanvasItem {
+  elementIds: string[];
+  size: { width: number; height: number };
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readStringMetadata(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readStringMetadata(metadata, 'generationPrompt') ||
+    readStringMetadata(metadata, 'aiPrompt');
+  const generationTaskId = readStringMetadata(metadata, 'generationTaskId');
+  const generationAnchorId = readStringMetadata(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
+}
+
+function attachGenerationMetadataToInsertedElements(
+  board: PlaitBoard,
+  elementIds: readonly string[],
+  metadata: Record<string, unknown> | undefined
+): void {
+  const patch = buildGenerationMetadataPatch(metadata);
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
+
+  for (const elementId of elementIds) {
+    const index = board.children.findIndex(
+      (element) => element.id === elementId
+    );
+    if (index < 0) continue;
+    Transforms.setNode(
+      board,
+      patch as Partial<PlaitBoard['children'][number]>,
+      [index]
+    );
+  }
+}
 
 /**
  * 设置 Board 引用
@@ -145,7 +212,8 @@ export const canvasInsertionTool: MCPTool = {
             },
             metadata: {
               type: 'object',
-              description: '可选元数据（音频卡片标题、封面、时长等）',
+              description:
+                '可选轻量元数据；AI 生成结果应传 prompt 和 generationTaskId，音频还可传标题、封面、时长等',
             },
           },
           required: ['type', 'content'],
@@ -191,14 +259,26 @@ export async function quickInsert(
  */
 export async function insertImageGroup(
   imageUrls: string[],
-  point?: Point
+  point?: Point,
+  dimensions?: { width: number; height: number },
+  prompt?: string,
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
+  const promptMetadata = {
+    ...metadata,
+    ...(prompt?.trim()
+      ? { prompt: prompt.trim(), generationPrompt: prompt.trim() }
+      : {}),
+  };
   return executeCanvasInsertion({
     items: imageUrls.map((url) => ({
       type: 'image' as ContentType,
       content: url,
       groupId,
+      dimensions,
+      metadata:
+        Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,
     })),
     startPoint: point,
   });
@@ -217,6 +297,7 @@ export async function insertAIFlow(
   }>,
   point?: Point
 ): Promise<MCPResult> {
+  const normalizedPrompt = prompt.trim();
   const items: InsertionItem[] = [
     { type: 'text', content: prompt, label: 'Prompt' },
   ];
@@ -226,7 +307,12 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
-      metadata: results[0].metadata,
+      metadata: {
+        ...results[0].metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
     });
   } else {
     // 多个结果，水平排列
@@ -237,7 +323,12 @@ export async function insertAIFlow(
         content: r.url,
         groupId,
         dimensions: r.dimensions,
-        metadata: r.metadata,
+        metadata: {
+          ...r.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
       });
     });
   }

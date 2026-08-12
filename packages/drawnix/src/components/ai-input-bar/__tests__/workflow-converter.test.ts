@@ -431,6 +431,25 @@ describe('workflow-converter', () => {
         });
       });
 
+      it('应该把视频目标绑定字段放在任务参数顶层', () => {
+        const params = createMockParams({
+          generationType: 'video',
+          extraParams: {
+            replaceElementId: 'video-1',
+            sourcePrompt: '原视频提示词',
+            ratio: '16:9',
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args).toMatchObject({
+          replaceElementId: 'video-1',
+          sourcePrompt: '原视频提示词',
+          params: { ratio: '16:9' },
+        });
+      });
+
       it('应该使用默认时长 5 秒', () => {
         const params = createMockParams({
           generationType: 'video',
@@ -471,6 +490,25 @@ describe('workflow-converter', () => {
           globalIndex: 1,
         });
       });
+
+      it('应该把音频目标绑定字段放在任务参数顶层', () => {
+        const params = createMockParams({
+          generationType: 'audio',
+          extraParams: {
+            replaceElementId: 'audio-1',
+            sourcePrompt: '原音频提示词',
+            sunoAction: 'music',
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args).toMatchObject({
+          replaceElementId: 'audio-1',
+          sourcePrompt: '原音频提示词',
+          params: { sunoAction: 'music' },
+        });
+      });
     });
 
     describe('文本生成场景', () => {
@@ -496,6 +534,25 @@ describe('workflow-converter', () => {
           batchIndex: 1,
           batchTotal: 1,
           globalIndex: 1,
+        });
+      });
+
+      it('应该把文本目标绑定字段放在任务参数顶层', () => {
+        const params = createMockParams({
+          generationType: 'text',
+          extraParams: {
+            replaceElementId: 'text-1',
+            sourcePrompt: '原文本提示词',
+            temperature: '0.7',
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params);
+
+        expect(workflow.steps[0].args).toMatchObject({
+          replaceElementId: 'text-1',
+          sourcePrompt: '原文本提示词',
+          params: { temperature: '0.7' },
         });
       });
     });

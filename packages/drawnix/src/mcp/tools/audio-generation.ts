@@ -43,6 +43,8 @@ export interface AudioGenerationParams {
   batchTotal?: number;
   globalIndex?: number;
   autoInsertToCanvas?: boolean;
+  replaceElementId?: string;
+  sourcePrompt?: string;
   params?: Record<string, unknown>;
   promptMeta?: PromptLineageMeta;
   /** 本次生成使用的知识库笔记轻量引用 */
@@ -135,6 +137,8 @@ function getAudioQueueConfig(params: AudioGenerationParams) {
       continueAt: params.continueAt,
       infillStartS: params.infillStartS,
       infillEndS: params.infillEndS,
+      replaceElementId: params.replaceElementId,
+      sourcePrompt: params.sourcePrompt,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
       canvasAssociations: params.canvasAssociations,

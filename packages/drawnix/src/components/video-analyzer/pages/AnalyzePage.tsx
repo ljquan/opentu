@@ -788,7 +788,18 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
 
   const handleInsertAnalysis = useCallback(async () => {
     if (!analysis) return;
-    await quickInsert('text', formatShotsMarkdown(analysis.shots, analysis));
+    const sourcePrompt =
+      promptText.trim() ||
+      (existingRecord?.sourceSnapshot?.type === 'prompt'
+        ? existingRecord.sourceSnapshot.prompt
+        : existingRecord?.sourceLabel || '');
+    await quickInsert(
+      'text',
+      formatShotsMarkdown(analysis.shots, analysis),
+      undefined,
+      undefined,
+      sourcePrompt.trim() ? { prompt: sourcePrompt.trim() } : undefined
+    );
     analytics.trackUIInteraction({
       area: 'popular_video_tool',
       action: 'analysis_inserted_to_canvas',
@@ -800,7 +811,7 @@ export const AnalyzePage: React.FC<AnalyzePageProps> = ({
         characterCount: analysis.characters?.length || 0,
       },
     });
-  }, [analysis]);
+  }, [analysis, existingRecord, promptText]);
 
   return (
     <div className="va-page">
