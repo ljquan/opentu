@@ -63,6 +63,45 @@ export async function ensureBase64ForAI(
   return value;
 }
 
+interface MaterializeReferenceImagesOptions {
+  signal?: AbortSignal;
+  isCurrentAttempt?: () => boolean;
+  preserveUrl?: (url: string) => boolean;
+}
+
+function assertReferenceMaterializationActive(
+  options?: MaterializeReferenceImagesOptions
+): void {
+  options?.signal?.throwIfAborted();
+  if (options?.isCurrentAttempt?.() === false) {
+    const error = new Error('任务执行已被取消或替代');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
+/** 串行物化参考图，避免多个 Blob 与 Base64 同时驻留内存。 */
+export async function materializeReferenceImagesSequentially(
+  referenceImages: readonly string[],
+  options?: MaterializeReferenceImagesOptions
+): Promise<string[]> {
+  const materialized: string[] = [];
+  for (const url of referenceImages) {
+    assertReferenceMaterializationActive(options);
+    if (options?.preserveUrl?.(url)) {
+      materialized.push(url);
+      continue;
+    }
+
+    const imageData = await unifiedCacheService.getImageForAI(url);
+    assertReferenceMaterializationActive(options);
+    const base64 = await ensureBase64ForAI(imageData, options?.signal);
+    assertReferenceMaterializationActive(options);
+    materialized.push(base64);
+  }
+  return materialized;
+}
+
 // 从共享模块重新导出
 export {
   isAsyncImageModel,

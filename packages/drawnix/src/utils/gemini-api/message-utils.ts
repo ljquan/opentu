@@ -1,4 +1,6 @@
 import type { Attachment } from '../../types/chat.types';
+import { unifiedCacheService } from '../../services/unified-cache-service';
+import { isVirtualMediaUrl } from '../virtual-media-url';
 import type { GeminiMessage, GeminiMessagePart } from './types';
 import { fileToBase64 } from './utils';
 
@@ -35,6 +37,16 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 function isImageMimeType(mimeType?: string): boolean {
   return Boolean(mimeType && mimeType.toLowerCase().startsWith('image/'));
+}
+
+function validateImageBlob(blob: Blob, source: string): Blob {
+  if (blob.size <= 0) {
+    throw new Error(`${source}为空`);
+  }
+  if (!isImageMimeType(blob.type)) {
+    throw new Error(`${source}格式无效: ${blob.type || '未知 MIME'}`);
+  }
+  return blob;
 }
 
 function isFile(value: unknown): value is File {
@@ -80,12 +92,31 @@ export async function normalizeImageUrlForMultimodalInput(
     return normalizedUrl;
   }
 
-  if (normalizedUrl.startsWith('blob:') || isLocalRelativeImageUrl(normalizedUrl)) {
+  if (isVirtualMediaUrl(normalizedUrl)) {
+    const imageData = await unifiedCacheService.getImageForAI(normalizedUrl);
+    const restoredValue =
+      typeof imageData?.value === 'string' ? imageData.value.trim() : '';
+    const payloadStart = restoredValue.indexOf(',');
+    if (
+      imageData?.type !== 'base64' ||
+      !/^data:image\/[a-z0-9.+-]+;base64,/i.test(restoredValue) ||
+      payloadStart < 0 ||
+      payloadStart === restoredValue.length - 1
+    ) {
+      throw new Error(`虚拟图片缓存不可用: ${normalizedUrl}`);
+    }
+    return restoredValue;
+  }
+
+  if (
+    normalizedUrl.startsWith('blob:') ||
+    isLocalRelativeImageUrl(normalizedUrl)
+  ) {
     const response = await fetch(normalizedUrl);
     if (!response.ok) {
       throw new Error(`读取本地图片失败: ${response.status}`);
     }
-    const blob = await response.blob();
+    const blob = validateImageBlob(await response.blob(), '本地图片');
     return blobToDataUrl(blob);
   }
 
@@ -97,15 +128,16 @@ export async function buildImagePartsFromUrls(
   maxImageCount: number = Number.POSITIVE_INFINITY
 ): Promise<GeminiMessagePart[]> {
   const selectedUrls = urls.filter(Boolean).slice(0, maxImageCount);
-
-  return Promise.all(
-    selectedUrls.map(async (url) => ({
+  const parts: GeminiMessagePart[] = [];
+  for (const url of selectedUrls) {
+    parts.push({
       type: 'image_url' as const,
       image_url: {
         url: await normalizeImageUrlForMultimodalInput(url),
       },
-    }))
-  );
+    });
+  }
+  return parts;
 }
 
 export async function buildImagePartsFromFiles(
@@ -115,15 +147,16 @@ export async function buildImagePartsFromFiles(
   const imageFiles = files
     .filter((file) => isImageMimeType(file.type))
     .slice(0, maxImageCount);
-
-  return Promise.all(
-    imageFiles.map(async (file) => ({
+  const parts: GeminiMessagePart[] = [];
+  for (const file of imageFiles) {
+    parts.push({
       type: 'image_url' as const,
       image_url: {
         url: await fileToBase64(file),
       },
-    }))
-  );
+    });
+  }
+  return parts;
 }
 
 export function countImageAttachmentInputs(
@@ -147,17 +180,18 @@ export async function buildImagePartsFromAttachmentInputs(
         : isImageMimeType(attachment.type)
     )
     .slice(0, maxImageCount);
-
-  return Promise.all(
-    imageAttachments.map(async (attachment) => ({
+  const parts: GeminiMessagePart[] = [];
+  for (const attachment of imageAttachments) {
+    parts.push({
       type: 'image_url' as const,
       image_url: {
         url: isFile(attachment)
           ? await fileToBase64(attachment)
           : await normalizeImageUrlForMultimodalInput(attachment.data),
       },
-    }))
-  );
+    });
+  }
+  return parts;
 }
 
 export async function buildImagePartsFromChatAttachments(
@@ -167,15 +201,16 @@ export async function buildImagePartsFromChatAttachments(
   const imageAttachments = attachments
     .filter((attachment) => isImageMimeType(attachment.type))
     .slice(0, maxImageCount);
-
-  return Promise.all(
-    imageAttachments.map(async (attachment) => ({
+  const parts: GeminiMessagePart[] = [];
+  for (const attachment of imageAttachments) {
+    parts.push({
       type: 'image_url' as const,
       image_url: {
         url: await normalizeImageUrlForMultimodalInput(attachment.data),
       },
-    }))
-  );
+    });
+  }
+  return parts;
 }
 
 export function countImageParts(messages: GeminiMessage[]): number {

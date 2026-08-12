@@ -1,4 +1,4 @@
-import type { PlaitBoard, Point } from '@plait/core';
+import { Transforms, type PlaitBoard, type Point } from '@plait/core';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
 import { scrollToPointIfNeeded } from '../../utils/selection-utils';
@@ -49,29 +49,79 @@ function getDefaultMediaSize(type: CanvasMediaType): {
   };
 }
 
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function attachGenerationMetadata(
+  board: PlaitBoard,
+  elementId: string | undefined,
+  metadata: Record<string, unknown> | undefined
+): void {
+  if (!elementId) return;
+
+  const prompt = readStringMetadata(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readStringMetadata(metadata, 'generationPrompt') ||
+    readStringMetadata(metadata, 'aiPrompt');
+  const generationTaskId = readStringMetadata(metadata, 'generationTaskId');
+  const generationAnchorId = readStringMetadata(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) patch.prompt = prompt;
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) patch.generationTaskId = generationTaskId;
+  if (generationAnchorId) patch.generationAnchorId = generationAnchorId;
+  if (Object.keys(patch).length === 0) return;
+
+  const elementIndex = board.children.findIndex(
+    (element) => element.id === elementId
+  );
+  if (elementIndex < 0) return;
+  Transforms.setNode(board, patch as Partial<PlaitBoard['children'][number]>, [
+    elementIndex,
+  ]);
+}
+
 async function insertMedia(
   board: PlaitBoard,
   type: CanvasMediaType,
   content: string,
   point: Point,
   dimensions?: { width: number; height: number }
-): Promise<{ width: number; height: number }> {
+): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const size = dimensions || getDefaultMediaSize(type);
-
-  if (type === 'video') {
-    await insertVideoFromUrl(board, content, point, false, size, true, true);
-    return size;
-  }
-
-  await insertImageFromUrl(board, content, point, false, size, true, true);
-  return size;
+  const elementId =
+    type === 'video'
+      ? await insertVideoFromUrl(board, content, point, false, size, true, true)
+      : await insertImageFromUrl(
+          board,
+          content,
+          point,
+          false,
+          size,
+          true,
+          true
+        );
+  return { elementId, size };
 }
 
 export async function quickInsertCanvasMedia(
   type: CanvasMediaType,
   content: string,
   point?: Point,
-  dimensions?: { width: number; height: number }
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
 ): Promise<CanvasMediaInsertResult> {
   const board = getCanvasBoard();
 
@@ -89,7 +139,8 @@ export async function quickInsertCanvasMedia(
         board,
         content,
         type,
-        dimensions
+        dimensions,
+        { metadata }
       );
 
       if (inserted) {
@@ -123,11 +174,14 @@ export async function quickInsertCanvasMedia(
         emptyPoint: CANVAS_INSERTION_LAYOUT.DEFAULT_POINT,
       }) ||
       CANVAS_INSERTION_LAYOUT.DEFAULT_POINT;
-    const childrenCountBefore = board.children.length;
-    const size = await insertMedia(board, type, content, targetPoint, dimensions);
-    const insertedElement = board.children[childrenCountBefore] as
-      | { id?: string }
-      | undefined;
+    const inserted = await insertMedia(
+      board,
+      type,
+      content,
+      targetPoint,
+      dimensions
+    );
+    attachGenerationMetadata(board, inserted.elementId, metadata);
 
     requestAnimationFrame(() => {
       scrollToPointIfNeeded(board, [
@@ -144,21 +198,27 @@ export async function quickInsertCanvasMedia(
           {
             type,
             point: targetPoint,
-            elementId: insertedElement?.id,
-            size,
+            elementId: inserted.elementId,
+            size: inserted.size,
           },
         ],
-        firstElementId: insertedElement?.id,
+        firstElementId: inserted.elementId,
         firstElementPosition: targetPoint,
-        firstElementSize: size,
+        firstElementSize: inserted.size,
       },
       type: 'text',
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[MediaQuickInsert] Failed to insert media:', error);
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message
+        : typeof error === 'string' && error.trim()
+        ? error
+        : '未知错误';
     return {
       success: false,
-      error: `插入失败: ${error.message || '未知错误'}`,
+      error: `插入失败: ${message}`,
       type: 'error',
     };
   }

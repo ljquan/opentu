@@ -128,6 +128,8 @@ export interface ImageGenerationParams {
   assetMetadata?: GenerationParams['assetMetadata'];
   /** 本次生成使用的知识库笔记轻量引用 */
   knowledgeContextRefs?: KnowledgeContextRef[];
+  /** 本次生成显式提及的画布元素轻量引用 */
+  canvasAssociations?: GenerationParams['canvasAssociations'];
   /** 连环画生成器动作元数据 */
   comicCreatorAction?: 'page-image';
   /** 连环画记录 ID */
@@ -310,6 +312,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
         promptMeta: params.promptMeta,
         assetMetadata: params.assetMetadata,
         knowledgeContextRefs: params.knowledgeContextRefs,
+        canvasAssociations: params.canvasAssociations,
         comicCreatorAction: params.comicCreatorAction,
         comicCreatorRecordId: params.comicCreatorRecordId,
         comicCreatorPageId: params.comicCreatorPageId,

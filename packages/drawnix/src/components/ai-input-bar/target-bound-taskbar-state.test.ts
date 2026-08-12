@@ -14,6 +14,7 @@ import {
   pruneStaleBoundTargetTaskbarDrafts,
   readBoundTargetDismissHintCount,
   readBoundTargetFollowEnabled,
+  readBoundTargetGenerationPrompt,
   recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
   resolveBoundTargetForPosition,
@@ -22,8 +23,10 @@ import {
   resolveBoundTargetTaskbarDraft,
   resolveBoundTargetSuppression,
   resolveTaskbarDraftAfterSubmission,
+  shouldBindGenerationTarget,
   shouldReleaseBoundTargetPromptDismissal,
   shouldUseBoundTargetForSubmission,
+  supportsBoundTargetFollowControls,
   storeBoundTargetTaskbarDraft,
 } from './target-bound-taskbar-state';
 
@@ -50,6 +53,37 @@ function createFollowStorage(initialValue?: string) {
 }
 
 describe('target-bound-taskbar-state', () => {
+  it('跨媒体目标只读取明确的生成提示词元数据', () => {
+    expect(
+      readBoundTargetGenerationPrompt(
+        { generationPrompt: '  视频提示词  ' },
+        'video'
+      )
+    ).toBe('视频提示词');
+    expect(
+      readBoundTargetGenerationPrompt({ aiPrompt: '音频提示词' }, 'audio')
+    ).toBe('音频提示词');
+    expect(
+      readBoundTargetGenerationPrompt(
+        { prompt: '  旧音频节点提示词  ' },
+        'audio'
+      )
+    ).toBe('旧音频节点提示词');
+    expect(
+      readBoundTargetGenerationPrompt({ prompt: '普通正文' }, 'text')
+    ).toBe('');
+    expect(
+      readBoundTargetGenerationPrompt({ prompt: '旧图片提示词' }, 'image')
+    ).toBe('旧图片提示词');
+  });
+
+  it('非图片目标缺少生成提示词时不进入目标绑定', () => {
+    expect(shouldBindGenerationTarget('video', '')).toBe(false);
+    expect(shouldBindGenerationTarget('audio', '   ')).toBe(false);
+    expect(shouldBindGenerationTarget('text', '生成文本')).toBe(true);
+    expect(shouldBindGenerationTarget('image', '')).toBe(true);
+  });
+
   it('将历史提示词规范化为候选，并抑制已取消目标的异步回显', () => {
     expect(normalizeBoundTargetPromptSuggestion('  海边日落  ')).toBe(
       '海边日落'
@@ -238,6 +272,13 @@ describe('target-bound-taskbar-state', () => {
     expect(persistBoundTargetFollowEnabled(false, blockedStorage)).toBe(false);
   });
 
+  it('图片、视频和文本目标显示跟随控制', () => {
+    expect(supportsBoundTargetFollowControls('image')).toBe(true);
+    expect(supportsBoundTargetFollowControls('text')).toBe(true);
+    expect(supportsBoundTargetFollowControls('video')).toBe(true);
+    expect(supportsBoundTargetFollowControls('audio')).toBe(false);
+  });
+
   it('关闭跟随只移除定位目标，不移除生成绑定目标', () => {
     const target = {
       elementId: 'image-a',
@@ -246,8 +287,20 @@ describe('target-bound-taskbar-state', () => {
       generationTaskId: 'task-a',
     };
 
+    const imageTarget = { ...target, type: 'image' as const };
+    expect(resolveBoundTargetForPosition(imageTarget, false)).toBeNull();
+    expect(resolveBoundTargetForPosition(imageTarget, true)).toBe(imageTarget);
+    // 兼容未携带类型的历史图片目标。
     expect(resolveBoundTargetForPosition(target, false)).toBeNull();
     expect(resolveBoundTargetForPosition(target, true)).toBe(target);
+    const textTarget = { ...target, type: 'text' as const };
+    expect(resolveBoundTargetForPosition(textTarget, false)).toBeNull();
+    expect(resolveBoundTargetForPosition(textTarget, true)).toBe(textTarget);
+    const videoTarget = { ...target, type: 'video' as const };
+    expect(resolveBoundTargetForPosition(videoTarget, false)).toBeNull();
+    expect(resolveBoundTargetForPosition(videoTarget, true)).toBe(videoTarget);
+    const audioTarget = { ...target, type: 'audio' as const };
+    expect(resolveBoundTargetForPosition(audioTarget, false)).toBe(audioTarget);
     expect(buildBoundTargetGenerationParams(target)).toMatchObject({
       replaceElementId: 'image-a',
       targetElementId: 'image-a',
@@ -291,6 +344,12 @@ describe('target-bound-taskbar-state', () => {
     expect(createBoundImageTargetStateKey(target, 'reference')).toBe(
       createBoundImageTargetStateKey({ ...target }, 'reference')
     );
+    expect(
+      createBoundImageTargetStateKey({ ...target, type: 'image' }, 'reference')
+    ).toBe(createBoundImageTargetStateKey(target, 'reference'));
+    expect(
+      createBoundImageTargetStateKey({ ...target, type: 'text' }, 'reference')
+    ).not.toBe(createBoundImageTargetStateKey(target, 'reference'));
   });
 
   it('从对话抽屉提交时仍将当前图片置于参考图首位', () => {
@@ -307,6 +366,44 @@ describe('target-bound-taskbar-state', () => {
     expect(
       pinBoundTargetReferenceContent([uploaded, target], target, 'follow')
     ).toEqual([uploaded, target]);
+  });
+
+  it('从对话抽屉提交时仍将当前文本置于上下文首位并去重', () => {
+    const target = {
+      type: 'text',
+      text: '当前生成文本',
+      name: '参考文本',
+    };
+    const uploaded = { type: 'text', text: '补充说明', name: '补充文本' };
+
+    expect(
+      pinBoundTargetReferenceContent(
+        [uploaded, { ...target }],
+        target,
+        'reference'
+      )
+    ).toEqual([target, uploaded]);
+  });
+
+  it('从对话抽屉提交时仍将当前视频置于参考视频首位并去重', () => {
+    const target = {
+      type: 'video',
+      url: 'target.mp4',
+      name: '参考视频',
+    };
+    const uploaded = {
+      type: 'video',
+      url: 'uploaded.mp4',
+      name: '补充视频',
+    };
+
+    expect(
+      pinBoundTargetReferenceContent(
+        [uploaded, { ...target }],
+        target,
+        'reference'
+      )
+    ).toEqual([target, uploaded]);
   });
 
   it('按图片保存并恢复独立草稿，不把 A 的内容带到 B', () => {
@@ -462,12 +559,14 @@ describe('target-bound-taskbar-state', () => {
     expect([...drafts.keys()]).toEqual(['image-nested']);
   });
 
-  it('仅图片模式执行绑定目标原位替换', () => {
+  it('跨媒体跟随模式执行绑定目标原位替换', () => {
     expect(shouldUseBoundTargetForSubmission('image', 'follow')).toBe(true);
     expect(shouldUseBoundTargetForSubmission('image', 'reference')).toBe(false);
-    expect(shouldUseBoundTargetForSubmission('video', 'follow')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('video', 'follow')).toBe(true);
+    expect(shouldUseBoundTargetForSubmission('audio', 'follow')).toBe(true);
     expect(shouldUseBoundTargetForSubmission('agent', 'follow')).toBe(false);
-    expect(shouldUseBoundTargetForSubmission('text', 'follow')).toBe(false);
+    expect(shouldUseBoundTargetForSubmission('text', 'follow')).toBe(true);
+    expect(shouldUseBoundTargetForSubmission('text', 'reference')).toBe(false);
   });
 
   it('仅作参考时不生成覆盖参数，跟随时保持原参数', () => {

@@ -28,7 +28,10 @@ const DEFAULT_CARD_WIDTH = CARD_DEFAULT_WIDTH;
  * 估算 Card 的高度
  * 根据 body 文本行数计算
  */
-function estimateCardHeight(block: CardBlock, cardWidth: number = DEFAULT_CARD_WIDTH): number {
+function estimateCardHeight(
+  block: CardBlock,
+  cardWidth: number = DEFAULT_CARD_WIDTH
+): number {
   const titleHeight = CARD_TITLE_HEIGHT;
 
   // 估算正文行数
@@ -36,7 +39,12 @@ function estimateCardHeight(block: CardBlock, cardWidth: number = DEFAULT_CARD_W
     ? block.body.split('\n').reduce((acc, line) => {
         // 估算每行字符数（中文约 fontSize 宽，英文约 0.6 * fontSize）
         const estimatedWidth = line.split('').reduce((w, char) => {
-          return w + (char.charCodeAt(0) > 127 ? CARD_BODY_FONT_SIZE : CARD_BODY_FONT_SIZE * 0.6);
+          return (
+            w +
+            (char.charCodeAt(0) > 127
+              ? CARD_BODY_FONT_SIZE
+              : CARD_BODY_FONT_SIZE * 0.6)
+          );
         }, 0);
         const bodyWidth = cardWidth - CARD_PADDING * 2;
         const wrappedLines = Math.max(1, Math.ceil(estimatedWidth / bodyWidth));
@@ -44,7 +52,10 @@ function estimateCardHeight(block: CardBlock, cardWidth: number = DEFAULT_CARD_W
       }, 0)
     : 1;
 
-  const bodyHeight = Math.max(CARD_BODY_MIN_HEIGHT, bodyLines * CARD_LINE_HEIGHT + CARD_PADDING * 2);
+  const bodyHeight = Math.max(
+    CARD_BODY_MIN_HEIGHT,
+    bodyLines * CARD_LINE_HEIGHT + CARD_PADDING * 2
+  );
   return titleHeight + bodyHeight;
 }
 
@@ -61,7 +72,8 @@ export function insertCardsToCanvas(
   board: PlaitBoard,
   blocks: CardBlock[],
   startPoint?: Point,
-  cardWidth?: number
+  cardWidth?: number,
+  skipScroll = false
 ): string[] {
   if (!blocks || blocks.length === 0) return [];
 
@@ -90,14 +102,18 @@ export function insertCardsToCanvas(
     const row = Math.floor(index / GRID_COLUMNS);
 
     const x = insertX + col * (actualCardWidth + CARD_GAP);
-    const y = insertY + row * (estimateCardHeight(block, actualCardWidth) + CARD_GAP);
+    const y =
+      insertY + row * (estimateCardHeight(block, actualCardWidth) + CARD_GAP);
 
     const cardHeight = estimateCardHeight(block, actualCardWidth);
     const fillColor = getCardColorByIndex(index);
 
     const card = CardTransforms.insertCard(
       board,
-      [[x, y], [x + actualCardWidth, y + cardHeight]],
+      [
+        [x, y],
+        [x + actualCardWidth, y + cardHeight],
+      ],
       block.body,
       block.title,
       fillColor
@@ -107,15 +123,16 @@ export function insertCardsToCanvas(
   });
 
   // 滚动到第一张 Card
-  requestAnimationFrame(() => {
-    if (insertedIds.length > 0) {
+  if (!skipScroll) {
+    requestAnimationFrame(() => {
+      if (insertedIds.length === 0) return;
       const centerPoint: Point = [
         insertX + actualCardWidth / 2,
         insertY + estimateCardHeight(blocks[0], actualCardWidth) / 2,
       ];
       scrollToPointIfNeeded(board, centerPoint);
-    }
-  });
+    });
+  }
 
   return insertedIds;
 }

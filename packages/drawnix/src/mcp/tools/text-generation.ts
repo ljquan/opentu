@@ -4,14 +4,10 @@
  * 复用现有文本模型执行链，为 AI 输入栏文本模式提供统一工具入口。
  */
 
-import type {
-  MCPExecuteOptions,
-  MCPResult,
-  MCPTool,
-} from '../types';
+import type { MCPExecuteOptions, MCPResult, MCPTool } from '../types';
 import { executorFactory } from '../../services/media-executor';
 import type { ExecutionOptions } from '../../services/media-executor/types';
-import { TaskType } from '../../types/task.types';
+import { TaskType, type CanvasAssociationRef } from '../../types/task.types';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { getDefaultTextModel } from '../../constants/model-config';
 import {
@@ -31,9 +27,12 @@ export interface TextGenerationParams {
   batchTotal?: number;
   globalIndex?: number;
   autoInsertToCanvas?: boolean;
+  replaceElementId?: string;
+  sourcePrompt?: string;
   params?: Record<string, unknown>;
   promptMeta?: PromptLineageMeta;
   knowledgeContextRefs?: KnowledgeContextRef[];
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 export function getCurrentTextModel(): string {
@@ -41,15 +40,19 @@ export function getCurrentTextModel(): string {
   return settings?.textModelName || getDefaultTextModel();
 }
 
-function toExecutionOptions(_options?: MCPExecuteOptions): ExecutionOptions | undefined {
+function toExecutionOptions(
+  _options?: MCPExecuteOptions
+): ExecutionOptions | undefined {
   return undefined;
 }
 
-function isTextGenerationParams(params: unknown): params is TextGenerationParams {
+function isTextGenerationParams(
+  params: unknown
+): params is TextGenerationParams {
   return (
-    typeof params === 'object'
-    && params !== null
-    && typeof (params as { prompt?: unknown }).prompt === 'string'
+    typeof params === 'object' &&
+    params !== null &&
+    typeof (params as { prompt?: unknown }).prompt === 'string'
   );
 }
 
@@ -99,8 +102,11 @@ function getTextQueueConfig(params: TextGenerationParams) {
       model: params.model || getCurrentTextModel(),
       modelRef: params.modelRef || null,
       referenceImages: params.referenceImages,
+      replaceElementId: params.replaceElementId,
+      sourcePrompt: params.sourcePrompt,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
+      canvasAssociations: params.canvasAssociations,
       ...(params.params ? { params: params.params } : {}),
     }),
   };
@@ -119,7 +125,8 @@ export async function generateText(
 
 export const textGenerationTool: MCPTool = {
   name: 'generate_text',
-  description: '生成纯文本内容，可用于文章、摘要、说明、Markdown 等文本直出场景',
+  description:
+    '生成纯文本内容，可用于文章、摘要、说明、Markdown 等文本直出场景',
   supportedModes: ['async', 'queue'],
   execute: async (
     params: Record<string, unknown>,

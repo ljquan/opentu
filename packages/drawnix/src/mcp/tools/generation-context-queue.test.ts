@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TaskType, type KnowledgeContextRef } from '../../types/task.types';
+import {
+  TaskType,
+  type CanvasAssociationRef,
+  type KnowledgeContextRef,
+} from '../../types/task.types';
 
 const createdTasks: Array<{ id: string; params: any; type: TaskType }> = [];
 
@@ -21,10 +25,36 @@ vi.mock('../../utils/settings-manager', () => ({
   geminiSettings: {
     get: vi.fn(() => ({})),
   },
+  providerPricingCacheSettings: {
+    get: vi.fn(() => []),
+    update: vi.fn(),
+  },
   createModelRef: (profileId: string, modelId: string) => ({
     profileId,
     modelId,
   }),
+}));
+
+vi.mock('../../utils/gemini-api', () => ({
+  defaultGeminiClient: {
+    sendChat: vi.fn(async () => ({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              segments: [
+                {
+                  duration: 8,
+                  index: 1,
+                  prompt: 'A continuous cinematic scene',
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    })),
+  },
 }));
 
 vi.mock('../../services/model-adapters', () => ({
@@ -44,12 +74,21 @@ vi.mock('../../services/video-analysis-service', () => ({
   executeVideoAnalysis: vi.fn(),
 }));
 
-describe('generation queue knowledge context passthrough', () => {
+describe('generation queue context passthrough', () => {
   const refs: KnowledgeContextRef[] = [
     {
       noteId: 'note-1',
       title: '品牌设定',
       updatedAt: 123,
+    },
+  ];
+  const canvasAssociations: CanvasAssociationRef[] = [
+    {
+      referenceId: 'ref-image-1',
+      boardId: 'board-1',
+      elementId: 'image-1',
+      kind: 'image',
+      label: '产品主图',
     },
   ];
 
@@ -63,6 +102,7 @@ describe('generation queue knowledge context passthrough', () => {
     await createImageTask({
       prompt: '生成品牌海报',
       knowledgeContextRefs: refs,
+      canvasAssociations,
     });
 
     expect(createdTasks[0]).toMatchObject({
@@ -70,6 +110,7 @@ describe('generation queue knowledge context passthrough', () => {
       params: {
         prompt: '生成品牌海报',
         knowledgeContextRefs: refs,
+        canvasAssociations,
       },
     });
   });
@@ -81,6 +122,7 @@ describe('generation queue knowledge context passthrough', () => {
       prompt: '生成品牌短片',
       model: 'veo3',
       knowledgeContextRefs: refs,
+      canvasAssociations,
     });
 
     expect(createdTasks[0]).toMatchObject({
@@ -88,6 +130,31 @@ describe('generation queue knowledge context passthrough', () => {
       params: {
         prompt: '生成品牌短片',
         knowledgeContextRefs: refs,
+        canvasAssociations,
+      },
+    });
+  });
+
+  it('snapshots canvas refs into long-video chain metadata', async () => {
+    const { createLongVideoTask } = await import('./long-video-generation');
+    const submittedAssociations = canvasAssociations.map((association) => ({
+      ...association,
+    }));
+
+    await createLongVideoTask({
+      prompt: '生成连续的品牌长片',
+      totalDuration: 8,
+      segmentDuration: 8,
+      canvasAssociations: submittedAssociations,
+    });
+    submittedAssociations[0].label = '提交后修改';
+
+    expect(createdTasks[0]).toMatchObject({
+      type: TaskType.VIDEO,
+      params: {
+        longVideoMeta: {
+          canvasAssociations,
+        },
       },
     });
   });
@@ -99,6 +166,7 @@ describe('generation queue knowledge context passthrough', () => {
       {
         prompt: '生成品牌音乐',
         knowledgeContextRefs: refs,
+        canvasAssociations,
       },
       { mode: 'queue' }
     );
@@ -108,6 +176,29 @@ describe('generation queue knowledge context passthrough', () => {
       params: {
         prompt: '生成品牌音乐',
         knowledgeContextRefs: refs,
+        canvasAssociations,
+      },
+    });
+  });
+
+  it('keeps lightweight canvas refs on text queue tasks', async () => {
+    const { generateText } = await import('./text-generation');
+
+    await generateText(
+      {
+        prompt: '生成品牌文案',
+        knowledgeContextRefs: refs,
+        canvasAssociations,
+      },
+      { mode: 'queue' }
+    );
+
+    expect(createdTasks[0]).toMatchObject({
+      type: TaskType.CHAT,
+      params: {
+        prompt: '生成品牌文案',
+        knowledgeContextRefs: refs,
+        canvasAssociations,
       },
     });
   });

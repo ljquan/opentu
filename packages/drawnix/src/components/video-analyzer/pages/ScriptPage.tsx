@@ -432,7 +432,15 @@ export const ScriptPage: React.FC<ScriptPageProps> = ({
   }, [pendingRewriteTaskId, record.id, onRecordUpdate, onRecordsChange]);
 
   const handleInsertScripts = useCallback(async () => {
-    await quickInsert('text', formatShotsMarkdown(shots, record.analysis, productInfo));
+    await quickInsert(
+      'text',
+      formatShotsMarkdown(shots, record.analysis, productInfo),
+      undefined,
+      undefined,
+      (productInfo.prompt || record.sourceLabel || '').trim()
+        ? { prompt: (productInfo.prompt || record.sourceLabel || '').trim() }
+        : undefined
+    );
     analytics.trackUIInteraction({
       area: 'popular_video_tool',
       action: 'script_inserted_to_canvas',

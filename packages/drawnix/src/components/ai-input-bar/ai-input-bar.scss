@@ -1180,6 +1180,11 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     &--count {
       background: rgba(33, 150, 243, 0.15);
     }
+
+    &--association {
+      background: rgba($orange-primary, 0.2);
+      box-shadow: inset 0 0 0 1px rgba($orange-dark, 0.2);
+    }
   }
 
   // Text input (textarea)
@@ -1322,6 +1327,25 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
     .knowledge-note-context-selector__hover-summary {
       left: 0;
+    }
+  }
+
+  &__canvas-association-toggle {
+    @extend .ai-input-bar__upload-btn;
+
+    &--active {
+      background: rgba($orange-primary, 0.12);
+      color: $orange-primary;
+    }
+
+    &--picking {
+      background: rgba($orange-primary, 0.2);
+      box-shadow: inset 0 0 0 1px rgba($orange-primary, 0.36);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
     }
   }
 
@@ -1817,6 +1841,20 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       }
     }
 
+    &__canvas-association-toggle {
+      color: var(--color-gray-50, #999);
+
+      &:hover:not(:disabled),
+      &--active {
+        background: rgba($orange-primary, 0.15);
+        color: #fbbf24;
+      }
+
+      &--picking {
+        background: rgba($orange-primary, 0.24);
+      }
+    }
+
     .generation-type-dropdown,
     .count-dropdown,
     .skill-dropdown {
@@ -1881,6 +1919,11 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
       &--count {
         background: rgba(33, 150, 243, 0.2);
+      }
+
+      &--association {
+        background: rgba(245, 158, 11, 0.26);
+        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.3);
       }
     }
 
@@ -2217,6 +2260,12 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       gap: 4px;
     }
 
+    .aitu-toolbar-dock-left &__container--expanded {
+      align-self: flex-end;
+      box-sizing: border-box;
+      width: calc(100% - var(--aitu-toolbar-safe-area-left, 48px));
+    }
+
     &__bottom-bar {
       gap: 4px;
     }
@@ -2245,12 +2294,8 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     }
 
     &__upload-btn,
-    &__library-btn {
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-    }
-
+    &__library-btn,
+    &__canvas-association-toggle,
     &__knowledge-selector .knowledge-note-context-selector__trigger {
       width: 36px;
       height: 36px;
@@ -2347,6 +2392,7 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     &__type-btn,
     &__upload-btn,
     &__library-btn,
+    &__canvas-association-toggle,
     &__send-btn {
       width: 34px;
       height: 34px;
@@ -2366,6 +2412,10 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     &__model-btn {
       padding: 4px 6px;
       font-size: 12px;
+    }
+
+    &__highlight-layer {
+      font-size: $ai-input-small-font-size;
     }
 
     &__input {
@@ -2393,6 +2443,28 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
       display: none;
     }
   }
+}
+
+@media (max-width: 360px) {
+  .ai-input-bar {
+    .aitu-toolbar-dock-left &__container--expanded {
+      .ai-input-bar__bottom-bar {
+        flex-wrap: wrap;
+      }
+
+      .ai-input-bar__bottom-controls {
+        order: 1;
+        flex-basis: 100%;
+        justify-content: flex-start;
+      }
+    }
+  }
+}
+
+.canvas-association-picking,
+.canvas-association-picking
+  *:not(.plait-board-attached):not(.plait-board-attached *) {
+  cursor: crosshair !important;
 }
 
 // @ 触发模型建议面板样式

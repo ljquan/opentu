@@ -615,7 +615,16 @@ export const CreatePage: React.FC<CreatePageProps> = ({
 
   const handleInsertAnalysis = useCallback(async () => {
     if (!normalizedAnalysis) return;
-    await quickInsert('text', formatMusicAnalysisMarkdown(normalizedAnalysis));
+    const sourcePrompt =
+      (existingRecord?.creationPrompt || creationPrompt || existingRecord?.sourceLabel || '')
+        .trim();
+    await quickInsert(
+      'text',
+      formatMusicAnalysisMarkdown(normalizedAnalysis),
+      undefined,
+      undefined,
+      sourcePrompt ? { prompt: sourcePrompt } : undefined
+    );
     analytics.trackUIInteraction({
       area: 'popular_music_tool',
       action: 'analysis_inserted_to_canvas',
@@ -626,7 +635,7 @@ export const CreatePage: React.FC<CreatePageProps> = ({
         tagsCount: normalizedAnalysis.sunoStyleTags.length,
       },
     });
-  }, [normalizedAnalysis]);
+  }, [creationPrompt, existingRecord, normalizedAnalysis]);
 
   return (
     <div className="ma-create-page">

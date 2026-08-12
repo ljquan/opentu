@@ -1,7 +1,4 @@
-import {
-  PlaitBoard,
-  Point,
-} from '@plait/core';
+import { PlaitBoard, Point } from '@plait/core';
 import { getFileExtension } from '@aitu/utils';
 import type { DataURL } from '../types';
 import {
@@ -77,7 +74,9 @@ function extractAudioCardPreviewText(metadata: AudioCardMetadata): string {
 
 function resolveAdaptiveAudioCardWidth(metadata: AudioCardMetadata): number {
   const titleUnits = measureVisualTextUnits(metadata.title || '未命名音频');
-  const previewUnits = measureVisualTextUnits(extractAudioCardPreviewText(metadata));
+  const previewUnits = measureVisualTextUnits(
+    extractAudioCardPreviewText(metadata)
+  );
   const dominantUnits = Math.max(titleUnits * 1.08, previewUnits);
   const estimatedWidth = Math.round(304 + clamp(dominantUnits, 0, 48) * 4.6);
   return clamp(
@@ -87,9 +86,10 @@ function resolveAdaptiveAudioCardWidth(metadata: AudioCardMetadata): number {
   );
 }
 
-export function resolveAudioCardDimensions(
-  metadata: AudioCardMetadata = {}
-): { width: number; height: number } {
+export function resolveAudioCardDimensions(metadata: AudioCardMetadata = {}): {
+  width: number;
+  height: number;
+} {
   const explicitWidth = metadata.width;
   const explicitHeight = metadata.height;
   const width =
@@ -132,7 +132,8 @@ function blobToDataUrl(blob: Blob): Promise<DataURL> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as DataURL);
-    reader.onerror = () => reject(reader.error || new Error('Failed to read blob as data URL'));
+    reader.onerror = () =>
+      reject(reader.error || new Error('Failed to read blob as data URL'));
     reader.readAsDataURL(blob);
   });
 }
@@ -147,7 +148,11 @@ function escapeXml(value: string): string {
 }
 
 function formatAudioDuration(duration?: number): string {
-  if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) {
+  if (
+    typeof duration !== 'number' ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
     return '--:--';
   }
 
@@ -173,11 +178,13 @@ function buildWaveform(seedSource: string): string {
   const barWidth = 4;
 
   for (let index = 0; index < 22; index++) {
-    const height = 10 + ((seed >> (index % 12)) % 18) + (index % 4);
+    const height = 10 + ((seed >> index % 12) % 18) + (index % 4);
     const y = baseY - Math.round(height / 2);
     const isActive = index < 8;
     bars.push(
-      `<rect x="${baseX + index * gap}" y="${y}" width="${barWidth}" height="${height}" rx="2" fill="${
+      `<rect x="${
+        baseX + index * gap
+      }" y="${y}" width="${barWidth}" height="${height}" rx="2" fill="${
         isActive ? '#2563eb' : '#d7dee9'
       }" opacity="${isActive ? '1' : '0.95'}" />`
     );
@@ -201,10 +208,18 @@ function buildArtworkMarkup(
   const baseLayer = `
     <rect x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" rx="20" fill="#0f172a" />
     <rect x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" rx="20" fill="url(#artworkGradient)" opacity="0.92" />
-    <circle cx="${artworkX + artworkSize - 18}" cy="${artworkY + 18}" r="12" fill="${glowColor}" opacity="0.85" />
-    <rect x="${artworkX + 15}" y="${artworkY + 16}" width="6" height="52" rx="3" fill="#ffffff" opacity="0.85" />
-    <rect x="${artworkX + 28}" y="${artworkY + 22}" width="5" height="40" rx="2.5" fill="#ffffff" opacity="0.7" />
-    <rect x="${artworkX + 40}" y="${artworkY + 28}" width="5" height="28" rx="2.5" fill="#ffffff" opacity="0.54" />
+    <circle cx="${artworkX + artworkSize - 18}" cy="${
+    artworkY + 18
+  }" r="12" fill="${glowColor}" opacity="0.85" />
+    <rect x="${artworkX + 15}" y="${
+    artworkY + 16
+  }" width="6" height="52" rx="3" fill="#ffffff" opacity="0.85" />
+    <rect x="${artworkX + 28}" y="${
+    artworkY + 22
+  }" width="5" height="40" rx="2.5" fill="#ffffff" opacity="0.7" />
+    <rect x="${artworkX + 40}" y="${
+    artworkY + 28
+  }" width="5" height="28" rx="2.5" fill="#ffffff" opacity="0.54" />
   `;
 
   if (!artworkDataUrl) {
@@ -216,12 +231,16 @@ function buildArtworkMarkup(
     <clipPath id="artworkClip">
       <rect x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" rx="20" />
     </clipPath>
-    <image href="${escapeXml(artworkDataUrl)}" x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#artworkClip)" />
+    <image href="${escapeXml(
+      artworkDataUrl
+    )}" x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#artworkClip)" />
     <rect x="${artworkX}" y="${artworkY}" width="${artworkSize}" height="${artworkSize}" rx="20" fill="url(#artworkFade)" />
   `;
 }
 
-async function resolveArtworkDataUrl(previewImageUrl?: string): Promise<string | null> {
+async function resolveArtworkDataUrl(
+  previewImageUrl?: string
+): Promise<string | null> {
   if (!previewImageUrl) {
     return null;
   }
@@ -240,7 +259,10 @@ async function resolveArtworkDataUrl(previewImageUrl?: string): Promise<string |
       );
       resolvedUrl = cachedUrl || previewImageUrl;
     } catch (error) {
-      console.warn('[audio] Failed to cache preview image, falling back to original URL:', error);
+      console.warn(
+        '[audio] Failed to cache preview image, falling back to original URL:',
+        error
+      );
     }
   }
 
@@ -305,20 +327,36 @@ function buildAudioCardSvg(
           <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#cfd7e6" flood-opacity="0.4" />
         </filter>
       </defs>
-      <rect x="6" y="8" width="${width - 12}" height="${height - 16}" rx="24" fill="url(#cardBg)" stroke="#e8edf5" stroke-width="1.25" filter="url(#cardShadow)" />
-      <rect x="8" y="10" width="${width - 16}" height="${height - 20}" rx="22" fill="#ffffff" fill-opacity="0.55" />
+      <rect x="6" y="8" width="${width - 12}" height="${
+    height - 16
+  }" rx="24" fill="url(#cardBg)" stroke="#e8edf5" stroke-width="1.25" filter="url(#cardShadow)" />
+      <rect x="8" y="10" width="${width - 16}" height="${
+    height - 20
+  }" rx="22" fill="#ffffff" fill-opacity="0.55" />
       ${artworkMarkup}
       <g transform="translate(122 26)">
         <text x="0" y="0" font-size="16" font-weight="700" font-family="Inter, system-ui, sans-serif" fill="#111827" dominant-baseline="hanging">${title}</text>
         <text x="0" y="24" font-size="11" font-weight="500" font-family="Inter, system-ui, sans-serif" fill="#6b7280" dominant-baseline="hanging">${subtitle}</text>
       </g>
-      <rect x="${width - 70}" y="22" width="46" height="22" rx="11" fill="#f3f6fb" stroke="#e4ebf5" />
-      <text x="${width - 47}" y="33" text-anchor="middle" font-size="10" font-weight="700" font-family="Inter, system-ui, sans-serif" fill="#4b5563" dominant-baseline="middle">${modelVersion}</text>
+      <rect x="${
+        width - 70
+      }" y="22" width="46" height="22" rx="11" fill="#f3f6fb" stroke="#e4ebf5" />
+      <text x="${
+        width - 47
+      }" y="33" text-anchor="middle" font-size="10" font-weight="700" font-family="Inter, system-ui, sans-serif" fill="#4b5563" dominant-baseline="middle">${modelVersion}</text>
       <circle cx="44" cy="${height - 30}" r="16" fill="#2563eb" />
-      <polygon points="40,${height - 38} 40,${height - 22} 52,${height - 30}" fill="#ffffff" />
-      <text x="${width - 26}" y="${height - 30}" text-anchor="end" font-size="12" font-weight="700" font-family="JetBrains Mono, ui-monospace, monospace" fill="#111827" dominant-baseline="middle">${duration}</text>
-      <line x1="122" y1="${height - 30}" x2="${width - 78}" y2="${height - 30}" stroke="#edf2f8" stroke-width="8" stroke-linecap="round" />
-      <line x1="122" y1="${height - 30}" x2="176" y2="${height - 30}" stroke="#c8dafd" stroke-width="8" stroke-linecap="round" />
+      <polygon points="40,${height - 38} 40,${height - 22} 52,${
+    height - 30
+  }" fill="#ffffff" />
+      <text x="${width - 26}" y="${
+    height - 30
+  }" text-anchor="end" font-size="12" font-weight="700" font-family="JetBrains Mono, ui-monospace, monospace" fill="#111827" dominant-baseline="middle">${duration}</text>
+      <line x1="122" y1="${height - 30}" x2="${width - 78}" y2="${
+    height - 30
+  }" stroke="#edf2f8" stroke-width="8" stroke-linecap="round" />
+      <line x1="122" y1="${height - 30}" x2="176" y2="${
+    height - 30
+  }" stroke="#c8dafd" stroke-width="8" stroke-linecap="round" />
       ${waveform}
     </svg>
   `.trim();
@@ -381,7 +419,9 @@ export function getCanvasAudioPlaybackQueue(
 
   return elements
     .map((element) => getAudioPlaybackSourceFromElement(element))
-    .filter((source): source is CanvasAudioPlaybackSource => Boolean(source?.audioUrl));
+    .filter((source): source is CanvasAudioPlaybackSource =>
+      Boolean(source?.audioUrl)
+    );
 }
 
 export async function buildAudioImageElement(
@@ -417,8 +457,9 @@ export async function insertAudioFromUrl(
   metadata: AudioCardMetadata = {},
   startPoint?: Point,
   isDrop?: boolean,
-  skipScroll?: boolean
-): Promise<void> {
+  skipScroll?: boolean,
+  boardGuard?: () => boolean
+): Promise<string> {
   if (!board) {
     throw new Error('Board is required for audio insertion');
   }
@@ -440,6 +481,10 @@ export async function insertAudioFromUrl(
     } catch (error) {
       console.warn('[audio] Failed to cache audio before insertion:', error);
     }
+  }
+
+  if (boardGuard && !boardGuard()) {
+    throw new Error('画板已切换，取消本次插入');
   }
 
   const { width, height } = resolveAudioCardDimensions(metadata);
@@ -465,8 +510,8 @@ export async function insertAudioFromUrl(
     }
   }
 
-  const finalPoint = insertionPoint || [100, 100] as Point;
-  AudioNodeTransforms.insertAudioNode(board, {
+  const finalPoint = insertionPoint || ([100, 100] as Point);
+  const audioNode = AudioNodeTransforms.insertAudioNode(board, {
     audioUrl: resolvedAudioUrl,
     position: finalPoint,
     size: {
@@ -496,6 +541,8 @@ export async function insertAudioFromUrl(
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
+
+  return audioNode.id;
 }
 
 export function getAudioFileDuration(file: File): Promise<number | undefined> {
@@ -528,7 +575,11 @@ export async function extractAudioCoverArt(file: File): Promise<Blob | null> {
 
     // 检查 ID3v2 头: "ID3"
     if (view.byteLength < 10) return null;
-    if (view.getUint8(0) !== 0x49 || view.getUint8(1) !== 0x44 || view.getUint8(2) !== 0x33) {
+    if (
+      view.getUint8(0) !== 0x49 ||
+      view.getUint8(1) !== 0x44 ||
+      view.getUint8(2) !== 0x33
+    ) {
       return null;
     }
 
@@ -545,7 +596,7 @@ export async function extractAudioCoverArt(file: File): Promise<Blob | null> {
 
     // 跳过扩展头
     const flags = view.getUint8(5);
-    if (majorVersion >= 3 && (flags & 0x40)) {
+    if (majorVersion >= 3 && flags & 0x40) {
       if (offset + 4 > end) return null;
       const extSize = view.getUint32(offset);
       offset += extSize;
@@ -554,8 +605,10 @@ export async function extractAudioCoverArt(file: File): Promise<Blob | null> {
     // 遍历帧查找 APIC
     while (offset + 10 < end) {
       const frameId = String.fromCharCode(
-        view.getUint8(offset), view.getUint8(offset + 1),
-        view.getUint8(offset + 2), view.getUint8(offset + 3)
+        view.getUint8(offset),
+        view.getUint8(offset + 1),
+        view.getUint8(offset + 2),
+        view.getUint8(offset + 3)
       );
 
       if (frameId === '\0\0\0\0') break; // 填充区
@@ -594,7 +647,10 @@ export async function extractAudioCoverArt(file: File): Promise<Blob | null> {
         // 跳过 description（null-terminated，编码决定终止符宽度）
         if (encoding === 1 || encoding === 2) {
           // UTF-16: 双字节 null terminator
-          while (pos + 1 < frameData.length && !(frameData[pos] === 0 && frameData[pos + 1] === 0)) {
+          while (
+            pos + 1 < frameData.length &&
+            !(frameData[pos] === 0 && frameData[pos + 1] === 0)
+          ) {
             pos += 2;
           }
           pos += 2;

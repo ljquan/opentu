@@ -529,7 +529,20 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
         MessagePlugin.warning('音频暂不支持直接插入到画布');
         return;
       }
-      const result = await quickInsertCanvasMedia(contentType, mediaUrl);
+      const prompt = item.prompt?.trim();
+      const generationTaskId = item.generationTaskId?.trim();
+      const result = await quickInsertCanvasMedia(
+        contentType,
+        mediaUrl,
+        undefined,
+        undefined,
+        prompt || generationTaskId
+          ? {
+              ...(prompt ? { prompt } : {}),
+              ...(generationTaskId ? { generationTaskId } : {}),
+            }
+          : undefined
+      );
       if (result.success) {
         MessagePlugin.success(item.type === 'video' ? '视频已插入到画布' : '图片已插入到画布');
       } else {

@@ -725,11 +725,31 @@ describe('Media Executor Module', () => {
       );
     }, 15000);
 
-    it('uses manual text binding submit path for text generation', async () => {
+    it('restores virtual text references sequentially and rejects cache fallback paths', async () => {
       const send = vi.fn(async () => ({
         ok: true,
         text: async () => JSON.stringify({ output: { text: 'hello' } }),
       }));
+      const firstVirtualUrl = '/__aitu_cache__/image/text-reference-1.png';
+      const publicUrl = 'https://cdn.example.com/text-reference.png';
+      const secondVirtualUrl = '/__aitu_cache__/image/text-reference-2.png';
+      const firstRestoredUrl = 'data:image/png;base64,RklSU1Q=';
+      const secondRestoredUrl = 'data:image/png;base64,U0VDT05E';
+      const recoveryEvents: string[] = [];
+      const getImageForAI = vi.fn(
+        async (
+          url: string
+        ): Promise<{ type: 'base64' | 'url'; value: string }> => {
+          recoveryEvents.push(`start:${url}`);
+          await Promise.resolve();
+          recoveryEvents.push(`end:${url}`);
+          return {
+            type: 'base64',
+            value:
+              url === firstVirtualUrl ? firstRestoredUrl : secondRestoredUrl,
+          };
+        }
+      );
 
       vi.doMock('../media-executor/llm-api-logger', () => ({
         startLLMApiLog: vi.fn(() => 'log-id'),
@@ -746,7 +766,7 @@ describe('Media Executor Module', () => {
       }));
       vi.doMock('../unified-cache-service', () => ({
         unifiedCacheService: {
-          getImageForAI: vi.fn(),
+          getImageForAI,
           isCached: vi.fn(async () => false),
           cacheMediaFromBlob: vi.fn(async () => {}),
         },
@@ -812,7 +832,7 @@ describe('Media Executor Module', () => {
                 manualHttp: {
                   method: 'POST',
                   bodyTemplate:
-                    '{"model":"{{model}}","prompt":"{{prompt}}","messages":"{{messages}}"}',
+                    '{"model":"{{model}}","prompt":"{{prompt}}","messages":"{{messages}}","images":"{{images}}"}',
                   responsePaths: {
                     text: 'output.text',
                   },
@@ -836,9 +856,18 @@ describe('Media Executor Module', () => {
           profileId: 'provider-manual',
           modelId: 'custom-chat-model',
         },
+        referenceImages: [firstVirtualUrl, publicUrl, secondVirtualUrl],
       });
 
       expect(result.content).toBe('hello');
+      expect(recoveryEvents).toEqual([
+        `start:${firstVirtualUrl}`,
+        `end:${firstVirtualUrl}`,
+        `start:${secondVirtualUrl}`,
+        `end:${secondVirtualUrl}`,
+      ]);
+      expect(getImageForAI).toHaveBeenCalledTimes(2);
+      expect(getImageForAI).not.toHaveBeenCalledWith(publicUrl);
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({
           profileId: 'provider-manual',
@@ -854,12 +883,47 @@ describe('Media Executor Module', () => {
             messages: [
               {
                 role: 'user',
-                content: [{ type: 'text', text: 'hello' }],
+                content: [
+                  { type: 'text', text: 'hello' },
+                  {
+                    type: 'image_url',
+                    image_url: { url: firstRestoredUrl },
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: { url: publicUrl },
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: { url: secondRestoredUrl },
+                  },
+                ],
               },
             ],
+            images: [firstRestoredUrl, publicUrl, secondRestoredUrl],
           }),
         })
       );
+
+      getImageForAI.mockReset().mockResolvedValue({
+        type: 'url',
+        value: firstVirtualUrl,
+      });
+      send.mockClear();
+
+      await expect(
+        executor.generateText({
+          taskId: 'task-text-missing-reference',
+          prompt: 'hello',
+          model: 'custom-chat-model',
+          modelRef: {
+            profileId: 'provider-manual',
+            modelId: 'custom-chat-model',
+          },
+          referenceImages: [firstVirtualUrl],
+        })
+      ).rejects.toThrow(`虚拟参考图片缓存不可用: ${firstVirtualUrl}`);
+      expect(send).not.toHaveBeenCalled();
     }, 15000);
 
     it('does not persist a late text response after its execution is replaced', async () => {

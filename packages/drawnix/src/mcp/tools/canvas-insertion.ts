@@ -8,36 +8,11 @@
  */
 
 import type { MCPTool, MCPResult } from '../types';
-import { PlaitBoard, Point } from '@plait/core';
-import { DrawTransforms } from '@plait/draw';
-import { insertImageFromUrl } from '../../data/image';
-import { insertVideoFromUrl } from '../../data/video';
+import { Transforms, type PlaitBoard, type Point } from '@plait/core';
 import {
-  insertAudioFromUrl,
-  resolveAudioCardDimensions,
-  type AudioCardMetadata,
-} from '../../data/audio';
-import { scrollToPointIfNeeded } from '../../utils/selection-utils';
-import { parseMarkdownToCards } from '../../utils/markdown-to-cards';
-import { insertCardsToCanvas } from '../../utils/insert-cards';
-import { insertMediaIntoSelectedFrame } from '../../utils/frame-insertion-utils';
-import {
-  CANVAS_INSERTION_LAYOUT as LAYOUT_CONSTANTS,
-  createBatchInsertionFlowState,
-  estimateCanvasTextSize,
-  getBatchInsertionFlowCenter,
-  getBottomMostInsertionPoint,
-  getInsertionPointFromSavedSelection,
-  getViewportAwareCardWidth,
-  getViewportCanvasMetrics,
-  logCanvasInsertionDebug,
-  precalculateGroupedGridLayout,
-} from '../../utils/canvas-insertion-layout';
-import {
-  normalizeSvg,
-  parseSvgDimensions,
-  svgToDataUrl,
-} from '../../utils/svg-utils';
+  executeCanvasInsertion as executeSharedCanvasInsertion,
+  type InsertionItem as SharedInsertionItem,
+} from '../../services/canvas-operations/canvas-insertion';
 
 /**
  * 内容类型
@@ -81,12 +56,81 @@ export interface CanvasInsertionParams {
  * 由于 MCP 工具是无状态的，需要外部设置 board 引用
  */
 let boardRef: PlaitBoard | null = null;
+let boardBindingVersion = 0;
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+interface InsertedCanvasItem {
+  elementIds: string[];
+  size: { width: number; height: number };
+}
+
+function buildGenerationMetadataPatch(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const prompt = readStringMetadata(metadata, 'prompt');
+  const explicitGenerationPrompt =
+    readStringMetadata(metadata, 'generationPrompt') ||
+    readStringMetadata(metadata, 'aiPrompt');
+  const generationTaskId = readStringMetadata(metadata, 'generationTaskId');
+  const generationAnchorId = readStringMetadata(metadata, 'generationAnchorId');
+  const generationPrompt =
+    explicitGenerationPrompt ||
+    (generationTaskId || generationAnchorId ? prompt : undefined);
+  const patch: Record<string, unknown> = {};
+
+  if (prompt) {
+    patch.prompt = prompt;
+  }
+  if (generationPrompt) {
+    patch.aiPrompt = generationPrompt;
+    patch.generationPrompt = generationPrompt;
+  }
+  if (generationTaskId) {
+    patch.generationTaskId = generationTaskId;
+  }
+  if (generationAnchorId) {
+    patch.generationAnchorId = generationAnchorId;
+  }
+
+  return patch;
+}
+
+function attachGenerationMetadataToInsertedElements(
+  board: PlaitBoard,
+  elementIds: readonly string[],
+  metadata: Record<string, unknown> | undefined
+): void {
+  const patch = buildGenerationMetadataPatch(metadata);
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
+
+  for (const elementId of elementIds) {
+    const index = board.children.findIndex(
+      (element) => element.id === elementId
+    );
+    if (index < 0) continue;
+    Transforms.setNode(
+      board,
+      patch as Partial<PlaitBoard['children'][number]>,
+      [index]
+    );
+  }
+}
 
 /**
  * 设置 Board 引用
  */
 export function setCanvasBoard(board: PlaitBoard | null): void {
   boardRef = board;
+  boardBindingVersion += 1;
   // console.log('[CanvasInsertion] Board reference set:', !!board);
 }
 
@@ -97,264 +141,12 @@ export function getCanvasBoard(): PlaitBoard | null {
   return boardRef;
 }
 
-/**
- * 插入单个文本项到画布
- * - 包含 Markdown 特征的文本 → 解析为 Card 标签贴插入
- * - 普通文本 → 直接插入文本元素
- */
-async function insertTextToCanvas(
-  board: PlaitBoard,
-  text: string,
-  point: Point,
-  title?: string,
-  cardWidth: number = getViewportAwareCardWidth(board)
-): Promise<{ width: number; height: number }> {
-  // 有 title 时，直接以 Card 方式插入（跳过 Markdown 检测）
-  if (title) {
-    insertCardsToCanvas(board, [{ title, body: text }], point, cardWidth);
-    return { width: cardWidth, height: 120 };
-  }
-
-  // 尝试解析为 Markdown Card 块
-  const cardBlocks = parseMarkdownToCards(text);
-  if (cardBlocks && cardBlocks.length > 0) {
-    // 有 Markdown 特征 → 插入为 Card 标签贴，宽度为屏幕宽度的 50%
-    insertCardsToCanvas(board, cardBlocks, point, cardWidth);
-    // 返回估算的总尺寸（3列布局）
-    const cols = Math.min(cardBlocks.length, 3);
-    const rows = Math.ceil(cardBlocks.length / 3);
-    return {
-      width: cols * (cardWidth + 20) - 20,
-      height: rows * (120 + 20) - 20,
-    };
-  }
-
-  // 普通文本 → 直接插入
-  DrawTransforms.insertText(board, point, text);
-  return estimateCanvasTextSize(text);
-}
-
-function estimateTextInsertionSize(
-  board: PlaitBoard,
-  text: string,
-  title?: string
-): { width: number; height: number } {
-  const cardWidth = getViewportAwareCardWidth(board);
-
-  if (title) {
-    return { width: cardWidth, height: 120 };
-  }
-
-  const cardBlocks = parseMarkdownToCards(text);
-  if (cardBlocks && cardBlocks.length > 0) {
-    const cols = Math.min(cardBlocks.length, 3);
-    const rows = Math.ceil(cardBlocks.length / 3);
-    return {
-      width: cols * (cardWidth + 20) - 20,
-      height: rows * (120 + 20) - 20,
-    };
-  }
-
-  return estimateCanvasTextSize(text);
-}
-
-function estimateInsertionItemSize(
-  board: PlaitBoard,
-  item: InsertionItem
-): { width: number; height: number } {
-  if (item.type === 'text') {
-    return estimateTextInsertionSize(board, item.content, item.label);
-  }
-
-  if (item.type === 'video') {
-    return (
-      item.dimensions || {
-        width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
-        height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)),
-      }
-    );
-  }
-
-  if (item.type === 'audio') {
-    return resolveAudioCardDimensions({
-      ...(item.metadata as AudioCardMetadata | undefined),
-      width: item.dimensions?.width,
-      height: item.dimensions?.height,
-    });
-  }
-
-  if (item.type === 'svg') {
-    const dimensions = parseSvgDimensions(normalizeSvg(item.content));
-    const targetWidth = Math.min(
-      dimensions.width,
-      LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE
-    );
-    const aspectRatio = dimensions.height / dimensions.width;
-    return { width: targetWidth, height: targetWidth * aspectRatio };
-  }
-
-  return (
-    item.dimensions || {
-      width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
-      height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
-    }
-  );
-}
-
-/**
- * 插入单个图片到画布
- */
-async function insertImageToCanvas(
-  board: PlaitBoard,
-  imageUrl: string,
-  point: Point,
-  dimensions?: { width: number; height: number }
-): Promise<{ width: number; height: number }> {
-  const size = dimensions || { width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE, height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE };
-  logCanvasInsertionDebug('[CanvasInsertion][MCP] image insert fixed size', {
-    point,
-    size,
-    lockReferenceDimensions: false,
-    skipImageLoad: true,
-  });
-  // skipScroll: true - 由 executeCanvasInsertion 统一处理滚动
-  // skipImageLoad: true - 使用传入的尺寸，不等待图片加载
-  // lockReferenceDimensions=false: 图片加载后根据真实尺寸更新
-  // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
-  try {
-    await insertImageFromUrl(board, imageUrl, point, false, size, true, true, false, true);
-    // console.log(`[CanvasInsertion] insertImageFromUrl completed successfully`);
-  } catch (error) {
-    console.error(`[CanvasInsertion] insertImageFromUrl failed:`, error);
-    throw error;
-  }
-  return size;
-}
-
-/**
- * 插入单个视频到画布
- */
-async function insertVideoToCanvas(
-  board: PlaitBoard,
-  videoUrl: string,
-  point: Point,
-  dimensions?: { width: number; height: number }
-): Promise<{ width: number; height: number }> {
-  // 如果提供了尺寸，直接使用，不等待视频元数据下载
-  if (dimensions) {
-    await insertVideoFromUrl(board, videoUrl, point, false, dimensions, true, true);
-    return dimensions;
-  }
-
-  // 否则使用默认 16:9 尺寸立即插入
-  const defaultSize = { width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE, height: Math.round(LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE * (9 / 16)) };
-  await insertVideoFromUrl(board, videoUrl, point, false, defaultSize, true, true);
-  return defaultSize;
-}
-
-async function insertAudioToCanvas(
-  board: PlaitBoard,
-  audioUrl: string,
-  point: Point,
-  dimensions?: { width: number; height: number },
-  metadata?: Record<string, unknown>
-): Promise<{ width: number; height: number }> {
-  const size = resolveAudioCardDimensions({
-    ...(metadata as AudioCardMetadata | undefined),
-    width: dimensions?.width,
-    height: dimensions?.height,
-  });
-
-  await insertAudioFromUrl(
-    board,
-    audioUrl,
-    {
-      ...(metadata as AudioCardMetadata | undefined),
-      width: size.width,
-      height: size.height,
-    },
-    point,
-    false,
-    true
-  );
-
-  return size;
-}
-
-/**
- * 插入单个SVG到画布
- */
-async function insertSvgToCanvas(
-  board: PlaitBoard,
-  svgCode: string,
-  point: Point
-): Promise<{ width: number; height: number }> {
-  const normalized = normalizeSvg(svgCode);
-  const dimensions = parseSvgDimensions(normalized);
-
-  // 计算目标尺寸，保持宽高比
-  const targetWidth = Math.min(dimensions.width, LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE);
-  const aspectRatio = dimensions.height / dimensions.width;
-  const targetHeight = targetWidth * aspectRatio;
-
-  const dataUrl = svgToDataUrl(normalized);
-  const imageItem = {
-    url: dataUrl,
-    width: targetWidth,
-    height: targetHeight,
-  };
-
-  DrawTransforms.insertImage(board, imageItem, point);
-  return { width: targetWidth, height: targetHeight };
-}
-
-async function insertItemToCanvas(
-  board: PlaitBoard,
-  item: InsertionItem,
-  point: Point
-): Promise<{ width: number; height: number }> {
-  if (item.type === 'text') {
-    return insertTextToCanvas(board, item.content, point, item.label);
-  }
-
-  if (item.type === 'image') {
-    return insertImageToCanvas(board, item.content, point, item.dimensions);
-  }
-
-  if (item.type === 'video') {
-    return insertVideoToCanvas(board, item.content, point, item.dimensions);
-  }
-
-  if (item.type === 'audio') {
-    return insertAudioToCanvas(
-      board,
-      item.content,
-      point,
-      item.dimensions,
-      item.metadata
-    );
-  }
-
-  if (item.type === 'svg') {
-    return insertSvgToCanvas(board, item.content, point);
-  }
-
-  return estimateInsertionItemSize(board, item);
-}
-
-/**
- * 执行画布插入
- */
-async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MCPResult> {
+async function executeCanvasInsertion(
+  params: CanvasInsertionParams
+): Promise<MCPResult> {
   const board = boardRef;
-
-  // console.log('[CanvasInsertion] executeCanvasInsertion called, board:', !!board, 'params:', {
-  //   itemsCount: params.items?.length,
-  //   startPoint: params.startPoint,
-  // });
-
+  const bindingVersion = boardBindingVersion;
   if (!board) {
-    console.error('[CanvasInsertion] Board is null!');
     return {
       success: false,
       error: '画布未初始化，请先打开画布',
@@ -362,149 +154,13 @@ async function executeCanvasInsertion(params: CanvasInsertionParams): Promise<MC
     };
   }
 
-  const { items, verticalGap = LAYOUT_CONSTANTS.DEFAULT_VERTICAL_GAP, horizontalGap = LAYOUT_CONSTANTS.DEFAULT_HORIZONTAL_GAP } = params;
-
-  if (!items || items.length === 0) {
-    return {
-      success: false,
-      error: '没有要插入的内容',
-      type: 'error',
-    };
-  }
-
-  try {
-    if (!params.startPoint && items.length === 1) {
-      const item = items[0];
-      if (item.type === 'image' || item.type === 'video') {
-        const inserted = await insertMediaIntoSelectedFrame(
-          board,
-          item.content,
-          item.type,
-          item.dimensions
-        );
-        if (inserted) {
-          return {
-            success: true,
-            data: {
-              insertedCount: 1,
-              items: [{ type: item.type, point: inserted.point }],
-              firstElementPosition: inserted.point,
-              firstElementSize: inserted.size,
-            },
-            type: 'text',
-          };
-        }
-      }
-    }
-
-    const viewportMetrics = getViewportCanvasMetrics(board);
-
-    // 确定起始位置
-    let startPoint = params.startPoint;
-    if (!startPoint) {
-      startPoint = getInsertionPointFromSavedSelection(board, {
-        verticalGap,
-        logPrefix: 'CanvasInsertion',
-      });
-    }
-    if (!startPoint) {
-      startPoint =
-        getBottomMostInsertionPoint(board, {
-          verticalGap,
-          emptyPoint: LAYOUT_CONSTANTS.DEFAULT_POINT,
-        }) || LAYOUT_CONSTANTS.DEFAULT_POINT;
-    }
-
-    logCanvasInsertionDebug('[CanvasInsertion][MCP] batch begin', {
-      itemsCount: items.length,
-      inputStartPoint: params.startPoint || null,
-      resolvedStartPoint: startPoint,
-      viewport: viewportMetrics,
-      verticalGap,
-      horizontalGap,
-    });
-
-    const flowState = createBatchInsertionFlowState(board, startPoint, {
-      horizontalGap,
-      verticalGap,
-    });
-    logCanvasInsertionDebug('[CanvasInsertion][MCP] flow initialized', {
-      startX: flowState.startX,
-      startY: flowState.startY,
-      rowRightLimit: flowState.rowRightLimit,
-      zoom: viewportMetrics.zoom,
-    });
-
-    // 预计算所有素材的尺寸
-    const estimatedSizes = items.map((item) =>
-      estimateInsertionItemSize(board, item)
-    );
-
-    // 使用分组网格预计算位置：无 groupId 的项纵向推进，同组结果横向排列。
-    const gridLayout = precalculateGroupedGridLayout(
-      startPoint,
-      items,
-      estimatedSizes,
-      {
-        canvasWidth: viewportMetrics.width,
-        horizontalGap,
-        verticalGap,
-      }
-    );
-    flowState.bounds = gridLayout.bounds;
-
-    const insertedItems: { type: ContentType; point: Point }[] = [];
-
-    for (const [index, item] of items.entries()) {
-      const point = gridLayout.positions[index];
-
-      logCanvasInsertionDebug('[CanvasInsertion][MCP] item layout', {
-        index,
-        type: item.type,
-        groupId: item.groupId || null,
-        estimatedSize: estimatedSizes[index],
-        point,
-      });
-
-      await insertItemToCanvas(board, item, point);
-      insertedItems.push({ type: item.type, point });
-    }
-
-    // console.log('[CanvasInsertion] Successfully inserted', insertedItems.length, 'items');
-
-    // 插入完成后，滚动到整批内容中心位置
-    if (insertedItems.length > 0) {
-      const centerPoint =
-        getBatchInsertionFlowCenter(flowState) ||
-        ([insertedItems[0].point[0], insertedItems[0].point[1]] as Point);
-      logCanvasInsertionDebug('[CanvasInsertion][MCP] batch complete', {
-        insertedCount: insertedItems.length,
-        centerPoint,
-        bounds: flowState.bounds,
-      });
-      requestAnimationFrame(() => {
-        scrollToPointIfNeeded(board, centerPoint);
-      });
-    }
-
-    return {
-      success: true,
-      data: {
-        insertedCount: insertedItems.length,
-        items: insertedItems,
-        // 返回第一个元素的位置，供上层使用
-        firstElementPosition: insertedItems.length > 0 ? insertedItems[0].point : undefined,
-      },
-      type: 'text',
-    };
-  } catch (error: any) {
-    console.error('[CanvasInsertion] Failed to insert content:', error);
-    return {
-      success: false,
-      error: `插入失败: ${error.message || '未知错误'}`,
-      type: 'error',
-    };
-  }
+  return executeSharedCanvasInsertion({
+    ...params,
+    board,
+    boardGuard: () =>
+      boardRef === board && boardBindingVersion === bindingVersion,
+    items: params.items as SharedInsertionItem[],
+  });
 }
 
 /**
@@ -538,7 +194,8 @@ export const canvasInsertionTool: MCPTool = {
           properties: {
             type: {
               type: 'string',
-              description: '内容类型：text（文本）、image（图片URL）、video（视频URL）、audio（音频URL）、svg（SVG代码）',
+              description:
+                '内容类型：text（文本）、image（图片URL）、video（视频URL）、audio（音频URL）、svg（SVG代码）',
               enum: ['text', 'image', 'video', 'audio', 'svg'],
             },
             content: {
@@ -555,7 +212,8 @@ export const canvasInsertionTool: MCPTool = {
             },
             metadata: {
               type: 'object',
-              description: '可选元数据（音频卡片标题、封面、时长等）',
+              description:
+                '可选轻量元数据；AI 生成结果应传 prompt 和 generationTaskId，音频还可传标题、封面、时长等',
             },
           },
           required: ['type', 'content'],
@@ -601,14 +259,26 @@ export async function quickInsert(
  */
 export async function insertImageGroup(
   imageUrls: string[],
-  point?: Point
+  point?: Point,
+  dimensions?: { width: number; height: number },
+  prompt?: string,
+  metadata?: Record<string, unknown>
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
+  const promptMetadata = {
+    ...metadata,
+    ...(prompt?.trim()
+      ? { prompt: prompt.trim(), generationPrompt: prompt.trim() }
+      : {}),
+  };
   return executeCanvasInsertion({
-    items: imageUrls.map(url => ({
+    items: imageUrls.map((url) => ({
       type: 'image' as ContentType,
       content: url,
       groupId,
+      dimensions,
+      metadata:
+        Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,
     })),
     startPoint: point,
   });
@@ -627,6 +297,7 @@ export async function insertAIFlow(
   }>,
   point?: Point
 ): Promise<MCPResult> {
+  const normalizedPrompt = prompt.trim();
   const items: InsertionItem[] = [
     { type: 'text', content: prompt, label: 'Prompt' },
   ];
@@ -636,18 +307,28 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
-      metadata: results[0].metadata,
+      metadata: {
+        ...results[0].metadata,
+        ...(normalizedPrompt
+          ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+          : {}),
+      },
     });
   } else {
     // 多个结果，水平排列
     const groupId = `result-group-${Date.now()}`;
-    results.forEach(r => {
+    results.forEach((r) => {
       items.push({
         type: r.type,
         content: r.url,
         groupId,
         dimensions: r.dimensions,
-        metadata: r.metadata,
+        metadata: {
+          ...r.metadata,
+          ...(normalizedPrompt
+            ? { prompt: normalizedPrompt, generationPrompt: normalizedPrompt }
+            : {}),
+        },
       });
     });
   }

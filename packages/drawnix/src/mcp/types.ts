@@ -1,6 +1,6 @@
 /**
  * MCP (Model Context Protocol) 类型定义
- * 
+ *
  * 基于 JSON-RPC 2.0 协议，定义 MCP 工具的标准接口
  */
 
@@ -8,7 +8,10 @@
 export type { ModelType, ModelConfig } from '../constants/model-config';
 import type { ModelRef } from '../utils/settings-manager';
 import type { GeminiMessagePart } from '../utils/gemini-api/types';
-import type { KnowledgeContextRef } from '../types/task.types';
+import type {
+  CanvasAssociationRef,
+  KnowledgeContextRef,
+} from '../types/task.types';
 
 /**
  * JSON Schema 类型定义
@@ -57,7 +60,13 @@ export interface MCPExecuteCallbacks {
   /** 动态添加工作流步骤回调 */
   onAddSteps?: (steps: WorkflowStepInfo[]) => void;
   /** 更新步骤状态回调 */
-  onUpdateStep?: (stepId: string, status: WorkflowStepInfo['status'], result?: unknown, error?: string, duration?: number) => void;
+  onUpdateStep?: (
+    stepId: string,
+    status: WorkflowStepInfo['status'],
+    result?: unknown,
+    error?: string,
+    duration?: number
+  ) => void;
 }
 
 /**
@@ -128,7 +137,10 @@ export interface MCPTool {
   /** 输入参数 Schema */
   inputSchema: JSONSchema;
   /** 工具执行函数（默认 async 模式） */
-  execute: (params: Record<string, unknown>, options?: MCPExecuteOptions) => Promise<MCPResult>;
+  execute: (
+    params: Record<string, unknown>,
+    options?: MCPExecuteOptions
+  ) => Promise<MCPResult>;
   /** 支持的执行模式（默认只支持 async） */
   supportedModes?: MCPExecuteMode[];
   /** Prompt 指导信息，帮助文本模型更好地生成参数 */
@@ -266,6 +278,8 @@ export interface AgentExecutionContext {
     images: string[];
     /** 选中的视频 URL */
     videos: string[];
+    /** 选中的音频 URL 或素材引用 */
+    audios?: string[];
     /** 选中的图形转换为的图片 URL */
     graphics: string[];
     /** 图片尺寸信息（按顺序对应 images + graphics） */
@@ -277,6 +291,8 @@ export interface AgentExecutionContext {
 
   /** 本次 Agent 分析使用的知识库笔记轻量引用 */
   knowledgeContextRefs?: KnowledgeContextRef[];
+  /** 本次生成显式提及的画布元素轻量引用 */
+  canvasAssociations?: CanvasAssociationRef[];
 }
 
 /**

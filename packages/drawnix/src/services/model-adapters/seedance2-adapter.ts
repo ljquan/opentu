@@ -8,16 +8,24 @@ import { registerModelAdapter } from './registry';
 import { buildProviderContextFromAdapterContext } from './context';
 import { providerTransport } from '../provider-routing';
 import {
+  areSeedanceAudioDataUrlsWithinLimit,
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   isSeedanceAudioReference,
   isPublicHttpMediaUrl,
 } from '../video-binding-utils';
+import { unifiedCacheService } from '../unified-cache-service';
+import {
+  isVirtualMediaUrl,
+  SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH,
+} from '../../utils/virtual-media-url';
 
 const SEEDANCE_2_MODEL_PREFIX = 'doubao-seedance-2-0-';
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const MAX_POLL_ATTEMPTS = 1080;
+const MAX_REFERENCE_VIDEOS = 3;
+const MAX_REFERENCE_AUDIOS = 3;
 const SEEDANCE_2_RESOLUTIONS = new Set(['480p', '720p', '1080p']);
 const SEEDANCE_2_RATIOS = new Set([
   '16:9',
@@ -189,25 +197,125 @@ function getStringParam(
   return undefined;
 }
 
-function normalizeReferenceVideoUrl(value: string): string {
+function getStringArrayParam(
+  params: Record<string, unknown> | undefined,
+  key: string,
+  label: string,
+  maxCount: number
+): string[] {
+  const value = params?.[key];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`Seedance 2.0 ${label}必须为字符串数组`);
+  }
+  if (value.length > maxCount) {
+    throw new Error(`Seedance 2.0 ${label}最多支持 ${maxCount} 条`);
+  }
+
+  const normalizedValues: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new Error(
+        `Seedance 2.0 第 ${index + 1} 条${label}必须为非空字符串`
+      );
+    }
+    normalizedValues.push(item);
+  }
+  return normalizedValues;
+}
+
+function normalizeReferenceVideoUrl(value: string, label = '参考视频'): string {
   const normalized = value.trim();
   if (!isPublicHttpMediaUrl(normalized)) {
-    throw new Error('Seedance 2.0 参考视频仅支持公网 HTTP(S) 地址');
+    throw new Error(`Seedance 2.0 ${label}仅支持公网 HTTP(S) 地址`);
   }
   return normalized;
 }
 
-function normalizeReferenceAudio(value: string): string {
+function normalizeReferenceAudio(value: string, label = '参考音频'): string {
   const normalized = value.trim();
   if (!isSeedanceAudioReference(normalized)) {
     throw new Error(
-      'Seedance 2.0 参考音频仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+      `Seedance 2.0 ${label}仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID`
     );
   }
   return normalized;
 }
 
-function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
+function resolveReferences(
+  request: VideoGenerationRequest,
+  options: {
+    arrayKey: string;
+    singleKeys: string[];
+    label: string;
+    maxCount: number;
+    normalize: (value: string, label: string) => string;
+    validateCandidates?: (values: readonly string[]) => void;
+  }
+): string[] {
+  const arrayValues = getStringArrayParam(
+    request.params,
+    options.arrayKey,
+    options.label,
+    options.maxCount
+  );
+  const singleValue = getStringParam(request.params, options.singleKeys);
+  const candidates = singleValue ? [singleValue, ...arrayValues] : arrayValues;
+  const references: string[] = [];
+  const seen = new Set<string>();
+  options.validateCandidates?.([
+    ...new Set(candidates.map((value) => value.trim())),
+  ]);
+
+  candidates.forEach((value, index) => {
+    const normalized = options.normalize(
+      value,
+      candidates.length > 1
+        ? `第 ${index + 1} 条${options.label}`
+        : options.label
+    );
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    references.push(normalized);
+  });
+
+  if (references.length > options.maxCount) {
+    throw new Error(
+      `Seedance 2.0 ${options.label}最多支持 ${options.maxCount} 条`
+    );
+  }
+  return references;
+}
+
+function getProjectedAudioDataUrlLength(blob: Blob): number {
+  return `data:${blob.type};base64,`.length + Math.ceil(blob.size / 3) * 4;
+}
+
+async function blobToDataUrlAtRequestTime(blob: Blob): Promise<string> {
+  if (typeof FileReader !== 'undefined') {
+    const { blobToDataUrl } = await import('@aitu/utils');
+    return blobToDataUrl(blob);
+  }
+
+  if (typeof blob.arrayBuffer !== 'function' || typeof btoa !== 'function') {
+    throw new Error('Seedance 2.0 本地参考音频转换失败');
+  }
+
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length))
+    );
+  }
+  return `data:${blob.type};base64,${btoa(binary)}`;
+}
+
+async function buildContent(
+  request: VideoGenerationRequest
+): Promise<Seedance2ContentItem[]> {
   const content: Seedance2ContentItem[] = [
     { type: 'text', text: request.prompt },
     ...(request.referenceImages || []).map((url) => ({
@@ -217,31 +325,79 @@ function buildContent(request: VideoGenerationRequest): Seedance2ContentItem[] {
     })),
   ];
 
-  const videoUrl = getStringParam(request.params, [
-    'input_video',
-    'reference_video',
-  ]);
-  if (videoUrl) {
-    const normalizedVideoUrl = normalizeReferenceVideoUrl(videoUrl);
+  const videoUrls = resolveReferences(request, {
+    arrayKey: 'input_videos',
+    singleKeys: ['input_video', 'reference_video'],
+    label: '参考视频',
+    maxCount: MAX_REFERENCE_VIDEOS,
+    normalize: normalizeReferenceVideoUrl,
+  });
+  videoUrls.forEach((videoUrl) => {
     content.push({
       type: 'video_url',
-      video_url: { url: normalizedVideoUrl },
+      video_url: { url: videoUrl },
       role: 'reference_video',
     });
+  });
+
+  const audioUrls = resolveReferences(request, {
+    arrayKey: 'input_audios',
+    singleKeys: ['input_audio', 'reference_audio'],
+    label: '参考音频',
+    maxCount: MAX_REFERENCE_AUDIOS,
+    normalize: normalizeReferenceAudio,
+    validateCandidates: (values) => {
+      if (!areSeedanceAudioDataUrlsWithinLimit(values)) {
+        throw new Error('Seedance 2.0 音频 Data URL 合计不能超过 16 MiB');
+      }
+    },
+  });
+  let projectedAudioDataUrlLength = audioUrls.reduce(
+    (total, audioUrl) =>
+      audioUrl.trim().startsWith('data:audio/')
+        ? total + audioUrl.trim().length
+        : total,
+    0
+  );
+  const virtualAudioBlobs = new Map<string, Blob>();
+  for (const audioUrl of audioUrls) {
+    if (!isVirtualMediaUrl(audioUrl)) continue;
+
+    const blob = await unifiedCacheService.getCachedBlob(audioUrl);
+    if (
+      !blob ||
+      blob.size === 0 ||
+      !blob.type.toLowerCase().startsWith('audio/')
+    ) {
+      throw new Error('Seedance 2.0 本地参考音频缓存不可用');
+    }
+    projectedAudioDataUrlLength += getProjectedAudioDataUrlLength(blob);
+    if (projectedAudioDataUrlLength > SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH) {
+      throw new Error('Seedance 2.0 音频 Data URL 合计不能超过 16 MiB');
+    }
+    virtualAudioBlobs.set(audioUrl, blob);
   }
 
-  const audioUrl = getStringParam(request.params, [
-    'input_audio',
-    'reference_audio',
-  ]);
-  if (audioUrl) {
-    const normalizedAudioUrl = normalizeReferenceAudio(audioUrl);
+  const materializedAudioUrls: string[] = [];
+  for (const audioUrl of audioUrls) {
+    const blob = virtualAudioBlobs.get(audioUrl);
+    if (!blob) {
+      materializedAudioUrls.push(audioUrl);
+      continue;
+    }
+    materializedAudioUrls.push(await blobToDataUrlAtRequestTime(blob));
+    virtualAudioBlobs.delete(audioUrl);
+  }
+  if (!areSeedanceAudioDataUrlsWithinLimit(materializedAudioUrls)) {
+    throw new Error('Seedance 2.0 音频 Data URL 合计不能超过 16 MiB');
+  }
+  materializedAudioUrls.forEach((audioUrl) => {
     content.push({
       type: 'audio_url',
-      audio_url: { url: normalizedAudioUrl },
+      audio_url: { url: audioUrl },
       role: 'reference_audio',
     });
-  }
+  });
 
   return content;
 }
@@ -310,7 +466,7 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
 
     const submitBody = {
       model,
-      content: buildContent(request),
+      content: await buildContent(request),
       resolution,
       ratio,
       duration,

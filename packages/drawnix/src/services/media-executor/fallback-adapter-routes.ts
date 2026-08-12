@@ -20,7 +20,6 @@ import {
   classifyApiCredentialError,
   dispatchApiAuthError,
 } from '../../utils/api-auth-error-event';
-import { unifiedCacheService } from '../unified-cache-service';
 import {
   getAdapterContextFromSettings,
   GPT_IMAGE_EDIT_REQUEST_SCHEMAS,
@@ -28,7 +27,7 @@ import {
 } from '../model-adapters';
 import type { ImageModelAdapter, VideoModelAdapter } from '../model-adapters';
 import {
-  ensureBase64ForAI,
+  materializeReferenceImagesSequentially,
   cacheRemoteUrl,
   cacheRemoteUrls,
 } from './fallback-utils';
@@ -163,19 +162,15 @@ export async function executeImageViaAdapter(
   try {
     let processedImages: string[] | undefined;
     if (params.referenceImages && params.referenceImages.length > 0) {
-      processedImages = await Promise.all(
-        params.referenceImages.map(async (imgUrl) => {
-          if (
+      processedImages = await materializeReferenceImagesSequentially(
+        params.referenceImages,
+        {
+          ...options,
+          preserveUrl: (imgUrl) =>
             supportsRemoteImageReferences(
               adapterContext.binding?.requestSchema
-            ) &&
-            /^https?:\/\//i.test(imgUrl)
-          ) {
-            return imgUrl;
-          }
-          const imageData = await unifiedCacheService.getImageForAI(imgUrl);
-          return ensureBase64ForAI(imageData, options?.signal);
-        })
+            ) && /^https?:\/\//i.test(imgUrl),
+        }
       );
     }
 
@@ -343,15 +338,10 @@ export async function executeVideoViaAdapter(
   try {
     let processedImages: string[] | undefined;
     if (refUrls && refUrls.length > 0) {
-      processedImages = await Promise.all(
-        refUrls.map(async (url) => {
-          if (isVirtualPath(url)) {
-            const imageData = await unifiedCacheService.getImageForAI(url);
-            return ensureBase64ForAI(imageData, options?.signal);
-          }
-          return url;
-        })
-      );
+      processedImages = await materializeReferenceImagesSequentially(refUrls, {
+        ...options,
+        preserveUrl: (url) => !isVirtualPath(url),
+      });
     }
     assertCurrentExecutionAttempt(options);
 

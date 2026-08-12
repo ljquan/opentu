@@ -24,6 +24,8 @@ export interface MediaItem {
   height?: number;
   /** 生成提示词 */
   prompt?: string;
+  /** 生成任务 ID，用于插入画布后恢复原提示词 */
+  generationTaskId?: string;
   /** 音频风格标签 */
   tags?: string;
   /** 下载时显示的演唱者/作者 */

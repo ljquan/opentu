@@ -23,7 +23,12 @@ import type { ModelRef } from '../utils/settings-manager';
 import type { Task } from '../types/task.types';
 
 /** 选中内容类型 */
-export type SelectedContentType = 'image' | 'video' | 'graphics' | 'text';
+export type SelectedContentType =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'graphics'
+  | 'text';
 
 /** 选中内容项 */
 export interface SelectedContentItem {

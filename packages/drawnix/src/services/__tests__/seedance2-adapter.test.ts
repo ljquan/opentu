@@ -2,6 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedance2VideoAdapter } from '../model-adapters/seedance2-adapter';
 import type { AdapterContext } from '../model-adapters/types';
 
+const { getCachedBlob } = vi.hoisted(() => ({
+  getCachedBlob: vi.fn(),
+}));
+
+vi.mock('../unified-cache-service', () => ({
+  unifiedCacheService: { getCachedBlob },
+}));
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -36,6 +44,7 @@ function createContext(fetcher: typeof fetch): AdapterContext {
 describe('seedance 2.0 video adapter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    getCachedBlob.mockReset();
   });
 
   afterEach(() => {
@@ -176,6 +185,183 @@ describe('seedance 2.0 video adapter', () => {
     });
   });
 
+  it('submits multiple workflow media references and deduplicates legacy values', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: { message: 'captured' } }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'multiple canvas references',
+        params: {
+          input_video: 'https://assets.example.com/video-1.mp4',
+          input_videos: [
+            ' https://assets.example.com/video-1.mp4 ',
+            'https://assets.example.com/video-2.mp4',
+            'https://assets.example.com/video-3.mp4',
+          ],
+          input_audio: 'audio-material-1',
+          input_audios: [
+            ' audio-material-1 ',
+            'asset://audio-material-2',
+            'https://assets.example.com/audio-3.mp3',
+          ],
+        },
+      })
+    ).rejects.toThrow('captured');
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      content: [
+        { type: 'text', text: 'multiple canvas references' },
+        {
+          type: 'video_url',
+          video_url: { url: 'https://assets.example.com/video-1.mp4' },
+          role: 'reference_video',
+        },
+        {
+          type: 'video_url',
+          video_url: { url: 'https://assets.example.com/video-2.mp4' },
+          role: 'reference_video',
+        },
+        {
+          type: 'video_url',
+          video_url: { url: 'https://assets.example.com/video-3.mp4' },
+          role: 'reference_video',
+        },
+        {
+          type: 'audio_url',
+          audio_url: { url: 'audio-material-1' },
+          role: 'reference_audio',
+        },
+        {
+          type: 'audio_url',
+          audio_url: { url: 'asset://audio-material-2' },
+          role: 'reference_audio',
+        },
+        {
+          type: 'audio_url',
+          audio_url: { url: 'https://assets.example.com/audio-3.mp3' },
+          role: 'reference_audio',
+        },
+      ],
+    });
+  });
+
+  it('keeps empty workflow media arrays equivalent to no references', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: { message: 'captured' } }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'no canvas media references',
+        params: { input_videos: [], input_audios: [] },
+      })
+    ).rejects.toThrow('captured');
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      content: [{ type: 'text', text: 'no canvas media references' }],
+    });
+  });
+
+  it.each([
+    {
+      params: {
+        input_videos: 'https://assets.example.com/reference.mp4',
+      },
+      message: '参考视频必须为字符串数组',
+    },
+    {
+      params: { input_audios: ['audio-material-1', 2] },
+      message: '第 2 条参考音频必须为非空字符串',
+    },
+    {
+      params: {
+        input_videos: [
+          'https://assets.example.com/reference.mp4',
+          'http://127.0.0.1/private.mp4',
+        ],
+      },
+      message: '第 2 条参考视频仅支持公网 HTTP(S) 地址',
+    },
+    {
+      params: {
+        input_audios: [
+          'audio-material-1',
+          'blob:https://app.example.com/audio-2',
+        ],
+      },
+      message: '第 2 条参考音频仅支持 HTTP(S)',
+    },
+  ])(
+    'rejects invalid multi-reference input before submission: $message',
+    async ({ params, message }) => {
+      const fetcher = vi.fn() as unknown as typeof fetch;
+
+      await expect(
+        seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+          model: 'doubao-seedance-2-0-260128',
+          prompt: 'invalid multi-reference input',
+          params,
+        })
+      ).rejects.toThrow(message);
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    {
+      params: {
+        input_videos: [1, 2, 3, 4].map(
+          (index) => `https://assets.example.com/video-${index}.mp4`
+        ),
+      },
+      message: '参考视频最多支持 3 条',
+    },
+    {
+      params: {
+        input_audios: [1, 2, 3, 4].map((index) => `audio-material-${index}`),
+      },
+      message: '参考音频最多支持 3 条',
+    },
+  ])(
+    'rejects references beyond the Seedance 2.0 count boundary: $message',
+    async ({ params, message }) => {
+      const fetcher = vi.fn() as unknown as typeof fetch;
+
+      await expect(
+        seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+          model: 'doubao-seedance-2-0-260128',
+          prompt: 'too many references',
+          params,
+        })
+      ).rejects.toThrow(message);
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects aggregate inline audio data beyond the single-reference budget', async () => {
+    const fetcher = vi.fn() as unknown as typeof fetch;
+    const firstPayload = 'A'.repeat(8 * 1024 * 1024);
+    const secondPayload = 'B'.repeat(8 * 1024 * 1024);
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'bounded inline audio references',
+        params: {
+          input_audios: [
+            `data:audio/mpeg;base64,${firstPayload}`,
+            `data:audio/mpeg;base64,${secondPayload}`,
+          ],
+        },
+      })
+    ).rejects.toThrow('音频 Data URL 合计不能超过 16 MiB');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('accepts official audio references but rejects browser-local media URLs', async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ error: { message: 'stop after request capture' } }, 400)
@@ -240,6 +426,101 @@ describe('seedance 2.0 video adapter', () => {
         params: { input_audio: 'data:audio/mpeg;base64,%%%' },
       })
     ).rejects.toThrow('Seedance 2.0 参考音频仅支持');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('materializes a persisted virtual audio reference only at request time', async () => {
+    vi.useRealTimers();
+    getCachedBlob.mockResolvedValueOnce(
+      new Blob(['audio'], { type: 'audio/mpeg' })
+    );
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: { message: 'captured' } }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'virtual audio reference',
+        params: {
+          input_audio: '/__aitu_generated__/audio/content-reference.mp3',
+        },
+      })
+    ).rejects.toThrow('captured');
+
+    expect(getCachedBlob).toHaveBeenCalledWith(
+      '/__aitu_generated__/audio/content-reference.mp3'
+    );
+    const submitBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(submitBody.content[1]).toMatchObject({
+      type: 'audio_url',
+      role: 'reference_audio',
+    });
+    expect(submitBody.content[1].audio_url.url).toMatch(
+      /^data:audio\/mpeg;base64,/
+    );
+  });
+
+  it('rejects a missing virtual audio cache before submission', async () => {
+    getCachedBlob.mockResolvedValueOnce(null);
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'missing virtual audio reference',
+        params: { input_audio: '/__aitu_cache__/audio/missing.mp3' },
+      })
+    ).rejects.toThrow('本地参考音频缓存不可用');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized cached audio before materializing base64', async () => {
+    getCachedBlob.mockResolvedValueOnce({
+      size: 13 * 1024 * 1024,
+      type: 'audio/mpeg',
+    } as Blob);
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'oversized cached audio',
+        params: {
+          input_audio: '/__aitu_cache__/audio/oversized.mp3',
+        },
+      })
+    ).rejects.toThrow('音频 Data URL 合计不能超过 16 MiB');
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('checks aggregate cached audio size before materializing any reference', async () => {
+    getCachedBlob
+      .mockResolvedValueOnce({
+        size: 7 * 1024 * 1024,
+        type: 'audio/mpeg',
+      } as Blob)
+      .mockResolvedValueOnce({
+        size: 7 * 1024 * 1024,
+        type: 'audio/mpeg',
+      } as Blob);
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'aggregate cached audio',
+        params: {
+          input_audios: [
+            '/__aitu_cache__/audio/first.mp3',
+            '/__aitu_cache__/audio/second.mp3',
+          ],
+        },
+      })
+    ).rejects.toThrow('音频 Data URL 合计不能超过 16 MiB');
+
+    expect(getCachedBlob).toHaveBeenCalledTimes(2);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
