@@ -1,3 +1,17 @@
+## 1.0.17 (2026-08-12)
+
+### 🚀 Features
+
+- 统一跨媒体 AI 任务栏目标控制 (#227) ([28b16f53](https://github.com/ljquan/opentu/commit/28b16f53))
+
+### 🔧 Chores
+
+- 功能：增加画布联想引用与平滑连线 (#228) ([20811ffe](https://github.com/ljquan/opentu/commit/20811ffe))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.0.16 (2026-08-10)
 
 ### 🚀 Features

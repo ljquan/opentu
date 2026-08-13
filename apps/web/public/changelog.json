@@ -1,6 +1,21 @@
 {
   "versions": [
     {
+      "version": "1.0.17",
+      "date": "2026-08-12",
+      "changes": {
+        "features": [
+          "统一跨媒体 AI 任务栏目标控制 (#227)"
+        ],
+        "fixes": [],
+        "improvements": [
+          "功能：增加画布联想引用与平滑连线 (#228)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "统一跨媒体 AI 任务栏目标控制 (#227)"
+    },
+    {
       "version": "1.0.16",
       "date": "2026-08-10",
       "changes": {
@@ -1014,21 +1029,6 @@
       },
       "type": "patch",
       "highlights": "修复非根路径部署时的资源加载问题"
-    },
-    {
-      "version": "0.6.76",
-      "date": "2026-04-25",
-      "changes": {
-        "features": [
-          "新增 OpenTu SEO 首页"
-        ],
-        "fixes": [],
-        "improvements": [
-          "更新版本号至0.6.75并同步构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "新增 OpenTu SEO 首页"
     }
   ]
 }
