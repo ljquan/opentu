@@ -234,6 +234,7 @@ import {
   readBoundTargetGenerationPrompt,
   recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
+  resolveBoundTargetMode,
   resolveBoundTargetForPosition,
   resolveBoundTargetPromptSuggestion,
   resolveBoundTargetPromptSuggestionAction,
@@ -2365,14 +2366,19 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const allContent = useMemo(() => {
       return [...uploadedContent, ...selectedContent];
     }, [uploadedContent, selectedContent]);
+    const effectiveBoundTargetMode = resolveBoundTargetMode(
+      boundImageTargetMode,
+      boundTargetFollowEnabled,
+      boundImageTarget?.type
+    );
     const boundTargetContent = useMemo(
       () =>
         selectedContentFromBoundTarget(
           boundImageTarget,
           language,
-          boundImageTargetMode === 'reference'
+          effectiveBoundTargetMode === 'reference'
         ),
-      [boundImageTarget, boundImageTargetMode, language]
+      [boundImageTarget, effectiveBoundTargetMode, language]
     );
     const followedBoundImageTarget =
       boundImageTargetMode === 'follow' ? boundImageTarget : null;
@@ -4248,7 +4254,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
 
     const chatDrawerContent =
-      boundImageTargetMode === 'reference' ? generationContent : allContent;
+      effectiveBoundTargetMode === 'reference' ? generationContent : allContent;
 
     // 仅作参考模式与生成请求使用同一份内容，确保目标图不会在抽屉中丢失。
     useEffect(() => {
@@ -4708,7 +4714,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           !override &&
           shouldUseBoundTargetForSubmission(
             generationType,
-            boundImageTargetMode
+            effectiveBoundTargetMode
           ) &&
           boundImageTarget?.type === generationType;
         const activeBoundImageTarget = shouldUseActiveBoundTarget
@@ -4718,7 +4724,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? pinBoundTargetReferenceContent(
               override.content,
               boundTargetContent,
-              boundImageTargetMode
+              effectiveBoundTargetMode
             )
           : generationContent;
         let effectiveContent = baseEffectiveContent;
@@ -5174,16 +5180,28 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ? agentMediaDefaultModelRefs
                 : undefined,
           });
-          const boundTargetGenerationParams = activeBoundImageTarget
-            ? activeBoundImageTarget.type === 'image'
+          const imageBoundTargetGenerationParams =
+            activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
                   activeBoundImageTarget,
                   effectiveSelectedCount
                 )
+              : null;
+          const boundTargetGenerationParams = activeBoundImageTarget
+            ? activeBoundImageTarget.type === 'image'
+              ? imageBoundTargetGenerationParams
+                ? {
+                    ...imageBoundTargetGenerationParams,
+                    boundTargetFollowControlled: true,
+                  }
+                : null
               : effectiveSelectedCount === 1
               ? {
                   replaceElementId: activeBoundImageTarget.elementId,
                   sourcePrompt: activeBoundImageTarget.prompt,
+                  ...(activeBoundImageTarget.type !== 'audio'
+                    ? { boundTargetFollowControlled: true }
+                    : {}),
                 }
               : null
             : null;
@@ -6246,6 +6264,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         boundImageTarget,
         boundImageTargetMode,
         boundTargetContent,
+        effectiveBoundTargetMode,
         generationContent,
         isSubmitting,
         selectedModel,

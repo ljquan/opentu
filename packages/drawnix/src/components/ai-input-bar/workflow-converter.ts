@@ -354,6 +354,7 @@ export function convertDirectGenerationToWorkflow(
         anchorId,
         sourceTaskId,
         sourcePrompt,
+        boundTargetFollowControlled,
         ...adapterExtraParams
       } = extraParams || {};
       if (
@@ -375,6 +376,9 @@ export function convertDirectGenerationToWorkflow(
       if (anchorId) imageArgs.anchorId = anchorId;
       if (sourceTaskId) imageArgs.sourceTaskId = sourceTaskId;
       if (sourcePrompt) imageArgs.sourcePrompt = sourcePrompt;
+      if (boundTargetFollowControlled === true) {
+        imageArgs.boundTargetFollowControlled = true;
+      }
       // 透传额外参数（如 seedream_quality）
       if (Object.keys(adapterExtraParams).length > 0) {
         imageArgs.params = adapterExtraParams;
@@ -412,13 +416,20 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         videoArgs.referenceImages = referenceImages;
       }
-      const { replaceElementId, sourcePrompt, ...adapterVideoParams } =
-        extraParams || {};
+      const {
+        replaceElementId,
+        sourcePrompt,
+        boundTargetFollowControlled,
+        ...adapterVideoParams
+      } = extraParams || {};
       if (replaceElementId) {
         videoArgs.replaceElementId = replaceElementId;
       }
       if (sourcePrompt) {
         videoArgs.sourcePrompt = sourcePrompt;
+      }
+      if (boundTargetFollowControlled === true) {
+        videoArgs.boundTargetFollowControlled = true;
       }
       // 透传额外参数（如 ratio）
       const videoParams: Record<string, unknown> = Object.fromEntries(
@@ -561,13 +572,20 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         textArgs.referenceImages = referenceImages;
       }
-      const { replaceElementId, sourcePrompt, ...adapterTextParams } =
-        extraParams || {};
+      const {
+        replaceElementId,
+        sourcePrompt,
+        boundTargetFollowControlled,
+        ...adapterTextParams
+      } = extraParams || {};
       if (replaceElementId) {
         textArgs.replaceElementId = replaceElementId;
       }
       if (sourcePrompt) {
         textArgs.sourcePrompt = sourcePrompt;
+      }
+      if (boundTargetFollowControlled === true) {
+        textArgs.boundTargetFollowControlled = true;
       }
       if (Object.keys(adapterTextParams).length > 0) {
         textArgs.params = adapterTextParams;

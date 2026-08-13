@@ -100,6 +100,12 @@ export interface VideoGenerationParams {
   knowledgeContextRefs?: KnowledgeContextRef[];
   /** 本次生成显式提及的画布元素轻量引用 */
   canvasAssociations?: CanvasAssociationRef[];
+  /** 重新生成时需要原地替换的画布元素 ID */
+  replaceElementId?: string;
+  /** 重新生成前的原始提示词 */
+  sourcePrompt?: string;
+  /** 是否由支持永久跟随开关的 AI 任务栏目标提交 */
+  boundTargetFollowControlled?: boolean;
 }
 
 /**
@@ -205,6 +211,9 @@ function getVideoQueueConfig(params: VideoGenerationParams) {
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
       canvasAssociations: params.canvasAssociations,
+      replaceElementId: params.replaceElementId,
+      sourcePrompt: params.sourcePrompt,
+      boundTargetFollowControlled: params.boundTargetFollowControlled,
     }),
     buildResultData: () => ({
       size: params.size || '16x9',

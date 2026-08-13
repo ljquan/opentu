@@ -86,6 +86,11 @@ import {
 } from '../plugins/canvas-association';
 import { workspaceService } from '../services/workspace-service';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
+import {
+  findBoundTargetElement,
+  isBoundTargetReferenceOnly,
+  readBoundTargetFollowEnabled,
+} from '../components/ai-input-bar/target-bound-taskbar-state';
 
 /**
  * 配置项
@@ -218,6 +223,45 @@ function readTaskParamString(task: Task, key: string): string | undefined {
 
 function getTaskReplaceElementId(task: Task): string | undefined {
   return readTaskParamString(task, 'replaceElementId');
+}
+
+function isTaskbarBoundTargetReplacement(task: Task): boolean {
+  if (!getTaskReplaceElementId(task) || task.type === TaskType.AUDIO) {
+    return false;
+  }
+
+  return task.params.boundTargetFollowControlled === true;
+}
+
+function resolveTaskForCanvasInsertion(
+  task: Task,
+  board: PlaitBoard
+): {
+  task: Task;
+  replacementSuppressed: boolean;
+} {
+  if (!isTaskbarBoundTargetReplacement(task)) {
+    return { task, replacementSuppressed: false };
+  }
+
+  const currentReplaceElementId = getTaskReplaceElementId(task);
+  const replacementSuppressed =
+    !readBoundTargetFollowEnabled() ||
+    isBoundTargetReferenceOnly(
+      findBoundTargetElement(board.children, currentReplaceElementId || '')
+    );
+  if (!replacementSuppressed) {
+    return { task, replacementSuppressed: false };
+  }
+
+  const { replaceElementId, targetElementId, ...params } = task.params;
+  return {
+    task: {
+      ...task,
+      params,
+    },
+    replacementSuppressed: Boolean(replaceElementId || targetElementId),
+  };
 }
 
 function getTaskAnchorId(
@@ -380,7 +424,8 @@ function syncImageTargetBindingAfterInsert(
   task: Task,
   insertedElementId?: string,
   previewImageUrl?: string,
-  updateElement = true
+  updateElement = true,
+  clearTargetElementId = false
 ): void {
   if (insertedElementId && updateElement) {
     const elementIndex = board.children.findIndex(
@@ -411,7 +456,11 @@ function syncImageTargetBindingAfterInsert(
     latestTaskId: task.id,
     ...(prompt ? { prompt } : {}),
     ...(sourceTaskId ? { sourceTaskId } : {}),
-    ...(targetElementId ? { targetElementId } : {}),
+    ...(clearTargetElementId
+      ? { targetElementId: undefined }
+      : targetElementId
+      ? { targetElementId }
+      : {}),
     ...(insertedElementId ? { resultElementId: insertedElementId } : {}),
     ...(previewImageUrl ? { previewImageUrl } : {}),
   };
@@ -1155,7 +1204,11 @@ export function useAutoInsertToCanvas(
         try {
           if (inserts.length === 1) {
             // 单个任务，直接插入
-            const { task } = inserts[0];
+            const { task: queuedTask } = inserts[0];
+            const {
+              task,
+              replacementSuppressed: boundTargetReplacementSuppressed,
+            } = resolveTaskForCanvasInsertion(queuedTask, board);
             const isLyricsAudioTask = isLyricsTask(task);
             const url = task.result?.url;
             const hasResultUrl = typeof url === 'string' && url.length > 0;
@@ -1648,7 +1701,9 @@ export function useAutoInsertToCanvas(
                 imageAnchor,
                 task,
                 insertedElementId,
-                allUrls[0]
+                allUrls[0],
+                true,
+                boundTargetReplacementSuppressed
               );
               notifyAISelectionContentRefresh();
             }
@@ -2354,20 +2409,24 @@ export function useAutoInsertToCanvas(
 
       // 检查是否为灵感图任务（需要在宫格图之前检查）
       if (task.type === TaskType.CHAT) {
+        const { task: insertionTask } = resolveTaskForCanvasInsertion(
+          task,
+          board
+        );
         const insertionBoardToken = captureCanvasInsertionBoardToken(board);
         const promptLabel =
-          (task.params.prompt || '').slice(0, 20) || undefined;
+          (insertionTask.params.prompt || '').slice(0, 20) || undefined;
         Promise.resolve()
           .then(async () => {
             if (!insertionBoardToken) {
               throw new Error('画板已切换，取消本次插入');
             }
             const currentInsertionBoardToken = insertionBoardToken;
-            if (getTaskReplaceElementId(task)) {
+            if (getTaskReplaceElementId(insertionTask)) {
               const replaced = await replaceGeneratedTarget(
                 board,
-                task,
-                task.result?.chatResponse || '',
+                insertionTask,
+                insertionTask.result?.chatResponse || '',
                 'text'
               );
               if (!replaced) {
@@ -2387,11 +2446,11 @@ export function useAutoInsertToCanvas(
               items: [
                 {
                   type: 'text',
-                  content: task.result?.chatResponse || '',
+                  content: insertionTask.result?.chatResponse || '',
                   label: promptLabel,
                   metadata: {
-                    prompt: task.params.prompt,
-                    generationTaskId: task.id,
+                    prompt: insertionTask.params.prompt,
+                    generationTaskId: insertionTask.id,
                   },
                 },
               ],

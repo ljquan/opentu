@@ -17,6 +17,7 @@ import {
   readBoundTargetGenerationPrompt,
   recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
+  resolveBoundTargetMode,
   resolveBoundTargetForPosition,
   resolveBoundTargetPromptSuggestion,
   resolveBoundTargetPromptSuggestionAction,
@@ -279,7 +280,7 @@ describe('target-bound-taskbar-state', () => {
     expect(supportsBoundTargetFollowControls('audio')).toBe(false);
   });
 
-  it('关闭跟随只移除定位目标，不移除生成绑定目标', () => {
+  it('关闭永久跟随后移除定位并把支持的目标切换为参考模式', () => {
     const target = {
       elementId: 'image-a',
       prompt: '保留目标功能',
@@ -301,10 +302,15 @@ describe('target-bound-taskbar-state', () => {
     expect(resolveBoundTargetForPosition(videoTarget, true)).toBe(videoTarget);
     const audioTarget = { ...target, type: 'audio' as const };
     expect(resolveBoundTargetForPosition(audioTarget, false)).toBe(audioTarget);
-    expect(buildBoundTargetGenerationParams(target)).toMatchObject({
-      replaceElementId: 'image-a',
-      targetElementId: 'image-a',
-    });
+    expect(resolveBoundTargetMode('follow', false, 'image')).toBe('reference');
+    expect(resolveBoundTargetMode('follow', false, 'video')).toBe('reference');
+    expect(resolveBoundTargetMode('follow', false, 'text')).toBe('reference');
+    expect(resolveBoundTargetMode('follow', false)).toBe('reference');
+    expect(resolveBoundTargetMode('follow', false, 'audio')).toBe('follow');
+    expect(resolveBoundTargetMode('follow', true, 'image')).toBe('follow');
+    expect(resolveBoundTargetMode('reference', true, 'image')).toBe(
+      'reference'
+    );
   });
 
   it('仅在同一目标仍选中时抑制重绑', () => {
@@ -592,6 +598,36 @@ describe('target-bound-taskbar-state', () => {
       sourceTaskId: 'task-a',
       sourcePrompt: '更新提示词',
     });
+  });
+
+  it('永久关闭跟随后保留原图为首张参考且新图不覆盖原图', () => {
+    const target = {
+      type: 'image' as const,
+      url: 'target.png',
+      elementId: 'image-a',
+      prompt: '保留主体',
+      generationAnchorId: 'anchor-a',
+      generationTaskId: 'task-a',
+    };
+    const uploaded = { type: 'image' as const, url: 'uploaded.png' };
+    const referenceMode = resolveBoundTargetMode('follow', false, target.type);
+    const replacementTarget = shouldUseBoundTargetForSubmission(
+      'image',
+      referenceMode
+    )
+      ? target
+      : null;
+
+    expect(
+      pinBoundTargetReferenceContent([uploaded], target, referenceMode)
+    ).toEqual([target, uploaded]);
+    expect(buildBoundTargetGenerationParams(replacementTarget)).toBeNull();
+    expect(
+      shouldUseBoundTargetForSubmission(
+        'image',
+        resolveBoundTargetMode('follow', true, target.type)
+      )
+    ).toBe(true);
   });
 
   it('选择多张时不生成目标替换参数', () => {

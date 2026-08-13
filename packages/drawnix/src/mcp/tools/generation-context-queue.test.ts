@@ -135,6 +135,26 @@ describe('generation queue context passthrough', () => {
     });
   });
 
+  it('keeps taskbar follow control metadata on video queue tasks', async () => {
+    const { createVideoTask } = await import('./video-generation');
+
+    await createVideoTask({
+      prompt: '生成新视频',
+      model: 'veo3',
+      replaceElementId: 'video-target',
+      sourcePrompt: '原视频',
+      boundTargetFollowControlled: true,
+    });
+
+    expect(createdTasks[0]).toMatchObject({
+      type: TaskType.VIDEO,
+      params: {
+        replaceElementId: 'video-target',
+        boundTargetFollowControlled: true,
+      },
+    });
+  });
+
   it('snapshots canvas refs into long-video chain metadata', async () => {
     const { createLongVideoTask } = await import('./long-video-generation');
     const submittedAssociations = canvasAssociations.map((association) => ({
@@ -199,6 +219,28 @@ describe('generation queue context passthrough', () => {
         prompt: '生成品牌文案',
         knowledgeContextRefs: refs,
         canvasAssociations,
+      },
+    });
+  });
+
+  it('keeps taskbar follow control metadata on text queue tasks', async () => {
+    const { generateText } = await import('./text-generation');
+
+    await generateText(
+      {
+        prompt: '生成新文案',
+        replaceElementId: 'text-target',
+        sourcePrompt: '原文案',
+        boundTargetFollowControlled: true,
+      },
+      { mode: 'queue' }
+    );
+
+    expect(createdTasks[0]).toMatchObject({
+      type: TaskType.CHAT,
+      params: {
+        replaceElementId: 'text-target',
+        boundTargetFollowControlled: true,
       },
     });
   });

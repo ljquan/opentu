@@ -47,6 +47,8 @@ const mocks = vi.hoisted(() => {
     splitAndInsertImages: vi.fn(),
     currentBoardId: 'board-1' as string | null,
     boundBoardId: 'board-1' as string | null,
+    boundTargetFollowEnabled: true,
+    readBoundTargetFollowEnabled: vi.fn(),
   };
 });
 
@@ -200,6 +202,19 @@ vi.mock('../../utils/selection-utils', () => ({
   notifyAISelectionContentRefresh: mocks.notifyAISelectionContentRefresh,
 }));
 
+vi.mock(
+  '../../components/ai-input-bar/target-bound-taskbar-state',
+  async (importOriginal) => {
+    const actual = await importOriginal<
+      typeof import('../../components/ai-input-bar/target-bound-taskbar-state')
+    >();
+    return {
+      ...actual,
+      readBoundTargetFollowEnabled: mocks.readBoundTargetFollowEnabled,
+    };
+  }
+);
+
 vi.mock('../../utils/frame-insertion-utils', () => ({
   insertMediaIntoFrame: vi.fn(),
 }));
@@ -286,6 +301,11 @@ describe('useAutoInsertToCanvas', () => {
     mocks.taskState.tasks = [];
     mocks.currentBoardId = 'board-1';
     mocks.boundBoardId = 'board-1';
+    mocks.boundTargetFollowEnabled = true;
+    mocks.readBoundTargetFollowEnabled.mockReset();
+    mocks.readBoundTargetFollowEnabled.mockImplementation(
+      () => mocks.boundTargetFollowEnabled
+    );
     mocks.quickInsert.mockReset();
     mocks.quickInsert.mockResolvedValue({
       success: true,
@@ -1547,15 +1567,15 @@ describe('useAutoInsertToCanvas', () => {
 
     expect(mocks.executeCanvasInsertion).toHaveBeenCalledWith(
       expect.objectContaining({
-      items: expect.arrayContaining([
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            prompt: '两段环境音乐',
-            generationTaskId: 'task-multi-audio',
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            metadata: expect.objectContaining({
+              prompt: '两段环境音乐',
+              generationTaskId: 'task-multi-audio',
+            }),
           }),
-        }),
-      ]),
-      startPoint: [100, 100],
+        ]),
+        startPoint: [100, 100],
         board: mocks.board,
         boardGuard: expect.any(Function),
       })
@@ -1589,15 +1609,15 @@ describe('useAutoInsertToCanvas', () => {
 
     expect(mocks.executeCanvasInsertion).toHaveBeenCalledWith(
       expect.objectContaining({
-      items: [
-        expect.objectContaining({
-          type: 'text',
-          metadata: {
-            prompt: '总结会议纪要',
-            generationTaskId: 'task-text',
-          },
-        }),
-      ],
+        items: [
+          expect.objectContaining({
+            type: 'text',
+            metadata: {
+              prompt: '总结会议纪要',
+              generationTaskId: 'task-text',
+            },
+          }),
+        ],
         board: mocks.board,
         boardGuard: expect.any(Function),
       })
@@ -1834,6 +1854,8 @@ describe('useAutoInsertToCanvas', () => {
         targetElementId: 'image-target',
         anchorId: 'anchor-target',
         sourceTaskId: 'task-old',
+        sourcePrompt: '白天城市',
+        boundTargetFollowControlled: true,
       },
       result: {
         url: '/__aitu_cache__/image/replaced.png',
@@ -1889,6 +1911,248 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it('inserts a new image when taskbar follow was disabled after submission', async () => {
+    const processingTask = createCompletedImageTask({
+      id: 'task-unfollowed-before-insert',
+      status: TaskStatus.PROCESSING,
+      params: {
+        prompt: '夜景城市',
+        size: '1:1',
+        replaceElementId: 'image-target',
+        targetElementId: 'image-target',
+        anchorId: 'anchor-target',
+        sourceTaskId: 'task-old',
+        sourcePrompt: '白天城市',
+        referenceImages: ['/__aitu_cache__/image/original.png'],
+        boundTargetFollowControlled: true,
+      },
+      result: undefined,
+      completedAt: undefined,
+    });
+    const completedTask = createCompletedImageTask({
+      ...processingTask,
+      status: TaskStatus.COMPLETED,
+      result: {
+        url: '/__aitu_cache__/image/new-reference-result.png',
+        format: 'png',
+        size: 123,
+      },
+      completedAt: 3,
+    });
+    const originalElement = {
+      id: 'image-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/original.png',
+      points: [
+        [20, 30],
+        [420, 330],
+      ],
+      aiTaskbarReferenceOnly: false,
+    };
+    const anchor = {
+      id: 'anchor-target',
+      type: 'generation-anchor',
+      anchorType: 'ghost',
+      points: [
+        [470, 30],
+        [638, 102],
+      ],
+      expectedInsertPosition: [470, 30],
+      transitionMode: 'hold',
+      taskIds: [completedTask.id],
+      workflowId: 'workflow-target',
+      zoom: 1,
+    };
+    mocks.imageAnchorByTask = anchor;
+    mocks.board = { children: [originalElement, anchor] };
+    mocks.taskState.tasks = [processingTask];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.readBoundTargetFollowEnabled).not.toHaveBeenCalled();
+
+    mocks.boundTargetFollowEnabled = false;
+    mocks.taskState.tasks = [completedTask];
+    act(() => {
+      emitTaskEvent(completedTask);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.readBoundTargetFollowEnabled).toHaveBeenCalled();
+    expect(mocks.setNode).not.toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/new-reference-result.png',
+      }),
+      [0]
+    );
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/new-reference-result.png',
+      [470, 30],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        generationPrompt: '夜景城市',
+        generationTaskId: completedTask.id,
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.updateAnchor).toHaveBeenCalledWith(
+      mocks.board,
+      anchor.id,
+      expect.objectContaining({
+        targetElementId: undefined,
+        resultElementId: 'image-1',
+      })
+    );
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      completedTask.id,
+      1,
+      [100, 100],
+      'image-1',
+      { width: 512, height: 512 }
+    );
+    expect(mocks.board.children[0]).toBe(originalElement);
+    expect(originalElement.url).toBe('/__aitu_cache__/image/original.png');
+    expect(completedTask.params.referenceImages).toEqual([
+      '/__aitu_cache__/image/original.png',
+    ]);
+    expect(completedTask.params.replaceElementId).toBe('image-target');
+    expect(completedTask.params.targetElementId).toBe('image-target');
+    expect(mocks.failPostProcessing).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(
+      completedTask.id,
+      'auto_insert'
+    );
+  });
+
+  it('inserts a new image when the target was permanently changed to reference-only after submission', async () => {
+    const processingTask = createCompletedImageTask({
+      id: 'task-reference-only-before-insert',
+      status: TaskStatus.PROCESSING,
+      params: {
+        prompt: '保留原图并生成新图',
+        size: '1:1',
+        replaceElementId: 'image-target',
+        targetElementId: 'image-target',
+        anchorId: 'anchor-target',
+        sourceTaskId: 'task-old',
+        sourcePrompt: '原始提示词',
+        referenceImages: ['/__aitu_cache__/image/original.png'],
+        boundTargetFollowControlled: true,
+      },
+      result: undefined,
+      completedAt: undefined,
+    });
+    const completedTask = createCompletedImageTask({
+      ...processingTask,
+      status: TaskStatus.COMPLETED,
+      result: {
+        url: '/__aitu_cache__/image/reference-only-result.png',
+        format: 'png',
+        size: 123,
+      },
+      completedAt: 3,
+    });
+    const originalElement = {
+      id: 'image-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/original.png',
+      points: [
+        [20, 30],
+        [420, 330],
+      ],
+    };
+    const anchor = {
+      id: 'anchor-target',
+      type: 'generation-anchor',
+      anchorType: 'ghost',
+      points: [
+        [470, 30],
+        [638, 102],
+      ],
+      expectedInsertPosition: [470, 30],
+      transitionMode: 'hold',
+      taskIds: [completedTask.id],
+      workflowId: 'workflow-target',
+      zoom: 1,
+    };
+    mocks.imageAnchorByTask = anchor;
+    mocks.board = { children: [originalElement, anchor] };
+    mocks.taskState.tasks = [processingTask];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    originalElement.aiTaskbarReferenceOnly = true;
+    mocks.taskState.tasks = [completedTask];
+    act(() => {
+      emitTaskEvent(completedTask);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.boundTargetFollowEnabled).toBe(true);
+    expect(mocks.readBoundTargetFollowEnabled).toHaveBeenCalled();
+    expect(mocks.setNode).not.toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/reference-only-result.png',
+      }),
+      [0]
+    );
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/reference-only-result.png',
+      [470, 30],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        generationPrompt: '保留原图并生成新图',
+        generationTaskId: completedTask.id,
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.updateAnchor).toHaveBeenCalledWith(
+      mocks.board,
+      anchor.id,
+      expect.objectContaining({
+        targetElementId: undefined,
+        resultElementId: 'image-1',
+      })
+    );
+    expect(originalElement.url).toBe('/__aitu_cache__/image/original.png');
+    expect(originalElement.aiTaskbarReferenceOnly).toBe(true);
+    expect(completedTask.params.referenceImages).toEqual([
+      '/__aitu_cache__/image/original.png',
+    ]);
+    expect(completedTask.params.replaceElementId).toBe('image-target');
+    expect(completedTask.params.targetElementId).toBe('image-target');
+    expect(mocks.failPostProcessing).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(
+      completedTask.id,
+      'auto_insert'
+    );
+  });
+
   it('does not insert a new image when the bound target was removed', async () => {
     const task = createCompletedImageTask({
       id: 'task-missing-target',
@@ -1922,6 +2186,55 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.markAsInserted).not.toHaveBeenCalled();
   });
 
+  it('keeps explicit non-taskbar image replacement when follow is disabled', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-explicit-image-replace',
+      params: {
+        prompt: '替换 PPT 页面图片',
+        size: '1:1',
+        replaceElementId: 'image-target',
+      },
+      result: {
+        url: '/__aitu_cache__/image/explicit-replaced.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const originalElement = {
+      id: 'image-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/original.png',
+      points: [
+        [20, 30],
+        [420, 330],
+      ],
+    };
+    mocks.boundTargetFollowEnabled = false;
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/explicit-replaced.png',
+      }),
+      [0]
+    );
+  });
+
   it('replaces a bound video in place and preserves its geometry', async () => {
     const task = createCompletedImageTask({
       id: 'task-video-replace',
@@ -1930,6 +2243,8 @@ describe('useAutoInsertToCanvas', () => {
         prompt: '更新目标视频',
         size: '16:9',
         replaceElementId: 'video-target',
+        sourcePrompt: '原视频提示词',
+        boundTargetFollowControlled: true,
       },
       result: {
         url: '/__aitu_cache__/video/replaced.mp4',
@@ -1983,6 +2298,73 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it('inserts a new video when taskbar follow was disabled after submission', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-video-unfollowed-before-insert',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: '更新目标视频',
+        size: '16:9',
+        replaceElementId: 'video-target',
+        sourcePrompt: '原视频提示词',
+        boundTargetFollowControlled: true,
+      },
+      result: {
+        url: '/__aitu_cache__/video/new-reference-result.mp4',
+        format: 'mp4',
+        size: 456,
+      },
+    });
+    const originalElement = {
+      id: 'video-target',
+      type: 'image',
+      url: '/__aitu_cache__/video/original.mp4#video',
+      isVideo: true,
+      videoType: 'video',
+      points: [
+        [40, 50],
+        [440, 275],
+      ],
+    };
+    mocks.boundTargetFollowEnabled = false;
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.setNode).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'video',
+      '/__aitu_cache__/video/new-reference-result.mp4',
+      [100, 100],
+      { width: 512, height: 512 },
+      expect.objectContaining({
+        prompt: '更新目标视频',
+        generationTaskId: task.id,
+      }),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [100, 100],
+      'image-1',
+      { width: 512, height: 512 }
+    );
+    expect(mocks.board.children[0]).toBe(originalElement);
+  });
+
   it('replaces a bound text card in place and preserves its geometry', async () => {
     const task: Task = {
       ...createCompletedImageTask(),
@@ -1991,6 +2373,8 @@ describe('useAutoInsertToCanvas', () => {
       params: {
         prompt: '重写文本卡片',
         replaceElementId: 'card-target',
+        sourcePrompt: '原文本提示词',
+        boundTargetFollowControlled: true,
       },
       result: {
         url: '',
@@ -2043,6 +2427,71 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.board.children[0]).toBe(originalElement);
   });
 
+  it('inserts new text when taskbar follow was disabled after submission', async () => {
+    const task: Task = {
+      ...createCompletedImageTask(),
+      id: 'task-text-unfollowed-before-insert',
+      type: TaskType.CHAT,
+      params: {
+        prompt: '重写文本卡片',
+        replaceElementId: 'card-target',
+        sourcePrompt: '原文本提示词',
+        boundTargetFollowControlled: true,
+      },
+      result: {
+        url: '',
+        format: 'text',
+        size: 0,
+        chatResponse: '这是新的独立文本',
+      },
+    };
+    const originalElement = {
+      id: 'card-target',
+      type: 'card',
+      title: '原标题',
+      body: '原正文',
+      fillColor: '#ffffff',
+      points: [
+        [30, 40],
+        [390, 240],
+      ],
+    };
+    mocks.boundTargetFollowEnabled = false;
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() => useAutoInsertToCanvas({ enabled: true }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mocks.setNode).not.toHaveBeenCalled();
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        board: mocks.board,
+        items: [
+          expect.objectContaining({
+            type: 'text',
+            content: '这是新的独立文本',
+            metadata: {
+              prompt: '重写文本卡片',
+              generationTaskId: task.id,
+            },
+          }),
+        ],
+      })
+    );
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [100, 100],
+      'text-1',
+      { width: 320, height: 120 }
+    );
+    expect(mocks.board.children[0]).toBe(originalElement);
+  });
+
   it('replaces a bound native audio node in place and preserves its geometry', async () => {
     const task: Task = {
       ...createCompletedImageTask(),
@@ -2053,6 +2502,7 @@ describe('useAutoInsertToCanvas', () => {
         title: '新音乐',
         mv: 'chirp-v4',
         replaceElementId: 'audio-target',
+        sourcePrompt: '原背景音乐',
       },
       result: {
         url: '/__aitu_cache__/audio/replaced.mp3',
@@ -2074,6 +2524,7 @@ describe('useAutoInsertToCanvas', () => {
         [390, 188],
       ],
     };
+    mocks.boundTargetFollowEnabled = false;
     mocks.board = { children: [originalElement] };
     mocks.taskState.tasks = [task];
 

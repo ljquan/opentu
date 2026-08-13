@@ -29,6 +29,7 @@ export interface TextGenerationParams {
   autoInsertToCanvas?: boolean;
   replaceElementId?: string;
   sourcePrompt?: string;
+  boundTargetFollowControlled?: boolean;
   params?: Record<string, unknown>;
   promptMeta?: PromptLineageMeta;
   knowledgeContextRefs?: KnowledgeContextRef[];
@@ -104,6 +105,7 @@ function getTextQueueConfig(params: TextGenerationParams) {
       referenceImages: params.referenceImages,
       replaceElementId: params.replaceElementId,
       sourcePrompt: params.sourcePrompt,
+      boundTargetFollowControlled: params.boundTargetFollowControlled,
       promptMeta: params.promptMeta,
       knowledgeContextRefs: params.knowledgeContextRefs,
       canvasAssociations: params.canvasAssociations,

@@ -256,6 +256,20 @@ export function persistBoundTargetFollowEnabled(
   return enabled;
 }
 
+export function resolveBoundTargetMode(
+  mode: BoundImageTargetMode,
+  followEnabled: boolean,
+  targetType?: BoundGenerationTargetType
+): BoundImageTargetMode {
+  if (
+    !followEnabled &&
+    (!targetType || supportsBoundTargetFollowControls(targetType))
+  ) {
+    return 'reference';
+  }
+  return mode;
+}
+
 export function resolveBoundTargetForPosition<
   T extends { type?: BoundGenerationTargetType }
 >(target: T | null, followEnabled: boolean): T | null {
