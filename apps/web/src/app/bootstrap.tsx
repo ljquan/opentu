@@ -16,7 +16,12 @@ import {
   swChannelClient,
   safeReload,
 } from '@drawnix/drawnix/runtime';
-import { analytics } from '@drawnix/drawnix';
+import {
+  analytics,
+  getAnalyticsReleaseContext,
+  isTuziUrlTokenMode,
+  registerAnalyticsSuperProperties,
+} from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
 const isLocalDev =
@@ -28,10 +33,13 @@ const swQueryParam =
     ? new URLSearchParams(window.location.search).get('sw')
     : null;
 const isServiceWorkerExplicitlyDisabled = swQueryParam === '0';
+const isTuziUrlToken = isTuziUrlTokenMode();
 const hasServiceWorkerSupport =
   typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
 const shouldUseServiceWorker =
-  hasServiceWorkerSupport && !isServiceWorkerExplicitlyDisabled;
+  hasServiceWorkerSupport &&
+  !isServiceWorkerExplicitlyDisabled &&
+  !isTuziUrlToken;
 
 // ===== 控制台日志捕获（尽早初始化，确保默认 console 被改写） =====
 // 必须在其他业务代码之前执行，否则后续工具（如 rrweb）可能先改写 console 导致捕获失效
@@ -243,7 +251,10 @@ if (typeof window !== 'undefined') {
   });
 }
 
-if (hasServiceWorkerSupport && isServiceWorkerExplicitlyDisabled) {
+if (
+  hasServiceWorkerSupport &&
+  (isServiceWorkerExplicitlyDisabled || isTuziUrlToken)
+) {
   cleanupDisabledServiceWorker();
 }
 
