@@ -1,58 +1,93 @@
+@import '../../styles/z-index.scss';
+
 .task-pet {
-  position: relative;
-  width: var(--lg-button-size, 36px);
-  height: var(--lg-button-size, 36px);
-  flex: 0 0 var(--lg-button-size, 36px);
+  --task-pet-state: #52c7a3;
+  position: fixed;
+  z-index: z('task-pet-overlay');
+  width: 112px;
+  height: 116px;
+  pointer-events: auto;
+  user-select: none;
 
   &__trigger {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    inset: 4px;
+    display: block;
+    width: 104px;
+    height: 104px;
     margin: 0;
-    padding: 2px;
-    border: 0;
-    border-radius: var(--border-radius-md, 8px);
-    background: transparent;
-    cursor: pointer;
+    padding: 0;
+    overflow: visible;
+    border: 1px solid rgba(15, 23, 42, 0.32);
+    border-radius: 8px;
+    background: #dceaf2;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+    cursor: grab;
+    touch-action: none;
     -webkit-tap-highlight-color: transparent;
 
     &:hover {
-      background: var(--color-surface-hover, rgba(0, 0, 0, 0.04));
+      border-color: rgba(245, 158, 11, 0.72);
+      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.22),
+        0 0 0 2px rgba(245, 158, 11, 0.1);
     }
 
     &:focus-visible {
-      outline: 2px solid var(--brand-primary, #f39c12);
-      outline-offset: 1px;
+      outline: 2px solid var(--brand-primary, #f59e0b);
+      outline-offset: 2px;
     }
   }
 
-  &__image {
+  &__sprite {
+    position: absolute;
+    inset: 3px;
     display: block;
-    width: 30px;
-    height: 30px;
-    object-fit: contain;
-    transform-origin: 50% 85%;
+    overflow: hidden;
+    border-radius: 6px;
+    transform-origin: 50% 84%;
+    pointer-events: none;
+  }
+
+  &__image {
+    position: absolute;
+    top: -20%;
+    left: -20%;
+    display: block;
+    width: 140%;
+    height: 140%;
+    object-fit: cover;
+    transform-origin: 50% 78%;
     pointer-events: none;
     user-select: none;
   }
 
+  &__state-indicator {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid #f8fafc;
+    border-radius: 50%;
+    background: var(--task-pet-state);
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.28);
+  }
+
   &__count {
     position: absolute;
-    top: -3px;
-    right: -4px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border: 2px solid #ffffff;
-    border-radius: 8px;
-    background: #d9485f;
+    top: -7px;
+    right: -7px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 5px;
+    border: 2px solid #f8fafc;
+    border-radius: 11px;
+    background: #e5485d;
     color: #ffffff;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 11px;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 18px;
     text-align: center;
     box-sizing: border-box;
   }
@@ -71,44 +106,97 @@
 
   &__bubble {
     position: absolute;
-    left: calc(100% + 10px);
-    bottom: 0;
-    z-index: 2;
+    z-index: 1;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    width: max-content;
-    min-width: 168px;
-    max-width: min(240px, calc(100vw - 84px));
-    padding: 10px 11px;
-    border: 1px solid rgba(15, 23, 42, 0.1);
+    align-items: stretch;
+    gap: 7px;
+    width: 214px;
+    max-width: calc(100vw - 24px);
+    padding: 11px 12px 10px;
+    border: 1px solid rgba(249, 115, 22, 0.72);
     border-radius: 8px;
-    background: #ffffff;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
-    color: #1f2937;
+    background: rgba(10, 17, 27, 0.96);
+    box-shadow: 0 16px 38px rgba(2, 8, 23, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    color: #f8fafc;
     box-sizing: border-box;
+    backdrop-filter: blur(10px);
     animation: task-pet-bubble-enter 160ms ease-out;
 
     &::before {
       content: '';
       position: absolute;
-      left: -5px;
-      bottom: 12px;
-      width: 8px;
-      height: 8px;
-      border-left: 1px solid rgba(15, 23, 42, 0.1);
-      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
-      background: #ffffff;
+      width: 9px;
+      height: 9px;
+      border: inherit;
+      background: #0a111b;
       transform: rotate(45deg);
     }
   }
 
+  &--bubble-left &__bubble {
+    right: 4px;
+  }
+
+  &--bubble-right &__bubble {
+    left: 4px;
+  }
+
+  &--bubble-top &__bubble {
+    bottom: calc(100% + 10px);
+  }
+
+  &--bubble-bottom &__bubble {
+    top: calc(100% + 10px);
+  }
+
+  &--bubble-left &__bubble::before {
+    right: 24px;
+  }
+
+  &--bubble-right &__bubble::before {
+    left: 24px;
+  }
+
+  &--bubble-top &__bubble::before {
+    bottom: -5px;
+    border-top: 0;
+    border-left: 0;
+  }
+
+  &--bubble-bottom &__bubble::before {
+    top: -5px;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  &__bubble-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #fdba74;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.4;
+  }
+
+  &__bubble-status {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 50%;
+    background: var(--task-pet-state);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+  }
+
   &__message {
     max-width: 100%;
+    color: #e2e8f0;
     font-size: 12px;
-    font-weight: 600;
-    line-height: 1.45;
+    font-weight: 500;
+    line-height: 1.5;
     overflow-wrap: anywhere;
   }
 
@@ -119,71 +207,87 @@
     gap: 6px;
     min-height: 30px;
     max-width: 100%;
+    margin-top: 1px;
     padding: 0 9px;
-    border: 1px solid rgba(245, 158, 11, 0.28);
+    border: 1px solid rgba(251, 146, 60, 0.4);
     border-radius: 6px;
-    background: rgba(245, 158, 11, 0.08);
-    color: #92400e;
+    background: rgba(249, 115, 22, 0.12);
+    color: #fed7aa;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
 
     &:hover {
-      background: rgba(245, 158, 11, 0.14);
+      background: rgba(249, 115, 22, 0.2);
     }
 
     &:focus-visible {
-      outline: 2px solid var(--brand-primary, #f39c12);
+      outline: 2px solid #fb923c;
       outline-offset: 1px;
     }
   }
 
-  &--motion#{&}--idle &__image {
+  &--dragging {
+    cursor: grabbing;
+  }
+
+  &--dragging &__trigger {
+    border-color: #fb923c;
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.26),
+      0 0 0 3px rgba(249, 115, 22, 0.14);
+    cursor: grabbing;
+  }
+
+  &--running,
+  &--running-left,
+  &--running-right,
+  &--waiting,
+  &--review {
+    --task-pet-state: #38bdf8;
+  }
+
+  &--waving,
+  &--jumping {
+    --task-pet-state: #f59e0b;
+  }
+
+  &--failed {
+    --task-pet-state: #ef4444;
+  }
+
+  &--running-right &__image {
+    transform: scaleX(-1);
+  }
+
+  &--motion#{&}--idle &__sprite {
     animation: task-pet-breathe 2.8s ease-in-out infinite;
   }
 
-  &--motion#{&}--wave &__image {
+  &--motion#{&}--waving &__sprite {
     animation: task-pet-wave 620ms ease-in-out infinite;
   }
 
-  &--motion#{&}--running &__image {
+  &--motion#{&}--running &__sprite,
+  &--motion#{&}--running-left &__sprite,
+  &--motion#{&}--running-right &__sprite {
     animation: task-pet-run 520ms ease-in-out infinite;
   }
 
-  &--motion#{&}--waiting &__image {
+  &--motion#{&}--waiting &__sprite {
     animation: task-pet-wait 1.5s ease-in-out infinite;
   }
 
-  &--motion#{&}--review &__image {
+  &--motion#{&}--review &__sprite {
     animation: task-pet-review 900ms ease-in-out infinite;
   }
 
-  &--motion#{&}--jumping &__image {
+  &--motion#{&}--jumping &__sprite {
     animation: task-pet-jump 680ms ease-out infinite;
   }
 
-  &--motion#{&}--failed &__image {
+  &--motion#{&}--failed &__sprite {
     animation: task-pet-failed 480ms ease-in-out 2;
   }
-}
-
-.aitu-toolbar-dock-right .task-pet__bubble {
-  right: calc(100% + 10px);
-  left: auto;
-
-  &::before {
-    right: -5px;
-    left: auto;
-    border: 0;
-    border-top: 1px solid rgba(15, 23, 42, 0.1);
-    border-right: 1px solid rgba(15, 23, 42, 0.1);
-  }
-}
-
-.task-pet-slot {
-  width: var(--lg-button-size, 36px);
-  height: var(--lg-button-size, 36px);
-  flex: 0 0 var(--lg-button-size, 36px);
 }
 
 .task-pet-settings {
@@ -208,7 +312,8 @@
     img {
       width: 42px;
       height: 42px;
-      object-fit: contain;
+      border-radius: 6px;
+      object-fit: cover;
     }
 
     h3,
@@ -283,12 +388,12 @@
 @keyframes task-pet-bubble-enter {
   from {
     opacity: 0;
-    transform: translateX(-5px);
+    transform: translateY(4px) scale(0.98);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -299,7 +404,7 @@
   }
 
   50% {
-    transform: translateY(-1px) scale(1.03);
+    transform: translateY(-2px) scale(1.025);
   }
 }
 
@@ -310,33 +415,33 @@
   }
 
   40% {
-    transform: rotate(-8deg);
+    transform: rotate(-4deg) translateY(-2px);
   }
 
   70% {
-    transform: rotate(7deg);
+    transform: rotate(3deg);
   }
 }
 
 @keyframes task-pet-run {
   0%,
   100% {
-    transform: translateY(0) rotate(-2deg);
+    transform: translateY(0) rotate(-1deg);
   }
 
   50% {
-    transform: translateY(-3px) rotate(2deg);
+    transform: translateY(-4px) rotate(1deg);
   }
 }
 
 @keyframes task-pet-wait {
   0%,
   100% {
-    transform: rotate(-2deg);
+    transform: rotate(-1.5deg);
   }
 
   50% {
-    transform: rotate(2deg);
+    transform: rotate(1.5deg) translateY(-1px);
   }
 }
 
@@ -347,7 +452,7 @@
   }
 
   50% {
-    transform: translateX(2px) rotate(3deg);
+    transform: translateX(2px) rotate(2deg);
   }
 }
 
@@ -358,7 +463,7 @@
   }
 
   45% {
-    transform: translateY(-6px) scaleY(1.02);
+    transform: translateY(-9px) scaleY(1.025);
   }
 }
 
@@ -369,19 +474,19 @@
   }
 
   25% {
-    transform: translateX(-3px) rotate(-3deg);
+    transform: translateX(-4px) rotate(-2deg);
   }
 
   75% {
-    transform: translateX(3px) rotate(3deg);
+    transform: translateX(4px) rotate(2deg);
   }
 }
 
 @media (max-width: 768px) {
-  .task-pet__bubble {
-    left: calc(100% + 8px);
-    min-width: 152px;
-    max-width: calc(100vw - 62px);
+  .task-pet {
+    &__bubble {
+      width: 196px;
+    }
   }
 
   .task-pet-settings {
@@ -396,7 +501,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .task-pet__image,
+  .task-pet__sprite,
   .task-pet__bubble {
     animation: none !important;
     transition: none !important;

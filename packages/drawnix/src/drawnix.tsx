@@ -242,6 +242,11 @@ const CanvasAudioPlayer = lazy(() =>
     })
   )
 );
+const TaskPetOverlay = lazy(() =>
+  import('./components/task-pet/TaskPetCompanion').then((module) => ({
+    default: module.TaskPetOverlay,
+  }))
+);
 
 export type DrawnixProps = {
   value: PlaitElement[];
@@ -1761,6 +1766,9 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             minimizedToolsBarEnabled={minimizedToolsBarEnabled}
             onEnableToolWindows={enableToolWindows}
           />
+          <Suspense fallback={null}>
+            <TaskPetOverlay onOpenTasks={handleTaskPanelToggle} />
+          </Suspense>
           {canvasAudioPlayerEnabled && (
             <Suspense fallback={null}>
               <CanvasAudioPlayer />

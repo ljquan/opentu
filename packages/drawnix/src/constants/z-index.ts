@@ -1,6 +1,6 @@
 /**
  * Z-Index 层级管理常量
- * 
+ *
  * 采用分层设计，每层预留100个单位空间
  * 详细规范请参考: docs/Z_INDEX_GUIDE.md
  */
@@ -26,6 +26,7 @@ export const Z_INDEX = {
   ZOOM_TOOLBAR: 2030,
   APP_TOOLBAR: 2040,
   PENCIL_TOOLBAR: 2050,
+  TASK_PET_OVERLAY: 2060,
 
   // ==========================================
   // Layer 3: Popovers (3000-3999)
@@ -103,11 +104,11 @@ export type ZIndexKey = keyof typeof Z_INDEX;
  * 获取z-index值的辅助函数
  * @param key - Z_INDEX的键名
  * @returns z-index数值
- * 
+ *
  * @example
  * ```tsx
  * import { getZIndex } from '@/constants/z-index';
- * 
+ *
  * <div style={{ zIndex: getZIndex('DIALOG_AI_IMAGE') }}>
  * ```
  */

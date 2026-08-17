@@ -19,8 +19,6 @@ import { useDeviceType } from '../../hooks/useDeviceType';
 import { AIImageIcon, AIVideoIcon } from '../icons';
 import { DialogType, useDrawnix } from '../../hooks/use-drawnix';
 import { HoverTip } from '../shared/hover';
-import { taskPetSettings } from '../../utils/settings-manager';
-import { useTaskPetController } from '../task-pet/use-task-pet-controller';
 
 const TaskQueuePanel = lazy(() =>
   import('../task-queue/TaskQueuePanel').then((module) => ({
@@ -41,6 +39,8 @@ const TOOLBAR_MOBILE_LEFT = 8;
 const TOOLBAR_VIEWPORT_GAP = 0;
 const TOOLBAR_CONTENT_WIDTH = 58;
 type ToolbarDockSide = 'left' | 'right';
+
+const noop = () => undefined;
 
 function clampToolbarLeft(left: number, toolbarWidth = TOOLBAR_CONTENT_WIDTH) {
   const viewportWidth =
@@ -168,9 +168,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     const [isToolbarDragging, setIsToolbarDragging] = useState(false);
     const [isTaskPanelAnimationReady, setIsTaskPanelAnimationReady] =
       useState(false);
-    const [taskPetConfig, setTaskPetConfig] = useState(() =>
-      taskPetSettings.get()
-    );
     const hasEverExpanded = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollableRef = useRef<HTMLDivElement>(null);
@@ -181,19 +178,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
       startX: number;
       startLeft: number;
     } | null>(null);
-    const taskPetPresentation = useTaskPetController(taskPetConfig);
-
-    useEffect(() => {
-      const handleTaskPetSettingsChange = (
-        nextSettings: typeof taskPetConfig
-      ) => {
-        setTaskPetConfig(nextSettings);
-      };
-
-      taskPetSettings.addListener(handleTaskPetSettingsChange);
-      return () => taskPetSettings.removeListener(handleTaskPetSettingsChange);
-    }, []);
-
     // 检测设备类型
     const { isMobile: isSmallScreen, isTablet } = useDeviceType();
     const isMobileOrTablet = isSmallScreen || isTablet;
@@ -449,7 +433,7 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     }, []);
 
     // 获取对话框控制
-    const { openDialog } = useDrawnix();
+    const { openDialog, setAppState } = useDrawnix();
 
     // AI 按钮点击处理
     const handleAIImageClick = useCallback(() => {
@@ -459,6 +443,14 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     const handleAIVideoClick = useCallback(() => {
       openDialog(DialogType.aiVideoGeneration);
     }, [openDialog]);
+
+    const handleTaskPetSettingsOpen = useCallback(() => {
+      setAppState((prev) => ({
+        ...prev,
+        openSettings: true,
+        settingsView: 'taskPet',
+      }));
+    }, [setAppState]);
 
     return (
       <>
@@ -579,19 +571,12 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
           <div className="unified-toolbar__section unified-toolbar__section--fixed-bottom">
             <BottomActionsSection
               projectDrawerOpen={projectDrawerOpen}
-              onProjectDrawerToggle={onProjectDrawerToggle || (() => {})}
+              onProjectDrawerToggle={onProjectDrawerToggle || noop}
               toolboxDrawerOpen={toolboxDrawerOpen}
               onToolboxDrawerToggle={onToolboxDrawerToggle}
               taskPanelExpanded={taskPanelExpanded}
               onTaskPanelToggle={handleTaskPanelToggle}
-              taskPet={
-                taskPetConfig.enabled
-                  ? {
-                      ...taskPetPresentation,
-                      motionEnabled: taskPetConfig.motionEnabled,
-                    }
-                  : null
-              }
+              onTaskPetSettingsOpen={handleTaskPetSettingsOpen}
               showLocalDataClear={!isMobileOrTablet}
             />
           </div>

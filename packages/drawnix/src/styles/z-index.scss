@@ -25,6 +25,7 @@ $z-popup-toolbar: 2020; // Below Drawers (4000+)
 $z-zoom-toolbar: 2030;
 $z-app-toolbar: 2040;
 $z-pencil-toolbar: 2050;
+$z-task-pet-overlay: 2060;
 
 // ==========================================
 // Layer 3: Popovers (4200-4499)
@@ -102,6 +103,7 @@ $z-index-map: (
   'zoom-toolbar': $z-zoom-toolbar,
   'app-toolbar': $z-app-toolbar,
   'pencil-toolbar': $z-pencil-toolbar,
+  'task-pet-overlay': $z-task-pet-overlay,
   'popover': $z-popover,
   'popover-feedback': $z-popover-feedback,
   'popover-zoom': $z-popover-zoom,

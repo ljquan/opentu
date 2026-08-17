@@ -9,7 +9,7 @@ import type { TaskPetSettings } from '../../utils/settings-manager';
 
 export type TaskPetState =
   | 'idle'
-  | 'wave'
+  | 'waving'
   | 'running'
   | 'waiting'
   | 'review'
@@ -98,7 +98,7 @@ function getActivePresentation(task: Task): Omit<ActiveTaskSummary, 'id'> {
   let message: string;
 
   if (task.status === TaskStatus.PENDING) {
-    state = 'wave';
+    state = 'waving';
     message = `${label}任务已开始`;
   } else if (task.executionPhase === TaskExecutionPhase.POLLING) {
     state = 'waiting';

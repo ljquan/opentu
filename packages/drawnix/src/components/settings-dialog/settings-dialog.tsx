@@ -1,4 +1,4 @@
-import { useDrawnix } from '../../hooks/use-drawnix';
+import { useDrawnix, type SettingsView } from '../../hooks/use-drawnix';
 import { useDeviceType } from '../../hooks/useDeviceType';
 import './settings-dialog.scss';
 import {
@@ -129,7 +129,6 @@ const TaskPetSettingsPanel = lazy(() =>
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
 
-type SettingsView = 'providers' | 'presets' | 'canvas' | 'taskPet' | 'speech';
 type CompactPanelMode = 'catalog' | 'detail';
 type EndpointSelectionMode = 'auto' | 'manual';
 type EndpointLatency = number | 'failed' | null;
@@ -1503,6 +1502,20 @@ export const SettingsDialog = ({
       applyProviderNavigationIntent(pendingProviderIntent, nextProfiles);
     }
   }, [appState.openSettings]);
+
+  useEffect(() => {
+    const requestedView = appState.settingsView;
+    if (!appState.openSettings || !requestedView) {
+      return;
+    }
+
+    setActiveView(requestedView);
+    setAppState((prev) =>
+      prev.settingsView === requestedView
+        ? { ...prev, settingsView: undefined }
+        : prev
+    );
+  }, [appState.openSettings, appState.settingsView, setAppState]);
 
   useEffect(() => {
     if (!selectedProfileId && profilesDraft[0]) {

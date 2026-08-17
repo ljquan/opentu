@@ -54,7 +54,9 @@ export interface ProviderProfile {
 
 export type ProviderCatalogManualBindingConfidence = 'high' | 'medium' | 'low';
 export type ProviderCatalogManualBindingSource = 'manual';
-export type ProviderCatalogManualBindingBaseUrlStrategy = 'preserve' | 'trim-v1';
+export type ProviderCatalogManualBindingBaseUrlStrategy =
+  | 'preserve'
+  | 'trim-v1';
 export type ManualHttpResponseKind = 'text' | 'image' | 'task' | 'audio';
 export type ManualHttpBodyType = 'json' | 'form-data' | 'raw' | 'none';
 export type ManualHttpFormFieldKind = 'text' | 'file' | 'file-list';
@@ -154,8 +156,14 @@ export interface TtsSettings {
   voicesByLanguage?: Record<string, string>;
 }
 
+export interface TaskPetPosition {
+  /** Normalized viewport center point: 0 is left/top, 1 is right/bottom. */
+  x: number;
+  y: number;
+}
+
 export interface TaskPetSettings {
-  version: 1;
+  version: 2;
   enabled: boolean;
   motionEnabled: boolean;
   speechEnabled: boolean;
@@ -164,7 +172,15 @@ export interface TaskPetSettings {
     image: boolean;
     video: boolean;
   };
+  position: TaskPetPosition;
 }
+
+export type TaskPetSettingsUpdate = Partial<
+  Omit<TaskPetSettings, 'version' | 'taskTypes' | 'position'>
+> & {
+  taskTypes?: Partial<TaskPetSettings['taskTypes']>;
+  position?: Partial<TaskPetPosition>;
+};
 
 export interface AppSettings {
   gemini: GeminiSettings;

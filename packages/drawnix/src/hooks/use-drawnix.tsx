@@ -46,13 +46,20 @@ export type DialogInitialData = {
   width?: number;
   height?: number;
   duration?: number;
-  resultUrl?: string;  // 已生成的结果URL,用于显示预览
+  resultUrl?: string; // 已生成的结果URL,用于显示预览
   [key: string]: any;
 };
 
 export type DialogInitialDataByType = Partial<
   Record<DialogType, DialogInitialData | null>
 >;
+
+export type SettingsView =
+  | 'providers'
+  | 'presets'
+  | 'canvas'
+  | 'taskPet'
+  | 'speech';
 
 export type DrawnixState = {
   pointer: DrawnixPointerType;
@@ -68,6 +75,8 @@ export type DrawnixState = {
   dialogInitialDataByType?: DialogInitialDataByType;
   openCleanConfirm: boolean;
   openSettings: boolean;
+  /** 一次性设置页导航意图，由设置对话框消费后清除。 */
+  settingsView?: SettingsView;
   openCommandPalette?: boolean;
   openCanvasSearch?: boolean;
   toolSettingsVersion?: number;
@@ -77,13 +86,17 @@ export type DrawnixState = {
 
 export const DrawnixContext = createContext<{
   appState: DrawnixState;
-  setAppState: (appState: DrawnixState | ((prev: DrawnixState) => DrawnixState)) => void;
+  setAppState: (
+    appState: DrawnixState | ((prev: DrawnixState) => DrawnixState)
+  ) => void;
   board: DrawnixBoard | null;
 } | null>(null);
 
 export const useDrawnix = (): {
   appState: DrawnixState;
-  setAppState: (appState: DrawnixState | ((prev: DrawnixState) => DrawnixState)) => void;
+  setAppState: (
+    appState: DrawnixState | ((prev: DrawnixState) => DrawnixState)
+  ) => void;
   board: DrawnixBoard | null;
   openDialog: (dialogType: DialogType, initialData?: DialogInitialData) => void;
   closeDialog: (dialogType: DialogType) => void;
@@ -96,7 +109,10 @@ export const useDrawnix = (): {
     );
   }
 
-  const openDialog = (dialogType: DialogType, initialData?: DialogInitialData) => {
+  const openDialog = (
+    dialogType: DialogType,
+    initialData?: DialogInitialData
+  ) => {
     // 使用函数式更新，确保始终使用最新的状态
     context.setAppState((prevState) => {
       const newOpenDialogTypes = new Set(prevState.openDialogTypes);

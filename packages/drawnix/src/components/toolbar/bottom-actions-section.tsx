@@ -7,23 +7,17 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Badge } from 'tdesign-react';
+import { Rabbit } from 'lucide-react';
 import { ToolButton } from '../tool-button';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import type { Task } from '../../types/task.types';
 import { FeedbackButton } from '../feedback-button/feedback-button';
 import { FolderIcon, ToolboxIcon, TaskIcon, TrashIcon } from '../icons';
-import type { TaskPetCompanionProps } from '../task-pet/TaskPetCompanion';
 import './bottom-actions-section.scss';
 
 const LocalDataClearDialog = React.lazy(() =>
   import('../local-data-clear/LocalDataClearDialog').then((module) => ({
     default: module.LocalDataClearDialog,
-  }))
-);
-
-const TaskPetCompanion = React.lazy(() =>
-  import('../task-pet/TaskPetCompanion').then((module) => ({
-    default: module.TaskPetCompanion,
   }))
 );
 
@@ -71,8 +65,8 @@ export interface BottomActionsSectionProps {
   onTaskPanelToggle: () => void;
   /** 是否显示本地数据清理入口（仅桌面端） */
   showLocalDataClear?: boolean;
-  /** 任务灵宠的轻量展示状态；null 时隐藏入口 */
-  taskPet?: Omit<TaskPetCompanionProps, 'onOpenTasks'> | null;
+  /** 打开任务灵宠设置页 */
+  onTaskPetSettingsOpen: () => void;
 }
 
 export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
@@ -82,8 +76,8 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
   onToolboxDrawerToggle,
   taskPanelExpanded,
   onTaskPanelToggle,
+  onTaskPetSettingsOpen,
   showLocalDataClear = false,
-  taskPet = null,
 }) => {
   const { activeTasks, completedTasks, failedTasks } = useTaskQueue();
   const [acknowledgedFailedAt, setAcknowledgedFailedAt] =
@@ -195,13 +189,20 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
         )}
       </div>
 
-      {taskPet ? (
-        <React.Suspense
-          fallback={<div className="task-pet-slot" aria-hidden="true" />}
-        >
-          <TaskPetCompanion {...taskPet} onOpenTasks={onTaskPanelToggle} />
-        </React.Suspense>
-      ) : null}
+      <ToolButton
+        type="icon"
+        icon={<Rabbit size={19} aria-hidden="true" />}
+        aria-label="任务灵宠设置"
+        tooltip="任务灵宠设置"
+        tooltipPlacement="right"
+        visible={true}
+        data-track="toolbar_click_task_pet_settings"
+        data-testid="toolbar-task-pet-settings"
+        onPointerDown={(e) => {
+          e.event.stopPropagation();
+        }}
+        onClick={onTaskPetSettingsOpen}
+      />
 
       {showLocalDataClear ? (
         <>

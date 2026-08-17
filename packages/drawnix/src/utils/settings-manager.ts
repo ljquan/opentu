@@ -28,6 +28,7 @@ import {
   type RouteConfig,
   type SettingsMigrations,
   type TaskPetSettings,
+  type TaskPetSettingsUpdate,
   type TtsSettings,
 } from './settings-types';
 import {
@@ -57,7 +58,9 @@ export {
   type ResolvedInvocationRoute,
   type RouteConfig,
   type SettingsMigrations,
+  type TaskPetPosition,
   type TaskPetSettings,
+  type TaskPetSettingsUpdate,
   type TtsSettings,
 } from './settings-types';
 
@@ -90,7 +93,7 @@ const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
 };
 
 export const DEFAULT_TASK_PET_SETTINGS: TaskPetSettings = {
-  version: 1,
+  version: 2,
   enabled: true,
   motionEnabled: true,
   speechEnabled: false,
@@ -98,6 +101,10 @@ export const DEFAULT_TASK_PET_SETTINGS: TaskPetSettings = {
     text: true,
     image: true,
     video: true,
+  },
+  position: {
+    x: 0.9,
+    y: 0.78,
   },
 };
 
@@ -412,16 +419,43 @@ class SettingsManager {
     };
   }
 
+  private isValidTaskPetPosition(
+    value: unknown
+  ): value is TaskPetSettings['position'] {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+
+    const position = value as Partial<TaskPetSettings['position']>;
+    return (
+      typeof position.x === 'number' &&
+      Number.isFinite(position.x) &&
+      position.x >= 0 &&
+      position.x <= 1 &&
+      typeof position.y === 'number' &&
+      Number.isFinite(position.y) &&
+      position.y >= 0 &&
+      position.y <= 1
+    );
+  }
+
   private normalizeTaskPetSettings(value: unknown): TaskPetSettings {
     const fallback = this.cloneValue(DEFAULT_TASK_PET_SETTINGS);
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return fallback;
     }
 
-    const candidate = value as Partial<TaskPetSettings>;
-    const taskTypes = candidate.taskTypes;
+    const candidate = value as Partial<
+      Omit<TaskPetSettings, 'version' | 'position' | 'taskTypes'>
+    > & {
+      version?: unknown;
+      position?: unknown;
+      taskTypes?: unknown;
+    };
+    const taskTypes = candidate.taskTypes as
+      | Partial<TaskPetSettings['taskTypes']>
+      | undefined;
     if (
-      candidate.version !== 1 ||
       typeof candidate.enabled !== 'boolean' ||
       typeof candidate.motionEnabled !== 'boolean' ||
       typeof candidate.speechEnabled !== 'boolean' ||
@@ -435,8 +469,21 @@ class SettingsManager {
       return fallback;
     }
 
+    let position = this.cloneValue(DEFAULT_TASK_PET_SETTINGS.position);
+    if (candidate.version === 2) {
+      if (!this.isValidTaskPetPosition(candidate.position)) {
+        return fallback;
+      }
+      position = {
+        x: candidate.position.x,
+        y: candidate.position.y,
+      };
+    } else if (candidate.version !== 1) {
+      return fallback;
+    }
+
     return {
-      version: 1,
+      version: 2,
       enabled: candidate.enabled,
       motionEnabled: candidate.motionEnabled,
       speechEnabled: candidate.speechEnabled,
@@ -445,6 +492,7 @@ class SettingsManager {
         image: taskTypes.image,
         video: taskTypes.video,
       },
+      position,
     };
   }
 
@@ -2180,11 +2228,7 @@ export const ttsSettings = {
 
 export const taskPetSettings = {
   get: () => settingsManager.getSetting<TaskPetSettings>('taskPet'),
-  update: async (
-    updates: Partial<Omit<TaskPetSettings, 'version' | 'taskTypes'>> & {
-      taskTypes?: Partial<TaskPetSettings['taskTypes']>;
-    }
-  ) => {
+  update: async (updates: TaskPetSettingsUpdate) => {
     const current =
       settingsManager.getSetting<TaskPetSettings>('taskPet') ||
       DEFAULT_TASK_PET_SETTINGS;
@@ -2192,10 +2236,14 @@ export const taskPetSettings = {
       taskPet: {
         ...current,
         ...updates,
-        version: 1,
+        version: 2,
         taskTypes: {
           ...current.taskTypes,
           ...(updates.taskTypes || {}),
+        },
+        position: {
+          ...current.position,
+          ...(updates.position || {}),
         },
       },
     });

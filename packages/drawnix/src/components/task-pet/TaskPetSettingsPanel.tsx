@@ -1,25 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Switch } from 'tdesign-react';
 import {
+  DEFAULT_TASK_PET_SETTINGS,
   taskPetSettings,
   type TaskPetSettings,
 } from '../../utils/settings-manager';
 import './task-pet.scss';
 
-const FALLBACK_SETTINGS: TaskPetSettings = {
-  version: 1,
-  enabled: true,
-  motionEnabled: true,
-  speechEnabled: false,
-  taskTypes: {
-    text: true,
-    image: true,
-    video: true,
-  },
-};
-
 function normalizeSettings(settings?: TaskPetSettings | null): TaskPetSettings {
-  return settings || FALLBACK_SETTINGS;
+  return settings || DEFAULT_TASK_PET_SETTINGS;
 }
 
 interface SettingRowProps {
@@ -99,13 +88,13 @@ export const TaskPetSettingsPanel = () => {
             <img src="/logo-tuzi.png" alt="" draggable={false} />
             <div>
               <h3>任务灵宠</h3>
-              <p>在左侧工具栏跟进任务状态。</p>
+              <p>在画布上跟进任务状态，可直接拖动位置。</p>
             </div>
           </div>
 
           <SettingRow
             title="显示灵宠"
-            description="在左侧工具栏显示兔子灵宠入口。"
+            description="在画布上显示兔子灵宠；工具栏设置入口始终保留。"
             checked={settings.enabled}
             onChange={(checked) => updateRootSetting('enabled', checked)}
           />
