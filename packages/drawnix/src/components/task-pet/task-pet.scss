@@ -28,12 +28,13 @@
     background: transparent;
     box-shadow: none;
     cursor: grab;
+    perspective: 240px;
     touch-action: none;
     -webkit-tap-highlight-color: transparent;
 
     &:hover {
-      border-color: var(--task-pet-border);
-      background: color-mix(in srgb, var(--task-pet-surface-hover) 58%, transparent);
+      border-color: transparent;
+      background: transparent;
     }
 
     &:focus-visible {
@@ -52,6 +53,21 @@
     pointer-events: none;
   }
 
+  &__trigger::after {
+    content: '';
+    position: absolute;
+    right: 20px;
+    bottom: 5px;
+    left: 20px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.12);
+    filter: blur(3px);
+    opacity: 0.42;
+    transform-origin: center;
+    pointer-events: none;
+  }
+
   &__image {
     position: absolute;
     top: -20%;
@@ -63,6 +79,21 @@
     transform-origin: 50% 78%;
     pointer-events: none;
     user-select: none;
+    filter: drop-shadow(0 5px 5px rgba(15, 23, 42, 0.13));
+    will-change: transform, filter;
+
+    &--body {
+      clip-path: polygon(0 48%, 100% 48%, 100% 100%, 0 100%);
+    }
+
+    &--head {
+      clip-path: polygon(0 24%, 100% 24%, 100% 66%, 0 66%);
+    }
+
+    &--ears {
+      clip-path: polygon(0 0, 100% 0, 100% 43%, 0 43%);
+      transform-origin: 56% 42%;
+    }
   }
 
   &__state-indicator {
@@ -233,9 +264,9 @@
   }
 
   &--dragging &__trigger {
-    border-color: var(--brand-primary, #f59e0b);
-    background: color-mix(in srgb, var(--task-pet-surface-hover) 72%, transparent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-primary, #f59e0b) 14%, transparent);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
     cursor: grabbing;
   }
 
@@ -261,7 +292,35 @@
   }
 
   &--motion#{&}--idle &__sprite {
-    animation: task-pet-breathe 2.8s ease-in-out infinite;
+    animation: task-pet-idle 6.4s ease-in-out infinite;
+  }
+
+  &--motion#{&}--idle &__trigger::after {
+    animation: task-pet-shadow-idle 6.4s ease-in-out infinite;
+  }
+
+  &--motion#{&}--idle &__image--head {
+    animation: task-pet-head-look 6.4s ease-in-out infinite;
+  }
+
+  &--motion#{&}--idle &__image--ears {
+    animation: task-pet-ears-listen 3.2s ease-in-out infinite;
+  }
+
+  &--motion &__trigger:hover &__sprite {
+    animation: task-pet-greet 720ms ease-in-out infinite;
+  }
+
+  &--motion &__trigger:hover &__image--head {
+    animation: task-pet-head-greet 720ms ease-in-out infinite;
+  }
+
+  &--motion &__trigger:hover &__image--ears {
+    animation: task-pet-ears-greet 720ms ease-in-out infinite;
+  }
+
+  &--motion &__trigger:hover::after {
+    animation: task-pet-shadow-greet 720ms ease-in-out infinite;
   }
 
   &--motion#{&}--waving &__sprite {
@@ -272,6 +331,10 @@
   &--motion#{&}--running-left &__sprite,
   &--motion#{&}--running-right &__sprite {
     animation: task-pet-run 520ms ease-in-out infinite;
+  }
+
+  &--motion#{&}--running &__image {
+    animation: task-pet-focus 1.25s ease-in-out infinite;
   }
 
   &--motion#{&}--waiting &__sprite {
@@ -398,14 +461,140 @@
   }
 }
 
-@keyframes task-pet-breathe {
+@keyframes task-pet-idle {
+  0%,
+  12%,
+  42%,
+  58%,
+  88%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  6%,
+  50% {
+    transform: translateY(-3px) rotate(0deg) scale(1.025, 0.985);
+  }
+
+  68% {
+    transform: translateY(-1px) rotate(-3deg) scale(1.01);
+  }
+
+  76% {
+    transform: translateY(-1px) rotate(3deg) scale(1.01);
+  }
+}
+
+@keyframes task-pet-greet {
   0%,
   100% {
-    transform: translateY(0) scale(1);
+    transform: translateY(0) rotate(-2deg) scale(1);
+  }
+
+  45% {
+    transform: translateY(-8px) rotate(4deg) scale(1.045, 0.97);
+  }
+
+  70% {
+    transform: translateY(-3px) rotate(-3deg) scale(1.02);
+  }
+}
+
+@keyframes task-pet-head-look {
+  0%,
+  18%,
+  44%,
+  62%,
+  88%,
+  100% {
+    transform: translateX(0) rotateY(0deg) rotateZ(0deg);
+  }
+
+  70% {
+    transform: translateX(-1px) rotateY(-7deg) rotateZ(-1.5deg);
+  }
+
+  78% {
+    transform: translateX(1px) rotateY(7deg) rotateZ(1.5deg);
+  }
+}
+
+@keyframes task-pet-ears-listen {
+  0%,
+  100% {
+    transform: rotateZ(0deg) rotateY(0deg);
+  }
+
+  46% {
+    transform: rotateZ(-1.8deg) rotateY(-4deg);
+  }
+
+  58% {
+    transform: rotateZ(2.2deg) rotateY(5deg);
+  }
+}
+
+@keyframes task-pet-head-greet {
+  0%,
+  100% {
+    transform: rotateY(0deg) rotateZ(0deg);
+  }
+
+  45% {
+    transform: rotateY(-9deg) rotateZ(-3deg) translateY(-1px);
+  }
+}
+
+@keyframes task-pet-ears-greet {
+  0%,
+  100% {
+    transform: rotateZ(-1deg) scaleY(1);
+  }
+
+  45% {
+    transform: rotateZ(3deg) scaleY(1.045);
+  }
+}
+
+@keyframes task-pet-shadow-idle {
+  0%,
+  12%,
+  42%,
+  58%,
+  88%,
+  100% {
+    opacity: 0.42;
+    transform: scaleX(1);
+  }
+
+  6%,
+  50% {
+    opacity: 0.28;
+    transform: scaleX(0.86);
+  }
+}
+
+@keyframes task-pet-shadow-greet {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scaleX(1);
+  }
+
+  45% {
+    opacity: 0.2;
+    transform: scaleX(0.7);
+  }
+}
+
+@keyframes task-pet-focus {
+  0%,
+  100% {
+    filter: drop-shadow(0 5px 5px rgba(15, 23, 42, 0.13)) brightness(1);
   }
 
   50% {
-    transform: translateY(-2px) scale(1.025);
+    filter: drop-shadow(0 7px 7px rgba(56, 189, 248, 0.2)) brightness(1.08);
   }
 }
 
