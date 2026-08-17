@@ -204,6 +204,45 @@ describe('PPT explainer provider contract', () => {
     ).toThrow('不支持 dual_voice');
   });
 
+  it('requires explicit reference-audio capability and preserves it in snapshots', () => {
+    expect(() =>
+      preflightPptExplainerProvider(createPlan(), {
+        ...requirements,
+        requiresReferenceAudio: true,
+      })
+    ).toThrow('未声明参考音频声线克隆能力');
+
+    const binding = createPptExplainerBinding();
+    const metadata = binding.metadata?.pptExplainer;
+    if (!metadata) throw new Error('测试 binding 缺少元数据');
+    binding.metadata = {
+      ...binding.metadata,
+      pptExplainer: {
+        ...metadata,
+        capabilities: {
+          ...metadata.capabilities,
+          referenceAudioVoiceCloning: true,
+        },
+        referenceAudio: {
+          fieldName: 'voice_references[]',
+          acceptedMimeTypes: ['audio/mpeg'],
+        },
+      },
+    };
+    const route = preflightPptExplainerProvider(createPlan(binding), {
+      ...requirements,
+      requiresReferenceAudio: true,
+    });
+    const snapshot = createPptExplainerProviderRouteSnapshot(route);
+    expect(
+      snapshot.binding.pptExplainer.capabilities.referenceAudioVoiceCloning
+    ).toBe(true);
+    expect(snapshot.binding.pptExplainer.referenceAudio).toEqual({
+      fieldName: 'voice_references[]',
+      acceptedMimeTypes: ['audio/mpeg'],
+    });
+  });
+
   it('binds the canonical base URL while allowing API key rotation', () => {
     const preflight = preflightPptExplainerProvider(createPlan(), requirements);
     const snapshot = createPptExplainerProviderRouteSnapshot(preflight);

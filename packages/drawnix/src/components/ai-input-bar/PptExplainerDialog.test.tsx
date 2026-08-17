@@ -28,8 +28,39 @@ vi.mock('../dialog/ConfirmDialog', () => ({
 }));
 
 vi.mock('lucide-react', () => ({
+  FileAudio: () => <span aria-hidden="true" />,
   FileUp: () => <span aria-hidden="true" />,
+  Library: () => <span aria-hidden="true" />,
   Trash2: () => <span aria-hidden="true" />,
+}));
+
+vi.mock('../media-library/MediaLibraryModal', () => ({
+  MediaLibraryModal: ({
+    isOpen,
+    onSelect,
+  }: {
+    isOpen: boolean;
+    onSelect: (asset: unknown) => void;
+  }) =>
+    isOpen ? (
+      <button
+        type="button"
+        onClick={() =>
+          onSelect({
+            id: 'audio-asset-1',
+            type: 'AUDIO',
+            source: 'LOCAL',
+            url: '/__aitu_cache__/audio/sample.mp3',
+            name: '素材库样本.mp3',
+            mimeType: 'audio/mpeg',
+            size: 1234,
+            createdAt: 1,
+          })
+        }
+      >
+        选择测试音频
+      </button>
+    ) : null,
 }));
 
 vi.mock('tdesign-react', () => ({
@@ -58,6 +89,27 @@ vi.mock('tdesign-react', () => ({
       {icon}
       {children}
     </button>
+  ),
+  Checkbox: ({
+    children,
+    checked,
+    disabled,
+    onChange,
+  }: {
+    children?: React.ReactNode;
+    checked?: boolean;
+    disabled?: boolean;
+    onChange?: (checked: boolean) => void;
+  }) => (
+    <label>
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        disabled={disabled}
+        onChange={(event) => onChange?.(event.target.checked)}
+      />
+      {children}
+    </label>
   ),
   Dialog: ({
     visible,
@@ -150,7 +202,7 @@ function renderDialog(
   const onCreate =
     overrides.onCreate || vi.fn().mockResolvedValue({ id: 'task-1' } as Task);
   const onClose = vi.fn();
-  render(
+  const rendered = render(
     <PptExplainerDialog
       open
       sourceBoardId="board-1"
@@ -164,7 +216,13 @@ function renderDialog(
       {...overrides}
     />
   );
-  return { onCreate, onClose };
+  return { onCreate, onClose, ...rendered };
+}
+
+function selectVoiceIdSource(index = 0): void {
+  fireEvent.click(
+    screen.getAllByRole('radio', { name: '已有 voice ID' })[index]
+  );
 }
 
 describe('PptExplainerDialog', () => {
@@ -180,6 +238,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(true);
     const { onCreate, onClose } = renderDialog();
 
+    selectVoiceIdSource();
     fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
@@ -217,6 +276,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(false);
     const { onCreate, onClose } = renderDialog();
 
+    selectVoiceIdSource();
     const voiceInput = screen.getByPlaceholderText('输入供应商声音 ID');
     fireEvent.change(voiceInput, { target: { value: 'voice-host' } });
     fireEvent.click(screen.getByRole('radio', { name: '直接生成' }));
@@ -234,6 +294,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(false);
     const { onCreate } = renderDialog({ hasExistingPpt: true });
 
+    selectVoiceIdSource();
     fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
@@ -259,6 +320,7 @@ describe('PptExplainerDialog', () => {
     );
     renderDialog({ onCreate });
 
+    selectVoiceIdSource();
     fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
@@ -344,15 +406,15 @@ describe('PptExplainerDialog', () => {
     renderDialog();
 
     fireEvent.click(screen.getByRole('radio', { name: '双数字人' }));
+    selectVoiceIdSource(0);
+    selectVoiceIdSource(1);
 
     const voiceInputs = screen.getAllByPlaceholderText('输入供应商声音 ID');
     expect(voiceInputs).toHaveLength(2);
     for (const input of voiceInputs) {
       expect(input.closest('.ppt-explainer-dialog__voice')).not.toBeNull();
     }
-    expect(
-      screen.getByText(/请填写兔子 PPT 讲解服务提供的 voice ID/)
-    ).not.toBeNull();
+    expect(screen.getAllByRole('radio', { name: '参考音频' })).toHaveLength(2);
 
     const avatarInputs = screen.getAllByPlaceholderText(
       '选择数字人素材或输入 ID / URL'
@@ -468,5 +530,68 @@ describe('PptExplainerDialog', () => {
         videoModelRef,
       })
     ).toBe('仅支持 .pptx 文件');
+  });
+
+  it('参考音频需要本人授权，授权后作为克隆样本创建任务', async () => {
+    const { onCreate, container } = renderDialog();
+    const audioInput = container.querySelector(
+      'input[type="file"][accept^="audio/"]'
+    ) as HTMLInputElement;
+    const sample = new File(['voice'], 'host.mp3', {
+      type: 'audio/mpeg',
+    });
+
+    fireEvent.change(audioInput, { target: { files: [sample] } });
+
+    expect(screen.getByText('host.mp3')).not.toBeNull();
+    expect(screen.getByText('请确认已获得声音本人授权')).not.toBeNull();
+    expect(
+      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakers: [
+          expect.objectContaining({
+            id: 'host',
+            voiceSource: 'reference_audio',
+            referenceAudio: expect.objectContaining({
+              file: sample,
+              filename: 'host.mp3',
+              mimeType: 'audio/mpeg',
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
+  it('可以从素材库选择音频作为参考样本', async () => {
+    const { onCreate } = renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: '从素材库选择' }));
+    fireEvent.click(screen.getByRole('button', { name: '选择测试音频' }));
+    expect(screen.getByText('素材库样本.mp3')).not.toBeNull();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakers: [
+          expect.objectContaining({
+            referenceAudio: expect.objectContaining({
+              sourceAssetId: 'audio-asset-1',
+              sourceUrl: '/__aitu_cache__/audio/sample.mp3',
+            }),
+          }),
+        ],
+      })
+    );
   });
 });

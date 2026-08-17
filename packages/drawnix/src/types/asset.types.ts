@@ -402,6 +402,8 @@ export interface MediaLibraryGridProps {
   onUploadClick?: () => void;
   storageStatus?: StorageStatus | null;
   onSelectionChange?: (assets: Asset[], isSelectionMode: boolean) => void;
+  /** Mobile primary action label for selection contexts. */
+  selectActionLabel?: string;
 }
 
 export interface MediaLibraryStorageBarProps {

@@ -31,9 +31,11 @@ import {
   pollPptExplainerProviderJob,
   submitPptExplainerProviderJob,
   type PptExplainerProviderSlideInput,
+  type PptExplainerProviderVoiceReferenceInput,
 } from './provider-adapter';
 import { resolvePptExplainerProviderRouteSnapshot } from './provider-contract';
 import {
+  deletePptExplainerArtifact,
   deletePptExplainerArtifacts,
   getPptExplainerArtifact,
   isPptExplainerArtifactUrl,
@@ -58,6 +60,8 @@ import type {
   PptExplainerTaskState,
 } from './types';
 import {
+  getPptExplainerSpeakerVoiceSource,
+  hasPptExplainerReferenceAudio,
   isPptExplainerTask,
   PptExplainerValidationError,
   readPptExplainerState,
@@ -360,6 +364,7 @@ async function readInputBlob(url: string, signal: AbortSignal): Promise<Blob> {
   if (isPptExplainerArtifactUrl(url)) {
     const artifact = await getPptExplainerArtifact(url);
     if (artifact?.size) return artifact;
+    throw new Error('任务私有输入缓存已丢失，请重新选择文件');
   }
   const cached = await unifiedCacheService.getCachedBlob(url);
   if (cached?.size) return cached;
@@ -383,7 +388,27 @@ function buildManifest(state: PptExplainerTaskState): PptExplainerManifest {
     source: state.source,
     deckFingerprint: state.deckFingerprint,
     presenterMode: state.presenterMode,
-    speakers: state.speakers.map((speaker) => ({ ...speaker })),
+    speakers: state.speakers.map((speaker) => {
+      const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
+      return {
+        id: speaker.id,
+        displayName: speaker.displayName,
+        voiceSource,
+        ...(voiceSource === 'reference_audio' && speaker.voiceReference
+          ? {
+              voiceReference: {
+                assetName: speaker.voiceReference.assetName,
+              },
+            }
+          : { voiceId: speaker.voiceId }),
+        ...(speaker.avatarAssetId
+          ? { avatarAssetId: speaker.avatarAssetId }
+          : {}),
+        ...(speaker.avatarSourceUrl
+          ? { avatarSourceUrl: speaker.avatarSourceUrl }
+          : {}),
+      };
+    }),
     slides: state.slides.map((slide) => ({
       pageIndex: slide.pageIndex,
       title: slide.title,
@@ -400,6 +425,15 @@ function buildManifest(state: PptExplainerTaskState): PptExplainerManifest {
         : {}),
     })),
   };
+}
+
+function getProviderRequirements(state: PptExplainerTaskState) {
+  return {
+    source: state.source,
+    presentationInput: state.presentationInput,
+    presenterMode: state.presenterMode,
+    requiresReferenceAudio: hasPptExplainerReferenceAudio(state.speakers),
+  } as const;
 }
 
 function inferImageExtension(mimeType?: string): string {
@@ -432,6 +466,40 @@ async function* streamSlideInputs(
         '0'
       )}.${inferImageExtension(blob.type || slide.snapshotMimeType)}`,
     };
+  }
+}
+
+async function* streamVoiceReferences(
+  state: PptExplainerTaskState,
+  signal: AbortSignal
+): AsyncGenerator<PptExplainerProviderVoiceReferenceInput, void, void> {
+  for (const speaker of state.speakers) {
+    if (getPptExplainerSpeakerVoiceSource(speaker) !== 'reference_audio') {
+      continue;
+    }
+    signal.throwIfAborted();
+    const reference = speaker.voiceReference;
+    if (!reference) {
+      throw new Error(`讲解者「${speaker.displayName}」缺少声音样本引用`);
+    }
+    let blob: Blob | undefined;
+    try {
+      blob = await readInputBlob(reference.cacheUrl, signal);
+      signal.throwIfAborted();
+      yield {
+        assetName: reference.assetName,
+        blob,
+        filename: reference.assetName,
+        mimeType: reference.mimeType,
+      };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new Error(
+        `讲解者「${speaker.displayName}」的声音样本缓存已丢失，请重新创建任务`
+      );
+    } finally {
+      blob = undefined;
+    }
   }
 }
 
@@ -545,11 +613,10 @@ async function pollUntilComplete(
   let state = initialState;
   const remoteId = state.remoteId;
   if (!remoteId) throw new Error('PPT 讲解任务缺少 remoteId');
-  const route = resolvePptExplainerProviderRouteSnapshot(state.originalRoute, {
-    source: state.source,
-    presentationInput: state.presentationInput,
-    presenterMode: state.presenterMode,
-  });
+  const route = resolvePptExplainerProviderRouteSnapshot(
+    state.originalRoute,
+    getProviderRequirements(state)
+  );
 
   while (isCurrentAttempt(taskId, executionAttempt, signal)) {
     const result = await pollPptExplainerProviderJob({
@@ -734,7 +801,7 @@ async function preparePptxSource(
     initialState.pptx?.cacheUrl &&
     isPptExplainerArtifactUrl(initialState.pptx.cacheUrl)
   ) {
-    await deletePptExplainerArtifacts(initialState.jobId).catch(
+    await deletePptExplainerArtifact(initialState.pptx.cacheUrl).catch(
       () => undefined
     );
   }
@@ -937,11 +1004,10 @@ async function executePptExplainerRun(
     50,
     TaskExecutionPhase.SUBMITTING
   );
-  const route = resolvePptExplainerProviderRouteSnapshot(state.originalRoute, {
-    source: state.source,
-    presentationInput: state.presentationInput,
-    presenterMode: state.presenterMode,
-  });
+  const route = resolvePptExplainerProviderRouteSnapshot(
+    state.originalRoute,
+    getProviderRequirements(state)
+  );
   const submitResult = await enqueuePptExplainerSubmission(async () => {
     let presentation: Blob | undefined;
     try {
@@ -961,6 +1027,9 @@ async function executePptExplainerRun(
           state.presentationInput === 'slide_images'
             ? streamSlideInputs(state.slides, signal)
             : undefined,
+        voiceReferences: hasPptExplainerReferenceAudio(state.speakers)
+          ? streamVoiceReferences(state, signal)
+          : undefined,
         signal,
       });
     } finally {
@@ -1155,11 +1224,7 @@ export async function cancelPptExplainerRemoteTask(task: Task): Promise<void> {
     try {
       const route = resolvePptExplainerProviderRouteSnapshot(
         state.originalRoute,
-        {
-          source: state.source,
-          presentationInput: state.presentationInput,
-          presenterMode: state.presenterMode,
-        }
+        getProviderRequirements(state)
       );
       await cancelPptExplainerProviderJob({
         route,

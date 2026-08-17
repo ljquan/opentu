@@ -9,6 +9,8 @@ import type { PptExplainerTaskState } from './types';
 import type {
   PptExplainerProviderSlideInput,
   PptExplainerProviderSlideSource,
+  PptExplainerProviderVoiceReferenceInput,
+  PptExplainerProviderVoiceReferenceSource,
 } from './provider-adapter';
 import type { PptxImportCheckpoint } from '../pptx-import';
 import {
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   resolveProviderRoute: vi.fn(),
   cacheRemoteUrl: vi.fn(),
   deleteArtifacts: vi.fn(),
+  deleteArtifact: vi.fn(),
   getArtifact: vi.fn(),
   getCanvasBoardBinding: vi.fn(),
   getCachedBlob: vi.fn(),
@@ -59,6 +62,18 @@ async function collectSubmittedSlides(
   const result: PptExplainerProviderSlideInput[] = [];
   if (!input?.slides) return result;
   for await (const slide of input.slides) result.push(slide);
+  return result;
+}
+
+async function collectSubmittedVoiceReferences(
+  callIndex = mocks.submitJob.mock.calls.length - 1
+): Promise<PptExplainerProviderVoiceReferenceInput[]> {
+  const input = mocks.submitJob.mock.calls[callIndex]?.[0] as
+    | { voiceReferences?: PptExplainerProviderVoiceReferenceSource }
+    | undefined;
+  const result: PptExplainerProviderVoiceReferenceInput[] = [];
+  if (!input?.voiceReferences) return result;
+  for await (const reference of input.voiceReferences) result.push(reference);
   return result;
 }
 
@@ -129,6 +144,7 @@ vi.mock('./provider-contract', () => ({
 }));
 
 vi.mock('./internal-artifact-cache', () => ({
+  deletePptExplainerArtifact: mocks.deleteArtifact,
   deletePptExplainerArtifacts: mocks.deleteArtifacts,
   getPptExplainerArtifact: mocks.getArtifact,
   isPptExplainerArtifactUrl: vi.fn(() => false),
@@ -883,7 +899,10 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       expect.objectContaining({
         manifest: expect.objectContaining({
           presenterMode: mode,
-          speakers,
+          speakers: speakers.map((speaker) => ({
+            ...speaker,
+            voiceSource: 'voice_id',
+          })),
           slides: [expect.objectContaining({ pageIndex: 1, turns })],
         }),
         slides: expect.objectContaining({
@@ -898,6 +917,77 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       status: TaskStatus.COMPLETED,
       params: { pptExplainer: { presenterMode: mode, stage: 'completed' } },
     });
+  });
+
+  it('submits a task-private voice sample without leaking cacheUrl into manifest', async () => {
+    const taskId = 'reference-audio';
+    const cacheUrl =
+      '/__aitu_internal__/ppt-explainer/job-reference-audio/voice-reference-01.mp3';
+    installTask(
+      createTask(taskId, {
+        source: 'current_ppt',
+        presenterMode: 'single_voice',
+        speakers: [
+          {
+            id: 'host',
+            displayName: '主持人',
+            voiceSource: 'reference_audio',
+            voiceReference: {
+              cacheUrl,
+              assetName: 'voice-reference-01.mp3',
+              filename: 'private-name.mp3',
+              mimeType: 'audio/mpeg',
+              size: 5,
+            },
+          },
+        ],
+        stage: 'submitting',
+        remoteId: undefined,
+        slides: [
+          {
+            pageIndex: 1,
+            snapshotUrl: '/slide-1.png',
+            snapshotMimeType: 'image/png',
+            turns: [{ speakerId: 'host', text: '主持人讲解' }],
+          },
+        ],
+      })
+    );
+    mocks.getCachedBlob.mockImplementation(async (url: string) =>
+      url === cacheUrl
+        ? new Blob(['voice'], { type: 'audio/mpeg' })
+        : new Blob(['slide'], { type: 'image/png' })
+    );
+    mocks.submitJob.mockResolvedValue({
+      status: 'completed',
+      remoteId: 'remote-reference-audio',
+      finalVideoUrl: 'https://cdn.example.com/reference-audio.mp4',
+    });
+
+    await runPptExplainerTask(taskId);
+
+    const submitInput = mocks.submitJob.mock.calls[0][0];
+    expect(submitInput.manifest.speakers).toEqual([
+      {
+        id: 'host',
+        displayName: '主持人',
+        voiceSource: 'reference_audio',
+        voiceReference: { assetName: 'voice-reference-01.mp3' },
+      },
+    ]);
+    expect(JSON.stringify(submitInput.manifest)).not.toContain(cacheUrl);
+    await expect(collectSubmittedVoiceReferences()).resolves.toEqual([
+      expect.objectContaining({
+        assetName: 'voice-reference-01.mp3',
+        filename: 'voice-reference-01.mp3',
+        mimeType: 'audio/mpeg',
+        blob: expect.any(Blob),
+      }),
+    ]);
+    expect(mocks.resolveProviderRoute).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ requiresReferenceAudio: true })
+    );
   });
 
   it('resumes an existing remote job by polling without submitting again', async () => {

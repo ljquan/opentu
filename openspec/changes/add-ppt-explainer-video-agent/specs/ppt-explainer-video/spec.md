@@ -129,6 +129,58 @@
 - **THEN** 系统 SHALL 固化页序、快照、备注、转场和 speaker 配置
 - **AND** 后续画布编辑 SHALL NOT 改变已接受任务
 
+### Requirement: PPT Explainer SHALL Accept Authorized Reference Audio For Voice Cloning
+
+系统 SHALL 允许每位讲解者在供应商 `voice ID` 和获得本人授权的参考音频之间选择且只选择一种声音来源，并由供应商使用该声线朗读自动生成的逐页讲稿。
+
+#### Scenario: Upload one reference audio sample
+
+- **GIVEN** 所选 binding 显式支持参考音频声线克隆
+- **WHEN** 用户为讲解者直接上传一段非空音频并确认已获得声音本人授权
+- **THEN** 系统 SHALL 把音频复制到该任务私有缓存
+- **AND** SHALL 将样本作为声线输入而不是完整 PPT 讲解音轨
+- **AND** SHALL NOT 在浏览器本地执行声纹克隆
+
+#### Scenario: Select a sample from the audio asset library
+
+- **WHEN** 用户从素材库选择 `AUDIO` 素材作为参考音频
+- **THEN** 系统 SHALL 在任务创建时把 Blob 复制为任务私有产物
+- **AND** 原素材随后被删除 SHALL NOT 破坏该任务的刷新恢复
+
+#### Scenario: Configure two speakers independently
+
+- **GIVEN** 用户选择双人讲解模式
+- **WHEN** 两位讲解者分别选择参考音频、或一位选择参考音频而另一位选择 voice ID
+- **THEN** 系统 SHALL 保留每位 speaker 与其声音来源的稳定关联
+- **AND** SHALL NOT 串换两位讲解者的音色
+
+#### Scenario: Reference audio consent is absent
+
+- **GIVEN** 任一讲解者选择参考音频
+- **WHEN** 用户没有在当前配置界面确认已获得声音本人明确授权，或 Agent/MCP JSON 尝试伪造确认字段
+- **THEN** 系统 SHALL 拒绝创建任务
+- **AND** SHALL NOT 缓存样本、生成讲稿或调用远端供应商
+
+#### Scenario: Binding does not support reference audio cloning
+
+- **GIVEN** 所选 binding 未显式声明参考音频克隆能力
+- **WHEN** 任务包含参考音频声音来源
+- **THEN** 系统 SHALL 在缓存音频和任何远端副作用前显示能力不支持错误
+- **AND** SHALL NOT 猜测供应商字段或回退到浏览器克隆
+
+#### Scenario: Persist and submit reference audio safely
+
+- **WHEN** 系统保存任务并构造供应商 multipart 请求
+- **THEN** 任务状态 SHALL 只保存轻量缓存引用和安全音频元数据
+- **AND** manifest SHALL 只通过稳定 `assetName` 引用对应 `voice_references[]` part
+- **AND** File、Blob、base64、本地 cache URL、素材库 URL 和授权正文 SHALL NOT 进入 manifest、日志或供应商 JSON
+
+#### Scenario: Clean up private voice samples
+
+- **WHEN** 任务完成、取消、删除或创建失败
+- **THEN** 系统 SHALL 清理该 job 的私有参考音频
+- **AND** 其他任务和用户原素材 SHALL NOT 被删除
+
 ### Requirement: PPT Explainer Provider Binding SHALL Expose A Complete Async Lifecycle
 
 PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执行 submit、poll 和可选 cancel。

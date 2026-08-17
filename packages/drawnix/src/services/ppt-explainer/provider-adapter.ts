@@ -27,6 +27,17 @@ export interface PptExplainerProviderSlideInput {
   filename?: string;
 }
 
+export interface PptExplainerProviderVoiceReferenceInput {
+  assetName: string;
+  blob: Blob;
+  filename?: string;
+  mimeType?: string;
+}
+
+export type PptExplainerProviderVoiceReferenceSource =
+  | readonly PptExplainerProviderVoiceReferenceInput[]
+  | AsyncIterable<PptExplainerProviderVoiceReferenceInput>;
+
 export type PptExplainerProviderSlideSource =
   | readonly PptExplainerProviderSlideInput[]
   | AsyncIterable<PptExplainerProviderSlideInput>;
@@ -58,6 +69,7 @@ export interface SubmitPptExplainerProviderJobInput
   presentation?: Blob;
   presentationFilename?: string;
   slides?: PptExplainerProviderSlideSource;
+  voiceReferences?: PptExplainerProviderVoiceReferenceSource;
 }
 
 export interface PollPptExplainerProviderJobInput
@@ -93,6 +105,9 @@ const FORBIDDEN_MANIFEST_KEY_RE =
 const SENSITIVE_HEADER_NAME_RE =
   /(?:api[-_.\s]?key|authorization|proxy[-_.\s]?authorization|access[-_.\s]?token|refresh[-_.\s]?token|token|secret|cookie|credential|password|passwd|signature)/i;
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
+const BASE64_DATA_PREFIX_RE = /^\s*(?:base64:|data:[^,\r\n]*;\s*base64\s*,)/i;
+const RAW_BASE64_MIN_LENGTH = 1024;
+const RAW_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 function requireSafeIdentifier(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -114,6 +129,65 @@ function sanitizeFilename(value: string | undefined, fallback: string): string {
     .replace(/[\r\n\0]/g, '')
     .trim();
   return normalized || fallback;
+}
+
+function validateVoiceReferenceInput(
+  reference: PptExplainerProviderVoiceReferenceInput,
+  acceptedMimeTypes: readonly string[] | undefined,
+  seenAssetNames: Set<string>
+): void {
+  const assetName = requireSafeIdentifier(
+    reference.assetName,
+    '参考音频 assetName'
+  );
+  if (seenAssetNames.has(assetName)) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      `参考音频 assetName 重复：${assetName}`
+    );
+  }
+  seenAssetNames.add(assetName);
+  if (!(reference.blob instanceof Blob) || reference.blob.size === 0) {
+    throw new PptExplainerProviderError('invalid_request', '参考音频不能为空');
+  }
+  const blobMimeType = reference.blob.type.trim().toLowerCase();
+  if (
+    blobMimeType &&
+    blobMimeType !== 'application/octet-stream' &&
+    !blobMimeType.startsWith('audio/')
+  ) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      `参考音频 Blob 类型无效：${blobMimeType}`
+    );
+  }
+  const mimeType = (
+    reference.mimeType ||
+    reference.blob.type ||
+    ''
+  ).toLowerCase();
+  if (!mimeType.startsWith('audio/')) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      `参考音频 MIME 类型无效：${mimeType || 'unknown'}`
+    );
+  }
+  if (
+    acceptedMimeTypes?.length &&
+    !acceptedMimeTypes.some((accepted) => {
+      const normalized = accepted.trim().toLowerCase();
+      return (
+        normalized === mimeType ||
+        (normalized.endsWith('/*') &&
+          mimeType.startsWith(normalized.slice(0, -1)))
+      );
+    })
+  ) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      `供应商不接受参考音频 MIME 类型：${mimeType}`
+    );
+  }
 }
 
 function isBinaryValue(value: unknown): boolean {
@@ -150,6 +224,18 @@ function assertSafeManifest(
       throw new PptExplainerProviderError(
         'invalid_request',
         'PPT 讲解视频 manifest 不得包含 File、Blob、base64 缓冲或 FormData'
+      );
+    }
+    if (
+      typeof current === 'string' &&
+      (BASE64_DATA_PREFIX_RE.test(current) ||
+        (current.length >= RAW_BASE64_MIN_LENGTH &&
+          current.length % 4 === 0 &&
+          RAW_BASE64_RE.test(current)))
+    ) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        'PPT 讲解视频 manifest 不得包含 base64 数据'
       );
     }
     if (!current || typeof current !== 'object') continue;
@@ -201,6 +287,52 @@ function assertSafeManifest(
   return serialized;
 }
 
+function collectManifestVoiceAssetNames(
+  manifest: PptExplainerProviderManifest
+): Set<string> {
+  const names = new Set<string>();
+  const speakers = manifest.speakers;
+  if (speakers === undefined) return names;
+  if (!Array.isArray(speakers)) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      'PPT 讲解视频 manifest speakers 必须为数组'
+    );
+  }
+  for (const speaker of speakers) {
+    if (!speaker || typeof speaker !== 'object' || Array.isArray(speaker)) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        'PPT 讲解视频 manifest speaker 无效'
+      );
+    }
+    const reference = (speaker as Record<string, unknown>).voiceReference;
+    if (reference === undefined) continue;
+    if (
+      !reference ||
+      typeof reference !== 'object' ||
+      Array.isArray(reference)
+    ) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        'PPT 讲解视频 manifest 声音样本引用无效'
+      );
+    }
+    const assetName = requireSafeIdentifier(
+      (reference as Record<string, unknown>).assetName,
+      'manifest 参考音频 assetName'
+    );
+    if (names.has(assetName)) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        `manifest 参考音频 assetName 重复：${assetName}`
+      );
+    }
+    names.add(assetName);
+  }
+  return names;
+}
+
 function validateSlideInput(
   slide: PptExplainerProviderSlideInput,
   previousPageIndex: number
@@ -239,6 +371,12 @@ function getOrderedSlideSource(
     return [...slides].sort((left, right) => left.pageIndex - right.pageIndex);
   }
   return slides;
+}
+
+function getVoiceReferenceSource(
+  references: PptExplainerProviderVoiceReferenceSource | undefined
+): PptExplainerProviderVoiceReferenceSource {
+  return references || [];
 }
 
 async function buildSubmitFormData(
@@ -294,6 +432,52 @@ async function buildSubmitFormData(
         '所选供应商需要有序页图，但任务没有可提交页面'
       );
     }
+  }
+  const expectedVoiceAssetNames = collectManifestVoiceAssetNames(
+    input.manifest
+  );
+  const metadata = input.route.binding.metadata.pptExplainer;
+  let voiceReferenceCount = 0;
+  const seenAssetNames = new Set<string>();
+  for await (const reference of getVoiceReferenceSource(
+    input.voiceReferences
+  )) {
+    input.signal?.throwIfAborted();
+    if (
+      metadata.capabilities.referenceAudioVoiceCloning !== true ||
+      !metadata.referenceAudio
+    ) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        '当前供应商未声明参考音频声线克隆能力'
+      );
+    }
+    validateVoiceReferenceInput(
+      reference,
+      metadata.referenceAudio.acceptedMimeTypes,
+      seenAssetNames
+    );
+    if (!expectedVoiceAssetNames.has(reference.assetName)) {
+      throw new PptExplainerProviderError(
+        'invalid_request',
+        `multipart 参考音频未在 manifest 中声明：${reference.assetName}`
+      );
+    }
+    formData.append(
+      metadata.referenceAudio.fieldName,
+      reference.blob,
+      sanitizeFilename(reference.filename, reference.assetName)
+    );
+    voiceReferenceCount += 1;
+  }
+  if (
+    voiceReferenceCount !== expectedVoiceAssetNames.size ||
+    [...expectedVoiceAssetNames].some((name) => !seenAssetNames.has(name))
+  ) {
+    throw new PptExplainerProviderError(
+      'invalid_request',
+      'manifest 与 multipart 的参考音频引用不一致'
+    );
   }
   return formData;
 }

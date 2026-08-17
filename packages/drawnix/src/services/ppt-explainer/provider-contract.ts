@@ -71,6 +71,7 @@ export interface PptExplainerProviderRequirements {
   source: ProviderPptExplainerSourceKind;
   presentationInput: ProviderPptExplainerPresentationInput;
   presenterMode: ProviderPptExplainerPresenterMode;
+  requiresReferenceAudio?: boolean;
 }
 
 export interface PptExplainerProviderBinding extends ProviderModelBinding {
@@ -472,6 +473,38 @@ function assertPptExplainerMetadata(
       'PPT 讲解视频 binding 必须显式声明最终成片能力'
     );
   }
+  if (capabilities.referenceAudioVoiceCloning === true) {
+    const referenceAudio = value.referenceAudio;
+    if (!isRecord(referenceAudio)) {
+      throw new PptExplainerProviderPreflightError(
+        'invalid_binding',
+        'PPT 讲解视频 binding 声明了参考音频能力但缺少 multipart 字段映射'
+      );
+    }
+    const fieldName = requireNonEmptyString(
+      referenceAudio.fieldName,
+      '参考音频 multipart 字段名'
+    );
+    if (!/^[A-Za-z][A-Za-z0-9_.-]*(?:\[\])?$/.test(fieldName)) {
+      throw new PptExplainerProviderPreflightError(
+        'invalid_binding',
+        '参考音频 multipart 字段名包含非法字符'
+      );
+    }
+    if (referenceAudio.acceptedMimeTypes !== undefined) {
+      if (
+        !Array.isArray(referenceAudio.acceptedMimeTypes) ||
+        referenceAudio.acceptedMimeTypes.some(
+          (item) => typeof item !== 'string' || !item.trim()
+        )
+      ) {
+        throw new PptExplainerProviderPreflightError(
+          'invalid_binding',
+          '参考音频支持的 MIME 类型声明无效'
+        );
+      }
+    }
+  }
 
   const responsePaths = value.responsePaths;
   if (!isRecord(responsePaths)) {
@@ -542,7 +575,24 @@ function clonePptExplainerMetadata(
       presentationInputs: [...metadata.capabilities.presentationInputs],
       presenterModes: [...metadata.capabilities.presenterModes],
       finalComposition: true,
+      ...(metadata.capabilities.referenceAudioVoiceCloning === true
+        ? { referenceAudioVoiceCloning: true }
+        : {}),
     },
+    ...(metadata.referenceAudio
+      ? {
+          referenceAudio: {
+            fieldName: metadata.referenceAudio.fieldName,
+            ...(metadata.referenceAudio.acceptedMimeTypes
+              ? {
+                  acceptedMimeTypes: [
+                    ...metadata.referenceAudio.acceptedMimeTypes,
+                  ],
+                }
+              : {}),
+          },
+        }
+      : {}),
     responsePaths: {
       submit: { ...metadata.responsePaths.submit },
       poll: { ...metadata.responsePaths.poll },
@@ -620,6 +670,20 @@ function assertCapabilities(
       'capability_unsupported',
       `所选供应商不支持 ${requirements.presenterMode} 讲解模式`
     );
+  }
+  if (requirements.requiresReferenceAudio) {
+    if (metadata.capabilities.referenceAudioVoiceCloning !== true) {
+      throw new PptExplainerProviderPreflightError(
+        'capability_unsupported',
+        '所选供应商未声明参考音频声线克隆能力'
+      );
+    }
+    if (!metadata.referenceAudio?.fieldName) {
+      throw new PptExplainerProviderPreflightError(
+        'capability_unsupported',
+        '所选供应商未声明参考音频 multipart 字段'
+      );
+    }
   }
 }
 

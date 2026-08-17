@@ -12,6 +12,8 @@ OpenTu 已有 PPT 大纲、页面整图、演讲备注、视频任务、供应�
 - 支持从主题生成、当前画布 PPT、上传 PPTX 三种来源创建任务
 - 支持确认大纲，以及用户确认警告后跳过大纲确认
 - 支持单声线、双声线对谈、单数字人、双数字人四种讲解模式
+- 每位讲解者可在已有 `voice ID` 与参考音频声线克隆之间选择；参考音频支持直接上传或从素材库选择，双人模式分别绑定样本
+- 参考音频克隆要求当前页面确认已获得声音本人授权，并只向显式声明该能力的供应商 binding 提交
 - 新增可恢复的 PPT 讲解根任务状态机，复用标准 `VIDEO` 任务、IndexedDB 与原供应商路由快照
 - 新增 `ppt-explainer` 供应商能力绑定，规范 submit、poll、可选 cancel、幂等键和最终视频 URL
 - 使用包含 `canonicalBaseUrl` 的 v2 无密钥路由快照固定恢复目标，允许凭据轮换但拒绝端点漂移
@@ -30,6 +32,7 @@ OpenTu 已有 PPT 大纲、页面整图、演讲备注、视频任务、供应�
   - `packages/drawnix/src/constants/skills.ts`
   - `packages/drawnix/src/mcp/**`
   - `packages/drawnix/src/components/ai-input-bar/**`
+  - `packages/drawnix/src/components/media-library/**`
   - `packages/drawnix/src/components/project-drawer/**`
   - `packages/drawnix/src/services/ppt/**`
   - `packages/drawnix/src/services/ppt-explainer/**`（新增）

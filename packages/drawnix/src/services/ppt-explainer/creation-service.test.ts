@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PptExplainerCreateInput } from './types';
 import {
   confirmAndRunPptExplainerTask,
   createPptExplainerTask,
+  authorizePptExplainerUiCreation,
 } from './creation-service';
 import { PptExplainerProviderPreflightError } from './provider-contract';
 
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   deleteArtifacts: vi.fn(),
   runTask: vi.fn(),
   getTask: vi.fn(),
+  getCachedBlob: vi.fn(),
   callOrder: [] as string[],
 }));
 
@@ -62,6 +64,10 @@ vi.mock('../task-invocation-route', () => ({
 
 vi.mock('../task-queue', () => ({
   taskQueueService: { getTask: mocks.getTask },
+}));
+
+vi.mock('../unified-cache-service', () => ({
+  unifiedCacheService: { getCachedBlob: mocks.getCachedBlob },
 }));
 
 vi.mock('../pptx-import', () => ({
@@ -187,6 +193,9 @@ beforeEach(() => {
     mocks.callOrder.push('stage-pptx');
     return '/__aitu_internal__/ppt-explainer/job/source.pptx';
   });
+  mocks.getCachedBlob.mockResolvedValue(
+    new Blob(['reference-audio'], { type: 'audio/mpeg' })
+  );
   mocks.deleteArtifacts.mockResolvedValue(undefined);
   mocks.getCanvasBoardBinding.mockReturnValue({ board, boardId: 'board-1' });
   mocks.getWorkspaceState.mockReturnValue({ currentBoardId: 'board-1' });
@@ -277,6 +286,10 @@ beforeEach(() => {
     mocks.callOrder.push('register-pptx');
     return mocks.releasePptxInput;
   });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('PPT explainer creation service', () => {
@@ -520,6 +533,129 @@ describe('PPT explainer creation service', () => {
     expect(mocks.createRootTask).not.toHaveBeenCalled();
     expect(mocks.releasePptxInput).toHaveBeenCalledTimes(1);
     expect(mocks.runTask).not.toHaveBeenCalled();
+  });
+
+  it('stages reference audio after capability preflight without persisting File', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('document', {});
+    const input = createInput({
+      speakers: [
+        {
+          id: 'speaker-a',
+          displayName: '讲解者',
+          voiceSource: 'reference_audio',
+          referenceAudio: {
+            file: new File(['sample'], 'host.mp3', { type: 'audio/mpeg' }),
+            filename: 'host.mp3',
+            mimeType: 'audio/mpeg',
+            size: 6,
+          },
+        },
+      ],
+    });
+    authorizePptExplainerUiCreation(input, {
+      skipOutlineReview: false,
+      replaceExistingPpt: false,
+      voiceCloneConsent: true,
+    });
+    mocks.putArtifact.mockImplementation(async (_jobId, artifactName) => {
+      mocks.callOrder.push('stage-' + artifactName);
+      return '/__aitu_internal__/ppt-explainer/job/' + artifactName;
+    });
+
+    await createPptExplainerTask(input);
+
+    expect(mocks.preflightProvider).toHaveBeenCalledWith(
+      input.videoModelRef,
+      expect.objectContaining({ requiresReferenceAudio: true }),
+      expect.anything()
+    );
+    const initialState = mocks.createRootTask.mock.calls[0][0];
+    expect(initialState.speakers[0]).toMatchObject({
+      voiceSource: 'reference_audio',
+      voiceReference: {
+        assetName: 'voice-reference-01.mp3',
+        filename: 'host.mp3',
+        mimeType: 'audio/mpeg',
+        size: 6,
+      },
+    });
+    expect(initialState.speakers[0]).not.toHaveProperty('referenceAudio');
+    expect(JSON.stringify(initialState)).not.toContain('sample');
+    expect(mocks.putArtifact).toHaveBeenCalledWith(
+      expect.any(String),
+      'voice-reference-01.mp3',
+      expect.any(Blob)
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects reference audio without a current-page consent grant', async () => {
+    const input = createInput({
+      speakers: [
+        {
+          id: 'speaker-a',
+          displayName: '讲解者',
+          voiceSource: 'reference_audio',
+          referenceAudio: {
+            file: new File(['sample'], 'host.mp3', { type: 'audio/mpeg' }),
+            filename: 'host.mp3',
+            mimeType: 'audio/mpeg',
+          },
+        },
+      ],
+    });
+
+    await expect(createPptExplainerTask(input)).rejects.toThrow('本人授权');
+    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    expect(mocks.putArtifact).not.toHaveBeenCalled();
+    expect(mocks.createRootTask).not.toHaveBeenCalled();
+  });
+
+  it('copies a selected audio asset into job-private storage', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('document', {});
+    const input = createInput({
+      speakers: [
+        {
+          id: 'speaker-a',
+          displayName: '讲解者',
+          voiceSource: 'reference_audio',
+          referenceAudio: {
+            sourceAssetId: 'audio-asset-1',
+            sourceUrl: '/__aitu_cache__/audio/source.mp3',
+            filename: 'source.mp3',
+            mimeType: 'audio/mpeg',
+            size: 15,
+          },
+        },
+      ],
+    });
+    authorizePptExplainerUiCreation(input, {
+      skipOutlineReview: false,
+      replaceExistingPpt: false,
+      voiceCloneConsent: true,
+    });
+    mocks.putArtifact.mockResolvedValue(
+      '/__aitu_internal__/ppt-explainer/job/voice-reference-01.mp3'
+    );
+
+    await createPptExplainerTask(input);
+
+    expect(mocks.getCachedBlob).toHaveBeenCalledWith(
+      '/__aitu_cache__/audio/source.mp3'
+    );
+    expect(mocks.putArtifact).toHaveBeenCalledWith(
+      expect.any(String),
+      'voice-reference-01.mp3',
+      expect.objectContaining({ size: 15, type: 'audio/mpeg' })
+    );
+    expect(mocks.createRootTask.mock.calls[0][0].speakers[0]).toMatchObject({
+      voiceReference: {
+        sourceAssetId: 'audio-asset-1',
+        cacheUrl: '/__aitu_internal__/ppt-explainer/job/voice-reference-01.mp3',
+      },
+    });
   });
 
   it('confirms review only once and starts the persisted task', async () => {

@@ -63,9 +63,19 @@
 ## 9. Validation And Handoff
 
 - [ ] 9.1 运行相关 Vitest、drawnix typecheck/lint 与三浏览器 Playwright 用例
-  - 已完成：31 个相关 Vitest 文件 / 360 个测试、drawnix typecheck、增量 ESLint（0 error）、OpenSpec strict、Node 20 Service Worker/隔离 PPTX Worker 构建，以及 GitHub CI 的 Node 20 web/drawnix 构建
+  - 已完成：31 个相关 Vitest 文件 / 360 个测试；本次参考音频增量复验 11 个文件 / 132 个测试；drawnix typecheck；增量 ESLint（0 个本次 error、11 个既有 warning，`provider-routing/types.ts` 的基线 `ban-types` error 在 HEAD 同样存在）；OpenSpec strict；内置 Chromium 的 1280×720 与 390×844 局域网页面复验；Node 20 Service Worker/隔离 PPTX Worker 构建；以及 GitHub CI 的 Node 20 web/drawnix 构建
   - 基线说明：CI 的 10 个失败测试文件在 `origin/develop@0e7c242e` 上同样为 55 项失败；上一个已合并 PR #229 也因 11 个测试文件和既有 size-limit 债务失败
-  - 剩余：内置浏览器 URL 策略阻止本轮完成桌面/移动端复验；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
+  - 剩余：Firefox/WebKit 专项 E2E 未完成；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
 - [ ] 9.2 使用真实供应商 binding 验证 submit、poll、cancel（若支持）及四种 presenter mode
 - [x] 9.3 记录无远端 cancel、PPTX 渲染差异、供应商限制和跨域缓存等剩余风险
 - [x] 9.4 更新 Navigator 的资源、verify、version、PR 和完成事件
+
+## 10. Authorized Reference Audio Voice Cloning
+
+- [x] 10.1 兼容扩展 speaker、任务状态和 manifest DTO，支持 `voiceId` / 参考音频二选一且禁止本地 cacheUrl 泄漏
+- [x] 10.2 为 binding 增加显式参考音频克隆能力和 MIME 声明，并在缓存、生成与计费副作用前预检
+- [x] 10.3 将直接上传或素材库音频复制到 job 私有缓存，支持局域网 HTTP 的 IndexedDB fallback、刷新恢复和终态清理
+- [x] 10.4 在 multipart 中通过稳定 assetName 提交单/双人 `voice_references[]`，覆盖空 Blob、错误 MIME、重复引用、base64 和取消
+- [x] 10.5 增加每位 speaker 的声音来源、上传、素材库选择和移除交互，并要求当前页面一次性声音授权确认
+- [x] 10.6 覆盖 voice ID 兼容、双人混合来源、素材删除后恢复、无授权、binding 不支持、取消/完成清理、并发与凭据安全
+- [x] 10.7 运行定向 Vitest、typecheck、增量 ESLint、OpenSpec strict 和局域网页面复验，更新交付报告与 Navigator

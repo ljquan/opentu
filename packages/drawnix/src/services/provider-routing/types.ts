@@ -67,6 +67,13 @@ export interface ProviderPptExplainerBindingMetadata {
     presentationInputs: ProviderPptExplainerPresentationInput[];
     presenterModes: ProviderPptExplainerPresenterMode[];
     finalComposition: boolean;
+    /** Explicit opt-in: the binding clones a supplied sample before narration. */
+    referenceAudioVoiceCloning?: boolean;
+  };
+  /** Multipart mapping for voice-cloning samples. Required when capability is enabled. */
+  referenceAudio?: {
+    fieldName: string;
+    acceptedMimeTypes?: string[];
   };
   responsePaths: {
     submit: ProviderPptExplainerResponsePaths & { remoteId: string };

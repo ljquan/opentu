@@ -77,6 +77,51 @@ describe('PPT explainer validation', () => {
     ).not.toThrow();
   });
 
+  it('accepts reference audio and rejects mixed or duplicate voice sources', () => {
+    const referenceSpeakers: PptExplainerSpeaker[] = [
+      {
+        id: 'host',
+        displayName: '主持人',
+        voiceSource: 'reference_audio',
+        voiceReference: {
+          cacheUrl: '/__aitu_internal__/ppt-explainer/job/host.mp3',
+          assetName: 'voice-reference-01.mp3',
+          filename: 'host.mp3',
+          mimeType: 'audio/mpeg',
+          size: 100,
+          sourceAssetId: 'audio-1',
+        },
+      },
+      {
+        id: 'guest',
+        displayName: '嘉宾',
+        voiceSource: 'voice_id',
+        voiceId: 'voice-b',
+      },
+    ];
+    expect(() =>
+      validatePptExplainerSpeakers('dual_voice', referenceSpeakers)
+    ).not.toThrow();
+    expect(() =>
+      validatePptExplainerSpeakers('single_voice', [
+        {
+          ...referenceSpeakers[0],
+          voiceId: 'must-not-coexist',
+        },
+      ])
+    ).toThrow('必须且只能配置参考音频');
+    expect(() =>
+      validatePptExplainerSpeakers('dual_voice', [
+        referenceSpeakers[0],
+        {
+          ...referenceSpeakers[0],
+          id: 'guest',
+          displayName: '嘉宾',
+        },
+      ])
+    ).toThrow('两个不同声音');
+  });
+
   it('rejects local-only avatar URLs before provider submission', () => {
     expect(() =>
       validatePptExplainerSpeakers('single_avatar', [

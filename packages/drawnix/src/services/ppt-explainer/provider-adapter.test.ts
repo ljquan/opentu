@@ -18,6 +18,7 @@ function createRoute(
   options: {
     input?: 'pptx' | 'slide_images';
     cancel?: boolean;
+    referenceAudio?: boolean;
   } = {}
 ): PptExplainerProviderPreflightResult {
   const binding: ProviderModelBinding = {
@@ -40,7 +41,18 @@ function createRoute(
           presentationInputs: ['pptx', 'slide_images'],
           presenterModes: ['dual_voice'],
           finalComposition: true,
+          ...(options.referenceAudio
+            ? { referenceAudioVoiceCloning: true }
+            : {}),
         },
+        ...(options.referenceAudio
+          ? {
+              referenceAudio: {
+                fieldName: 'voice_references[]',
+                acceptedMimeTypes: ['audio/mpeg', 'audio/wav'],
+              },
+            }
+          : {}),
         responsePaths: {
           submit: {
             remoteId: 'job.id',
@@ -93,6 +105,7 @@ function createRoute(
     source: options.input === 'pptx' ? 'pptx' : 'current_ppt',
     presentationInput: options.input || 'slide_images',
     presenterMode: 'dual_voice',
+    requiresReferenceAudio: options.referenceAudio,
   });
 }
 
@@ -175,6 +188,155 @@ describe('PPT explainer provider adapter', () => {
     ).resolves.toMatchObject({ remoteId: 'remote-stream' });
     expect(peakSourceBlobs).toBe(1);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits two voice samples using manifest assetName associations', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_url, init) => {
+        const body = init?.body as FormData;
+        expect(body.getAll('voice_references[]')).toHaveLength(2);
+        const manifest = JSON.parse(String(body.get('manifest')));
+        expect(JSON.stringify(manifest)).not.toContain('/__aitu_internal__');
+        expect(manifest.speakers).toEqual([
+          {
+            id: 'host',
+            voiceReference: { assetName: 'voice-reference-01.mp3' },
+          },
+          {
+            id: 'guest',
+            voiceReference: { assetName: 'voice-reference-02.wav' },
+          },
+        ]);
+        return Response.json({
+          job: { id: 'remote-voice', status: 'queued' },
+        });
+      });
+
+    await expect(
+      submitPptExplainerProviderJob({
+        route: createRoute({ referenceAudio: true }),
+        manifest: {
+          schemaVersion: 1,
+          speakers: [
+            {
+              id: 'host',
+              voiceReference: { assetName: 'voice-reference-01.mp3' },
+            },
+            {
+              id: 'guest',
+              voiceReference: { assetName: 'voice-reference-02.wav' },
+            },
+          ],
+        },
+        idempotencyKey: 'job-voice',
+        slides: [
+          { pageIndex: 1, blob: new Blob(['one'], { type: 'image/png' }) },
+        ],
+        voiceReferences: [
+          {
+            assetName: 'voice-reference-01.mp3',
+            blob: new Blob(['host'], { type: 'audio/mpeg' }),
+            filename: 'voice-reference-01.mp3',
+          },
+          {
+            assetName: 'voice-reference-02.wav',
+            blob: new Blob(['guest'], { type: 'audio/wav' }),
+            filename: 'voice-reference-02.wav',
+          },
+        ],
+        fetcher,
+      })
+    ).resolves.toMatchObject({ remoteId: 'remote-voice' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unsupported or mismatched voice samples before any request', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const manifest = {
+      schemaVersion: 1,
+      speakers: [
+        {
+          id: 'host',
+          voiceReference: { assetName: 'voice-reference-01.mp3' },
+        },
+      ],
+    };
+
+    await expect(
+      submitPptExplainerProviderJob({
+        route: createRoute(),
+        manifest,
+        idempotencyKey: 'job-unsupported-voice',
+        slides: [
+          { pageIndex: 1, blob: new Blob(['one'], { type: 'image/png' }) },
+        ],
+        voiceReferences: [
+          {
+            assetName: 'voice-reference-01.mp3',
+            blob: new Blob(['voice'], { type: 'audio/mpeg' }),
+          },
+        ],
+        fetcher,
+      })
+    ).rejects.toThrow('未声明参考音频');
+
+    await expect(
+      submitPptExplainerProviderJob({
+        route: createRoute({ referenceAudio: true }),
+        manifest,
+        idempotencyKey: 'job-mismatched-voice',
+        slides: [
+          { pageIndex: 1, blob: new Blob(['one'], { type: 'image/png' }) },
+        ],
+        voiceReferences: [
+          {
+            assetName: 'different.mp3',
+            blob: new Blob(['voice'], { type: 'audio/mpeg' }),
+          },
+        ],
+        fetcher,
+      })
+    ).rejects.toThrow('未在 manifest 中声明');
+
+    await expect(
+      submitPptExplainerProviderJob({
+        route: createRoute({ referenceAudio: true }),
+        manifest,
+        idempotencyKey: 'job-fake-voice',
+        slides: [
+          { pageIndex: 1, blob: new Blob(['one'], { type: 'image/png' }) },
+        ],
+        voiceReferences: [
+          {
+            assetName: 'voice-reference-01.mp3',
+            blob: new Blob(['not-audio'], { type: 'image/png' }),
+            mimeType: 'audio/mpeg',
+          },
+        ],
+        fetcher,
+      })
+    ).rejects.toThrow('Blob 类型无效');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects base64 audio hidden in the manifest', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(
+      submitPptExplainerProviderJob({
+        route: createRoute(),
+        manifest: {
+          schemaVersion: 1,
+          audio: 'data:audio/mpeg;base64,QUJDRA==',
+        },
+        idempotencyKey: 'job-base64-audio',
+        slides: [
+          { pageIndex: 1, blob: new Blob(['one'], { type: 'image/png' }) },
+        ],
+        fetcher,
+      })
+    ).rejects.toThrow('base64');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('rejects out-of-order async slides before making a remote request', async () => {

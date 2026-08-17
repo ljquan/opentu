@@ -13,6 +13,7 @@ export type PptExplainerPresenterMode =
   | 'dual_voice'
   | 'single_avatar'
   | 'dual_avatar';
+export type PptExplainerVoiceSource = 'voice_id' | 'reference_audio';
 export type PptExplainerStage =
   | 'preparing'
   | 'review_pending'
@@ -28,7 +29,42 @@ export type PptExplainerStage =
 export interface PptExplainerSpeaker {
   id: string;
   displayName: string;
-  voiceId: string;
+  /** Omitted on old tasks; absence is treated as voice_id for compatibility. */
+  voiceSource?: PptExplainerVoiceSource;
+  voiceId?: string;
+  voiceReference?: PptExplainerVoiceReference;
+  avatarAssetId?: string;
+  avatarSourceUrl?: string;
+}
+
+export interface PptExplainerVoiceReference {
+  /** Job-private internal artifact URL. Never sent in the provider manifest. */
+  cacheUrl: string;
+  /** Stable association used by the multipart part and manifest. */
+  assetName: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  sourceAssetId?: string;
+}
+
+export interface PptExplainerReferenceAudioInput {
+  /** A direct browser upload. Never persisted. */
+  file?: File;
+  /** A previously stored audio asset; resolved from local cache only. */
+  sourceAssetId?: string;
+  sourceUrl?: string;
+  filename: string;
+  mimeType: string;
+  size?: number;
+}
+
+export interface PptExplainerSpeakerInput {
+  id: string;
+  displayName: string;
+  voiceSource?: PptExplainerVoiceSource;
+  voiceId?: string;
+  referenceAudio?: PptExplainerReferenceAudioInput;
   avatarAssetId?: string;
   avatarSourceUrl?: string;
 }
@@ -96,6 +132,7 @@ export interface PptExplainerTaskState {
   reviewAcceptedAt?: number;
   presenterMode: PptExplainerPresenterMode;
   speakers: PptExplainerSpeaker[];
+  voiceConsentAcceptedAt?: number;
   stage: PptExplainerStage;
   slides: PptExplainerSlide[];
   idempotencyKey: string;
@@ -114,7 +151,7 @@ export interface PptExplainerCreateInput {
   topic?: string;
   reviewMode: PptExplainerReviewMode;
   presenterMode: PptExplainerPresenterMode;
-  speakers: PptExplainerSpeaker[];
+  speakers: PptExplainerSpeakerInput[];
   textModel: string;
   textModelRef?: ModelRef | null;
   imageModel?: string;
@@ -131,7 +168,15 @@ export interface PptExplainerManifest extends Record<string, unknown> {
   source: PptExplainerSourceKind;
   deckFingerprint?: string;
   presenterMode: PptExplainerPresenterMode;
-  speakers: PptExplainerSpeaker[];
+  speakers: Array<{
+    id: string;
+    displayName: string;
+    voiceSource: PptExplainerVoiceSource;
+    voiceId?: string;
+    voiceReference?: { assetName: string };
+    avatarAssetId?: string;
+    avatarSourceUrl?: string;
+  }>;
   slides: Array<{
     pageIndex: number;
     title?: string;

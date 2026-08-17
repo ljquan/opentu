@@ -68,10 +68,20 @@ interface PptExplainerTaskState {
   speakers: Array<{
     id: string;
     displayName: string;
-    voiceId: string;
+    voiceSource?: 'voice_id' | 'reference_audio'; // 缺省按旧任务 voice_id 兼容
+    voiceId?: string;
+    voiceReference?: {
+      cacheUrl: string; // 仅任务本地恢复使用，不进入 manifest
+      assetName: string; // 与 multipart part 稳定关联
+      filename: string;
+      mimeType: string;
+      size: number;
+      sourceAssetId?: string;
+    };
     avatarAssetId?: string;
     avatarSourceUrl?: string;
   }>;
+  voiceConsentAcceptedAt?: number;
   stage: 'preparing' | 'review_pending' | 'snapshotting' | 'scripting' | 'submitting' | 'polling' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
   slides: Array<{
     pageIndex: number;
@@ -89,7 +99,7 @@ interface PptExplainerTaskState {
 
 PPT 讲解供应商路由快照使用 v2 schema，并额外保存无凭据的 `canonicalBaseUrl`。恢复时允许同一 profile 轮换 API key，但 host 或 path 变化必须拒绝 poll/cancel，避免把原任务标识和凭据发送到另一个目标；v1 快照不能静默重绑定，须提示重新创建任务。
 
-`File`、`Blob`、base64、Authorization、API key、完整供应商响应和视频 chunks 禁止进入该状态。
+`File`、`Blob`、base64、Authorization、API key、完整供应商响应和视频 chunks 禁止进入该状态。参考音频在根任务可见前复制到 `jobId` 私有缓存，状态只保存上述轻量引用；素材库原音频被删除不影响已创建任务恢复。
 
 根任务总时长保存为专用元数据或最终 `TaskResult.duration`，不得写入普通视频提交的 `GenerationParams.duration`，避免现有 60 秒校验和截断。
 
@@ -115,6 +125,7 @@ Content-Type: multipart/form-data
 manifest=<versioned JSON>
 presentation=<optional pptx>
 slides[]=<optional ordered slide blobs>
+voice_references[]=<optional ordered voice sample blobs>
 ```
 
 ```http
@@ -126,6 +137,10 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 ```
 
 内部状态统一为 `queued | processing | completed | failed | cancelled`。只有 `completed` 且存在可用最终视频 URL 才能完成根任务。
+
+参考音频使用稳定、消毒后的 `assetName` 与 manifest speaker 显式关联，不依赖数组顺序或用户文件名。Binding 必须显式声明 `referenceAudioVoiceCloning: true` 才能接收该字段；缺省只兼容 `voiceId`。Manifest 只能包含供应商所需的 speaker 身份、`voiceId` 或 `voiceReference.assetName`，不得包含本地 `cacheUrl`、素材库 URL、Blob、base64 或授权文本。
+
+当前协议把声线克隆视为最终成片 Agent submit 的一个输入。如果真实供应商契约要求“先克隆得到远端 voiceId，再提交成片”，必须把 binding 升级为可恢复的两阶段协议并保存远端克隆 ID，不能静默把两阶段接口伪装成单次 multipart。
 
 如果绑定不支持最终成片，必须在上传 PPT、创建媒体子请求或产生计费前失败；不得退回现有浏览器合成器并假装成功。
 
@@ -159,12 +174,22 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 - 单人模式每页至少一个 turn，speaker 固定为第一个人
 - 双人模式每页可以有多个交替 turns，但 speaker 只能引用两个已配置 ID
 - 不设置每条发言或总讲稿时长硬上限
-- 空文本、未知 speaker、双人缺少第二声线、数字人缺少 avatar 均在远端 submit 前报错
+- 每位 speaker 的声音来源必须且只能是 `voiceId` 或参考音频；双人可分别选择不同来源
+- 空文本、未知 speaker、双人缺少第二声线、参考音频缺失/为空/非音频、数字人缺少 avatar 均在远端 submit 前报错
 - 文本模型输出必须经过结构化 JSON 解析和 schema 校验，不使用正则拼接 JSON
+
+### Decision: 参考音频只作为获得授权的任务输入
+
+- 直接上传使用 `audio/*` 入口，素材库选择复用 `AssetType.AUDIO`；不把任意 URL 作为参考音频输入
+- 选择素材库音频时读取其缓存 Blob，并立即复制到任务私有缓存，避免原素材后续删除导致任务失联
+- 不读取完整音频生成 base64，不在浏览器执行声纹克隆，不把新上传的隐私样本自动登记到素材库
+- 只校验非空音频结构与供应商声明的 MIME 能力，不新增产品级文件大小或时长硬限制
+- 出现任一参考音频时，配置界面必须要求“已获得声音本人明确授权”的必选确认；该授权使用与跳过大纲相同的 WeakMap 一次性 UI grant，Agent/MCP JSON 布尔值不能伪造
+- 任务仅保存授权接受时间作为审计事实，不保存声明正文；完成、取消、删除或创建失败时清理任务私有样本，失败可重试状态保留样本
 
 ### Decision: 能力与凭据在副作用前预检
 
-预检根据来源和 presenter mode 验证文本、图片、PPTX、voice、avatar、final composition 能力。任何必需 binding、模型、API key 或可执行路由缺失时，远端 submit 次数必须为零。
+预检根据来源、presenter mode 和声音来源验证文本、图片、PPTX、voice ID、参考音频克隆、avatar、final composition 能力。任何必需 binding、模型、API key 或可执行路由缺失时，缓存样本、生成讲稿和远端 submit 次数必须为零。
 
 任务只持久化 `providerProfileId`、`canonicalBaseUrl`、`modelRef` 和无密钥 binding snapshot。恢复、poll、cancel 固定使用原 route，不因默认供应商切换而漂移。Provider Transport 继续负责 Bearer/其他鉴权和可信 Tuzi 同源代理；Agent 参数不得接受任意 Authorization header 或上传目标。
 
@@ -209,7 +234,9 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 - Worker 仍需完整读取 PPTX 源 Blob
   - Mitigation: 解压和渲染隔离在单 Worker 并全局串行；当前 `Blob.arrayBuffer()` 会产生一次源文件级内存峰值，供应商未提供流式 OOXML 解析契约前不宣称完全流式
 - 单次 multipart 页图上传仍可能由浏览器 `FormData` 保留全部 Blob
-  - Mitigation: 缓存读取改为异步串行并及时释放局部引用，提交全局排队；真实峰值仍取决于浏览器 FormData 实现，待供应商提供可恢复分片协议后才能进一步降低
+  - Mitigation: 页图和参考音频缓存读取改为异步串行并及时释放局部引用，提交全局排队；真实峰值仍取决于浏览器 FormData 实现，待供应商提供可恢复分片协议后才能进一步降低
+- 局域网 HTTP 环境可能缺少 Cache Storage
+  - Mitigation: 任务私有产物缓存提供 IndexedDB Blob fallback，保持轻量 URL 引用和统一清理，不退回 base64
 - 远端不支持 cancel
   - Mitigation: 本地立即终止后续工作并屏蔽迟到结果，明确远端可能继续计费
 - 供应商 CORS 或浏览器请求策略阻止直连
