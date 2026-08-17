@@ -34,6 +34,14 @@ vi.mock('../tool-button', () => ({
   ),
 }));
 
+vi.mock('../task-pet/TaskPetCompanion', () => ({
+  TaskPetCompanion: () => <button data-testid="toolbar-task-pet" />,
+}));
+
+vi.mock('../local-data-clear/LocalDataClearDialog', () => ({
+  LocalDataClearDialog: () => null,
+}));
+
 describe('BottomActionsSection', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -49,8 +57,11 @@ describe('BottomActionsSection', () => {
     container.remove();
   });
 
-  function renderSection(showLocalDataClear: boolean) {
-    act(() => {
+  async function renderSection(
+    showLocalDataClear: boolean,
+    showTaskPet = false
+  ) {
+    await act(async () => {
       root.render(
         <BottomActionsSection
           projectDrawerOpen={false}
@@ -60,13 +71,24 @@ describe('BottomActionsSection', () => {
           taskPanelExpanded={false}
           onTaskPanelToggle={vi.fn()}
           showLocalDataClear={showLocalDataClear}
+          taskPet={
+            showTaskPet
+              ? {
+                  state: 'idle',
+                  message: null,
+                  activeCount: 0,
+                  motionEnabled: true,
+                }
+              : null
+          }
         />
       );
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
   }
 
-  it('renders the local data clear button for desktop toolbar', () => {
-    renderSection(true);
+  it('renders the local data clear button for desktop toolbar', async () => {
+    await renderSection(true);
 
     const taskButton = container.querySelector('[data-testid="toolbar-tasks"]');
     const button = container.querySelector(
@@ -83,11 +105,28 @@ describe('BottomActionsSection', () => {
     );
   });
 
-  it('hides the local data clear button when desktop entry is disabled', () => {
-    renderSection(false);
+  it('hides the local data clear button when desktop entry is disabled', async () => {
+    await renderSection(false);
 
     expect(
       container.querySelector('[data-testid="toolbar-clear-local-data"]')
     ).toBeNull();
+  });
+
+  it('renders the task pet immediately before the local data clear button', async () => {
+    await renderSection(true, true);
+
+    const petButton = container.querySelector(
+      '[data-testid="toolbar-task-pet"]'
+    );
+    const clearButton = container.querySelector(
+      '[data-testid="toolbar-clear-local-data"]'
+    );
+
+    expect(petButton).not.toBeNull();
+    expect(
+      petButton?.compareDocumentPosition(clearButton as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });

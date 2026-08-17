@@ -154,9 +154,22 @@ export interface TtsSettings {
   voicesByLanguage?: Record<string, string>;
 }
 
+export interface TaskPetSettings {
+  version: 1;
+  enabled: boolean;
+  motionEnabled: boolean;
+  speechEnabled: boolean;
+  taskTypes: {
+    text: boolean;
+    image: boolean;
+    video: boolean;
+  };
+}
+
 export interface AppSettings {
   gemini: GeminiSettings;
   tts: TtsSettings;
+  taskPet: TaskPetSettings;
   providerProfiles: ProviderProfile[];
   providerCatalogs: ProviderCatalog[];
   providerPricingCache: ProviderPricingCache[];

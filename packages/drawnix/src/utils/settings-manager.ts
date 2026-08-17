@@ -27,6 +27,7 @@ import {
   type ResolvedInvocationRoute,
   type RouteConfig,
   type SettingsMigrations,
+  type TaskPetSettings,
   type TtsSettings,
 } from './settings-types';
 import {
@@ -56,6 +57,7 @@ export {
   type ResolvedInvocationRoute,
   type RouteConfig,
   type SettingsMigrations,
+  type TaskPetSettings,
   type TtsSettings,
 } from './settings-types';
 
@@ -87,6 +89,18 @@ const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   supportsTools: true,
 };
 
+export const DEFAULT_TASK_PET_SETTINGS: TaskPetSettings = {
+  version: 1,
+  enabled: true,
+  motionEnabled: true,
+  speechEnabled: false,
+  taskTypes: {
+    text: true,
+    image: true,
+    video: true,
+  },
+};
+
 // 默认设置
 const DEFAULT_SETTINGS: AppSettings = {
   gemini: {
@@ -105,6 +119,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     volume: 1,
     voicesByLanguage: {},
   },
+  taskPet: DEFAULT_TASK_PET_SETTINGS,
   providerProfiles: [],
   providerCatalogs: [],
   providerPricingCache: [],
@@ -394,6 +409,42 @@ class SettingsManager {
       legacyDefaultImageApiCompatibilityV1:
         migrations.legacyDefaultImageApiCompatibilityV1 === true,
       legacyDefaultImageModelV1: migrations.legacyDefaultImageModelV1 === true,
+    };
+  }
+
+  private normalizeTaskPetSettings(value: unknown): TaskPetSettings {
+    const fallback = this.cloneValue(DEFAULT_TASK_PET_SETTINGS);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return fallback;
+    }
+
+    const candidate = value as Partial<TaskPetSettings>;
+    const taskTypes = candidate.taskTypes;
+    if (
+      candidate.version !== 1 ||
+      typeof candidate.enabled !== 'boolean' ||
+      typeof candidate.motionEnabled !== 'boolean' ||
+      typeof candidate.speechEnabled !== 'boolean' ||
+      !taskTypes ||
+      typeof taskTypes !== 'object' ||
+      Array.isArray(taskTypes) ||
+      typeof taskTypes.text !== 'boolean' ||
+      typeof taskTypes.image !== 'boolean' ||
+      typeof taskTypes.video !== 'boolean'
+    ) {
+      return fallback;
+    }
+
+    return {
+      version: 1,
+      enabled: candidate.enabled,
+      motionEnabled: candidate.motionEnabled,
+      speechEnabled: candidate.speechEnabled,
+      taskTypes: {
+        text: taskTypes.text,
+        image: taskTypes.image,
+        video: taskTypes.video,
+      },
     };
   }
 
@@ -1026,6 +1077,7 @@ class SettingsManager {
   }
 
   private normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+    const rawTaskPetSettings = settings?.taskPet;
     const mergedSettings = this.deepMerge(
       this.createDefaultSettings(),
       settings || {}
@@ -1044,6 +1096,7 @@ class SettingsManager {
           mergedSettings.tts?.voicesByLanguage
         ),
       },
+      taskPet: this.normalizeTaskPetSettings(rawTaskPetSettings),
       providerProfiles: this.normalizeProviderProfiles(
         mergedSettings.providerProfiles
       ),
@@ -1369,9 +1422,7 @@ class SettingsManager {
       if (storedSettings) {
         hasStoredSettings = true;
         const parsedSettings = JSON.parse(storedSettings);
-        settings = this.normalizeSettings(
-          this.deepMerge(settings, parsedSettings)
-        );
+        settings = this.normalizeSettings(parsedSettings);
       }
     } catch (error) {
       console.warn('Failed to load settings from localStorage:', error);
@@ -1651,8 +1702,17 @@ class SettingsManager {
    */
   public async updateSettings(updates: Partial<AppSettings>): Promise<void> {
     const oldSettings = this.cloneValue(this.settings);
+    const normalizedUpdates = Object.prototype.hasOwnProperty.call(
+      updates,
+      'taskPet'
+    )
+      ? {
+          ...updates,
+          taskPet: this.normalizeTaskPetSettings(updates.taskPet),
+        }
+      : updates;
     this.settings = this.normalizeSettings(
-      this.deepMerge(this.settings, updates)
+      this.deepMerge(this.settings, normalizedUpdates)
     );
     await this.saveToStorage();
     this.notifySettingsChange(oldSettings, this.settings, '');
@@ -2115,6 +2175,36 @@ export const ttsSettings = {
   },
   removeListener: (listener: SettingsListener<TtsSettings>) => {
     settingsManager.removeListener('tts', listener);
+  },
+};
+
+export const taskPetSettings = {
+  get: () => settingsManager.getSetting<TaskPetSettings>('taskPet'),
+  update: async (
+    updates: Partial<Omit<TaskPetSettings, 'version' | 'taskTypes'>> & {
+      taskTypes?: Partial<TaskPetSettings['taskTypes']>;
+    }
+  ) => {
+    const current =
+      settingsManager.getSetting<TaskPetSettings>('taskPet') ||
+      DEFAULT_TASK_PET_SETTINGS;
+    await settingsManager.updateSettings({
+      taskPet: {
+        ...current,
+        ...updates,
+        version: 1,
+        taskTypes: {
+          ...current.taskTypes,
+          ...(updates.taskTypes || {}),
+        },
+      },
+    });
+  },
+  addListener: (listener: SettingsListener<TaskPetSettings>) => {
+    settingsManager.addListener('taskPet', listener);
+  },
+  removeListener: (listener: SettingsListener<TaskPetSettings>) => {
+    settingsManager.removeListener('taskPet', listener);
   },
 };
 

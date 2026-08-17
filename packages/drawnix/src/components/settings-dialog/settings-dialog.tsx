@@ -3,6 +3,8 @@ import { useDeviceType } from '../../hooks/useDeviceType';
 import './settings-dialog.scss';
 import {
   memo,
+  lazy,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -118,10 +120,16 @@ import {
   type TuziApiEndpointSource,
 } from '../../services/provider-routing/tuzi-api-endpoints';
 
+const TaskPetSettingsPanel = lazy(() =>
+  import('../task-pet/TaskPetSettingsPanel').then((module) => ({
+    default: module.TaskPetSettingsPanel,
+  }))
+);
+
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
 
-type SettingsView = 'providers' | 'presets' | 'canvas' | 'speech';
+type SettingsView = 'providers' | 'presets' | 'canvas' | 'taskPet' | 'speech';
 type CompactPanelMode = 'catalog' | 'detail';
 type EndpointSelectionMode = 'auto' | 'manual';
 type EndpointLatency = number | 'failed' | null;
@@ -174,6 +182,7 @@ const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
   { value: 'providers', label: '供应商' },
   { value: 'presets', label: '模型预设' },
   { value: 'canvas', label: '画布显示' },
+  { value: 'taskPet', label: '任务灵宠' },
   { value: 'speech', label: '语音播放' },
 ];
 
@@ -4692,6 +4701,20 @@ export const SettingsDialog = ({
 
     if (activeView === 'speech') {
       return <TtsSettingsPanel />;
+    }
+
+    if (activeView === 'taskPet') {
+      return (
+        <Suspense
+          fallback={
+            <div className="settings-dialog__empty-panel" role="status">
+              正在加载任务灵宠设置…
+            </div>
+          }
+        >
+          <TaskPetSettingsPanel />
+        </Suspense>
+      );
     }
 
     if (activeView === 'presets') {

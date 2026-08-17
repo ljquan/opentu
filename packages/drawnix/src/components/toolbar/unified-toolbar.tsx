@@ -19,6 +19,8 @@ import { useDeviceType } from '../../hooks/useDeviceType';
 import { AIImageIcon, AIVideoIcon } from '../icons';
 import { DialogType, useDrawnix } from '../../hooks/use-drawnix';
 import { HoverTip } from '../shared/hover';
+import { taskPetSettings } from '../../utils/settings-manager';
+import { useTaskPetController } from '../task-pet/use-task-pet-controller';
 
 const TaskQueuePanel = lazy(() =>
   import('../task-queue/TaskQueuePanel').then((module) => ({
@@ -166,6 +168,9 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     const [isToolbarDragging, setIsToolbarDragging] = useState(false);
     const [isTaskPanelAnimationReady, setIsTaskPanelAnimationReady] =
       useState(false);
+    const [taskPetConfig, setTaskPetConfig] = useState(() =>
+      taskPetSettings.get()
+    );
     const hasEverExpanded = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollableRef = useRef<HTMLDivElement>(null);
@@ -176,6 +181,18 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
       startX: number;
       startLeft: number;
     } | null>(null);
+    const taskPetPresentation = useTaskPetController(taskPetConfig);
+
+    useEffect(() => {
+      const handleTaskPetSettingsChange = (
+        nextSettings: typeof taskPetConfig
+      ) => {
+        setTaskPetConfig(nextSettings);
+      };
+
+      taskPetSettings.addListener(handleTaskPetSettingsChange);
+      return () => taskPetSettings.removeListener(handleTaskPetSettingsChange);
+    }, []);
 
     // 检测设备类型
     const { isMobile: isSmallScreen, isTablet } = useDeviceType();
@@ -567,6 +584,14 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
               onToolboxDrawerToggle={onToolboxDrawerToggle}
               taskPanelExpanded={taskPanelExpanded}
               onTaskPanelToggle={handleTaskPanelToggle}
+              taskPet={
+                taskPetConfig.enabled
+                  ? {
+                      ...taskPetPresentation,
+                      motionEnabled: taskPetConfig.motionEnabled,
+                    }
+                  : null
+              }
               showLocalDataClear={!isMobileOrTablet}
             />
           </div>
