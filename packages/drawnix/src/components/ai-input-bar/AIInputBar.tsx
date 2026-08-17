@@ -1893,6 +1893,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
+    const [isBoundTargetDismissMenuOpen, setIsBoundTargetDismissMenuOpen] =
+      useState(false);
     const [boundInputLayoutTick, setBoundInputLayoutTick] = useState(0);
     const [uploadedContent, setUploadedContent] = useState<SelectedContent[]>(
       []
@@ -7367,6 +7369,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         ? followedBoundImageTarget
         : null;
     const followControlsTargetType = followControlsTarget?.type;
+    useEffect(() => {
+      setIsBoundTargetDismissMenuOpen(false);
+    }, [
+      boundTargetFollowEnabled,
+      followControlsTarget?.elementId,
+      isSubmitting,
+    ]);
     const boundTargetFollowCopy = useMemo(() => {
       if (language === 'zh') {
         if (followControlsTargetType === 'text') {
@@ -7485,6 +7494,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               trigger="hover"
               placement="top-right"
               minColumnWidth={190}
+              popupProps={{
+                visible: isBoundTargetDismissMenuOpen,
+                onVisibleChange: setIsBoundTargetDismissMenuOpen,
+              }}
               onClick={(data) =>
                 handleDismissBoundTarget(data.value as BoundTargetDismissMode)
               }
@@ -7495,10 +7508,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 aria-label={
                   language === 'zh' ? '选择跟随方式' : 'Choose follow behavior'
                 }
+                aria-haspopup="menu"
+                aria-expanded={isBoundTargetDismissMenuOpen}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                 }}
+                onClick={() => setIsBoundTargetDismissMenuOpen(true)}
                 disabled={isSubmitting}
               >
                 <ChevronDown size={14} aria-hidden="true" />
