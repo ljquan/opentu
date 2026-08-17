@@ -111,8 +111,6 @@ export interface SWTask {
  * 提供直接写入 IndexedDB 的能力，用于降级模式。
  */
 class TaskStorageWriter {
-  private db: IDBDatabase | null = null;
-  private dbPromise: Promise<IDBDatabase> | null = null;
   private writesPaused = false;
 
   pauseWrites(): void {
@@ -127,26 +125,7 @@ class TaskStorageWriter {
    * 获取数据库连接
    */
   private async getDB(): Promise<IDBDatabase> {
-    if (this.db) {
-      return this.db;
-    }
-
-    if (this.dbPromise) {
-      return this.dbPromise;
-    }
-
-    this.dbPromise = getAppDB()
-      .then((db) => {
-        this.db = db;
-        this.dbPromise = null;
-        return db;
-      })
-      .catch((error) => {
-        this.dbPromise = null;
-        throw error;
-      });
-
-    return this.dbPromise;
+    return getAppDB();
   }
 
   /**
@@ -722,14 +701,10 @@ class TaskStorageWriter {
   }
 
   /**
-   * 关闭数据库连接
+   * 数据库连接由 app-database 集中管理。
    */
   close(): void {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-    }
-    this.dbPromise = null;
+    // no-op: closeAppDB() owns the shared connection lifecycle.
   }
 }
 
