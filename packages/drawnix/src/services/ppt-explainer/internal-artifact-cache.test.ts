@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 import { IDBKeyRange, indexedDB } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,6 +10,9 @@ import {
 
 describe('PPT explainer internal artifact cache', () => {
   beforeEach(() => {
+    // fake-indexeddb relies on Node's structured clone, which cannot clone
+    // jsdom's Blob implementation and otherwise persists it as an empty object.
+    vi.stubGlobal('Blob', NodeBlob);
     vi.stubGlobal('caches', undefined);
     vi.stubGlobal('indexedDB', indexedDB);
     vi.stubGlobal('IDBKeyRange', IDBKeyRange);
