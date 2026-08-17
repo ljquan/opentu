@@ -138,7 +138,9 @@ export function validatePptExplainerDialogDraft(
   }
   for (const [index, speaker] of activeSpeakers.entries()) {
     if (!speaker.displayName.trim()) return `请填写讲解者 ${index + 1} 的名称`;
-    if (!speaker.voiceId.trim()) return `请选择讲解者 ${index + 1} 的声音`;
+    if (!speaker.voiceId.trim()) {
+      return `请输入讲解者 ${index + 1} 的声音 ID`;
+    }
     if (needsAvatar(draft.presenterMode) && !speaker.avatarChoice.trim()) {
       return `请选择讲解者 ${index + 1} 的数字人`;
     }
@@ -513,16 +515,13 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                     }
                   />
                   <div className="ppt-explainer-dialog__voice">
-                    <Select
-                      value={speaker.voiceId || undefined}
-                      placeholder="输入或选择声音 ID"
-                      options={[]}
-                      filterable
-                      creatable
+                    <Input
+                      value={speaker.voiceId}
+                      placeholder="输入供应商声音 ID"
                       disabled={loading}
                       onChange={(voiceId) =>
                         updateSpeaker(index, {
-                          voiceId: String(voiceId || ''),
+                          voiceId,
                         })
                       }
                     />
@@ -547,6 +546,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                 </div>
               ))}
             </div>
+            <p className="ppt-explainer-dialog__field-hint">
+              请填写兔子 PPT 讲解服务提供的 voice ID；当前供应商未声明声音目录时不会展示候选项。
+            </p>
           </section>
         </div>
       </Dialog>

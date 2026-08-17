@@ -180,7 +180,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(true);
     const { onCreate, onClose } = renderDialog();
 
-    fireEvent.change(screen.getByPlaceholderText('输入或选择声音 ID'), {
+    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
     fireEvent.click(screen.getByRole('radio', { name: '直接生成' }));
@@ -217,7 +217,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(false);
     const { onCreate, onClose } = renderDialog();
 
-    const voiceInput = screen.getByPlaceholderText('输入或选择声音 ID');
+    const voiceInput = screen.getByPlaceholderText('输入供应商声音 ID');
     fireEvent.change(voiceInput, { target: { value: 'voice-host' } });
     fireEvent.click(screen.getByRole('radio', { name: '直接生成' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
@@ -234,7 +234,7 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(false);
     const { onCreate } = renderDialog({ hasExistingPpt: true });
 
-    fireEvent.change(screen.getByPlaceholderText('输入或选择声音 ID'), {
+    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
@@ -259,7 +259,7 @@ describe('PptExplainerDialog', () => {
     );
     renderDialog({ onCreate });
 
-    fireEvent.change(screen.getByPlaceholderText('输入或选择声音 ID'), {
+    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
       target: { value: 'voice-host' },
     });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
@@ -345,11 +345,14 @@ describe('PptExplainerDialog', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: '双数字人' }));
 
-    const voiceInputs = screen.getAllByPlaceholderText('输入或选择声音 ID');
+    const voiceInputs = screen.getAllByPlaceholderText('输入供应商声音 ID');
     expect(voiceInputs).toHaveLength(2);
     for (const input of voiceInputs) {
       expect(input.closest('.ppt-explainer-dialog__voice')).not.toBeNull();
     }
+    expect(
+      screen.getByText(/请填写兔子 PPT 讲解服务提供的 voice ID/)
+    ).not.toBeNull();
 
     const avatarInputs = screen.getAllByPlaceholderText(
       '选择数字人素材或输入 ID / URL'
