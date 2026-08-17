@@ -84,6 +84,7 @@ import {
 } from '../../types/asset.types';
 import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import { ModelDropdown } from './ModelDropdown';
+import { PptExplainerDialog } from './PptExplainerDialog';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { HoverTip } from '../shared/hover';
 import { ParametersDropdown } from './ParametersDropdown';
@@ -119,6 +120,7 @@ import { setCanvasBoard as setMcpCanvasBoard } from '../../mcp/tools/canvas-inse
 import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
+import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -1583,7 +1585,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       history: promptHistory,
       removeHistory: deletePromptHistory,
     } = usePromptHistory();
-    const { addAsset } = useAssets();
+    const { addAsset, assets } = useAssets();
     const { confirm, confirmDialog } = useConfirmDialog();
     // 使用 ref 存储，避免依赖变化
     const sendWorkflowMessageRef = useRef(
@@ -1911,6 +1913,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [canvasAssociationTrigger, setCanvasAssociationTrigger] =
       useState<CanvasAssociationTrigger | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false); // 防止快速重复点击（3秒防抖）
+    const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
     const submitLockRef = useRef(false);
     const submitCooldownRef = useRef<NodeJS.Timeout | null>(null); // 提交冷却定时器
     const [isFocused, setIsFocused] = useState(false);
@@ -4698,6 +4701,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [clearTriggerSymbol]
     );
 
+    const handleCreatePptExplainerTask = useCallback(
+      async (input: Parameters<typeof createPptExplainerTask>[0]) => {
+        onEnableRuntime?.();
+        return createPptExplainerTask(input);
+      },
+      [onEnableRuntime]
+    );
+
     // Handle generation
     const handleGenerate = useCallback(
       async (
@@ -4889,6 +4900,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? []
           : knowledgeContextRefs;
         const trimmedPrompt = effectivePrompt.trim();
+
+        if (
+          !override &&
+          effectiveGenerationType === 'agent' &&
+          selectedSkillId === 'generate_ppt_explainer_video'
+        ) {
+          setPptExplainerDialogOpen(true);
+          return;
+        }
 
         if (
           !trimmedPrompt &&
@@ -7230,9 +7250,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedModelRef?.profileId,
       ]
     );
+    const isPptExplainerSkillSelected =
+      generationType === 'agent' &&
+      selectedSkillId === 'generate_ppt_explainer_video';
+    const hasExistingPpt = Boolean(
+      (SelectionWatcherBoardRef.current as PlaitBoard | null)?.children.some(
+        (element) =>
+          isFrameElement(element) &&
+          Boolean((element as PlaitElement & { pptMeta?: unknown }).pptMeta)
+      )
+    );
     const canGenerate =
       !canvasAssociationTrigger &&
-      (prompt.trim().length > 0 ||
+      (isPptExplainerSkillSelected ||
+        prompt.trim().length > 0 ||
         generationContent.length > 0 ||
         canvasAssociationRefs.length > 0);
     const shouldHighlightInspirationSend =
@@ -7448,6 +7479,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     return (
       <>
         {confirmDialog}
+        {pptExplainerDialogOpen ? (
+          <PptExplainerDialog
+            open
+            sourceBoardId={currentBoardId}
+            hasExistingPpt={hasExistingPpt}
+            initialTopic={promptRef.current}
+            textModel={selectedModel}
+            textModelRef={selectedModelRef}
+            imageModel={selectedAgentImageModel}
+            imageModelRef={selectedAgentImageModelRef}
+            videoModel={selectedAgentVideoModel}
+            videoModelRef={selectedAgentVideoModelRef}
+            avatarAssets={assets}
+            onCreate={handleCreatePptExplainerTask}
+            onClose={() => setPptExplainerDialogOpen(false)}
+          />
+        ) : null}
         <div
           ref={containerRef}
           className={classNames(

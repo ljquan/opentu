@@ -7,6 +7,7 @@
 
 import type { ModelRef } from '../../utils/settings-manager';
 import type { GenerationParams } from '../../types/shared/core.types';
+import type { TaskResultVisibility } from '../../types/shared/core.types';
 
 // Re-export core types
 export { TaskStatus, TaskType } from '../../types/shared/core.types';
@@ -38,6 +39,10 @@ export interface ImageGenerationOptions {
   params?: Record<string, unknown>;
   assetMetadata?: GenerationParams['assetMetadata'];
   promptMeta?: GenerationParams['promptMeta'];
+  /** 控制生成结果是否投影到素材库和画布。 */
+  resultVisibility?: TaskResultVisibility;
+  /** 是否允许通用自动插入链路把结果加入画布。 */
+  autoInsertToCanvas?: boolean;
   signal?: AbortSignal;
   /** 强制使用主线程（跳过 SW） */
   forceMainThread?: boolean;

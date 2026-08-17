@@ -137,7 +137,8 @@ function focusOnFrame(board: PlaitBoard, frame: PlaitFrame): void {
  */
 async function generatePPTOutline(
   topic: string,
-  options: PPTGenerationParams
+  options: PPTGenerationParams,
+  signal?: AbortSignal
 ): Promise<PPTOutline> {
   const settings = geminiSettings.get();
   const textModel =
@@ -193,7 +194,7 @@ async function generatePPTOutline(
   const response = await defaultGeminiClient.sendChat(
     messages,
     undefined,
-    undefined,
+    signal,
     textModel
   );
 
@@ -213,7 +214,8 @@ function createPPTPage(
   pageSpec: PPTPageSpec,
   pageIndex: number,
   framePosition: Point,
-  generateOptions: PPTGenerationParams
+  generateOptions: PPTGenerationParams,
+  pptExplainerJobId?: string
 ): { frame: PlaitFrame; slidePrompt: string } {
   const referenceImages = normalizePPTReferenceImages(
     generateOptions.referenceImages
@@ -238,6 +240,7 @@ function createPPTPage(
     promptOptions
   );
   const pptMeta: PPTFrameMeta = {
+    ...(pptExplainerJobId ? { pptExplainerJobId } : {}),
     deckTitle: outline.title,
     layout: pageSpec.layout,
     pageIndex,
@@ -266,12 +269,74 @@ function createPPTPage(
   return { frame, slidePrompt };
 }
 
+export interface MaterializePPTOutlineOptions {
+  pptExplainerJobId?: string;
+  signal?: AbortSignal;
+  focusFirstFrame?: boolean;
+  openEditor?: boolean;
+  onReplaced?: (count: number) => void;
+  onPageCreated?: (created: number, total: number) => void;
+}
+
+export interface MaterializedPPTOutline {
+  frames: PlaitFrame[];
+  replacedFrameCount: number;
+}
+
+/**
+ * Replace the board's current PPT with an already validated outline without
+ * another model call. PPT explainer recovery uses this to restore its own
+ * draft after another topic task temporarily replaced the visible outline.
+ */
+export function materializePPTOutline(
+  board: PlaitBoard,
+  outline: PPTOutline,
+  generateOptions: PPTGenerationParams,
+  options: MaterializePPTOutlineOptions = {}
+): MaterializedPPTOutline {
+  options.signal?.throwIfAborted();
+  const replacedFrameCount = replaceExistingPPTOutline(board);
+  options.onReplaced?.(replacedFrameCount);
+
+  const startPosition = calcPPTFrameInsertionStartPosition(board);
+  const framePositions = getPPTFrameGridPositions(
+    outline.pages.length,
+    startPosition,
+    loadPPTFrameLayoutColumns()
+  );
+  const frames: PlaitFrame[] = new Array(outline.pages.length);
+
+  for (let index = 0; index < outline.pages.length; index += 1) {
+    options.signal?.throwIfAborted();
+    const { frame } = createPPTPage(
+      board,
+      outline,
+      outline.pages[index],
+      index + 1,
+      framePositions[index],
+      generateOptions,
+      options.pptExplainerJobId
+    );
+    frames[index] = frame;
+    options.onPageCreated?.(index + 1, outline.pages.length);
+  }
+
+  if (options.focusFirstFrame !== false && frames[0]) {
+    focusOnFrame(board, frames[0]);
+  }
+  if (options.openEditor !== false) {
+    requestOpenPPTEditor({ viewMode: 'outline' });
+  }
+  return { frames, replacedFrameCount };
+}
+
 /**
  * 执行 PPT 生成
  */
 async function executePPTGeneration(
   params: PPTGenerationParams,
-  options: MCPExecuteOptions
+  options: MCPExecuteOptions,
+  context: { pptExplainerJobId?: string } = {}
 ): Promise<MCPResult> {
   const { topic, pageCount, language, extraRequirements } = params;
   const startTime = Date.now();
@@ -346,10 +411,15 @@ async function executePPTGeneration(
     }
 
     // 1. 生成大纲
-    const outline = await generatePPTOutline(topic, {
-      ...params,
-      referenceImages: rawReferenceImages,
-    });
+    const outline = await generatePPTOutline(
+      topic,
+      {
+        ...params,
+        referenceImages: rawReferenceImages,
+      },
+      options.signal
+    );
+    options.signal?.throwIfAborted();
 
     options.onChunk?.(`\n\n✓ 大纲生成完成，共 ${outline.pages.length} 页\n\n`);
     options.onChunk?.(`📑 **PPT 结构**：\n`);
@@ -362,54 +432,27 @@ async function executePPTGeneration(
       );
     });
 
-    const replacedFrameCount = replaceExistingPPTOutline(board);
-    if (replacedFrameCount > 0) {
-      options.onChunk?.(
-        `\n已替换画布中原有 ${replacedFrameCount} 个 PPT 页面及其内容。\n`
-      );
-    }
-
     options.onChunk?.(`\n正在创建 PPT 页面并填充提示词...\n\n`);
-
-    // 2. 预计算所有 Frame 位置（按用户设置的每行数量网格排列）
-    const startPosition = calcPPTFrameInsertionStartPosition(board);
-    const framePositions = getPPTFrameGridPositions(
-      outline.pages.length,
-      startPosition,
-      loadPPTFrameLayoutColumns()
+    const { frames: createdFrames, replacedFrameCount } = materializePPTOutline(
+      board,
+      outline,
+      generationParams,
+      {
+        pptExplainerJobId: context.pptExplainerJobId,
+        signal: options.signal,
+        onReplaced: (count) => {
+          if (count > 0) {
+            options.onChunk?.(
+              `\n已替换画布中原有 ${count} 个 PPT 页面及其内容。\n`
+            );
+          }
+        },
+        onPageCreated: (created, total) => {
+          options.onChunk?.(`✓ 第 ${created}/${total} 页已创建\n`);
+        },
+      }
     );
-
-    // 3. 按顺序创建 Frame（insertFrame 追加到末尾，故正序创建即可）
-    const createdFrames: PlaitFrame[] = new Array(outline.pages.length);
-    let createdCount = 0;
-
-    for (let i = 0; i < outline.pages.length; i++) {
-      const pageSpec = outline.pages[i];
-      const pageIndex = i + 1;
-      const framePosition = framePositions[i];
-
-      const { frame } = createPPTPage(
-        board,
-        outline,
-        pageSpec,
-        pageIndex,
-        framePosition,
-        generationParams
-      );
-      createdFrames[i] = frame;
-
-      createdCount++;
-      options.onChunk?.(
-        `✓ 第 ${createdCount}/${outline.pages.length} 页已创建\n`
-      );
-    }
-
-    // 4. 聚焦到第一个 Frame（封面页）
-    if (createdFrames[0]) {
-      focusOnFrame(board, createdFrames[0]);
-    }
-
-    requestOpenPPTEditor({ viewMode: 'outline' });
+    const createdCount = createdFrames.length;
     analytics.trackPPTAction({
       action: 'generate_outline',
       source: 'mcp_generate_ppt',
@@ -615,10 +658,15 @@ export const pptGenerationTool: MCPTool = {
  */
 export async function generatePPT(
   params: PPTGenerationParams,
-  options?: Omit<MCPExecuteOptions, 'mode'>
+  options?: Omit<MCPExecuteOptions, 'mode'> & {
+    /** Trusted main-thread ownership marker; never exposed in the MCP schema. */
+    pptExplainerJobId?: string;
+  }
 ): Promise<MCPResult> {
-  return pptGenerationTool.execute(
-    params as unknown as Record<string, unknown>,
-    { ...options, mode: 'async' }
+  const { pptExplainerJobId, ...executeOptions } = options || {};
+  return executePPTGeneration(
+    params,
+    { ...executeOptions, mode: 'async' },
+    { pptExplainerJobId }
   );
 }

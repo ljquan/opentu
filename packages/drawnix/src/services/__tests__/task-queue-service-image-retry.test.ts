@@ -34,7 +34,7 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     clearAllTasks: vi.fn(async () => {
       storedTasks.clear();
     }),
-    archiveTasks: vi.fn(async () => {}),
+    archiveTasks: vi.fn(async () => undefined),
     invalidateCache: vi.fn(),
     updateStatus: vi.fn(
       async (taskId: string, status: string, expectedRequestId?: string) => {
@@ -155,6 +155,8 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     })),
     cacheRemoteUrl: vi.fn(async (url: string) => url),
     stopImageRecovery: vi.fn(),
+    cancelPptExplainerRemoteTask: vi.fn(async () => undefined),
+    cleanupPptExplainerTask: vi.fn(async () => undefined),
   };
 
   const waitForTaskCompletion = vi.fn(async (taskId: string, options?: any) => {
@@ -363,11 +365,16 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     cacheRemoteUrl: mocks.cacheRemoteUrl,
   }));
 
+  vi.doMock('../ppt-explainer/orchestrator', () => ({
+    cancelPptExplainerRemoteTask: mocks.cancelPptExplainerRemoteTask,
+    cleanupPptExplainerTask: mocks.cleanupPptExplainerTask,
+  }));
+
   vi.doMock('../unified-cache-service', () => ({
     unifiedCacheService: {
       getImageForAI: vi.fn(),
       isCached: vi.fn(async () => false),
-      cacheMediaFromBlob: vi.fn(async () => {}),
+      cacheMediaFromBlob: vi.fn(async () => undefined),
     },
   }));
 
@@ -439,6 +446,64 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
       ...mocks,
       waitForTaskCompletion,
     },
+  };
+}
+
+function createPptExplainerLifecycleTask(
+  id: string,
+  status: TaskStatus,
+  options: {
+    remoteId?: string;
+    cancelBinding?: boolean;
+    updatedAt?: number;
+  } = {}
+): Task {
+  return {
+    id,
+    type: TaskType.VIDEO,
+    status,
+    remoteId: options.remoteId,
+    executionPhase:
+      status === TaskStatus.PROCESSING
+        ? options.remoteId
+          ? TaskExecutionPhase.POLLING
+          : TaskExecutionPhase.SUBMITTING
+        : undefined,
+    params: {
+      prompt: `PPT explainer lifecycle ${id}`,
+      model: 'video-model',
+      pptExplainer: {
+        schemaVersion: 1,
+        jobId: `job-${id}`,
+        source: 'pptx',
+        stage:
+          status === TaskStatus.CANCELLED
+            ? 'cancelled'
+            : status === TaskStatus.COMPLETED
+            ? 'completed'
+            : status === TaskStatus.FAILED
+            ? 'failed'
+            : options.remoteId
+            ? 'polling'
+            : 'submitting',
+        remoteId: options.remoteId,
+        idempotencyKey: `idem-${id}`,
+        diagnostics: [],
+        pptxImport: { status: 'completed' },
+        originalRoute: {
+          binding: {
+            pptExplainer: options.cancelBinding
+              ? { cancel: { method: 'POST' } }
+              : {},
+          },
+        },
+      },
+    },
+    createdAt: 1,
+    updatedAt: options.updatedAt ?? 1,
+    ...(status === TaskStatus.COMPLETED || status === TaskStatus.FAILED
+      ? { completedAt: options.updatedAt ?? 1 }
+      : {}),
   };
 }
 
@@ -1411,6 +1476,7 @@ describe('task-queue-service image edit retry persistence', () => {
         referenceImages: ['data:image/png;base64,source'],
         maskImage: 'data:image/png;base64,mask',
         outputFormat: 'png',
+        resultVisibility: 'internal',
       },
       TaskType.IMAGE
     );
@@ -1435,6 +1501,7 @@ describe('task-queue-service image edit retry persistence', () => {
       referenceImages: ['data:image/png;base64,source'],
       maskImage: 'data:image/png;base64,mask',
       outputFormat: 'png',
+      resultVisibility: 'internal',
     });
     expect(storedTasks.get(task.id)?.params.referenceImages).toEqual([
       'data:image/png;base64,source',
@@ -1721,5 +1788,400 @@ describe('task-queue-service image edit retry persistence', () => {
     ).toBe('happyhorse-profile');
 
     subscription.unsubscribe();
+  });
+
+  it('cancels a PPT explainer locally before invoking optional remote cancel', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    let statusObservedByRemoteCancel: TaskStatus | undefined;
+    mocks.cancelPptExplainerRemoteTask.mockImplementationOnce(async (task) => {
+      statusObservedByRemoteCancel = task.status;
+    });
+    const task: Task = {
+      id: 'ppt-explainer-cancel',
+      type: TaskType.VIDEO,
+      status: TaskStatus.PROCESSING,
+      remoteId: 'remote-cancel',
+      executionPhase: TaskExecutionPhase.POLLING,
+      params: {
+        prompt: 'PPT explainer cancellation',
+        model: 'video-model',
+        pptExplainer: {
+          schemaVersion: 1,
+          jobId: 'job-cancel',
+          stage: 'polling',
+          remoteId: 'remote-cancel',
+          idempotencyKey: 'idem-cancel',
+          diagnostics: [],
+          originalRoute: { binding: { pptExplainer: {} } },
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.cancelTask(task.id);
+
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.CANCELLED,
+      params: {
+        pptExplainer: {
+          stage: 'cancelled',
+          remoteId: 'remote-cancel',
+          idempotencyKey: 'idem-cancel',
+          diagnostics: ['供应商未声明远端取消，远端任务可能继续执行和计费'],
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledTimes(1)
+    );
+    expect(statusObservedByRemoteCancel).toBe(TaskStatus.CANCELLED);
+
+    taskQueueService.retryTask(task.id);
+    expect(taskQueueService.getTask(task.id)?.status).toBe(
+      TaskStatus.CANCELLED
+    );
+
+    taskQueueService.deleteTask(task.id);
+    await vi.waitFor(() =>
+      expect(mocks.cleanupPptExplainerTask).toHaveBeenCalledTimes(1)
+    );
+    expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a safe warning when remote PPT cancellation fails', async () => {
+    const { taskQueueService, storedTasks, mocks } =
+      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
+    mocks.cancelPptExplainerRemoteTask.mockRejectedValueOnce(
+      new Error('HTTP 500 provider response contains secret-token')
+    );
+    const task = createPptExplainerLifecycleTask(
+      'ppt-explainer-cancel-failure',
+      TaskStatus.PROCESSING,
+      { remoteId: 'remote-cancel-failure', cancelBinding: true }
+    );
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.cancelTask(task.id);
+
+    await vi.waitFor(() =>
+      expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledTimes(1)
+    );
+    await vi.waitFor(() => {
+      const diagnostics = (
+        taskQueueService.getTask(task.id)?.params.pptExplainer as {
+          diagnostics?: string[];
+        }
+      )?.diagnostics;
+      expect(diagnostics).toEqual([
+        '远端取消失败，远端任务可能继续执行和计费；可再次尝试取消',
+      ]);
+      expect(diagnostics?.join('\n')).not.toContain('secret-token');
+    });
+    expect(taskQueueService.getTask(task.id)?.status).toBe(
+      TaskStatus.CANCELLED
+    );
+    await vi.waitFor(() => {
+      const storedState = storedTasks.get(task.id)?.params?.pptExplainer as
+        | { diagnostics?: string[] }
+        | undefined;
+      expect(storedState?.diagnostics).toEqual([
+        '远端取消失败，远端任务可能继续执行和计费；可再次尝试取消',
+      ]);
+      expect(storedState?.diagnostics?.join('\n')).not.toContain(
+        'secret-token'
+      );
+      expect(storedTasks.get(task.id)?.status).toBe(TaskStatus.CANCELLED);
+    });
+  });
+
+  it('warns about an unknown remote submission when cancelling without remoteId', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task = createPptExplainerLifecycleTask(
+      'ppt-explainer-missing-remote-id',
+      TaskStatus.PROCESSING,
+      { cancelBinding: true }
+    );
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.cancelTask(task.id);
+
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.CANCELLED,
+      params: {
+        pptExplainer: {
+          diagnostics: [
+            expect.stringContaining('提交结果可能未知'),
+            expect.stringContaining('远端任务可能继续执行和计费'),
+          ],
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledTimes(1)
+    );
+  });
+
+  it('cancels an active PPT explainer before deleting it', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task = createPptExplainerLifecycleTask(
+      'ppt-explainer-active-delete',
+      TaskStatus.PROCESSING,
+      { remoteId: 'remote-delete', cancelBinding: true }
+    );
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.deleteTask(task.id);
+
+    expect(taskQueueService.getTask(task.id)).toBeUndefined();
+    await vi.waitFor(() => {
+      expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: task.id })
+      );
+      expect(mocks.deleteTask).toHaveBeenCalledWith(task.id);
+    });
+    expect(mocks.cleanupPptExplainerTask).not.toHaveBeenCalled();
+  });
+
+  it('cleans a terminal PPT explainer when deleting without remote cancel', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task = createPptExplainerLifecycleTask(
+      'ppt-explainer-failed-delete',
+      TaskStatus.FAILED,
+      { remoteId: 'remote-failed' }
+    );
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.deleteTask(task.id);
+
+    await vi.waitFor(() =>
+      expect(mocks.cleanupPptExplainerTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: task.id })
+      )
+    );
+    expect(mocks.cancelPptExplainerRemoteTask).not.toHaveBeenCalled();
+  });
+
+  it('cancels active and cleans terminal PPT explainers before clearing all tasks', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const active = createPptExplainerLifecycleTask(
+      'ppt-explainer-clear-active',
+      TaskStatus.PROCESSING,
+      { remoteId: 'remote-clear', cancelBinding: true }
+    );
+    const terminal = createPptExplainerLifecycleTask(
+      'ppt-explainer-clear-failed',
+      TaskStatus.FAILED
+    );
+    const normal: Task = {
+      id: 'normal-clear-active',
+      type: TaskType.VIDEO,
+      status: TaskStatus.PROCESSING,
+      params: { prompt: 'normal video', model: 'video-model' },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    taskQueueService.trackExternalTask(clone(active));
+    taskQueueService.trackExternalTask(clone(terminal));
+    taskQueueService.trackExternalTask(clone(normal));
+
+    await taskQueueService.clearAllTasks();
+
+    expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledTimes(1);
+    expect(mocks.cancelPptExplainerRemoteTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: active.id })
+    );
+    expect(mocks.cleanupPptExplainerTask).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupPptExplainerTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: terminal.id })
+    );
+    expect(taskQueueService.getAllTasks()).toEqual([]);
+  });
+
+  it('cleans a failed PPT explainer when retention archives it', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const archived = createPptExplainerLifecycleTask(
+      'ppt-explainer-retention-archive',
+      TaskStatus.FAILED,
+      { updatedAt: 1 }
+    );
+    const ordinaryTasks: Task[] = Array.from({ length: 100 }, (_, index) => ({
+      id: `ordinary-retention-${index}`,
+      type: TaskType.IMAGE,
+      status: TaskStatus.COMPLETED,
+      params: { prompt: `ordinary ${index}`, model: 'image-model' },
+      createdAt: index + 2,
+      updatedAt: index + 2,
+      completedAt: index + 2,
+    }));
+
+    await taskQueueService.restoreTasks([
+      clone(archived),
+      ...ordinaryTasks.map(clone),
+    ]);
+
+    await vi.waitFor(() => {
+      expect(mocks.archiveTasks).toHaveBeenCalledWith([archived.id]);
+      expect(mocks.cleanupPptExplainerTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: archived.id })
+      );
+    });
+    expect(mocks.cancelPptExplainerRemoteTask).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient 429 PPT explainer poll failure by preserving remoteId and idempotency', async () => {
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'ppt-explainer-remote-retry',
+      type: TaskType.VIDEO,
+      status: TaskStatus.FAILED,
+      remoteId: 'remote-retry',
+      executionPhase: TaskExecutionPhase.POLLING,
+      params: {
+        prompt: 'PPT explainer remote retry',
+        model: 'video-model',
+        pptExplainer: {
+          schemaVersion: 1,
+          jobId: 'job-retry',
+          stage: 'failed',
+          remoteId: 'remote-retry',
+          idempotencyKey: 'stable-idempotency-key',
+          slides: [],
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'http_error',
+        message: 'PPT 讲解视频任务查询失败：HTTP 429 请求过于频繁',
+      },
+    };
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.retryTask(task.id);
+
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.PROCESSING,
+      remoteId: 'remote-retry',
+      executionPhase: TaskExecutionPhase.POLLING,
+      params: {
+        pptExplainer: {
+          stage: 'polling',
+          remoteId: 'remote-retry',
+          idempotencyKey: 'stable-idempotency-key',
+        },
+      },
+    });
+  });
+
+  it('retries an explicitly failed remote PPT explainer with a fresh submission identity', async () => {
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'ppt-explainer-remote-terminal-retry',
+      type: TaskType.VIDEO,
+      status: TaskStatus.FAILED,
+      remoteId: 'remote-terminal',
+      executionPhase: TaskExecutionPhase.POLLING,
+      params: {
+        prompt: 'PPT explainer remote terminal retry',
+        model: 'video-model',
+        pptExplainer: {
+          schemaVersion: 1,
+          jobId: 'job-remote-terminal',
+          source: 'pptx',
+          stage: 'failed',
+          remoteId: 'remote-terminal',
+          idempotencyKey: 'used-idempotency-key',
+          executionAttempt: 3,
+          slides: [
+            {
+              pageIndex: 1,
+              snapshotUrl: '/slide-1.png',
+              turns: [{ speakerId: 'host', text: '第一页讲解' }],
+            },
+          ],
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: { code: 'remote_failed', message: 'provider rejected job' },
+    };
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.retryTask(task.id);
+
+    const retried = taskQueueService.getTask(task.id);
+    expect(retried).toMatchObject({
+      status: TaskStatus.PROCESSING,
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+      params: {
+        pptExplainer: {
+          stage: 'submitting',
+          idempotencyKey: 'job-remote-terminal-retry-4',
+          executionAttempt: 3,
+        },
+      },
+    });
+    expect(retried?.remoteId).toBeUndefined();
+    expect(
+      (retried?.params.pptExplainer as { remoteId?: string }).remoteId
+    ).toBeUndefined();
+  });
+
+  it('retries a failed topic preparation from its recoverable preparing stage', async () => {
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'ppt-explainer-preparing-retry',
+      type: TaskType.VIDEO,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: 'PPT explainer preparing retry',
+        model: 'video-model',
+        pptExplainer: {
+          schemaVersion: 1,
+          jobId: 'job-preparing',
+          source: 'topic',
+          stage: 'failed',
+          idempotencyKey: 'idem-preparing',
+          slides: [],
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: { code: 'PREPARE_FAILED', message: 'outline interrupted' },
+    };
+    taskQueueService.trackExternalTask(clone(task));
+
+    taskQueueService.retryTask(task.id);
+
+    expect(taskQueueService.getTask(task.id)).toMatchObject({
+      status: TaskStatus.PROCESSING,
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+      params: {
+        pptExplainer: {
+          stage: 'preparing',
+          idempotencyKey: 'idem-preparing',
+        },
+      },
+    });
   });
 });

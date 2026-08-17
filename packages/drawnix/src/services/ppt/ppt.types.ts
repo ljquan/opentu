@@ -101,6 +101,8 @@ export interface PPTSlideTransition {
 }
 
 export interface PPTFrameMeta {
+  /** Owning PPT explainer draft. Omitted for regular PPT generation. */
+  pptExplainerJobId?: string;
   /** PPT 总标题，用于大纲标题输入和导出文件名 */
   deckTitle?: string;
   /** 旧视觉提示词（兼容旧数据，整页提示词优先使用 slidePrompt） */

@@ -1367,6 +1367,10 @@ function getStepDescription(
       return `生成图片: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
     case 'generate_video':
       return `生成视频: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
+    case 'generate_ppt_explainer_video':
+      return `生成PPT讲解视频: ${
+        (args.topic as string)?.substring(0, 30) || ''
+      }...`;
     case 'generate_audio':
       return `生成音频: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
     case 'generate_text':

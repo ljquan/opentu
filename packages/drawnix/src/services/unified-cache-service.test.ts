@@ -203,6 +203,29 @@ describe('UnifiedCacheService insecure LAN fallback', () => {
     });
   });
 
+  it('promotes explicit and legacy nested result visibility into cache metadata', async () => {
+    const explicitUrl = '/__aitu_cache__/image/explicit-visibility.png';
+    const nestedUrl = '/__aitu_cache__/image/nested-visibility.png';
+
+    await unifiedCacheService.registerImageMetadata(explicitUrl, {
+      taskId: 'explicit-visibility-task',
+      resultVisibility: 'user',
+      params: { resultVisibility: 'internal' },
+    });
+    await unifiedCacheService.registerImageMetadata(nestedUrl, {
+      taskId: 'nested-visibility-task',
+      params: { resultVisibility: 'internal' },
+    });
+
+    const cachedMedia = await unifiedCacheService.getAllCachedMedia();
+    expect(
+      cachedMedia.find((item) => item.url === explicitUrl)?.metadata
+    ).toEqual(expect.objectContaining({ resultVisibility: 'user' }));
+    expect(
+      cachedMedia.find((item) => item.url === nestedUrl)?.metadata
+    ).toEqual(expect.objectContaining({ resultVisibility: 'internal' }));
+  });
+
   it('checks IndexedDB when Cache Storage is available but misses the media', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.stubGlobal('caches', {

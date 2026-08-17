@@ -29,6 +29,7 @@ import {
   List,
   Presentation,
   Sparkles,
+  Video,
 } from 'lucide-react';
 import {
   SearchIcon,
@@ -152,6 +153,8 @@ import {
   getPPTFrameSnapshotElements,
   resolvePPTFramePreviewUrl,
 } from '../../utils/frame-preview-snapshot';
+import { confirmAndRunPptExplainerTask } from '../../services/ppt-explainer/creation-service';
+import { readPptExplainerState } from '../../services/ppt-explainer/validation';
 
 interface FrameInfo {
   frame: PlaitFrame;
@@ -169,6 +172,7 @@ interface FrameInfo {
 }
 
 interface FramePanelProps {
+  currentBoardId?: string;
   currentBoardName?: string;
   onOpenMediaLibrary?: (config?: {
     mode?: SelectionMode;
@@ -1074,6 +1078,7 @@ function usePPTFramePreviewSnapshots(
 }
 
 export const FramePanel: React.FC<FramePanelProps> = ({
+  currentBoardId,
   currentBoardName,
   onOpenMediaLibrary,
 }) => {
@@ -1115,6 +1120,11 @@ export const FramePanel: React.FC<FramePanelProps> = ({
     close: closeContextMenu,
   } = useContextMenuState<FrameInfo>();
   const [isExportingAllPPT, setIsExportingAllPPT] = useState(false);
+  const [confirmingPptExplainerTaskIds, setConfirmingPptExplainerTaskIds] =
+    useState<Set<string>>(() => new Set());
+  const [pptExplainerConfirmErrors, setPptExplainerConfirmErrors] = useState<
+    Record<string, string>
+  >({});
   const [pptLayoutColumns, setPPTLayoutColumns] = useState(() =>
     loadPPTFrameLayoutColumns()
   );
@@ -1382,6 +1392,56 @@ export const FramePanel: React.FC<FramePanelProps> = ({
     const sourceFrames = rootFrames.length > 0 ? rootFrames : frames;
     return getOrderedPPTFrameInfos(sourceFrames);
   }, [frames, rootFrames]);
+
+  const reviewPendingPptExplainerTasks = useMemo(() => {
+    if (!currentBoardId) return [];
+    return tasks
+      .map((task) => ({ task, state: readPptExplainerState(task) }))
+      .filter(
+        (
+          item
+        ): item is {
+          task: Task;
+          state: NonNullable<ReturnType<typeof readPptExplainerState>>;
+        } =>
+          item.state?.stage === 'review_pending' &&
+          item.state.sourceBoardId === currentBoardId &&
+          item.task.status === TaskStatus.PENDING
+      )
+      .sort((a, b) => a.task.createdAt - b.task.createdAt);
+  }, [currentBoardId, tasks]);
+
+  const handleConfirmPptExplainerTask = useCallback(async (taskId: string) => {
+    setConfirmingPptExplainerTaskIds((current) => {
+      if (current.has(taskId)) return current;
+      const next = new Set(current);
+      next.add(taskId);
+      return next;
+    });
+    setPptExplainerConfirmErrors((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+    try {
+      await confirmAndRunPptExplainerTask(taskId);
+      MessagePlugin.success('已确认大纲，开始生成 PPT 讲解视频');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '大纲确认失败，请重试';
+      setPptExplainerConfirmErrors((current) => ({
+        ...current,
+        [taskId]: message,
+      }));
+    } finally {
+      setConfirmingPptExplainerTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  }, []);
 
   const filteredOutlineFrames = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -3728,6 +3788,40 @@ export const FramePanel: React.FC<FramePanelProps> = ({
         ) : (
           <div className="frame-panel__outline">
             <div className="frame-panel__outline-body">
+              {reviewPendingPptExplainerTasks.map(({ task, state }) => (
+                <div
+                  className="frame-panel__explainer-review"
+                  key={task.id}
+                  data-testid="ppt-explainer-review-pending"
+                >
+                  <div className="frame-panel__explainer-review-copy">
+                    <span className="frame-panel__explainer-review-title">
+                      PPT 讲解视频
+                    </span>
+                    <span className="frame-panel__explainer-review-topic">
+                      {state.topic?.trim() || '当前大纲'}
+                    </span>
+                    {pptExplainerConfirmErrors[task.id] ? (
+                      <span
+                        className="frame-panel__explainer-review-error"
+                        role="alert"
+                      >
+                        {pptExplainerConfirmErrors[task.id]}
+                      </span>
+                    ) : null}
+                  </div>
+                  <Button
+                    theme="primary"
+                    size="small"
+                    icon={<Video size={15} strokeWidth={1.8} />}
+                    loading={confirmingPptExplainerTaskIds.has(task.id)}
+                    disabled={confirmingPptExplainerTaskIds.has(task.id)}
+                    onClick={() => void handleConfirmPptExplainerTask(task.id)}
+                  >
+                    确认并生成
+                  </Button>
+                </div>
+              ))}
               <div className="frame-panel__outline-title">
                 <span className="frame-panel__outline-label">PPT 标题</span>
                 <Input

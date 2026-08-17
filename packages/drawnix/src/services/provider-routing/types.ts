@@ -21,6 +21,7 @@ export type ProviderProtocol =
   | 'kling.video'
   | 'seedance.task'
   | 'happyhorse.video'
+  | 'tuzi.ppt-explainer'
   | (string & {});
 
 export type ProviderBindingConfidence = 'high' | 'medium' | 'low';
@@ -34,6 +35,55 @@ export type ProviderVideoResultMode = 'inline-url' | 'download-content';
 export type ProviderTextImageInputMode =
   | 'openai-image_url'
   | 'google-inline-data';
+
+export type ProviderPptExplainerSourceKind = 'topic' | 'current_ppt' | 'pptx';
+export type ProviderPptExplainerPresentationInput = 'pptx' | 'slide_images';
+export type ProviderPptExplainerPresenterMode =
+  | 'single_voice'
+  | 'dual_voice'
+  | 'single_avatar'
+  | 'dual_avatar';
+export type ProviderPptExplainerCancelMethod = 'DELETE' | 'POST';
+
+export interface ProviderPptExplainerResponsePaths {
+  status?: string;
+  error?: string;
+  remoteId?: string;
+  progress?: string;
+  finalVideoUrl?: string;
+}
+
+export interface ProviderPptExplainerStatusMapping {
+  queued: string[];
+  processing: string[];
+  completed: string[];
+  failed: string[];
+  cancelled?: string[];
+}
+
+export interface ProviderPptExplainerBindingMetadata {
+  capabilities: {
+    sources: ProviderPptExplainerSourceKind[];
+    presentationInputs: ProviderPptExplainerPresentationInput[];
+    presenterModes: ProviderPptExplainerPresenterMode[];
+    finalComposition: boolean;
+  };
+  responsePaths: {
+    submit: ProviderPptExplainerResponsePaths & { remoteId: string };
+    poll: ProviderPptExplainerResponsePaths & {
+      status: string;
+      finalVideoUrl: string;
+    };
+    cancel?: ProviderPptExplainerResponsePaths;
+  };
+  statusMapping: ProviderPptExplainerStatusMapping;
+  progressScale?: 'percent' | 'ratio';
+  idempotencyHeader?: string;
+  cancel?: {
+    pathTemplate: string;
+    method: ProviderPptExplainerCancelMethod;
+  };
+}
 
 export interface ProviderVideoBindingMetadata {
   allowedDurations?: string[];
@@ -71,6 +121,7 @@ export interface ProviderBindingMetadata {
   image?: ProviderImageBindingMetadata;
   video?: ProviderVideoBindingMetadata;
   audio?: ProviderAudioBindingMetadata;
+  pptExplainer?: ProviderPptExplainerBindingMetadata;
   manualHttp?: ManualHttpTemplateMetadata;
   [key: string]: unknown;
 }
@@ -162,6 +213,7 @@ export interface InvocationPlanRequest {
   fallbackModelRef?: ModelRef | null;
   bindingId?: string | null;
   preferredRequestSchema?: string | readonly string[] | null;
+  requiredProtocol?: ProviderProtocol | readonly ProviderProtocol[] | null;
 }
 
 export interface InvocationPlannerRepositories {

@@ -85,6 +85,7 @@ import {
   shouldUseStrictTaskInvocationRoute,
 } from '../task-invocation-route';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
+import { isPptExplainerTask } from '../ppt-explainer/validation';
 
 function isCurrentExecutionAttempt(options?: ExecutionOptions): boolean {
   return !options?.signal?.aborted && options?.isCurrentAttempt?.() !== false;
@@ -377,6 +378,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           referenceImages,
           maskImage: params.maskImage,
           assetMetadata: params.assetMetadata,
+          resultVisibility: params.resultVisibility,
         },
         config,
         options,
@@ -416,6 +418,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           outputCompression: params.outputCompression,
           params: params.params,
           assetMetadata: params.assetMetadata,
+          resultVisibility: params.resultVisibility,
           preferredRequestSchema: invocationOptions.preferredRequestSchema,
         },
         options,
@@ -529,6 +532,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           forceRemoteCache: true,
           returnLocalCacheUrl: true,
           cacheKey: requestId,
+          resultVisibility: params.resultVisibility,
         }
       );
       assertCurrentExecutionAttempt(options);
@@ -614,6 +618,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       referenceImages?: string[];
       maskImage?: string;
       assetMetadata?: ImageGenerationParams['assetMetadata'];
+      resultVisibility?: ImageGenerationParams['resultVisibility'];
     },
     config: { imageConfig: GeminiConfig; videoConfig: VideoAPIConfig },
     options?: ExecutionOptions,
@@ -725,6 +730,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           extraMetadata: params.assetMetadata
             ? { ...params.assetMetadata }
             : undefined,
+          resultVisibility: params.resultVisibility,
         }
       );
       assertCurrentExecutionAttempt(options);
@@ -1494,7 +1500,8 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
   /**
    * 恢复未完成的任务（例如页面刷新导致中断的任务）
-   * 仅恢复有 remoteId 且状态为 processing 的任务
+   * 仅恢复有 remoteId 且状态为 processing 的通用视频任务
+   * PPT 讲解任务由专用编排器恢复。
    *
    * @param onTaskUpdate - 任务状态更新回调
    * @param tasksFromMemory - 可选，从内存中传入的任务列表（避免 IndexedDB 读取竞态）
@@ -1531,20 +1538,26 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       // 筛选出有 remoteId 的视频任务
       const videoTasks = pendingTasks.filter(
         (t) =>
-          t.type === 'video' && t.remoteId && t.status === TaskStatus.PROCESSING
+          t.type === 'video' &&
+          !isPptExplainerTask(t) &&
+          t.remoteId &&
+          t.status === TaskStatus.PROCESSING
       );
 
       // 日志：列出所有处理中的任务及其筛选结果
       for (const t of pendingTasks) {
         const isVideo = t.type === 'video';
         const hasRemoteId = !!t.remoteId;
-        const willResume = isVideo && hasRemoteId;
+        const isPptExplainer = isPptExplainerTask(t);
+        const willResume = isVideo && !isPptExplainer && hasRemoteId;
         console.warn(
           `[FallbackMediaExecutor]   task=${t.id} type=${t.type} remoteId=${
             t.remoteId || 'none'
           } → ${willResume ? 'RESUME' : 'SKIP'}${
             !isVideo ? ' (not video)' : ''
-          }${!hasRemoteId ? ' (no remoteId)' : ''}`
+          }${isPptExplainer ? ' (ppt explainer)' : ''}${
+            !hasRemoteId ? ' (no remoteId)' : ''
+          }`
         );
       }
 

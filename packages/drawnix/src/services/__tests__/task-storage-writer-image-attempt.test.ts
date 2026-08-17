@@ -469,4 +469,34 @@ describe('task-storage-writer image attempt guards', () => {
       result: { url: 'https://example.com/current.png' },
     });
   });
+
+  it('atomically applies the requested result visibility on completion', async () => {
+    const task = createImageTask('request-current');
+    task.params.resultVisibility = 'internal';
+    task.params.autoInsertToCanvas = false;
+    await taskStorageWriter.saveTask(task);
+
+    expect(
+      await taskStorageWriter.completeTask(
+        task.id,
+        {
+          url: 'https://example.com/internal.png',
+          format: 'png',
+          size: 0,
+        },
+        'request-current'
+      )
+    ).toBe(true);
+    expect(await taskStorageWriter.getTask(task.id)).toMatchObject({
+      status: 'completed',
+      params: {
+        resultVisibility: 'internal',
+        autoInsertToCanvas: false,
+      },
+      result: {
+        url: 'https://example.com/internal.png',
+        resultVisibility: 'internal',
+      },
+    });
+  });
 });

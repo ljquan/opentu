@@ -23,6 +23,10 @@ import {
 } from '../services/image-generation-recovery-service';
 import { settingsManager } from '../utils/settings-manager';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../constants/TASK_CONSTANTS';
+import {
+  isPptExplainerTask,
+  readPptExplainerState,
+} from '../services/ppt-explainer/validation';
 
 // Global flag to prevent multiple initializations (persists across HMR)
 let initializationStarted = false;
@@ -146,6 +150,19 @@ export function useTaskStorage(): boolean {
 
             for (const task of processingTasks) {
               const isAsyncImageResumable = isResumableAsyncImageTask(task);
+              const isPptExplainer = isPptExplainerTask(task);
+              const pptExplainerState = isPptExplainer
+                ? readPptExplainerState(task)
+                : null;
+              const isPptExplainerResumable = Boolean(
+                pptExplainerState &&
+                  (pptExplainerState.stage === 'preparing' ||
+                    pptExplainerState.stage === 'snapshotting' ||
+                    pptExplainerState.stage === 'scripting' ||
+                    pptExplainerState.stage === 'submitting' ||
+                    pptExplainerState.stage === 'polling' ||
+                    pptExplainerState.stage === 'finalizing')
+              );
 
               const imageRecoveryTask =
                 task.type === TaskType.IMAGE &&
@@ -163,7 +180,9 @@ export function useTaskStorage(): boolean {
                   isImageRequestRecoveryCandidate(imageRecoveryTask)
               );
               const isVideoResumable =
-                task.type === TaskType.VIDEO && !!task.remoteId;
+                task.type === TaskType.VIDEO &&
+                !isPptExplainer &&
+                !!task.remoteId;
               const isAudioResumable =
                 task.type === TaskType.AUDIO && !!task.remoteId;
 
@@ -174,18 +193,19 @@ export function useTaskStorage(): boolean {
                   isVideoResumable ||
                   isAudioResumable ||
                   isAsyncImageResumable ||
-                  isImageRecoveryTask
+                  isImageRecoveryTask ||
+                  isPptExplainerResumable
                     ? 'KEEP'
                     : 'MARK_FAILED'
                 }`
               );
 
-              // Video或异步图片任务且有 remoteId：允许后续恢复轮询
               if (
                 isVideoResumable ||
                 isAudioResumable ||
                 isAsyncImageResumable ||
-                isImageRecoveryTask
+                isImageRecoveryTask ||
+                isPptExplainerResumable
               ) {
                 // 保持处理中，等待对应恢复器接管。
               } else {
@@ -260,6 +280,7 @@ export function useTaskStorage(): boolean {
             (task) =>
               task.status === 'failed' &&
               task.remoteId &&
+              !isPptExplainerTask(task) &&
               (task.type === TaskType.VIDEO ||
                 task.type === TaskType.AUDIO ||
                 isResumableAsyncImageTask(task))

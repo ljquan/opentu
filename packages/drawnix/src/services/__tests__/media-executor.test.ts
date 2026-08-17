@@ -694,6 +694,7 @@ describe('Media Executor Module', () => {
           profileId: 'tuzi',
           modelId: 'mj_fast_background_eraser',
         },
+        resultVisibility: 'internal',
       });
 
       expect(resolveAdapterForInvocation).toHaveBeenCalledWith(
@@ -719,6 +720,7 @@ describe('Media Executor Module', () => {
             profileId: 'tuzi',
             modelId: 'mj_fast_background_eraser',
           },
+          resultVisibility: 'internal',
         }),
         undefined,
         expect.any(Number)
@@ -1609,6 +1611,84 @@ describe('Media Executor Module', () => {
         }),
         undefined,
         expect.objectContaining({ shouldUpdate: expect.any(Function) })
+      );
+    }, 15000);
+
+    it('does not claim PPT explainer polling tasks during generic video recovery', async () => {
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          isAvailable: async () => true,
+          createTask: async () => undefined,
+          updateTaskStatus: async () => undefined,
+          completeTask: async () => undefined,
+          failTask: async () => undefined,
+        },
+      }));
+      vi.doMock('../unified-cache-service', () => ({
+        unifiedCacheService: {
+          getImageForAI: vi.fn(),
+          isCached: vi.fn(async () => false),
+          cacheMediaFromBlob: vi.fn(async () => undefined),
+        },
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          geminiSettings: {
+            get: () => ({
+              apiKey: 'test-key',
+              baseUrl: 'https://api.example.com',
+            }),
+          },
+        };
+      });
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+      const resumeVideoTask = vi.fn(async () => undefined);
+      Object.assign(executor, { resumeVideoTask });
+      const genericVideoTask: Task = {
+        id: 'generic-video',
+        type: TaskType.VIDEO,
+        status: TaskStatus.PROCESSING,
+        params: { prompt: '普通视频' },
+        createdAt: 1,
+        updatedAt: 1,
+        remoteId: 'remote-generic',
+      };
+      const pptExplainerTask: Task = {
+        id: 'ppt-explainer-video',
+        type: TaskType.VIDEO,
+        status: TaskStatus.PROCESSING,
+        params: {
+          prompt: 'PPT 讲解视频',
+          pptExplainer: { schemaVersion: 1, stage: 'polling' },
+        },
+        createdAt: 1,
+        updatedAt: 1,
+        remoteId: 'remote-ppt',
+      };
+
+      await executor.resumePendingTasks(undefined, [
+        pptExplainerTask,
+        genericVideoTask,
+      ]);
+
+      expect(resumeVideoTask).toHaveBeenCalledTimes(1);
+      expect(resumeVideoTask).toHaveBeenCalledWith(
+        genericVideoTask,
+        undefined,
+        undefined
+      );
+      expect(resumeVideoTask).not.toHaveBeenCalledWith(
+        pptExplainerTask,
+        expect.anything(),
+        expect.anything()
       );
     }, 15000);
   });

@@ -421,6 +421,35 @@ describe('useAutoInsertToCanvas', () => {
     mocks.splitAndInsertImages.mockReset();
   });
 
+  it('does not insert an internal completed result into the canvas', async () => {
+    const task = createCompletedImageTask({
+      result: {
+        url: '/__aitu_cache__/image/internal.png',
+        format: 'png',
+        size: 123,
+        resultVisibility: 'internal',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: false,
+      })
+    );
+    emitTaskEvent(task);
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.executeCanvasInsertion).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -523,6 +552,162 @@ describe('useAutoInsertToCanvas', () => {
     });
 
     expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+  });
+
+  it('defers PPT explainer video until its source board becomes active', async () => {
+    const task = createCompletedImageTask({
+      id: 'ppt-explainer-cross-board',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: 'PPT 讲解视频',
+        autoInsertToCanvas: true,
+        pptExplainer: {
+          schemaVersion: 1,
+          sourceBoardId: 'board-1',
+        },
+      },
+      result: {
+        url: '/__aitu_cache__/video/ppt-explainer.mp4',
+        format: 'mp4',
+        size: 123,
+        resultKind: 'video',
+        resultVisibility: 'user',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.currentBoardId = 'board-2';
+    mocks.boundBoardId = 'board-2';
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: false,
+      })
+    );
+    emitTaskEvent(task);
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+
+    mocks.currentBoardId = 'board-1';
+    mocks.boundBoardId = 'board-1';
+    act(() => emitBoardSwitched());
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+
+    emitTaskEvent(task);
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('inserts one PPT explainer video for concurrent completion handlers', async () => {
+    const task = createCompletedImageTask({
+      id: 'ppt-explainer-concurrent-delivery',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: 'PPT 讲解视频',
+        autoInsertToCanvas: true,
+        pptExplainer: {
+          schemaVersion: 1,
+          sourceBoardId: 'board-1',
+        },
+      },
+      result: {
+        url: '/__aitu_cache__/video/ppt-explainer-concurrent.mp4',
+        format: 'mp4',
+        size: 123,
+        resultKind: 'video',
+        resultVisibility: 'user',
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({ enabled: true, groupSimilarTasks: false })
+    );
+    renderHook(() =>
+      useAutoInsertToCanvas({ enabled: true, groupSimilarTasks: false })
+    );
+    emitTaskEvent(task);
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+  });
+
+  it('repairs PPT explainer delivery state without inserting a duplicate video', async () => {
+    const task = createCompletedImageTask({
+      id: 'ppt-explainer-existing-video',
+      type: TaskType.VIDEO,
+      params: {
+        prompt: 'PPT 讲解视频',
+        autoInsertToCanvas: true,
+        pptExplainer: {
+          schemaVersion: 1,
+          sourceBoardId: 'board-1',
+        },
+      },
+      result: {
+        url: '/__aitu_cache__/video/ppt-explainer-existing.mp4',
+        format: 'mp4',
+        size: 123,
+        resultKind: 'video',
+        resultVisibility: 'user',
+      },
+    });
+    mocks.board = {
+      children: [
+        {
+          id: 'video-existing',
+          type: 'video',
+          angle: 0,
+          points: [
+            [20, 30],
+            [420, 255],
+          ],
+          width: 400,
+          height: 225,
+          url: task.result?.url,
+          generationTaskId: task.id,
+        },
+      ],
+    };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: false,
+      })
+    );
+    emitTaskEvent(task);
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [20, 30],
+      'video-existing',
+      { width: 400, height: 225 }
+    );
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
   });
 

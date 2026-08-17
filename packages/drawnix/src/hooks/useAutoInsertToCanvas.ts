@@ -15,10 +15,13 @@ import { useEffect, useRef } from 'react';
 import { Transforms, type PlaitBoard, type Point } from '@plait/core';
 import { PlaitDrawElement } from '@plait/draw';
 import { getTaskQueueService } from '../services/task-queue';
+import { taskStorageReader } from '../services/task-storage-reader';
 import { workflowCompletionService } from '../services/workflow-completion-service';
+import { runPptExplainerDeliveryExclusive } from '../services/ppt-explainer/cross-tab-coordinator';
 import { resolveAudioResultUrls } from '../services/audio-task-result-utils';
 import {
   type CanvasAssociationRef,
+  isUserVisibleTaskResult,
   Task,
   TaskStatus,
   TaskType,
@@ -146,6 +149,32 @@ function isTaskInsertionTracked(taskId: string): boolean {
 
   rememberInsertedTask(taskId);
   return true;
+}
+
+function findInsertedPptExplainerVideo(
+  board: PlaitBoard,
+  taskId: string
+): {
+  elementId: string;
+  position: Point;
+  size: { width: number; height: number };
+} | null {
+  const element = board.children.find(
+    (candidate) =>
+      isPlaitVideo(candidate) &&
+      (candidate as typeof candidate & { generationTaskId?: unknown })
+        .generationTaskId === taskId
+  );
+  if (!element || !isPlaitVideo(element)) return null;
+
+  return {
+    elementId: element.id,
+    position: element.points[0],
+    size: {
+      width: Math.abs(element.points[1][0] - element.points[0][0]),
+      height: Math.abs(element.points[1][1] - element.points[0][1]),
+    },
+  };
 }
 
 /**
@@ -320,6 +349,16 @@ function canInsertTaskCanvasAssociationsOnCurrentBoard(
   const associations = getTaskCanvasAssociations(task);
   const binding = getCurrentCanvasBoardBinding();
   if (expectedBoard && (!binding || binding.board !== expectedBoard)) {
+    return false;
+  }
+  const pptExplainerSourceBoardId =
+    typeof task.params?.pptExplainer?.sourceBoardId === 'string'
+      ? task.params.pptExplainer.sourceBoardId.trim()
+      : '';
+  if (
+    pptExplainerSourceBoardId &&
+    (!binding || binding.boardId !== pptExplainerSourceBoardId)
+  ) {
     return false;
   }
   if (associations.length === 0) return true;
@@ -2331,7 +2370,142 @@ export function useAutoInsertToCanvas(
       }, delay);
     };
 
+    const handlePptExplainerInsertion = (
+      task: Task,
+      board: PlaitBoard,
+      boardId: string
+    ): void => {
+      void runPptExplainerDeliveryExclusive(
+        boardId,
+        task.id,
+        async (signal) => {
+          const storedTask = await taskStorageReader.getTask(task.id);
+          const insertionTask = storedTask || task;
+          if (
+            signal.aborted ||
+            insertionTask.status !== TaskStatus.COMPLETED ||
+            !insertionTask.params.pptExplainer ||
+            !isUserVisibleTaskResult(insertionTask.result)
+          ) {
+            return;
+          }
+
+          const currentBinding = getCurrentCanvasBoardBinding();
+          if (
+            !currentBinding ||
+            currentBinding.board !== board ||
+            currentBinding.boardId !== boardId ||
+            !canInsertTaskCanvasAssociationsOnCurrentBoard(
+              insertionTask,
+              board
+            )
+          ) {
+            return;
+          }
+
+          const existingVideo = findInsertedPptExplainerVideo(
+            board,
+            insertionTask.id
+          );
+          if (insertionTask.insertedToCanvas) {
+            rememberInsertedTask(insertionTask.id);
+            if (existingVideo) {
+              workflowCompletionService.completePostProcessing(
+                insertionTask.id,
+                1,
+                existingVideo.position,
+                existingVideo.elementId,
+                existingVideo.size
+              );
+            }
+            return;
+          }
+          if (existingVideo) {
+            workflowCompletionService.completePostProcessing(
+              insertionTask.id,
+              1,
+              existingVideo.position,
+              existingVideo.elementId,
+              existingVideo.size
+            );
+            if (finalizeTaskInsertion(insertionTask, board)) {
+              await getTaskQueueService().waitForTaskPersistence?.(
+                insertionTask.id
+              );
+            }
+            return;
+          }
+
+          const resultUrl = insertionTask.result?.url;
+          const insertionPoint = resolvePendingInsertContext(
+            board,
+            insertionTask
+          ).insertionPoint;
+          const insertionBoardToken = captureCanvasInsertionBoardToken(board);
+          if (!resultUrl || !insertionPoint || !insertionBoardToken) return;
+
+          reserveTaskInsertion(insertionTask.id);
+          workflowCompletionService.registerTask(insertionTask.id);
+          workflowCompletionService.startPostProcessing(
+            insertionTask.id,
+            'direct_insert'
+          );
+
+          const dimensions = parseSizeToPixels(insertionTask.params.size);
+          const insertionResult = await quickInsert(
+            'video',
+            resultUrl,
+            insertionPoint,
+            dimensions,
+            buildTaskGenerationMetadata(insertionTask),
+            board,
+            () =>
+              !signal.aborted &&
+              isCanvasInsertionBoardTokenCurrent(insertionBoardToken)
+          );
+          if (
+            signal.aborted ||
+            !isCanvasInsertionBoardTokenCurrent(insertionBoardToken) ||
+            !canInsertTaskCanvasAssociationsOnCurrentBoard(insertionTask, board)
+          ) {
+            releaseTaskInsertion(insertionTask.id);
+            return;
+          }
+
+          const insertionGeometry = getInsertionResultGeometry(
+            insertionResult,
+            insertionPoint,
+            dimensions,
+            ['video']
+          );
+          workflowCompletionService.completePostProcessing(
+            insertionTask.id,
+            1,
+            insertionGeometry.position,
+            insertionGeometry.elementId,
+            insertionGeometry.size
+          );
+          if (!finalizeTaskInsertion(insertionTask, board)) {
+            throw new Error('画板已切换，PPT 讲解视频交付待重试');
+          }
+          await getTaskQueueService().waitForTaskPersistence?.(insertionTask.id);
+        }
+      )
+        .then((result) => {
+          if (!result.acquired && isActive) scheduleBoardRecovery();
+        })
+        .catch((error) => {
+          releaseTaskInsertion(task.id);
+          workflowCompletionService.failPostProcessing(task.id, String(error));
+          if (isActive) scheduleBoardRecovery();
+        });
+    };
+
     const handleTaskCompleted = (task: Task) => {
+      if (!isUserVisibleTaskResult(task.result)) {
+        return;
+      }
+
       const binding = getCurrentCanvasBoardBinding();
       if (!binding) {
         scheduleBoardRecovery();
@@ -2397,6 +2571,12 @@ export function useAutoInsertToCanvas(
         !isLyricsTask(task) &&
         !task.result?.chatResponse
       ) {
+        return;
+      }
+
+      if (task.type === TaskType.VIDEO && task.params.pptExplainer) {
+        if (!binding.boardId) return;
+        handlePptExplainerInsertion(task, board, binding.boardId);
         return;
       }
 

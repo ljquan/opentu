@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { useTaskQueue } from './useTaskQueue';
-import { TaskType, TaskStatus } from '../types/task.types';
+import { isUserVisibleTaskResult, TaskType } from '../types/task.types';
 import {
   ImageHistoryItem,
   VideoHistoryItem,
@@ -26,7 +26,12 @@ export function useGenerationHistory() {
   // Convert completed image tasks to history items
   const imageHistory = useMemo((): ImageHistoryItem[] => {
     return completedTasks
-      .filter(task => task.type === TaskType.IMAGE && task.result?.url)
+      .filter(
+        (task) =>
+          task.type === TaskType.IMAGE &&
+          isUserVisibleTaskResult(task.result) &&
+          task.result?.url
+      )
       .map(task => ({
         id: task.id,
         type: 'image' as const,
@@ -43,7 +48,12 @@ export function useGenerationHistory() {
   // Convert completed video tasks to history items
   const videoHistory = useMemo((): VideoHistoryItem[] => {
     return completedTasks
-      .filter(task => task.type === TaskType.VIDEO && task.result?.url)
+      .filter(
+        (task) =>
+          task.type === TaskType.VIDEO &&
+          isUserVisibleTaskResult(task.result) &&
+          task.result?.url
+      )
       .map(task => ({
         id: task.id,
         type: 'video' as const,

@@ -29,4 +29,13 @@ describe('skill-media-type', () => {
       })
     ).toEqual(['image', 'video']);
   });
+
+  it('PPT 讲解视频 Skill 同时显示图片和成片模型选择', () => {
+    expect(
+      inferSkillMediaTypes({
+        mcpTool: 'generate_ppt_explainer_video',
+        outputType: 'video',
+      })
+    ).toEqual(['image', 'video']);
+  });
 });

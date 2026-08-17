@@ -14,7 +14,10 @@ import {
   TaskStatus,
   TaskType,
   GenerationParams,
+  isUserVisibleTask,
+  isUserVisibleTaskResult,
   type TaskInvocationRouteSnapshot,
+  type TaskResultVisibility,
 } from '../types/task.types';
 import { BaseStorageReader } from './base-storage-reader';
 import { normalizeImageDataUrl } from '@aitu/utils';
@@ -44,6 +47,7 @@ interface SWTask {
     format: string;
     size: number;
     resultKind?: 'image' | 'video' | 'audio' | 'lyrics' | 'character' | 'chat';
+    resultVisibility?: TaskResultVisibility;
     width?: number;
     height?: number;
     duration?: number;
@@ -257,7 +261,10 @@ function getSWTaskResultUrls(swTask: SWTask): string[] {
 }
 
 function swImageTaskMatchesUrl(swTask: SWTask, targetUrl: string): boolean {
-  if (swTask.type !== TaskType.IMAGE) {
+  if (
+    swTask.type !== TaskType.IMAGE ||
+    !isUserVisibleTaskResult(swTask.result)
+  ) {
     return false;
   }
 
@@ -268,6 +275,7 @@ function swImageTaskMatchesUrl(swTask: SWTask, targetUrl: string): boolean {
 
 function convertSWTaskToAssetTask(swTask: SWTask): AssetTaskRecord | null {
   if (
+    !isUserVisibleTaskResult(swTask.result) ||
     (swTask.type !== TaskType.IMAGE &&
       swTask.type !== TaskType.VIDEO &&
       swTask.type !== TaskType.AUDIO) ||
@@ -346,7 +354,11 @@ function hasPromptHistoryPrompt(swTask: SWTask): boolean {
 function convertSWTaskToPromptHistorySummary(
   swTask: SWTask
 ): PromptHistoryTaskSummary | null {
-  if (!hasPromptHistoryPrompt(swTask)) {
+  if (
+    !isUserVisibleTask(swTask) ||
+    !isUserVisibleTaskResult(swTask.result) ||
+    !hasPromptHistoryPrompt(swTask)
+  ) {
     return null;
   }
 
@@ -591,6 +603,69 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
   }
 
   /**
+   * 批量解析缓存关联任务中的内部结果，供素材库补充路径过滤。
+   * 使用单个 cursor，避免按缓存条目逐个读取 IndexedDB。
+   */
+  async getInternalResultTaskIds(
+    taskIds: Iterable<string>
+  ): Promise<Set<string>> {
+    const pendingIds = new Set<string>();
+    for (const taskId of taskIds) {
+      if (typeof taskId !== 'string') continue;
+      const normalizedTaskId = taskId.trim();
+      if (normalizedTaskId) pendingIds.add(normalizedTaskId);
+    }
+    if (pendingIds.size === 0) {
+      return new Set();
+    }
+
+    try {
+      const db = await this.getDB();
+      if (!db.objectStoreNames.contains(TASKS_STORE)) {
+        return new Set();
+      }
+
+      return await new Promise<Set<string>>((resolve, reject) => {
+        const transaction = db.transaction(TASKS_STORE, 'readonly');
+        const store = transaction.objectStore(TASKS_STORE);
+        const internalIds = new Set<string>();
+        const cursorReq = store.openCursor();
+
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor || pendingIds.size === 0) {
+            resolve(internalIds);
+            return;
+          }
+
+          const task = cursor.value as SWTask;
+          if (
+            pendingIds.delete(task.id) &&
+            !isUserVisibleTaskResult(task.result)
+          ) {
+            internalIds.add(task.id);
+          }
+          cursor.continue();
+        };
+
+        cursorReq.onerror = () => {
+          reject(
+            new Error(
+              `Failed to get internal result task IDs: ${cursorReq.error?.message}`
+            )
+          );
+        };
+      });
+    } catch (error) {
+      console.error(
+        '[TaskStorageReader] Error getting internal result task IDs:',
+        error
+      );
+      return new Set();
+    }
+  }
+
+  /**
    * 分页读取提示词历史所需的轻量任务摘要，避免把大字段暴露给 UI。
    */
   async getPromptHistoryTaskSummaries(options?: {
@@ -734,12 +809,17 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
             cursor.continue();
             return;
           }
+          const convertedTask = convertSWTaskToTask(task);
+          if (!isUserVisibleTask(convertedTask)) {
+            cursor.continue();
+            return;
+          }
           if (skipped < offset) {
             skipped++;
             cursor.continue();
             return;
           }
-          results.push(convertSWTaskToTask(task));
+          results.push(convertedTask);
           cursor.continue();
         };
 
@@ -775,7 +855,7 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
           }
 
           const task = cursor.value as SWTask;
-          if (task.archived) {
+          if (task.archived && isUserVisibleTask(convertSWTaskToTask(task))) {
             count++;
           }
           cursor.continue();

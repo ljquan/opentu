@@ -10,6 +10,7 @@ const TOOL_MEDIA_TYPE: Record<string, MediaModelType> = {
   generate_inspiration_board: 'image',
   generate_video: 'video',
   generate_long_video: 'video',
+  generate_ppt_explainer_video: 'video',
   generate_audio: 'audio',
 };
 
@@ -36,6 +37,15 @@ export function applyMediaModelDefaultsToArgs(
   args: Record<string, unknown>,
   options: MediaModelRoutingOptions
 ): Record<string, unknown> {
+  if (toolName === 'generate_ppt_explainer_video') {
+    delete args.model;
+    delete args.modelRef;
+    applyPPTTextModel(args, options);
+    applyNamedMediaModel(args, 'image', 'imageModel', 'imageModelRef', options);
+    applyNamedMediaModel(args, 'video', 'videoModel', 'videoModelRef', options);
+    return args;
+  }
+
   if (toolName === 'generate_ppt') {
     delete args.imageModel;
     delete args.imageModelRef;
@@ -85,6 +95,29 @@ export function applyMediaModelDefaultsToArgs(
   }
 
   return args;
+}
+
+function applyNamedMediaModel(
+  args: Record<string, unknown>,
+  mediaType: MediaModelType,
+  modelKey: string,
+  modelRefKey: string,
+  options: MediaModelRoutingOptions
+): void {
+  const selectedModel = resolveSelectedMediaModel(mediaType, options);
+  if (!selectedModel) return;
+
+  args[modelKey] = selectedModel;
+  const selectedModelRef = resolveSelectedMediaModelRef(
+    mediaType,
+    selectedModel,
+    options
+  );
+  if (selectedModelRef) {
+    args[modelRefKey] = selectedModelRef;
+  } else {
+    delete args[modelRefKey];
+  }
 }
 
 function applyPPTTextModel(
