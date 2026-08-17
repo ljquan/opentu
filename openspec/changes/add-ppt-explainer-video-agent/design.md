@@ -201,7 +201,7 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 - 真实兔子 `ppt-explainer` 契约尚未公开
   - Mitigation: 使用能力 binding 和字段映射；没有 binding 时明确不可用，不硬编码猜测路径
 - PPTX 浏览器渲染依赖新增且较大的按需包
-  - Mitigation: 固定版本、Worker 隔离、动态加载、逐页处理和包体检查；`pptx-glimpse@5.3.0` 虽可在浏览器构建中使用，但其 Node engine 声明为 `>=22`。Node 20 下隔离 Worker 生产构建已通过，但本机整站构建在默认约 2 GiB V8 old-space 下 OOM，项目 CI 仍须确认整站构建内存
+  - Mitigation: 固定版本、Worker 隔离、动态加载、逐页处理和包体检查；`pptx-glimpse@5.3.0` 虽声明 Node engine `>=22`，Node 20 下隔离 Worker、Service Worker 及 GitHub CI 的 web/drawnix 生产构建均已通过。本机 8 GiB 环境的整站构建在默认约 2 GiB V8 old-space 下 OOM，属于本地构建内存风险
 - PPTX 复杂 Office 特性可能降级
   - Mitigation: 保留逐页 diagnostics，提交前预览失败页，不静默丢页；字体替换、动画、SmartArt、嵌入对象及 Office 专有布局可能与 PowerPoint 不一致
 - 用户要求不设置固定上限会增加供应商与运行时失败概率

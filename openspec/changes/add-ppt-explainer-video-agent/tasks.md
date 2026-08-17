@@ -63,8 +63,9 @@
 ## 9. Validation And Handoff
 
 - [ ] 9.1 运行相关 Vitest、drawnix typecheck/lint 与三浏览器 Playwright 用例
-  - 已完成：31 个相关 Vitest 文件 / 360 个测试、drawnix typecheck、增量 ESLint（0 error）、OpenSpec strict、Node 20 Service Worker 和隔离 PPTX Worker 构建
-  - 剩余：整站 Node 20 构建在本机默认约 2 GiB old-space 下 OOM；内置浏览器 URL 策略阻止本轮完成桌面/移动端复验
+  - 已完成：31 个相关 Vitest 文件 / 360 个测试、drawnix typecheck、增量 ESLint（0 error）、OpenSpec strict、Node 20 Service Worker/隔离 PPTX Worker 构建，以及 GitHub CI 的 Node 20 web/drawnix 构建
+  - 基线说明：CI 的 10 个失败测试文件在 `origin/develop@0e7c242e` 上同样为 55 项失败；上一个已合并 PR #229 也因 11 个测试文件和既有 size-limit 债务失败
+  - 剩余：内置浏览器 URL 策略阻止本轮完成桌面/移动端复验；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
 - [ ] 9.2 使用真实供应商 binding 验证 submit、poll、cancel（若支持）及四种 presenter mode
 - [x] 9.3 记录无远端 cancel、PPTX 渲染差异、供应商限制和跨域缓存等剩余风险
 - [x] 9.4 更新 Navigator 的资源、verify、version、PR 和完成事件
