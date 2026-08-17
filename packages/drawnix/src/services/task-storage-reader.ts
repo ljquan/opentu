@@ -865,11 +865,7 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
    * 关闭数据库连接
    */
   close(): void {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-      this.dbPromise = null;
-    }
+    super.close();
   }
 }
 

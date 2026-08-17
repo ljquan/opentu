@@ -38,6 +38,7 @@ import {
   type ModelConfig,
   type ModelType,
 } from '../constants/model-config';
+import { registerManagedProviderProfileClearer } from '../services/managed-provider-profile-runtime';
 
 export {
   DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY,
@@ -200,6 +201,7 @@ class SettingsManager {
   private static instance: SettingsManager;
   private settings: AppSettings;
   private listeners: Map<string, Set<AnySettingsListener>> = new Map();
+  private managedProviderProfiles: ProviderProfile[] = [];
   private cryptoAvailable = false;
   private initializationPromise: Promise<void> | null = null;
   private shouldPersistSettingsAfterInitialization = false;
@@ -903,6 +905,16 @@ class SettingsManager {
               : undefined,
           pricingGroup:
             normalizeNullableString(profile.pricingGroup) || undefined,
+          managedBy: profile.managedBy === 'tuzi' ? 'tuzi' : undefined,
+          managedGroup:
+            normalizeNullableString(profile.managedGroup) || undefined,
+          managedCredentialId:
+            normalizeNullableString(profile.managedCredentialId) || undefined,
+          managedTokenId:
+            typeof profile.managedTokenId === 'number' ||
+            typeof profile.managedTokenId === 'string'
+              ? profile.managedTokenId
+              : undefined,
         };
       });
   }
@@ -1061,7 +1073,25 @@ class SettingsManager {
           : DEFAULT_INVOCATION_PRESET_ID,
     };
 
-    return this.ensureLegacyCompatibility(normalizedSettings);
+    const compatibleSettings =
+      this.ensureLegacyCompatibility(normalizedSettings);
+    if (this.managedProviderProfiles.length === 0) {
+      return compatibleSettings;
+    }
+
+    const managedIds = new Set(
+      this.managedProviderProfiles.map((profile) => profile.id)
+    );
+    return {
+      ...compatibleSettings,
+      providerProfiles: [
+        ...compatibleSettings.providerProfiles.filter(
+          (profile) =>
+            !managedIds.has(profile.id) && profile.managedBy !== 'tuzi'
+        ),
+        ...this.cloneValue(this.managedProviderProfiles),
+      ],
+    };
   }
 
   private ensureLegacyCompatibility(settings: AppSettings): AppSettings {
@@ -1483,6 +1513,9 @@ class SettingsManager {
     try {
       // 创建设置副本用于存储
       const settingsToSave = JSON.parse(JSON.stringify(this.settings));
+      settingsToSave.providerProfiles = settingsToSave.providerProfiles.filter(
+        (profile: ProviderProfile) => profile.managedBy !== 'tuzi'
+      );
 
       // 加密敏感数据
       await this.encryptSensitiveDataForStorage(settingsToSave);
@@ -1592,6 +1625,16 @@ class SettingsManager {
     }
 
     return value as T;
+  }
+
+  /** Replace only the credential-scoped runtime profile overlay. */
+  public setManagedProviderProfiles(profiles: ProviderProfile[]): void {
+    const oldSettings = this.cloneValue(this.settings);
+    this.managedProviderProfiles = this.normalizeProviderProfiles(
+      profiles
+    ).filter((profile) => profile.managedBy === 'tuzi');
+    this.settings = this.normalizeSettings(this.settings);
+    this.notifySettingsChange(oldSettings, this.settings, '');
   }
 
   /**
@@ -2075,6 +2118,9 @@ class SettingsManager {
  * 全局设置管理器实例
  */
 export const settingsManager = SettingsManager.getInstance();
+registerManagedProviderProfileClearer(() =>
+  settingsManager.setManagedProviderProfiles([])
+);
 
 /**
  * 便捷的 Gemini 设置访问器
@@ -2142,7 +2188,10 @@ export const updateActiveInvocationRouteModel = (
 export const providerProfilesSettings = {
   get: () => settingsManager.getSetting<ProviderProfile[]>('providerProfiles'),
   update: async (profiles: ProviderProfile[]) => {
-    await settingsManager.updateSetting('providerProfiles', profiles);
+    await settingsManager.updateSetting(
+      'providerProfiles',
+      profiles.filter((profile) => profile.managedBy !== 'tuzi')
+    );
   },
   addListener: (listener: SettingsListener<ProviderProfile[]>) => {
     settingsManager.addListener('providerProfiles', listener);
@@ -2151,6 +2200,9 @@ export const providerProfilesSettings = {
     settingsManager.removeListener('providerProfiles', listener);
   },
 };
+
+export const setManagedProviderProfiles = (profiles: ProviderProfile[]): void =>
+  settingsManager.setManagedProviderProfiles(profiles);
 
 export const providerCatalogsSettings = {
   get: () => settingsManager.getSetting<ProviderCatalog[]>('providerCatalogs'),

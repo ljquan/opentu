@@ -22,7 +22,7 @@ import { ASSET_CONSTANTS } from '../../constants/ASSET_CONSTANTS';
 import { unifiedCacheService } from '../unified-cache-service';
 import { analytics } from '../../utils/posthog-analytics';
 import { exportAllData as exportKnowledgeBaseData } from '../kb-import-export-service';
-import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
+import { APP_DB_STORES, getAppDBName } from '../app-database';
 import { BackupPartManager } from './backup-part-manager';
 import { encryptBackupJson } from './backup-crypto';
 import { checksumJson } from './backup-checksum';
@@ -317,7 +317,7 @@ class BackupExportService {
   private async collectTasksForBackup(): Promise<unknown[]> {
     try {
       const records = await readStoreRecords<Record<string, unknown>>(
-        APP_DB_NAME,
+        getAppDBName(),
         APP_DB_STORES.TASKS
       );
       return records

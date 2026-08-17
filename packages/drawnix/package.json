@@ -40,6 +40,11 @@
       "types": "./runtime.d.ts",
       "import": "./runtime.mjs",
       "require": "./runtime.js"
+    },
+    "./opentu-account-runtime": {
+      "types": "./opentu-account-runtime.d.ts",
+      "import": "./opentu-account-runtime.mjs",
+      "require": "./opentu-account-runtime.js"
     }
   }
 }

@@ -34,6 +34,8 @@ import { MindThemeColors, withMind } from '@plait/mind';
 import { withMindExtend } from './plugins/with-mind-extend';
 import { withCommonPlugin } from './plugins/with-common';
 import { UnifiedToolbar } from './components/toolbar/unified-toolbar';
+import { AccountDrawer } from './components/account/AccountDrawer';
+import { OpenTuAccountProvider } from './contexts/OpenTuAccountContext';
 import classNames from 'classnames';
 import './styles/index.scss';
 import { buildDrawnixHotkeyPlugin } from './plugins/with-hotkey';
@@ -345,6 +347,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
   const [toolboxDrawerOpen, setToolboxDrawerOpen] = useState(false);
   const [taskPanelExpanded, setTaskPanelExpanded] = useState(false);
+  const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [mediaLibraryConfig, setMediaLibraryConfig] =
     useState<MediaLibraryOpenConfig>({
@@ -374,6 +377,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     if (shouldAutoCloseTaskDrawer()) {
       setTaskPanelExpanded(false);
     }
+    setAccountDrawerOpen(false);
     setMediaLibraryOpen(false);
   }, []);
 
@@ -496,6 +500,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       setTaskPanelExpanded(false);
     }
     setMediaLibraryOpen(false);
+    setAccountDrawerOpen(false);
     setProjectDrawerOpen(true);
   }, [enableToolWindows, projectDrawerOpen]);
 
@@ -509,6 +514,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
         setTaskPanelExpanded(false);
       }
       setMediaLibraryOpen(false);
+      setAccountDrawerOpen(false);
       setProjectDrawerOpen(true);
     };
 
@@ -532,6 +538,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       setTaskPanelExpanded(false);
     }
     setMediaLibraryOpen(false);
+    setAccountDrawerOpen(false);
     setToolboxDrawerOpen(true);
   }, [enableToolWindows, toolboxDrawerOpen]);
 
@@ -550,8 +557,28 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       setToolboxDrawerOpen(false);
     }
     setMediaLibraryOpen(false);
+    setAccountDrawerOpen(false);
     setTaskPanelExpanded(true);
   }, [enableDeferredRuntime, taskPanelExpanded]);
+
+  const handleAccountDrawerToggle = useCallback(() => {
+    if (accountDrawerOpen) {
+      setAccountDrawerOpen(false);
+      return;
+    }
+
+    if (shouldAutoCloseProjectDrawer()) {
+      setProjectDrawerOpen(false);
+    }
+    if (shouldAutoCloseToolboxDrawer()) {
+      setToolboxDrawerOpen(false);
+    }
+    if (shouldAutoCloseTaskDrawer()) {
+      setTaskPanelExpanded(false);
+    }
+    setMediaLibraryOpen(false);
+    setAccountDrawerOpen(true);
+  }, [accountDrawerOpen]);
 
   // 打开素材库（用于缓存满提示）
   const handleOpenMediaLibrary = useCallback(
@@ -896,75 +923,80 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     cloudSyncOpen;
 
   return (
-    <I18nProvider>
-      <RecentColorsProvider>
-        <AssetProvider>
-          <AudioPlaylistProvider>
-            <ToolbarConfigProvider>
-              <CacheQuotaProvider onOpenMediaLibrary={handleOpenMediaLibrary}>
-                <ChatDrawerProvider>
-                  <DrawnixContext.Provider value={contextValue}>
-                    <DrawnixContent
-                      value={value}
-                      viewport={viewport}
-                      theme={theme}
-                      options={options}
-                      plugins={plugins}
-                      containerRef={containerRef}
-                      appState={appState}
-                      board={board}
-                      setBoard={setBoard}
-                      projectDrawerOpen={projectDrawerOpen}
-                      toolboxDrawerOpen={toolboxDrawerOpen}
-                      taskPanelExpanded={taskPanelExpanded}
-                      mediaLibraryOpen={mediaLibraryOpen}
-                      mediaLibraryConfig={mediaLibraryConfig}
-                      backupRestoreOpen={backupRestoreOpen}
-                      onChange={onChange}
-                      onSelectionChange={handleSelectionChange}
-                      onViewportChange={onViewportChange}
-                      onThemeChange={onThemeChange}
-                      onValueChange={onValueChange}
-                      afterInit={afterInit}
-                      onBoardSwitch={onBoardSwitch}
-                      onTabSyncNeeded={onTabSyncNeeded}
-                      handleProjectDrawerToggle={handleProjectDrawerToggle}
-                      handleToolboxDrawerToggle={handleToolboxDrawerToggle}
-                      handleKnowledgeBaseToggle={handleKnowledgeBaseToggle}
-                      handleTaskPanelToggle={handleTaskPanelToggle}
-                      handleOpenMediaLibrary={handleOpenMediaLibrary}
-                      handleOpenBackupRestore={handleOpenBackupRestore}
-                      handleOpenCloudSync={handleOpenCloudSync}
-                      setProjectDrawerOpen={setProjectDrawerOpen}
-                      setToolboxDrawerOpen={setToolboxDrawerOpen}
-                      setTaskPanelExpanded={setTaskPanelExpanded}
-                      setMediaLibraryOpen={setMediaLibraryOpen}
-                      setBackupRestoreOpen={setBackupRestoreOpen}
-                      cloudSyncOpen={cloudSyncOpen}
-                      setCloudSyncOpen={setCloudSyncOpen}
-                      handleBeforeSwitch={handleBeforeSwitch}
-                      isDataReady={isDataReady}
-                      onCreateProjectForMemory={handleCreateProjectForMemory}
-                      currentBoardId={currentBoardId}
-                      deferredRuntimeEnabled={deferredRuntimeEnabled}
-                      shouldRenderDeferredFeatures={
-                        shouldRenderDeferredFeatures
-                      }
-                      versionUpdateEnabled={versionUpdateEnabled}
-                      performancePanelEnabled={performancePanelEnabled}
-                      toolWindowManagerEnabled={toolWindowManagerEnabled}
-                      minimizedToolsBarEnabled={minimizedToolsBarEnabled}
-                      enableToolWindows={enableToolWindows}
-                      enableGenerationRuntime={enableGenerationRuntime}
-                    />
-                  </DrawnixContext.Provider>
-                </ChatDrawerProvider>
-              </CacheQuotaProvider>
-            </ToolbarConfigProvider>
-          </AudioPlaylistProvider>
-        </AssetProvider>
-      </RecentColorsProvider>
-    </I18nProvider>
+    <OpenTuAccountProvider>
+      <I18nProvider>
+        <RecentColorsProvider>
+          <AssetProvider>
+            <AudioPlaylistProvider>
+              <ToolbarConfigProvider>
+                <CacheQuotaProvider onOpenMediaLibrary={handleOpenMediaLibrary}>
+                  <ChatDrawerProvider>
+                    <DrawnixContext.Provider value={contextValue}>
+                      <DrawnixContent
+                        value={value}
+                        viewport={viewport}
+                        theme={theme}
+                        options={options}
+                        plugins={plugins}
+                        containerRef={containerRef}
+                        appState={appState}
+                        board={board}
+                        setBoard={setBoard}
+                        projectDrawerOpen={projectDrawerOpen}
+                        toolboxDrawerOpen={toolboxDrawerOpen}
+                        taskPanelExpanded={taskPanelExpanded}
+                        accountDrawerOpen={accountDrawerOpen}
+                        mediaLibraryOpen={mediaLibraryOpen}
+                        mediaLibraryConfig={mediaLibraryConfig}
+                        backupRestoreOpen={backupRestoreOpen}
+                        onChange={onChange}
+                        onSelectionChange={handleSelectionChange}
+                        onViewportChange={onViewportChange}
+                        onThemeChange={onThemeChange}
+                        onValueChange={onValueChange}
+                        afterInit={afterInit}
+                        onBoardSwitch={onBoardSwitch}
+                        onTabSyncNeeded={onTabSyncNeeded}
+                        handleProjectDrawerToggle={handleProjectDrawerToggle}
+                        handleToolboxDrawerToggle={handleToolboxDrawerToggle}
+                        handleKnowledgeBaseToggle={handleKnowledgeBaseToggle}
+                        handleTaskPanelToggle={handleTaskPanelToggle}
+                        handleAccountDrawerToggle={handleAccountDrawerToggle}
+                        handleOpenMediaLibrary={handleOpenMediaLibrary}
+                        handleOpenBackupRestore={handleOpenBackupRestore}
+                        handleOpenCloudSync={handleOpenCloudSync}
+                        setProjectDrawerOpen={setProjectDrawerOpen}
+                        setToolboxDrawerOpen={setToolboxDrawerOpen}
+                        setTaskPanelExpanded={setTaskPanelExpanded}
+                        setAccountDrawerOpen={setAccountDrawerOpen}
+                        setMediaLibraryOpen={setMediaLibraryOpen}
+                        setBackupRestoreOpen={setBackupRestoreOpen}
+                        cloudSyncOpen={cloudSyncOpen}
+                        setCloudSyncOpen={setCloudSyncOpen}
+                        handleBeforeSwitch={handleBeforeSwitch}
+                        isDataReady={isDataReady}
+                        onCreateProjectForMemory={handleCreateProjectForMemory}
+                        currentBoardId={currentBoardId}
+                        deferredRuntimeEnabled={deferredRuntimeEnabled}
+                        shouldRenderDeferredFeatures={
+                          shouldRenderDeferredFeatures
+                        }
+                        versionUpdateEnabled={versionUpdateEnabled}
+                        performancePanelEnabled={performancePanelEnabled}
+                        toolWindowManagerEnabled={toolWindowManagerEnabled}
+                        minimizedToolsBarEnabled={minimizedToolsBarEnabled}
+                        enableToolWindows={enableToolWindows}
+                        enableGenerationRuntime={enableGenerationRuntime}
+                      />
+                    </DrawnixContext.Provider>
+                  </ChatDrawerProvider>
+                </CacheQuotaProvider>
+              </ToolbarConfigProvider>
+            </AudioPlaylistProvider>
+          </AssetProvider>
+        </RecentColorsProvider>
+      </I18nProvider>
+    </OpenTuAccountProvider>
   );
 };
 
@@ -982,6 +1014,7 @@ interface DrawnixContentProps {
   projectDrawerOpen: boolean;
   toolboxDrawerOpen: boolean;
   taskPanelExpanded: boolean;
+  accountDrawerOpen: boolean;
   mediaLibraryOpen: boolean;
   mediaLibraryConfig: MediaLibraryOpenConfig;
   backupRestoreOpen: boolean;
@@ -1005,12 +1038,14 @@ interface DrawnixContentProps {
   handleToolboxDrawerToggle: () => void;
   handleKnowledgeBaseToggle: () => void;
   handleTaskPanelToggle: () => void;
+  handleAccountDrawerToggle: () => void;
   handleOpenMediaLibrary: (config?: MediaLibraryOpenConfig) => void;
   handleOpenBackupRestore: () => void;
   handleOpenCloudSync: () => void;
   setProjectDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setToolboxDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setTaskPanelExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  setAccountDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setMediaLibraryOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setBackupRestoreOpen: React.Dispatch<React.SetStateAction<boolean>>;
   cloudSyncOpen: boolean;
@@ -1034,6 +1069,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   projectDrawerOpen,
   toolboxDrawerOpen,
   taskPanelExpanded,
+  accountDrawerOpen,
   mediaLibraryOpen,
   mediaLibraryConfig,
   backupRestoreOpen,
@@ -1058,12 +1094,14 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   handleToolboxDrawerToggle,
   handleKnowledgeBaseToggle,
   handleTaskPanelToggle,
+  handleAccountDrawerToggle,
   handleOpenMediaLibrary,
   handleOpenBackupRestore,
   handleOpenCloudSync,
   setProjectDrawerOpen,
   setToolboxDrawerOpen,
   setTaskPanelExpanded,
+  setAccountDrawerOpen,
   setMediaLibraryOpen,
   setBackupRestoreOpen,
   setCloudSyncOpen,
@@ -1594,7 +1632,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
     };
   }, [board, containerRef, openMediaPreview, language]);
 
-  // 监听画板点击事件，关闭项目抽屉和工具箱抽屉
+  // 监听画板点击事件，关闭未固定的工作区抽屉
   useEffect(() => {
     if (!board) return;
 
@@ -1678,6 +1716,9 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
       if (taskPanelExpanded && shouldAutoCloseTaskDrawer()) {
         setTaskPanelExpanded(false);
       }
+      if (accountDrawerOpen) {
+        setAccountDrawerOpen(false);
+      }
     };
 
     const container = containerRef.current;
@@ -1696,9 +1737,11 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
     projectDrawerOpen,
     toolboxDrawerOpen,
     taskPanelExpanded,
+    accountDrawerOpen,
     setProjectDrawerOpen,
     setToolboxDrawerOpen,
     setTaskPanelExpanded,
+    setAccountDrawerOpen,
   ]);
 
   return (
@@ -1753,6 +1796,8 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             onToolboxDrawerToggle={handleToolboxDrawerToggle}
             taskPanelExpanded={taskPanelExpanded}
             onTaskPanelToggle={handleTaskPanelToggle}
+            accountDrawerOpen={accountDrawerOpen}
+            onAccountDrawerToggle={handleAccountDrawerToggle}
             onOpenBackupRestore={handleOpenBackupRestore}
             onOpenCloudSync={handleOpenCloudSync}
             onKnowledgeBaseToggle={handleKnowledgeBaseToggle}
@@ -1760,6 +1805,10 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             deferredFeaturesEnabled={toolWindowManagerEnabled}
             minimizedToolsBarEnabled={minimizedToolsBarEnabled}
             onEnableToolWindows={enableToolWindows}
+          />
+          <AccountDrawer
+            isOpen={accountDrawerOpen}
+            onClose={() => setAccountDrawerOpen(false)}
           />
           {canvasAudioPlayerEnabled && (
             <Suspense fallback={null}>

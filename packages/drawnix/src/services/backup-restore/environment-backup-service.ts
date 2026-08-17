@@ -4,7 +4,7 @@ import {
   DRAWNIX_SETTINGS_KEY,
   SENSITIVE_STORAGE_KEYS,
 } from '../../constants/storage';
-import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
+import { APP_DB_STORES, getAppDBName } from '../app-database';
 import { kvStorageService } from '../kv-storage-service';
 import { settingsManager, type AppSettings } from '../../utils/settings-manager';
 import { tokenService } from '../github-sync/token-service';
@@ -183,7 +183,7 @@ export async function exportEnvironmentData(
     kv: await collectKV(),
     appDb: {
       config: await collectSafeAppConfig(),
-      workflows: await readStoreRecords(APP_DB_NAME, APP_DB_STORES.WORKFLOWS),
+      workflows: await readStoreRecords(getAppDBName(), APP_DB_STORES.WORKFLOWS),
     },
     localForage: {
       chatSessions: await readLocalForageRecords(CHAT_DB_NAME, 'sessions'),
@@ -287,7 +287,7 @@ async function collectKV(): Promise<KeyValueRecord[]> {
 
 async function collectSafeAppConfig(): Promise<StoreRecord[]> {
   const records = await readStoreRecords<Record<string, unknown>>(
-    APP_DB_NAME,
+    getAppDBName(),
     APP_DB_STORES.CONFIG
   );
   return records.filter(record => record.value?.key === 'systemPrompt');
@@ -295,7 +295,7 @@ async function collectSafeAppConfig(): Promise<StoreRecord[]> {
 
 async function collectSecretAppConfig(): Promise<StoreRecord[]> {
   const records = await readStoreRecords<Record<string, unknown>>(
-    APP_DB_NAME,
+    getAppDBName(),
     APP_DB_STORES.CONFIG
   );
   return records.filter(record => record.value?.key !== 'systemPrompt');
@@ -403,11 +403,11 @@ async function clearEnvironmentData(includeSecretConfig: boolean): Promise<void>
     kvKeys.filter(isAllowedKVKey).map(key => kvStorageService.remove(key))
   );
 
-  await clearStore(APP_DB_NAME, APP_DB_STORES.WORKFLOWS);
+  await clearStore(getAppDBName(), APP_DB_STORES.WORKFLOWS);
   if (includeSecretConfig) {
-    await clearStore(APP_DB_NAME, APP_DB_STORES.CONFIG);
+    await clearStore(getAppDBName(), APP_DB_STORES.CONFIG);
   } else {
-    await deleteStoreRecord(APP_DB_NAME, APP_DB_STORES.CONFIG, 'systemPrompt');
+    await deleteStoreRecord(getAppDBName(), APP_DB_STORES.CONFIG, 'systemPrompt');
   }
 
   await Promise.all([
@@ -476,18 +476,18 @@ async function restoreAppDb(
 ): Promise<number> {
   let imported = 0;
   if (Array.isArray(appDb?.config)) {
-    imported += await writeStoreRecords(APP_DB_NAME, APP_DB_STORES.CONFIG, appDb.config);
+    imported += await writeStoreRecords(getAppDBName(), APP_DB_STORES.CONFIG, appDb.config);
   }
   if (Array.isArray(secrets?.appConfigRecords)) {
     imported += await writeStoreRecords(
-      APP_DB_NAME,
+      getAppDBName(),
       APP_DB_STORES.CONFIG,
       secrets.appConfigRecords
     );
   }
   if (Array.isArray(appDb?.workflows)) {
     imported += await writeStoreRecords(
-      APP_DB_NAME,
+      getAppDBName(),
       APP_DB_STORES.WORKFLOWS,
       appDb.workflows
     );

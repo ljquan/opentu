@@ -5,12 +5,19 @@ import type {
   ResolvedProviderContext,
 } from './types';
 import {
+  isTuziCompatibleBaseUrl,
   isTrustedTuziApiBaseUrl,
   isTuziRequestIdCorsBaseUrl,
   loadTuziApiEndpointBaseUrls,
   normalizeTuziApiEndpointUrl,
   TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './tuzi-api-endpoints';
+import { isTuziUrlTokenMode } from './tuzi-url-token';
+import {
+  getOpenTuApiClient,
+  isAllowedOpenTuRelayPath,
+  type OpenTuApiClient,
+} from '../opentu-api-client';
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
@@ -126,9 +133,12 @@ function assertValidTuziSameOriginProxyResponse(
 
 function applyBaseUrlStrategy(
   baseUrl: string,
-  strategy: ProviderBaseUrlStrategy = 'preserve'
+  strategy: ProviderBaseUrlStrategy = 'preserve',
+  useSameOriginProxy = true
 ): string {
-  const rewritten = rewriteBaseUrlForSameOriginProxy(baseUrl);
+  const rewritten = useSameOriginProxy
+    ? rewriteBaseUrlForSameOriginProxy(baseUrl)
+    : baseUrl;
   const normalizedBaseUrl = trimTrailingSlashes(rewritten);
 
   switch (strategy) {
@@ -500,6 +510,36 @@ function buildQueryString(
   return result ? `?${result}` : '';
 }
 
+function getOpenTuRelayProviderPath(
+  context: ResolvedProviderContext,
+  request: ProviderTransportRequest
+): string | null {
+  if (
+    !isTuziCompatibleBaseUrl(context.baseUrl) ||
+    /^https?:\/\//i.test(request.path) ||
+    isTuziUrlTokenMode()
+  ) {
+    return null;
+  }
+
+  const directBaseUrl = applyBaseUrlStrategy(
+    context.baseUrl,
+    request.baseUrlStrategy,
+    false
+  );
+  let target: URL;
+  try {
+    target = new URL(joinUrl(directBaseUrl, request.path));
+  } catch {
+    return null;
+  }
+  if (!isTuziCompatibleBaseUrl(target.origin)) return null;
+
+  const explicitQuery = buildQueryString(request.query);
+  const path = `${target.pathname}${explicitQuery || target.search}`;
+  return isAllowedOpenTuRelayPath(path, request.method) ? path : null;
+}
+
 function mergeHeaders(
   baseHeaders?: Record<string, string>,
   overrideHeaders?: Record<string, string>
@@ -782,6 +822,13 @@ export function canAttachProviderRequestIdHeader(
 }
 
 export class ProviderTransport {
+  constructor(
+    private readonly openTuClientResolver: () => Pick<
+      OpenTuApiClient,
+      'hasCredential' | 'relay'
+    > | null = getOpenTuApiClient
+  ) {}
+
   prepareRequest(
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
@@ -868,6 +915,39 @@ export class ProviderTransport {
       return response;
     };
     try {
+      const openTuRelayPath = getOpenTuRelayProviderPath(context, request);
+      // Managed Tuzi profiles intentionally retain the established direct
+      // provider transport during this compatibility stage. Account and key
+      // management still use the DPoP client.
+      const openTuClient =
+        openTuRelayPath && context.managedBy !== 'tuzi'
+          ? this.openTuClientResolver()
+          : null;
+      if (
+        openTuRelayPath &&
+        openTuClient &&
+        (await openTuClient.hasCredential())
+      ) {
+        const openTuHeaders = { ...(request.headers || {}) };
+        if (
+          request.requestId &&
+          isPostRequestMethod(request.method) &&
+          /\/images\/(?:generations|edits)\/?(?:\?|$)/i.test(openTuRelayPath)
+        ) {
+          openTuHeaders['X-Request-Id'] = request.requestId;
+        }
+        return returnResponse(
+          await openTuClient.relay(openTuRelayPath, {
+            method: request.method || 'GET',
+            headers: openTuHeaders,
+            body: request.body,
+            signal: timeoutControl.signal,
+            fetcher,
+          }),
+          recoverableImageSubmission
+        );
+      }
+
       const response = assertValidTuziSameOriginProxyResponse(
         prepared.url,
         await fetcher(prepared.url, prepared.init)
