@@ -67,4 +67,4 @@
   - 剩余：整站 Node 20 构建在本机默认约 2 GiB old-space 下 OOM；内置浏览器 URL 策略阻止本轮完成桌面/移动端复验
 - [ ] 9.2 使用真实供应商 binding 验证 submit、poll、cancel（若支持）及四种 presenter mode
 - [x] 9.3 记录无远端 cancel、PPTX 渲染差异、供应商限制和跨域缓存等剩余风险
-- [ ] 9.4 更新 Navigator 的资源、verify、version、PR 和完成事件
+- [x] 9.4 更新 Navigator 的资源、verify、version、PR 和完成事件
