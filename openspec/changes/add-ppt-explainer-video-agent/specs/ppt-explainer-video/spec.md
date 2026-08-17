@@ -220,6 +220,37 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 - **THEN** 系统 SHALL 在任何远端 submit 和计费副作用前失败
 - **AND** SHALL NOT 回退到浏览器实时录制合成器
 
+### Requirement: PPT Explainer SHALL Support Local Composition With Existing Models
+
+当没有专用 PPT 最终成片 binding 时，系统 SHALL 允许用户显式选择本地合成模式，并复用已有文本、图片、音频和视频模型完成任务。
+
+#### Scenario: Generate a narrated slide video locally
+
+- **GIVEN** 当前供应商账号支持内置 `/audio/speech` 服务
+- **WHEN** 用户选择单声线或双声线本地合成
+- **THEN** 系统 SHALL 按页面和 speaker turn 生成旁白音频
+- **AND** SHALL 将 PPT 页面、旁白、字幕和转场合成为一个用户可见视频结果
+
+#### Scenario: Use an ordinary video model for avatar segments
+
+- **GIVEN** 用户选择数字人模式且普通视频模型支持所需参考输入
+- **WHEN** 本地编排器生成数字人片段
+- **THEN** 视频模型 SHALL 只负责片段生成
+- **AND** SHALL NOT 被声明或持久化为完整 `ppt-explainer` 供应商
+
+#### Scenario: TTS route is unavailable
+
+- **WHEN** 当前供应商缺少地址/API Key，或不支持内置 `audio/speech` 服务
+- **THEN** 系统 SHALL 在生成讲稿、图片或视频等计费副作用前失败
+- **AND** SHALL 指明内置 TTS 服务不可用，不要求用户创建自定义模型或 binding
+
+#### Scenario: Cancel local composition
+
+- **GIVEN** 本地任务正在生成旁白或合成视频
+- **WHEN** 用户取消任务
+- **THEN** 系统 SHALL 中止未完成的请求和录制
+- **AND** SHALL 释放媒体轨道、媒体元素、Object URL 和未登记的临时产物
+
 ### Requirement: PPT Explainer Tasks SHALL Persist Recoverable State
 
 系统 SHALL 使用标准 VIDEO 根任务持久化轻量阶段、幂等键、remoteId、原路由和结果交付状态。

@@ -8,6 +8,7 @@ export const PPT_EXPLAINER_SCHEMA_VERSION = 1 as const;
 
 export type PptExplainerSourceKind = 'topic' | 'current_ppt' | 'pptx';
 export type PptExplainerReviewMode = 'confirm' | 'skip_after_warning';
+export type PptExplainerExecutionMode = 'provider' | 'local';
 export type PptExplainerPresenterMode =
   | 'single_voice'
   | 'dual_voice'
@@ -103,8 +104,11 @@ export interface PptExplainerModelRoutes {
   imageModel?: string;
   imageModelRef?: ModelRef | null;
   imageRoute?: TaskInvocationRouteSnapshot;
-  videoModel: string;
-  videoModelRef: ModelRef;
+  audioModel?: string;
+  audioModelRef?: ModelRef | null;
+  audioRoute?: TaskInvocationRouteSnapshot;
+  videoModel?: string;
+  videoModelRef?: ModelRef | null;
 }
 
 export interface PptExplainerDeliveryState {
@@ -131,6 +135,7 @@ export interface PptExplainerTaskState {
   reviewMode: PptExplainerReviewMode;
   reviewAcceptedAt?: number;
   presenterMode: PptExplainerPresenterMode;
+  executionMode?: PptExplainerExecutionMode;
   speakers: PptExplainerSpeaker[];
   voiceConsentAcceptedAt?: number;
   stage: PptExplainerStage;
@@ -138,7 +143,7 @@ export interface PptExplainerTaskState {
   idempotencyKey: string;
   remoteId?: string;
   presentationInput: 'pptx' | 'slide_images';
-  originalRoute: PptExplainerProviderRouteSnapshot;
+  originalRoute?: PptExplainerProviderRouteSnapshot;
   models: PptExplainerModelRoutes;
   delivery: PptExplainerDeliveryState;
   executionAttempt: number;
@@ -151,13 +156,16 @@ export interface PptExplainerCreateInput {
   topic?: string;
   reviewMode: PptExplainerReviewMode;
   presenterMode: PptExplainerPresenterMode;
+  executionMode?: PptExplainerExecutionMode;
   speakers: PptExplainerSpeakerInput[];
   textModel: string;
   textModelRef?: ModelRef | null;
   imageModel?: string;
   imageModelRef?: ModelRef | null;
-  videoModel: string;
-  videoModelRef: ModelRef;
+  audioModel?: string;
+  audioModelRef?: ModelRef | null;
+  videoModel?: string;
+  videoModelRef?: ModelRef | null;
   providerBindingId?: string;
   pptxFile?: File;
 }

@@ -258,6 +258,7 @@ describe('PptExplainerDialog', () => {
         source: 'topic',
         topic: '季度复盘',
         reviewMode: 'skip_after_warning',
+        executionMode: 'local',
         presenterMode: 'single_voice',
         speakers: [
           expect.objectContaining({
@@ -534,6 +535,8 @@ describe('PptExplainerDialog', () => {
 
   it('参考音频需要本人授权，授权后作为克隆样本创建任务', async () => {
     const { onCreate, container } = renderDialog();
+    fireEvent.click(screen.getByRole('radio', { name: '专用 PPT Agent' }));
+    fireEvent.click(screen.getByRole('radio', { name: '参考音频' }));
     const audioInput = container.querySelector(
       'input[type="file"][accept^="audio/"]'
     ) as HTMLInputElement;
@@ -574,6 +577,8 @@ describe('PptExplainerDialog', () => {
   it('可以从素材库选择音频作为参考样本', async () => {
     const { onCreate } = renderDialog();
 
+    fireEvent.click(screen.getByRole('radio', { name: '专用 PPT Agent' }));
+    fireEvent.click(screen.getByRole('radio', { name: '参考音频' }));
     fireEvent.click(screen.getByRole('button', { name: '从素材库选择' }));
     fireEvent.click(screen.getByRole('button', { name: '选择测试音频' }));
     expect(screen.getByText('素材库样本.mp3')).not.toBeNull();

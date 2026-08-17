@@ -425,7 +425,12 @@ describe('PPT explainer creation service', () => {
     });
 
     await createPptExplainerTask(
-      createInput({ source: 'pptx', topic: undefined, pptxFile: file })
+      createInput({
+        source: 'pptx',
+        topic: undefined,
+        pptxFile: file,
+        executionMode: 'provider',
+      })
     );
 
     expect(mocks.preflightProvider).toHaveBeenCalledTimes(2);
@@ -466,7 +471,12 @@ describe('PPT explainer creation service', () => {
     });
 
     await createPptExplainerTask(
-      createInput({ source: 'pptx', topic: undefined, pptxFile: file })
+      createInput({
+        source: 'pptx',
+        topic: undefined,
+        pptxFile: file,
+        executionMode: 'provider',
+      })
     );
 
     expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({

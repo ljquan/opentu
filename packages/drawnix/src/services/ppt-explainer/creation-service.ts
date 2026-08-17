@@ -13,6 +13,10 @@ import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
+import {
+  DEFAULT_OPENAI_SPEECH_MODEL,
+  resolveSpeechPlan,
+} from '../tts-speech-service';
 import { validateOutline } from '../ppt';
 import type { PptxImportCheckpoint } from '../pptx-import';
 import {
@@ -222,6 +226,11 @@ function preflightAuxiliaryModel(
 function preflightVideoProvider(
   input: PptExplainerCreateInput
 ): PptExplainerProviderPreflightResult {
+  if (!input.videoModelRef) {
+    throw new PptExplainerValidationError(
+      '请选择支持 PPT 讲解的供应商视频模型'
+    );
+  }
   const presentationInputs =
     input.source === 'pptx'
       ? (['pptx', 'slide_images'] as const)
@@ -251,6 +260,18 @@ function preflightVideoProvider(
     }
   }
   throw unsupportedError || new Error('供应商不支持所选 PPT 讲解方式');
+}
+
+function preflightSpeechModel(
+  routeModel: ModelRef | string | null | undefined,
+  providerProfileId: string
+): InvocationPlan {
+  return resolveSpeechPlan(
+    routeModel || {
+      profileId: providerProfileId,
+      modelId: DEFAULT_OPENAI_SPEECH_MODEL,
+    }
+  );
 }
 
 function assertProviderAcceptsReferenceAudio(
@@ -289,9 +310,10 @@ function buildInitialState(options: {
   input: PptExplainerCreateInput;
   topic?: string;
   jobId: string;
-  provider: PptExplainerProviderPreflightResult;
+  provider?: PptExplainerProviderPreflightResult;
   textPlan: InvocationPlan;
   imagePlan?: InvocationPlan;
+  audioPlan?: InvocationPlan;
   outlineFrameIds?: string[];
   sourceFrameRevisions?: Record<string, string>;
   pptxCheckpoint?: PptxImportCheckpoint;
@@ -299,7 +321,11 @@ function buildInitialState(options: {
   voiceConsentAcceptedAt?: number;
 }): PptExplainerTaskState {
   const { input, provider, pptxCheckpoint } = options;
-  const presentationInput = provider.requirements.presentationInput;
+  const executionMode = input.executionMode || 'provider';
+  const presentationInput =
+    executionMode === 'local'
+      ? 'slide_images'
+      : provider!.requirements.presentationInput;
   const needsReview =
     input.source === 'topic' && input.reviewMode === 'confirm';
   const reviewAcceptedAt = needsReview ? undefined : Date.now();
@@ -314,6 +340,7 @@ function buildInitialState(options: {
     reviewMode: input.reviewMode,
     reviewAcceptedAt,
     presenterMode: input.presenterMode,
+    executionMode,
     speakers: options.speakers.map((speaker) => ({
       ...speaker,
       ...(speaker.voiceReference
@@ -331,7 +358,11 @@ function buildInitialState(options: {
     slides: [],
     idempotencyKey: options.jobId,
     presentationInput,
-    originalRoute: createPptExplainerProviderRouteSnapshot(provider),
+    ...(provider
+      ? {
+          originalRoute: createPptExplainerProviderRouteSnapshot(provider),
+        }
+      : {}),
     models: {
       textModel: input.textModel,
       textModelRef: input.textModelRef,
@@ -355,8 +386,23 @@ function buildInitialState(options: {
             }
           )
         : undefined,
-      videoModel: input.videoModel?.trim() || provider.modelRef.modelId,
-      videoModelRef: { ...input.videoModelRef },
+      audioModel: input.audioModel?.trim(),
+      audioModelRef: input.audioModelRef,
+      audioRoute: options.audioPlan
+        ? createTaskInvocationRouteSnapshot(
+            'audio',
+            options.audioPlan.modelRef,
+            {
+              bindingId: options.audioPlan.binding.id,
+              metadataPolicy: 'capabilities-only',
+            }
+          )
+        : undefined,
+      videoModel:
+        input.videoModel?.trim() || provider?.modelRef.modelId || undefined,
+      videoModelRef: input.videoModelRef
+        ? { ...input.videoModelRef }
+        : undefined,
     },
     delivery: {
       resultSaved: false,
@@ -500,8 +546,25 @@ export async function createPptExplainerTask(
 
   // All credential/capability checks happen before outline generation, import,
   // upload, or any other operation that can incur cost or persist binary data.
-  const provider = preflightVideoProvider(input);
-  assertProviderAcceptsReferenceAudio(input, provider);
+  const executionMode = input.executionMode || 'provider';
+  const provider =
+    executionMode === 'provider' ? preflightVideoProvider(input) : undefined;
+  if (provider) {
+    assertProviderAcceptsReferenceAudio(input, provider);
+  } else if (hasPptExplainerReferenceAudio(input.speakers)) {
+    throw new PptExplainerValidationError(
+      '本地合成首版仅支持声音 ID；参考音频克隆需要专用供应商能力'
+    );
+  }
+  if (
+    executionMode === 'local' &&
+    (input.presenterMode === 'single_avatar' ||
+      input.presenterMode === 'dual_avatar')
+  ) {
+    throw new PptExplainerValidationError(
+      '本地合成首版先支持单/双声线；数字人片段将在下一阶段接入'
+    );
+  }
   const textPlan = preflightAuxiliaryModel(
     'text',
     input.textModelRef ?? input.textModel,
@@ -514,6 +577,13 @@ export async function createPptExplainerTask(
         'PPT 页面图片'
       )
     : undefined;
+  const audioPlan =
+    executionMode === 'local'
+      ? preflightSpeechModel(
+          input.audioModelRef ?? input.audioModel,
+          textPlan.provider.profileId
+        )
+      : undefined;
 
   const jobId = generateTaskId();
   const createInitialState = (
@@ -527,6 +597,7 @@ export async function createPptExplainerTask(
       provider,
       textPlan,
       imagePlan,
+      audioPlan,
       outlineFrameIds:
         input.source === 'current_ppt'
           ? context.currentPptSelection?.frameIds

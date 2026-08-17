@@ -12,6 +12,7 @@ import {
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
+import { generateSpeechAudio } from '../tts-speech-service';
 import {
   deletePptxImportCache,
   deletePptxImportCacheByJobId,
@@ -68,6 +69,7 @@ import {
   validatePptExplainerSlides,
   validatePptExplainerSpeakers,
 } from './validation';
+import { composeLocalPptExplainerVideo } from './local-composer';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -604,6 +606,92 @@ async function finalizeResult(
   await cleanupPptExplainerInputs(taskId, state);
 }
 
+async function runLocalComposition(
+  taskId: string,
+  state: PptExplainerTaskState,
+  executionAttempt: number,
+  signal: AbortSignal
+): Promise<void> {
+  const audioModel = state.models.audioModelRef || state.models.audioModel;
+  if (!audioModel) throw new Error('PPT 本地合成缺少 TTS 音频模型');
+  const speakers = new Map(
+    state.speakers.map((speaker) => [speaker.id, speaker])
+  );
+  const totalTurns = state.slides.reduce(
+    (sum, slide) => sum + slide.turns.length,
+    0
+  );
+  let generatedTurns = 0;
+  const slides = [];
+
+  for (const slide of state.slides) {
+    signal.throwIfAborted();
+    if (!slide.snapshotUrl) {
+      throw new Error(`PPT 第 ${slide.pageIndex} 页缺少页面快照`);
+    }
+    const turns = [];
+    for (const turn of slide.turns) {
+      const speaker = speakers.get(turn.speakerId);
+      if (!speaker?.voiceId?.trim()) {
+        throw new Error(`讲解者「${speaker?.displayName || turn.speakerId}」缺少声音 ID`);
+      }
+      const speech = await generateSpeechAudio({
+        model: audioModel,
+        text: turn.text,
+        voice: speaker.voiceId,
+        signal,
+      });
+      turns.push({
+        audio: speech.blob,
+        subtitle: turn.text,
+        speakerName: speaker.displayName,
+      });
+      generatedTurns += 1;
+      const progress =
+        50 + Math.round((generatedTurns / Math.max(1, totalTurns)) * 25);
+      state = await persistStage(
+        taskId,
+        { ...state, stage: 'submitting' },
+        executionAttempt,
+        progress,
+        TaskExecutionPhase.SUBMITTING
+      );
+    }
+    slides.push({ imageUrl: slide.snapshotUrl, turns });
+  }
+
+  state = await persistStage(
+    taskId,
+    { ...state, stage: 'finalizing' },
+    executionAttempt,
+    80,
+    TaskExecutionPhase.DOWNLOADING
+  );
+  const composed = await composeLocalPptExplainerVideo({
+    slides,
+    signal,
+  });
+  const extension = composed.mimeType.includes('mp4') ? 'mp4' : 'webm';
+  const stableUrl = `/__aitu_cache__/video/${taskId}.${extension}`;
+  try {
+    await unifiedCacheService.cacheMediaFromBlob(
+      stableUrl,
+      composed.blob,
+      'video',
+      { taskId }
+    );
+  } finally {
+    URL.revokeObjectURL(composed.url);
+  }
+  await finalizeResult(
+    taskId,
+    state,
+    executionAttempt,
+    stableUrl,
+    signal
+  );
+}
+
 async function pollUntilComplete(
   taskId: string,
   initialState: PptExplainerTaskState,
@@ -613,6 +701,7 @@ async function pollUntilComplete(
   let state = initialState;
   const remoteId = state.remoteId;
   if (!remoteId) throw new Error('PPT 讲解任务缺少 remoteId');
+  if (!state.originalRoute) throw new Error('PPT 讲解任务缺少原供应商路由');
   const route = resolvePptExplainerProviderRouteSnapshot(
     state.originalRoute,
     getProviderRequirements(state)
@@ -1004,6 +1093,18 @@ async function executePptExplainerRun(
     50,
     TaskExecutionPhase.SUBMITTING
   );
+  if ((state.executionMode || 'provider') === 'local') {
+    await runLocalComposition(
+      task.id,
+      state,
+      executionAttempt,
+      signal
+    );
+    return;
+  }
+  if (!state.originalRoute) {
+    throw new Error('PPT 讲解任务缺少原供应商路由');
+  }
   const route = resolvePptExplainerProviderRouteSnapshot(
     state.originalRoute,
     getProviderRequirements(state)
@@ -1222,6 +1323,10 @@ export async function cancelPptExplainerRemoteTask(task: Task): Promise<void> {
       return;
     }
     try {
+      if (!state.originalRoute) {
+        await cleanupPptExplainerInputs(task.id, state);
+        return;
+      }
       const route = resolvePptExplainerProviderRouteSnapshot(
         state.originalRoute,
         getProviderRequirements(state)

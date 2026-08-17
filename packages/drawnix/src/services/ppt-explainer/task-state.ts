@@ -76,7 +76,9 @@ export async function createPptExplainerRootTask(
     createdAt: now,
     updatedAt: now,
     progress: 0,
-    invocationRoute: toTaskInvocationRoute(state.originalRoute),
+    ...(state.originalRoute
+      ? { invocationRoute: toTaskInvocationRoute(state.originalRoute) }
+      : {}),
   };
   await persistTaskNow(task);
   if (options.track !== false) {

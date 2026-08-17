@@ -14,6 +14,7 @@ export type ProviderProtocol =
   | 'openai.images.edits'
   | 'openai.async.media'
   | 'openai.async.video'
+  | 'openai.audio.speech'
   | 'tuzi.suno.music'
   | 'google.generateContent'
   | 'mj.imagine'
