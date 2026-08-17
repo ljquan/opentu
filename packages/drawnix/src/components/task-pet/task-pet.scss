@@ -2,6 +2,11 @@
 
 .task-pet {
   --task-pet-state: #52c7a3;
+  --task-pet-surface: var(--island-bg-color, #ffffff);
+  --task-pet-surface-hover: var(--color-surface-high, #f5f7fa);
+  --task-pet-border: var(--default-border-color, rgba(15, 23, 42, 0.08));
+  --task-pet-text: var(--color-on-surface, #334155);
+  --task-pet-muted: var(--aitu-ui-text-secondary, #64748b);
   position: fixed;
   z-index: z('task-pet-overlay');
   width: 112px;
@@ -18,19 +23,17 @@
     margin: 0;
     padding: 0;
     overflow: visible;
-    border: 1px solid rgba(15, 23, 42, 0.32);
+    border: 1px solid transparent;
     border-radius: 8px;
-    background: #dceaf2;
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+    background: transparent;
+    box-shadow: none;
     cursor: grab;
     touch-action: none;
     -webkit-tap-highlight-color: transparent;
 
     &:hover {
-      border-color: rgba(245, 158, 11, 0.72);
-      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.22),
-        0 0 0 2px rgba(245, 158, 11, 0.1);
+      border-color: var(--task-pet-border);
+      background: color-mix(in srgb, var(--task-pet-surface-hover) 58%, transparent);
     }
 
     &:focus-visible {
@@ -114,14 +117,12 @@
     width: 214px;
     max-width: calc(100vw - 24px);
     padding: 11px 12px 10px;
-    border: 1px solid rgba(249, 115, 22, 0.72);
+    border: 1px solid var(--task-pet-border);
     border-radius: 8px;
-    background: rgba(10, 17, 27, 0.96);
-    box-shadow: 0 16px 38px rgba(2, 8, 23, 0.3),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-    color: #f8fafc;
+    background: var(--task-pet-surface);
+    box-shadow: var(--aitu-ui-shadow-popover, 0 10px 30px rgba(15, 23, 42, 0.12));
+    color: var(--task-pet-text);
     box-sizing: border-box;
-    backdrop-filter: blur(10px);
     animation: task-pet-bubble-enter 160ms ease-out;
 
     &::before {
@@ -130,7 +131,7 @@
       width: 9px;
       height: 9px;
       border: inherit;
-      background: #0a111b;
+      background: var(--task-pet-surface);
       transform: rotate(45deg);
     }
   }
@@ -176,7 +177,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    color: #fdba74;
+    color: var(--task-pet-text);
     font-size: 12px;
     font-weight: 800;
     line-height: 1.4;
@@ -188,12 +189,12 @@
     flex: 0 0 7px;
     border-radius: 50%;
     background: var(--task-pet-state);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 3px var(--task-pet-surface);
   }
 
   &__message {
     max-width: 100%;
-    color: #e2e8f0;
+    color: var(--task-pet-muted);
     font-size: 12px;
     font-weight: 500;
     line-height: 1.5;
@@ -209,16 +210,16 @@
     max-width: 100%;
     margin-top: 1px;
     padding: 0 9px;
-    border: 1px solid rgba(251, 146, 60, 0.4);
+    border: 1px solid var(--task-pet-border);
     border-radius: 6px;
-    background: rgba(249, 115, 22, 0.12);
-    color: #fed7aa;
+    background: var(--task-pet-surface-hover);
+    color: var(--task-pet-text);
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
 
     &:hover {
-      background: rgba(249, 115, 22, 0.2);
+      border-color: var(--brand-primary, #f59e0b);
     }
 
     &:focus-visible {
@@ -232,9 +233,9 @@
   }
 
   &--dragging &__trigger {
-    border-color: #fb923c;
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.26),
-      0 0 0 3px rgba(249, 115, 22, 0.14);
+    border-color: var(--brand-primary, #f59e0b);
+    background: color-mix(in srgb, var(--task-pet-surface-hover) 72%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-primary, #f59e0b) 14%, transparent);
     cursor: grabbing;
   }
 
