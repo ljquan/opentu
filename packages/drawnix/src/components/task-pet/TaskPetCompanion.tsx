@@ -174,7 +174,7 @@ export const TaskPetCompanion = ({
         <span className="task-pet__sprite" aria-hidden="true">
           <img
             className="task-pet__image"
-            src="/logo-tuzi.png"
+            src="/task-pet-tuzi.png?v=1"
             alt=""
             draggable={false}
           />
