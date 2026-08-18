@@ -1,3 +1,13 @@
+## 1.0.19 (2026-08-18)
+
+### 🩹 Fixes
+
+- 严格使用用户配置的供应商地址 (#235) ([7bcd532c](https://github.com/ljquan/opentu/commit/7bcd532c))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.0.18 (2026-08-18)
 
 ### 🔧 Chores
