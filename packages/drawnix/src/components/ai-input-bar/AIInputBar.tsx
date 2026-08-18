@@ -130,7 +130,10 @@ import {
   type WorkflowDefinition,
   type WorkflowStepOptions,
 } from './workflow-converter';
-import { getBoundTaskbarWidth } from './bound-taskbar-layout';
+import {
+  getBoundTaskbarHeight,
+  getBoundTaskbarWidth,
+} from './bound-taskbar-layout';
 import { SkillDropdown, type SkillOption } from './SkillDropdown';
 import {
   inferSkillMediaTypes,
@@ -221,7 +224,6 @@ import {
   findWorkflowStepForTask,
 } from '../../utils/workflow-task-linking';
 import {
-  BOUND_TARGET_DISMISS_HINT_LIMIT,
   areBoundTargetTaskbarDraftsEqual,
   buildBoundTargetGenerationParams,
   collectBoundTargetElementIds,
@@ -231,10 +233,8 @@ import {
   isBoundTargetReferenceOnly,
   pinBoundTargetReferenceContent,
   pruneStaleBoundTargetTaskbarDrafts,
-  readBoundTargetDismissHintCount,
   readBoundTargetFollowEnabled,
   readBoundTargetGenerationPrompt,
-  recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
   resolveBoundTargetMode,
   resolveBoundTargetForPosition,
@@ -1889,14 +1889,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
     const dismissedPromptElementIdRef = useRef<string | null>(null);
     const dismissedPromptGenerationTaskIdRef = useRef<string | null>(null);
-    const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
-      useState(() => readBoundTargetDismissHintCount());
     const [boundTargetFollowEnabled, setBoundTargetFollowEnabled] = useState(
       () => readBoundTargetFollowEnabled()
     );
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
+    const [isBoundTargetDismissMenuOpen, setIsBoundTargetDismissMenuOpen] =
+      useState(false);
     const [boundInputLayoutTick, setBoundInputLayoutTick] = useState(0);
     const [uploadedContent, setUploadedContent] = useState<SelectedContent[]>(
       []
@@ -4222,17 +4222,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setBoundTargetError(null);
         dismissPromptSuggestion();
         setBoundInputLayoutTick((tick) => tick + 1);
-        setBoundTargetDismissHintCount(
-          recordBoundTargetDismiss(boundTargetDismissHintCount)
-        );
       },
-      [
-        boundImageTarget,
-        boundTargetDismissHintCount,
-        detachTaskbarDraft,
-        dismissPromptSuggestion,
-        language,
-      ]
+      [boundImageTarget, detachTaskbarDraft, dismissPromptSuggestion, language]
     );
 
     const handleBoundTargetFollowChange = useCallback((enabled: boolean) => {
@@ -7330,6 +7321,34 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       followedBoundImageTarget,
       boundTargetFollowEnabled
     );
+    const hasPositionedBoundImageTarget = Boolean(positionedBoundImageTarget);
+    useEffect(() => {
+      const container = containerRef.current;
+      if (
+        !hasPositionedBoundImageTarget ||
+        !container ||
+        typeof ResizeObserver === 'undefined'
+      ) {
+        return;
+      }
+
+      let layoutFrameId: number | null = null;
+      const observer = new ResizeObserver(() => {
+        if (layoutFrameId !== null) return;
+        layoutFrameId = window.requestAnimationFrame(() => {
+          layoutFrameId = null;
+          setBoundInputLayoutTick((tick) => tick + 1);
+        });
+      });
+      observer.observe(container);
+
+      return () => {
+        observer.disconnect();
+        if (layoutFrameId !== null) {
+          window.cancelAnimationFrame(layoutFrameId);
+        }
+      };
+    }, [hasPositionedBoundImageTarget]);
     const boundInputPosition = useMemo(() => {
       if (!positionedBoundImageTarget) return null;
 
@@ -7367,7 +7386,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         Math.max(targetCenterX, viewportMargin + barWidth / 2),
         window.innerWidth - viewportMargin - barWidth / 2
       );
-      const estimatedHeight = shouldKeepExpanded ? 112 : 76;
+      const estimatedHeight = getBoundTaskbarHeight(
+        containerRef.current?.getBoundingClientRect().height,
+        shouldKeepExpanded
+      );
       const belowTop = targetBottom + 8;
       const top =
         belowTop + estimatedHeight <= window.innerHeight - viewportMargin
@@ -7375,6 +7397,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           : Math.max(viewportMargin, targetTop - estimatedHeight - 8);
 
       return { left, top };
+      // ResizeObserver increments the tick to invalidate these DOM measurements.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [boundInputLayoutTick, positionedBoundImageTarget, shouldKeepExpanded]);
 
     const followControlsTarget =
@@ -7383,11 +7407,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         ? followedBoundImageTarget
         : null;
     const followControlsTargetType = followControlsTarget?.type;
+    useEffect(() => {
+      setIsBoundTargetDismissMenuOpen(false);
+    }, [
+      boundTargetFollowEnabled,
+      followControlsTarget?.elementId,
+      isSubmitting,
+    ]);
     const boundTargetFollowCopy = useMemo(() => {
       if (language === 'zh') {
         if (followControlsTargetType === 'text') {
           return {
-            hint: '关闭跟随，当前文本仍作上下文',
             once: '本次只作上下文',
             always: '对此文本始终只作上下文',
             stop: '关闭任务栏跟随',
@@ -7395,14 +7425,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         }
         if (followControlsTargetType === 'video') {
           return {
-            hint: '关闭跟随，当前视频仍作参考视频',
             once: '本次只作参考视频',
             always: '对此视频始终只作参考视频',
             stop: '关闭任务栏跟随',
           };
         }
         return {
-          hint: '关闭跟随，当前图仍作参考图',
           once: '本次只作参考图',
           always: '对此图始终只作参考图',
           stop: '关闭任务栏跟随',
@@ -7411,7 +7439,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       if (followControlsTargetType === 'text') {
         return {
-          hint: 'Stop following; keep this text as context',
           once: 'Use as context this time',
           always: 'Always use this text as context',
           stop: 'Stop following this text',
@@ -7419,14 +7446,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       }
       if (followControlsTargetType === 'video') {
         return {
-          hint: 'Stop following; keep this video as a reference',
           once: 'Use this video as a reference this time',
           always: 'Always use this video as reference',
           stop: 'Stop following this video',
         };
       }
       return {
-        hint: 'Stop following; keep this reference',
         once: 'Use as reference this time',
         always: 'Always use this image as reference',
         stop: 'Stop following this image',
@@ -7447,6 +7472,96 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ],
       [boundTargetFollowCopy]
     );
+    const boundTargetFollowActions = followControlsTarget ? (
+      <div
+        className="ai-input-bar__bound-dismiss-actions"
+        data-testid="ai-bound-follow-actions"
+      >
+        <HoverTip
+          content={
+            boundTargetFollowEnabled
+              ? language === 'zh'
+                ? '任务栏跟随默认开启'
+                : 'Taskbar follow defaults to on'
+              : language === 'zh'
+              ? '任务栏跟随默认关闭'
+              : 'Taskbar follow defaults to off'
+          }
+          showArrow={false}
+        >
+          <span
+            className="ai-input-bar__bound-follow-toggle"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <Switch
+              size="small"
+              value={boundTargetFollowEnabled}
+              label={
+                <span className="ai-input-bar__bound-follow-label">
+                  {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
+                </span>
+              }
+              onChange={(checked) =>
+                handleBoundTargetFollowChange(checked as boolean)
+              }
+            />
+          </span>
+        </HoverTip>
+        {boundTargetFollowEnabled ? (
+          <div className="ai-input-bar__bound-dismiss-secondary-actions">
+            <HoverTip content={boundTargetFollowCopy.stop} showArrow={false}>
+              <button
+                type="button"
+                className="ai-input-bar__bound-dismiss-btn"
+                aria-label={boundTargetFollowCopy.once}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => handleDismissBoundTarget('once')}
+                disabled={isSubmitting}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </HoverTip>
+            <Dropdown
+              options={boundTargetDismissOptions}
+              trigger="hover"
+              placement="top-right"
+              minColumnWidth={190}
+              popupProps={{
+                visible: isBoundTargetDismissMenuOpen,
+                onVisibleChange: setIsBoundTargetDismissMenuOpen,
+              }}
+              onClick={(data) =>
+                handleDismissBoundTarget(data.value as BoundTargetDismissMode)
+              }
+            >
+              <button
+                type="button"
+                className="ai-input-bar__bound-dismiss-menu-btn"
+                aria-label={
+                  language === 'zh' ? '选择跟随方式' : 'Choose follow behavior'
+                }
+                aria-haspopup="menu"
+                aria-expanded={isBoundTargetDismissMenuOpen}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => setIsBoundTargetDismissMenuOpen(true)}
+                disabled={isSubmitting}
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </Dropdown>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
 
     const boundInputStyle = boundInputPosition
       ? ({
@@ -7541,102 +7656,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             onSelectPrompt={handleSelectInspirationPrompt}
             onOpenPromptTool={handleOpenPromptToolFromInspiration}
           />
-
-          {followControlsTarget ? (
-            <div className="ai-input-bar__bound-dismiss">
-              {boundTargetFollowEnabled &&
-              boundTargetDismissHintCount < BOUND_TARGET_DISMISS_HINT_LIMIT ? (
-                <div className="ai-input-bar__bound-dismiss-hint" role="status">
-                  {boundTargetFollowCopy.hint}
-                </div>
-              ) : null}
-              <div className="ai-input-bar__bound-dismiss-actions">
-                <HoverTip
-                  content={
-                    boundTargetFollowEnabled
-                      ? language === 'zh'
-                        ? '任务栏跟随已开启'
-                        : 'Taskbar follow is on'
-                      : language === 'zh'
-                      ? '任务栏跟随已关闭'
-                      : 'Taskbar follow is off'
-                  }
-                  showArrow={false}
-                >
-                  <span
-                    className="ai-input-bar__bound-follow-toggle"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    <Switch
-                      size="small"
-                      value={boundTargetFollowEnabled}
-                      label={
-                        <span className="ai-input-bar__bound-follow-label">
-                          {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
-                        </span>
-                      }
-                      onChange={(checked) =>
-                        handleBoundTargetFollowChange(checked as boolean)
-                      }
-                    />
-                  </span>
-                </HoverTip>
-                {boundTargetFollowEnabled ? (
-                  <>
-                    <HoverTip
-                      content={boundTargetFollowCopy.stop}
-                      showArrow={false}
-                    >
-                      <button
-                        type="button"
-                        className="ai-input-bar__bound-dismiss-btn"
-                        aria-label={boundTargetFollowCopy.once}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={() => handleDismissBoundTarget('once')}
-                        disabled={isSubmitting}
-                      >
-                        <X size={16} aria-hidden="true" />
-                      </button>
-                    </HoverTip>
-                    <Dropdown
-                      options={boundTargetDismissOptions}
-                      trigger="click"
-                      placement="top-right"
-                      minColumnWidth={190}
-                      onClick={(data) =>
-                        handleDismissBoundTarget(
-                          data.value as BoundTargetDismissMode
-                        )
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="ai-input-bar__bound-dismiss-menu-btn"
-                        aria-label={
-                          language === 'zh'
-                            ? '选择跟随方式'
-                            : 'Choose follow behavior'
-                        }
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        disabled={isSubmitting}
-                      >
-                        <ChevronDown size={14} aria-hidden="true" />
-                      </button>
-                    </Dropdown>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
 
           <AIInputComposerShell
             variant="canvas"
@@ -8037,31 +8056,34 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                   language={language}
                   onBeforeOpenMyPrompts={onEnableToolWindows}
                   extraActions={
-                    shouldKeepExpanded ? (
-                      <PromptOptimizeButton
-                        className="prompt-history-popover__action-btn"
-                        originalPrompt={prompt}
-                        language={language}
-                        scenarioId={`ai-input.${generationType}` as const}
-                        disabled={isSubmitting}
-                        allowStructuredMode={true}
-                        onOpenChange={setIsPromptOptimizeOpen}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setIsFocused(true);
-                        }}
-                        onApply={(optimizedPrompt) => {
-                          applyCanvasAssociationPromptOverwrite(
-                            optimizedPrompt
-                          );
-                          setIsFocused(true);
-                          requestAnimationFrame(() => {
-                            inputRef.current?.focus();
-                          });
-                        }}
-                      />
-                    ) : null
+                    <>
+                      {shouldKeepExpanded ? (
+                        <PromptOptimizeButton
+                          className="prompt-history-popover__action-btn"
+                          originalPrompt={prompt}
+                          language={language}
+                          scenarioId={`ai-input.${generationType}` as const}
+                          disabled={isSubmitting}
+                          allowStructuredMode={true}
+                          onOpenChange={setIsPromptOptimizeOpen}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setIsFocused(true);
+                          }}
+                          onApply={(optimizedPrompt) => {
+                            applyCanvasAssociationPromptOverwrite(
+                              optimizedPrompt
+                            );
+                            setIsFocused(true);
+                            requestAnimationFrame(() => {
+                              inputRef.current?.focus();
+                            });
+                          }}
+                        />
+                      ) : null}
+                      {boundTargetFollowActions}
+                    </>
                   }
                 />
               </>

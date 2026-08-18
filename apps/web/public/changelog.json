@@ -1,6 +1,20 @@
 {
   "versions": [
     {
+      "version": "1.0.18",
+      "date": "2026-08-18",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "功能：调整任务栏跟随控件布局 (#233)",
+          "修复：永久关闭跟随后禁止覆盖原目标 (#229)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
       "version": "1.0.17",
       "date": "2026-08-12",
       "changes": {
@@ -1015,20 +1029,6 @@
       },
       "type": "patch",
       "highlights": "add PPT common prompt history"
-    },
-    {
-      "version": "0.6.77",
-      "date": "2026-04-25",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "修复非根路径部署时的资源加载问题",
-          "增强 Vite 构建文件句柄重试"
-        ],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "修复非根路径部署时的资源加载问题"
     }
   ]
 }
