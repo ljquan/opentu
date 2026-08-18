@@ -7,91 +7,10 @@ import type {
 import {
   isTrustedTuziApiBaseUrl,
   isTuziRequestIdCorsBaseUrl,
-  loadTuziApiEndpointBaseUrls,
-  normalizeTuziApiEndpointUrl,
-  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './tuzi-api-endpoints';
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
-}
-
-/**
- * 固定代理目标，避免开放站点成为任意地址转发器。
- * 路由名需与 Vite、Vercel、Netlify 及 Nginx 配置保持一致。
- */
-const TUZI_SAME_ORIGIN_PROXY_ROUTES: Readonly<Record<string, string>> = {
-  'api.tu-zi.com': 'api',
-  'apius.tu-zi.com': 'apius',
-  'apicdn.tu-zi.com': 'apicdn',
-  'api.sydney-ai.com': 'sydney',
-  'api.ourzhishi.top': 'ourzhishi',
-  'apisz.ourzhishi.top': 'ourzhishi-sz',
-};
-const TUZI_SAME_ORIGIN_PROXY_PREFIX = '/__opentu_tuzi_proxy__';
-const LOCAL_DEV_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '::1'];
-
-export function isLocalDevHostname(hostname?: string): boolean {
-  if (!hostname) return false;
-  return (
-    LOCAL_DEV_HOSTS.includes(hostname) ||
-    /^10\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)
-  );
-}
-
-export function supportsTuziSameOriginProxyHostname(
-  hostname: string | undefined,
-  isDev: boolean,
-  explicitlyEnabled = false
-): boolean {
-  if (!hostname) return false;
-  if (explicitlyEnabled) return true;
-  if (isDev && isLocalDevHostname(hostname)) return true;
-  return (
-    hostname === 'opentu.ai' ||
-    hostname.endsWith('.opentu.ai') ||
-    hostname.endsWith('.vercel.app') ||
-    hostname.endsWith('.netlify.app')
-  );
-}
-
-export function rewriteTuziBaseUrlForSameOriginProxy(
-  baseUrl: string,
-  hostname: string | undefined,
-  isDev: boolean,
-  explicitlyEnabled = false
-): string {
-  try {
-    const enabled = supportsTuziSameOriginProxyHostname(
-      hostname,
-      isDev,
-      explicitlyEnabled
-    );
-    if (!enabled) return baseUrl;
-    if (!/^https?:\/\//i.test(baseUrl)) return baseUrl;
-
-    const parsed = new URL(baseUrl);
-    const route = TUZI_SAME_ORIGIN_PROXY_ROUTES[parsed.host];
-    if (!route) return baseUrl;
-    const pathname = parsed.pathname === '/' ? '' : parsed.pathname;
-    return `${TUZI_SAME_ORIGIN_PROXY_PREFIX}/${route}${pathname}`.replace(
-      /\/+$/,
-      ''
-    );
-  } catch {
-    return baseUrl;
-  }
-}
-
-function rewriteBaseUrlForSameOriginProxy(baseUrl: string): string {
-  return rewriteTuziBaseUrlForSameOriginProxy(
-    baseUrl,
-    globalThis.location?.hostname,
-    import.meta.env.DEV && import.meta.env.MODE !== 'test',
-    import.meta.env.VITE_TUZI_SAME_ORIGIN_PROXY === '1'
-  );
 }
 
 function discardResponseBody(response: Response): void {
@@ -106,30 +25,11 @@ function discardResponseBody(response: Response): void {
   }
 }
 
-function assertValidTuziSameOriginProxyResponse(
-  requestUrl: string,
-  response: Response
-): Response {
-  if (!requestUrl.startsWith(`${TUZI_SAME_ORIGIN_PROXY_PREFIX}/`)) {
-    return response;
-  }
-
-  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
-  if (contentType.includes('text/html')) {
-    discardResponseBody(response);
-    throw new Error(
-      'Tuzi 同源代理未生效：接口返回了网页内容，请检查部署代理配置'
-    );
-  }
-  return response;
-}
-
 function applyBaseUrlStrategy(
   baseUrl: string,
   strategy: ProviderBaseUrlStrategy = 'preserve'
 ): string {
-  const rewritten = rewriteBaseUrlForSameOriginProxy(baseUrl);
-  const normalizedBaseUrl = trimTrailingSlashes(rewritten);
+  const normalizedBaseUrl = trimTrailingSlashes(baseUrl);
 
   switch (strategy) {
     case 'trim-v1':
@@ -169,15 +69,6 @@ function joinUrl(baseUrl: string, path: string): string {
   }
 
   return `${normalizedBase}${normalizedPath}`;
-}
-
-function getBaseUrlPathSuffix(baseUrl: string): string {
-  try {
-    const parsed = new URL(trimTrailingSlashes(baseUrl));
-    return parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
-  } catch {
-    return '';
-  }
 }
 
 function isAmbiguousNetworkError(error: unknown): boolean {
@@ -452,38 +343,6 @@ export async function readProviderResponseText(
   return readProviderResponseBody(response);
 }
 
-function shouldRetryTuziResponse(
-  context: ResolvedProviderContext,
-  request: ProviderTransportRequest,
-  response: Response
-): boolean {
-  return (
-    response.status === 404 &&
-    isTrustedTuziApiBaseUrl(context.baseUrl) &&
-    !/^https?:\/\//i.test(request.path) &&
-    (request.method || 'GET').toUpperCase() === 'POST' &&
-    /\/images\/(?:generations|edits)\/?$/i.test(request.path)
-  );
-}
-
-async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
-  if (!isTrustedTuziApiBaseUrl(baseUrl)) {
-    return [];
-  }
-
-  const currentOrigin = normalizeTuziApiEndpointUrl(baseUrl);
-  const currentPathSuffix = getBaseUrlPathSuffix(baseUrl);
-  const tuziOrigins = await loadTuziApiEndpointBaseUrls();
-
-  if (!tuziOrigins.includes(currentOrigin)) {
-    return [];
-  }
-
-  return tuziOrigins
-    .filter((origin) => origin !== currentOrigin)
-    .map((origin) => `${origin}${currentPathSuffix}`);
-}
-
 function buildQueryString(
   query?: Record<string, string | number | boolean | null | undefined>
 ): string {
@@ -687,13 +546,6 @@ function shouldInheritProviderCredentials(
     return true;
   }
 
-  if (
-    isTrustedTuziApiBaseUrl(context.baseUrl) &&
-    isTrustedTuziApiBaseUrl(requestUrl)
-  ) {
-    return true;
-  }
-
   const profileOrigin = getAbsoluteHttpOrigin(context.baseUrl);
   const requestOrigin = getAbsoluteHttpOrigin(requestUrl);
   return Boolean(profileOrigin && requestOrigin === profileOrigin);
@@ -728,39 +580,6 @@ function isRecoverableTuziImageRequestIdSubmission(
   );
 }
 
-function allowsNetworkFallback(request: ProviderTransportRequest): boolean {
-  return isReadOnlyRequestMethod(request.method);
-}
-
-function routeTuziRequestIdSubmission(
-  context: ResolvedProviderContext,
-  request: ProviderTransportRequest
-): ResolvedProviderContext {
-  const resolvedBaseUrl = applyBaseUrlStrategy(
-    context.baseUrl,
-    request.baseUrlStrategy
-  );
-  if (
-    !isTuziRequestIdSubmission(context, request) ||
-    !/^https?:\/\//i.test(resolvedBaseUrl) ||
-    isTuziRequestIdCorsBaseUrl(context.baseUrl)
-  ) {
-    return context;
-  }
-
-  const corsOrigin = TUZI_API_REQUEST_ID_CORS_ENDPOINTS[0]?.url;
-  if (!corsOrigin) {
-    return context;
-  }
-
-  return {
-    ...context,
-    baseUrl: `${normalizeTuziApiEndpointUrl(corsOrigin)}${getBaseUrlPathSuffix(
-      context.baseUrl
-    )}`,
-  };
-}
-
 /**
  * X-Request-Id 只在明确放行该请求头的可信 Tuzi 节点上启用。
  */
@@ -786,9 +605,8 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): PreparedProviderTransportRequest {
-    const routedContext = routeTuziRequestIdSubmission(context, request);
     const resolvedBaseUrl = applyBaseUrlStrategy(
-      routedContext.baseUrl,
+      context.baseUrl,
       request.baseUrlStrategy
     );
     const requestUrl = joinUrl(resolvedBaseUrl, request.path);
@@ -796,8 +614,8 @@ export class ProviderTransport {
       context,
       requestUrl
     )
-      ? routedContext
-      : { ...routedContext, apiKey: '', extraHeaders: undefined };
+      ? context
+      : { ...context, apiKey: '', extraHeaders: undefined };
     const url = `${requestUrl}${buildQueryString(
       applyAuthQuery(credentialContext, request.query || {})
     )}`;
@@ -812,7 +630,7 @@ export class ProviderTransport {
     const finalHeaders = applyRequestIdHeader(
       authenticatedHeaders,
       request.requestId,
-      canAttachProviderRequestIdHeader(routedContext, request),
+      canAttachProviderRequestIdHeader(context, request),
       Boolean(request.requestId) || isReadOnlyRequestMethod(request.method)
     );
 
@@ -833,7 +651,6 @@ export class ProviderTransport {
     context: ResolvedProviderContext,
     request: ProviderTransportRequest
   ): Promise<Response> {
-    const requestIdSubmission = isTuziRequestIdSubmission(context, request);
     const timeoutControl = createTimeoutSignal(
       request.signal,
       request.timeoutMs
@@ -868,51 +685,11 @@ export class ProviderTransport {
       return response;
     };
     try {
-      const response = assertValidTuziSameOriginProxyResponse(
-        prepared.url,
-        await fetcher(prepared.url, prepared.init)
+      const response = await fetcher(prepared.url, prepared.init);
+      return returnResponse(
+        response,
+        recoverableImageSubmission && response.ok
       );
-      if (!shouldRetryTuziResponse(context, request, response)) {
-        return returnResponse(
-          response,
-          recoverableImageSubmission && response.ok
-        );
-      }
-
-      // 带 Request ID 的正式提交固定到一个确定节点，避免跨节点重复生成和计费。
-      const fallbackBaseUrls = requestIdSubmission
-        ? []
-        : await getTuziFallbackBaseUrls(context.baseUrl);
-      let retryResponse = response;
-      for (const fallbackBaseUrl of fallbackBaseUrls) {
-        try {
-          const fallbackPrepared = this.prepareRequest(
-            { ...context, baseUrl: fallbackBaseUrl },
-            { ...request, signal: timeoutControl.signal }
-          );
-          const fallbackResponse = assertValidTuziSameOriginProxyResponse(
-            fallbackPrepared.url,
-            await fetcher(fallbackPrepared.url, fallbackPrepared.init)
-          );
-          if (!shouldRetryTuziResponse(context, request, fallbackResponse)) {
-            discardResponseBody(retryResponse);
-            return returnResponse(fallbackResponse);
-          }
-          discardResponseBody(retryResponse);
-          retryResponse = fallbackResponse;
-        } catch (fallbackError) {
-          if (
-            timeoutControl.didTimeout() ||
-            !isAmbiguousNetworkError(fallbackError) ||
-            !allowsNetworkFallback(request)
-          ) {
-            discardResponseBody(retryResponse);
-            throw fallbackError;
-          }
-        }
-      }
-
-      return returnResponse(retryResponse);
     } catch (error) {
       if (timeoutControl.didTimeout()) {
         throw createRequestTimeoutError(request.timeoutMs);
@@ -923,33 +700,6 @@ export class ProviderTransport {
         isAmbiguousNetworkError(error)
       ) {
         throw new ImageSubmissionOutcomeUnknownError(error);
-      }
-      if (isAmbiguousNetworkError(error) && allowsNetworkFallback(request)) {
-        const fallbackBaseUrls = requestIdSubmission
-          ? []
-          : await getTuziFallbackBaseUrls(context.baseUrl);
-
-        for (const fallbackBaseUrl of fallbackBaseUrls) {
-          const fallbackPrepared = this.prepareRequest(
-            { ...context, baseUrl: fallbackBaseUrl },
-            { ...request, signal: timeoutControl.signal }
-          );
-          try {
-            return returnResponse(
-              assertValidTuziSameOriginProxyResponse(
-                fallbackPrepared.url,
-                await fetcher(fallbackPrepared.url, fallbackPrepared.init)
-              )
-            );
-          } catch (fallbackError) {
-            if (
-              timeoutControl.didTimeout() ||
-              !isAmbiguousNetworkError(fallbackError)
-            ) {
-              throw fallbackError;
-            }
-          }
-        }
       }
       throw error;
     } finally {
