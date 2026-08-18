@@ -1,3 +1,14 @@
+## 1.0.18 (2026-08-18)
+
+### 🔧 Chores
+
+- 功能：调整任务栏跟随控件布局 (#233) ([5693d734](https://github.com/ljquan/opentu/commit/5693d734))
+- 修复：永久关闭跟随后禁止覆盖原目标 (#229) ([0e7c242e](https://github.com/ljquan/opentu/commit/0e7c242e))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.0.17 (2026-08-12)
 
 ### 🚀 Features
