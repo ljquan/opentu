@@ -43,7 +43,8 @@ export function applyMediaModelDefaultsToArgs(
     applyPPTTextModel(args, options);
     applyNamedMediaModel(args, 'image', 'imageModel', 'imageModelRef', options);
     applyNamedMediaModel(args, 'video', 'videoModel', 'videoModelRef', options);
-    applyNamedMediaModel(args, 'audio', 'audioModel', 'audioModelRef', options);
+    delete args.audioModel;
+    delete args.audioModelRef;
     return args;
   }
 

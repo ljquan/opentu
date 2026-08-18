@@ -51,7 +51,7 @@ describe('media-model-routing', () => {
     expect(args.textModelRef).toEqual(textRef);
   });
 
-  it('为 PPT 讲解视频同时注入文本、图片、音频和成片模型来源', () => {
+  it('为 PPT 讲解视频注入文本、图片和成片模型来源，不伪造音频模型', () => {
     const textRef = { profileId: 'text-profile', modelId: 'deepseek-v3.2' };
     const imageRef = { profileId: 'image-profile', modelId: 'gpt-image-2' };
     const videoRef = {
@@ -88,7 +88,7 @@ describe('media-model-routing', () => {
     expect(args.imageModelRef).toEqual(imageRef);
     expect(args.videoModel).toBe(videoRef.modelId);
     expect(args.videoModelRef).toEqual(videoRef);
-    expect(args.audioModel).toBe(audioRef.modelId);
-    expect(args.audioModelRef).toEqual(audioRef);
+    expect(args.audioModel).toBeUndefined();
+    expect(args.audioModelRef).toBeUndefined();
   });
 });

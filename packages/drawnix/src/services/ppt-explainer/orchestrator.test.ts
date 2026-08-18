@@ -14,6 +14,7 @@ import type {
 } from './provider-adapter';
 import type { PptxImportCheckpoint } from '../pptx-import';
 import {
+  buildPptExplainerVideoPrompt,
   cancelPptExplainerRemoteTask,
   cleanupPptExplainerTask,
   isPptExplainerRunActive,
@@ -416,6 +417,27 @@ beforeEach(() => {
 });
 
 describe('PPT explainer orchestrator recovery and isolation', () => {
+  it('按讲解者顺序生成双人有声视频提示词', () => {
+    const prompt = buildPptExplainerVideoPrompt(
+      {
+        pageIndex: 1,
+        turns: [
+          { speakerId: 'host', text: '欢迎参加发布会。' },
+          { speakerId: 'guest', text: '先看本页核心数据。' },
+        ],
+      },
+      [
+        { id: 'host', displayName: '主持人' },
+        { id: 'guest', displayName: '嘉宾' },
+      ]
+    );
+
+    expect(prompt).toContain('主持人：欢迎参加发布会。');
+    expect(prompt).toContain('嘉宾：先看本页核心数据。');
+    expect(prompt.indexOf('主持人：')).toBeLessThan(prompt.indexOf('嘉宾：'));
+    expect(prompt).toContain('不同的声线');
+    expect(prompt).toContain('禁止背景音乐');
+  });
   it('does not restart a failed task without an explicit retry transition', async () => {
     installTask({
       ...createTask('failed-terminal', { stage: 'failed' }),

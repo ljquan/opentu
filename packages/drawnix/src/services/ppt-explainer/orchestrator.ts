@@ -12,7 +12,8 @@ import {
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
-import { generateSpeechAudio } from '../tts-speech-service';
+import { generateVideo } from '../media-generation/video-generation-service';
+import { mergeVideos } from '../video-merge-webcodecs';
 import {
   deletePptxImportCache,
   deletePptxImportCacheByJobId,
@@ -69,7 +70,6 @@ import {
   validatePptExplainerSlides,
   validatePptExplainerSpeakers,
 } from './validation';
-import { composeLocalPptExplainerVideo } from './local-composer';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -87,6 +87,25 @@ const remotelyCancelledTaskIds = new Map<string, true>();
 const REMOTE_CANCELLATION_HISTORY_LIMIT = 100;
 let submissionQueueTail: Promise<void> = Promise.resolve();
 const boardMutationTails = new Map<string, Promise<void>>();
+
+export function buildPptExplainerVideoPrompt(
+  slide: PptExplainerSlide,
+  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>
+): string {
+  const speakerNames = new Map(
+    speakers.map((speaker) => [speaker.id, speaker.displayName])
+  );
+  return [
+    '以提供的 PPT 页面为固定主体生成一段有声讲解视频。',
+    '保持页面排版、文字和图表清晰稳定，不改写页面，不新增屏幕文字。',
+    '使用自然、专业的普通话，严格按以下顺序朗读；多人角色使用明显不同的声线。',
+    ...slide.turns.map(
+      (turn) =>
+        `${speakerNames.get(turn.speakerId) || turn.speakerId}：${turn.text}`
+    ),
+    '禁止背景音乐，讲解结束后立即结束视频。',
+  ].join('\n');
+}
 
 export async function runPptExplainerBoardMutationExclusive<T>(
   boardId: string,
@@ -612,52 +631,47 @@ async function runLocalComposition(
   executionAttempt: number,
   signal: AbortSignal
 ): Promise<void> {
-  const audioModel = state.models.audioModelRef || state.models.audioModel;
-  if (!audioModel) throw new Error('PPT 本地合成缺少 TTS 音频模型');
-  const speakers = new Map(
-    state.speakers.map((speaker) => [speaker.id, speaker])
-  );
-  const totalTurns = state.slides.reduce(
-    (sum, slide) => sum + slide.turns.length,
-    0
-  );
-  let generatedTurns = 0;
-  const slides = [];
+  const videoModel = state.models.videoModelRef || state.models.videoModel;
+  if (!videoModel) throw new Error('PPT 逐页生成缺少视频模型');
+  const segmentUrls: string[] = [];
 
-  for (const slide of state.slides) {
+  for (const [slideIndex, slide] of state.slides.entries()) {
     signal.throwIfAborted();
     if (!slide.snapshotUrl) {
       throw new Error(`PPT 第 ${slide.pageIndex} 页缺少页面快照`);
     }
-    const turns = [];
-    for (const turn of slide.turns) {
-      const speaker = speakers.get(turn.speakerId);
-      if (!speaker?.voiceId?.trim()) {
-        throw new Error(`讲解者「${speaker?.displayName || turn.speakerId}」缺少声音 ID`);
-      }
-      const speech = await generateSpeechAudio({
-        model: audioModel,
-        text: turn.text,
-        voice: speaker.voiceId,
-        signal,
-      });
-      turns.push({
-        audio: speech.blob,
-        subtitle: turn.text,
-        speakerName: speaker.displayName,
-      });
-      generatedTurns += 1;
-      const progress =
-        50 + Math.round((generatedTurns / Math.max(1, totalTurns)) * 25);
-      state = await persistStage(
-        taskId,
-        { ...state, stage: 'submitting' },
-        executionAttempt,
-        progress,
-        TaskExecutionPhase.SUBMITTING
-      );
+    const prompt = buildPptExplainerVideoPrompt(slide, state.speakers);
+    let ownershipWrite: Promise<void> | undefined;
+    const generated = await generateVideo(prompt, {
+      model:
+        typeof videoModel === 'string' ? videoModel : videoModel.modelId,
+      modelRef: typeof videoModel === 'string' ? undefined : videoModel,
+      referenceImages: [slide.snapshotUrl],
+      size: '1920x1080',
+      signal,
+      onTaskCreated: (internalTaskId) => {
+        ownershipWrite = registerInternalTaskOwnership(
+          taskId,
+          internalTaskId,
+          executionAttempt
+        );
+      },
+    });
+    await ownershipWrite;
+    signal.throwIfAborted();
+    if (!generated.url) {
+      throw new Error(`PPT 第 ${slide.pageIndex} 页有声视频生成失败`);
     }
-    slides.push({ imageUrl: slide.snapshotUrl, turns });
+    segmentUrls.push(generated.url);
+    const progress =
+      50 + Math.round(((slideIndex + 1) / Math.max(1, state.slides.length)) * 30);
+    state = await persistStage(
+      taskId,
+      { ...state, stage: 'submitting' },
+      executionAttempt,
+      progress,
+      TaskExecutionPhase.SUBMITTING
+    );
   }
 
   state = await persistStage(
@@ -667,11 +681,10 @@ async function runLocalComposition(
     80,
     TaskExecutionPhase.DOWNLOADING
   );
-  const composed = await composeLocalPptExplainerVideo({
-    slides,
-    signal,
-  });
-  const extension = composed.mimeType.includes('mp4') ? 'mp4' : 'webm';
+  signal.throwIfAborted();
+  const composed = await mergeVideos(segmentUrls);
+  signal.throwIfAborted();
+  const extension = composed.blob.type.includes('mp4') ? 'mp4' : 'webm';
   const stableUrl = `/__aitu_cache__/video/${taskId}.${extension}`;
   try {
     await unifiedCacheService.cacheMediaFromBlob(
@@ -681,7 +694,7 @@ async function runLocalComposition(
       { taskId }
     );
   } finally {
-    URL.revokeObjectURL(composed.url);
+    if (composed.url.startsWith('blob:')) URL.revokeObjectURL(composed.url);
   }
   await finalizeResult(
     taskId,
@@ -917,7 +930,9 @@ async function executePptExplainerRun(
   signal: AbortSignal
 ): Promise<void> {
   let state = readPptExplainerState(task)!;
-  validatePptExplainerSpeakers(state.presenterMode, state.speakers);
+  validatePptExplainerSpeakers(state.presenterMode, state.speakers, {
+    requireVoice: (state.executionMode || 'provider') === 'provider',
+  });
   state = await persistStage(
     task.id,
     { ...state, executionAttempt },

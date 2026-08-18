@@ -105,7 +105,6 @@ import {
   getDefaultVideoModel,
   getDefaultTextModel,
   getCompatibleParams,
-  ModelVendor,
   type ModelConfig,
 } from '../../constants/model-config';
 import {
@@ -122,7 +121,6 @@ import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
 import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
-import { DEFAULT_OPENAI_SPEECH_MODEL } from '../../services/tts-speech-service';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -2077,38 +2075,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return pinnedModel ? [pinnedModel, ...videoModels] : videoModels;
     }, [selectedAgentVideoModel, selectedAgentVideoModelRef, videoModels]);
     const visibleAgentAudioModels = useMemo(() => {
-      const pptSpeechModel: ModelConfig | null =
-        generationType === 'agent' &&
-        selectedSkillId === 'generate_ppt_explainer_video'
-          ? {
-              id: DEFAULT_OPENAI_SPEECH_MODEL,
-              label: 'OpenAI 兼容 TTS',
-              shortLabel: 'TTS',
-              shortCode: 'tts',
-              description: 'PPT 讲解内置语音模型',
-              type: 'audio',
-              vendor: ModelVendor.GPT,
-              sourceProfileId: selectedModelRef?.profileId || null,
-              selectionKey: selectedModelRef?.profileId
-                ? `${selectedModelRef.profileId}::${DEFAULT_OPENAI_SPEECH_MODEL}`
-                : DEFAULT_OPENAI_SPEECH_MODEL,
-            }
-          : null;
-      const selectableAudioModels = pptSpeechModel
-        ? [
-            pptSpeechModel,
-            ...audioModels.filter(
-              (model) => model.id !== DEFAULT_OPENAI_SPEECH_MODEL
-            ),
-          ]
-        : audioModels;
       const currentMatch = findMatchingSelectableModel(
-        selectableAudioModels,
+        audioModels,
         selectedAgentAudioModel,
         selectedAgentAudioModelRef
       );
       if (currentMatch) {
-        return selectableAudioModels;
+        return audioModels;
       }
 
       const pinnedModel = getPinnedSelectableModel(
@@ -2116,16 +2089,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentAudioModel,
         selectedAgentAudioModelRef
       );
-      return pinnedModel
-        ? [pinnedModel, ...selectableAudioModels]
-        : selectableAudioModels;
+      return pinnedModel ? [pinnedModel, ...audioModels] : audioModels;
     }, [
       audioModels,
-      generationType,
       selectedAgentAudioModel,
       selectedAgentAudioModelRef,
-      selectedModelRef?.profileId,
-      selectedSkillId,
     ]);
     // 当前选中的参数映射 (id -> value)
     const [selectedParams, setSelectedParams] = useState<
@@ -4516,19 +4484,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const handleSkillOptionSelect = useCallback(
       (skill: SkillOption) => {
         setSelectedSkillMediaTypes(inferSkillMediaTypes(skill));
-        if (skill.mcpTool === 'generate_ppt_explainer_video') {
-          setSelectedAgentAudioModel(DEFAULT_OPENAI_SPEECH_MODEL);
-          setSelectedAgentAudioModelRef(
-            selectedModelRef?.profileId
-              ? {
-                  profileId: selectedModelRef.profileId,
-                  modelId: DEFAULT_OPENAI_SPEECH_MODEL,
-                }
-              : null
-          );
-        }
       },
-      [selectedModelRef?.profileId]
+      []
     );
 
     const agentMediaDefaultModels = useMemo(
@@ -7539,8 +7496,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             textModelRef={selectedModelRef}
             imageModel={selectedAgentImageModel}
             imageModelRef={selectedAgentImageModelRef}
-            audioModel={selectedAgentAudioModel}
-            audioModelRef={selectedAgentAudioModelRef}
             videoModel={selectedAgentVideoModel}
             videoModelRef={selectedAgentVideoModelRef}
             avatarAssets={assets}

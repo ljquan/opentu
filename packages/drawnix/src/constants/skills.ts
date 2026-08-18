@@ -131,7 +131,7 @@ export const SYSTEM_SKILLS: SystemSkill[] = [
     name: 'PPT讲解视频',
     mcpTool: 'generate_ppt_explainer_video',
     description:
-      'PPT讲解视频\n\n将主题、当前画布 PPT 或上传的 PPTX 制作为可恢复的讲解视频。支持单声线、双声线对谈、单数字人和双数字人；主题来源可先确认大纲，也可在明确确认警告后跳过审核。\n\n**使用方式：** 在配置界面选择演示来源、审核方式、讲解模式、声音和数字人，再发布任务。文本、图片和最终成片模型沿用 Agent 中的显式选择。\n\n**适用场景：** 课程讲解、汇报录播、产品演示和双人访谈式 PPT 视频。\n\n**执行要求：** 使用 generate_ppt_explainer_video 创建任务；不得猜测声音、数字人、模型来源或供应商 binding。',
+      'PPT讲解视频\n\n将主题、当前画布 PPT 或上传的 PPTX 制作为可恢复的讲解视频。支持单人讲解、双人对谈、单数字人和双数字人；主题来源可先确认大纲，也可在明确确认警告后跳过审核。\n\n**使用方式：** 在配置界面选择演示来源、审核方式、讲解模式和数字人，再发布任务。现有模型模式会使用所选有声视频模型逐页生成并合并；语音内容、音色、时长和同步可能随模型结果波动。\n\n**适用场景：** 课程讲解、汇报录播、产品演示和双人访谈式 PPT 视频。\n\n**执行要求：** 使用 generate_ppt_explainer_video 创建任务；不得伪造音频模型，也不得猜测数字人、模型来源或供应商 binding。',
     type: SKILL_TYPE_SYSTEM,
     outputType: 'video',
   },

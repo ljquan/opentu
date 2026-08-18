@@ -219,12 +219,6 @@ function renderDialog(
   return { onCreate, onClose, ...rendered };
 }
 
-function selectVoiceIdSource(index = 0): void {
-  fireEvent.click(
-    screen.getAllByRole('radio', { name: '已有 voice ID' })[index]
-  );
-}
-
 describe('PptExplainerDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -238,10 +232,6 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(true);
     const { onCreate, onClose } = renderDialog();
 
-    selectVoiceIdSource();
-    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
-      target: { value: 'voice-host' },
-    });
     fireEvent.click(screen.getByRole('radio', { name: '直接生成' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
@@ -264,7 +254,6 @@ describe('PptExplainerDialog', () => {
           expect.objectContaining({
             id: 'host',
             displayName: '主讲人',
-            voiceId: 'voice-host',
           }),
         ],
       })
@@ -277,27 +266,18 @@ describe('PptExplainerDialog', () => {
     mocks.confirm.mockResolvedValue(false);
     const { onCreate, onClose } = renderDialog();
 
-    selectVoiceIdSource();
-    const voiceInput = screen.getByPlaceholderText('输入供应商声音 ID');
-    fireEvent.change(voiceInput, { target: { value: 'voice-host' } });
     fireEvent.click(screen.getByRole('radio', { name: '直接生成' }));
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledTimes(1));
     expect(onCreate).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(
-      (screen.getByDisplayValue('voice-host') as HTMLInputElement).disabled
-    ).toBe(false);
+    expect(screen.getByDisplayValue('主讲人')).not.toBeNull();
   });
 
   it('主题生成在已有 PPT 旁直接创建新任务，不要求替换确认', async () => {
     const { onCreate } = renderDialog({ hasExistingPpt: true });
 
-    selectVoiceIdSource();
-    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
-      target: { value: 'voice-host' },
-    });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
@@ -314,10 +294,6 @@ describe('PptExplainerDialog', () => {
     );
     renderDialog({ onCreate });
 
-    selectVoiceIdSource();
-    fireEvent.change(screen.getByPlaceholderText('输入供应商声音 ID'), {
-      target: { value: 'voice-host' },
-    });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
@@ -383,32 +359,15 @@ describe('PptExplainerDialog', () => {
         videoModel: 'video-1',
         videoModelRef,
       })
-    ).toBe('双人模式需要两个不同的声音');
-
-    draft.speakers[1].voiceId = 'voice-b';
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-      })
     ).toBeNull();
   });
 
-  it('双数字人的声线和素材选择器使用独立布局容器', () => {
+  it('双数字人只展示讲解者和素材选择器，不展示音频克隆配置', () => {
     renderDialog();
 
     fireEvent.click(screen.getByRole('radio', { name: '双数字人' }));
-    selectVoiceIdSource(0);
-    selectVoiceIdSource(1);
-
-    const voiceInputs = screen.getAllByPlaceholderText('输入供应商声音 ID');
-    expect(voiceInputs).toHaveLength(2);
-    for (const input of voiceInputs) {
-      expect(input.closest('.ppt-explainer-dialog__voice')).not.toBeNull();
-    }
-    expect(screen.getAllByRole('radio', { name: '参考音频' })).toHaveLength(2);
+    expect(screen.queryByText('参考音频')).toBeNull();
+    expect(screen.queryByText('已有 voice ID')).toBeNull();
 
     const avatarInputs = screen.getAllByPlaceholderText(
       '选择数字人素材或输入 ID / URL'
@@ -526,70 +485,4 @@ describe('PptExplainerDialog', () => {
     ).toBe('仅支持 .pptx 文件');
   });
 
-  it('参考音频需要本人授权，授权后作为克隆样本创建任务', async () => {
-    const { onCreate, container } = renderDialog();
-    fireEvent.click(screen.getByRole('radio', { name: '专用 PPT Agent' }));
-    fireEvent.click(screen.getByRole('radio', { name: '参考音频' }));
-    const audioInput = container.querySelector(
-      'input[type="file"][accept^="audio/"]'
-    ) as HTMLInputElement;
-    const sample = new File(['voice'], 'host.mp3', {
-      type: 'audio/mpeg',
-    });
-
-    fireEvent.change(audioInput, { target: { files: [sample] } });
-
-    expect(screen.getByText('host.mp3')).not.toBeNull();
-    expect(screen.getByText('请确认已获得声音本人授权')).not.toBeNull();
-    expect(
-      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
-        .disabled
-    ).toBe(true);
-
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
-
-    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-    expect(onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        speakers: [
-          expect.objectContaining({
-            id: 'host',
-            voiceSource: 'reference_audio',
-            referenceAudio: expect.objectContaining({
-              file: sample,
-              filename: 'host.mp3',
-              mimeType: 'audio/mpeg',
-            }),
-          }),
-        ],
-      })
-    );
-  });
-
-  it('可以从素材库选择音频作为参考样本', async () => {
-    const { onCreate } = renderDialog();
-
-    fireEvent.click(screen.getByRole('radio', { name: '专用 PPT Agent' }));
-    fireEvent.click(screen.getByRole('radio', { name: '参考音频' }));
-    fireEvent.click(screen.getByRole('button', { name: '从素材库选择' }));
-    fireEvent.click(screen.getByRole('button', { name: '选择测试音频' }));
-    expect(screen.getByText('素材库样本.mp3')).not.toBeNull();
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
-
-    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-    expect(onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        speakers: [
-          expect.objectContaining({
-            referenceAudio: expect.objectContaining({
-              sourceAssetId: 'audio-asset-1',
-              sourceUrl: '/__aitu_cache__/audio/sample.mp3',
-            }),
-          }),
-        ],
-      })
-    );
-  });
 });

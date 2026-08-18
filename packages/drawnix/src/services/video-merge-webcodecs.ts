@@ -410,24 +410,7 @@ class VideoMergeWebCodecsService {
     checkWebCodecsSupport();
 
     try {
-      // 下载所有视频
-      onProgress?.(0, 'downloading', `下载 ${videoUrls.length} 个视频...`);
-      const videoBlobs: Blob[] = [];
-
-      for (let i = 0; i < videoUrls.length; i++) {
-        // console.log(`[WebCodecs] Downloading video ${i + 1}/${videoUrls.length}`);
-        onProgress?.(
-          (i / videoUrls.length) * 100,
-          'downloading',
-          `下载视频 ${i + 1}/${videoUrls.length}...`
-        );
-
-        const response = await fetch(videoUrls[i]);
-        const blob = await response.blob();
-        videoBlobs.push(blob);
-      }
-
-      // 使用 MediaRecorder 方案合并视频
+      // MediaRecorder 按顺序消费 URL；不要预先把全部片段复制到内存。
       return await mergeVideosWithMediaRecorder(videoUrls, onProgress, transitionConfig);
     } catch (error) {
       console.error('[WebCodecs] Merge failed:', error);

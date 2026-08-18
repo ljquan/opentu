@@ -1,17 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Button,
-  Checkbox,
   Dialog,
   Input,
   MessagePlugin,
   Select,
   Textarea,
 } from 'tdesign-react';
-import { FileAudio, FileUp, Library, Trash2 } from 'lucide-react';
+import { FileUp, Trash2 } from 'lucide-react';
 import type { ModelRef } from '../../utils/settings-manager';
 import type { Asset } from '../../types/asset.types';
-import { AssetType, SelectionMode } from '../../types/asset.types';
+import { AssetType } from '../../types/asset.types';
 import type { Task } from '../../types/task.types';
 import type {
   PptExplainerCreateInput,
@@ -24,13 +23,8 @@ import type {
   PptExplainerVoiceSource,
 } from '../../services/ppt-explainer/types';
 import { authorizePptExplainerUiCreation } from '../../services/ppt-explainer/creation-service';
-import { DEFAULT_OPENAI_SPEECH_MODEL } from '../../services/tts-speech-service';
-import {
-  inferPptExplainerAudioMimeType,
-  isProviderReachableAvatarUrl,
-} from '../../services/ppt-explainer/validation';
+import { isProviderReachableAvatarUrl } from '../../services/ppt-explainer/validation';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
-import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import './ppt-explainer-dialog.scss';
 
 const SOURCE_OPTIONS: Array<{
@@ -88,8 +82,6 @@ export interface PptExplainerDialogProps {
   textModelRef?: ModelRef | null;
   imageModel?: string;
   imageModelRef?: ModelRef | null;
-  audioModel?: string;
-  audioModelRef?: ModelRef | null;
   videoModel: string;
   videoModelRef?: ModelRef | null;
   avatarAssets?: Asset[];
@@ -181,25 +173,6 @@ export function validatePptExplainerDialogDraft(
   }
   for (const [index, speaker] of activeSpeakers.entries()) {
     if (!speaker.displayName.trim()) return `请填写讲解者 ${index + 1} 的名称`;
-    const voiceSource =
-      speaker.voiceSource ||
-      (speaker.referenceAudio ? 'reference_audio' : 'voice_id');
-    if (voiceSource === 'voice_id' && !speaker.voiceId.trim()) {
-      return `请输入讲解者 ${index + 1} 的声音 ID`;
-    }
-    if (voiceSource === 'reference_audio') {
-      if (!speaker.referenceAudio) {
-        return `请选择讲解者 ${index + 1} 的参考音频`;
-      }
-      if (
-        !inferPptExplainerAudioMimeType(
-          speaker.referenceAudio.mimeType || speaker.referenceAudio.file?.type,
-          speaker.referenceAudio.filename || speaker.referenceAudio.file?.name
-        )
-      ) {
-        return `讲解者 ${index + 1} 的参考音频格式不受支持`;
-      }
-    }
     if (needsAvatar(draft.presenterMode) && !speaker.avatarChoice.trim()) {
       return `请选择讲解者 ${index + 1} 的数字人`;
     }
@@ -223,29 +196,6 @@ export function validatePptExplainerDialogDraft(
     ) {
       return `讲解者 ${index + 1} 的数字人必须使用供应商 ID 或公开 HTTP(S) URL`;
     }
-  }
-  if (
-    activeSpeakers.length === 2 &&
-    activeSpeakers.every(
-      (speaker) =>
-        (speaker.voiceSource ||
-          (speaker.referenceAudio ? 'reference_audio' : 'voice_id')) ===
-        'voice_id'
-    ) &&
-    activeSpeakers[0].voiceId.trim() === activeSpeakers[1].voiceId.trim()
-  ) {
-    return '双人模式需要两个不同的声音';
-  }
-  if (
-    activeSpeakers.some(
-      (speaker) =>
-        (speaker.voiceSource ||
-          (speaker.referenceAudio ? 'reference_audio' : 'voice_id')) ===
-        'reference_audio'
-    ) &&
-    !draft.voiceCloneConsent
-  ) {
-    return '请确认已获得声音本人授权';
   }
   return null;
 }
@@ -312,8 +262,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   textModelRef,
   imageModel,
   imageModelRef,
-  audioModel,
-  audioModelRef,
   videoModel,
   videoModelRef,
   avatarAssets = [],
@@ -324,20 +272,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const [audioLibrarySpeakerIndex, setAudioLibrarySpeakerIndex] = useState<
-    number | null
-  >(null);
   const { confirm, confirmDialog } = useConfirmDialog();
   const speakerCount = getSpeakerCount(draft.presenterMode);
   const avatarMode = needsAvatar(draft.presenterMode);
-  const activeSpeakers = draft.speakers.slice(0, speakerCount);
-  const usesReferenceAudio = activeSpeakers.some(
-    (speaker) =>
-      (speaker.voiceSource ||
-        (speaker.referenceAudio ? 'reference_audio' : 'voice_id')) ===
-      'reference_audio'
-  );
   const providerAvatarAssets = useMemo(
     () =>
       avatarAssets.filter(
@@ -379,43 +316,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
     }));
   };
 
-  const selectReferenceAudio = (
-    index: number,
-    referenceAudio: PptExplainerReferenceAudioInput
-  ): void => {
-    updateSpeaker(
-      index,
-      {
-        voiceSource: 'reference_audio',
-        voiceId: '',
-        referenceAudio,
-      },
-      true
-    );
-  };
-
-  const handleAudioAssetSelect = async (asset: Asset): Promise<void> => {
-    const speakerIndex = audioLibrarySpeakerIndex;
-    if (speakerIndex === null) return;
-    if (asset.type !== AssetType.AUDIO) {
-      setSubmitError('请选择音频素材');
-      return;
-    }
-    const mimeType = inferPptExplainerAudioMimeType(asset.mimeType, asset.name);
-    if (!mimeType) {
-      setSubmitError('所选素材不是受支持的音频格式');
-      return;
-    }
-    selectReferenceAudio(speakerIndex, {
-      sourceAssetId: asset.id,
-      sourceUrl: asset.url,
-      filename: asset.name,
-      mimeType,
-      size: asset.size,
-    });
-    setAudioLibrarySpeakerIndex(null);
-  };
-
   const handleSubmit = async (): Promise<void> => {
     if (loading || validationError || !sourceBoardId) return;
 
@@ -443,10 +343,14 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
           return {
             id: index === 0 ? 'host' : 'guest',
             displayName: speaker.displayName.trim(),
-            voiceSource,
-            ...(voiceSource === 'reference_audio'
-              ? { referenceAudio: speaker.referenceAudio }
-              : { voiceId: speaker.voiceId.trim() }),
+            ...(draft.executionMode === 'provider'
+              ? {
+                  voiceSource,
+                  ...(voiceSource === 'reference_audio'
+                    ? { referenceAudio: speaker.referenceAudio }
+                    : { voiceId: speaker.voiceId.trim() }),
+                }
+              : {}),
             ...(avatarMode
               ? resolveAvatar(speaker.avatarChoice, providerAvatarAssets)
               : {}),
@@ -464,26 +368,15 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
         textModelRef,
         imageModel,
         imageModelRef,
-        audioModel: audioModel?.trim() || DEFAULT_OPENAI_SPEECH_MODEL,
-        audioModelRef:
-          audioModelRef ||
-          (textModelRef?.profileId
-            ? {
-                profileId: textModelRef.profileId,
-                modelId: DEFAULT_OPENAI_SPEECH_MODEL,
-              }
-            : undefined),
         videoModel,
         videoModelRef,
         ...(draft.source === 'pptx' && draft.pptxFile
           ? { pptxFile: draft.pptxFile }
           : {}),
       };
-      if (skipOutlineReview || usesReferenceAudio) {
+      if (skipOutlineReview) {
         authorizePptExplainerUiCreation(input, {
           skipOutlineReview,
-          voiceCloneConsent:
-            usesReferenceAudio && Boolean(draft.voiceCloneConsent),
         });
       }
       await onCreate(input);
@@ -677,125 +570,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                       updateSpeaker(index, { displayName })
                     }
                   />
-                  <div className="ppt-explainer-dialog__voice-source">
-                    <SegmentControl
-                      label={`讲解者 ${index + 1} 声音来源`}
-                      options={[
-                        { value: 'reference_audio', label: '参考音频' },
-                        { value: 'voice_id', label: '已有 voice ID' },
-                      ]}
-                      value={
-                        speaker.voiceSource ||
-                        (speaker.referenceAudio
-                          ? 'reference_audio'
-                          : 'voice_id')
-                      }
-                      disabled={loading}
-                      onChange={(voiceSource) =>
-                        updateSpeaker(
-                          index,
-                          {
-                            voiceSource,
-                            voiceId:
-                              voiceSource === 'voice_id' ? speaker.voiceId : '',
-                            referenceAudio:
-                              voiceSource === 'reference_audio'
-                                ? speaker.referenceAudio
-                                : undefined,
-                          },
-                          true
-                        )
-                      }
-                    />
-                  </div>
-                  {(speaker.voiceSource ||
-                    (speaker.referenceAudio
-                      ? 'reference_audio'
-                      : 'voice_id')) === 'voice_id' ? (
-                    <div className="ppt-explainer-dialog__voice">
-                      <Input
-                        value={speaker.voiceId}
-                        placeholder="输入供应商声音 ID"
-                        aria-label={`讲解者 ${index + 1} 声音 ID`}
-                        disabled={loading}
-                        onChange={(voiceId) =>
-                          updateSpeaker(index, {
-                            voiceId,
-                          })
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <div className="ppt-explainer-dialog__audio-sample">
-                      <input
-                        ref={(element) => {
-                          audioInputRefs.current[index] = element;
-                        }}
-                        type="file"
-                        accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm,.flac"
-                        hidden
-                        disabled={loading}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.currentTarget.value = '';
-                          if (!file) return;
-                          const mimeType = inferPptExplainerAudioMimeType(
-                            file.type,
-                            file.name
-                          );
-                          if (!file.size || !mimeType) {
-                            setSubmitError(
-                              file.size
-                                ? '参考音频格式不受支持'
-                                : '参考音频不能为空'
-                            );
-                            return;
-                          }
-                          selectReferenceAudio(index, {
-                            file,
-                            filename: file.name,
-                            mimeType,
-                            size: file.size,
-                          });
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        icon={<FileAudio size={16} />}
-                        disabled={loading}
-                        onClick={() => audioInputRefs.current[index]?.click()}
-                      >
-                        上传音频
-                      </Button>
-                      <Button
-                        variant="outline"
-                        icon={<Library size={16} />}
-                        disabled={loading}
-                        onClick={() => setAudioLibrarySpeakerIndex(index)}
-                      >
-                        从素材库选择
-                      </Button>
-                      <span className="ppt-explainer-dialog__file-name">
-                        {speaker.referenceAudio?.filename || '未选择音频'}
-                      </span>
-                      {speaker.referenceAudio ? (
-                        <Button
-                          variant="text"
-                          shape="square"
-                          icon={<Trash2 size={15} />}
-                          aria-label={`移除讲解者 ${index + 1} 的参考音频`}
-                          disabled={loading}
-                          onClick={() =>
-                            updateSpeaker(
-                              index,
-                              { referenceAudio: undefined },
-                              true
-                            )
-                          }
-                        />
-                      ) : null}
-                    </div>
-                  )}
                   {avatarMode ? (
                     <div className="ppt-explainer-dialog__avatar">
                       <Select
@@ -816,35 +590,15 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                 </div>
               ))}
             </div>
-            {usesReferenceAudio ? (
-              <Checkbox
-                checked={Boolean(draft.voiceCloneConsent)}
-                disabled={loading}
-                onChange={(voiceCloneConsent) => {
-                  setSubmitError(null);
-                  setDraft((current) => ({
-                    ...current,
-                    voiceCloneConsent,
-                  }));
-                }}
-              >
-                我确认已获得音频中声音本人的明确授权，同意用于本次讲解视频的声音克隆
-              </Checkbox>
+            {draft.executionMode === 'local' ? (
+              <div className="ppt-explainer-dialog__hint" role="note">
+                将逐页使用所选有声视频模型生成片段。语音内容、音色、时长和逐页同步可能随模型结果波动，推荐 Seedance 1.5 Pro。
+              </div>
             ) : null}
           </section>
         </div>
       </Dialog>
       {confirmDialog}
-      {audioLibrarySpeakerIndex !== null ? (
-        <MediaLibraryModal
-          isOpen
-          mode={SelectionMode.SELECT}
-          filterType={AssetType.AUDIO}
-          selectButtonText="用作声音样本"
-          onSelect={handleAudioAssetSelect}
-          onClose={() => setAudioLibrarySpeakerIndex(null)}
-        />
-      ) : null}
     </>
   );
 };

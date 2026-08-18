@@ -12,10 +12,6 @@ import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
-import {
-  DEFAULT_OPENAI_SPEECH_MODEL,
-  resolveSpeechPlan,
-} from '../tts-speech-service';
 import { validateOutline } from '../ppt';
 import type { PptxImportCheckpoint } from '../pptx-import';
 import {
@@ -237,18 +233,6 @@ function preflightVideoProvider(
     }
   }
   throw unsupportedError || new Error('供应商不支持所选 PPT 讲解方式');
-}
-
-function preflightSpeechModel(
-  routeModel: ModelRef | string | null | undefined,
-  providerProfileId: string
-): InvocationPlan {
-  return resolveSpeechPlan(
-    routeModel || {
-      profileId: providerProfileId,
-      modelId: DEFAULT_OPENAI_SPEECH_MODEL,
-    }
-  );
 }
 
 function assertProviderAcceptsReferenceAudio(
@@ -515,7 +499,10 @@ export async function createPptExplainerTask(
 ): Promise<Task> {
   const topic = requireTopic(input);
   const pptxFile = validatePptxFile(input);
-  validatePptExplainerSpeakers(input.presenterMode, input.speakers);
+  const executionMode = input.executionMode || 'provider';
+  validatePptExplainerSpeakers(input.presenterMode, input.speakers, {
+    requireVoice: executionMode === 'provider',
+  });
   const context = await requireCreationContext(input);
   const confirmations = consumeUiConfirmations(input, context);
 
@@ -523,7 +510,6 @@ export async function createPptExplainerTask(
 
   // All credential/capability checks happen before outline generation, import,
   // upload, or any other operation that can incur cost or persist binary data.
-  const executionMode = input.executionMode || 'provider';
   const provider =
     executionMode === 'provider' ? preflightVideoProvider(input) : undefined;
   if (provider) {
@@ -554,13 +540,7 @@ export async function createPptExplainerTask(
         'PPT 页面图片'
       )
     : undefined;
-  const audioPlan =
-    executionMode === 'local'
-      ? preflightSpeechModel(
-          input.audioModelRef ?? input.audioModel,
-          textPlan.provider.profileId
-        )
-      : undefined;
+  const audioPlan = undefined;
 
   const jobId = generateTaskId();
   const createInitialState = (

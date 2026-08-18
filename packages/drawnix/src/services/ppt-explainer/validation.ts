@@ -64,7 +64,8 @@ export function isProviderReachableAvatarUrl(value: string): boolean {
 
 export function validatePptExplainerSpeakers(
   mode: PptExplainerPresenterMode,
-  speakers: readonly (PptExplainerSpeaker | PptExplainerSpeakerInput)[]
+  speakers: readonly (PptExplainerSpeaker | PptExplainerSpeakerInput)[],
+  options: { requireVoice?: boolean } = {}
 ): void {
   const expectedCount = requiredSpeakerCount(mode);
   if (speakers.length !== expectedCount) {
@@ -89,6 +90,7 @@ export function validatePptExplainerSpeakers(
       throw new PptExplainerValidationError('speaker ID 不能重复');
     }
     speakerIds.add(id);
+    if (options.requireVoice === false) continue;
     const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
     const inputReference =
       'referenceAudio' in speaker ? speaker.referenceAudio : undefined;

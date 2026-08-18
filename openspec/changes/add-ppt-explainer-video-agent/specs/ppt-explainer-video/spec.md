@@ -129,57 +129,16 @@
 - **THEN** 系统 SHALL 固化页序、快照、备注、转场和 speaker 配置
 - **AND** 后续画布编辑 SHALL NOT 改变已接受任务
 
-### Requirement: PPT Explainer SHALL Accept Authorized Reference Audio For Voice Cloning
+### Requirement: PPT Explainer SHALL Use Existing Audible Video Models Without Voice Cloning
 
-系统 SHALL 允许每位讲解者在供应商 `voice ID` 和获得本人授权的参考音频之间选择且只选择一种声音来源，并由供应商使用该声线朗读自动生成的逐页讲稿。
+系统 SHALL 在现有模型模式中直接使用用户选择的有声视频模型，不展示或伪造 TTS、voice ID、参考音频及声音克隆配置。
 
-#### Scenario: Upload one reference audio sample
+#### Scenario: Configure speakers without voice samples
 
-- **GIVEN** 所选 binding 显式支持参考音频声线克隆
-- **WHEN** 用户为讲解者直接上传一段非空音频并确认已获得声音本人授权
-- **THEN** 系统 SHALL 把音频复制到该任务私有缓存
-- **AND** SHALL 将样本作为声线输入而不是完整 PPT 讲解音轨
-- **AND** SHALL NOT 在浏览器本地执行声纹克隆
-
-#### Scenario: Select a sample from the audio asset library
-
-- **WHEN** 用户从素材库选择 `AUDIO` 素材作为参考音频
-- **THEN** 系统 SHALL 在任务创建时把 Blob 复制为任务私有产物
-- **AND** 原素材随后被删除 SHALL NOT 破坏该任务的刷新恢复
-
-#### Scenario: Configure two speakers independently
-
-- **GIVEN** 用户选择双人讲解模式
-- **WHEN** 两位讲解者分别选择参考音频、或一位选择参考音频而另一位选择 voice ID
-- **THEN** 系统 SHALL 保留每位 speaker 与其声音来源的稳定关联
-- **AND** SHALL NOT 串换两位讲解者的音色
-
-#### Scenario: Reference audio consent is absent
-
-- **GIVEN** 任一讲解者选择参考音频
-- **WHEN** 用户没有在当前配置界面确认已获得声音本人明确授权，或 Agent/MCP JSON 尝试伪造确认字段
-- **THEN** 系统 SHALL 拒绝创建任务
-- **AND** SHALL NOT 缓存样本、生成讲稿或调用远端供应商
-
-#### Scenario: Binding does not support reference audio cloning
-
-- **GIVEN** 所选 binding 未显式声明参考音频克隆能力
-- **WHEN** 任务包含参考音频声音来源
-- **THEN** 系统 SHALL 在缓存音频和任何远端副作用前显示能力不支持错误
-- **AND** SHALL NOT 猜测供应商字段或回退到浏览器克隆
-
-#### Scenario: Persist and submit reference audio safely
-
-- **WHEN** 系统保存任务并构造供应商 multipart 请求
-- **THEN** 任务状态 SHALL 只保存轻量缓存引用和安全音频元数据
-- **AND** manifest SHALL 只通过稳定 `assetName` 引用对应 `voice_references[]` part
-- **AND** File、Blob、base64、本地 cache URL、素材库 URL 和授权正文 SHALL NOT 进入 manifest、日志或供应商 JSON
-
-#### Scenario: Clean up private voice samples
-
-- **WHEN** 任务完成、取消、删除或创建失败
-- **THEN** 系统 SHALL 清理该 job 的私有参考音频
-- **AND** 其他任务和用户原素材 SHALL NOT 被删除
+- **WHEN** 用户选择单人或双人讲解模式
+- **THEN** 系统 SHALL 只要求讲解者名称
+- **AND** 双人差异 SHALL 通过角色顺序和不同声线的提示词表达
+- **AND** SHALL 提示实际音色和朗读一致性由视频模型决定
 
 ### Requirement: PPT Explainer Provider Binding SHALL Expose A Complete Async Lifecycle
 
@@ -222,14 +181,14 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 
 ### Requirement: PPT Explainer SHALL Support Local Composition With Existing Models
 
-当没有专用 PPT 最终成片 binding 时，系统 SHALL 允许用户显式选择本地合成模式，并复用已有文本、图片、音频和视频模型完成任务。
+当没有专用 PPT 最终成片 binding 时，系统 SHALL 允许用户显式选择现有模型模式，并复用已有文本、图片和有声视频模型完成任务。
 
 #### Scenario: Generate a narrated slide video locally
 
-- **GIVEN** 当前供应商账号支持内置 `/audio/speech` 服务
-- **WHEN** 用户选择单声线或双声线本地合成
-- **THEN** 系统 SHALL 按页面和 speaker turn 生成旁白音频
-- **AND** SHALL 将 PPT 页面、旁白、字幕和转场合成为一个用户可见视频结果
+- **GIVEN** 用户选择的视频模型支持生成有声视频
+- **WHEN** 用户选择单人或双人讲解
+- **THEN** 系统 SHALL 按页面把快照和 speaker turns 提交为有声视频片段
+- **AND** SHALL 按页序将片段合成为一个用户可见视频结果
 
 #### Scenario: Use an ordinary video model for avatar segments
 
@@ -238,11 +197,11 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 - **THEN** 视频模型 SHALL 只负责片段生成
 - **AND** SHALL NOT 被声明或持久化为完整 `ppt-explainer` 供应商
 
-#### Scenario: TTS route is unavailable
+#### Scenario: Selected model does not produce usable speech
 
-- **WHEN** 当前供应商缺少地址/API Key，或不支持内置 `audio/speech` 服务
-- **THEN** 系统 SHALL 在生成讲稿、图片或视频等计费副作用前失败
-- **AND** SHALL 指明内置 TTS 服务不可用，不要求用户创建自定义模型或 binding
+- **WHEN** 所选普通视频模型不支持音频输出或生成结果未按讲稿朗读
+- **THEN** 系统 SHALL 保留供应商真实结果或错误
+- **AND** SHALL 提示改用明确支持有声视频的模型，不得伪造音频模型
 
 #### Scenario: Cancel local composition
 

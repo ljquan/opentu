@@ -51,6 +51,12 @@ flowchart LR
 
 ## Decisions
 
+### Decision: 现有模型模式逐页生成有声视频
+
+现有模型模式不声明或伪造 TTS 模型，也不要求 voice ID、参考音频或声音克隆授权。编排器把每页快照作为首帧参考，把该页结构化 speaker turns 写入提示词，串行调用用户已选的视频模型生成带语音片段；Seedance 1.5 Pro 作为明确支持有声视频的推荐模型，其他模型是否输出语音以供应商实际能力为准。
+
+双人模式通过角色名称、发言顺序和“使用不同声线”的文字约束表达，不承诺固定音色或精确复刻。界面和任务诊断必须提示：生成式视频的朗读内容、音色、片段时长和逐页同步可能偏离讲稿。每页片段登记为根任务的 internal 子任务，串行执行；取消后停止后续生成并清理子任务。最终片段使用可取消的合并路径生成稳定缓存 URL，释放视频元素、MediaStream track、AudioContext 和临时 Object URL。
+
 ### Decision: 复用一个标准 VIDEO 根任务
 
 不新增 TaskType、数据库或独立 Job 实体。根任务通过 `params.pptExplainer.schemaVersion` 识别，保存轻量编排状态：
