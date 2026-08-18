@@ -30,7 +30,7 @@ export function inferSkillMediaTypes(skill?: SkillMediaLike | null): SkillMediaT
   }
 
   if (skill.mcpTool === 'generate_ppt_explainer_video') {
-    return ['image', 'video'];
+    return ['image', 'video', 'audio'];
   }
 
   const outputMediaType = normalizeSkillOutputType(skill.outputType);
@@ -86,6 +86,6 @@ function getMediaToolNames(mediaType: SkillMediaType): string[] {
         'generate_ppt_explainer_video',
       ];
     case 'audio':
-      return ['generate_audio'];
+      return ['generate_audio', 'generate_ppt_explainer_video'];
   }
 }

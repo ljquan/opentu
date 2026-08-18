@@ -88,6 +88,8 @@ export interface PptExplainerDialogProps {
   textModelRef?: ModelRef | null;
   imageModel?: string;
   imageModelRef?: ModelRef | null;
+  audioModel?: string;
+  audioModelRef?: ModelRef | null;
   videoModel: string;
   videoModelRef?: ModelRef | null;
   avatarAssets?: Asset[];
@@ -310,6 +312,8 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   textModelRef,
   imageModel,
   imageModelRef,
+  audioModel,
+  audioModelRef,
   videoModel,
   videoModelRef,
   avatarAssets = [],
@@ -460,13 +464,15 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
         textModelRef,
         imageModel,
         imageModelRef,
-        audioModel: DEFAULT_OPENAI_SPEECH_MODEL,
-        audioModelRef: textModelRef?.profileId
-          ? {
-              profileId: textModelRef.profileId,
-              modelId: DEFAULT_OPENAI_SPEECH_MODEL,
-            }
-          : undefined,
+        audioModel: audioModel?.trim() || DEFAULT_OPENAI_SPEECH_MODEL,
+        audioModelRef:
+          audioModelRef ||
+          (textModelRef?.profileId
+            ? {
+                profileId: textModelRef.profileId,
+                modelId: DEFAULT_OPENAI_SPEECH_MODEL,
+              }
+            : undefined),
         videoModel,
         videoModelRef,
         ...(draft.source === 'pptx' && draft.pptxFile

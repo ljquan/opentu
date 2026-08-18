@@ -51,12 +51,16 @@ describe('media-model-routing', () => {
     expect(args.textModelRef).toEqual(textRef);
   });
 
-  it('为 PPT 讲解视频同时注入文本、图片和成片模型来源', () => {
+  it('为 PPT 讲解视频同时注入文本、图片、音频和成片模型来源', () => {
     const textRef = { profileId: 'text-profile', modelId: 'deepseek-v3.2' };
     const imageRef = { profileId: 'image-profile', modelId: 'gpt-image-2' };
     const videoRef = {
       profileId: 'video-profile',
       modelId: 'tuzi-ppt-explainer',
+    };
+    const audioRef = {
+      profileId: 'audio-profile',
+      modelId: 'gpt-4o-mini-tts',
     };
     const args = applyMediaModelDefaultsToArgs(
       'generate_ppt_explainer_video',
@@ -67,8 +71,13 @@ describe('media-model-routing', () => {
         defaultModels: {
           image: imageRef.modelId,
           video: videoRef.modelId,
+          audio: audioRef.modelId,
         },
-        defaultModelRefs: { image: imageRef, video: videoRef },
+        defaultModelRefs: {
+          image: imageRef,
+          video: videoRef,
+          audio: audioRef,
+        },
       }
     );
 
@@ -79,5 +88,7 @@ describe('media-model-routing', () => {
     expect(args.imageModelRef).toEqual(imageRef);
     expect(args.videoModel).toBe(videoRef.modelId);
     expect(args.videoModelRef).toEqual(videoRef);
+    expect(args.audioModel).toBe(audioRef.modelId);
+    expect(args.audioModelRef).toEqual(audioRef);
   });
 });
