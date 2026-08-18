@@ -565,7 +565,6 @@ describe('PPT explainer creation service', () => {
     });
     authorizePptExplainerUiCreation(input, {
       skipOutlineReview: false,
-      replaceExistingPpt: false,
       voiceCloneConsent: true,
     });
     mocks.putArtifact.mockImplementation(async (_jobId, artifactName) => {
@@ -643,7 +642,6 @@ describe('PPT explainer creation service', () => {
     });
     authorizePptExplainerUiCreation(input, {
       skipOutlineReview: false,
-      replaceExistingPpt: false,
       voiceCloneConsent: true,
     });
     mocks.putArtifact.mockResolvedValue(

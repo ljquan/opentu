@@ -291,8 +291,7 @@ describe('PptExplainerDialog', () => {
     ).toBe(false);
   });
 
-  it('主题生成替换已有 PPT 前必须明确确认', async () => {
-    mocks.confirm.mockResolvedValue(false);
+  it('主题生成在已有 PPT 旁直接创建新任务，不要求替换确认', async () => {
     const { onCreate } = renderDialog({ hasExistingPpt: true });
 
     selectVoiceIdSource();
@@ -301,14 +300,8 @@ describe('PptExplainerDialog', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
-    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledTimes(1));
-    expect(mocks.confirm).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: '替换当前 PPT？',
-        confirmText: '确认替换',
-      })
-    );
-    expect(onCreate).not.toHaveBeenCalled();
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(mocks.confirm).not.toHaveBeenCalled();
   });
 
   it('创建期间禁用操作，失败后展示错误并允许重试', async () => {

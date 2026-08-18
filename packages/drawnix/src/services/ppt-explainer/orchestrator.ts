@@ -773,7 +773,11 @@ async function prepareTopicSource(
             ? { textModel: textRouteModel }
             : { textModelRef: textRouteModel }),
         },
-        { signal, pptExplainerJobId: initialState.jobId }
+        {
+          signal,
+          pptExplainerJobId: initialState.jobId,
+          replaceExistingPpt: false,
+        }
       )
   );
   signal.throwIfAborted();
@@ -788,7 +792,7 @@ async function prepareTopicSource(
   if (!validateOutline(outline)) {
     throw new PptExplainerValidationError('PPT 大纲结果无效，无法恢复任务');
   }
-  const outlineFrameIds = listCurrentPptFrameIds(board);
+  const outlineFrameIds = listCurrentPptFrameIds(board, initialState.jobId);
   if (outlineFrameIds.length === 0) {
     throw new PptExplainerValidationError('PPT 大纲未生成任何页面');
   }
@@ -958,12 +962,7 @@ async function executePptExplainerRun(
       const board = requireSourceBoard(state);
       if (state.source === 'topic') {
         const owners = getCurrentPptExplainerDraftOwners(board);
-        if (owners.length > 1) {
-          throw new PptExplainerValidationError(
-            '当前画板同时存在多个 PPT 讲解草稿，请重新确认大纲'
-          );
-        }
-        if (owners.length === 1 && owners[0] !== state.jobId) {
+        if (!owners.includes(state.jobId)) {
           if (!state.topicOutline || !validateOutline(state.topicOutline)) {
             throw new PptExplainerValidationError(
               '该 PPT 讲解任务的大纲快照已丢失，请重新创建任务'
@@ -975,15 +974,11 @@ async function executePptExplainerRun(
             { topic: state.topic || 'PPT 讲解视频' },
             {
               pptExplainerJobId: state.jobId,
+              replaceExistingPpt: false,
               signal,
               focusFirstFrame: false,
               openEditor: false,
             }
-          );
-        }
-        if (owners.length === 0 && state.outlineFrameIds?.length) {
-          throw new PptExplainerValidationError(
-            '当前画板已不再显示该任务的大纲，请重新确认大纲'
           );
         }
       }

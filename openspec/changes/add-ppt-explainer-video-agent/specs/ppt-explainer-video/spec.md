@@ -11,12 +11,12 @@
 - **THEN** 系统 SHALL 复用 PPT 大纲和 Frame 创建流程生成演示结构
 - **AND** SHALL 将该演示结构绑定到本次讲解任务
 
-#### Scenario: Confirm replacing an existing canvas PPT
+#### Scenario: Add a new deck beside an existing canvas PPT
 
 - **GIVEN** 当前画板已经存在 PPT 页面且用户选择主题来源
 - **WHEN** 用户创建新的 PPT 讲解任务
-- **THEN** 系统 SHALL 在替换现有 PPT 前要求当前页面的明确确认
-- **AND** 用户取消确认时 SHALL NOT 创建根任务或修改现有 PPT
+- **THEN** 系统 SHALL 保留现有 PPT 页面及其内容
+- **AND** SHALL 在不重叠的位置创建并仅绑定本次任务的新 PPT 页面
 
 #### Scenario: Use the current canvas PPT
 

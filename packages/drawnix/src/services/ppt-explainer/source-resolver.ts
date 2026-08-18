@@ -434,8 +434,16 @@ export async function freezeCurrentPptSource(
   };
 }
 
-export function listCurrentPptFrameIds(board: PlaitBoard): string[] {
-  return collectPptFrames(board.children as PlaitElement[]).map(
-    (frame) => frame.id
-  );
+export function listCurrentPptFrameIds(
+  board: PlaitBoard,
+  pptExplainerJobId?: string
+): string[] {
+  const normalizedOwner = pptExplainerJobId?.trim();
+  return collectPptFrames(board.children as PlaitElement[])
+    .filter(
+      (frame) =>
+        !normalizedOwner ||
+        frame.pptMeta.pptExplainerJobId?.trim() === normalizedOwner
+    )
+    .map((frame) => frame.id);
 }

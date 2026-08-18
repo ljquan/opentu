@@ -1,6 +1,5 @@
 import type { PlaitBoard } from '@plait/core';
 import { materializePPTOutline } from '../../mcp/tools/ppt-generation';
-import { isFrameElement } from '../../types/frame.types';
 import type { Task } from '../../types/task.types';
 import { generateTaskId } from '../../utils/task-utils';
 import { settingsManager, type ModelRef } from '../../utils/settings-manager';
@@ -67,13 +66,11 @@ type AuxiliaryOperation = 'text' | 'image';
 interface CreationContext {
   board: PlaitBoard;
   imageRequired: boolean;
-  requiresPptReplacementConfirmation: boolean;
   currentPptSelection?: CurrentPptSourceSelection;
 }
 
 interface PptExplainerUiConfirmations {
   skipOutlineReview: boolean;
-  replaceExistingPpt: boolean;
   voiceCloneConsent?: boolean;
 }
 
@@ -99,9 +96,6 @@ export function authorizePptExplainerUiCreation(
   ) {
     throw new PptExplainerValidationError('当前任务不需要跳过大纲确认');
   }
-  if (confirmations.replaceExistingPpt && input.source !== 'topic') {
-    throw new PptExplainerValidationError('当前任务不会替换已有 PPT');
-  }
   pendingUiConfirmations.set(input, { ...confirmations });
 }
 
@@ -125,17 +119,8 @@ async function requireCreationContext(
     input.source === 'current_ppt'
       ? await captureCurrentPptSourceSelection(binding.board)
       : undefined;
-  const requiresPptReplacementConfirmation =
-    input.source === 'topic' &&
-    binding.board.children.some(
-      (element) =>
-        isFrameElement(element) &&
-        Boolean((element as typeof element & { pptMeta?: unknown }).pptMeta)
-    );
-
   return {
     board: binding.board,
-    requiresPptReplacementConfirmation,
     imageRequired:
       input.source === 'topic' ||
       (input.source === 'current_ppt' &&
@@ -181,14 +166,6 @@ function consumeUiConfirmations(
   ) {
     throw new PptExplainerValidationError(
       '必须确认：跳过大纲审核只能在当前页面完成二次确认'
-    );
-  }
-  if (
-    context.requiresPptReplacementConfirmation &&
-    !confirmations?.replaceExistingPpt
-  ) {
-    throw new PptExplainerValidationError(
-      '主题生成将替换当前 PPT，请在配置界面确认后重试'
     );
   }
   if (

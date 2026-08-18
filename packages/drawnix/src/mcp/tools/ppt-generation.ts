@@ -271,6 +271,7 @@ function createPPTPage(
 
 export interface MaterializePPTOutlineOptions {
   pptExplainerJobId?: string;
+  replaceExistingPpt?: boolean;
   signal?: AbortSignal;
   focusFirstFrame?: boolean;
   openEditor?: boolean;
@@ -284,9 +285,8 @@ export interface MaterializedPPTOutline {
 }
 
 /**
- * Replace the board's current PPT with an already validated outline without
- * another model call. PPT explainer recovery uses this to restore its own
- * draft after another topic task temporarily replaced the visible outline.
+ * Materialize an already validated outline without another model call.
+ * Existing PPT pages are replaced by default for backward compatibility.
  */
 export function materializePPTOutline(
   board: PlaitBoard,
@@ -295,7 +295,8 @@ export function materializePPTOutline(
   options: MaterializePPTOutlineOptions = {}
 ): MaterializedPPTOutline {
   options.signal?.throwIfAborted();
-  const replacedFrameCount = replaceExistingPPTOutline(board);
+  const replacedFrameCount =
+    options.replaceExistingPpt === false ? 0 : replaceExistingPPTOutline(board);
   options.onReplaced?.(replacedFrameCount);
 
   const startPosition = calcPPTFrameInsertionStartPosition(board);
@@ -336,7 +337,10 @@ export function materializePPTOutline(
 async function executePPTGeneration(
   params: PPTGenerationParams,
   options: MCPExecuteOptions,
-  context: { pptExplainerJobId?: string } = {}
+  context: {
+    pptExplainerJobId?: string;
+    replaceExistingPpt?: boolean;
+  } = {}
 ): Promise<MCPResult> {
   const { topic, pageCount, language, extraRequirements } = params;
   const startTime = Date.now();
@@ -439,6 +443,7 @@ async function executePPTGeneration(
       generationParams,
       {
         pptExplainerJobId: context.pptExplainerJobId,
+        replaceExistingPpt: context.replaceExistingPpt,
         signal: options.signal,
         onReplaced: (count) => {
           if (count > 0) {
@@ -661,12 +666,15 @@ export async function generatePPT(
   options?: Omit<MCPExecuteOptions, 'mode'> & {
     /** Trusted main-thread ownership marker; never exposed in the MCP schema. */
     pptExplainerJobId?: string;
+    /** PPT explainer may preserve other decks on the same board. */
+    replaceExistingPpt?: boolean;
   }
 ): Promise<MCPResult> {
-  const { pptExplainerJobId, ...executeOptions } = options || {};
+  const { pptExplainerJobId, replaceExistingPpt, ...executeOptions } =
+    options || {};
   return executePPTGeneration(
     params,
     { ...executeOptions, mode: 'async' },
-    { pptExplainerJobId }
+    { pptExplainerJobId, replaceExistingPpt }
   );
 }

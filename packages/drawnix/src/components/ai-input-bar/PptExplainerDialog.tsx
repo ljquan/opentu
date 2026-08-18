@@ -305,7 +305,6 @@ function SegmentControl<T extends string>({
 export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   open,
   sourceBoardId,
-  hasExistingPpt,
   initialTopic,
   textModel,
   textModelRef,
@@ -416,18 +415,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   const handleSubmit = async (): Promise<void> => {
     if (loading || validationError || !sourceBoardId) return;
 
-    let replaceExistingPpt = false;
-    if (draft.source === 'topic' && hasExistingPpt) {
-      replaceExistingPpt = await confirm({
-        title: '替换当前 PPT？',
-        description:
-          '主题生成会删除画布中现有 PPT 页面及其内容，再创建新的 PPT。',
-        confirmText: '确认替换',
-        confirmTheme: 'warning',
-      });
-      if (!replaceExistingPpt) return;
-    }
-
     let skipOutlineReview = false;
     if (draft.source === 'topic' && draft.reviewMode === 'skip_after_warning') {
       skipOutlineReview = await confirm({
@@ -486,10 +473,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
           ? { pptxFile: draft.pptxFile }
           : {}),
       };
-      if (skipOutlineReview || replaceExistingPpt || usesReferenceAudio) {
+      if (skipOutlineReview || usesReferenceAudio) {
         authorizePptExplainerUiCreation(input, {
           skipOutlineReview,
-          replaceExistingPpt,
           voiceCloneConsent:
             usesReferenceAudio && Boolean(draft.voiceCloneConsent),
         });
