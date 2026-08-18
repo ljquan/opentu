@@ -122,6 +122,8 @@ export interface PptExplainerTaskState {
   source: PptExplainerSourceKind;
   sourceBoardId: string;
   topic?: string;
+  /** 用户在主题中指定的精确总页数，包含封面和结尾。 */
+  requestedPageCount?: number;
   /** Lightweight task-owned outline used to restore concurrent topic drafts. */
   topicOutline?: PPTOutline;
   outlineFrameIds?: string[];
@@ -154,6 +156,7 @@ export interface PptExplainerCreateInput {
   source: PptExplainerSourceKind;
   sourceBoardId: string;
   topic?: string;
+  requestedPageCount?: number;
   reviewMode: PptExplainerReviewMode;
   presenterMode: PptExplainerPresenterMode;
   executionMode?: PptExplainerExecutionMode;

@@ -4,7 +4,12 @@ import {
   type PlaitElement,
 } from '@plait/core';
 import { isFrameElement, type PlaitFrame } from '../../types/frame.types';
-import { findPPTSlideImage } from '../../utils/frame-insertion-utils';
+import {
+  findPPTSlideImage,
+  insertMediaIntoFrame,
+  removePPTImagePlaceholder,
+  replacePPTSlideImage,
+} from '../../utils/frame-insertion-utils';
 import {
   createPPTFrameSnapshotDataUrl,
   createPPTFrameSnapshotKey,
@@ -309,7 +314,6 @@ export async function prepareMissingPptSlideImages(
     const existingImageUrl =
       findPPTSlideImage(board, frame.id)?.url || frame.pptMeta.slideImageUrl;
     if (existingImageUrl) {
-      generated.set(frame.id, existingImageUrl);
       continue;
     }
 
@@ -364,6 +368,112 @@ export async function prepareMissingPptSlideImages(
   }
 
   return generated;
+}
+
+/**
+ * Make generated slide images part of the user-visible deck before freezing it.
+ * The video pipeline must read the same image elements that the user can inspect.
+ */
+export async function materializePptExplainerSlideImages(
+  board: PlaitBoard,
+  slideImages: ReadonlyMap<string, string>,
+  options: {
+    jobId: string;
+    signal?: AbortSignal;
+    selection?: CurrentPptSourceSelection;
+  }
+): Promise<CurrentPptSourceSelection | undefined> {
+  if (slideImages.size === 0) return undefined;
+  const normalizedJobId = options.jobId.trim();
+  if (!normalizedJobId) {
+    throw new PptExplainerValidationError('PPT 讲解任务缺少 jobId');
+  }
+  const frames = await resolveSelectedPptFrames(board, options.selection);
+
+  for (const frame of frames) {
+    options.signal?.throwIfAborted();
+    const generatedImageUrl = slideImages.get(frame.id);
+    if (!generatedImageUrl) continue;
+
+    const generatedBlob = await readSnapshotBlob(
+      generatedImageUrl,
+      options.signal
+    );
+    options.signal?.throwIfAborted();
+    const extension = generatedBlob.type.includes('webp')
+      ? 'webp'
+      : generatedBlob.type.includes('jpeg')
+      ? 'jpg'
+      : generatedBlob.type.includes('svg')
+      ? 'svg'
+      : 'png';
+    const safeJobId = normalizedJobId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFrameId = frame.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const imageUrl = await unifiedCacheService.cacheMediaFromBlob(
+      `/__aitu_cache__/image/ppt-explainer-${safeJobId}-${safeFrameId}.${extension}`,
+      generatedBlob,
+      'image',
+      {
+        taskId: normalizedJobId,
+        resultVisibility: 'internal',
+      }
+    );
+    options.signal?.throwIfAborted();
+
+    const current = findPPTSlideImage(board, frame.id);
+    if (current?.elementId && current.url === imageUrl) {
+      replacePPTSlideImage(board, frame.id, current.elementId, imageUrl, {
+        slidePrompt: frame.pptMeta.slidePrompt,
+        prompt: frame.pptMeta.slidePrompt,
+      });
+      removePPTImagePlaceholder(board, frame.id);
+      continue;
+    }
+
+    const rect = RectangleClient.getRectangleByPoints(frame.points);
+    const inserted = await insertMediaIntoFrame(
+      board,
+      imageUrl,
+      'image',
+      frame.id,
+      { width: rect.width, height: rect.height },
+      undefined,
+      undefined,
+      {
+        fit: 'stretch',
+        boardGuard: () => !options.signal?.aborted,
+        metadata: {
+          prompt: frame.pptMeta.slidePrompt,
+        },
+      }
+    );
+    options.signal?.throwIfAborted();
+    if (!inserted?.elementId) {
+      throw new PptExplainerValidationError(
+        `第 ${frame.pptMeta.pageIndex || frame.name} 页无法写入画板`
+      );
+    }
+    replacePPTSlideImage(board, frame.id, inserted.elementId, imageUrl, {
+      replaceElementId: current?.elementId,
+      slidePrompt: frame.pptMeta.slidePrompt,
+      prompt: frame.pptMeta.slidePrompt,
+    });
+    removePPTImagePlaceholder(board, frame.id);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
+  const currentFrames = await resolveSelectedPptFrames(board, {
+    frameIds: frames.map((frame) => frame.id),
+  });
+  const frameRevisions: Record<string, string> = {};
+  for (const frame of currentFrames) {
+    frameRevisions[frame.id] = await createFrameRevision(board, frame);
+  }
+  return {
+    frameIds: currentFrames.map((frame) => frame.id),
+    frameRevisions,
+  };
 }
 
 /**

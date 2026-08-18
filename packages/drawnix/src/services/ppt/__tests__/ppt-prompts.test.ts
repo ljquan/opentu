@@ -40,6 +40,13 @@ describe('ppt prompts style consistency', () => {
     );
   });
 
+  it('requires an exact total page count when a number is provided', () => {
+    const prompt = generateOutlineSystemPrompt({ pageCount: 5 });
+
+    expect(prompt).toContain('总计严格 5 页（包含封面页和结尾页）');
+    expect(prompt).not.toContain('5-7页（不含封面和结尾）');
+  });
+
   it('fills missing styleSpec with a default that includes user style requirements', () => {
     const outline = parseOutlineResponse(
       JSON.stringify({
@@ -109,7 +116,8 @@ describe('ppt prompts style consistency', () => {
   });
 
   it('skips thinking JSON before the real outline', () => {
-    const outline = parseOutlineResponse(`<think>{"title":"草稿","pages":"not array"}</think>
+    const outline =
+      parseOutlineResponse(`<think>{"title":"草稿","pages":"not array"}</think>
 最终：
 {
   "title": "发布计划",

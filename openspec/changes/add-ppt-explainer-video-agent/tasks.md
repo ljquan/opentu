@@ -63,6 +63,8 @@
 ## 9. Validation And Handoff
 
 - [ ] 9.1 运行相关 Vitest、drawnix typecheck/lint 与三浏览器 Playwright 用例
+  - 本次同源 PPT 增量：7 个 Vitest 文件 / 92 个测试全部通过；drawnix typecheck、Prettier、`git diff --check` 通过；局域网确认内置 PPT 讲解 Skill 及三类模型选择正常加载
+  - 本次限制：当前环境没有 `openspec` CLI，无法重新执行 strict；增量 ESLint 仅命中 `TaskItem.tsx` 与 `services.ts` 未改行上的既有 lazy-load 边界错误及历史 warning
   - 已完成：31 个相关 Vitest 文件 / 360 个测试；本次参考音频增量复验 11 个文件 / 132 个测试；固定原 PPT 画面增量复验 15 个文件 / 217 个测试；drawnix typecheck；增量 ESLint（0 个本次 error，既有 warning 保持不变）；OpenSpec strict；内置 Chromium 的桌面与 390×844 局域网页面复验；Node 20 Service Worker/隔离 PPTX Worker 构建；以及 GitHub CI 的 Node 20 web/drawnix 构建
   - 基线说明：CI 的 10 个失败测试文件在 `origin/develop@0e7c242e` 上同样为 55 项失败；上一个已合并 PR #229 也因 11 个测试文件和既有 size-limit 债务失败
   - 剩余：Firefox/WebKit 专项 E2E 未完成；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
@@ -103,3 +105,4 @@
 - [x] 12.6 复验最终素材库与原画板幂等交付，确认模型重绘片段保持 internal 且不直接展示
 - [x] 12.7 主题生成新增独立 PPT，保留已有页面并按 jobId 隔离本次页面集合
 - [x] 12.8 移除 PPT 讲解 Agent 底栏的音频模型及创建输入路由（原方案已废弃）
+- [x] 12.9 将生成页图先写回用户可见 PPT，再从同一页面冻结快照；传递精确页数并修正任务卡阶段展示

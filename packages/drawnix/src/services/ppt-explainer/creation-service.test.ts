@@ -410,6 +410,16 @@ describe('PPT explainer creation service', () => {
     expect(mocks.runTask).toHaveBeenCalledWith('root-task');
   });
 
+  it('persists an exact page count requested in the topic', async () => {
+    await createPptExplainerTask(
+      createInput({ topic: '2026 AI 办公自动化趋势，严格 5 页' })
+    );
+
+    expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
+      requestedPageCount: 5,
+    });
+  });
+
   it('creates a local audible-video task without legacy voice fields', async () => {
     await createPptExplainerTask(
       createInput({

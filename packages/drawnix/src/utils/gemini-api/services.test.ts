@@ -1,5 +1,45 @@
-import { describe, expect, it } from 'vitest';
-import { normalizeAspectRatio } from './services';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizeAspectRatio, sendChatWithGemini } from './services';
+
+const mocks = vi.hoisted(() => ({
+  callApiWithRetry: vi.fn(),
+}));
+
+vi.mock('./apiCalls', () => ({
+  callApiWithRetry: mocks.callApiWithRetry,
+  callApiStreamRaw: vi.fn(),
+  callGoogleGenerateContentRaw: vi.fn(),
+  callVideoApiStreamRaw: vi.fn(),
+}));
+
+vi.mock('../settings-manager', () => ({
+  resolveInvocationRoute: vi.fn(() => ({
+    apiKey: 'secret',
+    baseUrl: 'https://api.example.com',
+    modelId: 'text-model',
+    providerType: 'custom',
+  })),
+  settingsManager: {
+    waitForInitialization: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock('../../services/provider-routing', () => ({
+  providerTransport: { send: vi.fn() },
+  readProviderResponseJson: vi.fn(),
+  readProviderResponseText: vi.fn(),
+  resolveInvocationPlanFromRoute: vi.fn(() => null),
+}));
+
+vi.mock('./auth', () => ({
+  validateAndEnsureConfig: vi.fn(async (config) => config),
+}));
+
+vi.mock('../../services/media-executor/llm-api-logger', () => ({
+  startLLMApiLog: vi.fn(() => 'log-1'),
+  completeLLMApiLog: vi.fn(),
+  failLLMApiLog: vi.fn(),
+}));
 
 describe('normalizeAspectRatio', () => {
   it('preserves canonical Gemini aspect ratio enums', () => {
@@ -19,3 +59,38 @@ describe('normalizeAspectRatio', () => {
   });
 });
 
+describe('sendChatWithGemini', () => {
+  beforeEach(() => {
+    mocks.callApiWithRetry.mockReset();
+    mocks.callApiWithRetry.mockResolvedValue({
+      choices: [
+        {
+          message: { role: 'assistant', content: '{"title":"outline"}' },
+        },
+      ],
+    });
+  });
+
+  it('forwards AbortSignal to non-stream text requests', async () => {
+    const controller = new AbortController();
+    const messages = [
+      {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: 'build a PPT outline' }],
+      },
+    ];
+
+    await sendChatWithGemini(
+      messages,
+      undefined,
+      controller.signal,
+      'text-model'
+    );
+
+    expect(mocks.callApiWithRetry).toHaveBeenCalledWith(
+      expect.any(Object),
+      messages,
+      controller.signal
+    );
+  });
+});

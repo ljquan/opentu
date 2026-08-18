@@ -1,5 +1,11 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { callGoogleGenerateContentRaw } from './apiCalls';
+import {
+  callApiRaw,
+  callApiWithRetry,
+  callGoogleGenerateContentRaw,
+} from './apiCalls';
 
 const { sendMock, analyticsMock, getCachedBlobMock } = vi.hoisted(() => ({
   sendMock: vi.fn(),
@@ -65,6 +71,115 @@ describe('callGoogleGenerateContentRaw', () => {
           },
         }
       )
+    );
+  });
+
+  it('forwards AbortSignal through non-stream manual HTTP calls', async () => {
+    const controller = new AbortController();
+    sendMock.mockResolvedValue(
+      new Response(JSON.stringify({ result: { text: 'manual ok' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await callApiRaw(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com',
+        modelName: 'manual-text',
+        binding: {
+          id: 'manual-text-binding',
+          profileId: 'provider-a',
+          modelId: 'manual-text',
+          operation: 'text',
+          protocol: 'custom-http',
+          requestSchema: 'custom-http',
+          responseSchema: 'custom-http.text',
+          submitPath: '/text',
+          priority: 100,
+          confidence: 'high',
+          source: 'manual',
+          metadata: {
+            manualHttp: {
+              method: 'POST',
+              bodyTemplate: '{"prompt":"{{prompt}}"}',
+              responsePaths: { text: 'result.text' },
+            },
+          },
+        },
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'build an outline' }],
+        },
+      ],
+      controller.signal
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
+
+  it('forwards an already-aborted signal through non-stream Google calls', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await callApiRaw(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com',
+        modelName: 'gemini-text',
+        protocol: 'google.generateContent',
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'build an outline' }],
+        },
+      ],
+      controller.signal
+    );
+
+    const [, request] = sendMock.mock.calls[0];
+    expect((request as { signal?: AbortSignal }).signal?.aborted).toBe(true);
+  });
+
+  it('forwards AbortSignal through the non-stream OpenAI wrapper', async () => {
+    const controller = new AbortController();
+    sendMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'openai ok' } }],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    await callApiWithRetry(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com',
+        modelName: 'openai-text',
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'build an outline' }],
+        },
+      ],
+      controller.signal
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ signal: controller.signal })
     );
   });
 

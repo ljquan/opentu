@@ -222,7 +222,16 @@ async function generatePPTOutline(
     fullResponse = response.choices[0].message.content || fullResponse;
   }
 
-  return parseOutlineResponse(fullResponse, options);
+  const outline = parseOutlineResponse(fullResponse, options);
+  if (
+    typeof options.pageCount === 'number' &&
+    outline.pages.length !== options.pageCount
+  ) {
+    throw new Error(
+      `PPT 大纲页数不符合要求：期望 ${options.pageCount} 页，实际 ${outline.pages.length} 页，请重试`
+    );
+  }
+  return outline;
 }
 
 /**

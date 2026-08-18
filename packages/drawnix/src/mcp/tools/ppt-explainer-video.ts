@@ -43,6 +43,10 @@ export const pptExplainerVideoTool: MCPTool = {
         type: 'string',
         description: '主题来源的 PPT 主题；其他来源可作为任务标题',
       },
+      requestedPageCount: {
+        type: 'number',
+        description: '主题来源的精确总页数，包含封面和结尾',
+      },
       reviewMode: {
         type: 'string',
         enum: ['confirm', 'skip_after_warning'],

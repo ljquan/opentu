@@ -56,6 +56,7 @@ import {
   freezeCurrentPptSource,
   getCurrentPptExplainerDraftOwners,
   listCurrentPptFrameIds,
+  materializePptExplainerSlideImages,
   prepareMissingPptSlideImages,
   type CurrentPptSourceSelection,
 } from './source-resolver';
@@ -76,6 +77,7 @@ import {
 } from './validation';
 
 const POLL_INTERVAL_MS = 2000;
+const PPT_OUTLINE_TIMEOUT_MS = 3 * 60 * 1000;
 const LOCAL_SEGMENT_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface ActiveRun {
@@ -931,23 +933,47 @@ async function prepareTopicSource(
     throw new PptExplainerValidationError('讲稿文本模型原路由无效');
   }
 
-  const result = await runPptExplainerBoardMutationExclusive(
-    initialState.sourceBoardId,
-    () =>
-      generatePPT(
-        {
-          topic,
-          ...(typeof textRouteModel === 'string'
-            ? { textModel: textRouteModel }
-            : { textModelRef: textRouteModel }),
-        },
-        {
-          signal,
-          pptExplainerJobId: initialState.jobId,
-          replaceExistingPpt: false,
-        }
-      )
+  signal.throwIfAborted();
+  const outlineController = new AbortController();
+  const abortFromParent = () =>
+    outlineController.abort(
+      signal.reason || new DOMException('PPT 讲解任务已取消', 'AbortError')
+    );
+  signal.addEventListener('abort', abortFromParent, { once: true });
+  const timeoutError = new Error(
+    'PPT 大纲生成超过 3 分钟，请检查文本模型连接后重试'
   );
+  const timeoutId = setTimeout(
+    () => outlineController.abort(timeoutError),
+    PPT_OUTLINE_TIMEOUT_MS
+  );
+  let result: Awaited<ReturnType<typeof generatePPT>>;
+  try {
+    result = await runPptExplainerBoardMutationExclusive(
+      initialState.sourceBoardId,
+      () =>
+        generatePPT(
+          {
+            topic,
+            pageCount: initialState.requestedPageCount,
+            ...(typeof textRouteModel === 'string'
+              ? { textModel: textRouteModel }
+              : { textModelRef: textRouteModel }),
+          },
+          {
+            signal: outlineController.signal,
+            pptExplainerJobId: initialState.jobId,
+            replaceExistingPpt: false,
+          }
+        )
+    );
+  } catch (error) {
+    if (outlineController.signal.reason === timeoutError) throw timeoutError;
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    signal.removeEventListener('abort', abortFromParent);
+  }
   signal.throwIfAborted();
   if (!result.success) {
     throw new PptExplainerValidationError(result.error || 'PPT 大纲生成失败');
@@ -1155,9 +1181,9 @@ async function executePptExplainerRun(
       const imageRouteModel = getImageRouteModel(state);
       const selection = getPptSourceSelection(state);
       const ownershipWrites: Promise<void>[] = [];
-      let slideImageOverrides: Map<string, string>;
+      let generatedSlideImages: Map<string, string>;
       try {
-        slideImageOverrides = await prepareMissingPptSlideImages(board, {
+        generatedSlideImages = await prepareMissingPptSlideImages(board, {
           model:
             typeof imageRouteModel === 'string' ? imageRouteModel : undefined,
           modelRef:
@@ -1191,10 +1217,34 @@ async function executePptExplainerRun(
           internalTaskIds: currentState.internalTaskIds,
         };
       }
+      let frozenSelection = selection;
+      if (generatedSlideImages.size > 0) {
+        const materializedSelection =
+          await runPptExplainerBoardMutationExclusive(state.sourceBoardId, () =>
+            materializePptExplainerSlideImages(board, generatedSlideImages, {
+              jobId: state.jobId,
+              signal,
+              selection,
+            })
+          );
+        if (materializedSelection) {
+          frozenSelection = materializedSelection;
+          state = await persistStage(
+            task.id,
+            {
+              ...state,
+              outlineFrameIds: materializedSelection.frameIds,
+              sourceFrameRevisions: materializedSelection.frameRevisions,
+            },
+            executionAttempt,
+            20,
+            TaskExecutionPhase.SUBMITTING
+          );
+        }
+      }
       const frozen = await freezeCurrentPptSource(board, state.jobId, {
         signal,
-        slideImageOverrides,
-        selection,
+        selection: frozenSelection,
       });
       state = await persistStage(
         task.id,

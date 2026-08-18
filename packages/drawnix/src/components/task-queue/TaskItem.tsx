@@ -32,7 +32,11 @@ import {
   isSora2VideoId,
 } from '../../types/character.types';
 import { RetryImage } from '../retry-image';
-import { TaskProgressOverlay } from './TaskProgressOverlay';
+import {
+  getPptExplainerModelLabel,
+  getPptExplainerStageText,
+  TaskProgressOverlay,
+} from './TaskProgressOverlay';
 import { useThumbnailUrl } from '../../hooks/useThumbnailUrl';
 import {
   getLyricsPreview,
@@ -246,6 +250,23 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     const isFailed = task.status === TaskStatus.FAILED;
     const isCancelled = task.status === TaskStatus.CANCELLED;
     const isRetryable = isFailed || isCancelled;
+    const pptExplainerStage = task.params.pptExplainer?.stage;
+    const pptExplainerStageText = getPptExplainerStageText(pptExplainerStage);
+    const statusLabel =
+      (task.status === TaskStatus.PENDING ||
+        task.status === TaskStatus.PROCESSING) &&
+      pptExplainerStageText
+        ? pptExplainerStageText
+        : getStatusLabel(task.status);
+    const modelLabel = getPptExplainerModelLabel(
+      pptExplainerStage,
+      task.params.model
+    );
+    const shouldShowProgressOverlay = Boolean(
+      task.status === TaskStatus.PROCESSING ||
+        (task.status === TaskStatus.PENDING &&
+          pptExplainerStage === 'review_pending')
+    );
 
     // 使用传入的布局模式，如果没有传入则使用内部的 ResizeObserver（兼容旧用法）
     const isCompactLayout =
@@ -348,7 +369,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
         ? detectedCacheWarning || task.result?.cacheWarning
         : undefined;
     const cacheWarningTip = cacheWarning
-      ? `${cacheWarning.message}${cacheWarning.expiresHint ? `\n${cacheWarning.expiresHint}` : ''}`
+      ? `${cacheWarning.message}${
+          cacheWarning.expiresHint ? `\n${cacheWarning.expiresHint}` : ''
+        }`
       : '';
 
     // Use original URL or cached URL (Service Worker handles caching automatically)
@@ -398,12 +421,12 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
           </div>
           <div>
             <strong>状态：</strong>
-            {getStatusLabel(task.status)}
+            {statusLabel}
           </div>
-          {task.params.model && (
+          {modelLabel && (
             <div>
               <strong>模型：</strong>
-              {task.params.model}
+              {modelLabel}
             </div>
           )}
           {isKlingVideoTask && klingModelVersion && (
@@ -529,7 +552,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
         )}
 
         {/* 1. Preview Area - Visual entry point */}
-        {(isCompleted || isFailed || task.status === TaskStatus.PROCESSING) &&
+        {(isCompleted || isFailed || shouldShowProgressOverlay) &&
           (previewMediaUrl ||
             isCharacterTask ||
             isChatTask ||
@@ -548,7 +571,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     <CloseCircleIcon size="24px" />
                     <span>生成失败</span>
                   </div>
-                ) : task.status === TaskStatus.PROCESSING ? (
+                ) : shouldShowProgressOverlay ? (
                   isChatTask ? (
                     <div className="task-item__preview-placeholder">
                       <span>
@@ -568,6 +591,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                       realProgress={task.progress}
                       startedAt={task.startedAt}
                       mediaUrl={previewMediaUrl}
+                      pptExplainerStage={pptExplainerStage}
                     />
                   )
                 ) : (
@@ -669,7 +693,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     )}
                     {cacheWarning && (
                       <HoverTip content={cacheWarningTip} showArrow={false}>
-                        <span className="task-item__cache-warning-badge">需下载</span>
+                        <span className="task-item__cache-warning-badge">
+                          需下载
+                        </span>
                       </HoverTip>
                     )}
                   </>
@@ -687,7 +713,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
             </HoverTip>
             {isChatTask && videoAnalyzerSubtitle && (
               <HoverTip content={videoAnalyzerSubtitle} showArrow={false}>
-                <div className="task-item__subtitle">{videoAnalyzerSubtitle}</div>
+                <div className="task-item__subtitle">
+                  {videoAnalyzerSubtitle}
+                </div>
               </HoverTip>
             )}
           </div>
@@ -703,13 +731,13 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     variant="light"
                     className="task-item__status-tag"
                   >
-                    {getStatusLabel(task.status)}
+                    {statusLabel}
                   </Tag>
 
                   {/* Model Tag */}
-                  {task.params.model && (
+                  {modelLabel && (
                     <Tag variant="outline" className="task-item__model-tag">
-                      {task.params.model}
+                      {modelLabel}
                     </Tag>
                   )}
                   {isChatTask && videoAnalyzerTypeTag && (

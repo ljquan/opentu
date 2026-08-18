@@ -10,6 +10,15 @@
 - **WHEN** 用户提交 PPT 讲解视频任务
 - **THEN** 系统 SHALL 复用 PPT 大纲和 Frame 创建流程生成演示结构
 - **AND** SHALL 将该演示结构绑定到本次讲解任务
+- **AND** 用户明确要求总页数时，系统 SHALL 将其作为包含封面和结尾的精确页数生成
+
+#### Scenario: Materialize the complete visible deck before narration
+
+- **GIVEN** 主题 PPT 或当前 PPT 的一个或多个页面需要生成页面图
+- **WHEN** 页面图生成完成
+- **THEN** 系统 SHALL 先将页面图写回对应的用户可见 PPT Frame 并更新页面版本
+- **AND** SHALL 从这些相同 Frame 冻结讲解任务快照
+- **AND** SHALL NOT 使用未写回画布的隐藏页面图直接生成讲稿、音轨或视频
 
 #### Scenario: Add a new deck beside an existing canvas PPT
 
@@ -127,6 +136,7 @@
 - **GIVEN** 用户已通过审核门
 - **WHEN** 任务开始生成讲稿或提交供应商
 - **THEN** 系统 SHALL 固化页序、快照、备注、转场和 speaker 配置
+- **AND** 固化快照 SHALL 与用户可见 PPT 页面使用相同页面图和版本
 - **AND** 后续画布编辑 SHALL NOT 改变已接受任务
 
 ### Requirement: PPT Explainer SHALL Use Existing Audible Video Models Without Voice Cloning

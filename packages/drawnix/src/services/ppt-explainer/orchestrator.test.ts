@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   getCachedBlob: vi.fn(),
   buildNarrationPlan: vi.fn(),
   freezeCurrentPptSource: vi.fn(),
+  materializeSlideImages: vi.fn(),
   prepareMissingPptSlideImages: vi.fn(),
   applyPptxCheckpoint: vi.fn(),
   importPptx: vi.fn(),
@@ -169,6 +170,7 @@ vi.mock('./narration-planner', () => ({
 
 vi.mock('./source-resolver', () => ({
   freezeCurrentPptSource: mocks.freezeCurrentPptSource,
+  materializePptExplainerSlideImages: mocks.materializeSlideImages,
   prepareMissingPptSlideImages: mocks.prepareMissingPptSlideImages,
   applyPptxCheckpointToExplainerState: mocks.applyPptxCheckpoint,
   listCurrentPptFrameIds: mocks.listCurrentPptFrameIds,
@@ -356,6 +358,7 @@ beforeEach(() => {
     new Blob(['slide'], { type: 'image/png' })
   );
   mocks.prepareMissingPptSlideImages.mockResolvedValue(new Map());
+  mocks.materializeSlideImages.mockResolvedValue(undefined);
   mocks.generatePPT.mockResolvedValue({
     success: true,
     type: 'text',
@@ -655,6 +658,10 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         ]);
       }
     );
+    mocks.materializeSlideImages.mockResolvedValue({
+      frameIds: ['frame-1'],
+      frameRevisions: { 'frame-1': 'revision-with-visible-image' },
+    });
     mocks.getAllCachedMedia.mockResolvedValue([
       {
         url: '/__aitu_cache__/image/internal-image-1.png',
@@ -685,6 +692,17 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
 
     expect(mocks.prepareMissingPptSlideImages).toHaveBeenCalledTimes(1);
     expect(mocks.freezeCurrentPptSource).toHaveBeenCalledTimes(1);
+    expect(mocks.materializeSlideImages).toHaveBeenCalledWith(
+      expect.anything(),
+      new Map([['frame-1', '/__aitu_cache__/image/internal-image-1.png']]),
+      expect.objectContaining({
+        jobId: 'job-current-ppt-success',
+        selection: {
+          frameIds: ['frame-1'],
+          frameRevisions: { 'frame-1': 'revision-1' },
+        },
+      })
+    );
     expect(mocks.prepareMissingPptSlideImages).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -694,13 +712,16 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         },
       })
     );
+    expect(mocks.freezeCurrentPptSource.mock.calls[0]?.[2]).not.toHaveProperty(
+      'slideImageOverrides'
+    );
     expect(mocks.freezeCurrentPptSource).toHaveBeenCalledWith(
       expect.anything(),
       'job-current-ppt-success',
       expect.objectContaining({
         selection: {
           frameIds: ['frame-1'],
-          frameRevisions: { 'frame-1': 'revision-1' },
+          frameRevisions: { 'frame-1': 'revision-with-visible-image' },
         },
       })
     );
@@ -1565,6 +1586,7 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         stage: 'preparing',
         remoteId: undefined,
         slides: [],
+        requestedPageCount: 5,
       })
     );
     mocks.freezeCurrentPptSource.mockResolvedValue({
@@ -1589,7 +1611,7 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     await runPptExplainerTask('topic-preparing');
 
     expect(mocks.generatePPT).toHaveBeenCalledWith(
-      expect.objectContaining({ topic: '季度复盘' }),
+      expect.objectContaining({ topic: '季度复盘', pageCount: 5 }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(mocks.prepareMissingPptSlideImages).toHaveBeenCalledTimes(1);

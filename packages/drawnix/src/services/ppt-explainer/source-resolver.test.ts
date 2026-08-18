@@ -2,10 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
+  findPPTSlideImage: vi.fn(() => undefined),
+  insertMediaIntoFrame: vi.fn(),
+  removePPTImagePlaceholder: vi.fn(),
+  replacePPTSlideImage: vi.fn(),
+  cacheMediaFromBlob: vi.fn(),
+  getCachedBlob: vi.fn(),
+  putArtifact: vi.fn(),
 }));
 
 vi.mock('../../utils/frame-insertion-utils', () => ({
-  findPPTSlideImage: vi.fn(() => undefined),
+  findPPTSlideImage: mocks.findPPTSlideImage,
+  insertMediaIntoFrame: mocks.insertMediaIntoFrame,
+  removePPTImagePlaceholder: mocks.removePPTImagePlaceholder,
+  replacePPTSlideImage: mocks.replacePPTSlideImage,
 }));
 
 vi.mock('../../utils/frame-preview-snapshot', () => ({
@@ -26,11 +36,14 @@ vi.mock('../ppt', () => ({
 }));
 
 vi.mock('../unified-cache-service', () => ({
-  unifiedCacheService: { getCachedBlob: vi.fn() },
+  unifiedCacheService: {
+    getCachedBlob: mocks.getCachedBlob,
+    cacheMediaFromBlob: mocks.cacheMediaFromBlob,
+  },
 }));
 
 vi.mock('./internal-artifact-cache', () => ({
-  putPptExplainerArtifact: vi.fn(),
+  putPptExplainerArtifact: mocks.putArtifact,
 }));
 
 // Vitest mocks must be declared before importing the module under test.
@@ -38,6 +51,8 @@ vi.mock('./internal-artifact-cache', () => ({
 import {
   applyPptxCheckpointToExplainerState,
   captureCurrentPptSourceSelection,
+  freezeCurrentPptSource,
+  materializePptExplainerSlideImages,
   prepareMissingPptSlideImages,
 } from './source-resolver';
 
@@ -62,6 +77,37 @@ function createFrame(
 describe('current PPT source selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.findPPTSlideImage.mockImplementation(() => undefined);
+    mocks.getCachedBlob.mockResolvedValue(
+      new Blob(['image'], { type: 'image/png' })
+    );
+    mocks.cacheMediaFromBlob.mockImplementation(async (url: string) => url);
+    mocks.putArtifact.mockResolvedValue(
+      '/__aitu_ppt_explainer__/job-1/slide-1.png'
+    );
+    mocks.insertMediaIntoFrame.mockResolvedValue({
+      elementId: 'inserted-image',
+      point: [0, 0],
+      size: { width: 1600, height: 900 },
+    });
+    mocks.replacePPTSlideImage.mockImplementation(
+      (targetBoard, frameId, elementId, imageUrl) => {
+        const image = targetBoard.children.find(
+          (element: any) => element.id === elementId
+        );
+        if (image) image.pptSlideImage = true;
+        const frame = targetBoard.children.find(
+          (element: any) => element.id === frameId
+        );
+        if (frame) {
+          frame.pptMeta = {
+            ...frame.pptMeta,
+            slideImageElementId: elementId,
+            slideImageUrl: imageUrl,
+          };
+        }
+      }
+    );
   });
 
   it('does not absorb PPT frames added after task creation', async () => {
@@ -169,6 +215,89 @@ describe('current PPT source selection', () => {
     expect(result.get('frame-1')).toBe(
       '/__aitu_cache__/image/internal-image-1.png'
     );
+  });
+
+  it('writes generated page images to the visible PPT before freezing', async () => {
+    const frame = createFrame('frame-1', 1, '生成页面图');
+    const board = { children: [frame] } as any;
+    const selection = await captureCurrentPptSourceSelection(board);
+    mocks.insertMediaIntoFrame.mockImplementation(
+      async (targetBoard, imageUrl, _mediaType, frameId) => {
+        targetBoard.children.push({
+          id: 'inserted-image',
+          type: 'image',
+          frameId,
+          url: imageUrl,
+        });
+        return {
+          elementId: 'inserted-image',
+          point: [0, 0],
+          size: { width: 1600, height: 900 },
+        };
+      }
+    );
+    mocks.findPPTSlideImage.mockImplementation((targetBoard) => {
+      const image = targetBoard.children.find(
+        (element: any) => element.id === 'inserted-image'
+      );
+      return image
+        ? {
+            element: image,
+            elementId: image.id,
+            index: targetBoard.children.indexOf(image),
+            url: image.url,
+          }
+        : undefined;
+    });
+
+    const result = await materializePptExplainerSlideImages(
+      board,
+      new Map([['frame-1', '/__aitu_cache__/image/internal-image-1.png']]),
+      { jobId: 'job-1', selection }
+    );
+
+    const visibleUrl = '/__aitu_cache__/image/ppt-explainer-job-1-frame-1.png';
+    expect(mocks.cacheMediaFromBlob).toHaveBeenCalledWith(
+      visibleUrl,
+      expect.any(Blob),
+      'image',
+      { taskId: 'job-1', resultVisibility: 'internal' }
+    );
+    expect(mocks.insertMediaIntoFrame).toHaveBeenCalledWith(
+      board,
+      visibleUrl,
+      'image',
+      'frame-1',
+      { width: 1600, height: 900 },
+      undefined,
+      undefined,
+      expect.objectContaining({ fit: 'stretch' })
+    );
+    expect(mocks.replacePPTSlideImage).toHaveBeenCalledWith(
+      board,
+      'frame-1',
+      'inserted-image',
+      visibleUrl,
+      expect.objectContaining({ slidePrompt: '生成页面图' })
+    );
+    expect(mocks.removePPTImagePlaceholder).toHaveBeenCalledWith(
+      board,
+      'frame-1'
+    );
+    if (!result) throw new Error('expected materialized selection');
+    expect(result?.frameIds).toEqual(['frame-1']);
+    expect(result?.frameRevisions?.['frame-1']).toEqual(expect.any(String));
+    await expect(
+      prepareMissingPptSlideImages(board, { selection: result })
+    ).resolves.toEqual(new Map());
+    const frozen = await freezeCurrentPptSource(board, 'job-1', {
+      selection: result,
+    });
+    expect(mocks.getCachedBlob).toHaveBeenLastCalledWith(visibleUrl);
+    expect(frozen.slides[0]).toMatchObject({
+      frameId: 'frame-1',
+      snapshotUrl: '/__aitu_ppt_explainer__/job-1/slide-1.png',
+    });
   });
 
   it('keeps cache-only PPTX slides free of nonexistent snapshot URLs', () => {

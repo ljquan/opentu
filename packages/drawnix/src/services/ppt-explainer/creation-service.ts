@@ -140,6 +140,36 @@ function requireTopic(input: PptExplainerCreateInput): string | undefined {
   return topic;
 }
 
+export function inferPptExplainerRequestedPageCount(
+  topic: string | undefined
+): number | undefined {
+  const normalized = topic?.trim();
+  if (!normalized) return undefined;
+  const match =
+    normalized.match(/(?:^|[^\d])(\d{1,6})\s*(?:页|张)(?=[^\d]|$)/) ||
+    normalized.match(/\b(\d{1,6})\s*(?:pages?|slides?)\b/i);
+  if (!match) return undefined;
+  const count = Number(match[1]);
+  return Number.isSafeInteger(count) && count > 0 ? count : undefined;
+}
+
+function resolveRequestedPageCount(
+  input: PptExplainerCreateInput,
+  topic: string | undefined
+): number | undefined {
+  if (input.source !== 'topic') return undefined;
+  if (input.requestedPageCount !== undefined) {
+    if (
+      !Number.isSafeInteger(input.requestedPageCount) ||
+      input.requestedPageCount <= 0
+    ) {
+      throw new PptExplainerValidationError('PPT 页数必须是正整数');
+    }
+    return input.requestedPageCount;
+  }
+  return inferPptExplainerRequestedPageCount(topic);
+}
+
 function validatePptxFile(input: PptExplainerCreateInput): File | undefined {
   if (input.source !== 'pptx') return undefined;
   const file = input.pptxFile;
@@ -273,6 +303,7 @@ function assertProviderAcceptsReferenceAudio(
 function buildInitialState(options: {
   input: PptExplainerCreateInput;
   topic?: string;
+  requestedPageCount?: number;
   jobId: string;
   provider?: PptExplainerProviderPreflightResult;
   textPlan: InvocationPlan;
@@ -299,6 +330,7 @@ function buildInitialState(options: {
     source: input.source,
     sourceBoardId: input.sourceBoardId,
     topic: options.topic,
+    requestedPageCount: options.requestedPageCount,
     outlineFrameIds: options.outlineFrameIds,
     sourceFrameRevisions: options.sourceFrameRevisions,
     reviewMode: input.reviewMode,
@@ -510,6 +542,7 @@ export async function createPptExplainerTask(
   input: PptExplainerCreateInput
 ): Promise<Task> {
   const topic = requireTopic(input);
+  const requestedPageCount = resolveRequestedPageCount(input, topic);
   const pptxFile = validatePptxFile(input);
   const executionMode = input.executionMode || 'provider';
   validatePptExplainerSpeakers(input.presenterMode, input.speakers, {
@@ -562,6 +595,7 @@ export async function createPptExplainerTask(
     buildInitialState({
       input,
       topic,
+      requestedPageCount,
       jobId,
       provider,
       textPlan,

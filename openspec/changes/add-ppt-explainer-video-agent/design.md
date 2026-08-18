@@ -44,7 +44,9 @@ flowchart LR
   MCP --> ROOT["VIDEO 根任务 / IndexedDB"]
   ROOT --> SRC["主题 / 当前 PPT / PPTX 来源解析"]
   SRC --> REVIEW["确认大纲或警告后跳过"]
-  REVIEW --> SCRIPT["页级讲稿与 speaker turns"]
+  REVIEW --> DECK["生成并写回可见 PPT 页面"]
+  DECK --> SNAPSHOT["从同一页面冻结快照"]
+  SNAPSHOT --> SCRIPT["页级讲稿与 speaker turns"]
   SCRIPT --> PLAN["Provider capability preflight"]
   PLAN --> SUBMIT["远端 submit + idempotency key"]
   SUBMIT --> POLL["poll / optional cancel"]
@@ -158,9 +160,11 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 
 ### Decision: 三种来源统一冻结为不可变演示快照
 
-- `topic`：复用 `generate_ppt` 创建大纲。确认模式停在 `review_pending`；跳过模式必须先由用户确认警告，再自动生成所需页面图并继续。
+- `topic`：复用 `generate_ppt` 创建大纲。用户在主题中明确页数时，将其作为包含封面和结尾的精确总页数传给大纲生成器；确认模式停在 `review_pending`，跳过模式必须先由用户确认警告。审核门通过后，系统逐页生成所需页面图并写回本任务所属 Frame，形成用户可见的完整 PPT，然后从这些相同 Frame 冻结快照并继续。
 - `current_ppt`：按 `pageIndex` 读取当前画板 PPT Frames，优先使用 `slideImageUrl`，必要时逐页栅格化 Frame；提交后不再读取画布后续变更。
 - `pptx`：先把原文件以 Blob 形式缓存并保存轻量 cache URL。绑定声明原始 PPTX 支持时优先直传；否则在专用 Worker 中逐页渲染并缓存快照。
+
+主题或当前 PPT 的缺失页面图不得仅作为编排器内部 override 传给视频。生成结果必须先复制为稳定画布媒体、更新 Frame 的 `slideImageUrl`/图片元素和页面版本，再由冻结器从画布读取；内部图片任务清理不得使已写回的 PPT 页面失效。视频模型的 `referenceImages`、本地合成器的 `imageUrl` 和用户可见 PPT 必须来自这次冻结的同一组页面。
 
 每次任务计算 `deckFingerprint`，但不得用它阻止同一 PPT 并发任务。每个任务保留独立 `jobId`、页面顺序和快照 URL。
 

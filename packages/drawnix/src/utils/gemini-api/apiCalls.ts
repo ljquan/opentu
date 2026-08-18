@@ -699,17 +699,20 @@ export async function callGoogleGenerateContentRaw(
  */
 export async function callApiRaw(
   config: GeminiConfig,
-  messages: GeminiMessage[]
+  messages: GeminiMessage[],
+  signal?: AbortSignal
 ): Promise<GeminiResponse> {
   if (isManualHttpConfig(config)) {
     return callManualHttpTextRaw(config, messages, {
       stream: false,
+      signal,
     });
   }
 
   if (isGoogleGenerateContentProtocol(config)) {
     return callGoogleGenerateContentRaw(config, messages, {
       stream: false,
+      signal,
     });
   }
 
@@ -745,6 +748,7 @@ export async function callApiRaw(
         method: 'POST',
         headers,
         body: JSON.stringify(data),
+        signal,
       }
     );
 
@@ -1234,8 +1238,9 @@ export async function callVideoApiStreamRaw(
  */
 export async function callApiWithRetry(
   config: GeminiConfig,
-  messages: GeminiMessage[]
+  messages: GeminiMessage[],
+  signal?: AbortSignal
 ): Promise<GeminiResponse> {
   // 直接调用，不再重试
-  return callApiRaw(config, messages);
+  return callApiRaw(config, messages, signal);
 }
