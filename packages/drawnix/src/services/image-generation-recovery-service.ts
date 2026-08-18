@@ -17,11 +17,7 @@ import {
   getManualHttpTemplate,
   resolveManualHttpRequestMethod,
 } from './provider-routing/manual-http-template';
-import {
-  isTrustedTuziApiBaseUrl,
-  normalizeTuziApiEndpointUrl,
-  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
-} from './provider-routing/tuzi-api-endpoints';
+import { isTrustedTuziApiBaseUrl } from './provider-routing/tuzi-api-endpoints';
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -935,23 +931,7 @@ export class ImageGenerationRecoveryService {
   private createQueryTargets(
     plan: InvocationPlan
   ): Array<{ url: string; isOriginalProvider: boolean }> {
-    const targets = [
-      { url: plan.provider.baseUrl, isOriginalProvider: true },
-      ...TUZI_API_REQUEST_ID_CORS_ENDPOINTS.map((endpoint) => ({
-        url: endpoint.url,
-        isOriginalProvider: false,
-      })),
-    ];
-    const seenOrigins = new Set<string>();
-
-    return targets.filter((target) => {
-      const origin = normalizeTuziApiEndpointUrl(target.url);
-      if (!origin || seenOrigins.has(origin)) {
-        return false;
-      }
-      seenOrigins.add(origin);
-      return true;
-    });
+    return [{ url: plan.provider.baseUrl, isOriginalProvider: true }];
   }
 
   private prepareNodeRequest(
