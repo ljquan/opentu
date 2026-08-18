@@ -698,7 +698,10 @@ async function runLocalComposition(
     const generated = await generatePptExplainerSegment(
       prompt,
       {
-        model: typeof videoModel === 'string' ? videoModel : videoModel.modelId,
+        model:
+          typeof videoModel === 'string'
+            ? videoModel
+            : videoModel.modelId || undefined,
         modelRef: typeof videoModel === 'string' ? undefined : videoModel,
         referenceImages: [slide.snapshotUrl],
         size: '1920x1080',

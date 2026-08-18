@@ -9,6 +9,8 @@ import { PptExplainerProviderPreflightError } from './provider-contract';
 
 const mocks = vi.hoisted(() => ({
   generatePPT: vi.fn(),
+  materializeOutline: vi.fn(),
+  removeOwnedOutline: vi.fn(),
   waitForInitialization: vi.fn(),
   getCanvasBoardBinding: vi.fn(),
   getWorkspaceState: vi.fn(),
@@ -19,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   preflightProvider: vi.fn(),
   createProviderSnapshot: vi.fn(),
   captureSelection: vi.fn(),
+  listFrameIds: vi.fn(),
   needsImages: vi.fn(),
   createRootTask: vi.fn(),
   updateRootTask: vi.fn(),
@@ -38,6 +41,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../mcp/tools/ppt-generation', () => ({
   generatePPT: mocks.generatePPT,
+  materializePPTOutline: mocks.materializeOutline,
+  removePptExplainerOwnedOutline: mocks.removeOwnedOutline,
 }));
 
 vi.mock('../../utils/settings-manager', () => ({
@@ -97,6 +102,7 @@ vi.mock('./source-resolver', () => ({
   captureCurrentPptSourceSelection: mocks.captureSelection,
   currentPptNeedsGeneratedSlideImages: mocks.needsImages,
   applyPptxCheckpointToExplainerState: mocks.applyPptxCheckpoint,
+  listCurrentPptFrameIds: mocks.listFrameIds,
 }));
 
 vi.mock('./task-state', () => ({
@@ -206,6 +212,7 @@ beforeEach(() => {
       'frame-2': 'revision-2',
     },
   });
+  mocks.listFrameIds.mockReturnValue(['frame-1', 'frame-2']);
   mocks.needsImages.mockReturnValue(true);
   mocks.generatePPT.mockImplementation(async () => {
     mocks.callOrder.push('generate-topic');
@@ -423,9 +430,9 @@ describe('PPT explainer creation service', () => {
         },
       },
     });
-    expect(mocks.createRootTask.mock.calls[0][0].speakers[0]).not.toHaveProperty(
-      'voiceId'
-    );
+    expect(
+      mocks.createRootTask.mock.calls[0][0].speakers[0]
+    ).not.toHaveProperty('voiceId');
   });
 
   it('falls back from PPTX passthrough to ordered slide snapshots', async () => {
@@ -711,5 +718,128 @@ describe('PPT explainer creation service', () => {
 
     expect(mocks.confirmOutline).toHaveBeenCalledTimes(1);
     expect(mocks.runTask).toHaveBeenCalledWith('root-task');
+  });
+
+  it('confirms only the pages owned by the selected topic task', async () => {
+    const pendingTask = {
+      id: 'root-task',
+      type: 'video',
+      status: 'pending',
+      params: {
+        pptExplainer: {
+          schemaVersion: 1,
+          stage: 'review_pending',
+          source: 'topic',
+          sourceBoardId: 'board-1',
+          jobId: 'job-a',
+          topic: '季度复盘',
+          topicOutline: {
+            title: '季度复盘',
+            pages: [
+              { layout: 'cover', title: '首页' },
+              { layout: 'title-body', title: '结论' },
+            ],
+          },
+        },
+      },
+    };
+    const confirmedTask = {
+      ...pendingTask,
+      params: {
+        pptExplainer: {
+          ...pendingTask.params.pptExplainer,
+          stage: 'snapshotting',
+        },
+      },
+    };
+    mocks.getTask.mockReturnValue(pendingTask);
+    mocks.confirmOutline.mockResolvedValue(confirmedTask);
+
+    await confirmAndRunPptExplainerTask('root-task');
+
+    expect(mocks.captureSelection).toHaveBeenCalledWith(board, 'job-a');
+    expect(mocks.confirmOutline).toHaveBeenCalledWith('root-task', {
+      frameIds: ['frame-1', 'frame-2'],
+      frameRevisions: {
+        'frame-1': 'revision-1',
+        'frame-2': 'revision-2',
+      },
+    });
+    expect(mocks.materializeOutline).not.toHaveBeenCalled();
+  });
+
+  it('restores an incomplete topic outline without replacing other decks', async () => {
+    const topicOutline = {
+      title: '季度复盘',
+      pages: [
+        { layout: 'cover', title: '首页' },
+        { layout: 'title-body', title: '结论' },
+      ],
+    };
+    const pendingTask = {
+      id: 'root-task',
+      type: 'video',
+      status: 'pending',
+      params: {
+        pptExplainer: {
+          schemaVersion: 1,
+          stage: 'review_pending',
+          source: 'topic',
+          sourceBoardId: 'board-1',
+          jobId: 'job-a',
+          topic: '季度复盘',
+          topicOutline,
+        },
+      },
+    };
+    mocks.getTask.mockReturnValue(pendingTask);
+    mocks.listFrameIds.mockReturnValue(['remaining-frame']);
+    mocks.confirmOutline.mockResolvedValue({
+      ...pendingTask,
+      params: {
+        pptExplainer: {
+          ...pendingTask.params.pptExplainer,
+          stage: 'snapshotting',
+        },
+      },
+    });
+
+    await confirmAndRunPptExplainerTask('root-task');
+
+    expect(mocks.removeOwnedOutline).toHaveBeenCalledWith(board, 'job-a');
+    expect(mocks.materializeOutline).toHaveBeenCalledWith(
+      board,
+      topicOutline,
+      { topic: '季度复盘' },
+      expect.objectContaining({
+        pptExplainerJobId: 'job-a',
+        replaceExistingPpt: false,
+      })
+    );
+  });
+
+  it('fails only when both task pages and the persisted outline are missing', async () => {
+    const pendingTask = {
+      id: 'root-task',
+      type: 'video',
+      status: 'pending',
+      params: {
+        pptExplainer: {
+          schemaVersion: 1,
+          stage: 'review_pending',
+          source: 'topic',
+          sourceBoardId: 'board-1',
+          jobId: 'job-a',
+        },
+      },
+    };
+    mocks.getTask.mockReturnValue(pendingTask);
+    mocks.listFrameIds.mockReturnValue([]);
+
+    await expect(confirmAndRunPptExplainerTask('root-task')).rejects.toThrow(
+      '大纲快照已丢失'
+    );
+    expect(mocks.materializeOutline).not.toHaveBeenCalled();
+    expect(mocks.confirmOutline).not.toHaveBeenCalled();
   });
 });

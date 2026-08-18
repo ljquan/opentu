@@ -99,9 +99,13 @@ export function getCurrentPptExplainerDraftOwners(board: PlaitBoard): string[] {
 }
 
 export async function captureCurrentPptSourceSelection(
-  board: PlaitBoard
+  board: PlaitBoard,
+  pptExplainerJobId?: string
 ): Promise<CurrentPptSourceSelection> {
-  const frames = collectPptFrames(board.children as PlaitElement[]);
+  const owner = pptExplainerJobId?.trim();
+  const frames = collectPptFrames(board.children as PlaitElement[]).filter(
+    (frame) => !owner || frame.pptMeta.pptExplainerJobId?.trim() === owner
+  );
   if (frames.length === 0) {
     throw new PptExplainerValidationError('当前画板没有 PPT 页面');
   }

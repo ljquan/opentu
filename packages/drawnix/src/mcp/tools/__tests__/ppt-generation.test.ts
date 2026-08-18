@@ -6,6 +6,7 @@ import {
   generatePPT,
   materializePPTOutline,
   pptGenerationTool,
+  removePptExplainerOwnedOutline,
 } from '../ppt-generation';
 
 const mocks = vi.hoisted(() => ({
@@ -330,8 +331,37 @@ describe('ppt-generation MCP tool', () => {
     expect(frames.slice(0, 3).map((frame: any) => frame.id)).toEqual(
       originalFrameIds
     );
+    expect(frames.map((frame: any) => frame.pptMeta.pptExplainerJobId)).toEqual(
+      ['job-a', 'job-a', 'job-a', 'job-b', 'job-b', 'job-b']
+    );
+  });
+
+  it('removes only the incomplete outline owned by one explainer task', async () => {
+    const board = createTestingBoard([], []) as any;
+    setBoard(board);
+
+    const result = await generatePPT(
+      { topic: '已有方案', pageCount: 'short', language: '中文' },
+      { pptExplainerJobId: 'job-a' }
+    );
+    const outline = (result.data as { outline: PPTOutline }).outline;
+    materializePPTOutline(
+      board,
+      outline,
+      { topic: '保留方案' },
+      {
+        pptExplainerJobId: 'job-b',
+        replaceExistingPpt: false,
+        focusFirstFrame: false,
+        openEditor: false,
+      }
+    );
+
+    expect(removePptExplainerOwnedOutline(board, 'job-a')).toBe(3);
     expect(
-      frames.map((frame: any) => frame.pptMeta.pptExplainerJobId)
-    ).toEqual(['job-a', 'job-a', 'job-a', 'job-b', 'job-b', 'job-b']);
+      board.children
+        .filter((element: any) => element.pptMeta)
+        .map((frame: any) => frame.pptMeta.pptExplainerJobId)
+    ).toEqual(['job-b', 'job-b', 'job-b']);
   });
 });

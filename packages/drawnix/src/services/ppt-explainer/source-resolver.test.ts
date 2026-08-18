@@ -41,7 +41,12 @@ import {
   prepareMissingPptSlideImages,
 } from './source-resolver';
 
-function createFrame(id: string, pageIndex: number, slidePrompt?: string) {
+function createFrame(
+  id: string,
+  pageIndex: number,
+  slidePrompt?: string,
+  pptExplainerJobId?: string
+) {
   return {
     id,
     type: 'frame',
@@ -50,7 +55,7 @@ function createFrame(id: string, pageIndex: number, slidePrompt?: string) {
       [0, 0],
       [1600, 900],
     ],
-    pptMeta: { pageIndex, slidePrompt },
+    pptMeta: { pageIndex, slidePrompt, pptExplainerJobId },
   };
 }
 
@@ -73,6 +78,24 @@ describe('current PPT source selection', () => {
 
     expect(result.size).toBe(0);
     expect(mocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it('captures only the pages owned by the requested explainer task', async () => {
+    const board = {
+      children: [
+        createFrame('job-a-1', 1, undefined, 'job-a'),
+        createFrame('job-b-1', 1, undefined, 'job-b'),
+        createFrame('job-a-2', 2, undefined, 'job-a'),
+      ],
+    } as any;
+
+    const selection = await captureCurrentPptSourceSelection(board, 'job-a');
+
+    expect(selection.frameIds).toEqual(['job-a-1', 'job-a-2']);
+    expect(Object.keys(selection.frameRevisions || {})).toEqual([
+      'job-a-1',
+      'job-a-2',
+    ]);
   });
 
   it('fails explicitly when a submitted frame is deleted', async () => {

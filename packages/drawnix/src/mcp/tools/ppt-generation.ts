@@ -80,8 +80,10 @@ function deleteElementsById(board: PlaitBoard, elementIds: Set<string>): void {
   }
 }
 
-function replaceExistingPPTOutline(board: PlaitBoard): number {
-  const existingPPTFrames = board.children.filter(isPPTFrame);
+function removePPTFrames(
+  board: PlaitBoard,
+  existingPPTFrames: Array<PlaitFrame & { pptMeta: PPTFrameMeta }>
+): number {
   if (existingPPTFrames.length === 0) {
     return 0;
   }
@@ -99,8 +101,26 @@ function replaceExistingPPTOutline(board: PlaitBoard): number {
   }
 
   deleteElementsById(board, existingDeleteIds);
-
   return existingPPTFrames.length;
+}
+
+function replaceExistingPPTOutline(board: PlaitBoard): number {
+  return removePPTFrames(board, board.children.filter(isPPTFrame));
+}
+
+export function removePptExplainerOwnedOutline(
+  board: PlaitBoard,
+  pptExplainerJobId: string
+): number {
+  const owner = pptExplainerJobId.trim();
+  if (!owner) return 0;
+
+  return removePPTFrames(
+    board,
+    board.children
+      .filter(isPPTFrame)
+      .filter((frame) => frame.pptMeta.pptExplainerJobId?.trim() === owner)
+  );
 }
 
 /**

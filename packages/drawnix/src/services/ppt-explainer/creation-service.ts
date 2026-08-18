@@ -1,5 +1,8 @@
 import type { PlaitBoard } from '@plait/core';
-import { materializePPTOutline } from '../../mcp/tools/ppt-generation';
+import {
+  materializePPTOutline,
+  removePptExplainerOwnedOutline,
+} from '../../mcp/tools/ppt-generation';
 import type { Task } from '../../types/task.types';
 import { generateTaskId } from '../../utils/task-utils';
 import { settingsManager, type ModelRef } from '../../utils/settings-manager';
@@ -24,7 +27,7 @@ import {
   applyPptxCheckpointToExplainerState,
   captureCurrentPptSourceSelection,
   currentPptNeedsGeneratedSlideImages,
-  getCurrentPptExplainerDraftOwners,
+  listCurrentPptFrameIds,
   type CurrentPptSourceSelection,
 } from './source-resolver';
 import {
@@ -625,9 +628,6 @@ export async function confirmAndRunPptExplainerTask(
 
   let task = existing;
   if (existingState.stage === 'review_pending') {
-    let acceptedSource:
-      | { frameIds: string[]; frameRevisions: Record<string, string> }
-      | undefined;
     if (existingState.source === 'topic') {
       const binding = getCanvasBoardBinding();
       const currentBoardId = workspaceService.getState().currentBoardId;
@@ -640,48 +640,59 @@ export async function confirmAndRunPptExplainerTask(
           '请切回任务创建时的画板再确认大纲'
         );
       }
-      acceptedSource = await runPptExplainerBoardMutationExclusive(
+      task = await runPptExplainerBoardMutationExclusive(
         existingState.sourceBoardId,
         async () => {
-          const owners = getCurrentPptExplainerDraftOwners(binding.board);
-          if (owners.length === 1 && owners[0] !== existingState.jobId) {
-            if (
-              !existingState.topicOutline ||
-              !validateOutline(existingState.topicOutline)
-            ) {
-              throw new PptExplainerValidationError(
-                '该任务的大纲快照已丢失，请重新创建任务'
-              );
-            }
+          const currentTask = taskQueueService.getTask(taskId);
+          const currentState = currentTask
+            ? readPptExplainerState(currentTask)
+            : null;
+          if (!currentTask || !currentState) {
+            throw new PptExplainerValidationError('PPT 讲解任务不存在');
+          }
+          if (currentState.stage !== 'review_pending') return currentTask;
+
+          const outline = validateOutline(currentState.topicOutline)
+            ? currentState.topicOutline
+            : undefined;
+          const currentFrameIds = listCurrentPptFrameIds(
+            binding.board,
+            currentState.jobId
+          );
+          if (outline && currentFrameIds.length !== outline.pages.length) {
+            removePptExplainerOwnedOutline(binding.board, currentState.jobId);
             materializePPTOutline(
               binding.board,
-              existingState.topicOutline,
-              { topic: existingState.topic || 'PPT 讲解视频' },
+              outline,
+              { topic: currentState.topic || 'PPT 讲解视频' },
               {
-                pptExplainerJobId: existingState.jobId,
+                pptExplainerJobId: currentState.jobId,
+                replaceExistingPpt: false,
                 focusFirstFrame: false,
                 openEditor: false,
               }
             );
-          } else if (owners.length !== 1 || owners[0] !== existingState.jobId) {
+          } else if (currentFrameIds.length === 0) {
             throw new PptExplainerValidationError(
-              '当前画板已不再显示该任务的大纲，请重新创建任务'
+              '该任务的大纲快照已丢失，请重新创建任务'
             );
           }
           const selection = await captureCurrentPptSourceSelection(
-            binding.board
+            binding.board,
+            currentState.jobId
           );
           if (!selection.frameRevisions) {
             throw new PptExplainerValidationError('大纲版本快照保存失败');
           }
-          return {
+          return confirmPptExplainerOutline(taskId, {
             frameIds: selection.frameIds,
             frameRevisions: selection.frameRevisions,
-          };
+          });
         }
       );
+    } else {
+      task = await confirmPptExplainerOutline(taskId);
     }
-    task = await confirmPptExplainerOutline(taskId, acceptedSource);
   }
   const state = readPptExplainerState(task);
   if (state && !['completed', 'cancelled'].includes(state.stage)) {
