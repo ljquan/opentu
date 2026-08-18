@@ -72,6 +72,7 @@ import {
 } from './validation';
 
 const POLL_INTERVAL_MS = 2000;
+const LOCAL_SEGMENT_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface ActiveRun {
   controller: AbortController;
@@ -105,6 +106,40 @@ export function buildPptExplainerVideoPrompt(
     ),
     '禁止背景音乐，讲解结束后立即结束视频。',
   ].join('\n');
+}
+
+async function generatePptExplainerSegment(
+  prompt: string,
+  options: Parameters<typeof generateVideo>[1],
+  pageIndex: number,
+  parentSignal: AbortSignal
+) {
+  const controller = new AbortController();
+  const abortFromParent = () =>
+    controller.abort(
+      parentSignal.reason ||
+        new DOMException('PPT 讲解任务已取消', 'AbortError')
+    );
+  parentSignal.addEventListener('abort', abortFromParent, { once: true });
+  const timeoutError = new Error(
+    `PPT 第 ${pageIndex} 页视频生成超过 15 分钟，请检查供应商任务或重试`
+  );
+  const timeoutId = setTimeout(
+    () => controller.abort(timeoutError),
+    LOCAL_SEGMENT_TIMEOUT_MS
+  );
+  try {
+    return await generateVideo(prompt, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.reason === timeoutError) throw timeoutError;
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    parentSignal.removeEventListener('abort', abortFromParent);
+  }
 }
 
 export async function runPptExplainerBoardMutationExclusive<T>(
@@ -640,23 +675,44 @@ async function runLocalComposition(
     if (!slide.snapshotUrl) {
       throw new Error(`PPT 第 ${slide.pageIndex} 页缺少页面快照`);
     }
+    const segmentProgress =
+      50 + Math.round((slideIndex / Math.max(1, state.slides.length)) * 30);
+    state = await persistStage(
+      taskId,
+      {
+        ...state,
+        stage: 'submitting',
+        diagnostics: [
+          ...(state.diagnostics || []).filter(
+            (item) => !item.startsWith('正在生成第 ')
+          ),
+          `正在生成第 ${slideIndex + 1}/${state.slides.length} 页有声视频`,
+        ],
+      },
+      executionAttempt,
+      segmentProgress,
+      TaskExecutionPhase.SUBMITTING
+    );
     const prompt = buildPptExplainerVideoPrompt(slide, state.speakers);
     let ownershipWrite: Promise<void> | undefined;
-    const generated = await generateVideo(prompt, {
-      model:
-        typeof videoModel === 'string' ? videoModel : videoModel.modelId,
-      modelRef: typeof videoModel === 'string' ? undefined : videoModel,
-      referenceImages: [slide.snapshotUrl],
-      size: '1920x1080',
-      signal,
-      onTaskCreated: (internalTaskId) => {
-        ownershipWrite = registerInternalTaskOwnership(
-          taskId,
-          internalTaskId,
-          executionAttempt
-        );
+    const generated = await generatePptExplainerSegment(
+      prompt,
+      {
+        model: typeof videoModel === 'string' ? videoModel : videoModel.modelId,
+        modelRef: typeof videoModel === 'string' ? undefined : videoModel,
+        referenceImages: [slide.snapshotUrl],
+        size: '1920x1080',
+        onTaskCreated: (internalTaskId) => {
+          ownershipWrite = registerInternalTaskOwnership(
+            taskId,
+            internalTaskId,
+            executionAttempt
+          );
+        },
       },
-    });
+      slide.pageIndex,
+      signal
+    );
     await ownershipWrite;
     signal.throwIfAborted();
     if (!generated.url) {
@@ -664,7 +720,8 @@ async function runLocalComposition(
     }
     segmentUrls.push(generated.url);
     const progress =
-      50 + Math.round(((slideIndex + 1) / Math.max(1, state.slides.length)) * 30);
+      50 +
+      Math.round(((slideIndex + 1) / Math.max(1, state.slides.length)) * 30);
     state = await persistStage(
       taskId,
       { ...state, stage: 'submitting' },
@@ -696,13 +753,7 @@ async function runLocalComposition(
   } finally {
     if (composed.url.startsWith('blob:')) URL.revokeObjectURL(composed.url);
   }
-  await finalizeResult(
-    taskId,
-    state,
-    executionAttempt,
-    stableUrl,
-    signal
-  );
+  await finalizeResult(taskId, state, executionAttempt, stableUrl, signal);
 }
 
 async function pollUntilComplete(
@@ -1104,12 +1155,7 @@ async function executePptExplainerRun(
     TaskExecutionPhase.SUBMITTING
   );
   if ((state.executionMode || 'provider') === 'local') {
-    await runLocalComposition(
-      task.id,
-      state,
-      executionAttempt,
-      signal
-    );
+    await runLocalComposition(task.id, state, executionAttempt, signal);
     return;
   }
   if (!state.originalRoute) {

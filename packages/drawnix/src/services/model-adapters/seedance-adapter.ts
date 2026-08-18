@@ -273,9 +273,11 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
     const maxConsecutiveErrors = 10;
 
     while (attempts < DEFAULT_POLL_MAX_ATTEMPTS) {
+      context.signal?.throwIfAborted();
       await new Promise((resolve) =>
         setTimeout(resolve, DEFAULT_POLL_INTERVAL_MS)
       );
+      context.signal?.throwIfAborted();
       attempts += 1;
 
       let isBusinessFailure = false;
@@ -311,6 +313,9 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
           throw new Error(extractErrorMessage(status.error));
         }
       } catch (err: any) {
+        if (context.signal?.aborted) {
+          context.signal.throwIfAborted();
+        }
         if (isBusinessFailure) {
           throw err;
         }
@@ -332,6 +337,7 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
         await new Promise((resolve) =>
           setTimeout(resolve, backoffInterval - DEFAULT_POLL_INTERVAL_MS)
         );
+        context.signal?.throwIfAborted();
       }
     }
 
