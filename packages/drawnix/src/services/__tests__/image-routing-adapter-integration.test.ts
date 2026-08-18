@@ -379,7 +379,7 @@ describe('image routing to default registered adapters', () => {
       await expect(
         adapter.generateImage(
           {
-            baseUrl: 'https://api.tu-zi.com/v1',
+            baseUrl: 'https://bus.tu-zi.com/v1',
             apiKey: 'test-key',
             authType: 'bearer',
             operation: 'image',
@@ -421,7 +421,7 @@ describe('image routing to default registered adapters', () => {
     await expect(
       seedreamImageAdapter.generateImage(
         {
-          baseUrl: 'https://api.tu-zi.com/v1',
+          baseUrl: 'https://bus.tu-zi.com/v1',
           apiKey: 'test-key',
           authType: 'bearer',
           operation: 'image',

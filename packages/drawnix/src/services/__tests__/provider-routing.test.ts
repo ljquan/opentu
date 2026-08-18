@@ -1379,6 +1379,50 @@ describe('provider routing', () => {
     expect(prepared.url).not.toContain('secret-query-key');
   });
 
+  it('does not leak Tuzi credentials to a different trusted absolute origin', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-tuzi',
+        profileName: 'Tuzi',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'secret',
+        authType: 'bearer',
+        extraHeaders: { 'X-Tuzi-Profile': 'private-profile-header' },
+      },
+      {
+        path: 'https://apius.tu-zi.com/v1/images/generations',
+        method: 'POST',
+        requestId: 'cross-origin-request-id',
+      }
+    );
+
+    expect(prepared.url).toBe('https://apius.tu-zi.com/v1/images/generations');
+    expect(prepared.headers.Authorization).toBeUndefined();
+    expect(prepared.headers['X-Tuzi-Profile']).toBeUndefined();
+    expect(prepared.headers['X-Request-Id']).toBeUndefined();
+  });
+
+  it('does not leak Tuzi query credentials to a different trusted absolute origin', () => {
+    const prepared = providerTransport.prepareRequest(
+      {
+        profileId: 'provider-tuzi-query',
+        profileName: 'Tuzi Query',
+        providerType: 'custom',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'secret-query-key',
+        authType: 'query',
+      },
+      {
+        path: 'https://apius.tu-zi.com/v1/images/generations',
+        method: 'POST',
+      }
+    );
+
+    expect(prepared.url).toBe('https://apius.tu-zi.com/v1/images/generations');
+    expect(prepared.url).not.toContain('secret-query-key');
+  });
+
   it.each([
     ['bearer', 'Authorization'],
     ['header', 'X-API-Key'],

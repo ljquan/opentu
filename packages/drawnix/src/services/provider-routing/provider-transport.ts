@@ -546,13 +546,6 @@ function shouldInheritProviderCredentials(
     return true;
   }
 
-  if (
-    isTrustedTuziApiBaseUrl(context.baseUrl) &&
-    isTrustedTuziApiBaseUrl(requestUrl)
-  ) {
-    return true;
-  }
-
   const profileOrigin = getAbsoluteHttpOrigin(context.baseUrl);
   const requestOrigin = getAbsoluteHttpOrigin(requestUrl);
   return Boolean(profileOrigin && requestOrigin === profileOrigin);
