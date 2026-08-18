@@ -403,6 +403,31 @@ describe('PPT explainer creation service', () => {
     expect(mocks.runTask).toHaveBeenCalledWith('root-task');
   });
 
+  it('creates a local audible-video task without legacy voice fields', async () => {
+    await createPptExplainerTask(
+      createInput({
+        executionMode: 'local',
+        speakers: [{ id: 'speaker-a', displayName: '讲解者' }],
+      })
+    );
+
+    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
+      executionMode: 'local',
+      speakers: [{ id: 'speaker-a', displayName: '讲解者' }],
+      models: {
+        videoModel: 'video-model',
+        videoModelRef: {
+          profileId: 'profile-1',
+          modelId: 'video-model',
+        },
+      },
+    });
+    expect(mocks.createRootTask.mock.calls[0][0].speakers[0]).not.toHaveProperty(
+      'voiceId'
+    );
+  });
+
   it('falls back from PPTX passthrough to ordered slide snapshots', async () => {
     mocks.needsImages.mockReturnValue(false);
     mocks.preflightProvider

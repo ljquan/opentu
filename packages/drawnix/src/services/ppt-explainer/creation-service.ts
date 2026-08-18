@@ -445,15 +445,14 @@ async function resolveReferenceAudioBlob(
 
 async function stagePptExplainerSpeakers(
   jobId: string,
-  speakers: readonly PptExplainerSpeakerInput[]
+  speakers: readonly PptExplainerSpeakerInput[],
+  options: { requireVoice: boolean }
 ): Promise<PptExplainerSpeaker[]> {
   const staged: PptExplainerSpeaker[] = [];
   for (const [index, speaker] of speakers.entries()) {
-    const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
     const base = {
       id: speaker.id.trim(),
       displayName: speaker.displayName.trim(),
-      voiceSource,
       ...(speaker.avatarAssetId?.trim()
         ? { avatarAssetId: speaker.avatarAssetId.trim() }
         : {}),
@@ -461,8 +460,17 @@ async function stagePptExplainerSpeakers(
         ? { avatarSourceUrl: speaker.avatarSourceUrl.trim() }
         : {}),
     };
+    if (!options.requireVoice) {
+      staged.push(base);
+      continue;
+    }
+    const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
     if (voiceSource === 'voice_id') {
-      staged.push({ ...base, voiceId: speaker.voiceId!.trim() });
+      staged.push({
+        ...base,
+        voiceSource,
+        voiceId: speaker.voiceId?.trim() || '',
+      });
       continue;
     }
 
@@ -479,6 +487,7 @@ async function stagePptExplainerSpeakers(
     );
     staged.push({
       ...base,
+      voiceSource,
       voiceReference: {
         cacheUrl,
         assetName,
@@ -574,7 +583,8 @@ export async function createPptExplainerTask(
   try {
     const stagedSpeakers = await stagePptExplainerSpeakers(
       jobId,
-      input.speakers
+      input.speakers,
+      { requireVoice: executionMode === 'provider' }
     );
     if (pptxFile) {
       stagedPptxUrl = await putPptExplainerArtifact(
