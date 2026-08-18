@@ -5,6 +5,7 @@ import {
 } from '../../mcp/tools/ppt-generation';
 import { validateOutline, type PPTOutline } from '../ppt';
 import { cacheRemoteUrl } from '../media-executor/fallback-utils';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import {
   assertTaskInvocationRouteAvailable,
   resolveTaskInvocationRouteModel,
@@ -13,7 +14,6 @@ import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
 import { generateVideo } from '../media-generation/video-generation-service';
-import { mergeVideos } from '../video-merge-webcodecs';
 import {
   deletePptxImportCache,
   deletePptxImportCacheByJobId,
@@ -43,6 +43,10 @@ import {
   isPptExplainerArtifactUrl,
 } from './internal-artifact-cache';
 import { buildPptExplainerNarrationPlan } from './narration-planner';
+import {
+  composeLocalPptExplainerVideo,
+  type LocalPptCompositionSlide,
+} from './local-composer';
 import {
   cancelPptExplainerTaskAcrossTabs,
   runPptExplainerTaskExclusive,
@@ -97,8 +101,8 @@ export function buildPptExplainerVideoPrompt(
     speakers.map((speaker) => [speaker.id, speaker.displayName])
   );
   return [
-    '以提供的 PPT 页面为固定主体生成一段有声讲解视频。',
-    '保持页面排版、文字和图表清晰稳定，不改写页面，不新增屏幕文字。',
+    '生成一段包含清晰普通话人声的有声讲解视频，最终只使用其音轨。',
+    '提供的 PPT 页面仅用于理解本页内容，不要朗读页面之外的信息。',
     '使用自然、专业的普通话，严格按以下顺序朗读；多人角色使用明显不同的声线。',
     ...slide.turns.map(
       (turn) =>
@@ -106,6 +110,21 @@ export function buildPptExplainerVideoPrompt(
     ),
     '禁止背景音乐，讲解结束后立即结束视频。',
   ].join('\n');
+}
+
+function buildPptExplainerSlideSubtitle(
+  slide: PptExplainerSlide,
+  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>
+): string {
+  const speakerNames = new Map(
+    speakers.map((speaker) => [speaker.id, speaker.displayName])
+  );
+  return slide.turns
+    .map(
+      (turn) =>
+        `${speakerNames.get(turn.speakerId) || turn.speakerId}：${turn.text}`
+    )
+    .join('  ');
 }
 
 async function generatePptExplainerSegment(
@@ -140,6 +159,32 @@ async function generatePptExplainerSegment(
     clearTimeout(timeoutId);
     parentSignal.removeEventListener('abort', abortFromParent);
   }
+}
+
+async function cachePptExplainerNarrationSegment(
+  url: string,
+  internalTaskId: string,
+  signal: AbortSignal
+): Promise<string> {
+  signal.throwIfAborted();
+  const cachedUrl = await cacheRemoteUrl(
+    url,
+    internalTaskId,
+    'video',
+    inferVideoFormat(url),
+    undefined,
+    {
+      forceRemoteCache: true,
+      returnLocalCacheUrl: true,
+      resultVisibility: 'internal',
+      signal,
+    }
+  );
+  signal.throwIfAborted();
+  if (isVirtualMediaUrl(cachedUrl)) return cachedUrl;
+  throw new Error(
+    '讲解片段未能缓存到本地，无法固定 PPT 画面合成；请检查跨域或代理配置'
+  );
 }
 
 export async function runPptExplainerBoardMutationExclusive<T>(
@@ -668,7 +713,7 @@ async function runLocalComposition(
 ): Promise<void> {
   const videoModel = state.models.videoModelRef || state.models.videoModel;
   if (!videoModel) throw new Error('PPT 逐页生成缺少视频模型');
-  const segmentUrls: string[] = [];
+  const compositionSlides: LocalPptCompositionSlide[] = [];
 
   for (const [slideIndex, slide] of state.slides.entries()) {
     signal.throwIfAborted();
@@ -705,6 +750,8 @@ async function runLocalComposition(
         modelRef: typeof videoModel === 'string' ? undefined : videoModel,
         referenceImages: [slide.snapshotUrl],
         size: '1920x1080',
+        resultVisibility: 'internal',
+        autoInsertToCanvas: false,
         onTaskCreated: (internalTaskId) => {
           ownershipWrite = registerInternalTaskOwnership(
             taskId,
@@ -717,11 +764,28 @@ async function runLocalComposition(
       signal
     );
     await ownershipWrite;
+    state = {
+      ...state,
+      internalTaskIds: getOwnedInternalTaskIds(taskId, state),
+    };
     signal.throwIfAborted();
     if (!generated.url) {
       throw new Error(`PPT 第 ${slide.pageIndex} 页有声视频生成失败`);
     }
-    segmentUrls.push(generated.url);
+    const narrationMediaUrl = await cachePptExplainerNarrationSegment(
+      generated.url,
+      generated.task.id,
+      signal
+    );
+    compositionSlides.push({
+      imageUrl: slide.snapshotUrl,
+      turns: [
+        {
+          mediaUrl: narrationMediaUrl,
+          subtitle: buildPptExplainerSlideSubtitle(slide, state.speakers),
+        },
+      ],
+    });
     const progress =
       50 +
       Math.round(((slideIndex + 1) / Math.max(1, state.slides.length)) * 30);
@@ -736,25 +800,62 @@ async function runLocalComposition(
 
   state = await persistStage(
     taskId,
-    { ...state, stage: 'finalizing' },
+    {
+      ...state,
+      stage: 'finalizing',
+      diagnostics: [
+        ...(state.diagnostics || []).filter(
+          (item) => !item.startsWith('正在生成第 ')
+        ),
+        '正在以原 PPT 页面固定画面合成讲解音轨',
+      ],
+    },
     executionAttempt,
     80,
     TaskExecutionPhase.DOWNLOADING
   );
   signal.throwIfAborted();
-  const composed = await mergeVideos(segmentUrls);
+  const composed = await composeLocalPptExplainerVideo({
+    slides: compositionSlides,
+    width: 1920,
+    height: 1080,
+    signal,
+    onProgress: async (progress, message) => {
+      state = await persistStage(
+        taskId,
+        {
+          ...state,
+          stage: 'finalizing',
+          diagnostics: [
+            ...(state.diagnostics || []).filter(
+              (item) => !item.startsWith('正在合成第 ')
+            ),
+            message,
+          ],
+        },
+        executionAttempt,
+        Math.min(97, 80 + Math.round(progress * 0.17)),
+        TaskExecutionPhase.DOWNLOADING
+      );
+    },
+  });
   signal.throwIfAborted();
-  const extension = composed.blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const extension = composed.mimeType.includes('mp4') ? 'mp4' : 'webm';
   const stableUrl = `/__aitu_cache__/video/${taskId}.${extension}`;
   try {
     await unifiedCacheService.cacheMediaFromBlob(
       stableUrl,
       composed.blob,
       'video',
-      { taskId }
+      { taskId, resultVisibility: 'user' }
     );
   } finally {
-    if (composed.url.startsWith('blob:')) URL.revokeObjectURL(composed.url);
+    if (
+      composed.url.startsWith('blob:') &&
+      typeof URL.revokeObjectURL === 'function'
+    ) {
+      URL.revokeObjectURL(composed.url);
+    }
   }
   await finalizeResult(taskId, state, executionAttempt, stableUrl, signal);
 }

@@ -93,6 +93,8 @@ export interface VideoGenerationParams {
   referenceImages?: string[];
   /** 额外参数（如 aspect_ratio），透传给 adapter */
   params?: Record<string, unknown>;
+  /** 控制生成结果是否投影到素材库和画布。 */
+  resultVisibility?: TaskResultVisibility;
 }
 
 // ============================================================================

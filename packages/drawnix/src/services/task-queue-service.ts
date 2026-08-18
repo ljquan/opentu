@@ -1283,6 +1283,7 @@ class TaskQueueService {
               size: task.params.size,
               referenceImages: finalRefs,
               params: (task.params as any).params,
+              resultVisibility: task.params.resultVisibility,
             },
             executionOptions
           );

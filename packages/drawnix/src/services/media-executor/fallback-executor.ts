@@ -17,7 +17,7 @@ import type {
   GeminiConfig,
   VideoAPIConfig,
 } from './types';
-import { Task, TaskStatus } from '../../types/task.types';
+import { Task, TaskStatus, type TaskResult } from '../../types/task.types';
 import { taskStorageWriter } from './task-storage-writer';
 import { taskStorageReader } from '../task-storage-reader';
 import {
@@ -843,6 +843,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           referenceImages: params.referenceImages,
           inputReference: params.inputReference,
           params: params.params,
+          resultVisibility: params.resultVisibility,
         },
         options,
         startTime
@@ -983,7 +984,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             result.url,
             taskId,
             'video',
-            'mp4'
+            'mp4',
+            undefined,
+            { resultVisibility: params.resultVisibility }
           );
           assertCurrentExecutionAttempt(options);
 
@@ -1664,17 +1667,32 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         result.url,
         task.id,
         'video',
-        'mp4'
+        'mp4',
+        undefined,
+        {
+          resultVisibility:
+            task.params.resultVisibility === 'internal'
+              ? 'internal'
+              : task.params.resultVisibility === 'user'
+              ? 'user'
+              : undefined,
+        }
       );
       if (!isCurrentPollingAttempt()) return;
 
       const duration = task.params.duration as string | undefined;
 
-      const completionResult = {
+      const completionResult: TaskResult = {
         url: cachedVidUrl,
         format: 'mp4',
         size: 0,
         duration: duration ? parseInt(duration, 10) : undefined,
+        resultVisibility:
+          task.params.resultVisibility === 'internal'
+            ? 'internal'
+            : task.params.resultVisibility === 'user'
+            ? 'user'
+            : undefined,
       };
 
       if (onTaskUpdate) {

@@ -1508,6 +1508,31 @@ describe('task-queue-service image edit retry persistence', () => {
     ]);
   });
 
+  it('forwards internal result visibility when executing video tasks', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+
+    taskQueueService.createTask(
+      {
+        prompt: 'Generate an internal narration segment',
+        model: 'seedance-1.5-pro',
+        resultVisibility: 'internal',
+      },
+      TaskType.VIDEO
+    );
+
+    await flushAsyncWork();
+
+    expect(mocks.generateVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'Generate an internal narration segment',
+        resultVisibility: 'internal',
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
   it('allows explicit manual retry for completed image tasks and clears stale results', async () => {
     const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
       TaskStatus.COMPLETED,

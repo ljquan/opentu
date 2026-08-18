@@ -1,5 +1,7 @@
 export interface LocalPptNarrationTurn {
-  audio: Blob;
+  audio?: Blob;
+  /** A same-origin video or audio URL whose audio track drives the slide. */
+  mediaUrl?: string;
   subtitle: string;
   speakerName?: string;
 }
@@ -16,7 +18,7 @@ export interface LocalPptCompositionInput {
   frameRate?: number;
   transitionDurationMs?: number;
   signal?: AbortSignal;
-  onProgress?: (progress: number, message: string) => void;
+  onProgress?: (progress: number, message: string) => void | Promise<void>;
 }
 
 export interface LocalPptCompositionResult {
@@ -53,9 +55,7 @@ export function chooseLocalPptRecorderFormat(
   );
 }
 
-function assertLocalCompositionInput(
-  input: LocalPptCompositionInput
-): void {
+function assertLocalCompositionInput(input: LocalPptCompositionInput): void {
   if (!input.slides.length) throw new Error('PPT 本地合成没有可用页面');
   for (const [slideIndex, slide] of input.slides.entries()) {
     if (!slide.imageUrl.trim()) {
@@ -65,14 +65,27 @@ function assertLocalCompositionInput(
       throw new Error(`PPT 第 ${slideIndex + 1} 页缺少旁白音频`);
     }
     for (const turn of slide.turns) {
-      if (!(turn.audio instanceof Blob) || turn.audio.size === 0) {
+      const hasAudio = turn.audio !== undefined;
+      const mediaUrl = turn.mediaUrl?.trim();
+      if (hasAudio === Boolean(mediaUrl)) {
+        throw new Error(
+          `PPT 第 ${slideIndex + 1} 页旁白来源必须且只能配置一种`
+        );
+      }
+      if (
+        hasAudio &&
+        (!(turn.audio instanceof Blob) || turn.audio.size === 0)
+      ) {
         throw new Error(`PPT 第 ${slideIndex + 1} 页包含空旁白音频`);
       }
     }
   }
 }
 
-function loadImage(url: string, signal?: AbortSignal): Promise<HTMLImageElement> {
+function loadImage(
+  url: string,
+  signal?: AbortSignal
+): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
     const image = new Image();
@@ -156,6 +169,52 @@ function drawSlide(
   });
 }
 
+function getCompositionAbortReason(signal?: AbortSignal): unknown {
+  return signal?.reason || new DOMException('PPT 本地合成已取消', 'AbortError');
+}
+
+function waitForAbortable<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) return operation;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = () =>
+      finish(() => reject(getCompositionAbortReason(signal)));
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error))
+    );
+  });
+}
+
+function waitForAnimationFrame(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    let frameId = 0;
+    const cleanup = () => signal?.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      cleanup();
+      reject(getCompositionAbortReason(signal));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    frameId = requestAnimationFrame(() => {
+      cleanup();
+      resolve();
+    });
+  });
+}
+
 async function drawTransition(
   context: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
@@ -175,9 +234,7 @@ async function drawTransition(
     progress = Math.min(1, elapsed / durationMs);
     drawSlide(context, canvas, image, undefined, progress);
     if (progress < 1) {
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve())
-      );
+      await waitForAnimationFrame(signal);
     }
   }
 }
@@ -189,7 +246,15 @@ async function playAudioBuffer(
   signal?: AbortSignal
 ): Promise<number> {
   signal?.throwIfAborted();
-  const bytes = await blob.arrayBuffer();
+  const bytes =
+    typeof blob.arrayBuffer === 'function'
+      ? await blob.arrayBuffer()
+      : await new Promise<ArrayBuffer>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as ArrayBuffer);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsArrayBuffer(blob);
+        });
   signal?.throwIfAborted();
   const buffer = await audioContext.decodeAudioData(bytes);
   signal?.throwIfAborted();
@@ -199,6 +264,8 @@ async function playAudioBuffer(
     let settled = false;
     const cleanup = () => {
       signal?.removeEventListener('abort', onAbort);
+      source.onended = null;
+      source.buffer = null;
       try {
         source.disconnect();
       } catch {
@@ -225,8 +292,133 @@ async function playAudioBuffer(
     source.connect(destination);
     source.onended = () => finish(() => resolve(buffer.duration));
     signal?.addEventListener('abort', onAbort, { once: true });
-    source.start();
+    try {
+      source.start();
+    } catch (error) {
+      finish(() => reject(error));
+    }
   });
+}
+
+async function playMediaElementAudio(
+  audioContext: AudioContext,
+  destination: MediaStreamAudioDestinationNode,
+  mediaUrl: string,
+  signal?: AbortSignal
+): Promise<number> {
+  signal?.throwIfAborted();
+  const media = document.createElement('video');
+  media.crossOrigin = 'anonymous';
+  media.preload = 'auto';
+  media.playsInline = true;
+  media.style.display = 'none';
+  let source: MediaElementAudioSourceNode | undefined;
+  try {
+    source = audioContext.createMediaElementSource(media);
+    source.connect(destination);
+    document.body?.appendChild(media);
+  } catch (error) {
+    try {
+      source?.disconnect();
+    } catch {
+      // The partially initialized node may not be connected.
+    }
+    media.removeAttribute('src');
+    media.remove();
+    throw error;
+  }
+
+  return new Promise<number>((resolve, reject) => {
+    let settled = false;
+    let started = false;
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort);
+      media.removeEventListener('canplay', onCanPlay);
+      media.removeEventListener('ended', onEnded);
+      media.removeEventListener('error', onError);
+      media.pause();
+      media.removeAttribute('src');
+      media.load();
+      media.remove();
+      try {
+        source.disconnect();
+      } catch {
+        // The node may already be disconnected while handling an abort.
+      }
+    };
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const fail = (error: unknown) =>
+      finish(() =>
+        reject(
+          error instanceof Error || error instanceof DOMException
+            ? error
+            : new Error(String(error))
+        )
+      );
+    const onAbort = () => fail(getCompositionAbortReason(signal));
+    const onEnded = () => {
+      const duration =
+        Number.isFinite(media.duration) && media.duration > 0
+          ? media.duration
+          : media.currentTime;
+      finish(() => resolve(duration));
+    };
+    const onError = () =>
+      fail(
+        new Error(
+          `讲解片段无法解码或播放${
+            media.error?.message ? `：${media.error.message}` : ''
+          }`
+        )
+      );
+    const onCanPlay = () => {
+      if (started || settled) return;
+      started = true;
+      void media
+        .play()
+        .catch((error) =>
+          fail(
+            new Error(
+              `浏览器无法播放讲解音轨：${
+                error instanceof Error ? error.message : String(error)
+              }`
+            )
+          )
+        );
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    media.addEventListener('canplay', onCanPlay);
+    media.addEventListener('ended', onEnded, { once: true });
+    media.addEventListener('error', onError, { once: true });
+    media.src = mediaUrl;
+    media.load();
+  });
+}
+
+function playNarrationTurn(
+  audioContext: AudioContext,
+  destination: MediaStreamAudioDestinationNode,
+  turn: LocalPptNarrationTurn,
+  signal?: AbortSignal
+): Promise<number> {
+  if (turn.audio) {
+    return playAudioBuffer(audioContext, destination, turn.audio, signal);
+  }
+  if (turn.mediaUrl?.trim()) {
+    return playMediaElementAudio(
+      audioContext,
+      destination,
+      turn.mediaUrl,
+      signal
+    );
+  }
+  throw new Error('PPT 旁白来源无效');
 }
 
 export async function composeLocalPptExplainerVideo(
@@ -248,75 +440,111 @@ export async function composeLocalPptExplainerVideo(
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('无法创建 PPT 合成画布');
 
-  const audioContext = new AudioContext();
-  const destination = audioContext.createMediaStreamDestination();
-  const canvasStream = canvas.captureStream(input.frameRate || DEFAULT_FRAME_RATE);
-  const combinedStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
-    ...destination.stream.getAudioTracks(),
-  ]);
   const format = chooseLocalPptRecorderFormat(MediaRecorder.isTypeSupported);
-  const recorder = new MediaRecorder(combinedStream, {
-    ...(format.mimeType ? { mimeType: format.mimeType } : {}),
-    videoBitsPerSecond: 6_000_000,
-    audioBitsPerSecond: 128_000,
-  });
+  const audioContext = new AudioContext();
+  const compositionController = new AbortController();
+  const abortFromInput = () =>
+    compositionController.abort(getCompositionAbortReason(input.signal));
+  input.signal?.addEventListener('abort', abortFromInput, { once: true });
+  const signal = compositionController.signal;
+  let destination: MediaStreamAudioDestinationNode | undefined;
+  let canvasStream: MediaStream | undefined;
+  let combinedStream: MediaStream | undefined;
+  let recorder: MediaRecorder | undefined;
+  let recorderStopped: Promise<void> | undefined;
+  let recorderFailure: Promise<never> | undefined;
   const chunks: Blob[] = [];
-  recorder.ondataavailable = (event) => {
-    if (event.data.size) chunks.push(event.data);
-  };
 
   let duration = 0;
   let createdUrl = '';
+  let activeImage: HTMLImageElement | undefined;
   try {
-    await audioContext.resume();
-    recorder.start(1000);
+    destination = audioContext.createMediaStreamDestination();
+    canvasStream = canvas.captureStream(input.frameRate || DEFAULT_FRAME_RATE);
+    combinedStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...destination.stream.getAudioTracks(),
+    ]);
+    recorder = new MediaRecorder(combinedStream, {
+      ...(format.mimeType ? { mimeType: format.mimeType } : {}),
+      videoBitsPerSecond: 6_000_000,
+      audioBitsPerSecond: 128_000,
+    });
+    const activeRecorder = recorder;
+    activeRecorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorderStopped = new Promise<void>((resolve) => {
+      activeRecorder.onstop = () => resolve();
+    });
+    recorderFailure = new Promise<never>((_, reject) => {
+      activeRecorder.onerror = (event) => {
+        const error =
+          event instanceof ErrorEvent && event.error instanceof Error
+            ? event.error
+            : new Error('视频录制失败');
+        compositionController.abort(error);
+        reject(error);
+      };
+    });
+    void recorderFailure.catch(() => undefined);
+
+    await waitForAbortable(audioContext.resume(), signal);
+    const firstImage = await loadImage(input.slides[0].imageUrl, signal);
+    activeImage = firstImage;
+    drawSlide(context, canvas, firstImage, input.slides[0].turns[0]);
+    activeRecorder.start(1000);
+    const activeRecorderFailure = recorderFailure;
+    const waitWhileRecording = <T>(operation: Promise<T>) =>
+      Promise.race([operation, activeRecorderFailure]);
     let completedTurns = 0;
     const totalTurns = input.slides.reduce(
       (sum, slide) => sum + slide.turns.length,
       0
     );
     for (const [slideIndex, slide] of input.slides.entries()) {
-      input.signal?.throwIfAborted();
-      const image = await loadImage(slide.imageUrl, input.signal);
-      if (slideIndex > 0) {
-        await drawTransition(
-          context,
-          canvas,
-          image,
-          input.transitionDurationMs ?? DEFAULT_TRANSITION_MS,
-          input.signal
-        );
+      signal.throwIfAborted();
+      const image =
+        slideIndex === 0
+          ? firstImage
+          : await waitWhileRecording(loadImage(slide.imageUrl, signal));
+      activeImage = image;
+      try {
+        if (slideIndex > 0) {
+          await waitWhileRecording(
+            drawTransition(
+              context,
+              canvas,
+              image,
+              input.transitionDurationMs ?? DEFAULT_TRANSITION_MS,
+              signal
+            )
+          );
+        }
+        for (const turn of slide.turns) {
+          drawSlide(context, canvas, image, turn);
+          duration += await waitWhileRecording(
+            playNarrationTurn(audioContext, destination, turn, signal)
+          );
+          completedTurns += 1;
+          await waitWhileRecording(
+            Promise.resolve(
+              input.onProgress?.(
+                Math.round((completedTurns / totalTurns) * 100),
+                `正在合成第 ${slideIndex + 1}/${input.slides.length} 页`
+              )
+            )
+          );
+        }
+      } finally {
+        image.src = '';
+        if (activeImage === image) activeImage = undefined;
       }
-      for (const turn of slide.turns) {
-        drawSlide(context, canvas, image, turn);
-        duration += await playAudioBuffer(
-          audioContext,
-          destination,
-          turn.audio,
-          input.signal
-        );
-        completedTurns += 1;
-        input.onProgress?.(
-          Math.round((completedTurns / totalTurns) * 100),
-          `正在合成第 ${slideIndex + 1}/${input.slides.length} 页`
-        );
-      }
-      image.src = '';
     }
 
-    const stopped = new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve();
-      recorder.onerror = (event) =>
-        reject(
-          event instanceof ErrorEvent && event.error instanceof Error
-            ? event.error
-            : new Error('视频录制失败')
-        );
-    });
-    recorder.stop();
-    await stopped;
-    input.signal?.throwIfAborted();
+    activeRecorder.stop();
+    await Promise.race([recorderStopped, activeRecorderFailure]);
+    signal.throwIfAborted();
     const mimeType =
       recorder.mimeType || format.mimeType || chunks[0]?.type || 'video/webm';
     const blob = new Blob(chunks, { type: mimeType });
@@ -324,12 +552,24 @@ export async function composeLocalPptExplainerVideo(
     createdUrl = URL.createObjectURL(blob);
     return { blob, url: createdUrl, mimeType, duration };
   } catch (error) {
-    if (recorder.state !== 'inactive') recorder.stop();
+    if (!compositionController.signal.aborted) {
+      compositionController.abort(error);
+    }
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+      await recorderStopped?.catch(() => undefined);
+    }
     if (createdUrl) URL.revokeObjectURL(createdUrl);
     throw error;
   } finally {
-    combinedStream.getTracks().forEach((track) => track.stop());
-    destination.stream.getTracks().forEach((track) => track.stop());
+    input.signal?.removeEventListener('abort', abortFromInput);
+    if (activeImage) activeImage.src = '';
+    if (combinedStream) {
+      combinedStream.getTracks().forEach((track) => track.stop());
+    } else {
+      canvasStream?.getTracks().forEach((track) => track.stop());
+      destination?.stream.getTracks().forEach((track) => track.stop());
+    }
     await audioContext.close().catch(() => undefined);
     chunks.length = 0;
     canvas.width = 1;

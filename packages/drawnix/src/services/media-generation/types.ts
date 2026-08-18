@@ -64,6 +64,10 @@ export interface VideoGenerationOptions {
   /** 透传给具体适配器的额外参数（如 aspect_ratio） */
   params?: Record<string, unknown>;
   promptMeta?: GenerationParams['promptMeta'];
+  /** 控制生成结果是否投影到素材库和画布。 */
+  resultVisibility?: TaskResultVisibility;
+  /** 是否允许通用自动插入链路把结果加入画布。 */
+  autoInsertToCanvas?: boolean;
   signal?: AbortSignal;
   forceMainThread?: boolean;
   /** 任务创建后立即回调，用于提前持久化 taskId 到工作流步骤 */

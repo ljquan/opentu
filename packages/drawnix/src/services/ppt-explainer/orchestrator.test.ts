@@ -52,6 +52,9 @@ const mocks = vi.hoisted(() => ({
   materializePPTOutline: vi.fn(),
   listCurrentPptFrameIds: vi.fn(),
   getDraftOwners: vi.fn(),
+  generateVideo: vi.fn(),
+  composeLocalPptVideo: vi.fn(),
+  cacheMediaFromBlob: vi.fn(),
 }));
 
 async function collectSubmittedSlides(
@@ -127,7 +130,16 @@ vi.mock('../unified-cache-service', () => ({
     getCachedBlob: mocks.getCachedBlob,
     getAllCachedMedia: mocks.getAllCachedMedia,
     deleteCache: mocks.deleteCache,
+    cacheMediaFromBlob: mocks.cacheMediaFromBlob,
   },
+}));
+
+vi.mock('../media-generation/video-generation-service', () => ({
+  generateVideo: mocks.generateVideo,
+}));
+
+vi.mock('./local-composer', () => ({
+  composeLocalPptExplainerVideo: mocks.composeLocalPptVideo,
 }));
 
 vi.mock('../workspace-service', () => ({
@@ -334,6 +346,7 @@ beforeEach(() => {
   });
   mocks.getAllCachedMedia.mockResolvedValue([]);
   mocks.deleteCache.mockResolvedValue(undefined);
+  mocks.cacheMediaFromBlob.mockImplementation(async (url: string) => url);
   mocks.cancelJob.mockResolvedValue({ attempted: true, status: 'cancelled' });
   mocks.getCanvasBoardBinding.mockReturnValue({
     board: {},
@@ -363,6 +376,12 @@ beforeEach(() => {
         : [{ speakerId: 'host', text: `第 ${slide.pageIndex} 页讲解` }],
     }))
   );
+  mocks.composeLocalPptVideo.mockResolvedValue({
+    blob: new Blob(['composed-video'], { type: 'video/webm' }),
+    url: 'blob:composed-video',
+    mimeType: 'video/webm',
+    duration: 10,
+  });
   mocks.updateRootTask.mockImplementation(
     async (
       taskId: string,
@@ -436,7 +455,158 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     expect(prompt).toContain('嘉宾：先看本页核心数据。');
     expect(prompt.indexOf('主持人：')).toBeLessThan(prompt.indexOf('嘉宾：'));
     expect(prompt).toContain('不同的声线');
+    expect(prompt).toContain('最终只使用其音轨');
     expect(prompt).toContain('禁止背景音乐');
+  });
+
+  it('固定原 PPT 页面并仅使用逐页生成片段的音轨', async () => {
+    const taskId = 'local-fixed-ppt';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+        speakers: [
+          { id: 'host', displayName: '主持人' },
+          { id: 'guest', displayName: '嘉宾' },
+        ],
+        presenterMode: 'dual_voice',
+        slides: [
+          {
+            pageIndex: 1,
+            snapshotUrl: '/slide-1.png',
+            snapshotMimeType: 'image/png',
+            turns: [{ speakerId: 'host', text: '第一页讲解' }],
+          },
+          {
+            pageIndex: 2,
+            snapshotUrl: '/slide-2.png',
+            snapshotMimeType: 'image/png',
+            turns: [{ speakerId: 'guest', text: '第二页讲解' }],
+          },
+        ],
+      })
+    );
+    mocks.generateVideo
+      .mockImplementationOnce(async (_prompt, options) => {
+        options.onTaskCreated?.('segment-task-1');
+        return {
+          task: { id: 'segment-task-1' },
+          url: 'https://cdn.example.com/segment-1.mp4',
+        };
+      })
+      .mockImplementationOnce(async (_prompt, options) => {
+        options.onTaskCreated?.('segment-task-2');
+        return {
+          task: { id: 'segment-task-2' },
+          url: 'https://cdn.example.com/segment-2.mp4',
+        };
+      });
+    mocks.cacheRemoteUrl.mockImplementation(
+      async (url: string, ownerTaskId: string) =>
+        url.startsWith('https://cdn.example.com/segment-')
+          ? `/__aitu_cache__/video/${ownerTaskId}.mp4`
+          : url
+    );
+    mocks.composeLocalPptVideo.mockImplementation(async (input) => {
+      await input.onProgress?.(50, '正在合成第 1/2 页');
+      await input.onProgress?.(100, '正在合成第 2/2 页');
+      return {
+        blob: new Blob(['composed-video'], { type: 'video/webm' }),
+        url: 'blob:composed-video',
+        mimeType: 'video/webm',
+        duration: 10,
+      };
+    });
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.generateVideo).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('主持人：第一页讲解'),
+      expect.objectContaining({
+        referenceImages: ['/slide-1.png'],
+        resultVisibility: 'internal',
+        autoInsertToCanvas: false,
+      })
+    );
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          {
+            imageUrl: '/slide-1.png',
+            turns: [
+              {
+                mediaUrl: '/__aitu_cache__/video/segment-task-1.mp4',
+                subtitle: '主持人：第一页讲解',
+              },
+            ],
+          },
+          {
+            imageUrl: '/slide-2.png',
+            turns: [
+              {
+                mediaUrl: '/__aitu_cache__/video/segment-task-2.mp4',
+                subtitle: '嘉宾：第二页讲解',
+              },
+            ],
+          },
+        ],
+      })
+    );
+    expect(mocks.cacheMediaFromBlob).toHaveBeenCalledWith(
+      `/__aitu_cache__/video/${taskId}.webm`,
+      expect.any(Blob),
+      'video',
+      { taskId, resultVisibility: 'user' }
+    );
+    expect(mocks.tasks.get(taskId)?.error).toBeUndefined();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.COMPLETED,
+      result: { url: `/__aitu_cache__/video/${taskId}.webm` },
+      params: {
+        pptExplainer: {
+          stage: 'completed',
+          internalTaskIds: ['segment-task-1', 'segment-task-2'],
+        },
+      },
+    });
+  });
+
+  it('在讲解片段无法缓存为同源媒体时停止合成', async () => {
+    const taskId = 'local-cache-failed';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      options.onTaskCreated?.('segment-task-failed');
+      return {
+        task: { id: 'segment-task-failed' },
+        url: 'https://cross-origin.example.com/segment.mp4',
+      };
+    });
+    mocks.cacheRemoteUrl.mockResolvedValue(
+      'https://cross-origin.example.com/segment.mp4'
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.composeLocalPptVideo).not.toHaveBeenCalled();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: {
+        message: expect.stringContaining('讲解片段未能缓存到本地'),
+      },
+    });
   });
   it('does not restart a failed task without an explicit retry transition', async () => {
     installTask({

@@ -188,7 +188,9 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 - **GIVEN** 用户选择的视频模型支持生成有声视频
 - **WHEN** 用户选择单人或双人讲解
 - **THEN** 系统 SHALL 按页面把快照和 speaker turns 提交为有声视频片段
-- **AND** SHALL 按页序将片段合成为一个用户可见视频结果
+- **AND** 系统 SHALL 只使用片段音轨，不得把模型重绘画面作为最终 PPT 视觉
+- **AND** 系统 SHALL 按页序固定绘制原 PPT 快照并合成音轨、字幕和转场
+- **AND** 最终用户可见视频的每一页 SHALL 与已接受的 PPT 页面视觉一致
 
 #### Scenario: Use an ordinary video model for avatar segments
 
@@ -200,15 +202,23 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 #### Scenario: Selected model does not produce usable speech
 
 - **WHEN** 所选普通视频模型不支持音频输出或生成结果未按讲稿朗读
-- **THEN** 系统 SHALL 保留供应商真实结果或错误
+- **THEN** 系统 SHALL 停止最终合成并保留供应商真实结果或错误
 - **AND** SHALL 提示改用明确支持有声视频的模型，不得伪造音频模型
+
+#### Scenario: Cache generated narration media before composition
+
+- **GIVEN** 视频模型返回远程有声片段 URL
+- **WHEN** 系统准备本地合成
+- **THEN** 系统 SHALL 将片段缓存为同源 internal 媒体并逐页加载
+- **AND** 缓存或媒体解码失败 SHALL 明确失败，不得静默输出无声或跨域受限视频
+- **AND** 系统 SHALL NOT 同时把全部源片段读入 JS 内存
 
 #### Scenario: Cancel local composition
 
 - **GIVEN** 本地任务正在生成旁白或合成视频
 - **WHEN** 用户取消任务
 - **THEN** 系统 SHALL 中止未完成的请求和录制
-- **AND** SHALL 释放媒体轨道、媒体元素、Object URL 和未登记的临时产物
+- **AND** SHALL 释放媒体轨道、媒体元素、Web Audio 节点、Object URL 和未登记的临时产物
 
 ### Requirement: PPT Explainer Tasks SHALL Persist Recoverable State
 

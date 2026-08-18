@@ -97,9 +97,7 @@ function needsAvatar(mode: PptExplainerPresenterMode): boolean {
   return mode === 'single_avatar' || mode === 'dual_avatar';
 }
 
-function createInitialDraft(
-  initialTopic?: string
-): PptExplainerDialogDraft {
+function createInitialDraft(initialTopic?: string): PptExplainerDialogDraft {
   const topic = initialTopic?.trim() || '';
   return {
     source: topic ? 'topic' : 'current_ppt',
@@ -592,7 +590,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
             </div>
             {draft.executionMode === 'local' ? (
               <div className="ppt-explainer-dialog__hint" role="note">
-                将逐页使用所选有声视频模型生成片段。语音内容、音色、时长和逐页同步可能随模型结果波动，推荐 Seedance 1.5 Pro。
+                将逐页使用所选有声视频模型生成讲解音轨，再固定原 PPT
+                页面合成。朗读内容、音色和时长可能随模型结果波动，推荐 Seedance
+                1.5 Pro。
               </div>
             ) : null}
           </section>

@@ -76,6 +76,8 @@ export async function generateVideo(
       size: options.size,
       params: options.params,
       promptMeta: options.promptMeta,
+      resultVisibility: options.resultVisibility,
+      autoInsertToCanvas: options.autoInsertToCanvas,
     },
     invocationRoute
   );
@@ -92,6 +94,8 @@ export async function generateVideo(
       size: options.size,
       params: options.params,
       promptMeta: options.promptMeta,
+      resultVisibility: options.resultVisibility,
+      autoInsertToCanvas: options.autoInsertToCanvas,
     },
     createdAt: now,
     updatedAt: now,
@@ -131,6 +135,7 @@ export async function generateVideo(
     inputReferences: options.inputReferences,
     referenceImages: options.referenceImages,
     params: options.params,
+    resultVisibility: options.resultVisibility,
   };
 
   // 调用 executor 执行

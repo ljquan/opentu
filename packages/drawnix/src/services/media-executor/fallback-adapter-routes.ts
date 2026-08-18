@@ -314,6 +314,7 @@ export async function executeVideoViaAdapter(
     referenceImages?: string[];
     inputReference?: string;
     params?: Record<string, unknown>;
+    resultVisibility?: TaskResultVisibility;
   },
   options?: ExecutionOptions,
   startTime?: number
@@ -425,7 +426,10 @@ export async function executeVideoViaAdapter(
       'video',
       videoFmt,
       undefined,
-      { signal: options?.signal }
+      {
+        signal: options?.signal,
+        resultVisibility: params.resultVisibility,
+      }
     );
     assertCurrentExecutionAttempt(options);
 
