@@ -63,7 +63,7 @@
 ## 9. Validation And Handoff
 
 - [ ] 9.1 运行相关 Vitest、drawnix typecheck/lint 与三浏览器 Playwright 用例
-  - 已完成：31 个相关 Vitest 文件 / 360 个测试；本次参考音频增量复验 11 个文件 / 132 个测试；drawnix typecheck；增量 ESLint（0 个本次 error、11 个既有 warning，`provider-routing/types.ts` 的基线 `ban-types` error 在 HEAD 同样存在）；OpenSpec strict；内置 Chromium 的 1280×720 与 390×844 局域网页面复验；Node 20 Service Worker/隔离 PPTX Worker 构建；以及 GitHub CI 的 Node 20 web/drawnix 构建
+  - 已完成：31 个相关 Vitest 文件 / 360 个测试；本次参考音频增量复验 11 个文件 / 132 个测试；固定原 PPT 画面增量复验 15 个文件 / 217 个测试；drawnix typecheck；增量 ESLint（0 个本次 error，既有 warning 保持不变）；OpenSpec strict；内置 Chromium 的桌面与 390×844 局域网页面复验；Node 20 Service Worker/隔离 PPTX Worker 构建；以及 GitHub CI 的 Node 20 web/drawnix 构建
   - 基线说明：CI 的 10 个失败测试文件在 `origin/develop@0e7c242e` 上同样为 55 项失败；上一个已合并 PR #229 也因 11 个测试文件和既有 size-limit 债务失败
   - 剩余：Firefox/WebKit 专项 E2E 未完成；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
 - [ ] 9.2 使用真实供应商 binding 验证 submit、poll、cancel（若支持）及四种 presenter mode
@@ -97,9 +97,9 @@
 
 - [x] 12.1 移除 PPT 新建入口中的虚假 TTS、voice ID、参考音频和克隆授权配置
 - [x] 12.2 使用已选视频模型按页生成带语音片段，并保留 internal 子任务所有权、取消和恢复信息
-- [ ] 12.3 将有声片段强制缓存为同源 internal 媒体，只取音轨并以原 PPT 快照固定画面本地合成
-- [ ] 12.4 更新 UI 和任务进度，明确最终画面保持原 PPT，生成式模型只决定朗读、音色和时长
-- [ ] 12.5 覆盖单/双人提示词、固定 PPT 画面、逐页音轨、缓存/解码失败、取消、兼容降级和资源释放测试
-- [ ] 12.6 复验最终素材库与原画板幂等交付，确认模型重绘片段保持 internal 且不直接展示
+- [x] 12.3 将有声片段强制缓存为同源 internal 媒体，只取音轨并以原 PPT 快照固定画面本地合成
+- [x] 12.4 更新 UI 和任务进度，明确最终画面保持原 PPT，生成式模型只决定朗读、音色和时长
+- [x] 12.5 覆盖单/双人提示词、固定 PPT 画面、逐页音轨、缓存/解码失败、取消、兼容降级和资源释放测试
+- [x] 12.6 复验最终素材库与原画板幂等交付，确认模型重绘片段保持 internal 且不直接展示
 - [x] 12.7 主题生成新增独立 PPT，保留已有页面并按 jobId 隔离本次页面集合
 - [x] 12.8 移除 PPT 讲解 Agent 底栏的音频模型及创建输入路由（原方案已废弃）
