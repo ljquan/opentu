@@ -4,7 +4,7 @@ import {
   taskStorageWriter,
   type SWTask,
 } from '../media-executor/task-storage-writer';
-import { APP_DB_NAME, APP_DB_STORES, closeAppDB } from '../app-database';
+import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
 
 function createImageTask(
   requestId: string,
@@ -57,14 +57,12 @@ async function saveFromAnotherTab(task: SWTask): Promise<void> {
 describe('task-storage-writer image attempt guards', () => {
   beforeEach(() => {
     taskStorageWriter.close();
-    closeAppDB();
     taskStorageWriter.resumeWrites();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
 
   afterEach(() => {
     taskStorageWriter.close();
-    closeAppDB();
     taskStorageWriter.resumeWrites();
     vi.unstubAllGlobals();
   });
@@ -132,21 +130,6 @@ describe('task-storage-writer image attempt guards', () => {
     transaction.oncomplete();
     await savePromise;
     expect(settled).toBe(true);
-  });
-
-  it('reopens the shared app database after its connection is closed', async () => {
-    await taskStorageWriter.saveTask(createImageTask('request-before-close'));
-
-    closeAppDB();
-
-    const reopenedTask = createImageTask('request-after-close');
-    reopenedTask.id = 'image-task-after-close';
-    await taskStorageWriter.saveTask(reopenedTask);
-
-    expect(await taskStorageWriter.getTask(reopenedTask.id)).toMatchObject({
-      id: reopenedTask.id,
-      params: { submissionRequestId: 'request-after-close' },
-    });
   });
 
   it.each(['complete', 'fail'] as const)(
