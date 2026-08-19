@@ -27,8 +27,8 @@ const PPT_EXPLAINER_STAGE_TEXT: Partial<Record<PptExplainerStage, string>> = {
   review_pending: 'PPT大纲待确认',
   snapshotting: '正在生成并固定PPT页面',
   scripting: '正在生成逐页讲稿',
-  submitting: '正在生成讲解音轨',
-  polling: '正在生成讲解音轨',
+  submitting: '正在生成逐页有声讲解',
+  polling: '正在生成逐页有声讲解',
   finalizing: '正在合成PPT讲解视频',
 };
 
@@ -43,9 +43,7 @@ export function getPptExplainerModelLabel(
   videoModel?: string
 ): string | undefined {
   if (!getPptExplainerStageText(stage)) return videoModel;
-  return stage === 'submitting' || stage === 'polling'
-    ? videoModel || 'PPT讲解'
-    : 'PPT讲解';
+  return stage === 'submitting' || stage === 'polling' ? videoModel : undefined;
 }
 
 interface TaskProgressOverlayProps {

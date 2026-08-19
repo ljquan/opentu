@@ -3,9 +3,7 @@ import type { PptExplainerCreateInput } from './types';
 import {
   confirmAndRunPptExplainerTask,
   createPptExplainerTask,
-  authorizePptExplainerUiCreation,
 } from './creation-service';
-import { PptExplainerProviderPreflightError } from './provider-contract';
 
 const mocks = vi.hoisted(() => ({
   generatePPT: vi.fn(),
@@ -16,10 +14,6 @@ const mocks = vi.hoisted(() => ({
   getWorkspaceState: vi.fn(),
   resolveInvocationPlanFromRoute: vi.fn(),
   createTaskInvocationRouteSnapshot: vi.fn(),
-  importPptx: vi.fn(),
-  deletePptxImportCache: vi.fn(),
-  preflightProvider: vi.fn(),
-  createProviderSnapshot: vi.fn(),
   captureSelection: vi.fn(),
   listFrameIds: vi.fn(),
   needsImages: vi.fn(),
@@ -35,7 +29,6 @@ const mocks = vi.hoisted(() => ({
   deleteArtifacts: vi.fn(),
   runTask: vi.fn(),
   getTask: vi.fn(),
-  getCachedBlob: vi.fn(),
   callOrder: [] as string[],
 }));
 
@@ -71,32 +64,13 @@ vi.mock('../task-queue', () => ({
   taskQueueService: { getTask: mocks.getTask },
 }));
 
-vi.mock('../unified-cache-service', () => ({
-  unifiedCacheService: { getCachedBlob: mocks.getCachedBlob },
-}));
-
 vi.mock('../pptx-import', () => ({
-  importPptx: mocks.importPptx,
-  deletePptxImportCache: mocks.deletePptxImportCache,
   PptxImportError: class PptxImportError extends Error {
     constructor(readonly code: string, readonly kind: string, message: string) {
       super(message);
     }
   },
 }));
-
-vi.mock('./provider-contract', () => {
-  class PptExplainerProviderPreflightError extends Error {
-    constructor(readonly code: string, message: string) {
-      super(message);
-    }
-  }
-  return {
-    PptExplainerProviderPreflightError,
-    preflightPptExplainerProviderFromSettings: mocks.preflightProvider,
-    createPptExplainerProviderRouteSnapshot: mocks.createProviderSnapshot,
-  };
-});
 
 vi.mock('./source-resolver', () => ({
   captureCurrentPptSourceSelection: mocks.captureSelection,
@@ -127,7 +101,7 @@ vi.mock('./internal-artifact-cache', () => ({
 }));
 
 const board = { children: [] } as any;
-const modelRef = { profileId: 'profile-1', modelId: 'model-1' };
+const videoModelId = 'doubao-seedance-2-0-fast-260128';
 
 function createInput(
   overrides: Partial<PptExplainerCreateInput> = {}
@@ -142,20 +116,20 @@ function createInput(
       {
         id: 'speaker-a',
         displayName: '讲解者',
-        voiceId: 'voice-a',
       },
     ],
     textModel: 'text-model',
     textModelRef: { profileId: 'profile-1', modelId: 'text-model' },
     imageModel: 'image-model',
     imageModelRef: { profileId: 'profile-1', modelId: 'image-model' },
-    videoModel: 'video-model',
-    videoModelRef: { profileId: 'profile-1', modelId: 'video-model' },
+    videoModel: videoModelId,
+    videoModelRef: { profileId: 'profile-1', modelId: videoModelId },
     ...overrides,
   };
 }
 
-function createPlan(operation: 'text' | 'image') {
+function createPlan(operation: 'text' | 'image' | 'video') {
+  const modelId = operation === 'video' ? videoModelId : `${operation}-model`;
   return {
     provider: {
       profileId: 'profile-1',
@@ -164,26 +138,9 @@ function createPlan(operation: 'text' | 'image') {
     },
     modelRef: {
       profileId: 'profile-1',
-      modelId: `${operation}-model`,
+      modelId,
     },
     binding: { id: `${operation}-binding` },
-  };
-}
-
-function createProvider(presentationInput: 'pptx' | 'slide_images') {
-  return {
-    provider: {
-      profileId: 'profile-1',
-      baseUrl: 'https://provider.example',
-      apiKey: 'runtime-only-key',
-    },
-    modelRef,
-    binding: { id: 'ppt-explainer-binding' },
-    requirements: {
-      source: presentationInput === 'pptx' ? 'pptx' : 'topic',
-      presentationInput,
-      presenterMode: 'single_voice',
-    },
   };
 }
 
@@ -191,7 +148,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.callOrder.length = 0;
   mocks.waitForInitialization.mockResolvedValue(undefined);
-  mocks.deletePptxImportCache.mockResolvedValue(undefined);
   mocks.putArtifact.mockResolvedValue(
     '/__aitu_internal__/ppt-explainer/job/source.pptx'
   );
@@ -199,9 +155,6 @@ beforeEach(() => {
     mocks.callOrder.push('stage-pptx');
     return '/__aitu_internal__/ppt-explainer/job/source.pptx';
   });
-  mocks.getCachedBlob.mockResolvedValue(
-    new Blob(['reference-audio'], { type: 'audio/mpeg' })
-  );
   mocks.deleteArtifacts.mockResolvedValue(undefined);
   mocks.getCanvasBoardBinding.mockReturnValue({ board, boardId: 'board-1' });
   mocks.getWorkspaceState.mockReturnValue({ currentBoardId: 'board-1' });
@@ -219,17 +172,8 @@ beforeEach(() => {
     return { success: true, type: 'text' };
   });
   mocks.resolveInvocationPlanFromRoute.mockImplementation(
-    (operation: 'text' | 'image') => createPlan(operation)
+    (operation: 'text' | 'image' | 'video') => createPlan(operation)
   );
-  mocks.preflightProvider.mockReturnValue(createProvider('slide_images'));
-  mocks.createProviderSnapshot.mockReturnValue({
-    schemaVersion: 2,
-    operation: 'video',
-    providerProfileId: 'profile-1',
-    canonicalBaseUrl: 'https://api.example.com/v1',
-    modelRef,
-    binding: { id: 'ppt-explainer-binding' },
-  });
   mocks.createTaskInvocationRouteSnapshot.mockImplementation((operation) => ({
     operation,
     providerProfileId: 'profile-1',
@@ -300,16 +244,16 @@ afterEach(() => {
 });
 
 describe('PPT explainer creation service', () => {
-  it('rejects an empty topic before provider preflight', async () => {
+  it('rejects an empty topic before model preflight', async () => {
     await expect(
       createPptExplainerTask(createInput({ topic: '   ' }))
     ).rejects.toThrow('请输入 PPT 主题');
 
-    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
   });
 
-  it('rejects an empty current PPT before provider preflight', async () => {
+  it('rejects an empty current PPT before model preflight', async () => {
     mocks.captureSelection.mockRejectedValue(
       new Error('当前画板没有 PPT 页面')
     );
@@ -320,7 +264,7 @@ describe('PPT explainer creation service', () => {
       )
     ).rejects.toThrow('当前画板没有 PPT 页面');
 
-    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
   });
 
@@ -354,20 +298,21 @@ describe('PPT explainer creation service', () => {
       } as PptExplainerCreateInput & { skipWarningAccepted: boolean })
     ).rejects.toThrow('必须确认');
 
-    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
     expect(mocks.generatePPT).not.toHaveBeenCalled();
   });
 
-  it('has zero source side effects when provider preflight fails', async () => {
-    mocks.preflightProvider.mockImplementation(() => {
-      throw new Error('binding unavailable');
+  it('has zero source side effects when model preflight fails', async () => {
+    mocks.resolveInvocationPlanFromRoute.mockImplementation((operation) => {
+      if (operation === 'video') throw new Error('route unavailable');
+      return createPlan(operation);
     });
 
     await expect(createPptExplainerTask(createInput())).rejects.toThrow(
-      'binding unavailable'
+      'route unavailable'
     );
     expect(mocks.generatePPT).not.toHaveBeenCalled();
-    expect(mocks.importPptx).not.toHaveBeenCalled();
+    expect(mocks.putArtifact).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
   });
 
@@ -421,22 +366,16 @@ describe('PPT explainer creation service', () => {
   });
 
   it('creates a local audible-video task without legacy voice fields', async () => {
-    await createPptExplainerTask(
-      createInput({
-        executionMode: 'local',
-        speakers: [{ id: 'speaker-a', displayName: '讲解者' }],
-      })
-    );
+    await createPptExplainerTask(createInput());
 
-    expect(mocks.preflightProvider).not.toHaveBeenCalled();
     expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
       executionMode: 'local',
       speakers: [{ id: 'speaker-a', displayName: '讲解者' }],
       models: {
-        videoModel: 'video-model',
+        videoModel: videoModelId,
         videoModelRef: {
           profileId: 'profile-1',
-          modelId: 'video-model',
+          modelId: videoModelId,
         },
       },
     });
@@ -445,23 +384,8 @@ describe('PPT explainer creation service', () => {
     ).not.toHaveProperty('voiceId');
   });
 
-  it('falls back from PPTX passthrough to ordered slide snapshots', async () => {
+  it('stages PPTX for local slide snapshot generation before creating the root', async () => {
     mocks.needsImages.mockReturnValue(false);
-    mocks.preflightProvider
-      .mockImplementationOnce(() => {
-        throw new PptExplainerProviderPreflightError(
-          'capability_unsupported',
-          'no pptx passthrough'
-        );
-      })
-      .mockReturnValueOnce({
-        ...createProvider('slide_images'),
-        requirements: {
-          source: 'pptx',
-          presentationInput: 'slide_images',
-          presenterMode: 'single_voice',
-        },
-      });
     const file = new File(['pptx'], 'deck.pptx', {
       type: 'application/octet-stream',
     });
@@ -471,11 +395,9 @@ describe('PPT explainer creation service', () => {
         source: 'pptx',
         topic: undefined,
         pptxFile: file,
-        executionMode: 'provider',
       })
     );
 
-    expect(mocks.preflightProvider).toHaveBeenCalledTimes(2);
     expect(mocks.callOrder).toEqual([
       'register-pptx',
       'stage-pptx',
@@ -498,54 +420,8 @@ describe('PPT explainer creation service', () => {
     expect(mocks.runTask).toHaveBeenCalledWith('root-task');
   });
 
-  it('prefers PPTX passthrough and exposes the root before source parsing', async () => {
-    mocks.needsImages.mockReturnValue(false);
-    mocks.preflightProvider.mockReturnValue({
-      ...createProvider('pptx'),
-      requirements: {
-        source: 'pptx',
-        presentationInput: 'pptx',
-        presenterMode: 'single_voice',
-      },
-    });
-    const file = new File(['pptx'], 'deck.pptx', {
-      type: 'application/octet-stream',
-    });
-
-    await createPptExplainerTask(
-      createInput({
-        source: 'pptx',
-        topic: undefined,
-        pptxFile: file,
-        executionMode: 'provider',
-      })
-    );
-
-    expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
-      source: 'pptx',
-      presentationInput: 'pptx',
-      stage: 'preparing',
-      slides: [],
-    });
-    expect(mocks.callOrder).toEqual([
-      'register-pptx',
-      'stage-pptx',
-      'create-root',
-      'run-orchestrator',
-    ]);
-    expect(mocks.importPptx).not.toHaveBeenCalled();
-  });
-
   it('releases the pending PPTX file when root persistence fails', async () => {
     mocks.needsImages.mockReturnValue(false);
-    mocks.preflightProvider.mockReturnValue({
-      ...createProvider('pptx'),
-      requirements: {
-        source: 'pptx',
-        presentationInput: 'pptx',
-        presenterMode: 'single_voice',
-      },
-    });
     mocks.createRootTask.mockRejectedValue(new Error('IndexedDB unavailable'));
     const file = new File(['pptx'], 'deck.pptx');
 
@@ -562,14 +438,6 @@ describe('PPT explainer creation service', () => {
 
   it('does not create a root when staging the PPTX source fails', async () => {
     mocks.needsImages.mockReturnValue(false);
-    mocks.preflightProvider.mockReturnValue({
-      ...createProvider('pptx'),
-      requirements: {
-        source: 'pptx',
-        presentationInput: 'pptx',
-        presenterMode: 'single_voice',
-      },
-    });
     mocks.putArtifact.mockRejectedValue(new Error('Cache Storage unavailable'));
 
     await expect(
@@ -587,125 +455,79 @@ describe('PPT explainer creation service', () => {
     expect(mocks.runTask).not.toHaveBeenCalled();
   });
 
-  it('stages reference audio after capability preflight without persisting File', async () => {
-    vi.stubGlobal('window', {});
-    vi.stubGlobal('document', {});
-    const input = createInput({
+  it.each([
+    { executionMode: 'provider' },
+    { providerBindingId: 'invented-binding' },
+    {
+      speakers: [{ id: 'speaker-a', displayName: '讲解者', voiceId: 'alloy' }],
+    },
+    {
       speakers: [
         {
           id: 'speaker-a',
           displayName: '讲解者',
-          voiceSource: 'reference_audio',
-          referenceAudio: {
-            file: new File(['sample'], 'host.mp3', { type: 'audio/mpeg' }),
-            filename: 'host.mp3',
-            mimeType: 'audio/mpeg',
-            size: 6,
-          },
+          referenceAudio: { filename: 'sample.mp3' },
         },
       ],
-    });
-    authorizePptExplainerUiCreation(input, {
-      skipOutlineReview: false,
-      voiceCloneConsent: true,
-    });
-    mocks.putArtifact.mockImplementation(async (_jobId, artifactName) => {
-      mocks.callOrder.push('stage-' + artifactName);
-      return '/__aitu_internal__/ppt-explainer/job/' + artifactName;
-    });
+    },
+    {
+      speakers: [
+        { id: 'speaker-a', displayName: '讲解者', avatarAssetId: 'avatar-1' },
+      ],
+    },
+  ])(
+    'rejects unsupported creation fields without side effects: %o',
+    async (legacy) => {
+      await expect(
+        createPptExplainerTask({
+          ...createInput(),
+          ...legacy,
+        } as PptExplainerCreateInput)
+      ).rejects.toThrow();
 
-    await createPptExplainerTask(input);
+      expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
+      expect(mocks.putArtifact).not.toHaveBeenCalled();
+      expect(mocks.createRootTask).not.toHaveBeenCalled();
+    }
+  );
 
-    expect(mocks.preflightProvider).toHaveBeenCalledWith(
-      input.videoModelRef,
-      expect.objectContaining({ requiresReferenceAudio: true }),
-      expect.anything()
-    );
-    const initialState = mocks.createRootTask.mock.calls[0][0];
-    expect(initialState.speakers[0]).toMatchObject({
-      voiceSource: 'reference_audio',
-      voiceReference: {
-        assetName: 'voice-reference-01.mp3',
-        filename: 'host.mp3',
-        mimeType: 'audio/mpeg',
-        size: 6,
+  it.each([
+    [{}, '模型或画板参数无效'],
+    [{ ...createInput(), speakers: undefined }, '讲解者配置无效'],
+    [{ ...createInput(), speakers: {} }, '讲解者配置无效'],
+    [
+      {
+        ...createInput(),
+        speakers: [{ id: undefined, displayName: '讲解者' }],
       },
-    });
-    expect(initialState.speakers[0]).not.toHaveProperty('referenceAudio');
-    expect(JSON.stringify(initialState)).not.toContain('sample');
-    expect(mocks.putArtifact).toHaveBeenCalledWith(
-      expect.any(String),
-      'voice-reference-01.mp3',
-      expect.any(Blob)
+      '讲解者名称和 ID 必须是文本',
+    ],
+    [{ ...createInput(), videoModel: undefined }, '模型或画板参数无效'],
+  ])(
+    'rejects malformed runtime input without trim errors: %o',
+    async (input, message) => {
+      await expect(
+        createPptExplainerTask(input as PptExplainerCreateInput)
+      ).rejects.toThrow(message);
+      expect(mocks.createRootTask).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects a video model without an explicit narration-audio contract', async () => {
+    mocks.resolveInvocationPlanFromRoute.mockImplementation((operation) =>
+      operation === 'video'
+        ? {
+            ...createPlan('video'),
+            modelRef: { profileId: 'profile-1', modelId: 'seedance-1.5-pro' },
+          }
+        : createPlan(operation)
     );
-    vi.unstubAllGlobals();
-  });
 
-  it('rejects reference audio without a current-page consent grant', async () => {
-    const input = createInput({
-      speakers: [
-        {
-          id: 'speaker-a',
-          displayName: '讲解者',
-          voiceSource: 'reference_audio',
-          referenceAudio: {
-            file: new File(['sample'], 'host.mp3', { type: 'audio/mpeg' }),
-            filename: 'host.mp3',
-            mimeType: 'audio/mpeg',
-          },
-        },
-      ],
-    });
-
-    await expect(createPptExplainerTask(input)).rejects.toThrow('本人授权');
-    expect(mocks.preflightProvider).not.toHaveBeenCalled();
+    await expect(createPptExplainerTask(createInput())).rejects.toThrow(
+      '当前所选视频模型未声明可生成讲解音轨'
+    );
     expect(mocks.putArtifact).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
-  });
-
-  it('copies a selected audio asset into job-private storage', async () => {
-    vi.stubGlobal('window', {});
-    vi.stubGlobal('document', {});
-    const input = createInput({
-      speakers: [
-        {
-          id: 'speaker-a',
-          displayName: '讲解者',
-          voiceSource: 'reference_audio',
-          referenceAudio: {
-            sourceAssetId: 'audio-asset-1',
-            sourceUrl: '/__aitu_cache__/audio/source.mp3',
-            filename: 'source.mp3',
-            mimeType: 'audio/mpeg',
-            size: 15,
-          },
-        },
-      ],
-    });
-    authorizePptExplainerUiCreation(input, {
-      skipOutlineReview: false,
-      voiceCloneConsent: true,
-    });
-    mocks.putArtifact.mockResolvedValue(
-      '/__aitu_internal__/ppt-explainer/job/voice-reference-01.mp3'
-    );
-
-    await createPptExplainerTask(input);
-
-    expect(mocks.getCachedBlob).toHaveBeenCalledWith(
-      '/__aitu_cache__/audio/source.mp3'
-    );
-    expect(mocks.putArtifact).toHaveBeenCalledWith(
-      expect.any(String),
-      'voice-reference-01.mp3',
-      expect.objectContaining({ size: 15, type: 'audio/mpeg' })
-    );
-    expect(mocks.createRootTask.mock.calls[0][0].speakers[0]).toMatchObject({
-      voiceReference: {
-        sourceAssetId: 'audio-asset-1',
-        cacheUrl: '/__aitu_internal__/ppt-explainer/job/voice-reference-01.mp3',
-      },
-    });
   });
 
   it('confirms review only once and starts the persisted task', async () => {

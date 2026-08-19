@@ -1,29 +1,15 @@
-import React, { useMemo, useRef, useState } from 'react';
-import {
-  Button,
-  Dialog,
-  Input,
-  MessagePlugin,
-  Select,
-  Textarea,
-} from 'tdesign-react';
+import React, { useRef, useState } from 'react';
+import { Button, Dialog, Input, MessagePlugin, Textarea } from 'tdesign-react';
 import { FileUp, Trash2 } from 'lucide-react';
 import type { ModelRef } from '../../utils/settings-manager';
-import type { Asset } from '../../types/asset.types';
-import { AssetType } from '../../types/asset.types';
 import type { Task } from '../../types/task.types';
 import type {
   PptExplainerCreateInput,
-  PptExplainerExecutionMode,
-  PptExplainerPresenterMode,
+  PptExplainerCreateSpeakerInput,
   PptExplainerReviewMode,
-  PptExplainerReferenceAudioInput,
   PptExplainerSourceKind,
-  PptExplainerSpeakerInput,
-  PptExplainerVoiceSource,
 } from '../../services/ppt-explainer/types';
 import { authorizePptExplainerUiCreation } from '../../services/ppt-explainer/creation-service';
-import { isProviderReachableAvatarUrl } from '../../services/ppt-explainer/validation';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import './ppt-explainer-dialog.scss';
 
@@ -37,29 +23,15 @@ const SOURCE_OPTIONS: Array<{
 ];
 
 const PRESENTER_OPTIONS: Array<{
-  value: PptExplainerPresenterMode;
+  value: PptExplainerCreateInput['presenterMode'];
   label: string;
 }> = [
-  { value: 'single_voice', label: '单声线' },
-  { value: 'dual_voice', label: '双声线' },
-  { value: 'single_avatar', label: '单数字人' },
-  { value: 'dual_avatar', label: '双数字人' },
-];
-
-const EXECUTION_OPTIONS: Array<{
-  value: PptExplainerExecutionMode;
-  label: string;
-}> = [
-  { value: 'local', label: '现有模型本地合成' },
-  { value: 'provider', label: '专用 PPT Agent' },
+  { value: 'single_voice', label: '单人讲解' },
+  { value: 'dual_voice', label: '双人对谈' },
 ];
 
 interface SpeakerDraft {
   displayName: string;
-  voiceSource?: PptExplainerVoiceSource;
-  voiceId: string;
-  referenceAudio?: PptExplainerReferenceAudioInput;
-  avatarChoice: string;
 }
 
 export interface PptExplainerDialogDraft {
@@ -67,10 +39,8 @@ export interface PptExplainerDialogDraft {
   topic: string;
   pptxFile?: File;
   reviewMode: PptExplainerReviewMode;
-  executionMode: PptExplainerExecutionMode;
-  presenterMode: PptExplainerPresenterMode;
+  presenterMode: PptExplainerCreateInput['presenterMode'];
   speakers: SpeakerDraft[];
-  voiceCloneConsent?: boolean;
 }
 
 export interface PptExplainerDialogProps {
@@ -84,17 +54,14 @@ export interface PptExplainerDialogProps {
   imageModelRef?: ModelRef | null;
   videoModel: string;
   videoModelRef?: ModelRef | null;
-  avatarAssets?: Asset[];
   onCreate: (input: PptExplainerCreateInput) => Promise<Task>;
   onClose: () => void;
 }
 
-function getSpeakerCount(mode: PptExplainerPresenterMode): number {
-  return mode === 'dual_voice' || mode === 'dual_avatar' ? 2 : 1;
-}
-
-function needsAvatar(mode: PptExplainerPresenterMode): boolean {
-  return mode === 'single_avatar' || mode === 'dual_avatar';
+function getSpeakerCount(
+  mode: PptExplainerCreateInput['presenterMode']
+): number {
+  return mode === 'dual_voice' ? 2 : 1;
 }
 
 function createInitialDraft(initialTopic?: string): PptExplainerDialogDraft {
@@ -103,23 +70,8 @@ function createInitialDraft(initialTopic?: string): PptExplainerDialogDraft {
     source: topic ? 'topic' : 'current_ppt',
     topic,
     reviewMode: 'confirm',
-    executionMode: 'local',
     presenterMode: 'single_voice',
-    speakers: [
-      {
-        displayName: '主讲人',
-        voiceSource: 'voice_id',
-        voiceId: 'alloy',
-        avatarChoice: '',
-      },
-      {
-        displayName: '嘉宾',
-        voiceSource: 'voice_id',
-        voiceId: 'nova',
-        avatarChoice: '',
-      },
-    ],
-    voiceCloneConsent: false,
+    speakers: [{ displayName: '主讲人' }, { displayName: '嘉宾' }],
   };
 }
 
@@ -135,7 +87,6 @@ export function validatePptExplainerDialogDraft(
     imageModel?: string;
     videoModel: string;
     videoModelRef?: ModelRef | null;
-    avatarAssets?: readonly Asset[];
   }
 ): string | null {
   if (!context.sourceBoardId?.trim()) return '当前画板尚未就绪';
@@ -143,14 +94,14 @@ export function validatePptExplainerDialogDraft(
   if (draft.source === 'topic' && !context.imageModel?.trim()) {
     return '请选择 PPT 页面图片模型';
   }
-  if (
-    draft.executionMode === 'provider' &&
-    (!context.videoModel.trim() || !context.videoModelRef)
-  ) {
-    return '请选择支持 PPT 讲解的供应商视频模型';
+  if (!context.videoModel.trim() || !context.videoModelRef) {
+    return '请选择当前可用的视频模型';
   }
-  if (draft.executionMode === 'local' && needsAvatar(draft.presenterMode)) {
-    return '本地合成首版先支持单声线和双声线';
+  if (
+    draft.presenterMode !== 'single_voice' &&
+    draft.presenterMode !== 'dual_voice'
+  ) {
+    return '当前仅支持单人讲解和双人对谈';
   }
   if (draft.source === 'topic' && !draft.topic.trim()) return '请输入 PPT 主题';
   if (draft.source === 'pptx' && !draft.pptxFile) return '请选择 PPTX 文件';
@@ -171,48 +122,8 @@ export function validatePptExplainerDialogDraft(
   }
   for (const [index, speaker] of activeSpeakers.entries()) {
     if (!speaker.displayName.trim()) return `请填写讲解者 ${index + 1} 的名称`;
-    if (needsAvatar(draft.presenterMode) && !speaker.avatarChoice.trim()) {
-      return `请选择讲解者 ${index + 1} 的数字人`;
-    }
-    const avatarChoice = speaker.avatarChoice.trim();
-    if (needsAvatar(draft.presenterMode) && avatarChoice.startsWith('asset:')) {
-      const assetId = avatarChoice.slice('asset:'.length);
-      const asset = context.avatarAssets?.find(
-        (item) =>
-          item.id === assetId &&
-          item.type === AssetType.IMAGE &&
-          isProviderReachableAvatarUrl(item.url)
-      );
-      if (!asset) {
-        return `讲解者 ${index + 1} 的数字人素材无法供供应商访问`;
-      }
-    }
-    if (
-      needsAvatar(draft.presenterMode) &&
-      /^(?:https?:|data:|blob:|\/)/i.test(avatarChoice) &&
-      !isProviderReachableAvatarUrl(avatarChoice)
-    ) {
-      return `讲解者 ${index + 1} 的数字人必须使用供应商 ID 或公开 HTTP(S) URL`;
-    }
   }
   return null;
-}
-
-function resolveAvatar(
-  choice: string,
-  avatarAssets: readonly Asset[]
-): Pick<PptExplainerSpeakerInput, 'avatarAssetId' | 'avatarSourceUrl'> {
-  const normalized = choice.trim();
-  if (!normalized) return {};
-  if (normalized.startsWith('asset:')) {
-    const assetId = normalized.slice('asset:'.length);
-    const asset = avatarAssets.find((item) => item.id === assetId);
-    return asset ? { avatarSourceUrl: asset.url } : {};
-  }
-  if (/^(?:https?:|\/)/i.test(normalized)) {
-    return { avatarSourceUrl: normalized };
-  }
-  return { avatarAssetId: normalized };
 }
 
 function SegmentControl<T extends string>({
@@ -262,7 +173,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   imageModelRef,
   videoModel,
   videoModelRef,
-  avatarAssets = [],
   onCreate,
   onClose,
 }) => {
@@ -272,42 +182,18 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { confirm, confirmDialog } = useConfirmDialog();
   const speakerCount = getSpeakerCount(draft.presenterMode);
-  const avatarMode = needsAvatar(draft.presenterMode);
-  const providerAvatarAssets = useMemo(
-    () =>
-      avatarAssets.filter(
-        (asset) =>
-          asset.type === AssetType.IMAGE &&
-          isProviderReachableAvatarUrl(asset.url)
-      ),
-    [avatarAssets]
-  );
-  const avatarOptions = useMemo(
-    () =>
-      providerAvatarAssets.map((asset) => ({
-        value: `asset:${asset.id}`,
-        label: asset.name,
-      })),
-    [providerAvatarAssets]
-  );
   const validationError = validatePptExplainerDialogDraft(draft, {
     sourceBoardId,
     textModel,
     imageModel,
     videoModel,
     videoModelRef,
-    avatarAssets: providerAvatarAssets,
   });
 
-  const updateSpeaker = (
-    index: number,
-    patch: Partial<SpeakerDraft>,
-    resetVoiceConsent = false
-  ): void => {
+  const updateSpeaker = (index: number, patch: Partial<SpeakerDraft>): void => {
     setSubmitError(null);
     setDraft((current) => ({
       ...current,
-      ...(resetVoiceConsent ? { voiceCloneConsent: false } : {}),
       speakers: current.speakers.map((speaker, speakerIndex) =>
         speakerIndex === index ? { ...speaker, ...patch } : speaker
       ),
@@ -332,35 +218,18 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
     setLoading(true);
     setSubmitError(null);
     try {
-      const speakers: PptExplainerSpeakerInput[] = draft.speakers
+      const speakers: PptExplainerCreateSpeakerInput[] = draft.speakers
         .slice(0, speakerCount)
-        .map((speaker, index) => {
-          const voiceSource =
-            speaker.voiceSource ||
-            (speaker.referenceAudio ? 'reference_audio' : 'voice_id');
-          return {
-            id: index === 0 ? 'host' : 'guest',
-            displayName: speaker.displayName.trim(),
-            ...(draft.executionMode === 'provider'
-              ? {
-                  voiceSource,
-                  ...(voiceSource === 'reference_audio'
-                    ? { referenceAudio: speaker.referenceAudio }
-                    : { voiceId: speaker.voiceId.trim() }),
-                }
-              : {}),
-            ...(avatarMode
-              ? resolveAvatar(speaker.avatarChoice, providerAvatarAssets)
-              : {}),
-          };
-        });
+        .map((speaker, index) => ({
+          id: index === 0 ? 'host' : 'guest',
+          displayName: speaker.displayName.trim(),
+        }));
       const input: PptExplainerCreateInput = {
         source: draft.source,
         sourceBoardId,
         ...(draft.source === 'topic' ? { topic: draft.topic.trim() } : {}),
         reviewMode: draft.source === 'topic' ? draft.reviewMode : 'confirm',
         presenterMode: draft.presenterMode,
-        executionMode: draft.executionMode,
         speakers,
         textModel,
         textModelRef,
@@ -513,27 +382,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
           ) : null}
 
           <section className="ppt-explainer-dialog__section">
-            <label className="ppt-explainer-dialog__label">生成方式</label>
-            <SegmentControl
-              label="生成方式"
-              options={EXECUTION_OPTIONS}
-              value={draft.executionMode}
-              disabled={loading}
-              onChange={(executionMode) => {
-                setSubmitError(null);
-                setDraft((current) => ({
-                  ...current,
-                  executionMode,
-                  ...(executionMode === 'local' &&
-                  needsAvatar(current.presenterMode)
-                    ? { presenterMode: 'single_voice' as const }
-                    : {}),
-                }));
-              }}
-            />
-          </section>
-
-          <section className="ppt-explainer-dialog__section">
             <label className="ppt-explainer-dialog__label">讲解模式</label>
             <SegmentControl
               label="讲解模式"
@@ -545,7 +393,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                 setDraft((current) => ({
                   ...current,
                   presenterMode,
-                  voiceCloneConsent: false,
                 }));
               }}
             />
@@ -568,33 +415,13 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                       updateSpeaker(index, { displayName })
                     }
                   />
-                  {avatarMode ? (
-                    <div className="ppt-explainer-dialog__avatar">
-                      <Select
-                        value={speaker.avatarChoice || undefined}
-                        placeholder="选择数字人素材或输入 ID / URL"
-                        options={avatarOptions}
-                        filterable
-                        creatable
-                        disabled={loading}
-                        onChange={(avatarChoice) =>
-                          updateSpeaker(index, {
-                            avatarChoice: String(avatarChoice || ''),
-                          })
-                        }
-                      />
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>
-            {draft.executionMode === 'local' ? (
-              <div className="ppt-explainer-dialog__hint" role="note">
-                将逐页使用所选有声视频模型生成讲解音轨，再固定原 PPT
-                页面合成。朗读内容、音色和时长可能随模型结果波动，推荐 Seedance
-                1.5 Pro。
-              </div>
-            ) : null}
+            <div className="ppt-explainer-dialog__hint" role="note">
+              将逐页使用当前选择的视频模型生成讲解音轨，再固定原 PPT
+              页面合成。朗读内容、音色和时长由所选模型的实际能力决定。
+            </div>
           </section>
         </div>
       </Dialog>

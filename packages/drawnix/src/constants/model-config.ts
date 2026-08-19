@@ -709,6 +709,17 @@ const SEEDANCE_DEFAULT_PARAMS: VideoModelDefaults = {
   aspectRatio: '16:9',
 };
 
+const PPT_NARRATION_AUDIO_TAG = 'ppt-narration-audio';
+
+export function supportsPptNarrationAudio(
+  model: Pick<ModelConfig, 'type' | 'tags'> | null | undefined
+): boolean {
+  return (
+    model?.type === 'video' &&
+    Boolean(model.tags?.includes(PPT_NARRATION_AUDIO_TAG))
+  );
+}
+
 /** HappyHorse 模型默认参数（5秒，1080P） */
 const HAPPYHORSE_DEFAULT_PARAMS: VideoModelDefaults = {
   duration: '5',
@@ -740,7 +751,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     vendor: ModelVendor.DOUBAO,
     isVip: true,
     videoDefaults: SEEDANCE_DEFAULT_PARAMS,
-    tags: ['new', 'seedance', 'seedance-2'],
+    tags: ['new', 'seedance', 'seedance-2', PPT_NARRATION_AUDIO_TAG],
   },
   {
     id: 'doubao-seedance-2-0-fast-260128',
@@ -750,7 +761,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     type: 'video',
     vendor: ModelVendor.DOUBAO,
     videoDefaults: SEEDANCE_DEFAULT_PARAMS,
-    tags: ['new', 'seedance', 'seedance-2'],
+    tags: ['new', 'seedance', 'seedance-2', PPT_NARRATION_AUDIO_TAG],
   },
   {
     id: 'doubao-seedance-2-0-mini-260615',
@@ -760,7 +771,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     type: 'video',
     vendor: ModelVendor.DOUBAO,
     videoDefaults: SEEDANCE_DEFAULT_PARAMS,
-    tags: ['new', 'seedance', 'seedance-2'],
+    tags: ['new', 'seedance', 'seedance-2', PPT_NARRATION_AUDIO_TAG],
   },
   {
     id: 'seedance-1.5-pro',

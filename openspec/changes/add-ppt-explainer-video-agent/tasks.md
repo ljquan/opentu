@@ -1,29 +1,29 @@
 ## 1. Contracts And Routing
 
 - [x] 1.1 定义版本化的 PPT 讲解配置、来源、speaker turn、根任务阶段和无密钥持久化类型
-- [x] 1.2 为 video provider binding 增加 `ppt-explainer` capability、submit/poll/optional-cancel 和字段映射
-- [x] 1.3 增加能力预检，确保缺模型、binding、凭据或 presenter 能力时零远端副作用
-- [x] 1.4 增加 provider submit/poll/cancel 适配与状态、进度、错误和最终 URL 标准化
+- [x] 1.2 复用现有文本、图片和视频模型路由，不新增专用 PPT provider 协议
+- [x] 1.3 增加能力预检，确保缺模型、凭据、可执行路由或显式音频能力时零写入/计费副作用
+- [x] 1.4 历史 provider 任务保留读取、恢复和取消兼容，但新建 DTO 与 UI 不再暴露该路径
 
 ## 2. Presentation Sources
 
 - [x] 2.1 复用现有 PPT Frames 实现当前 PPT 的有序来源解析和不可变快照
 - [x] 2.2 复用 `generate_ppt` 实现主题来源，并接入确认大纲/警告后跳过两条路径
 - [x] 2.3 引入固定版本且按需加载的 PPTX 渲染依赖，并在 Worker 中实现安全解析、notes 提取和逐页快照
-- [x] 2.4 支持 binding 声明 PPTX 时原文件直传，否则提交有序页图
+- [x] 2.4 将 PPTX 统一解析为有序页图后进入现有模型链路
 - [x] 2.5 实现空主题、空 PPT、缺页图、损坏/加密/空 PPTX 和逐页渲染错误校验
 
 ## 3. Narration Planning
 
 - [x] 3.1 根据页面 notes 和文本模型生成结构化页级讲稿
-- [x] 3.2 实现单声线、双声线、单数字人和双数字人 speaker 配置与 schema 校验
+- [x] 3.2 实现单人讲解和双人对谈 speaker 配置与 schema 校验
 - [x] 3.3 保存文本/图片/成片模型及原 `ModelRef`，避免恢复时路由漂移
 - [x] 3.4 确保讲稿和成片总时长不经过普通视频 60 秒 `duration` 字段
 
 ## 4. Persistent Orchestration
 
 - [x] 4.1 用标准 `VIDEO` 根任务实现专用状态机和阶段进度，不新增 TaskType 或数据库 store
-- [x] 4.2 在 submit 前持久化幂等键，submit 后立即持久化 remoteId 和原 route snapshot
+- [x] 4.2 在生成前持久化幂等键和阶段，并保存内部媒体任务引用
 - [x] 4.3 实现刷新恢复、跨标签锁内重读与 executionAttempt 校验、阶段重试、重复完成幂等和迟到回写隔离
 - [x] 4.4 实现 AbortController、executionToken、本地取消，以及远端 cancel single-flight、成功去重和失败重试
 - [x] 4.5 支持同一 PPT 多任务并发，确保快照、事件和取消互不影响
@@ -32,7 +32,7 @@
 
 - [x] 5.1 注册 `generate_ppt_explainer_video` MCP 工具、SW/main-thread capability 和工作流解析入口
 - [x] 5.2 新增内置「PPT 讲解视频」Skill，复用 Agent 多媒体模型选择与任务发布
-- [x] 5.3 增加来源、审核方式、讲解模式、声音和数字人选择控件及完整 disabled/error/loading 状态
+- [x] 5.3 增加来源、审核方式、单/双人讲解控件及完整 disabled/error/loading 状态
 - [x] 5.4 为跳过大纲增加明确二次提示，并记录用户确认时间
 - [x] 5.5 在 PPT 大纲确认路径提供继续生成讲解视频的幂等入口
 
@@ -48,12 +48,12 @@
 - [ ] 7.1 PPTX 解压、页图生成和上传采用 Worker、逐页处理、背压和及时资源释放
   - 剩余：Worker 仍需一次完整 `Blob.arrayBuffer()`，单次 `FormData` 上传仍可能持有全部页 Blob
 - [x] 7.2 验证 File/Blob/base64/API key/Authorization/完整响应不会进入任务、日志或缓存元数据
-- [x] 7.3 验证恢复、poll、cancel 始终使用原 route，且不向不可信目标泄漏凭据
+- [x] 7.3 验证内部媒体任务恢复、轮询和取消使用原 route，且不向不可信目标泄漏凭据
 - [x] 7.4 保留 OOXML 结构安全检查和实际运行环境配额错误，不加入固定产品大小/页数/时长上限
 
 ## 8. Automated Verification
 
-- [x] 8.1 覆盖三种来源、两种审核路径、四种讲解模式和最终双写正常流程
+- [x] 8.1 覆盖三种来源、两种审核路径、两种讲解模式和最终双写正常流程
 - [x] 8.2 覆盖空数据、非法 speaker、损坏 PPTX、缺 capability/key、401/403/429/5xx 和完成无 URL
 - [x] 8.3 覆盖 21+ 页、61+ 秒发言、20+ 分钟总时长、较大 Blob 元数据和同 PPT 双任务不被 OpenTu 预拒绝或截断
 - [x] 8.4 覆盖刷新恢复、幂等 submit、取消与迟到 poll、重复完成、乱序回调和原画板切换
@@ -63,46 +63,29 @@
 ## 9. Validation And Handoff
 
 - [ ] 9.1 运行相关 Vitest、drawnix typecheck/lint 与三浏览器 Playwright 用例
-  - 本次同源 PPT 增量：7 个 Vitest 文件 / 92 个测试全部通过；drawnix typecheck、Prettier、`git diff --check` 通过；局域网确认内置 PPT 讲解 Skill 及三类模型选择正常加载
-  - 本次限制：当前环境没有 `openspec` CLI，无法重新执行 strict；增量 ESLint 仅命中 `TaskItem.tsx` 与 `services.ts` 未改行上的既有 lazy-load 边界错误及历史 warning
-  - 已完成：31 个相关 Vitest 文件 / 360 个测试；本次参考音频增量复验 11 个文件 / 132 个测试；固定原 PPT 画面增量复验 15 个文件 / 217 个测试；drawnix typecheck；增量 ESLint（0 个本次 error，既有 warning 保持不变）；OpenSpec strict；内置 Chromium 的桌面与 390×844 局域网页面复验；Node 20 Service Worker/隔离 PPTX Worker 构建；以及 GitHub CI 的 Node 20 web/drawnix 构建
-  - 基线说明：CI 的 10 个失败测试文件在 `origin/develop@0e7c242e` 上同样为 55 项失败；上一个已合并 PR #229 也因 11 个测试文件和既有 size-limit 债务失败
-  - 剩余：Firefox/WebKit 专项 E2E 未完成；本机 8 GiB 环境整站构建在默认约 2 GiB old-space 下 OOM
-- [ ] 9.2 使用真实供应商 binding 验证 submit、poll、cancel（若支持）及四种 presenter mode
+  - 本次清理复验：17 个 Vitest 文件 / 202 个测试全部通过；`drawnix:typecheck`、Prettier、`git diff --check` 通过；增量 ESLint 0 error，仅保留 20 条原文件 warning
+  - 局域网服务：`5188` 从当前功能工作树启动并返回 HTTP 200；内置浏览器在服务重启间进入本地错误页后被安全策略阻止自动重载，未冒充完成界面复验
+  - 本次限制：当前环境没有 `openspec` CLI，无法重新执行 strict；Firefox/WebKit 专项 E2E 仍未完成
+- [ ] 9.2 使用真实已配置的 Seedance 2.0 验证逐页有声片段、固定 PPT 合成及单/双人模式
 - [x] 9.3 记录无远端 cancel、PPTX 渲染差异、供应商限制和跨域缓存等剩余风险
 - [x] 9.4 更新 Navigator 的资源、verify、version、PR 和完成事件
 
-## 10. Authorized Reference Audio Voice Cloning
+## 10. 已废弃方案清理
 
-- [x] 10.1 兼容扩展 speaker、任务状态和 manifest DTO，支持 `voiceId` / 参考音频二选一且禁止本地 cacheUrl 泄漏
-- [x] 10.2 为 binding 增加显式参考音频克隆能力和 MIME 声明，并在缓存、生成与计费副作用前预检
-- [x] 10.3 将直接上传或素材库音频复制到 job 私有缓存，支持局域网 HTTP 的 IndexedDB fallback、刷新恢复和终态清理
-- [x] 10.4 在 multipart 中通过稳定 assetName 提交单/双人 `voice_references[]`，覆盖空 Blob、错误 MIME、重复引用、base64 和取消
-- [x] 10.5 增加每位 speaker 的声音来源、上传、素材库选择和移除交互，并要求当前页面一次性声音授权确认
-- [x] 10.6 覆盖 voice ID 兼容、双人混合来源、素材删除后恢复、无授权、binding 不支持、取消/完成清理、并发与凭据安全
-- [x] 10.7 运行定向 Vitest、typecheck、增量 ESLint、OpenSpec strict 和局域网页面复验，更新交付报告与 Navigator
-
-## 11. Local Composition Fallback
-
-> 本节的 TTS 方案已被第 12 节逐页有声视频方案替代；保留记录仅用于说明历史实现，不再作为当前产品入口。
-
-- [x] 11.1 增加所有用户直接可用的内置 `/audio/speech` TTS 路由、二进制响应适配和缓存，不暴露模型/binding 配置
-- [x] 11.2 在任务模型中保存音频模型原路由快照和本地/远端执行模式，不保存音频 Blob 或凭据
-- [x] 11.3 按 speaker turns 串行或小并发生成旁白，支持单/双声线并在取消时停止后续请求
-- [x] 11.4 实现按页 PPT 快照、旁白、字幕和转场的本地成片器，及时释放媒体元素、Object URL 和轨道
-- [ ] 11.5 数字人模式复用普通视频模型生成可选片段；不可用时明确失败，不将普通视频模型声明为完整 PPT Agent
-- [x] 11.6 接入刷新恢复、取消、素材库和原画板幂等交付
-- [ ] 11.7 覆盖 TTS 二进制/错误响应、空讲稿、双声线顺序、取消、兼容降级和资源释放测试
-  - 已完成：TTS 二进制/错误响应、录制格式兼容降级、既有创建/编排/UI 回归
+- [x] 10.1 删除新建入口、MCP schema 和 Skill 中未接入的专用 Agent、音频模型、声音样本与数字人配置
+- [x] 10.2 新任务拒绝历史 execution/provider 与额外 speaker 字段，且在缓存、网络和持久化前失败
+- [x] 10.3 历史任务 DTO 与 provider 适配器仅保留读取/恢复兼容，不允许新任务进入
+- [x] 10.4 PPT 模型选择器只展示适配器显式请求生成音频的三个 Seedance 2.0 模型
+- [x] 10.5 覆盖隐藏旧入口、schema 收口、畸形输入、无能力模型和零副作用拒绝
 
 ## 12. 逐页有声视频生成
 
-- [x] 12.1 移除 PPT 新建入口中的虚假 TTS、voice ID、参考音频和克隆授权配置
+- [x] 12.1 移除 PPT 新建入口中的未接入语音与身份配置
 - [x] 12.2 使用已选视频模型按页生成带语音片段，并保留 internal 子任务所有权、取消和恢复信息
 - [x] 12.3 将有声片段强制缓存为同源 internal 媒体，只取音轨并以原 PPT 快照固定画面本地合成
 - [x] 12.4 更新 UI 和任务进度，明确最终画面保持原 PPT，生成式模型只决定朗读、音色和时长
 - [x] 12.5 覆盖单/双人提示词、固定 PPT 画面、逐页音轨、缓存/解码失败、取消、兼容降级和资源释放测试
 - [x] 12.6 复验最终素材库与原画板幂等交付，确认模型重绘片段保持 internal 且不直接展示
 - [x] 12.7 主题生成新增独立 PPT，保留已有页面并按 jobId 隔离本次页面集合
-- [x] 12.8 移除 PPT 讲解 Agent 底栏的音频模型及创建输入路由（原方案已废弃）
+- [x] 12.8 移除 PPT 讲解底栏的音频模型及创建输入路由（原方案已废弃）
 - [x] 12.9 将生成页图先写回用户可见 PPT，再从同一页面冻结快照；传递精确页数并修正任务卡阶段展示

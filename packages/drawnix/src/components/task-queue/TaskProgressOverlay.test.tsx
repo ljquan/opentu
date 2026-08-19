@@ -28,35 +28,36 @@ describe('PPT explainer task display', () => {
     ['review_pending', 'PPT大纲待确认'],
     ['snapshotting', '正在生成并固定PPT页面'],
     ['scripting', '正在生成逐页讲稿'],
-    ['submitting', '正在生成讲解音轨'],
-    ['polling', '正在生成讲解音轨'],
+    ['submitting', '正在生成逐页有声讲解'],
+    ['polling', '正在生成逐页有声讲解'],
     ['finalizing', '正在合成PPT讲解视频'],
   ])('maps %s to its task stage text', (stage, expected) => {
     expect(getPptExplainerStageText(stage)).toBe(expected);
   });
 
   it('only exposes the selected video model while narration audio is generated', () => {
-    expect(getPptExplainerModelLabel('preparing', 'Seedance 1.5 Pro')).toBe(
-      'PPT讲解'
+    expect(
+      getPptExplainerModelLabel('preparing', 'Seedance 2.0 Fast')
+    ).toBeUndefined();
+    expect(
+      getPptExplainerModelLabel('review_pending', 'Seedance 2.0 Fast')
+    ).toBeUndefined();
+    expect(
+      getPptExplainerModelLabel('snapshotting', 'Seedance 2.0 Fast')
+    ).toBeUndefined();
+    expect(
+      getPptExplainerModelLabel('scripting', 'Seedance 2.0 Fast')
+    ).toBeUndefined();
+    expect(getPptExplainerModelLabel('submitting', 'Seedance 2.0 Fast')).toBe(
+      'Seedance 2.0 Fast'
+    );
+    expect(getPptExplainerModelLabel('polling', 'Seedance 2.0 Fast')).toBe(
+      'Seedance 2.0 Fast'
     );
     expect(
-      getPptExplainerModelLabel('review_pending', 'Seedance 1.5 Pro')
-    ).toBe('PPT讲解');
-    expect(getPptExplainerModelLabel('snapshotting', 'Seedance 1.5 Pro')).toBe(
-      'PPT讲解'
-    );
-    expect(getPptExplainerModelLabel('scripting', 'Seedance 1.5 Pro')).toBe(
-      'PPT讲解'
-    );
-    expect(getPptExplainerModelLabel('submitting', 'Seedance 1.5 Pro')).toBe(
-      'Seedance 1.5 Pro'
-    );
-    expect(getPptExplainerModelLabel('polling', 'Seedance 1.5 Pro')).toBe(
-      'Seedance 1.5 Pro'
-    );
-    expect(getPptExplainerModelLabel('finalizing', 'Seedance 1.5 Pro')).toBe(
-      'PPT讲解'
-    );
+      getPptExplainerModelLabel('finalizing', 'Seedance 2.0 Fast')
+    ).toBeUndefined();
+    expect(getPptExplainerModelLabel('submitting')).toBeUndefined();
   });
 
   it('keeps ordinary video tasks unchanged', () => {

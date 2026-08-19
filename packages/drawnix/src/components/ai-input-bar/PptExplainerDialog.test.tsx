@@ -206,6 +206,7 @@ function renderDialog(
     <PptExplainerDialog
       open
       sourceBoardId="board-1"
+      hasExistingPpt={false}
       initialTopic="季度复盘"
       textModel="text-1"
       imageModel="image-1"
@@ -248,7 +249,6 @@ describe('PptExplainerDialog', () => {
         source: 'topic',
         topic: '季度复盘',
         reviewMode: 'skip_after_warning',
-        executionMode: 'local',
         presenterMode: 'single_voice',
         speakers: [
           expect.objectContaining({
@@ -257,6 +257,13 @@ describe('PptExplainerDialog', () => {
           }),
         ],
       })
+    );
+    const submitted = onCreate.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(submitted).not.toHaveProperty('executionMode');
+    expect(submitted).not.toHaveProperty('providerBindingId');
+    expect(submitted).not.toHaveProperty('voiceCloneConsent');
+    expect(JSON.stringify(submitted.speakers)).not.toMatch(
+      /voice|referenceAudio|avatar/i
     );
     expect(mocks.success).toHaveBeenCalledWith('PPT 讲解任务已创建');
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -322,122 +329,35 @@ describe('PptExplainerDialog', () => {
     ).toBe(false);
   });
 
-  it('双数字人要求两套不同声线和数字人配置', () => {
-    const draft: PptExplainerDialogDraft = {
-      source: 'current_ppt',
-      topic: '',
-      reviewMode: 'confirm',
-      presenterMode: 'dual_avatar',
-      speakers: [
-        {
-          displayName: '主持人',
-          voiceId: 'voice-a',
-          avatarChoice: 'avatar-a',
-        },
-        {
-          displayName: '嘉宾',
-          voiceId: 'voice-a',
-          avatarChoice: '',
-        },
-      ],
-    };
-
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-      })
-    ).toBe('请选择讲解者 2 的数字人');
-
-    draft.speakers[1].avatarChoice = 'avatar-b';
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-      })
-    ).toBeNull();
-  });
-
-  it('双数字人只展示讲解者和素材选择器，不展示音频克隆配置', () => {
+  it('只展示当前真实支持的单人和双人讲解模式', () => {
     renderDialog();
 
-    fireEvent.click(screen.getByRole('radio', { name: '双数字人' }));
-    expect(screen.queryByText('参考音频')).toBeNull();
-    expect(screen.queryByText('已有 voice ID')).toBeNull();
-
-    const avatarInputs = screen.getAllByPlaceholderText(
-      '选择数字人素材或输入 ID / URL'
-    );
-    expect(avatarInputs).toHaveLength(2);
-    for (const input of avatarInputs) {
-      expect(input.closest('.ppt-explainer-dialog__avatar')).not.toBeNull();
-    }
+    expect(screen.getByRole('radio', { name: '单人讲解' })).not.toBeNull();
+    expect(screen.getByRole('radio', { name: '双人对谈' })).not.toBeNull();
+    expect(screen.queryByText('专用 PPT Agent')).toBeNull();
+    expect(screen.queryByText('单数字人')).toBeNull();
+    expect(screen.queryByText('双数字人')).toBeNull();
+    expect(screen.queryByDisplayValue('alloy')).toBeNull();
+    expect(screen.queryByDisplayValue('nova')).toBeNull();
   });
 
-  it('只展示供应商可访问的数字人素材并拒绝失效素材', () => {
-    const avatarAssets = [
-      {
-        id: 'local-avatar',
-        type: 'IMAGE',
-        source: 'LOCAL',
-        url: '/__aitu_cache__/image/avatar.png',
-        name: '本地数字人',
-        mimeType: 'image/png',
-        createdAt: 1,
-      },
-      {
-        id: 'public-avatar',
-        type: 'IMAGE',
-        source: 'AI_GENERATED',
-        url: 'https://cdn.example.com/avatar.png',
-        name: '公开数字人',
-        mimeType: 'image/png',
-        createdAt: 2,
-      },
-    ] as React.ComponentProps<typeof PptExplainerDialog>['avatarAssets'];
-    renderDialog({ avatarAssets });
-
-    fireEvent.click(screen.getByRole('radio', { name: '单数字人' }));
-    expect(screen.queryByText('本地数字人')).toBeNull();
-    expect(screen.queryByText('公开数字人')).not.toBeNull();
-
+  it('没有真实视频模型来源时禁止创建', () => {
     const draft: PptExplainerDialogDraft = {
       source: 'current_ppt',
       topic: '',
       reviewMode: 'confirm',
-      presenterMode: 'single_avatar',
-      speakers: [
-        {
-          displayName: '主讲人',
-          voiceId: 'voice-a',
-          avatarChoice: 'asset:local-avatar',
-        },
-      ],
+      presenterMode: 'single_voice',
+      speakers: [{ displayName: '主讲人' }],
     };
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-        avatarAssets,
-      })
-    ).toBe('讲解者 1 的数字人素材无法供供应商访问');
 
-    draft.speakers[0].avatarChoice = '/asset-library/avatar.png';
     expect(
       validatePptExplainerDialogDraft(draft, {
         sourceBoardId: 'board-1',
         textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-        avatarAssets,
+        videoModel: '',
+        videoModelRef: null,
       })
-    ).toBe('讲解者 1 的数字人必须使用供应商 ID 或公开 HTTP(S) URL');
+    ).toBe('请选择当前可用的视频模型');
   });
 
   it('PPTX 来源仅校验格式，不设置文件大小上限', () => {
@@ -454,13 +374,7 @@ describe('PptExplainerDialog', () => {
       reviewMode: 'confirm',
       presenterMode: 'single_voice',
       pptxFile,
-      speakers: [
-        {
-          displayName: '主讲人',
-          voiceId: 'voice-a',
-          avatarChoice: '',
-        },
-      ],
+      speakers: [{ displayName: '主讲人' }],
     };
 
     expect(pptxFile.size).toBe(20 * 1024 * 1024 + 1);
@@ -484,5 +398,4 @@ describe('PptExplainerDialog', () => {
       })
     ).toBe('仅支持 .pptx 文件');
   });
-
 });

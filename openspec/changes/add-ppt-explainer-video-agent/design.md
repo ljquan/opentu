@@ -23,15 +23,16 @@ OpenTu 是浏览器优先的 PWA，没有应用服务端、租户或 RBAC。供�
 ## Goals / Non-Goals
 
 - Goals:
-  - 三种演示来源、两种审核策略、四种讲解模式完整可配置
-  - 通过显式供应商能力完成讲稿、语音/数字人和最终成片
-  - 刷新恢复、取消、并发隔离、幂等提交和迟到结果隔离
+  - 三种演示来源、两种审核策略、单人讲解和双人对谈完整可配置
+  - 只通过当前已配置且适配器明确声明能力的文本、图片和有声视频模型完成任务
+  - 刷新恢复、取消、并发隔离和迟到结果隔离
   - 最终视频只登记一次，并进入素材库和原画布
   - 任务、日志、缓存元数据不保存凭据或大二进制
   - 不增加固定产品上限，同时使用串行/有界后台工作保护资源
 - Non-Goals:
   - 不新增 OpenTu 自有视频渲染服务器或部署体系
-  - 不把生成式视频模型输出的重绘画面作为 PPT 讲解最终视觉；显式选择现有模型模式时允许使用独立、可取消的浏览器本地合成器固定原 PPT 页面
+  - 不把生成式视频模型输出的重绘画面作为 PPT 讲解最终视觉；使用独立、可取消的浏览器本地合成器固定原 PPT 页面
+  - 不新增或猜测专用 PPT Agent、TTS、声音克隆、参考音频和数字人能力
   - 不新增用户、租户或 RBAC；权限边界仍是本地凭据、供应商能力和原画板归属
   - 不修改普通图片、视频、音乐和 PPT 大纲 Skill 的既有行为
   - 不保证第三方 PPTX 的所有 Office 特性像素级一致；不可渲染内容必须给出逐页诊断
@@ -47,10 +48,10 @@ flowchart LR
   REVIEW --> DECK["生成并写回可见 PPT 页面"]
   DECK --> SNAPSHOT["从同一页面冻结快照"]
   SNAPSHOT --> SCRIPT["页级讲稿与 speaker turns"]
-  SCRIPT --> PLAN["Provider capability preflight"]
-  PLAN --> SUBMIT["远端 submit + idempotency key"]
-  SUBMIT --> POLL["poll / optional cancel"]
-  POLL --> RESULT["最终视频 URL"]
+  SCRIPT --> PLAN["现有模型路由与显式音频能力预检"]
+  PLAN --> CLIPS["逐页生成有声视频片段"]
+  CLIPS --> COMPOSE["原 PPT 快照 + 音轨本地合成"]
+  COMPOSE --> RESULT["最终视频"]
   RESULT --> ASSET["素材库投影"]
   RESULT --> CANVAS["原画板视频节点"]
 ```
@@ -59,7 +60,7 @@ flowchart LR
 
 ### Decision: 现有模型模式使用生成视频音轨固定合成原 PPT 页面
 
-现有模型模式不声明或伪造 TTS 模型，也不要求 voice ID、参考音频或声音克隆授权。编排器把每页快照作为首帧参考，把该页结构化 speaker turns 写入提示词，串行调用用户已选的视频模型生成带语音片段；Seedance 1.5 Pro 作为明确支持有声视频的推荐模型，其他模型是否输出语音以供应商实际能力为准。
+新任务不声明或伪造额外的语音、数字人或专用成片服务。编排器把每页快照作为首帧参考，把该页结构化 speaker turns 写入提示词，串行调用用户已选的视频模型生成带语音片段。当前只有 Seedance 2.0 Standard、Fast 和 Mini 的适配器显式发送 `generate_audio: true`，因此 PPT 模型选择器只展示这三个已配置实例；Seedance 1.5 Pro 等只有目录描述而无音频请求契约的模型不得被标记为支持。
 
 生成式视频的视觉输出不是 PPT 固定画面，禁止直接拼接为最终成片。每页片段只作为讲解音轨来源：先强制缓存为同源 internal 媒体，再由独立本地合成器通过 HTMLMediaElement 和 Web Audio 播放音轨，Canvas 全程绘制原 PPT 快照、字幕和转场，最终只登记录制出的合成结果。双人模式通过角色名称、发言顺序和“使用不同声线”的文字约束表达，不承诺固定音色或精确复刻。界面和任务诊断必须提示：朗读内容、音色和片段时长可能偏离讲稿，但最终画面保持为原 PPT 页面。
 
@@ -78,91 +79,40 @@ interface PptExplainerTaskState {
   deckFingerprint?: string;
   reviewMode: 'confirm' | 'skip_after_warning';
   reviewAcceptedAt?: number;
-  presenterMode: 'single_voice' | 'dual_voice' | 'single_avatar' | 'dual_avatar';
+  presenterMode: 'single_voice' | 'dual_voice';
   speakers: Array<{
     id: string;
     displayName: string;
-    voiceSource?: 'voice_id' | 'reference_audio'; // 缺省按旧任务 voice_id 兼容
-    voiceId?: string;
-    voiceReference?: {
-      cacheUrl: string; // 仅任务本地恢复使用，不进入 manifest
-      assetName: string; // 与 multipart part 稳定关联
-      filename: string;
-      mimeType: string;
-      size: number;
-      sourceAssetId?: string;
-    };
-    avatarAssetId?: string;
-    avatarSourceUrl?: string;
   }>;
-  voiceConsentAcceptedAt?: number;
   stage: 'preparing' | 'review_pending' | 'snapshotting' | 'scripting' | 'submitting' | 'polling' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
   slides: Array<{
     pageIndex: number;
     frameId?: string;
-    snapshotUrl?: string; // PPTX 原文件直传时可缺省
+    snapshotUrl?: string;
     notes?: string;
     transition?: string;
     turns: Array<{ speakerId: string; text: string }>;
   }>;
   idempotencyKey: string;
-  remoteId?: string;
-  originalRoute: PptExplainerProviderRouteSnapshot; // v2，含 canonicalBaseUrl
+  internalTaskIds?: string[];
+  models: PptExplainerModelRoutes;
+  delivery: { resultSaved: boolean; canvasInserted: boolean };
 }
 ```
 
-PPT 讲解供应商路由快照使用 v2 schema，并额外保存无凭据的 `canonicalBaseUrl`。恢复时允许同一 profile 轮换 API key，但 host 或 path 变化必须拒绝 poll/cancel，避免把原任务标识和凭据发送到另一个目标；v1 快照不能静默重绑定，须提示重新创建任务。
-
-`File`、`Blob`、base64、Authorization、API key、完整供应商响应和视频 chunks 禁止进入该状态。参考音频在根任务可见前复制到 `jobId` 私有缓存，状态只保存上述轻量引用；素材库原音频被删除不影响已创建任务恢复。
+`File`、`Blob`、base64、Authorization、API key、完整供应商响应和视频 chunks 禁止进入该状态。PPTX 与中间媒体只以任务私有缓存 URL 引用，并在取消、失败清理或完成后按所有权释放。
 
 根任务总时长保存为专用元数据或最终 `TaskResult.duration`，不得写入普通视频提交的 `GenerationParams.duration`，避免现有 60 秒校验和截断。
 
-### Decision: 远端最终成片是正式执行边界
+### Decision: 专用成片协议只保留历史任务兼容
 
-新增视频 operation 下的 `tuzi.ppt-explainer` 协议绑定。Binding 必须声明：
-
-- `submitPath`
-- `pollPathTemplate`
-- 可选 `cancelPathTemplate` 与 cancel method
-- 请求 schema、响应 schema 和状态字段映射
-- 是否接收原始 PPTX 或页图包
-- 支持的 presenter modes、voice/avatar 元数据
-- 是否返回最终成片 URL
-
-逻辑接口：
-
-```http
-POST {submitPath}
-Idempotency-Key: {rootTaskId}
-Content-Type: multipart/form-data
-
-manifest=<versioned JSON>
-presentation=<optional pptx>
-slides[]=<optional ordered slide blobs>
-voice_references[]=<optional ordered voice sample blobs>
-```
-
-```http
-GET {pollPathTemplate with remoteId}
-```
-
-```http
-DELETE|POST {cancelPathTemplate with remoteId}  # optional
-```
-
-内部状态统一为 `queued | processing | completed | failed | cancelled`。只有 `completed` 且存在可用最终视频 URL 才能完成根任务。
-
-参考音频使用稳定、消毒后的 `assetName` 与 manifest speaker 显式关联，不依赖数组顺序或用户文件名。Binding 必须显式声明 `referenceAudioVoiceCloning: true` 才能接收该字段；缺省只兼容 `voiceId`。Manifest 只能包含供应商所需的 speaker 身份、`voiceId` 或 `voiceReference.assetName`，不得包含本地 `cacheUrl`、素材库 URL、Blob、base64 或授权文本。
-
-当前协议把声线克隆视为最终成片 Agent submit 的一个输入。如果真实供应商契约要求“先克隆得到远端 voiceId，再提交成片”，必须把 binding 升级为可恢复的两阶段协议并保存远端克隆 ID，不能静默把两阶段接口伪装成单次 multipart。
-
-如果绑定不支持最终成片，必须在上传 PPT、创建媒体子请求或产生计费前失败；不得退回现有浏览器合成器并假装成功。
+旧版本任务状态和 provider 适配器仍可读取、轮询或取消已经持久化的远端任务，避免破坏 IndexedDB 中的既有任务与幂等语义。新建 DTO、MCP schema 和配置界面不得接受 provider execution mode、binding ID、声音字段或数字人字段，也不得把普通视频模型包装成专用成片服务。若未来获得真实公开契约，应另开 OpenSpec 变更重新评审，而不是复用未验证的旧入口。
 
 ### Decision: 三种来源统一冻结为不可变演示快照
 
 - `topic`：复用 `generate_ppt` 创建大纲。用户在主题中明确页数时，将其作为包含封面和结尾的精确总页数传给大纲生成器；确认模式停在 `review_pending`，跳过模式必须先由用户确认警告。审核门通过后，系统逐页生成所需页面图并写回本任务所属 Frame，形成用户可见的完整 PPT，然后从这些相同 Frame 冻结快照并继续。
 - `current_ppt`：按 `pageIndex` 读取当前画板 PPT Frames，优先使用 `slideImageUrl`，必要时逐页栅格化 Frame；提交后不再读取画布后续变更。
-- `pptx`：先把原文件以 Blob 形式缓存并保存轻量 cache URL。绑定声明原始 PPTX 支持时优先直传；否则在专用 Worker 中逐页渲染并缓存快照。
+- `pptx`：先把原文件以 Blob 形式缓存并保存轻量 cache URL，再在专用 Worker 中逐页渲染并缓存快照。
 
 主题或当前 PPT 的缺失页面图不得仅作为编排器内部 override 传给视频。生成结果必须先复制为稳定画布媒体、更新 Frame 的 `slideImageUrl`/图片元素和页面版本，再由冻结器从画布读取；内部图片任务清理不得使已写回的 PPT 页面失效。视频模型的 `referenceImages`、本地合成器的 `imageUrl` 和用户可见 PPT 必须来自这次冻结的同一组页面。
 
@@ -181,7 +131,7 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 - 安全检查与浏览器可用存储预算不是产品页数/大小上限；不得用固定的 20 MiB、64 MiB 等产品阈值拒绝正常文件
 - 解析器诊断逐页记录；不能产生任何页面的文件整体失败，个别页失败时停止提交并保留可重试状态
 
-页图供应商仍使用既有单次 `multipart/form-data` 契约。编排器通过异步页图迭代器按页读取缓存，适配器串行校验并 append `slides[]`，避免先构建全页 Blob 数组；局部页 Blob 在 append 后及时释放引用。浏览器 `FormData` 仍可能持有全部 Blob 直到 `fetch` 完成，在供应商未声明分片协议且三浏览器请求流兼容性不足时不自行猜测新的上传协议。
+编排器逐页读取并缓存渲染结果，单页完成后及时释放 Worker 和局部 Blob 引用；不得构造未公开的 PPTX 上传或分片协议。
 
 ### Decision: 讲稿按页面和说话人结构化
 
@@ -190,37 +140,25 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 - 单人模式每页至少一个 turn，speaker 固定为第一个人
 - 双人模式每页可以有多个交替 turns，但 speaker 只能引用两个已配置 ID
 - 不设置每条发言或总讲稿时长硬上限
-- 每位 speaker 的声音来源必须且只能是 `voiceId` 或参考音频；双人可分别选择不同来源
-- 空文本、未知 speaker、双人缺少第二声线、参考音频缺失/为空/非音频、数字人缺少 avatar 均在远端 submit 前报错
+- 新任务的 speaker 只保存稳定 ID 和显示名称，不接受其他身份或媒体字段
+- 空文本、未知 speaker 或双人缺少第二讲解者均在视频模型调用前报错
 - 文本模型输出必须经过结构化 JSON 解析和 schema 校验，不使用正则拼接 JSON
-
-### Decision: 参考音频只作为获得授权的任务输入
-
-- 直接上传使用 `audio/*` 入口，素材库选择复用 `AssetType.AUDIO`；不把任意 URL 作为参考音频输入
-- 选择素材库音频时读取其缓存 Blob，并立即复制到任务私有缓存，避免原素材后续删除导致任务失联
-- 不读取完整音频生成 base64，不在浏览器执行声纹克隆，不把新上传的隐私样本自动登记到素材库
-- 只校验非空音频结构与供应商声明的 MIME 能力，不新增产品级文件大小或时长硬限制
-- 出现任一参考音频时，配置界面必须要求“已获得声音本人明确授权”的必选确认；该授权使用与跳过大纲相同的 WeakMap 一次性 UI grant，Agent/MCP JSON 布尔值不能伪造
-- 任务仅保存授权接受时间作为审计事实，不保存声明正文；完成、取消、删除或创建失败时清理任务私有样本，失败可重试状态保留样本
 
 ### Decision: 能力与凭据在副作用前预检
 
-预检根据来源、presenter mode 和声音来源验证文本、图片、PPTX、voice ID、参考音频克隆、avatar、final composition 能力。任何必需 binding、模型、API key 或可执行路由缺失时，缓存样本、生成讲稿和远端 submit 次数必须为零。
+预检根据来源验证文本、图片和视频模型的当前配置、API key、可执行路由及显式音频生成能力。任何必要条件缺失时，PPTX/媒体缓存写入、生成调用和根任务持久化次数必须为零。
 
-任务只持久化 `providerProfileId`、`canonicalBaseUrl`、`modelRef` 和无密钥 binding snapshot。恢复、poll、cancel 固定使用原 route，不因默认供应商切换而漂移。Provider Transport 继续负责 Bearer/其他鉴权和可信 Tuzi 同源代理；Agent 参数不得接受任意 Authorization header 或上传目标。
+任务只持久化 `ModelRef` 和内部任务引用，不保存凭据。各媒体子任务继续复用标准 Provider Transport 和无密钥路由快照；MCP 参数不得接受任意 Authorization header、模型来源或上传目标。
 
 ### Decision: 取消、恢复和并发使用相同执行令牌模型
 
-- 创建任务后先持久化幂等键和阶段，再执行 submit
-- 获得 remoteId 后立即持久化，再进入 poll
-- 刷新恢复时，有 remoteId 只 poll；没有 remoteId 才按幂等键重试 submit
+- 创建任务后先持久化幂等键和阶段，再启动内部媒体任务
+- 内部任务 ID 在启动后立即写入根任务，恢复时不重复创建已存在任务
 - 每个根任务使用独立 AbortController 和 executionToken
-- cancel 先写本地 cancelled/tombstone，再尝试远端 cancel
-- 远端无 cancel 时停止本地 poll，并明确提示远端任务可能继续执行和计费
-- 同一次远端 cancel 的并发调用合并为 single-flight；成功后去重，失败则保存脱敏诊断并允许重试
+- cancel 先写本地 cancelled/tombstone，再取消当前内部任务并停止后续生成和合成
 - 所有迟到、重复和乱序回写都必须校验 task status 与 executionToken
 
-同一任务的 submit/poll/finalize 使用 `taskId` Web Lock 做跨标签互斥，并通过 BroadcastChannel 通知取消；BroadcastChannel 不可用时使用带过期时间的 localStorage 取消墓碑。锁持有者不得沿用加锁前的任务快照：它必须在锁内重新读取 task queue 的当前状态，并使用 `expectedExecutionAttempt` 防止旧执行尝试写回；未获得锁或执行尝试已变化的标签页只观察后续持久化状态，不执行远端副作用。
+同一任务的生成、内部任务轮询和 finalize 使用 `taskId` Web Lock 做跨标签互斥，并通过 BroadcastChannel 通知取消；BroadcastChannel 不可用时使用带过期时间的 localStorage 取消墓碑。锁持有者不得沿用加锁前的任务快照：它必须在锁内重新读取 task queue 的当前状态，并使用 `expectedExecutionAttempt` 防止旧执行尝试写回；未获得锁或执行尝试已变化的标签页只观察后续持久化状态，不执行远端副作用。
 
 最终画布插入使用独立的 `boardId + taskId` Web Lock。锁持有者在锁内重读 IndexedDB 的权威任务记录，确认任务仍已完成、结果对用户可见且 `insertedToCanvas` 尚未持久化后才插入；只有插入标记持久化完成后才释放锁。未获锁的标签页安排恢复，首个持有者失败时释放锁供下一标签页重试。Web Locks 不可用时只能保证当前标签页内互斥，恢复器必须保留 executionAttempt、幂等键、元素查重和持久化交付标记作为兼容降级。
 
@@ -239,8 +177,8 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 
 ## Risks / Trade-offs
 
-- 真实兔子 `ppt-explainer` 契约尚未公开
-  - Mitigation: 使用能力 binding 和字段映射；没有 binding 时明确不可用，不硬编码猜测路径
+- 只有部分现有视频模型具有明确的音频生成契约
+  - Mitigation: 首版只开放适配器显式发送 `generate_audio` 的三个 Seedance 2.0 模型；其他模型即使目录描述为“有声”也不自动开放
 - PPTX 浏览器渲染依赖新增且较大的按需包
   - Mitigation: 固定版本、Worker 隔离、动态加载、逐页处理和包体检查；`pptx-glimpse@5.3.0` 虽声明 Node engine `>=22`，Node 20 下隔离 Worker、Service Worker 及 GitHub CI 的 web/drawnix 生产构建均已通过。本机 8 GiB 环境的整站构建在默认约 2 GiB V8 old-space 下 OOM，属于本地构建内存风险
 - PPTX 复杂 Office 特性可能降级
@@ -249,12 +187,8 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
   - Mitigation: 不预拒绝正常输入，使用背压、实际配额检查和来源明确的错误提示
 - Worker 仍需完整读取 PPTX 源 Blob
   - Mitigation: 解压和渲染隔离在单 Worker 并全局串行；当前 `Blob.arrayBuffer()` 会产生一次源文件级内存峰值，供应商未提供流式 OOXML 解析契约前不宣称完全流式
-- 单次 multipart 页图上传仍可能由浏览器 `FormData` 保留全部 Blob
-  - Mitigation: 页图和参考音频缓存读取改为异步串行并及时释放局部引用，提交全局排队；真实峰值仍取决于浏览器 FormData 实现，待供应商提供可恢复分片协议后才能进一步降低
 - 局域网 HTTP 环境可能缺少 Cache Storage
   - Mitigation: 任务私有产物缓存提供 IndexedDB Blob fallback，保持轻量 URL 引用和统一清理，不退回 base64
-- 远端不支持 cancel
-  - Mitigation: 本地立即终止后续工作并屏蔽迟到结果，明确远端可能继续计费
 - 供应商 CORS 或浏览器请求策略阻止直连
   - Mitigation: 复用 Provider Transport 的可信同源代理；未配置允许来源时在预检/请求阶段保留实际跨域错误，不绕过浏览器安全边界
 - 最终视频使用短期签名 URL
@@ -265,11 +199,10 @@ DELETE|POST {cancelPathTemplate with remoteId}  # optional
 ## Migration Plan
 
 1. 增加可选字段与专用 service，旧 Task 不包含 `pptExplainer` 时继续走普通视频 executor
-2. Provider binding 未发现 `ppt-explainer` 时不展示可提交状态，不影响其他媒体模型
-3. 新增 Skill 默认关闭提交按钮直至 capability preflight 通过
+2. 新建 DTO 和 UI 不再暴露历史 provider、声音或数字人字段；历史任务读取与恢复代码保持兼容
+3. 新增 Skill 默认关闭提交按钮直至已有模型路由与音频能力预检通过
 4. 出现回归时可移除 Skill/注册入口；旧任务保留为可读失败/完成记录，不迁移已有媒体数据
 
 ## Open Questions
 
-- 生产环境真实兔子 binding 的 submit、poll、cancel 路径、字段映射和状态枚举仍需供应商契约确认
-- 真实 binding 是否可直接接收 PPTX；若可，生产路径应优先直传并只在预览时使用本地渲染
+- 其他视频模型是否能进入 PPT 讲解选择器，必须以后续公开接口契约和适配器实现为依据，不能根据名称或演示结果推测

@@ -26,7 +26,7 @@ function getErrorMessage(error: unknown): string {
 export const pptExplainerVideoTool: MCPTool = {
   name: 'generate_ppt_explainer_video',
   description:
-    '从主题、当前画布 PPT 或上传的 PPTX 创建可恢复的 PPT 讲解视频任务。支持单声线、双声线对谈、单数字人和双数字人；主题来源可确认大纲，或在用户确认警告后跳过审核。工具只使用已选择的文本、图片和视频模型及显式 ppt-explainer provider binding。',
+    '从主题、当前画布 PPT 或上传的 PPTX 创建可恢复的 PPT 讲解视频任务。支持单人讲解和双人对谈；主题来源可确认大纲，或在用户确认警告后跳过审核。只使用用户当前已选择且已配置的文本、图片和视频模型。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -55,7 +55,7 @@ export const pptExplainerVideoTool: MCPTool = {
       },
       presenterMode: {
         type: 'string',
-        enum: ['single_voice', 'dual_voice', 'single_avatar', 'dual_avatar'],
+        enum: ['single_voice', 'dual_voice'],
         description: '讲解呈现模式',
       },
       speakers: {
@@ -66,17 +66,8 @@ export const pptExplainerVideoTool: MCPTool = {
           properties: {
             id: { type: 'string', description: '讲解人稳定 ID' },
             displayName: { type: 'string', description: '讲解人显示名称' },
-            voiceId: { type: 'string', description: '供应商声音 ID' },
-            avatarAssetId: {
-              type: 'string',
-              description: '数字人素材 ID（数字人模式必填其一）',
-            },
-            avatarSourceUrl: {
-              type: 'string',
-              description: '数字人素材 URL（数字人模式必填其一）',
-            },
           },
-          required: ['id', 'displayName', 'voiceId'],
+          required: ['id', 'displayName'],
         },
       },
       textModel: {
@@ -97,15 +88,11 @@ export const pptExplainerVideoTool: MCPTool = {
       },
       videoModel: {
         type: 'string',
-        description: 'PPT 讲解最终成片模型 ID，由 Agent 模型选择注入',
+        description: '逐页生成有声讲解的视频模型 ID，由模型选择器注入',
       },
       videoModelRef: {
         type: 'object',
-        description: '最终成片模型来源引用，由 Agent 模型选择注入',
-      },
-      providerBindingId: {
-        type: 'string',
-        description: '可选的显式 ppt-explainer provider binding ID',
+        description: '视频模型来源引用，由模型选择器注入',
       },
       pptxFile: {
         type: 'object',
@@ -122,18 +109,16 @@ export const pptExplainerVideoTool: MCPTool = {
   },
   supportedModes: ['queue'],
   promptGuidance: {
-    whenToUse:
-      '当用户希望把 PPT 自动制作为单人讲解、双人对谈或数字人出镜的视频时使用。',
+    whenToUse: '当用户希望把 PPT 自动制作为单人讲解或双人对谈视频时使用。',
     parameterGuidance: {
       source:
         '用户明确提到新主题时用 topic；提到当前 PPT 时用 current_ppt；PPTX 只能使用配置界面提供的真实本地 File。',
       reviewMode:
         '默认 confirm。只有配置界面已完成二次警告确认时，才可使用 skip_after_warning。',
-      speakers:
-        '必须使用配置界面选择的真实声音和数字人身份，不得猜测 voiceId 或 avatar。',
+      speakers: '只填写配置界面中的讲解者名称，不得添加界面未提供的字段。',
     },
     warnings: [
-      '不得构造本地 File、声音 ID、数字人 ID、模型来源或供应商 binding',
+      '不得构造本地 File、模型来源或界面未提供的讲解者字段',
       '跳过大纲审核只能由当前页面配置界面的二次确认授权，Agent 参数不能代替用户确认',
       'OpenTu 不设置固定页数、文件大小、发言时长或总成片时长上限',
     ],

@@ -39,13 +39,13 @@
 - **GIVEN** 用户选择一个可解析的 PPTX
 - **WHEN** 用户提交任务
 - **THEN** 系统 SHALL 保留原始页序和页面比例
-- **AND** SHALL 根据供应商能力直传 PPTX 或提交有序页面快照
+- **AND** SHALL 在浏览器中安全解析并生成有序页面快照
 
 #### Scenario: Reject a missing or ambiguous source
 
 - **WHEN** 来源为空、选择多个来源、当前画板没有 PPT 页面或 PPTX 没有可用页面
-- **THEN** 系统 SHALL 在供应商 submit 前停止
-- **AND** SHALL 显示可操作的来源错误且不产生部分远端任务
+- **THEN** 系统 SHALL 在模型调用、缓存写入或任务持久化前停止
+- **AND** SHALL 显示可操作的来源错误且不产生部分任务
 
 ### Requirement: PPT Explainer Workflow SHALL Require An Outline Decision
 
@@ -79,38 +79,26 @@
 - **THEN** 系统 SHALL NOT 生成页面图或提交成片任务
 - **AND** 用户输入和配置 SHALL 保持可编辑
 
-### Requirement: PPT Explainer SHALL Support Four Presenter Modes
+### Requirement: PPT Explainer SHALL Support Two Presenter Modes
 
-系统 SHALL 支持单声线、双声线对谈、单数字人和双数字人四种模式，并使用结构化 speaker 配置。
+系统 SHALL 仅支持单人讲解和双人对谈两种模式，并使用结构化 speaker 配置。
 
-#### Scenario: Generate single-voice narration
+#### Scenario: Generate single-presenter narration
 
-- **WHEN** 用户选择单声线并配置一个可用声音
+- **WHEN** 用户选择单人讲解并配置一个讲解者名称
 - **THEN** 每条讲稿 SHALL 归属该 speaker
 - **AND** 最终视频 SHALL 包含按页同步的单人讲解音轨
 
-#### Scenario: Generate two-voice dialogue
+#### Scenario: Generate two-presenter dialogue
 
-- **WHEN** 用户选择双声线并配置两个不同 speaker
+- **WHEN** 用户选择双人对谈并配置两个不同 speaker
 - **THEN** 讲稿 SHALL 生成仅引用这两个 speaker 的有序 turns
-- **AND** 最终视频 SHALL 按 turns 顺序播放对应声线
-
-#### Scenario: Generate one-avatar presentation
-
-- **WHEN** 用户选择单数字人并配置声音和数字人来源
-- **THEN** 供应商请求 SHALL 包含该 speaker 的 voice 与 avatar 身份
-- **AND** 最终视频 SHALL 包含与讲稿同步的单数字人画面
-
-#### Scenario: Generate two-avatar conversation
-
-- **WHEN** 用户选择双数字人并为两个 speaker 配置声音和数字人来源
-- **THEN** 供应商请求 SHALL 保留每个 turn 的 speaker 身份
-- **AND** 最终视频 SHALL 支持两个数字人出镜和交替对谈
+- **AND** 最终视频 SHALL 按 turns 顺序生成对谈内容
 
 #### Scenario: Reject incomplete presenter configuration
 
-- **WHEN** 双人模式缺少第二 speaker、声音不可用、数字人模式缺少 avatar 或 turn 引用未知 speaker
-- **THEN** 系统 SHALL 在远端 submit 前停止
+- **WHEN** 双人模式缺少第二 speaker、讲解者名称为空或 turn 引用未知 speaker
+- **THEN** 系统 SHALL 在视频模型调用前停止
 - **AND** SHALL 指明需要修正的 speaker 配置
 
 ### Requirement: PPT Explainer SHALL Build A Slide-Aligned Narration Plan
@@ -139,9 +127,9 @@
 - **AND** 固化快照 SHALL 与用户可见 PPT 页面使用相同页面图和版本
 - **AND** 后续画布编辑 SHALL NOT 改变已接受任务
 
-### Requirement: PPT Explainer SHALL Use Existing Audible Video Models Without Voice Cloning
+### Requirement: PPT Explainer SHALL Use Only Verified Existing Models
 
-系统 SHALL 在现有模型模式中直接使用用户选择的有声视频模型，不展示或伪造 TTS、voice ID、参考音频及声音克隆配置。
+系统 SHALL 只展示当前已配置且在适配器契约中明确支持生成音频的视频模型，不得根据模型名称、目录描述或未公开接口猜测能力。
 
 #### Scenario: Configure speakers without voice samples
 
@@ -150,48 +138,15 @@
 - **AND** 双人差异 SHALL 通过角色顺序和不同声线的提示词表达
 - **AND** SHALL 提示实际音色和朗读一致性由视频模型决定
 
-### Requirement: PPT Explainer Provider Binding SHALL Expose A Complete Async Lifecycle
+#### Scenario: Reject an unavailable model or invented configuration
 
-PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执行 submit、poll 和可选 cancel。
-
-#### Scenario: Submit a supported job
-
-- **GIVEN** binding 支持所选来源、presenter mode 和最终成片
-- **WHEN** 系统完成预检并持久化幂等键
-- **THEN** 系统 SHALL 使用原 provider route 提交版本化 manifest 和演示输入
-- **AND** SHALL 立即保存返回的 remoteId
-
-#### Scenario: Poll to final video
-
-- **GIVEN** 任务已保存 remoteId
-- **WHEN** 系统轮询供应商状态
-- **THEN** 系统 SHALL 标准化进度和终态
-- **AND** 只有 completed 且包含可用最终视频 URL 时才完成根任务
-
-#### Scenario: Cancel through a supported endpoint
-
-- **GIVEN** binding 声明远端 cancel
-- **WHEN** 用户取消任务
-- **THEN** 系统 SHALL 先持久化本地取消状态
-- **AND** SHALL 使用原 route 对 remoteId 发起幂等 cancel
-- **AND** 同时发生的 cancel SHALL 合并为一个远端请求，成功后去重，失败时保留脱敏错误并允许重试
-
-#### Scenario: Cancel without a remote endpoint
-
-- **GIVEN** binding 没有远端 cancel
-- **WHEN** 用户取消任务
-- **THEN** 系统 SHALL 停止本地轮询和后续阶段并忽略迟到结果
-- **AND** SHALL 提示远端任务可能继续执行和计费
-
-#### Scenario: Required provider capability is absent
-
-- **WHEN** 任一必需模型、binding、API key、presenter 能力或最终成片能力缺失
-- **THEN** 系统 SHALL 在任何远端 submit 和计费副作用前失败
-- **AND** SHALL NOT 回退到浏览器实时录制合成器
+- **WHEN** 所选模型没有当前可执行路由、缺少凭据、未声明生成音频能力，或输入包含界面未提供的执行/讲解者字段
+- **THEN** 系统 SHALL 在任何模型调用、缓存写入和任务持久化前失败
+- **AND** SHALL NOT 构造模型、声音、数字人或专用成片服务
 
 ### Requirement: PPT Explainer SHALL Support Local Composition With Existing Models
 
-当没有专用 PPT 最终成片 binding 时，系统 SHALL 允许用户显式选择现有模型模式，并复用已有文本、图片和有声视频模型完成任务。
+系统 SHALL 复用已有文本、图片和经明确验证的有声视频模型完成任务。
 
 #### Scenario: Generate a narrated slide video locally
 
@@ -202,16 +157,9 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 - **AND** 系统 SHALL 按页序固定绘制原 PPT 快照并合成音轨、字幕和转场
 - **AND** 最终用户可见视频的每一页 SHALL 与已接受的 PPT 页面视觉一致
 
-#### Scenario: Use an ordinary video model for avatar segments
-
-- **GIVEN** 用户选择数字人模式且普通视频模型支持所需参考输入
-- **WHEN** 本地编排器生成数字人片段
-- **THEN** 视频模型 SHALL 只负责片段生成
-- **AND** SHALL NOT 被声明或持久化为完整 `ppt-explainer` 供应商
-
 #### Scenario: Selected model does not produce usable speech
 
-- **WHEN** 所选普通视频模型不支持音频输出或生成结果未按讲稿朗读
+- **WHEN** 所选视频模型生成结果没有可用音轨或未按讲稿朗读
 - **THEN** 系统 SHALL 停止最终合成并保留供应商真实结果或错误
 - **AND** SHALL 提示改用明确支持有声视频的模型，不得伪造音频模型
 
@@ -232,21 +180,14 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 
 ### Requirement: PPT Explainer Tasks SHALL Persist Recoverable State
 
-系统 SHALL 使用标准 VIDEO 根任务持久化轻量阶段、幂等键、remoteId、原路由和结果交付状态。
+系统 SHALL 使用标准 VIDEO 根任务持久化轻量阶段、内部子任务引用、模型来源和结果交付状态。
 
-#### Scenario: Resume polling after refresh
+#### Scenario: Resume an in-progress task after refresh
 
-- **GIVEN** 非终态根任务包含 remoteId 和原 invocation route
-- **WHEN** 应用刷新并恢复任务
-- **THEN** 系统 SHALL 使用原 route 继续 poll
-- **AND** SHALL NOT 重复 submit 或切换到当前默认供应商
-
-#### Scenario: Resume a pre-submit stage
-
-- **GIVEN** 根任务已持久化幂等键但尚未保存 remoteId
+- **GIVEN** 非终态根任务包含已持久化阶段和内部子任务引用
 - **WHEN** 应用恢复任务
 - **THEN** 系统 SHALL 从最后成功阶段重试
-- **AND** submit SHALL 使用相同幂等键
+- **AND** SHALL NOT 重复已完成的内部任务或切换模型来源
 
 #### Scenario: Ignore duplicate or late completion
 
@@ -258,7 +199,7 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 #### Scenario: Coordinate one task across browser tabs
 
 - **GIVEN** 同一任务在多个标签页中同时恢复
-- **WHEN** 任一标签页获得执行锁并尝试 submit、poll 或 finalize
+- **WHEN** 任一标签页获得执行锁并尝试生成、轮询内部任务或 finalize
 - **THEN** 锁持有者 SHALL 在锁内重读当前任务状态，并以预期 executionAttempt 原子接管本次执行
 - **AND** 未获锁或接管失败的标签页 SHALL NOT 使用加锁前快照产生远端副作用
 - **AND** 其他标签页 SHALL 观察后续持久化状态且不得重复交付结果
@@ -270,7 +211,7 @@ PPT 讲解任务 SHALL 仅通过声明最终成片能力的 provider binding 执
 #### Scenario: Submit work beyond former suggested thresholds
 
 - **GIVEN** 输入超过 20 页、20 MiB、单条 60 秒或总计 20 分钟中的任一建议阈值
-- **WHEN** 本地结构校验、运行环境和供应商 binding 仍可处理
+- **WHEN** 本地结构校验、运行环境和所选模型仍可处理
 - **THEN** OpenTu SHALL NOT 截断、降级或仅因该固定阈值拒绝任务
 
 #### Scenario: Provider rejects its actual limit

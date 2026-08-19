@@ -7,6 +7,7 @@ import {
   getStaticModelConfig,
   ModelVendor,
   setRuntimeModelConfigs,
+  supportsPptNarrationAudio,
 } from '../model-config';
 
 describe('model-config image size options', () => {
@@ -295,4 +296,21 @@ describe('model-config image size options', () => {
       ])
     );
   });
+
+  it.each([
+    'doubao-seedance-2-0-260128',
+    'doubao-seedance-2-0-fast-260128',
+    'doubao-seedance-2-0-mini-260615',
+  ])('只为显式生成音频的 Seedance 2.0 开放 PPT 讲解：%s', (modelId) => {
+    expect(supportsPptNarrationAudio(getStaticModelConfig(modelId))).toBe(true);
+  });
+
+  it.each(['seedance-1.5-pro', 'seedance-1.0-pro', 'veo-3.1'])(
+    '不根据目录描述猜测 PPT 讲解音轨能力：%s',
+    (modelId) => {
+      expect(supportsPptNarrationAudio(getStaticModelConfig(modelId))).toBe(
+        false
+      );
+    }
+  );
 });

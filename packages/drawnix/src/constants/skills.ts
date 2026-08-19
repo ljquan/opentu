@@ -131,7 +131,7 @@ export const SYSTEM_SKILLS: SystemSkill[] = [
     name: 'PPT讲解视频',
     mcpTool: 'generate_ppt_explainer_video',
     description:
-      'PPT讲解视频\n\n将主题、当前画布 PPT 或上传的 PPTX 制作为可恢复的讲解视频。支持单人讲解、双人对谈、单数字人和双数字人；主题来源可先确认大纲，也可在明确确认警告后跳过审核。\n\n**使用方式：** 在配置界面选择演示来源、审核方式、讲解模式和数字人，再发布任务。现有模型模式会使用所选有声视频模型逐页生成并合并；语音内容、音色、时长和同步可能随模型结果波动。\n\n**适用场景：** 课程讲解、汇报录播、产品演示和双人访谈式 PPT 视频。\n\n**执行要求：** 使用 generate_ppt_explainer_video 创建任务；不得伪造音频模型，也不得猜测数字人、模型来源或供应商 binding。',
+      'PPT讲解视频\n\n将主题、当前画布 PPT 或上传的 PPTX 制作为可恢复的讲解视频。当前支持单人讲解和双人对谈；主题来源可先确认大纲，也可在明确确认警告后跳过审核。\n\n**使用方式：** 在配置界面选择演示来源、审核方式和讲解模式，再使用当前已配置的文本、图片和有声视频模型发布任务。视频模型逐页生成有声讲解，最终固定原 PPT 页面合成；语音内容、时长和同步以所选模型的实际结果为准。\n\n**适用场景：** 课程讲解、汇报录播、产品演示和双人访谈式 PPT 视频。\n\n**执行要求：** 使用 generate_ppt_explainer_video 创建任务，只能使用界面实际提供的字段和模型。',
     type: SKILL_TYPE_SYSTEM,
     outputType: 'video',
   },
@@ -142,7 +142,7 @@ export const SYSTEM_SKILLS: SystemSkill[] = [
       '你是一位拥有 10 年经验的资深产品经理，擅长将模糊的业务需求转化为清晰的产品文档。\n\n用户会描述一个功能需求或产品想法，请用以下结构回复：\n\n1. **需求背景**：简述该功能的业务价值（2-3句）\n2. **用户故事**：以"作为[用户]，我希望[功能]，以便[价值]"格式描述\n3. **功能要点**：列出 3-5 个核心功能点\n4. **验收标准**：列出可量化的验收条件\n\n请保持简洁专业，避免冗余描述。',
     type: SKILL_TYPE_SYSTEM,
   },
-];/** 根据 ID 查找系统内置 Skill */
+]; /** 根据 ID 查找系统内置 Skill */
 export function findSystemSkillById(id: string): SystemSkill | undefined {
   return SYSTEM_SKILLS.find((skill) => skill.id === id);
 }

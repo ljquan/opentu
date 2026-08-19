@@ -29,9 +29,7 @@ describe('ppt-explainer-video MCP tool', () => {
       sourceBoardId: 'board-1',
       reviewMode: 'confirm',
       presenterMode: 'single_voice',
-      speakers: [
-        { id: 'speaker-1', displayName: '讲解者', voiceId: 'voice-1' },
-      ],
+      speakers: [{ id: 'speaker-1', displayName: '讲解者' }],
       textModel: 'text-model',
       videoModel: 'video-model',
       videoModelRef: { profileId: 'provider-1', modelId: 'video-model' },
@@ -61,6 +59,18 @@ describe('ppt-explainer-video MCP tool', () => {
       pptxFile
     );
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
+  });
+
+  it('does not expose unavailable provider, voice, or avatar fields', () => {
+    const schema = JSON.stringify(pptExplainerVideoTool.inputSchema);
+
+    expect(schema).not.toContain('providerBindingId');
+    expect(schema).not.toContain('executionMode');
+    expect(schema).not.toContain('voiceId');
+    expect(schema).not.toContain('referenceAudio');
+    expect(schema).not.toContain('avatar');
+    expect(schema).not.toContain('single_avatar');
+    expect(schema).not.toContain('dual_avatar');
   });
 
   it('returns a bounded credential-redacted creation error', async () => {

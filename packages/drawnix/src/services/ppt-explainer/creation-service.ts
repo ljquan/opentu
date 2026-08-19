@@ -6,6 +6,10 @@ import {
 import type { Task } from '../../types/task.types';
 import { generateTaskId } from '../../utils/task-utils';
 import { settingsManager, type ModelRef } from '../../utils/settings-manager';
+import {
+  getModelConfig,
+  supportsPptNarrationAudio,
+} from '../../constants/model-config';
 import { getCanvasBoardBinding } from '../canvas-operations';
 import {
   resolveInvocationPlanFromRoute,
@@ -13,16 +17,9 @@ import {
 } from '../provider-routing';
 import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
 import { taskQueueService } from '../task-queue';
-import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
 import { validateOutline } from '../ppt';
 import type { PptxImportCheckpoint } from '../pptx-import';
-import {
-  createPptExplainerProviderRouteSnapshot,
-  PptExplainerProviderPreflightError,
-  preflightPptExplainerProviderFromSettings,
-  type PptExplainerProviderPreflightResult,
-} from './provider-contract';
 import {
   applyPptxCheckpointToExplainerState,
   captureCurrentPptSourceSelection,
@@ -46,21 +43,16 @@ import {
 import {
   PPT_EXPLAINER_SCHEMA_VERSION,
   type PptExplainerCreateInput,
-  type PptExplainerReferenceAudioInput,
   type PptExplainerSpeaker,
-  type PptExplainerSpeakerInput,
   type PptExplainerTaskState,
 } from './types';
 import {
-  getPptExplainerSpeakerVoiceSource,
-  hasPptExplainerReferenceAudio,
-  inferPptExplainerAudioMimeType,
   PptExplainerValidationError,
   readPptExplainerState,
   validatePptExplainerSpeakers,
 } from './validation';
 
-type AuxiliaryOperation = 'text' | 'image';
+type AuxiliaryOperation = 'text' | 'image' | 'video';
 
 interface CreationContext {
   board: PlaitBoard;
@@ -70,7 +62,6 @@ interface CreationContext {
 
 interface PptExplainerUiConfirmations {
   skipOutlineReview: boolean;
-  voiceCloneConsent?: boolean;
 }
 
 const pendingUiConfirmations = new WeakMap<
@@ -197,14 +188,6 @@ function consumeUiConfirmations(
       '必须确认：跳过大纲审核只能在当前页面完成二次确认'
     );
   }
-  if (
-    hasPptExplainerReferenceAudio(input.speakers) &&
-    !confirmations?.voiceCloneConsent
-  ) {
-    throw new PptExplainerValidationError(
-      '必须确认已获得声音本人授权后才能使用参考音频克隆声线'
-    );
-  }
   return confirmations;
 }
 
@@ -229,98 +212,19 @@ function preflightAuxiliaryModel(
   return plan;
 }
 
-function preflightVideoProvider(
-  input: PptExplainerCreateInput
-): PptExplainerProviderPreflightResult {
-  if (!input.videoModelRef) {
-    throw new PptExplainerValidationError(
-      '请选择支持 PPT 讲解的供应商视频模型'
-    );
-  }
-  const presentationInputs =
-    input.source === 'pptx'
-      ? (['pptx', 'slide_images'] as const)
-      : (['slide_images'] as const);
-  let unsupportedError: unknown;
-  for (const presentationInput of presentationInputs) {
-    try {
-      return preflightPptExplainerProviderFromSettings(
-        input.videoModelRef,
-        {
-          source: input.source,
-          presentationInput,
-          presenterMode: input.presenterMode,
-          requiresReferenceAudio: hasPptExplainerReferenceAudio(input.speakers),
-        },
-        { bindingId: input.providerBindingId }
-      );
-    } catch (error) {
-      if (
-        error instanceof PptExplainerProviderPreflightError &&
-        error.code === 'capability_unsupported'
-      ) {
-        unsupportedError = error;
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw unsupportedError || new Error('供应商不支持所选 PPT 讲解方式');
-}
-
-function assertProviderAcceptsReferenceAudio(
-  input: PptExplainerCreateInput,
-  provider: PptExplainerProviderPreflightResult
-): void {
-  const acceptedMimeTypes =
-    provider.binding.metadata?.pptExplainer?.referenceAudio?.acceptedMimeTypes;
-  if (!acceptedMimeTypes?.length) return;
-  for (const speaker of input.speakers) {
-    if (getPptExplainerSpeakerVoiceSource(speaker) !== 'reference_audio') {
-      continue;
-    }
-    const reference = speaker.referenceAudio!;
-    const mimeType = inferPptExplainerAudioMimeType(
-      reference.mimeType || reference.file?.type,
-      reference.filename || reference.file?.name
-    );
-    const accepted = acceptedMimeTypes.some((candidate) => {
-      const normalized = candidate.trim().toLowerCase();
-      return (
-        normalized === mimeType ||
-        (normalized.endsWith('/*') &&
-          Boolean(mimeType?.startsWith(normalized.slice(0, -1))))
-      );
-    });
-    if (!accepted) {
-      throw new PptExplainerValidationError(
-        `供应商不接受讲解者「${speaker.displayName}」的参考音频格式：${mimeType}`
-      );
-    }
-  }
-}
-
 function buildInitialState(options: {
   input: PptExplainerCreateInput;
   topic?: string;
   requestedPageCount?: number;
   jobId: string;
-  provider?: PptExplainerProviderPreflightResult;
   textPlan: InvocationPlan;
   imagePlan?: InvocationPlan;
-  audioPlan?: InvocationPlan;
   outlineFrameIds?: string[];
   sourceFrameRevisions?: Record<string, string>;
   pptxCheckpoint?: PptxImportCheckpoint;
   speakers: PptExplainerSpeaker[];
-  voiceConsentAcceptedAt?: number;
 }): PptExplainerTaskState {
-  const { input, provider, pptxCheckpoint } = options;
-  const executionMode = input.executionMode || 'provider';
-  const presentationInput =
-    executionMode === 'local'
-      ? 'slide_images'
-      : provider!.requirements.presentationInput;
+  const { input, pptxCheckpoint } = options;
   const needsReview =
     input.source === 'topic' && input.reviewMode === 'confirm';
   const reviewAcceptedAt = needsReview ? undefined : Date.now();
@@ -336,14 +240,8 @@ function buildInitialState(options: {
     reviewMode: input.reviewMode,
     reviewAcceptedAt,
     presenterMode: input.presenterMode,
-    executionMode,
-    speakers: options.speakers.map((speaker) => ({
-      ...speaker,
-      ...(speaker.voiceReference
-        ? { voiceReference: { ...speaker.voiceReference } }
-        : {}),
-    })),
-    voiceConsentAcceptedAt: options.voiceConsentAcceptedAt,
+    executionMode: 'local',
+    speakers: options.speakers.map((speaker) => ({ ...speaker })),
     stage:
       input.source === 'topic' ||
       (input.source === 'pptx' && pptxCheckpoint?.status !== 'completed')
@@ -353,12 +251,7 @@ function buildInitialState(options: {
         : 'snapshotting',
     slides: [],
     idempotencyKey: options.jobId,
-    presentationInput,
-    ...(provider
-      ? {
-          originalRoute: createPptExplainerProviderRouteSnapshot(provider),
-        }
-      : {}),
+    presentationInput: 'slide_images',
     models: {
       textModel: input.textModel,
       textModelRef: input.textModelRef,
@@ -382,20 +275,7 @@ function buildInitialState(options: {
             }
           )
         : undefined,
-      audioModel: input.audioModel?.trim(),
-      audioModelRef: input.audioModelRef,
-      audioRoute: options.audioPlan
-        ? createTaskInvocationRouteSnapshot(
-            'audio',
-            options.audioPlan.modelRef,
-            {
-              bindingId: options.audioPlan.binding.id,
-              metadataPolicy: 'capabilities-only',
-            }
-          )
-        : undefined,
-      videoModel:
-        input.videoModel?.trim() || provider?.modelRef.modelId || undefined,
+      videoModel: input.videoModel?.trim() || undefined,
       videoModelRef: input.videoModelRef
         ? { ...input.videoModelRef }
         : undefined,
@@ -412,167 +292,75 @@ function buildInitialState(options: {
     : initialState;
 }
 
-function sanitizeReferenceFilename(filename: string): string {
-  return (
-    filename
-      .replace(/[\\/]/g, '-')
-      .replace(/[\r\n\0]/g, '')
-      .trim()
-      .slice(0, 180) || 'voice-reference'
-  );
-}
-
-function inferAudioExtension(mimeType: string): string {
-  const extensions: Record<string, string> = {
-    'audio/mpeg': 'mp3',
-    'audio/wav': 'wav',
-    'audio/x-wav': 'wav',
-    'audio/mp4': 'm4a',
-    'audio/aac': 'aac',
-    'audio/ogg': 'ogg',
-    'audio/webm': 'webm',
-    'audio/flac': 'flac',
-  };
-  return (
-    extensions[mimeType] ||
-    mimeType.split('/')[1]?.replace(/[^a-z0-9]/g, '') ||
-    'audio'
-  );
-}
-
-async function resolveReferenceAudioBlob(
-  reference: PptExplainerReferenceAudioInput
-): Promise<{ blob: Blob; mimeType: string; filename: string }> {
-  const filename = sanitizeReferenceFilename(
-    reference.filename || reference.file?.name || 'voice-reference'
-  );
-  let blob: Blob | null = reference.file || null;
-  if (!blob) {
-    if (!reference.sourceAssetId?.trim() || !reference.sourceUrl?.trim()) {
-      throw new PptExplainerValidationError('声音样本素材引用无效');
-    }
-    blob = await unifiedCacheService.getCachedBlob(reference.sourceUrl);
+function assertSupportedPptExplainerInput(
+  input: PptExplainerCreateInput
+): void {
+  if (!input || typeof input !== 'object') {
+    throw new PptExplainerValidationError('PPT 讲解任务参数无效');
   }
-  if (!blob?.size) {
-    throw new PptExplainerValidationError('声音样本缓存已丢失，请重新选择');
+  const candidate = input as unknown as Record<string, unknown>;
+  if ('executionMode' in candidate || 'providerBindingId' in candidate) {
+    throw new PptExplainerValidationError('创建参数包含当前不支持的执行配置');
   }
-  const actualMimeType = blob.type.trim().toLowerCase();
   if (
-    actualMimeType &&
-    actualMimeType !== 'application/octet-stream' &&
-    !actualMimeType.startsWith('audio/')
+    typeof candidate.sourceBoardId !== 'string' ||
+    typeof candidate.textModel !== 'string' ||
+    typeof candidate.videoModel !== 'string' ||
+    (candidate.imageModel !== undefined &&
+      typeof candidate.imageModel !== 'string')
   ) {
-    throw new PptExplainerValidationError('声音样本内容不是音频');
+    throw new PptExplainerValidationError('模型或画板参数无效');
   }
-  const mimeType = inferPptExplainerAudioMimeType(
-    reference.mimeType || blob.type,
-    filename
-  );
-  if (!mimeType) {
-    throw new PptExplainerValidationError('参考音频格式不受支持');
+  if (
+    candidate.presenterMode !== 'single_voice' &&
+    candidate.presenterMode !== 'dual_voice'
+  ) {
+    throw new PptExplainerValidationError('当前仅支持单人讲解和双人对谈');
   }
-  return {
-    blob: blob.type === mimeType ? blob : blob.slice(0, blob.size, mimeType),
-    mimeType,
-    filename,
-  };
-}
-
-async function stagePptExplainerSpeakers(
-  jobId: string,
-  speakers: readonly PptExplainerSpeakerInput[],
-  options: { requireVoice: boolean }
-): Promise<PptExplainerSpeaker[]> {
-  const staged: PptExplainerSpeaker[] = [];
-  for (const [index, speaker] of speakers.entries()) {
-    const base = {
-      id: speaker.id.trim(),
-      displayName: speaker.displayName.trim(),
-      ...(speaker.avatarAssetId?.trim()
-        ? { avatarAssetId: speaker.avatarAssetId.trim() }
-        : {}),
-      ...(speaker.avatarSourceUrl?.trim()
-        ? { avatarSourceUrl: speaker.avatarSourceUrl.trim() }
-        : {}),
-    };
-    if (!options.requireVoice) {
-      staged.push(base);
-      continue;
+  if (!Array.isArray(candidate.speakers)) {
+    throw new PptExplainerValidationError('讲解者配置无效');
+  }
+  if (
+    candidate.speakers.some(
+      (speaker) =>
+        !speaker ||
+        typeof speaker !== 'object' ||
+        [
+          'voiceSource',
+          'voiceId',
+          'referenceAudio',
+          'avatarAssetId',
+          'avatarSourceUrl',
+        ].some((field) => field in (speaker as Record<string, unknown>))
+    )
+  ) {
+    throw new PptExplainerValidationError('讲解者配置包含当前不支持的字段');
+  }
+  for (const speaker of candidate.speakers) {
+    const value = speaker as Record<string, unknown>;
+    if (typeof value.id !== 'string' || typeof value.displayName !== 'string') {
+      throw new PptExplainerValidationError('讲解者名称和 ID 必须是文本');
     }
-    const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
-    if (voiceSource === 'voice_id') {
-      staged.push({
-        ...base,
-        voiceSource,
-        voiceId: speaker.voiceId?.trim() || '',
-      });
-      continue;
-    }
-
-    const reference = speaker.referenceAudio!;
-    const resolved = await resolveReferenceAudioBlob(reference);
-    const assetName = `voice-reference-${String(index + 1).padStart(
-      2,
-      '0'
-    )}.${inferAudioExtension(resolved.mimeType)}`;
-    const cacheUrl = await putPptExplainerArtifact(
-      jobId,
-      assetName,
-      resolved.blob
-    );
-    staged.push({
-      ...base,
-      voiceSource,
-      voiceReference: {
-        cacheUrl,
-        assetName,
-        filename: resolved.filename,
-        mimeType: resolved.mimeType,
-        size: resolved.blob.size,
-        ...(reference.sourceAssetId
-          ? { sourceAssetId: reference.sourceAssetId }
-          : {}),
-      },
-    });
   }
-  return staged;
 }
 
 export async function createPptExplainerTask(
   input: PptExplainerCreateInput
 ): Promise<Task> {
+  assertSupportedPptExplainerInput(input);
   const topic = requireTopic(input);
   const requestedPageCount = resolveRequestedPageCount(input, topic);
   const pptxFile = validatePptxFile(input);
-  const executionMode = input.executionMode || 'provider';
   validatePptExplainerSpeakers(input.presenterMode, input.speakers, {
-    requireVoice: executionMode === 'provider',
+    requireVoice: false,
   });
   const context = await requireCreationContext(input);
-  const confirmations = consumeUiConfirmations(input, context);
+  consumeUiConfirmations(input, context);
 
   await settingsManager.waitForInitialization();
 
   // All credential/capability checks happen before outline generation, import,
   // upload, or any other operation that can incur cost or persist binary data.
-  const provider =
-    executionMode === 'provider' ? preflightVideoProvider(input) : undefined;
-  if (provider) {
-    assertProviderAcceptsReferenceAudio(input, provider);
-  } else if (hasPptExplainerReferenceAudio(input.speakers)) {
-    throw new PptExplainerValidationError(
-      '本地合成首版仅支持声音 ID；参考音频克隆需要专用供应商能力'
-    );
-  }
-  if (
-    executionMode === 'local' &&
-    (input.presenterMode === 'single_avatar' ||
-      input.presenterMode === 'dual_avatar')
-  ) {
-    throw new PptExplainerValidationError(
-      '本地合成首版先支持单/双声线；数字人片段将在下一阶段接入'
-    );
-  }
   const textPlan = preflightAuxiliaryModel(
     'text',
     input.textModelRef ?? input.textModel,
@@ -585,7 +373,16 @@ export async function createPptExplainerTask(
         'PPT 页面图片'
       )
     : undefined;
-  const audioPlan = undefined;
+  const videoPlan = preflightAuxiliaryModel(
+    'video',
+    input.videoModelRef ?? input.videoModel,
+    '讲解视频'
+  );
+  if (!supportsPptNarrationAudio(getModelConfig(videoPlan.modelRef.modelId))) {
+    throw new PptExplainerValidationError(
+      '当前所选视频模型未声明可生成讲解音轨'
+    );
+  }
 
   const jobId = generateTaskId();
   const createInitialState = (
@@ -597,10 +394,8 @@ export async function createPptExplainerTask(
       topic,
       requestedPageCount,
       jobId,
-      provider,
       textPlan,
       imagePlan,
-      audioPlan,
       outlineFrameIds:
         input.source === 'current_ppt'
           ? context.currentPptSelection?.frameIds
@@ -608,9 +403,6 @@ export async function createPptExplainerTask(
       sourceFrameRevisions: context.currentPptSelection?.frameRevisions,
       pptxCheckpoint,
       speakers,
-      voiceConsentAcceptedAt: confirmations?.voiceCloneConsent
-        ? Date.now()
-        : undefined,
     });
 
   const releasePptxInput = pptxFile
@@ -618,11 +410,10 @@ export async function createPptExplainerTask(
     : undefined;
   let stagedPptxUrl: string | undefined;
   try {
-    const stagedSpeakers = await stagePptExplainerSpeakers(
-      jobId,
-      input.speakers,
-      { requireVoice: executionMode === 'provider' }
-    );
+    const stagedSpeakers = input.speakers.map((speaker) => ({
+      id: speaker.id.trim(),
+      displayName: speaker.displayName.trim(),
+    }));
     if (pptxFile) {
       stagedPptxUrl = await putPptExplainerArtifact(
         jobId,

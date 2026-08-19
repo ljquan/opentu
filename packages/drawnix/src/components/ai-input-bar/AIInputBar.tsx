@@ -105,6 +105,7 @@ import {
   getDefaultVideoModel,
   getDefaultTextModel,
   getCompatibleParams,
+  supportsPptNarrationAudio,
   type ModelConfig,
 } from '../../constants/model-config';
 import {
@@ -1585,7 +1586,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       history: promptHistory,
       removeHistory: deletePromptHistory,
     } = usePromptHistory();
-    const { addAsset, assets } = useAssets();
+    const { addAsset } = useAssets();
     const { confirm, confirmDialog } = useConfirmDialog();
     // 使用 ref 存储，避免依赖变化
     const sendWorkflowMessageRef = useRef(
@@ -2058,13 +2059,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return pinnedModel ? [pinnedModel, ...imageModels] : imageModels;
     }, [imageModels, selectedAgentImageModel, selectedAgentImageModelRef]);
     const visibleAgentVideoModels = useMemo(() => {
+      const availableModels =
+        selectedSkillId === 'generate_ppt_explainer_video'
+          ? videoModels.filter(supportsPptNarrationAudio)
+          : videoModels;
       const currentMatch = findMatchingSelectableModel(
-        videoModels,
+        availableModels,
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
       if (currentMatch) {
-        return videoModels;
+        return availableModels;
+      }
+      if (selectedSkillId === 'generate_ppt_explainer_video') {
+        return availableModels;
       }
 
       const pinnedModel = getPinnedSelectableModel(
@@ -2072,8 +2080,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
-      return pinnedModel ? [pinnedModel, ...videoModels] : videoModels;
-    }, [selectedAgentVideoModel, selectedAgentVideoModelRef, videoModels]);
+      return pinnedModel ? [pinnedModel, ...availableModels] : availableModels;
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      videoModels,
+    ]);
+    useEffect(() => {
+      if (selectedSkillId !== 'generate_ppt_explainer_video') return;
+      const currentMatch = findMatchingSelectableModel(
+        visibleAgentVideoModels,
+        selectedAgentVideoModel,
+        selectedAgentVideoModelRef
+      );
+      if (currentMatch) return;
+      const fallback = visibleAgentVideoModels[0];
+      setSelectedAgentVideoModel(fallback?.id || '');
+      setSelectedAgentVideoModelRef(getModelRefFromConfig(fallback));
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      visibleAgentVideoModels,
+    ]);
     const visibleAgentAudioModels = useMemo(() => {
       const currentMatch = findMatchingSelectableModel(
         audioModels,
@@ -2090,11 +2120,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentAudioModelRef
       );
       return pinnedModel ? [pinnedModel, ...audioModels] : audioModels;
-    }, [
-      audioModels,
-      selectedAgentAudioModel,
-      selectedAgentAudioModelRef,
-    ]);
+    }, [audioModels, selectedAgentAudioModel, selectedAgentAudioModelRef]);
     // 当前选中的参数映射 (id -> value)
     const [selectedParams, setSelectedParams] = useState<
       Record<string, string>
@@ -4472,12 +4498,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [applyAgentMediaModelSelection]
     );
 
-    const handleSkillOptionSelect = useCallback(
-      (skill: SkillOption) => {
-        setSelectedSkillMediaTypes(inferSkillMediaTypes(skill));
-      },
-      []
-    );
+    const handleSkillOptionSelect = useCallback((skill: SkillOption) => {
+      setSelectedSkillMediaTypes(inferSkillMediaTypes(skill));
+    }, []);
 
     const agentMediaDefaultModels = useMemo(
       () => ({
@@ -7613,7 +7636,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             imageModelRef={selectedAgentImageModelRef}
             videoModel={selectedAgentVideoModel}
             videoModelRef={selectedAgentVideoModelRef}
-            avatarAssets={assets}
             onCreate={handleCreatePptExplainerTask}
             onClose={() => setPptExplainerDialogOpen(false)}
           />

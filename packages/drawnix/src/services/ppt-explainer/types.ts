@@ -8,6 +8,7 @@ export const PPT_EXPLAINER_SCHEMA_VERSION = 1 as const;
 
 export type PptExplainerSourceKind = 'topic' | 'current_ppt' | 'pptx';
 export type PptExplainerReviewMode = 'confirm' | 'skip_after_warning';
+/** Historical provider tasks may still contain provider; new tasks are local only. */
 export type PptExplainerExecutionMode = 'provider' | 'local';
 export type PptExplainerPresenterMode =
   | 'single_voice'
@@ -68,6 +69,11 @@ export interface PptExplainerSpeakerInput {
   referenceAudio?: PptExplainerReferenceAudioInput;
   avatarAssetId?: string;
   avatarSourceUrl?: string;
+}
+
+export interface PptExplainerCreateSpeakerInput {
+  id: string;
+  displayName: string;
 }
 
 export interface PptExplainerTurn {
@@ -158,18 +164,14 @@ export interface PptExplainerCreateInput {
   topic?: string;
   requestedPageCount?: number;
   reviewMode: PptExplainerReviewMode;
-  presenterMode: PptExplainerPresenterMode;
-  executionMode?: PptExplainerExecutionMode;
-  speakers: PptExplainerSpeakerInput[];
+  presenterMode: 'single_voice' | 'dual_voice';
+  speakers: PptExplainerCreateSpeakerInput[];
   textModel: string;
   textModelRef?: ModelRef | null;
   imageModel?: string;
   imageModelRef?: ModelRef | null;
-  audioModel?: string;
-  audioModelRef?: ModelRef | null;
-  videoModel?: string;
+  videoModel: string;
   videoModelRef?: ModelRef | null;
-  providerBindingId?: string;
   pptxFile?: File;
 }
 
