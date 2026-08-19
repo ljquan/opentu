@@ -750,7 +750,6 @@ async function runLocalComposition(
             ? videoModel
             : videoModel.modelId || undefined,
         modelRef: typeof videoModel === 'string' ? undefined : videoModel,
-        referenceImages: [slide.snapshotUrl],
         size: '1920x1080',
         resultVisibility: 'internal',
         autoInsertToCanvas: false,

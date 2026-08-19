@@ -533,11 +533,13 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       expect.objectContaining({
         model: 'video-model',
         modelRef: { profileId: 'profile-1', modelId: 'video-model' },
-        referenceImages: ['/slide-1.png'],
         size: '1920x1080',
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
       })
+    );
+    expect(mocks.generateVideo.mock.calls[0]?.[1]).not.toHaveProperty(
+      'referenceImages'
     );
     expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
       expect.objectContaining({
