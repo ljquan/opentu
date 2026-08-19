@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.0.19",
+      "date": "2026-08-18",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "严格使用用户配置的供应商地址 (#235)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "严格使用用户配置的供应商地址 (#235)"
+    },
+    {
       "version": "1.0.18",
       "date": "2026-08-18",
       "changes": {
@@ -993,42 +1006,6 @@
       },
       "type": "patch",
       "highlights": "添加提示词历史工具并集成到AI输入栏"
-    },
-    {
-      "version": "0.6.78",
-      "date": "2026-04-26",
-      "changes": {
-        "features": [
-          "add PPT common prompt history",
-          "add PPT outline image preview action",
-          "分离公共提示词与单页提示词，优化幻灯片生成流程",
-          "add ppt outline generation flow",
-          "改造提示词优化多轮交互",
-          "优化 PPT 编辑与生成模型体验"
-        ],
-        "fixes": [
-          "align model dropdown checkmark",
-          "优化 PPT 大纲提示词与替换逻辑",
-          "优化 PPT 生图可见文字提示词",
-          "避免关闭 SW 时通道初始化超时",
-          "用 WinBox 承载优化弹窗",
-          "调整默认文本模型与选择器顺序",
-          "提升 PPT 生图风格一致性",
-          "ensure PPT media displays fully",
-          "稳定 PPT 生图历史顺序",
-          "统一 PPT 页面客户术语",
-          "修复生图插入重试重复插入问题",
-          "修复 GPT Image 编辑尺寸映射",
-          "align prompt preview flows and refresh default samples",
-          "autosize ai input textarea"
-        ],
-        "improvements": [
-          "更新应用版本号至0.6.77并刷新构建时间",
-          "优化提示词预览与内置提示词"
-        ]
-      },
-      "type": "patch",
-      "highlights": "add PPT common prompt history"
     }
   ]
 }
