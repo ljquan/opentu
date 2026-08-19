@@ -19,11 +19,6 @@ import { useDeviceType } from '../../hooks/useDeviceType';
 import { AIImageIcon, AIVideoIcon } from '../icons';
 import { DialogType, useDrawnix } from '../../hooks/use-drawnix';
 import { HoverTip } from '../shared/hover';
-import {
-  AccountToolbarButton,
-  shouldShowOpenTuAccountControl,
-} from '../account/AccountToolbarButton';
-import { useOpenTuAccountWorkspace } from '../../contexts/OpenTuAccountContext';
 
 const TaskQueuePanel = lazy(() =>
   import('../task-queue/TaskQueuePanel').then((module) => ({
@@ -43,7 +38,6 @@ const TOOLBAR_DEFAULT_LEFT = 0;
 const TOOLBAR_MOBILE_LEFT = 8;
 const TOOLBAR_VIEWPORT_GAP = 0;
 const TOOLBAR_CONTENT_WIDTH = 58;
-const NOOP = () => undefined;
 type ToolbarDockSide = 'left' | 'right';
 
 function clampToolbarLeft(left: number, toolbarWidth = TOOLBAR_CONTENT_WIDTH) {
@@ -159,8 +153,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     onToolboxDrawerToggle,
     taskPanelExpanded = false,
     onTaskPanelToggle,
-    accountDrawerOpen = false,
-    onAccountDrawerToggle,
     onOpenBackupRestore,
     onOpenCloudSync,
     onOpenMediaLibrary,
@@ -174,7 +166,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     const [isToolbarDragging, setIsToolbarDragging] = useState(false);
     const [isTaskPanelAnimationReady, setIsTaskPanelAnimationReady] =
       useState(false);
-    const accountWorkspace = useOpenTuAccountWorkspace();
     const hasEverExpanded = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollableRef = useRef<HTMLDivElement>(null);
@@ -550,20 +541,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
               onOpenBackupRestore={onOpenBackupRestore}
               onOpenCloudSync={onOpenCloudSync}
             />
-            {shouldShowOpenTuAccountControl(
-              accountWorkspace.mode,
-              accountWorkspace.status
-            ) && (
-              <AccountToolbarButton
-                displayName={
-                  accountWorkspace.account?.displayName ||
-                  accountWorkspace.account?.username
-                }
-                status={accountWorkspace.status}
-                selected={accountDrawerOpen}
-                onClick={onAccountDrawerToggle || NOOP}
-              />
-            )}
           </div>
 
           {/* 可滚动的工具栏内容区 */}
@@ -585,7 +562,7 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
           <div className="unified-toolbar__section unified-toolbar__section--fixed-bottom">
             <BottomActionsSection
               projectDrawerOpen={projectDrawerOpen}
-              onProjectDrawerToggle={onProjectDrawerToggle || NOOP}
+              onProjectDrawerToggle={onProjectDrawerToggle || (() => {})}
               toolboxDrawerOpen={toolboxDrawerOpen}
               onToolboxDrawerToggle={onToolboxDrawerToggle}
               taskPanelExpanded={taskPanelExpanded}

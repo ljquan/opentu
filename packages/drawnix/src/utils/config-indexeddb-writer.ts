@@ -1,6 +1,6 @@
 /**
  * 主线程 IndexedDB 配置写入器
- *
+ * 
  * 将配置写入 aitu-app 数据库（主线程专用）。
  * SW 不再直接读取主线程 IDB，配置通过 Fetch Relay 传递。
  */
@@ -17,9 +17,6 @@ export interface VideoAPIConfig {
   model?: string;
 }
 
-export const MANAGED_PROVIDER_PROFILES_CONFIG_KEY =
-  'opentu-managed-provider-profiles' as const;
-
 const CONFIG_STORE = APP_DB_STORES.CONFIG;
 const CONFIG_WRITE_TIMEOUT_MS = 3000;
 
@@ -28,19 +25,6 @@ const CONFIG_WRITE_TIMEOUT_MS = 3000;
  */
 class ConfigIndexedDBWriter {
   private writeQueue: Promise<void> = Promise.resolve();
-  private writesPaused = false;
-
-  pauseWrites(): void {
-    this.writesPaused = true;
-  }
-
-  resumeWrites(): void {
-    this.writesPaused = false;
-  }
-
-  async flushPendingWrites(): Promise<void> {
-    await this.writeQueue;
-  }
 
   /**
    * 获取数据库连接
@@ -96,13 +80,11 @@ class ConfigIndexedDBWriter {
    * 保存单个配置
    */
   private async saveConfigInternal<T extends object>(
-    key: 'gemini' | 'video' | typeof MANAGED_PROVIDER_PROFILES_CONFIG_KEY,
+    key: 'gemini' | 'video',
     config: T
   ): Promise<void> {
-    if (this.writesPaused) return;
     try {
       const db = await this.getDB();
-      if (this.writesPaused) return;
       const transaction = db.transaction(CONFIG_STORE, 'readwrite');
       const store = transaction.objectStore(CONFIG_STORE);
       store.put({
@@ -123,14 +105,11 @@ class ConfigIndexedDBWriter {
    */
   async saveGeminiConfig(config: GeminiConfig): Promise<void> {
     // 使用队列确保写入顺序
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        if (this.writesPaused) return;
-        await this.saveConfigInternal('gemini', config);
-      })
-      .catch((error) => {
-        console.error('[ConfigWriter] Failed to save gemini config:', error);
-      });
+    this.writeQueue = this.writeQueue.then(async () => {
+      await this.saveConfigInternal('gemini', config);
+    }).catch((error) => {
+      console.error('[ConfigWriter] Failed to save gemini config:', error);
+    });
     return this.writeQueue;
   }
 
@@ -138,55 +117,45 @@ class ConfigIndexedDBWriter {
    * 保存视频 API 配置
    */
   async saveVideoConfig(config: VideoAPIConfig): Promise<void> {
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        if (this.writesPaused) return;
-        await this.saveConfigInternal('video', config);
-      })
-      .catch((error) => {
-        console.error('[ConfigWriter] Failed to save video config:', error);
-      });
+    this.writeQueue = this.writeQueue.then(async () => {
+      await this.saveConfigInternal('video', config);
+    }).catch((error) => {
+      console.error('[ConfigWriter] Failed to save video config:', error);
+    });
     return this.writeQueue;
   }
 
   /**
    * 同时保存两个配置
    */
-  async saveConfig(
-    geminiConfig: GeminiConfig,
-    videoConfig: VideoAPIConfig
-  ): Promise<void> {
-    this.writeQueue = this.writeQueue
-      .then(async () => {
-        if (this.writesPaused) return;
-        try {
-          const db = await this.getDB();
-          if (this.writesPaused) return;
-          const transaction = db.transaction(CONFIG_STORE, 'readwrite');
-          const store = transaction.objectStore(CONFIG_STORE);
-          const now = Date.now();
+  async saveConfig(geminiConfig: GeminiConfig, videoConfig: VideoAPIConfig): Promise<void> {
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        const db = await this.getDB();
+        const transaction = db.transaction(CONFIG_STORE, 'readwrite');
+        const store = transaction.objectStore(CONFIG_STORE);
+        const now = Date.now();
 
-          store.put({
-            key: 'gemini',
-            ...geminiConfig,
-            updatedAt: now,
-          });
+        store.put({
+          key: 'gemini',
+          ...geminiConfig,
+          updatedAt: now,
+        });
 
-          store.put({
-            key: 'video',
-            ...videoConfig,
-            updatedAt: now,
-          });
+        store.put({
+          key: 'video',
+          ...videoConfig,
+          updatedAt: now,
+        });
 
-          await this.waitForTransaction(transaction, 'save configs');
-        } catch (error) {
-          console.error('[ConfigWriter] Failed to save configs:', error);
-          throw error;
-        }
-      })
-      .catch((error) => {
+        await this.waitForTransaction(transaction, 'save configs');
+      } catch (error) {
         console.error('[ConfigWriter] Failed to save configs:', error);
-      });
+        throw error;
+      }
+    }).catch((error) => {
+      console.error('[ConfigWriter] Failed to save configs:', error);
+    });
     return this.writeQueue;
   }
 
@@ -216,45 +185,6 @@ class ConfigIndexedDBWriter {
       });
     } catch (error) {
       console.error('[ConfigWriter] Failed to get config:', error);
-      return null;
-    }
-  }
-
-  async saveManagedProviderProfiles<T extends object>(
-    config: T
-  ): Promise<void> {
-    const operation = this.writeQueue
-      .catch(() => undefined)
-      .then(() =>
-        this.saveConfigInternal(MANAGED_PROVIDER_PROFILES_CONFIG_KEY, config)
-      );
-    this.writeQueue = operation.catch((error) => {
-      console.error('[ConfigWriter] Failed to save managed profiles:', error);
-    });
-    return operation;
-  }
-
-  async getManagedProviderProfiles<T>(): Promise<T | null> {
-    return this.getConfigByKey<T>(MANAGED_PROVIDER_PROFILES_CONFIG_KEY);
-  }
-
-  private async getConfigByKey<T>(
-    key: 'gemini' | 'video' | typeof MANAGED_PROVIDER_PROFILES_CONFIG_KEY
-  ): Promise<T | null> {
-    try {
-      const db = await this.getDB();
-      return await new Promise<T | null>((resolve, reject) => {
-        const transaction = db.transaction(CONFIG_STORE, 'readonly');
-        const request = transaction.objectStore(CONFIG_STORE).get(key);
-        request.onsuccess = () => {
-          if (!request.result) return resolve(null);
-          const { key: _key, ...config } = request.result;
-          resolve(config as T);
-        };
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('[ConfigWriter] Failed to read managed profiles:', error);
       return null;
     }
   }

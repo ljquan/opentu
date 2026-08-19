@@ -34,14 +34,6 @@ export type { SWChannelEventHandlers } from './services/sw-channel/client';
 // Export model adapters (registry + types)
 export * from './services/model-adapters';
 export * from './services/provider-routing';
-export * from './services/opentu-credential';
-export * from './services/opentu-api-client';
-export * from './services/opentu-binding-bridge';
-export * from './services/opentu-account-runtime';
-export * from './services/storage-context';
-export * from './services/storage-namespace-switch';
-export * from './services/opentu-managed-provider-profiles';
-export * from './contexts/OpenTuAccountContext';
 
 // Export initialization services (for main.tsx)
 export { initWebVitals } from './services/web-vitals-service';

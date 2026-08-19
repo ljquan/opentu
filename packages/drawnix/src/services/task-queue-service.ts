@@ -2748,31 +2748,6 @@ class TaskQueueService {
     }
   }
 
-  /** Stop runtime work and detach in-memory state without deleting storage. */
-  async prepareForStorageNamespaceSwitch(): Promise<void> {
-    taskStorageWriter.pauseWrites();
-    const tasks = this.getAllTasks();
-    for (const task of tasks) {
-      this.blockedTaskIds.add(task.id);
-      this.abortTaskExecution(task.id);
-      imageGenerationRecoveryService.stop(task.id);
-    }
-
-    await Promise.allSettled(this.taskStorageOperations.values());
-    this.tasks.clear();
-    this.taskExecutionTokens.clear();
-    this.tasksWithStrippedParams.clear();
-    this.taskAbortControllers.clear();
-    this.executingTasks.clear();
-    this.taskStorageOperations.clear();
-    this.pendingTaskDeletions.clear();
-    this.blockedTaskIds.clear();
-    this.recentlyDeletedTaskIds.clear();
-    taskStorageReader.invalidateCache();
-
-    for (const task of tasks) this.emitEvent('taskDeleted', task);
-  }
-
   /**
    * Tracks an externally-created task in the in-memory Map.
    * Used by media generation services to register tasks so that

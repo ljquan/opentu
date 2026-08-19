@@ -50,18 +50,11 @@ export interface ProviderProfile {
   pricingUrl?: string;
   cnyPerUsd?: number;
   pricingGroup?: string;
-  /** Server-managed credential metadata. These profiles are never persisted in global settings. */
-  managedBy?: 'tuzi';
-  managedGroup?: string;
-  managedCredentialId?: string;
-  managedTokenId?: number | string;
 }
 
 export type ProviderCatalogManualBindingConfidence = 'high' | 'medium' | 'low';
 export type ProviderCatalogManualBindingSource = 'manual';
-export type ProviderCatalogManualBindingBaseUrlStrategy =
-  | 'preserve'
-  | 'trim-v1';
+export type ProviderCatalogManualBindingBaseUrlStrategy = 'preserve' | 'trim-v1';
 export type ManualHttpResponseKind = 'text' | 'image' | 'task' | 'audio';
 export type ManualHttpBodyType = 'json' | 'form-data' | 'raw' | 'none';
 export type ManualHttpFormFieldKind = 'text' | 'file' | 'file-list';

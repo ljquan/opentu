@@ -9,10 +9,11 @@
  */
 
 import { normalizeImageDataUrl } from '@aitu/utils';
-import { APP_DB_STORES, getAppDB } from '../app-database';
+import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
 import type { TaskInvocationRouteSnapshot } from '../../types/task.types';
 
 // 使用主线程专用数据库
+const DB_NAME = APP_DB_NAME;
 const TASKS_STORE = APP_DB_STORES.TASKS;
 
 // 使用与 SW 端一致的字符串字面量类型
@@ -135,16 +136,31 @@ class TaskStorageWriter {
       return this.dbPromise;
     }
 
-    this.dbPromise = getAppDB()
-      .then((db) => {
-        this.db = db;
+    this.dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME);
+
+      request.onerror = () => {
         this.dbPromise = null;
-        return db;
-      })
-      .catch((error) => {
+        reject(new Error('Failed to open database'));
+      };
+
+      request.onsuccess = () => {
+        this.db = request.result;
         this.dbPromise = null;
-        throw error;
-      });
+        resolve(this.db);
+      };
+
+      request.onupgradeneeded = () => {
+        // 如果数据库不存在，创建必要的 object store
+        const db = request.result;
+        if (!db.objectStoreNames.contains(TASKS_STORE)) {
+          const store = db.createObjectStore(TASKS_STORE, { keyPath: 'id' });
+          store.createIndex('status', 'status', { unique: false });
+          store.createIndex('type', 'type', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+      };
+    });
 
     return this.dbPromise;
   }
@@ -729,7 +745,6 @@ class TaskStorageWriter {
       this.db.close();
       this.db = null;
     }
-    this.dbPromise = null;
   }
 }
 

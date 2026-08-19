@@ -10,14 +10,7 @@
  * - config: API 配置
  */
 
-import { migrateLegacyIndexedDB } from './indexeddb-namespace-migration';
-import {
-  getActiveStorageNamespace,
-  getNamespacedDatabaseName,
-} from './storage-context';
-
-const LEGACY_DB_NAME = 'aitu-app';
-const LEGACY_SW_DB_NAME = 'sw-task-queue';
+const DB_NAME = 'aitu-app';
 const DB_VERSION = 1;
 
 // Store 名称常量
@@ -29,11 +22,7 @@ export const APP_DB_STORES = {
 
 let dbInstance: IDBDatabase | null = null;
 let dbPromise: Promise<IDBDatabase> | null = null;
-const migratedNamespaces = new Set<string>();
-
-export function getAppDBName(): string {
-  return getNamespacedDatabaseName(LEGACY_DB_NAME);
-}
+let migrationDone = false;
 
 /**
  * 获取主线程专用数据库连接
@@ -53,7 +42,7 @@ export async function getAppDB(): Promise<IDBDatabase> {
       reject(new Error('[AppDB] open timeout'));
     }, 5000);
 
-    const request = indexedDB.open(getAppDBName(), DB_VERSION);
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onerror = () => {
       clearTimeout(timeout);
@@ -112,31 +101,115 @@ export async function getAppDB(): Promise<IDBDatabase> {
  * 在应用启动时调用
  */
 export async function migrateFromLegacyDB(): Promise<void> {
-  const namespace = getActiveStorageNamespace();
-  if (migratedNamespaces.has(namespace.key)) return;
+  if (migrationDone) return;
+  migrationDone = true;
 
   try {
-    await getAppDB();
-    const targetDatabaseName = getAppDBName();
-    const stores = Object.values(APP_DB_STORES);
-    await migrateLegacyIndexedDB({
-      sourceDatabaseName: LEGACY_DB_NAME,
-      targetDatabaseName,
-      stores,
+    const newDb = await getAppDB();
+
+    // 检查新数据库是否已有数据（避免重复迁移）
+    const hasData = await new Promise<boolean>((resolve) => {
+      try {
+        const tx = newDb.transaction(APP_DB_STORES.TASKS, 'readonly');
+        const countReq = tx.objectStore(APP_DB_STORES.TASKS).count();
+        countReq.onsuccess = () => resolve(countReq.result > 0);
+        countReq.onerror = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
     });
 
-    // The historical SW database is an anonymous-only source. Credential
-    // identities are deliberately never sent to or derived inside the SW.
-    if (namespace.kind === 'anonymous') {
-      await migrateLegacyIndexedDB({
-        sourceDatabaseName: LEGACY_SW_DB_NAME,
-        targetDatabaseName,
-        stores,
-      });
+    if (hasData) {
+      return;
     }
-    migratedNamespaces.add(namespace.key);
+
+    // 尝试打开旧数据库
+    const oldDb = await new Promise<IDBDatabase | null>((resolve) => {
+      const timeout = setTimeout(() => resolve(null), 3000);
+      try {
+        const request = indexedDB.open('sw-task-queue');
+        request.onerror = () => {
+          clearTimeout(timeout);
+          resolve(null);
+        };
+        request.onsuccess = () => {
+          clearTimeout(timeout);
+          resolve(request.result);
+        };
+        request.onblocked = () => {
+          clearTimeout(timeout);
+          resolve(null);
+        };
+        request.onupgradeneeded = () => {
+          // 旧数据库不存在（正在创建），关闭它
+          clearTimeout(timeout);
+          request.transaction?.abort();
+          resolve(null);
+        };
+      } catch {
+        clearTimeout(timeout);
+        resolve(null);
+      }
+    });
+
+    if (!oldDb) {
+      return;
+    }
+
+    // 迁移 tasks
+    if (oldDb.objectStoreNames.contains('tasks')) {
+      await migrateStore(oldDb, newDb, 'tasks', APP_DB_STORES.TASKS);
+    }
+
+    // 迁移 workflows
+    if (oldDb.objectStoreNames.contains('workflows')) {
+      await migrateStore(oldDb, newDb, 'workflows', APP_DB_STORES.WORKFLOWS);
+    }
+
+    // 迁移 config
+    if (oldDb.objectStoreNames.contains('config')) {
+      await migrateStore(oldDb, newDb, 'config', APP_DB_STORES.CONFIG);
+    }
+
+    oldDb.close();
   } catch (error) {
     console.warn('[AppDB] 数据迁移失败（非致命）:', error);
+  }
+}
+
+/**
+ * 迁移单个 store 的数据
+ */
+async function migrateStore(
+  oldDb: IDBDatabase,
+  newDb: IDBDatabase,
+  oldStoreName: string,
+  newStoreName: string
+): Promise<void> {
+  try {
+    // 读取旧数据
+    const records = await new Promise<any[]>((resolve, reject) => {
+      const tx = oldDb.transaction(oldStoreName, 'readonly');
+      const request = tx.objectStore(oldStoreName).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+
+    if (records.length === 0) return;
+
+    // 写入新数据库
+    const tx = newDb.transaction(newStoreName, 'readwrite');
+    const store = tx.objectStore(newStoreName);
+    for (const record of records) {
+      store.put(record);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (error) {
+    console.warn(`[AppDB] 迁移 ${oldStoreName} 失败:`, error);
   }
 }
 
@@ -152,5 +225,4 @@ export function closeAppDB(): void {
 }
 
 /** 导出数据库名称常量 */
-/** @deprecated Use getAppDBName() when the value may outlive an account switch. */
-export const APP_DB_NAME = getAppDBName();
+export { DB_NAME as APP_DB_NAME };

@@ -38,14 +38,6 @@ export interface UnifiedToolbarProps {
    */
   onTaskPanelToggle?: () => void;
   /**
-   * (可选) 账户中心是否打开
-   */
-  accountDrawerOpen?: boolean;
-  /**
-   * (可选) 账户中心打开/关闭切换回调
-   */
-  onAccountDrawerToggle?: () => void;
-  /**
    * (可选) 备份恢复对话框打开回调
    */
   onOpenBackupRestore?: () => void;
@@ -60,12 +52,10 @@ export interface UnifiedToolbarProps {
   /**
    * (可选) 素材库打开回调
    */
-  onOpenMediaLibrary?: (
-    config?: Partial<MediaLibraryConfig> & {
-      selectButtonText?: string;
-      batchSelectButtonText?: string;
-    }
-  ) => void;
+  onOpenMediaLibrary?: (config?: Partial<MediaLibraryConfig> & {
+    selectButtonText?: string;
+    batchSelectButtonText?: string;
+  }) => void;
   /**
    * 延后功能层是否已启用
    */
@@ -106,12 +96,10 @@ export interface ToolbarSectionProps {
   /**
    * 素材库打开回调
    */
-  onOpenMediaLibrary?: (
-    config?: Partial<MediaLibraryConfig> & {
-      selectButtonText?: string;
-      batchSelectButtonText?: string;
-    }
-  ) => void;
+  onOpenMediaLibrary?: (config?: Partial<MediaLibraryConfig> & {
+    selectButtonText?: string;
+    batchSelectButtonText?: string;
+  }) => void;
 
   /**
    * 延后功能层是否已启用

@@ -81,7 +81,6 @@ function buildProviderContext(
     apiKey: profile.apiKey,
     authType: profile.authType,
     extraHeaders: profile.extraHeaders,
-    managedBy: profile.managedBy,
   };
 }
 

@@ -100,7 +100,6 @@ export interface ProviderProfileSnapshot
     | 'imageApiCompatibility'
     | 'preferAsyncImageEndpoint'
     | 'extraHeaders'
-    | 'managedBy'
   > {
   authType: ProviderAuthStrategy;
 }
@@ -113,7 +112,6 @@ export interface ResolvedProviderContext {
   apiKey: string;
   authType: ProviderAuthStrategy;
   extraHeaders?: Record<string, string>;
-  managedBy?: ProviderProfile['managedBy'];
 }
 
 export interface ProviderModelBinding {

@@ -128,16 +128,6 @@ export abstract class BaseStorageReader<TCache> {
     return this.cache !== null && Date.now() - this.cacheTimestamp < this.cacheTTL;
   }
 
-  close(): void {
-    this.db?.close();
-    this.db = null;
-    this.dbPromise = null;
-    this.availabilityChecked = false;
-    this.isAvailableResult = false;
-    this.cache = null;
-    this.cacheTimestamp = 0;
-  }
-
   /**
    * 清除缓存（数据变更时调用）
    */

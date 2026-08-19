@@ -112,7 +112,6 @@ function toProviderProfileSnapshot(
     | 'imageApiCompatibility'
     | 'preferAsyncImageEndpoint'
     | 'extraHeaders'
-    | 'managedBy'
   >
 ): ProviderProfileSnapshot {
   return {
@@ -130,7 +129,6 @@ function toProviderProfileSnapshot(
       profile.imageApiCompatibility || DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY,
     preferAsyncImageEndpoint: profile.preferAsyncImageEndpoint ?? false,
     extraHeaders: profile.extraHeaders,
-    managedBy: profile.managedBy,
   };
 }
 
