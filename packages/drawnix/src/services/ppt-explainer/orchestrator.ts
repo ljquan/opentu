@@ -772,7 +772,10 @@ async function runLocalComposition(
     };
     signal.throwIfAborted();
     if (!generated.url) {
-      throw new Error(`PPT 第 ${slide.pageIndex} 页有声视频生成失败`);
+      const providerError = generated.task?.error?.message?.trim();
+      throw new Error(
+        providerError || `PPT 第 ${slide.pageIndex} 页有声视频生成失败`
+      );
     }
     const narrationMediaUrl = await cachePptExplainerNarrationSegment(
       generated.url,

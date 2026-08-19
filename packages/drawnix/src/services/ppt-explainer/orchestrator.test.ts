@@ -531,7 +531,10 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       1,
       expect.stringContaining('主持人：第一页讲解'),
       expect.objectContaining({
+        model: 'video-model',
+        modelRef: { profileId: 'profile-1', modelId: 'video-model' },
         referenceImages: ['/slide-1.png'],
+        size: '1920x1080',
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
       })
@@ -610,6 +613,38 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         message: expect.stringContaining('讲解片段未能缓存到本地'),
       },
     });
+  });
+
+  it('透传内部视频任务的供应商错误而不是覆盖成通用失败', async () => {
+    const taskId = 'provider-error-task';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockResolvedValue({
+      task: {
+        id: 'segment-provider-error',
+        error: {
+          code: 'UPSTREAM_FAILED',
+          message: '上游服务异常（request id: req-123）',
+        },
+      },
+    });
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: {
+        message: '上游服务异常（request id: req-123）',
+      },
+    });
+    expect(mocks.composeLocalPptVideo).not.toHaveBeenCalled();
   });
   it('does not restart a failed task without an explicit retry transition', async () => {
     installTask({
