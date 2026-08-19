@@ -149,6 +149,32 @@ describe('ModelDropdown', () => {
     expect(menu.style.bottom).toBe('84px');
   });
 
+  it('没有候选模型时显示明确空态而不是默认模型代号', () => {
+    const { container } = render(
+      <ModelDropdown
+        selectedModel="doubao-seedance-2-0-260128"
+        models={[]}
+        onSelect={vi.fn()}
+        emptyTriggerLabel="无兼容讲解模型"
+        emptyText="已勾选的视频模型均未验证讲解音轨能力"
+        strictModelList
+      />
+    );
+
+    const trigger = container.querySelector(
+      '.model-dropdown__trigger--minimal'
+    ) as HTMLElement;
+    expect(trigger.textContent).toContain('无兼容讲解模型');
+    expect(trigger.textContent).not.toContain('#img');
+    expect(trigger.getAttribute('aria-label')).toContain('无兼容讲解模型');
+
+    fireEvent.mouseDown(trigger);
+
+    expect(
+      screen.getByText('已勾选的视频模型均未验证讲解音轨能力')
+    ).not.toBeNull();
+  });
+
   it('form 变体的 portal 菜单宽度不小于触发器宽度', () => {
     Object.defineProperty(window, 'innerHeight', {
       configurable: true,

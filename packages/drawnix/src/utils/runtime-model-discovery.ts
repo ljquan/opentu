@@ -1388,6 +1388,7 @@ class RuntimeModelDiscoveryStore {
     this.syncRuntimeModelConfigs();
 
     providerCatalogsSettings.addListener(this.handleCatalogSettingsChange);
+    providerProfilesSettings.addListener(this.handleProfileSettingsChange);
     invocationPresetsSettings.addListener(this.handlePresetSettingsChange);
     settingsManager.addListener(
       'activePresetId',
@@ -1460,6 +1461,11 @@ class RuntimeModelDiscoveryStore {
   };
 
   private handlePresetSettingsChange = (): void => {
+    this.syncRuntimeModelConfigs();
+    this.emit();
+  };
+
+  private handleProfileSettingsChange = (): void => {
     this.syncRuntimeModelConfigs();
     this.emit();
   };
@@ -1572,6 +1578,13 @@ class RuntimeModelDiscoveryStore {
   }
 
   getSelectableModels(type: ModelType): ModelConfig[] {
+    return sortModelsByDisplayPriority([
+      ...this.getConfiguredSelectableModels(type),
+      ...decorateStaticModels(getStaticModelsByType(type)),
+    ]);
+  }
+
+  getConfiguredSelectableModels(type: ModelType): ModelConfig[] {
     const runtimeModels: ModelConfig[] = [];
     for (const state of this.catalogStates.values()) {
       if (!isProfileEnabled(state.profileId)) {
@@ -1588,10 +1601,7 @@ class RuntimeModelDiscoveryStore {
         )
       );
     }
-    return sortModelsByDisplayPriority([
-      ...runtimeModels,
-      ...decorateStaticModels(getStaticModelsByType(type)),
-    ]);
+    return sortModelsByDisplayPriority(runtimeModels);
   }
 
   getPinnedSelectableModel(
@@ -1965,6 +1975,10 @@ export function getPreferredModels(type: ModelType): ModelConfig[] {
 
 export function getSelectableModels(type: ModelType): ModelConfig[] {
   return runtimeModelDiscovery.getSelectableModels(type);
+}
+
+export function getConfiguredSelectableModels(type: ModelType): ModelConfig[] {
+  return runtimeModelDiscovery.getConfiguredSelectableModels(type);
 }
 
 export function getPinnedSelectableModel(

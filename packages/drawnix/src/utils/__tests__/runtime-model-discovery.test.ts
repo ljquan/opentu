@@ -65,6 +65,118 @@ describe('runtime-model-discovery', () => {
     ).toBeNull();
   });
 
+  it('已配置候选只包含启用供应商实际勾选的模型', async () => {
+    const profiles = [
+      {
+        id: 'provider-video',
+        name: '视频供应商',
+        enabled: true,
+      },
+      {
+        id: 'provider-disabled',
+        name: '已禁用供应商',
+        enabled: false,
+      },
+    ];
+    let handleProfileSettingsChange: (() => void) | undefined;
+    vi.doMock('../settings-manager', () => ({
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      providerCatalogsSettings: {
+        get: () => [
+          {
+            profileId: 'provider-video',
+            discoveredAt: Date.now(),
+            discoveredModels: [
+              {
+                id: 'doubao-seedance-1-5-pro_1080p',
+                label: 'Seedance 1.5 Pro 1080p',
+                shortLabel: 'Seedance 1.5 Pro 1080p',
+                type: 'video',
+                vendor: 'DOUBAO',
+              },
+              {
+                id: 'doubao-seedance-2-0-260128',
+                label: 'Seedance 2.0',
+                shortLabel: 'Seedance 2.0',
+                type: 'video',
+                vendor: 'DOUBAO',
+              },
+            ],
+            selectedModelIds: ['doubao-seedance-1-5-pro_1080p'],
+          },
+          {
+            profileId: 'provider-disabled',
+            discoveredAt: Date.now(),
+            discoveredModels: [
+              {
+                id: 'disabled-video-model',
+                label: 'Disabled video model',
+                shortLabel: 'Disabled video model',
+                type: 'video',
+                vendor: 'OTHER',
+              },
+            ],
+            selectedModelIds: ['disabled-video-model'],
+          },
+        ],
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        update: vi.fn(async () => undefined),
+      },
+      providerProfilesSettings: {
+        get: () => profiles,
+        addListener: (listener: () => void) => {
+          handleProfileSettingsChange = listener;
+        },
+        removeListener: vi.fn(),
+      },
+      invocationPresetsSettings: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+      settingsManager: {
+        getSetting: () => ({}),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+    }));
+
+    const {
+      getConfiguredSelectableModels,
+      getSelectableModels,
+      runtimeModelDiscovery,
+    } = await import('../runtime-model-discovery');
+    const { supportsPptNarrationAudio } = await import(
+      '../../constants/model-config'
+    );
+
+    expect(getSelectableModels('video').map((model) => model.id)).toContain(
+      'doubao-seedance-2-0-260128'
+    );
+    expect(
+      getConfiguredSelectableModels('video').map((model) => model.id)
+    ).toEqual(['doubao-seedance-1-5-pro_1080p']);
+    expect(
+      getConfiguredSelectableModels('video').filter(supportsPptNarrationAudio)
+    ).toEqual([]);
+
+    runtimeModelDiscovery.applySelection('provider-video', [
+      'doubao-seedance-2-0-260128',
+    ]);
+
+    expect(
+      getConfiguredSelectableModels('video')
+        .filter(supportsPptNarrationAudio)
+        .map((model) => [model.sourceProfileId, model.id])
+    ).toEqual([['provider-video', 'doubao-seedance-2-0-260128']]);
+
+    profiles[0].enabled = false;
+    handleProfileSettingsChange?.();
+
+    expect(getConfiguredSelectableModels('video')).toEqual([]);
+    expect(runtimeModelDiscovery.getRevision()).toBeGreaterThan(0);
+  });
+
   it('主流最新静态模型可被初始选择器解析', async () => {
     const { getStaticModelConfig } = await import(
       '../../constants/model-config'

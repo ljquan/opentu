@@ -95,7 +95,10 @@ import {
   addVideoPromptHistory,
   type PromptType,
 } from '../../services/prompt-storage-service';
-import { useSelectableModels } from '../../hooks/use-runtime-models';
+import {
+  useConfiguredSelectableModels,
+  useSelectableModels,
+} from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
   getDefaultAudioModel,
@@ -1574,6 +1577,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const { language } = useI18n();
     const imageModels = useSelectableModels('image');
     const videoModels = useSelectableModels('video');
+    const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
 
@@ -2061,7 +2065,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const visibleAgentVideoModels = useMemo(() => {
       const availableModels =
         selectedSkillId === 'generate_ppt_explainer_video'
-          ? videoModels.filter(supportsPptNarrationAudio)
+          ? configuredVideoModels.filter(supportsPptNarrationAudio)
           : videoModels;
       const currentMatch = findMatchingSelectableModel(
         availableModels,
@@ -2085,6 +2089,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       selectedAgentVideoModel,
       selectedAgentVideoModelRef,
       selectedSkillId,
+      configuredVideoModels,
       videoModels,
     ]);
     useEffect(() => {
@@ -7874,6 +7879,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                         language === 'zh'
                           ? '选择视频模型 (↑↓ Tab)'
                           : 'Select video model (↑↓ Tab)'
+                      }
+                      emptyTriggerLabel={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '无兼容讲解模型'
+                            : 'No compatible narration model'
+                          : undefined
+                      }
+                      emptyText={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '已勾选的视频模型均未验证讲解音轨能力'
+                            : 'Selected video models have no verified narration audio capability'
+                          : undefined
+                      }
+                      strictModelList={
+                        selectedSkillId === 'generate_ppt_explainer_video'
                       }
                     />
                   )}
