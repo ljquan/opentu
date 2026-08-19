@@ -108,7 +108,6 @@ import {
   getDefaultVideoModel,
   getDefaultTextModel,
   getCompatibleParams,
-  supportsPptNarrationAudio,
   type ModelConfig,
 } from '../../constants/model-config';
 import {
@@ -2065,7 +2064,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const visibleAgentVideoModels = useMemo(() => {
       const availableModels =
         selectedSkillId === 'generate_ppt_explainer_video'
-          ? configuredVideoModels.filter(supportsPptNarrationAudio)
+          ? configuredVideoModels
           : videoModels;
       const currentMatch = findMatchingSelectableModel(
         availableModels,
@@ -7883,15 +7882,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       emptyTriggerLabel={
                         selectedSkillId === 'generate_ppt_explainer_video'
                           ? language === 'zh'
-                            ? '无兼容讲解模型'
-                            : 'No compatible narration model'
+                            ? '暂无已配置视频模型'
+                            : 'No configured video model'
                           : undefined
                       }
                       emptyText={
                         selectedSkillId === 'generate_ppt_explainer_video'
                           ? language === 'zh'
-                            ? '已勾选的视频模型均未验证讲解音轨能力'
-                            : 'Selected video models have no verified narration audio capability'
+                            ? '请先在供应商设置中获取并勾选视频模型'
+                            : 'Get and select a video model in provider settings first'
                           : undefined
                       }
                       strictModelList={

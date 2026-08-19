@@ -127,9 +127,9 @@
 - **AND** 固化快照 SHALL 与用户可见 PPT 页面使用相同页面图和版本
 - **AND** 后续画布编辑 SHALL NOT 改变已接受任务
 
-### Requirement: PPT Explainer SHALL Use Only Verified Existing Models
+### Requirement: PPT Explainer SHALL Use Only Configured Existing Models
 
-系统 SHALL 只展示当前已配置且在适配器契约中明确支持生成音频的视频模型，不得根据模型名称、目录描述或未公开接口猜测能力。
+系统 SHALL 直接展示当前启用供应商已获取并勾选的视频模型，不得追加供应商未获取的静态目录模型，也不得把静态标签包装成音轨能力保证。
 
 #### Scenario: Configure speakers without voice samples
 
@@ -140,17 +140,25 @@
 
 #### Scenario: Reject an unavailable model or invented configuration
 
-- **WHEN** 所选模型没有当前可执行路由、缺少凭据、未声明生成音频能力，或输入包含界面未提供的执行/讲解者字段
+- **WHEN** 所选模型没有当前可执行路由、缺少凭据，或输入包含界面未提供的执行/讲解者字段
 - **THEN** 系统 SHALL 在任何模型调用、缓存写入和任务持久化前失败
 - **AND** SHALL NOT 构造模型、声音、数字人或专用成片服务
 
+#### Scenario: List configured video models for PPT narration
+
+- **GIVEN** 启用供应商已获取并勾选一个或多个视频模型
+- **WHEN** 用户打开 PPT 讲解视频模型选择器
+- **THEN** 系统 SHALL 展示这些真实配置的视频模型
+- **AND** SHALL NOT 因缺少静态音轨标签而隐藏模型
+- **AND** 供应商禁用或模型取消勾选后，对应模型 SHALL 从候选中移除
+
 ### Requirement: PPT Explainer SHALL Support Local Composition With Existing Models
 
-系统 SHALL 复用已有文本、图片和经明确验证的有声视频模型完成任务。
+系统 SHALL 复用已有文本、图片和用户已配置的视频模型完成任务。
 
 #### Scenario: Generate a narrated slide video locally
 
-- **GIVEN** 用户选择的视频模型支持生成有声视频
+- **GIVEN** 用户选择一个已配置且具有可执行路由的视频模型
 - **WHEN** 用户选择单人或双人讲解
 - **THEN** 系统 SHALL 按页面把快照和 speaker turns 提交为有声视频片段
 - **AND** 系统 SHALL 只使用片段音轨，不得把模型重绘画面作为最终 PPT 视觉

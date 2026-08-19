@@ -129,13 +129,13 @@ describe('ModelDropdown', () => {
         onSelect={vi.fn()}
       />
     );
-    const wrapper = container.querySelector(
-      '.model-dropdown'
-    ) as HTMLElement;
+    const wrapper = container.querySelector('.model-dropdown') as HTMLElement;
     mockRect(wrapper, { top: 520, left: 42, bottom: 552, width: 180 });
 
     fireEvent.mouseDown(
-      container.querySelector('.model-dropdown__trigger--minimal') as HTMLElement
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
     );
 
     const menu = document.body.querySelector(
@@ -155,8 +155,8 @@ describe('ModelDropdown', () => {
         selectedModel="doubao-seedance-2-0-260128"
         models={[]}
         onSelect={vi.fn()}
-        emptyTriggerLabel="无兼容讲解模型"
-        emptyText="已勾选的视频模型均未验证讲解音轨能力"
+        emptyTriggerLabel="暂无已配置视频模型"
+        emptyText="请先在供应商设置中获取并勾选视频模型"
         strictModelList
       />
     );
@@ -164,14 +164,14 @@ describe('ModelDropdown', () => {
     const trigger = container.querySelector(
       '.model-dropdown__trigger--minimal'
     ) as HTMLElement;
-    expect(trigger.textContent).toContain('无兼容讲解模型');
+    expect(trigger.textContent).toContain('暂无已配置视频模型');
     expect(trigger.textContent).not.toContain('#img');
-    expect(trigger.getAttribute('aria-label')).toContain('无兼容讲解模型');
+    expect(trigger.getAttribute('aria-label')).toContain('暂无已配置视频模型');
 
     fireEvent.mouseDown(trigger);
 
     expect(
-      screen.getByText('已勾选的视频模型均未验证讲解音轨能力')
+      screen.getByText('请先在供应商设置中获取并勾选视频模型')
     ).not.toBeNull();
   });
 

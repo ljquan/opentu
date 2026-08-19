@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-function -- settings listener mocks intentionally do nothing */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('runtime-model-discovery', () => {
@@ -146,9 +147,6 @@ describe('runtime-model-discovery', () => {
       getSelectableModels,
       runtimeModelDiscovery,
     } = await import('../runtime-model-discovery');
-    const { supportsPptNarrationAudio } = await import(
-      '../../constants/model-config'
-    );
 
     expect(getSelectableModels('video').map((model) => model.id)).toContain(
       'doubao-seedance-2-0-260128'
@@ -156,18 +154,16 @@ describe('runtime-model-discovery', () => {
     expect(
       getConfiguredSelectableModels('video').map((model) => model.id)
     ).toEqual(['doubao-seedance-1-5-pro_1080p']);
-    expect(
-      getConfiguredSelectableModels('video').filter(supportsPptNarrationAudio)
-    ).toEqual([]);
 
     runtimeModelDiscovery.applySelection('provider-video', [
       'doubao-seedance-2-0-260128',
     ]);
 
     expect(
-      getConfiguredSelectableModels('video')
-        .filter(supportsPptNarrationAudio)
-        .map((model) => [model.sourceProfileId, model.id])
+      getConfiguredSelectableModels('video').map((model) => [
+        model.sourceProfileId,
+        model.id,
+      ])
     ).toEqual([['provider-video', 'doubao-seedance-2-0-260128']]);
 
     profiles[0].enabled = false;

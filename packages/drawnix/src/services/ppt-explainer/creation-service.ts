@@ -6,10 +6,6 @@ import {
 import type { Task } from '../../types/task.types';
 import { generateTaskId } from '../../utils/task-utils';
 import { settingsManager, type ModelRef } from '../../utils/settings-manager';
-import {
-  getModelConfig,
-  supportsPptNarrationAudio,
-} from '../../constants/model-config';
 import { getCanvasBoardBinding } from '../canvas-operations';
 import {
   resolveInvocationPlanFromRoute,
@@ -373,16 +369,11 @@ export async function createPptExplainerTask(
         'PPT 页面图片'
       )
     : undefined;
-  const videoPlan = preflightAuxiliaryModel(
+  preflightAuxiliaryModel(
     'video',
     input.videoModelRef ?? input.videoModel,
     '讲解视频'
   );
-  if (!supportsPptNarrationAudio(getModelConfig(videoPlan.modelRef.modelId))) {
-    throw new PptExplainerValidationError(
-      '当前所选视频模型未声明可生成讲解音轨'
-    );
-  }
 
   const jobId = generateTaskId();
   const createInitialState = (

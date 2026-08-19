@@ -513,21 +513,34 @@ describe('PPT explainer creation service', () => {
     }
   );
 
-  it('rejects a video model without an explicit narration-audio contract', async () => {
+  it('accepts a configured video route without a static narration tag', async () => {
+    const modelId = 'doubao-seedance-1-5-pro_1080p';
     mocks.resolveInvocationPlanFromRoute.mockImplementation((operation) =>
       operation === 'video'
         ? {
             ...createPlan('video'),
-            modelRef: { profileId: 'profile-1', modelId: 'seedance-1.5-pro' },
+            modelRef: { profileId: 'profile-1', modelId },
           }
         : createPlan(operation)
     );
 
-    await expect(createPptExplainerTask(createInput())).rejects.toThrow(
-      '当前所选视频模型未声明可生成讲解音轨'
-    );
+    await expect(
+      createPptExplainerTask(
+        createInput({
+          videoModel: modelId,
+          videoModelRef: { profileId: 'profile-1', modelId },
+        })
+      )
+    ).resolves.toMatchObject({ id: 'root-task' });
     expect(mocks.putArtifact).not.toHaveBeenCalled();
-    expect(mocks.createRootTask).not.toHaveBeenCalled();
+    expect(mocks.createRootTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.objectContaining({
+          videoModel: modelId,
+          videoModelRef: { profileId: 'profile-1', modelId },
+        }),
+      })
+    );
   });
 
   it('confirms review only once and starts the persisted task', async () => {
