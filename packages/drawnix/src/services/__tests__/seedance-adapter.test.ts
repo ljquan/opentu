@@ -19,6 +19,24 @@ function createContext(fetcher: typeof fetch): AdapterContext {
   };
 }
 
+class CapturingFormData {
+  private readonly values = new Map<string, unknown[]>();
+
+  append(name: string, value: unknown): void {
+    const values = this.values.get(name) || [];
+    values.push(value);
+    this.values.set(name, values);
+  }
+
+  get(name: string): FormDataEntryValue | null {
+    return (this.values.get(name)?.[0] as FormDataEntryValue) || null;
+  }
+
+  getAll(name: string): FormDataEntryValue[] {
+    return (this.values.get(name) || []) as FormDataEntryValue[];
+  }
+}
+
 describe('legacy Seedance video adapter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -84,11 +102,16 @@ describe('legacy Seedance video adapter', () => {
       jsonResponse({ error: { message: 'captured' } }, 400)
     ) as unknown as typeof fetch;
     const originalFetch = globalThis.fetch;
+    const originalFormData = globalThis.FormData;
     vi.stubGlobal(
       'fetch',
       vi.fn(
         async () => new Response(new Blob(['image'], { type: 'image/png' }))
       )
+    );
+    vi.stubGlobal(
+      'FormData',
+      CapturingFormData as unknown as typeof globalThis.FormData
     );
 
     try {
@@ -101,6 +124,7 @@ describe('legacy Seedance video adapter', () => {
       ).rejects.toThrow('captured');
     } finally {
       vi.stubGlobal('fetch', originalFetch);
+      vi.stubGlobal('FormData', originalFormData);
     }
 
     const submitBody = fetcher.mock.calls[0]?.[1]?.body as FormData;
