@@ -25,7 +25,6 @@ import {
 import { InvocationPlanner } from './invocation-planner';
 import { inferBindingsForProviderCatalog } from './binding-inference';
 import { isTuziCompatibleBaseUrl } from './tuzi-api-endpoints';
-import { getTuziUrlApiKey } from './tuzi-url-token';
 import { modelPricingService } from '../../utils/model-pricing-service';
 import type {
   InvocationPlan,
@@ -73,16 +72,6 @@ function isTuziBaseUrl(baseUrl: string): boolean {
   return isTuziCompatibleBaseUrl(baseUrl);
 }
 
-function resolveRuntimeApiKey(
-  baseUrl: string,
-  configuredApiKey: string
-): string {
-  const runtimeApiKey = getTuziUrlApiKey();
-  return runtimeApiKey && isTuziBaseUrl(baseUrl)
-    ? runtimeApiKey
-    : configuredApiKey;
-}
-
 function inferAuthType(
   baseUrl: string,
   providerType: ProviderProfile['providerType'],
@@ -119,7 +108,7 @@ function toProviderProfileSnapshot(
     name: profile.name,
     providerType: profile.providerType,
     baseUrl: profile.baseUrl,
-    apiKey: resolveRuntimeApiKey(profile.baseUrl, profile.apiKey),
+    apiKey: profile.apiKey,
     authType: inferAuthType(
       profile.baseUrl,
       profile.providerType,
@@ -201,7 +190,7 @@ function buildLegacyProfileSnapshot(): ProviderProfileSnapshot {
     name: TUZI_DEFAULT_PROVIDER_NAME,
     providerType,
     baseUrl,
-    apiKey: resolveRuntimeApiKey(baseUrl, gemini.apiKey?.trim() || ''),
+    apiKey: gemini.apiKey?.trim() || '',
     authType: inferAuthType(
       baseUrl,
       providerType,
