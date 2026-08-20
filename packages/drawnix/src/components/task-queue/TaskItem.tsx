@@ -49,6 +49,7 @@ import { VideoPosterPreview } from '../shared/VideoPosterPreview';
 import './task-queue.scss';
 import './task-progress-overlay.scss';
 import { HoverTip } from '../shared';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 
 // 布局切换阈值：容器宽度小于此值时使用紧凑布局（info 在图片下方全宽）
 // 弹窗侧栏宽度约 280px-500px，任务队列面板宽度约 300px-600px
@@ -829,18 +830,33 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                       {audioDurationLabel}
                     </span>
                   )}
-                  {isCompleted && task.result?.url && !isLyricsTask && (
-                    <a
-                      href={task.result.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="task-item__link"
-                      data-track="task_click_open_link"
-                      onClick={(e: any) => e.stopPropagation()}
-                    >
-                      · 打开链接
-                    </a>
-                  )}
+                  {isCompleted &&
+                    task.result?.url &&
+                    !isLyricsTask &&
+                    (isVirtualMediaUrl(task.result.url) ? (
+                      <button
+                        type="button"
+                        className="task-item__link"
+                        data-track="task_click_open_preview"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onPreviewOpen?.();
+                        }}
+                      >
+                        · 打开预览
+                      </button>
+                    ) : (
+                      <a
+                        href={task.result.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="task-item__link"
+                        data-track="task_click_open_link"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        · 打开链接
+                      </a>
+                    ))}
                 </div>
 
                 {/* Progress bar for video tasks (outside tags) */}

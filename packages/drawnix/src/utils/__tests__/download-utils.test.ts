@@ -2,12 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssetSource, AssetType, type Asset } from '../../types/asset.types';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import type { AudioDownloadMetadata } from '../audio-id3';
+import {
+  buildAssetDownloadItem,
+  buildTaskDownloadItems,
+  smartDownload,
+} from '../download-utils';
 
 const {
   downloadFileMock,
   openInNewTabMock,
   downloadFromBlobMock,
   applyAudioMetadataToBlobMock,
+  getCachedBlobMock,
 } = vi.hoisted(() => ({
   downloadFileMock: vi.fn<(url: string, filename?: string) => Promise<void>>(),
   openInNewTabMock: vi.fn<(url: string) => void>(),
@@ -19,6 +25,7 @@ const {
       sourceUrl?: string
     ) => Promise<Blob>
   >(),
+  getCachedBlobMock: vi.fn<(url: string) => Promise<Blob | null>>(),
 }));
 
 vi.mock('@aitu/utils', async () => {
@@ -35,11 +42,11 @@ vi.mock('../audio-id3', () => ({
   applyAudioMetadataToBlob: applyAudioMetadataToBlobMock,
 }));
 
-import {
-  buildAssetDownloadItem,
-  buildTaskDownloadItems,
-  smartDownload,
-} from '../download-utils';
+vi.mock('../../services/unified-cache-service', () => ({
+  unifiedCacheService: {
+    getCachedBlob: getCachedBlobMock,
+  },
+}));
 
 function createAsset(overrides: Partial<Asset> = {}): Asset {
   return {
@@ -99,6 +106,7 @@ describe('download-utils', () => {
     openInNewTabMock.mockReset();
     downloadFromBlobMock.mockReset();
     applyAudioMetadataToBlobMock.mockReset();
+    getCachedBlobMock.mockReset();
     applyAudioMetadataToBlobMock.mockImplementation(async (blob) => blob);
     vi.unstubAllGlobals();
   });
@@ -189,6 +197,77 @@ describe('download-utils', () => {
       downloadedCount: 0,
       failedCount: 0,
     });
+  });
+
+  it('下载内部缓存视频时读取 Blob，并按实际 WebM 格式命名', async () => {
+    const webmBlob = new Blob(
+      [new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02])],
+      { type: 'video/mp4' }
+    );
+    getCachedBlobMock.mockResolvedValue(webmBlob);
+
+    const result = await smartDownload([
+      {
+        url: '/__aitu_cache__/video/ppt-task.mp4',
+        type: 'video',
+        filename: 'PPT 讲解视频.mp4',
+      },
+    ]);
+
+    expect(getCachedBlobMock).toHaveBeenCalledWith(
+      '/__aitu_cache__/video/ppt-task.mp4'
+    );
+    expect(downloadFileMock).not.toHaveBeenCalled();
+    expect(downloadFromBlobMock).toHaveBeenCalledWith(
+      webmBlob,
+      'PPT 讲解视频.webm'
+    );
+    expect(result).toEqual({
+      openedCount: 0,
+      downloadedCount: 1,
+      failedCount: 0,
+    });
+  });
+
+  it('内部缓存缺失时拒绝下载，不把局域网 HTML 当成视频', async () => {
+    getCachedBlobMock.mockResolvedValue(null);
+
+    await expect(
+      smartDownload([
+        {
+          url: '/__aitu_cache__/video/missing.mp4',
+          type: 'video',
+          filename: 'missing.mp4',
+        },
+      ])
+    ).rejects.toThrow('本地媒体缓存不可用');
+
+    expect(downloadFromBlobMock).not.toHaveBeenCalled();
+    expect(downloadFileMock).not.toHaveBeenCalled();
+  });
+
+  it('拒绝将 HTML 响应保存为视频文件', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<!doctype html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      )
+    );
+
+    await expect(
+      smartDownload([
+        {
+          url: 'https://cdn.example.com/result',
+          type: 'video',
+          filename: 'result.mp4',
+        },
+      ])
+    ).rejects.toThrow('不是媒体文件');
+
+    expect(downloadFromBlobMock).not.toHaveBeenCalled();
   });
 
 });

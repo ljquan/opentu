@@ -641,7 +641,12 @@
   }
 
   &__link {
+    padding: 0;
+    border: 0;
+    background: transparent;
     color: var(--td-brand-color, #0052d9);
+    cursor: pointer;
+    font: inherit;
     text-decoration: none;
     &:hover { text-decoration: underline; }
   }

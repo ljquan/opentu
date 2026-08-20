@@ -648,7 +648,7 @@ async function* streamVoiceReferences(
 
 function inferVideoFormat(url: string): string {
   try {
-    const pathname = new URL(url).pathname;
+    const pathname = new URL(url, 'http://aitu.local').pathname;
     const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
     return extension || 'mp4';
   } catch {

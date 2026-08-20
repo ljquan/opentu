@@ -587,7 +587,10 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     expect(mocks.tasks.get(taskId)?.error).toBeUndefined();
     expect(mocks.tasks.get(taskId)).toMatchObject({
       status: TaskStatus.COMPLETED,
-      result: { url: `/__aitu_cache__/video/${taskId}.webm` },
+      result: {
+        url: `/__aitu_cache__/video/${taskId}.webm`,
+        format: 'webm',
+      },
       params: {
         pptExplainer: {
           stage: 'completed',
