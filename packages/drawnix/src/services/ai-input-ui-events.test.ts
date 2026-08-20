@@ -12,6 +12,8 @@ describe('ai-input-ui-events', () => {
     requestAIInputFocus({
       generationType: 'agent',
       skillId: 'generate_ppt',
+      pptExplainerSource: 'current_ppt',
+      openPptExplainer: true,
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
@@ -19,6 +21,8 @@ describe('ai-input-ui-events', () => {
       detail: {
         generationType: 'agent',
         skillId: 'generate_ppt',
+        pptExplainerSource: 'current_ppt',
+        openPptExplainer: true,
       },
     });
 

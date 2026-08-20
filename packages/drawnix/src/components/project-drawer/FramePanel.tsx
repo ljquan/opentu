@@ -3705,6 +3705,30 @@ export const FramePanel: React.FC<FramePanelProps> = ({
             />
           </HoverTip>
           {frames.length > 0 && (
+            <HoverTip content="用当前 PPT 生成讲解视频">
+              <Button
+                variant="outline"
+                size="small"
+                shape="square"
+                icon={<Video size={16} strokeWidth={1.8} />}
+                aria-label="用当前 PPT 生成讲解视频"
+                onClick={() => {
+                  analytics.trackPPTAction({
+                    action: 'open_explainer_video',
+                    source: 'project_drawer',
+                    pageCount: frames.length,
+                  });
+                  requestAIInputFocus({
+                    generationType: 'agent',
+                    skillId: 'generate_ppt_explainer_video',
+                    pptExplainerSource: 'current_ppt',
+                    openPptExplainer: true,
+                  });
+                }}
+              />
+            </HoverTip>
+          )}
+          {frames.length > 0 && (
             <HoverTip
               content={
                 isExportingAllPPT ? '正在导出 PPT...' : '导出所有 PPT 页面'

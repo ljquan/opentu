@@ -5,6 +5,8 @@ import type { KnowledgeContextRef } from '../types/task.types';
 export interface AIInputFocusEventDetail {
   generationType?: GenerationType;
   skillId?: string;
+  pptExplainerSource?: 'topic' | 'current_ppt' | 'pptx';
+  openPptExplainer?: boolean;
 }
 
 export interface AIInputPrefillImage {

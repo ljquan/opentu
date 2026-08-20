@@ -48,6 +48,7 @@ export interface PptExplainerDialogProps {
   sourceBoardId?: string | null;
   hasExistingPpt: boolean;
   initialTopic?: string;
+  initialSource?: PptExplainerSourceKind;
   textModel: string;
   textModelRef?: ModelRef | null;
   imageModel?: string;
@@ -64,10 +65,13 @@ function getSpeakerCount(
   return mode === 'dual_voice' ? 2 : 1;
 }
 
-function createInitialDraft(initialTopic?: string): PptExplainerDialogDraft {
+function createInitialDraft(
+  initialTopic?: string,
+  initialSource?: PptExplainerSourceKind
+): PptExplainerDialogDraft {
   const topic = initialTopic?.trim() || '';
   return {
-    source: topic ? 'topic' : 'current_ppt',
+    source: initialSource || (topic ? 'topic' : 'current_ppt'),
     topic,
     reviewMode: 'confirm',
     presenterMode: 'single_voice',
@@ -167,6 +171,7 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   open,
   sourceBoardId,
   initialTopic,
+  initialSource,
   textModel,
   textModelRef,
   imageModel,
@@ -176,7 +181,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   onCreate,
   onClose,
 }) => {
-  const [draft, setDraft] = useState(() => createInitialDraft(initialTopic));
+  const [draft, setDraft] = useState(() =>
+    createInitialDraft(initialTopic, initialSource)
+  );
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

@@ -360,6 +360,20 @@ describe('PptExplainerDialog', () => {
     ).toBe('请选择当前可用的视频模型');
   });
 
+  it('从 PPT 编辑器入口打开时直接使用当前 PPT', () => {
+    renderDialog({
+      initialTopic: '输入框残留主题',
+      initialSource: 'current_ppt',
+    });
+
+    expect(
+      screen
+        .getByRole('radio', { name: '当前 PPT' })
+        .getAttribute('aria-checked')
+    ).toBe('true');
+    expect(screen.queryByPlaceholderText('输入 PPT 主题')).toBeNull();
+  });
+
   it('PPTX 来源仅校验格式，不设置文件大小上限', () => {
     const pptxFile = new File(['pptx'], 'deck.pptx', {
       type: 'application/octet-stream',

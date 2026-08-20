@@ -124,6 +124,7 @@ import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
 import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
+import type { PptExplainerSourceKind } from '../../services/ppt-explainer/types';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -1918,6 +1919,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       useState<CanvasAssociationTrigger | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false); // 防止快速重复点击（3秒防抖）
     const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
+    const [pptExplainerInitialSource, setPptExplainerInitialSource] =
+      useState<PptExplainerSourceKind>();
     const submitLockRef = useRef(false);
     const submitCooldownRef = useRef<NodeJS.Timeout | null>(null); // 提交冷却定时器
     const [isFocused, setIsFocused] = useState(false);
@@ -3471,6 +3474,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           if (systemSkill) {
             setSelectedSkillMediaTypes(inferSkillMediaTypes(systemSkill));
           }
+        }
+        if (detail?.pptExplainerSource) {
+          setPptExplainerInitialSource(detail.pptExplainerSource);
+        }
+        if (detail?.openPptExplainer) {
+          setPptExplainerDialogOpen(true);
         }
 
         focusInput();
@@ -7634,6 +7643,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             sourceBoardId={currentBoardId}
             hasExistingPpt={hasExistingPpt}
             initialTopic={promptRef.current}
+            initialSource={pptExplainerInitialSource}
             textModel={selectedModel}
             textModelRef={selectedModelRef}
             imageModel={selectedAgentImageModel}
@@ -7641,7 +7651,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             videoModel={selectedAgentVideoModel}
             videoModelRef={selectedAgentVideoModelRef}
             onCreate={handleCreatePptExplainerTask}
-            onClose={() => setPptExplainerDialogOpen(false)}
+            onClose={() => {
+              setPptExplainerDialogOpen(false);
+              setPptExplainerInitialSource(undefined);
+            }}
           />
         ) : null}
         <div
