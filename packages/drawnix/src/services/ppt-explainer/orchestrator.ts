@@ -864,6 +864,7 @@ async function runLocalComposition(
     width: 1920,
     height: 1080,
     signal,
+    loadMediaBlob: (url, mediaSignal) => readInputBlob(url, mediaSignal),
     onProgress: async (progress, message) => {
       state = await persistStage(
         taskId,

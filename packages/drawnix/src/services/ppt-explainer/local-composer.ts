@@ -18,6 +18,8 @@ export interface LocalPptCompositionInput {
   frameRate?: number;
   transitionDurationMs?: number;
   signal?: AbortSignal;
+  /** Loads virtual/local media as a Blob when Service Worker URLs are unavailable. */
+  loadMediaBlob?: (url: string, signal: AbortSignal) => Promise<Blob>;
   onProgress?: (progress: number, message: string) => void | Promise<void>;
 }
 
@@ -111,6 +113,41 @@ function loadImage(
     signal?.addEventListener('abort', onAbort, { once: true });
     image.src = url;
   });
+}
+
+interface LoadedImage {
+  image: HTMLImageElement;
+  dispose: () => void;
+}
+
+async function loadCompositionImage(
+  url: string,
+  loadMediaBlob: LocalPptCompositionInput['loadMediaBlob'],
+  signal?: AbortSignal
+): Promise<LoadedImage> {
+  if (!loadMediaBlob) {
+    return { image: await loadImage(url, signal), dispose: () => undefined };
+  }
+
+  const blob = await loadMediaBlob(url, signal || new AbortController().signal);
+  signal?.throwIfAborted();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const image = await loadImage(objectUrl, signal);
+    return {
+      image,
+      dispose: () => {
+        if (typeof URL.revokeObjectURL === 'function') {
+          URL.revokeObjectURL(objectUrl);
+        }
+      },
+    };
+  } catch (error) {
+    if (typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(objectUrl);
+    }
+    throw error;
+  }
 }
 
 function drawSlide(
@@ -304,9 +341,19 @@ async function playMediaElementAudio(
   audioContext: AudioContext,
   destination: MediaStreamAudioDestinationNode,
   mediaUrl: string,
+  loadMediaBlob: LocalPptCompositionInput['loadMediaBlob'],
   signal?: AbortSignal
 ): Promise<number> {
   signal?.throwIfAborted();
+  let objectUrl: string | undefined;
+  if (loadMediaBlob) {
+    const blob = await loadMediaBlob(
+      mediaUrl,
+      signal || new AbortController().signal
+    );
+    signal?.throwIfAborted();
+    objectUrl = URL.createObjectURL(blob);
+  }
   const media = document.createElement('video');
   media.crossOrigin = 'anonymous';
   media.preload = 'auto';
@@ -325,6 +372,9 @@ async function playMediaElementAudio(
     }
     media.removeAttribute('src');
     media.remove();
+    if (objectUrl && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(objectUrl);
+    }
     throw error;
   }
 
@@ -340,6 +390,9 @@ async function playMediaElementAudio(
       media.removeAttribute('src');
       media.load();
       media.remove();
+      if (objectUrl && typeof URL.revokeObjectURL === 'function') {
+        URL.revokeObjectURL(objectUrl);
+      }
       try {
         source.disconnect();
       } catch {
@@ -396,7 +449,7 @@ async function playMediaElementAudio(
     media.addEventListener('canplay', onCanPlay);
     media.addEventListener('ended', onEnded, { once: true });
     media.addEventListener('error', onError, { once: true });
-    media.src = mediaUrl;
+    media.src = objectUrl || mediaUrl;
     media.load();
   });
 }
@@ -405,6 +458,7 @@ function playNarrationTurn(
   audioContext: AudioContext,
   destination: MediaStreamAudioDestinationNode,
   turn: LocalPptNarrationTurn,
+  loadMediaBlob: LocalPptCompositionInput['loadMediaBlob'],
   signal?: AbortSignal
 ): Promise<number> {
   if (turn.audio) {
@@ -415,6 +469,7 @@ function playNarrationTurn(
       audioContext,
       destination,
       turn.mediaUrl,
+      loadMediaBlob,
       signal
     );
   }
@@ -458,6 +513,7 @@ export async function composeLocalPptExplainerVideo(
   let duration = 0;
   let createdUrl = '';
   let activeImage: HTMLImageElement | undefined;
+  let activeImageDispose: (() => void) | undefined;
   try {
     destination = audioContext.createMediaStreamDestination();
     canvasStream = canvas.captureStream(input.frameRate || DEFAULT_FRAME_RATE);
@@ -490,7 +546,13 @@ export async function composeLocalPptExplainerVideo(
     void recorderFailure.catch(() => undefined);
 
     await waitForAbortable(audioContext.resume(), signal);
-    const firstImage = await loadImage(input.slides[0].imageUrl, signal);
+    let activeImageLoad = await loadCompositionImage(
+      input.slides[0].imageUrl,
+      input.loadMediaBlob,
+      signal
+    );
+    activeImageDispose = activeImageLoad.dispose;
+    const firstImage = activeImageLoad.image;
     activeImage = firstImage;
     drawSlide(context, canvas, firstImage, input.slides[0].turns[0]);
     activeRecorder.start(1000);
@@ -504,10 +566,13 @@ export async function composeLocalPptExplainerVideo(
     );
     for (const [slideIndex, slide] of input.slides.entries()) {
       signal.throwIfAborted();
-      const image =
-        slideIndex === 0
-          ? firstImage
-          : await waitWhileRecording(loadImage(slide.imageUrl, signal));
+      if (slideIndex > 0) {
+        activeImageLoad = await waitWhileRecording(
+          loadCompositionImage(slide.imageUrl, input.loadMediaBlob, signal)
+        );
+        activeImageDispose = activeImageLoad.dispose;
+      }
+      const image = activeImageLoad.image;
       activeImage = image;
       try {
         if (slideIndex > 0) {
@@ -524,7 +589,13 @@ export async function composeLocalPptExplainerVideo(
         for (const turn of slide.turns) {
           drawSlide(context, canvas, image, turn);
           duration += await waitWhileRecording(
-            playNarrationTurn(audioContext, destination, turn, signal)
+            playNarrationTurn(
+              audioContext,
+              destination,
+              turn,
+              input.loadMediaBlob,
+              signal
+            )
           );
           completedTurns += 1;
           await waitWhileRecording(
@@ -538,6 +609,8 @@ export async function composeLocalPptExplainerVideo(
         }
       } finally {
         image.src = '';
+        activeImageDispose?.();
+        activeImageDispose = undefined;
         if (activeImage === image) activeImage = undefined;
       }
     }
@@ -564,6 +637,7 @@ export async function composeLocalPptExplainerVideo(
   } finally {
     input.signal?.removeEventListener('abort', abortFromInput);
     if (activeImage) activeImage.src = '';
+    activeImageDispose?.();
     if (combinedStream) {
       combinedStream.getTracks().forEach((track) => track.stop());
     } else {

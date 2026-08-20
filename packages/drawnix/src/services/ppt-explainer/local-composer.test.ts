@@ -216,10 +216,15 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     ((node: Node) => node) as typeof document.body.appendChild
   );
   const NativeURL = URL;
+  let objectUrlIndex = 0;
   vi.stubGlobal(
     'URL',
     class extends NativeURL {
-      static createObjectURL = vi.fn(() => 'blob:composed-video');
+      static createObjectURL = vi.fn((blob: Blob) =>
+        blob.type === 'video/webm'
+          ? 'blob:composed-video'
+          : `blob:input-media-${++objectUrlIndex}`
+      );
       static revokeObjectURL = vi.fn();
     }
   );
@@ -379,6 +384,47 @@ describe('local PPT explainer composer', () => {
     ).not.toHaveBeenCalled();
     expect(browser.bufferSource.disconnect).toHaveBeenCalledOnce();
     expect(browser.bufferSource.buffer).toBeNull();
+  });
+
+  it('loads cached slide and narration blobs without Service Worker URLs', async () => {
+    const browser = installComposerBrowser();
+    const slideBlob = new Blob(['slide'], { type: 'image/png' });
+    const narrationBlob = new Blob(['video'], { type: 'video/mp4' });
+    const loadMediaBlob = vi.fn(async (url: string) =>
+      url.endsWith('.png') ? slideBlob : narrationBlob
+    );
+
+    const result = await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/__aitu_internal__/ppt-explainer/job/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+      loadMediaBlob,
+    });
+
+    expect(result.url).toBe('blob:composed-video');
+    expect(loadMediaBlob).toHaveBeenNthCalledWith(
+      1,
+      '/__aitu_internal__/ppt-explainer/job/slide.png',
+      expect.any(AbortSignal)
+    );
+    expect(loadMediaBlob).toHaveBeenNthCalledWith(
+      2,
+      '/__aitu_cache__/video/segment.mp4',
+      expect.any(AbortSignal)
+    );
+    expect(URL.createObjectURL).toHaveBeenCalledWith(slideBlob);
+    expect(URL.createObjectURL).toHaveBeenCalledWith(narrationBlob);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:input-media-1');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:input-media-2');
+    expect(browser.video.src).toBe('');
   });
 
   it('fails clearly on media decode errors and releases all resources', async () => {
