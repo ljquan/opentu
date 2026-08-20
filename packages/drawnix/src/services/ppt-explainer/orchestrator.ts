@@ -10,6 +10,8 @@ import {
   assertTaskInvocationRouteAvailable,
   resolveTaskInvocationRouteModel,
 } from '../task-invocation-route';
+import { resolveInvocationPlanFromRoute } from '../provider-routing';
+import { downloadVideoContentToLocalUrl } from '../video-binding-utils';
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
@@ -165,13 +167,45 @@ async function generatePptExplainerSegment(
 
 async function cachePptExplainerNarrationSegment(
   url: string,
-  internalTaskId: string,
+  internalTask: Task,
   signal: AbortSignal
 ): Promise<string> {
   signal.throwIfAborted();
+  let authenticatedDownloadError: unknown;
+  const remoteId = internalTask.remoteId?.trim();
+  if (remoteId) {
+    const routeModel = resolveTaskInvocationRouteModel(internalTask);
+    const route = resolveInvocationPlanFromRoute('video', routeModel, {
+      bindingId: internalTask.invocationRoute?.binding?.id,
+    });
+    if (route) {
+      try {
+        const downloadedUrl = await downloadVideoContentToLocalUrl({
+          videoId: remoteId,
+          provider: route.provider,
+          binding: route.binding,
+          modelId: route.modelRef.modelId,
+          cacheKey: internalTask.id,
+          resultVisibility: 'internal',
+          signal,
+          fallbackToObjectUrl: false,
+        });
+        signal.throwIfAborted();
+        if (isVirtualMediaUrl(downloadedUrl)) return downloadedUrl;
+      } catch (error) {
+        signal.throwIfAborted();
+        authenticatedDownloadError = error;
+        console.warn(
+          '[PptExplainer] Authenticated video content download failed, falling back to result URL:',
+          error
+        );
+      }
+    }
+  }
+
   const cachedUrl = await cacheRemoteUrl(
     url,
-    internalTaskId,
+    internalTask.id,
     'video',
     inferVideoFormat(url),
     undefined,
@@ -184,8 +218,14 @@ async function cachePptExplainerNarrationSegment(
   );
   signal.throwIfAborted();
   if (isVirtualMediaUrl(cachedUrl)) return cachedUrl;
+  const downloadErrorMessage =
+    authenticatedDownloadError instanceof Error
+      ? authenticatedDownloadError.message.trim()
+      : '';
   throw new Error(
-    '讲解片段未能缓存到本地，无法固定 PPT 画面合成；请检查跨域或代理配置'
+    downloadErrorMessage
+      ? `讲解片段下载失败：鉴权内容接口返回“${downloadErrorMessage}”，结果地址也无法缓存到本地`
+      : '讲解片段未能缓存到本地，无法固定 PPT 画面合成；供应商结果地址不允许浏览器读取'
   );
 }
 
@@ -778,7 +818,7 @@ async function runLocalComposition(
     }
     const narrationMediaUrl = await cachePptExplainerNarrationSegment(
       generated.url,
-      generated.task.id,
+      generated.task,
       signal
     );
     compositionSlides.push({

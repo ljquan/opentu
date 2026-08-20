@@ -54,6 +54,9 @@ const mocks = vi.hoisted(() => ({
   listCurrentPptFrameIds: vi.fn(),
   getDraftOwners: vi.fn(),
   generateVideo: vi.fn(),
+  resolveInvocationPlanFromRoute: vi.fn(),
+  resolveTaskInvocationRouteModel: vi.fn(),
+  downloadVideoContentToLocalUrl: vi.fn(),
   composeLocalPptVideo: vi.fn(),
   cacheMediaFromBlob: vi.fn(),
 }));
@@ -107,7 +110,15 @@ vi.mock('../media-executor/fallback-utils', () => ({
 
 vi.mock('../task-invocation-route', () => ({
   assertTaskInvocationRouteAvailable: vi.fn(),
-  resolveTaskInvocationRouteModel: vi.fn(),
+  resolveTaskInvocationRouteModel: mocks.resolveTaskInvocationRouteModel,
+}));
+
+vi.mock('../provider-routing', () => ({
+  resolveInvocationPlanFromRoute: mocks.resolveInvocationPlanFromRoute,
+}));
+
+vi.mock('../video-binding-utils', () => ({
+  downloadVideoContentToLocalUrl: mocks.downloadVideoContentToLocalUrl,
 }));
 
 vi.mock('../task-queue', () => ({
@@ -339,6 +350,8 @@ beforeEach(() => {
   mocks.tasks.clear();
   vi.clearAllMocks();
   mocks.resolveProviderRoute.mockReturnValue({ provider: {}, binding: {} });
+  mocks.resolveInvocationPlanFromRoute.mockReturnValue(null);
+  mocks.resolveTaskInvocationRouteModel.mockReturnValue(null);
   mocks.cacheRemoteUrl.mockImplementation(async (url: string) => url);
   mocks.deleteArtifacts.mockResolvedValue(undefined);
   mocks.deletePptxImportCache.mockResolvedValue(undefined);
@@ -613,6 +626,138 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       status: TaskStatus.FAILED,
       error: {
         message: expect.stringContaining('讲解片段未能缓存到本地'),
+      },
+    });
+  });
+
+  it('优先通过内部任务的鉴权内容接口下载讲解片段', async () => {
+    const taskId = 'local-authenticated-download';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    const invocationRoute = {
+      operation: 'video' as const,
+      modelRef: { profileId: 'profile-1', modelId: 'video-model' },
+      providerProfileId: 'profile-1',
+      providerType: 'custom',
+      modelId: 'video-model',
+      binding: {
+        id: 'video-binding',
+        protocol: 'seedance.task',
+        requestSchema: 'seedance.video.form-auto',
+        responseSchema: 'seedance.video.task',
+        submitPath: '/videos',
+        pollPathTemplate: '/videos/{taskId}',
+      },
+    };
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      options.onTaskCreated?.('segment-task-auth');
+      return {
+        task: {
+          id: 'segment-task-auth',
+          remoteId: 'remote-segment-id',
+          invocationRoute,
+        },
+        url: 'https://cdn.example.com/segment-auth.mp4',
+      };
+    });
+    mocks.resolveTaskInvocationRouteModel.mockReturnValue({
+      profileId: 'profile-1',
+      modelId: 'video-model',
+    });
+    mocks.resolveInvocationPlanFromRoute.mockReturnValue({
+      provider: { profileId: 'profile-1' },
+      binding: { id: 'video-binding' },
+      modelRef: { profileId: 'profile-1', modelId: 'video-model' },
+    });
+    mocks.downloadVideoContentToLocalUrl.mockResolvedValue(
+      '/__aitu_cache__/video/segment-task-auth.mp4'
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.downloadVideoContentToLocalUrl).toHaveBeenCalledWith({
+      videoId: 'remote-segment-id',
+      provider: { profileId: 'profile-1' },
+      binding: { id: 'video-binding' },
+      modelId: 'video-model',
+      cacheKey: 'segment-task-auth',
+      resultVisibility: 'internal',
+      signal: expect.any(AbortSignal),
+      fallbackToObjectUrl: false,
+    });
+    expect(mocks.cacheRemoteUrl).not.toHaveBeenCalledWith(
+      'https://cdn.example.com/segment-auth.mp4',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            turns: [
+              expect.objectContaining({
+                mediaUrl: '/__aitu_cache__/video/segment-task-auth.mp4',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+    expect(mocks.tasks.get(taskId)?.status).toBe(TaskStatus.COMPLETED);
+  });
+
+  it('鉴权下载和结果地址缓存都失败时保留真实接口错误', async () => {
+    const taskId = 'local-all-downloads-failed';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      options.onTaskCreated?.('segment-task-download-failed');
+      return {
+        task: {
+          id: 'segment-task-download-failed',
+          remoteId: 'remote-segment-id',
+        },
+        url: 'https://cdn.example.com/segment-download-failed.mp4',
+      };
+    });
+    mocks.resolveInvocationPlanFromRoute.mockReturnValue({
+      provider: { profileId: 'profile-1' },
+      binding: { id: 'video-binding' },
+      modelRef: { profileId: 'profile-1', modelId: 'video-model' },
+    });
+    mocks.downloadVideoContentToLocalUrl.mockRejectedValue(
+      new Error('视频内容下载失败: 502 - upstream unavailable')
+    );
+    mocks.cacheRemoteUrl.mockResolvedValue(
+      'https://cdn.example.com/segment-download-failed.mp4'
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.composeLocalPptVideo).not.toHaveBeenCalled();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: {
+        message: expect.stringContaining(
+          '视频内容下载失败: 502 - upstream unavailable'
+        ),
       },
     });
   });
