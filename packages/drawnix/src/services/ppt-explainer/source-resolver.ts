@@ -105,14 +105,45 @@ export function getCurrentPptExplainerDraftOwners(board: PlaitBoard): string[] {
 
 export async function captureCurrentPptSourceSelection(
   board: PlaitBoard,
-  pptExplainerJobId?: string
+  pptExplainerJobId?: string,
+  requestedFrameIds?: readonly string[]
 ): Promise<CurrentPptSourceSelection> {
   const owner = pptExplainerJobId?.trim();
-  const frames = collectPptFrames(board.children as PlaitElement[]).filter(
+  let frames = collectPptFrames(board.children as PlaitElement[]).filter(
     (frame) => !owner || frame.pptMeta.pptExplainerJobId?.trim() === owner
   );
   if (frames.length === 0) {
     throw new PptExplainerValidationError('当前画板没有 PPT 页面');
+  }
+
+  if (requestedFrameIds !== undefined) {
+    if (requestedFrameIds.length === 0) {
+      throw new PptExplainerValidationError('请选择至少一页 PPT');
+    }
+    const requestedIds = new Set<string>();
+    for (const frameId of requestedFrameIds) {
+      if (
+        typeof frameId !== 'string' ||
+        !frameId.trim() ||
+        frameId !== frameId.trim() ||
+        requestedIds.has(frameId)
+      ) {
+        throw new PptExplainerValidationError(
+          '选择的 PPT 页面无效，请重新选择'
+        );
+      }
+      requestedIds.add(frameId);
+    }
+    const availableIds = new Set(frames.map((frame) => frame.id));
+    const missingId = requestedFrameIds.find(
+      (frameId) => !availableIds.has(frameId)
+    );
+    if (missingId) {
+      throw new PptExplainerValidationError(
+        '选择的 PPT 页面已不存在，请重新选择'
+      );
+    }
+    frames = frames.filter((frame) => requestedIds.has(frame.id));
   }
 
   const frameIds = frames.map((frame) => frame.id);

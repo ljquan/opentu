@@ -34,6 +34,26 @@
 - **THEN** 系统 SHALL 按 `pageIndex` 读取页面、备注和转场
 - **AND** SHALL 为本次任务冻结不可变页面快照
 
+#### Scenario: Use selected current PPT pages
+
+- **GIVEN** 用户在页面视图或大纲视图选择一个或多个 PPT 页面
+- **WHEN** 用户从 PPT 编辑器打开讲解视频并提交
+- **THEN** 对话框 SHALL 显示已选页数
+- **AND** 任务 SHALL 只按 PPT 页码顺序冻结已选页面
+- **AND** 未选页面 SHALL NOT 创建讲稿或视频子任务
+
+#### Scenario: Fall back to all current PPT pages
+
+- **GIVEN** PPT 编辑器没有选中页面
+- **WHEN** 用户从 PPT 编辑器打开讲解视频并提交
+- **THEN** 任务 SHALL 使用当前 PPT 的全部页面
+
+#### Scenario: Reject stale or invalid selected page IDs
+
+- **GIVEN** 当前 PPT 请求包含空、重复、格式错误或已不存在的页面 ID
+- **WHEN** 创建服务校验请求
+- **THEN** 系统 SHALL 在模型预检或任务持久化前拒绝请求
+
 #### Scenario: Use an uploaded PPTX
 
 - **GIVEN** 用户选择一个可解析的 PPTX

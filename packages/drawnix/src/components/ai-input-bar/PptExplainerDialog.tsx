@@ -49,6 +49,7 @@ export interface PptExplainerDialogProps {
   hasExistingPpt: boolean;
   initialTopic?: string;
   initialSource?: PptExplainerSourceKind;
+  currentPptFrameIds?: string[];
   textModel: string;
   textModelRef?: ModelRef | null;
   imageModel?: string;
@@ -172,6 +173,7 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   sourceBoardId,
   initialTopic,
   initialSource,
+  currentPptFrameIds,
   textModel,
   textModelRef,
   imageModel,
@@ -234,6 +236,9 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
       const input: PptExplainerCreateInput = {
         source: draft.source,
         sourceBoardId,
+        ...(draft.source === 'current_ppt' && currentPptFrameIds?.length
+          ? { currentPptFrameIds: [...currentPptFrameIds] }
+          : {}),
         ...(draft.source === 'topic' ? { topic: draft.topic.trim() } : {}),
         reviewMode: draft.source === 'topic' ? draft.reviewMode : 'confirm',
         presenterMode: draft.presenterMode,
@@ -323,6 +328,12 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                   setDraft((current) => ({ ...current, topic }));
                 }}
               />
+            ) : null}
+            {draft.source === 'current_ppt' && currentPptFrameIds?.length ? (
+              <div className="ppt-explainer-dialog__hint" role="note">
+                将仅生成已选 {currentPptFrameIds.length} 页，顺序按当前 PPT
+                页码排列。
+              </div>
             ) : null}
             {draft.source === 'pptx' ? (
               <div className="ppt-explainer-dialog__file-row">

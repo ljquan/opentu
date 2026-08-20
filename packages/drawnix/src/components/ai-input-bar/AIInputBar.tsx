@@ -1921,6 +1921,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
     const [pptExplainerInitialSource, setPptExplainerInitialSource] =
       useState<PptExplainerSourceKind>();
+    const [pptExplainerFrameIds, setPptExplainerFrameIds] = useState<
+      string[] | undefined
+    >();
     const submitLockRef = useRef(false);
     const submitCooldownRef = useRef<NodeJS.Timeout | null>(null); // 提交冷却定时器
     const [isFocused, setIsFocused] = useState(false);
@@ -3479,6 +3482,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           setPptExplainerInitialSource(detail.pptExplainerSource);
         }
         if (detail?.openPptExplainer) {
+          setPptExplainerFrameIds(
+            detail.pptExplainerFrameIds?.length
+              ? [...detail.pptExplainerFrameIds]
+              : undefined
+          );
           setPptExplainerDialogOpen(true);
         }
 
@@ -7644,6 +7652,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             hasExistingPpt={hasExistingPpt}
             initialTopic={promptRef.current}
             initialSource={pptExplainerInitialSource}
+            currentPptFrameIds={pptExplainerFrameIds}
             textModel={selectedModel}
             textModelRef={selectedModelRef}
             imageModel={selectedAgentImageModel}
@@ -7654,6 +7663,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             onClose={() => {
               setPptExplainerDialogOpen(false);
               setPptExplainerInitialSource(undefined);
+              setPptExplainerFrameIds(undefined);
             }}
           />
         ) : null}

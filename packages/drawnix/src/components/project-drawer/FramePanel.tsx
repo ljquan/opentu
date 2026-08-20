@@ -146,7 +146,10 @@ import {
   insertAudioFromUrl,
   resolveAudioCardDimensions,
 } from '../../data/audio';
-import { requestAIInputFocus } from '../../services/ai-input-ui-events';
+import {
+  requestAIInputFocus,
+  resolvePptExplainerFrameIds,
+} from '../../services/ai-input-ui-events';
 import {
   createPPTFrameSnapshotDataUrl,
   createPPTFrameSnapshotKey,
@@ -3623,6 +3626,15 @@ export const FramePanel: React.FC<FramePanelProps> = ({
   const outlineSelectionLabel = `${
     allOutlineSlidesSelected ? '取消' : '全选'
   }${selectedOutlineSlideCount}/${orderedPPTFrames.length}`;
+  const selectedExplainerFrameIds = resolvePptExplainerFrameIds(
+    orderedPPTFrames.map((info) => info.frame.id),
+    pptViewMode === 'outline' ? outlineSelectedFrameIds : selectedFrameIds
+  );
+  const explainerPageCount =
+    selectedExplainerFrameIds?.length || orderedPPTFrames.length;
+  const explainerActionLabel = selectedExplainerFrameIds?.length
+    ? `用已选 ${selectedExplainerFrameIds.length} 页生成讲解视频`
+    : '用当前全部 PPT 页面生成讲解视频';
 
   if (!board) {
     return (
@@ -3705,23 +3717,25 @@ export const FramePanel: React.FC<FramePanelProps> = ({
             />
           </HoverTip>
           {frames.length > 0 && (
-            <HoverTip content="用当前 PPT 生成讲解视频">
+            <HoverTip content={explainerActionLabel}>
               <Button
                 variant="outline"
                 size="small"
                 shape="square"
                 icon={<Video size={16} strokeWidth={1.8} />}
-                aria-label="用当前 PPT 生成讲解视频"
+                aria-label={explainerActionLabel}
                 onClick={() => {
                   analytics.trackPPTAction({
                     action: 'open_explainer_video',
                     source: 'project_drawer',
-                    pageCount: frames.length,
+                    pageCount: explainerPageCount,
+                    selectedCount: selectedExplainerFrameIds?.length || 0,
                   });
                   requestAIInputFocus({
                     generationType: 'agent',
                     skillId: 'generate_ppt_explainer_video',
                     pptExplainerSource: 'current_ppt',
+                    pptExplainerFrameIds: selectedExplainerFrameIds,
                     openPptExplainer: true,
                   });
                 }}

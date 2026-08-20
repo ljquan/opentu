@@ -374,6 +374,22 @@ describe('PptExplainerDialog', () => {
     expect(screen.queryByPlaceholderText('输入 PPT 主题')).toBeNull();
   });
 
+  it('从 PPT 编辑器入口打开时仅提交已选页面', async () => {
+    const { onCreate } = renderDialog({
+      initialSource: 'current_ppt',
+      currentPptFrameIds: ['frame-1', 'frame-3'],
+    });
+
+    expect(screen.getByText(/将仅生成已选 2 页/)).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      source: 'current_ppt',
+      currentPptFrameIds: ['frame-1', 'frame-3'],
+    });
+  });
+
   it('PPTX 来源仅校验格式，不设置文件大小上限', () => {
     const pptxFile = new File(['pptx'], 'deck.pptx', {
       type: 'application/octet-stream',

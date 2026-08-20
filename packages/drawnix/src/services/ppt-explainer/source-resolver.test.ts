@@ -144,6 +144,43 @@ describe('current PPT source selection', () => {
     ]);
   });
 
+  it('captures only requested pages in stable PPT page order', async () => {
+    const board = {
+      children: [
+        createFrame('frame-2', 2),
+        createFrame('frame-1', 1),
+        createFrame('frame-3', 3),
+      ],
+    } as any;
+
+    const selection = await captureCurrentPptSourceSelection(board, undefined, [
+      'frame-3',
+      'frame-1',
+    ]);
+
+    expect(selection.frameIds).toEqual(['frame-1', 'frame-3']);
+    expect(Object.keys(selection.frameRevisions || {})).toEqual([
+      'frame-1',
+      'frame-3',
+    ]);
+  });
+
+  it('rejects an empty or missing requested page selection', async () => {
+    const board = {
+      children: [createFrame('frame-1', 1)],
+    } as any;
+
+    await expect(
+      captureCurrentPptSourceSelection(board, undefined, [])
+    ).rejects.toThrow('请选择至少一页 PPT');
+    await expect(
+      captureCurrentPptSourceSelection(board, undefined, ['missing'])
+    ).rejects.toThrow('选择的 PPT 页面已不存在');
+    await expect(
+      captureCurrentPptSourceSelection(board, undefined, ['frame-1', 'frame-1'])
+    ).rejects.toThrow('选择的 PPT 页面无效');
+  });
+
   it('fails explicitly when a submitted frame is deleted', async () => {
     const board = {
       children: [createFrame('frame-1', 1), createFrame('frame-2', 2)],

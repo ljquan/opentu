@@ -39,6 +39,12 @@ export const pptExplainerVideoTool: MCPTool = {
         type: 'string',
         description: '任务创建时所属画板 ID，由主线程配置界面提供',
       },
+      currentPptFrameIds: {
+        type: 'array',
+        description:
+          '当前 PPT 来源的已选页面 ID，由 PPT 编辑器提供；省略时使用全部页面',
+        items: { type: 'string' },
+      },
       topic: {
         type: 'string',
         description: '主题来源的 PPT 主题；其他来源可作为任务标题',
@@ -113,12 +119,15 @@ export const pptExplainerVideoTool: MCPTool = {
     parameterGuidance: {
       source:
         '用户明确提到新主题时用 topic；提到当前 PPT 时用 current_ppt；PPTX 只能使用配置界面提供的真实本地 File。',
+      currentPptFrameIds:
+        '只能原样使用 PPT 编辑器提供的页面 ID；未提供时省略，不得自行构造。',
       reviewMode:
         '默认 confirm。只有配置界面已完成二次警告确认时，才可使用 skip_after_warning。',
       speakers: '只填写配置界面中的讲解者名称，不得添加界面未提供的字段。',
     },
     warnings: [
       '不得构造本地 File、模型来源或界面未提供的讲解者字段',
+      '不得构造当前 PPT 页面 ID，只能使用 PPT 编辑器提供的选择结果',
       '跳过大纲审核只能由当前页面配置界面的二次确认授权，Agent 参数不能代替用户确认',
       'OpenTu 不设置固定页数、文件大小、发言时长或总成片时长上限',
     ],

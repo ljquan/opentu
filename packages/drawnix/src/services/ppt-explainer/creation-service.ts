@@ -103,7 +103,13 @@ async function requireCreationContext(
 
   const currentPptSelection =
     input.source === 'current_ppt'
-      ? await captureCurrentPptSourceSelection(binding.board)
+      ? input.currentPptFrameIds
+        ? await captureCurrentPptSourceSelection(
+            binding.board,
+            undefined,
+            input.currentPptFrameIds
+          )
+        : await captureCurrentPptSourceSelection(binding.board)
       : undefined;
   return {
     board: binding.board,
@@ -331,6 +337,31 @@ function assertSupportedPptExplainerInput(
     )
   ) {
     throw new PptExplainerValidationError('讲解者配置包含当前不支持的字段');
+  }
+  if (candidate.currentPptFrameIds !== undefined) {
+    if (candidate.source !== 'current_ppt') {
+      throw new PptExplainerValidationError('只有当前 PPT 来源可以选择页面');
+    }
+    if (
+      !Array.isArray(candidate.currentPptFrameIds) ||
+      candidate.currentPptFrameIds.length === 0
+    ) {
+      throw new PptExplainerValidationError('请选择至少一页 PPT');
+    }
+    const seenFrameIds = new Set<string>();
+    for (const frameId of candidate.currentPptFrameIds) {
+      if (
+        typeof frameId !== 'string' ||
+        !frameId.trim() ||
+        frameId !== frameId.trim() ||
+        seenFrameIds.has(frameId)
+      ) {
+        throw new PptExplainerValidationError(
+          '选择的 PPT 页面无效，请重新选择'
+        );
+      }
+      seenFrameIds.add(frameId);
+    }
   }
   for (const speaker of candidate.speakers) {
     const value = speaker as Record<string, unknown>;

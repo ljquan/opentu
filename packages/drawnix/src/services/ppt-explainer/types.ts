@@ -161,6 +161,8 @@ export interface PptExplainerTaskState {
 export interface PptExplainerCreateInput {
   source: PptExplainerSourceKind;
   sourceBoardId: string;
+  /** Current-PPT page subset selected in the editor. Omitted means all pages. */
+  currentPptFrameIds?: string[];
   topic?: string;
   requestedPageCount?: number;
   reviewMode: PptExplainerReviewMode;

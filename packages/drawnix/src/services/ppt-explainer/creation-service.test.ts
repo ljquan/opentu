@@ -288,6 +288,70 @@ describe('PPT explainer creation service', () => {
     });
   });
 
+  it('captures only the selected current PPT pages before creating the root', async () => {
+    mocks.captureSelection.mockResolvedValue({
+      frameIds: ['frame-2'],
+      frameRevisions: { 'frame-2': 'revision-2' },
+    });
+
+    await createPptExplainerTask(
+      createInput({
+        source: 'current_ppt',
+        topic: undefined,
+        currentPptFrameIds: ['frame-2'],
+      })
+    );
+
+    expect(mocks.captureSelection).toHaveBeenCalledWith(board, undefined, [
+      'frame-2',
+    ]);
+    expect(mocks.needsImages).toHaveBeenCalledWith(board, ['frame-2']);
+    expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
+      source: 'current_ppt',
+      outlineFrameIds: ['frame-2'],
+      sourceFrameRevisions: { 'frame-2': 'revision-2' },
+    });
+  });
+
+  it('rejects an empty selected current PPT page set before model preflight', async () => {
+    await expect(
+      createPptExplainerTask(
+        createInput({
+          source: 'current_ppt',
+          topic: undefined,
+          currentPptFrameIds: [],
+        })
+      )
+    ).rejects.toThrow('请选择至少一页 PPT');
+
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
+    expect(mocks.createRootTask).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate selected current PPT page IDs before model preflight', async () => {
+    await expect(
+      createPptExplainerTask(
+        createInput({
+          source: 'current_ppt',
+          topic: undefined,
+          currentPptFrameIds: ['frame-1', 'frame-1'],
+        })
+      )
+    ).rejects.toThrow('选择的 PPT 页面无效');
+
+    expect(mocks.captureSelection).not.toHaveBeenCalled();
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
+  });
+
+  it('rejects selected pages for non-current PPT sources', async () => {
+    await expect(
+      createPptExplainerTask(createInput({ currentPptFrameIds: ['frame-1'] }))
+    ).rejects.toThrow('只有当前 PPT 来源可以选择页面');
+
+    expect(mocks.captureSelection).not.toHaveBeenCalled();
+    expect(mocks.createRootTask).not.toHaveBeenCalled();
+  });
+
   it('requires explicit acknowledgement before skipping outline review', async () => {
     await expect(
       createPptExplainerTask({
