@@ -92,6 +92,18 @@
     gap: 8px;
   }
 
+  &__duration-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+
+    .t-input-number {
+      width: 140px;
+    }
+  }
+
   &__speaker {
     display: grid;
     grid-template-columns: 24px minmax(120px, 0.75fr) minmax(220px, 1.25fr);

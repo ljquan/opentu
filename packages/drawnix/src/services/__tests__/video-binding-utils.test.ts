@@ -378,6 +378,19 @@ describe('video binding utils', () => {
     });
   });
 
+  it('inherits Seedance 1.x capabilities for runtime physical model IDs', () => {
+    const config = getVideoModelConfig(
+      'doubao-seedance-1-5-pro_1080p'
+    );
+
+    expect(config.id).toBe('doubao-seedance-1-5-pro_1080p');
+    expect(config.durationOptions.map((option) => option.value)).toEqual([
+      '5',
+      '10',
+    ]);
+    expect(config.defaultSize).toBe('720p@16:9');
+  });
+
   it('routes Seedance 2.0 with official IDs and confirmed controls', () => {
     const profile = {
       id: 'tuzi-default',

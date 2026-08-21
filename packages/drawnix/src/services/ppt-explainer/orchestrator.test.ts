@@ -57,6 +57,7 @@ const mocks = vi.hoisted(() => ({
   resolveInvocationPlanFromRoute: vi.fn(),
   resolveTaskInvocationRouteModel: vi.fn(),
   downloadVideoContentToLocalUrl: vi.fn(),
+  getEffectiveVideoModelConfigForSelection: vi.fn(),
   composeLocalPptVideo: vi.fn(),
   cacheMediaFromBlob: vi.fn(),
 }));
@@ -119,6 +120,8 @@ vi.mock('../provider-routing', () => ({
 
 vi.mock('../video-binding-utils', () => ({
   downloadVideoContentToLocalUrl: mocks.downloadVideoContentToLocalUrl,
+  getEffectiveVideoModelConfigForSelection:
+    mocks.getEffectiveVideoModelConfigForSelection,
 }));
 
 vi.mock('../task-queue', () => ({
@@ -152,6 +155,9 @@ vi.mock('../media-generation/video-generation-service', () => ({
 
 vi.mock('./local-composer', () => ({
   composeLocalPptExplainerVideo: mocks.composeLocalPptVideo,
+  isPptExplainerNarrationQualityError: (error: unknown) =>
+    error instanceof Error &&
+    (error as Error & { code?: string }).code === 'PPT_NARRATION_QUALITY',
 }));
 
 vi.mock('../workspace-service', () => ({
@@ -218,6 +224,7 @@ function createState(
     reviewMode: 'skip_after_warning',
     reviewAcceptedAt: 1,
     presenterMode: 'single_voice',
+    secondsPerSlide: 10,
     speakers: [
       {
         id: 'host',
@@ -352,6 +359,13 @@ beforeEach(() => {
   mocks.resolveProviderRoute.mockReturnValue({ provider: {}, binding: {} });
   mocks.resolveInvocationPlanFromRoute.mockReturnValue(null);
   mocks.resolveTaskInvocationRouteModel.mockReturnValue(null);
+  mocks.getEffectiveVideoModelConfigForSelection.mockReturnValue({
+    durationOptions: [
+      { label: '5秒', value: '5' },
+      { label: '10秒', value: '10' },
+    ],
+    defaultDuration: '5',
+  });
   mocks.cacheRemoteUrl.mockImplementation(async (url: string) => url);
   mocks.deleteArtifacts.mockResolvedValue(undefined);
   mocks.deletePptxImportCache.mockResolvedValue(undefined);
@@ -533,7 +547,7 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         blob: new Blob(['composed-video'], { type: 'video/webm' }),
         url: 'blob:composed-video',
         mimeType: 'video/webm',
-        duration: 10,
+        duration: 20,
       };
     });
 
@@ -546,13 +560,12 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       expect.objectContaining({
         model: 'video-model',
         modelRef: { profileId: 'profile-1', modelId: 'video-model' },
-        size: '1920x1080',
+        size: undefined,
+        duration: 10,
+        referenceImages: ['/slide-1.png'],
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
       })
-    );
-    expect(mocks.generateVideo.mock.calls[0]?.[1]).not.toHaveProperty(
-      'referenceImages'
     );
     expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -562,7 +575,16 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
             turns: [
               {
                 mediaUrl: '/__aitu_cache__/video/segment-task-1.mp4',
-                subtitle: '主持人：第一页讲解',
+                subtitleCues: [
+                  {
+                    speakerName: '主持人',
+                    text: '第一页讲解',
+                    startSeconds: 0,
+                    endSeconds: 10,
+                  },
+                ],
+                maxDurationSeconds: 10,
+                outputDurationSeconds: 10,
               },
             ],
           },
@@ -571,11 +593,21 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
             turns: [
               {
                 mediaUrl: '/__aitu_cache__/video/segment-task-2.mp4',
-                subtitle: '嘉宾：第二页讲解',
+                subtitleCues: [
+                  {
+                    speakerName: '嘉宾',
+                    text: '第二页讲解',
+                    startSeconds: 0,
+                    endSeconds: 10,
+                  },
+                ],
+                maxDurationSeconds: 10,
+                outputDurationSeconds: 10,
               },
             ],
           },
         ],
+        transitionDurationMs: 0,
       })
     );
     expect(mocks.cacheMediaFromBlob).toHaveBeenCalledWith(
@@ -590,6 +622,7 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       result: {
         url: `/__aitu_cache__/video/${taskId}.webm`,
         format: 'webm',
+        duration: 20,
       },
       params: {
         pptExplainer: {
@@ -624,12 +657,124 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
 
     await runPptExplainerTask(taskId);
 
+    expect(mocks.generateVideo).toHaveBeenCalledOnce();
     expect(mocks.composeLocalPptVideo).not.toHaveBeenCalled();
     expect(mocks.tasks.get(taskId)).toMatchObject({
       status: TaskStatus.FAILED,
       error: {
         message: expect.stringContaining('讲解片段未能缓存到本地'),
       },
+    });
+  });
+
+  it('仅重生成一次质量不合格的讲解片段', async () => {
+    const taskId = 'local-quality-retry';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      const attempt = mocks.generateVideo.mock.calls.length;
+      const internalTaskId = `segment-quality-${attempt}`;
+      options.onTaskCreated?.(internalTaskId);
+      return {
+        task: { id: internalTaskId },
+        url: `https://cdn.example.com/${internalTaskId}.mp4`,
+      };
+    });
+    mocks.cacheRemoteUrl.mockImplementation(
+      async (_url: string, ownerTaskId: string) =>
+        `/__aitu_cache__/video/${ownerTaskId}.mp4`
+    );
+    mocks.composeLocalPptVideo
+      .mockRejectedValueOnce(
+        Object.assign(new Error('讲解片段没有检测到有效声音'), {
+          code: 'PPT_NARRATION_QUALITY',
+          reason: 'silent',
+          slideIndex: 0,
+          turnIndex: 0,
+        })
+      )
+      .mockResolvedValueOnce({
+        blob: new Blob(['composed-video'], { type: 'video/webm' }),
+        url: 'blob:composed-video',
+        mimeType: 'video/webm',
+        duration: 10,
+      });
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.composeLocalPptVideo.mock.calls[1]?.[0]).toMatchObject({
+      slides: [
+        {
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment-quality-2.mp4',
+            },
+          ],
+        },
+      ],
+    });
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.COMPLETED,
+      params: {
+        pptExplainer: {
+          internalTaskIds: ['segment-quality-1', 'segment-quality-2'],
+        },
+      },
+    });
+  });
+
+  it('同一讲解片段连续两次质量失败后停止', async () => {
+    const taskId = 'local-quality-retry-failed';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      const attempt = mocks.generateVideo.mock.calls.length;
+      const internalTaskId = `segment-silent-${attempt}`;
+      options.onTaskCreated?.(internalTaskId);
+      return {
+        task: { id: internalTaskId },
+        url: `https://cdn.example.com/${internalTaskId}.mp4`,
+      };
+    });
+    mocks.cacheRemoteUrl.mockImplementation(
+      async (_url: string, ownerTaskId: string) =>
+        `/__aitu_cache__/video/${ownerTaskId}.mp4`
+    );
+    const qualityError = () =>
+      Object.assign(new Error('讲解片段没有检测到有效声音'), {
+        code: 'PPT_NARRATION_QUALITY',
+        reason: 'silent',
+        slideIndex: 0,
+        turnIndex: 0,
+      });
+    mocks.composeLocalPptVideo
+      .mockRejectedValueOnce(qualityError())
+      .mockRejectedValueOnce(qualityError());
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.cacheMediaFromBlob).not.toHaveBeenCalled();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: { message: '讲解片段没有检测到有效声音' },
     });
   });
 

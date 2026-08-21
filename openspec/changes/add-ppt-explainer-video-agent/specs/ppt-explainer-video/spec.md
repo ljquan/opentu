@@ -123,7 +123,7 @@
 
 ### Requirement: PPT Explainer SHALL Build A Slide-Aligned Narration Plan
 
-系统 SHALL 按页面顺序生成结构化讲稿，并优先复用已有演讲备注。
+系统 SHALL 按页面顺序生成结构化讲稿，以已有演讲备注为主要依据，并让讲稿长度和句子结构覆盖用户指定的页级目标时长。
 
 #### Scenario: Prefer existing slide notes
 
@@ -131,6 +131,7 @@
 - **WHEN** 系统构建讲稿计划
 - **THEN** 系统 SHALL 将 notes 作为该页讲稿主要输入
 - **AND** SHALL NOT 无提示地丢弃用户已有备注
+- **AND** notes 过短或过长时，系统 SHALL 围绕原意扩写或保留重点压缩，使讲稿接近该页目标时长
 
 #### Scenario: Generate missing narration
 
@@ -138,6 +139,15 @@
 - **WHEN** 系统构建讲稿计划
 - **THEN** 文本模型 SHALL 根据页面内容补齐对应页面 turns
 - **AND** 结果 SHALL 通过结构化 JSON schema 校验
+
+#### Scenario: Follow the requested slide duration and narration direction
+
+- **GIVEN** 用户提供正整数 `secondsPerSlide` 和可选讲解要求
+- **WHEN** 系统生成或调整页级讲稿
+- **THEN** 文本模型 SHALL 按自然普通话语速生成足够覆盖目标时间窗的内容
+- **AND** 每页 turns 的估计时长总和 SHALL 接近该页目标时长
+- **AND** turns SHALL 使用适合字幕逐句切换的自然短句
+- **AND** 用户讲解要求 SHALL 适用于全部页面且不得歪曲已有 notes 的核心内容
 
 #### Scenario: Snapshot accepted deck state
 
@@ -185,11 +195,33 @@
 - **AND** 系统 SHALL 按页序固定绘制原 PPT 快照并合成音轨、字幕和转场
 - **AND** 最终用户可见视频的每一页 SHALL 与已接受的 PPT 页面视觉一致
 
+#### Scenario: Split a slide into model-supported durations
+
+- **GIVEN** 用户页目标时长不能由所选视频模型的一个合法时长直接覆盖
+- **WHEN** 系统规划该页内部视频子任务
+- **THEN** 系统 SHALL 仅使用模型当前暴露的合法时长选项拆成一个或多个片段
+- **AND** 最后一段超过剩余页时间窗时，最终合成 SHALL 只使用分配给该段的目标窗口
+- **AND** 系统 SHALL NOT 把页目标或整部成片总时长作为模型不支持的单段时长提交
+
+#### Scenario: Display sentence-aligned subtitles
+
+- **GIVEN** 一页讲稿包含多个自然句或双人 turns
+- **WHEN** 系统合成该页音轨和字幕
+- **THEN** 字幕 SHALL 按当前讲稿 cue 依次切换
+- **AND** 同一时刻 SHALL NOT 将整页完整讲稿长期覆盖在 PPT 画面上
+
 #### Scenario: Selected model does not produce usable speech
 
 - **WHEN** 所选视频模型生成结果没有可用音轨或未按讲稿朗读
 - **THEN** 系统 SHALL 停止最终合成并保留供应商真实结果或错误
 - **AND** SHALL 提示改用明确支持有声视频的模型，不得伪造音频模型
+
+#### Scenario: Reject silent or duration-invalid narration media
+
+- **WHEN** 片段没有可解码音轨、前导静音明显过长、有效语音不足以覆盖分配窗口，或媒体时长严重偏离目标
+- **THEN** 系统 SHALL 在最终录制和交付前拒绝该片段
+- **AND** 系统 MAY 执行有界重试，但重试耗尽后 SHALL 以明确诊断终止任务
+- **AND** SHALL NOT 用静音填充、无限延长 PPT 页面或只保留末尾少量声音后标记成功
 
 #### Scenario: Cache generated narration media before composition
 

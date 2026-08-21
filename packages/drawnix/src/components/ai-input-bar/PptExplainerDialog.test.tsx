@@ -146,6 +146,23 @@ vi.mock('tdesign-react', () => ({
       onChange={(event) => onChange?.(event.target.value)}
     />
   ),
+  InputNumber: ({
+    value,
+    disabled,
+    onChange,
+  }: {
+    value?: number;
+    disabled?: boolean;
+    onChange?: (value: number) => void;
+  }) => (
+    <input
+      type="number"
+      aria-label="每页讲解时长"
+      value={value ?? ''}
+      disabled={disabled}
+      onChange={(event) => onChange?.(Number(event.target.value))}
+    />
+  ),
   Textarea: ({
     value,
     placeholder,
@@ -347,6 +364,8 @@ describe('PptExplainerDialog', () => {
       topic: '',
       reviewMode: 'confirm',
       presenterMode: 'single_voice',
+      secondsPerSlide: 10,
+      narrationInstruction: '',
       speakers: [{ displayName: '主讲人' }],
     };
 
@@ -372,6 +391,23 @@ describe('PptExplainerDialog', () => {
         .getAttribute('aria-checked')
     ).toBe('true');
     expect(screen.queryByPlaceholderText('输入 PPT 主题')).toBeNull();
+  });
+
+  it('从提示词识别每页秒数并保留讲解要求', async () => {
+    const { onCreate } = renderDialog({
+      initialTopic: '每页 30 秒，语速自然，重点解释图表',
+      initialSource: 'current_ppt',
+    });
+
+    expect(
+      (screen.getByLabelText('每页讲解时长') as HTMLInputElement).value
+    ).toBe('30');
+    fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      secondsPerSlide: 30,
+      narrationInstruction: '每页 30 秒，语速自然，重点解释图表',
+    });
   });
 
   it('从 PPT 编辑器入口打开时仅提交已选页面', async () => {
@@ -403,6 +439,8 @@ describe('PptExplainerDialog', () => {
       topic: '',
       reviewMode: 'confirm',
       presenterMode: 'single_voice',
+      secondsPerSlide: 10,
+      narrationInstruction: '',
       pptxFile,
       speakers: [{ displayName: '主讲人' }],
     };

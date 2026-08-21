@@ -64,6 +64,14 @@ export const pptExplainerVideoTool: MCPTool = {
         enum: ['single_voice', 'dual_voice'],
         description: '讲解呈现模式',
       },
+      secondsPerSlide: {
+        type: 'number',
+        description: '每页目标讲解时长（正整数秒），由配置界面提供',
+      },
+      narrationInstruction: {
+        type: 'string',
+        description: '适用于全部页面的讲解要求，由配置界面提供',
+      },
       speakers: {
         type: 'array',
         description: '一个或两个结构化讲解人配置',
@@ -110,6 +118,7 @@ export const pptExplainerVideoTool: MCPTool = {
       'sourceBoardId',
       'reviewMode',
       'presenterMode',
+      'secondsPerSlide',
       'speakers',
     ],
   },
@@ -124,6 +133,7 @@ export const pptExplainerVideoTool: MCPTool = {
       reviewMode:
         '默认 confirm。只有配置界面已完成二次警告确认时，才可使用 skip_after_warning。',
       speakers: '只填写配置界面中的讲解者名称，不得添加界面未提供的字段。',
+      secondsPerSlide: '使用配置界面的正整数秒数，不得自行修改。',
     },
     warnings: [
       '不得构造本地 File、模型来源或界面未提供的讲解者字段',

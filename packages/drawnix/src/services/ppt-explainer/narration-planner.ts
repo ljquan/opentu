@@ -14,6 +14,9 @@ import {
 } from './validation';
 
 const NARRATION_BATCH_SIZE = 8;
+const NARRATION_CHARACTERS_PER_SECOND = 4;
+const DIRECT_NOTE_LENGTH_MIN_RATIO = 0.75;
+const DIRECT_NOTE_LENGTH_MAX_RATIO = 1.25;
 
 interface NarrationResponse {
   slides: Array<{
@@ -28,6 +31,42 @@ interface NarrationResponse {
 
 function isDualMode(mode: PptExplainerPresenterMode): boolean {
   return mode === 'dual_voice' || mode === 'dual_avatar';
+}
+
+function getTargetNarrationCharacters(
+  secondsPerSlide?: number
+): number | undefined {
+  if (!Number.isFinite(secondsPerSlide) || (secondsPerSlide || 0) <= 0) {
+    return undefined;
+  }
+  return Math.max(
+    1,
+    Math.round((secondsPerSlide as number) * NARRATION_CHARACTERS_PER_SECOND)
+  );
+}
+
+function countNarrationCharacters(text: string): number {
+  return Array.from(text.trim()).filter((character) => !/\s/.test(character))
+    .length;
+}
+
+function canReuseSingleSpeakerNotes(
+  notes: string,
+  options: Pick<
+    BuildNarrationPlanOptions,
+    'secondsPerSlide' | 'narrationInstruction'
+  >
+): boolean {
+  if (options.narrationInstruction?.trim()) return false;
+  const targetCharacters = getTargetNarrationCharacters(
+    options.secondsPerSlide
+  );
+  if (!targetCharacters) return true;
+  const noteCharacters = countNarrationCharacters(notes);
+  return (
+    noteCharacters >= targetCharacters * DIRECT_NOTE_LENGTH_MIN_RATIO &&
+    noteCharacters <= targetCharacters * DIRECT_NOTE_LENGTH_MAX_RATIO
+  );
 }
 
 function parseNarrationResponse(
@@ -106,22 +145,39 @@ function parseNarrationResponse(
 function buildNarrationMessages(
   slides: readonly PptExplainerSlide[],
   speakers: readonly PptExplainerSpeaker[],
-  presenterMode: PptExplainerPresenterMode
+  presenterMode: PptExplainerPresenterMode,
+  options: Pick<
+    BuildNarrationPlanOptions,
+    'secondsPerSlide' | 'narrationInstruction'
+  > = {}
 ): GeminiMessage[] {
   const dualMode = isDualMode(presenterMode);
+  const targetNarrationCharacters = getTargetNarrationCharacters(
+    options.secondsPerSlide
+  );
   const systemPrompt = [
     '你是 PPT 讲解视频的讲稿编排器。',
     '只返回一个 JSON 对象，不要 Markdown、解释或代码围栏。',
     '输出格式：{"slides":[{"pageIndex":1,"turns":[{"speakerId":"id","text":"...","estimatedDurationSeconds":30}]}]}。',
     '必须保留全部 pageIndex，speakerId 只能使用给定 ID，text 不能为空。',
     '已有 notes 是用户内容，必须作为讲稿主要依据；没有 notes 时根据标题补齐。',
+    options.secondsPerSlide
+      ? `每页目标讲解时长为 ${options.secondsPerSlide} 秒；每页全部 turns 的 estimatedDurationSeconds 之和应接近该目标。`
+      : '为每个 turn 提供合理的 estimatedDurationSeconds。',
+    targetNarrationCharacters
+      ? `按自然普通话语速准备足够讲稿，每页正文目标约 ${targetNarrationCharacters} 个字符；备注过短时围绕原意补充，过长时保留重点并压缩。`
+      : '按自然普通话语速准备足够讲稿。',
+    '把讲稿拆成适合字幕逐句切换的自然短句 turns，不要把整页内容塞进一个长段落。',
     dualMode
       ? '这是双人对谈：每页使用两个 speaker 交替发言，保持自然问答和衔接。'
       : '这是单人讲解：所有 turns 使用唯一 speaker。',
-    '不要因为发言较长而截断，也不要自行设置总时长上限。',
+    '不要设置产品级总时长上限；应按本页目标时长完整改写内容，不要机械截断句子。',
   ].join('\n');
   const payload = {
     presenterMode,
+    secondsPerSlide: options.secondsPerSlide,
+    targetNarrationCharacters,
+    narrationInstruction: options.narrationInstruction?.trim() || undefined,
     speakers: speakers.map(({ id, displayName }) => ({ id, displayName })),
     slides: slides.map(({ pageIndex, title, notes }) => ({
       pageIndex,
@@ -142,6 +198,10 @@ export interface BuildNarrationPlanOptions {
   presenterMode: PptExplainerPresenterMode;
   speakers: PptExplainerSpeaker[];
   textRoute: ModelRef | string;
+  /** Desired final narration window for each slide. */
+  secondsPerSlide?: number;
+  /** User-authored narration direction shared by all slides. */
+  narrationInstruction?: string;
   signal?: AbortSignal;
 }
 
@@ -157,8 +217,21 @@ export async function buildPptExplainerNarrationPlan(
   if (!dualMode) {
     const speakerId = options.speakers[0]?.id;
     for (const slide of result) {
-      if (slide.notes?.trim() && slide.turns.length === 0) {
-        slide.turns = [{ speakerId, text: slide.notes.trim() }];
+      const notes = slide.notes?.trim();
+      if (
+        notes &&
+        slide.turns.length === 0 &&
+        canReuseSingleSpeakerNotes(notes, options)
+      ) {
+        slide.turns = [
+          {
+            speakerId,
+            text: notes,
+            ...(options.secondsPerSlide
+              ? { estimatedDurationSeconds: options.secondsPerSlide }
+              : {}),
+          },
+        ];
       }
     }
   }
@@ -173,7 +246,10 @@ export async function buildPptExplainerNarrationPlan(
     options.signal?.throwIfAborted();
     const batch = needsGeneration.slice(offset, offset + NARRATION_BATCH_SIZE);
     const response = await defaultGeminiClient.sendChat(
-      buildNarrationMessages(batch, options.speakers, options.presenterMode),
+      buildNarrationMessages(batch, options.speakers, options.presenterMode, {
+        secondsPerSlide: options.secondsPerSlide,
+        narrationInstruction: options.narrationInstruction,
+      }),
       undefined,
       options.signal,
       options.textRoute
@@ -200,5 +276,8 @@ export async function buildPptExplainerNarrationPlan(
 }
 
 export const narrationPlannerInternals = {
+  buildNarrationMessages,
+  canReuseSingleSpeakerNotes,
+  getTargetNarrationCharacters,
   parseNarrationResponse,
 };

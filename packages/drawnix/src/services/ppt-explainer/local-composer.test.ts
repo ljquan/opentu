@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   chooseLocalPptRecorderFormat,
   composeLocalPptExplainerVideo,
+  localPptComposerInternals,
 } from './local-composer';
 
 class MockTrack {
   constructor(readonly kind: 'audio' | 'video') {}
 
   stop = vi.fn();
+  requestFrame = vi.fn();
 }
 
 class MockStream {
@@ -55,7 +57,7 @@ class MockVideo extends EventTarget {
   style = { display: '' };
   src = '';
   duration = 4.25;
-  currentTime = 4.25;
+  currentTime = 0;
   error: MediaError | null = null;
   readonly pause = vi.fn();
   readonly remove = vi.fn();
@@ -70,12 +72,19 @@ class MockVideo extends EventTarget {
 
   constructor(
     mode: 'success' | 'error' | 'pending' = 'success',
-    playError?: Error
+    playError?: Error,
+    getRecordedDuration: () => number = () => 0,
+    onPlaybackComplete: (duration: number) => void = () => undefined
   ) {
     super();
     this.load = vi.fn(() => {
       if (!this.src) return;
       queueMicrotask(() => {
+        if (this.src === 'blob:composed-video') {
+          this.duration = getRecordedDuration();
+          this.dispatchEvent(new Event('loadedmetadata'));
+          return;
+        }
         if (mode === 'error') {
           this.error = { message: 'decode failed' } as MediaError;
           this.dispatchEvent(new Event('error'));
@@ -87,7 +96,11 @@ class MockVideo extends EventTarget {
     this.play = vi.fn(() => {
       if (playError) return Promise.reject(playError);
       if (mode === 'pending') return new Promise<void>(() => undefined);
-      queueMicrotask(() => this.dispatchEvent(new Event('ended')));
+      setTimeout(() => {
+        this.currentTime = this.duration;
+        onPlaybackComplete(this.duration);
+        this.dispatchEvent(new Event('ended'));
+      }, 0);
       return Promise.resolve();
     });
   }
@@ -99,6 +112,10 @@ interface ComposerBrowserOptions {
   recorderErrorAfterStart?: Error;
   recorderConstructorError?: Error;
   resumePending?: boolean;
+  recorderStartPending?: boolean;
+  audibleSample?: number;
+  decodedDuration?: number;
+  finalDuration?: number;
 }
 
 function installComposerBrowser(options: ComposerBrowserOptions = {}) {
@@ -110,17 +127,34 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     connect: vi.fn(),
     disconnect: vi.fn(),
   };
+  const analyser = {
+    fftSize: 256,
+    smoothingTimeConstant: 0,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    getFloatTimeDomainData: vi.fn((samples: Float32Array) => {
+      samples.fill(options.audibleSample ?? 0.02);
+    }),
+  };
+  let recordedDuration = 0;
   const bufferSource = {
     buffer: null as AudioBuffer | null,
     onended: null as (() => void) | null,
     connect: vi.fn(),
     disconnect: vi.fn(),
     stop: vi.fn(),
-    start: vi.fn(function (this: typeof bufferSource) {
+    start: vi.fn(function (
+      this: typeof bufferSource,
+      _when = 0,
+      _offset = 0,
+      duration?: number
+    ) {
+      recordedDuration += duration || 0;
       queueMicrotask(() => this.onended?.());
     }),
   };
   const audioContext = {
+    currentTime: 0,
     createMediaStreamDestination: vi.fn(
       () =>
         ({
@@ -130,10 +164,13 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     createMediaElementSource: vi.fn(
       () => mediaSource as unknown as MediaElementAudioSourceNode
     ),
+    createAnalyser: vi.fn(() => analyser as unknown as AnalyserNode),
     createBufferSource: vi.fn(
       () => bufferSource as unknown as AudioBufferSourceNode
     ),
-    decodeAudioData: vi.fn(async () => ({ duration: 2 } as AudioBuffer)),
+    decodeAudioData: vi.fn(
+      async () => ({ duration: options.decodedDuration ?? 2 } as AudioBuffer)
+    ),
     resume: vi.fn(() =>
       options.resumePending
         ? new Promise<void>(() => undefined)
@@ -160,14 +197,26 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     getContext: vi.fn(() => context),
     captureStream: vi.fn(() => canvasStream),
   };
-  const video = new MockVideo(options.videoMode, options.playError);
+  const createVideo = () =>
+    new MockVideo(
+      options.videoMode,
+      options.playError,
+      () => (options.finalDuration ?? recordedDuration) || 4.25,
+      (duration) => {
+        recordedDuration += duration;
+      }
+    );
+  const video = createVideo();
+  let videoCreateCount = 0;
   const recorderInstances: Array<{
     state: RecordingState;
     start: ReturnType<typeof vi.fn>;
+    pause: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   }> = [];
 
-  class MockMediaRecorder {
+  class MockMediaRecorder extends EventTarget {
     static isTypeSupported = vi.fn((mimeType: string) =>
       mimeType.startsWith('video/webm')
     );
@@ -179,6 +228,7 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     onerror: ((event: Event) => void) | null = null;
 
     constructor() {
+      super();
       if (options.recorderConstructorError) {
         throw options.recorderConstructorError;
       }
@@ -187,6 +237,9 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
 
     start = vi.fn(() => {
       this.state = 'recording';
+      if (!options.recorderStartPending) {
+        queueMicrotask(() => this.dispatchEvent(new Event('start')));
+      }
       if (options.recorderErrorAfterStart) {
         queueMicrotask(() =>
           this.onerror?.(
@@ -194,6 +247,18 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
           )
         );
       }
+    });
+
+    pause = vi.fn(() => {
+      if (this.state !== 'recording') return;
+      this.state = 'paused';
+      queueMicrotask(() => this.dispatchEvent(new Event('pause')));
+    });
+
+    resume = vi.fn(() => {
+      if (this.state !== 'paused') return;
+      this.state = 'recording';
+      queueMicrotask(() => this.dispatchEvent(new Event('resume')));
     });
 
     stop = vi.fn(() => {
@@ -209,7 +274,10 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
   const nativeCreateElement = document.createElement.bind(document);
   vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
     if (tagName === 'canvas') return canvas;
-    if (tagName === 'video') return video;
+    if (tagName === 'video') {
+      videoCreateCount += 1;
+      return videoCreateCount === 1 ? video : createVideo();
+    }
     return nativeCreateElement(tagName);
   }) as typeof document.createElement);
   vi.spyOn(document.body, 'appendChild').mockImplementation(
@@ -249,6 +317,7 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
 
   return {
     audioContext,
+    analyser,
     audioTrack,
     bufferSource,
     canvas,
@@ -266,7 +335,16 @@ afterEach(() => {
 });
 
 describe('local PPT explainer composer', () => {
-  it('prefers MP4 when the browser supports audio and video codecs', () => {
+  it('prefers WebM with Opus and only falls back to MP4', () => {
+    expect(
+      chooseLocalPptRecorderFormat(
+        (mimeType) =>
+          mimeType.includes('vp9,opus') || mimeType.startsWith('video/mp4')
+      )
+    ).toEqual({
+      mimeType: 'video/webm;codecs=vp9,opus',
+      extension: 'webm',
+    });
     expect(
       chooseLocalPptRecorderFormat((mimeType) =>
         mimeType.startsWith('video/mp4')
@@ -384,6 +462,284 @@ describe('local PPT explainer composer', () => {
     ).not.toHaveBeenCalled();
     expect(browser.bufferSource.disconnect).toHaveBeenCalledOnce();
     expect(browser.bufferSource.buffer).toBeNull();
+  });
+
+  it('does not start narration before MediaRecorder confirms start', async () => {
+    const browser = installComposerBrowser({ recorderStartPending: true });
+    const controller = new AbortController();
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() =>
+      expect(browser.recorderInstances[0]?.start).toHaveBeenCalledOnce()
+    );
+    expect(browser.video.play).not.toHaveBeenCalled();
+    controller.abort(new DOMException('用户取消', 'AbortError'));
+    await expect(composition).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('records only while narration is playing', async () => {
+    const browser = installComposerBrowser();
+
+    await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+    });
+
+    const recorder = browser.recorderInstances[0];
+    expect(recorder.pause).toHaveBeenCalledTimes(2);
+    expect(recorder.resume).toHaveBeenCalledOnce();
+  });
+
+  it('truncates decoded audio at the planned output duration', async () => {
+    const browser = installComposerBrowser({ decodedDuration: 12 });
+
+    const result = await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+              maxDurationSeconds: 8,
+              outputDurationSeconds: 5,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.duration).toBe(5);
+    expect(browser.bufferSource.start).toHaveBeenCalledWith(0, 0, 5);
+  });
+
+  it('rejects narration that is measurably silent', async () => {
+    installComposerBrowser({ audibleSample: 0, decodedDuration: 5 });
+
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(composition).rejects.toMatchObject({
+      code: 'PPT_NARRATION_QUALITY',
+      reason: 'silent',
+      slideIndex: 0,
+      turnIndex: 0,
+      message: expect.stringContaining('没有检测到有效声音'),
+    });
+  });
+
+  it('updates short subtitle cues from media time and stops at the planned duration', async () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        frameCallbacks.push(callback);
+        return frameCallbacks.length;
+      })
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const browser = installComposerBrowser({
+      videoMode: 'pending',
+      finalDuration: 3,
+    });
+
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '不应绘制的整页长字幕',
+              subtitleCues: [
+                { text: '第一句', speakerName: '主讲人' },
+                { text: '第二句', speakerName: '主讲人' },
+              ],
+              outputDurationSeconds: 3,
+            },
+          ],
+        },
+      ],
+    });
+    await vi.waitFor(() => expect(browser.video.play).toHaveBeenCalledOnce());
+
+    const renderedText = browser.context.fillText.mock.calls.map(
+      ([text]) => text
+    );
+    expect(renderedText).toContain('主讲人：第一句');
+    expect(renderedText).not.toContain('不应绘制的整页长字幕');
+
+    browser.video.currentTime = 2;
+    expect(
+      localPptComposerInternals.resolveSubtitleCue(
+        {
+          mediaUrl: '/segment.mp4',
+          subtitleCues: [
+            { text: '第一句', speakerName: '主讲人' },
+            { text: '第二句', speakerName: '主讲人' },
+          ],
+        },
+        2,
+        3
+      )
+    ).toEqual({ text: '第二句', speakerName: '主讲人' });
+
+    browser.video.currentTime = 3;
+    browser.video.dispatchEvent(new Event('ended'));
+    await expect(composition).resolves.toMatchObject({ duration: 3 });
+  });
+
+  it('rejects long leading, trailing and low-coverage silence', () => {
+    expect(() =>
+      localPptComposerInternals.validateAudioActivity(
+        {
+          samples: 100,
+          audibleSamples: 10,
+          firstAudibleSeconds: 5,
+          lastAudibleSeconds: 9,
+        },
+        10
+      )
+    ).toThrow(/占比过低|前导静音过长/);
+    expect(() =>
+      localPptComposerInternals.validateAudioActivity(
+        {
+          samples: 100,
+          audibleSamples: 50,
+          firstAudibleSeconds: 0.2,
+          lastAudibleSeconds: 5,
+        },
+        10
+      )
+    ).toThrow('尾部静音过长');
+    expect(() =>
+      localPptComposerInternals.validateAudioActivity(
+        { samples: 0, audibleSamples: 0 },
+        10
+      )
+    ).toThrow('无法检测声音活动');
+  });
+
+  it('rejects a source that cannot cover the planned narration window', async () => {
+    installComposerBrowser({ decodedDuration: 4 });
+
+    await expect(
+      composeLocalPptExplainerVideo({
+        slides: [
+          {
+            imageUrl: '/slide.png',
+            turns: [
+              {
+                audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+                subtitle: '本页讲解',
+                outputDurationSeconds: 10,
+              },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow('无法覆盖计划的 10.0 秒');
+  });
+
+  it('rejects and releases a recording whose real duration drifts from the plan', async () => {
+    const browser = installComposerBrowser({
+      decodedDuration: 60,
+      finalDuration: 249,
+    });
+
+    await expect(
+      composeLocalPptExplainerVideo({
+        slides: [
+          {
+            imageUrl: '/slide.png',
+            turns: [
+              {
+                audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+                subtitle: '本页讲解',
+                outputDurationSeconds: 60,
+              },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow('成片实际 249.0 秒，与计划 60.0 秒不一致');
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:composed-video');
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioContext.close).toHaveBeenCalledOnce();
+  });
+
+  it('returns the real recording duration when it is within tolerance', async () => {
+    installComposerBrowser({ decodedDuration: 60, finalDuration: 60.5 });
+
+    const result = await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+              outputDurationSeconds: 60,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.duration).toBe(60.5);
+  });
+
+  it('applies bounded tolerance to final recording duration', () => {
+    expect(() =>
+      localPptComposerInternals.assertFinalDurationMatches(249, 60)
+    ).toThrow('成片实际 249.0 秒，与计划 60.0 秒不一致');
+    expect(() =>
+      localPptComposerInternals.assertFinalDurationMatches(10.75, 10)
+    ).not.toThrow();
+    expect(() =>
+      localPptComposerInternals.assertFinalDurationMatches(10.76, 10)
+    ).toThrow();
+    expect(() =>
+      localPptComposerInternals.assertFinalDurationMatches(203, 200)
+    ).not.toThrow();
+    expect(() =>
+      localPptComposerInternals.assertFinalDurationMatches(203.01, 200)
+    ).toThrow();
   });
 
   it('loads cached slide and narration blobs without Service Worker URLs', async () => {
@@ -516,9 +872,7 @@ describe('local PPT explainer composer', () => {
       ],
       signal: controller.signal,
     });
-    await vi.waitFor(() =>
-      expect(requestAnimationFrame).toHaveBeenCalledOnce()
-    );
+    await vi.waitFor(() => expect(requestAnimationFrame).toHaveBeenCalled());
 
     controller.abort(new DOMException('用户取消', 'AbortError'));
 
@@ -576,8 +930,13 @@ describe('local PPT explainer composer', () => {
       })
     ).rejects.toThrow('recorder failed');
 
-    expect(browser.video.remove).toHaveBeenCalledOnce();
-    expect(browser.mediaSource.disconnect).toHaveBeenCalledOnce();
+    // Recorder failure may win before the media element is allocated.
+    expect(browser.video.remove).toHaveBeenCalledTimes(
+      browser.audioContext.createMediaElementSource.mock.calls.length
+    );
+    expect(browser.mediaSource.disconnect).toHaveBeenCalledTimes(
+      browser.audioContext.createMediaElementSource.mock.calls.length
+    );
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioContext.close).toHaveBeenCalledOnce();

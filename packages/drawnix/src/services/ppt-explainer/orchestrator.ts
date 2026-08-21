@@ -12,6 +12,7 @@ import {
 } from '../task-invocation-route';
 import { resolveInvocationPlanFromRoute } from '../provider-routing';
 import { downloadVideoContentToLocalUrl } from '../video-binding-utils';
+import { getEffectiveVideoModelConfigForSelection } from '../video-binding-utils';
 import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
@@ -45,8 +46,10 @@ import {
   isPptExplainerArtifactUrl,
 } from './internal-artifact-cache';
 import { buildPptExplainerNarrationPlan } from './narration-planner';
+import { planPptExplainerSlideTimeline } from './timeline-planner';
 import {
   composeLocalPptExplainerVideo,
+  isPptExplainerNarrationQualityError,
   type LocalPptCompositionSlide,
 } from './local-composer';
 import {
@@ -99,7 +102,8 @@ const boardMutationTails = new Map<string, Promise<void>>();
 
 export function buildPptExplainerVideoPrompt(
   slide: PptExplainerSlide,
-  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>
+  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>,
+  outputDurationSeconds?: number
 ): string {
   const speakerNames = new Map(
     speakers.map((speaker) => [speaker.id, speaker.displayName])
@@ -108,27 +112,17 @@ export function buildPptExplainerVideoPrompt(
     '生成一段包含清晰普通话人声的有声讲解视频，最终只使用其音轨。',
     '提供的 PPT 页面仅用于理解本页内容，不要朗读页面之外的信息。',
     '使用自然、专业的普通话，严格按以下顺序朗读；多人角色使用明显不同的声线。',
+    ...(outputDurationSeconds
+      ? [
+          `必须从视频开始立即讲解，并在 ${outputDurationSeconds} 秒内完整讲完；不要长时间停顿或把声音放到片段末尾。`,
+        ]
+      : []),
     ...slide.turns.map(
       (turn) =>
         `${speakerNames.get(turn.speakerId) || turn.speakerId}：${turn.text}`
     ),
     '禁止背景音乐，讲解结束后立即结束视频。',
   ].join('\n');
-}
-
-function buildPptExplainerSlideSubtitle(
-  slide: PptExplainerSlide,
-  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>
-): string {
-  const speakerNames = new Map(
-    speakers.map((speaker) => [speaker.id, speaker.displayName])
-  );
-  return slide.turns
-    .map(
-      (turn) =>
-        `${speakerNames.get(turn.speakerId) || turn.speakerId}：${turn.text}`
-    )
-    .join('  ');
 }
 
 async function generatePptExplainerSegment(
@@ -690,7 +684,8 @@ async function finalizeResult(
   state: PptExplainerTaskState,
   executionAttempt: number,
   finalVideoUrl: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  duration?: number
 ): Promise<void> {
   let resultUrl = finalVideoUrl;
   let cacheWarning: CacheWarning | undefined;
@@ -739,6 +734,9 @@ async function finalizeResult(
         resultVisibility: 'user',
         providerTaskId: state.remoteId,
         title: state.topic?.trim() || 'PPT 讲解视频',
+        ...(Number.isFinite(duration) && (duration || 0) > 0
+          ? { duration }
+          : {}),
         ...(cacheWarning ? { cacheWarning } : {}),
       },
     },
@@ -755,7 +753,97 @@ async function runLocalComposition(
 ): Promise<void> {
   const videoModel = state.models.videoModelRef || state.models.videoModel;
   if (!videoModel) throw new Error('PPT 逐页生成缺少视频模型');
+  const videoModelId =
+    typeof videoModel === 'string'
+      ? videoModel.trim()
+      : videoModel.modelId?.trim();
+  if (!videoModelId) throw new Error('PPT 逐页生成的视频模型 ID 无效');
+  const videoModelRef = typeof videoModel === 'string' ? undefined : videoModel;
+  const videoModelConfig = getEffectiveVideoModelConfigForSelection(
+    videoModelId,
+    videoModelRef
+  );
+  const legacySecondsPerSlide = Number.parseInt(
+    videoModelConfig.defaultDuration,
+    10
+  );
+  const secondsPerSlide =
+    state.secondsPerSlide && state.secondsPerSlide > 0
+      ? state.secondsPerSlide
+      : Number.isFinite(legacySecondsPerSlide) && legacySecondsPerSlide > 0
+      ? legacySecondsPerSlide
+      : 8;
   const compositionSlides: LocalPptCompositionSlide[] = [];
+  const compositionPlans: Array<
+    Array<{
+      slide: PptExplainerSlide;
+      segment: ReturnType<typeof planPptExplainerSlideTimeline>[number];
+      timelineIndex: number;
+    }>
+  > = [];
+
+  const generateCompositionTurn = async (
+    slide: PptExplainerSlide,
+    segment: ReturnType<typeof planPptExplainerSlideTimeline>[number],
+    timelineIndex: number
+  ): Promise<LocalPptCompositionSlide['turns'][number]> => {
+    if (!slide.snapshotUrl) {
+      throw new Error(`PPT 第 ${slide.pageIndex} 页缺少页面快照`);
+    }
+    const prompt = buildPptExplainerVideoPrompt(
+      { ...slide, turns: segment.turns },
+      state.speakers,
+      segment.outputDurationSeconds
+    );
+    let ownershipWrite: Promise<void> | undefined;
+    const generated = await generatePptExplainerSegment(
+      prompt,
+      {
+        model: videoModelId,
+        modelRef: videoModelRef,
+        duration: segment.requestDurationSeconds,
+        size: videoModelConfig.defaultSize,
+        referenceImages: [slide.snapshotUrl],
+        resultVisibility: 'internal',
+        autoInsertToCanvas: false,
+        onTaskCreated: (internalTaskId) => {
+          ownershipWrite = registerInternalTaskOwnership(
+            taskId,
+            internalTaskId,
+            executionAttempt
+          );
+        },
+      },
+      slide.pageIndex,
+      signal
+    );
+    await ownershipWrite;
+    state = {
+      ...state,
+      internalTaskIds: getOwnedInternalTaskIds(taskId, state),
+    };
+    signal.throwIfAborted();
+    if (!generated.url) {
+      const providerError = generated.task?.error?.message?.trim();
+      throw new Error(
+        providerError ||
+          `PPT 第 ${slide.pageIndex} 页第 ${
+            timelineIndex + 1
+          } 段有声视频生成失败`
+      );
+    }
+    const narrationMediaUrl = await cachePptExplainerNarrationSegment(
+      generated.url,
+      generated.task,
+      signal
+    );
+    return {
+      mediaUrl: narrationMediaUrl,
+      subtitleCues: segment.subtitleCues,
+      maxDurationSeconds: segment.outputDurationSeconds,
+      outputDurationSeconds: segment.outputDurationSeconds,
+    };
+  };
 
   for (const [slideIndex, slide] of state.slides.entries()) {
     signal.throwIfAborted();
@@ -780,55 +868,25 @@ async function runLocalComposition(
       segmentProgress,
       TaskExecutionPhase.SUBMITTING
     );
-    const prompt = buildPptExplainerVideoPrompt(slide, state.speakers);
-    let ownershipWrite: Promise<void> | undefined;
-    const generated = await generatePptExplainerSegment(
-      prompt,
-      {
-        model:
-          typeof videoModel === 'string'
-            ? videoModel
-            : videoModel.modelId || undefined,
-        modelRef: typeof videoModel === 'string' ? undefined : videoModel,
-        size: '1920x1080',
-        resultVisibility: 'internal',
-        autoInsertToCanvas: false,
-        onTaskCreated: (internalTaskId) => {
-          ownershipWrite = registerInternalTaskOwnership(
-            taskId,
-            internalTaskId,
-            executionAttempt
-          );
-        },
-      },
-      slide.pageIndex,
-      signal
-    );
-    await ownershipWrite;
-    state = {
-      ...state,
-      internalTaskIds: getOwnedInternalTaskIds(taskId, state),
-    };
-    signal.throwIfAborted();
-    if (!generated.url) {
-      const providerError = generated.task?.error?.message?.trim();
-      throw new Error(
-        providerError || `PPT 第 ${slide.pageIndex} 页有声视频生成失败`
+    const timeline = planPptExplainerSlideTimeline({
+      turns: slide.turns,
+      speakers: state.speakers,
+      secondsPerSlide,
+      durationOptions: videoModelConfig.durationOptions,
+    });
+    const compositionTurns: LocalPptCompositionSlide['turns'] = [];
+    const slidePlans: (typeof compositionPlans)[number] = [];
+    for (const [timelineIndex, segment] of timeline.entries()) {
+      signal.throwIfAborted();
+      slidePlans.push({ slide, segment, timelineIndex });
+      compositionTurns.push(
+        await generateCompositionTurn(slide, segment, timelineIndex)
       );
     }
-    const narrationMediaUrl = await cachePptExplainerNarrationSegment(
-      generated.url,
-      generated.task,
-      signal
-    );
+    compositionPlans.push(slidePlans);
     compositionSlides.push({
       imageUrl: slide.snapshotUrl,
-      turns: [
-        {
-          mediaUrl: narrationMediaUrl,
-          subtitle: buildPptExplainerSlideSubtitle(slide, state.speakers),
-        },
-      ],
+      turns: compositionTurns,
     });
     const progress =
       50 +
@@ -859,31 +917,80 @@ async function runLocalComposition(
     TaskExecutionPhase.DOWNLOADING
   );
   signal.throwIfAborted();
-  const composed = await composeLocalPptExplainerVideo({
-    slides: compositionSlides,
-    width: 1920,
-    height: 1080,
-    signal,
-    loadMediaBlob: (url, mediaSignal) => readInputBlob(url, mediaSignal),
-    onProgress: async (progress, message) => {
+  const qualityRetriedSegments = new Set<string>();
+  const composeCurrentSlides = () =>
+    composeLocalPptExplainerVideo({
+      slides: compositionSlides,
+      width: 1920,
+      height: 1080,
+      transitionDurationMs: 0,
+      signal,
+      loadMediaBlob: (url, mediaSignal) => readInputBlob(url, mediaSignal),
+      onProgress: async (progress, message) => {
+        state = await persistStage(
+          taskId,
+          {
+            ...state,
+            stage: 'finalizing',
+            diagnostics: [
+              ...(state.diagnostics || []).filter(
+                (item) => !item.startsWith('正在合成第 ')
+              ),
+              message,
+            ],
+          },
+          executionAttempt,
+          Math.min(97, 80 + Math.round(progress * 0.17)),
+          TaskExecutionPhase.DOWNLOADING
+        );
+      },
+    });
+  let composed:
+    | Awaited<ReturnType<typeof composeLocalPptExplainerVideo>>
+    | undefined;
+  while (!composed) {
+    try {
+      composed = await composeCurrentSlides();
+    } catch (error) {
+      signal.throwIfAborted();
+      if (
+        !isPptExplainerNarrationQualityError(error) ||
+        error.slideIndex === undefined ||
+        error.turnIndex === undefined
+      ) {
+        throw error;
+      }
+      const retryKey = `${error.slideIndex}:${error.turnIndex}`;
+      const plan = compositionPlans[error.slideIndex]?.[error.turnIndex];
+      if (!plan || qualityRetriedSegments.has(retryKey)) throw error;
+      qualityRetriedSegments.add(retryKey);
       state = await persistStage(
         taskId,
         {
           ...state,
-          stage: 'finalizing',
+          stage: 'submitting',
           diagnostics: [
             ...(state.diagnostics || []).filter(
-              (item) => !item.startsWith('正在合成第 ')
+              (item) => !item.includes('音轨质量不合格')
             ),
-            message,
+            `第 ${plan.slide.pageIndex} 页第 ${
+              plan.timelineIndex + 1
+            } 段音轨质量不合格，正在重试 1/1`,
           ],
         },
         executionAttempt,
-        Math.min(97, 80 + Math.round(progress * 0.17)),
-        TaskExecutionPhase.DOWNLOADING
+        80,
+        TaskExecutionPhase.SUBMITTING
       );
-    },
-  });
+      signal.throwIfAborted();
+      compositionSlides[error.slideIndex].turns[error.turnIndex] =
+        await generateCompositionTurn(
+          plan.slide,
+          plan.segment,
+          plan.timelineIndex
+        );
+    }
+  }
   signal.throwIfAborted();
   const extension = composed.mimeType.includes('mp4') ? 'mp4' : 'webm';
   const stableUrl = `/__aitu_cache__/video/${taskId}.${extension}`;
@@ -902,7 +1009,14 @@ async function runLocalComposition(
       URL.revokeObjectURL(composed.url);
     }
   }
-  await finalizeResult(taskId, state, executionAttempt, stableUrl, signal);
+  await finalizeResult(
+    taskId,
+    state,
+    executionAttempt,
+    stableUrl,
+    signal,
+    composed.duration
+  );
 }
 
 async function pollUntilComplete(
@@ -1330,6 +1444,8 @@ async function executePptExplainerRun(
           presenterMode: state.presenterMode,
           speakers: state.speakers,
           textRoute: getTextRouteModel(currentTask, state),
+          secondsPerSlide: state.secondsPerSlide,
+          narrationInstruction: state.narrationInstruction,
           signal,
         }),
         stage: 'submitting',

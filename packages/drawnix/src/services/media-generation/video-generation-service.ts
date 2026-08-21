@@ -91,6 +91,10 @@ export async function generateVideo(
       prompt: sanitizedParams.prompt,
       model: options.model || 'veo3',
       modelRef: options.modelRef || null,
+      duration:
+        typeof options.duration === 'string'
+          ? parseInt(options.duration, 10)
+          : options.duration,
       size: options.size,
       params: options.params,
       promptMeta: options.promptMeta,

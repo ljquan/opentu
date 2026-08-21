@@ -242,6 +242,8 @@ function buildInitialState(options: {
     reviewMode: input.reviewMode,
     reviewAcceptedAt,
     presenterMode: input.presenterMode,
+    secondsPerSlide: input.secondsPerSlide,
+    narrationInstruction: input.narrationInstruction?.trim() || undefined,
     executionMode: 'local',
     speakers: options.speakers.map((speaker) => ({ ...speaker })),
     stage:
@@ -318,6 +320,19 @@ function assertSupportedPptExplainerInput(
     candidate.presenterMode !== 'dual_voice'
   ) {
     throw new PptExplainerValidationError('当前仅支持单人讲解和双人对谈');
+  }
+  if (
+    typeof candidate.secondsPerSlide !== 'number' ||
+    !Number.isSafeInteger(candidate.secondsPerSlide) ||
+    candidate.secondsPerSlide <= 0
+  ) {
+    throw new PptExplainerValidationError('每页讲解时长必须是正整数秒');
+  }
+  if (
+    candidate.narrationInstruction !== undefined &&
+    typeof candidate.narrationInstruction !== 'string'
+  ) {
+    throw new PptExplainerValidationError('讲解要求必须是文本');
   }
   if (!Array.isArray(candidate.speakers)) {
     throw new PptExplainerValidationError('讲解者配置无效');

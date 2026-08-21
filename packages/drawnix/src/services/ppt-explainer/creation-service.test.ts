@@ -112,6 +112,7 @@ function createInput(
     topic: '季度复盘',
     reviewMode: 'confirm',
     presenterMode: 'single_voice',
+    secondsPerSlide: 10,
     speakers: [
       {
         id: 'speaker-a',
@@ -434,6 +435,7 @@ describe('PPT explainer creation service', () => {
 
     expect(mocks.createRootTask.mock.calls[0][0]).toMatchObject({
       executionMode: 'local',
+      secondsPerSlide: 10,
       speakers: [{ id: 'speaker-a', displayName: '讲解者' }],
       models: {
         videoModel: videoModelId,

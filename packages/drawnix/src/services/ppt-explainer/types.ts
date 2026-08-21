@@ -143,6 +143,10 @@ export interface PptExplainerTaskState {
   reviewMode: PptExplainerReviewMode;
   reviewAcceptedAt?: number;
   presenterMode: PptExplainerPresenterMode;
+  /** 用户要求的每页成片时长。旧任务缺省时使用模型默认时长。 */
+  secondsPerSlide?: number;
+  /** 适用于全部来源的讲解要求，不包含凭据或二进制内容。 */
+  narrationInstruction?: string;
   executionMode?: PptExplainerExecutionMode;
   speakers: PptExplainerSpeaker[];
   voiceConsentAcceptedAt?: number;
@@ -167,6 +171,8 @@ export interface PptExplainerCreateInput {
   requestedPageCount?: number;
   reviewMode: PptExplainerReviewMode;
   presenterMode: 'single_voice' | 'dual_voice';
+  secondsPerSlide: number;
+  narrationInstruction?: string;
   speakers: PptExplainerCreateSpeakerInput[];
   textModel: string;
   textModelRef?: ModelRef | null;
