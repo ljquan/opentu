@@ -13,6 +13,7 @@ import {
 } from '@plait/core';
 import { DrawTransforms } from '@plait/draw';
 import {
+  insertImageNodeAtPoint,
   insertImageFromUrl,
   loadImageElementForCanvas,
 } from '../../data/image';
@@ -340,7 +341,8 @@ async function insertImageToCanvas(
   point: Point,
   dimensions?: { width: number; height: number },
   waitForImageLoad = false,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  insertWithoutBoardHost = false
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const size = dimensions || {
     width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
@@ -365,7 +367,8 @@ async function insertImageToCanvas(
     !waitForImageLoad,
     Boolean(dimensions),
     true,
-    boardGuard
+    boardGuard,
+    insertWithoutBoardHost
   );
   return { elementId, size };
 }
@@ -379,7 +382,8 @@ async function insertVideoToCanvas(
   videoUrl: string,
   point: Point,
   dimensions?: { width: number; height: number },
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  insertWithoutBoardHost = false
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   // 如果提供了尺寸，直接使用
   if (dimensions) {
@@ -392,7 +396,8 @@ async function insertVideoToCanvas(
       true,
       true,
       undefined,
-      boardGuard
+      boardGuard,
+      insertWithoutBoardHost
     );
     return { elementId, size: dimensions };
   }
@@ -411,7 +416,8 @@ async function insertVideoToCanvas(
     true,
     true,
     undefined,
-    boardGuard
+    boardGuard,
+    insertWithoutBoardHost
   );
 
   // 异步获取真实尺寸并在以后更新（可选），目前为了响应速度，直接返回默认尺寸
@@ -462,7 +468,8 @@ async function insertSvgToCanvas(
   board: PlaitBoard,
   svgCode: string,
   point: Point,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  insertWithoutBoardHost = false
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const normalized = normalizeSvg(svgCode);
   const dimensions = parseSvgDimensions(normalized);
@@ -486,10 +493,13 @@ async function insertSvgToCanvas(
   }
 
   const childrenCountBefore = board.children.length;
-  DrawTransforms.insertImage(board, imageItem, point);
-  const insertedElement = board.children[childrenCountBefore] as
-    | { id?: string }
-    | undefined;
+  let insertedElement;
+  if (insertWithoutBoardHost) {
+    insertedElement = insertImageNodeAtPoint(board, imageItem, point);
+  } else {
+    DrawTransforms.insertImage(board, imageItem, point);
+    insertedElement = board.children[childrenCountBefore];
+  }
   return {
     elementId: insertedElement?.id,
     size: { width: targetWidth, height: targetHeight },
@@ -501,7 +511,8 @@ async function insertItemToCanvas(
   item: InsertionItem,
   point: Point,
   boardGuard?: () => boolean,
-  cardWidth?: number
+  cardWidth?: number,
+  insertWithoutBoardHost = false
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   if (item.type === 'text') {
     return insertTextToCanvas(
@@ -521,7 +532,8 @@ async function insertItemToCanvas(
       point,
       item.dimensions,
       item.waitForImageLoad,
-      boardGuard
+      boardGuard,
+      insertWithoutBoardHost
     );
   }
 
@@ -531,7 +543,8 @@ async function insertItemToCanvas(
       item.content,
       point,
       item.dimensions,
-      boardGuard
+      boardGuard,
+      insertWithoutBoardHost
     );
   }
 
@@ -547,7 +560,13 @@ async function insertItemToCanvas(
   }
 
   if (item.type === 'svg') {
-    return insertSvgToCanvas(board, item.content, point, boardGuard);
+    return insertSvgToCanvas(
+      board,
+      item.content,
+      point,
+      boardGuard,
+      insertWithoutBoardHost
+    );
   }
 
   return { size: estimateInsertionItemSize(board, item) };
@@ -587,7 +606,8 @@ async function stageCanvasInsertion(
       stagedItem,
       point,
       boardGuard,
-      cardWidth
+      cardWidth,
+      true
     );
     if (boardGuard && !boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
