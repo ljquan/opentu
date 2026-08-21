@@ -917,6 +917,7 @@ async function runLocalComposition(
   );
   signal.throwIfAborted();
   const qualityRetriedSegments = new Set<string>();
+  let finalizingProgress = 80;
   const composeCurrentSlides = () =>
     composeLocalPptExplainerVideo({
       slides: compositionSlides,
@@ -926,6 +927,10 @@ async function runLocalComposition(
       signal,
       loadMediaBlob: (url, mediaSignal) => readInputBlob(url, mediaSignal),
       onProgress: async (progress, message) => {
+        finalizingProgress = Math.max(
+          finalizingProgress,
+          Math.min(97, 80 + Math.round(progress * 0.17))
+        );
         state = await persistStage(
           taskId,
           {
@@ -933,13 +938,16 @@ async function runLocalComposition(
             stage: 'finalizing',
             diagnostics: [
               ...(state.diagnostics || []).filter(
-                (item) => !item.startsWith('正在合成第 ')
+                (item) =>
+                  !item.startsWith('实时录制') &&
+                  !item.startsWith('已完成') &&
+                  !item.startsWith('正在校验')
               ),
               message,
             ],
           },
           executionAttempt,
-          Math.min(97, 80 + Math.round(progress * 0.17)),
+          finalizingProgress,
           TaskExecutionPhase.DOWNLOADING
         );
       },
@@ -978,7 +986,7 @@ async function runLocalComposition(
           ],
         },
         executionAttempt,
-        80,
+        finalizingProgress,
         TaskExecutionPhase.SUBMITTING
       );
       signal.throwIfAborted();

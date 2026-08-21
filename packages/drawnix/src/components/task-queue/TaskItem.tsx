@@ -252,6 +252,20 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     const isCancelled = task.status === TaskStatus.CANCELLED;
     const isRetryable = isFailed || isCancelled;
     const pptExplainerStage = task.params.pptExplainer?.stage;
+    const pptExplainerDiagnostics = task.params.pptExplainer?.diagnostics || [];
+    const latestPptExplainerDiagnostic =
+      pptExplainerDiagnostics[pptExplainerDiagnostics.length - 1];
+    const isCurrentCompositionDiagnostic = [
+      '正在以原 PPT',
+      '实时录制',
+      '已完成',
+      '正在校验',
+    ].some((prefix) => latestPptExplainerDiagnostic?.startsWith(prefix));
+    const pptExplainerStatusText =
+      (pptExplainerStage === 'finalizing' && isCurrentCompositionDiagnostic) ||
+      latestPptExplainerDiagnostic?.includes('正在重试')
+        ? latestPptExplainerDiagnostic
+        : undefined;
     const pptExplainerStageText = getPptExplainerStageText(pptExplainerStage);
     const statusLabel =
       (task.status === TaskStatus.PENDING ||
@@ -593,6 +607,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                       startedAt={task.startedAt}
                       mediaUrl={previewMediaUrl}
                       pptExplainerStage={pptExplainerStage}
+                      pptExplainerStatusText={pptExplainerStatusText}
                     />
                   )
                 ) : (

@@ -71,7 +71,7 @@ class MockVideo extends EventTarget {
   readonly play: ReturnType<typeof vi.fn>;
 
   constructor(
-    mode: 'success' | 'error' | 'pending' = 'success',
+    mode: 'success' | 'error' | 'pending' | 'load-pending' = 'success',
     playError?: Error,
     getRecordedDuration: () => number = () => 0,
     onPlaybackComplete: (duration: number) => void = () => undefined
@@ -90,6 +90,7 @@ class MockVideo extends EventTarget {
           this.dispatchEvent(new Event('error'));
           return;
         }
+        if (mode === 'load-pending') return;
         this.dispatchEvent(new Event('canplay'));
       });
     });
@@ -107,12 +108,14 @@ class MockVideo extends EventTarget {
 }
 
 interface ComposerBrowserOptions {
-  videoMode?: 'success' | 'error' | 'pending';
+  videoMode?: 'success' | 'error' | 'pending' | 'load-pending';
   playError?: Error;
   recorderErrorAfterStart?: Error;
   recorderConstructorError?: Error;
   resumePending?: boolean;
   recorderStartPending?: boolean;
+  recorderPausePending?: boolean;
+  recorderStopPending?: boolean;
   audibleSample?: number;
   decodedDuration?: number;
   finalDuration?: number;
@@ -123,6 +126,15 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
   const audioTrack = new MockTrack('audio');
   const canvasStream = new MockStream([videoTrack]);
   const destinationStream = new MockStream([audioTrack]);
+  const recorderInstances: Array<{
+    state: RecordingState;
+    start: ReturnType<typeof vi.fn>;
+    pause: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }> = [];
+  const imageLoadRecorderStates: Array<RecordingState | undefined> = [];
+  const drawRecorderStates: Array<RecordingState | undefined> = [];
   const mediaSource = {
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -187,7 +199,9 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     save: vi.fn(),
     restore: vi.fn(),
     fillRect: vi.fn(),
-    drawImage: vi.fn(),
+    drawImage: vi.fn(() => {
+      drawRecorderStates.push(recorderInstances[0]?.state);
+    }),
     measureText: vi.fn((text: string) => ({ width: text.length * 12 })),
     fillText: vi.fn(),
   };
@@ -208,13 +222,6 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     );
   const video = createVideo();
   let videoCreateCount = 0;
-  const recorderInstances: Array<{
-    state: RecordingState;
-    start: ReturnType<typeof vi.fn>;
-    pause: ReturnType<typeof vi.fn>;
-    resume: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
-  }> = [];
 
   class MockMediaRecorder extends EventTarget {
     static isTypeSupported = vi.fn((mimeType: string) =>
@@ -252,7 +259,9 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     pause = vi.fn(() => {
       if (this.state !== 'recording') return;
       this.state = 'paused';
-      queueMicrotask(() => this.dispatchEvent(new Event('pause')));
+      if (!options.recorderPausePending) {
+        queueMicrotask(() => this.dispatchEvent(new Event('pause')));
+      }
     });
 
     resume = vi.fn(() => {
@@ -267,7 +276,9 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
       this.ondataavailable?.({
         data: new Blob(['recorded-video'], { type: this.mimeType }),
       } as BlobEvent);
-      queueMicrotask(() => this.onstop?.());
+      if (!options.recorderStopPending) {
+        queueMicrotask(() => this.onstop?.());
+      }
     });
   }
 
@@ -296,7 +307,19 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
       static revokeObjectURL = vi.fn();
     }
   );
-  vi.stubGlobal('Image', MockImage);
+  vi.stubGlobal(
+    'Image',
+    class extends MockImage {
+      override set src(value: string) {
+        if (value) imageLoadRecorderStates.push(recorderInstances[0]?.state);
+        super.src = value;
+      }
+
+      override get src(): string {
+        return super.src;
+      }
+    }
+  );
   vi.stubGlobal(
     'AudioContext',
     class {
@@ -322,6 +345,8 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     bufferSource,
     canvas,
     context,
+    drawRecorderStates,
+    imageLoadRecorderStates,
     mediaSource,
     recorderInstances,
     video,
@@ -330,6 +355,7 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -428,7 +454,13 @@ describe('local PPT explainer composer', () => {
         ([image]) => image === browser.video
       )
     ).toBe(false);
-    expect(onProgress).toHaveBeenCalledWith(100, '正在合成第 1/1 页');
+    expect(onProgress).toHaveBeenNthCalledWith(
+      1,
+      0,
+      '实时录制 1/1 页 · 1/1 段'
+    );
+    expect(onProgress).toHaveBeenCalledWith(100, '已完成 1/1 页 · 1/1 段');
+    expect(onProgress).toHaveBeenLastCalledWith(100, '正在校验 PPT 讲解成片');
     expect(browser.video.pause).toHaveBeenCalledOnce();
     expect(browser.video.remove).toHaveBeenCalledOnce();
     expect(browser.mediaSource.disconnect).toHaveBeenCalledOnce();
@@ -510,6 +542,79 @@ describe('local PPT explainer composer', () => {
     const recorder = browser.recorderInstances[0];
     expect(recorder.pause).toHaveBeenCalledTimes(2);
     expect(recorder.resume).toHaveBeenCalledOnce();
+  });
+
+  it('keeps recording paused while loading pages, switching slides, drawing transitions and persisting progress', async () => {
+    const browser = installComposerBrowser();
+    const progressRecorderStates: Array<RecordingState | undefined> = [];
+    const transitionRecorderStates: Array<RecordingState | undefined> = [];
+
+    await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide-1.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment-1.mp4',
+              subtitle: '第一页讲解',
+            },
+          ],
+        },
+        {
+          imageUrl: '/slide-2.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment-2.mp4',
+              subtitle: '第二页讲解',
+            },
+          ],
+        },
+      ],
+      transitionDurationMs: 0,
+      onProgress: (_progress, message) => {
+        progressRecorderStates.push(browser.recorderInstances[0]?.state);
+        if (message.startsWith('实时录制 2/2 页')) {
+          transitionRecorderStates.push(browser.drawRecorderStates.at(-1));
+        }
+      },
+    });
+
+    expect(browser.imageLoadRecorderStates).toEqual(['inactive', 'paused']);
+    expect(progressRecorderStates.every((state) => state === 'paused')).toBe(
+      true
+    );
+    expect(transitionRecorderStates).toEqual(['paused']);
+    expect(browser.recorderInstances[0]?.pause).toHaveBeenCalledTimes(3);
+    expect(browser.recorderInstances[0]?.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows cancellation while a progress update is pending', async () => {
+    const browser = installComposerBrowser();
+    const controller = new AbortController();
+    const onProgress = vi.fn(() => new Promise<void>(() => undefined));
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+      signal: controller.signal,
+      onProgress,
+    });
+    await vi.waitFor(() => expect(onProgress).toHaveBeenCalledOnce());
+
+    controller.abort(new DOMException('用户取消', 'AbortError'));
+
+    await expect(composition).rejects.toMatchObject({ name: 'AbortError' });
+    expect(browser.video.play).not.toHaveBeenCalled();
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
   });
 
   it('truncates decoded audio at the planned output duration', async () => {
@@ -810,6 +915,40 @@ describe('local PPT explainer composer', () => {
     expect(browser.audioContext.close).toHaveBeenCalledOnce();
   });
 
+  it('does not classify a browser play rejection as upstream audio quality', async () => {
+    installComposerBrowser({
+      playError: new DOMException('play() failed', 'NotAllowedError'),
+    });
+
+    let capturedError: unknown;
+    try {
+      await composeLocalPptExplainerVideo({
+        slides: [
+          {
+            imageUrl: '/slide.png',
+            turns: [
+              {
+                mediaUrl: '/__aitu_cache__/video/segment.mp4',
+                subtitle: '本页讲解',
+              },
+            ],
+          },
+        ],
+      });
+    } catch (error) {
+      capturedError = error;
+    }
+
+    expect(capturedError).toBeInstanceOf(Error);
+    expect((capturedError as Error).message).toContain(
+      '浏览器无法播放讲解音轨'
+    );
+    expect((capturedError as Error).message).toContain('play() failed');
+    expect(capturedError).not.toMatchObject({
+      code: 'PPT_NARRATION_QUALITY',
+    });
+  });
+
   it('cancels pending media playback and releases all resources', async () => {
     const browser = installComposerBrowser({ videoMode: 'pending' });
     const controller = new AbortController();
@@ -969,5 +1108,215 @@ describe('local PPT explainer composer', () => {
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioContext.close).toHaveBeenCalledOnce();
+  });
+
+  it('fails clearly when AudioContext resume remains pending', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ resumePending: true });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+              outputDurationSeconds: 10,
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '浏览器未能启动讲解音频，请保持页面在前台并点击页面后重试'
+    );
+
+    await vi.advanceTimersByTimeAsync(8_001);
+
+    await rejection;
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioContext.close).toHaveBeenCalledOnce();
+  });
+
+  it('fails clearly when media play never starts', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ videoMode: 'pending' });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+              outputDurationSeconds: 4,
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '启动 PPT 讲解音轨超过 10 秒，请保持页面在前台后重试'
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(browser.video.play).toHaveBeenCalledOnce();
+    expect(browser.recorderInstances[0]?.state).toBe('paused');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(browser.video.remove).toHaveBeenCalledOnce();
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('fails clearly when media never becomes playable', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ videoMode: 'load-pending' });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+              outputDurationSeconds: 4,
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '加载 PPT 讲解音轨超过 15 秒，请保持页面在前台后重试'
+    );
+
+    await vi.advanceTimersByTimeAsync(15_001);
+
+    await rejection;
+    expect(browser.video.play).not.toHaveBeenCalled();
+    expect(browser.video.remove).toHaveBeenCalledOnce();
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('fails clearly when recorder start is not acknowledged', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ recorderStartPending: true });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '启动 PPT 视频录制超过 5 秒，请刷新页面后重试'
+    );
+
+    await vi.advanceTimersByTimeAsync(5_001);
+
+    await rejection;
+    expect(browser.video.play).not.toHaveBeenCalled();
+    expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('fails and releases streams when recorder pause is not acknowledged', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ recorderPausePending: true });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              mediaUrl: '/__aitu_cache__/video/segment.mp4',
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '暂停 PPT 视频录制超过 5 秒，请刷新页面后重试'
+    );
+
+    await vi.advanceTimersByTimeAsync(5_001);
+
+    await rejection;
+    expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not hang when recorder stop is not acknowledged', async () => {
+    vi.useFakeTimers();
+    const browser = installComposerBrowser({ recorderStopPending: true });
+    const composition = composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+            },
+          ],
+        },
+      ],
+    });
+    const rejection = expect(composition).rejects.toThrow(
+      '停止 PPT 视频录制超过 10 秒，请刷新页面后重试'
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
+    expect(browser.audioContext.close).toHaveBeenCalledOnce();
+  });
+
+  it('derives the total composition watchdog from planned turn durations', () => {
+    const input = {
+      slides: [
+        {
+          imageUrl: '/slide-1.png',
+          turns: [
+            {
+              mediaUrl: '/segment-1.mp4',
+              outputDurationSeconds: 10,
+            },
+          ],
+        },
+        {
+          imageUrl: '/slide-2.png',
+          turns: [
+            {
+              mediaUrl: '/segment-2.mp4',
+              outputDurationSeconds: 10,
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(localPptComposerInternals.getPlannedCompositionDuration(input)).toBe(
+      20
+    );
+    expect(localPptComposerInternals.getCompositionWatchdogTimeoutMs(20)).toBe(
+      80_000
+    );
   });
 });

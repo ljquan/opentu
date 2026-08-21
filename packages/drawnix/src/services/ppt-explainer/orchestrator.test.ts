@@ -780,6 +780,41 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     });
   });
 
+  it('浏览器播放错误不重新调用视频模型', async () => {
+    const taskId = 'local-browser-playback-failed';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      options.onTaskCreated?.('segment-playback-failed');
+      return {
+        task: { id: 'segment-playback-failed' },
+        url: 'https://cdn.example.com/segment-playback-failed.mp4',
+      };
+    });
+    mocks.cacheRemoteUrl.mockResolvedValue(
+      '/__aitu_cache__/video/segment-playback-failed.mp4'
+    );
+    mocks.composeLocalPptVideo.mockRejectedValue(
+      new Error('浏览器无法播放讲解音轨：play() failed')
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledOnce();
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledOnce();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: { message: '浏览器无法播放讲解音轨：play() failed' },
+    });
+  });
+
   it('优先通过内部任务的鉴权内容接口下载讲解片段', async () => {
     const taskId = 'local-authenticated-download';
     installTask(

@@ -320,4 +320,67 @@ describe('PPT explainer root task state', () => {
       },
     });
   });
+
+  it('skips stale queued snapshots and persists only the latest task object', async () => {
+    const state = createState({ executionAttempt: 1, stage: 'finalizing' });
+    mocks.tasks.set('root-task', createTask(state));
+    mocks.updateTaskStatus.mockImplementation(
+      (taskId: string, status: TaskStatus, updates: Partial<Task> = {}) => {
+        const current = mocks.tasks.get(taskId);
+        if (!current) return;
+        mocks.tasks.set(taskId, {
+          ...current,
+          ...updates,
+          status,
+          updatedAt: 2,
+        });
+      }
+    );
+    let releaseFirstSave!: () => void;
+    const firstSaveBlocked = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    const savedDiagnostics: Array<string | undefined> = [];
+    mocks.saveTask.mockImplementation(async (task: Task) => {
+      savedDiagnostics.push(task.params.pptExplainer?.diagnostics?.at(-1));
+      if (savedDiagnostics.length === 1) await firstSaveBlocked;
+    });
+
+    const firstUpdate = updatePptExplainerRootTask(
+      'root-task',
+      {
+        state: { ...state, diagnostics: ['第一笔'] },
+        progress: 81,
+      },
+      { expectedExecutionAttempt: 1 }
+    );
+    await vi.waitFor(() => expect(mocks.saveTask).toHaveBeenCalledTimes(1));
+
+    const secondUpdate = updatePptExplainerRootTask(
+      'root-task',
+      {
+        state: { ...state, diagnostics: ['第二笔'] },
+        progress: 82,
+      },
+      { expectedExecutionAttempt: 1 }
+    );
+    const secondTask = mocks.tasks.get('root-task');
+    const thirdUpdate = updatePptExplainerRootTask(
+      'root-task',
+      {
+        state: { ...state, diagnostics: ['第三笔'] },
+        progress: 83,
+      },
+      { expectedExecutionAttempt: 1 }
+    );
+    const thirdTask = mocks.tasks.get('root-task');
+
+    expect(secondTask).not.toBe(thirdTask);
+    expect(secondTask?.updatedAt).toBe(thirdTask?.updatedAt);
+    releaseFirstSave();
+    await Promise.all([firstUpdate, secondUpdate, thirdUpdate]);
+
+    expect(mocks.saveTask).toHaveBeenCalledTimes(2);
+    expect(savedDiagnostics).toEqual(['第一笔', '第三笔']);
+  });
 });

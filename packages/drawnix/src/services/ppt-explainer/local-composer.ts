@@ -45,7 +45,6 @@ export interface LocalPptCompositionResult {
 
 export type PptExplainerNarrationQualityReason =
   | 'decode_failed'
-  | 'playback_failed'
   | 'duration_short'
   | 'activity_unavailable'
   | 'silent'
@@ -93,6 +92,15 @@ const AUDIO_RMS_THRESHOLD = 0.008;
 const AUDIO_SAMPLE_INTERVAL_MS = 100;
 const MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 const FINAL_DURATION_PROBE_TIMEOUT_MS = 10_000;
+const RESOURCE_LOAD_TIMEOUT_MS = 15_000;
+const AUDIO_CONTEXT_RESUME_TIMEOUT_MS = 8_000;
+const AUDIO_DECODE_TIMEOUT_MS = 15_000;
+const MEDIA_PLAY_START_TIMEOUT_MS = 10_000;
+const RECORDER_STATE_TIMEOUT_MS = 5_000;
+const RECORDER_STOP_TIMEOUT_MS = 10_000;
+const AUDIO_PLAYBACK_GRACE_MS = 5_000;
+const AUDIO_CONTEXT_CLOSE_TIMEOUT_MS = 2_000;
+const COMPOSITION_WATCHDOG_OVERHEAD_MS = 60_000;
 
 export function chooseLocalPptRecorderFormat(
   isTypeSupported: (mimeType: string) => boolean
@@ -190,7 +198,13 @@ function loadImage(
     signal?.throwIfAborted();
     const image = new Image();
     image.crossOrigin = 'anonymous';
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      image.src = '';
+      reject(new Error('加载 PPT 页面快照超过 15 秒，请保持页面在前台后重试'));
+    }, RESOURCE_LOAD_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(timeoutId);
       image.onload = null;
       image.onerror = null;
       signal?.removeEventListener('abort', onAbort);
@@ -198,7 +212,7 @@ function loadImage(
     const onAbort = () => {
       cleanup();
       image.src = '';
-      reject(new DOMException('PPT 本地合成已取消', 'AbortError'));
+      reject(getCompositionAbortReason(signal));
     };
     image.onload = () => {
       cleanup();
@@ -227,7 +241,12 @@ async function loadCompositionImage(
     return { image: await loadImage(url, signal), dispose: () => undefined };
   }
 
-  const blob = await loadMediaBlob(url, signal || new AbortController().signal);
+  const blob = await waitForAbortable(
+    loadMediaBlob(url, signal || new AbortController().signal),
+    signal,
+    RESOURCE_LOAD_TIMEOUT_MS,
+    '读取 PPT 页面快照超过 15 秒，请保持页面在前台后重试'
+  );
   signal?.throwIfAborted();
   const objectUrl = URL.createObjectURL(blob);
   try {
@@ -356,21 +375,31 @@ function getCompositionAbortReason(signal?: AbortSignal): unknown {
 
 function waitForAbortable<T>(
   operation: Promise<T>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs?: number,
+  timeoutMessage = 'PPT 本地合成等待超时'
 ): Promise<T> {
-  if (!signal) return operation;
-  signal.throwIfAborted();
+  if (!signal && timeoutMs === undefined) return operation;
+  signal?.throwIfAborted();
   return new Promise<T>((resolve, reject) => {
     let settled = false;
+    const timeoutId =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(
+            () => finish(() => reject(new Error(timeoutMessage))),
+            timeoutMs
+          );
     const finish = (callback: () => void) => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', onAbort);
       callback();
     };
     const onAbort = () =>
       finish(() => reject(getCompositionAbortReason(signal)));
-    signal.addEventListener('abort', onAbort, { once: true });
+    signal?.addEventListener('abort', onAbort, { once: true });
     operation.then(
       (value) => finish(() => resolve(value)),
       (error) => finish(() => reject(error))
@@ -384,7 +413,12 @@ function waitForRecorderStart(
 ): Promise<void> {
   signal?.throwIfAborted();
   return new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error('启动 PPT 视频录制超过 5 秒，请刷新页面后重试'));
+    }, RECORDER_STATE_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(timeoutId);
       recorder.removeEventListener('start', onStart);
       signal?.removeEventListener('abort', onAbort);
     };
@@ -410,7 +444,13 @@ function waitForRecorderStateChange(
   signal?.throwIfAborted();
   if (recorder.state === expectedState) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
+    const action = eventName === 'pause' ? '暂停' : '恢复';
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error(`${action} PPT 视频录制超过 5 秒，请刷新页面后重试`));
+    }, RECORDER_STATE_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(timeoutId);
       recorder.removeEventListener(eventName, onStateChange);
       signal?.removeEventListener('abort', onAbort);
     };
@@ -794,18 +834,39 @@ async function playAudioBuffer(
   signal?.throwIfAborted();
   const bytes =
     typeof blob.arrayBuffer === 'function'
-      ? await blob.arrayBuffer()
-      : await new Promise<ArrayBuffer>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as ArrayBuffer);
-          reader.onerror = () => reject(reader.error);
-          reader.readAsArrayBuffer(blob);
-        });
+      ? await waitForAbortable(
+          blob.arrayBuffer(),
+          signal,
+          RESOURCE_LOAD_TIMEOUT_MS,
+          '读取 PPT 讲解音轨超过 15 秒，请重试'
+        )
+      : await waitForAbortable(
+          new Promise<ArrayBuffer>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as ArrayBuffer);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsArrayBuffer(blob);
+          }),
+          signal,
+          RESOURCE_LOAD_TIMEOUT_MS,
+          '读取 PPT 讲解音轨超过 15 秒，请重试'
+        );
   signal?.throwIfAborted();
   let buffer: AudioBuffer;
   try {
-    buffer = await audioContext.decodeAudioData(bytes);
+    buffer = await waitForAbortable(
+      audioContext.decodeAudioData(bytes),
+      signal,
+      AUDIO_DECODE_TIMEOUT_MS,
+      '解码 PPT 讲解音轨超过 15 秒，请重试或更换视频模型'
+    );
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('解码 PPT 讲解音轨超过')
+    ) {
+      throw error;
+    }
     throw new PptExplainerNarrationQualityError(
       `讲解片段无法解码${
         error instanceof Error && error.message ? `：${error.message}` : ''
@@ -829,7 +890,24 @@ async function playAudioBuffer(
       const monitor = new BoundedAudioActivityMonitor(analyser);
       let settled = false;
       let stopFrameLoop: (() => void) | undefined;
+      const playbackTimeoutId = setTimeout(() => {
+        finish(() => {
+          try {
+            source.stop();
+          } catch {
+            // The source may have ended while the timeout was handled.
+          }
+          reject(
+            new Error(
+              `播放 PPT 讲解音轨超过预计 ${playbackDuration.toFixed(
+                1
+              )} 秒，请保持页面在前台后重试`
+            )
+          );
+        });
+      }, playbackDuration * 1000 + AUDIO_PLAYBACK_GRACE_MS);
       const cleanup = () => {
+        clearTimeout(playbackTimeoutId);
         signal?.removeEventListener('abort', onAbort);
         stopFrameLoop?.();
         source.onended = null;
@@ -852,9 +930,7 @@ async function playAudioBuffer(
         } catch {
           // Stopping an already-ended source is harmless.
         }
-        finish(() =>
-          reject(new DOMException('PPT 本地合成已取消', 'AbortError'))
-        );
+        finish(() => reject(getCompositionAbortReason(signal)));
       };
       source.buffer = buffer;
       source.connect(analyser);
@@ -905,9 +981,11 @@ async function playMediaElementAudio(
   signal?.throwIfAborted();
   let objectUrl: string | undefined;
   if (loadMediaBlob) {
-    const blob = await loadMediaBlob(
-      mediaUrl,
-      signal || new AbortController().signal
+    const blob = await waitForAbortable(
+      loadMediaBlob(mediaUrl, signal || new AbortController().signal),
+      signal,
+      RESOURCE_LOAD_TIMEOUT_MS,
+      '读取 PPT 讲解片段超过 15 秒，请重试'
     );
     signal?.throwIfAborted();
     objectUrl = URL.createObjectURL(blob);
@@ -944,7 +1022,15 @@ async function playMediaElementAudio(
       let monitor: BoundedAudioActivityMonitor | undefined;
       let playbackDuration = 0;
       let durationTimer: ReturnType<typeof setTimeout> | undefined;
+      const loadTimeoutId = setTimeout(
+        () =>
+          fail(
+            new Error('加载 PPT 讲解音轨超过 15 秒，请保持页面在前台后重试')
+          ),
+        RESOURCE_LOAD_TIMEOUT_MS
+      );
       const cleanup = () => {
+        clearTimeout(loadTimeoutId);
         signal?.removeEventListener('abort', onAbort);
         media.removeEventListener('canplay', onCanPlay);
         media.removeEventListener('ended', onEnded);
@@ -1008,6 +1094,7 @@ async function playMediaElementAudio(
       const onCanPlay = () => {
         if (started || settled) return;
         started = true;
+        clearTimeout(loadTimeoutId);
         const sourceDuration =
           Number.isFinite(media.duration) && media.duration > 0
             ? media.duration
@@ -1027,20 +1114,24 @@ async function playMediaElementAudio(
             ? Math.min(sourceDuration, durationLimit)
             : durationLimit
           : sourceDuration;
-        void recordingGate
-          .startPlayback()
-          .then(() =>
-            media.play().catch((error) => {
-              throw new PptExplainerNarrationQualityError(
-                `浏览器无法播放讲解音轨：${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-                'playback_failed'
-              );
-            })
-          )
+        void waitForAbortable(
+          media.play().catch((error) => {
+            throw new Error(
+              `浏览器无法播放讲解音轨：${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }),
+          signal,
+          MEDIA_PLAY_START_TIMEOUT_MS,
+          '启动 PPT 讲解音轨超过 10 秒，请保持页面在前台后重试'
+        )
+          .then(() => recordingGate.startPlayback())
           .then(() => {
             if (settled) return;
+            // The play() handshake is intentionally excluded from recording.
+            // Restart from zero after the recorder resumes so narration is complete.
+            media.currentTime = 0;
             if (durationLimit !== undefined) {
               durationTimer = setTimeout(onEnded, durationLimit * 1000);
             }
@@ -1114,6 +1205,27 @@ function playNarrationTurn(
   throw new Error('PPT 旁白来源无效');
 }
 
+function getPlannedCompositionDuration(
+  input: LocalPptCompositionInput
+): number | undefined {
+  let duration = 0;
+  for (const slide of input.slides) {
+    for (const turn of slide.turns) {
+      const turnDuration = getTurnDurationLimit(turn);
+      if (turnDuration === undefined) return undefined;
+      duration += turnDuration;
+    }
+  }
+  return duration > 0 ? duration : undefined;
+}
+
+function getCompositionWatchdogTimeoutMs(expectedDuration: number): number {
+  return (
+    expectedDuration * 1000 +
+    Math.max(COMPOSITION_WATCHDOG_OVERHEAD_MS, expectedDuration * 1000 * 0.25)
+  );
+}
+
 export async function composeLocalPptExplainerVideo(
   input: LocalPptCompositionInput
 ): Promise<LocalPptCompositionResult> {
@@ -1140,6 +1252,24 @@ export async function composeLocalPptExplainerVideo(
     compositionController.abort(getCompositionAbortReason(input.signal));
   input.signal?.addEventListener('abort', abortFromInput, { once: true });
   const signal = compositionController.signal;
+  const plannedDuration = getPlannedCompositionDuration(input);
+  const watchdogTimeoutMs = plannedDuration
+    ? getCompositionWatchdogTimeoutMs(plannedDuration)
+    : undefined;
+  const watchdogId =
+    watchdogTimeoutMs === undefined
+      ? undefined
+      : setTimeout(
+          () =>
+            compositionController.abort(
+              new Error(
+                `PPT 本地合成超过预计 ${Math.ceil(
+                  watchdogTimeoutMs / 1000
+                )} 秒，请保持页面在前台后重试`
+              )
+            ),
+          watchdogTimeoutMs
+        );
   let destination: MediaStreamAudioDestinationNode | undefined;
   let analyser: AnalyserNode | undefined;
   let canvasStream: MediaStream | undefined;
@@ -1189,7 +1319,12 @@ export async function composeLocalPptExplainerVideo(
     });
     void recorderFailure.catch(() => undefined);
 
-    await waitForAbortable(audioContext.resume(), signal);
+    await waitForAbortable(
+      audioContext.resume(),
+      signal,
+      AUDIO_CONTEXT_RESUME_TIMEOUT_MS,
+      '浏览器未能启动讲解音频，请保持页面在前台并点击页面后重试'
+    );
     let activeImageLoad = await loadCompositionImage(
       input.slides[0].imageUrl,
       input.loadMediaBlob,
@@ -1243,6 +1378,22 @@ export async function composeLocalPptExplainerVideo(
           );
         }
         for (const [turnIndex, turn] of slide.turns.entries()) {
+          const turnDuration = getTurnDurationLimit(turn);
+          await waitWhileRecording(
+            waitForAbortable(
+              Promise.resolve(
+                input.onProgress?.(
+                  Math.round((completedTurns / totalTurns) * 100),
+                  `实时录制 ${slideIndex + 1}/${input.slides.length} 页 · ${
+                    turnIndex + 1
+                  }/${slide.turns.length} 段${
+                    turnDuration ? ` · 约 ${Math.ceil(turnDuration)} 秒` : ''
+                  }`
+                )
+              ),
+              signal
+            )
+          );
           drawSlide(context, canvas, image, turn);
           try {
             duration += await waitWhileRecording(
@@ -1280,11 +1431,16 @@ export async function composeLocalPptExplainerVideo(
           }
           completedTurns += 1;
           await waitWhileRecording(
-            Promise.resolve(
-              input.onProgress?.(
-                Math.round((completedTurns / totalTurns) * 100),
-                `正在合成第 ${slideIndex + 1}/${input.slides.length} 页`
-              )
+            waitForAbortable(
+              Promise.resolve(
+                input.onProgress?.(
+                  Math.round((completedTurns / totalTurns) * 100),
+                  `已完成 ${slideIndex + 1}/${input.slides.length} 页 · ${
+                    turnIndex + 1
+                  }/${slide.turns.length} 段`
+                )
+              ),
+              signal
             )
           );
         }
@@ -1296,8 +1452,19 @@ export async function composeLocalPptExplainerVideo(
       }
     }
 
+    await waitWhileRecording(
+      waitForAbortable(
+        Promise.resolve(input.onProgress?.(100, '正在校验 PPT 讲解成片')),
+        signal
+      )
+    );
     activeRecorder.stop();
-    await Promise.race([recorderStopped, activeRecorderFailure]);
+    await waitForAbortable(
+      Promise.race([recorderStopped, activeRecorderFailure]),
+      signal,
+      RECORDER_STOP_TIMEOUT_MS,
+      '停止 PPT 视频录制超过 10 秒，请刷新页面后重试'
+    );
     signal.throwIfAborted();
     const mimeType =
       recorder.mimeType || format.mimeType || chunks[0]?.type || 'video/webm';
@@ -1313,12 +1480,20 @@ export async function composeLocalPptExplainerVideo(
     }
     if (recorder && recorder.state !== 'inactive') {
       recorder.stop();
-      await recorderStopped?.catch(() => undefined);
+      if (recorderStopped) {
+        await waitForAbortable(
+          recorderStopped,
+          undefined,
+          RECORDER_STOP_TIMEOUT_MS,
+          '停止 PPT 视频录制超时'
+        ).catch(() => undefined);
+      }
     }
     if (createdUrl) URL.revokeObjectURL(createdUrl);
     throw error;
   } finally {
     input.signal?.removeEventListener('abort', abortFromInput);
+    if (watchdogId !== undefined) clearTimeout(watchdogId);
     if (activeImage) activeImage.src = '';
     activeImageDispose?.();
     if (combinedStream) {
@@ -1327,12 +1502,22 @@ export async function composeLocalPptExplainerVideo(
       canvasStream?.getTracks().forEach((track) => track.stop());
       destination?.stream.getTracks().forEach((track) => track.stop());
     }
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+    }
     try {
       analyser?.disconnect();
     } catch {
       // The analyser may already be disconnected during browser teardown.
     }
-    await audioContext.close().catch(() => undefined);
+    await waitForAbortable(
+      audioContext.close(),
+      undefined,
+      AUDIO_CONTEXT_CLOSE_TIMEOUT_MS,
+      '关闭 PPT 音频上下文超时'
+    ).catch(() => undefined);
     chunks.length = 0;
     canvas.width = 1;
     canvas.height = 1;
@@ -1343,6 +1528,8 @@ export const localPptComposerInternals = {
   assertFinalDurationMatches,
   assertMediaCoversPlannedDuration,
   getFinalDurationTolerance,
+  getCompositionWatchdogTimeoutMs,
+  getPlannedCompositionDuration,
   resolveSubtitleCue,
   validateAudioActivity,
 };

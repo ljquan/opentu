@@ -20,6 +20,8 @@ import {
   readPptExplainerState,
 } from './validation';
 
+const rootTaskPersistenceTails = new Map<string, Promise<void>>();
+
 function toTaskInvocationRoute(
   route: PptExplainerProviderRouteSnapshot
 ): TaskInvocationRouteSnapshot {
@@ -43,8 +45,28 @@ function toTaskInvocationRoute(
   };
 }
 
-async function persistTaskNow(task: Task): Promise<void> {
-  await taskStorageWriter.saveTask(task as unknown as SWTask);
+async function persistTaskNow(
+  task: Task,
+  options: { skipIfStale?: boolean } = {}
+): Promise<void> {
+  const previous = rootTaskPersistenceTails.get(task.id) || Promise.resolve();
+  const persistence = previous
+    .catch(() => undefined)
+    .then(async () => {
+      if (options.skipIfStale) {
+        const current = taskQueueService.getTask(task.id);
+        if (!current || current !== task) return;
+      }
+      await taskStorageWriter.saveTask(task as unknown as SWTask);
+    });
+  rootTaskPersistenceTails.set(task.id, persistence);
+  try {
+    await persistence;
+  } finally {
+    if (rootTaskPersistenceTails.get(task.id) === persistence) {
+      rootTaskPersistenceTails.delete(task.id);
+    }
+  }
 }
 
 export async function createPptExplainerRootTask(
@@ -175,7 +197,7 @@ export async function updatePptExplainerRootTask(
   });
   const updated = taskQueueService.getTask(taskId);
   if (!updated) return null;
-  await persistTaskNow(updated);
+  await persistTaskNow(updated, { skipIfStale: true });
   return updated;
 }
 

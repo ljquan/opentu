@@ -67,6 +67,8 @@ interface TaskProgressOverlayProps {
   estimatedDuration?: number;
   /** PPT 讲解根任务的当前编排阶段 */
   pptExplainerStage?: PptExplainerStage;
+  /** PPT 讲解根任务的当前细分进度 */
+  pptExplainerStatusText?: string;
 }
 
 export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
@@ -80,6 +82,7 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
   onImageError,
   estimatedDuration = IMAGE_GENERATION_ESTIMATE_MS,
   pptExplainerStage,
+  pptExplainerStatusText,
 }) => {
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -143,6 +146,7 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
 
   const progress = displayProgress ?? 0;
   const statusText =
+    pptExplainerStatusText?.trim() ||
     getPptExplainerStageText(pptExplainerStage) ||
     (taskType === TaskType.IMAGE
       ? getImageTaskProgressStatusText(progress, !!mediaUrl, isImageLoading)

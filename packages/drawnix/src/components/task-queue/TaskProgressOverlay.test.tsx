@@ -81,6 +81,23 @@ describe('PPT explainer task display', () => {
     expect(screen.queryByText('生成中...')).toBeNull();
   });
 
+  it('renders detailed PPT composition progress when available', () => {
+    render(
+      <TaskProgressOverlay
+        taskType={TaskType.VIDEO}
+        taskStatus={TaskStatus.PROCESSING}
+        realProgress={80}
+        pptExplainerStage="finalizing"
+        pptExplainerStatusText="实时录制 1/2 页 · 1/1 段 · 约 10 秒"
+      />
+    );
+
+    expect(
+      screen.getByText('实时录制 1/2 页 · 1/1 段 · 约 10 秒')
+    ).not.toBeNull();
+    expect(screen.queryByText('正在合成PPT讲解视频')).toBeNull();
+  });
+
   it('keeps the review-pending stage visible while the root task is pending', () => {
     render(
       <TaskProgressOverlay
