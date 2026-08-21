@@ -1,8 +1,8 @@
 {
-  "version": "1.0.19",
-  "buildTime": "2026-08-18T12:24:34.636Z",
-  "gitCommit": "unknown",
+  "version": "1.0.20",
+  "buildTime": "2026-08-21T07:18:44.878Z",
+  "gitCommit": "ea212902125b2beaea2ac93cf550276dfc505c7e",
   "changelog": [
-    "严格使用用户配置的供应商地址 (#235)"
+    "修复：任务队列多结果无法插入画布 (#236)"
   ]
 }

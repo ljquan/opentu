@@ -1,3 +1,13 @@
+## 1.0.20 (2026-08-21)
+
+### 🔧 Chores
+
+- 修复：任务队列多结果无法插入画布 (#236) ([ea212902](https://github.com/ljquan/opentu/commit/ea212902))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.0.19 (2026-08-18)
 
 ### 🩹 Fixes

@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.0.20",
+      "date": "2026-08-21",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复：任务队列多结果无法插入画布 (#236)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
       "version": "1.0.19",
       "date": "2026-08-18",
       "changes": {
@@ -983,29 +996,6 @@
       },
       "type": "patch",
       "highlights": "启用 GPT-5.5 模型配置"
-    },
-    {
-      "version": "0.6.79",
-      "date": "2026-04-26",
-      "changes": {
-        "features": [
-          "添加提示词历史工具并集成到AI输入栏",
-          "为歌曲创作页面添加提示词优化功能"
-        ],
-        "fixes": [
-          "sync prompt history selectors",
-          "本地开发默认启用 Service Worker",
-          "确保虚拟图片链接在当前页由 SW 接管",
-          "恢复画布图片稳定虚拟 URL 缓存链路",
-          "修复粘贴图片画布展示兜底"
-        ],
-        "improvements": [
-          "slim npm dependencies",
-          "移除开发调试日志并添加PPT与提示词分析文档"
-        ]
-      },
-      "type": "patch",
-      "highlights": "添加提示词历史工具并集成到AI输入栏"
     }
   ]
 }
