@@ -110,7 +110,7 @@ export function buildPptExplainerVideoPrompt(
   );
   return [
     '生成一段包含清晰普通话人声的有声讲解视频，最终只使用其音轨。',
-    '提供的 PPT 页面仅用于理解本页内容，不要朗读页面之外的信息。',
+    '只讲解当前页面对应的内容，不要朗读页面之外的信息。',
     '使用自然、专业的普通话，严格按以下顺序朗读；多人角色使用明显不同的声线。',
     ...(outputDurationSeconds
       ? [
@@ -803,7 +803,6 @@ async function runLocalComposition(
         modelRef: videoModelRef,
         duration: segment.requestDurationSeconds,
         size: videoModelConfig.defaultSize,
-        referenceImages: [slide.snapshotUrl],
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
         onTaskCreated: (internalTaskId) => {

@@ -562,11 +562,13 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
         modelRef: { profileId: 'profile-1', modelId: 'video-model' },
         size: undefined,
         duration: 10,
-        referenceImages: ['/slide-1.png'],
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
       })
     );
+    for (const [, options] of mocks.generateVideo.mock.calls) {
+      expect(options).not.toHaveProperty('referenceImages');
+    }
     expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
       expect.objectContaining({
         slides: [

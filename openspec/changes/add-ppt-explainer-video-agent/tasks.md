@@ -67,6 +67,7 @@
   - 本次清理复验：17 个 Vitest 文件 / 202 个测试全部通过；`drawnix:typecheck`、Prettier、`git diff --check` 通过；增量 ESLint 0 error，仅保留 20 条原文件 warning
   - 局域网服务：`5188` 从当前功能工作树启动并返回 HTTP 200；内置浏览器在服务重启间进入本地错误页后被安全策略阻止自动重载，未冒充完成界面复验
   - 本轮模型入口调整：4 个 Vitest 文件 / 56 个测试、`drawnix:typecheck`、Prettier、`git diff --check`、增量 ESLint 0 error 和 OpenSpec strict 全部通过；局域网界面确认旧音轨能力空态已移除
+  - 本次文生视频链路回归修复：PPT 模块 12 个 Vitest 文件 / 182 个测试、`drawnix:typecheck`、Prettier 和 `git diff --check` 通过；本地依赖未提供 OpenSpec CLI，strict 校验未执行
   - 本次限制：当前浏览器配置没有已勾选视频模型，有配置候选展示由运行时模型测试覆盖；Firefox/WebKit 专项 E2E 仍未完成
 - [ ] 9.2 使用真实已配置的视频模型验证逐页有声片段、固定 PPT 合成及单/双人模式
 - [x] 9.3 记录无远端 cancel、PPTX 渲染差异、供应商限制和跨域缓存等剩余风险
