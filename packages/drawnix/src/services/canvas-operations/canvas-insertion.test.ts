@@ -3,6 +3,7 @@ import type { PlaitBoard } from '@plait/core';
 
 const mocks = vi.hoisted(() => ({
   insertImageFromUrl: vi.fn(),
+  insertImageNodeAtPoint: vi.fn(),
   insertVideoFromUrl: vi.fn(),
   insertAudioFromUrl: vi.fn(),
   insertCardsToCanvas: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@plait/draw', () => ({
 
 vi.mock('../../data/image', () => ({
   insertImageFromUrl: mocks.insertImageFromUrl,
+  insertImageNodeAtPoint: mocks.insertImageNodeAtPoint,
   loadImageElementForCanvas: vi.fn(),
 }));
 
@@ -147,6 +149,21 @@ describe('canvas insertion service metadata binding', () => {
         type: 'image',
       });
     });
+    mocks.insertImageNodeAtPoint.mockImplementation(
+      (board: any, imageItem: any, point: [number, number]) => {
+        const element = {
+          id: `image-${board.children.length}`,
+          type: 'image',
+          points: [
+            point,
+            [point[0] + imageItem.width, point[1] + imageItem.height],
+          ],
+          url: imageItem.url,
+        };
+        board.children.push(element);
+        return element;
+      }
+    );
   });
 
   afterEach(() => {
@@ -217,6 +234,121 @@ describe('canvas insertion service metadata binding', () => {
     ).not.toHaveProperty('generationTaskId');
     expect((firstResult.data as any).firstElementId).toBe('image-first');
     expect((secondResult.data as any).firstElementId).toBe('image-second');
+  });
+
+  it('stages multiple images with the DOM-free insertion option', async () => {
+    const board = createBoard();
+    mocks.insertImageFromUrl.mockImplementation(
+      async (targetBoard: PlaitBoard, url: string, ...args: unknown[]) => {
+        expect(args[8]).toBe(true);
+        const id = `image-${targetBoard.children.length}`;
+        targetBoard.children.push({ id, type: 'image', url } as any);
+        return id;
+      }
+    );
+
+    const result = await executeCanvasInsertion({
+      board,
+      items: [
+        {
+          type: 'image',
+          content: 'first.png',
+          dimensions: { width: 400, height: 400 },
+        },
+        {
+          type: 'image',
+          content: 'second.png',
+          dimensions: { width: 400, height: 400 },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(board.children.map((item) => (item as any).url)).toEqual([
+      'first.png',
+      'second.png',
+    ]);
+  });
+
+  it('keeps the real board unchanged when a later staged item fails', async () => {
+    const board = createBoard();
+    mocks.insertImageFromUrl.mockImplementation(
+      async (targetBoard: PlaitBoard, url: string) => {
+        if (url === 'second.png') {
+          throw new Error('second image failed');
+        }
+        targetBoard.children.push({
+          id: 'image-first',
+          type: 'image',
+          url,
+        } as any);
+        return 'image-first';
+      }
+    );
+
+    const result = await executeCanvasInsertion({
+      board,
+      items: [
+        {
+          type: 'image',
+          content: 'first.png',
+          dimensions: { width: 400, height: 400 },
+        },
+        {
+          type: 'image',
+          content: 'second.png',
+          dimensions: { width: 400, height: 400 },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: '插入失败: second image failed',
+    });
+    expect(board.children).toEqual([]);
+  });
+
+  it('stages multiple videos with the DOM-free insertion option', async () => {
+    const board = createBoard();
+    mocks.insertVideoFromUrl.mockImplementation(
+      async (targetBoard: PlaitBoard, url: string, ...args: unknown[]) => {
+        expect(args[7]).toBe(true);
+        const id = `video-${targetBoard.children.length}`;
+        targetBoard.children.push({ id, type: 'image', url } as any);
+        return id;
+      }
+    );
+
+    const result = await executeCanvasInsertion({
+      board,
+      items: [
+        { type: 'video', content: 'first.mp4' },
+        { type: 'video', content: 'second.mp4' },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(board.children.map((item) => (item as any).url)).toEqual([
+      'first.mp4',
+      'second.mp4',
+    ]);
+  });
+
+  it('stages multiple SVG images without a board host', async () => {
+    const board = createBoard();
+
+    const result = await executeCanvasInsertion({
+      board,
+      items: [
+        { type: 'svg', content: '<svg></svg>' },
+        { type: 'svg', content: '<svg></svg>' },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(mocks.insertImageNodeAtPoint).toHaveBeenCalledTimes(2);
+    expect(board.children).toHaveLength(2);
   });
 
   it('binds generation prompt metadata to an inserted audio node', async () => {
