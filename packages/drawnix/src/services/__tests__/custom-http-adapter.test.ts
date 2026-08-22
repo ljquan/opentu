@@ -291,11 +291,11 @@ describe('custom-http-adapter', () => {
       )
     );
     const context = buildContext(fetcher);
-    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.baseUrl = 'https://bus.tu-zi.com/v1';
     context.requestId = 'custom-http-interrupted-response';
     context.provider = {
       ...context.provider!,
-      baseUrl: 'https://api.tu-zi.com/v1',
+      baseUrl: 'https://bus.tu-zi.com/v1',
     };
     context.binding = {
       ...context.binding!,
@@ -319,11 +319,11 @@ describe('custom-http-adapter', () => {
       .fn<typeof fetch>()
       .mockRejectedValue(new Error('Failed to fetch'));
     const context = buildContext(fetcher);
-    context.baseUrl = 'https://api.tu-zi.com/v1';
+    context.baseUrl = 'https://bus.tu-zi.com/v1';
     context.requestId = 'custom-http-implicit-post';
     context.provider = {
       ...context.provider!,
-      baseUrl: 'https://api.tu-zi.com/v1',
+      baseUrl: 'https://bus.tu-zi.com/v1',
     };
     context.binding = {
       ...context.binding!,

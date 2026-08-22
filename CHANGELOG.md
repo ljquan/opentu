@@ -1,3 +1,34 @@
+## 1.0.20 (2026-08-21)
+
+### 🔧 Chores
+
+- 修复：任务队列多结果无法插入画布 (#236) ([ea212902](https://github.com/ljquan/opentu/commit/ea212902))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
+## 1.0.19 (2026-08-18)
+
+### 🩹 Fixes
+
+- 严格使用用户配置的供应商地址 (#235) ([7bcd532c](https://github.com/ljquan/opentu/commit/7bcd532c))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
+## 1.0.18 (2026-08-18)
+
+### 🔧 Chores
+
+- 功能：调整任务栏跟随控件布局 (#233) ([5693d734](https://github.com/ljquan/opentu/commit/5693d734))
+- 修复：永久关闭跟随后禁止覆盖原目标 (#229) ([0e7c242e](https://github.com/ljquan/opentu/commit/0e7c242e))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.0.17 (2026-08-12)
 
 ### 🚀 Features

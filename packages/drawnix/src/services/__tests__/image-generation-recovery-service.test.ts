@@ -19,7 +19,7 @@ function createPlan() {
       profileId: 'tuzi-profile',
       profileName: 'Tuzi',
       providerType: 'openai-compatible',
-      baseUrl: 'https://api.tu-zi.com/v1',
+      baseUrl: 'https://bus.tu-zi.com/v1',
       apiKey: 'secret-token',
       authType: 'bearer',
       extraHeaders: {
@@ -176,7 +176,7 @@ describe('image generation recovery service', () => {
 
     const [url, init] = fetcher.mock.calls[0] || [];
     expect(String(url)).toBe(
-      'https://api.tu-zi.com/v1/images/generations/result?request_id=submission-1'
+      'https://bus.tu-zi.com/v1/images/generations/result?request_id=submission-1'
     );
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
@@ -235,7 +235,7 @@ describe('image generation recovery service', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back across the four public query nodes after the configured provider fails', async () => {
+  it('retries recovery only on the configured provider', async () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(Response.json({}, { status: 404 }))
@@ -252,6 +252,8 @@ describe('image generation recovery service', () => {
     const service = new ImageGenerationRecoveryService({
       fetcher,
       resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 1,
+      maxBackoffMs: 1,
       jitterRatio: 0,
     });
 
@@ -263,16 +265,10 @@ describe('image generation recovery service', () => {
 
     expect(
       fetcher.mock.calls.map(([url]) => new URL(String(url)).host)
-    ).toEqual([
-      'api.tu-zi.com',
-      'bus.tu-zi.com',
-      'bus2.tu-zi.com',
-      'bus3.tu-zi.com',
-      'business.tu-zi.com',
-    ]);
+    ).toEqual(Array(5).fill('bus.tu-zi.com'));
   });
 
-  it('releases an error response body before switching nodes', async () => {
+  it('releases an error response body before retrying the configured provider', async () => {
     const cancel = vi.fn();
     const fetcher = vi
       .fn()
@@ -294,6 +290,8 @@ describe('image generation recovery service', () => {
     const service = new ImageGenerationRecoveryService({
       fetcher,
       resolveInvocationPlan: vi.fn(() => createPlan()),
+      pollIntervalMs: 1,
+      maxBackoffMs: 1,
       jitterRatio: 0,
     });
 
@@ -304,6 +302,9 @@ describe('image generation recovery service', () => {
     await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
 
     expect(cancel).toHaveBeenCalledTimes(1);
+    expect(
+      fetcher.mock.calls.map(([url]) => new URL(String(url)).host)
+    ).toEqual(['bus.tu-zi.com', 'bus.tu-zi.com']);
   });
 
   it('does not wait indefinitely for an error response body to cancel', async () => {
@@ -645,11 +646,12 @@ describe('image generation recovery service', () => {
   });
 
   it('releases the recovery slot when a response body ignores abort', async () => {
-    let requestCount = 0;
+    let stalledResponseReturned = false;
     const cancelBody = vi.fn();
-    const fetcher = vi.fn<typeof fetch>(async () => {
-      requestCount += 1;
-      if (requestCount === 1) {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const requestId = new URL(String(input)).searchParams.get('request_id');
+      if (requestId === 'task-stalled-response' && !stalledResponseReturned) {
+        stalledResponseReturned = true;
         return new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
@@ -660,7 +662,7 @@ describe('image generation recovery service', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
-      if (requestCount === 2) {
+      if (requestId === 'task-stalled-response') {
         return Response.json({ status: 'processing_or_not_found' });
       }
       return Response.json({
