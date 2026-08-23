@@ -389,6 +389,7 @@ describe('video binding utils', () => {
     };
     const standardModel = getStaticModelConfig('doubao-seedance-2-0-260128')!;
     const fastModel = getStaticModelConfig('doubao-seedance-2-0-fast-260128')!;
+    const model25 = getStaticModelConfig('doubao-seedance-2-5-260628')!;
     const standardBindings = inferBindingsForProviderModel(
       profile,
       standardModel
@@ -434,6 +435,27 @@ describe('video binding utils', () => {
         (option) => option.value
       )
     ).toEqual(['1080p', '720p', '480p']);
+
+    const bindings25 = inferBindingsForProviderModel(profile, model25);
+    const binding25 = bindings25.find(
+      (candidate) => candidate.protocol === 'openai.async.video'
+    );
+    expect(binding25).toMatchObject({
+      requestSchema: 'doubao.seedance-2.video.content-json',
+      metadata: {
+        video: {
+          allowedDurations: Array.from({ length: 30 }, (_, index) =>
+            String(index + 1)
+          ),
+        },
+      },
+    });
+    expect(
+      resolveVideoSubmission(model25.id, '30', binding25 || null)
+    ).toMatchObject({ model: model25.id, duration: '30' });
+    expect(() =>
+      resolveVideoSubmission(model25.id, '31', binding25 || null)
+    ).toThrow('视频时长 31s 不受支持');
   });
 
   it('keeps Seedance 1.x on the legacy task protocol', () => {

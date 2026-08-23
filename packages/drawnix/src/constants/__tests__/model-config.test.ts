@@ -238,6 +238,7 @@ describe('model-config image size options', () => {
         'doubao-seedance-2-0-260128',
         'doubao-seedance-2-0-fast-260128',
         'doubao-seedance-2-0-mini-260615',
+        'doubao-seedance-2-5-260628',
       ])
     );
     expect(textIds).not.toContain('gpt-5.4');
@@ -293,6 +294,23 @@ describe('model-config image size options', () => {
         'seed',
         'camera_fixed',
       ])
+    );
+  });
+
+  it('Seedance 2.5 exposes its own duration and ratio boundaries', () => {
+    const params = getCompatibleParams('doubao-seedance-2-5-260628');
+    const options = (paramId: string) =>
+      params
+        .find((param) => param.id === paramId)
+        ?.options?.map((option) => option.value);
+
+    expect(options('duration')).toHaveLength(30);
+    expect(options('duration')?.[0]).toBe('1');
+    expect(options('duration')?.[29]).toBe('30');
+    expect(options('ratio')).toEqual(['16:9', '9:16', '1:1']);
+    expect(options('size')).toEqual(['1080p', '720p', '480p']);
+    expect(params.map((param) => param.id)).not.toEqual(
+      expect.arrayContaining(['seed', 'camera_fixed'])
     );
   });
 });
