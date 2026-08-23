@@ -19,7 +19,7 @@ import {
 } from '../utils/selection-utils';
 import { assetStorageService } from '../services/asset-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { generateUUID, normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';

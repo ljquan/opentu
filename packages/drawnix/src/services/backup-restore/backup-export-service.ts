@@ -20,7 +20,7 @@ import { VERSIONS } from '../../constants';
 import localforage from 'localforage';
 import { ASSET_CONSTANTS } from '../../constants/ASSET_CONSTANTS';
 import { unifiedCacheService } from '../unified-cache-service';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { exportAllData as exportKnowledgeBaseData } from '../kb-import-export-service';
 import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
 import { BackupPartManager } from './backup-part-manager';

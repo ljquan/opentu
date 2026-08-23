@@ -23,7 +23,7 @@ import {
 } from './system-prompts';
 import { parseToolCalls, extractTextContent } from './tool-parser';
 import { geminiSettings } from '../../utils/settings-manager';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import {
   getTextBindingMaxImageCount,
   resolveInvocationPlanFromRoute,

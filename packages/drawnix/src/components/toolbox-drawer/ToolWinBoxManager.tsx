@@ -28,7 +28,7 @@ import { processToolUrl } from '../../utils/url-template';
 import { useDeviceType } from '../../hooks/useDeviceType';
 import { toolRegistry } from '../../tools/registry';
 import { winboxManagerService } from '../../services/winbox-manager-service';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 
 /**
  * 工具弹窗管理器组件

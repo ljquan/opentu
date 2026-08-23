@@ -64,7 +64,7 @@ import {
   PPT_EDITOR_OPEN_EVENT,
   type PPTEditorOpenEventDetail,
 } from '../../services/ppt/ppt-ui-events';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import './project-drawer.scss';
 
 export interface ProjectDrawerProps {

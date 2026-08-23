@@ -18,7 +18,7 @@ import {
 } from './audio-api-service';
 import { videoAPIService } from './video-api-service';
 import { TASK_TIMEOUT } from '../constants/TASK_CONSTANTS';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { legacyTaskQueueService as taskQueueService } from './task-queue';
 import { unifiedCacheService } from './unified-cache-service';
 import { convertAspectRatioToSize } from '../constants/image-aspect-ratios';

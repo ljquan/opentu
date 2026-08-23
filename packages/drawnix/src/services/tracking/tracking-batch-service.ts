@@ -5,7 +5,7 @@
  */
 
 import type { TrackEvent, BatchConfig } from '../../types/tracking.types';
-import { posthogAdapter } from './posthog-adapter';
+import { umamiAdapter } from './umami-adapter';
 
 /**
  * Batch Upload Service
@@ -77,16 +77,20 @@ export class TrackingBatchService {
     this.queue = [];
 
     try {
-      // Upload batch using PostHog adapter
-      const results = await posthogAdapter.trackBatch(eventsToUpload);
+      // Upload batch using Umami adapter
+      const results = await umamiAdapter.trackBatch(eventsToUpload);
 
       // Check for failures
-      const failures = results.filter(r => !r.success);
+      const failures = results.filter((r) => !r.success);
       if (failures.length > 0) {
-        console.error(`Batch upload: ${failures.length}/${eventsToUpload.length} events failed`);
+        console.error(
+          `Batch upload: ${failures.length}/${eventsToUpload.length} events failed`
+        );
 
         // Re-queue failed events for retry
-        const failedEvents = eventsToUpload.filter((_, index) => !results[index].success);
+        const failedEvents = eventsToUpload.filter(
+          (_, index) => !results[index].success
+        );
         this.requeueFailedEvents(failedEvents);
       }
     } catch (error) {
@@ -104,7 +108,7 @@ export class TrackingBatchService {
    */
   private async uploadImmediate(event: TrackEvent): Promise<void> {
     try {
-      await posthogAdapter.track(event);
+      await umamiAdapter.track(event);
     } catch (error) {
       console.error('Immediate upload failed:', error);
     }
@@ -167,7 +171,7 @@ export class TrackingBatchService {
     }
 
     // Use navigator.sendBeacon for reliable page unload tracking
-    // Note: PostHog SDK should handle sendBeacon internally
+    // The Umami SDK handles its own transport; flush queued events before unload.
     this.flush();
   }
 }

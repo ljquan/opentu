@@ -101,7 +101,7 @@ import { openModelBenchmarkTool } from '../../services/model-benchmark-launcher'
 import {
   analytics,
   getProviderEndpointAnalytics,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import { modelBenchmarkService } from '../../services/model-benchmark-service';
 import { HoverTip } from '../shared/hover';
 import { createProviderProfileDraft } from './provider-profile-draft';

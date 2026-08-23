@@ -78,8 +78,11 @@ function sendToSW(level: string, message: string, stack?: string) {
     return;
   }
 
-  // 过滤监控服务相关的错误（PostHog）
-  if (message.includes('posthog.com') || (stack && stack.includes('posthog'))) {
+  // 过滤监控服务相关的错误（Umami）
+  if (
+    message.includes('umami.tu-zi.com') ||
+    (stack && stack.includes('umami'))
+  ) {
     return;
   }
 
