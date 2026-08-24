@@ -26,13 +26,14 @@
   - 2.0 保持现有 4–12 秒、7 种比例和 3/3 引用限制。
   - 2.5 使用 4–30 秒、3 种比例、30/10/10 引用限制；Tuzi 当前实际渠道拒绝 1–3 秒请求。
   - 2.0 保留 `resolution` 请求字段；2.5 按 Tuzi 当前公开 endpoint 元数据提交 `model`、`content`、`duration`、`ratio`、`generate_audio`、`watermark`，不发送未声明的 `resolution` 字段。
+  - 2.5 不展示分辨率控件，避免用户选择被请求层静默丢弃。
 - Decision: 统一迁移逻辑只处理 JSON Seedance 2 家族。
   - 历史 `resolution@ratio` 仍会拆分为 `size` 与 `ratio`。
   - 2.5 新模型不继承 2.0 的 `seed` 和 `camera_fixed` UI 参数。
 
 ## Risks / Trade-offs
 
-- 公开 endpoint 元数据未列出 2.5 的 `resolution` 参数，虽然模型描述声明支持三种分辨率；客户端继续发送当前 JSON 适配器的 `resolution` 字段，需通过聚焦请求测试和可用凭据进行实际确认。
+- 公开 endpoint 元数据未列出 2.5 的 `resolution` 参数；客户端不展示或发送该参数。若上游后续正式声明该字段，再同步恢复能力配置与请求映射。
 - 2.5 的大引用上限可能放大请求体和处理时间；继续保留音频 Data URL 16 MiB 客户端保护，并在画布引用流程中按模型上限校验。
 - 新增公共识别函数会触及多个模块；通过单元测试覆盖 1.x 不匹配、2.0/2.5 匹配和未知 2.x 不自动匹配。
 

@@ -444,8 +444,8 @@ describe('video binding utils', () => {
       requestSchema: 'doubao.seedance-2.video.content-json',
       metadata: {
         video: {
-          allowedDurations: Array.from({ length: 30 }, (_, index) =>
-            String(index + 1)
+          allowedDurations: Array.from({ length: 27 }, (_, index) =>
+            String(index + 4)
           ),
         },
       },
@@ -456,6 +456,12 @@ describe('video binding utils', () => {
     expect(() =>
       resolveVideoSubmission(model25.id, '31', binding25 || null)
     ).toThrow('视频时长 31s 不受支持');
+    expect(() =>
+      resolveVideoSubmission(model25.id, '3', binding25 || null)
+    ).toThrow('视频时长 3s 不受支持');
+    expect(
+      getEffectiveVideoModelConfig(model25.id, binding25 || null).sizeOptions
+    ).toEqual([]);
   });
 
   it('keeps Seedance 1.x on the legacy task protocol', () => {

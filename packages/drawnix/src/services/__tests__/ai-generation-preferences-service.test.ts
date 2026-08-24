@@ -367,7 +367,7 @@ describe('ai-generation-preferences-service', () => {
     });
   });
 
-  it('迁移 Seedance 2.5 的旧组合尺寸偏好并使用 2.5 参数集合', async () => {
+  it('迁移 Seedance 2.5 的旧组合偏好时移除不受支持的分辨率', async () => {
     const { loadScopedAIVideoToolPreferences, saveScopedAIInputModelParams } =
       await import('../ai-generation-preferences-service');
 
@@ -388,7 +388,7 @@ describe('ai-generation-preferences-service', () => {
       )
     ).toMatchObject({
       duration: '30',
-      size: '1080p',
+      size: '',
       extraParams: expect.objectContaining({ ratio: '1:1' }),
     });
   });

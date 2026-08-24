@@ -717,7 +717,7 @@ const SEEDANCE_DEFAULT_PARAMS: VideoModelDefaults = {
 
 const SEEDANCE_25_DEFAULT_PARAMS: VideoModelDefaults = {
   duration: '8',
-  size: '720p',
+  size: '',
   aspectRatio: '16:9',
 };
 
@@ -747,7 +747,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     label: 'Seedance 2.5',
     shortCode: 'sc25',
     description:
-      'Seedance 2.5 音视频联合生成，支持 4-30 秒与 480p/720p/1080p 输出',
+      'Seedance 2.5 音视频联合生成，支持 4-30 秒与 16:9/9:16/1:1 比例',
     type: 'video',
     vendor: ModelVendor.DOUBAO,
     videoDefaults: SEEDANCE_25_DEFAULT_PARAMS,
@@ -2058,7 +2058,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: '480p', label: '480p' },
     ],
     defaultValue: '720p',
-    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    compatibleModels: SEEDANCE_20_MODEL_IDS,
     modelType: 'video',
   },
   {
