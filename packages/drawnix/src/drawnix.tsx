@@ -119,6 +119,7 @@ import { useI18n } from './i18n';
 import { hasPersistedRecoverableTasks, safeReload } from './utils/active-tasks';
 import { useTabSync } from './hooks/useTabSync';
 import { canvasAudioPlaybackService } from './services/canvas-audio-playback-service';
+import { syncTuziSessionProviders } from './services/tuzi-session-provider-sync';
 import { useCanvasAudioPlaybackSelector } from './hooks/useCanvasAudioPlayback';
 import { isAudioNodeElement } from './types/audio-node.types';
 import {
@@ -359,6 +360,25 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     useState(false);
   const [minimizedToolsBarEnabled, setMinimizedToolsBarEnabled] =
     useState(false);
+
+  useEffect(() => {
+    void syncTuziSessionProviders();
+
+    const synchronizeAfterLogin = () => {
+      void syncTuziSessionProviders();
+    };
+    const synchronizeWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void syncTuziSessionProviders();
+      }
+    };
+    window.addEventListener('focus', synchronizeAfterLogin);
+    document.addEventListener('visibilitychange', synchronizeWhenVisible);
+    return () => {
+      window.removeEventListener('focus', synchronizeAfterLogin);
+      document.removeEventListener('visibilitychange', synchronizeWhenVisible);
+    };
+  }, []);
 
   // 使用 ref 来保存 board 的最新引用,避免 useCallback 依赖问题
   const boardRef = useRef<DrawnixBoard | null>(null);

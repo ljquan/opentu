@@ -129,13 +129,13 @@ describe('ModelDropdown', () => {
         onSelect={vi.fn()}
       />
     );
-    const wrapper = container.querySelector(
-      '.model-dropdown'
-    ) as HTMLElement;
+    const wrapper = container.querySelector('.model-dropdown') as HTMLElement;
     mockRect(wrapper, { top: 520, left: 42, bottom: 552, width: 180 });
 
     fireEvent.mouseDown(
-      container.querySelector('.model-dropdown__trigger--minimal') as HTMLElement
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
     );
 
     const menu = document.body.querySelector(
@@ -179,5 +179,65 @@ describe('ModelDropdown', () => {
     expect(menu).toBeTruthy();
     expect(menu.style.width).toBe('680px');
     expect(menu.classList.contains('model-dropdown__menu--down')).toBe(true);
+  });
+
+  it('有 URL 和 API Key 的启用供应商即使没有模型也显示在供应商列', () => {
+    const { container } = render(
+      <ModelDropdown
+        selectedModel={baseModel.id}
+        selectedSelectionKey={baseModel.selectionKey}
+        models={[baseModel]}
+        providerProfilesOverride={[
+          {
+            id: 'tuzi-provider',
+            name: 'Tuzi Provider',
+            baseUrl: 'https://tuzi.example/v1',
+            apiKey: 'sk-test',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+            capabilities: {
+              supportsModelsEndpoint: true,
+              supportsText: true,
+              supportsImage: true,
+              supportsVideo: false,
+              supportsAudio: false,
+              supportsTools: false,
+            },
+          },
+          {
+            id: 'vip-provider',
+            name: 'vip',
+            baseUrl: 'http://localhost:3100/v1',
+            apiKey: 'sk-vip',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+            capabilities: {
+              supportsModelsEndpoint: true,
+              supportsText: true,
+              supportsImage: true,
+              supportsVideo: false,
+              supportsAudio: false,
+              supportsTools: false,
+            },
+          },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    fireEvent.mouseDown(
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
+    );
+
+    const menu = document.body.querySelector(
+      '.model-dropdown__menu'
+    ) as HTMLElement;
+
+    expect(menu.textContent).toContain('Tuzi Provider');
+    expect(menu.textContent).toContain('vip');
   });
 });
