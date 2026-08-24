@@ -111,7 +111,11 @@ vi.mock('./canvas-board-ref', () => ({
   setCanvasBoard: vi.fn(),
 }));
 
-import { executeCanvasInsertion, insertAIFlow } from './canvas-insertion';
+import {
+  executeCanvasInsertion,
+  insertAIFlow,
+  insertImageGroup,
+} from './canvas-insertion';
 
 function createBoard(): PlaitBoard {
   return { children: [] } as unknown as PlaitBoard;
@@ -267,6 +271,67 @@ describe('canvas insertion service metadata binding', () => {
     expect(board.children.map((item) => (item as any).url)).toEqual([
       'first.png',
       'second.png',
+    ]);
+  });
+
+  it('preserves each generated image dimensions in a mixed-ratio group', async () => {
+    const board = createBoard();
+    mocks.insertImageFromUrl.mockImplementation(
+      async (
+        targetBoard: PlaitBoard,
+        url: string,
+        _point: unknown,
+        _isDrop: unknown,
+        dimensions: { width: number; height: number }
+      ) => {
+        const id = `image-${targetBoard.children.length}`;
+        targetBoard.children.push({ id, type: 'image', url } as any);
+        return id;
+      }
+    );
+
+    const result = await insertImageGroup(
+      ['landscape.png', 'portrait.png'],
+      [100, 100],
+      [
+        { width: 512, height: 341 },
+        { width: 400, height: 600 },
+      ],
+      board
+    );
+
+    expect(result.success).toBe(true);
+    expect(mocks.insertImageFromUrl).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'landscape.png',
+      expect.anything(),
+      false,
+      { width: 512, height: 341 },
+      true,
+      false,
+      true,
+      true,
+      undefined,
+      true
+    );
+    expect(mocks.insertImageFromUrl).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      'portrait.png',
+      expect.anything(),
+      false,
+      { width: 400, height: 600 },
+      true,
+      false,
+      true,
+      true,
+      undefined,
+      true
+    );
+    expect((result.data as any).items.map((item: any) => item.size)).toEqual([
+      { width: 512, height: 341 },
+      { width: 400, height: 600 },
     ]);
   });
 

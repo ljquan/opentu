@@ -194,12 +194,14 @@ export async function loadImageElementForCanvas(
     'serviceWorker' in navigator &&
     !!navigator.serviceWorker.controller;
 
-  if (isVirtualMediaUrl(imageUrl) && !canUseServiceWorker) {
+  if (isVirtualMediaUrl(imageUrl)) {
     const cachedBlob = await unifiedCacheService.getCachedBlob(imageUrl);
-    if (!cachedBlob || cachedBlob.size === 0) {
+    if (cachedBlob && cachedBlob.size > 0) {
+      return loadHTMLImageElementFromBlob(cachedBlob);
+    }
+    if (!canUseServiceWorker) {
       throw new Error('图片缓存不可用，请重新生成或上传');
     }
-    return loadHTMLImageElementFromBlob(cachedBlob);
   }
 
   return loadHTMLImageElementWithRetry(imageUrl, true);
