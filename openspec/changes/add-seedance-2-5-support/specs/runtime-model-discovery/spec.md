@@ -9,7 +9,7 @@ The system SHALL expose `doubao-seedance-2-5-260628` as a video model with Seeda
 - **GIVEN** the model catalog contains `doubao-seedance-2-5-260628`
 - **WHEN** a user opens a video model selector
 - **THEN** the model SHALL be classified as a Seedance video model
-- **AND** SHALL expose 4–30 second durations and 9:16/16:9/1:1 ratios
+- **AND** SHALL expose 4–30 second durations and 16:9/4:3/1:1/3:4/9:16/21:9/adaptive ratios
 - **AND** SHALL NOT expose a resolution control while the endpoint schema does not declare one
 
 #### Scenario: Preserve version-specific controls

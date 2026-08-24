@@ -307,7 +307,15 @@ describe('model-config image size options', () => {
     expect(options('duration')).toHaveLength(27);
     expect(options('duration')?.[0]).toBe('4');
     expect(options('duration')?.[26]).toBe('30');
-    expect(options('ratio')).toEqual(['16:9', '9:16', '1:1']);
+    expect(options('ratio')).toEqual([
+      '16:9',
+      '4:3',
+      '1:1',
+      '3:4',
+      '9:16',
+      '21:9',
+      'adaptive',
+    ]);
     expect(options('size')).toBeUndefined();
     expect(params.map((param) => param.id)).not.toEqual(
       expect.arrayContaining(['seed', 'camera_fixed'])
