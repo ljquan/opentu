@@ -719,37 +719,6 @@ describe('local PPT explainer composer', () => {
     await expect(composition).resolves.toMatchObject({ duration: 3 });
   });
 
-  it('rejects long leading, trailing and low-coverage silence', () => {
-    expect(() =>
-      localPptComposerInternals.validateAudioActivity(
-        {
-          samples: 100,
-          audibleSamples: 10,
-          firstAudibleSeconds: 5,
-          lastAudibleSeconds: 9,
-        },
-        10
-      )
-    ).toThrow(/占比过低|前导静音过长/);
-    expect(() =>
-      localPptComposerInternals.validateAudioActivity(
-        {
-          samples: 100,
-          audibleSamples: 50,
-          firstAudibleSeconds: 0.2,
-          lastAudibleSeconds: 5,
-        },
-        10
-      )
-    ).toThrow('尾部静音过长');
-    expect(() =>
-      localPptComposerInternals.validateAudioActivity(
-        { samples: 0, audibleSamples: 0 },
-        10
-      )
-    ).toThrow('无法检测声音活动');
-  });
-
   it('rejects a source that cannot cover the planned narration window', async () => {
     installComposerBrowser({ decodedDuration: 4 });
 
@@ -1167,34 +1136,5 @@ describe('local PPT explainer composer', () => {
     expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-  });
-
-  it('derives the planned composition duration from model segments', () => {
-    const input = {
-      slides: [
-        {
-          imageUrl: '/slide-1.png',
-          turns: [
-            {
-              mediaUrl: '/segment-1.mp4',
-              outputDurationSeconds: 10,
-            },
-          ],
-        },
-        {
-          imageUrl: '/slide-2.png',
-          turns: [
-            {
-              mediaUrl: '/segment-2.mp4',
-              outputDurationSeconds: 10,
-            },
-          ],
-        },
-      ],
-    };
-
-    expect(localPptComposerInternals.getPlannedCompositionDuration(input)).toBe(
-      20
-    );
   });
 });

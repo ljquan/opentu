@@ -88,8 +88,6 @@ const DEFAULT_FRAME_RATE = 30;
 const DEFAULT_TRANSITION_MS = 350;
 const MAX_SUBTITLE_LINES = 2;
 const AUDIO_ANALYSIS_FFT_SIZE = 256;
-const AUDIO_RMS_THRESHOLD = 0.008;
-const AUDIO_SAMPLE_INTERVAL_MS = 100;
 const MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 const FINAL_DURATION_PROBE_TIMEOUT_MS = 10_000;
 
@@ -478,63 +476,6 @@ function waitForAnimationFrame(signal?: AbortSignal): Promise<void> {
   });
 }
 
-interface AudioActivitySummary {
-  samples: number;
-  audibleSamples: number;
-  firstAudibleSeconds?: number;
-  lastAudibleSeconds?: number;
-  maxSilentGapSeconds?: number;
-}
-
-class BoundedAudioActivityMonitor {
-  private readonly samples: Float32Array;
-  private sampleCount = 0;
-  private audibleSampleCount = 0;
-  private firstAudibleSeconds: number | undefined;
-  private lastAudibleSeconds: number | undefined;
-  private silentGapStartedSeconds = 0;
-  private maxSilentGapSeconds = 0;
-
-  constructor(private readonly analyser: AnalyserNode) {
-    this.samples = new Float32Array(analyser.fftSize);
-  }
-
-  sample(currentTime: number): void {
-    this.analyser.getFloatTimeDomainData(this.samples);
-    let sumSquares = 0;
-    for (let index = 0; index < this.samples.length; index += 1) {
-      const value = this.samples[index];
-      sumSquares += value * value;
-    }
-    this.sampleCount += 1;
-    if (Math.sqrt(sumSquares / this.samples.length) >= AUDIO_RMS_THRESHOLD) {
-      this.audibleSampleCount += 1;
-      this.firstAudibleSeconds ??= currentTime;
-      this.lastAudibleSeconds = currentTime;
-      this.maxSilentGapSeconds = Math.max(
-        this.maxSilentGapSeconds,
-        currentTime - this.silentGapStartedSeconds
-      );
-      this.silentGapStartedSeconds = currentTime;
-    } else if (this.lastAudibleSeconds !== undefined) {
-      this.silentGapStartedSeconds = Math.max(
-        this.silentGapStartedSeconds,
-        this.lastAudibleSeconds
-      );
-    }
-  }
-
-  getSummary(): AudioActivitySummary {
-    return {
-      samples: this.sampleCount,
-      audibleSamples: this.audibleSampleCount,
-      firstAudibleSeconds: this.firstAudibleSeconds,
-      lastAudibleSeconds: this.lastAudibleSeconds,
-      maxSilentGapSeconds: this.maxSilentGapSeconds,
-    };
-  }
-}
-
 function getTurnDurationLimit(turn: LocalPptNarrationTurn): number | undefined {
   const values = [turn.outputDurationSeconds, turn.maxDurationSeconds].filter(
     (value): value is number => value !== undefined
@@ -558,67 +499,6 @@ function assertMediaCoversPlannedDuration(
     )} 秒，无法覆盖计划的 ${plannedDuration.toFixed(1)} 秒`,
     'duration_short'
   );
-}
-
-function validateAudioActivity(
-  summary: AudioActivitySummary,
-  duration: number
-): void {
-  if (duration < 1) return;
-  const minimumSamples = duration >= 4 ? 2 : 1;
-  if (summary.samples < minimumSamples) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段无法检测声音活动，请重试或更换视频模型',
-      'activity_unavailable'
-    );
-  }
-  if (summary.audibleSamples === 0) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段没有检测到有效声音，请更换支持有声视频的模型',
-      'silent'
-    );
-  }
-  if (
-    duration >= 4 &&
-    summary.samples >= 10 &&
-    summary.audibleSamples / summary.samples < 0.2
-  ) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段有效声音占比过低，请更换支持稳定语音的视频模型',
-      'low_coverage'
-    );
-  }
-  if (
-    duration >= 4 &&
-    (summary.firstAudibleSeconds === undefined ||
-      summary.firstAudibleSeconds > Math.min(1, duration * 0.15))
-  ) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段前导静音过长，请更换支持稳定语音的视频模型',
-      'leading_silence'
-    );
-  }
-  if (
-    duration >= 4 &&
-    summary.samples >= 10 &&
-    (summary.lastAudibleSeconds === undefined ||
-      duration - summary.lastAudibleSeconds > Math.min(1, duration * 0.15))
-  ) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段尾部静音过长，请更换支持稳定语音的视频模型',
-      'trailing_silence'
-    );
-  }
-  if (
-    duration >= 4 &&
-    summary.samples >= 10 &&
-    (summary.maxSilentGapSeconds || 0) > Math.min(2, duration * 0.35)
-  ) {
-    throw new PptExplainerNarrationQualityError(
-      '讲解片段连续静音过长，请更换支持稳定语音的视频模型',
-      'long_silence'
-    );
-  }
 }
 
 function getFinalDurationTolerance(expectedDuration: number): number {
@@ -719,15 +599,10 @@ interface RecordingGate {
 function startPlaybackFrameLoop(options: {
   getCurrentTime: () => number;
   getDuration: () => number;
-  monitor: BoundedAudioActivityMonitor;
   onFrame: (currentTime: number, duration: number) => void;
 }): () => void {
   let stopped = false;
   let frameId: number | undefined;
-  const sample = () => {
-    const currentTime = Math.max(0, options.getCurrentTime());
-    options.monitor.sample(currentTime);
-  };
   const draw = () => {
     if (stopped) return;
     const currentTime = Math.max(0, options.getCurrentTime());
@@ -737,12 +612,9 @@ function startPlaybackFrameLoop(options: {
       frameId = requestAnimationFrame(draw);
     }
   };
-  sample();
-  const sampleTimerId = setInterval(sample, AUDIO_SAMPLE_INTERVAL_MS);
   draw();
   return () => {
     stopped = true;
-    clearInterval(sampleTimerId);
     if (frameId !== undefined && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(frameId);
     }
@@ -830,7 +702,6 @@ async function playAudioBuffer(
     const result = await new Promise<number>((resolve, reject) => {
       const source = audioContext.createBufferSource();
       const startedAt = audioContext.currentTime;
-      const monitor = new BoundedAudioActivityMonitor(analyser);
       let settled = false;
       let stopFrameLoop: (() => void) | undefined;
       const cleanup = () => {
@@ -861,7 +732,6 @@ async function playAudioBuffer(
       source.buffer = buffer;
       source.connect(analyser);
       source.onended = () => {
-        monitor.sample(playbackDuration);
         finish(() => {
           resolve(playbackDuration);
         });
@@ -872,7 +742,6 @@ async function playAudioBuffer(
           getCurrentTime: () =>
             Math.min(playbackDuration, audioContext.currentTime - startedAt),
           getDuration: () => playbackDuration,
-          monitor,
           onFrame,
         });
         source.start(0, 0, playbackDuration);
@@ -937,7 +806,6 @@ async function playMediaElementAudio(
       let settled = false;
       let started = false;
       let stopFrameLoop: (() => void) | undefined;
-      let monitor: BoundedAudioActivityMonitor | undefined;
       let playbackDuration = 0;
       let durationTimer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = () => {
@@ -981,7 +849,6 @@ async function playMediaElementAudio(
             ? media.duration
             : media.currentTime;
         const duration = playbackDuration || sourceDuration;
-        monitor?.sample(Math.min(duration, media.currentTime));
         finish(() => {
           resolve(duration);
         });
@@ -1036,11 +903,9 @@ async function playMediaElementAudio(
             if (durationLimit !== undefined) {
               durationTimer = setTimeout(onEnded, durationLimit * 1000);
             }
-            monitor = new BoundedAudioActivityMonitor(analyser);
             stopFrameLoop = startPlaybackFrameLoop({
               getCurrentTime: () => media.currentTime,
               getDuration: () => playbackDuration || media.duration || 0,
-              monitor,
               onFrame: (currentTime, duration) => {
                 onFrame(currentTime, duration);
                 if (
@@ -1104,20 +969,6 @@ function playNarrationTurn(
     );
   }
   throw new Error('PPT 旁白来源无效');
-}
-
-function getPlannedCompositionDuration(
-  input: LocalPptCompositionInput
-): number | undefined {
-  let duration = 0;
-  for (const slide of input.slides) {
-    for (const turn of slide.turns) {
-      const turnDuration = getTurnDurationLimit(turn);
-      if (turnDuration === undefined) return undefined;
-      duration += turnDuration;
-    }
-  }
-  return duration > 0 ? duration : undefined;
 }
 
 export async function composeLocalPptExplainerVideo(
@@ -1384,7 +1235,5 @@ export const localPptComposerInternals = {
   assertFinalDurationMatches,
   assertMediaCoversPlannedDuration,
   getFinalDurationTolerance,
-  getPlannedCompositionDuration,
   resolveSubtitleCue,
-  validateAudioActivity,
 };
