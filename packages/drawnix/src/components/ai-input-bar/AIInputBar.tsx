@@ -166,7 +166,7 @@ import type {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import classNames from 'classnames';
 import { InspirationBoard } from '../inspiration-board';
 import { AIInputComposerShell } from './AIInputComposerShell';

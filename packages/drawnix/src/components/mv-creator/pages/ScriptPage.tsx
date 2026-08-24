@@ -31,7 +31,7 @@ import { taskQueueService } from '../../../services/task-queue';
 import { TaskType, type KnowledgeContextRef } from '../../../types/task.types';
 import { syncMVRewriteTask } from '../task-sync';
 import { KnowledgeNoteContextSelector } from '../../shared';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 function autoResize(el: HTMLTextAreaElement) {
   el.style.height = 'auto';

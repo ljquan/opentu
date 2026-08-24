@@ -26,7 +26,7 @@ import {
   AnchorSymmetricIcon,
 } from '../../icons';
 import './pen-settings-toolbar.scss';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 import { SizePicker } from '../pencil-settings-toolbar/size-picker';
 
 const PEN_WIDTH_PRESETS = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 100];

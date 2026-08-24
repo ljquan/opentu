@@ -87,9 +87,55 @@ describe('model-grouping', () => {
     expect(groups[0]?.vendorCategories).toHaveLength(1);
     expect(groups[0]?.vendorCategories[0]?.vendor).toBe(ModelVendor.GEMINI);
     expect(groups[0]?.vendorCategories[0]?.label).toBe('Gemini');
-    expect(groups[0]?.vendorCategories[0]?.models.map((model) => model.id)).toEqual([
-      'omni-flash-components',
-      'omni-flash',
-    ]);
+    expect(
+      groups[0]?.vendorCategories[0]?.models.map((model) => model.id)
+    ).toEqual(['omni-flash-components', 'omni-flash']);
+  });
+
+  it('已启用且配置完整但还没有模型的供应商也会显示出来', () => {
+    const groups = groupModelsByProvider(
+      [],
+      [
+        {
+          id: 'configured-provider',
+          name: 'Configured Provider',
+          baseUrl: 'https://example.com/v1',
+          apiKey: 'sk-test',
+          enabled: true,
+          providerType: 'openai-compatible',
+          authType: 'bearer',
+          capabilities: {
+            supportsModelsEndpoint: true,
+            supportsText: true,
+            supportsImage: true,
+            supportsVideo: false,
+            supportsAudio: false,
+            supportsTools: false,
+          },
+        },
+        {
+          id: 'disabled-provider',
+          name: 'Disabled Provider',
+          baseUrl: 'https://example.com/v1',
+          apiKey: 'sk-test',
+          enabled: false,
+          providerType: 'openai-compatible',
+          authType: 'bearer',
+          capabilities: {
+            supportsModelsEndpoint: true,
+            supportsText: true,
+            supportsImage: true,
+            supportsVideo: false,
+            supportsAudio: false,
+            supportsTools: false,
+          },
+        },
+      ]
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.providerId).toBe('configured-provider');
+    expect(groups[0]?.totalCount).toBe(0);
+    expect(groups[0]?.vendorCategories).toHaveLength(0);
   });
 });

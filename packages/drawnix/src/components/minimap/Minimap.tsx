@@ -22,7 +22,7 @@ import {
 } from '../../types/minimap.types';
 import { ChevronRightIcon } from 'tdesign-icons-react';
 import { Z_INDEX } from '../../constants/z-index';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { HoverTip } from '../shared/hover';
 import './minimap.scss';
 

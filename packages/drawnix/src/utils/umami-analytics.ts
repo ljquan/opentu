@@ -1,10 +1,10 @@
 /**
- * PostHog Analytics Utility
+ * Umami Analytics Utility
  *
- * Provides type-safe event tracking for PostHog analytics.
+ * Provides type-safe event tracking for Umami analytics.
  * Tracks model calls and API usage.
  *
- * SECURITY: All event data is sanitized before being sent to PostHog
+ * SECURITY: All event data is sanitized before being sent to Umami
  * to prevent accidental leakage of API keys and other sensitive information.
  */
 
@@ -25,9 +25,11 @@ export interface AnalyticsReleaseContext {
 
 declare global {
   interface Window {
-    posthog?: {
-      capture: (eventName: string, properties?: Record<string, any>) => void;
-      register?: (properties: Record<string, any>) => void;
+    umami?: {
+      track: (
+        eventName: string,
+        properties?: Record<string, any>
+      ) => void | Promise<void>;
     };
   }
 }
@@ -219,23 +221,6 @@ function getCommonEventProperties(): AnalyticsEventData {
   return getAnalyticsReleaseContext();
 }
 
-export function registerAnalyticsSuperProperties(
-  properties?: Partial<AnalyticsReleaseContext>
-): void {
-  if (typeof window === 'undefined' || !window.posthog?.register) {
-    return;
-  }
-
-  try {
-    window.posthog.register({
-      ...getAnalyticsReleaseContext(),
-      ...(properties || {}),
-    });
-  } catch (error) {
-    void error;
-  }
-}
-
 function buildAICompatProperties(params: {
   taskId: string;
   taskType: 'image' | 'video' | 'audio' | 'chat';
@@ -258,57 +243,66 @@ function buildAICompatProperties(params: {
 }
 
 /** Analytics utility class */
-class PostHogAnalytics {
+class UmamiAnalytics {
   /**
    * Track a custom event (旁路：脱敏与上报在空闲时执行，不阻塞主流程)
-   * SECURITY: Event data is sanitized before being sent to PostHog
+   * SECURITY: Event data is sanitized before being sent to Umami
    */
-  track(eventName: string, eventData?: Record<string, any>): void {
-    if (typeof window === 'undefined' || !window.posthog) {
+  async track(
+    eventName: string,
+    eventData?: Record<string, any>
+  ): Promise<void> {
+    if (typeof window === 'undefined' || !window.umami) {
       return;
     }
-    const doTrack = (): void => {
-      try {
-        const payload = {
-          ...getCommonEventProperties(),
-          ...(eventData || {}),
-        };
-        const sanitizedData =
-          Object.keys(payload).length > 0
-            ? (sanitizeObject(payload) as Record<string, any>)
-            : undefined;
-        window.posthog!.capture(eventName, sanitizedData);
-      } catch (error) {
-        void error;
+
+    await new Promise<void>((resolve) => {
+      const doTrack = (): void => {
+        resolve();
+      };
+
+      if (
+        typeof (
+          globalThis as unknown as Window & {
+            requestIdleCallback?: (
+              cb: () => void,
+              opts?: { timeout: number }
+            ) => number;
+          }
+        ).requestIdleCallback === 'function'
+      ) {
+        (
+          globalThis as unknown as Window & {
+            requestIdleCallback: (
+              cb: () => void,
+              opts?: { timeout: number }
+            ) => number;
+          }
+        ).requestIdleCallback(doTrack, { timeout: 2000 });
+      } else {
+        setTimeout(doTrack, 0);
       }
-    };
-    if (
-      typeof (
-        globalThis as unknown as Window & {
-          requestIdleCallback?: (
-            cb: () => void,
-            opts?: { timeout: number }
-          ) => number;
-        }
-      ).requestIdleCallback === 'function'
-    ) {
-      (
-        globalThis as unknown as Window & {
-          requestIdleCallback: (
-            cb: () => void,
-            opts?: { timeout: number }
-          ) => number;
-        }
-      ).requestIdleCallback(doTrack, { timeout: 2000 });
-    } else {
-      setTimeout(doTrack, 0);
+    });
+
+    try {
+      const payload = {
+        ...getCommonEventProperties(),
+        ...(eventData || {}),
+      };
+      const sanitizedData =
+        Object.keys(payload).length > 0
+          ? (sanitizeObject(payload) as Record<string, any>)
+          : undefined;
+      await window.umami.track(eventName, sanitizedData);
+    } catch (error) {
+      void error;
     }
   }
 
   /** Track low-frequency UI interactions without adding one-off event names. */
   trackUIInteraction(params: UIInteractionEventParams): void {
     const { metadata, ...coreParams } = params;
-    this.track('ui_interaction', {
+    void this.track('ui_interaction', {
       category: AnalyticsCategory.UI_INTERACTION,
       ...coreParams,
       metadata: metadata || undefined,
@@ -334,7 +328,7 @@ class PostHogAnalytics {
     metadata?: Record<string, any>;
   }): void {
     const { prompt, metadata, ...coreParams } = params;
-    this.track('ppt_action', {
+    void this.track('ppt_action', {
       category: AnalyticsCategory.PPT,
       ...coreParams,
       ...(prompt !== undefined ? getPromptAnalyticsSummary(prompt) : {}),
@@ -365,7 +359,7 @@ class PostHogAnalytics {
       requirements !== undefined
         ? getPromptAnalyticsSummary(requirements)
         : undefined;
-    this.track('prompt_action', {
+    void this.track('prompt_action', {
       category: AnalyticsCategory.PROMPT,
       ...coreParams,
       ...(promptSummary || {}),
@@ -385,7 +379,7 @@ class PostHogAnalytics {
 
   /** Check if analytics is enabled */
   isAnalyticsEnabled(): boolean {
-    return typeof window !== 'undefined' && !!window.posthog;
+    return typeof window !== 'undefined' && !!window.umami;
   }
 
   /** Track AI generation event */
@@ -393,7 +387,7 @@ class PostHogAnalytics {
     event: AIGenerationEvent,
     data: Record<string, any>
   ): void {
-    this.track(event, {
+    void this.track(event, {
       category: AnalyticsCategory.AI_GENERATION,
       ...data,
       timestamp: Date.now(),
@@ -439,7 +433,7 @@ class PostHogAnalytics {
       chat: AIGenerationEvent.CHAT_GENERATION_SUCCESS,
     };
     this.trackAIGeneration(eventMap[params.taskType], params);
-    this.track(
+    void this.track(
       '$ai_generation',
       buildAICompatProperties({
         taskId: params.taskId,
@@ -466,7 +460,7 @@ class PostHogAnalytics {
       chat: AIGenerationEvent.CHAT_GENERATION_FAILED,
     };
     this.trackAIGeneration(eventMap[params.taskType], params);
-    this.track(
+    void this.track(
       '$ai_generation',
       buildAICompatProperties({
         taskId: params.taskId,
@@ -497,7 +491,7 @@ class PostHogAnalytics {
       stream: boolean;
     } & Record<string, unknown>
   ): void {
-    this.track(APICallEvent.API_CALL_START, {
+    void this.track(APICallEvent.API_CALL_START, {
       category: AnalyticsCategory.SYSTEM,
       ...params,
       timestamp: Date.now(),
@@ -514,7 +508,7 @@ class PostHogAnalytics {
       stream: boolean;
     } & Record<string, unknown>
   ): void {
-    this.track(APICallEvent.API_CALL_SUCCESS, {
+    void this.track(APICallEvent.API_CALL_SUCCESS, {
       category: AnalyticsCategory.SYSTEM,
       ...params,
       timestamp: Date.now(),
@@ -532,7 +526,7 @@ class PostHogAnalytics {
       stream: boolean;
     } & Record<string, unknown>
   ): void {
-    this.track(APICallEvent.API_CALL_FAILED, {
+    void this.track(APICallEvent.API_CALL_FAILED, {
       category: AnalyticsCategory.SYSTEM,
       ...params,
       timestamp: Date.now(),
@@ -546,7 +540,7 @@ class PostHogAnalytics {
     attempt: number;
     reason: string;
   }): void {
-    this.track(APICallEvent.API_CALL_RETRY, {
+    void this.track(APICallEvent.API_CALL_RETRY, {
       category: AnalyticsCategory.SYSTEM,
       ...params,
       timestamp: Date.now(),
@@ -555,4 +549,4 @@ class PostHogAnalytics {
 }
 
 // Export singleton instance
-export const analytics = new PostHogAnalytics();
+export const analytics = new UmamiAnalytics();

@@ -47,7 +47,7 @@ import {
   type ModelRef,
 } from '../../utils/settings-manager';
 import { copyToClipboard } from '../../utils/runtime-helpers';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 
 // 默认使用的模型，避免使用 gpt-5.1 导致 500 错误
 const DEFAULT_MODEL = 'gemini-3.1-pro-preview';

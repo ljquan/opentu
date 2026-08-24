@@ -34,7 +34,7 @@ import {
   normalizeMusicBrief,
   type MusicBrief,
 } from '../music-brief';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 const STORAGE_KEY_MODEL = 'music-analyzer:model';
 const DEFAULT_ANALYSIS_MODEL = 'gemini-2.5-pro';

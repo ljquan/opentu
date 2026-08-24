@@ -5,7 +5,7 @@
 
 /**
  * Escape HTML special characters
- * @param {string} str 
+ * @param {string} str
  * @returns {string}
  */
 export function escapeHtml(str) {
@@ -20,8 +20,8 @@ export function escapeHtml(str) {
 
 /**
  * Truncate URL for display
- * @param {string} url 
- * @param {number} maxLen 
+ * @param {string} url
+ * @param {number} maxLen
  * @returns {string}
  */
 export function truncateUrl(url, maxLen) {
@@ -48,7 +48,7 @@ export function formatBytes(bytes) {
 export function parseUserAgent(ua) {
   let browser = '未知';
   let os = '未知';
-  
+
   // Detect browser
   if (ua.includes('Chrome') && !ua.includes('Edg')) {
     const match = ua.match(/Chrome\/(\d+)/);
@@ -63,7 +63,7 @@ export function parseUserAgent(ua) {
     const match = ua.match(/Version\/(\d+)/);
     browser = match ? `Safari ${match[1]}` : 'Safari';
   }
-  
+
   // Detect OS
   if (ua.includes('Windows NT 10')) {
     os = 'Windows 10/11';
@@ -81,22 +81,20 @@ export function parseUserAgent(ua) {
     const match = ua.match(/OS (\d+)/);
     os = match ? `iOS ${match[1]}` : 'iOS';
   }
-  
+
   return { browser, os };
 }
 
 // Domain blacklist - requests from these domains will be hidden
 export const DOMAIN_BLACKLIST = [
-  'us.i.posthog.com',
-  'us-assets.i.posthog.com',
-  'posthog.com',
+  'umami.tu-zi.com',
   'google-analytics.com',
   'googletagmanager.com',
 ];
 
 /**
  * Check if URL is in the domain blacklist
- * @param {string} url 
+ * @param {string} url
  * @returns {boolean}
  */
 export function isBlacklistedUrl(url) {
@@ -113,16 +111,16 @@ export function isBlacklistedUrl(url) {
 
 /**
  * Filter logs by time range
- * @param {Array} logs 
+ * @param {Array} logs
  * @param {string} timeRangeMinutes - Minutes as string, or empty for all
  * @returns {Array}
  */
 export function filterByTimeRange(logs, timeRangeMinutes) {
   if (!timeRangeMinutes) return logs;
-  
+
   const minutes = parseInt(timeRangeMinutes);
   if (isNaN(minutes)) return logs;
-  
+
   const cutoffTime = Date.now() - (minutes * 60 * 1000);
   return logs.filter(log => log.timestamp >= cutoffTime);
 }
@@ -157,12 +155,12 @@ function isBase64Image(str) {
 function getBase64ImageInfo(base64Str) {
   const match = base64Str.match(/^data:image\/([^;]+);base64,(.*)$/);
   if (!match) return { mimeType: 'unknown', size: 0 };
-  
+
   const mimeType = match[1];
   const base64Data = match[2];
   // 估算原始文件大小（base64 会增加约 33% 的大小）
   const size = Math.round((base64Data.length * 3) / 4);
-  
+
   return { mimeType, size };
 }
 
@@ -183,7 +181,7 @@ function createBase64ImagePreview(base64Str) {
   const { mimeType, size } = getBase64ImageInfo(base64Str);
   const sizeText = formatBytes(size);
   const previewId = generateImagePreviewId();
-  
+
   // 创建一个可展开的图片预览组件
   return `<span class="base64-image-preview" data-preview-id="${previewId}">
     <span class="base64-preview-toggle" onclick="toggleBase64Preview('${previewId}')" title="点击展开/收起图片预览">
@@ -204,7 +202,7 @@ function createBase64ImagePreview(base64Str) {
  */
 function processObjectForBase64(obj, imageMap, path = '') {
   if (obj === null || obj === undefined) return obj;
-  
+
   if (typeof obj === 'string') {
     if (isBase64Image(obj)) {
       const placeholder = `__BASE64_IMAGE_${imageMap.size}__`;
@@ -213,11 +211,11 @@ function processObjectForBase64(obj, imageMap, path = '') {
     }
     return obj;
   }
-  
+
   if (Array.isArray(obj)) {
     return obj.map((item, index) => processObjectForBase64(item, imageMap, `${path}[${index}]`));
   }
-  
+
   if (typeof obj === 'object') {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
@@ -225,7 +223,7 @@ function processObjectForBase64(obj, imageMap, path = '') {
     }
     return result;
   }
-  
+
   return obj;
 }
 
@@ -237,17 +235,17 @@ function processObjectForBase64(obj, imageMap, path = '') {
  */
 export function formatJsonWithHighlight(jsonStr) {
   if (!jsonStr) return '';
-  
+
   try {
     // Try to parse and re-stringify with indentation
     const parsed = JSON.parse(jsonStr);
-    
+
     // 收集并替换 base64 图片
     const imageMap = new Map();
     const processedObj = processObjectForBase64(parsed, imageMap);
-    
+
     const formatted = JSON.stringify(processedObj, null, 2);
-    
+
     // Apply syntax highlighting
     let highlighted = escapeHtml(formatted)
       .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
@@ -255,7 +253,7 @@ export function formatJsonWithHighlight(jsonStr) {
       .replace(/: (\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
       .replace(/: (true|false)/g, ': <span class="json-boolean">$1</span>')
       .replace(/: (null)/g, ': <span class="json-null">$1</span>');
-    
+
     // 将占位符替换为图片预览组件
     for (const [placeholder, base64Str] of imageMap) {
       const escapedPlaceholder = escapeHtml(placeholder);
@@ -266,7 +264,7 @@ export function formatJsonWithHighlight(jsonStr) {
         imagePreviewHtml
       );
     }
-    
+
     return highlighted;
   } catch {
     // If not valid JSON, just escape and return
@@ -281,7 +279,7 @@ export function formatJsonWithHighlight(jsonStr) {
  */
 export function extractRequestParams(requestBody) {
   if (!requestBody) return {};
-  
+
   try {
     const parsed = JSON.parse(requestBody);
     return {

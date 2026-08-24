@@ -17,7 +17,7 @@ import {
   VideoGenerationOptions,
 } from './types';
 import { VIDEO_DEFAULT_CONFIG } from './config';
-import { analytics, getProviderEndpointAnalytics } from '../posthog-analytics';
+import { analytics, getProviderEndpointAnalytics } from '../umami-analytics';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import {
   buildManualHttpRequestPayload,

@@ -6,7 +6,7 @@ import type { ModelVendor } from '../constants/model-config';
 import { kvStorageService } from './kv-storage-service';
 import { generateTaskId } from '../utils/task-utils';
 import { createModelRef } from '../utils/settings-manager';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import {
   getAdapterContextFromSettings,
   resolveAdapterForInvocation,

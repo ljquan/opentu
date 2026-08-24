@@ -30,7 +30,7 @@ import {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import { copyToClipboard } from '../../utils/runtime-helpers';
 import { RetryImage } from '../retry-image';
 import { HoverTip } from '../shared/hover';

@@ -17,7 +17,7 @@ import {
   readStoredModelSelection,
   writeStoredModelSelection,
 } from '../utils';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 const STORAGE_KEY_AUDIO_MODEL = 'music-analyzer:audio-model';
 

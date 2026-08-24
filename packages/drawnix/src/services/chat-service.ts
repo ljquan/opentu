@@ -15,7 +15,7 @@ import {
 } from '../utils/gemini-api/message-utils';
 import type { Attachment, ChatMessage, StreamEvent } from '../types/chat.types';
 import { MessageRole } from '../types/chat.types';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import type { ModelRef } from '../utils/settings-manager';
 import {
   getTextBindingMaxImageCount,
