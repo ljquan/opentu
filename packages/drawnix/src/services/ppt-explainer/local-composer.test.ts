@@ -638,10 +638,10 @@ describe('local PPT explainer composer', () => {
     expect(browser.bufferSource.start).toHaveBeenCalledWith(0, 0, 5);
   });
 
-  it('rejects narration that is measurably silent', async () => {
+  it('keeps a playable narration even when activity sampling is inconclusive', async () => {
     installComposerBrowser({ audibleSample: 0, decodedDuration: 5 });
 
-    const composition = composeLocalPptExplainerVideo({
+    const result = await composeLocalPptExplainerVideo({
       slides: [
         {
           imageUrl: '/slide.png',
@@ -655,13 +655,7 @@ describe('local PPT explainer composer', () => {
       ],
     });
 
-    await expect(composition).rejects.toMatchObject({
-      code: 'PPT_NARRATION_QUALITY',
-      reason: 'silent',
-      slideIndex: 0,
-      turnIndex: 0,
-      message: expect.stringContaining('没有检测到有效声音'),
-    });
+    expect(result.duration).toBe(5);
   });
 
   it('updates short subtitle cues from media time and stops at the planned duration', async () => {

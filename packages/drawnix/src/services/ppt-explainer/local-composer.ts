@@ -862,14 +862,8 @@ async function playAudioBuffer(
       source.connect(analyser);
       source.onended = () => {
         monitor.sample(playbackDuration);
-        const summary = monitor.getSummary();
         finish(() => {
-          try {
-            validateAudioActivity(summary, playbackDuration);
-            resolve(playbackDuration);
-          } catch (error) {
-            reject(error);
-          }
+          resolve(playbackDuration);
         });
       };
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -988,14 +982,8 @@ async function playMediaElementAudio(
             : media.currentTime;
         const duration = playbackDuration || sourceDuration;
         monitor?.sample(Math.min(duration, media.currentTime));
-        const summary = monitor?.getSummary();
         finish(() => {
-          try {
-            if (summary) validateAudioActivity(summary, duration);
-            resolve(duration);
-          } catch (error) {
-            reject(error);
-          }
+          resolve(duration);
         });
       };
       const onError = () =>
