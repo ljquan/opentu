@@ -13,6 +13,7 @@ import type {
   VideoModelConfig,
 } from '../types/video.types';
 import { getModelConfig, ModelVendor } from './model-config';
+import { SEEDANCE_25_MODEL_ID } from '../utils/seedance-model';
 
 const SEEDANCE_ASPECT_RATIO_OPTIONS = [
   { label: '横屏 16:9', aspectRatio: '16:9' },
@@ -39,6 +40,14 @@ const SEEDANCE_2_DURATION_OPTIONS: DurationOption[] = Array.from(
   }
 );
 
+const SEEDANCE_25_DURATION_OPTIONS: DurationOption[] = Array.from(
+  { length: 27 },
+  (_, index) => {
+    const value = String(index + 4);
+    return { label: `${value}秒`, value };
+  }
+);
+
 const SEEDANCE_2_SIZE_OPTIONS: SizeOption[] = ['1080p', '720p', '480p'].map(
   (resolution) => ({
     label: resolution,
@@ -49,6 +58,11 @@ const SEEDANCE_2_SIZE_OPTIONS: SizeOption[] = ['1080p', '720p', '480p'].map(
 
 const SEEDANCE_2_REFERENCE_LABELS = Array.from(
   { length: 9 },
+  (_, index) => `参考图${index + 1}`
+);
+
+const SEEDANCE_25_REFERENCE_LABELS = Array.from(
+  { length: 30 },
   (_, index) => `参考图${index + 1}`
 );
 
@@ -310,6 +324,21 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
   },
 
   // Seedance models
+  [SEEDANCE_25_MODEL_ID]: {
+    id: SEEDANCE_25_MODEL_ID,
+    label: 'Seedance 2.5',
+    provider: 'seedance',
+    description: '音视频联合生成，支持 4-30 秒与 3 种画面比例',
+    durationOptions: SEEDANCE_25_DURATION_OPTIONS,
+    defaultDuration: '8',
+    sizeOptions: [],
+    defaultSize: '',
+    imageUpload: {
+      maxCount: 30,
+      mode: 'reference',
+      labels: SEEDANCE_25_REFERENCE_LABELS,
+    },
+  },
   'doubao-seedance-2-0-260128': {
     id: 'doubao-seedance-2-0-260128',
     label: 'Seedance 2.0',
