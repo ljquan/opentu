@@ -23,7 +23,7 @@ describe('seedance model identifiers', () => {
       supportsAdvancedControls: true,
     });
     expect(getSeedance2Capabilities('doubao-seedance-2-5-260628')).toMatchObject({
-      minDuration: 1,
+      minDuration: 4,
       maxDuration: 30,
       maxReferenceImages: 30,
       maxReferenceVideos: 10,

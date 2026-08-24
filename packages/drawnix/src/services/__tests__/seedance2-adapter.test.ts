@@ -252,16 +252,16 @@ describe('seedance 2.0 video adapter', () => {
     ).toHaveLength(4);
   });
 
-  it('rejects Seedance 2.5 durations outside 1-30 seconds before transport', async () => {
+  it('rejects Seedance 2.5 durations outside 4-30 seconds before transport', async () => {
     const fetcher = vi.fn() as unknown as typeof fetch;
 
     await expect(
       seedance2VideoAdapter.generateVideo(createContext(fetcher), {
         model: 'doubao-seedance-2-5-260628',
         prompt: 'invalid duration',
-        duration: 31,
+        duration: 3,
       })
-    ).rejects.toThrow('1-30 秒整数');
+    ).rejects.toThrow('4-30 秒整数');
     expect(fetcher).not.toHaveBeenCalled();
   });
 

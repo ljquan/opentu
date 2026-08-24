@@ -39,7 +39,7 @@ const SEEDANCE_20_CAPABILITIES: Seedance2Capabilities = {
 };
 
 const SEEDANCE_25_CAPABILITIES: Seedance2Capabilities = {
-  minDuration: 1,
+  minDuration: 4,
   maxDuration: 30,
   defaultDuration: 8,
   ratios: SEEDANCE_25_RATIOS,

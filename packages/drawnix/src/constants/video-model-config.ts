@@ -41,9 +41,9 @@ const SEEDANCE_2_DURATION_OPTIONS: DurationOption[] = Array.from(
 );
 
 const SEEDANCE_25_DURATION_OPTIONS: DurationOption[] = Array.from(
-  { length: 30 },
+  { length: 27 },
   (_, index) => {
-    const value = String(index + 1);
+    const value = String(index + 4);
     return { label: `${value}秒`, value };
   }
 );
@@ -328,7 +328,7 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: SEEDANCE_25_MODEL_ID,
     label: 'Seedance 2.5',
     provider: 'seedance',
-    description: '音视频联合生成，支持 1-30 秒与 480p/720p/1080p',
+    description: '音视频联合生成，支持 4-30 秒与 480p/720p/1080p',
     durationOptions: SEEDANCE_25_DURATION_OPTIONS,
     defaultDuration: '8',
     sizeOptions: SEEDANCE_2_SIZE_OPTIONS,

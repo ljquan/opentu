@@ -304,9 +304,9 @@ describe('model-config image size options', () => {
         .find((param) => param.id === paramId)
         ?.options?.map((option) => option.value);
 
-    expect(options('duration')).toHaveLength(30);
-    expect(options('duration')?.[0]).toBe('1');
-    expect(options('duration')?.[29]).toBe('30');
+    expect(options('duration')).toHaveLength(27);
+    expect(options('duration')?.[0]).toBe('4');
+    expect(options('duration')?.[26]).toBe('30');
     expect(options('ratio')).toEqual(['16:9', '9:16', '1:1']);
     expect(options('size')).toEqual(['1080p', '720p', '480p']);
     expect(params.map((param) => param.id)).not.toEqual(

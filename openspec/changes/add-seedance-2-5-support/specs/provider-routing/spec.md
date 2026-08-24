@@ -14,7 +14,7 @@ The system SHALL route `doubao-seedance-2-5-260628` through the existing asynchr
 #### Scenario: Validate Seedance 2.5 capabilities
 
 - **GIVEN** a Seedance 2.5 request
-- **WHEN** the request contains a duration outside 1–30 seconds, an unsupported ratio, or more than 30 images, 10 videos, or 10 audios
+- **WHEN** the request contains a duration outside 4–30 seconds, an unsupported ratio, or more than 30 images, 10 videos, or 10 audios
 - **THEN** the system SHALL reject the request before transport
 
 #### Scenario: Preserve Seedance 1.x behavior

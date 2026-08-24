@@ -747,7 +747,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     label: 'Seedance 2.5',
     shortCode: 'sc25',
     description:
-      'Seedance 2.5 音视频联合生成，支持 1-30 秒与 480p/720p/1080p 输出',
+      'Seedance 2.5 音视频联合生成，支持 4-30 秒与 480p/720p/1080p 输出',
     type: 'video',
     vendor: ModelVendor.DOUBAO,
     videoDefaults: SEEDANCE_25_DEFAULT_PARAMS,
@@ -1834,9 +1834,9 @@ const SEEDANCE_2_MODEL_IDS = [
 ];
 
 const SEEDANCE_25_DURATION_OPTIONS = Array.from(
-  { length: 30 },
+  { length: 27 },
   (_, index) => {
-    const value = String(index + 1);
+    const value = String(index + 4);
     return { value, label: `${value}秒` };
   }
 );
