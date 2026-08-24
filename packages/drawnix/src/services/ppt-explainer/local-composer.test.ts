@@ -496,10 +496,9 @@ describe('local PPT explainer composer', () => {
     expect(browser.bufferSource.buffer).toBeNull();
   });
 
-  it('does not start narration before MediaRecorder confirms start', async () => {
+  it('does not depend on the asynchronous MediaRecorder start event', async () => {
     const browser = installComposerBrowser({ recorderStartPending: true });
-    const controller = new AbortController();
-    const composition = composeLocalPptExplainerVideo({
+    const result = await composeLocalPptExplainerVideo({
       slides: [
         {
           imageUrl: '/slide.png',
@@ -511,15 +510,11 @@ describe('local PPT explainer composer', () => {
           ],
         },
       ],
-      signal: controller.signal,
     });
 
-    await vi.waitFor(() =>
-      expect(browser.recorderInstances[0]?.start).toHaveBeenCalledOnce()
-    );
-    expect(browser.video.play).not.toHaveBeenCalled();
-    controller.abort(new DOMException('用户取消', 'AbortError'));
-    await expect(composition).rejects.toMatchObject({ name: 'AbortError' });
+    expect(result.duration).toBe(4.25);
+    expect(browser.recorderInstances[0]?.start).toHaveBeenCalledOnce();
+    expect(browser.video.play).toHaveBeenCalledOnce();
   });
 
   it('records only while narration is playing', async () => {
@@ -1197,35 +1192,6 @@ describe('local PPT explainer composer', () => {
     await rejection;
     expect(browser.video.play).not.toHaveBeenCalled();
     expect(browser.video.remove).toHaveBeenCalledOnce();
-    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-  });
-
-  it('fails clearly when recorder start is not acknowledged', async () => {
-    vi.useFakeTimers();
-    const browser = installComposerBrowser({ recorderStartPending: true });
-    const composition = composeLocalPptExplainerVideo({
-      slides: [
-        {
-          imageUrl: '/slide.png',
-          turns: [
-            {
-              mediaUrl: '/__aitu_cache__/video/segment.mp4',
-              subtitle: '本页讲解',
-            },
-          ],
-        },
-      ],
-    });
-    const rejection = expect(composition).rejects.toThrow(
-      '启动 PPT 视频录制超过 5 秒，请刷新页面后重试'
-    );
-
-    await vi.advanceTimersByTimeAsync(5_001);
-
-    await rejection;
-    expect(browser.video.play).not.toHaveBeenCalled();
-    expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
   });

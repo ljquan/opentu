@@ -407,34 +407,6 @@ function waitForAbortable<T>(
   });
 }
 
-function waitForRecorderStart(
-  recorder: MediaRecorder,
-  signal?: AbortSignal
-): Promise<void> {
-  signal?.throwIfAborted();
-  return new Promise<void>((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(new Error('启动 PPT 视频录制超过 5 秒，请刷新页面后重试'));
-    }, RECORDER_STATE_TIMEOUT_MS);
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-      recorder.removeEventListener('start', onStart);
-      signal?.removeEventListener('abort', onAbort);
-    };
-    const onStart = () => {
-      cleanup();
-      resolve();
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(getCompositionAbortReason(signal));
-    };
-    recorder.addEventListener('start', onStart, { once: true });
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
 function waitForRecorderStateChange(
   recorder: MediaRecorder,
   eventName: 'pause' | 'resume',
@@ -1335,12 +1307,10 @@ export async function composeLocalPptExplainerVideo(
     activeImage = firstImage;
     drawSlide(context, canvas, firstImage, input.slides[0].turns[0]);
     requestCapturedFrame(capturedVideoTrack);
-    const recorderStarted = waitForRecorderStart(activeRecorder, signal);
     activeRecorder.start(1000);
     const activeRecorderFailure = recorderFailure;
     const waitWhileRecording = <T>(operation: Promise<T>) =>
       Promise.race([operation, activeRecorderFailure]);
-    await waitWhileRecording(recorderStarted);
     await waitWhileRecording(
       setRecorderCapturing(activeRecorder, false, signal)
     );
