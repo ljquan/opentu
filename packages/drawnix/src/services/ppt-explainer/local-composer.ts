@@ -96,7 +96,6 @@ const RESOURCE_LOAD_TIMEOUT_MS = 15_000;
 const AUDIO_CONTEXT_RESUME_TIMEOUT_MS = 8_000;
 const AUDIO_DECODE_TIMEOUT_MS = 15_000;
 const MEDIA_PLAY_START_TIMEOUT_MS = 10_000;
-const RECORDER_STATE_TIMEOUT_MS = 5_000;
 const RECORDER_STOP_TIMEOUT_MS = 10_000;
 const AUDIO_PLAYBACK_GRACE_MS = 5_000;
 const AUDIO_CONTEXT_CLOSE_TIMEOUT_MS = 2_000;
@@ -416,19 +415,31 @@ function waitForRecorderStateChange(
   signal?.throwIfAborted();
   if (recorder.state === expectedState) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
-    const action = eventName === 'pause' ? '暂停' : '恢复';
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(new Error(`${action} PPT 视频录制超过 5 秒，请刷新页面后重试`));
-    }, RECORDER_STATE_TIMEOUT_MS);
+    let stateCheckId: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
-      clearTimeout(timeoutId);
+      if (stateCheckId !== undefined) clearTimeout(stateCheckId);
       recorder.removeEventListener(eventName, onStateChange);
       signal?.removeEventListener('abort', onAbort);
     };
+    const settleIfChanged = () => {
+      if (recorder.state === expectedState) {
+        cleanup();
+        resolve();
+        return true;
+      }
+      if (recorder.state === 'inactive') {
+        cleanup();
+        reject(new Error('PPT 视频录制已意外停止'));
+        return true;
+      }
+      return false;
+    };
+    const checkState = () => {
+      stateCheckId = undefined;
+      if (!settleIfChanged()) stateCheckId = setTimeout(checkState, 50);
+    };
     const onStateChange = () => {
-      cleanup();
-      resolve();
+      settleIfChanged();
     };
     const onAbort = () => {
       cleanup();
@@ -436,6 +447,7 @@ function waitForRecorderStateChange(
     };
     recorder.addEventListener(eventName, onStateChange, { once: true });
     signal?.addEventListener('abort', onAbort, { once: true });
+    stateCheckId = setTimeout(checkState, 50);
   });
 }
 

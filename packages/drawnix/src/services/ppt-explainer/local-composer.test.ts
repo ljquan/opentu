@@ -115,6 +115,7 @@ interface ComposerBrowserOptions {
   resumePending?: boolean;
   recorderStartPending?: boolean;
   recorderPausePending?: boolean;
+  recorderResumePending?: boolean;
   recorderStopPending?: boolean;
   audibleSample?: number;
   decodedDuration?: number;
@@ -267,7 +268,9 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     resume = vi.fn(() => {
       if (this.state !== 'paused') return;
       this.state = 'recording';
-      queueMicrotask(() => this.dispatchEvent(new Event('resume')));
+      if (!options.recorderResumePending) {
+        queueMicrotask(() => this.dispatchEvent(new Event('resume')));
+      }
     });
 
     stop = vi.fn(() => {
@@ -1196,10 +1199,12 @@ describe('local PPT explainer composer', () => {
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
   });
 
-  it('fails and releases streams when recorder pause is not acknowledged', async () => {
-    vi.useFakeTimers();
-    const browser = installComposerBrowser({ recorderPausePending: true });
-    const composition = composeLocalPptExplainerVideo({
+  it('uses recorder state when pause and resume events are missing', async () => {
+    const browser = installComposerBrowser({
+      recorderPausePending: true,
+      recorderResumePending: true,
+    });
+    const result = await composeLocalPptExplainerVideo({
       slides: [
         {
           imageUrl: '/slide.png',
@@ -1212,13 +1217,9 @@ describe('local PPT explainer composer', () => {
         },
       ],
     });
-    const rejection = expect(composition).rejects.toThrow(
-      '暂停 PPT 视频录制超过 5 秒，请刷新页面后重试'
-    );
 
-    await vi.advanceTimersByTimeAsync(5_001);
-
-    await rejection;
+    expect(result.duration).toBe(4.25);
+    expect(browser.video.play).toHaveBeenCalledOnce();
     expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
