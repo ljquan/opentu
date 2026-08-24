@@ -12,7 +12,15 @@ export const SEEDANCE_20_RATIOS = [
   'adaptive',
 ] as const;
 
-export const SEEDANCE_25_RATIOS = ['16:9', '9:16', '1:1'] as const;
+export const SEEDANCE_25_RATIOS = [
+  '16:9',
+  '4:3',
+  '1:1',
+  '3:4',
+  '9:16',
+  '21:9',
+  'adaptive',
+] as const;
 
 export const SEEDANCE_2_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
 
@@ -59,6 +67,14 @@ export function isSeedance25ModelId(modelId?: string | null): boolean {
 
 export function isSeedance2ModelId(modelId?: string | null): boolean {
   return isSeedance20ModelId(modelId) || isSeedance25ModelId(modelId);
+}
+
+/** Normalize UI and legacy aspect-ratio spellings to the provider contract. */
+export function normalizeSeedanceRatio(value?: string): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'auto') return 'adaptive';
+  return normalized.replace(/^(\d+)\s*[x:]\s*(\d+)$/, '$1:$2');
 }
 
 export function getSeedance2Capabilities(

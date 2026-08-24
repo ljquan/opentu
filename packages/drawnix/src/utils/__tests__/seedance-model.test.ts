@@ -3,6 +3,7 @@ import {
   getSeedance2Capabilities,
   isSeedance2ModelId,
   isSeedance25ModelId,
+  normalizeSeedanceRatio,
 } from '../seedance-model';
 
 describe('seedance model identifiers', () => {
@@ -30,5 +31,12 @@ describe('seedance model identifiers', () => {
       maxReferenceAudios: 10,
       supportsAdvancedControls: false,
     });
+  });
+
+  it('normalizes UI and legacy ratio spellings', () => {
+    expect(normalizeSeedanceRatio(' 16x9 ')).toBe('16:9');
+    expect(normalizeSeedanceRatio('16:9')).toBe('16:9');
+    expect(normalizeSeedanceRatio('Auto')).toBe('adaptive');
+    expect(normalizeSeedanceRatio('adaptive')).toBe('adaptive');
   });
 });

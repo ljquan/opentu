@@ -746,8 +746,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     id: SEEDANCE_25_MODEL_ID,
     label: 'Seedance 2.5',
     shortCode: 'sc25',
-    description:
-      'Seedance 2.5 音视频联合生成，支持 4-30 秒与 16:9/9:16/1:1 比例',
+    description: 'Seedance 2.5 音视频联合生成，支持 4-30 秒与 7 种画面比例',
     type: 'video',
     vendor: ModelVendor.DOUBAO,
     videoDefaults: SEEDANCE_25_DEFAULT_PARAMS,
@@ -1843,8 +1842,12 @@ const SEEDANCE_25_DURATION_OPTIONS = Array.from(
 
 const SEEDANCE_25_RATIO_OPTIONS = [
   { value: '16:9', label: '16:9 横屏' },
-  { value: '9:16', label: '9:16 竖屏' },
+  { value: '4:3', label: '4:3 横屏' },
   { value: '1:1', label: '1:1 方形' },
+  { value: '3:4', label: '3:4 竖屏' },
+  { value: '9:16', label: '9:16 竖屏' },
+  { value: '21:9', label: '21:9 超宽屏' },
+  { value: 'adaptive', label: 'Auto' },
 ];
 
 /** HappyHorse 视频模型 ID */

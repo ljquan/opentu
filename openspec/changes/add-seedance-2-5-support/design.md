@@ -24,7 +24,7 @@
   - endpoint 与价格仍由现有 provider pricing/discovery 链路提供，不在 OpenTu 复制计费数据。
 - Decision: 能力配置按版本分开。
   - 2.0 保持现有 4–12 秒、7 种比例和 3/3 引用限制。
-  - 2.5 使用 4–30 秒、3 种比例、30/10/10 引用限制；Tuzi 当前实际渠道拒绝 1–3 秒请求。
+  - 2.5 使用 4–30 秒、七种比例（含 `adaptive`）、30/10/10 引用限制；Tuzi 当前实际渠道拒绝 1–3 秒请求。
   - 2.0 保留 `resolution` 请求字段；2.5 按 Tuzi 当前公开 endpoint 元数据提交 `model`、`content`、`duration`、`ratio`、`generate_audio`、`watermark`，不发送未声明的 `resolution` 字段。
   - 2.5 不展示分辨率控件，避免用户选择被请求层静默丢弃。
 - Decision: 统一迁移逻辑只处理 JSON Seedance 2 家族。

@@ -24,6 +24,7 @@ import {
   getSeedance2Label,
   isSeedance25ModelId,
   isSeedance2ModelId,
+  normalizeSeedanceRatio,
   SEEDANCE_2_RESOLUTIONS,
 } from '../../utils/seedance-model';
 
@@ -77,10 +78,20 @@ function parseLegacySize(size?: string): {
   resolution: string;
   ratio: string;
 } {
-  const [rawResolution, rawRatio] = (size || '720p@16:9').split('@');
+  const normalizedSize = size?.trim().toLowerCase() || '720p@16:9';
+  if (/^\d+\s*[x:]\s*\d+$/.test(normalizedSize)) {
+    return {
+      resolution: '720p',
+      ratio: normalizeSeedanceRatio(normalizedSize) || '16:9',
+    };
+  }
+  if (normalizedSize === 'auto' || normalizedSize === 'adaptive') {
+    return { resolution: '720p', ratio: 'adaptive' };
+  }
+  const [rawResolution, rawRatio] = normalizedSize.split('@');
   return {
     resolution: rawResolution || '720p',
-    ratio: rawRatio || '16:9',
+    ratio: normalizeSeedanceRatio(rawRatio) || '16:9',
   };
 }
 
@@ -134,7 +145,9 @@ function resolveVideoOptions(
   const resolution =
     getStringParam(request.params, ['resolution']) || legacy.resolution;
   const ratio =
-    getStringParam(request.params, ['ratio', 'aspect_ratio']) || legacy.ratio;
+    normalizeSeedanceRatio(
+      getStringParam(request.params, ['ratio', 'aspect_ratio'])
+    ) || legacy.ratio;
   const duration = request.duration ?? capabilities.defaultDuration;
 
   if (

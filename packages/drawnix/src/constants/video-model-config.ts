@@ -328,7 +328,7 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     id: SEEDANCE_25_MODEL_ID,
     label: 'Seedance 2.5',
     provider: 'seedance',
-    description: '音视频联合生成，支持 4-30 秒与 3 种画面比例',
+    description: '音视频联合生成，支持 4-30 秒与 7 种画面比例',
     durationOptions: SEEDANCE_25_DURATION_OPTIONS,
     defaultDuration: '8',
     sizeOptions: [],
