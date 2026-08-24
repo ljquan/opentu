@@ -3,6 +3,7 @@ import {
   AI_INPUT_FOCUS_EVENT,
   requestAIInputFocus,
   resolvePptExplainerFrameIds,
+  updatePptExplainerFrameSelection,
 } from './ai-input-ui-events';
 
 describe('ai-input-ui-events', () => {
@@ -45,5 +46,17 @@ describe('ai-input-ui-events', () => {
         new Set(['not-a-ppt-frame'])
       )
     ).toBeUndefined();
+  });
+
+  it('updates the checked PPT explainer references without mutating selection', () => {
+    const current = new Set(['frame-1', 'frame-2']);
+
+    expect(updatePptExplainerFrameSelection(current, 'frame-3', true)).toEqual(
+      new Set(['frame-1', 'frame-2', 'frame-3'])
+    );
+    expect(updatePptExplainerFrameSelection(current, 'frame-1', false)).toEqual(
+      new Set(['frame-2'])
+    );
+    expect(current).toEqual(new Set(['frame-1', 'frame-2']));
   });
 });

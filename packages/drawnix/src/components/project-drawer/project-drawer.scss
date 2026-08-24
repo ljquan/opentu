@@ -1308,6 +1308,24 @@
     }
   }
 
+  &__slide-reference-checkbox {
+    flex: 0 0 auto;
+    margin-top: 3px;
+
+    .t-checkbox__input {
+      width: 18px;
+      height: 18px;
+      border-color: var(--frame-panel-outline-checkbox-border);
+      background: var(--frame-panel-outline-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    &:hover .t-checkbox__input {
+      border-color: rgba(243, 156, 18, 0.8);
+      box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.12);
+    }
+  }
+
   &__item-icon {
     flex-shrink: 0;
     width: 20px;

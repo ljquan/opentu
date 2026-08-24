@@ -149,6 +149,7 @@ import {
 import {
   requestAIInputFocus,
   resolvePptExplainerFrameIds,
+  updatePptExplainerFrameSelection,
 } from '../../services/ai-input-ui-events';
 import {
   createPPTFrameSnapshotDataUrl,
@@ -1276,7 +1277,6 @@ export const FramePanel: React.FC<FramePanelProps> = ({
             ? current
             : nextSelectedFrameIds
         );
-
         setLastSelectedFrameId((current) => {
           const nextLastSelectedFrameId =
             selectedFrameIdsFromCanvas[selectedFrameIdsFromCanvas.length - 1] ||
@@ -1772,6 +1772,46 @@ export const FramePanel: React.FC<FramePanelProps> = ({
       focusFrameViewport,
       frames,
       lastSelectedFrameId,
+      selectedFrameIds,
+      syncCanvasSelectedFrames,
+    ]
+  );
+
+  const handleTogglePptExplainerReference = useCallback(
+    (frameInfo: FrameInfo, checked: boolean) => {
+      const nextSelectedFrameIds = updatePptExplainerFrameSelection(
+        selectedFrameIds,
+        frameInfo.frame.id,
+        checked
+      );
+      if (checked) {
+        setLastSelectedFrameId(frameInfo.frame.id);
+      } else {
+        if (lastSelectedFrameId === frameInfo.frame.id) {
+          setLastSelectedFrameId(null);
+        }
+      }
+      setSelectedFrameIds(nextSelectedFrameIds);
+      syncCanvasSelectedFrames(
+        frames.filter((info) => nextSelectedFrameIds.has(info.frame.id))
+      );
+      analytics.trackPPTAction({
+        action: checked
+          ? 'select_explainer_reference_slide'
+          : 'deselect_explainer_reference_slide',
+        source: 'project_drawer_slides',
+        pageCount: orderedPPTFrames.length,
+        selectedCount: resolvePptExplainerFrameIds(
+          orderedPPTFrames.map((info) => info.frame.id),
+          nextSelectedFrameIds
+        )?.length,
+        metadata: { frame_id: frameInfo.frame.id },
+      });
+    },
+    [
+      frames,
+      lastSelectedFrameId,
+      orderedPPTFrames,
       selectedFrameIds,
       syncCanvasSelectedFrames,
     ]
@@ -4148,6 +4188,9 @@ export const FramePanel: React.FC<FramePanelProps> = ({
             const pptTransition = getPPTSlideTransition(
               info.pptMeta?.transition
             );
+            const pptPageIndex = orderedPPTFrames.findIndex(
+              (item) => item.frame.id === info.frame.id
+            );
             const hasPPTTransition = pptTransition.type !== 'none';
             const previewImageUrl = resolvePPTFramePreviewUrl(
               frameSnapshotUrls[info.frame.id],
@@ -4173,6 +4216,20 @@ export const FramePanel: React.FC<FramePanelProps> = ({
                 onContextMenu={(e) => handleContextMenu(e, info)}
                 {...dragProps}
               >
+                {info.pptMeta ? (
+                  <Checkbox
+                    className="frame-panel__slide-reference-checkbox"
+                    checked={selectedFrameIds.has(info.frame.id)}
+                    aria-label={`选择第 ${pptPageIndex + 1} 页作为讲解视频参考`}
+                    onClick={({ e }) => e.stopPropagation()}
+                    onChange={(checked) =>
+                      handleTogglePptExplainerReference(
+                        info,
+                        checked as boolean
+                      )
+                    }
+                  />
+                ) : null}
                 {info.pptMeta ? (
                   <PPTSlidePreview
                     imageUrl={previewImageUrl}

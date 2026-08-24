@@ -45,6 +45,20 @@ export function resolvePptExplainerFrameIds(
   return selected.length > 0 ? selected : undefined;
 }
 
+export function updatePptExplainerFrameSelection(
+  selectedFrameIds: ReadonlySet<string>,
+  frameId: string,
+  checked: boolean
+): Set<string> {
+  const next = new Set(selectedFrameIds);
+  if (checked) {
+    next.add(frameId);
+  } else {
+    next.delete(frameId);
+  }
+  return next;
+}
+
 export function requestAIInputFocus(
   detail: AIInputFocusEventDetail = {}
 ): void {
