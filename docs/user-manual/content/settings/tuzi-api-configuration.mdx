@@ -1,0 +1,131 @@
+---
+title: 兔子 API 配置教程
+category: settings
+order: 1
+description: 从创建兔子 API 令牌，到在 OpenTu 中添加供应商和模型并完成第一次图片生成。
+---
+
+# 兔子 API 配置教程
+
+如果你要在 OpenTu 中使用兔子 API 的图片模型，请按下面的完整流程配置。教程使用的关键参数已经放在最前面，先记住这一行：
+
+:::note
+**API 地址：** `https://api.tu-zi.com/v1`　　**API Key：** 兔子 API 控制台创建的令牌密钥
+:::
+
+## 配置流程
+
+创建 API 令牌 → 打开 OpenTu 设置 → 填入 API 地址和 API Key → 获取并添加模型 → 选择模型开始生成。
+
+:::tip
+API Key 等同于账户凭证。不要把完整密钥发到群聊、截图或公开仓库；如果怀疑泄露，请立即在兔子 API 控制台禁用或删除，并重新创建。
+:::
+
+## 一、在兔子 API 创建令牌
+
+### 步骤 1：进入 API 控制台
+
+打开 [兔子 API 控制台](https://api.tu-zi.com/)，登录后进入“控制台 → API 密钥”。如果已有可用令牌，可以直接跳到步骤 3。
+
+<img src="assets/tuzi-api/step-1.png" alt="兔子 API 控制台的 API 密钥页面" class="step-screenshot" />
+<p class="screenshot-caption">在控制台的 API 密钥页面创建或管理令牌</p>
+
+### 步骤 2：创建令牌并选择分组
+
+点击“新建”，填写令牌名称，在“令牌分组”中选择需要使用的分组，然后点击“提交”。模型分组可在兔子 API 的“模型广场”查看。
+
+<img src="assets/tuzi-api/step-2.png" alt="创建令牌并选择令牌分组" class="step-screenshot" />
+<p class="screenshot-caption">设置令牌名称、分组并提交</p>
+
+### 步骤 3：复制令牌密钥
+
+回到 API 密钥列表，复制刚创建的令牌密钥。密钥通常只在创建或首次查看时完整显示，请先保存到安全位置。
+
+<img src="assets/tuzi-api/step-3.png" alt="从 API 密钥列表复制令牌密钥" class="step-screenshot" />
+<p class="screenshot-caption">从 API 密钥列表复制令牌密钥</p>
+
+## 二、打开 OpenTu 设置
+
+### 步骤 4：进入 OpenTu 并打开设置
+
+打开 OpenTu，在左侧菜单中点击“设置”。如果当前停留在画布或创意页面，先回到应用主界面，再展开左侧菜单。
+
+<img src="assets/tuzi-api/step-4.png" alt="进入 OpenTu 创意画布页面" class="step-screenshot" />
+<p class="screenshot-caption">进入 OpenTu 的创意/画布页面</p>
+
+<img src="assets/tuzi-api/step-5.png" alt="从左侧菜单进入设置" class="step-screenshot" />
+<p class="screenshot-caption">从左侧菜单进入“设置”</p>
+
+## 三、添加供应商并获取模型
+
+### 步骤 5：填写供应商配置
+
+在设置页新增或选择一个供应商，填写以下内容：
+
+- 供应商名称可以自定义；
+- API 地址填写 `https://api.tu-zi.com/v1`；
+- API Key 粘贴步骤 3 复制的令牌；
+- 分组可以选择一个或多个；
+- 完成后点击“获取模型”。
+
+:::note
+**必须一致：** API 地址要包含末尾的 `/v1`。若只填写 `https://api.tu-zi.com`，通常无法正确获取模型。
+:::
+
+<img src="assets/tuzi-api/step-6.png" alt="填写 API 地址、API Key 并获取模型" class="step-screenshot" />
+<p class="screenshot-caption">填写 API 地址、API Key 并获取模型</p>
+
+### 步骤 6：确认模型列表已加载
+
+点击“获取模型”后等待列表加载。若列表为空，先检查 API 地址、令牌有效期、令牌分组和网络连接，再重新获取。
+
+<img src="assets/tuzi-api/step-7.png" alt="获取模型后的模型列表" class="step-screenshot" />
+<p class="screenshot-caption">获取模型后的模型列表</p>
+
+## 四、选择并添加模型
+
+### 步骤 7：勾选需要的模型
+
+在模型选择窗口中按供应商或模型名称筛选，勾选需要使用的模型；也可以点击“全选”。确认选择后点击“添加模型”，等待窗口关闭或列表更新。
+
+<img src="assets/tuzi-api/step-8.png" alt="选择模型并点击添加模型" class="step-screenshot" />
+<p class="screenshot-caption">选择模型并点击“添加模型”</p>
+
+:::tip
+第一次配置建议只添加实际需要的模型，后续再按需补充，便于在 OpenTu 中快速查找和切换。
+:::
+
+## 五、完成配置并验证生成
+
+### 步骤 8：选择分组和模型
+
+关闭设置页面，回到生成界面；选择刚才配置的分组和模型，输入一条简单的图片描述。
+
+### 步骤 9：提交一次生成任务
+
+点击发送/生成按钮，等待任务开始。如果能够正常进入生成状态并返回图片，说明 API 地址、令牌、分组和模型配置已生效。
+
+<img src="assets/tuzi-api/step-9.png" alt="选择模型后提交图片生成任务" class="step-screenshot" />
+<p class="screenshot-caption">选择模型后提交图片生成任务</p>
+
+## 常见问题
+
+### 获取模型为空
+
+确认 API 地址为 `https://api.tu-zi.com/v1`，API Key 没有多余空格，令牌分组包含可用模型，并检查网络后再次点击“获取模型”。
+
+### 提示 401 / 403
+
+重新复制最新令牌，确认令牌未过期、未被禁用，且当前分组有对应模型的访问权限。不要把旧密钥和新密钥混用。
+
+### 模型已获取但生成界面找不到
+
+确认在模型窗口点击了“添加模型”，并检查设置页中对应供应商的开关处于启用状态。回到生成界面后重新选择分组和模型。
+
+### 图片生成一直没有结果
+
+先用一个简单提示词验证；再查看当前分组额度、模型可用性和任务状态。必要时切换到已确认可用的模型重试。
+
+:::tip
+**配置完成标准：** 能够在生成界面看到已添加的分组和模型，并成功提交一次图片生成任务。完成这一步后，再继续添加更多分组或模型。
+:::
