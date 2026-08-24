@@ -1767,6 +1767,8 @@ describe('useAutoInsertToCanvas', () => {
         url: '/__aitu_cache__/image/batch-1.png',
         format: 'png',
         size: 123,
+        width: 1536,
+        height: 1024,
       },
     });
     const secondTask = createCompletedImageTask({
@@ -1780,6 +1782,8 @@ describe('useAutoInsertToCanvas', () => {
         url: '/__aitu_cache__/image/batch-2.png',
         format: 'png',
         size: 123,
+        width: 1024,
+        height: 1536,
       },
     });
     mocks.board = {
@@ -1801,6 +1805,29 @@ describe('useAutoInsertToCanvas', () => {
       ],
     };
     mocks.taskState.tasks = [firstTask, secondTask];
+    mocks.insertImageGroup.mockResolvedValueOnce({
+      success: true,
+      data: {
+        insertedCount: 2,
+        items: [
+          {
+            type: 'image',
+            point: [100, 100],
+            elementId: 'image-1',
+            size: { width: 512, height: 341 },
+          },
+          {
+            type: 'image',
+            point: [632, 100],
+            elementId: 'image-2',
+            size: { width: 400, height: 600 },
+          },
+        ],
+        firstElementId: 'image-1',
+        firstElementPosition: [100, 100],
+        firstElementSize: { width: 512, height: 341 },
+      },
+    });
 
     renderHook(() =>
       useAutoInsertToCanvas({
@@ -1820,7 +1847,10 @@ describe('useAutoInsertToCanvas', () => {
         '/__aitu_cache__/image/batch-2.png',
       ],
       [100, 100],
-      { width: 512, height: 512 },
+      [
+        { width: 512, height: 341 },
+        { width: 400, height: 600 },
+      ],
       mocks.board,
       expect.any(Function),
       '批量图片'
@@ -1843,14 +1873,14 @@ describe('useAutoInsertToCanvas', () => {
       1,
       [100, 100],
       'image-1',
-      { width: 512, height: 512 }
+      { width: 512, height: 341 }
     );
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       'task-batch-2',
       1,
       [632, 100],
       'image-2',
-      { width: 512, height: 512 }
+      { width: 400, height: 600 }
     );
   });
 

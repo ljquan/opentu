@@ -954,7 +954,9 @@ export async function quickInsert(
 export async function insertImageGroup(
   imageUrls: string[],
   point?: Point,
-  dimensions?: { width: number; height: number },
+  dimensions?:
+    | { width: number; height: number }
+    | Array<{ width: number; height: number }>,
   board?: PlaitBoard,
   boardGuard?: () => boolean,
   prompt?: string,
@@ -969,11 +971,11 @@ export async function insertImageGroup(
   };
   return executeCanvasInsertion({
     board,
-    items: imageUrls.map((url) => ({
+    items: imageUrls.map((url, index) => ({
       type: 'image' as ContentType,
       content: url,
       groupId,
-      dimensions,
+      dimensions: Array.isArray(dimensions) ? dimensions[index] : dimensions,
       waitForImageLoad: true,
       metadata:
         Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,

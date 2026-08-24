@@ -1817,6 +1817,10 @@ export function useAutoInsertToCanvas(
                       url: resultUrl,
                       anchor: taskAnchor,
                       metadata: taskMetadata,
+                      dimensions: resolveImageTaskInsertionDimensions(
+                        task,
+                        parseSizeToPixels(task.params.size).width
+                      ),
                     }));
                   })
                 : [];
@@ -1980,7 +1984,10 @@ export function useAutoInsertToCanvas(
                 (resultUrl, index) => ({
                   type,
                   url: resultUrl,
-                  dimensions,
+                  dimensions:
+                    type === 'image'
+                      ? imageGroupItems[index]?.dimensions ?? dimensions
+                      : dimensions,
                   metadata:
                     type === 'image'
                       ? imageGroupItems[index]?.metadata
@@ -2041,7 +2048,7 @@ export function useAutoInsertToCanvas(
                 const insertionResult = await insertImageGroup(
                   urls,
                   resolvedInsertionPoint,
-                  dimensions,
+                  imageGroupItems.map((item) => item.dimensions),
                   board,
                   () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
                   firstInsertTask.params.prompt
