@@ -82,8 +82,6 @@ import {
 } from './validation';
 
 const POLL_INTERVAL_MS = 2000;
-const PPT_OUTLINE_TIMEOUT_MS = 3 * 60 * 1000;
-const LOCAL_SEGMENT_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface ActiveRun {
   controller: AbortController;
@@ -128,35 +126,12 @@ export function buildPptExplainerVideoPrompt(
 async function generatePptExplainerSegment(
   prompt: string,
   options: Parameters<typeof generateVideo>[1],
-  pageIndex: number,
   parentSignal: AbortSignal
 ) {
-  const controller = new AbortController();
-  const abortFromParent = () =>
-    controller.abort(
-      parentSignal.reason ||
-        new DOMException('PPT 讲解任务已取消', 'AbortError')
-    );
-  parentSignal.addEventListener('abort', abortFromParent, { once: true });
-  const timeoutError = new Error(
-    `PPT 第 ${pageIndex} 页视频生成超过 15 分钟，请检查供应商任务或重试`
-  );
-  const timeoutId = setTimeout(
-    () => controller.abort(timeoutError),
-    LOCAL_SEGMENT_TIMEOUT_MS
-  );
-  try {
-    return await generateVideo(prompt, {
-      ...options,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.reason === timeoutError) throw timeoutError;
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-    parentSignal.removeEventListener('abort', abortFromParent);
-  }
+  return generateVideo(prompt, {
+    ...options,
+    signal: parentSignal,
+  });
 }
 
 async function cachePptExplainerNarrationSegment(
@@ -813,7 +788,6 @@ async function runLocalComposition(
           );
         },
       },
-      slide.pageIndex,
       signal
     );
     await ownershipWrite;
@@ -1098,46 +1072,24 @@ async function prepareTopicSource(
   }
 
   signal.throwIfAborted();
-  const outlineController = new AbortController();
-  const abortFromParent = () =>
-    outlineController.abort(
-      signal.reason || new DOMException('PPT 讲解任务已取消', 'AbortError')
-    );
-  signal.addEventListener('abort', abortFromParent, { once: true });
-  const timeoutError = new Error(
-    'PPT 大纲生成超过 3 分钟，请检查文本模型连接后重试'
+  const result = await runPptExplainerBoardMutationExclusive(
+    initialState.sourceBoardId,
+    () =>
+      generatePPT(
+        {
+          topic,
+          pageCount: initialState.requestedPageCount,
+          ...(typeof textRouteModel === 'string'
+            ? { textModel: textRouteModel }
+            : { textModelRef: textRouteModel }),
+        },
+        {
+          signal,
+          pptExplainerJobId: initialState.jobId,
+          replaceExistingPpt: false,
+        }
+      )
   );
-  const timeoutId = setTimeout(
-    () => outlineController.abort(timeoutError),
-    PPT_OUTLINE_TIMEOUT_MS
-  );
-  let result: Awaited<ReturnType<typeof generatePPT>>;
-  try {
-    result = await runPptExplainerBoardMutationExclusive(
-      initialState.sourceBoardId,
-      () =>
-        generatePPT(
-          {
-            topic,
-            pageCount: initialState.requestedPageCount,
-            ...(typeof textRouteModel === 'string'
-              ? { textModel: textRouteModel }
-              : { textModelRef: textRouteModel }),
-          },
-          {
-            signal: outlineController.signal,
-            pptExplainerJobId: initialState.jobId,
-            replaceExistingPpt: false,
-          }
-        )
-    );
-  } catch (error) {
-    if (outlineController.signal.reason === timeoutError) throw timeoutError;
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-    signal.removeEventListener('abort', abortFromParent);
-  }
   signal.throwIfAborted();
   if (!result.success) {
     throw new PptExplainerValidationError(result.error || 'PPT 大纲生成失败');

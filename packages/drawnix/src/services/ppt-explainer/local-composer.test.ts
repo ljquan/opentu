@@ -1108,70 +1108,10 @@ describe('local PPT explainer composer', () => {
     expect(browser.audioContext.close).toHaveBeenCalledOnce();
   });
 
-  it('fails clearly when AudioContext resume remains pending', async () => {
-    vi.useFakeTimers();
-    const browser = installComposerBrowser({ resumePending: true });
-    const composition = composeLocalPptExplainerVideo({
-      slides: [
-        {
-          imageUrl: '/slide.png',
-          turns: [
-            {
-              mediaUrl: '/__aitu_cache__/video/segment.mp4',
-              subtitle: '本页讲解',
-              outputDurationSeconds: 10,
-            },
-          ],
-        },
-      ],
-    });
-    const rejection = expect(composition).rejects.toThrow(
-      '浏览器未能启动讲解音频，请保持页面在前台并点击页面后重试'
-    );
-
-    await vi.advanceTimersByTimeAsync(8_001);
-
-    await rejection;
-    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioContext.close).toHaveBeenCalledOnce();
-  });
-
-  it('fails clearly when media play never starts', async () => {
-    vi.useFakeTimers();
-    const browser = installComposerBrowser({ videoMode: 'pending' });
-    const composition = composeLocalPptExplainerVideo({
-      slides: [
-        {
-          imageUrl: '/slide.png',
-          turns: [
-            {
-              mediaUrl: '/__aitu_cache__/video/segment.mp4',
-              subtitle: '本页讲解',
-              outputDurationSeconds: 4,
-            },
-          ],
-        },
-      ],
-    });
-    const rejection = expect(composition).rejects.toThrow(
-      '启动 PPT 讲解音轨超过 10 秒，请保持页面在前台后重试'
-    );
-    await vi.advanceTimersByTimeAsync(1);
-    expect(browser.video.play).toHaveBeenCalledOnce();
-    expect(browser.recorderInstances[0]?.state).toBe('paused');
-
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    await rejection;
-    expect(browser.video.remove).toHaveBeenCalledOnce();
-    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-  });
-
-  it('fails clearly when media never becomes playable', async () => {
-    vi.useFakeTimers();
+  it('keeps waiting for a slow model result without inventing a load timeout', async () => {
     const browser = installComposerBrowser({ videoMode: 'load-pending' });
+    const controller = new AbortController();
+    let settled = false;
     const composition = composeLocalPptExplainerVideo({
       slides: [
         {
@@ -1185,14 +1125,24 @@ describe('local PPT explainer composer', () => {
           ],
         },
       ],
+      signal: controller.signal,
     });
-    const rejection = expect(composition).rejects.toThrow(
-      '加载 PPT 讲解音轨超过 15 秒，请保持页面在前台后重试'
+    void composition.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
     );
+    await vi.waitFor(() =>
+      expect(browser.recorderInstances[0]?.state).toBe('paused')
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(15_001);
-
-    await rejection;
+    controller.abort(new DOMException('用户取消', 'AbortError'));
+    await expect(composition).rejects.toMatchObject({ name: 'AbortError' });
     expect(browser.video.play).not.toHaveBeenCalled();
     expect(browser.video.remove).toHaveBeenCalledOnce();
     expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
@@ -1225,37 +1175,7 @@ describe('local PPT explainer composer', () => {
     expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
   });
 
-  it('does not hang when recorder stop is not acknowledged', async () => {
-    vi.useFakeTimers();
-    const browser = installComposerBrowser({ recorderStopPending: true });
-    const composition = composeLocalPptExplainerVideo({
-      slides: [
-        {
-          imageUrl: '/slide.png',
-          turns: [
-            {
-              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
-              subtitle: '本页讲解',
-            },
-          ],
-        },
-      ],
-    });
-    const rejection = expect(composition).rejects.toThrow(
-      '停止 PPT 视频录制超过 10 秒，请刷新页面后重试'
-    );
-    await vi.advanceTimersByTimeAsync(1);
-    expect(browser.recorderInstances[0]?.stop).toHaveBeenCalledOnce();
-
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    await rejection;
-    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioContext.close).toHaveBeenCalledOnce();
-  });
-
-  it('derives the total composition watchdog from planned turn durations', () => {
+  it('derives the planned composition duration from model segments', () => {
     const input = {
       slides: [
         {
@@ -1281,9 +1201,6 @@ describe('local PPT explainer composer', () => {
 
     expect(localPptComposerInternals.getPlannedCompositionDuration(input)).toBe(
       20
-    );
-    expect(localPptComposerInternals.getCompositionWatchdogTimeoutMs(20)).toBe(
-      80_000
     );
   });
 });
