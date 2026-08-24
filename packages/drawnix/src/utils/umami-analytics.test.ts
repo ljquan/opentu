@@ -1,5 +1,13 @@
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { analytics } from './umami-analytics';
+
+const umamiEntryFiles = [
+  '../../../../apps/web/index.html',
+  '../../../../apps/web/public/home.html',
+  '../../../../apps/web/public/en/home.html',
+];
 
 describe('Umami analytics', () => {
   const trackMock = vi.fn();
@@ -67,4 +75,16 @@ describe('Umami analytics', () => {
 
     expect(trackMock).toHaveBeenCalledTimes(100);
   });
+
+  it.each(umamiEntryFiles)(
+    'does not include URL query parameters in automatic pageviews from %s',
+    (entryFile) => {
+      const source = readFileSync(new URL(entryFile, import.meta.url), 'utf8');
+
+      expect(source).toContain(
+        'script.dataset.websiteId = "e6bd249e-bc68-4857-b6a5-02131b4ea286";'
+      );
+      expect(source).toContain('script.dataset.excludeSearch = "true";');
+    }
+  );
 });
