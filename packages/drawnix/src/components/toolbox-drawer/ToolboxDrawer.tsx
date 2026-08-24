@@ -19,7 +19,7 @@ import { useDrawnix } from '../../hooks/use-drawnix';
 import { ToolTransforms } from '../../plugins/with-tool';
 import { toolboxService } from '../../services/toolbox-service';
 import { toolWindowService } from '../../services/tool-window-service';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { ToolDefinition } from '../../types/toolbox.types';
 import {
   DEFAULT_TOOL_CONFIG,

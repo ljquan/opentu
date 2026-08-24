@@ -1,7 +1,7 @@
 /**
  * Web Vitals Monitoring Service
  *
- * Monitors Core Web Vitals metrics and reports them to PostHog:
+ * Monitors Core Web Vitals metrics and reports them to Umami:
  * - LCP (Largest Contentful Paint): Loading performance
  * - FID (First Input Delay): Interactivity
  * - CLS (Cumulative Layout Shift): Visual stability
@@ -11,18 +11,18 @@
  */
 
 import type { Metric } from 'web-vitals';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 
 /**
- * Report Web Vitals metric to PostHog
+ * Report Web Vitals metric to Umami
  *
- * PostHog expects $web_vitals event with specific property names:
+ * The event keeps the existing $web_vitals property names for dashboard compatibility:
  * - $web_vitals_<METRIC>_value: numeric value
  * - $web_vitals_<METRIC>_event: event details object
  */
 function reportWebVitals(metric: Metric): void {
   if (!analytics.isAnalyticsEnabled()) {
-    // console.debug('[Web Vitals] PostHog not available, skipping metric:', metric.name);
+    // console.debug('[Web Vitals] Umami not available, skipping metric:', metric.name);
     return;
   }
 
@@ -53,7 +53,10 @@ function reportWebVitals(metric: Metric): void {
  * Get metric rating based on Web Vitals thresholds
  * Thresholds from: https://web.dev/articles/vitals
  */
-function getMetricRating(name: string, value: number): 'good' | 'needs-improvement' | 'poor' {
+function getMetricRating(
+  name: string,
+  value: number
+): 'good' | 'needs-improvement' | 'poor' {
   const thresholds: Record<string, { good: number; poor: number }> = {
     // LCP: < 2.5s (good), < 4s (needs improvement), >= 4s (poor)
     LCP: { good: 2500, poor: 4000 },
@@ -94,11 +97,11 @@ export async function initWebVitals(): Promise<void> {
     const { onCLS, onFCP, onLCP, onTTFB, onINP } = webVitals;
 
     // Monitor all Core Web Vitals
-    onCLS(reportWebVitals);  // Cumulative Layout Shift
-    onFCP(reportWebVitals);  // First Contentful Paint
-    onLCP(reportWebVitals);  // Largest Contentful Paint
+    onCLS(reportWebVitals); // Cumulative Layout Shift
+    onFCP(reportWebVitals); // First Contentful Paint
+    onLCP(reportWebVitals); // Largest Contentful Paint
     onTTFB(reportWebVitals); // Time to First Byte
-    onINP(reportWebVitals);  // Interaction to Next Paint (replaces FID)
+    onINP(reportWebVitals); // Interaction to Next Paint (replaces FID)
 
     // console.log('[Web Vitals] Monitoring initialized successfully');
   } catch (error) {

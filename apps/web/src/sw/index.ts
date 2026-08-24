@@ -4256,9 +4256,9 @@ sw.addEventListener('fetch', (event: FetchEvent) => {
   // 而是在 handleImageRequest 中跳过缓存检查直接 fetch，但仍会缓存响应
   // 这样可以确保绕过请求的响应也能被缓存，供后续正常请求使用
 
-  // 放行监控服务域名（PostHog），让浏览器直接处理
+  // 放行监控服务域名（Umami），让浏览器直接处理
   // 这些服务的请求失败不应该影响应用，也不需要记录到调试日志
-  if (url.hostname.endsWith('.posthog.com')) {
+  if (url.hostname === 'umami.tu-zi.com') {
     return; // 静默放行，不记录日志
   }
 

@@ -50,7 +50,7 @@ import {
   shouldUseImplicitWorkflowReferences,
 } from './workflow-media-results';
 
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { HoverTip } from '../shared';
 import './chat-drawer.scss';
 

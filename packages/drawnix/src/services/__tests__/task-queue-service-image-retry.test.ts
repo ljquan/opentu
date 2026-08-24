@@ -341,7 +341,7 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
     };
   });
 
-  vi.doMock('../../utils/posthog-analytics', () => ({
+  vi.doMock('../../utils/umami-analytics', () => ({
     analytics: {
       track: vi.fn(),
       trackModelCall: vi.fn(),

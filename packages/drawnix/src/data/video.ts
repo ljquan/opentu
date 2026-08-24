@@ -4,7 +4,7 @@ import {
   getInsertionPointBelowBottommostElement,
   scrollToPointIfNeeded,
 } from '../utils/selection-utils';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { getInsertionPointFromSavedSelection } from '../utils/canvas-insertion-layout';
 import { insertImageNodeAtPoint } from './image';
 

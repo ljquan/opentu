@@ -7,7 +7,7 @@
 
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { useCharacters } from '../../hooks/useCharacters';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import type { SoraCharacter } from '../../types/character.types';
 import { CharacterAvatar } from './CharacterAvatar';
 import { Z_INDEX } from '../../constants/z-index';

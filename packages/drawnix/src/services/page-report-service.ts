@@ -1,41 +1,20 @@
 /**
  * Page Report Monitoring Service
  *
- * Monitors page view events and performance metrics:
- * - Page views (URL changes, SPA navigation)
+ * Monitors page lifecycle and performance metrics:
+ * - Umami owns standard page views
  * - Page load time and performance
- * - User session data
- * - Device and browser information
+ * - Visibility and unload events
  */
 
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 
 /**
  * Page report event category
  */
 const PAGE_REPORT_CATEGORY = 'page_report';
-const APP_PAGE_VIEW_EVENT = 'app_page_view';
 
 let pageReportInitialized = false;
-let lastTrackedHref = '';
-
-/**
- * Page view data interface
- */
-interface PageViewData {
-  page_url: string;
-  page_path: string;
-  page_title: string;
-  referrer: string;
-  viewport_width: number;
-  viewport_height: number;
-  screen_width: number;
-  screen_height: number;
-  device_type: 'mobile' | 'tablet' | 'desktop';
-  user_agent: string;
-  language: string;
-  timestamp: number;
-}
 
 /**
  * Page performance data interface
@@ -44,56 +23,18 @@ interface PagePerformanceData {
   page_url: string;
   page_path: string;
   // Navigation Timing API metrics
-  dns_time?: number;           // DNS lookup time
-  tcp_time?: number;           // TCP connection time
-  request_time?: number;       // Request time
-  response_time?: number;      // Response time
-  dom_processing_time?: number;// DOM processing time
-  dom_interactive_time?: number;// DOM interactive time
-  dom_complete_time?: number;  // DOM complete time
-  load_time?: number;          // Total page load time
+  dns_time?: number; // DNS lookup time
+  tcp_time?: number; // TCP connection time
+  request_time?: number; // Request time
+  response_time?: number; // Response time
+  dom_processing_time?: number; // DOM processing time
+  dom_interactive_time?: number; // DOM interactive time
+  dom_complete_time?: number; // DOM complete time
+  load_time?: number; // Total page load time
   // Resource Timing
   total_resources?: number;
-  total_size?: number;         // Total resource size in bytes
+  total_size?: number; // Total resource size in bytes
   timestamp: number;
-}
-
-/**
- * Get device type based on screen width
- */
-function getDeviceType(): 'mobile' | 'tablet' | 'desktop' {
-  const width = window.innerWidth;
-  if (width < 768) {
-    return 'mobile';
-  } else if (width < 1024) {
-    return 'tablet';
-  } else {
-    return 'desktop';
-  }
-}
-
-/** 上报字段最大长度，控制 payload 体积避免 413 */
-const MAX_STRING_LENGTH = 200;
-
-/**
- * Collect page view data (user_agent 截断以减小请求体)
- */
-function collectPageViewData(): PageViewData {
-  const ua = navigator.userAgent;
-  return {
-    page_url: window.location.href,
-    page_path: window.location.pathname,
-    page_title: document.title,
-    referrer: document.referrer,
-    viewport_width: window.innerWidth,
-    viewport_height: window.innerHeight,
-    screen_width: window.screen.width,
-    screen_height: window.screen.height,
-    device_type: getDeviceType(),
-    user_agent: ua.length > MAX_STRING_LENGTH ? ua.slice(0, MAX_STRING_LENGTH) : ua,
-    language: navigator.language,
-    timestamp: Date.now(),
-  };
 }
 
 /**
@@ -113,7 +54,9 @@ function collectPagePerformanceData(): PagePerformanceData | null {
 
   // Use modern Performance Navigation Timing API (Level 2) if available
   if (window.performance.getEntriesByType) {
-    const navEntries = window.performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+    const navEntries = window.performance.getEntriesByType(
+      'navigation'
+    ) as PerformanceNavigationTiming[];
 
     if (navEntries && navEntries.length > 0) {
       const navEntry = navEntries[0];
@@ -140,12 +83,14 @@ function collectPagePerformanceData(): PagePerformanceData | null {
 
       // DOM processing time
       if (navEntry.domComplete && navEntry.domInteractive) {
-        data.dom_processing_time = navEntry.domComplete - navEntry.domInteractive;
+        data.dom_processing_time =
+          navEntry.domComplete - navEntry.domInteractive;
       }
 
       // DOM interactive time
       if (navEntry.domInteractive && navEntry.fetchStart) {
-        data.dom_interactive_time = navEntry.domInteractive - navEntry.fetchStart;
+        data.dom_interactive_time =
+          navEntry.domInteractive - navEntry.fetchStart;
       }
 
       // DOM complete time
@@ -175,41 +120,12 @@ function collectPagePerformanceData(): PagePerformanceData | null {
 }
 
 /**
- * Track page view event
- */
-export function trackPageView(): void {
-  if (!analytics.isAnalyticsEnabled()) {
-    // console.debug('[Page Report] PostHog not available, skipping page view');
-    return;
-  }
-
-  const pageViewData = collectPageViewData();
-
-  if (pageViewData.page_url === lastTrackedHref) {
-    return;
-  }
-
-  lastTrackedHref = pageViewData.page_url;
-
-  analytics.track(APP_PAGE_VIEW_EVENT, {
-    category: PAGE_REPORT_CATEGORY,
-    ...pageViewData,
-  });
-
-  // console.log('[Page Report] Page view tracked:', {
-  //   path: pageViewData.page_path,
-  //   title: pageViewData.page_title,
-  //   device: pageViewData.device_type,
-  // });
-}
-
-/**
  * Track page performance event
  * Should be called after page load is complete
  */
 export function trackPagePerformance(): void {
   if (!analytics.isAnalyticsEnabled()) {
-    // console.debug('[Page Report] PostHog not available, skipping performance');
+    // console.debug('[Page Report] Umami not available, skipping performance');
     return;
   }
 
@@ -261,9 +177,6 @@ export function initPageReport(): void {
     }
     pageReportInitialized = true;
 
-    // Track initial page view
-    trackPageView();
-
     // Track page performance after load
     if (document.readyState === 'complete') {
       // Page already loaded
@@ -301,25 +214,6 @@ export function initPageReport(): void {
         });
       }
     });
-
-    // Track SPA navigation (for single-page applications)
-    // Listen to popstate for browser back/forward
-    window.addEventListener('popstate', () => {
-      setTimeout(() => {
-        trackPageView();
-      }, 100); // Small delay to ensure URL has changed
-    });
-
-    // Intercept pushState for explicit SPA navigation.
-    // replaceState is often used for transient URL cleanup and should not count as a page view.
-    const originalPushState = history.pushState;
-
-    history.pushState = function (...args) {
-      originalPushState.apply(this, args);
-      setTimeout(() => {
-        trackPageView();
-      }, 100);
-    };
 
     // console.log('[Page Report] Monitoring initialized successfully');
   } catch (error) {

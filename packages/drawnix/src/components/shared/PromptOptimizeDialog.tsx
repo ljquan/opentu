@@ -43,7 +43,7 @@ import {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import './prompt-optimize-dialog.scss';
 
 type OptimizeHistoryPanel = 'current' | 'requirements';
