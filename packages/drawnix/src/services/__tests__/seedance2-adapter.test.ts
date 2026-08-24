@@ -252,9 +252,21 @@ describe('seedance 2.0 video adapter', () => {
     ).toHaveLength(4);
   });
 
-  it.each(['16:9', '16x9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'])(
+  it.each([
+    ['16:9', '16:9'],
+    ['16x9', '16:9'],
+    ['1280x720', '16:9'],
+    ['720x1280', '9:16'],
+    ['1024x1024', '1:1'],
+    ['4:3', '4:3'],
+    ['1:1', '1:1'],
+    ['3:4', '3:4'],
+    ['9:16', '9:16'],
+    ['21:9', '21:9'],
+    ['adaptive', 'adaptive'],
+  ])(
     'normalizes Seedance 2.5 ratio %s before submission',
-    async (ratio) => {
+    async (ratio, expectedRatio) => {
       const requests: RequestInit[] = [];
       const fetcher = vi.fn(
         async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -287,7 +299,7 @@ describe('seedance 2.0 video adapter', () => {
         url: 'https://cdn.example.com/seedance-25-ratio.mp4',
       });
       const submitBody = JSON.parse(String(requests[0]?.body));
-      expect(submitBody.ratio).toBe(ratio === '16x9' ? '16:9' : ratio);
+      expect(submitBody.ratio).toBe(expectedRatio);
       expect(submitBody.resolution).toBeUndefined();
     }
   );
