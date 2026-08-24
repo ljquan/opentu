@@ -1799,7 +1799,10 @@ export const FramePanel: React.FC<FramePanelProps> = ({
         action: checked
           ? 'select_explainer_reference_slide'
           : 'deselect_explainer_reference_slide',
-        source: 'project_drawer_slides',
+        source:
+          pptViewMode === 'outline'
+            ? 'project_drawer_outline'
+            : 'project_drawer_slides',
         pageCount: orderedPPTFrames.length,
         selectedCount: resolvePptExplainerFrameIds(
           orderedPPTFrames.map((info) => info.frame.id),
@@ -1812,6 +1815,7 @@ export const FramePanel: React.FC<FramePanelProps> = ({
       frames,
       lastSelectedFrameId,
       orderedPPTFrames,
+      pptViewMode,
       selectedFrameIds,
       syncCanvasSelectedFrames,
     ]
@@ -3668,7 +3672,7 @@ export const FramePanel: React.FC<FramePanelProps> = ({
   }${selectedOutlineSlideCount}/${orderedPPTFrames.length}`;
   const selectedExplainerFrameIds = resolvePptExplainerFrameIds(
     orderedPPTFrames.map((info) => info.frame.id),
-    pptViewMode === 'outline' ? outlineSelectedFrameIds : selectedFrameIds
+    selectedFrameIds
   );
   const explainerPageCount =
     selectedExplainerFrameIds?.length || orderedPPTFrames.length;
@@ -3826,6 +3830,18 @@ export const FramePanel: React.FC<FramePanelProps> = ({
           )}
         </div>
       </div>
+
+      {frames.length > 0 && (
+        <div className="frame-panel__explainer-selection-status" role="status">
+          <Video size={14} strokeWidth={1.8} aria-hidden="true" />
+          <span>
+            讲解视频参考：
+            {selectedExplainerFrameIds?.length
+              ? `已选 ${selectedExplainerFrameIds.length} 页`
+              : '未选择，将使用全部 PPT 页面'}
+          </span>
+        </div>
+      )}
 
       {pptViewMode === 'outline' ? (
         orderedPPTFrames.length === 0 || filteredOutlineFrames.length === 0 ? (
@@ -3998,6 +4014,7 @@ export const FramePanel: React.FC<FramePanelProps> = ({
                     >
                       <div className="frame-panel__outline-item-top">
                         <Checkbox
+                          aria-label={`选择第 ${pageIndex + 1} 页生成 PPT 图片`}
                           checked={outlineSelectedFrameIds.has(info.frame.id)}
                           disabled={isOutlineGenerating}
                           onChange={(checked) =>
@@ -4007,6 +4024,22 @@ export const FramePanel: React.FC<FramePanelProps> = ({
                             )
                           }
                         />
+                        <HoverTip content="选择此页作为讲解视频参考">
+                          <Checkbox
+                            className="frame-panel__outline-explainer-checkbox"
+                            checked={selectedFrameIds.has(info.frame.id)}
+                            aria-label={`选择第 ${
+                              pageIndex + 1
+                            } 页作为讲解视频参考`}
+                            onClick={({ e }) => e.stopPropagation()}
+                            onChange={(checked) =>
+                              handleTogglePptExplainerReference(
+                                info,
+                                checked as boolean
+                              )
+                            }
+                          />
+                        </HoverTip>
                         <div className="frame-panel__outline-item-header">
                           <div className="frame-panel__outline-item-title">
                             <span className="frame-panel__outline-page-index">
