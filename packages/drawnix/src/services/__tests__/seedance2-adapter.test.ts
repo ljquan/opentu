@@ -252,6 +252,79 @@ describe('seedance 2.0 video adapter', () => {
     ).toHaveLength(4);
   });
 
+  it.each(['16:9', '16x9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'])(
+    'normalizes Seedance 2.5 ratio %s before submission',
+    async (ratio) => {
+      const requests: RequestInit[] = [];
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          requests.push(init || {});
+          return (init?.method || 'GET') === 'POST'
+            ? jsonResponse({ id: 'seedance-25-ratio-task', status: 'queued' })
+            : jsonResponse({
+                id: 'seedance-25-ratio-task',
+                status: 'completed',
+                duration: 4,
+                metadata: {
+                  url: 'https://cdn.example.com/seedance-25-ratio.mp4',
+                },
+              });
+        }
+      ) as unknown as typeof fetch;
+
+      const resultPromise = seedance2VideoAdapter.generateVideo(
+        createContext(fetcher),
+        {
+          model: 'doubao-seedance-2-5-260628',
+          prompt: 'ratio regression',
+          size: ratio,
+          duration: 4,
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(resultPromise).resolves.toMatchObject({
+        url: 'https://cdn.example.com/seedance-25-ratio.mp4',
+      });
+      const submitBody = JSON.parse(String(requests[0]?.body));
+      expect(submitBody.ratio).toBe(ratio === '16x9' ? '16:9' : ratio);
+      expect(submitBody.resolution).toBeUndefined();
+    }
+  );
+
+  it('normalizes Auto to adaptive from explicit params', async () => {
+    const requests: RequestInit[] = [];
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(init || {});
+        return (init?.method || 'GET') === 'POST'
+          ? jsonResponse({ id: 'seedance-25-auto-task', status: 'queued' })
+          : jsonResponse({
+              id: 'seedance-25-auto-task',
+              status: 'completed',
+              duration: 4,
+              metadata: { url: 'https://cdn.example.com/seedance-25-auto.mp4' },
+            });
+      }
+    ) as unknown as typeof fetch;
+
+    const resultPromise = seedance2VideoAdapter.generateVideo(
+      createContext(fetcher),
+      {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'auto ratio regression',
+        duration: 4,
+        params: { ratio: 'Auto' },
+      }
+    );
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(resultPromise).resolves.toMatchObject({
+      url: 'https://cdn.example.com/seedance-25-auto.mp4',
+    });
+    expect(JSON.parse(String(requests[0]?.body)).ratio).toBe('adaptive');
+  });
+
   it('rejects Seedance 2.5 durations outside 4-30 seconds before transport', async () => {
     const fetcher = vi.fn() as unknown as typeof fetch;
 
