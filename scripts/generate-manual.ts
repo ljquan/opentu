@@ -561,6 +561,13 @@ function generateHtmlHead(page: Page, config: Config): string {
       margin: 1.5rem 0;
       border: 1px solid var(--border-color);
     }
+
+    .screenshot-caption {
+      color: #666;
+      font-size: 0.9rem;
+      text-align: center;
+      margin: -0.75rem 0 1.5rem;
+    }
     
     .tip {
       background: var(--tip-bg);
@@ -806,6 +813,35 @@ function copyE2EGifs(outputDir: string): number {
   return copied;
 }
 
+// 复制手册正文使用的静态资源（例如配置教程截图）
+function copyManualAssets(manualDir: string, outputDir: string): number {
+  const sourceDir = path.join(manualDir, 'assets');
+  if (!fs.existsSync(sourceDir)) {
+    return 0;
+  }
+
+  let copied = 0;
+  function copyDir(source: string, target: string) {
+    fs.mkdirSync(target, { recursive: true });
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      const sourcePath = path.join(source, entry.name);
+      const targetPath = path.join(target, entry.name);
+      if (entry.isDirectory()) {
+        copyDir(sourcePath, targetPath);
+      } else {
+        fs.copyFileSync(sourcePath, targetPath);
+        copied++;
+      }
+    }
+  }
+
+  copyDir(sourceDir, path.join(outputDir, 'assets'));
+  if (copied > 0) {
+    console.log(`📎 复制了 ${copied} 个手册静态资源`);
+  }
+  return copied;
+}
+
 // 主函数
 async function main() {
   const manualDir = path.join(process.cwd(), 'docs', 'user-manual');
@@ -894,6 +930,9 @@ async function main() {
   
   // 复制 GIF 动图
   copyE2EGifs(outputDir);
+
+  // 复制 MDX 引用的静态资源
+  copyManualAssets(manualDir, outputDir);
   
   console.log(`\n🎉 用户手册生成完成！`);
   console.log(`📁 输出目录: ${outputDir}`);
