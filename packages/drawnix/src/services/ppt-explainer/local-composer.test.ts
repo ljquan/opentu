@@ -117,7 +117,6 @@ interface ComposerBrowserOptions {
   recorderPausePending?: boolean;
   recorderResumePending?: boolean;
   recorderStopPending?: boolean;
-  audibleSample?: number;
   decodedDuration?: number;
   finalDuration?: number;
 }
@@ -139,15 +138,6 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
   const mediaSource = {
     connect: vi.fn(),
     disconnect: vi.fn(),
-  };
-  const analyser = {
-    fftSize: 256,
-    smoothingTimeConstant: 0,
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    getFloatTimeDomainData: vi.fn((samples: Float32Array) => {
-      samples.fill(options.audibleSample ?? 0.02);
-    }),
   };
   let recordedDuration = 0;
   const bufferSource = {
@@ -177,7 +167,6 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
     createMediaElementSource: vi.fn(
       () => mediaSource as unknown as MediaElementAudioSourceNode
     ),
-    createAnalyser: vi.fn(() => analyser as unknown as AnalyserNode),
     createBufferSource: vi.fn(
       () => bufferSource as unknown as AudioBufferSourceNode
     ),
@@ -343,7 +332,6 @@ function installComposerBrowser(options: ComposerBrowserOptions = {}) {
 
   return {
     audioContext,
-    analyser,
     audioTrack,
     bufferSource,
     canvas,
@@ -638,8 +626,8 @@ describe('local PPT explainer composer', () => {
     expect(browser.bufferSource.start).toHaveBeenCalledWith(0, 0, 5);
   });
 
-  it('keeps a playable narration even when activity sampling is inconclusive', async () => {
-    installComposerBrowser({ audibleSample: 0, decodedDuration: 5 });
+  it('keeps a playable narration without an audio activity gate', async () => {
+    installComposerBrowser({ decodedDuration: 5 });
 
     const result = await composeLocalPptExplainerVideo({
       slides: [

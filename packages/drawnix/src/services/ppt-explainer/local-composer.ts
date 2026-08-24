@@ -87,7 +87,6 @@ const DEFAULT_HEIGHT = 1080;
 const DEFAULT_FRAME_RATE = 30;
 const DEFAULT_TRANSITION_MS = 350;
 const MAX_SUBTITLE_LINES = 2;
-const AUDIO_ANALYSIS_FFT_SIZE = 256;
 const MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 const FINAL_DURATION_PROBE_TIMEOUT_MS = 10_000;
 
@@ -654,7 +653,7 @@ async function drawTransition(
 
 async function playAudioBuffer(
   audioContext: AudioContext,
-  analyser: AnalyserNode,
+  audioDestination: MediaStreamAudioDestinationNode,
   blob: Blob,
   turn: LocalPptNarrationTurn,
   onFrame: (currentTime: number, duration: number) => void,
@@ -730,7 +729,7 @@ async function playAudioBuffer(
         finish(() => reject(getCompositionAbortReason(signal)));
       };
       source.buffer = buffer;
-      source.connect(analyser);
+      source.connect(audioDestination);
       source.onended = () => {
         finish(() => {
           resolve(playbackDuration);
@@ -759,7 +758,7 @@ async function playAudioBuffer(
 
 async function playMediaElementAudio(
   audioContext: AudioContext,
-  analyser: AnalyserNode,
+  audioDestination: MediaStreamAudioDestinationNode,
   mediaUrl: string,
   turn: LocalPptNarrationTurn,
   onFrame: (currentTime: number, duration: number) => void,
@@ -785,7 +784,7 @@ async function playMediaElementAudio(
   let source: MediaElementAudioSourceNode | undefined;
   try {
     source = audioContext.createMediaElementSource(media);
-    source.connect(analyser);
+    source.connect(audioDestination);
     document.body?.appendChild(media);
   } catch (error) {
     try {
@@ -938,7 +937,7 @@ async function playMediaElementAudio(
 
 function playNarrationTurn(
   audioContext: AudioContext,
-  analyser: AnalyserNode,
+  audioDestination: MediaStreamAudioDestinationNode,
   turn: LocalPptNarrationTurn,
   onFrame: (currentTime: number, duration: number) => void,
   recordingGate: RecordingGate,
@@ -948,7 +947,7 @@ function playNarrationTurn(
   if (turn.audio) {
     return playAudioBuffer(
       audioContext,
-      analyser,
+      audioDestination,
       turn.audio,
       turn,
       onFrame,
@@ -959,7 +958,7 @@ function playNarrationTurn(
   if (turn.mediaUrl?.trim()) {
     return playMediaElementAudio(
       audioContext,
-      analyser,
+      audioDestination,
       turn.mediaUrl,
       turn,
       onFrame,
@@ -998,7 +997,6 @@ export async function composeLocalPptExplainerVideo(
   input.signal?.addEventListener('abort', abortFromInput, { once: true });
   const signal = compositionController.signal;
   let destination: MediaStreamAudioDestinationNode | undefined;
-  let analyser: AnalyserNode | undefined;
   let canvasStream: MediaStream | undefined;
   let combinedStream: MediaStream | undefined;
   let recorder: MediaRecorder | undefined;
@@ -1012,10 +1010,6 @@ export async function composeLocalPptExplainerVideo(
   let activeImageDispose: (() => void) | undefined;
   try {
     destination = audioContext.createMediaStreamDestination();
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = AUDIO_ANALYSIS_FFT_SIZE;
-    analyser.smoothingTimeConstant = 0;
-    analyser.connect(destination);
     canvasStream = canvas.captureStream(input.frameRate || DEFAULT_FRAME_RATE);
     const capturedVideoTrack = canvasStream.getVideoTracks()[0];
     combinedStream = new MediaStream([
@@ -1119,7 +1113,7 @@ export async function composeLocalPptExplainerVideo(
             duration += await waitWhileRecording(
               playNarrationTurn(
                 audioContext,
-                analyser,
+                destination,
                 turn,
                 (currentTime, turnDuration) => {
                   drawSlide(
@@ -1218,11 +1212,6 @@ export async function composeLocalPptExplainerVideo(
       recorder.ondataavailable = null;
       recorder.onstop = null;
       recorder.onerror = null;
-    }
-    try {
-      analyser?.disconnect();
-    } catch {
-      // The analyser may already be disconnected during browser teardown.
     }
     await audioContext.close().catch(() => undefined);
     chunks.length = 0;
