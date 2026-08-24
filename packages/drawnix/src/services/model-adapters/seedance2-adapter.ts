@@ -22,6 +22,7 @@ import {
 import {
   getSeedance2Capabilities,
   getSeedance2Label,
+  isSeedance25ModelId,
   isSeedance2ModelId,
   SEEDANCE_2_RESOLUTIONS,
 } from '../../utils/seedance-model';
@@ -57,6 +58,7 @@ interface Seedance2TaskResponse {
   content?: { video_url?: string; url?: string };
   output?: { url?: string };
   metadata?: { url?: string; video_url?: string };
+  message?: string;
   error?: string | { message?: string };
 }
 
@@ -452,6 +454,8 @@ async function readJsonResponse(
     throw new Seedance2HttpError(
       body?.error
         ? extractErrorMessage(body.error)
+        : body?.message?.trim()
+        ? body.message
         : `${action}失败：HTTP ${response.status}`,
       response.status
     );
@@ -520,7 +524,9 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
     const submitBody = {
       model,
       content: await buildContent(request, capabilities, modelLabel),
-      resolution,
+      // Tuzi's current Seedance 2.5 endpoint does not declare resolution in
+      // its request schema. Keep the legacy field for Seedance 2.0 only.
+      ...(!isSeedance25ModelId(model) ? { resolution } : {}),
       ratio,
       duration,
       generate_audio: parseBoolean(

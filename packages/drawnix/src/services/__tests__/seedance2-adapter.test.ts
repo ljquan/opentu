@@ -241,6 +241,7 @@ describe('seedance 2.0 video adapter', () => {
       ratio: '1:1',
       duration: 30,
     });
+    expect(submitBody.resolution).toBeUndefined();
     expect(submitBody.seed).toBeUndefined();
     expect(submitBody.camera_fixed).toBeUndefined();
     expect(
@@ -262,6 +263,19 @@ describe('seedance 2.0 video adapter', () => {
       })
     ).rejects.toThrow('1-30 秒整数');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a top-level provider message for Seedance submission errors', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ message: '请求参数无效，请检查后重试' }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'provider validation error',
+      })
+    ).rejects.toThrow('请求参数无效，请检查后重试');
   });
 
   it('submits multiple workflow media references and deduplicates legacy values', async () => {
