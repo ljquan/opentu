@@ -125,7 +125,8 @@ export async function generateVideo(
   assertCurrentAttempt();
 
   // 通知调用方 taskId，以便提前持久化到工作流步骤
-  options.onTaskCreated?.(taskId);
+  await options.onTaskCreated?.(taskId);
+  assertCurrentAttempt();
 
   // 构建 executor 参数
   const executorParams: VideoGenerationParams = {

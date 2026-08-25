@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => ({
   getEffectiveVideoModelConfigForSelection: vi.fn(),
   composeLocalPptVideo: vi.fn(),
   cacheMediaFromBlob: vi.fn(),
+  waitForTaskCompletion: vi.fn(),
 }));
 
 async function collectSubmittedSlides(
@@ -149,6 +150,10 @@ vi.mock('../unified-cache-service', () => ({
 
 vi.mock('../media-generation/video-generation-service', () => ({
   generateVideo: mocks.generateVideo,
+}));
+
+vi.mock('../media-executor', () => ({
+  waitForTaskCompletion: mocks.waitForTaskCompletion,
 }));
 
 vi.mock('./local-composer', () => ({
@@ -373,6 +378,10 @@ beforeEach(() => {
   mocks.getAllCachedMedia.mockResolvedValue([]);
   mocks.deleteCache.mockResolvedValue(undefined);
   mocks.cacheMediaFromBlob.mockImplementation(async (url: string) => url);
+  mocks.waitForTaskCompletion.mockResolvedValue({
+    success: false,
+    error: 'unexpected narration recovery',
+  });
   mocks.cancelJob.mockResolvedValue({ attempted: true, status: 'cancelled' });
   mocks.getCanvasBoardBinding.mockReturnValue({
     board: {},
@@ -747,6 +756,200 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
           stage: 'completed',
           internalTaskIds: ['segment-task-1', 'segment-task-2'],
         },
+      },
+    });
+  });
+
+  it('刷新恢复时复用已缓存片段，只生成尚未完成的页面', async () => {
+    const taskId = 'local-segment-recovery';
+    const cachedSegmentUrl = '/__aitu_cache__/video/segment-before-refresh.mp4';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+        internalTaskIds: ['segment-before-refresh'],
+        narrationSegments: {
+          '1:0': {
+            internalTaskId: 'segment-before-refresh',
+            mediaUrl: cachedSegmentUrl,
+          },
+        },
+        slides: [
+          {
+            pageIndex: 1,
+            snapshotUrl: '/slide-1.png',
+            snapshotMimeType: 'image/png',
+            turns: [{ speakerId: 'host', text: '第一页讲解' }],
+          },
+          {
+            pageIndex: 2,
+            snapshotUrl: '/slide-2.png',
+            snapshotMimeType: 'image/png',
+            turns: [{ speakerId: 'host', text: '第二页讲解' }],
+          },
+        ],
+      })
+    );
+    mocks.getAllCachedMedia.mockResolvedValue([
+      {
+        url: cachedSegmentUrl,
+        metadata: {
+          taskId: 'segment-before-refresh',
+          resultVisibility: 'internal',
+        },
+      },
+    ]);
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      options.onTaskCreated?.('segment-after-refresh');
+      return {
+        task: { id: 'segment-after-refresh' },
+        url: 'https://cdn.example.com/segment-after-refresh.mp4',
+      };
+    });
+    mocks.cacheRemoteUrl.mockResolvedValue(
+      '/__aitu_cache__/video/segment-after-refresh.mp4'
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledOnce();
+    expect(mocks.generateVideo).toHaveBeenCalledWith(
+      expect.stringContaining('第二页讲解'),
+      expect.any(Object)
+    );
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            turns: [expect.objectContaining({ mediaUrl: cachedSegmentUrl })],
+          }),
+          expect.objectContaining({
+            turns: [
+              expect.objectContaining({
+                mediaUrl: '/__aitu_cache__/video/segment-after-refresh.mp4',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.COMPLETED,
+      params: {
+        pptExplainer: {
+          narrationSegments: {
+            '1:0': {
+              internalTaskId: 'segment-before-refresh',
+              mediaUrl: cachedSegmentUrl,
+            },
+            '2:0': {
+              internalTaskId: 'segment-after-refresh',
+              mediaUrl: '/__aitu_cache__/video/segment-after-refresh.mp4',
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('刷新发生在片段轮询期间时等待原子任务，不重复提交', async () => {
+    const taskId = 'local-inflight-segment-recovery';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+        internalTaskIds: ['segment-inflight'],
+        narrationSegments: {
+          '1:0': { internalTaskId: 'segment-inflight' },
+        },
+      })
+    );
+    installTask({
+      id: 'segment-inflight',
+      type: TaskType.VIDEO,
+      status: TaskStatus.PROCESSING,
+      params: { prompt: '第一页讲解', model: 'video-model' },
+      createdAt: 1,
+      updatedAt: 1,
+      progress: 30,
+      remoteId: 'remote-segment-inflight',
+      executionPhase: TaskExecutionPhase.POLLING,
+    });
+    mocks.waitForTaskCompletion.mockResolvedValue({
+      success: true,
+      task: {
+        id: 'segment-inflight',
+        status: TaskStatus.COMPLETED,
+        result: { url: 'https://cdn.example.com/segment-inflight.mp4' },
+      },
+    });
+    mocks.cacheRemoteUrl.mockResolvedValue(
+      '/__aitu_cache__/video/segment-inflight.mp4'
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.waitForTaskCompletion).toHaveBeenCalledWith(
+      'segment-inflight',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(mocks.generateVideo).not.toHaveBeenCalled();
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            turns: [
+              expect.objectContaining({
+                mediaUrl: '/__aitu_cache__/video/segment-inflight.mp4',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('刷新时片段远端提交状态不明则停止恢复，不冒险重复计费', async () => {
+    const taskId = 'local-unknown-segment-submission';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+        internalTaskIds: ['segment-unknown'],
+        narrationSegments: {
+          '1:0': { internalTaskId: 'segment-unknown' },
+        },
+      })
+    );
+    installTask({
+      id: 'segment-unknown',
+      type: TaskType.VIDEO,
+      status: TaskStatus.PROCESSING,
+      params: { prompt: '第一页讲解', model: 'video-model' },
+      createdAt: 1,
+      updatedAt: 1,
+      progress: 0,
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+    });
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.waitForTaskCompletion).not.toHaveBeenCalled();
+    expect(mocks.generateVideo).not.toHaveBeenCalled();
+    expect(mocks.composeLocalPptVideo).not.toHaveBeenCalled();
+    expect(mocks.tasks.get(taskId)).toMatchObject({
+      status: TaskStatus.FAILED,
+      error: {
+        message: expect.stringContaining('为避免重复计费已停止自动恢复'),
       },
     });
   });

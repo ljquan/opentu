@@ -17,6 +17,7 @@ import { taskQueueService } from '../task-queue';
 import { unifiedCacheService } from '../unified-cache-service';
 import { workspaceService } from '../workspace-service';
 import { generateVideo } from '../media-generation/video-generation-service';
+import { waitForTaskCompletion } from '../media-executor';
 import {
   deletePptxImportCache,
   deletePptxImportCacheByJobId,
@@ -814,41 +815,146 @@ async function runLocalComposition(
       timelineIndex: number;
     }>
   > = [];
+  const cachedNarrationUrls = new Set(
+    (await unifiedCacheService.getAllCachedMedia().catch(() => [])).map(
+      (item) => item.url
+    )
+  );
 
   const generateCompositionTurn = async (
     slide: PptExplainerSlide,
     segment: ReturnType<typeof planPptExplainerSlideTimeline>[number],
-    timelineIndex: number
+    timelineIndex: number,
+    options: { forceRegenerate?: boolean } = {}
   ): Promise<LocalPptCompositionSlide['turns'][number]> => {
     if (!slide.snapshotUrl) {
       throw new Error(`PPT 第 ${slide.pageIndex} 页缺少页面快照`);
+    }
+    const segmentKey = `${slide.pageIndex}:${timelineIndex}`;
+    const existingSegment = state.narrationSegments?.[segmentKey];
+    if (
+      !options.forceRegenerate &&
+      existingSegment?.mediaUrl &&
+      cachedNarrationUrls.has(existingSegment.mediaUrl)
+    ) {
+      return {
+        mediaUrl: existingSegment.mediaUrl,
+        subtitleCues: segment.subtitleCues,
+        maxDurationSeconds: segment.outputDurationSeconds,
+        outputDurationSeconds: segment.outputDurationSeconds,
+      };
+    }
+    let resumedTask: Task | undefined;
+    if (!options.forceRegenerate && existingSegment?.internalTaskId) {
+      const currentInternalTask = taskQueueService.getTask(
+        existingSegment.internalTaskId
+      );
+      if (!currentInternalTask) {
+        throw new Error(
+          `PPT 第 ${slide.pageIndex} 页第 ${
+            timelineIndex + 1
+          } 段的原子任务已丢失，无法安全自动重提`
+        );
+      }
+      if (
+        currentInternalTask.status === TaskStatus.COMPLETED &&
+        currentInternalTask.result?.url
+      ) {
+        resumedTask = currentInternalTask;
+      } else if (currentInternalTask.status === TaskStatus.COMPLETED) {
+        throw new Error(
+          `PPT 第 ${slide.pageIndex} 页第 ${
+            timelineIndex + 1
+          } 段的原子任务已完成但缺少结果地址`
+        );
+      } else if (
+        currentInternalTask.status === TaskStatus.FAILED ||
+        currentInternalTask.status === TaskStatus.CANCELLED
+      ) {
+        throw new Error(
+          currentInternalTask.error?.message ||
+            `PPT 第 ${slide.pageIndex} 页第 ${
+              timelineIndex + 1
+            } 段的原子任务未成功完成`
+        );
+      } else if (!currentInternalTask.remoteId) {
+        throw new Error(
+          `PPT 第 ${slide.pageIndex} 页第 ${
+            timelineIndex + 1
+          } 段的远端提交状态无法确认，为避免重复计费已停止自动恢复`
+        );
+      } else {
+        const resumed = await waitForTaskCompletion(
+          existingSegment.internalTaskId,
+          {
+            signal,
+            isCurrentAttempt: () =>
+              isCurrentAttempt(taskId, executionAttempt, signal),
+          }
+        );
+        if (!resumed.success || !resumed.task?.result?.url) {
+          throw new Error(
+            resumed.error || 'PPT 讲解片段恢复失败，请重试根任务'
+          );
+        }
+        resumedTask = resumed.task;
+      }
     }
     const prompt = buildPptExplainerVideoPrompt(
       { ...slide, turns: segment.turns },
       state.speakers,
       segment.outputDurationSeconds
     );
-    let ownershipWrite: Promise<void> | undefined;
-    const generated = await generatePptExplainerSegment(
-      prompt,
-      {
-        model: videoModelId,
-        modelRef: videoModelRef,
-        duration: segment.requestDurationSeconds,
-        size: videoModelConfig.defaultSize,
-        resultVisibility: 'internal',
-        autoInsertToCanvas: false,
-        onTaskCreated: (internalTaskId) => {
-          ownershipWrite = registerInternalTaskOwnership(
-            taskId,
-            internalTaskId,
-            executionAttempt
-          );
-        },
-      },
-      signal
-    );
-    await ownershipWrite;
+    let checkpointWrite: Promise<void> | undefined;
+    const generated = resumedTask
+      ? { task: resumedTask, url: resumedTask.result?.url }
+      : await generatePptExplainerSegment(
+          prompt,
+          {
+            model: videoModelId,
+            modelRef: videoModelRef,
+            duration: segment.requestDurationSeconds,
+            size: videoModelConfig.defaultSize,
+            resultVisibility: 'internal',
+            autoInsertToCanvas: false,
+            onTaskCreated: (internalTaskId) => {
+              checkpointWrite = registerInternalTaskOwnership(
+                taskId,
+                internalTaskId,
+                executionAttempt
+              ).then(async () => {
+                const currentTask = taskQueueService.getTask(taskId);
+                const currentState = currentTask
+                  ? readPptExplainerState(currentTask)
+                  : null;
+                if (
+                  !currentTask ||
+                  !currentState ||
+                  currentState.executionAttempt !== executionAttempt
+                ) {
+                  return;
+                }
+                const updatedState = await persistStage(
+                  taskId,
+                  {
+                    ...currentState,
+                    narrationSegments: {
+                      ...(currentState.narrationSegments || {}),
+                      [segmentKey]: { internalTaskId },
+                    },
+                  },
+                  executionAttempt,
+                  currentTask.progress || 50,
+                  TaskExecutionPhase.SUBMITTING
+                );
+                state = updatedState;
+              });
+              return checkpointWrite;
+            },
+          },
+          signal
+        );
+    await checkpointWrite;
     state = {
       ...state,
       internalTaskIds: getOwnedInternalTaskIds(taskId, state),
@@ -867,6 +973,31 @@ async function runLocalComposition(
       generated.url,
       generated.task,
       signal
+    );
+    cachedNarrationUrls.add(narrationMediaUrl);
+    const currentTask = taskQueueService.getTask(taskId);
+    const currentState = currentTask
+      ? readPptExplainerState(currentTask)
+      : null;
+    state = await persistStage(
+      taskId,
+      {
+        ...state,
+        internalTaskIds:
+          currentState?.executionAttempt === executionAttempt
+            ? currentState.internalTaskIds
+            : state.internalTaskIds,
+        narrationSegments: {
+          ...(state.narrationSegments || {}),
+          [segmentKey]: {
+            internalTaskId: generated.task.id,
+            mediaUrl: narrationMediaUrl,
+          },
+        },
+      },
+      executionAttempt,
+      currentTask?.progress || 50,
+      TaskExecutionPhase.SUBMITTING
     );
     return {
       mediaUrl: narrationMediaUrl,
@@ -1026,7 +1157,8 @@ async function runLocalComposition(
         await generateCompositionTurn(
           plan.slide,
           plan.segment,
-          plan.timelineIndex
+          plan.timelineIndex,
+          { forceRegenerate: true }
         );
     }
   }

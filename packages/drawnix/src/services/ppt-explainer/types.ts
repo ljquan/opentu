@@ -99,6 +99,11 @@ export interface PptExplainerDeliveryState {
   canvasInserted: boolean;
 }
 
+export interface PptExplainerNarrationSegmentCheckpoint {
+  internalTaskId: string;
+  mediaUrl?: string;
+}
+
 export interface PptExplainerTaskState {
   schemaVersion: typeof PPT_EXPLAINER_SCHEMA_VERSION;
   jobId: string;
@@ -114,6 +119,8 @@ export interface PptExplainerTaskState {
   sourceFrameRevisions?: Record<string, string>;
   /** Internal image tasks owned by this root task and cleaned with it. */
   internalTaskIds?: string[];
+  /** Completed local narration segments, keyed by page index and timeline index. */
+  narrationSegments?: Record<string, PptExplainerNarrationSegmentCheckpoint>;
   pptxImport?: PptxImportCheckpoint;
   pptx?: PptExplainerPptxSource;
   deckFingerprint?: string;

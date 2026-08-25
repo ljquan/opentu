@@ -225,6 +225,14 @@ async function sniffMediaExtension(
   type: BatchDownloadItem['type'],
   sourceUrl: string
 ): Promise<string> {
+  const normalizedMimeType = blob.type.toLowerCase().split(';')[0].trim();
+  if (
+    normalizedMimeType === 'text/html' ||
+    normalizedMimeType === 'application/json'
+  ) {
+    throw new Error('下载地址返回的不是媒体文件');
+  }
+
   const header = await readBlobHeader(blob, 16);
   if (
     header.length >= 8 &&
@@ -254,13 +262,6 @@ async function sniffMediaExtension(
     return 'ogg';
   }
 
-  const normalizedMimeType = blob.type.toLowerCase().split(';')[0].trim();
-  if (
-    normalizedMimeType === 'text/html' ||
-    normalizedMimeType === 'application/json'
-  ) {
-    throw new Error('下载地址返回的不是媒体文件');
-  }
   const mimeExtension = getFileExtension('', normalizedMimeType);
   if (mimeExtension !== 'bin') {
     return mimeExtension;
