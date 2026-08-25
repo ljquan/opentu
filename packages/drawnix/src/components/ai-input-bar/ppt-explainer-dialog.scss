@@ -120,6 +120,22 @@
     gap: 8px;
   }
 
+  &__model-picker {
+    display: flex;
+    width: min(320px, 42%);
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+  }
+
+  &__model-label {
+    flex: 0 0 auto;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   &__footer-status {
     min-width: 0;
     flex: 1;
@@ -147,6 +163,22 @@
 
     &__footer-status {
       white-space: normal;
+    }
+
+    &__footer {
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+
+    &__model-picker {
+      width: 100%;
+      margin-right: 0;
+    }
+
+    &__footer-status {
+      order: 3;
+      width: 100%;
+      flex-basis: 100%;
     }
   }
 }

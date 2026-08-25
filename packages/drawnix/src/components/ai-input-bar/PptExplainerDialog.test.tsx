@@ -9,6 +9,8 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../types/task.types';
+import { ModelVendor, type ModelConfig } from '../../constants/model-config';
+import type { ModelRef } from '../../utils/settings-manager';
 import {
   PptExplainerDialog,
   type PptExplainerDialogDraft,
@@ -25,6 +27,42 @@ vi.mock('../dialog/ConfirmDialog', () => ({
     confirm: mocks.confirm,
     confirmDialog: null,
   }),
+}));
+
+vi.mock('./ModelDropdown', () => ({
+  ModelDropdown: ({
+    models,
+    selectedModel,
+    onSelect,
+    placeholder,
+  }: {
+    models: ModelConfig[];
+    selectedModel: string;
+    onSelect: (
+      modelId: string,
+      modelRef?: { profileId: string | null; modelId: string } | null
+    ) => void;
+    placeholder?: string;
+  }) => (
+    <div>
+      <span>{models.length ? selectedModel : placeholder}</span>
+      {models.map((model) => (
+        <button
+          type="button"
+          key={model.selectionKey || model.id}
+          aria-label={`选择 ${model.label || model.id}`}
+          onClick={() =>
+            onSelect(model.id, {
+              profileId: model.sourceProfileId || null,
+              modelId: model.id,
+            })
+          }
+        >
+          {model.label || model.id}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('tdesign-react', () => ({
@@ -131,12 +169,35 @@ vi.mock('tdesign-react', () => ({
 
 const videoModelRef = { profileId: 'profile-1', modelId: 'video-1' };
 
+function createVideoModel(
+  id: string,
+  label: string,
+  profileId: string
+): ModelConfig {
+  return {
+    id,
+    label,
+    type: 'video',
+    vendor: ModelVendor.OTHER,
+    sourceProfileId: profileId,
+    selectionKey: `${profileId}::${id}`,
+  };
+}
+
+const videoModels = [
+  createVideoModel('video-1', '视频模型 1', 'profile-1'),
+  createVideoModel('video-2', '视频模型 2', 'profile-2'),
+];
+
 function renderDialog(
   overrides: Partial<React.ComponentProps<typeof PptExplainerDialog>> = {}
 ) {
   const onCreate =
     overrides.onCreate || vi.fn().mockResolvedValue({ id: 'task-1' } as Task);
   const onClose = vi.fn();
+  const onVideoModelChange =
+    overrides.onVideoModelChange ||
+    vi.fn<(modelId: string, modelRef?: ModelRef | null) => void>();
   const rendered = render(
     <PptExplainerDialog
       open
@@ -146,12 +207,14 @@ function renderDialog(
       imageModel="image-1"
       videoModel="video-1"
       videoModelRef={videoModelRef}
+      videoModels={videoModels}
+      onVideoModelChange={onVideoModelChange}
       onCreate={onCreate}
       onClose={onClose}
       {...overrides}
     />
   );
-  return { onCreate, onClose, ...rendered };
+  return { onCreate, onClose, onVideoModelChange, ...rendered };
 }
 
 describe('PptExplainerDialog', () => {
@@ -305,6 +368,61 @@ describe('PptExplainerDialog', () => {
         videoModelRef: null,
       })
     ).toBe('请选择当前可用的视频模型');
+  });
+
+  it('在弹窗底部切换真实视频模型并回写对应来源', () => {
+    const { onVideoModelChange } = renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: '选择 视频模型 2' }));
+
+    expect(onVideoModelChange).toHaveBeenCalledWith('video-2', {
+      profileId: 'profile-2',
+      modelId: 'video-2',
+    });
+  });
+
+  it('切换同名视频模型时保留供应商来源', () => {
+    const sameIdModels = [
+      createVideoModel('shared-video', '供应商 A', 'profile-a'),
+      createVideoModel('shared-video', '供应商 B', 'profile-b'),
+    ];
+    const { onVideoModelChange } = renderDialog({
+      videoModel: 'shared-video',
+      videoModelRef: { profileId: 'profile-a', modelId: 'shared-video' },
+      videoModels: sameIdModels,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '选择 供应商 B' }));
+
+    expect(onVideoModelChange).toHaveBeenCalledWith('shared-video', {
+      profileId: 'profile-b',
+      modelId: 'shared-video',
+    });
+  });
+
+  it('没有已配置视频模型时显示空态并禁止创建', () => {
+    renderDialog({ videoModels: [] });
+
+    expect(screen.getByText('暂无已配置视频模型')).not.toBeNull();
+    expect(
+      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it('当前模型已不在候选列表时禁止创建', () => {
+    renderDialog({
+      videoModel: 'removed-video',
+      videoModelRef: {
+        profileId: 'removed-profile',
+        modelId: 'removed-video',
+      },
+    });
+
+    expect(
+      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
   });
 
   it('从 PPT 编辑器入口打开时直接使用当前 PPT', () => {

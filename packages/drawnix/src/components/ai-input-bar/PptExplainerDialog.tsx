@@ -8,6 +8,11 @@ import {
   Textarea,
 } from 'tdesign-react';
 import type { ModelRef } from '../../utils/settings-manager';
+import type { ModelConfig } from '../../constants/model-config';
+import {
+  getSelectionKey,
+  getSelectionKeyForModel,
+} from '../../utils/model-selection';
 import type { Task } from '../../types/task.types';
 import type {
   PptExplainerCreateInput,
@@ -17,7 +22,11 @@ import type {
 } from '../../services/ppt-explainer/types';
 import { authorizePptExplainerUiCreation } from '../../services/ppt-explainer/creation-service';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
+import { ModelDropdown } from './ModelDropdown';
 import './ppt-explainer-dialog.scss';
+
+const EMPTY_VIDEO_MODEL_LABEL = '暂无已配置视频模型';
+const EMPTY_VIDEO_MODEL_TEXT = '请先在供应商设置中获取并勾选视频模型';
 
 const SOURCE_OPTIONS: Array<{
   value: PptExplainerCreateSourceKind;
@@ -61,6 +70,8 @@ export interface PptExplainerDialogProps {
   imageModelRef?: ModelRef | null;
   videoModel: string;
   videoModelRef?: ModelRef | null;
+  videoModels: ModelConfig[];
+  onVideoModelChange: (modelId: string, modelRef?: ModelRef | null) => void;
   onCreate: (input: PptExplainerCreateInput) => Promise<Task>;
   onClose: () => void;
 }
@@ -188,6 +199,8 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   imageModelRef,
   videoModel,
   videoModelRef,
+  videoModels,
+  onVideoModelChange,
   onCreate,
   onClose,
 }) => {
@@ -198,12 +211,17 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirmDialog();
   const speakerCount = getSpeakerCount(draft.presenterMode);
+  const selectedVideoModelKey = getSelectionKey(videoModel, videoModelRef);
+  const hasSelectedVideoModel = videoModels.some(
+    (model) => getSelectionKeyForModel(model) === selectedVideoModelKey
+  );
+
   const validationError = validatePptExplainerDialogDraft(draft, {
     sourceBoardId,
     textModel,
     imageModel,
-    videoModel,
-    videoModelRef,
+    videoModel: hasSelectedVideoModel ? videoModel : '',
+    videoModelRef: hasSelectedVideoModel ? videoModelRef : null,
   });
 
   const updateSpeaker = (index: number, patch: Partial<SpeakerDraft>): void => {
@@ -290,6 +308,30 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
         }}
         footer={
           <div className="ppt-explainer-dialog__footer">
+            <div className="ppt-explainer-dialog__model-picker">
+              <span className="ppt-explainer-dialog__model-label">
+                视频模型
+              </span>
+              <ModelDropdown
+                selectedModel={videoModel}
+                selectedSelectionKey={selectedVideoModelKey}
+                onSelect={(modelId, modelRef) => {
+                  setSubmitError(null);
+                  onVideoModelChange(modelId, modelRef || null);
+                }}
+                language="zh"
+                models={videoModels}
+                header="选择视频模型 (↑↓ Tab)"
+                placement="up"
+                variant="form"
+                placeholder={EMPTY_VIDEO_MODEL_LABEL}
+                allowCustomValue={false}
+                disabled={loading || videoModels.length === 0}
+                showProviderAction={false}
+                emptyText={EMPTY_VIDEO_MODEL_TEXT}
+                strictModelList
+              />
+            </div>
             <span
               className="ppt-explainer-dialog__footer-status"
               role={submitError ? 'alert' : undefined}

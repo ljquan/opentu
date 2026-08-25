@@ -7652,6 +7652,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             imageModelRef={selectedAgentImageModelRef}
             videoModel={selectedAgentVideoModel}
             videoModelRef={selectedAgentVideoModelRef}
+            videoModels={visibleAgentVideoModels}
+            onVideoModelChange={(modelId, modelRef) =>
+              handleAgentMediaModelSelect('video', modelId, modelRef)
+            }
             onCreate={handleCreatePptExplainerTask}
             onClose={() => {
               setPptExplainerDialogOpen(false);
