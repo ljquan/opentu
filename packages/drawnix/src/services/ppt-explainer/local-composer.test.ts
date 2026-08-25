@@ -707,57 +707,52 @@ describe('local PPT explainer composer', () => {
     await expect(composition).resolves.toMatchObject({ duration: 3 });
   });
 
-  it('rejects a source that cannot cover the planned narration window', async () => {
-    installComposerBrowser({ decodedDuration: 4 });
+  it('returns a shorter source without requiring it to cover the plan', async () => {
+    installComposerBrowser({ decodedDuration: 4, finalDuration: 4 });
 
-    await expect(
-      composeLocalPptExplainerVideo({
-        slides: [
-          {
-            imageUrl: '/slide.png',
-            turns: [
-              {
-                audio: new Blob(['audio'], { type: 'audio/mpeg' }),
-                subtitle: '本页讲解',
-                outputDurationSeconds: 10,
-              },
-            ],
-          },
-        ],
-      })
-    ).rejects.toThrow('无法覆盖计划的 10.0 秒');
+    const result = await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+              outputDurationSeconds: 10,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.duration).toBe(4);
   });
 
-  it('rejects and releases a recording whose real duration drifts from the plan', async () => {
-    const browser = installComposerBrowser({
+  it('returns the real recording duration without comparing it to the plan', async () => {
+    installComposerBrowser({
       decodedDuration: 60,
       finalDuration: 249,
     });
 
-    await expect(
-      composeLocalPptExplainerVideo({
-        slides: [
-          {
-            imageUrl: '/slide.png',
-            turns: [
-              {
-                audio: new Blob(['audio'], { type: 'audio/mpeg' }),
-                subtitle: '本页讲解',
-                outputDurationSeconds: 60,
-              },
-            ],
-          },
-        ],
-      })
-    ).rejects.toThrow('成片实际 249.0 秒，与计划 60.0 秒不一致');
+    const result = await composeLocalPptExplainerVideo({
+      slides: [
+        {
+          imageUrl: '/slide.png',
+          turns: [
+            {
+              audio: new Blob(['audio'], { type: 'audio/mpeg' }),
+              subtitle: '本页讲解',
+              outputDurationSeconds: 60,
+            },
+          ],
+        },
+      ],
+    });
 
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:composed-video');
-    expect(browser.videoTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioTrack.stop).toHaveBeenCalledOnce();
-    expect(browser.audioContext.close).toHaveBeenCalledOnce();
+    expect(result.duration).toBe(249);
   });
 
-  it('returns the real recording duration when it is within tolerance', async () => {
+  it('returns the real recording duration from media metadata', async () => {
     installComposerBrowser({ decodedDuration: 60, finalDuration: 60.5 });
 
     const result = await composeLocalPptExplainerVideo({
@@ -776,24 +771,6 @@ describe('local PPT explainer composer', () => {
     });
 
     expect(result.duration).toBe(60.5);
-  });
-
-  it('applies bounded tolerance to final recording duration', () => {
-    expect(() =>
-      localPptComposerInternals.assertFinalDurationMatches(249, 60)
-    ).toThrow('成片实际 249.0 秒，与计划 60.0 秒不一致');
-    expect(() =>
-      localPptComposerInternals.assertFinalDurationMatches(10.75, 10)
-    ).not.toThrow();
-    expect(() =>
-      localPptComposerInternals.assertFinalDurationMatches(10.76, 10)
-    ).toThrow();
-    expect(() =>
-      localPptComposerInternals.assertFinalDurationMatches(203, 200)
-    ).not.toThrow();
-    expect(() =>
-      localPptComposerInternals.assertFinalDurationMatches(203.01, 200)
-    ).toThrow();
   });
 
   it('loads cached slide and narration blobs without Service Worker URLs', async () => {

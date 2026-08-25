@@ -2,7 +2,7 @@
 
 ### Requirement: PPT Explainer Agent SHALL Accept One Presentation Source
 
-系统 SHALL 允许用户从主题生成、当前画布 PPT 或上传 PPTX 中选择且只选择一个演示来源。
+系统 SHALL 允许用户从主题生成或当前画布 PPT 中选择且只选择一个演示来源。
 
 #### Scenario: Generate a deck from a topic
 
@@ -54,16 +54,9 @@
 - **WHEN** 创建服务校验请求
 - **THEN** 系统 SHALL 在模型预检或任务持久化前拒绝请求
 
-#### Scenario: Use an uploaded PPTX
-
-- **GIVEN** 用户选择一个可解析的 PPTX
-- **WHEN** 用户提交任务
-- **THEN** 系统 SHALL 保留原始页序和页面比例
-- **AND** SHALL 在浏览器中安全解析并生成有序页面快照
-
 #### Scenario: Reject a missing or ambiguous source
 
-- **WHEN** 来源为空、选择多个来源、当前画板没有 PPT 页面或 PPTX 没有可用页面
+- **WHEN** 来源为空、选择多个来源、使用不受支持的来源，或当前画板没有 PPT 页面
 - **THEN** 系统 SHALL 在模型调用、缓存写入或任务持久化前停止
 - **AND** SHALL 显示可操作的来源错误且不产生部分任务
 
@@ -101,7 +94,7 @@
 
 ### Requirement: PPT Explainer SHALL Support Two Presenter Modes
 
-系统 SHALL 仅支持单人讲解和双人对谈两种模式，并使用结构化 speaker 配置。
+系统 SHALL 仅允许新建任务使用单人讲解和双人对谈两种模式，并使用结构化 speaker 配置；历史任务中的旧模式字段只允许兼容读取和恢复，不得重新暴露为创建能力。
 
 #### Scenario: Generate single-presenter narration
 
@@ -113,7 +106,8 @@
 
 - **WHEN** 用户选择双人对谈并配置两个不同 speaker
 - **THEN** 讲稿 SHALL 生成仅引用这两个 speaker 的有序 turns
-- **AND** 最终视频 SHALL 按 turns 顺序生成对谈内容
+- **AND** 讲稿 SHOULD 优先形成一轮主讲与回应，较长页面最多两轮，避免逐句频繁切换 speaker
+- **AND** 最终视频 SHALL 按连续 speaker 边界拆成单角色有声片段，再按 turns 顺序合成对谈内容
 
 #### Scenario: Reject incomplete presenter configuration
 
@@ -165,8 +159,9 @@
 
 - **WHEN** 用户选择单人或双人讲解模式
 - **THEN** 系统 SHALL 只要求讲解者名称
-- **AND** 双人差异 SHALL 通过角色顺序和不同声线的提示词表达
-- **AND** SHALL 提示实际音色和朗读一致性由视频模型决定
+- **AND** 双人 turns SHALL 按连续角色拆成独立的单角色视频请求
+- **AND** 主讲人与嘉宾 SHALL 使用稳定角色身份和互斥的成年男声/女声提示约束，不得因 speaker 数组顺序变化而互换
+- **AND** SHALL 提示该约束不是供应商 voice ID，实际音色和朗读一致性仍由视频模型决定
 
 #### Scenario: Reject an unavailable model or invented configuration
 
@@ -191,6 +186,7 @@
 - **GIVEN** 用户选择一个已配置且具有可执行路由的视频模型
 - **WHEN** 用户选择单人或双人讲解
 - **THEN** 系统 SHALL 按页面把 speaker turns 通过普通文生视频链路提交为有声视频片段，不得携带页面参考图
+- **AND** 各角色片段的输出窗口总和 SHALL 等于该页目标时长，供应商请求时长 SHALL 只使用模型实际声明的合法选项
 - **AND** 系统 SHALL 只使用片段音轨，不得把模型重绘画面作为最终 PPT 视觉
 - **AND** 系统 SHALL 按页序固定绘制原 PPT 快照并合成音轨、字幕和转场
 - **AND** 最终用户可见视频的每一页 SHALL 与已接受的 PPT 页面视觉一致
@@ -200,7 +196,8 @@
 - **GIVEN** 用户页目标时长不能由所选视频模型的一个合法时长直接覆盖
 - **WHEN** 系统规划该页内部视频子任务
 - **THEN** 系统 SHALL 仅使用模型当前暴露的合法时长选项拆成一个或多个片段
-- **AND** 最后一段超过剩余页时间窗时，最终合成 SHALL 只使用分配给该段的目标窗口
+- **AND** 最后一段超过剩余页时间窗时，最终合成 SHALL 只使用分配给该段的最长播放窗口
+- **AND** 片段提前结束时，最终合成 SHALL 直接使用实际时长，不补静音或延长页面
 - **AND** 系统 SHALL NOT 把页目标或整部成片总时长作为模型不支持的单段时长提交
 
 #### Scenario: Display sentence-aligned subtitles
@@ -216,12 +213,12 @@
 - **THEN** 系统 SHALL 停止最终合成并保留供应商真实结果或错误
 - **AND** SHALL 提示改用明确支持有声视频的模型，不得伪造音频模型
 
-#### Scenario: Reject silent or duration-invalid narration media
+#### Scenario: Reject undecodable narration media and accept shorter output
 
-- **WHEN** 片段没有可解码音轨、前导静音明显过长、有效语音不足以覆盖分配窗口，或媒体时长严重偏离目标
-- **THEN** 系统 SHALL 在最终录制和交付前拒绝该片段
-- **AND** 系统 MAY 执行有界重试，但重试耗尽后 SHALL 以明确诊断终止任务
-- **AND** SHALL NOT 用静音填充、无限延长 PPT 页面或只保留末尾少量声音后标记成功
+- **WHEN** 片段没有可解码、可播放的音轨
+- **THEN** 系统 SHALL 在最终录制和交付前拒绝该片段并保留明确诊断
+- **AND** 片段短于分配的最长播放窗口时，系统 SHALL 直接使用实际时长
+- **AND** SHALL NOT 用静音填充或无限延长 PPT 页面来补足计划时长
 
 #### Scenario: Cache generated narration media before composition
 
@@ -249,6 +246,13 @@
 - **THEN** 系统 SHALL 从最后成功阶段重试
 - **AND** SHALL NOT 重复已完成的内部任务或切换模型来源
 
+#### Scenario: Keep legacy PPTX tasks compatible without exposing a new entry
+
+- **GIVEN** IndexedDB 中已经存在来源为 `pptx` 的历史 PPT 讲解任务
+- **WHEN** 应用读取或恢复该历史任务
+- **THEN** 系统 SHALL 使用已有兼容路径继续读取、恢复或显示终态结果
+- **AND** 新建 UI、MCP schema 和创建服务 SHALL NOT 展示或接受 `pptx` 来源
+
 #### Scenario: Ignore duplicate or late completion
 
 - **GIVEN** 任务已完成、失败、取消或已被新的 executionToken 替代
@@ -266,11 +270,11 @@
 
 ### Requirement: PPT Explainer SHALL Avoid Fixed OpenTu Product Caps
 
-系统 SHALL NOT 使用固定页数、文件字节数、单条发言时长、总成片时长或同 PPT 活跃任务数作为 OpenTu 产品拒绝条件。
+系统 SHALL NOT 使用固定页数、单条发言时长、总成片时长或同 PPT 活跃任务数作为 OpenTu 产品拒绝条件。
 
 #### Scenario: Submit work beyond former suggested thresholds
 
-- **GIVEN** 输入超过 20 页、20 MiB、单条 60 秒或总计 20 分钟中的任一建议阈值
+- **GIVEN** 输入超过 20 页、单条 60 秒或总计 20 分钟中的任一建议阈值
 - **WHEN** 本地结构校验、运行环境和所选模型仍可处理
 - **THEN** OpenTu SHALL NOT 截断、降级或仅因该固定阈值拒绝任务
 
@@ -295,7 +299,7 @@
 
 ### Requirement: Only The Final Video SHALL Be User-Visible Media
 
-系统 SHALL 将页面快照、讲稿、上传缓存和供应商中间结果标记为 internal，并只把最终根任务视频投影为用户素材。
+系统 SHALL 将页面快照、讲稿和供应商中间结果标记为 internal，并只把最终根任务视频投影为用户素材。
 
 #### Scenario: Final video completes
 

@@ -44,6 +44,20 @@ describe('PPT explainer narration response', () => {
     });
   });
 
+  it('limits dual-speaker alternation to avoid excessive video requests', () => {
+    const messages = narrationPlannerInternals.buildNarrationMessages(
+      [{ pageIndex: 1, title: '第一页', notes: '解释核心结论', turns: [] }],
+      speakers,
+      'dual_voice',
+      { secondsPerSlide: 10 }
+    );
+    const systemText = messages[0].content[0].text;
+
+    expect(systemText).toContain('优先只安排一轮');
+    expect(systemText).toContain('内容较长时最多两轮');
+    expect(systemText).toContain('不要逐句来回切换');
+  });
+
   it('regenerates notes that cannot cover the requested duration', () => {
     expect(
       narrationPlannerInternals.canReuseSingleSpeakerNotes('简短备注', {

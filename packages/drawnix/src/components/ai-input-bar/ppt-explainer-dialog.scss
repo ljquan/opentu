@@ -70,23 +70,6 @@
     }
   }
 
-  &__file-row {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 8px;
-  }
-
-  &__file-name {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   &__speakers {
     display: grid;
     gap: 8px;
@@ -106,50 +89,13 @@
 
   &__speaker {
     display: grid;
-    grid-template-columns: 24px minmax(120px, 0.75fr) minmax(220px, 1.25fr);
+    grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
     gap: 8px;
     padding: 9px;
     border: 1px solid var(--td-border-level-1-color);
     border-radius: 7px;
     background: var(--td-bg-color-container);
-  }
-
-  &__voice-source,
-  &__voice,
-  &__avatar {
-    min-width: 0;
-
-    > .t-select__wrap {
-      width: 100%;
-    }
-  }
-
-  &__audio-sample {
-    display: flex;
-    min-width: 0;
-    grid-column: 2 / -1;
-    align-items: center;
-    gap: 8px;
-
-    .t-button {
-      flex: 0 0 auto;
-    }
-  }
-
-  &__voice {
-    grid-column: 2 / -1;
-  }
-
-  &__field-hint {
-    margin: 0;
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  &__avatar {
-    grid-column: 2 / -1;
   }
 
   &__speaker-index {
@@ -197,21 +143,6 @@
 
     &__speaker {
       grid-template-columns: 24px minmax(0, 1fr);
-    }
-
-    &__voice,
-    &__voice-source,
-    &__audio-sample,
-    &__avatar {
-      grid-column: 2;
-    }
-
-    &__audio-sample {
-      flex-wrap: wrap;
-
-      .ppt-explainer-dialog__file-name {
-        flex-basis: 120px;
-      }
     }
 
     &__footer-status {

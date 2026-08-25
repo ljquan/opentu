@@ -20,7 +20,6 @@ import { generateVideo } from '../media-generation/video-generation-service';
 import {
   deletePptxImportCache,
   deletePptxImportCacheByJobId,
-  importPptx,
   importPptxBlob,
   PptxImportError,
   resumePptxImport,
@@ -89,7 +88,6 @@ interface ActiveRun {
 }
 
 const activeRuns = new Map<string, ActiveRun>();
-const pendingPptxInputs = new Map<string, File>();
 const activeInternalTaskIds = new Map<string, Set<string>>();
 const internalTaskCleanupPromises = new Map<string, Promise<void>>();
 const remoteCancellationPromises = new Map<string, Promise<void>>();
@@ -97,6 +95,48 @@ const remotelyCancelledTaskIds = new Map<string, true>();
 const REMOTE_CANCELLATION_HISTORY_LIMIT = 100;
 let submissionQueueTail: Promise<void> = Promise.resolve();
 const boardMutationTails = new Map<string, Promise<void>>();
+
+const PPT_EXPLAINER_HOST_VOICE_DIRECTION =
+  '主讲人声线：必须使用成年男性声线，中低音、沉稳、克制，吐字清晰，语速略慢。禁止使用女声或嘉宾声线。';
+const PPT_EXPLAINER_GUEST_VOICE_DIRECTION =
+  '嘉宾声线：必须使用成年女性声线，音高明显高于主讲人，明亮、自然、亲切，语速略快。禁止使用男声或主讲人声线。';
+
+function resolvePptExplainerSpeakerRole(
+  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>,
+  speakerId: string
+): 'host' | 'guest' | 'other' {
+  const speaker = speakers.find((candidate) => candidate.id === speakerId);
+  const normalizedId = speakerId.trim().toLowerCase();
+  const normalizedName = speaker?.displayName.trim().toLowerCase() || '';
+  if (
+    normalizedId === 'host' ||
+    /(?:主讲|主持|主播|host|presenter)/i.test(normalizedName)
+  ) {
+    return 'host';
+  }
+  if (
+    normalizedId === 'guest' ||
+    /(?:嘉宾|访谈对象|guest|interviewee)/i.test(normalizedName)
+  ) {
+    return 'guest';
+  }
+  const speakerIndex = speakers.findIndex(
+    (candidate) => candidate.id === speakerId
+  );
+  if (speakerIndex === 0) return 'host';
+  if (speakerIndex === 1) return 'guest';
+  return 'other';
+}
+
+function getPptExplainerVoiceDirection(
+  speakers: ReadonlyArray<PptExplainerTaskState['speakers'][number]>,
+  speakerId: string
+): string {
+  const role = resolvePptExplainerSpeakerRole(speakers, speakerId);
+  if (role === 'host') return PPT_EXPLAINER_HOST_VOICE_DIRECTION;
+  if (role === 'guest') return PPT_EXPLAINER_GUEST_VOICE_DIRECTION;
+  return '保持当前角色稳定、清晰且与其他角色明显不同的声线。';
+}
 
 export function buildPptExplainerVideoPrompt(
   slide: PptExplainerSlide,
@@ -106,10 +146,39 @@ export function buildPptExplainerVideoPrompt(
   const speakerNames = new Map(
     speakers.map((speaker) => [speaker.id, speaker.displayName])
   );
+  const activeSpeakerIds = [
+    ...new Set(slide.turns.map((turn) => turn.speakerId)),
+  ];
+  const activeSpeakers = activeSpeakerIds
+    .map((speakerId) => speakers.find((speaker) => speaker.id === speakerId))
+    .filter((speaker): speaker is PptExplainerTaskState['speakers'][number] =>
+      Boolean(speaker)
+    );
+  const singleSpeaker = activeSpeakers.length === 1;
   return [
     '生成一段包含清晰普通话人声的有声讲解视频，最终只使用其音轨。',
     '只讲解当前页面对应的内容，不要朗读页面之外的信息。',
-    '使用自然、专业的普通话，严格按以下顺序朗读；多人角色使用明显不同的声线。',
+    '使用自然、专业的普通话，严格按以下顺序朗读。每个视频片段只能由一个角色发言，禁止把多个角色合并成同一条声线。',
+    ...(singleSpeaker
+      ? [
+          `当前片段唯一发言角色是「${
+            activeSpeakers[0].displayName
+          }」。${getPptExplainerVoiceDirection(
+            speakers,
+            activeSpeakers[0].id
+          )}`,
+          '从片段开头立即使用该角色的固定声线，整段保持性别、音色、音高和说话风格一致，不得切换成另一角色。',
+        ]
+      : [
+          '检测到多个角色时，必须为每个角色使用明显不同的音色和声线，不能让主讲人和嘉宾听起来像同一个人。',
+          ...activeSpeakers.map(
+            (speaker) =>
+              `角色「${speaker.displayName}」：${getPptExplainerVoiceDirection(
+                speakers,
+                speaker.id
+              )}`
+          ),
+        ]),
     ...(outputDurationSeconds
       ? [
           `必须从视频开始立即讲解，并在 ${outputDurationSeconds} 秒内完整讲完；不要长时间停顿或把声音放到片段末尾。`,
@@ -221,16 +290,6 @@ export async function runPptExplainerBoardMutationExclusive<T>(
       boardMutationTails.delete(normalizedBoardId);
     }
   }
-}
-
-export function registerPptExplainerPptxInput(
-  jobId: string,
-  file: File
-): () => void {
-  pendingPptxInputs.set(jobId, file);
-  return () => {
-    if (pendingPptxInputs.get(jobId) === file) pendingPptxInputs.delete(jobId);
-  };
 }
 
 function enqueuePptExplainerSubmission<T>(
@@ -365,7 +424,6 @@ async function cleanupPptExplainerInputs(
   taskId: string,
   state: PptExplainerTaskState
 ): Promise<void> {
-  pendingPptxInputs.delete(state.jobId);
   await cleanupPptExplainerInternalTasks(taskId, state);
   await deletePptExplainerArtifacts(state.jobId).catch(() => undefined);
   if (state.pptxImport) {
@@ -1163,15 +1221,7 @@ async function preparePptxSource(
 
   let checkpoint = initialCheckpoint;
   if (!checkpoint) {
-    const file = pendingPptxInputs.get(initialState.jobId);
-    if (file) {
-      checkpoint = await importPptx(file, {
-        jobId: initialState.jobId,
-        mode,
-        signal,
-        onCheckpoint,
-      });
-    } else if (initialState.pptx?.cacheUrl) {
+    if (initialState.pptx?.cacheUrl) {
       const staged = await getPptExplainerArtifact(initialState.pptx.cacheUrl);
       if (!staged?.size) {
         throw new PptxImportError(
@@ -1621,7 +1671,6 @@ async function runPptExplainerTaskWithLock(
     if (active?.executionAttempt === executionAttempt) {
       activeRuns.delete(taskId);
     }
-    pendingPptxInputs.delete(initialState.jobId);
   }
 }
 

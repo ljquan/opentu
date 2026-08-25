@@ -7,6 +7,7 @@ import type { PptxImportCheckpoint } from '../pptx-import';
 export const PPT_EXPLAINER_SCHEMA_VERSION = 1 as const;
 
 export type PptExplainerSourceKind = 'topic' | 'current_ppt' | 'pptx';
+export type PptExplainerCreateSourceKind = 'topic' | 'current_ppt';
 export type PptExplainerReviewMode = 'confirm' | 'skip_after_warning';
 /** Historical provider tasks may still contain provider; new tasks are local only. */
 export type PptExplainerExecutionMode = 'provider' | 'local';
@@ -50,27 +51,6 @@ export interface PptExplainerVoiceReference {
   sourceAssetId?: string;
 }
 
-export interface PptExplainerReferenceAudioInput {
-  /** A direct browser upload. Never persisted. */
-  file?: File;
-  /** A previously stored audio asset; resolved from local cache only. */
-  sourceAssetId?: string;
-  sourceUrl?: string;
-  filename: string;
-  mimeType: string;
-  size?: number;
-}
-
-export interface PptExplainerSpeakerInput {
-  id: string;
-  displayName: string;
-  voiceSource?: PptExplainerVoiceSource;
-  voiceId?: string;
-  referenceAudio?: PptExplainerReferenceAudioInput;
-  avatarAssetId?: string;
-  avatarSourceUrl?: string;
-}
-
 export interface PptExplainerCreateSpeakerInput {
   id: string;
   displayName: string;
@@ -110,9 +90,6 @@ export interface PptExplainerModelRoutes {
   imageModel?: string;
   imageModelRef?: ModelRef | null;
   imageRoute?: TaskInvocationRouteSnapshot;
-  audioModel?: string;
-  audioModelRef?: ModelRef | null;
-  audioRoute?: TaskInvocationRouteSnapshot;
   videoModel?: string;
   videoModelRef?: ModelRef | null;
 }
@@ -163,7 +140,7 @@ export interface PptExplainerTaskState {
 }
 
 export interface PptExplainerCreateInput {
-  source: PptExplainerSourceKind;
+  source: PptExplainerCreateSourceKind;
   sourceBoardId: string;
   /** Current-PPT page subset selected in the editor. Omitted means all pages. */
   currentPptFrameIds?: string[];
@@ -180,7 +157,6 @@ export interface PptExplainerCreateInput {
   imageModelRef?: ModelRef | null;
   videoModel: string;
   videoModelRef?: ModelRef | null;
-  pptxFile?: File;
 }
 
 export interface PptExplainerManifest extends Record<string, unknown> {

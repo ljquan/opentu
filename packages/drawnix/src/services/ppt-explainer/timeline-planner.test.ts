@@ -96,4 +96,56 @@ describe('PPT explainer slide timeline', () => {
     expect(cues[0].endSeconds).toBeLessThan(5);
     expect(cues[1].endSeconds).toBe(10);
   });
+
+  it('splits a dual-speaker segment so each video request has one voice', () => {
+    const timeline = planPptExplainerSlideTimeline({
+      turns: [
+        { speakerId: 'host', text: '主讲人先介绍本页主题。' },
+        { speakerId: 'guest', text: '嘉宾补充本页数据和观察。' },
+      ],
+      speakers: [
+        { id: 'host', displayName: '主讲人' },
+        { id: 'guest', displayName: '嘉宾' },
+      ],
+      secondsPerSlide: 10,
+      durationOptions: [
+        { label: '5秒', value: '5' },
+        { label: '10秒', value: '10' },
+      ],
+    });
+
+    expect(timeline).toHaveLength(2);
+    expect(
+      timeline.every(
+        (segment) =>
+          new Set(segment.turns.map((turn) => turn.speakerId)).size === 1
+      )
+    ).toBe(true);
+    expect(
+      timeline.reduce((sum, segment) => sum + segment.outputDurationSeconds, 0)
+    ).toBeCloseTo(10);
+  });
+
+  it('keeps the exact slide duration across many short speaker groups', () => {
+    const timeline = planPptExplainerSlideTimeline({
+      turns: Array.from({ length: 12 }, (_, index) => ({
+        speakerId: index % 2 === 0 ? 'host' : 'guest',
+        text: `${index + 1}`,
+      })),
+      speakers: [
+        { id: 'host', displayName: '主讲人' },
+        { id: 'guest', displayName: '嘉宾' },
+      ],
+      secondsPerSlide: 1,
+      durationOptions: [{ label: '5秒', value: '5' }],
+    });
+
+    expect(timeline).toHaveLength(12);
+    expect(
+      timeline.reduce((sum, segment) => sum + segment.outputDurationSeconds, 0)
+    ).toBe(1);
+    expect(
+      timeline.every((segment) => segment.requestDurationSeconds === 5)
+    ).toBe(true);
+  });
 });

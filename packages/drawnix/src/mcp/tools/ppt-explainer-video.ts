@@ -26,14 +26,14 @@ function getErrorMessage(error: unknown): string {
 export const pptExplainerVideoTool: MCPTool = {
   name: 'generate_ppt_explainer_video',
   description:
-    '从主题、当前画布 PPT 或上传的 PPTX 创建可恢复的 PPT 讲解视频任务。支持单人讲解和双人对谈；主题来源可确认大纲，或在用户确认警告后跳过审核。只使用用户当前已选择且已配置的文本、图片和视频模型。',
+    '从主题或当前画布 PPT 创建可恢复的 PPT 讲解视频任务。支持单人讲解和双人对谈；主题来源可确认大纲，或在用户确认警告后跳过审核。只使用用户当前已选择且已配置的文本、图片和视频模型。',
   inputSchema: {
     type: 'object',
     properties: {
       source: {
         type: 'string',
-        enum: ['topic', 'current_ppt', 'pptx'],
-        description: '演示来源：主题生成、当前画布 PPT 或上传 PPTX',
+        enum: ['topic', 'current_ppt'],
+        description: '演示来源：主题生成或当前画布 PPT',
       },
       sourceBoardId: {
         type: 'string',
@@ -108,10 +108,6 @@ export const pptExplainerVideoTool: MCPTool = {
         type: 'object',
         description: '视频模型来源引用，由模型选择器注入',
       },
-      pptxFile: {
-        type: 'object',
-        description: 'PPTX 来源的浏览器 File，仅允许由本地主线程配置界面提供',
-      },
     },
     required: [
       'source',
@@ -126,8 +122,7 @@ export const pptExplainerVideoTool: MCPTool = {
   promptGuidance: {
     whenToUse: '当用户希望把 PPT 自动制作为单人讲解或双人对谈视频时使用。',
     parameterGuidance: {
-      source:
-        '用户明确提到新主题时用 topic；提到当前 PPT 时用 current_ppt；PPTX 只能使用配置界面提供的真实本地 File。',
+      source: '用户明确提到新主题时用 topic；提到当前 PPT 时用 current_ppt。',
       currentPptFrameIds:
         '只能原样使用 PPT 编辑器提供的页面 ID；未提供时省略，不得自行构造。',
       reviewMode:
@@ -136,7 +131,7 @@ export const pptExplainerVideoTool: MCPTool = {
       secondsPerSlide: '使用配置界面的正整数秒数，不得自行修改。',
     },
     warnings: [
-      '不得构造本地 File、模型来源或界面未提供的讲解者字段',
+      '不得构造模型来源或界面未提供的讲解者字段',
       '不得构造当前 PPT 页面 ID，只能使用 PPT 编辑器提供的选择结果',
       '跳过大纲审核只能由当前页面配置界面的二次确认授权，Agent 参数不能代替用户确认',
       'OpenTu 不设置固定页数、文件大小、发言时长或总成片时长上限',

@@ -21,11 +21,8 @@ describe('ppt-explainer-video MCP tool', () => {
   });
 
   it('returns the task id and persisted stage without serializing local input', async () => {
-    const pptxFile = new File(['pptx'], 'deck.pptx', {
-      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    });
     const params = {
-      source: 'pptx',
+      source: 'current_ppt',
       sourceBoardId: 'board-1',
       reviewMode: 'confirm',
       presenterMode: 'single_voice',
@@ -33,7 +30,6 @@ describe('ppt-explainer-video MCP tool', () => {
       textModel: 'text-model',
       videoModel: 'video-model',
       videoModelRef: { profileId: 'provider-1', modelId: 'video-model' },
-      pptxFile,
     };
     const task = { id: 'ppt-task-1', params: {} };
     const consoleSpies = [
@@ -55,9 +51,6 @@ describe('ppt-explainer-video MCP tool', () => {
       },
     });
     expect(mocks.createPptExplainerTask).toHaveBeenCalledWith(params);
-    expect(mocks.createPptExplainerTask.mock.calls[0]?.[0].pptxFile).toBe(
-      pptxFile
-    );
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
   });
 
@@ -71,6 +64,8 @@ describe('ppt-explainer-video MCP tool', () => {
     expect(schema).not.toContain('avatar');
     expect(schema).not.toContain('single_avatar');
     expect(schema).not.toContain('dual_avatar');
+    expect(schema).not.toContain('pptx');
+    expect(schema).not.toContain('pptxFile');
   });
 
   it('returns a bounded credential-redacted creation error', async () => {

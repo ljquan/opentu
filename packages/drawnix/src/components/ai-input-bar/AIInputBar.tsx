@@ -124,7 +124,7 @@ import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
 import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
-import type { PptExplainerSourceKind } from '../../services/ppt-explainer/types';
+import type { PptExplainerCreateSourceKind } from '../../services/ppt-explainer/types';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -1920,7 +1920,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [isSubmitting, setIsSubmitting] = useState(false); // 防止快速重复点击（3秒防抖）
     const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
     const [pptExplainerInitialSource, setPptExplainerInitialSource] =
-      useState<PptExplainerSourceKind>();
+      useState<PptExplainerCreateSourceKind>();
     const [pptExplainerFrameIds, setPptExplainerFrameIds] = useState<
       string[] | undefined
     >();
@@ -7295,13 +7295,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const isPptExplainerSkillSelected =
       generationType === 'agent' &&
       selectedSkillId === 'generate_ppt_explainer_video';
-    const hasExistingPpt = Boolean(
-      (SelectionWatcherBoardRef.current as PlaitBoard | null)?.children.some(
-        (element) =>
-          isFrameElement(element) &&
-          Boolean((element as PlaitElement & { pptMeta?: unknown }).pptMeta)
-      )
-    );
     const canGenerate =
       !canvasAssociationTrigger &&
       (isPptExplainerSkillSelected ||
@@ -7649,7 +7642,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           <PptExplainerDialog
             open
             sourceBoardId={currentBoardId}
-            hasExistingPpt={hasExistingPpt}
             initialTopic={promptRef.current}
             initialSource={pptExplainerInitialSource}
             currentPptFrameIds={pptExplainerFrameIds}

@@ -45,7 +45,6 @@ export interface LocalPptCompositionResult {
 
 export type PptExplainerNarrationQualityReason =
   | 'decode_failed'
-  | 'duration_short'
   | 'activity_unavailable'
   | 'silent'
   | 'low_coverage'
@@ -87,7 +86,6 @@ const DEFAULT_HEIGHT = 1080;
 const DEFAULT_FRAME_RATE = 30;
 const DEFAULT_TRANSITION_MS = 350;
 const MAX_SUBTITLE_LINES = 2;
-const MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 const FINAL_DURATION_PROBE_TIMEOUT_MS = 10_000;
 
 export function chooseLocalPptRecorderFormat(
@@ -482,44 +480,6 @@ function getTurnDurationLimit(turn: LocalPptNarrationTurn): number | undefined {
   return values.length ? Math.min(...values) : undefined;
 }
 
-function assertMediaCoversPlannedDuration(
-  sourceDuration: number,
-  plannedDuration?: number
-): void {
-  if (
-    plannedDuration === undefined ||
-    sourceDuration + MEDIA_DURATION_TOLERANCE_SECONDS >= plannedDuration
-  ) {
-    return;
-  }
-  throw new PptExplainerNarrationQualityError(
-    `讲解片段仅有 ${sourceDuration.toFixed(
-      1
-    )} 秒，无法覆盖计划的 ${plannedDuration.toFixed(1)} 秒`,
-    'duration_short'
-  );
-}
-
-function getFinalDurationTolerance(expectedDuration: number): number {
-  return Math.max(0.75, Math.min(3, expectedDuration * 0.02));
-}
-
-function assertFinalDurationMatches(
-  actualDuration: number,
-  expectedDuration: number
-): void {
-  if (!Number.isFinite(actualDuration) || actualDuration <= 0) {
-    throw new Error('无法读取 PPT 讲解成片的真实时长');
-  }
-  const tolerance = getFinalDurationTolerance(expectedDuration);
-  if (Math.abs(actualDuration - expectedDuration) <= tolerance) return;
-  throw new Error(
-    `PPT 讲解成片实际 ${actualDuration.toFixed(
-      1
-    )} 秒，与计划 ${expectedDuration.toFixed(1)} 秒不一致`
-  );
-}
-
 async function readRecordedMediaDuration(
   url: string,
   signal?: AbortSignal
@@ -691,7 +651,6 @@ async function playAudioBuffer(
   signal?.throwIfAborted();
 
   const durationLimit = getTurnDurationLimit(turn);
-  assertMediaCoversPlannedDuration(buffer.duration, turn.outputDurationSeconds);
   const playbackDuration = Math.min(
     buffer.duration,
     durationLimit ?? buffer.duration
@@ -869,15 +828,6 @@ async function playMediaElementAudio(
             ? media.duration
             : 0;
         const durationLimit = getTurnDurationLimit(turn);
-        try {
-          assertMediaCoversPlannedDuration(
-            sourceDuration,
-            turn.outputDurationSeconds
-          );
-        } catch (error) {
-          fail(error);
-          return;
-        }
         playbackDuration = durationLimit
           ? sourceDuration > 0
             ? Math.min(sourceDuration, durationLimit)
@@ -1004,7 +954,6 @@ export async function composeLocalPptExplainerVideo(
   let recorderFailure: Promise<never> | undefined;
   const chunks: Blob[] = [];
 
-  let duration = 0;
   let createdUrl = '';
   let activeImage: HTMLImageElement | undefined;
   let activeImageDispose: (() => void) | undefined;
@@ -1110,7 +1059,7 @@ export async function composeLocalPptExplainerVideo(
           );
           drawSlide(context, canvas, image, turn);
           try {
-            duration += await waitWhileRecording(
+            await waitWhileRecording(
               playNarrationTurn(
                 audioContext,
                 destination,
@@ -1184,7 +1133,6 @@ export async function composeLocalPptExplainerVideo(
     if (!blob.size) throw new Error('PPT 本地合成未产生视频数据');
     createdUrl = URL.createObjectURL(blob);
     const actualDuration = await readRecordedMediaDuration(createdUrl, signal);
-    assertFinalDurationMatches(actualDuration, duration);
     return { blob, url: createdUrl, mimeType, duration: actualDuration };
   } catch (error) {
     if (!compositionController.signal.aborted) {
@@ -1221,8 +1169,5 @@ export async function composeLocalPptExplainerVideo(
 }
 
 export const localPptComposerInternals = {
-  assertFinalDurationMatches,
-  assertMediaCoversPlannedDuration,
-  getFinalDurationTolerance,
   resolveSubtitleCue,
 };

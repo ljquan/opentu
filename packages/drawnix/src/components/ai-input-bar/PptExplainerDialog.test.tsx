@@ -27,42 +27,6 @@ vi.mock('../dialog/ConfirmDialog', () => ({
   }),
 }));
 
-vi.mock('lucide-react', () => ({
-  FileAudio: () => <span aria-hidden="true" />,
-  FileUp: () => <span aria-hidden="true" />,
-  Library: () => <span aria-hidden="true" />,
-  Trash2: () => <span aria-hidden="true" />,
-}));
-
-vi.mock('../media-library/MediaLibraryModal', () => ({
-  MediaLibraryModal: ({
-    isOpen,
-    onSelect,
-  }: {
-    isOpen: boolean;
-    onSelect: (asset: unknown) => void;
-  }) =>
-    isOpen ? (
-      <button
-        type="button"
-        onClick={() =>
-          onSelect({
-            id: 'audio-asset-1',
-            type: 'AUDIO',
-            source: 'LOCAL',
-            url: '/__aitu_cache__/audio/sample.mp3',
-            name: '素材库样本.mp3',
-            mimeType: 'audio/mpeg',
-            size: 1234,
-            createdAt: 1,
-          })
-        }
-      >
-        选择测试音频
-      </button>
-    ) : null,
-}));
-
 vi.mock('tdesign-react', () => ({
   Button: ({
     children,
@@ -89,27 +53,6 @@ vi.mock('tdesign-react', () => ({
       {icon}
       {children}
     </button>
-  ),
-  Checkbox: ({
-    children,
-    checked,
-    disabled,
-    onChange,
-  }: {
-    children?: React.ReactNode;
-    checked?: boolean;
-    disabled?: boolean;
-    onChange?: (checked: boolean) => void;
-  }) => (
-    <label>
-      <input
-        type="checkbox"
-        checked={Boolean(checked)}
-        disabled={disabled}
-        onChange={(event) => onChange?.(event.target.checked)}
-      />
-      {children}
-    </label>
   ),
   Dialog: ({
     visible,
@@ -181,31 +124,6 @@ vi.mock('tdesign-react', () => ({
       onChange={(event) => onChange?.(event.target.value)}
     />
   ),
-  Select: ({
-    value,
-    placeholder,
-    disabled,
-    onChange,
-    options = [],
-  }: {
-    value?: string;
-    placeholder?: string;
-    disabled?: boolean;
-    onChange?: (value: string) => void;
-    options?: Array<{ value: string; label: string }>;
-  }) => (
-    <div>
-      <input
-        value={value || ''}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(event) => onChange?.(event.target.value)}
-      />
-      {options.map((option) => (
-        <span key={option.value}>{option.label}</span>
-      ))}
-    </div>
-  ),
   MessagePlugin: {
     success: mocks.success,
   },
@@ -223,7 +141,6 @@ function renderDialog(
     <PptExplainerDialog
       open
       sourceBoardId="board-1"
-      hasExistingPpt={false}
       initialTopic="季度复盘"
       textModel="text-1"
       imageModel="image-1"
@@ -299,8 +216,8 @@ describe('PptExplainerDialog', () => {
     expect(screen.getByDisplayValue('主讲人')).not.toBeNull();
   });
 
-  it('主题生成在已有 PPT 旁直接创建新任务，不要求替换确认', async () => {
-    const { onCreate } = renderDialog({ hasExistingPpt: true });
+  it('主题生成直接创建新任务，不要求替换确认', async () => {
+    const { onCreate } = renderDialog();
 
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }));
 
@@ -349,6 +266,9 @@ describe('PptExplainerDialog', () => {
   it('只展示当前真实支持的单人和双人讲解模式', () => {
     renderDialog();
 
+    expect(screen.getByRole('radio', { name: '主题生成' })).not.toBeNull();
+    expect(screen.getByRole('radio', { name: '当前 PPT' })).not.toBeNull();
+    expect(screen.queryByText('上传 PPTX')).toBeNull();
     expect(screen.getByRole('radio', { name: '单人讲解' })).not.toBeNull();
     expect(screen.getByRole('radio', { name: '双人对谈' })).not.toBeNull();
     expect(screen.queryByText('专用 PPT Agent')).toBeNull();
@@ -356,6 +276,14 @@ describe('PptExplainerDialog', () => {
     expect(screen.queryByText('双数字人')).toBeNull();
     expect(screen.queryByDisplayValue('alloy')).toBeNull();
     expect(screen.queryByDisplayValue('nova')).toBeNull();
+  });
+
+  it('双人模式明确提示视频模型不提供固定声线身份', () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('radio', { name: '双人对谈' }));
+
+    expect(screen.getByText(/普通视频模型不提供固定 voice ID/)).not.toBeNull();
   });
 
   it('没有真实视频模型来源时禁止创建', () => {
@@ -424,46 +352,5 @@ describe('PptExplainerDialog', () => {
       source: 'current_ppt',
       currentPptFrameIds: ['frame-1', 'frame-3'],
     });
-  });
-
-  it('PPTX 来源仅校验格式，不设置文件大小上限', () => {
-    const pptxFile = new File(['pptx'], 'deck.pptx', {
-      type: 'application/octet-stream',
-    });
-    Object.defineProperty(pptxFile, 'size', {
-      configurable: true,
-      value: 20 * 1024 * 1024 + 1,
-    });
-    const draft: PptExplainerDialogDraft = {
-      source: 'pptx',
-      topic: '',
-      reviewMode: 'confirm',
-      presenterMode: 'single_voice',
-      secondsPerSlide: 10,
-      narrationInstruction: '',
-      pptxFile,
-      speakers: [{ displayName: '主讲人' }],
-    };
-
-    expect(pptxFile.size).toBe(20 * 1024 * 1024 + 1);
-
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-      })
-    ).toBeNull();
-
-    draft.pptxFile = new File(['legacy'], 'deck.ppt');
-    expect(
-      validatePptExplainerDialogDraft(draft, {
-        sourceBoardId: 'board-1',
-        textModel: 'text-1',
-        videoModel: 'video-1',
-        videoModelRef,
-      })
-    ).toBe('仅支持 .pptx 文件');
   });
 });

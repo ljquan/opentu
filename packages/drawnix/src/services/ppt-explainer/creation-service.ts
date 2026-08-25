@@ -15,9 +15,7 @@ import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
 import { taskQueueService } from '../task-queue';
 import { workspaceService } from '../workspace-service';
 import { validateOutline } from '../ppt';
-import type { PptxImportCheckpoint } from '../pptx-import';
 import {
-  applyPptxCheckpointToExplainerState,
   captureCurrentPptSourceSelection,
   currentPptNeedsGeneratedSlideImages,
   listCurrentPptFrameIds,
@@ -28,14 +26,9 @@ import {
   createPptExplainerRootTask,
 } from './task-state';
 import {
-  registerPptExplainerPptxInput,
   runPptExplainerBoardMutationExclusive,
   runPptExplainerTask,
 } from './orchestrator';
-import {
-  deletePptExplainerArtifacts,
-  putPptExplainerArtifact,
-} from './internal-artifact-cache';
 import {
   PPT_EXPLAINER_SCHEMA_VERSION,
   type PptExplainerCreateInput,
@@ -163,22 +156,7 @@ function resolveRequestedPageCount(
   return inferPptExplainerRequestedPageCount(topic);
 }
 
-function validatePptxFile(input: PptExplainerCreateInput): File | undefined {
-  if (input.source !== 'pptx') return undefined;
-  const file = input.pptxFile;
-  if (!file || file.size <= 0) {
-    throw new PptExplainerValidationError('请选择非空的 PPTX 文件');
-  }
-  if (!file.name.toLowerCase().endsWith('.pptx')) {
-    throw new PptExplainerValidationError('仅支持 .pptx 文件');
-  }
-  return file;
-}
-
-function consumeUiConfirmations(
-  input: PptExplainerCreateInput,
-  context: CreationContext
-): PptExplainerUiConfirmations | undefined {
+function consumeUiConfirmations(input: PptExplainerCreateInput): void {
   const confirmations = pendingUiConfirmations.get(input);
   pendingUiConfirmations.delete(input);
   if (
@@ -190,7 +168,6 @@ function consumeUiConfirmations(
       '必须确认：跳过大纲审核只能在当前页面完成二次确认'
     );
   }
-  return confirmations;
 }
 
 function preflightAuxiliaryModel(
@@ -223,10 +200,9 @@ function buildInitialState(options: {
   imagePlan?: InvocationPlan;
   outlineFrameIds?: string[];
   sourceFrameRevisions?: Record<string, string>;
-  pptxCheckpoint?: PptxImportCheckpoint;
   speakers: PptExplainerSpeaker[];
 }): PptExplainerTaskState {
-  const { input, pptxCheckpoint } = options;
+  const { input } = options;
   const needsReview =
     input.source === 'topic' && input.reviewMode === 'confirm';
   const reviewAcceptedAt = needsReview ? undefined : Date.now();
@@ -246,13 +222,7 @@ function buildInitialState(options: {
     narrationInstruction: input.narrationInstruction?.trim() || undefined,
     executionMode: 'local',
     speakers: options.speakers.map((speaker) => ({ ...speaker })),
-    stage:
-      input.source === 'topic' ||
-      (input.source === 'pptx' && pptxCheckpoint?.status !== 'completed')
-        ? 'preparing'
-        : needsReview
-        ? 'review_pending'
-        : 'snapshotting',
+    stage: input.source === 'topic' ? 'preparing' : 'snapshotting',
     slides: [],
     idempotencyKey: options.jobId,
     presentationInput: 'slide_images',
@@ -291,9 +261,7 @@ function buildInitialState(options: {
     executionAttempt: 0,
     diagnostics: [],
   };
-  return pptxCheckpoint
-    ? applyPptxCheckpointToExplainerState(initialState, pptxCheckpoint)
-    : initialState;
+  return initialState;
 }
 
 function assertSupportedPptExplainerInput(
@@ -314,6 +282,9 @@ function assertSupportedPptExplainerInput(
       typeof candidate.imageModel !== 'string')
   ) {
     throw new PptExplainerValidationError('模型或画板参数无效');
+  }
+  if (candidate.source !== 'topic' && candidate.source !== 'current_ppt') {
+    throw new PptExplainerValidationError('仅支持主题生成或当前 PPT 来源');
   }
   if (
     candidate.presenterMode !== 'single_voice' &&
@@ -392,17 +363,16 @@ export async function createPptExplainerTask(
   assertSupportedPptExplainerInput(input);
   const topic = requireTopic(input);
   const requestedPageCount = resolveRequestedPageCount(input, topic);
-  const pptxFile = validatePptxFile(input);
   validatePptExplainerSpeakers(input.presenterMode, input.speakers, {
     requireVoice: false,
   });
   const context = await requireCreationContext(input);
-  consumeUiConfirmations(input, context);
+  consumeUiConfirmations(input);
 
   await settingsManager.waitForInitialization();
 
-  // All credential/capability checks happen before outline generation, import,
-  // upload, or any other operation that can incur cost or persist binary data.
+  // All credential/capability checks happen before outline generation or any
+  // other operation that can incur cost or persist generated data.
   const textPlan = preflightAuxiliaryModel(
     'text',
     input.textModelRef ?? input.textModel,
@@ -423,8 +393,7 @@ export async function createPptExplainerTask(
 
   const jobId = generateTaskId();
   const createInitialState = (
-    speakers: PptExplainerSpeaker[],
-    pptxCheckpoint?: PptxImportCheckpoint
+    speakers: PptExplainerSpeaker[]
   ): PptExplainerTaskState =>
     buildInitialState({
       input,
@@ -438,45 +407,18 @@ export async function createPptExplainerTask(
           ? context.currentPptSelection?.frameIds
           : undefined,
       sourceFrameRevisions: context.currentPptSelection?.frameRevisions,
-      pptxCheckpoint,
       speakers,
     });
 
-  const releasePptxInput = pptxFile
-    ? registerPptExplainerPptxInput(jobId, pptxFile)
-    : undefined;
-  let stagedPptxUrl: string | undefined;
-  try {
-    const stagedSpeakers = input.speakers.map((speaker) => ({
-      id: speaker.id.trim(),
-      displayName: speaker.displayName.trim(),
-    }));
-    if (pptxFile) {
-      stagedPptxUrl = await putPptExplainerArtifact(
-        jobId,
-        'source.pptx',
-        pptxFile
-      );
-    }
-    const initialState = createInitialState(stagedSpeakers);
-    if (pptxFile && stagedPptxUrl) {
-      initialState.pptx = {
-        filename: pptxFile.name,
-        mimeType: pptxFile.type || 'application/octet-stream',
-        cacheUrl: stagedPptxUrl,
-        fingerprint: `pending-${jobId}`,
-      };
-    }
-    // Source preparation is part of the persisted state machine. The root is
-    // visible and cancellable before PPTX parsing or page rendering begins.
-    const task = await createPptExplainerRootTask(initialState);
-    void runPptExplainerTask(task.id);
-    return task;
-  } catch (error) {
-    releasePptxInput?.();
-    await deletePptExplainerArtifacts(jobId).catch(() => undefined);
-    throw error;
-  }
+  const stagedSpeakers = input.speakers.map((speaker) => ({
+    id: speaker.id.trim(),
+    displayName: speaker.displayName.trim(),
+  }));
+  const task = await createPptExplainerRootTask(
+    createInitialState(stagedSpeakers)
+  );
+  void runPptExplainerTask(task.id);
+  return task;
 }
 
 export async function confirmAndRunPptExplainerTask(

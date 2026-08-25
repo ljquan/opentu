@@ -18,7 +18,6 @@ import {
   cancelPptExplainerRemoteTask,
   cleanupPptExplainerTask,
   isPptExplainerRunActive,
-  registerPptExplainerPptxInput,
   runPptExplainerTask,
   suspendPptExplainerRuns,
 } from './orchestrator';
@@ -41,7 +40,6 @@ const mocks = vi.hoisted(() => ({
   materializeSlideImages: vi.fn(),
   prepareMissingPptSlideImages: vi.fn(),
   applyPptxCheckpoint: vi.fn(),
-  importPptx: vi.fn(),
   importPptxBlob: vi.fn(),
   resumePptxImport: vi.fn(),
   deletePptxImportCache: vi.fn(),
@@ -195,7 +193,6 @@ vi.mock('./source-resolver', () => ({
 }));
 
 vi.mock('../pptx-import', () => ({
-  importPptx: mocks.importPptx,
   importPptxBlob: mocks.importPptxBlob,
   resumePptxImport: mocks.resumePptxImport,
   deletePptxImportCache: mocks.deletePptxImportCache,
@@ -484,9 +481,128 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     expect(prompt).toContain('主持人：欢迎参加发布会。');
     expect(prompt).toContain('嘉宾：先看本页核心数据。');
     expect(prompt.indexOf('主持人：')).toBeLessThan(prompt.indexOf('嘉宾：'));
-    expect(prompt).toContain('不同的声线');
+    expect(prompt).toContain('明显不同的音色和声线');
+    expect(prompt).toContain('主讲人声线');
+    expect(prompt).toContain('嘉宾声线');
+    expect(prompt).toContain('成年男性声线');
+    expect(prompt).toContain('成年女性声线');
     expect(prompt).toContain('最终只使用其音轨');
     expect(prompt).toContain('禁止背景音乐');
+  });
+
+  it('为单角色片段固定对应的声线并禁止另一角色串入', () => {
+    const prompt = buildPptExplainerVideoPrompt(
+      {
+        pageIndex: 1,
+        turns: [{ speakerId: 'guest', text: '这里补充一项数据。' }],
+      },
+      [
+        { id: 'host', displayName: '主讲人' },
+        { id: 'guest', displayName: '嘉宾' },
+      ],
+      10
+    );
+
+    expect(prompt).toContain('当前片段唯一发言角色是「嘉宾」');
+    expect(prompt).toContain('音高明显高于主讲人');
+    expect(prompt).toContain('成年女性声线');
+    expect(prompt).toContain('禁止使用男声');
+    expect(prompt).toContain('禁止把多个角色合并成同一条声线');
+    expect(prompt).toContain('必须从视频开始立即讲解');
+  });
+
+  it('按稳定角色身份分配声线，不受 speakers 数组顺序影响', () => {
+    const speakers = [
+      { id: 'guest', displayName: '嘉宾' },
+      { id: 'host', displayName: '主讲人' },
+    ];
+    const hostPrompt = buildPptExplainerVideoPrompt(
+      {
+        pageIndex: 1,
+        turns: [{ speakerId: 'host', text: '先介绍本页主题。' }],
+      },
+      speakers,
+      5
+    );
+    const guestPrompt = buildPptExplainerVideoPrompt(
+      {
+        pageIndex: 1,
+        turns: [{ speakerId: 'guest', text: '再补充关键数据。' }],
+      },
+      speakers,
+      5
+    );
+
+    expect(hostPrompt).toContain('成年男性声线');
+    expect(hostPrompt).toContain('禁止使用女声');
+    expect(guestPrompt).toContain('成年女性声线');
+    expect(guestPrompt).toContain('禁止使用男声');
+  });
+
+  it('同一页双人对谈按角色拆成两个独立的视频请求', async () => {
+    const taskId = 'local-dual-voice-page';
+    installTask(
+      createTask(taskId, {
+        executionMode: 'local',
+        source: 'current_ppt',
+        stage: 'submitting',
+        remoteId: undefined,
+        originalRoute: undefined,
+        presenterMode: 'dual_voice',
+        speakers: [
+          { id: 'host', displayName: '主讲人' },
+          { id: 'guest', displayName: '嘉宾' },
+        ],
+        slides: [
+          {
+            pageIndex: 1,
+            snapshotUrl: '/slide-1.png',
+            snapshotMimeType: 'image/png',
+            turns: [
+              { speakerId: 'host', text: '先介绍本页主题。' },
+              { speakerId: 'guest', text: '再补充关键数据。' },
+            ],
+          },
+        ],
+      })
+    );
+    mocks.generateVideo.mockImplementation(async (_prompt, options) => {
+      const taskNumber = mocks.generateVideo.mock.calls.length;
+      const segmentTaskId = `dual-segment-${taskNumber}`;
+      options.onTaskCreated?.(segmentTaskId);
+      return {
+        task: { id: segmentTaskId },
+        url: `https://cdn.example.com/${segmentTaskId}.mp4`,
+      };
+    });
+    mocks.cacheRemoteUrl.mockImplementation(
+      async (_url: string, ownerTaskId: string) =>
+        `/__aitu_cache__/video/${ownerTaskId}.mp4`
+    );
+
+    await runPptExplainerTask(taskId);
+
+    expect(mocks.generateVideo).toHaveBeenCalledTimes(2);
+    const hostPrompt = mocks.generateVideo.mock.calls[0][0] as string;
+    const guestPrompt = mocks.generateVideo.mock.calls[1][0] as string;
+    expect(hostPrompt).toContain('主讲人：先介绍本页主题。');
+    expect(hostPrompt).toContain('成年男性声线');
+    expect(hostPrompt).not.toContain('嘉宾：再补充关键数据。');
+    expect(guestPrompt).toContain('嘉宾：再补充关键数据。');
+    expect(guestPrompt).toContain('成年女性声线');
+    expect(guestPrompt).not.toContain('主讲人：先介绍本页主题。');
+    expect(mocks.composeLocalPptVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            turns: [
+              expect.objectContaining({ outputDurationSeconds: 5 }),
+              expect.objectContaining({ outputDurationSeconds: 5 }),
+            ],
+          }),
+        ],
+      })
+    );
   });
 
   it('固定原 PPT 页面并仅使用逐页生成片段的音轨', async () => {
@@ -1193,85 +1309,6 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
     });
   });
 
-  it('imports a new PPTX inside the cancellable root run and skips rendering for passthrough', async () => {
-    const taskId = 'pptx-cache-only';
-    const jobId = 'job-pptx-cache-only';
-    const file = new File(['pptx'], 'deck.pptx', {
-      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    });
-    const checkpoint = createPptxCheckpoint({
-      jobId,
-      mode: 'cache-only',
-      status: 'completed',
-      slideCount: 1,
-      slides: [{ pageIndex: 1, notes: '原始备注', diagnostics: [] }],
-    });
-    installTask(
-      createTask(taskId, {
-        jobId,
-        source: 'pptx',
-        stage: 'preparing',
-        remoteId: undefined,
-        presentationInput: 'pptx',
-        slides: [],
-      })
-    );
-    registerPptExplainerPptxInput(jobId, file);
-    mocks.importPptx.mockImplementation(async (_file, options) => {
-      await options.onCheckpoint?.(checkpoint);
-      return checkpoint;
-    });
-    mocks.applyPptxCheckpoint.mockImplementation((state, nextCheckpoint) => ({
-      ...state,
-      pptxImport: nextCheckpoint,
-      pptx: {
-        filename: nextCheckpoint.source.fileName,
-        mimeType: nextCheckpoint.source.mimeType,
-        cacheUrl: nextCheckpoint.source.cacheUrl,
-        fingerprint: nextCheckpoint.source.fingerprint,
-      },
-      deckFingerprint: nextCheckpoint.source.fingerprint,
-      slides: nextCheckpoint.slides.map((slide) => ({
-        pageIndex: slide.pageIndex,
-        notes: slide.notes,
-        turns: [],
-      })),
-    }));
-    mocks.submitJob.mockResolvedValue({
-      status: 'completed',
-      remoteId: 'remote-pptx-cache-only',
-      finalVideoUrl: 'https://cdn.example.com/pptx-cache-only.mp4',
-    });
-
-    await runPptExplainerTask(taskId);
-
-    expect(mocks.importPptx).toHaveBeenCalledWith(
-      file,
-      expect.objectContaining({
-        jobId,
-        mode: 'cache-only',
-        signal: expect.any(AbortSignal),
-      })
-    );
-    expect(mocks.resumePptxImport).not.toHaveBeenCalled();
-    expect(mocks.submitJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        presentation: expect.any(Blob),
-        slides: undefined,
-        manifest: expect.objectContaining({
-          source: 'pptx',
-          slides: [
-            expect.objectContaining({ pageIndex: 1, notes: '原始备注' }),
-          ],
-        }),
-      })
-    );
-    expect(mocks.tasks.get(taskId)).toMatchObject({
-      status: TaskStatus.COMPLETED,
-      params: { pptExplainer: { stage: 'completed' } },
-    });
-  });
-
   it('resumes a staged PPTX after refresh before the first checkpoint', async () => {
     const taskId = 'pptx-staged-recovery';
     const jobId = 'job-pptx-staged-recovery';
@@ -1334,7 +1371,6 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
 
     await runPptExplainerTask(taskId);
 
-    expect(mocks.importPptx).not.toHaveBeenCalled();
     expect(mocks.importPptxBlob).toHaveBeenCalledWith(
       stagedBlob,
       'staged.pptx',
@@ -1348,58 +1384,6 @@ describe('PPT explainer orchestrator recovery and isolation', () => {
       status: TaskStatus.COMPLETED,
       params: { pptExplainer: { stage: 'completed' } },
     });
-  });
-
-  it('aborts initial PPTX import when the visible root task is cancelled', async () => {
-    const taskId = 'pptx-import-cancel';
-    const jobId = 'job-pptx-import-cancel';
-    const file = new File(['pptx'], 'deck.pptx');
-    installTask(
-      createTask(taskId, {
-        jobId,
-        source: 'pptx',
-        stage: 'preparing',
-        remoteId: undefined,
-        presentationInput: 'slide_images',
-        slides: [],
-      })
-    );
-    registerPptExplainerPptxInput(jobId, file);
-    let importSignal: AbortSignal | undefined;
-    mocks.importPptx.mockImplementation(
-      (_file, options) =>
-        new Promise((_resolve, reject) => {
-          importSignal = options.signal;
-          options.signal?.addEventListener(
-            'abort',
-            () => reject(options.signal?.reason),
-            {
-              once: true,
-            }
-          );
-        })
-    );
-
-    const run = runPptExplainerTask(taskId);
-    await vi.waitFor(() => expect(mocks.importPptx).toHaveBeenCalledTimes(1));
-    const activeTask = mocks.tasks.get(taskId)!;
-    const activeState = activeTask.params.pptExplainer as PptExplainerTaskState;
-    const cancelledTask: Task = {
-      ...activeTask,
-      status: TaskStatus.CANCELLED,
-      params: {
-        ...activeTask.params,
-        pptExplainer: { ...activeState, stage: 'cancelled' },
-      },
-    };
-    mocks.tasks.set(taskId, cancelledTask);
-    await cancelPptExplainerRemoteTask(cancelledTask);
-    await run;
-
-    expect(importSignal?.aborted).toBe(true);
-    expect(mocks.submitJob).not.toHaveBeenCalled();
-    expect(mocks.deletePptxImportCacheByJobId).toHaveBeenCalledWith(jobId);
-    expect(mocks.tasks.get(taskId)?.status).toBe(TaskStatus.CANCELLED);
   });
 
   it.each([

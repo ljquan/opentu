@@ -21,12 +21,7 @@ const mocks = vi.hoisted(() => ({
   updateRootTask: vi.fn(),
   persistDetachedRootTask: vi.fn(),
   trackRootTask: vi.fn(),
-  applyPptxCheckpoint: vi.fn(),
   confirmOutline: vi.fn(),
-  registerPptxInput: vi.fn(),
-  releasePptxInput: vi.fn(),
-  putArtifact: vi.fn(),
-  deleteArtifacts: vi.fn(),
   runTask: vi.fn(),
   getTask: vi.fn(),
   callOrder: [] as string[],
@@ -64,18 +59,9 @@ vi.mock('../task-queue', () => ({
   taskQueueService: { getTask: mocks.getTask },
 }));
 
-vi.mock('../pptx-import', () => ({
-  PptxImportError: class PptxImportError extends Error {
-    constructor(readonly code: string, readonly kind: string, message: string) {
-      super(message);
-    }
-  },
-}));
-
 vi.mock('./source-resolver', () => ({
   captureCurrentPptSourceSelection: mocks.captureSelection,
   currentPptNeedsGeneratedSlideImages: mocks.needsImages,
-  applyPptxCheckpointToExplainerState: mocks.applyPptxCheckpoint,
   listCurrentPptFrameIds: mocks.listFrameIds,
 }));
 
@@ -88,16 +74,10 @@ vi.mock('./task-state', () => ({
 }));
 
 vi.mock('./orchestrator', () => ({
-  registerPptExplainerPptxInput: mocks.registerPptxInput,
   runPptExplainerBoardMutationExclusive: vi.fn(
     async (_boardId: string, run: () => unknown) => run()
   ),
   runPptExplainerTask: mocks.runTask,
-}));
-
-vi.mock('./internal-artifact-cache', () => ({
-  putPptExplainerArtifact: mocks.putArtifact,
-  deletePptExplainerArtifacts: mocks.deleteArtifacts,
 }));
 
 const board = { children: [] } as any;
@@ -149,14 +129,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.callOrder.length = 0;
   mocks.waitForInitialization.mockResolvedValue(undefined);
-  mocks.putArtifact.mockResolvedValue(
-    '/__aitu_internal__/ppt-explainer/job/source.pptx'
-  );
-  mocks.putArtifact.mockImplementation(async () => {
-    mocks.callOrder.push('stage-pptx');
-    return '/__aitu_internal__/ppt-explainer/job/source.pptx';
-  });
-  mocks.deleteArtifacts.mockResolvedValue(undefined);
   mocks.getCanvasBoardBinding.mockReturnValue({ board, boardId: 'board-1' });
   mocks.getWorkspaceState.mockReturnValue({ currentBoardId: 'board-1' });
   mocks.captureSelection.mockResolvedValue({
@@ -201,25 +173,6 @@ beforeEach(() => {
   mocks.trackRootTask.mockImplementation(() => {
     mocks.callOrder.push('track-root');
   });
-  mocks.applyPptxCheckpoint.mockImplementation((state, checkpoint) => ({
-    ...state,
-    pptxImport: checkpoint,
-    pptx: {
-      filename: checkpoint.source.fileName,
-      mimeType: checkpoint.source.mimeType,
-      cacheUrl: checkpoint.source.cacheUrl,
-      fingerprint: checkpoint.source.fingerprint,
-    },
-    deckFingerprint: checkpoint.source.fingerprint,
-    slides: checkpoint.slides.map((slide) => ({
-      pageIndex: slide.pageIndex,
-      snapshotUrl: slide.cacheUrl,
-      snapshotMimeType: 'image/svg+xml',
-      notes: slide.notes,
-      turns: [],
-      diagnostics: [],
-    })),
-  }));
   mocks.updateRootTask.mockImplementation(async (_taskId, update) => ({
     id: 'root-task',
     type: 'video',
@@ -233,10 +186,6 @@ beforeEach(() => {
   }));
   mocks.runTask.mockImplementation(() => {
     mocks.callOrder.push('run-orchestrator');
-  });
-  mocks.registerPptxInput.mockImplementation(() => {
-    mocks.callOrder.push('register-pptx');
-    return mocks.releasePptxInput;
   });
 });
 
@@ -377,7 +326,6 @@ describe('PPT explainer creation service', () => {
       'route unavailable'
     );
     expect(mocks.generatePPT).not.toHaveBeenCalled();
-    expect(mocks.putArtifact).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
   });
 
@@ -450,74 +398,17 @@ describe('PPT explainer creation service', () => {
     ).not.toHaveProperty('voiceId');
   });
 
-  it('stages PPTX for local slide snapshot generation before creating the root', async () => {
-    mocks.needsImages.mockReturnValue(false);
-    const file = new File(['pptx'], 'deck.pptx', {
-      type: 'application/octet-stream',
-    });
-
-    await createPptExplainerTask(
-      createInput({
+  it('rejects the removed PPTX creation source without side effects', async () => {
+    await expect(
+      createPptExplainerTask({
+        ...createInput(),
         source: 'pptx',
-        topic: undefined,
-        pptxFile: file,
-      })
-    );
+        pptxFile: new File(['pptx'], 'deck.pptx'),
+      } as unknown as PptExplainerCreateInput)
+    ).rejects.toThrow('仅支持主题生成或当前 PPT 来源');
 
-    expect(mocks.callOrder).toEqual([
-      'register-pptx',
-      'stage-pptx',
-      'create-root',
-      'run-orchestrator',
-    ]);
-    const initialState = mocks.createRootTask.mock.calls[0][0];
-    expect(initialState.presentationInput).toBe('slide_images');
-    expect(initialState.stage).toBe('preparing');
-    expect(initialState.slides).toEqual([]);
-    expect(initialState.pptx).toMatchObject({
-      filename: 'deck.pptx',
-      cacheUrl: '/__aitu_internal__/ppt-explainer/job/source.pptx',
-    });
-    expect(mocks.registerPptxInput).toHaveBeenCalledWith(
-      expect.any(String),
-      file
-    );
-    expect(mocks.createRootTask).toHaveBeenCalledWith(initialState);
-    expect(mocks.runTask).toHaveBeenCalledWith('root-task');
-  });
-
-  it('releases the pending PPTX file when root persistence fails', async () => {
-    mocks.needsImages.mockReturnValue(false);
-    mocks.createRootTask.mockRejectedValue(new Error('IndexedDB unavailable'));
-    const file = new File(['pptx'], 'deck.pptx');
-
-    await expect(
-      createPptExplainerTask(
-        createInput({ source: 'pptx', topic: undefined, pptxFile: file })
-      )
-    ).rejects.toThrow('IndexedDB unavailable');
-
-    expect(mocks.releasePptxInput).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteArtifacts).toHaveBeenCalledTimes(1);
-    expect(mocks.runTask).not.toHaveBeenCalled();
-  });
-
-  it('does not create a root when staging the PPTX source fails', async () => {
-    mocks.needsImages.mockReturnValue(false);
-    mocks.putArtifact.mockRejectedValue(new Error('Cache Storage unavailable'));
-
-    await expect(
-      createPptExplainerTask(
-        createInput({
-          source: 'pptx',
-          topic: undefined,
-          pptxFile: new File(['pptx'], 'deck.pptx'),
-        })
-      )
-    ).rejects.toThrow('Cache Storage unavailable');
-
+    expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
     expect(mocks.createRootTask).not.toHaveBeenCalled();
-    expect(mocks.releasePptxInput).toHaveBeenCalledTimes(1);
     expect(mocks.runTask).not.toHaveBeenCalled();
   });
 
@@ -552,7 +443,6 @@ describe('PPT explainer creation service', () => {
       ).rejects.toThrow();
 
       expect(mocks.resolveInvocationPlanFromRoute).not.toHaveBeenCalled();
-      expect(mocks.putArtifact).not.toHaveBeenCalled();
       expect(mocks.createRootTask).not.toHaveBeenCalled();
     }
   );
@@ -598,7 +488,6 @@ describe('PPT explainer creation service', () => {
         })
       )
     ).resolves.toMatchObject({ id: 'root-task' });
-    expect(mocks.putArtifact).not.toHaveBeenCalled();
     expect(mocks.createRootTask).toHaveBeenCalledWith(
       expect.objectContaining({
         models: expect.objectContaining({

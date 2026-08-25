@@ -3,7 +3,6 @@ import { isPublicHttpMediaUrl } from '../../utils/virtual-media-url';
 import {
   PPT_EXPLAINER_SCHEMA_VERSION,
   type PptExplainerPresenterMode,
-  type PptExplainerSpeakerInput,
   type PptExplainerSlide,
   type PptExplainerSpeaker,
   type PptExplainerTaskState,
@@ -64,7 +63,7 @@ export function isProviderReachableAvatarUrl(value: string): boolean {
 
 export function validatePptExplainerSpeakers(
   mode: PptExplainerPresenterMode,
-  speakers: readonly (PptExplainerSpeaker | PptExplainerSpeakerInput)[],
+  speakers: readonly PptExplainerSpeaker[],
   options: { requireVoice?: boolean } = {}
 ): void {
   const expectedCount = requiredSpeakerCount(mode);
@@ -92,66 +91,38 @@ export function validatePptExplainerSpeakers(
     speakerIds.add(id);
     if (options.requireVoice === false) continue;
     const voiceSource = getPptExplainerSpeakerVoiceSource(speaker);
-    const inputReference =
-      'referenceAudio' in speaker ? speaker.referenceAudio : undefined;
-    const persistedReference =
-      'voiceReference' in speaker ? speaker.voiceReference : undefined;
+    const persistedReference = speaker.voiceReference;
     let voiceIdentity: string;
     if (voiceSource === 'voice_id') {
       const voiceId = speaker.voiceId?.trim();
-      if (!voiceId || inputReference || persistedReference) {
+      if (!voiceId || persistedReference) {
         throw new PptExplainerValidationError(
           `讲解者「${displayName}」必须且只能配置声音 ID`
         );
       }
       voiceIdentity = `voice:${voiceId}`;
     } else {
-      if (speaker.voiceId?.trim() || (!inputReference && !persistedReference)) {
+      if (speaker.voiceId?.trim() || !persistedReference) {
         throw new PptExplainerValidationError(
           `讲解者「${displayName}」必须且只能配置参考音频`
         );
       }
-      if (inputReference) {
-        const file = inputReference.file;
-        if (
-          (!file &&
-            (!inputReference.sourceAssetId || !inputReference.sourceUrl)) ||
-          (file && file.size <= 0)
-        ) {
-          throw new PptExplainerValidationError(
-            `讲解者「${displayName}」的参考音频不可用`
-          );
-        }
-        const mimeType = inferPptExplainerAudioMimeType(
-          inputReference.mimeType || file?.type,
-          inputReference.filename || file?.name
+      if (
+        !persistedReference.cacheUrl.trim() ||
+        !persistedReference.assetName.trim() ||
+        persistedReference.size <= 0 ||
+        !inferPptExplainerAudioMimeType(
+          persistedReference.mimeType,
+          persistedReference.filename
+        )
+      ) {
+        throw new PptExplainerValidationError(
+          `讲解者「${displayName}」的参考音频缓存无效`
         );
-        if (!mimeType) {
-          throw new PptExplainerValidationError(
-            `讲解者「${displayName}」的参考音频格式不受支持`
-          );
-        }
-        voiceIdentity = inputReference.sourceAssetId
-          ? `asset:${inputReference.sourceAssetId}`
-          : `file:${file?.name}:${file?.size}:${file?.lastModified}`;
-      } else {
-        if (
-          !persistedReference?.cacheUrl.trim() ||
-          !persistedReference.assetName.trim() ||
-          persistedReference.size <= 0 ||
-          !inferPptExplainerAudioMimeType(
-            persistedReference.mimeType,
-            persistedReference.filename
-          )
-        ) {
-          throw new PptExplainerValidationError(
-            `讲解者「${displayName}」的参考音频缓存无效`
-          );
-        }
-        voiceIdentity = persistedReference.sourceAssetId
-          ? `asset:${persistedReference.sourceAssetId}`
-          : `sample:${persistedReference.cacheUrl}`;
       }
+      voiceIdentity = persistedReference.sourceAssetId
+        ? `asset:${persistedReference.sourceAssetId}`
+        : `sample:${persistedReference.cacheUrl}`;
     }
     if (expectedCount === 2 && voiceIdentities.has(voiceIdentity)) {
       throw new PptExplainerValidationError('双人模式必须配置两个不同声音');
@@ -202,17 +173,14 @@ export function inferPptExplainerAudioMimeType(
 }
 
 export function getPptExplainerSpeakerVoiceSource(
-  speaker: PptExplainerSpeaker | PptExplainerSpeakerInput
+  speaker: PptExplainerSpeaker
 ): PptExplainerVoiceSource {
   if (speaker.voiceSource) return speaker.voiceSource;
-  return ('voiceReference' in speaker && speaker.voiceReference) ||
-    ('referenceAudio' in speaker && speaker.referenceAudio)
-    ? 'reference_audio'
-    : 'voice_id';
+  return speaker.voiceReference ? 'reference_audio' : 'voice_id';
 }
 
 export function hasPptExplainerReferenceAudio(
-  speakers: readonly (PptExplainerSpeaker | PptExplainerSpeakerInput)[]
+  speakers: readonly PptExplainerSpeaker[]
 ): boolean {
   return speakers.some(
     (speaker) =>

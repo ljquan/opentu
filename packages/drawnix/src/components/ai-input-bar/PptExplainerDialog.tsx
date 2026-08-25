@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Button,
   Dialog,
@@ -7,26 +7,24 @@ import {
   MessagePlugin,
   Textarea,
 } from 'tdesign-react';
-import { FileUp, Trash2 } from 'lucide-react';
 import type { ModelRef } from '../../utils/settings-manager';
 import type { Task } from '../../types/task.types';
 import type {
   PptExplainerCreateInput,
+  PptExplainerCreateSourceKind,
   PptExplainerCreateSpeakerInput,
   PptExplainerReviewMode,
-  PptExplainerSourceKind,
 } from '../../services/ppt-explainer/types';
 import { authorizePptExplainerUiCreation } from '../../services/ppt-explainer/creation-service';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import './ppt-explainer-dialog.scss';
 
 const SOURCE_OPTIONS: Array<{
-  value: PptExplainerSourceKind;
+  value: PptExplainerCreateSourceKind;
   label: string;
 }> = [
   { value: 'topic', label: '主题生成' },
   { value: 'current_ppt', label: '当前 PPT' },
-  { value: 'pptx', label: '上传 PPTX' },
 ];
 
 const PRESENTER_OPTIONS: Array<{
@@ -42,9 +40,8 @@ interface SpeakerDraft {
 }
 
 export interface PptExplainerDialogDraft {
-  source: PptExplainerSourceKind;
+  source: PptExplainerCreateSourceKind;
   topic: string;
-  pptxFile?: File;
   reviewMode: PptExplainerReviewMode;
   presenterMode: PptExplainerCreateInput['presenterMode'];
   secondsPerSlide: number;
@@ -55,9 +52,8 @@ export interface PptExplainerDialogDraft {
 export interface PptExplainerDialogProps {
   open: boolean;
   sourceBoardId?: string | null;
-  hasExistingPpt: boolean;
   initialTopic?: string;
-  initialSource?: PptExplainerSourceKind;
+  initialSource?: PptExplainerCreateSourceKind;
   currentPptFrameIds?: string[];
   textModel: string;
   textModelRef?: ModelRef | null;
@@ -77,7 +73,7 @@ function getSpeakerCount(
 
 function createInitialDraft(
   initialTopic?: string,
-  initialSource?: PptExplainerSourceKind
+  initialSource?: PptExplainerCreateSourceKind
 ): PptExplainerDialogDraft {
   const topic = initialTopic?.trim() || '';
   const secondsMatch = topic.match(
@@ -96,10 +92,6 @@ function createInitialDraft(
     narrationInstruction: topic,
     speakers: [{ displayName: '主讲人' }, { displayName: '嘉宾' }],
   };
-}
-
-function isPptxFile(file: File): boolean {
-  return /\.pptx$/i.test(file.name);
 }
 
 export function validatePptExplainerDialogDraft(
@@ -133,14 +125,6 @@ export function validatePptExplainerDialogDraft(
     return '每页讲解时长必须是正整数秒';
   }
   if (draft.source === 'topic' && !draft.topic.trim()) return '请输入 PPT 主题';
-  if (draft.source === 'pptx' && !draft.pptxFile) return '请选择 PPTX 文件';
-  if (
-    draft.source === 'pptx' &&
-    draft.pptxFile &&
-    !isPptxFile(draft.pptxFile)
-  ) {
-    return '仅支持 .pptx 文件';
-  }
 
   const activeSpeakers = draft.speakers.slice(
     0,
@@ -212,7 +196,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   );
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { confirm, confirmDialog } = useConfirmDialog();
   const speakerCount = getSpeakerCount(draft.presenterMode);
   const validationError = validatePptExplainerDialogDraft(draft, {
@@ -275,9 +258,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
         imageModelRef,
         videoModel,
         videoModelRef,
-        ...(draft.source === 'pptx' && draft.pptxFile
-          ? { pptxFile: draft.pptxFile }
-          : {}),
       };
       if (skipOutlineReview) {
         authorizePptExplainerUiCreation(input, {
@@ -361,49 +341,6 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                 页码排列。
               </div>
             ) : null}
-            {draft.source === 'pptx' ? (
-              <div className="ppt-explainer-dialog__file-row">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                  hidden
-                  disabled={loading}
-                  onChange={(event) => {
-                    const pptxFile = event.target.files?.[0];
-                    setSubmitError(null);
-                    setDraft((current) => ({ ...current, pptxFile }));
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  icon={<FileUp size={16} />}
-                  disabled={loading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  选择 PPTX
-                </Button>
-                <span className="ppt-explainer-dialog__file-name">
-                  {draft.pptxFile?.name || '未选择文件'}
-                </span>
-                {draft.pptxFile ? (
-                  <Button
-                    variant="text"
-                    shape="square"
-                    icon={<Trash2 size={15} />}
-                    aria-label="移除 PPTX"
-                    disabled={loading}
-                    onClick={() => {
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                      setDraft((current) => ({
-                        ...current,
-                        pptxFile: undefined,
-                      }));
-                    }}
-                  />
-                ) : null}
-              </div>
-            ) : null}
           </section>
 
           {draft.source === 'topic' ? (
@@ -440,12 +377,16 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
                 }));
               }}
             />
+            {draft.presenterMode === 'dual_voice' ? (
+              <div className="ppt-explainer-dialog__hint" role="note">
+                双人会按角色分别请求视频模型，并加入主讲人男声、嘉宾女声约束；实际音色由所选模型决定，普通视频模型不提供固定
+                voice ID。
+              </div>
+            ) : null}
           </section>
 
           <section className="ppt-explainer-dialog__section">
-            <label className="ppt-explainer-dialog__label">
-              每页讲解时长
-            </label>
+            <label className="ppt-explainer-dialog__label">每页讲解时长</label>
             <div className="ppt-explainer-dialog__duration-row">
               <InputNumber
                 value={draft.secondsPerSlide}
@@ -504,7 +445,7 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
             </div>
             <div className="ppt-explainer-dialog__hint" role="note">
               将逐页使用当前选择的视频模型生成讲解音轨，再固定原 PPT
-              页面合成。系统会按模型支持时长自动分段，并拒绝时长异常或明显无声的片段。
+              页面合成。系统会按模型支持时长自动分段；媒体无法解码或音轨不可播放时会明确报错，片段提前结束则按实际时长合成。
             </div>
           </section>
         </div>

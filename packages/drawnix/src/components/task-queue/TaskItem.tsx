@@ -46,6 +46,7 @@ import {
   isLyricsResult,
 } from '../../utils/lyrics-task-utils';
 import { VideoPosterPreview } from '../shared/VideoPosterPreview';
+import { useMediaUrl } from '../../hooks/useMediaCache';
 import './task-queue.scss';
 import './task-progress-overlay.scss';
 import { HoverTip } from '../shared';
@@ -375,6 +376,18 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
       task.type === TaskType.IMAGE && rawMediaUrl
         ? normalizeImageDataUrl(rawMediaUrl)
         : rawMediaUrl;
+    const isVirtualVideoUrl =
+      task.type === TaskType.VIDEO &&
+      Boolean(mediaUrl && isVirtualMediaUrl(mediaUrl));
+    const { url: cachedVideoUrl, isLoading: isVideoUrlLoading } = useMediaUrl(
+      task.id,
+      isVirtualVideoUrl ? mediaUrl : undefined
+    );
+    const videoPreviewUrl = isVirtualVideoUrl
+      ? isVideoUrlLoading
+        ? null
+        : cachedVideoUrl
+      : mediaUrl;
 
     const { isCached, cacheWarning: detectedCacheWarning } = useUnifiedCache(
       isCharacterTask || isAudioTask ? undefined : mediaUrl
@@ -675,10 +688,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                           }
                         />
                       </div>
-                    ) : mediaUrl ? (
+                    ) : videoPreviewUrl ? (
                       <>
                         <VideoPosterPreview
-                          src={mediaUrl}
+                          src={videoPreviewUrl}
                           poster={task.result?.previewImageUrl}
                           alt={displayPrompt || '视频预览'}
                           thumbnailSize="small"

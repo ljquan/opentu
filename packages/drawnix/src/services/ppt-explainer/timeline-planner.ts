@@ -1,9 +1,6 @@
-import { computeSegmentPlan } from '../../utils/segment-plan';
+import { computeSegmentPlan, findBestDuration } from '../../utils/segment-plan';
 import type { DurationOption } from '../../types/video.types';
-import type {
-  PptExplainerSpeaker,
-  PptExplainerTurn,
-} from './types';
+import type { PptExplainerSpeaker, PptExplainerTurn } from './types';
 
 export interface PptExplainerSubtitleCue {
   text: string;
@@ -24,11 +21,17 @@ const MAX_SUBTITLE_CUE_CHARS = 30;
 function splitTextAtNaturalBreaks(text: string): string[] {
   const normalized = text.trim();
   if (!normalized) return [];
-  const sentences = normalized.match(/[^。！？!?；;，,\n]+[。！？!?；;，,]?/g) || [normalized];
+  const sentences = normalized.match(
+    /[^。！？!?；;，,\n]+[。！？!?；;，,]?/g
+  ) || [normalized];
   const chunks: string[] = [];
   for (const sentence of sentences) {
     const value = sentence.trim();
-    for (let offset = 0; offset < value.length; offset += MAX_SUBTITLE_CUE_CHARS) {
+    for (
+      let offset = 0;
+      offset < value.length;
+      offset += MAX_SUBTITLE_CUE_CHARS
+    ) {
       const chunk = value.slice(offset, offset + MAX_SUBTITLE_CUE_CHARS).trim();
       if (chunk) chunks.push(chunk);
     }
@@ -88,7 +91,11 @@ function allocateAtoms(
   let atomIndex = 0;
   let consumedChars = 0;
 
-  for (let segmentIndex = 0; segmentIndex < outputDurations.length; segmentIndex += 1) {
+  for (
+    let segmentIndex = 0;
+    segmentIndex < outputDurations.length;
+    segmentIndex += 1
+  ) {
     const remainingSegments = outputDurations.length - segmentIndex;
     const segment: PptExplainerTurn[] = [];
     const targetChars =
@@ -139,6 +146,45 @@ function buildSubtitleCues(
   });
 }
 
+function splitTurnsBySpeaker(
+  turns: readonly PptExplainerTurn[]
+): PptExplainerTurn[][] {
+  const groups: PptExplainerTurn[][] = [];
+  for (const turn of turns) {
+    const previous = groups[groups.length - 1];
+    if (previous && previous[0]?.speakerId === turn.speakerId) {
+      previous.push({ ...turn });
+    } else {
+      groups.push([{ ...turn }]);
+    }
+  }
+  return groups;
+}
+
+function allocateSpeakerGroupDurations(
+  groups: readonly PptExplainerTurn[][],
+  targetSeconds: number
+): number[] {
+  if (groups.length === 0) return [];
+  if (groups.length === 1) return [targetSeconds];
+  const weights = groups.map((group) =>
+    Math.max(
+      1,
+      group.reduce((sum, turn) => sum + turn.text.replace(/\s/g, '').length, 0)
+    )
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let remainingSeconds = targetSeconds;
+  let remainingWeight = totalWeight;
+  return weights.map((weight, index) => {
+    if (index === weights.length - 1) return remainingSeconds;
+    const duration = (remainingSeconds * weight) / Math.max(1, remainingWeight);
+    remainingSeconds -= duration;
+    remainingWeight -= weight;
+    return duration;
+  });
+}
+
 export function planPptExplainerSlideTimeline(options: {
   turns: readonly PptExplainerTurn[];
   speakers: readonly PptExplainerSpeaker[];
@@ -160,21 +206,51 @@ export function planPptExplainerSlideTimeline(options: {
   const speakerNames = new Map(
     options.speakers.map((speaker) => [speaker.id, speaker.displayName])
   );
+  return plan.segments.flatMap((requestDurationSeconds, index) => {
+    const turns = segmentTurns[index];
+    const speakerGroups = splitTurnsBySpeaker(turns);
+    if (speakerGroups.length <= 1) {
+      return [
+        {
+          requestDurationSeconds,
+          outputDurationSeconds: outputDurations[index],
+          turns,
+          subtitleCues: buildSubtitleCues(
+            turns,
+            outputDurations[index],
+            speakerNames
+          ),
+        },
+      ];
+    }
 
-  return plan.segments.map((requestDurationSeconds, index) => ({
-    requestDurationSeconds,
-    outputDurationSeconds: outputDurations[index],
-    turns: segmentTurns[index],
-    subtitleCues: buildSubtitleCues(
-      segmentTurns[index],
-      outputDurations[index],
-      speakerNames
-    ),
-  }));
+    const groupDurations = allocateSpeakerGroupDurations(
+      speakerGroups,
+      outputDurations[index]
+    );
+    return speakerGroups.map((group, groupIndex) => {
+      const outputDurationSeconds = groupDurations[groupIndex];
+      return {
+        requestDurationSeconds: findBestDuration(
+          outputDurationSeconds,
+          options.durationOptions
+        ),
+        outputDurationSeconds,
+        turns: group,
+        subtitleCues: buildSubtitleCues(
+          group,
+          outputDurationSeconds,
+          speakerNames
+        ),
+      };
+    });
+  });
 }
 
 export const pptExplainerTimelineInternals = {
   allocateOutputDurations,
+  allocateSpeakerGroupDurations,
   buildSubtitleCues,
+  splitTurnsBySpeaker,
   splitTextAtNaturalBreaks,
 };
