@@ -34,7 +34,7 @@ import {
   resolveInvocationPlanFromRoute,
   supportsTextBindingImageInput,
 } from '../../services/provider-routing';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import {
   type PPTGenerationParams,
   type PPTOutline,

@@ -172,7 +172,7 @@ import type {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import classNames from 'classnames';
 import { InspirationBoard } from '../inspiration-board';
 import { AIInputComposerShell } from './AIInputComposerShell';
@@ -207,6 +207,7 @@ import {
   saveScopedAIInputModelParams,
 } from '../../services/ai-generation-preferences-service';
 import { applyForcedSunoParams } from '../../utils/suno-model-aliases';
+import { isSeedance2ModelId } from '../../utils/seedance-model';
 import {
   clearPersistedModelSelection,
   getPersistedModelSelection,
@@ -4628,7 +4629,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             );
       const baseParams = { ...loadedParams };
       if (
-        selectedModel.startsWith('doubao-seedance-2-0-') &&
+        isSeedance2ModelId(selectedModel) &&
         baseParams.size?.includes('@')
       ) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
@@ -5069,7 +5070,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               {
                 enforceSeedanceAudioDataUrlLimit:
                   effectiveGenerationType === 'video' &&
-                  effectiveSelectedModel.startsWith('doubao-seedance-2-0-'),
+                  isSeedance2ModelId(effectiveSelectedModel),
               }
             );
             if (abortIfSubmittedBoardChanged('association_resolution')) return;

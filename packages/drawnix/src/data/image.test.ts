@@ -36,7 +36,7 @@ vi.mock('../services/asset-storage-service', () => ({
   assetStorageService: {},
 }));
 
-vi.mock('../utils/posthog-analytics', () => ({
+vi.mock('../utils/umami-analytics', () => ({
   analytics: {
     track: vi.fn(),
   },

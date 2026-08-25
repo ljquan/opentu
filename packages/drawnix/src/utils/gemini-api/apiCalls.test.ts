@@ -32,7 +32,7 @@ vi.mock('../../services/provider-routing', () => ({
   readProviderResponseText: (response: Response) => response.text(),
 }));
 
-vi.mock('../posthog-analytics', () => ({
+vi.mock('../umami-analytics', () => ({
   analytics: analyticsMock,
   getProviderEndpointAnalytics: (baseUrl?: string | null) => {
     if (!baseUrl) return null;

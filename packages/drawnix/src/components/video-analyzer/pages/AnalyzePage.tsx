@@ -56,7 +56,7 @@ import {
 } from '../video-source-cache';
 import { taskQueueService } from '../../../services/task-queue';
 import { syncVideoAnalyzerTask } from '../task-sync';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 import { MessagePlugin } from '../../../utils/message-plugin';
 
 type InputMode = 'prompt' | 'upload' | 'youtube';

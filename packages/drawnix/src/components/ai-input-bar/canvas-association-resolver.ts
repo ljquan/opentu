@@ -32,11 +32,15 @@ import {
   isSeedanceAudioReference,
   SEEDANCE_AUDIO_DATA_URL_MAX_LENGTH,
 } from '../../utils/virtual-media-url';
+import {
+  getSeedance2Capabilities,
+  getSeedance2Label,
+  isSeedance2ModelId,
+} from '../../utils/seedance-model';
 
 const DEFAULT_RASTER_OUTPUT_RATIO = 2;
 const MAX_RASTER_OUTPUT_DIMENSION = 2048;
 const MAX_RASTER_OUTPUT_AREA = 2_500_000;
-const SEEDANCE_2_MODEL_PREFIX = 'doubao-seedance-2-0-';
 const INLINE_MEDIA_PAYLOAD_LIMIT_ERROR = 'INLINE_MEDIA_PAYLOAD_LIMIT';
 
 export type CanvasAssociationResolvedContentType =
@@ -666,7 +670,9 @@ export function validateCanvasAssociationCapability({
     if (videoCount > 0) errors.push('当前图片模型不支持视频联想引用');
     if (audioCount > 0) errors.push('当前图片模型不支持音频联想引用');
   } else if (generationType === 'video') {
-    const isSeedance2 = modelId.startsWith(SEEDANCE_2_MODEL_PREFIX);
+    const seedance2Capabilities = getSeedance2Capabilities(modelId);
+    const isSeedance2 = isSeedance2ModelId(modelId);
+    const seedance2Label = getSeedance2Label(modelId);
     const isHappyHorseEdit = modelId === 'happyhorse-1.0-video-edit';
     if (visualCount > 0 && videoImageInput && videoImageInput.maxCount === 0) {
       errors.push('当前视频模型不支持图片联想引用');
@@ -688,11 +694,21 @@ export function validateCanvasAssociationCapability({
     if (audioCount > 0 && !isSeedance2) {
       errors.push('当前视频模型不支持音频联想引用');
     }
-    if (isSeedance2 && videoCount > 3) {
-      errors.push('Seedance 2.0 最多支持 3 个视频联想引用');
+    if (
+      seedance2Capabilities &&
+      videoCount > seedance2Capabilities.maxReferenceVideos
+    ) {
+      errors.push(
+        `${seedance2Label} 最多支持 ${seedance2Capabilities.maxReferenceVideos} 个视频联想引用`
+      );
     }
-    if (isSeedance2 && audioCount > 3) {
-      errors.push('Seedance 2.0 最多支持 3 个音频联想引用');
+    if (
+      seedance2Capabilities &&
+      audioCount > seedance2Capabilities.maxReferenceAudios
+    ) {
+      errors.push(
+        `${seedance2Label} 最多支持 ${seedance2Capabilities.maxReferenceAudios} 个音频联想引用`
+      );
     }
     if (
       isSeedance2 &&
@@ -700,7 +716,7 @@ export function validateCanvasAssociationCapability({
         (item) => item.type === 'video' && !isPublicHttpMediaUrl(item.url || '')
       )
     ) {
-      errors.push('Seedance 2.0 视频联想引用仅支持公网 HTTP(S) 地址');
+      errors.push(`${seedance2Label} 视频联想引用仅支持公网 HTTP(S) 地址`);
     }
     if (
       isSeedance2 &&
@@ -711,11 +727,11 @@ export function validateCanvasAssociationCapability({
       )
     ) {
       errors.push(
-        'Seedance 2.0 音频联想引用仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID'
+        `${seedance2Label} 音频联想引用仅支持 HTTP(S)、asset://、音频 Data URL 或素材 ID`
       );
     }
     if (isSeedance2 && !audioDataUrlsWithinLimit) {
-      errors.push('Seedance 2.0 音频 Data URL 合计不能超过 16 MiB');
+      errors.push(`${seedance2Label} 音频 Data URL 合计不能超过 16 MiB`);
     }
   } else if (generationType === 'audio') {
     if (visualCount > 0) errors.push('当前音频模型不支持图片联想引用');

@@ -138,7 +138,7 @@ import {
   resolveInvocationRoute,
   type ModelRef,
 } from '../../utils/settings-manager';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import type { ModelConfig } from '../../constants/model-config';
 import { AssetType, SelectionMode, type Asset } from '../../types/asset.types';

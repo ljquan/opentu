@@ -473,6 +473,45 @@
     }
   }
 
+  &__provider-groups {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  &__provider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__provider-group--account {
+    padding-top: 14px;
+    border-top: 1px solid rgba(15, 23, 42, 0.1);
+  }
+
+  &__provider-group-heading {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 6px;
+    color: var(--sd-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  &__provider-group-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
   &__sidebar-item,
   &__sidebar-add {
     width: 100%;
@@ -2241,7 +2280,13 @@
     }
 
     &__sidebar-shell--catalog {
-      .settings-dialog__sidebar-list {
+      .settings-dialog__provider-groups {
+        gap: 18px;
+        padding: 0;
+        overflow: visible;
+      }
+
+      .settings-dialog__provider-group-list {
         gap: 0;
         padding: 0;
         border: 1px solid rgba(15, 23, 42, 0.08);
@@ -2249,6 +2294,10 @@
         background: #ffffff;
         box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
         overflow: hidden;
+      }
+
+      .settings-dialog__provider-group--account {
+        padding-top: 16px;
       }
 
       .settings-dialog__provider-row {

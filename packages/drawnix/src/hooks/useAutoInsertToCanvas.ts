@@ -12,7 +12,13 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { Transforms, type PlaitBoard, type Point } from '@plait/core';
+import {
+  getViewportOrigination,
+  PlaitBoard as PlaitBoardApi,
+  Transforms,
+  type PlaitBoard,
+  type Point,
+} from '@plait/core';
 import { PlaitDrawElement } from '@plait/draw';
 import { getTaskQueueService } from '../services/task-queue';
 import { taskStorageReader } from '../services/task-storage-reader';
@@ -81,6 +87,7 @@ import {
   getLyricsTitle,
   isLyricsTask,
 } from '../utils/lyrics-task-utils';
+import { resolveImageTaskInsertionDimensions } from '../utils/task-utils';
 import { getImageGenerationTaskInsertGroupKey } from '../utils/image-generation-anchor-task';
 import { findImageGenerationAnchorForTaskOnBoard } from '../utils/image-generation-anchor-lookup';
 import {
@@ -776,32 +783,6 @@ function isDimensions(
   );
 }
 
-function getTaskImageDimensions(
-  task: Task,
-  fallback?: { width: number; height: number }
-): { width: number; height: number } | undefined {
-  // 优先使用任务返回的真实尺寸
-  const result = task.result as { width?: number; height?: number } | undefined;
-
-  if (
-    typeof result?.width === 'number' &&
-    typeof result?.height === 'number' &&
-    result.width > 0 &&
-    result.height > 0
-  ) {
-    return {
-      width: result.width,
-      height: result.height,
-    };
-  }
-
-  if (fallback) {
-    return fallback;
-  }
-
-  return parseSizeToPixels(task.params.size);
-}
-
 function resolveAnchorInsertionPreviewSize(
   anchor: PlaitImageGenerationAnchor | null,
   size?: { width: number; height: number }
@@ -1005,12 +986,32 @@ function resolvePendingInsertContext(
     insertionPoint = getInsertionPointBelowBottommostElement(board);
   }
 
+  if (!insertionPoint) {
+    insertionPoint = getViewportCenterInsertionPoint(board);
+  }
+
   return {
     insertionPoint,
     targetFrameId,
     targetFrameDimensions,
     imageAnchor,
   };
+}
+
+function getViewportCenterInsertionPoint(board: PlaitBoard): Point {
+  try {
+    const container = PlaitBoardApi.getBoardContainer(board);
+    const rect = container.getBoundingClientRect();
+    const zoom = Math.max(Number(board.viewport?.zoom) || 1, 0.001);
+    const origination = getViewportOrigination(board) || [0, 0];
+
+    return [
+      origination[0] + rect.width / (2 * zoom),
+      origination[1] + rect.height / (2 * zoom),
+    ];
+  } catch {
+    return [0, 0];
+  }
 }
 
 /**
@@ -1271,7 +1272,7 @@ export function useAutoInsertToCanvas(
               : task.type === TaskType.AUDIO
               ? 'audio'
               : 'image';
-            const dimensions =
+            const requestedDimensions =
               type === 'audio'
                 ? {
                     width: AUDIO_CARD_DEFAULT_WIDTH,
@@ -1280,6 +1281,13 @@ export function useAutoInsertToCanvas(
                 : type === 'text'
                 ? undefined
                 : parseSizeToPixels(task.params.size);
+            const dimensions =
+              type === 'image'
+                ? resolveImageTaskInsertionDimensions(
+                    task,
+                    requestedDimensions?.width
+                  )
+                : requestedDimensions;
             const audioMetadata =
               type === 'audio'
                 ? {
@@ -1382,9 +1390,7 @@ export function useAutoInsertToCanvas(
                   }
                 : generationMetadata;
             const targetImageDimensions =
-              type === 'image'
-                ? getTaskImageDimensions(task, dimensions)
-                : undefined;
+              type === 'image' ? dimensions : undefined;
             let insertedPoint = resolvedInsertionPoint;
             let insertedElementId: string | undefined;
             let insertedSize =
@@ -1850,6 +1856,10 @@ export function useAutoInsertToCanvas(
                       url: resultUrl,
                       anchor: taskAnchor,
                       metadata: taskMetadata,
+                      dimensions: resolveImageTaskInsertionDimensions(
+                        task,
+                        parseSizeToPixels(task.params.size).width
+                      ),
                     }));
                   })
                 : [];
@@ -1889,7 +1899,7 @@ export function useAutoInsertToCanvas(
               : firstInsertTask.type === TaskType.AUDIO
               ? 'audio'
               : 'image';
-            const dimensions =
+            const requestedDimensions =
               type === 'audio'
                 ? {
                     width: AUDIO_CARD_DEFAULT_WIDTH,
@@ -1898,15 +1908,20 @@ export function useAutoInsertToCanvas(
                 : type === 'text'
                 ? undefined
                 : parseSizeToPixels(firstInsertTask.params.size);
+            const dimensions =
+              type === 'image'
+                ? resolveImageTaskInsertionDimensions(
+                    firstInsertTask,
+                    requestedDimensions?.width
+                  )
+                : requestedDimensions;
             const groupImageAnchor =
               type === 'image'
                 ? scopedImageAnchor ??
                   findImageGenerationAnchorForTask(board, firstInsertTask)
                 : null;
             const groupImageDimensions =
-              type === 'image'
-                ? getTaskImageDimensions(firstInsertTask, dimensions)
-                : undefined;
+              type === 'image' ? dimensions : undefined;
             let insertedPoint = resolvedInsertionPoint;
             let insertedElementId: string | undefined;
             let insertedSize = groupImageDimensions;
@@ -2008,7 +2023,10 @@ export function useAutoInsertToCanvas(
                 (resultUrl, index) => ({
                   type,
                   url: resultUrl,
-                  dimensions,
+                  dimensions:
+                    type === 'image'
+                      ? imageGroupItems[index]?.dimensions ?? dimensions
+                      : dimensions,
                   metadata:
                     type === 'image'
                       ? imageGroupItems[index]?.metadata
@@ -2069,7 +2087,7 @@ export function useAutoInsertToCanvas(
                 const insertionResult = await insertImageGroup(
                   urls,
                   resolvedInsertionPoint,
-                  dimensions,
+                  imageGroupItems.map((item) => item.dimensions),
                   board,
                   () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
                   firstInsertTask.params.prompt

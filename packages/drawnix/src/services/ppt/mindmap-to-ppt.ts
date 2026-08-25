@@ -36,7 +36,7 @@ import {
   getPPTFrameGridPositions,
   loadPPTFrameLayoutColumns,
 } from './ppt-frame-layout';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 
 /**
  * 从 MindElement 的 data 中提取纯文本

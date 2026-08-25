@@ -25,7 +25,7 @@ import { CursorPreview } from './cursor-preview';
 import { SizePicker } from './size-picker';
 import './pencil-settings-toolbar.scss';
 import { HoverTip } from '../../shared/hover';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 // 预设橡皮擦大小（步长更大，最大256px）
 const ERASER_WIDTH_PRESETS = [16, 32, 48, 64, 96, 128, 192, 256];

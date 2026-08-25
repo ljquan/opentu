@@ -64,7 +64,7 @@ import {
 } from '../../utils/lyrics-task-utils';
 import { resolveAudioResultUrls } from '../../services/audio-task-result-utils';
 import { ConfirmDialog } from '../dialog/ConfirmDialog';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { DRAWER_PIN_KEYS } from '../../utils/drawer-pin';
 import {
   buildImageTaskAIInputPrefillData,

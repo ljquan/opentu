@@ -1,19 +1,19 @@
 /**
- * PostHog Analytics Adapter
+ * Umami Analytics Adapter
  * Feature: 005-declarative-tracking
- * Purpose: Adapter to use existing PostHogAnalytics utility for declarative tracking
+ * Purpose: Adapter to use existing UmamiAnalytics utility for declarative tracking
  */
 
 import type { TrackEvent } from '../../types/tracking.types';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 
 /**
- * PostHog Tracking Adapter
- * Uses existing PostHogAnalytics singleton to avoid code duplication
+ * Umami Tracking Adapter
+ * Uses existing UmamiAnalytics singleton to avoid code duplication
  */
-export class PostHogTrackingAdapter {
+export class UmamiTrackingAdapter {
   /**
-   * Check if PostHog SDK is available
+   * Check if Umami SDK is available
    */
   isAvailable(): boolean {
     return analytics.isAnalyticsEnabled();
@@ -22,11 +22,11 @@ export class PostHogTrackingAdapter {
   /**
    * Track event using existing analytics utility
    * @param event - Tracking event to upload
-   * Note: Silently returns if PostHog SDK is not loaded (consistent with posthog-analytics.ts)
+   * Note: Silently returns if Umami SDK is not loaded (consistent with umami-analytics.ts)
    */
   async track(event: TrackEvent): Promise<void> {
     if (!this.isAvailable()) {
-      // PostHog SDK not loaded, silently skip (e.g., local development)
+      // Umami SDK not loaded, silently skip (e.g., local development)
       return;
     }
 
@@ -46,10 +46,10 @@ export class PostHogTrackingAdapter {
     }
 
     try {
-      // Use existing analytics.track() method
-      analytics.track(event.eventName, enrichedData);
+      // Use existing analytics.track() method and await SDK promises when available.
+      await analytics.track(event.eventName, enrichedData);
     } catch (error) {
-      console.error('[Tracking] PostHog track failed:', error);
+      console.error('[Tracking] Umami track failed:', error);
       throw error; // Re-throw for retry handling
     }
   }
@@ -59,7 +59,9 @@ export class PostHogTrackingAdapter {
    * @param events - Array of tracking events
    * @returns Array of results (success or error)
    */
-  async trackBatch(events: TrackEvent[]): Promise<Array<{ success: boolean; error?: Error }>> {
+  async trackBatch(
+    events: TrackEvent[]
+  ): Promise<Array<{ success: boolean; error?: Error }>> {
     const results: Array<{ success: boolean; error?: Error }> = [];
 
     for (const event of events) {
@@ -75,12 +77,12 @@ export class PostHogTrackingAdapter {
   }
 
   /**
-   * Get PostHog SDK version info (if available)
+   * Get Umami SDK version info (if available)
    */
   getSDKInfo(): { available: boolean; version?: string } {
     return {
       available: this.isAvailable(),
-      version: this.isAvailable() ? 'PostHog JS' : undefined,
+      version: this.isAvailable() ? 'Umami JS' : undefined,
     };
   }
 }
@@ -88,4 +90,4 @@ export class PostHogTrackingAdapter {
 /**
  * Singleton instance
  */
-export const posthogAdapter = new PostHogTrackingAdapter();
+export const umamiAdapter = new UmamiTrackingAdapter();

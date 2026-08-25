@@ -38,7 +38,7 @@ import {
 } from '../../icons';
 import './pencil-settings-toolbar.scss';
 import { HoverTip } from '../../shared/hover';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 // 模拟光标预览组件
 const CursorPreview: React.FC<{

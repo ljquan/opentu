@@ -57,7 +57,7 @@ import { MessagePlugin } from '../../utils/message-plugin';
 import {
   analytics,
   getPromptAnalyticsSummary,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import { MediaViewer } from '../shared/MediaViewer';
 import {
   WorkflowNavBar,

@@ -7,6 +7,7 @@
 import { CryptoUtils } from './crypto-utils';
 import { DRAWNIX_SETTINGS_KEY } from '../constants/storage';
 import { configIndexedDBWriter } from './config-indexeddb-writer';
+import { isTuziEmbeddedMode } from '../services/tuzi-embedded-config';
 import type { GeminiConfig } from './gemini-api/types';
 import type { VideoAPIConfig } from './config-indexeddb-writer';
 import type { ProviderPricingCache } from './model-pricing-types';
@@ -1440,6 +1441,16 @@ class SettingsManager {
     try {
       const urlParams = new URLSearchParams(window.location.search);
 
+      if (isTuziEmbeddedMode()) {
+        if (urlParams.has('settings') || urlParams.has('apiKey')) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('settings');
+          url.searchParams.delete('apiKey');
+          window.history.replaceState({}, document.title, url.toString());
+        }
+        return;
+      }
+
       // 处理settings参数
       const settingsParam = urlParams.get('settings');
       if (settingsParam) {
@@ -1817,6 +1828,21 @@ class SettingsManager {
     );
   }
 
+  private getEmbeddedManagedProvider(): ProviderProfile | null {
+    if (!isTuziEmbeddedMode()) return null;
+    const managed = this.settings.providerProfiles.filter(
+      (profile) =>
+        profile.id.startsWith('tuzi-managed-') &&
+        profile.enabled !== false &&
+        Boolean(profile.apiKey?.trim())
+    );
+    return (
+      managed.find((profile) => profile.pricingGroup === 'default') ||
+      managed[0] ||
+      null
+    );
+  }
+
   private getProviderCatalogById(
     profileId?: string | null
   ): ProviderCatalog | null {
@@ -2026,12 +2052,20 @@ class SettingsManager {
       Boolean(requestedModelRef?.profileId) ||
       normalizedRequestedModelId === normalizedPresetModelId ||
       !requestedStaticModel;
-    const profile = this.getProviderProfileById(
+    let profile = this.getProviderProfileById(
       requestedModelRef?.profileId ||
         manualBindingProfileId ||
         (shouldInheritPresetProfile ? presetModelRef?.profileId : null) ||
         null
     );
+    const hasExplicitProfile = Boolean(requestedModelRef?.profileId);
+    if (
+      !hasExplicitProfile &&
+      isTuziEmbeddedMode() &&
+      (!profile || !profile.apiKey?.trim())
+    ) {
+      profile = this.getEmbeddedManagedProvider();
+    }
     const profileModels = profile
       ? this.getSelectedModelsForProfile(profile.id, routeType)
       : [];

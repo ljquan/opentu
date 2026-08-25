@@ -70,7 +70,7 @@ import {
   collectWorkflowExportAssets,
   exportWorkflowAssetsZip,
 } from '../../../utils/workflow-generation-utils';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 import { markAssetAsCharacter } from '../../../services/character-asset-metadata-service';
 
 const STORAGE_KEY_IMAGE_MODEL = 'video-analyzer:image-model';

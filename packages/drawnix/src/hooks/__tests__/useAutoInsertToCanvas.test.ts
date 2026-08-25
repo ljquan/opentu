@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
     boundBoardId: 'board-1' as string | null,
     boundTargetFollowEnabled: true,
     readBoundTargetFollowEnabled: vi.fn(),
+    getInsertionPointBelowBottommostElement: vi.fn(() => [100, 100]),
   };
 });
 
@@ -198,7 +199,8 @@ vi.mock('../../utils/image-splitter', () => ({
 }));
 
 vi.mock('../../utils/selection-utils', () => ({
-  getInsertionPointBelowBottommostElement: vi.fn(() => [100, 100]),
+  getInsertionPointBelowBottommostElement:
+    mocks.getInsertionPointBelowBottommostElement,
   notifyAISelectionContentRefresh: mocks.notifyAISelectionContentRefresh,
 }));
 
@@ -306,6 +308,8 @@ describe('useAutoInsertToCanvas', () => {
     mocks.readBoundTargetFollowEnabled.mockImplementation(
       () => mocks.boundTargetFollowEnabled
     );
+    mocks.getInsertionPointBelowBottommostElement.mockReset();
+    mocks.getInsertionPointBelowBottommostElement.mockReturnValue([100, 100]);
     mocks.quickInsert.mockReset();
     mocks.quickInsert.mockResolvedValue({
       success: true,
@@ -505,6 +509,80 @@ describe('useAutoInsertToCanvas', () => {
       [100, 100],
       'image-1',
       { width: 512, height: 512 }
+    );
+  });
+
+  it('uses returned image dimensions instead of the requested square size', async () => {
+    const task = createCompletedImageTask({
+      params: {
+        prompt: '竖版海报',
+        size: '1:1',
+        autoInsertToCanvas: true,
+      },
+      result: {
+        url: '/__aitu_cache__/image/portrait.png',
+        format: 'png',
+        size: 123,
+        width: 1024,
+        height: 1536,
+      },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/portrait.png',
+      [100, 100],
+      { width: 400, height: 600 },
+      expect.any(Object),
+      mocks.board,
+      expect.any(Function)
+    );
+  });
+
+  it('falls back to a valid insertion point on an empty canvas', async () => {
+    const task = createCompletedImageTask();
+    mocks.board = { children: [], viewport: { zoom: 1 } };
+    mocks.taskState.tasks = [task];
+    mocks.getInsertionPointBelowBottommostElement.mockReturnValue(undefined);
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledWith(
+      'image',
+      '/__aitu_cache__/image/task-1.png',
+      [0, 0],
+      { width: 512, height: 512 },
+      expect.any(Object),
+      mocks.board,
+      expect.any(Function)
+    );
+    expect(mocks.failPostProcessing).not.toHaveBeenCalledWith(
+      task.id,
+      'No insertion point available'
     );
   });
 
@@ -1874,6 +1952,8 @@ describe('useAutoInsertToCanvas', () => {
         url: '/__aitu_cache__/image/batch-1.png',
         format: 'png',
         size: 123,
+        width: 1536,
+        height: 1024,
       },
     });
     const secondTask = createCompletedImageTask({
@@ -1887,6 +1967,8 @@ describe('useAutoInsertToCanvas', () => {
         url: '/__aitu_cache__/image/batch-2.png',
         format: 'png',
         size: 123,
+        width: 1024,
+        height: 1536,
       },
     });
     mocks.board = {
@@ -1908,6 +1990,29 @@ describe('useAutoInsertToCanvas', () => {
       ],
     };
     mocks.taskState.tasks = [firstTask, secondTask];
+    mocks.insertImageGroup.mockResolvedValueOnce({
+      success: true,
+      data: {
+        insertedCount: 2,
+        items: [
+          {
+            type: 'image',
+            point: [100, 100],
+            elementId: 'image-1',
+            size: { width: 512, height: 341 },
+          },
+          {
+            type: 'image',
+            point: [632, 100],
+            elementId: 'image-2',
+            size: { width: 400, height: 600 },
+          },
+        ],
+        firstElementId: 'image-1',
+        firstElementPosition: [100, 100],
+        firstElementSize: { width: 512, height: 341 },
+      },
+    });
 
     renderHook(() =>
       useAutoInsertToCanvas({
@@ -1927,7 +2032,10 @@ describe('useAutoInsertToCanvas', () => {
         '/__aitu_cache__/image/batch-2.png',
       ],
       [100, 100],
-      { width: 512, height: 512 },
+      [
+        { width: 512, height: 341 },
+        { width: 400, height: 600 },
+      ],
       mocks.board,
       expect.any(Function),
       '批量图片'
@@ -1950,14 +2058,14 @@ describe('useAutoInsertToCanvas', () => {
       1,
       [100, 100],
       'image-1',
-      { width: 512, height: 512 }
+      { width: 512, height: 341 }
     );
     expect(mocks.completePostProcessing).toHaveBeenCalledWith(
       'task-batch-2',
       1,
       [632, 100],
       'image-2',
-      { width: 512, height: 512 }
+      { width: 400, height: 600 }
     );
   });
 

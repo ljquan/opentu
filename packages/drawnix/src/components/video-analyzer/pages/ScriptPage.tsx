@@ -31,7 +31,7 @@ import {
 import { taskQueueService } from '../../../services/task-queue';
 import { TaskType } from '../../../types/task.types';
 import { syncVideoAnalyzerTask } from '../task-sync';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 /** 自适应高度 textarea 的 onInput 处理 */
 function autoResize(el: HTMLTextAreaElement) {

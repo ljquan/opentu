@@ -29,7 +29,7 @@ import {
 } from '../../shared/workflow';
 import { ModelDropdown } from '../../ai-input-bar/ModelDropdown';
 import { KnowledgeNoteContextSelector } from '../../shared';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 const STORAGE_KEY_VIDEO_MODEL = 'mv-creator:video-model';
 const STORAGE_KEY_STORYBOARD_MODEL = 'mv-creator:storyboard-model';

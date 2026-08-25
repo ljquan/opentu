@@ -30,7 +30,7 @@ import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
 import { hasInvocationRouteCredentials } from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import {
   getAdapterContextFromSettings,
   resolveAdapterForInvocation,

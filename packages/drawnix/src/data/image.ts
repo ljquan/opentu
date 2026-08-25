@@ -19,7 +19,7 @@ import {
 } from '../utils/selection-utils';
 import { assetStorageService } from '../services/asset-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { generateUUID, normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';
@@ -194,12 +194,14 @@ export async function loadImageElementForCanvas(
     'serviceWorker' in navigator &&
     !!navigator.serviceWorker.controller;
 
-  if (isVirtualMediaUrl(imageUrl) && !canUseServiceWorker) {
+  if (isVirtualMediaUrl(imageUrl)) {
     const cachedBlob = await unifiedCacheService.getCachedBlob(imageUrl);
-    if (!cachedBlob || cachedBlob.size === 0) {
+    if (cachedBlob && cachedBlob.size > 0) {
+      return loadHTMLImageElementFromBlob(cachedBlob);
+    }
+    if (!canUseServiceWorker) {
       throw new Error('图片缓存不可用，请重新生成或上传');
     }
-    return loadHTMLImageElementFromBlob(cachedBlob);
   }
 
   return loadHTMLImageElementWithRetry(imageUrl, true);
