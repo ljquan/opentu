@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "1.1.0",
+      "date": "2026-08-24",
+      "changes": {
+        "features": [
+          "适配 Seedance 2.5 视频模型 (#239)"
+        ],
+        "fixes": [
+          "修复 Seedance 2.5 比例参数适配 (#242)",
+          "preserve generated image dimensions and canvas rendering (#240)"
+        ],
+        "improvements": [
+          "新增 Tuzi 账户管理 (#237)"
+        ]
+      },
+      "type": "minor",
+      "highlights": "适配 Seedance 2.5 视频模型 (#239)"
+    },
+    {
       "version": "1.0.20",
       "date": "2026-08-21",
       "changes": {
@@ -974,28 +992,6 @@
       },
       "type": "patch",
       "highlights": "修复画布批量拖拽媒体定位"
-    },
-    {
-      "version": "0.6.80",
-      "date": "2026-04-27",
-      "changes": {
-        "features": [
-          "启用 GPT-5.5 模型配置"
-        ],
-        "fixes": [
-          "tighten media cache warnings",
-          "refine left floating toolbar drawer alignment",
-          "clear task failure badge after viewing",
-          "优化素材库渲染性能",
-          "完善 PPT 标题文件名和媒体导出"
-        ],
-        "improvements": [
-          "更新应用版本号至0.6.79并同步构建时间",
-          "Add home SEO alternates and SW prefetch"
-        ]
-      },
-      "type": "patch",
-      "highlights": "启用 GPT-5.5 模型配置"
     }
   ]
 }

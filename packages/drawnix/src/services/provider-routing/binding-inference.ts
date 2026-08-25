@@ -4,6 +4,10 @@ import {
   type ModelConfig,
 } from '../../constants/model-config';
 import type { PricingEndpointInfo } from '../../utils/model-pricing-types';
+import {
+  getSeedance2Capabilities,
+  isSeedance2ModelId,
+} from '../../utils/seedance-model';
 import type { ImageApiCompatibility } from '../../utils/settings-types';
 import {
   OFFICIAL_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
@@ -167,7 +171,7 @@ function isSeedanceModel(model: ModelConfig): boolean {
 }
 
 function isSeedance2Model(model: ModelConfig): boolean {
-  return model.id.toLowerCase().startsWith('doubao-seedance-2-0-');
+  return isSeedance2ModelId(model.id);
 }
 
 function shouldPreferAsyncImageBinding(
@@ -666,11 +670,21 @@ function inferVideoBindings(
     profile.providerType === 'openai-compatible' ||
     profile.providerType === 'custom'
   ) {
-    const seedance2Metadata = isSeedance2Model(model)
+    const seedance2Capabilities = getSeedance2Capabilities(model.id);
+    const seedance2Metadata = seedance2Capabilities
       ? {
           video: {
-            allowedDurations: ['4', '5', '6', '7', '8', '9', '10', '11', '12'],
-            defaultDuration: '5',
+            allowedDurations: Array.from(
+              {
+                length:
+                  seedance2Capabilities.maxDuration -
+                  seedance2Capabilities.minDuration +
+                  1,
+              },
+              (_, index) =>
+                String(seedance2Capabilities.minDuration + index)
+            ),
+            defaultDuration: String(seedance2Capabilities.defaultDuration),
             durationMode: 'request-param' as const,
             durationField: 'duration',
             strictDurationValidation: true,

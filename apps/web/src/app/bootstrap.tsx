@@ -16,10 +16,7 @@ import {
   swChannelClient,
   safeReload,
 } from '@drawnix/drawnix/runtime';
-import {
-  getAnalyticsReleaseContext,
-  registerAnalyticsSuperProperties,
-} from '@drawnix/drawnix';
+import { analytics } from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
 const isLocalDev =
@@ -51,11 +48,6 @@ crashRecoveryService.checkUrlSafeMode();
 // 必须尽早初始化，以捕获启动阶段的内存状态和错误
 initCrashLogger();
 
-const APP_VERSION =
-  import.meta.env.VITE_APP_VERSION ||
-  document.querySelector('meta[name="app-version"]')?.getAttribute('content') ||
-  '0.0.0';
-const RELEASE_CONTEXT = getAnalyticsReleaseContext();
 const LAZY_CHUNK_RETRY_PARAM = '_lazy_chunk_retry';
 const LAZY_CHUNK_RETRY_TS_PARAM = '_t';
 
@@ -178,17 +170,20 @@ updateBootStatus({
 if (typeof window !== 'undefined') {
   initPreventPinchZoom();
 
-  const initPostHogContext = () => {
-    if (window.posthog) {
-      registerAnalyticsSuperProperties(RELEASE_CONTEXT);
+  const initAnalyticsMonitoring = (attempt = 0) => {
+    if (analytics.isAnalyticsEnabled()) {
       initPageReport();
       return;
     }
 
-    setTimeout(initPostHogContext, 300);
+    // Do not keep polling forever when reporting is disabled or blocked.
+    if (attempt >= 10) {
+      return;
+    }
+    setTimeout(() => initAnalyticsMonitoring(attempt + 1), 300);
   };
 
-  scheduleAfterFirstFrameIdle(initPostHogContext, {
+  scheduleAfterFirstFrameIdle(() => initAnalyticsMonitoring(), {
     delay: 0,
     timeout: 1000,
   });
@@ -229,12 +224,17 @@ if (typeof window !== 'undefined') {
   );
 
   // 统计上报为旁路逻辑：page view 尽早初始化，性能指标继续延迟
-  const initMonitoring = () => {
-    if (window.posthog) {
+  const initMonitoring = (attempt = 0) => {
+    if (analytics.isAnalyticsEnabled()) {
       initWebVitals();
-    } else {
-      setTimeout(initMonitoring, 500);
+      return;
     }
+
+    // Give the deferred Umami script a bounded window to initialize.
+    if (attempt >= 10) {
+      return;
+    }
+    setTimeout(() => initMonitoring(attempt + 1), 300);
   };
 
   scheduleAfterFirstFrameIdle(initMonitoring, {
@@ -243,10 +243,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-if (
-  hasServiceWorkerSupport &&
-  isServiceWorkerExplicitlyDisabled
-) {
+if (hasServiceWorkerSupport && isServiceWorkerExplicitlyDisabled) {
   cleanupDisabledServiceWorker();
 }
 

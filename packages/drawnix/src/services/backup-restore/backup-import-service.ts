@@ -22,7 +22,7 @@ import localforage from 'localforage';
 import { ASSET_CONSTANTS } from '../../constants/ASSET_CONSTANTS';
 import { unifiedCacheService } from '../unified-cache-service';
 import { assetStorageService } from '../asset-storage-service';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import { importAllData as importKnowledgeBaseData } from '../kb-import-export-service';
 import { _getStoreInstances } from '../knowledge-base-service';
 import { taskStorageWriter, type SWTask } from '../media-executor/task-storage-writer';

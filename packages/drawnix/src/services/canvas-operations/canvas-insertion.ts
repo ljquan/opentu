@@ -354,7 +354,7 @@ async function insertImageToCanvas(
     lockReferenceDimensions: Boolean(dimensions),
     skipImageLoad: !waitForImageLoad,
   });
-  // 自动插入可先用默认尺寸；用户主动插入会等待加载验证
+  // 图片在写入画布前必须验证可读，避免任务成功但画布留下空节点。
   // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
   // 提供尺寸时锁定布局，避免批量图片异步放大后互相重叠
   const elementId = await insertImageFromUrl(
@@ -934,7 +934,15 @@ export async function quickInsert(
 ): Promise<MCPResult> {
   return executeCanvasInsertion({
     board,
-    items: [{ type, content, dimensions, metadata }],
+    items: [
+      {
+        type,
+        content,
+        dimensions,
+        metadata,
+        waitForImageLoad: type === 'image',
+      },
+    ],
     startPoint: point,
     boardGuard,
   });
@@ -946,7 +954,9 @@ export async function quickInsert(
 export async function insertImageGroup(
   imageUrls: string[],
   point?: Point,
-  dimensions?: { width: number; height: number },
+  dimensions?:
+    | { width: number; height: number }
+    | Array<{ width: number; height: number }>,
   board?: PlaitBoard,
   boardGuard?: () => boolean,
   prompt?: string,
@@ -961,11 +971,12 @@ export async function insertImageGroup(
   };
   return executeCanvasInsertion({
     board,
-    items: imageUrls.map((url) => ({
+    items: imageUrls.map((url, index) => ({
       type: 'image' as ContentType,
       content: url,
       groupId,
-      dimensions,
+      dimensions: Array.isArray(dimensions) ? dimensions[index] : dimensions,
+      waitForImageLoad: true,
       metadata:
         Object.keys(promptMetadata).length > 0 ? promptMetadata : undefined,
     })),
@@ -994,6 +1005,7 @@ export async function insertGeneratedImageFlow(
       type: 'image',
       content: result.url,
       dimensions: result.dimensions,
+      waitForImageLoad: true,
       metadata: {
         ...result.metadata,
         ...(normalizedPrompt
@@ -1009,6 +1021,7 @@ export async function insertGeneratedImageFlow(
         content: result.url,
         groupId,
         dimensions: result.dimensions,
+        waitForImageLoad: true,
         metadata: {
           ...result.metadata,
           ...(normalizedPrompt
@@ -1063,6 +1076,7 @@ export async function insertAIFlow(
       type: results[0].type,
       content: results[0].url,
       dimensions: results[0].dimensions,
+      waitForImageLoad: results[0].type === 'image',
       metadata: {
         ...results[0].metadata,
         ...(normalizedPrompt
@@ -1078,6 +1092,7 @@ export async function insertAIFlow(
         content: r.url,
         groupId,
         dimensions: r.dimensions,
+        waitForImageLoad: r.type === 'image',
         metadata: {
           ...r.metadata,
           ...(normalizedPrompt

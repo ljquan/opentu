@@ -1,8 +1,11 @@
 {
-  "version": "1.0.20",
-  "buildTime": "2026-08-21T07:18:44.878Z",
-  "gitCommit": "ea212902125b2beaea2ac93cf550276dfc505c7e",
+  "version": "1.1.0",
+  "buildTime": "2026-08-24T09:57:31.867Z",
+  "gitCommit": "56b3e246cff2ef527280f5a9cf677cba9b20883e",
   "changelog": [
-    "修复：任务队列多结果无法插入画布 (#236)"
+    "preserve generated image dimensions and canvas rendering (#240)",
+    "修复 Seedance 2.5 比例参数适配 (#242)",
+    "适配 Seedance 2.5 视频模型 (#239)",
+    "新增 Tuzi 账户管理 (#237)"
   ]
 }

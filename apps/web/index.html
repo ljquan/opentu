@@ -1147,160 +1147,26 @@
       })();
     </script>
   </body>
-  <!-- PostHog Analytics -->
+  <!-- Umami Analytics -->
   <!-- 本地开发环境（localhost/127.0.0.1）默认不加载，除非 URL 带 report=1 参数 -->
   <script>
     (function () {
       var isLocalDev =
-        window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1';
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
       var forceReport =
-        new URLSearchParams(window.location.search).get('report') === '1';
+        new URLSearchParams(window.location.search).get("report") === "1";
 
-      // 本地开发环境且没有 report=1 参数时，不加载 PostHog
       if (isLocalDev && !forceReport) {
         return;
       }
 
-      !(function (t, e) {
-        var o, n, p, r;
-        e.__SV ||
-          (window.posthog && window.posthog.__loaded) ||
-          ((window.posthog = e),
-          (e._i = []),
-          (e.init = function (i, s, a) {
-            function g(t, e) {
-              var o = e.split('.');
-              2 == o.length && ((t = t[o[0]]), (e = o[1])),
-                (t[e] = function () {
-                  t.push([e].concat(Array.prototype.slice.call(arguments, 0)));
-                });
-            }
-            ((p = t.createElement('script')).type = 'text/javascript'),
-              (p.crossOrigin = 'anonymous'),
-              (p.async = !0),
-              (p.src =
-                s.api_host.replace('.i.posthog.com', '-assets.i.posthog.com') +
-                '/static/array.js'),
-              (r = t.getElementsByTagName('script')[0]).parentNode.insertBefore(
-                p,
-                r
-              );
-            var u = e;
-            for (
-              void 0 !== a ? (u = e[a] = []) : (a = 'posthog'),
-                u.people = u.people || [],
-                u.toString = function (t) {
-                  var e = 'posthog';
-                  return (
-                    'posthog' !== a && (e += '.' + a), t || (e += ' (stub)'), e
-                  );
-                },
-                u.people.toString = function () {
-                  return u.toString(1) + '.people (stub)';
-                },
-                o =
-                  'init Dr Ur fi Lr zr ci Or jr capture Ai calculateEventProperties qr register register_once register_for_session unregister unregister_for_session Jr getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey displaySurvey cancelPendingSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Gr Br createPersonProfile Vr Cr Kr opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing get_explicit_consent_status is_capturing clear_opt_in_out_capturing Hr debug O Wr getPageViewId captureTraceFeedback captureTraceMetric Rr'.split(
-                    ' '
-                  ),
-                n = 0;
-              n < o.length;
-              n++
-            )
-              g(u, o[n]);
-            e._i.push([i, s, a]);
-          }),
-          (e.__SV = 1));
-      })(document, window.posthog || []);
-      var isIgnorableExceptionEvent = function (event) {
-        if (!event || event.event !== '$exception') return false;
-        var properties = event.properties || {};
-        var messages = [];
-
-        var appendMessages = function (value) {
-          if (!value) return;
-          if (typeof value === 'string') {
-            messages.push(value);
-            if (
-              value.length < 2000 &&
-              (value.charAt(0) === '[' || value.charAt(0) === '{')
-            ) {
-              try {
-                appendMessages(JSON.parse(value));
-              } catch (_) {}
-            }
-            return;
-          }
-
-          if (Array.isArray(value)) {
-            for (var i = 0; i < value.length; i++) {
-              appendMessages(value[i]);
-            }
-            return;
-          }
-
-          if (typeof value === 'object') {
-            if (typeof value.value === 'string') messages.push(value.value);
-            if (typeof value.message === 'string') messages.push(value.message);
-            if (typeof value.name === 'string') messages.push(value.name);
-          }
-        };
-
-        appendMessages(properties.$exception_values);
-        appendMessages(properties.$exception_list);
-        appendMessages(properties.$exception_message);
-        appendMessages(properties.$exception_type);
-        appendMessages(properties.$exception_types);
-        appendMessages(properties.message);
-        appendMessages(properties.name);
-        appendMessages(event.exception);
-        appendMessages(event.error);
-
-        var text = messages.join('\n');
-        return (
-          text.indexOf(
-            'ResizeObserver loop completed with undelivered notifications'
-          ) !== -1 ||
-          text.indexOf('ResizeObserver loop limit exceeded') !== -1 ||
-          (text.indexOf('WebCodecs API') !== -1 &&
-            (text.indexOf('Chrome 94+') !== -1 ||
-              text.indexOf('Edge 94+') !== -1)) ||
-          (text.indexOf("Failed to execute 'write' on 'Clipboard'") !== -1 &&
-            text.indexOf('permissions policy') !== -1) ||
-          ((text.indexOf('AbortError') !== -1 ||
-            text.indexOf('The user aborted a request') !== -1) &&
-            (text.indexOf("Failed to execute 'showOpenFilePicker'") !== -1 ||
-              text.indexOf("Failed to execute 'showSaveFilePicker'") !== -1 ||
-              text.indexOf('The user aborted a request') !== -1)) ||
-          text.indexOf('No key or key range specified') !== -1
-        );
-      };
-
-      posthog.init('phc_13URtidKwTR9POlwnB153NsN99shRykvPguKWf3vZVn', {
-        api_host: 'https://us.i.posthog.com',
-        defaults: '2025-11-30',
-        person_profiles: 'identified_only',
-        // 关闭 Session Recording，避免 rrweb 主线程开销（wheel/setInterval）与 413
-        disable_session_recording: true,
-        // 限制单次 flush 体积，避免 413 Content Too Large
-        rate_limiting: { events_per_second: 10, events_burst_limit: 30 },
-        request_queue: { flush_interval_ms: 2000 },
-        // 白板 SPA 点击多，关闭 autocapture 减少事件量与请求体
-        autocapture: false,
-        // 静默网络错误；避免 413 重试风暴干扰
-        on_xhr_error: function (err) {
-          var code =
-            err &&
-            (typeof err.statusCode !== 'undefined'
-              ? err.statusCode
-              : err.status);
-          void code;
-        },
-        before_send: function (event) {
-          if (isIgnorableExceptionEvent(event)) return false;
-          return event;
-        },
-      });
+      var script = document.createElement("script");
+      script.defer = true;
+      script.src = "https://umami.tu-zi.com/script.js";
+      script.dataset.websiteId = "e6bd249e-bc68-4857-b6a5-02131b4ea286";
+      script.dataset.excludeSearch = "true";
+      document.head.appendChild(script);
     })();
   </script>
 </html>

@@ -274,6 +274,23 @@ describe('model adapter registry', () => {
     expect(adapter?.id).toBe('seedance-2-video-adapter');
   });
 
+  it('routes Seedance 2.5 content-json bindings to the dedicated adapter', () => {
+    const adapter = resolveAdapterForBinding(
+      createBinding({
+        modelId: 'doubao-seedance-2-5-260628',
+        operation: 'video',
+        protocol: 'openai.async.video',
+        requestSchema: 'doubao.seedance-2.video.content-json',
+        responseSchema: 'openai.async.task',
+        submitPath: '/videos',
+        pollPathTemplate: '/videos/{taskId}',
+      }),
+      'video'
+    );
+
+    expect(adapter?.id).toBe('seedance-2-video-adapter');
+  });
+
   it('keeps Seedance 1.x and 2.0 model IDs on separate adapters', () => {
     expect(resolveAdapterForModel('seedance-1.5-pro', 'video')?.id).toBe(
       'seedance-video-adapter'

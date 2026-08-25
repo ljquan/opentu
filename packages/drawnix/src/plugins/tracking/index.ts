@@ -11,13 +11,21 @@ export type { TrackingPluginContext } from './withTracking';
 export { useTracking } from './hooks/useTracking';
 
 // Services (for advanced usage)
-export { TrackingService, getTrackingService, resetTrackingService } from '../../services/tracking/tracking-service';
+export {
+  TrackingService,
+  getTrackingService,
+  resetTrackingService,
+} from '../../services/tracking/tracking-service';
 export { TrackingBatchService } from '../../services/tracking/tracking-batch-service';
 export { TrackingStorageService } from '../../services/tracking/tracking-storage-service';
-export { posthogAdapter } from '../../services/tracking/posthog-adapter';
+export { umamiAdapter } from '../../services/tracking/umami-adapter';
 
 // Configuration
-export { DEFAULT_TRACK_CONFIG, getVersion, mergeConfig } from '../../services/tracking/tracking-config';
+export {
+  DEFAULT_TRACK_CONFIG,
+  getVersion,
+  mergeConfig,
+} from '../../services/tracking/tracking-config';
 
 // Types
 export type {
