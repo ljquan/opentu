@@ -26,6 +26,7 @@ import type {
   InspirationBoardParams,
   SplitImageParams,
   LongVideoParams,
+  PptExplainerVideoParams,
   AIAnalyzeParams,
   ImageGenerationParams,
   VideoGenerationParams,
@@ -127,12 +128,44 @@ export class SWCapabilitiesHandler {
       case 'generate_ppt':
         return this.handleGeneratePPT(args);
 
+      case 'generate_ppt_explainer_video':
+        return this.handleGeneratePptExplainerVideo(
+          args as unknown as PptExplainerVideoParams
+        );
+
       default:
         return {
           success: false,
           error: `Unknown operation: ${opType}`,
           type: 'error',
         };
+    }
+  }
+
+  private async handleGeneratePptExplainerVideo(
+    params: PptExplainerVideoParams
+  ): Promise<CapabilityResult> {
+    try {
+      const { generatePptExplainerVideo } = await import(
+        '../../mcp/tools/ppt-explainer-video'
+      );
+      const result = await generatePptExplainerVideo(params);
+      return {
+        success: result.success,
+        data: result.data,
+        error: result.error,
+        type: result.type,
+        taskId: result.taskId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'PPT 讲解视频任务创建失败',
+        type: 'error',
+      };
     }
   }
 

@@ -1,0 +1,180 @@
+import type {
+  MCPExecuteOptions,
+  MCPResult,
+  MCPTaskResult,
+  MCPTool,
+} from '../types';
+import type { PptExplainerCreateInput } from '../../services/ppt-explainer/types';
+
+export type PptExplainerVideoParams = PptExplainerCreateInput;
+
+function getErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : 'PPT 讲解视频任务创建失败';
+  return message
+    .replace(
+      /(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;"']+/gi,
+      '$1[redacted]'
+    )
+    .replace(
+      /((?:api[-_]?key|access[-_]?token|secret)\s*[:=]\s*)[^\s,;"']+/gi,
+      '$1[redacted]'
+    )
+    .slice(0, 2000);
+}
+
+export const pptExplainerVideoTool: MCPTool = {
+  name: 'generate_ppt_explainer_video',
+  description:
+    '从主题或当前画布 PPT 创建可恢复的 PPT 讲解视频任务。支持单人讲解和双人对谈；主题来源可确认大纲，或在用户确认警告后跳过审核。只使用用户当前已选择且已配置的文本、图片和视频模型。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      source: {
+        type: 'string',
+        enum: ['topic', 'current_ppt'],
+        description: '演示来源：主题生成或当前画布 PPT',
+      },
+      sourceBoardId: {
+        type: 'string',
+        description: '任务创建时所属画板 ID，由主线程配置界面提供',
+      },
+      currentPptFrameIds: {
+        type: 'array',
+        description:
+          '当前 PPT 来源的已选页面 ID，由 PPT 编辑器提供；省略时使用全部页面',
+        items: { type: 'string' },
+      },
+      topic: {
+        type: 'string',
+        description: '主题来源的 PPT 主题；其他来源可作为任务标题',
+      },
+      requestedPageCount: {
+        type: 'number',
+        description: '主题来源的精确总页数，包含封面和结尾',
+      },
+      reviewMode: {
+        type: 'string',
+        enum: ['confirm', 'skip_after_warning'],
+        default: 'confirm',
+        description: '主题大纲审核方式',
+      },
+      presenterMode: {
+        type: 'string',
+        enum: ['single_voice', 'dual_voice'],
+        description: '讲解呈现模式',
+      },
+      secondsPerSlide: {
+        type: 'number',
+        description: '每页目标讲解时长（正整数秒），由配置界面提供',
+      },
+      narrationInstruction: {
+        type: 'string',
+        description: '适用于全部页面的讲解要求，由配置界面提供',
+      },
+      speakers: {
+        type: 'array',
+        description: '一个或两个结构化讲解人配置',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '讲解人稳定 ID' },
+            displayName: { type: 'string', description: '讲解人显示名称' },
+          },
+          required: ['id', 'displayName'],
+        },
+      },
+      textModel: {
+        type: 'string',
+        description: '讲稿与主题大纲使用的文本模型 ID，由 Agent 模型选择注入',
+      },
+      textModelRef: {
+        type: 'object',
+        description: '文本模型来源引用，由 Agent 模型选择注入',
+      },
+      imageModel: {
+        type: 'string',
+        description: '主题页面生成使用的图片模型 ID，由 Agent 模型选择注入',
+      },
+      imageModelRef: {
+        type: 'object',
+        description: '图片模型来源引用，由 Agent 模型选择注入',
+      },
+      videoModel: {
+        type: 'string',
+        description: '逐页生成有声讲解的视频模型 ID，由模型选择器注入',
+      },
+      videoModelRef: {
+        type: 'object',
+        description: '视频模型来源引用，由模型选择器注入',
+      },
+    },
+    required: [
+      'source',
+      'sourceBoardId',
+      'reviewMode',
+      'presenterMode',
+      'secondsPerSlide',
+      'speakers',
+    ],
+  },
+  supportedModes: ['queue'],
+  promptGuidance: {
+    whenToUse: '当用户希望把 PPT 自动制作为单人讲解或双人对谈视频时使用。',
+    parameterGuidance: {
+      source: '用户明确提到新主题时用 topic；提到当前 PPT 时用 current_ppt。',
+      currentPptFrameIds:
+        '只能原样使用 PPT 编辑器提供的页面 ID；未提供时省略，不得自行构造。',
+      reviewMode:
+        '默认 confirm。只有配置界面已完成二次警告确认时，才可使用 skip_after_warning。',
+      speakers: '只填写配置界面中的讲解者名称，不得添加界面未提供的字段。',
+      secondsPerSlide: '使用配置界面的正整数秒数，不得自行修改。',
+    },
+    warnings: [
+      '不得构造模型来源或界面未提供的讲解者字段',
+      '不得构造当前 PPT 页面 ID，只能使用 PPT 编辑器提供的选择结果',
+      '跳过大纲审核只能由当前页面配置界面的二次确认授权，Agent 参数不能代替用户确认',
+      'OpenTu 不设置固定页数、文件大小、发言时长或总成片时长上限',
+    ],
+  },
+  execute: async (params: Record<string, unknown>): Promise<MCPResult> => {
+    try {
+      const { createPptExplainerTask } = await import(
+        '../../services/ppt-explainer/creation-service'
+      );
+      const { readPptExplainerState } = await import(
+        '../../services/ppt-explainer/validation'
+      );
+      const task = await createPptExplainerTask(
+        params as unknown as PptExplainerCreateInput
+      );
+      const stage = readPptExplainerState(task)?.stage;
+      const result: MCPTaskResult = {
+        success: true,
+        type: 'video',
+        taskId: task.id,
+        data: {
+          taskId: task.id,
+          stage,
+        },
+      };
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        type: 'error',
+        error: getErrorMessage(error),
+      };
+    }
+  },
+};
+
+export async function generatePptExplainerVideo(
+  params: PptExplainerVideoParams,
+  _options?: Omit<MCPExecuteOptions, 'mode'>
+): Promise<MCPTaskResult> {
+  return pptExplainerVideoTool.execute(
+    params as unknown as Record<string, unknown>,
+    { mode: 'queue' }
+  ) as Promise<MCPTaskResult>;
+}

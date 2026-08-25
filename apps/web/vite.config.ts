@@ -1113,10 +1113,9 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
 
-  // Uncomment this if you are using workers.
-  // worker: {
-  //  plugins: [ nxViteTsPaths() ],
-  // },
+  worker: {
+    format: 'es',
+  },
 
   build: {
     outDir: '../../dist/apps/web',

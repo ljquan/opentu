@@ -3,6 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SWCapabilitiesHandler, setCapabilitiesBoard } from './handler';
 
 const pendingImageInsertions = vi.hoisted(() => new Map<string, () => void>());
+const capabilityMocks = vi.hoisted(() => ({
+  generatePptExplainerVideo: vi.fn(),
+}));
+
+vi.mock('../../mcp/tools/ppt-explainer-video', () => ({
+  generatePptExplainerVideo: capabilityMocks.generatePptExplainerVideo,
+}));
 
 vi.mock('../../data/image', () => ({
   insertImageFromUrl: vi.fn(
@@ -95,6 +102,7 @@ function releaseImageInsertion(imageUrl: string): void {
 describe('SW capabilities canvas insertion', () => {
   beforeEach(() => {
     pendingImageInsertions.clear();
+    capabilityMocks.generatePptExplainerVideo.mockReset();
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -258,5 +266,35 @@ describe('SW capabilities canvas insertion', () => {
         ([event]) => event.type === 'ai-generation-complete'
       )
     ).toBe(false);
+  });
+
+  it('forwards PPT explainer task identity through the main-thread capability', async () => {
+    capabilityMocks.generatePptExplainerVideo.mockResolvedValue({
+      success: true,
+      type: 'video',
+      taskId: 'ppt-task-1',
+      data: { taskId: 'ppt-task-1', stage: 'review_pending' },
+    });
+    const handler = new SWCapabilitiesHandler();
+    const args = {
+      source: 'current_ppt',
+      sourceBoardId: 'board-1',
+      reviewMode: 'confirm',
+      presenterMode: 'single_voice',
+      speakers: [],
+    };
+
+    await expect(
+      handler.execute({ operation: 'generate_ppt_explainer_video', args })
+    ).resolves.toEqual({
+      success: true,
+      type: 'video',
+      taskId: 'ppt-task-1',
+      data: { taskId: 'ppt-task-1', stage: 'review_pending' },
+      error: undefined,
+    });
+    expect(capabilityMocks.generatePptExplainerVideo).toHaveBeenCalledWith(
+      args
+    );
   });
 });

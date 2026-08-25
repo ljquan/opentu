@@ -76,6 +76,8 @@ export async function generateVideo(
       size: options.size,
       params: options.params,
       promptMeta: options.promptMeta,
+      resultVisibility: options.resultVisibility,
+      autoInsertToCanvas: options.autoInsertToCanvas,
     },
     invocationRoute
   );
@@ -89,9 +91,15 @@ export async function generateVideo(
       prompt: sanitizedParams.prompt,
       model: options.model || 'veo3',
       modelRef: options.modelRef || null,
+      duration:
+        typeof options.duration === 'string'
+          ? parseInt(options.duration, 10)
+          : options.duration,
       size: options.size,
       params: options.params,
       promptMeta: options.promptMeta,
+      resultVisibility: options.resultVisibility,
+      autoInsertToCanvas: options.autoInsertToCanvas,
     },
     createdAt: now,
     updatedAt: now,
@@ -117,7 +125,8 @@ export async function generateVideo(
   assertCurrentAttempt();
 
   // 通知调用方 taskId，以便提前持久化到工作流步骤
-  options.onTaskCreated?.(taskId);
+  await options.onTaskCreated?.(taskId);
+  assertCurrentAttempt();
 
   // 构建 executor 参数
   const executorParams: VideoGenerationParams = {
@@ -131,6 +140,7 @@ export async function generateVideo(
     inputReferences: options.inputReferences,
     referenceImages: options.referenceImages,
     params: options.params,
+    resultVisibility: options.resultVisibility,
   };
 
   // 调用 executor 执行

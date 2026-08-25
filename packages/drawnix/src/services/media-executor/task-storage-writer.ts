@@ -10,7 +10,10 @@
 
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
-import type { TaskInvocationRouteSnapshot } from '../../types/task.types';
+import type {
+  TaskInvocationRouteSnapshot,
+  TaskResultVisibility,
+} from '../../types/task.types';
 
 // 使用主线程专用数据库
 const DB_NAME = APP_DB_NAME;
@@ -54,6 +57,7 @@ export interface SWTask {
     format: string;
     size: number;
     resultKind?: 'image' | 'video' | 'audio' | 'lyrics' | 'character' | 'chat';
+    resultVisibility?: TaskResultVisibility;
     width?: number;
     height?: number;
     duration?: number;
@@ -434,7 +438,7 @@ class TaskStorageWriter {
     return this.updateTask(
       taskId,
       (task) => {
-        const normalizedResult =
+        const normalizedMediaResult =
           task.type === 'image' && result
             ? {
                 ...result,
@@ -448,6 +452,21 @@ class TaskStorageWriter {
                 ),
               }
             : result;
+        const rawRequestedVisibility = task.params.resultVisibility;
+        const requestedVisibility: TaskResultVisibility | undefined =
+          rawRequestedVisibility === 'internal' ||
+          rawRequestedVisibility === 'user'
+            ? rawRequestedVisibility
+            : undefined;
+        const normalizedResult =
+          normalizedMediaResult &&
+          normalizedMediaResult.resultVisibility === undefined &&
+          requestedVisibility
+            ? {
+                ...normalizedMediaResult,
+                resultVisibility: requestedVisibility,
+              }
+            : normalizedMediaResult;
 
         task.status = 'completed';
         task.result = normalizedResult;

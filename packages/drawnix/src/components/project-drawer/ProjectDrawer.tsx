@@ -1784,6 +1784,7 @@ export const ProjectDrawer: React.FC<ProjectDrawerProps> = ({
           <LayerPanel />
         ) : activeTab === 'frames' ? (
           <FramePanel
+            currentBoardId={currentBoard?.id}
             currentBoardName={currentBoard?.name}
             onOpenMediaLibrary={onOpenMediaLibrary}
           />

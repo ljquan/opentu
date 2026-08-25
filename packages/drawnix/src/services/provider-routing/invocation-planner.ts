@@ -6,6 +6,7 @@ import type {
   ProviderBindingConfidence,
   ProviderModelBinding,
   ProviderProfileSnapshot,
+  ProviderProtocol,
   ResolvedProviderContext,
 } from './types';
 
@@ -68,6 +69,20 @@ function normalizePreferredRequestSchemas(
   return rawValues
     .map((schema) => schema.trim())
     .filter((schema) => schema.length > 0);
+}
+
+function normalizeRequiredProtocols(
+  requiredProtocol?: ProviderProtocol | readonly ProviderProtocol[] | null
+): ProviderProtocol[] {
+  const rawValues = Array.isArray(requiredProtocol)
+    ? requiredProtocol
+    : requiredProtocol
+    ? [requiredProtocol]
+    : [];
+
+  return rawValues
+    .map((protocol) => protocol.trim())
+    .filter((protocol): protocol is ProviderProtocol => protocol.length > 0);
 }
 
 function buildProviderContext(
@@ -136,19 +151,30 @@ export class InvocationPlanner {
       );
     }
 
+    const requiredProtocols = normalizeRequiredProtocols(
+      request.requiredProtocol
+    );
     const bindings = this.repositories
       .getModelBindings(targetModelRef, request.operation)
       .filter(
         (binding) =>
           binding.profileId === targetModelRef.profileId &&
           binding.modelId === targetModelRef.modelId &&
-          binding.operation === request.operation
+          binding.operation === request.operation &&
+          (requiredProtocols.length === 0 ||
+            requiredProtocols.includes(binding.protocol))
       )
       .sort(compareBindings);
 
     if (bindings.length === 0) {
       throw new InvocationPlanningError(
-        `No protocol binding for ${targetModelRef.profileId}/${targetModelRef.modelId}/${request.operation}`
+        `No protocol binding for ${targetModelRef.profileId}/${
+          targetModelRef.modelId
+        }/${request.operation}${
+          requiredProtocols.length > 0
+            ? ` matching ${requiredProtocols.join(', ')}`
+            : ''
+        }`
       );
     }
 

@@ -761,6 +761,26 @@
     padding: 0 $spacing-md $spacing-sm 0;
   }
 
+  &__explainer-selection-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    margin: 0 8px 8px 0;
+    padding: 5px 8px;
+    border: 1px solid rgba(243, 156, 18, 0.28);
+    border-radius: 6px;
+    background: rgba(243, 156, 18, 0.07);
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+
+    svg {
+      flex: 0 0 auto;
+      color: var(--td-brand-color);
+    }
+  }
+
   &__view-switch {
     display: inline-flex;
     flex: 0 0 auto;
@@ -796,6 +816,50 @@
     overflow: auto;
     padding-right: 4px;
     scrollbar-gutter: stable;
+  }
+
+  &__explainer-review {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid rgba(243, 156, 18, 0.32);
+    border-radius: 8px;
+    background: rgba(243, 156, 18, 0.08);
+
+    .t-button {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+  }
+
+  &__explainer-review-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__explainer-review-title {
+    color: var(--td-text-color-primary);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  &__explainer-review-topic {
+    overflow: hidden;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__explainer-review-error {
+    color: var(--td-error-color);
+    font-size: 12px;
+    line-height: 18px;
   }
 
   &__outline-common {
@@ -926,6 +990,24 @@
       &.t-is-checked .t-checkbox__input {
         box-shadow: 0 2px 6px rgba(243, 156, 18, 0.28);
       }
+    }
+  }
+
+  &__outline-explainer-checkbox {
+    display: inline-flex;
+    flex: 0 0 auto;
+
+    .t-checkbox__input {
+      width: 18px;
+      height: 18px;
+      border-color: rgba(243, 156, 18, 0.65);
+      background: var(--frame-panel-outline-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    &:hover .t-checkbox__input {
+      border-color: var(--td-brand-color);
+      box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.12);
     }
   }
 
@@ -1261,6 +1343,24 @@
 
     &--with-transition {
       align-items: flex-end;
+    }
+  }
+
+  &__slide-reference-checkbox {
+    flex: 0 0 auto;
+    margin-top: 3px;
+
+    .t-checkbox__input {
+      width: 18px;
+      height: 18px;
+      border-color: var(--frame-panel-outline-checkbox-border);
+      background: var(--frame-panel-outline-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    &:hover .t-checkbox__input {
+      border-color: rgba(243, 156, 18, 0.8);
+      box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.12);
     }
   }
 

@@ -55,12 +55,12 @@ export interface PPTOutline {
   pages: PPTPageSpec[];
 }
 
-/** PPT 生成页数选项 */
-export type PPTPageCountOption = 'short' | 'normal' | 'long';
+/** PPT 生成页数选项；数字表示包含封面和结尾的精确总页数。 */
+export type PPTPageCountOption = 'short' | 'normal' | 'long' | number;
 
 /** PPT 生成选项 */
 export interface PPTGenerateOptions {
-  /** 页数控制：short(5-7页), normal(8-12页), long(13-18页) */
+  /** 页数控制：预设范围，或包含封面和结尾的精确总页数 */
   pageCount?: PPTPageCountOption;
   /** 输出语言 */
   language?: string;
@@ -101,6 +101,8 @@ export interface PPTSlideTransition {
 }
 
 export interface PPTFrameMeta {
+  /** Owning PPT explainer draft. Omitted for regular PPT generation. */
+  pptExplainerJobId?: string;
   /** PPT 总标题，用于大纲标题输入和导出文件名 */
   deckTitle?: string;
   /** 旧视觉提示词（兼容旧数据，整页提示词优先使用 slidePrompt） */

@@ -187,6 +187,37 @@ describe('cacheRemoteUrl', () => {
     vi.unstubAllGlobals();
   });
 
+  it('persists explicit internal visibility in cached image metadata', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Blob(['internal-image'], { type: 'image/png' }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const result = await cacheRemoteUrl(
+      'https://cdn.example.com/generated/internal.png',
+      'task-internal-image',
+      'image',
+      'png',
+      undefined,
+      {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        resultVisibility: 'internal',
+      }
+    );
+
+    expect(cacheMediaFromBlob).toHaveBeenCalledWith(result, blobLike, 'image', {
+      taskId: 'task-internal-image',
+      source: 'AI_GENERATED',
+      resultVisibility: 'internal',
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it('reuses the same cached file for identical base64 payloads across tasks', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(
       async () =>

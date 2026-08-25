@@ -1,6 +1,9 @@
 import type { ModelRef } from '../../utils/settings-manager';
 import type { GeminiMessagePart } from '../../utils/gemini-api/types';
-import type { GenerationParams as TaskGenerationParams } from '../../types/shared/core.types';
+import type {
+  GenerationParams as TaskGenerationParams,
+  TaskResultVisibility,
+} from '../../types/shared/core.types';
 import type { TaskInvocationRouteSnapshot } from '../../types/task.types';
 import type {
   ProviderAuthStrategy,
@@ -58,6 +61,8 @@ export interface ImageGenerationParams {
   params?: Record<string, unknown>;
   /** 素材库轻量元数据 */
   assetMetadata?: TaskGenerationParams['assetMetadata'];
+  /** 控制生成结果是否投影到素材库和画布。 */
+  resultVisibility?: TaskResultVisibility;
 }
 
 // ============================================================================
@@ -88,6 +93,8 @@ export interface VideoGenerationParams {
   referenceImages?: string[];
   /** 额外参数（如 aspect_ratio），透传给 adapter */
   params?: Record<string, unknown>;
+  /** 控制生成结果是否投影到素材库和画布。 */
+  resultVisibility?: TaskResultVisibility;
 }
 
 // ============================================================================

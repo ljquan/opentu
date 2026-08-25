@@ -89,6 +89,8 @@ function buildStoredImageTaskParams(
     count: options.count,
     assetMetadata: options.assetMetadata,
     promptMeta: options.promptMeta,
+    resultVisibility: options.resultVisibility,
+    autoInsertToCanvas: options.autoInsertToCanvas,
     params: buildStoredImageAdapterParams(options),
   };
 }
@@ -175,6 +177,7 @@ export async function generateImage(
     uploadedImages: options.uploadedImages,
     count: options.count,
     assetMetadata: options.assetMetadata,
+    resultVisibility: options.resultVisibility,
     params: options.params,
   };
 

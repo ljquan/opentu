@@ -265,6 +265,9 @@ export interface GenerationParams {
 // Task Result
 // ============================================================================
 
+/** Controls whether a completed task result is projected into user-facing views. */
+export type TaskResultVisibility = 'user' | 'internal';
+
 /**
  * Task result interface
  * Contains the output from a successfully completed task
@@ -282,6 +285,8 @@ export interface TaskResult {
   size: number;
   /** Semantic result kind for mixed-capability providers */
   resultKind?: TaskResultKind;
+  /** Internal results remain available to orchestration but are not user-facing. */
+  resultVisibility?: TaskResultVisibility;
   /** Content width in pixels */
   width?: number;
   /** Content height in pixels */
@@ -322,6 +327,13 @@ export interface TaskResult {
   toolCalls?: ChatToolCall[];
   /** Cache failure warning for media results */
   cacheWarning?: CacheWarning;
+}
+
+/** Legacy results without an explicit visibility remain user-facing. */
+export function isUserVisibleTaskResult(
+  result: Pick<TaskResult, 'resultVisibility'> | null | undefined
+): boolean {
+  return result?.resultVisibility !== 'internal';
 }
 
 export type TaskResultKind =
@@ -432,6 +444,16 @@ export interface Task {
   syncedFromRemote?: boolean;
   /** Whether the task has been archived (excluded from active loading) */
   archived?: boolean;
+}
+
+/** Internal orchestration tasks stay available to services but not user task views. */
+export function isUserVisibleTask(
+  task: Pick<Task, 'params' | 'result'>
+): boolean {
+  return (
+    task.params.resultVisibility !== 'internal' &&
+    task.result?.resultVisibility !== 'internal'
+  );
 }
 
 // ============================================================================

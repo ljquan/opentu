@@ -20,6 +20,7 @@ import {
   AI_GENERATED_AUDIO_URL_PREFIX,
   isVirtualMediaUrl,
 } from '../../utils/virtual-media-url';
+import type { TaskResultVisibility } from '../../types/task.types';
 import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
@@ -344,6 +345,7 @@ export async function cacheRemoteUrl(
     returnLocalCacheUrl?: boolean;
     cacheKey?: string;
     extraMetadata?: Record<string, unknown>;
+    resultVisibility?: TaskResultVisibility;
     signal?: AbortSignal;
   }
 ): Promise<string> {
@@ -394,6 +396,9 @@ export async function cacheRemoteUrl(
               taskId,
               source: cacheSource,
               ...options?.extraMetadata,
+              ...(options?.resultVisibility
+                ? { resultVisibility: options.resultVisibility }
+                : {}),
             }
           );
           options?.signal?.throwIfAborted();
@@ -428,6 +433,9 @@ export async function cacheRemoteUrl(
           taskId,
           source: cacheSource,
           ...options?.extraMetadata,
+          ...(options?.resultVisibility
+            ? { resultVisibility: options.resultVisibility }
+            : {}),
         }
       );
       options?.signal?.throwIfAborted();
@@ -491,6 +499,9 @@ export async function cacheRemoteUrl(
           taskId,
           ...(mediaType === 'audio' ? { source: 'AI_GENERATED' } : {}),
           ...options?.extraMetadata,
+          ...(options?.resultVisibility
+            ? { resultVisibility: options.resultVisibility }
+            : {}),
         }
       );
       options?.signal?.throwIfAborted();

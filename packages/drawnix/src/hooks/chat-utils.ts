@@ -31,6 +31,7 @@ const GENERATION_TOOLS = [
   'generate_photo_wall',
   'generate_inspiration_board',
   'generate_ppt',
+  'generate_ppt_explainer_video',
 ];
 
 /**
