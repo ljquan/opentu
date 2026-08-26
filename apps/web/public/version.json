@@ -1,11 +1,8 @@
 {
-  "version": "1.1.0",
-  "buildTime": "2026-08-24T09:57:31.867Z",
-  "gitCommit": "56b3e246cff2ef527280f5a9cf677cba9b20883e",
+  "version": "1.1.1",
+  "buildTime": "2026-08-26T09:48:01.053Z",
+  "gitCommit": "8afc34029b85ea8b50043fb06e64fee69ac814d3",
   "changelog": [
-    "preserve generated image dimensions and canvas rendering (#240)",
-    "修复 Seedance 2.5 比例参数适配 (#242)",
-    "适配 Seedance 2.5 视频模型 (#239)",
-    "新增 Tuzi 账户管理 (#237)"
+    "功能：新增可恢复的 PPT 讲解视频工作流 (#231)"
   ]
 }
