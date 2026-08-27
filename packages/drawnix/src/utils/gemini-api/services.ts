@@ -660,7 +660,7 @@ export async function sendChatWithGemini(
         signal
       );
     } else {
-      response = await callApiWithRetry(validatedConfig, messages);
+      response = await callApiWithRetry(validatedConfig, messages, signal);
       resultText = response.choices?.[0]?.message?.content || '';
     }
 

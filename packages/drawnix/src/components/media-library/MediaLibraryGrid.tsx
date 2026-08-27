@@ -286,6 +286,7 @@ export function MediaLibraryGrid({
   onUploadClick,
   storageStatus,
   onSelectionChange,
+  selectActionLabel = '插入画布',
 }: MediaLibraryGridProps) {
   const {
     assets,
@@ -1824,11 +1825,12 @@ export function MediaLibraryGrid({
                   </button>
                 </HoverTip>
                 {onDoubleClick && (
-                  <HoverTip content="插入画布">
+                  <HoverTip content={selectActionLabel}>
                     <button
                       className="media-library-grid__mobile-inspector-btn media-library-grid__mobile-inspector-btn--primary"
                       onClick={() => onDoubleClick(selectedAsset)}
-                      data-track="mobile_insert"
+                      data-track="mobile_select"
+                      aria-label={selectActionLabel}
                     >
                       <Plus size={18} />
                     </button>

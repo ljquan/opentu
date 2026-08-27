@@ -50,4 +50,45 @@ describe('media-model-routing', () => {
     expect(args.textModel).toBe('deepseek-v3.2');
     expect(args.textModelRef).toEqual(textRef);
   });
+
+  it('为 PPT 讲解视频注入文本、图片和成片模型来源，不伪造音频模型', () => {
+    const textRef = { profileId: 'text-profile', modelId: 'deepseek-v3.2' };
+    const imageRef = { profileId: 'image-profile', modelId: 'gpt-image-2' };
+    const videoRef = {
+      profileId: 'video-profile',
+      modelId: 'tuzi-ppt-explainer',
+    };
+    const audioRef = {
+      profileId: 'audio-profile',
+      modelId: 'gpt-4o-mini-tts',
+    };
+    const args = applyMediaModelDefaultsToArgs(
+      'generate_ppt_explainer_video',
+      { source: 'topic', model: 'should-not-persist' },
+      {
+        contextModel: { id: textRef.modelId, type: 'text' },
+        contextModelRef: textRef,
+        defaultModels: {
+          image: imageRef.modelId,
+          video: videoRef.modelId,
+          audio: audioRef.modelId,
+        },
+        defaultModelRefs: {
+          image: imageRef,
+          video: videoRef,
+          audio: audioRef,
+        },
+      }
+    );
+
+    expect(args.model).toBeUndefined();
+    expect(args.textModel).toBe(textRef.modelId);
+    expect(args.textModelRef).toEqual(textRef);
+    expect(args.imageModel).toBe(imageRef.modelId);
+    expect(args.imageModelRef).toEqual(imageRef);
+    expect(args.videoModel).toBe(videoRef.modelId);
+    expect(args.videoModelRef).toEqual(videoRef);
+    expect(args.audioModel).toBeUndefined();
+    expect(args.audioModelRef).toBeUndefined();
+  });
 });

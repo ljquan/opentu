@@ -55,6 +55,11 @@ function getToolDescription(toolName: string, args?: Record<string, unknown>): s
       return `生成音频: ${((args?.prompt as string) || '').substring(0, 30)}...`;
     case 'generate_ppt':
       return `生成PPT: ${((args?.topic as string) || '').substring(0, 30)}...`;
+    case 'generate_ppt_explainer_video':
+      return `生成PPT讲解视频: ${((args?.topic as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'generate_grid_image':
       return `生成宫格图: ${((args?.theme as string) || '').substring(0, 30)}...`;
     case 'insert_svg':

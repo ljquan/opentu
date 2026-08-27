@@ -1,11 +1,6 @@
 {
-  "version": "1.1.0",
-  "buildTime": "2026-08-24T09:57:31.867Z",
-  "gitCommit": "56b3e246cff2ef527280f5a9cf677cba9b20883e",
-  "changelog": [
-    "preserve generated image dimensions and canvas rendering (#240)",
-    "修复 Seedance 2.5 比例参数适配 (#242)",
-    "适配 Seedance 2.5 视频模型 (#239)",
-    "新增 Tuzi 账户管理 (#237)"
-  ]
+  "version": "1.1.2",
+  "buildTime": "2026-08-26T10:09:06.446Z",
+  "gitCommit": "e63dca3059841c30cd5b42207cc22d6fd7deef3f",
+  "changelog": []
 }

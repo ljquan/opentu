@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModelConfig, ModelType } from '../constants/model-config';
 import {
+  getConfiguredSelectableModels,
   getProfilePreferredModels,
   getPreferredModels,
   getSelectableModels,
@@ -32,9 +33,29 @@ export function useRuntimeModelDiscoveryState(
 function areModelListsEqual(a: ModelConfig[], b: ModelConfig[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].id !== b[i].id || a[i].selectionKey !== b[i].selectionKey) return false;
+    if (
+      a[i].id !== b[i].id ||
+      a[i].selectionKey !== b[i].selectionKey ||
+      a[i].tags?.join('\0') !== b[i].tags?.join('\0')
+    ) {
+      return false;
+    }
   }
   return true;
+}
+
+function useRuntimeModelDiscoveryRevision(): number {
+  const [revision, setRevision] = useState(() =>
+    runtimeModelDiscovery.getRevision()
+  );
+  useEffect(
+    () =>
+      runtimeModelDiscovery.subscribe(() => {
+        setRevision(runtimeModelDiscovery.getRevision());
+      }),
+    []
+  );
+  return revision;
 }
 
 export function usePreferredModels(modelType: ModelType): ModelConfig[] {
@@ -57,6 +78,17 @@ export function useSelectableModels(modelType: ModelType): ModelConfig[] {
     prevRef.current = next;
     return next;
   }, [modelType, state]);
+}
+
+export function useConfiguredSelectableModels(
+  modelType: ModelType
+): ModelConfig[] {
+  useRuntimeModelDiscoveryRevision();
+  const prevRef = useRef<ModelConfig[]>([]);
+  const next = getConfiguredSelectableModels(modelType);
+  if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
+  prevRef.current = next;
+  return next;
 }
 
 export function useProfilePreferredModels(

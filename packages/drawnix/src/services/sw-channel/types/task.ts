@@ -5,7 +5,10 @@
  */
 
 import type { CacheWarning } from '../../../types/cache-warning.types';
-import type { TaskInvocationRouteSnapshot } from '../../../types/task.types';
+import type {
+  TaskInvocationRouteSnapshot,
+  TaskResultVisibility,
+} from '../../../types/task.types';
 
 // ============================================================================
 // 基础类型
@@ -55,6 +58,7 @@ export interface TaskResult {
   url: string;
   format: string;
   size: number;
+  resultVisibility?: TaskResultVisibility;
   width?: number;
   height?: number;
   duration?: number;

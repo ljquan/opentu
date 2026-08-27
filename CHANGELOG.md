@@ -1,3 +1,13 @@
+## 1.1.1 (2026-08-26)
+
+### 🔧 Chores
+
+- 功能：新增可恢复的 PPT 讲解视频工作流 (#231) ([8afc3402](https://github.com/ljquan/opentu/commit/8afc3402))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.1.0 (2026-08-24)
 
 ### 🚀 Features

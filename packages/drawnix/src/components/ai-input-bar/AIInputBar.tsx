@@ -84,6 +84,7 @@ import {
 } from '../../types/asset.types';
 import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import { ModelDropdown } from './ModelDropdown';
+import { PptExplainerDialog } from './PptExplainerDialog';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { HoverTip } from '../shared/hover';
 import { ParametersDropdown } from './ParametersDropdown';
@@ -94,7 +95,10 @@ import {
   addVideoPromptHistory,
   type PromptType,
 } from '../../services/prompt-storage-service';
-import { useSelectableModels } from '../../hooks/use-runtime-models';
+import {
+  useConfiguredSelectableModels,
+  useSelectableModels,
+} from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
   getDefaultAudioModel,
@@ -119,6 +123,8 @@ import { setCanvasBoard as setMcpCanvasBoard } from '../../mcp/tools/canvas-inse
 import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
+import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
+import type { PptExplainerCreateSourceKind } from '../../services/ppt-explainer/types';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -1572,6 +1578,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const { language } = useI18n();
     const imageModels = useSelectableModels('image');
     const videoModels = useSelectableModels('video');
+    const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
 
@@ -1912,6 +1919,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [canvasAssociationTrigger, setCanvasAssociationTrigger] =
       useState<CanvasAssociationTrigger | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false); // 防止快速重复点击（3秒防抖）
+    const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
+    const [pptExplainerInitialSource, setPptExplainerInitialSource] =
+      useState<PptExplainerCreateSourceKind>();
+    const [pptExplainerFrameIds, setPptExplainerFrameIds] = useState<
+      string[] | undefined
+    >();
     const submitLockRef = useRef(false);
     const submitCooldownRef = useRef<NodeJS.Timeout | null>(null); // 提交冷却定时器
     const [isFocused, setIsFocused] = useState(false);
@@ -2056,13 +2069,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return pinnedModel ? [pinnedModel, ...imageModels] : imageModels;
     }, [imageModels, selectedAgentImageModel, selectedAgentImageModelRef]);
     const visibleAgentVideoModels = useMemo(() => {
+      const availableModels =
+        selectedSkillId === 'generate_ppt_explainer_video'
+          ? configuredVideoModels
+          : videoModels;
       const currentMatch = findMatchingSelectableModel(
-        videoModels,
+        availableModels,
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
       if (currentMatch) {
-        return videoModels;
+        return availableModels;
+      }
+      if (selectedSkillId === 'generate_ppt_explainer_video') {
+        return availableModels;
       }
 
       const pinnedModel = getPinnedSelectableModel(
@@ -2070,8 +2090,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
-      return pinnedModel ? [pinnedModel, ...videoModels] : videoModels;
-    }, [selectedAgentVideoModel, selectedAgentVideoModelRef, videoModels]);
+      return pinnedModel ? [pinnedModel, ...availableModels] : availableModels;
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      configuredVideoModels,
+      videoModels,
+    ]);
+    useEffect(() => {
+      if (selectedSkillId !== 'generate_ppt_explainer_video') return;
+      const currentMatch = findMatchingSelectableModel(
+        visibleAgentVideoModels,
+        selectedAgentVideoModel,
+        selectedAgentVideoModelRef
+      );
+      if (currentMatch) return;
+      const fallback = visibleAgentVideoModels[0];
+      setSelectedAgentVideoModel(fallback?.id || '');
+      setSelectedAgentVideoModelRef(getModelRefFromConfig(fallback));
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      visibleAgentVideoModels,
+    ]);
     const visibleAgentAudioModels = useMemo(() => {
       const currentMatch = findMatchingSelectableModel(
         audioModels,
@@ -3436,6 +3479,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             setSelectedSkillMediaTypes(inferSkillMediaTypes(systemSkill));
           }
         }
+        if (detail?.pptExplainerSource) {
+          setPptExplainerInitialSource(detail.pptExplainerSource);
+        }
+        if (detail?.openPptExplainer) {
+          setPptExplainerFrameIds(
+            detail.pptExplainerFrameIds?.length
+              ? [...detail.pptExplainerFrameIds]
+              : undefined
+          );
+          setPptExplainerDialogOpen(true);
+        }
 
         focusInput();
       };
@@ -4690,6 +4744,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [clearTriggerSymbol]
     );
 
+    const handleCreatePptExplainerTask = useCallback(
+      async (input: Parameters<typeof createPptExplainerTask>[0]) => {
+        onEnableRuntime?.();
+        return createPptExplainerTask(input);
+      },
+      [onEnableRuntime]
+    );
+
     // Handle generation
     const handleGenerate = useCallback(
       async (
@@ -4881,6 +4943,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? []
           : knowledgeContextRefs;
         const trimmedPrompt = effectivePrompt.trim();
+
+        if (
+          !override &&
+          effectiveGenerationType === 'agent' &&
+          selectedSkillId === 'generate_ppt_explainer_video'
+        ) {
+          setPptExplainerDialogOpen(true);
+          return;
+        }
 
         if (
           !trimmedPrompt &&
@@ -7222,9 +7293,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedModelRef?.profileId,
       ]
     );
+    const isPptExplainerSkillSelected =
+      generationType === 'agent' &&
+      selectedSkillId === 'generate_ppt_explainer_video';
     const canGenerate =
       !canvasAssociationTrigger &&
-      (prompt.trim().length > 0 ||
+      (isPptExplainerSkillSelected ||
+        prompt.trim().length > 0 ||
         generationContent.length > 0 ||
         canvasAssociationRefs.length > 0);
     const shouldHighlightInspirationSend =
@@ -7564,6 +7639,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     return (
       <>
         {confirmDialog}
+        {pptExplainerDialogOpen ? (
+          <PptExplainerDialog
+            open
+            sourceBoardId={currentBoardId}
+            initialTopic={promptRef.current}
+            initialSource={pptExplainerInitialSource}
+            currentPptFrameIds={pptExplainerFrameIds}
+            textModel={selectedModel}
+            textModelRef={selectedModelRef}
+            imageModel={selectedAgentImageModel}
+            imageModelRef={selectedAgentImageModelRef}
+            videoModel={selectedAgentVideoModel}
+            videoModelRef={selectedAgentVideoModelRef}
+            videoModels={visibleAgentVideoModels}
+            onVideoModelChange={(modelId, modelRef) =>
+              handleAgentMediaModelSelect('video', modelId, modelRef)
+            }
+            onCreate={handleCreatePptExplainerTask}
+            onClose={() => {
+              setPptExplainerDialogOpen(false);
+              setPptExplainerInitialSource(undefined);
+              setPptExplainerFrameIds(undefined);
+            }}
+          />
+        ) : null}
         <div
           ref={containerRef}
           className={classNames(
@@ -7798,6 +7898,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                         language === 'zh'
                           ? '选择视频模型 (↑↓ Tab)'
                           : 'Select video model (↑↓ Tab)'
+                      }
+                      emptyTriggerLabel={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '暂无已配置视频模型'
+                            : 'No configured video model'
+                          : undefined
+                      }
+                      emptyText={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '请先在供应商设置中获取并勾选视频模型'
+                            : 'Get and select a video model in provider settings first'
+                          : undefined
+                      }
+                      strictModelList={
+                        selectedSkillId === 'generate_ppt_explainer_video'
                       }
                     />
                   )}

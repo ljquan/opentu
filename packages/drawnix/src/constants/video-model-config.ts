@@ -628,6 +628,20 @@ function isStandardKlingVideoModel(modelId: string): boolean {
   return lowerId === 'kling_video' || /^kling-v\d(?:[-.]\d+)?$/.test(lowerId);
 }
 
+function getPhysicalSeedanceFamily(
+  modelId: string
+): keyof typeof VIDEO_MODEL_CONFIGS | undefined {
+  const match = modelId.match(
+    /^doubao-seedance-(1-5-pro|1-0-pro(?:-fast)?|1-0-lite)_(?:480p|720p|1080p)$/i
+  );
+  if (!match) return undefined;
+  const family = match[1].toLowerCase();
+  if (family === '1-5-pro') return 'seedance-1.5-pro';
+  if (family === '1-0-pro-fast') return 'seedance-1.0-pro-fast';
+  if (family === '1-0-lite') return 'seedance-1.0-lite';
+  return 'seedance-1.0-pro';
+}
+
 function buildStandardKlingVideoConfig(
   modelId: string,
   runtimeConfig?: ReturnType<typeof getModelConfig>
@@ -657,6 +671,17 @@ function getConfigOrDefault(model?: string | null): VideoModelConfig {
   }
 
   const runtimeConfig = getModelConfig(normalized);
+  const physicalSeedanceFamily = getPhysicalSeedanceFamily(normalized);
+  if (physicalSeedanceFamily) {
+    const familyConfig = VIDEO_MODEL_CONFIGS[physicalSeedanceFamily];
+    return {
+      ...familyConfig,
+      id: normalized,
+      label:
+        runtimeConfig?.shortLabel || runtimeConfig?.label || familyConfig.label,
+      description: runtimeConfig?.description || familyConfig.description,
+    };
+  }
   if (isStandardKlingVideoModel(normalized)) {
     return buildStandardKlingVideoConfig(normalized, runtimeConfig);
   }

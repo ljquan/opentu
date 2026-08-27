@@ -694,6 +694,7 @@ describe('Media Executor Module', () => {
           profileId: 'tuzi',
           modelId: 'mj_fast_background_eraser',
         },
+        resultVisibility: 'internal',
       });
 
       expect(resolveAdapterForInvocation).toHaveBeenCalledWith(
@@ -719,6 +720,7 @@ describe('Media Executor Module', () => {
             profileId: 'tuzi',
             modelId: 'mj_fast_background_eraser',
           },
+          resultVisibility: 'internal',
         }),
         undefined,
         expect.any(Number)
@@ -1336,6 +1338,112 @@ describe('Media Executor Module', () => {
       expect((executor as any).pollingTasks.size).toBe(0);
     }, 15000);
 
+    it('preserves internal visibility when a recovered video completes', async () => {
+      const pollVideoStatus = vi.fn(async () => ({
+        url: 'https://example.com/internal.mp4',
+      }));
+      const cacheRemoteUrl = vi.fn(
+        async () => '/__aitu_cache__/video/internal.mp4'
+      );
+
+      vi.doMock('../media-executor/llm-api-logger', () => ({
+        startLLMApiLog: vi.fn(() => 'log-id'),
+        completeLLMApiLog: vi.fn(),
+        failLLMApiLog: vi.fn(),
+        updateLLMApiLogMetadata: vi.fn(),
+      }));
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          updateStatus: vi.fn(async () => undefined),
+          updateProgress: vi.fn(async () => undefined),
+          completeTask: vi.fn(async () => undefined),
+          failTask: vi.fn(async () => undefined),
+        },
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          resolveInvocationRoute: vi.fn((operation: string) => ({
+            routeType: operation,
+            modelId: 'video-model',
+            profileId: 'provider-video',
+            profileName: 'Video Provider',
+            providerType: 'openai-compatible',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'test-key',
+            source: 'preset',
+          })),
+        };
+      });
+      vi.doMock('../provider-routing', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../provider-routing')
+        >();
+        return {
+          ...actual,
+          resolveInvocationPlanFromRoute: vi.fn(() => null),
+        };
+      });
+      vi.doMock('../media-executor/fallback-utils', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../media-executor/fallback-utils')
+        >();
+        return { ...actual, pollVideoStatus, cacheRemoteUrl };
+      });
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+      const task: Task = {
+        id: 'task-video-internal-recovery',
+        type: TaskType.VIDEO,
+        status: TaskStatus.PROCESSING,
+        params: {
+          prompt: 'Resume internal video',
+          model: 'video-model',
+          resultVisibility: 'internal',
+        },
+        remoteId: 'remote-internal',
+        createdAt: 1,
+        updatedAt: 1,
+        startedAt: 1,
+      };
+      const onTaskUpdate = vi.fn();
+
+      await (
+        executor as unknown as {
+          resumeVideoTask: (
+            task: Task,
+            onTaskUpdate: typeof onTaskUpdate,
+            isCurrent: () => boolean
+          ) => Promise<void>;
+        }
+      ).resumeVideoTask(task, onTaskUpdate, () => true);
+
+      expect(cacheRemoteUrl).toHaveBeenCalledWith(
+        'https://example.com/internal.mp4',
+        task.id,
+        'video',
+        'mp4',
+        undefined,
+        { resultVisibility: 'internal' }
+      );
+      expect(onTaskUpdate).toHaveBeenCalledWith(
+        task.id,
+        TaskStatus.COMPLETED,
+        expect.objectContaining({
+          result: expect.objectContaining({
+            url: '/__aitu_cache__/video/internal.mp4',
+            resultVisibility: 'internal',
+          }),
+        })
+      );
+    }, 15000);
+
     it('aborts a hanging recovered video poll when the task is deleted', async () => {
       let pollingSignal: AbortSignal | undefined;
       const pollVideoStatus = vi.fn(
@@ -1609,6 +1717,84 @@ describe('Media Executor Module', () => {
         }),
         undefined,
         expect.objectContaining({ shouldUpdate: expect.any(Function) })
+      );
+    }, 15000);
+
+    it('does not claim PPT explainer polling tasks during generic video recovery', async () => {
+      vi.doMock('../media-executor/task-storage-writer', () => ({
+        taskStorageWriter: {
+          isAvailable: async () => true,
+          createTask: async () => undefined,
+          updateTaskStatus: async () => undefined,
+          completeTask: async () => undefined,
+          failTask: async () => undefined,
+        },
+      }));
+      vi.doMock('../unified-cache-service', () => ({
+        unifiedCacheService: {
+          getImageForAI: vi.fn(),
+          isCached: vi.fn(async () => false),
+          cacheMediaFromBlob: vi.fn(async () => undefined),
+        },
+      }));
+      vi.doMock('../../utils/settings-manager', async (importOriginal) => {
+        const actual = await importOriginal<
+          typeof import('../../utils/settings-manager')
+        >();
+        return {
+          ...actual,
+          geminiSettings: {
+            get: () => ({
+              apiKey: 'test-key',
+              baseUrl: 'https://api.example.com',
+            }),
+          },
+        };
+      });
+
+      const { FallbackMediaExecutor } = await import(
+        '../media-executor/fallback-executor'
+      );
+      const executor = new FallbackMediaExecutor();
+      const resumeVideoTask = vi.fn(async () => undefined);
+      Object.assign(executor, { resumeVideoTask });
+      const genericVideoTask: Task = {
+        id: 'generic-video',
+        type: TaskType.VIDEO,
+        status: TaskStatus.PROCESSING,
+        params: { prompt: '普通视频' },
+        createdAt: 1,
+        updatedAt: 1,
+        remoteId: 'remote-generic',
+      };
+      const pptExplainerTask: Task = {
+        id: 'ppt-explainer-video',
+        type: TaskType.VIDEO,
+        status: TaskStatus.PROCESSING,
+        params: {
+          prompt: 'PPT 讲解视频',
+          pptExplainer: { schemaVersion: 1, stage: 'polling' },
+        },
+        createdAt: 1,
+        updatedAt: 1,
+        remoteId: 'remote-ppt',
+      };
+
+      await executor.resumePendingTasks(undefined, [
+        pptExplainerTask,
+        genericVideoTask,
+      ]);
+
+      expect(resumeVideoTask).toHaveBeenCalledTimes(1);
+      expect(resumeVideoTask).toHaveBeenCalledWith(
+        genericVideoTask,
+        undefined,
+        undefined
+      );
+      expect(resumeVideoTask).not.toHaveBeenCalledWith(
+        pptExplainerTask,
+        expect.anything(),
+        expect.anything()
       );
     }, 15000);
   });

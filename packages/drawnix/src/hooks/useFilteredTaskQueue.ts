@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { Task, TaskType } from '../types/task.types';
+import { Task, TaskType, isUserVisibleTask } from '../types/task.types';
 import { taskQueueService } from '../services/task-queue';
 import { taskStorageReader } from '../services/task-storage-reader';
 import { useSharedTaskState, ensureTaskStateSyncStarted, useTaskActions } from './useTaskQueue';
@@ -53,7 +53,10 @@ export function useFilteredTaskQueue(
   const { retryTask, deleteTask } = useTaskActions();
 
   const tasks = useMemo(() => {
-    const filtered = taskType ? allTasks.filter((task) => task.type === taskType) : allTasks;
+    const userVisibleTasks = allTasks.filter(isUserVisibleTask);
+    const filtered = taskType
+      ? userVisibleTasks.filter((task) => task.type === taskType)
+      : userVisibleTasks;
     return [...filtered].sort((a, b) => b.createdAt - a.createdAt);
   }, [allTasks, taskType]);
 

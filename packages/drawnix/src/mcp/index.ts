@@ -17,6 +17,7 @@ import { splitImageTool } from './tools/split-image-tool';
 import { svgTool } from './tools/svg-tool';
 import { longVideoGenerationTool } from './tools/long-video-generation';
 import { pptGenerationTool } from './tools/ppt-generation';
+import { pptExplainerVideoTool } from './tools/ppt-explainer-video';
 import { knowledgeBaseTools } from './tools/knowledge-base-tool';
 import { videoAnalyzeTool } from './tools/video-analyze';
 import { audioAnalyzeTool } from './tools/audio-analyze';
@@ -57,6 +58,11 @@ export { longVideoGenerationTool, createLongVideoTask } from './tools/long-video
 export type { LongVideoGenerationParams } from './tools/long-video-generation';
 export { pptGenerationTool, generatePPT } from './tools/ppt-generation';
 export type { PPTGenerationParams } from '../services/ppt';
+export {
+  pptExplainerVideoTool,
+  generatePptExplainerVideo,
+} from './tools/ppt-explainer-video';
+export type { PptExplainerVideoParams } from './tools/ppt-explainer-video';
 export { knowledgeBaseTools } from './tools/knowledge-base-tool';
 export { videoAnalyzeTool } from './tools/video-analyze';
 export type { VideoAnalyzeParams, VideoAnalysisData, VideoShot } from './tools/video-analyze';
@@ -94,6 +100,7 @@ export function initializeMCP(): void {
     splitImageTool,
     svgTool,
     pptGenerationTool,
+    pptExplainerVideoTool,
     ...knowledgeBaseTools,
     videoAnalyzeTool,
     audioAnalyzeTool,

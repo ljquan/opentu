@@ -5,6 +5,9 @@ import type { KnowledgeContextRef } from '../types/task.types';
 export interface AIInputFocusEventDetail {
   generationType?: GenerationType;
   skillId?: string;
+  pptExplainerSource?: 'topic' | 'current_ppt';
+  pptExplainerFrameIds?: string[];
+  openPptExplainer?: boolean;
 }
 
 export interface AIInputPrefillImage {
@@ -32,6 +35,30 @@ export interface AIInputPrefillEventDetail {
 export const AI_INPUT_FOCUS_EVENT = 'aitu:ai-input-focus';
 export const AI_INPUT_PREFILL_EVENT = 'aitu:ai-input-prefill';
 
+export function resolvePptExplainerFrameIds(
+  orderedFrameIds: readonly string[],
+  selectedFrameIds: ReadonlySet<string>
+): string[] | undefined {
+  const selected = orderedFrameIds.filter((frameId) =>
+    selectedFrameIds.has(frameId)
+  );
+  return selected.length > 0 ? selected : undefined;
+}
+
+export function updatePptExplainerFrameSelection(
+  selectedFrameIds: ReadonlySet<string>,
+  frameId: string,
+  checked: boolean
+): Set<string> {
+  const next = new Set(selectedFrameIds);
+  if (checked) {
+    next.add(frameId);
+  } else {
+    next.delete(frameId);
+  }
+  return next;
+}
+
 export function requestAIInputFocus(
   detail: AIInputFocusEventDetail = {}
 ): void {
@@ -42,9 +69,7 @@ export function requestAIInputFocus(
   window.dispatchEvent(new CustomEvent(AI_INPUT_FOCUS_EVENT, { detail }));
 }
 
-export function requestAIInputPrefill(
-  detail: AIInputPrefillEventDetail
-): void {
+export function requestAIInputPrefill(detail: AIInputPrefillEventDetail): void {
   if (typeof window === 'undefined') {
     return;
   }

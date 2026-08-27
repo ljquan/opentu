@@ -465,6 +465,7 @@ export const WorkflowMessageBubble: React.FC<WorkflowMessageBubbleProps> = ({
       'generate_grid_image',
       'generate_inspiration_board',
       'generate_long_video',
+      'generate_ppt_explainer_video',
     ];
     return normalizedSteps.some((step) =>
       mediaGenerationMcps.includes(step.mcp || '')

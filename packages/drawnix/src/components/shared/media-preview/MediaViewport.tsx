@@ -21,6 +21,7 @@ import { normalizeImageDataUrl } from '@aitu/utils';
 import { quickInsertCanvasMedia } from '../../../services/canvas-operations/media-quick-insert';
 import { AudioCover } from '../AudioCover';
 import { RetryImage } from '../../retry-image';
+import { useMediaUrl } from '../../../hooks/useMediaCache';
 import type { MediaViewportProps, MediaViewportRef } from './types';
 import { HoverPopover } from './HoverPopover';
 import './MediaViewport.scss';
@@ -227,11 +228,17 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
   const promptText = item?.prompt?.trim() || '';
   const showPrompt =
     Boolean(promptText) && (isMediaHovered || isPromptHovered) && !isToolbarHovered;
+  const mediaIdentity = item ? `${item.type}:${item.id || item.url}` : 'empty';
+  const originalMediaUrl =
+    item && (isVideo || isAudio) ? item.url : undefined;
+  const { url: resolvedCachedMediaUrl, isLoading: isMediaUrlLoading } =
+    useMediaUrl(mediaIdentity, originalMediaUrl);
   const mediaUrl = item
-    ? (isVideo || isAudio ? item.url : normalizeImageDataUrl(item.url))
+    ? (isVideo || isAudio
+        ? resolvedCachedMediaUrl || ''
+        : normalizeImageDataUrl(item.url))
     : '';
   const posterUrl = item?.posterUrl ? normalizeImageDataUrl(item.posterUrl) : '';
-  const mediaIdentity = item ? `${item.type}:${item.id || item.url}` : 'empty';
   const dimensionsLabel = formatMediaItemDimensions(item);
   const needsAutoFitGate = Boolean(item?.url && !isAudio && !isCompareMode && !imageLoadFailed);
 
@@ -690,7 +697,15 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(({
         className={`media-viewport__content ${shouldHideUntilAutoFit ? 'media-viewport__content--auto-fitting' : ''}`}
         style={isAudio ? undefined : transformStyle}
       >
-        {isVideo ? (
+        {isMediaUrlLoading && (isVideo || isAudio) ? (
+          <div className="media-viewport__image-fallback">
+            <span>正在读取本地媒体...</span>
+          </div>
+        ) : !mediaUrl && (isVideo || isAudio) ? (
+          <div className="media-viewport__image-fallback">
+            <span>本地媒体缓存不可用，请重新生成</span>
+          </div>
+        ) : isVideo ? (
           <div
             className="media-viewport__media-hitbox"
             onMouseEnter={handleMediaHoverStart}

@@ -6,7 +6,10 @@
  */
 
 import type { ModelRef } from '../../utils/settings-manager';
-import type { GenerationParams } from '../../types/shared/core.types';
+import type {
+  GenerationParams,
+  TaskResultVisibility,
+} from '../../types/shared/core.types';
 import type { ExecutionOptions } from './types';
 import { taskStorageWriter } from './task-storage-writer';
 import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
@@ -126,6 +129,7 @@ export async function executeImageViaAdapter(
     outputCompression?: number;
     params?: Record<string, unknown>;
     assetMetadata?: GenerationParams['assetMetadata'];
+    resultVisibility?: TaskResultVisibility;
     preferredRequestSchema?: string | readonly string[];
   },
   options?: ExecutionOptions,
@@ -233,6 +237,7 @@ export async function executeImageViaAdapter(
       extraMetadata: params.assetMetadata
         ? { ...params.assetMetadata }
         : undefined,
+      resultVisibility: params.resultVisibility,
     });
     assertCurrentExecutionAttempt(options);
     const cachedPrimary = cachedUrls[0];
@@ -309,6 +314,7 @@ export async function executeVideoViaAdapter(
     referenceImages?: string[];
     inputReference?: string;
     params?: Record<string, unknown>;
+    resultVisibility?: TaskResultVisibility;
   },
   options?: ExecutionOptions,
   startTime?: number
@@ -420,7 +426,10 @@ export async function executeVideoViaAdapter(
       'video',
       videoFmt,
       undefined,
-      { signal: options?.signal }
+      {
+        signal: options?.signal,
+        resultVisibility: params.resultVisibility,
+      }
     );
     assertCurrentExecutionAttempt(options);
 
