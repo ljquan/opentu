@@ -10,8 +10,8 @@ import {
 import type { ModelRef } from '../../utils/settings-manager';
 import type { ModelConfig } from '../../constants/model-config';
 import {
+  findExactSelectableModel,
   getSelectionKey,
-  getSelectionKeyForModel,
 } from '../../utils/model-selection';
 import type { Task } from '../../types/task.types';
 import type {
@@ -27,6 +27,8 @@ import './ppt-explainer-dialog.scss';
 
 const EMPTY_VIDEO_MODEL_LABEL = '暂无已配置视频模型';
 const EMPTY_VIDEO_MODEL_TEXT = '请先在供应商设置中获取并勾选视频模型';
+const EMPTY_IMAGE_MODEL_LABEL = '暂无已配置图片模型';
+const EMPTY_IMAGE_MODEL_TEXT = '请先在供应商设置中获取并勾选图片模型';
 
 const SOURCE_OPTIONS: Array<{
   value: PptExplainerCreateSourceKind;
@@ -68,6 +70,8 @@ export interface PptExplainerDialogProps {
   textModelRef?: ModelRef | null;
   imageModel?: string;
   imageModelRef?: ModelRef | null;
+  imageModels: ModelConfig[];
+  onImageModelChange: (modelId: string, modelRef?: ModelRef | null) => void;
   videoModel: string;
   videoModelRef?: ModelRef | null;
   videoModels: ModelConfig[];
@@ -111,6 +115,8 @@ export function validatePptExplainerDialogDraft(
     sourceBoardId?: string | null;
     textModel: string;
     imageModel?: string;
+    imageModelRef?: ModelRef | null;
+    imageModels?: ModelConfig[];
     videoModel: string;
     videoModelRef?: ModelRef | null;
   }
@@ -119,6 +125,17 @@ export function validatePptExplainerDialogDraft(
   if (!context.textModel.trim()) return '请选择文本模型';
   if (draft.source === 'topic' && !context.imageModel?.trim()) {
     return '请选择 PPT 页面图片模型';
+  }
+  if (
+    draft.source === 'topic' &&
+    context.imageModels &&
+    !findExactSelectableModel(
+      context.imageModels,
+      context.imageModel,
+      context.imageModelRef
+    )
+  ) {
+    return '请选择当前可用的 PPT 页面图片模型';
   }
   if (!context.videoModel.trim() || !context.videoModelRef) {
     return '请选择当前可用的视频模型';
@@ -197,6 +214,8 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   textModelRef,
   imageModel,
   imageModelRef,
+  imageModels,
+  onImageModelChange,
   videoModel,
   videoModelRef,
   videoModels,
@@ -211,15 +230,16 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirmDialog();
   const speakerCount = getSpeakerCount(draft.presenterMode);
-  const selectedVideoModelKey = getSelectionKey(videoModel, videoModelRef);
-  const hasSelectedVideoModel = videoModels.some(
-    (model) => getSelectionKeyForModel(model) === selectedVideoModelKey
+  const hasSelectedVideoModel = Boolean(
+    findExactSelectableModel(videoModels, videoModel, videoModelRef)
   );
 
   const validationError = validatePptExplainerDialogDraft(draft, {
     sourceBoardId,
     textModel,
     imageModel,
+    imageModelRef,
+    imageModels,
     videoModel: hasSelectedVideoModel ? videoModel : '',
     videoModelRef: hasSelectedVideoModel ? videoModelRef : null,
   });
@@ -310,11 +330,41 @@ export const PptExplainerDialog: React.FC<PptExplainerDialogProps> = ({
           <div className="ppt-explainer-dialog__footer">
             <div className="ppt-explainer-dialog__model-picker">
               <span className="ppt-explainer-dialog__model-label">
+                图片模型
+              </span>
+              <ModelDropdown
+                selectedModel={imageModel || ''}
+                selectedSelectionKey={getSelectionKey(
+                  imageModel || '',
+                  imageModelRef
+                )}
+                onSelect={(modelId, modelRef) => {
+                  setSubmitError(null);
+                  onImageModelChange(modelId, modelRef || null);
+                }}
+                language="zh"
+                models={imageModels}
+                header="选择图片模型 (↑↓ Tab)"
+                placement="up"
+                variant="form"
+                placeholder={EMPTY_IMAGE_MODEL_LABEL}
+                allowCustomValue={false}
+                disabled={loading || imageModels.length === 0}
+                showProviderAction={false}
+                emptyText={EMPTY_IMAGE_MODEL_TEXT}
+                strictModelList
+              />
+            </div>
+            <div className="ppt-explainer-dialog__model-picker">
+              <span className="ppt-explainer-dialog__model-label">
                 视频模型
               </span>
               <ModelDropdown
                 selectedModel={videoModel}
-                selectedSelectionKey={selectedVideoModelKey}
+                selectedSelectionKey={getSelectionKey(
+                  videoModel,
+                  videoModelRef
+                )}
                 onSelect={(modelId, modelRef) => {
                   setSubmitError(null);
                   onVideoModelChange(modelId, modelRef || null);
