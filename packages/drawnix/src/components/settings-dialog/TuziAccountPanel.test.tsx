@@ -196,6 +196,23 @@ describe('TuziAccountPanel', () => {
     expect(loginLink.getAttribute('href')).toBe('http://localhost:3200');
   });
 
+  it('keeps the Tuzi login link available when account loading fails', async () => {
+    const { TuziSessionApiError } = await import(
+      '../../services/tuzi-session-api'
+    );
+    getAccount.mockRejectedValueOnce(
+      new TuziSessionApiError('REQUEST_FAILED', 'Failed to fetch')
+    );
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
+    render(<TuziAccountPanel />);
+
+    expect(await screen.findByText('数据加载失败')).not.toBeNull();
+    const loginLink = screen.getByRole('link', { name: '去登录' });
+    expect(loginLink.getAttribute('href')).toBe('http://localhost:3200');
+    expect(screen.getByRole('button', { name: '重试' })).not.toBeNull();
+  });
+
   it('rotates provider keys from the balance view', async () => {
     const { TuziAccountPanel } = await import('./TuziAccountPanel');
 

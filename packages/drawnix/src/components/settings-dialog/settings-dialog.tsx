@@ -121,6 +121,10 @@ import {
   type TuziApiEndpointSource,
 } from '../../services/provider-routing/tuzi-api-endpoints';
 import { canDisableProvider } from './provider-toggle-utils';
+import {
+  SETTINGS_PROVIDER_NAV_EVENT,
+  type ProviderNavigationIntent,
+} from './provider-settings-navigation';
 
 export { IMAGE_MODEL_GROUPED_SELECT_OPTIONS as IMAGE_MODEL_GROUPED_OPTIONS } from '../../constants/model-config';
 export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constants/model-config';
@@ -147,11 +151,6 @@ type CustomModelInterfacePreset =
   | 'seedance-video'
   | 'happyhorse-video'
   | 'tuzi-suno-music';
-type ProviderNavigationIntent =
-  | { action: 'select'; profileId: string }
-  | { action: 'create' };
-
-const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 const SETTINGS_DIALOG_COMPACT_BREAKPOINT = 980;
 const TUZI_PROVIDER_PROFILE_IDS = new Set([
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
@@ -160,7 +159,6 @@ const TUZI_PROVIDER_PROFILE_IDS = new Set([
   TUZI_CODEX_PROVIDER_PROFILE_ID,
   TUZI_BUSINESS_PROVIDER_PROFILE_ID,
 ]);
-const TUZI_MANAGED_PROVIDER_PROFILE_PREFIX = 'tuzi-managed-';
 let tuziApiEndpointCache: EndpointOption[] | null = null;
 
 interface EndpointOption {
@@ -182,7 +180,7 @@ function isTuziProviderProfile(profile?: ProviderProfile | null): boolean {
 }
 
 function isTuziManagedProviderProfileId(profileId?: string | null): boolean {
-  return Boolean(profileId?.startsWith(TUZI_MANAGED_PROVIDER_PROFILE_PREFIX));
+  return Boolean(profileId?.startsWith('tuzi-managed-'));
 }
 
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
@@ -1369,9 +1367,7 @@ export const SettingsDialog = ({
     setActiveView(nextView);
 
     if (nextView === 'providers' && isTuziEmbeddedMode()) {
-      const safeProfiles = cloneValue(providerProfilesSettings.get()).filter(
-        (profile) => !isManagedProviderProfile(profile.id)
-      );
+      const safeProfiles = cloneValue(providerProfilesSettings.get());
       setProfilesDraft(safeProfiles);
       setSelectedProfileId((currentProfileId) =>
         safeProfiles.some((profile) => profile.id === currentProfileId)
@@ -1388,6 +1384,17 @@ export const SettingsDialog = ({
           nextProfiles.some((profile) => profile.id === currentProfileId)
             ? currentProfileId
             : nextProfiles[0]?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID
+        );
+        syncPersistedBaseline();
+      } else {
+        // Keep the built-in providers visible when the session sync is unavailable.
+        const fallbackProfiles = cloneValue(providerProfilesSettings.get());
+        setProfilesDraft(fallbackProfiles);
+        setInitialProfiles(fallbackProfiles);
+        setSelectedProfileId((currentProfileId) =>
+          fallbackProfiles.some((profile) => profile.id === currentProfileId)
+            ? currentProfileId
+            : fallbackProfiles[0]?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID
         );
         syncPersistedBaseline();
       }
@@ -1490,23 +1497,17 @@ export const SettingsDialog = ({
     const pendingProviderIntent = readPendingProviderNavigationIntent();
     const nextSelectedProfileId =
       pendingProviderIntent?.action === 'select' &&
-      nextProfiles.some(
-        (profile) => profile.id === pendingProviderIntent.profileId
-      )
+      nextProfiles.some((profile) => profile.id === pendingProviderIntent.profileId)
         ? pendingProviderIntent.profileId
+        : nextProfiles.some((profile) => profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID)
+        ? LEGACY_DEFAULT_PROVIDER_PROFILE_ID
         : nextProfiles[0]?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID;
 
     setProfilesDraft(nextProfiles);
     setPresetsDraft(nextPresets);
     setInitialProfiles(nextProfiles);
     setActivePresetIdDraft(nextActivePresetId);
-    setSelectedProfileId((currentProfileId) =>
-      pendingProviderIntent
-        ? nextSelectedProfileId
-        : nextProfiles.some((profile) => profile.id === currentProfileId)
-        ? currentProfileId
-        : nextProfiles[0]?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID
-    );
+    setSelectedProfileId(nextSelectedProfileId);
     setSelectedPresetId((currentPresetId) =>
       nextPresets.some((preset) => preset.id === currentPresetId)
         ? currentPresetId
@@ -1525,10 +1526,7 @@ export const SettingsDialog = ({
     }
     setShowWorkZoneCard(nextShowWorkZoneCard);
 
-    const nextActiveView: SettingsView =
-      isTuziEmbeddedMode() && !pendingProviderIntent
-        ? 'tuzi-account'
-        : 'providers';
+    const nextActiveView: SettingsView = 'providers';
     setActiveView(nextActiveView);
     setCompactProviderMode(
       pendingProviderIntent && isCompactLayout ? 'detail' : 'catalog'
