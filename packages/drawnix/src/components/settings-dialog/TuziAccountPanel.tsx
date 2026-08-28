@@ -638,7 +638,7 @@ export function TuziAccountPanel() {
                       : error.message}
                   </span>
                 </div>
-                {sessionExpired && loginUrl ? (
+                {loginUrl ? (
                   <a
                     href={loginUrl}
                     target="_blank"

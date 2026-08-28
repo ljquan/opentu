@@ -55,17 +55,13 @@ import {
 import { compareModelsByDisplayPriority } from '../../utils/model-sort';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
-  TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
   createModelRef,
   type ModelRef,
   type ProviderProfile,
 } from '../../utils/settings-manager';
-
-const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
-
-type ProviderSettingsIntent =
-  | { action: 'select'; profileId: string }
-  | { action: 'create' };
+import {
+  queueProviderSettingsNavigation,
+} from '../settings-dialog/provider-settings-navigation';
 
 function normalizeSearchText(value?: string | null): string {
   return (value || '').toLowerCase().replace(/[\s\-_.:/]+/g, '').trim();
@@ -279,13 +275,6 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       ),
     [providerGroups]
   );
-  const providerModelCountMap = useMemo(
-    () =>
-      new Map(
-        providerGroups.map((group) => [group.providerId, group.totalCount])
-      ),
-    [providerGroups]
-  );
   const getModelProviderName = useCallback(
     (model: ModelConfig) =>
       providerNameMap.get(model.sourceProfileId || DEFAULT_PROVIDER_ID) ||
@@ -486,39 +475,13 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   );
 
   const handleOpenProviderSettings = useCallback(() => {
-    const availableProfiles = effectiveProviderProfiles.filter(
-      (profile) => profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID
-    );
-    const lastProfile =
-      availableProfiles[availableProfiles.length - 1] || null;
-    const lastProfileModelCount = lastProfile
-      ? providerModelCountMap.get(lastProfile.id) || 0
-      : 0;
-
-    const intent: ProviderSettingsIntent =
-      lastProfile && lastProfileModelCount === 0
-        ? { action: 'select', profileId: lastProfile.id }
-        : availableProfiles.some(
-            (profile) =>
-              profile.id === TUZI_ORIGINAL_PROVIDER_PROFILE_ID &&
-              (providerModelCountMap.get(profile.id) || 0) === 0
-          )
-        ? { action: 'select', profileId: TUZI_ORIGINAL_PROVIDER_PROFILE_ID }
-        : { action: 'create' };
-
-    (
-      window as typeof window & {
-        __aituPendingProviderNavigationIntent?: ProviderSettingsIntent;
-      }
-    ).__aituPendingProviderNavigationIntent = intent;
-    window.dispatchEvent(
-      new CustomEvent<ProviderSettingsIntent>(SETTINGS_PROVIDER_NAV_EVENT, {
-        detail: intent,
-      })
-    );
+    queueProviderSettingsNavigation({
+      action: 'select',
+      profileId: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+    });
     setIsOpen(false);
     setAppState((prev) => ({ ...prev, openSettings: true }));
-  }, [effectiveProviderProfiles, providerModelCountMap, setAppState, setIsOpen]);
+  }, [setAppState, setIsOpen]);
 
   // 当过滤结果变化时，高亮选中模型或重置到第一项
   useEffect(() => {
