@@ -1,3 +1,13 @@
+## 1.1.3 (2026-08-28)
+
+### 🩹 Fixes
+
+- 修复 PPT 讲解视频模型路由与生图复用 ([67f7a3d3](https://github.com/ljquan/opentu/commit/67f7a3d3))
+
+### ❤️  Thank You
+
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+
 ## 1.1.1 (2026-08-26)
 
 ### 🔧 Chores
