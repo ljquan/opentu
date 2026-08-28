@@ -101,6 +101,13 @@ import {
 } from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
+  findExactSelectableModel,
+  findMatchingSelectableModel,
+  getModelRefFromConfig,
+  getSelectionKey,
+  getSelectionKeyForModel,
+} from '../../utils/model-selection';
+import {
   getDefaultAudioModel,
   getDefaultImageModel,
   getModelConfig,
@@ -693,25 +700,17 @@ interface GenerationRequestOverride {
   appendToCurrentChatSession?: boolean;
 }
 
-function getSelectionKeyForModel(
-  model: Pick<ModelConfig, 'id' | 'selectionKey' | 'sourceProfileId'>
-): string {
-  return (
-    model.selectionKey ||
-    (model.sourceProfileId ? `${model.sourceProfileId}::${model.id}` : model.id)
-  );
-}
-
-function getSelectionKey(modelId: string, modelRef?: ModelRef | null): string {
-  return modelRef?.profileId ? `${modelRef.profileId}::${modelId}` : modelId;
-}
-
-function getModelRefFromConfig(model?: ModelConfig | null): ModelRef | null {
-  if (!model) {
-    return null;
-  }
-
-  return createModelRef(model.sourceProfileId || null, model.id);
+function filterExecutablePptModels(
+  type: 'image' | 'video',
+  models: ModelConfig[]
+): ModelConfig[] {
+  return models.filter((model) => {
+    const modelRef = getModelRefFromConfig(model);
+    const plan = resolveInvocationPlanFromRoute(type, modelRef || model.id);
+    return Boolean(
+      plan?.provider.baseUrl.trim() && plan.provider.apiKey.trim()
+    );
+  });
 }
 
 function getPromptLengthBucket(length: number): string {
@@ -812,32 +811,6 @@ function resizeAIInputTextarea(
 
   textarea.style.height = `${nextHeight}px`;
   textarea.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
-}
-
-function findMatchingSelectableModel(
-  models: ModelConfig[],
-  modelId?: string | null,
-  modelRef?: ModelRef | null
-): ModelConfig | undefined {
-  if (!modelId) {
-    return undefined;
-  }
-
-  const expectedKey = getSelectionKey(modelId, modelRef);
-  const expectedProfileId = modelRef?.profileId || null;
-
-  return (
-    models.find((model) => getSelectionKeyForModel(model) === expectedKey) ||
-    models.find(
-      (model) =>
-        model.id === modelId &&
-        (model.sourceProfileId || null) === expectedProfileId
-    ) ||
-    (expectedProfileId === null
-      ? models.find((model) => model.id === modelId && !model.sourceProfileId)
-      : undefined) ||
-    models.find((model) => model.id === modelId)
-  );
 }
 
 function resolveGenerationTypeForModelSelection(
@@ -1577,10 +1550,21 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     const { language } = useI18n();
     const imageModels = useSelectableModels('image');
+    const configuredImageModels = useConfiguredSelectableModels('image');
     const videoModels = useSelectableModels('video');
     const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
+    // Configured model lists stay referentially stable until discovery,
+    // credentials, or bindings change, so route planning stays off hot renders.
+    const executablePptImageModels = useMemo(
+      () => filterExecutablePptModels('image', configuredImageModels),
+      [configuredImageModels]
+    );
+    const executablePptVideoModels = useMemo(
+      () => filterExecutablePptModels('video', configuredVideoModels),
+      [configuredVideoModels]
+    );
 
     const chatDrawerControl = useChatDrawerControl();
     const workflowControl = useWorkflowControl();
@@ -1967,6 +1951,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [selectedSkillMediaTypes, setSelectedSkillMediaTypes] = useState<
       SkillMediaType[]
     >([]);
+    const usesStrictPptModels =
+      selectedSkillId === 'generate_ppt_explainer_video';
     const visibleImageModels = useMemo(() => {
       if (generationType !== 'image') {
         return imageModels;
@@ -2052,13 +2038,19 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return pinnedModel ? [pinnedModel, ...textModels] : textModels;
     }, [generationType, selectedModel, selectedModelRef, textModels]);
     const visibleAgentImageModels = useMemo(() => {
+      const availableModels = usesStrictPptModels
+        ? executablePptImageModels
+        : imageModels;
+      if (usesStrictPptModels) {
+        return availableModels;
+      }
       const currentMatch = findMatchingSelectableModel(
-        imageModels,
+        availableModels,
         selectedAgentImageModel,
         selectedAgentImageModelRef
       );
       if (currentMatch) {
-        return imageModels;
+        return availableModels;
       }
 
       const pinnedModel = getPinnedSelectableModel(
@@ -2066,22 +2058,27 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentImageModel,
         selectedAgentImageModelRef
       );
-      return pinnedModel ? [pinnedModel, ...imageModels] : imageModels;
-    }, [imageModels, selectedAgentImageModel, selectedAgentImageModelRef]);
+      return pinnedModel ? [pinnedModel, ...availableModels] : availableModels;
+    }, [
+      executablePptImageModels,
+      imageModels,
+      selectedAgentImageModel,
+      selectedAgentImageModelRef,
+      usesStrictPptModels,
+    ]);
     const visibleAgentVideoModels = useMemo(() => {
-      const availableModels =
-        selectedSkillId === 'generate_ppt_explainer_video'
-          ? configuredVideoModels
-          : videoModels;
+      const availableModels = usesStrictPptModels
+        ? executablePptVideoModels
+        : videoModels;
+      if (usesStrictPptModels) {
+        return availableModels;
+      }
       const currentMatch = findMatchingSelectableModel(
         availableModels,
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
       if (currentMatch) {
-        return availableModels;
-      }
-      if (selectedSkillId === 'generate_ppt_explainer_video') {
         return availableModels;
       }
 
@@ -2094,26 +2091,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     }, [
       selectedAgentVideoModel,
       selectedAgentVideoModelRef,
-      selectedSkillId,
-      configuredVideoModels,
+      usesStrictPptModels,
+      executablePptVideoModels,
       videoModels,
-    ]);
-    useEffect(() => {
-      if (selectedSkillId !== 'generate_ppt_explainer_video') return;
-      const currentMatch = findMatchingSelectableModel(
-        visibleAgentVideoModels,
-        selectedAgentVideoModel,
-        selectedAgentVideoModelRef
-      );
-      if (currentMatch) return;
-      const fallback = visibleAgentVideoModels[0];
-      setSelectedAgentVideoModel(fallback?.id || '');
-      setSelectedAgentVideoModelRef(getModelRefFromConfig(fallback));
-    }, [
-      selectedAgentVideoModel,
-      selectedAgentVideoModelRef,
-      selectedSkillId,
-      visibleAgentVideoModels,
     ]);
     const visibleAgentAudioModels = useMemo(() => {
       const currentMatch = findMatchingSelectableModel(
@@ -2524,13 +2504,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedModelId: string,
         selectedRef: ModelRef | null,
         setModelId: (modelId: string) => void,
-        setModelRef: (modelRef: ModelRef | null) => void
+        setModelRef: (modelRef: ModelRef | null) => void,
+        clearWhenUnavailable = false
       ) => {
-        const currentModelConfig = findMatchingSelectableModel(
-          models,
-          selectedModelId,
-          selectedRef
-        );
+        const currentModelConfig = clearWhenUnavailable
+          ? findExactSelectableModel(models, selectedModelId, selectedRef)
+          : findMatchingSelectableModel(models, selectedModelId, selectedRef);
         if (currentModelConfig) {
           return;
         }
@@ -2539,6 +2518,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         if (nextModelConfig) {
           setModelId(nextModelConfig.id);
           setModelRef(getModelRefFromConfig(nextModelConfig));
+        } else if (clearWhenUnavailable && (selectedModelId || selectedRef)) {
+          setModelId('');
+          setModelRef(null);
         }
       };
 
@@ -2548,7 +2530,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentImageModel,
         selectedAgentImageModelRef,
         setSelectedAgentImageModel,
-        setSelectedAgentImageModelRef
+        setSelectedAgentImageModelRef,
+        usesStrictPptModels
       );
       syncAgentMediaModel(
         'video',
@@ -2556,7 +2539,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentVideoModel,
         selectedAgentVideoModelRef,
         setSelectedAgentVideoModel,
-        setSelectedAgentVideoModelRef
+        setSelectedAgentVideoModelRef,
+        usesStrictPptModels
       );
       syncAgentMediaModel(
         'audio',
@@ -2574,6 +2558,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       selectedAgentImageModelRef,
       selectedAgentVideoModel,
       selectedAgentVideoModelRef,
+      usesStrictPptModels,
       visibleAgentAudioModels,
       visibleAgentImageModels,
       visibleAgentVideoModels,
@@ -7294,8 +7279,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ]
     );
     const isPptExplainerSkillSelected =
-      generationType === 'agent' &&
-      selectedSkillId === 'generate_ppt_explainer_video';
+      generationType === 'agent' && usesStrictPptModels;
     const canGenerate =
       !canvasAssociationTrigger &&
       (isPptExplainerSkillSelected ||
@@ -7650,6 +7634,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             textModelRef={selectedModelRef}
             imageModel={selectedAgentImageModel}
             imageModelRef={selectedAgentImageModelRef}
+            imageModels={visibleAgentImageModels}
+            onImageModelChange={(modelId, modelRef) =>
+              handleAgentMediaModelSelect('image', modelId, modelRef)
+            }
             videoModel={selectedAgentVideoModel}
             videoModelRef={selectedAgentVideoModelRef}
             videoModels={visibleAgentVideoModels}
@@ -7874,6 +7862,21 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                           ? '选择图片模型 (↑↓ Tab)'
                           : 'Select image model (↑↓ Tab)'
                       }
+                      emptyTriggerLabel={
+                        usesStrictPptModels
+                          ? language === 'zh'
+                            ? '暂无已配置图片模型'
+                            : 'No configured image model'
+                          : undefined
+                      }
+                      emptyText={
+                        usesStrictPptModels
+                          ? language === 'zh'
+                            ? '请先在供应商设置中获取并勾选图片模型'
+                            : 'Get and select an image model in provider settings first'
+                          : undefined
+                      }
+                      strictModelList={usesStrictPptModels}
                     />
                   )}
 
@@ -7900,22 +7903,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                           : 'Select video model (↑↓ Tab)'
                       }
                       emptyTriggerLabel={
-                        selectedSkillId === 'generate_ppt_explainer_video'
+                        usesStrictPptModels
                           ? language === 'zh'
                             ? '暂无已配置视频模型'
                             : 'No configured video model'
                           : undefined
                       }
                       emptyText={
-                        selectedSkillId === 'generate_ppt_explainer_video'
+                        usesStrictPptModels
                           ? language === 'zh'
                             ? '请先在供应商设置中获取并勾选视频模型'
                             : 'Get and select a video model in provider settings first'
                           : undefined
                       }
-                      strictModelList={
-                        selectedSkillId === 'generate_ppt_explainer_video'
-                      }
+                      strictModelList={usesStrictPptModels}
                     />
                   )}
 

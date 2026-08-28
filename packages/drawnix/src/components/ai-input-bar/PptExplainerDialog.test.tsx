@@ -168,6 +168,7 @@ vi.mock('tdesign-react', () => ({
 }));
 
 const videoModelRef = { profileId: 'profile-1', modelId: 'video-1' };
+const imageModelRef = { profileId: 'profile-1', modelId: 'image-1' };
 
 function createVideoModel(
   id: string,
@@ -184,9 +185,29 @@ function createVideoModel(
   };
 }
 
+function createImageModel(
+  id: string,
+  label: string,
+  profileId: string
+): ModelConfig {
+  return {
+    id,
+    label,
+    type: 'image',
+    vendor: ModelVendor.OTHER,
+    sourceProfileId: profileId,
+    selectionKey: `${profileId}::${id}`,
+  };
+}
+
 const videoModels = [
   createVideoModel('video-1', '视频模型 1', 'profile-1'),
   createVideoModel('video-2', '视频模型 2', 'profile-2'),
+];
+
+const imageModels = [
+  createImageModel('image-1', '图片模型 1', 'profile-1'),
+  createImageModel('image-2', '图片模型 2', 'profile-2'),
 ];
 
 function renderDialog(
@@ -198,6 +219,9 @@ function renderDialog(
   const onVideoModelChange =
     overrides.onVideoModelChange ||
     vi.fn<(modelId: string, modelRef?: ModelRef | null) => void>();
+  const onImageModelChange =
+    overrides.onImageModelChange ||
+    vi.fn<(modelId: string, modelRef?: ModelRef | null) => void>();
   const rendered = render(
     <PptExplainerDialog
       open
@@ -205,6 +229,9 @@ function renderDialog(
       initialTopic="季度复盘"
       textModel="text-1"
       imageModel="image-1"
+      imageModelRef={imageModelRef}
+      imageModels={imageModels}
+      onImageModelChange={onImageModelChange}
       videoModel="video-1"
       videoModelRef={videoModelRef}
       videoModels={videoModels}
@@ -214,7 +241,13 @@ function renderDialog(
       {...overrides}
     />
   );
-  return { onCreate, onClose, onVideoModelChange, ...rendered };
+  return {
+    onCreate,
+    onClose,
+    onVideoModelChange,
+    onImageModelChange,
+    ...rendered,
+  };
 }
 
 describe('PptExplainerDialog', () => {
@@ -245,6 +278,8 @@ describe('PptExplainerDialog', () => {
       expect.objectContaining({
         source: 'topic',
         topic: '季度复盘',
+        imageModel: 'image-1',
+        imageModelRef,
         reviewMode: 'skip_after_warning',
         presenterMode: 'single_voice',
         speakers: [
@@ -381,6 +416,17 @@ describe('PptExplainerDialog', () => {
     });
   });
 
+  it('在弹窗底部切换真实图片模型并回写对应来源', () => {
+    const { onImageModelChange } = renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: '选择 图片模型 2' }));
+
+    expect(onImageModelChange).toHaveBeenCalledWith('image-2', {
+      profileId: 'profile-2',
+      modelId: 'image-2',
+    });
+  });
+
   it('切换同名视频模型时保留供应商来源', () => {
     const sameIdModels = [
       createVideoModel('shared-video', '供应商 A', 'profile-a'),
@@ -404,6 +450,25 @@ describe('PptExplainerDialog', () => {
     renderDialog({ videoModels: [] });
 
     expect(screen.getByText('暂无已配置视频模型')).not.toBeNull();
+    expect(
+      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it('主题来源没有已配置图片模型时显示空态并禁止创建', () => {
+    renderDialog({ imageModels: [], imageModel: '', imageModelRef: null });
+
+    expect(screen.getByText('暂无已配置图片模型')).not.toBeNull();
+    expect(
+      (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it('同 ID 图片模型缺少供应商来源时仍禁止创建', () => {
+    renderDialog({ imageModel: 'image-1', imageModelRef: null });
+
     expect(
       (screen.getByRole('button', { name: '创建任务' }) as HTMLButtonElement)
         .disabled

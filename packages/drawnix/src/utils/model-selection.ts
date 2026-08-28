@@ -27,6 +27,20 @@ export function getModelRefFromConfig(
   return createModelRef(model.sourceProfileId || null, model.id);
 }
 
+export function findExactSelectableModel(
+  models: ModelConfig[],
+  modelId?: string | null,
+  modelRef?: ModelRef | null
+): ModelConfig | undefined {
+  if (!modelId) {
+    return undefined;
+  }
+  const expectedKey = getSelectionKey(modelId, modelRef);
+  return models.find(
+    (model) => getSelectionKeyForModel(model) === expectedKey
+  );
+}
+
 export function findMatchingSelectableModel(
   models: ModelConfig[],
   modelId?: string | null,
@@ -36,11 +50,10 @@ export function findMatchingSelectableModel(
     return undefined;
   }
 
-  const expectedKey = getSelectionKey(modelId, modelRef);
   const expectedProfileId = modelRef?.profileId || null;
 
   return (
-    models.find((model) => getSelectionKeyForModel(model) === expectedKey) ||
+    findExactSelectableModel(models, modelId, modelRef) ||
     models.find(
       (model) =>
         model.id === modelId &&
