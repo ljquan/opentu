@@ -6,7 +6,7 @@ import {
   getInsertionPointBelowBottommostElement,
   scrollToPointIfNeeded,
 } from '../utils/selection-utils';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { isVirtualMediaUrl } from '../utils/virtual-media-url';
 import { createHash, getAudioCacheKeySeed } from './audio-cache-key';

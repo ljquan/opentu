@@ -570,6 +570,7 @@ export class WorkflowEngine {
       case 'generate_grid_image':
       case 'generate_inspiration_board':
       case 'generate_ppt':
+      case 'generate_ppt_explainer_video':
       case 'split_image':
       case 'generate_long_video':
       case 'insert_mermaid':

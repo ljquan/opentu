@@ -26,7 +26,7 @@ import {
   resolvePromptItemsByGenerationType,
   type ResolvedPromptItem,
 } from '../ttd-dialog/shared/prompt-utils';
-import { analytics } from '../../utils/posthog-analytics';
+import { analytics } from '../../utils/umami-analytics';
 import './prompt-history-popover.scss';
 
 /** 选择提示词回调的参数类型 */

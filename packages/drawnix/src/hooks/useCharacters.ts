@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { characterStorageService } from '../services/character-storage-service';
 import { characterAPIService } from '../services/character-api-service';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import type {
   SoraCharacter,
   CharacterStatus,

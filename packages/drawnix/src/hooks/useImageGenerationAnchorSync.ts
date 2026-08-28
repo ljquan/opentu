@@ -207,7 +207,10 @@ function getActualInsertedElementGeometry(
   };
 }
 
-function readTaskParamString(task: Task | null, key: string): string | undefined {
+function readTaskParamString(
+  task: Task | null,
+  key: string
+): string | undefined {
   const value = task?.params?.[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
@@ -459,17 +462,32 @@ export function useImageGenerationAnchorSync({
       }
 
       const nextSourceTaskId =
-        readTaskParamString(primaryTask, 'sourceTaskId') ||
-        anchor.sourceTaskId;
+        readTaskParamString(primaryTask, 'sourceTaskId') || anchor.sourceTaskId;
       if (nextSourceTaskId && nextSourceTaskId !== anchor.sourceTaskId) {
         patch.sourceTaskId = nextSourceTaskId;
       }
 
-      const nextTargetElementId =
+      const taskTargetElementId =
         readTaskParamString(primaryTask, 'targetElementId') ||
-        readTaskParamString(primaryTask, 'replaceElementId') ||
-        anchor.targetElementId;
-      if (nextTargetElementId && nextTargetElementId !== anchor.targetElementId) {
+        readTaskParamString(primaryTask, 'replaceElementId');
+      const replacementWasSuppressed =
+        primaryTask?.params.boundTargetFollowControlled === true &&
+        Boolean(
+          taskTargetElementId &&
+            nextResultElementId &&
+            taskTargetElementId !== nextResultElementId
+        );
+      const nextTargetElementId = replacementWasSuppressed
+        ? undefined
+        : taskTargetElementId || anchor.targetElementId;
+      if (replacementWasSuppressed) {
+        if (anchor.targetElementId !== undefined) {
+          patch.targetElementId = undefined;
+        }
+      } else if (
+        nextTargetElementId &&
+        nextTargetElementId !== anchor.targetElementId
+      ) {
         patch.targetElementId = nextTargetElementId;
       }
 
@@ -528,14 +546,12 @@ export function useImageGenerationAnchorSync({
       const batchIndex = getImageGenerationAnchorTaskBatchIndex(task);
       let hasExplicitBatchMatch = false;
       if (workflowId && batchId && typeof batchIndex === 'number') {
-        const byBatchSlot = ImageGenerationAnchorTransforms.getAnchorByBatchSlot(
-          board,
-          {
+        const byBatchSlot =
+          ImageGenerationAnchorTransforms.getAnchorByBatchSlot(board, {
             workflowId,
             batchId,
             batchIndex,
-          }
-        );
+          });
         if (byBatchSlot) {
           candidateAnchorIds.add(byBatchSlot.id);
           hasExplicitBatchMatch = true;

@@ -20,7 +20,7 @@ import {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import './prompt-list-panel.scss';
 
 export interface PromptItem {

@@ -38,7 +38,7 @@ function mockSettingsManagerDeps() {
 
   vi.doMock('../config-indexeddb-writer', () => ({
     configIndexedDBWriter: {
-      saveConfig: async () => {},
+      saveConfig: async () => undefined,
     },
   }));
 }
@@ -61,7 +61,7 @@ describe('settings-manager', () => {
           href: 'https://example.com/app',
         },
         history: {
-          replaceState: () => {},
+          replaceState: () => undefined,
         },
         dispatchEvent: () => true,
       });
@@ -72,7 +72,7 @@ describe('settings-manager', () => {
           href: 'https://example.com/app',
         },
         history: {
-          replaceState: () => {},
+          replaceState: () => undefined,
         },
         dispatchEvent: () => true,
       });
@@ -737,6 +737,52 @@ describe('settings-manager', () => {
     expect(reloadedTuziBusinessProfile).toMatchObject({
       preferAsyncImageEndpoint: false,
     });
+  });
+
+  it('uses an embedded managed provider when the legacy route has no key', async () => {
+    mockSettingsManagerDeps();
+    vi.stubEnv('VITE_TUZI_EMBEDDED_MODE', 'true');
+    vi.stubEnv('VITE_TUZI_API_BASE_URL', 'http://localhost:3100');
+    localStorage.setItem(
+      DRAWNIX_SETTINGS_KEY,
+      JSON.stringify({
+        gemini: {
+          apiKey: '',
+          baseUrl: 'http://localhost:3100/v1',
+          imageModelName: 'gpt-image-1',
+        },
+        providerProfiles: [
+          {
+            id: 'legacy-default',
+            name: 'default 分组',
+            providerType: 'openai-compatible',
+            baseUrl: 'http://localhost:3100/v1',
+            apiKey: '',
+            authType: 'bearer',
+            enabled: true,
+            capabilities: {},
+          },
+          {
+            id: 'tuzi-managed-default',
+            name: 'default',
+            providerType: 'openai-compatible',
+            baseUrl: 'http://localhost:3100/v1',
+            apiKey: 'sk-managed',
+            authType: 'bearer',
+            enabled: true,
+            capabilities: {},
+            pricingGroup: 'default',
+          },
+        ],
+      })
+    );
+
+    const { settingsManager } = await import('../settings-manager');
+    expect(settingsManager.resolveInvocationRoute('image')).toMatchObject({
+      profileId: 'tuzi-managed-default',
+      apiKey: 'sk-managed',
+    });
+    expect(settingsManager.hasInvocationRouteCredentials('image')).toBe(true);
   });
 
   it('preserves provider catalog manual bindings after reload', async () => {

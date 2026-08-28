@@ -22,6 +22,7 @@ import {
 import type { VideoModel } from '../types/video.types';
 import type { GenerationType } from '../utils/ai-input-parser';
 import { applyForcedSunoParams } from '../utils/suno-model-aliases';
+import { isSeedance2ModelId } from '../utils/seedance-model';
 import { getEffectiveVideoCompatibleParams } from './video-binding-utils';
 
 type PersistedParams = Record<string, string>;
@@ -311,7 +312,7 @@ function sanitizeVideoToolParams(
 ): PersistedParams {
   const persistedParams = asRecord(rawParams);
   if (
-    modelId.startsWith('doubao-seedance-2-0-') &&
+    isSeedance2ModelId(modelId) &&
     persistedParams.size?.includes('@')
   ) {
     const [resolution, ratio] = persistedParams.size.split('@');

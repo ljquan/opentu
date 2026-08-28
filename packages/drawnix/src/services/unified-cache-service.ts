@@ -21,6 +21,7 @@ import type {
   CacheWarning,
   CacheWarningReasonCode,
 } from '../types/cache-warning.types';
+import type { TaskResultVisibility } from '../types/task.types';
 
 // ==================== 常量定义 ====================
 
@@ -111,6 +112,7 @@ export interface CacheMediaFromBlobOptions {
     taskId?: string;
     prompt?: string;
     model?: string;
+    resultVisibility?: TaskResultVisibility;
     [key: string]: any;
   };
   contentHash?: string;
@@ -141,6 +143,7 @@ export interface CachedMedia {
     taskId?: string;
     prompt?: string;
     model?: string;
+    resultVisibility?: TaskResultVisibility;
     params?: any;
     cacheWarning?: CacheWarning;
     [key: string]: any;
@@ -840,6 +843,7 @@ class UnifiedCacheService {
       taskId: string;
       prompt?: string;
       model?: string;
+      resultVisibility?: TaskResultVisibility;
       params?: any;
     }
   ): Promise<void> {
@@ -850,6 +854,14 @@ class UnifiedCacheService {
       const normalizedUrl = this.normalizeRemoteCacheUrl(url);
       const existing = await this.getItem(normalizedUrl);
       const now = Date.now();
+      const nestedVisibility = metadata.params?.resultVisibility;
+      const resultVisibility =
+        metadata.resultVisibility ??
+        (nestedVisibility === 'user' || nestedVisibility === 'internal'
+          ? nestedVisibility
+          : undefined);
+      const metadataWithoutVisibility = { ...metadata };
+      delete metadataWithoutVisibility.resultVisibility;
 
       const item: CachedMedia = {
         url: normalizedUrl,
@@ -860,7 +872,8 @@ class UnifiedCacheService {
         lastUsed: now,
         metadata: {
           ...existing?.metadata,
-          ...metadata,
+          ...metadataWithoutVisibility,
+          ...(resultVisibility ? { resultVisibility } : {}),
         },
       };
 

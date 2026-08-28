@@ -7,6 +7,11 @@
  * 参数配置用于 SmartSuggestionPanel 的 - 参数提示功能
  */
 
+import {
+  isSeedance25ModelId,
+  SEEDANCE_25_MODEL_ID,
+} from '../utils/seedance-model';
+
 /**
  * 模型类型
  */
@@ -231,6 +236,7 @@ const BUILT_IN_MODEL_RECOMMENDATION_SCORES: Readonly<Record<string, number>> = {
   'gemini-3-pro-image-preview-4k': 41,
 
   kling_video: 98,
+  [SEEDANCE_25_MODEL_ID]: 102,
   'doubao-seedance-2-0-260128': 101,
   'doubao-seedance-2-0-fast-260128': 100,
   'doubao-seedance-2-0-mini-260615': 99,
@@ -709,6 +715,12 @@ const SEEDANCE_DEFAULT_PARAMS: VideoModelDefaults = {
   aspectRatio: '16:9',
 };
 
+const SEEDANCE_25_DEFAULT_PARAMS: VideoModelDefaults = {
+  duration: '8',
+  size: '',
+  aspectRatio: '16:9',
+};
+
 /** HappyHorse 模型默认参数（5秒，1080P） */
 const HAPPYHORSE_DEFAULT_PARAMS: VideoModelDefaults = {
   duration: '5',
@@ -729,6 +741,16 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     vendor: ModelVendor.KLING,
     supportsTools: true,
     videoDefaults: KLING_DEFAULT_PARAMS,
+  },
+  {
+    id: SEEDANCE_25_MODEL_ID,
+    label: 'Seedance 2.5',
+    shortCode: 'sc25',
+    description: 'Seedance 2.5 音视频联合生成，支持 4-30 秒与 7 种画面比例',
+    type: 'video',
+    vendor: ModelVendor.DOUBAO,
+    videoDefaults: SEEDANCE_25_DEFAULT_PARAMS,
+    tags: ['new', 'seedance', 'seedance-2'],
   },
   {
     id: 'doubao-seedance-2-0-260128',
@@ -1799,10 +1821,33 @@ const SEEDANCE_MODEL_IDS = [
   'seedance-1.0-lite',
 ];
 
-const SEEDANCE_2_MODEL_IDS = [
+const SEEDANCE_20_MODEL_IDS = [
   'doubao-seedance-2-0-260128',
   'doubao-seedance-2-0-fast-260128',
   'doubao-seedance-2-0-mini-260615',
+];
+
+const SEEDANCE_2_MODEL_IDS = [
+  ...SEEDANCE_20_MODEL_IDS,
+  SEEDANCE_25_MODEL_ID,
+];
+
+const SEEDANCE_25_DURATION_OPTIONS = Array.from(
+  { length: 27 },
+  (_, index) => {
+    const value = String(index + 4);
+    return { value, label: `${value}秒` };
+  }
+);
+
+const SEEDANCE_25_RATIO_OPTIONS = [
+  { value: '16:9', label: '16:9 横屏' },
+  { value: '4:3', label: '4:3 横屏' },
+  { value: '1:1', label: '1:1 方形' },
+  { value: '3:4', label: '3:4 竖屏' },
+  { value: '9:16', label: '9:16 竖屏' },
+  { value: '21:9', label: '21:9 超宽屏' },
+  { value: 'adaptive', label: 'Auto' },
 ];
 
 /** HappyHorse 视频模型 ID */
@@ -2016,7 +2061,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: '480p', label: '480p' },
     ],
     defaultValue: '720p',
-    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    compatibleModels: SEEDANCE_20_MODEL_IDS,
     modelType: 'video',
   },
   {
@@ -2074,7 +2119,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     valueType: 'number',
     step: 1,
     integer: true,
-    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    compatibleModels: SEEDANCE_20_MODEL_IDS,
     modelType: 'video',
   },
   {
@@ -2087,7 +2132,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: 'true', label: '开启' },
       { value: 'false', label: '关闭' },
     ],
-    compatibleModels: SEEDANCE_2_MODEL_IDS,
+    compatibleModels: SEEDANCE_20_MODEL_IDS,
     modelType: 'video',
   },
   // Seedance 宽高比参数
@@ -2882,7 +2927,7 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   }
   // 这里不再自动按 doubao 分类，避免与 seedream 重复；若需要可通过 tags 显式声明
 
-  return ALL_PARAMS.filter((param) => {
+  const compatibleParams = ALL_PARAMS.filter((param) => {
     // 检查模型类型是否匹配
     if (param.modelType !== modelConfig.type) return false;
     // 检查标签兼容（可选）
@@ -2894,6 +2939,28 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
       param.compatibleModels.includes(modelId) ||
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
     return idMatched || tagMatched;
+  });
+
+  if (!isSeedance25ModelId(modelId)) {
+    return compatibleParams;
+  }
+
+  return compatibleParams.map((param) => {
+    if (param.id === 'duration') {
+      return {
+        ...param,
+        options: SEEDANCE_25_DURATION_OPTIONS,
+        defaultValue: '8',
+      };
+    }
+    if (param.id === 'ratio') {
+      return {
+        ...param,
+        options: SEEDANCE_25_RATIO_OPTIONS,
+        defaultValue: '16:9',
+      };
+    }
+    return param;
   });
 }
 

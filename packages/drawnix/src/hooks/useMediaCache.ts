@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { unifiedCacheService, CacheStatus } from '../services/unified-cache-service';
+import { isVirtualMediaUrl } from '../utils/virtual-media-url';
 
 interface UseMediaCacheResult {
   /** Cache status for the task */
@@ -114,33 +115,73 @@ export function useMediaUrl(
   const [url, setUrl] = useState<string | null>(originalUrl || null);
   const [isFromCache, setIsFromCache] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const loadRequestRef = useRef(0);
   // Track the last known cache status to detect changes for THIS task only
   const lastStatusRef = useRef<CacheStatus>('none');
 
   // Load URL function
   const loadUrl = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setIsLoading(true);
 
     if (!originalUrl) {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
       setUrl(null);
       setIsFromCache(false);
       setIsLoading(false);
       return;
     }
 
+    if (isVirtualMediaUrl(originalUrl)) {
+      const cachedBlob = await unifiedCacheService.getCachedBlob(originalUrl);
+      if (requestId !== loadRequestRef.current) {
+        return;
+      }
+      const previousBlobUrl = blobUrlRef.current;
+      if (cachedBlob?.size) {
+        const nextBlobUrl = URL.createObjectURL(cachedBlob);
+        blobUrlRef.current = nextBlobUrl;
+        setUrl(nextBlobUrl);
+        setIsFromCache(true);
+        if (previousBlobUrl && previousBlobUrl !== nextBlobUrl) {
+          URL.revokeObjectURL(previousBlobUrl);
+        }
+      } else {
+        if (previousBlobUrl) {
+          URL.revokeObjectURL(previousBlobUrl);
+          blobUrlRef.current = null;
+        }
+        setUrl(null);
+        setIsFromCache(false);
+      }
+      setIsLoading(false);
+      return;
+    }
+
     // First try to get cached URL
     const cachedUrl = await unifiedCacheService.getCachedUrl(originalUrl);
+    if (requestId !== loadRequestRef.current) {
+      return;
+    }
 
     if (cachedUrl) {
       // Revoke old blob URL if exists
-      if (blobUrl && blobUrl !== cachedUrl) {
-        URL.revokeObjectURL(blobUrl);
+      const previousBlobUrl = blobUrlRef.current;
+      if (previousBlobUrl && previousBlobUrl !== cachedUrl) {
+        URL.revokeObjectURL(previousBlobUrl);
       }
-      setBlobUrl(cachedUrl);
+      blobUrlRef.current = cachedUrl.startsWith('blob:') ? cachedUrl : null;
       setUrl(cachedUrl);
       setIsFromCache(true);
     } else if (originalUrl) {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
       setUrl(originalUrl);
       setIsFromCache(false);
     } else {
@@ -149,7 +190,7 @@ export function useMediaUrl(
     }
 
     setIsLoading(false);
-  }, [originalUrl, blobUrl]);
+  }, [originalUrl]);
 
   // Initial load
   useEffect(() => {
@@ -158,7 +199,7 @@ export function useMediaUrl(
     if (originalUrl) {
       lastStatusRef.current = unifiedCacheService.getCacheStatus(originalUrl);
     }
-  }, [taskId, originalUrl]);
+  }, [taskId, originalUrl, loadUrl]);
 
   // Subscribe to cache status changes - only react to THIS task's changes
   useEffect(() => {
@@ -185,11 +226,13 @@ export function useMediaUrl(
   // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
+      loadRequestRef.current += 1;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
       }
     };
-  }, [blobUrl]);
+  }, []);
 
   return { url, isFromCache, isLoading };
 }

@@ -29,6 +29,10 @@ export function inferSkillMediaTypes(skill?: SkillMediaLike | null): SkillMediaT
     return [];
   }
 
+  if (skill.mcpTool === 'generate_ppt_explainer_video') {
+    return ['image', 'video'];
+  }
+
   const outputMediaType = normalizeSkillOutputType(skill.outputType);
   if (outputMediaType) {
     return [outputMediaType];
@@ -73,9 +77,14 @@ function getMediaToolNames(mediaType: SkillMediaType): string[] {
         'generate_grid_image',
         'generate_photo_wall',
         'generate_inspiration_board',
+        'generate_ppt_explainer_video',
       ];
     case 'video':
-      return ['generate_video', 'generate_long_video'];
+      return [
+        'generate_video',
+        'generate_long_video',
+        'generate_ppt_explainer_video',
+      ];
     case 'audio':
       return ['generate_audio'];
   }

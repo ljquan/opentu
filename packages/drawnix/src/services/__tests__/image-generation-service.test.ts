@@ -159,6 +159,8 @@ describe('image-generation-service', () => {
       outputCompression: 80,
       uploadedImages: [{ url: 'https://example.com/reference.png' }],
       count: 2,
+      resultVisibility: 'internal',
+      autoInsertToCanvas: false,
     });
 
     expect(createTaskMock).toHaveBeenCalledWith(
@@ -179,6 +181,8 @@ describe('image-generation-service', () => {
         outputCompression: 80,
         uploadedImages: [{ url: 'https://example.com/reference.png' }],
         count: 2,
+        resultVisibility: 'internal',
+        autoInsertToCanvas: false,
         params: {
           resolution: '2k',
           quality: 'high',
@@ -205,6 +209,8 @@ describe('image-generation-service', () => {
           generationMode: 'image_to_image',
           referenceImages: ['https://example.com/reference.png'],
           maskImage: 'https://example.com/mask.png',
+          resultVisibility: 'internal',
+          autoInsertToCanvas: false,
           params: {
             resolution: '2k',
             quality: 'high',
@@ -220,6 +226,7 @@ describe('image-generation-service', () => {
       expect.objectContaining({
         taskId: 'task-image-1',
         requestId: 'task-image-1',
+        resultVisibility: 'internal',
       }),
       expect.objectContaining({
         signal: undefined,

@@ -120,6 +120,8 @@ export interface ImageGenerationParams {
   sourceTaskId?: string;
   /** 目标替换任务的来源提示词 */
   sourcePrompt?: string;
+  /** 是否由支持永久跟随开关的 AI 任务栏目标提交 */
+  boundTargetFollowControlled?: boolean;
   /** 是否自动插入画布 */
   autoInsertToCanvas?: boolean;
   /** 提示词历史轻量元数据 */
@@ -309,6 +311,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
         anchorId: params.anchorId,
         sourceTaskId: params.sourceTaskId,
         sourcePrompt: params.sourcePrompt,
+        boundTargetFollowControlled: params.boundTargetFollowControlled,
         promptMeta: params.promptMeta,
         assetMetadata: params.assetMetadata,
         knowledgeContextRefs: params.knowledgeContextRefs,

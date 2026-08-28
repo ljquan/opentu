@@ -276,4 +276,31 @@ describe('image-generation MCP tool', () => {
       pptReplaceElementId: 'old-image',
     });
   });
+
+  it('passes taskbar follow control metadata into queue task params', async () => {
+    mocks.createQueueTask.mockReturnValue({
+      success: true,
+      type: 'image',
+      taskId: 'task-1',
+    });
+
+    await imageGenerationTool.execute(
+      {
+        prompt: 'Generate a new target variant',
+        replaceElementId: 'image-target',
+        targetElementId: 'image-target',
+        boundTargetFollowControlled: true,
+      },
+      { mode: 'queue' }
+    );
+
+    const queueConfig = mocks.createQueueTask.mock.calls[0]?.[2];
+
+    expect(queueConfig.buildTaskPayload()).toMatchObject({
+      prompt: 'Generate a new target variant',
+      replaceElementId: 'image-target',
+      targetElementId: 'image-target',
+      boundTargetFollowControlled: true,
+    });
+  });
 });

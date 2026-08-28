@@ -198,14 +198,26 @@ export function generateOutlineSystemPrompt(
   options: PPTGenerateOptions = {}
 ): string {
   const { pageCount = 'normal', language = '中文' } = options;
-  const range = PAGE_COUNT_RANGES[pageCount] || PAGE_COUNT_RANGES.normal;
+  const exactPageCount =
+    typeof pageCount === 'number' &&
+    Number.isSafeInteger(pageCount) &&
+    pageCount > 0
+      ? pageCount
+      : undefined;
+  const range =
+    typeof pageCount === 'string'
+      ? PAGE_COUNT_RANGES[pageCount] || PAGE_COUNT_RANGES.normal
+      : PAGE_COUNT_RANGES.normal;
+  const pageCountRequirement = exactPageCount
+    ? `总计严格 ${exactPageCount} 页（包含封面页和结尾页）`
+    : `${range.min}-${range.max}页（不含封面和结尾）`;
 
   return `你是一位专业的PPT大纲设计师。请根据用户提供的主题，生成一份结构清晰、逻辑严密、内容丰富的PPT大纲。
 
 ## 输出要求
 1. 输出格式：严格JSON，符合 PPTOutline 接口定义
 2. 输出语言：所有文本内容使用${language}
-3. 页数控制：${range.min}-${range.max}页（不含封面和结尾）
+3. 页数控制：${pageCountRequirement}
 4. 必须以封面页(cover)开头，结尾页(ending)结尾
 
 ## 可用版式类型

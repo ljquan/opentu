@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlaitBoard } from '@plait/core';
+import { createBoard, type PlaitBoard } from '@plait/core';
 
 const mocks = vi.hoisted(() => ({
   cacheRemoteUrl: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('../services/asset-storage-service', () => ({
   assetStorageService: {},
 }));
 
-vi.mock('../utils/posthog-analytics', () => ({
+vi.mock('../utils/umami-analytics', () => ({
   analytics: {
     track: vi.fn(),
   },
@@ -71,7 +71,7 @@ describe('insertImageFromUrl', () => {
     mocks.cacheRemoteUrl.mockResolvedValue(localUrl);
 
     const { insertImageFromUrl } = await import('./image');
-    const board = { children: [] } as unknown as PlaitBoard;
+    const board = createBoard([]) as PlaitBoard;
 
     await insertImageFromUrl(
       board,
@@ -100,6 +100,42 @@ describe('insertImageFromUrl', () => {
       { url: localUrl, width: 320, height: 180 },
       [10, 20]
     );
+  });
+
+  it('无 DOM 暂存画板可按明确坐标插入图片节点', async () => {
+    const remoteUrl = 'https://cdn.example.com/generated/staged.png';
+    const localUrl = '/__aitu_cache__/image/staged.png';
+    mocks.cacheRemoteUrl.mockResolvedValue(localUrl);
+
+    const { insertImageFromUrl } = await import('./image');
+    const board = createBoard([]) as PlaitBoard;
+
+    await insertImageFromUrl(
+      board,
+      remoteUrl,
+      [10, 20],
+      false,
+      { width: 320, height: 180 },
+      true,
+      true,
+      true,
+      true,
+      undefined,
+      true
+    );
+
+    expect(mocks.insertImage).not.toHaveBeenCalled();
+    expect(board.children).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        type: 'image',
+        points: [
+          [10, 20],
+          [330, 200],
+        ],
+        url: localUrl,
+      }),
+    ]);
   });
 
   it('等待加载时，缓存不可用则不插入空白节点', async () => {

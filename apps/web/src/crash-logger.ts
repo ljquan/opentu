@@ -739,10 +739,10 @@ export function setupErrorCapture(): void {
       return;
     }
 
-    // 过滤监控服务相关的错误（PostHog）
+    // 过滤监控服务相关的错误（Umami）
     if (
-      errorMessage.includes('posthog.com') ||
-      errorStack.includes('posthog')
+      errorMessage.includes('umami.tu-zi.com') ||
+      errorStack.includes('umami')
     ) {
       return; // 静默忽略监控服务的网络错误
     }

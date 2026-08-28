@@ -12,13 +12,22 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { Transforms, type PlaitBoard, type Point } from '@plait/core';
+import {
+  getViewportOrigination,
+  PlaitBoard as PlaitBoardApi,
+  Transforms,
+  type PlaitBoard,
+  type Point,
+} from '@plait/core';
 import { PlaitDrawElement } from '@plait/draw';
 import { getTaskQueueService } from '../services/task-queue';
+import { taskStorageReader } from '../services/task-storage-reader';
 import { workflowCompletionService } from '../services/workflow-completion-service';
+import { runPptExplainerDeliveryExclusive } from '../services/ppt-explainer/cross-tab-coordinator';
 import { resolveAudioResultUrls } from '../services/audio-task-result-utils';
 import {
   type CanvasAssociationRef,
+  isUserVisibleTaskResult,
   Task,
   TaskStatus,
   TaskType,
@@ -78,6 +87,7 @@ import {
   getLyricsTitle,
   isLyricsTask,
 } from '../utils/lyrics-task-utils';
+import { resolveImageTaskInsertionDimensions } from '../utils/task-utils';
 import { getImageGenerationTaskInsertGroupKey } from '../utils/image-generation-anchor-task';
 import { findImageGenerationAnchorForTaskOnBoard } from '../utils/image-generation-anchor-lookup';
 import {
@@ -86,6 +96,11 @@ import {
 } from '../plugins/canvas-association';
 import { workspaceService } from '../services/workspace-service';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
+import {
+  findBoundTargetElement,
+  isBoundTargetReferenceOnly,
+  readBoundTargetFollowEnabled,
+} from '../components/ai-input-bar/target-bound-taskbar-state';
 
 /**
  * 配置项
@@ -141,6 +156,32 @@ function isTaskInsertionTracked(taskId: string): boolean {
 
   rememberInsertedTask(taskId);
   return true;
+}
+
+function findInsertedPptExplainerVideo(
+  board: PlaitBoard,
+  taskId: string
+): {
+  elementId: string;
+  position: Point;
+  size: { width: number; height: number };
+} | null {
+  const element = board.children.find(
+    (candidate) =>
+      isPlaitVideo(candidate) &&
+      (candidate as typeof candidate & { generationTaskId?: unknown })
+        .generationTaskId === taskId
+  );
+  if (!element || !isPlaitVideo(element)) return null;
+
+  return {
+    elementId: element.id,
+    position: element.points[0],
+    size: {
+      width: Math.abs(element.points[1][0] - element.points[0][0]),
+      height: Math.abs(element.points[1][1] - element.points[0][1]),
+    },
+  };
 }
 
 /**
@@ -220,6 +261,45 @@ function getTaskReplaceElementId(task: Task): string | undefined {
   return readTaskParamString(task, 'replaceElementId');
 }
 
+function isTaskbarBoundTargetReplacement(task: Task): boolean {
+  if (!getTaskReplaceElementId(task) || task.type === TaskType.AUDIO) {
+    return false;
+  }
+
+  return task.params.boundTargetFollowControlled === true;
+}
+
+function resolveTaskForCanvasInsertion(
+  task: Task,
+  board: PlaitBoard
+): {
+  task: Task;
+  replacementSuppressed: boolean;
+} {
+  if (!isTaskbarBoundTargetReplacement(task)) {
+    return { task, replacementSuppressed: false };
+  }
+
+  const currentReplaceElementId = getTaskReplaceElementId(task);
+  const replacementSuppressed =
+    !readBoundTargetFollowEnabled() ||
+    isBoundTargetReferenceOnly(
+      findBoundTargetElement(board.children, currentReplaceElementId || '')
+    );
+  if (!replacementSuppressed) {
+    return { task, replacementSuppressed: false };
+  }
+
+  const { replaceElementId, targetElementId, ...params } = task.params;
+  return {
+    task: {
+      ...task,
+      params,
+    },
+    replacementSuppressed: Boolean(replaceElementId || targetElementId),
+  };
+}
+
 function getTaskAnchorId(
   task: Task,
   anchor?: PlaitImageGenerationAnchor | null
@@ -276,6 +356,16 @@ function canInsertTaskCanvasAssociationsOnCurrentBoard(
   const associations = getTaskCanvasAssociations(task);
   const binding = getCurrentCanvasBoardBinding();
   if (expectedBoard && (!binding || binding.board !== expectedBoard)) {
+    return false;
+  }
+  const pptExplainerSourceBoardId =
+    typeof task.params?.pptExplainer?.sourceBoardId === 'string'
+      ? task.params.pptExplainer.sourceBoardId.trim()
+      : '';
+  if (
+    pptExplainerSourceBoardId &&
+    (!binding || binding.boardId !== pptExplainerSourceBoardId)
+  ) {
     return false;
   }
   if (associations.length === 0) return true;
@@ -380,7 +470,8 @@ function syncImageTargetBindingAfterInsert(
   task: Task,
   insertedElementId?: string,
   previewImageUrl?: string,
-  updateElement = true
+  updateElement = true,
+  clearTargetElementId = false
 ): void {
   if (insertedElementId && updateElement) {
     const elementIndex = board.children.findIndex(
@@ -411,7 +502,11 @@ function syncImageTargetBindingAfterInsert(
     latestTaskId: task.id,
     ...(prompt ? { prompt } : {}),
     ...(sourceTaskId ? { sourceTaskId } : {}),
-    ...(targetElementId ? { targetElementId } : {}),
+    ...(clearTargetElementId
+      ? { targetElementId: undefined }
+      : targetElementId
+      ? { targetElementId }
+      : {}),
     ...(insertedElementId ? { resultElementId: insertedElementId } : {}),
     ...(previewImageUrl ? { previewImageUrl } : {}),
   };
@@ -688,32 +783,6 @@ function isDimensions(
   );
 }
 
-function getTaskImageDimensions(
-  task: Task,
-  fallback?: { width: number; height: number }
-): { width: number; height: number } | undefined {
-  // 优先使用任务返回的真实尺寸
-  const result = task.result as { width?: number; height?: number } | undefined;
-
-  if (
-    typeof result?.width === 'number' &&
-    typeof result?.height === 'number' &&
-    result.width > 0 &&
-    result.height > 0
-  ) {
-    return {
-      width: result.width,
-      height: result.height,
-    };
-  }
-
-  if (fallback) {
-    return fallback;
-  }
-
-  return parseSizeToPixels(task.params.size);
-}
-
 function resolveAnchorInsertionPreviewSize(
   anchor: PlaitImageGenerationAnchor | null,
   size?: { width: number; height: number }
@@ -917,12 +986,32 @@ function resolvePendingInsertContext(
     insertionPoint = getInsertionPointBelowBottommostElement(board);
   }
 
+  if (!insertionPoint) {
+    insertionPoint = getViewportCenterInsertionPoint(board);
+  }
+
   return {
     insertionPoint,
     targetFrameId,
     targetFrameDimensions,
     imageAnchor,
   };
+}
+
+function getViewportCenterInsertionPoint(board: PlaitBoard): Point {
+  try {
+    const container = PlaitBoardApi.getBoardContainer(board);
+    const rect = container.getBoundingClientRect();
+    const zoom = Math.max(Number(board.viewport?.zoom) || 1, 0.001);
+    const origination = getViewportOrigination(board) || [0, 0];
+
+    return [
+      origination[0] + rect.width / (2 * zoom),
+      origination[1] + rect.height / (2 * zoom),
+    ];
+  } catch {
+    return [0, 0];
+  }
 }
 
 /**
@@ -1155,7 +1244,11 @@ export function useAutoInsertToCanvas(
         try {
           if (inserts.length === 1) {
             // 单个任务，直接插入
-            const { task } = inserts[0];
+            const { task: queuedTask } = inserts[0];
+            const {
+              task,
+              replacementSuppressed: boundTargetReplacementSuppressed,
+            } = resolveTaskForCanvasInsertion(queuedTask, board);
             const isLyricsAudioTask = isLyricsTask(task);
             const url = task.result?.url;
             const hasResultUrl = typeof url === 'string' && url.length > 0;
@@ -1179,7 +1272,7 @@ export function useAutoInsertToCanvas(
               : task.type === TaskType.AUDIO
               ? 'audio'
               : 'image';
-            const dimensions =
+            const requestedDimensions =
               type === 'audio'
                 ? {
                     width: AUDIO_CARD_DEFAULT_WIDTH,
@@ -1188,6 +1281,13 @@ export function useAutoInsertToCanvas(
                 : type === 'text'
                 ? undefined
                 : parseSizeToPixels(task.params.size);
+            const dimensions =
+              type === 'image'
+                ? resolveImageTaskInsertionDimensions(
+                    task,
+                    requestedDimensions?.width
+                  )
+                : requestedDimensions;
             const audioMetadata =
               type === 'audio'
                 ? {
@@ -1290,9 +1390,7 @@ export function useAutoInsertToCanvas(
                   }
                 : generationMetadata;
             const targetImageDimensions =
-              type === 'image'
-                ? getTaskImageDimensions(task, dimensions)
-                : undefined;
+              type === 'image' ? dimensions : undefined;
             let insertedPoint = resolvedInsertionPoint;
             let insertedElementId: string | undefined;
             let insertedSize =
@@ -1648,7 +1746,9 @@ export function useAutoInsertToCanvas(
                 imageAnchor,
                 task,
                 insertedElementId,
-                allUrls[0]
+                allUrls[0],
+                true,
+                boundTargetReplacementSuppressed
               );
               notifyAISelectionContentRefresh();
             }
@@ -1756,6 +1856,10 @@ export function useAutoInsertToCanvas(
                       url: resultUrl,
                       anchor: taskAnchor,
                       metadata: taskMetadata,
+                      dimensions: resolveImageTaskInsertionDimensions(
+                        task,
+                        parseSizeToPixels(task.params.size).width
+                      ),
                     }));
                   })
                 : [];
@@ -1795,7 +1899,7 @@ export function useAutoInsertToCanvas(
               : firstInsertTask.type === TaskType.AUDIO
               ? 'audio'
               : 'image';
-            const dimensions =
+            const requestedDimensions =
               type === 'audio'
                 ? {
                     width: AUDIO_CARD_DEFAULT_WIDTH,
@@ -1804,15 +1908,20 @@ export function useAutoInsertToCanvas(
                 : type === 'text'
                 ? undefined
                 : parseSizeToPixels(firstInsertTask.params.size);
+            const dimensions =
+              type === 'image'
+                ? resolveImageTaskInsertionDimensions(
+                    firstInsertTask,
+                    requestedDimensions?.width
+                  )
+                : requestedDimensions;
             const groupImageAnchor =
               type === 'image'
                 ? scopedImageAnchor ??
                   findImageGenerationAnchorForTask(board, firstInsertTask)
                 : null;
             const groupImageDimensions =
-              type === 'image'
-                ? getTaskImageDimensions(firstInsertTask, dimensions)
-                : undefined;
+              type === 'image' ? dimensions : undefined;
             let insertedPoint = resolvedInsertionPoint;
             let insertedElementId: string | undefined;
             let insertedSize = groupImageDimensions;
@@ -1914,7 +2023,10 @@ export function useAutoInsertToCanvas(
                 (resultUrl, index) => ({
                   type,
                   url: resultUrl,
-                  dimensions,
+                  dimensions:
+                    type === 'image'
+                      ? imageGroupItems[index]?.dimensions ?? dimensions
+                      : dimensions,
                   metadata:
                     type === 'image'
                       ? imageGroupItems[index]?.metadata
@@ -1975,7 +2087,7 @@ export function useAutoInsertToCanvas(
                 const insertionResult = await insertImageGroup(
                   urls,
                   resolvedInsertionPoint,
-                  dimensions,
+                  imageGroupItems.map((item) => item.dimensions),
                   board,
                   () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
                   firstInsertTask.params.prompt
@@ -2276,7 +2388,142 @@ export function useAutoInsertToCanvas(
       }, delay);
     };
 
+    const handlePptExplainerInsertion = (
+      task: Task,
+      board: PlaitBoard,
+      boardId: string
+    ): void => {
+      void runPptExplainerDeliveryExclusive(
+        boardId,
+        task.id,
+        async (signal) => {
+          const storedTask = await taskStorageReader.getTask(task.id);
+          const insertionTask = storedTask || task;
+          if (
+            signal.aborted ||
+            insertionTask.status !== TaskStatus.COMPLETED ||
+            !insertionTask.params.pptExplainer ||
+            !isUserVisibleTaskResult(insertionTask.result)
+          ) {
+            return;
+          }
+
+          const currentBinding = getCurrentCanvasBoardBinding();
+          if (
+            !currentBinding ||
+            currentBinding.board !== board ||
+            currentBinding.boardId !== boardId ||
+            !canInsertTaskCanvasAssociationsOnCurrentBoard(
+              insertionTask,
+              board
+            )
+          ) {
+            return;
+          }
+
+          const existingVideo = findInsertedPptExplainerVideo(
+            board,
+            insertionTask.id
+          );
+          if (insertionTask.insertedToCanvas) {
+            rememberInsertedTask(insertionTask.id);
+            if (existingVideo) {
+              workflowCompletionService.completePostProcessing(
+                insertionTask.id,
+                1,
+                existingVideo.position,
+                existingVideo.elementId,
+                existingVideo.size
+              );
+            }
+            return;
+          }
+          if (existingVideo) {
+            workflowCompletionService.completePostProcessing(
+              insertionTask.id,
+              1,
+              existingVideo.position,
+              existingVideo.elementId,
+              existingVideo.size
+            );
+            if (finalizeTaskInsertion(insertionTask, board)) {
+              await getTaskQueueService().waitForTaskPersistence?.(
+                insertionTask.id
+              );
+            }
+            return;
+          }
+
+          const resultUrl = insertionTask.result?.url;
+          const insertionPoint = resolvePendingInsertContext(
+            board,
+            insertionTask
+          ).insertionPoint;
+          const insertionBoardToken = captureCanvasInsertionBoardToken(board);
+          if (!resultUrl || !insertionPoint || !insertionBoardToken) return;
+
+          reserveTaskInsertion(insertionTask.id);
+          workflowCompletionService.registerTask(insertionTask.id);
+          workflowCompletionService.startPostProcessing(
+            insertionTask.id,
+            'direct_insert'
+          );
+
+          const dimensions = parseSizeToPixels(insertionTask.params.size);
+          const insertionResult = await quickInsert(
+            'video',
+            resultUrl,
+            insertionPoint,
+            dimensions,
+            buildTaskGenerationMetadata(insertionTask),
+            board,
+            () =>
+              !signal.aborted &&
+              isCanvasInsertionBoardTokenCurrent(insertionBoardToken)
+          );
+          if (
+            signal.aborted ||
+            !isCanvasInsertionBoardTokenCurrent(insertionBoardToken) ||
+            !canInsertTaskCanvasAssociationsOnCurrentBoard(insertionTask, board)
+          ) {
+            releaseTaskInsertion(insertionTask.id);
+            return;
+          }
+
+          const insertionGeometry = getInsertionResultGeometry(
+            insertionResult,
+            insertionPoint,
+            dimensions,
+            ['video']
+          );
+          workflowCompletionService.completePostProcessing(
+            insertionTask.id,
+            1,
+            insertionGeometry.position,
+            insertionGeometry.elementId,
+            insertionGeometry.size
+          );
+          if (!finalizeTaskInsertion(insertionTask, board)) {
+            throw new Error('画板已切换，PPT 讲解视频交付待重试');
+          }
+          await getTaskQueueService().waitForTaskPersistence?.(insertionTask.id);
+        }
+      )
+        .then((result) => {
+          if (!result.acquired && isActive) scheduleBoardRecovery();
+        })
+        .catch((error) => {
+          releaseTaskInsertion(task.id);
+          workflowCompletionService.failPostProcessing(task.id, String(error));
+          if (isActive) scheduleBoardRecovery();
+        });
+    };
+
     const handleTaskCompleted = (task: Task) => {
+      if (!isUserVisibleTaskResult(task.result)) {
+        return;
+      }
+
       const binding = getCurrentCanvasBoardBinding();
       if (!binding) {
         scheduleBoardRecovery();
@@ -2345,6 +2592,12 @@ export function useAutoInsertToCanvas(
         return;
       }
 
+      if (task.type === TaskType.VIDEO && task.params.pptExplainer) {
+        if (!binding.boardId) return;
+        handlePptExplainerInsertion(task, board, binding.boardId);
+        return;
+      }
+
       // console.log(`[AutoInsert] Task ${task.id} passed all checks, will be inserted`);
 
       // 先占位，防止并发重复插入；成功后再持久化 inserted 标记。
@@ -2354,20 +2607,24 @@ export function useAutoInsertToCanvas(
 
       // 检查是否为灵感图任务（需要在宫格图之前检查）
       if (task.type === TaskType.CHAT) {
+        const { task: insertionTask } = resolveTaskForCanvasInsertion(
+          task,
+          board
+        );
         const insertionBoardToken = captureCanvasInsertionBoardToken(board);
         const promptLabel =
-          (task.params.prompt || '').slice(0, 20) || undefined;
+          (insertionTask.params.prompt || '').slice(0, 20) || undefined;
         Promise.resolve()
           .then(async () => {
             if (!insertionBoardToken) {
               throw new Error('画板已切换，取消本次插入');
             }
             const currentInsertionBoardToken = insertionBoardToken;
-            if (getTaskReplaceElementId(task)) {
+            if (getTaskReplaceElementId(insertionTask)) {
               const replaced = await replaceGeneratedTarget(
                 board,
-                task,
-                task.result?.chatResponse || '',
+                insertionTask,
+                insertionTask.result?.chatResponse || '',
                 'text'
               );
               if (!replaced) {
@@ -2387,11 +2644,11 @@ export function useAutoInsertToCanvas(
               items: [
                 {
                   type: 'text',
-                  content: task.result?.chatResponse || '',
+                  content: insertionTask.result?.chatResponse || '',
                   label: promptLabel,
                   metadata: {
-                    prompt: task.params.prompt,
-                    generationTaskId: task.id,
+                    prompt: insertionTask.params.prompt,
+                    generationTaskId: insertionTask.id,
                   },
                 },
               ],

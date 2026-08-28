@@ -30,7 +30,7 @@ import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
 import { hasInvocationRouteCredentials } from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import {
   getAdapterContextFromSettings,
   resolveAdapterForInvocation,
@@ -110,6 +110,8 @@ const STRIPPED_TASK_PARAM_KEYS = [
   'pdfData',
 ] as const;
 const MAX_RECENTLY_DELETED_TASK_IDS = STORAGE_LIMITS.MAX_RETAINED_TASKS * 10;
+const PPT_EXPLAINER_REMOTE_CANCEL_FAILURE_DIAGNOSTIC =
+  '远端取消失败，远端任务可能继续执行和计费；可再次尝试取消';
 
 type InsertionSource = 'manual' | 'auto_insert';
 type StrippedTaskParamKey = (typeof STRIPPED_TASK_PARAM_KEYS)[number];
@@ -1243,6 +1245,7 @@ class TaskQueueService {
                 | undefined,
               params: extraParams,
               assetMetadata: task.params.assetMetadata,
+              resultVisibility: task.params.resultVisibility,
             },
             executionOptions
           );
@@ -1280,6 +1283,7 @@ class TaskQueueService {
               size: task.params.size,
               referenceImages: finalRefs,
               params: (task.params as any).params,
+              resultVisibility: task.params.resultVisibility,
             },
             executionOptions
           );
@@ -2499,6 +2503,10 @@ class TaskQueueService {
     return memoryTask ? this.restoreStrippedTaskParams(memoryTask) : undefined;
   }
 
+  async waitForTaskPersistence(taskId: string): Promise<void> {
+    await this.taskStorageOperations.get(taskId);
+  }
+
   async findImageTaskByResultUrl(imageUrl: string): Promise<Task | undefined> {
     const memoryMatch = this.getAllTasks().find((task) =>
       imageTaskMatchesUrl(task, imageUrl)
@@ -2545,6 +2553,33 @@ class TaskQueueService {
     return this.getAllTasks().filter(isTaskActive);
   }
 
+  private recordPptExplainerRemoteCancellationFailure(taskId: string): void {
+    const task = this.tasks.get(taskId);
+    if (!task || task.status !== TaskStatus.CANCELLED) return;
+
+    const state = task.params?.pptExplainer as
+      | { diagnostics?: string[] }
+      | undefined;
+    if (!state) return;
+    const diagnostics = state.diagnostics || [];
+    if (diagnostics.includes(PPT_EXPLAINER_REMOTE_CANCEL_FAILURE_DIAGNOSTIC)) {
+      return;
+    }
+
+    this.updateTaskStatus(taskId, TaskStatus.CANCELLED, {
+      params: {
+        ...task.params,
+        pptExplainer: {
+          ...state,
+          diagnostics: [
+            ...diagnostics,
+            PPT_EXPLAINER_REMOTE_CANCEL_FAILURE_DIAGNOSTIC,
+          ],
+        },
+      },
+    });
+  }
+
   /**
    * Cancels a task
    *
@@ -2564,10 +2599,52 @@ class TaskQueueService {
       return;
     }
 
+    const pptExplainerState = task.params?.pptExplainer as
+      | {
+          stage?: string;
+          diagnostics?: string[];
+          originalRoute?: {
+            binding?: { pptExplainer?: { cancel?: unknown } };
+          };
+        }
+      | undefined;
+    const pptExplainerRemoteId = pptExplainerState
+      ? task.remoteId || (pptExplainerState as { remoteId?: string }).remoteId
+      : undefined;
+    const hasPptExplainerCancel = Boolean(
+      pptExplainerState?.originalRoute?.binding?.pptExplainer?.cancel
+    );
+    const cancellationDiagnostics = !pptExplainerState
+      ? []
+      : !pptExplainerRemoteId
+      ? ['供应商提交结果可能未知', '远端任务可能继续执行和计费']
+      : !hasPptExplainerCancel
+      ? ['供应商未声明远端取消，远端任务可能继续执行和计费']
+      : [];
+    const cancellationUpdates = pptExplainerState
+      ? {
+          params: {
+            ...task.params,
+            pptExplainer: {
+              ...pptExplainerState,
+              stage: 'cancelled',
+              ...(cancellationDiagnostics.length > 0
+                ? {
+                    diagnostics: [
+                      ...(pptExplainerState.diagnostics || []),
+                      ...cancellationDiagnostics,
+                    ],
+                  }
+                : {}),
+            },
+          },
+        }
+      : undefined;
+
     this.blockedTaskIds.add(taskId);
     if (task.type === TaskType.IMAGE) {
       const requestId = getImageSubmissionRequestId(task);
-      this.updateTaskStatus(taskId, TaskStatus.CANCELLED, undefined, {
+      this.updateTaskStatus(taskId, TaskStatus.CANCELLED, cancellationUpdates, {
         persist: false,
       });
       void this.updateImageAttemptStorage(taskId, requestId, () =>
@@ -2581,11 +2658,26 @@ class TaskQueueService {
         );
       });
     } else {
-      this.updateTaskStatus(taskId, TaskStatus.CANCELLED);
+      this.updateTaskStatus(taskId, TaskStatus.CANCELLED, cancellationUpdates);
     }
     this.abortTaskExecution(taskId);
     this.renewTaskExecutionToken(taskId);
     imageGenerationRecoveryService.stop(taskId);
+    if (pptExplainerState) {
+      const cancelledTask = this.tasks.get(taskId);
+      if (cancelledTask) {
+        void import('./ppt-explainer/orchestrator')
+          .then(({ cancelPptExplainerRemoteTask }) =>
+            cancelPptExplainerRemoteTask(cancelledTask)
+          )
+          .catch(() => {
+            this.recordPptExplainerRemoteCancellationFailure(taskId);
+            console.warn(
+              '[TaskQueueService] PPT explainer remote cancellation failed; remote task may continue and incur charges'
+            );
+          });
+      }
+    }
     // console.log(`[TaskQueueService] Cancelled task ${taskId}`);
   }
 
@@ -2610,6 +2702,13 @@ class TaskQueueService {
 
     const canRetryCompleted =
       options.allowCompleted && task.status === TaskStatus.COMPLETED;
+    const hasPptExplainerState = Boolean(task.params?.pptExplainer);
+    if (hasPptExplainerState && task.status === TaskStatus.CANCELLED) {
+      console.warn(
+        `[TaskQueueService] Cancelled PPT explainer task ${taskId} cannot be retried because its input cache was released`
+      );
+      return;
+    }
     if (
       task.status !== TaskStatus.FAILED &&
       task.status !== TaskStatus.CANCELLED &&
@@ -2632,9 +2731,58 @@ class TaskQueueService {
     this.abortTaskExecution(taskId);
     this.renewTaskExecutionToken(taskId);
     this.blockedTaskIds.delete(taskId);
+    const pptExplainerState = task.params?.pptExplainer as
+      | {
+          remoteId?: string;
+          source?: string;
+          outlineFrameIds?: string[];
+          pptxImport?: { status?: string };
+          slides?: Array<{ turns?: unknown[] }>;
+          stage?: string;
+          jobId?: string;
+          executionAttempt?: number;
+        }
+      | undefined;
+    const pptExplainerRemoteId = pptExplainerState
+      ? task.error?.code === 'remote_failed'
+        ? undefined
+        : task.remoteId || pptExplainerState.remoteId
+      : undefined;
+    const pptExplainerRetryStage = pptExplainerState
+      ? task.error?.code === 'remote_failed'
+        ? 'submitting'
+        : pptExplainerRemoteId
+        ? 'polling'
+        : (pptExplainerState.source === 'topic' &&
+            !pptExplainerState.outlineFrameIds?.length) ||
+          (pptExplainerState.source === 'pptx' &&
+            pptExplainerState.pptxImport?.status !== 'completed')
+        ? 'preparing'
+        : pptExplainerState.slides?.length
+        ? pptExplainerState.slides.every((slide) => slide.turns?.length)
+          ? 'submitting'
+          : 'scripting'
+        : 'snapshotting'
+      : undefined;
     const retryParams =
       task.type === TaskType.IMAGE
         ? createImageSubmissionParams(task.params, generateTaskId())
+        : pptExplainerState
+        ? {
+            ...task.params,
+            pptExplainer: {
+              ...pptExplainerState,
+              stage: pptExplainerRetryStage,
+              ...(task.error?.code === 'remote_failed'
+                ? {
+                    remoteId: undefined,
+                    idempotencyKey: `${
+                      pptExplainerState.jobId || task.id
+                    }-retry-${(pptExplainerState.executionAttempt || 0) + 1}`,
+                  }
+                : {}),
+            },
+          }
         : task.params;
     this.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
       params: retryParams,
@@ -2642,8 +2790,10 @@ class TaskQueueService {
       result: undefined,
       startedAt: now, // Set new start time
       completedAt: undefined, // Clear completion time
-      remoteId: undefined, // Clear remote ID for fresh submission
-      executionPhase: TaskExecutionPhase.SUBMITTING,
+      remoteId: pptExplainerState ? pptExplainerRemoteId : undefined,
+      executionPhase: pptExplainerRemoteId
+        ? TaskExecutionPhase.POLLING
+        : TaskExecutionPhase.SUBMITTING,
       insertedToCanvas: false,
       progress:
         task.type === TaskType.VIDEO ||
@@ -2657,7 +2807,7 @@ class TaskQueueService {
 
     // Execute task after retry
     const updatedTask = this.tasks.get(taskId);
-    if (updatedTask) {
+    if (updatedTask && !pptExplainerState) {
       this.executeTask(updatedTask).catch((error) => {
         console.error('[TaskQueueService] Retry execution error:', error);
       });
@@ -2686,6 +2836,22 @@ class TaskQueueService {
     this.tasks.delete(taskId);
     this.taskExecutionTokens.delete(taskId);
     this.tasksWithStrippedParams.delete(taskId);
+
+    if (task.params?.pptExplainer) {
+      const teardown = isTaskActive(task)
+        ? (module: typeof import('./ppt-explainer/orchestrator')) =>
+            module.cancelPptExplainerRemoteTask(task)
+        : (module: typeof import('./ppt-explainer/orchestrator')) =>
+            module.cleanupPptExplainerTask(task);
+      void import('./ppt-explainer/orchestrator')
+        .then(teardown)
+        .catch((error) => {
+          console.warn(
+            '[TaskQueueService] PPT explainer deletion cleanup failed:',
+            error
+          );
+        });
+    }
 
     // Delete from IndexedDB
     this.persistDelete(task, hadStrippedParams);
@@ -2725,6 +2891,25 @@ class TaskQueueService {
       this.blockedTaskIds.add(task.id);
       this.abortTaskExecution(task.id);
       imageGenerationRecoveryService.stop(task.id);
+    }
+
+    const pptExplainerTasks = tasks.filter((task) => task.params?.pptExplainer);
+    if (pptExplainerTasks.length > 0) {
+      try {
+        const orchestrator = await import('./ppt-explainer/orchestrator');
+        await Promise.allSettled(
+          pptExplainerTasks.map((task) =>
+            isTaskActive(task)
+              ? orchestrator.cancelPptExplainerRemoteTask(task)
+              : orchestrator.cleanupPptExplainerTask(task)
+          )
+        );
+      } catch (error) {
+        console.warn(
+          '[TaskQueueService] PPT explainer clear-all cleanup failed:',
+          error
+        );
+      }
     }
 
     await Promise.allSettled(this.taskStorageOperations.values());
@@ -3334,8 +3519,28 @@ class TaskQueueService {
       inserted_to_canvas: true,
     });
 
+    const pptExplainer = task.params?.pptExplainer as
+      | {
+          delivery?: { resultSaved?: boolean; canvasInserted?: boolean };
+        }
+      | undefined;
+
     this.updateTaskStatus(taskId, task.status, {
       insertedToCanvas: true,
+      ...(pptExplainer
+        ? {
+            params: {
+              ...task.params,
+              pptExplainer: {
+                ...pptExplainer,
+                delivery: {
+                  resultSaved: pptExplainer.delivery?.resultSaved ?? true,
+                  canvasInserted: true,
+                },
+              },
+            },
+          }
+        : {}),
     });
   }
 
@@ -3365,18 +3570,38 @@ class TaskQueueService {
     if (toArchiveCount <= 0) return;
 
     const archiveIds: string[] = [];
+    const pptExplainerTasksToCleanup: Task[] = [];
     for (let i = 0; i < Math.min(toArchiveCount, terminalTasks.length); i++) {
       const task = terminalTasks[i];
       this.tasks.delete(task.id);
       this.taskExecutionTokens.delete(task.id);
       this.tasksWithStrippedParams.delete(task.id);
       archiveIds.push(task.id);
+      if (task.params?.pptExplainer) {
+        pptExplainerTasksToCleanup.push(task);
+      }
     }
 
     // 异步批量归档到 IndexedDB（fire-and-forget）
     if (archiveIds.length > 0) {
-      taskStorageWriter.archiveTasks(archiveIds).catch((err) => {});
+      taskStorageWriter.archiveTasks(archiveIds).catch(() => undefined);
       taskStorageReader.invalidateCache();
+    }
+    if (pptExplainerTasksToCleanup.length > 0) {
+      void import('./ppt-explainer/orchestrator')
+        .then(({ cleanupPptExplainerTask }) =>
+          Promise.allSettled(
+            pptExplainerTasksToCleanup.map((task) =>
+              cleanupPptExplainerTask(task)
+            )
+          )
+        )
+        .catch((error) => {
+          console.warn(
+            '[TaskQueueService] PPT explainer retention cleanup failed:',
+            error
+          );
+        });
     }
   }
 

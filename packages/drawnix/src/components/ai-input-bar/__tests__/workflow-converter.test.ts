@@ -211,6 +211,7 @@ describe('workflow-converter', () => {
             anchorId: 'anchor-1',
             sourceTaskId: 'task-old',
             sourcePrompt: '白天城市街景',
+            boundTargetFollowControlled: true,
             quality: 'high',
           },
         });
@@ -227,6 +228,7 @@ describe('workflow-converter', () => {
           anchorId: 'anchor-1',
           sourceTaskId: 'task-old',
           sourcePrompt: '白天城市街景',
+          boundTargetFollowControlled: true,
           params: { quality: 'high' },
         });
       });
@@ -437,6 +439,7 @@ describe('workflow-converter', () => {
           extraParams: {
             replaceElementId: 'video-1',
             sourcePrompt: '原视频提示词',
+            boundTargetFollowControlled: true,
             ratio: '16:9',
           },
         });
@@ -446,6 +449,7 @@ describe('workflow-converter', () => {
         expect(workflow.steps[0].args).toMatchObject({
           replaceElementId: 'video-1',
           sourcePrompt: '原视频提示词',
+          boundTargetFollowControlled: true,
           params: { ratio: '16:9' },
         });
       });
@@ -543,6 +547,7 @@ describe('workflow-converter', () => {
           extraParams: {
             replaceElementId: 'text-1',
             sourcePrompt: '原文本提示词',
+            boundTargetFollowControlled: true,
             temperature: '0.7',
           },
         });
@@ -552,6 +557,7 @@ describe('workflow-converter', () => {
         expect(workflow.steps[0].args).toMatchObject({
           replaceElementId: 'text-1',
           sourcePrompt: '原文本提示词',
+          boundTargetFollowControlled: true,
           params: { temperature: '0.7' },
         });
       });

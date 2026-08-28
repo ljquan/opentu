@@ -10,7 +10,7 @@ import { atom, useAtomValue, useSetAtom } from 'jotai';
 import { getDefaultStore } from 'jotai/vanilla';
 import { taskQueueService } from '../services/task-queue';
 import { taskStorageReader } from '../services/task-storage-reader';
-import { Task, TaskStatus, TaskType, TaskEvent, GenerationParams } from '../types/task.types';
+import { isUserVisibleTask, Task, TaskStatus, TaskType, TaskEvent, GenerationParams } from '../types/task.types';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
 
 /**
@@ -63,22 +63,25 @@ export interface UseTaskQueueReturn {
 
 const tasksAtom = atom<Task[]>([]);
 const isLoadingAtom = atom(true);
+const userVisibleTasksAtom = atom((get) =>
+  get(tasksAtom).filter(isUserVisibleTask)
+);
 const activeTasksAtom = atom((get) =>
-  get(tasksAtom).filter(
+  get(userVisibleTasksAtom).filter(
     (task) => task.status === TaskStatus.PENDING || task.status === TaskStatus.PROCESSING
   )
 );
 const completedTasksAtom = atom((get) =>
-  get(tasksAtom).filter((task) => task.status === TaskStatus.COMPLETED)
+  get(userVisibleTasksAtom).filter((task) => task.status === TaskStatus.COMPLETED)
 );
 const failedTasksAtom = atom((get) =>
-  get(tasksAtom).filter((task) => task.status === TaskStatus.FAILED)
+  get(userVisibleTasksAtom).filter((task) => task.status === TaskStatus.FAILED)
 );
 const cancelledTasksAtom = atom((get) =>
-  get(tasksAtom).filter((task) => task.status === TaskStatus.CANCELLED)
+  get(userVisibleTasksAtom).filter((task) => task.status === TaskStatus.CANCELLED)
 );
-const totalCountAtom = atom((get) => get(tasksAtom).length);
-const loadedCountAtom = atom((get) => get(tasksAtom).length);
+const totalCountAtom = atom((get) => get(userVisibleTasksAtom).length);
+const loadedCountAtom = atom((get) => get(userVisibleTasksAtom).length);
 const createTaskAtom = atom(
   null,
   (_get, set, payload: { params: GenerationParams; type: TaskType }): Task | null => {
@@ -273,7 +276,8 @@ export function useTaskActions() {
  * }
  */
 export function useTaskQueue(): UseTaskQueueReturn {
-  const { tasks, isLoading } = useSharedTaskState();
+  const { isLoading } = useSharedTaskState();
+  const tasks = useAtomValue(userVisibleTasksAtom);
   const activeTasks = useAtomValue(activeTasksAtom);
   const completedTasks = useAtomValue(completedTasksAtom);
   const failedTasks = useAtomValue(failedTasksAtom);

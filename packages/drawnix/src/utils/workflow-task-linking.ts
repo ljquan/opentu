@@ -98,7 +98,11 @@ function isTaskTypeCompatibleWithStep(
         step.mcp === 'generate_inspiration_board'
       );
     case TaskType.VIDEO:
-      return step.mcp === 'generate_video' || step.mcp === 'generate_long_video';
+      return (
+        step.mcp === 'generate_video' ||
+        step.mcp === 'generate_long_video' ||
+        step.mcp === 'generate_ppt_explainer_video'
+      );
     case TaskType.AUDIO:
       return step.mcp === 'generate_audio';
     case TaskType.CHAT:

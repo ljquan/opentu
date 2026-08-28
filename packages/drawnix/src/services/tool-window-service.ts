@@ -12,7 +12,7 @@ import {
   ToolWindowLaunchMode,
   ToolWindowState,
 } from '../types/toolbox.types';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { toolRegistry } from '../tools/registry';
 
 /** localStorage key for pinned tools */

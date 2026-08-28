@@ -5,12 +5,13 @@ import {
   Point,
   addSelectedElement,
   clearSelectedElement,
+  idCreator,
   Transforms,
 } from '@plait/core';
 import { DataURL } from '../types';
 import { MindElement, MindTransforms } from '@plait/mind';
 import { DrawTransforms } from '@plait/draw';
-import { getElementOfFocusedImage } from '@plait/common';
+import { getElementOfFocusedImage, type CommonImageItem } from '@plait/common';
 import {
   getInsertionPointForSelectedElements,
   getInsertionPointBelowBottommostElement,
@@ -18,7 +19,7 @@ import {
 } from '../utils/selection-utils';
 import { assetStorageService } from '../services/asset-storage-service';
 import { unifiedCacheService } from '../services/unified-cache-service';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { cacheRemoteUrl } from '../services/media-executor/fallback-utils';
 import { generateUUID, normalizeImageDataUrl } from '@aitu/utils';
 import { AssetSource, AssetType } from '../types/asset.types';
@@ -31,6 +32,24 @@ import { isVirtualMediaUrl } from '../utils/virtual-media-url';
 
 const createImageLoadError = () =>
   new Error('图片加载失败，请检查图片地址或缓存');
+
+export const insertImageNodeAtPoint = (
+  board: PlaitBoard,
+  imageItem: CommonImageItem,
+  point: Point
+) => {
+  const imageElement = {
+    id: idCreator(),
+    type: 'image',
+    points: [
+      point,
+      [point[0] + imageItem.width, point[1] + imageItem.height] as Point,
+    ],
+    url: imageItem.url,
+  };
+  Transforms.insertNode(board, imageElement, [board.children.length]);
+  return imageElement;
+};
 
 export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
@@ -175,12 +194,14 @@ export async function loadImageElementForCanvas(
     'serviceWorker' in navigator &&
     !!navigator.serviceWorker.controller;
 
-  if (isVirtualMediaUrl(imageUrl) && !canUseServiceWorker) {
+  if (isVirtualMediaUrl(imageUrl)) {
     const cachedBlob = await unifiedCacheService.getCachedBlob(imageUrl);
-    if (!cachedBlob || cachedBlob.size === 0) {
+    if (cachedBlob && cachedBlob.size > 0) {
+      return loadHTMLImageElementFromBlob(cachedBlob);
+    }
+    if (!canUseServiceWorker) {
       throw new Error('图片缓存不可用，请重新生成或上传');
     }
-    return loadHTMLImageElementFromBlob(cachedBlob);
   }
 
   return loadHTMLImageElementWithRetry(imageUrl, true);
@@ -368,7 +389,9 @@ export const insertImageFromUrl = async (
   lockReferenceDimensions?: boolean,
   // 如果为 true，插入图片后不自动选中（用于自动插入场景，避免覆盖用户当前选中状态）
   skipSelect?: boolean,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  // 暂存画板没有 DOM 宿主；已有明确坐标时直接构造图片节点
+  insertWithoutBoardHost?: boolean
 ) => {
   // 外部 URL 和 data URL 先缓存到本地
   let resolvedUrl = normalizeImageDataUrl(imageUrl);
@@ -500,8 +523,13 @@ export const insertImageFromUrl = async (
     throw new Error('画板已切换，取消本次插入');
   }
 
-  DrawTransforms.insertImage(board, imageItem, insertionPoint);
-  const newElement = board.children[childrenCountBefore];
+  let newElement;
+  if (insertionPoint && insertWithoutBoardHost) {
+    newElement = insertImageNodeAtPoint(board, imageItem, insertionPoint);
+  } else {
+    DrawTransforms.insertImage(board, imageItem, insertionPoint);
+    newElement = board.children[childrenCountBefore];
+  }
   const insertedElementId = newElement?.id;
 
   // 埋点：图片插入画布

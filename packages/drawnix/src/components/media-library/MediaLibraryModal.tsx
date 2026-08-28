@@ -385,6 +385,7 @@ export function MediaLibraryModal({
               onUploadClick={handleUploadClick}
               storageStatus={storageStatus}
               onSelectionChange={handleSelectionChange}
+              selectActionLabel={selectButtonText}
             />
           </div>
 

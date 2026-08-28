@@ -115,6 +115,38 @@ function createImageTask(
   };
 }
 
+function createPptExplainerTask(
+  stage:
+    | 'preparing'
+    | 'snapshotting'
+    | 'scripting'
+    | 'submitting'
+    | 'polling'
+    | 'finalizing',
+  remoteId?: string
+): Task {
+  return {
+    id: `ppt-explainer-${stage}`,
+    type: TaskType.VIDEO,
+    status: TaskStatus.PROCESSING,
+    params: {
+      prompt: 'PPT 讲解视频',
+      pptExplainer: {
+        schemaVersion: 1,
+        stage,
+        remoteId,
+      },
+    },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    startedAt: Date.now(),
+    remoteId,
+    executionPhase: remoteId
+      ? TaskExecutionPhase.POLLING
+      : TaskExecutionPhase.SUBMITTING,
+  };
+}
+
 describe('useTaskStorage image request recovery', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -311,6 +343,38 @@ describe('useTaskStorage image request recovery', () => {
     );
     expect(mocks.failImageAttempt).not.toHaveBeenCalled();
   });
+
+  it.each(['preparing', 'snapshotting', 'scripting', 'submitting'] as const)(
+    'keeps a refreshed PPT explainer in the dedicated %s recovery path before remote submission',
+    async (stage) => {
+      const task = createPptExplainerTask(stage);
+      mocks.storedTasks = [task];
+      const { useTaskStorage } = await import('../useTaskStorage');
+      const { result } = renderHook(() => useTaskStorage());
+
+      await waitFor(() => expect(result.current).toBe(true));
+
+      expect(mocks.restoreTasks).toHaveBeenCalledWith([task]);
+      expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['polling', 'finalizing'] as const)(
+    'keeps a refreshed PPT explainer with remoteId in the dedicated %s recovery path',
+    async (stage) => {
+      const task = createPptExplainerTask(stage, 'ppt-remote-1');
+      mocks.storedTasks = [task];
+      const { useTaskStorage } = await import('../useTaskStorage');
+      const { result } = renderHook(() => useTaskStorage());
+
+      await waitFor(() => expect(result.current).toBe(true));
+
+      expect(mocks.restoreTasks).toHaveBeenCalledWith([task]);
+      expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+    }
+  );
 
   it('continues restoring later tasks after individual persistence failures', async () => {
     const asyncBinding = createBinding({

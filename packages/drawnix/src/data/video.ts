@@ -4,8 +4,9 @@ import {
   getInsertionPointBelowBottommostElement,
   scrollToPointIfNeeded,
 } from '../utils/selection-utils';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import { getInsertionPointFromSavedSelection } from '../utils/canvas-insertion-layout';
+import { insertImageNodeAtPoint } from './image';
 
 /**
  * 获取视频真实尺寸的接口
@@ -198,6 +199,8 @@ const calculateDisplayDimensions = (
  * @param skipScroll 是否跳过滚动
  * @param skipCentering 是否跳过自动居中（当 startPoint 已经是左上角坐标时使用）
  * @param lockReferenceDimensions 是否直接使用参考尺寸作为最终尺寸
+ * @param boardGuard 画板有效性校验
+ * @param insertWithoutBoardHost 暂存画板无 DOM 宿主时直接构造图片节点
  */
 export const insertVideoFromUrl = async (
   board: PlaitBoard | null,
@@ -208,7 +211,8 @@ export const insertVideoFromUrl = async (
   skipScroll?: boolean,
   skipCentering?: boolean,
   lockReferenceDimensions?: boolean,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  insertWithoutBoardHost?: boolean
 ) => {
   if (!board) {
     throw new Error('Board is required for video insertion');
@@ -323,10 +327,17 @@ export const insertVideoFromUrl = async (
       throw new Error('画板已切换，取消本次插入');
     }
     const childrenCountBefore = board.children.length;
-    DrawTransforms.insertImage(board, videoAsImageElement, insertionPoint);
-    const insertedElement = board.children[childrenCountBefore] as
-      | { id?: string }
-      | undefined;
+    let insertedElement;
+    if (insertionPoint && insertWithoutBoardHost) {
+      insertedElement = insertImageNodeAtPoint(
+        board,
+        videoAsImageElement,
+        insertionPoint
+      );
+    } else {
+      DrawTransforms.insertImage(board, videoAsImageElement, insertionPoint);
+      insertedElement = board.children[childrenCountBefore];
+    }
 
     // 埋点：视频插入画布
     analytics.track('asset_insert_canvas', {

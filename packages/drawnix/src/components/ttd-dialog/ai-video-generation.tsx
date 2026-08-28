@@ -33,6 +33,7 @@ import {
   loadScopedAIVideoToolPreferences,
   saveAIVideoToolPreferences,
 } from '../../services/ai-generation-preferences-service';
+import { isSeedance2ModelId } from '../../utils/seedance-model';
 import { promptStorageService } from '../../services/prompt-storage-service';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import { TaskType, type KnowledgeContextRef } from '../../types/task.types';
@@ -179,7 +180,7 @@ function mergeVideoToolParams(
     ...(size ? { size } : {}),
   };
 
-  if (modelId.startsWith('doubao-seedance-2-0-') && nextParams.size) {
+  if (isSeedance2ModelId(modelId) && nextParams.size) {
     const [resolution, legacyRatio] = nextParams.size.split('@');
     nextParams.size = resolution;
     if (legacyRatio && !nextParams.ratio) {
@@ -1053,9 +1054,7 @@ const AIVideoGeneration = ({
     if (generatingLockRef.current) return;
     generatingLockRef.current = true;
     try {
-      const activeReferenceAudioUrl = currentModel.startsWith(
-        'doubao-seedance-2-0-'
-      )
+      const activeReferenceAudioUrl = isSeedance2ModelId(currentModel)
         ? referenceAudioUrl.trim()
         : '';
       if (
@@ -1427,7 +1426,7 @@ const AIVideoGeneration = ({
               />
             )}
 
-            {currentModel.startsWith('doubao-seedance-2-0-') && (
+            {isSeedance2ModelId(currentModel) && (
               <div className="seedance-reference-audio">
                 <Music2 size={16} aria-hidden="true" />
                 <input

@@ -10,6 +10,7 @@
  */
 
 import type { ParsedGenerationParams } from '../../utils/ai-input-parser';
+import { isSeedance2ModelId } from '../../utils/seedance-model';
 import {
   cleanLLMResponse,
   parseWorkflowJson,
@@ -354,6 +355,7 @@ export function convertDirectGenerationToWorkflow(
         anchorId,
         sourceTaskId,
         sourcePrompt,
+        boundTargetFollowControlled,
         ...adapterExtraParams
       } = extraParams || {};
       if (
@@ -375,6 +377,9 @@ export function convertDirectGenerationToWorkflow(
       if (anchorId) imageArgs.anchorId = anchorId;
       if (sourceTaskId) imageArgs.sourceTaskId = sourceTaskId;
       if (sourcePrompt) imageArgs.sourcePrompt = sourcePrompt;
+      if (boundTargetFollowControlled === true) {
+        imageArgs.boundTargetFollowControlled = true;
+      }
       // 透传额外参数（如 seedream_quality）
       if (Object.keys(adapterExtraParams).length > 0) {
         imageArgs.params = adapterExtraParams;
@@ -412,13 +417,20 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         videoArgs.referenceImages = referenceImages;
       }
-      const { replaceElementId, sourcePrompt, ...adapterVideoParams } =
-        extraParams || {};
+      const {
+        replaceElementId,
+        sourcePrompt,
+        boundTargetFollowControlled,
+        ...adapterVideoParams
+      } = extraParams || {};
       if (replaceElementId) {
         videoArgs.replaceElementId = replaceElementId;
       }
       if (sourcePrompt) {
         videoArgs.sourcePrompt = sourcePrompt;
+      }
+      if (boundTargetFollowControlled === true) {
+        videoArgs.boundTargetFollowControlled = true;
       }
       // 透传额外参数（如 ratio）
       const videoParams: Record<string, unknown> = Object.fromEntries(
@@ -434,13 +446,13 @@ export function convertDirectGenerationToWorkflow(
         videoParams.input_video = selection.videos[0];
       }
       if (
-        modelId.startsWith('doubao-seedance-2-0-') &&
+        isSeedance2ModelId(modelId) &&
         selection?.videos?.[0] &&
         !videoParams.input_video
       ) {
         videoParams.input_video = selection.videos[0];
       }
-      if (modelId.startsWith('doubao-seedance-2-0-')) {
+      if (isSeedance2ModelId(modelId)) {
         if (selection?.videos?.length && !videoParams.input_videos) {
           videoParams.input_videos = selection.videos;
         }
@@ -561,13 +573,20 @@ export function convertDirectGenerationToWorkflow(
       if (referenceImages.length > 0) {
         textArgs.referenceImages = referenceImages;
       }
-      const { replaceElementId, sourcePrompt, ...adapterTextParams } =
-        extraParams || {};
+      const {
+        replaceElementId,
+        sourcePrompt,
+        boundTargetFollowControlled,
+        ...adapterTextParams
+      } = extraParams || {};
       if (replaceElementId) {
         textArgs.replaceElementId = replaceElementId;
       }
       if (sourcePrompt) {
         textArgs.sourcePrompt = sourcePrompt;
+      }
+      if (boundTargetFollowControlled === true) {
+        textArgs.boundTargetFollowControlled = true;
       }
       if (Object.keys(adapterTextParams).length > 0) {
         textArgs.params = adapterTextParams;
@@ -1349,6 +1368,10 @@ function getStepDescription(
       return `生成图片: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
     case 'generate_video':
       return `生成视频: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
+    case 'generate_ppt_explainer_video':
+      return `生成PPT讲解视频: ${
+        (args.topic as string)?.substring(0, 30) || ''
+      }...`;
     case 'generate_audio':
       return `生成音频: ${(args.prompt as string)?.substring(0, 30) || ''}...`;
     case 'generate_text':

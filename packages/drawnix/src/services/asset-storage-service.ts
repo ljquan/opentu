@@ -17,7 +17,7 @@ import {
 } from '../utils/asset-utils';
 import { canAddAssetBySize } from '../utils/storage-quota';
 import { unifiedCacheService } from './unified-cache-service';
-import { analytics } from '../utils/posthog-analytics';
+import { analytics } from '../utils/umami-analytics';
 import type {
   Asset,
   StoredAsset,

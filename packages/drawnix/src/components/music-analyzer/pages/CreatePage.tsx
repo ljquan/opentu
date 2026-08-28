@@ -46,7 +46,7 @@ import {
   normalizeMusicAnalysisData,
 } from '../../../services/music-analysis-service';
 import { getDefaultAudioModel } from '../../../constants/model-config';
-import { analytics } from '../../../utils/posthog-analytics';
+import { analytics } from '../../../utils/umami-analytics';
 
 const DEFAULT_ANALYSIS_MODEL = 'gemini-2.5-pro';
 const STORAGE_KEY_MODEL = 'music-analyzer:model';

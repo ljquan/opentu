@@ -114,7 +114,8 @@ vi.mock('../../plugins/with-image-generation-anchor', () => ({
       ((board as unknown as { children: unknown[] }).children ?? []).find(
         (anchor) =>
           (anchor as { type?: string }).type === 'generation-anchor' &&
-          (anchor as { workflowId?: string }).workflowId === options.workflowId &&
+          (anchor as { workflowId?: string }).workflowId ===
+            options.workflowId &&
           (anchor as { batchId?: string }).batchId === options.batchId &&
           (anchor as { batchIndex?: number }).batchIndex === options.batchIndex
       ) ?? null,
@@ -456,6 +457,49 @@ describe('useImageGenerationAnchorSync', () => {
       [200, 300],
       [690, 578],
     ]);
+  });
+
+  it('does not restore the old target after follow-controlled insertion creates a new image', () => {
+    const board = createBoard(
+      createAnchor({
+        taskIds: ['task-1'],
+        targetElementId: 'image-target',
+      }),
+      [createImageElement({ id: 'image-new' })]
+    );
+    taskState.tasks = [
+      createTask({
+        status: TaskStatus.COMPLETED,
+        insertedToCanvas: true,
+        params: {
+          prompt: '生成新图片',
+          workflowId: 'wf-1',
+          size: '16x9',
+          replaceElementId: 'image-target',
+          targetElementId: 'image-target',
+          boundTargetFollowControlled: true,
+        },
+        result: {
+          url: 'https://example.com/generated-new.png',
+        },
+      }),
+    ];
+    completionState.byTaskId.set('task-1', {
+      taskId: 'task-1',
+      status: 'completed',
+      type: 'direct_insert',
+      firstElementPosition: [200, 300],
+      firstElementId: 'image-new',
+      firstElementSize: { width: 480, height: 270 },
+    });
+
+    renderHook(() => useImageGenerationAnchorSync({ board, enabled: true }));
+
+    const [anchor] = (
+      board as unknown as { children: PlaitImageGenerationAnchor[] }
+    ).children;
+    expect(anchor.resultElementId).toBe('image-new');
+    expect(anchor.targetElementId).toBeUndefined();
   });
 
   it('reconciles stale completed anchors before dispatching retry', () => {

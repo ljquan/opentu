@@ -7,9 +7,9 @@
 ## What Changes
 
 - 图片正式 POST 前持久化当前 `submissionRequestId`、`imageSubmissionAttempted=true` 和调用路由。
-- 可信 Tuzi 图片正式请求统一携带 `X-Request-Id`；本地、局域网及受支持的公网部署通过固定同源代理保留原节点与 Token，不支持代理的页面才确定性路由到兼容节点，且只提交一次。
+- 仅当用户配置的可信 Tuzi 地址允许 `X-Request-Id` 跨域请求时附加该请求头；不兼容的配置地址保持原样请求，并放弃该次提交的自动结果恢复。
 - 页面刷新后或同页面正式提交结果未知时，仅恢复具有完整新提交元数据的同步图片任务；使用相同 Request ID 只读轮询上游结果。
-- 结果未知的非幂等 POST 不跨 Tuzi 节点重发；仅幂等 GET/HEAD 保留网络 fallback，未携带 Request ID 的图片端点收到明确 404 后才沿用既有端点 fallback。
+- 正式请求和恢复查询都严格使用用户配置的 Base URL，不改写为同源代理或其他 Tuzi 节点，也不因网络错误或 HTTP 404 切换节点。
 - 恢复成功后复用现有缓存、任务完成和卡片渲染流程；缓存失败时保留可用远程 URL。
 - 取消、删除、重试、同步覆盖和超时通过 Request ID 条件写入与内存执行实例身份共同阻止旧结果覆盖 replacement 或释放其执行资源。
 - Custom HTTP multipart 图片输入仅允许可信同源资源、无凭据公网 HTTP(S) 或有效图片 data/blob URL，并限制类型、重定向、文件数量和总字节数。

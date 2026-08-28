@@ -2,10 +2,11 @@
 
 ### Requirement: Trusted Tuzi Image Submissions SHALL Carry A Stable Request ID
 
-The system SHALL persist the current image submission Request ID before the formal POST and SHALL attach it as `X-Request-Id` only to a trusted Tuzi submission target reached either through a fixed same-origin proxy or a Request-ID-CORS-compatible endpoint.
+The system SHALL persist the current image submission Request ID before the formal POST and SHALL attach it as `X-Request-Id` only when the user-configured trusted Tuzi target is Request-ID-CORS-compatible. The system SHALL NOT change the configured provider address to enable this header.
 
-#### Scenario: First formal submission
+#### Scenario: First formal submission to a compatible configured endpoint
 
+- **GIVEN** the user-configured Tuzi endpoint is Request-ID-CORS-compatible
 - **WHEN** a new image task is ready to send its formal POST
 - **THEN** the system SHALL persist the task ID as `submissionRequestId`
 - **AND** SHALL persist `imageSubmissionAttempted=true` and the invocation route before sending
@@ -15,18 +16,11 @@ The system SHALL persist the current image submission Request ID before the form
 
 - **GIVEN** the configured Tuzi node is trusted but does not allow `X-Request-Id` in browser preflight
 - **WHEN** the formal image POST is prepared
-- **THEN** a supported local, LAN, or public deployment SHALL route it through the fixed same-origin proxy for that configured node
-- **AND** SHALL preserve the configured node, Token, billing, and permission domain
+- **THEN** the system SHALL send the request directly to the configured node
+- **AND** SHALL NOT attach `X-Request-Id`
+- **AND** SHALL NOT enable automatic result recovery for that submission
 - **AND** SHALL submit the image POST only once
 - **AND** network or HTTP failure SHALL NOT trigger another image POST on a different node
-
-#### Scenario: Deployment lacks the fixed same-origin proxy
-
-- **GIVEN** the configured Tuzi node lacks Request-ID CORS support
-- **AND** the current deployment does not provide the fixed proxy
-- **WHEN** the formal image POST is prepared
-- **THEN** the system SHALL deterministically route it to a trusted compatible node
-- **AND** SHALL submit the image POST only once
 
 #### Scenario: Compatible trusted node is configured
 
@@ -40,7 +34,7 @@ The system SHALL persist the current image submission Request ID before the form
 - **WHEN** a request is GET or its final URL is not a trusted Tuzi target
 - **THEN** the system SHALL NOT inject the task Request ID
 - **AND** trusted recovery GET requests SHALL remove stale Request ID header variants
-- **AND** third-party targets SHALL NOT receive Tuzi credentials through recovery fallback
+- **AND** third-party targets SHALL NOT receive Tuzi credentials
 
 #### Scenario: Retry creates a new submission identity
 
@@ -54,8 +48,8 @@ The system SHALL persist the current image submission Request ID before the form
 - **GIVEN** a Tuzi POST does not have an effective idempotency or recovery Request ID
 - **WHEN** its fetch result is unknown because the connection fails
 - **THEN** the system SHALL NOT repeat that POST on another node
-- **AND** only idempotent GET or HEAD requests SHALL retain network-error fallback
-- **AND** only an image endpoint without an effective Request ID MAY use the existing endpoint fallback after receiving an explicit HTTP 404 response
+- **AND** GET, HEAD, and POST requests SHALL NOT switch to another provider node after a network error or HTTP response
+- **AND** recovery queries SHALL retry only the user-configured address
 
 ### Requirement: Submitted Image Tasks SHALL Resume Read-Only Result Polling
 

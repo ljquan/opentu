@@ -20,6 +20,8 @@ import { AssetType } from '../types/asset.types';
 import type { Task } from '../types/task.types';
 import { TaskType } from '../types/task.types';
 import { applyAudioMetadataToBlob, type AudioDownloadMetadata } from './audio-id3';
+import { unifiedCacheService } from '../services/unified-cache-service';
+import { isVirtualMediaUrl } from './virtual-media-url';
 
 export interface SmartDownloadResult {
   openedCount: number;
@@ -201,6 +203,100 @@ function getTypeFallbackExtension(type: BatchDownloadItem['type']): string {
   return 'mp3';
 }
 
+function readBlobHeader(blob: Blob, byteLength: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      resolve(
+        result instanceof ArrayBuffer
+          ? new Uint8Array(result)
+          : new Uint8Array()
+      );
+    };
+    reader.onerror = () =>
+      reject(reader.error || new Error('无法读取媒体文件头'));
+    reader.readAsArrayBuffer(blob.slice(0, byteLength));
+  });
+}
+
+async function sniffMediaExtension(
+  blob: Blob,
+  type: BatchDownloadItem['type'],
+  sourceUrl: string
+): Promise<string> {
+  const normalizedMimeType = blob.type.toLowerCase().split(';')[0].trim();
+  if (
+    normalizedMimeType === 'text/html' ||
+    normalizedMimeType === 'application/json'
+  ) {
+    throw new Error('下载地址返回的不是媒体文件');
+  }
+
+  const header = await readBlobHeader(blob, 16);
+  if (
+    header.length >= 8 &&
+    header[4] === 0x66 &&
+    header[5] === 0x74 &&
+    header[6] === 0x79 &&
+    header[7] === 0x70
+  ) {
+    return 'mp4';
+  }
+  if (
+    header.length >= 4 &&
+    header[0] === 0x1a &&
+    header[1] === 0x45 &&
+    header[2] === 0xdf &&
+    header[3] === 0xa3
+  ) {
+    return 'webm';
+  }
+  if (
+    header.length >= 4 &&
+    header[0] === 0x4f &&
+    header[1] === 0x67 &&
+    header[2] === 0x67 &&
+    header[3] === 0x53
+  ) {
+    return 'ogg';
+  }
+
+  const mimeExtension = getFileExtension('', normalizedMimeType);
+  if (mimeExtension !== 'bin') {
+    return mimeExtension;
+  }
+
+  return resolveDownloadExtension(
+    sourceUrl,
+    getTypeFallbackExtension(type)
+  );
+}
+
+function replaceFilenameExtension(filename: string, extension: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  const baseName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+  return `${baseName}.${extension}`;
+}
+
+async function readDownloadBlob(item: BatchDownloadItem): Promise<Blob> {
+  if (isVirtualMediaUrl(item.url)) {
+    const cachedBlob = await unifiedCacheService.getCachedBlob(item.url);
+    if (!cachedBlob?.size) {
+      throw new Error('本地媒体缓存不可用，请重新生成');
+    }
+    return cachedBlob;
+  }
+
+  const assetUrl =
+    item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
+  const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${assetUrl}: ${response.status}`);
+  }
+  return response.blob();
+}
+
 function resolveDownloadExtension(
   primaryValue: string | undefined,
   fallbackExtension: string,
@@ -372,12 +468,7 @@ export async function downloadAsZip(
       try {
         const assetUrl =
           item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
-        const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });
-        if (!response.ok) {
-          console.warn(`Failed to fetch ${assetUrl}: ${response.status}`);
-          return;
-        }
-        const sourceBlob = await response.blob();
+        const sourceBlob = await readDownloadBlob(item);
         const blob =
           item.type === 'audio'
             ? await applyAudioMetadataToBlob(
@@ -386,12 +477,14 @@ export async function downloadAsZip(
                 assetUrl
               )
             : sourceBlob;
-        const ext = getFileExtension(assetUrl, blob.type);
+        const ext = await sniffMediaExtension(blob, item.type, assetUrl);
 
         const prefix =
           item.type === 'image' ? 'image' : item.type === 'video' ? 'video' : 'audio';
         const filename = getUniqueFilename(
-          item.filename || `${prefix}_${index + 1}.${ext}`,
+          item.filename
+            ? replaceFilenameExtension(item.filename, ext)
+            : `${prefix}_${index + 1}.${ext}`,
           seenFilenames
         );
 
@@ -448,6 +541,26 @@ export async function smartDownload(
   if (items.length === 1) {
     const item = items[0];
     const assetUrl = item.type === 'image' ? normalizeImageDataUrl(item.url) : item.url;
+    if (isVirtualMediaUrl(assetUrl) || item.type === 'video') {
+      const result = await runSingleDownloadWithFallback(assetUrl, async () => {
+        const sourceBlob = await readDownloadBlob(item);
+        const blob =
+          item.type === 'audio'
+            ? await applyAudioMetadataToBlob(
+                sourceBlob,
+                item.audioMetadata,
+                assetUrl
+              )
+            : sourceBlob;
+        const ext = await sniffMediaExtension(blob, item.type, assetUrl);
+        const filename = item.filename
+          ? replaceFilenameExtension(item.filename, ext)
+          : `${item.type}_download.${ext}`;
+        downloadFromBlob(blob, filename);
+      });
+      reportProgress(onProgress, 100);
+      return result;
+    }
     if (item.type === 'audio') {
       const result = await runSingleDownloadWithFallback(assetUrl, async () => {
         const response = await fetch(assetUrl, { referrerPolicy: 'no-referrer' });

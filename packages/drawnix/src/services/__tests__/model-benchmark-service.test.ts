@@ -28,7 +28,7 @@ describe('model-benchmark-service', () => {
     vi.doUnmock('../kv-storage-service');
     vi.doUnmock('../utils/gemini-api');
     vi.doUnmock('../utils/settings-manager');
-    vi.doUnmock('../utils/posthog-analytics');
+    vi.doUnmock('../utils/umami-analytics');
     vi.doUnmock('../model-adapters');
   });
 
@@ -109,7 +109,7 @@ describe('model-benchmark-service', () => {
         modelId,
       }),
     }));
-    vi.doMock('../utils/posthog-analytics', () => ({
+    vi.doMock('../utils/umami-analytics', () => ({
       analytics: { track: vi.fn() },
     }));
     vi.doMock('../model-adapters', () => ({

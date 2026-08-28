@@ -19,7 +19,32 @@ import {
 } from '../../utils/image-task-progress';
 import { ImageGenerationProgressDisplay } from '../shared/ImageGenerationProgressDisplay';
 import { useImageTaskProgress } from '../../hooks/useImageTaskProgress';
+import type { PptExplainerStage } from '../../services/ppt-explainer/types';
 import './task-progress-overlay.scss';
+
+const PPT_EXPLAINER_STAGE_TEXT: Partial<Record<PptExplainerStage, string>> = {
+  preparing: '正在生成PPT大纲',
+  review_pending: 'PPT大纲待确认',
+  snapshotting: '正在生成并固定PPT页面',
+  scripting: '正在生成逐页讲稿',
+  submitting: '正在生成逐页有声讲解',
+  polling: '正在生成逐页有声讲解',
+  finalizing: '正在合成PPT讲解视频',
+};
+
+export function getPptExplainerStageText(stage: unknown): string | undefined {
+  return typeof stage === 'string'
+    ? PPT_EXPLAINER_STAGE_TEXT[stage as PptExplainerStage]
+    : undefined;
+}
+
+export function getPptExplainerModelLabel(
+  stage: unknown,
+  videoModel?: string
+): string | undefined {
+  if (!getPptExplainerStageText(stage)) return videoModel;
+  return stage === 'submitting' || stage === 'polling' ? videoModel : undefined;
+}
 
 interface TaskProgressOverlayProps {
   /** 任务类型 */
@@ -40,6 +65,10 @@ interface TaskProgressOverlayProps {
   onImageError?: () => void;
   /** 预估生成时间（毫秒），默认 5 分钟 */
   estimatedDuration?: number;
+  /** PPT 讲解根任务的当前编排阶段 */
+  pptExplainerStage?: PptExplainerStage;
+  /** PPT 讲解根任务的当前细分进度 */
+  pptExplainerStatusText?: string;
 }
 
 export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
@@ -52,6 +81,8 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
   onImageLoaded,
   onImageError,
   estimatedDuration = IMAGE_GENERATION_ESTIMATE_MS,
+  pptExplainerStage,
+  pptExplainerStatusText,
 }) => {
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -83,12 +114,12 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
       // 预留底部进度条空间（3px）和上下边距
       const availableHeight = height - 10;
       const availableWidth = width - 20;
-      
+
       // 根据高度和宽度计算缩放比例，取较小值
       const scaleByHeight = availableHeight / BASE_CONTENT_HEIGHT;
       const scaleByWidth = availableWidth / BASE_CONTENT_WIDTH;
       const newScale = Math.min(scaleByHeight, scaleByWidth, MAX_SCALE);
-      
+
       setScale(Math.max(newScale, MIN_SCALE));
     };
 
@@ -102,14 +133,22 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
     return () => resizeObserver.disconnect();
   }, []);
 
-  // 只在处理中状态显示
-  if (taskStatus !== TaskStatus.PROCESSING) {
+  // PPT 大纲待确认仍需展示明确阶段，其他任务只在处理中显示。
+  if (
+    taskStatus !== TaskStatus.PROCESSING &&
+    !(
+      taskStatus === TaskStatus.PENDING &&
+      pptExplainerStage === 'review_pending'
+    )
+  ) {
     return null;
   }
 
   const progress = displayProgress ?? 0;
   const statusText =
-    taskType === TaskType.IMAGE
+    pptExplainerStatusText?.trim() ||
+    getPptExplainerStageText(pptExplainerStage) ||
+    (taskType === TaskType.IMAGE
       ? getImageTaskProgressStatusText(progress, !!mediaUrl, isImageLoading)
       : taskType === TaskType.AUDIO
       ? progress < 10
@@ -125,7 +164,7 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
       ? '生成中...'
       : progress < 90
       ? '渲染中...'
-      : '即将完成...';
+      : '即将完成...');
 
   // 构建类名
   const overlayClassName = [
@@ -134,7 +173,9 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
       ? 'task-progress-overlay--video'
       : '',
     mediaUrl && isImageLoading ? 'task-progress-overlay--loading' : '',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div ref={containerRef} className={overlayClassName}>
@@ -144,7 +185,7 @@ export const TaskProgressOverlay: React.FC<TaskProgressOverlayProps> = ({
       <div className="task-progress-overlay__dots" />
 
       {/* 进度内容（等比缩放） */}
-      <div 
+      <div
         className="task-progress-overlay__content"
         style={{ transform: `scale(${scale})` }}
       >

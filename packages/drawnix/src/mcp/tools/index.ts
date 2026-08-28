@@ -25,6 +25,12 @@ export type { MindmapToolParams } from './mindmap-tool';
 export { pptGenerationTool, generatePPT } from './ppt-generation';
 export type { PPTGenerationParams } from '../../services/ppt';
 
+export {
+  pptExplainerVideoTool,
+  generatePptExplainerVideo,
+} from './ppt-explainer-video';
+export type { PptExplainerVideoParams } from './ppt-explainer-video';
+
 export { knowledgeBaseTools, kbSearchNotesTool, kbGetNoteTool, kbCreateNoteTool, kbListDirectoriesTool } from './knowledge-base-tool';
 
 // 共享模块导出

@@ -73,6 +73,8 @@ export interface MCPExecuteCallbacks {
  * MCP 工具执行选项
  */
 export interface MCPExecuteOptions extends MCPExecuteCallbacks {
+  /** Optional cancellation signal for long-running tool work. */
+  signal?: AbortSignal;
   /** 执行模式：async（等待API返回）或 queue（加入任务队列） */
   mode?: MCPExecuteMode;
   /** 批次 ID（用于批量任务去重） */

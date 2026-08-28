@@ -294,6 +294,11 @@ function getToolDescription(
       )}...`;
     case 'generate_ppt':
       return `生成PPT: ${((args?.topic as string) || '').substring(0, 30)}...`;
+    case 'generate_ppt_explainer_video':
+      return `生成PPT讲解视频: ${((args?.topic as string) || '').substring(
+        0,
+        30
+      )}...`;
     case 'generate_grid_image':
       return `生成宫格图: ${((args?.theme as string) || '').substring(
         0,

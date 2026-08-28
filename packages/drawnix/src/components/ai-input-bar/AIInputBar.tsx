@@ -84,6 +84,7 @@ import {
 } from '../../types/asset.types';
 import { MediaLibraryModal } from '../media-library/MediaLibraryModal';
 import { ModelDropdown } from './ModelDropdown';
+import { PptExplainerDialog } from './PptExplainerDialog';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { HoverTip } from '../shared/hover';
 import { ParametersDropdown } from './ParametersDropdown';
@@ -94,7 +95,10 @@ import {
   addVideoPromptHistory,
   type PromptType,
 } from '../../services/prompt-storage-service';
-import { useSelectableModels } from '../../hooks/use-runtime-models';
+import {
+  useConfiguredSelectableModels,
+  useSelectableModels,
+} from '../../hooks/use-runtime-models';
 import { getPinnedSelectableModel } from '../../utils/runtime-model-discovery';
 import {
   getDefaultAudioModel,
@@ -119,6 +123,8 @@ import { setCanvasBoard as setMcpCanvasBoard } from '../../mcp/tools/canvas-inse
 import { setBoard } from '../../mcp/tools/shared';
 import { setCapabilitiesBoard } from '../../services/sw-capabilities/handler';
 import { initializeLongVideoChainService } from '../../services/long-video-chain-service';
+import { createPptExplainerTask } from '../../services/ppt-explainer/creation-service';
+import type { PptExplainerCreateSourceKind } from '../../services/ppt-explainer/types';
 import { gridImageService } from '../../services/photo-wall';
 import type { MCPTaskResult } from '../../mcp/types';
 import { parseAIInput, type GenerationType } from '../../utils/ai-input-parser';
@@ -128,7 +134,10 @@ import {
   type WorkflowDefinition,
   type WorkflowStepOptions,
 } from './workflow-converter';
-import { getBoundTaskbarWidth } from './bound-taskbar-layout';
+import {
+  getBoundTaskbarHeight,
+  getBoundTaskbarWidth,
+} from './bound-taskbar-layout';
 import { SkillDropdown, type SkillOption } from './SkillDropdown';
 import {
   inferSkillMediaTypes,
@@ -163,7 +172,7 @@ import type {
 import {
   analytics,
   type PromptAnalyticsType,
-} from '../../utils/posthog-analytics';
+} from '../../utils/umami-analytics';
 import classNames from 'classnames';
 import { InspirationBoard } from '../inspiration-board';
 import { AIInputComposerShell } from './AIInputComposerShell';
@@ -198,6 +207,7 @@ import {
   saveScopedAIInputModelParams,
 } from '../../services/ai-generation-preferences-service';
 import { applyForcedSunoParams } from '../../utils/suno-model-aliases';
+import { isSeedance2ModelId } from '../../utils/seedance-model';
 import {
   clearPersistedModelSelection,
   getPersistedModelSelection,
@@ -219,7 +229,6 @@ import {
   findWorkflowStepForTask,
 } from '../../utils/workflow-task-linking';
 import {
-  BOUND_TARGET_DISMISS_HINT_LIMIT,
   areBoundTargetTaskbarDraftsEqual,
   buildBoundTargetGenerationParams,
   collectBoundTargetElementIds,
@@ -229,11 +238,10 @@ import {
   isBoundTargetReferenceOnly,
   pinBoundTargetReferenceContent,
   pruneStaleBoundTargetTaskbarDrafts,
-  readBoundTargetDismissHintCount,
   readBoundTargetFollowEnabled,
   readBoundTargetGenerationPrompt,
-  recordBoundTargetDismiss,
   persistBoundTargetFollowEnabled,
+  resolveBoundTargetMode,
   resolveBoundTargetForPosition,
   resolveBoundTargetPromptSuggestion,
   resolveBoundTargetPromptSuggestionAction,
@@ -1570,6 +1578,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const { language } = useI18n();
     const imageModels = useSelectableModels('image');
     const videoModels = useSelectableModels('video');
+    const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
 
@@ -1886,14 +1895,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const boundImageTargetRef = useRef<BoundImageTarget | null>(null);
     const dismissedPromptElementIdRef = useRef<string | null>(null);
     const dismissedPromptGenerationTaskIdRef = useRef<string | null>(null);
-    const [boundTargetDismissHintCount, setBoundTargetDismissHintCount] =
-      useState(() => readBoundTargetDismissHintCount());
     const [boundTargetFollowEnabled, setBoundTargetFollowEnabled] = useState(
       () => readBoundTargetFollowEnabled()
     );
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
+    const [isBoundTargetDismissMenuOpen, setIsBoundTargetDismissMenuOpen] =
+      useState(false);
     const [boundInputLayoutTick, setBoundInputLayoutTick] = useState(0);
     const [uploadedContent, setUploadedContent] = useState<SelectedContent[]>(
       []
@@ -1910,6 +1919,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [canvasAssociationTrigger, setCanvasAssociationTrigger] =
       useState<CanvasAssociationTrigger | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false); // 防止快速重复点击（3秒防抖）
+    const [pptExplainerDialogOpen, setPptExplainerDialogOpen] = useState(false);
+    const [pptExplainerInitialSource, setPptExplainerInitialSource] =
+      useState<PptExplainerCreateSourceKind>();
+    const [pptExplainerFrameIds, setPptExplainerFrameIds] = useState<
+      string[] | undefined
+    >();
     const submitLockRef = useRef(false);
     const submitCooldownRef = useRef<NodeJS.Timeout | null>(null); // 提交冷却定时器
     const [isFocused, setIsFocused] = useState(false);
@@ -2054,13 +2069,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return pinnedModel ? [pinnedModel, ...imageModels] : imageModels;
     }, [imageModels, selectedAgentImageModel, selectedAgentImageModelRef]);
     const visibleAgentVideoModels = useMemo(() => {
+      const availableModels =
+        selectedSkillId === 'generate_ppt_explainer_video'
+          ? configuredVideoModels
+          : videoModels;
       const currentMatch = findMatchingSelectableModel(
-        videoModels,
+        availableModels,
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
       if (currentMatch) {
-        return videoModels;
+        return availableModels;
+      }
+      if (selectedSkillId === 'generate_ppt_explainer_video') {
+        return availableModels;
       }
 
       const pinnedModel = getPinnedSelectableModel(
@@ -2068,8 +2090,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedAgentVideoModel,
         selectedAgentVideoModelRef
       );
-      return pinnedModel ? [pinnedModel, ...videoModels] : videoModels;
-    }, [selectedAgentVideoModel, selectedAgentVideoModelRef, videoModels]);
+      return pinnedModel ? [pinnedModel, ...availableModels] : availableModels;
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      configuredVideoModels,
+      videoModels,
+    ]);
+    useEffect(() => {
+      if (selectedSkillId !== 'generate_ppt_explainer_video') return;
+      const currentMatch = findMatchingSelectableModel(
+        visibleAgentVideoModels,
+        selectedAgentVideoModel,
+        selectedAgentVideoModelRef
+      );
+      if (currentMatch) return;
+      const fallback = visibleAgentVideoModels[0];
+      setSelectedAgentVideoModel(fallback?.id || '');
+      setSelectedAgentVideoModelRef(getModelRefFromConfig(fallback));
+    }, [
+      selectedAgentVideoModel,
+      selectedAgentVideoModelRef,
+      selectedSkillId,
+      visibleAgentVideoModels,
+    ]);
     const visibleAgentAudioModels = useMemo(() => {
       const currentMatch = findMatchingSelectableModel(
         audioModels,
@@ -2365,14 +2410,19 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const allContent = useMemo(() => {
       return [...uploadedContent, ...selectedContent];
     }, [uploadedContent, selectedContent]);
+    const effectiveBoundTargetMode = resolveBoundTargetMode(
+      boundImageTargetMode,
+      boundTargetFollowEnabled,
+      boundImageTarget?.type
+    );
     const boundTargetContent = useMemo(
       () =>
         selectedContentFromBoundTarget(
           boundImageTarget,
           language,
-          boundImageTargetMode === 'reference'
+          effectiveBoundTargetMode === 'reference'
         ),
-      [boundImageTarget, boundImageTargetMode, language]
+      [boundImageTarget, effectiveBoundTargetMode, language]
     );
     const followedBoundImageTarget =
       boundImageTargetMode === 'follow' ? boundImageTarget : null;
@@ -3429,6 +3479,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             setSelectedSkillMediaTypes(inferSkillMediaTypes(systemSkill));
           }
         }
+        if (detail?.pptExplainerSource) {
+          setPptExplainerInitialSource(detail.pptExplainerSource);
+        }
+        if (detail?.openPptExplainer) {
+          setPptExplainerFrameIds(
+            detail.pptExplainerFrameIds?.length
+              ? [...detail.pptExplainerFrameIds]
+              : undefined
+          );
+          setPptExplainerDialogOpen(true);
+        }
 
         focusInput();
       };
@@ -4209,17 +4270,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         setBoundTargetError(null);
         dismissPromptSuggestion();
         setBoundInputLayoutTick((tick) => tick + 1);
-        setBoundTargetDismissHintCount(
-          recordBoundTargetDismiss(boundTargetDismissHintCount)
-        );
       },
-      [
-        boundImageTarget,
-        boundTargetDismissHintCount,
-        detachTaskbarDraft,
-        dismissPromptSuggestion,
-        language,
-      ]
+      [boundImageTarget, detachTaskbarDraft, dismissPromptSuggestion, language]
     );
 
     const handleBoundTargetFollowChange = useCallback((enabled: boolean) => {
@@ -4248,7 +4300,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
 
     const chatDrawerContent =
-      boundImageTargetMode === 'reference' ? generationContent : allContent;
+      effectiveBoundTargetMode === 'reference' ? generationContent : allContent;
 
     // 仅作参考模式与生成请求使用同一份内容，确保目标图不会在抽屉中丢失。
     useEffect(() => {
@@ -4577,7 +4629,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             );
       const baseParams = { ...loadedParams };
       if (
-        selectedModel.startsWith('doubao-seedance-2-0-') &&
+        isSeedance2ModelId(selectedModel) &&
         baseParams.size?.includes('@')
       ) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
@@ -4692,6 +4744,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [clearTriggerSymbol]
     );
 
+    const handleCreatePptExplainerTask = useCallback(
+      async (input: Parameters<typeof createPptExplainerTask>[0]) => {
+        onEnableRuntime?.();
+        return createPptExplainerTask(input);
+      },
+      [onEnableRuntime]
+    );
+
     // Handle generation
     const handleGenerate = useCallback(
       async (
@@ -4708,7 +4768,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           !override &&
           shouldUseBoundTargetForSubmission(
             generationType,
-            boundImageTargetMode
+            effectiveBoundTargetMode
           ) &&
           boundImageTarget?.type === generationType;
         const activeBoundImageTarget = shouldUseActiveBoundTarget
@@ -4718,7 +4778,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? pinBoundTargetReferenceContent(
               override.content,
               boundTargetContent,
-              boundImageTargetMode
+              effectiveBoundTargetMode
             )
           : generationContent;
         let effectiveContent = baseEffectiveContent;
@@ -4885,6 +4945,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const trimmedPrompt = effectivePrompt.trim();
 
         if (
+          !override &&
+          effectiveGenerationType === 'agent' &&
+          selectedSkillId === 'generate_ppt_explainer_video'
+        ) {
+          setPptExplainerDialogOpen(true);
+          return;
+        }
+
+        if (
           !trimmedPrompt &&
           baseEffectiveContent.length === 0 &&
           submittedCanvasAssociations.length === 0
@@ -5001,7 +5070,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               {
                 enforceSeedanceAudioDataUrlLimit:
                   effectiveGenerationType === 'video' &&
-                  effectiveSelectedModel.startsWith('doubao-seedance-2-0-'),
+                  isSeedance2ModelId(effectiveSelectedModel),
               }
             );
             if (abortIfSubmittedBoardChanged('association_resolution')) return;
@@ -5174,16 +5243,28 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ? agentMediaDefaultModelRefs
                 : undefined,
           });
-          const boundTargetGenerationParams = activeBoundImageTarget
-            ? activeBoundImageTarget.type === 'image'
+          const imageBoundTargetGenerationParams =
+            activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
                   activeBoundImageTarget,
                   effectiveSelectedCount
                 )
+              : null;
+          const boundTargetGenerationParams = activeBoundImageTarget
+            ? activeBoundImageTarget.type === 'image'
+              ? imageBoundTargetGenerationParams
+                ? {
+                    ...imageBoundTargetGenerationParams,
+                    boundTargetFollowControlled: true,
+                  }
+                : null
               : effectiveSelectedCount === 1
               ? {
                   replaceElementId: activeBoundImageTarget.elementId,
                   sourcePrompt: activeBoundImageTarget.prompt,
+                  ...(activeBoundImageTarget.type !== 'audio'
+                    ? { boundTargetFollowControlled: true }
+                    : {}),
                 }
               : null
             : null;
@@ -6246,6 +6327,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         boundImageTarget,
         boundImageTargetMode,
         boundTargetContent,
+        effectiveBoundTargetMode,
         generationContent,
         isSubmitting,
         selectedModel,
@@ -7211,9 +7293,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedModelRef?.profileId,
       ]
     );
+    const isPptExplainerSkillSelected =
+      generationType === 'agent' &&
+      selectedSkillId === 'generate_ppt_explainer_video';
     const canGenerate =
       !canvasAssociationTrigger &&
-      (prompt.trim().length > 0 ||
+      (isPptExplainerSkillSelected ||
+        prompt.trim().length > 0 ||
         generationContent.length > 0 ||
         canvasAssociationRefs.length > 0);
     const shouldHighlightInspirationSend =
@@ -7273,6 +7359,34 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       followedBoundImageTarget,
       boundTargetFollowEnabled
     );
+    const hasPositionedBoundImageTarget = Boolean(positionedBoundImageTarget);
+    useEffect(() => {
+      const container = containerRef.current;
+      if (
+        !hasPositionedBoundImageTarget ||
+        !container ||
+        typeof ResizeObserver === 'undefined'
+      ) {
+        return;
+      }
+
+      let layoutFrameId: number | null = null;
+      const observer = new ResizeObserver(() => {
+        if (layoutFrameId !== null) return;
+        layoutFrameId = window.requestAnimationFrame(() => {
+          layoutFrameId = null;
+          setBoundInputLayoutTick((tick) => tick + 1);
+        });
+      });
+      observer.observe(container);
+
+      return () => {
+        observer.disconnect();
+        if (layoutFrameId !== null) {
+          window.cancelAnimationFrame(layoutFrameId);
+        }
+      };
+    }, [hasPositionedBoundImageTarget]);
     const boundInputPosition = useMemo(() => {
       if (!positionedBoundImageTarget) return null;
 
@@ -7310,7 +7424,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         Math.max(targetCenterX, viewportMargin + barWidth / 2),
         window.innerWidth - viewportMargin - barWidth / 2
       );
-      const estimatedHeight = shouldKeepExpanded ? 112 : 76;
+      const estimatedHeight = getBoundTaskbarHeight(
+        containerRef.current?.getBoundingClientRect().height,
+        shouldKeepExpanded
+      );
       const belowTop = targetBottom + 8;
       const top =
         belowTop + estimatedHeight <= window.innerHeight - viewportMargin
@@ -7318,6 +7435,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           : Math.max(viewportMargin, targetTop - estimatedHeight - 8);
 
       return { left, top };
+      // ResizeObserver increments the tick to invalidate these DOM measurements.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [boundInputLayoutTick, positionedBoundImageTarget, shouldKeepExpanded]);
 
     const followControlsTarget =
@@ -7326,11 +7445,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         ? followedBoundImageTarget
         : null;
     const followControlsTargetType = followControlsTarget?.type;
+    useEffect(() => {
+      setIsBoundTargetDismissMenuOpen(false);
+    }, [
+      boundTargetFollowEnabled,
+      followControlsTarget?.elementId,
+      isSubmitting,
+    ]);
     const boundTargetFollowCopy = useMemo(() => {
       if (language === 'zh') {
         if (followControlsTargetType === 'text') {
           return {
-            hint: '关闭跟随，当前文本仍作上下文',
             once: '本次只作上下文',
             always: '对此文本始终只作上下文',
             stop: '关闭任务栏跟随',
@@ -7338,14 +7463,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         }
         if (followControlsTargetType === 'video') {
           return {
-            hint: '关闭跟随，当前视频仍作参考视频',
             once: '本次只作参考视频',
             always: '对此视频始终只作参考视频',
             stop: '关闭任务栏跟随',
           };
         }
         return {
-          hint: '关闭跟随，当前图仍作参考图',
           once: '本次只作参考图',
           always: '对此图始终只作参考图',
           stop: '关闭任务栏跟随',
@@ -7354,7 +7477,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       if (followControlsTargetType === 'text') {
         return {
-          hint: 'Stop following; keep this text as context',
           once: 'Use as context this time',
           always: 'Always use this text as context',
           stop: 'Stop following this text',
@@ -7362,14 +7484,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       }
       if (followControlsTargetType === 'video') {
         return {
-          hint: 'Stop following; keep this video as a reference',
           once: 'Use this video as a reference this time',
           always: 'Always use this video as reference',
           stop: 'Stop following this video',
         };
       }
       return {
-        hint: 'Stop following; keep this reference',
         once: 'Use as reference this time',
         always: 'Always use this image as reference',
         stop: 'Stop following this image',
@@ -7390,6 +7510,96 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ],
       [boundTargetFollowCopy]
     );
+    const boundTargetFollowActions = followControlsTarget ? (
+      <div
+        className="ai-input-bar__bound-dismiss-actions"
+        data-testid="ai-bound-follow-actions"
+      >
+        <HoverTip
+          content={
+            boundTargetFollowEnabled
+              ? language === 'zh'
+                ? '任务栏跟随默认开启'
+                : 'Taskbar follow defaults to on'
+              : language === 'zh'
+              ? '任务栏跟随默认关闭'
+              : 'Taskbar follow defaults to off'
+          }
+          showArrow={false}
+        >
+          <span
+            className="ai-input-bar__bound-follow-toggle"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <Switch
+              size="small"
+              value={boundTargetFollowEnabled}
+              label={
+                <span className="ai-input-bar__bound-follow-label">
+                  {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
+                </span>
+              }
+              onChange={(checked) =>
+                handleBoundTargetFollowChange(checked as boolean)
+              }
+            />
+          </span>
+        </HoverTip>
+        {boundTargetFollowEnabled ? (
+          <div className="ai-input-bar__bound-dismiss-secondary-actions">
+            <HoverTip content={boundTargetFollowCopy.stop} showArrow={false}>
+              <button
+                type="button"
+                className="ai-input-bar__bound-dismiss-btn"
+                aria-label={boundTargetFollowCopy.once}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => handleDismissBoundTarget('once')}
+                disabled={isSubmitting}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </HoverTip>
+            <Dropdown
+              options={boundTargetDismissOptions}
+              trigger="hover"
+              placement="top-right"
+              minColumnWidth={190}
+              popupProps={{
+                visible: isBoundTargetDismissMenuOpen,
+                onVisibleChange: setIsBoundTargetDismissMenuOpen,
+              }}
+              onClick={(data) =>
+                handleDismissBoundTarget(data.value as BoundTargetDismissMode)
+              }
+            >
+              <button
+                type="button"
+                className="ai-input-bar__bound-dismiss-menu-btn"
+                aria-label={
+                  language === 'zh' ? '选择跟随方式' : 'Choose follow behavior'
+                }
+                aria-haspopup="menu"
+                aria-expanded={isBoundTargetDismissMenuOpen}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => setIsBoundTargetDismissMenuOpen(true)}
+                disabled={isSubmitting}
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </Dropdown>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
 
     const boundInputStyle = boundInputPosition
       ? ({
@@ -7429,6 +7639,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     return (
       <>
         {confirmDialog}
+        {pptExplainerDialogOpen ? (
+          <PptExplainerDialog
+            open
+            sourceBoardId={currentBoardId}
+            initialTopic={promptRef.current}
+            initialSource={pptExplainerInitialSource}
+            currentPptFrameIds={pptExplainerFrameIds}
+            textModel={selectedModel}
+            textModelRef={selectedModelRef}
+            imageModel={selectedAgentImageModel}
+            imageModelRef={selectedAgentImageModelRef}
+            videoModel={selectedAgentVideoModel}
+            videoModelRef={selectedAgentVideoModelRef}
+            videoModels={visibleAgentVideoModels}
+            onVideoModelChange={(modelId, modelRef) =>
+              handleAgentMediaModelSelect('video', modelId, modelRef)
+            }
+            onCreate={handleCreatePptExplainerTask}
+            onClose={() => {
+              setPptExplainerDialogOpen(false);
+              setPptExplainerInitialSource(undefined);
+              setPptExplainerFrameIds(undefined);
+            }}
+          />
+        ) : null}
         <div
           ref={containerRef}
           className={classNames(
@@ -7467,102 +7702,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             onSelectPrompt={handleSelectInspirationPrompt}
             onOpenPromptTool={handleOpenPromptToolFromInspiration}
           />
-
-          {followControlsTarget ? (
-            <div className="ai-input-bar__bound-dismiss">
-              {boundTargetFollowEnabled &&
-              boundTargetDismissHintCount < BOUND_TARGET_DISMISS_HINT_LIMIT ? (
-                <div className="ai-input-bar__bound-dismiss-hint" role="status">
-                  {boundTargetFollowCopy.hint}
-                </div>
-              ) : null}
-              <div className="ai-input-bar__bound-dismiss-actions">
-                <HoverTip
-                  content={
-                    boundTargetFollowEnabled
-                      ? language === 'zh'
-                        ? '任务栏跟随已开启'
-                        : 'Taskbar follow is on'
-                      : language === 'zh'
-                      ? '任务栏跟随已关闭'
-                      : 'Taskbar follow is off'
-                  }
-                  showArrow={false}
-                >
-                  <span
-                    className="ai-input-bar__bound-follow-toggle"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    <Switch
-                      size="small"
-                      value={boundTargetFollowEnabled}
-                      label={
-                        <span className="ai-input-bar__bound-follow-label">
-                          {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
-                        </span>
-                      }
-                      onChange={(checked) =>
-                        handleBoundTargetFollowChange(checked as boolean)
-                      }
-                    />
-                  </span>
-                </HoverTip>
-                {boundTargetFollowEnabled ? (
-                  <>
-                    <HoverTip
-                      content={boundTargetFollowCopy.stop}
-                      showArrow={false}
-                    >
-                      <button
-                        type="button"
-                        className="ai-input-bar__bound-dismiss-btn"
-                        aria-label={boundTargetFollowCopy.once}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={() => handleDismissBoundTarget('once')}
-                        disabled={isSubmitting}
-                      >
-                        <X size={16} aria-hidden="true" />
-                      </button>
-                    </HoverTip>
-                    <Dropdown
-                      options={boundTargetDismissOptions}
-                      trigger="click"
-                      placement="top-right"
-                      minColumnWidth={190}
-                      onClick={(data) =>
-                        handleDismissBoundTarget(
-                          data.value as BoundTargetDismissMode
-                        )
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="ai-input-bar__bound-dismiss-menu-btn"
-                        aria-label={
-                          language === 'zh'
-                            ? '选择跟随方式'
-                            : 'Choose follow behavior'
-                        }
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        disabled={isSubmitting}
-                      >
-                        <ChevronDown size={14} aria-hidden="true" />
-                      </button>
-                    </Dropdown>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
 
           <AIInputComposerShell
             variant="canvas"
@@ -7759,6 +7898,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                         language === 'zh'
                           ? '选择视频模型 (↑↓ Tab)'
                           : 'Select video model (↑↓ Tab)'
+                      }
+                      emptyTriggerLabel={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '暂无已配置视频模型'
+                            : 'No configured video model'
+                          : undefined
+                      }
+                      emptyText={
+                        selectedSkillId === 'generate_ppt_explainer_video'
+                          ? language === 'zh'
+                            ? '请先在供应商设置中获取并勾选视频模型'
+                            : 'Get and select a video model in provider settings first'
+                          : undefined
+                      }
+                      strictModelList={
+                        selectedSkillId === 'generate_ppt_explainer_video'
                       }
                     />
                   )}
@@ -7963,31 +8119,34 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                   language={language}
                   onBeforeOpenMyPrompts={onEnableToolWindows}
                   extraActions={
-                    shouldKeepExpanded ? (
-                      <PromptOptimizeButton
-                        className="prompt-history-popover__action-btn"
-                        originalPrompt={prompt}
-                        language={language}
-                        scenarioId={`ai-input.${generationType}` as const}
-                        disabled={isSubmitting}
-                        allowStructuredMode={true}
-                        onOpenChange={setIsPromptOptimizeOpen}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setIsFocused(true);
-                        }}
-                        onApply={(optimizedPrompt) => {
-                          applyCanvasAssociationPromptOverwrite(
-                            optimizedPrompt
-                          );
-                          setIsFocused(true);
-                          requestAnimationFrame(() => {
-                            inputRef.current?.focus();
-                          });
-                        }}
-                      />
-                    ) : null
+                    <>
+                      {shouldKeepExpanded ? (
+                        <PromptOptimizeButton
+                          className="prompt-history-popover__action-btn"
+                          originalPrompt={prompt}
+                          language={language}
+                          scenarioId={`ai-input.${generationType}` as const}
+                          disabled={isSubmitting}
+                          allowStructuredMode={true}
+                          onOpenChange={setIsPromptOptimizeOpen}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setIsFocused(true);
+                          }}
+                          onApply={(optimizedPrompt) => {
+                            applyCanvasAssociationPromptOverwrite(
+                              optimizedPrompt
+                            );
+                            setIsFocused(true);
+                            requestAnimationFrame(() => {
+                              inputRef.current?.focus();
+                            });
+                          }}
+                        />
+                      ) : null}
+                      {boundTargetFollowActions}
+                    </>
                   }
                 />
               </>

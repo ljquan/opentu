@@ -185,6 +185,184 @@ describe('seedance 2.0 video adapter', () => {
     });
   });
 
+  it('uses Seedance 2.5 duration and reference limits without 2.0-only controls', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ url: String(input), init: init || {} });
+        return (init?.method || 'GET') === 'POST'
+          ? jsonResponse({ id: 'seedance-25-task', status: 'queued' })
+          : jsonResponse({
+              id: 'seedance-25-task',
+              status: 'completed',
+              duration: 30,
+              metadata: { url: 'https://cdn.example.com/seedance-25.mp4' },
+            });
+      }
+    ) as unknown as typeof fetch;
+
+    const resultPromise = seedance2VideoAdapter.generateVideo(
+      createContext(fetcher),
+      {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'long-form reference scene',
+        size: '1080p',
+        duration: 30,
+        referenceImages: ['https://assets.example.com/ref.png'],
+        params: {
+          ratio: '1:1',
+          input_videos: [
+            'https://assets.example.com/ref-1.mp4',
+            'https://assets.example.com/ref-2.mp4',
+            'https://assets.example.com/ref-3.mp4',
+            'https://assets.example.com/ref-4.mp4',
+          ],
+          input_audios: [
+            'https://assets.example.com/ref-1.mp3',
+            'https://assets.example.com/ref-2.mp3',
+            'https://assets.example.com/ref-3.mp3',
+            'https://assets.example.com/ref-4.mp3',
+          ],
+          seed: '7',
+          camera_fixed: 'true',
+        },
+      }
+    );
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(resultPromise).resolves.toMatchObject({
+      url: 'https://cdn.example.com/seedance-25.mp4',
+      duration: 30,
+    });
+
+    const submitBody = JSON.parse(String(requests[0]?.init.body));
+    expect(submitBody).toMatchObject({
+      model: 'doubao-seedance-2-5-260628',
+      ratio: '1:1',
+      duration: 30,
+    });
+    expect(submitBody.resolution).toBeUndefined();
+    expect(submitBody.seed).toBeUndefined();
+    expect(submitBody.camera_fixed).toBeUndefined();
+    expect(
+      submitBody.content.filter((item: { type: string }) => item.type === 'video_url')
+    ).toHaveLength(4);
+    expect(
+      submitBody.content.filter((item: { type: string }) => item.type === 'audio_url')
+    ).toHaveLength(4);
+  });
+
+  it.each([
+    ['16:9', '16:9'],
+    ['16x9', '16:9'],
+    ['1280x720', '16:9'],
+    ['720x1280', '9:16'],
+    ['1024x1024', '1:1'],
+    ['4:3', '4:3'],
+    ['1:1', '1:1'],
+    ['3:4', '3:4'],
+    ['9:16', '9:16'],
+    ['21:9', '21:9'],
+    ['adaptive', 'adaptive'],
+  ])(
+    'normalizes Seedance 2.5 ratio %s before submission',
+    async (ratio, expectedRatio) => {
+      const requests: RequestInit[] = [];
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          requests.push(init || {});
+          return (init?.method || 'GET') === 'POST'
+            ? jsonResponse({ id: 'seedance-25-ratio-task', status: 'queued' })
+            : jsonResponse({
+                id: 'seedance-25-ratio-task',
+                status: 'completed',
+                duration: 4,
+                metadata: {
+                  url: 'https://cdn.example.com/seedance-25-ratio.mp4',
+                },
+              });
+        }
+      ) as unknown as typeof fetch;
+
+      const resultPromise = seedance2VideoAdapter.generateVideo(
+        createContext(fetcher),
+        {
+          model: 'doubao-seedance-2-5-260628',
+          prompt: 'ratio regression',
+          size: ratio,
+          duration: 4,
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(resultPromise).resolves.toMatchObject({
+        url: 'https://cdn.example.com/seedance-25-ratio.mp4',
+      });
+      const submitBody = JSON.parse(String(requests[0]?.body));
+      expect(submitBody.ratio).toBe(expectedRatio);
+      expect(submitBody.resolution).toBeUndefined();
+    }
+  );
+
+  it('normalizes Auto to adaptive from explicit params', async () => {
+    const requests: RequestInit[] = [];
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(init || {});
+        return (init?.method || 'GET') === 'POST'
+          ? jsonResponse({ id: 'seedance-25-auto-task', status: 'queued' })
+          : jsonResponse({
+              id: 'seedance-25-auto-task',
+              status: 'completed',
+              duration: 4,
+              metadata: { url: 'https://cdn.example.com/seedance-25-auto.mp4' },
+            });
+      }
+    ) as unknown as typeof fetch;
+
+    const resultPromise = seedance2VideoAdapter.generateVideo(
+      createContext(fetcher),
+      {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'auto ratio regression',
+        duration: 4,
+        params: { ratio: 'Auto' },
+      }
+    );
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(resultPromise).resolves.toMatchObject({
+      url: 'https://cdn.example.com/seedance-25-auto.mp4',
+    });
+    expect(JSON.parse(String(requests[0]?.body)).ratio).toBe('adaptive');
+  });
+
+  it('rejects Seedance 2.5 durations outside 4-30 seconds before transport', async () => {
+    const fetcher = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'invalid duration',
+        duration: 3,
+      })
+    ).rejects.toThrow('4-30 秒整数');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a top-level provider message for Seedance submission errors', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ message: '请求参数无效，请检查后重试' }, 400)
+    ) as unknown as typeof fetch;
+
+    await expect(
+      seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'provider validation error',
+      })
+    ).rejects.toThrow('请求参数无效，请检查后重试');
+  });
+
   it('submits multiple workflow media references and deduplicates legacy values', async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ error: { message: 'captured' } }, 400)

@@ -1,3 +1,66 @@
+## 1.1.1 (2026-08-26)
+
+### 🔧 Chores
+
+- 功能：新增可恢复的 PPT 讲解视频工作流 (#231) ([8afc3402](https://github.com/ljquan/opentu/commit/8afc3402))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
+## 1.1.0 (2026-08-24)
+
+### 🚀 Features
+
+- 适配 Seedance 2.5 视频模型 (#239) ([b2e65f99](https://github.com/ljquan/opentu/commit/b2e65f99))
+
+### 🩹 Fixes
+
+- 修复 Seedance 2.5 比例参数适配 (#242) ([56b3e246](https://github.com/ljquan/opentu/commit/56b3e246))
+- preserve generated image dimensions and canvas rendering (#240) ([7f332970](https://github.com/ljquan/opentu/commit/7f332970))
+
+### 🔧 Chores
+
+- docs: 添加兔子 API 配置教程 (#241) ([c3b06c74](https://github.com/ljquan/opentu/commit/c3b06c74))
+- refactor(analytics): replace PostHog with Umami (#238) ([7c06de4f](https://github.com/ljquan/opentu/commit/7c06de4f))
+- 新增 Tuzi 账户管理 (#237) ([8dcb5698](https://github.com/ljquan/opentu/commit/8dcb5698))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- Liang <13642533686@163.com>
+
+## 1.0.20 (2026-08-21)
+
+### 🔧 Chores
+
+- 修复：任务队列多结果无法插入画布 (#236) ([ea212902](https://github.com/ljquan/opentu/commit/ea212902))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
+## 1.0.19 (2026-08-18)
+
+### 🩹 Fixes
+
+- 严格使用用户配置的供应商地址 (#235) ([7bcd532c](https://github.com/ljquan/opentu/commit/7bcd532c))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
+## 1.0.18 (2026-08-18)
+
+### 🔧 Chores
+
+- 功能：调整任务栏跟随控件布局 (#233) ([5693d734](https://github.com/ljquan/opentu/commit/5693d734))
+- 修复：永久关闭跟随后禁止覆盖原目标 (#229) ([0e7c242e](https://github.com/ljquan/opentu/commit/0e7c242e))
+
+### ❤️  Thank You
+
+- selwen-0102 <2548530499@qq.com>
+
 ## 1.0.17 (2026-08-12)
 
 ### 🚀 Features

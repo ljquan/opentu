@@ -564,6 +564,9 @@ export async function downloadVideoContentToLocalUrl(params: {
   binding?: ProviderModelBinding | null;
   modelId?: string | null;
   cacheKey?: string;
+  resultVisibility?: 'user' | 'internal';
+  signal?: AbortSignal;
+  fallbackToObjectUrl?: boolean;
 }): Promise<string> {
   const response = await providerTransport.send(params.provider, {
     path: resolveVideoDownloadPath(
@@ -576,6 +579,7 @@ export async function downloadVideoContentToLocalUrl(params: {
     headers: {
       Accept: 'video/*,application/octet-stream',
     },
+    signal: params.signal,
   });
 
   if (!response.ok) {
@@ -601,9 +605,15 @@ export async function downloadVideoContentToLocalUrl(params: {
     await unifiedCacheService.cacheMediaFromBlob(localUrl, blob, 'video', {
       taskId: cacheKey,
       model: params.modelId || undefined,
+      ...(params.resultVisibility
+        ? { resultVisibility: params.resultVisibility }
+        : {}),
     });
     return localUrl;
-  } catch {
+  } catch (error) {
+    if (params.fallbackToObjectUrl === false) {
+      throw error;
+    }
     return URL.createObjectURL(blob);
   }
 }

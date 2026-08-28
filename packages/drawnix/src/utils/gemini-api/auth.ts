@@ -4,6 +4,7 @@
 
 import { GeminiConfig } from './types';
 import { geminiSettings } from '../settings-manager';
+import { isTuziEmbeddedMode } from '../../services/tuzi-embedded-config';
 
 /**
  * DOM弹窗获取API Key
@@ -187,6 +188,7 @@ function isPlaceholder(value: string | null | undefined): boolean {
  */
 function getApiKeyFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
+  if (isTuziEmbeddedMode()) return null;
 
   const urlParams = new URLSearchParams(window.location.search);
   const apiKey = urlParams.get('apiKey');
@@ -208,6 +210,7 @@ function getApiKeyFromUrl(): string | null {
  */
 function getSettingsFromUrl(): { apiKey?: string; baseUrl?: string } | null {
   if (typeof window === 'undefined') return null;
+  if (isTuziEmbeddedMode()) return null;
 
   const urlParams = new URLSearchParams(window.location.search);
   const settingsParam = urlParams.get('settings');
@@ -265,6 +268,10 @@ function removeApiKeyFromUrl(): void {
  * 初始化设置：从URL获取settings参数并处理
  */
 export function initializeSettings(): void {
+  if (isTuziEmbeddedMode()) {
+    removeApiKeyFromUrl();
+    return;
+  }
   // 处理settings参数
   const settings = getSettingsFromUrl();
   // 处理单独的apiKey参数
@@ -291,17 +298,21 @@ export function initializeSettings(): void {
 
 // Initialize settings from URL if present
 if (typeof window !== 'undefined') {
-  // 处理settings参数
-  const settings = getSettingsFromUrl();
-  // 处理单独的apiKey参数
-  const apiKey = getApiKeyFromUrl();
-
-  if (settings?.apiKey || settings?.baseUrl || apiKey) {
-    geminiSettings.update({
-      ...(settings?.apiKey && { apiKey: settings.apiKey }),
-      ...(settings?.baseUrl && { baseUrl: settings.baseUrl }),
-      ...(apiKey && { apiKey: apiKey }),
-    });
+  if (isTuziEmbeddedMode()) {
     removeApiKeyFromUrl();
+  } else {
+    // 处理settings参数
+    const settings = getSettingsFromUrl();
+    // 处理单独的apiKey参数
+    const apiKey = getApiKeyFromUrl();
+
+    if (settings?.apiKey || settings?.baseUrl || apiKey) {
+      geminiSettings.update({
+        ...(settings?.apiKey && { apiKey: settings.apiKey }),
+        ...(settings?.baseUrl && { baseUrl: settings.baseUrl }),
+        ...(apiKey && { apiKey: apiKey }),
+      });
+      removeApiKeyFromUrl();
+    }
   }
 }

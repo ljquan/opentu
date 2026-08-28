@@ -129,13 +129,13 @@ describe('ModelDropdown', () => {
         onSelect={vi.fn()}
       />
     );
-    const wrapper = container.querySelector(
-      '.model-dropdown'
-    ) as HTMLElement;
+    const wrapper = container.querySelector('.model-dropdown') as HTMLElement;
     mockRect(wrapper, { top: 520, left: 42, bottom: 552, width: 180 });
 
     fireEvent.mouseDown(
-      container.querySelector('.model-dropdown__trigger--minimal') as HTMLElement
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
     );
 
     const menu = document.body.querySelector(
@@ -147,6 +147,32 @@ describe('ModelDropdown', () => {
     expect(menu.style.position).toBe('fixed');
     expect(menu.style.left).toBe('42px');
     expect(menu.style.bottom).toBe('84px');
+  });
+
+  it('没有候选模型时显示明确空态而不是默认模型代号', () => {
+    const { container } = render(
+      <ModelDropdown
+        selectedModel="doubao-seedance-2-0-260128"
+        models={[]}
+        onSelect={vi.fn()}
+        emptyTriggerLabel="暂无已配置视频模型"
+        emptyText="请先在供应商设置中获取并勾选视频模型"
+        strictModelList
+      />
+    );
+
+    const trigger = container.querySelector(
+      '.model-dropdown__trigger--minimal'
+    ) as HTMLElement;
+    expect(trigger.textContent).toContain('暂无已配置视频模型');
+    expect(trigger.textContent).not.toContain('#img');
+    expect(trigger.getAttribute('aria-label')).toContain('暂无已配置视频模型');
+
+    fireEvent.mouseDown(trigger);
+
+    expect(
+      screen.getByText('请先在供应商设置中获取并勾选视频模型')
+    ).not.toBeNull();
   });
 
   it('form 变体的 portal 菜单宽度不小于触发器宽度', () => {
@@ -179,5 +205,65 @@ describe('ModelDropdown', () => {
     expect(menu).toBeTruthy();
     expect(menu.style.width).toBe('680px');
     expect(menu.classList.contains('model-dropdown__menu--down')).toBe(true);
+  });
+
+  it('有 URL 和 API Key 的启用供应商即使没有模型也显示在供应商列', () => {
+    const { container } = render(
+      <ModelDropdown
+        selectedModel={baseModel.id}
+        selectedSelectionKey={baseModel.selectionKey}
+        models={[baseModel]}
+        providerProfilesOverride={[
+          {
+            id: 'tuzi-provider',
+            name: 'Tuzi Provider',
+            baseUrl: 'https://tuzi.example/v1',
+            apiKey: 'sk-test',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+            capabilities: {
+              supportsModelsEndpoint: true,
+              supportsText: true,
+              supportsImage: true,
+              supportsVideo: false,
+              supportsAudio: false,
+              supportsTools: false,
+            },
+          },
+          {
+            id: 'vip-provider',
+            name: 'vip',
+            baseUrl: 'http://localhost:3100/v1',
+            apiKey: 'sk-vip',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+            capabilities: {
+              supportsModelsEndpoint: true,
+              supportsText: true,
+              supportsImage: true,
+              supportsVideo: false,
+              supportsAudio: false,
+              supportsTools: false,
+            },
+          },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    fireEvent.mouseDown(
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
+    );
+
+    const menu = document.body.querySelector(
+      '.model-dropdown__menu'
+    ) as HTMLElement;
+
+    expect(menu.textContent).toContain('Tuzi Provider');
+    expect(menu.textContent).toContain('vip');
   });
 });
