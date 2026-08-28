@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import type { ModelConfig, ModelType } from '../constants/model-config';
 import {
   getConfiguredSelectableModels,
@@ -10,21 +14,19 @@ import {
 } from '../utils/runtime-model-discovery';
 import { LEGACY_DEFAULT_PROVIDER_PROFILE_ID } from '../utils/settings-manager';
 
+const subscribeRuntimeModelDiscovery = (listener: () => void) =>
+  runtimeModelDiscovery.subscribe(listener);
+const getRuntimeModelDiscoveryRevision = () =>
+  runtimeModelDiscovery.getRevision();
+
 export function useRuntimeModelDiscoveryState(
   profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID
 ): RuntimeModelDiscoveryState {
-  const [state, setState] = useState<RuntimeModelDiscoveryState>(() =>
-    runtimeModelDiscovery.getState(profileId)
-  );
-
-  useEffect(() => {
-    setState(runtimeModelDiscovery.getState(profileId));
-    return runtimeModelDiscovery.subscribe(() => {
-      setState(runtimeModelDiscovery.getState(profileId));
-    });
-  }, [profileId]);
-
-  return state;
+  const revision = useRuntimeModelDiscoveryRevision();
+  return useMemo(() => {
+    void revision;
+    return runtimeModelDiscovery.getState(profileId);
+  }, [profileId, revision]);
 }
 
 /**
@@ -45,23 +47,18 @@ function areModelListsEqual(a: ModelConfig[], b: ModelConfig[]): boolean {
 }
 
 function useRuntimeModelDiscoveryRevision(): number {
-  const [revision, setRevision] = useState(() =>
-    runtimeModelDiscovery.getRevision()
+  return useSyncExternalStore(
+    subscribeRuntimeModelDiscovery,
+    getRuntimeModelDiscoveryRevision,
+    getRuntimeModelDiscoveryRevision
   );
-  useEffect(
-    () =>
-      runtimeModelDiscovery.subscribe(() => {
-        setRevision(runtimeModelDiscovery.getRevision());
-      }),
-    []
-  );
-  return revision;
 }
 
 export function usePreferredModels(modelType: ModelType): ModelConfig[] {
   const state = useRuntimeModelDiscoveryState();
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
+    void state;
     const next = getPreferredModels(modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
@@ -73,6 +70,7 @@ export function useSelectableModels(modelType: ModelType): ModelConfig[] {
   const state = useRuntimeModelDiscoveryState();
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
+    void state;
     const next = getSelectableModels(modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
@@ -83,12 +81,11 @@ export function useSelectableModels(modelType: ModelType): ModelConfig[] {
 export function useConfiguredSelectableModels(
   modelType: ModelType
 ): ModelConfig[] {
-  useRuntimeModelDiscoveryRevision();
-  const prevRef = useRef<ModelConfig[]>([]);
-  const next = getConfiguredSelectableModels(modelType);
-  if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
-  prevRef.current = next;
-  return next;
+  const revision = useRuntimeModelDiscoveryRevision();
+  return useMemo(() => {
+    void revision;
+    return getConfiguredSelectableModels(modelType);
+  }, [modelType, revision]);
 }
 
 export function useProfilePreferredModels(
@@ -98,6 +95,7 @@ export function useProfilePreferredModels(
   const state = useRuntimeModelDiscoveryState(profileId);
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
+    void state;
     const next = getProfilePreferredModels(profileId, modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
