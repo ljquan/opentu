@@ -491,20 +491,9 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
           });
         }
       }
-
-      const taskItemCount = items.length - startIndex;
       configMap.set(task.id, {
-        mode:
-          task.type === TaskType.AUDIO && taskItemCount > 1
-            ? 'compare'
-            : 'single',
-        index:
-          task.type === TaskType.AUDIO && taskItemCount > 1
-            ? Array.from(
-                { length: Math.min(taskItemCount, 4) },
-                (_, offset) => startIndex + offset
-              )
-            : startIndex,
+        mode: 'single',
+        index: startIndex,
       });
     }
 

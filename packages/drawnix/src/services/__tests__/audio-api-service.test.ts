@@ -52,6 +52,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -62,15 +63,20 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
-    const result = await audioAPIService.generateAudioWithPolling({
-      model: 'suno_music',
-      prompt: 'write a heavy metal song',
-    }, {
-      interval: 1,
-      maxAttempts: 2,
-    });
+    const result = await audioAPIService.generateAudioWithPolling(
+      {
+        model: 'suno_music',
+        prompt: 'write a heavy metal song',
+      },
+      {
+        interval: 1,
+        maxAttempts: 2,
+      }
+    );
 
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(sendMock.mock.calls[0]?.[1]).toMatchObject({
@@ -112,6 +118,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -187,6 +194,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -197,7 +205,9 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
     const result = await audioAPIService.resumePolling(taskId, {
       interval: 1,
@@ -261,6 +271,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -277,6 +288,7 @@ describe('audio-api-service', () => {
       {
         model: 'suno_music',
         prompt: '继续完善副歌',
+        instrumental: true,
         continueClipId: 'clip-continue-1',
         continueTaskId: 'task-continue-1',
         continueAt: 32,
@@ -294,8 +306,11 @@ describe('audio-api-service', () => {
       path: '/suno/submit/music',
       method: 'POST',
     });
-    expect(JSON.parse(sendMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+    expect(
+      JSON.parse(sendMock.mock.calls[0]?.[1]?.body as string)
+    ).toMatchObject({
       prompt: '继续完善副歌',
+      make_instrumental: true,
       continue_clip_id: 'clip-continue-1',
       task_id: 'task-continue-1',
       continue_at: 32,
@@ -389,6 +404,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -399,7 +415,9 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
     const result = await audioAPIService.generateAudioWithPolling(
       {
@@ -469,6 +487,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -479,7 +498,9 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
     const result = await audioAPIService.generateAudioWithPolling(
       {
@@ -570,6 +591,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -580,7 +602,9 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
     const result = await audioAPIService.generateAudioWithPolling(
       {
@@ -654,6 +678,7 @@ describe('audio-api-service', () => {
     });
 
     vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
       resolveInvocationRoute: () => ({
         profileId: 'runtime',
         profileName: 'Runtime',
@@ -664,7 +689,9 @@ describe('audio-api-service', () => {
       }),
     }));
 
-    const { audioAPIService, extractAudioGenerationResult } = await import('../audio-api-service');
+    const { audioAPIService, extractAudioGenerationResult } = await import(
+      '../audio-api-service'
+    );
 
     const result = await audioAPIService.generateAudioWithPolling(
       {

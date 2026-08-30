@@ -1827,18 +1827,12 @@ const SEEDANCE_20_MODEL_IDS = [
   'doubao-seedance-2-0-mini-260615',
 ];
 
-const SEEDANCE_2_MODEL_IDS = [
-  ...SEEDANCE_20_MODEL_IDS,
-  SEEDANCE_25_MODEL_ID,
-];
+const SEEDANCE_2_MODEL_IDS = [...SEEDANCE_20_MODEL_IDS, SEEDANCE_25_MODEL_ID];
 
-const SEEDANCE_25_DURATION_OPTIONS = Array.from(
-  { length: 27 },
-  (_, index) => {
-    const value = String(index + 4);
-    return { value, label: `${value}秒` };
-  }
-);
+const SEEDANCE_25_DURATION_OPTIONS = Array.from({ length: 27 }, (_, index) => {
+  const value = String(index + 4);
+  return { value, label: `${value}秒` };
+});
 
 const SEEDANCE_25_RATIO_OPTIONS = [
   { value: '16:9', label: '16:9 横屏' },
@@ -2496,6 +2490,21 @@ export const AUDIO_PARAMS: ParamConfig[] = [
     shortLabel: '风格',
     description: '可选，使用逗号分隔多个风格标签',
     valueType: 'string',
+    compatibleModels: ['suno_music'],
+    compatibleTags: ['suno', 'audio', 'music'],
+    modelType: 'audio',
+  },
+  {
+    id: 'instrumental',
+    label: '纯音乐',
+    shortLabel: '纯音乐',
+    description: '只生成乐器演奏，不生成演唱人声',
+    valueType: 'enum',
+    options: [
+      { value: 'false', label: '可包含人声' },
+      { value: 'true', label: '仅纯音乐' },
+    ],
+    defaultValue: 'false',
     compatibleModels: ['suno_music'],
     compatibleTags: ['suno', 'audio', 'music'],
     modelType: 'audio',
