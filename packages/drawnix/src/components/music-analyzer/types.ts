@@ -60,6 +60,8 @@ export interface MusicAnalysisRecord {
   lyricsDraft?: string;
   styleTags?: string[];
   title?: string;
+  /** Whether the next Suno generation should be instrumental-only */
+  instrumental?: boolean;
   // 任务追踪
   analyzeTaskId?: string | null;
   pendingRewriteTaskId?: string | null;

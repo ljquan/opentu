@@ -232,6 +232,7 @@ export interface AudioGenerationParams {
   notifyHook?: string;
   title?: string;
   tags?: string;
+  instrumental?: boolean;
   mv?: string;
   continueClipId?: string;
   continueTaskId?: string;

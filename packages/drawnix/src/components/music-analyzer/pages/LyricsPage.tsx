@@ -6,6 +6,7 @@ import React, {
   useState,
 } from 'react';
 import type { MusicAnalysisRecord } from '../types';
+import { Switch } from 'tdesign-react';
 import { formatLyricsMarkdown } from '../types';
 import { updateRecord } from '../storage';
 import { taskQueueService } from '../../../services/task-queue';
@@ -65,6 +66,9 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   const [styleTagsInput, setStyleTagsInput] = useState(
     (record.styleTags || record.analysis?.genreTags || []).join(', ')
   );
+  const [instrumental, setInstrumental] = useState(
+    record.instrumental === true
+  );
   const [musicBrief, setMusicBrief] = useState<MusicBrief>(() =>
     normalizeMusicBrief(record.musicBrief)
   );
@@ -105,6 +109,7 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
     setStyleTagsInput(
       (record.styleTags || record.analysis?.genreTags || []).join(', ')
     );
+    setInstrumental(record.instrumental === true);
     setMusicBrief((current) => {
       const next = normalizeMusicBrief(record.musicBrief);
       return areMusicBriefsEqual(current, next) ? current : next;
@@ -124,6 +129,7 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         lyricsDraft,
         title,
         styleTags,
+        instrumental,
         musicBrief: normalizeMusicBrief(musicBrief),
         pendingRewriteTaskId,
       });
@@ -134,6 +140,7 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         lyricsDraft,
         title,
         styleTags,
+        instrumental,
         musicBrief: normalizeMusicBrief(musicBrief),
         pendingRewriteTaskId,
       });
@@ -148,6 +155,7 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
     record.id,
     rewritePrompt,
     styleTagsInput,
+    instrumental,
     title,
   ]);
 
@@ -176,6 +184,17 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   const activeVersionId = record.activeVersionId || ORIGINAL_VERSION_ID;
   const hasVersions = versions.length > 1;
   const creationPrompt = String(record.creationPrompt || '').trim();
+
+  const handleInstrumentalChange = useCallback(
+    (value: boolean) => {
+      setInstrumental(value);
+      onRecordUpdate({ ...record, instrumental: value });
+      void updateRecord(record.id, { instrumental: value }).then(
+        onRecordsChange
+      );
+    },
+    [onRecordUpdate, onRecordsChange, record]
+  );
 
   const handleSwitchVersion = useCallback(
     async (versionId: string) => {
@@ -386,6 +405,20 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         <MusicBriefEditor value={musicBrief} onChange={setMusicBrief} />
       </div>
 
+      <div className="ma-card ma-instrumental-card">
+        <div className="ma-card-header">
+          <span>纯音乐模式</span>
+          <span className="ma-muted">
+            不生成演唱人声，下一步可直接填写音乐描述
+          </span>
+        </div>
+        <Switch
+          value={instrumental}
+          onChange={(value) => handleInstrumentalChange(Boolean(value))}
+          label={instrumental ? '仅生成纯音乐' : '生成歌曲（可包含人声）'}
+        />
+      </div>
+
       <div className="ma-card">
         <div className="ma-card-header">
           <span>改写要求</span>
@@ -455,7 +488,8 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
             disabled={!!pendingRewriteTaskId}
           >
             {pendingRewriteTaskId
-              ? rewriteProgress || (isSunoModel ? '歌词生成中...' : '歌词改写中...')
+              ? rewriteProgress ||
+                (isSunoModel ? '歌词生成中...' : '歌词改写中...')
               : isSunoModel
               ? 'Suno 生成歌词'
               : 'AI 改写'}
@@ -512,7 +546,7 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         <button
           className="va-btn-primary"
           onClick={onNext}
-          disabled={!lyricsDraft.trim()}
+          disabled={!lyricsDraft.trim() && !instrumental}
         >
           下一步
         </button>
