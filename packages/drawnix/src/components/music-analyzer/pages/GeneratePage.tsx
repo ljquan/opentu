@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Switch } from 'tdesign-react';
 import type {
   GeneratedClip,
   MusicAnalysisRecord,
@@ -12,16 +19,20 @@ import { KnowledgeNoteContextSelector } from '../../shared';
 import { useSelectableModels } from '../../../hooks/use-runtime-models';
 import { getSelectionKey } from '../../../utils/model-selection';
 import type { ModelRef } from '../../../utils/settings-manager';
-import { getCompatibleParams, getDefaultAudioModel } from '../../../constants/model-config';
 import {
-  readStoredModelSelection,
-  writeStoredModelSelection,
-} from '../utils';
+  getCompatibleParams,
+  getDefaultAudioModel,
+} from '../../../constants/model-config';
+import { readStoredModelSelection, writeStoredModelSelection } from '../utils';
 import { analytics } from '../../../utils/umami-analytics';
 
 const STORAGE_KEY_AUDIO_MODEL = 'music-analyzer:audio-model';
 
-const ACTION_OPTIONS: Array<{ id: SunoMusicEditAction; label: string; hint: string }> = [
+const ACTION_OPTIONS: Array<{
+  id: SunoMusicEditAction;
+  label: string;
+  hint: string;
+}> = [
   { id: 'generate', label: '新生成', hint: '从零生成完整音乐' },
   { id: 'continue', label: '续写', hint: '从已有片段继续创作' },
   { id: 'infill', label: 'Infill', hint: '局部重绘指定时间窗口' },
@@ -45,7 +56,9 @@ function toOptionalNumber(value: string): number | null {
 }
 
 function toNumberInputValue(value?: number | null): string {
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+  return typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : '';
 }
 
 function toStyleTags(value: string): string[] {
@@ -56,7 +69,9 @@ function toStyleTags(value: string): string[] {
 }
 
 function getActionLabel(action: SunoMusicEditAction): string {
-  return ACTION_OPTIONS.find((option) => option.id === action)?.label || '新生成';
+  return (
+    ACTION_OPTIONS.find((option) => option.id === action)?.label || '新生成'
+  );
 }
 
 function getDefaultContinueAt(clip: GeneratedClip): string {
@@ -82,21 +97,30 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const [title, setTitle] = useState(record.title || '');
   const [tags, setTags] = useState((record.styleTags || []).join(', '));
   const [prompt, setPrompt] = useState(record.lyricsDraft || '');
+  const [instrumental, setInstrumental] = useState(
+    record.instrumental === true
+  );
   const [knowledgeContextRefs, setKnowledgeContextRefs] = useState<
     KnowledgeContextRef[]
   >([]);
   const [mv, setMv] = useState('chirp-v5-5');
   const [batchCount, setBatchCount] = useState(1);
   const [selectedModel, setSelectedModelState] = useState(
-    () => readStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, getDefaultAudioModel()).modelId
+    () =>
+      readStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, getDefaultAudioModel())
+        .modelId
   );
   const [selectedModelRef, setSelectedModelRef] = useState<ModelRef | null>(
-    () => readStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, getDefaultAudioModel()).modelRef
+    () =>
+      readStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, getDefaultAudioModel())
+        .modelRef
   );
   const [action, setAction] = useState<SunoMusicEditAction>(
     record.musicEditAction || 'generate'
   );
-  const [continueClipId, setContinueClipId] = useState(record.continueFromClipId || '');
+  const [continueClipId, setContinueClipId] = useState(
+    record.continueFromClipId || ''
+  );
   const [continueAtInput, setContinueAtInput] = useState(
     toNumberInputValue(record.continueAt)
   );
@@ -111,16 +135,20 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const generatingRef = useRef(false);
 
-  const setSelectedModel = useCallback((model: string, modelRef?: ModelRef | null) => {
-    setSelectedModelState(model);
-    setSelectedModelRef(modelRef || null);
-    writeStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, model, modelRef);
-  }, []);
+  const setSelectedModel = useCallback(
+    (model: string, modelRef?: ModelRef | null) => {
+      setSelectedModelState(model);
+      setSelectedModelRef(modelRef || null);
+      writeStoredModelSelection(STORAGE_KEY_AUDIO_MODEL, model, modelRef);
+    },
+    []
+  );
 
   useEffect(() => {
     setTitle(record.title || '');
     setTags((record.styleTags || []).join(', '));
     setPrompt(record.lyricsDraft || '');
+    setInstrumental(record.instrumental === true);
     setAction(record.musicEditAction || 'generate');
     setContinueClipId(record.continueFromClipId || '');
     setContinueAtInput(toNumberInputValue(record.continueAt));
@@ -139,6 +167,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         title,
         styleTags,
         lyricsDraft: prompt,
+        instrumental,
         musicEditAction: action,
         continueFromClipId: continueClipId || null,
         continueAt,
@@ -163,6 +192,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     onRecordsChange,
     prompt,
     record.id,
+    instrumental,
     tags,
     title,
   ]);
@@ -195,7 +225,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     [clips]
   );
   const selectedClip = useMemo(
-    () => selectableClips.find((clip) => clip.clipId === continueClipId) || null,
+    () =>
+      selectableClips.find((clip) => clip.clipId === continueClipId) || null,
     [continueClipId, selectableClips]
   );
   const requiresContinuation = action !== 'generate';
@@ -212,9 +243,13 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
       setContinueClipId(clip.clipId);
       setContinueAtInput((current) => current || getDefaultContinueAt(clip));
       if (nextAction === 'continue') {
-        setMessage(`已带入片段「${clip.title || clip.clipId.slice(0, 8)}」用于续写`);
+        setMessage(
+          `已带入片段「${clip.title || clip.clipId.slice(0, 8)}」用于续写`
+        );
       } else {
-        setMessage(`已带入片段「${clip.title || clip.clipId.slice(0, 8)}」用于 Infill`);
+        setMessage(
+          `已带入片段「${clip.title || clip.clipId.slice(0, 8)}」用于 Infill`
+        );
       }
     },
     []
@@ -289,6 +324,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         promptLength: trimmedPrompt.length,
         hasTitle: !!trimmedTitle,
         tagsCount: toStyleTags(trimmedTags).length,
+        instrumental,
         hasMv: !!mv,
         hasModelRef: !!selectedModelRef,
       },
@@ -308,11 +344,18 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
             sunoAction: 'music',
             title: trimmedTitle,
             tags: trimmedTags,
+            instrumental,
             mv,
             continueClipId: requiresContinuation ? continueClipId : undefined,
-            continueTaskId: requiresContinuation ? selectedClip?.taskId : undefined,
-            continueAt: requiresContinuation ? continueAt ?? undefined : undefined,
-            infillStartS: requiresInfill ? infillStartS ?? undefined : undefined,
+            continueTaskId: requiresContinuation
+              ? selectedClip?.taskId
+              : undefined,
+            continueAt: requiresContinuation
+              ? continueAt ?? undefined
+              : undefined,
+            infillStartS: requiresInfill
+              ? infillStartS ?? undefined
+              : undefined,
             infillEndS: requiresInfill ? infillEndS ?? undefined : undefined,
             knowledgeContextRefs,
             batchId: `ma_${record.id}_${batchAction}_${i}`,
@@ -330,6 +373,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         title: trimmedTitle,
         styleTags: toStyleTags(trimmedTags),
         lyricsDraft: trimmedPrompt,
+        instrumental,
         musicEditAction: action,
         continueFromClipId: continueClipId || null,
         continueAt,
@@ -342,7 +386,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         ...record,
         ...patch,
       });
-      setMessage(`已提交 ${batchCount} 次${getActionLabel(action)}任务到 Suno 队列`);
+      setMessage(
+        `已提交 ${batchCount} 次${getActionLabel(action)}任务到 Suno 队列`
+      );
     } catch (taskError: any) {
       setMessage(taskError.message || '提交生成任务失败');
     } finally {
@@ -356,6 +402,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     continueClipId,
     infillEndInput,
     infillStartInput,
+    instrumental,
     knowledgeContextRefs,
     mv,
     onRecordUpdate,
@@ -384,7 +431,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           {ACTION_OPTIONS.map((option) => (
             <button
               key={option.id}
-              className={`ma-action-btn ${action === option.id ? 'active' : ''}`}
+              className={`ma-action-btn ${
+                action === option.id ? 'active' : ''
+              }`}
               onClick={() => setAction(option.id)}
             >
               {option.label}
@@ -399,7 +448,10 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         </div>
         <ModelDropdown
           selectedModel={selectedModel}
-          selectedSelectionKey={getSelectionKey(selectedModel, selectedModelRef)}
+          selectedSelectionKey={getSelectionKey(
+            selectedModel,
+            selectedModelRef
+          )}
           onSelect={setSelectedModel}
           models={sunoModels.length > 0 ? sunoModels : audioModels}
           variant="form"
@@ -447,7 +499,9 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
               ))}
             </select>
           ) : (
-            <div className="ma-hint">先生成至少一个片段，才能使用续写或 Infill。</div>
+            <div className="ma-hint">
+              先生成至少一个片段，才能使用续写或 Infill。
+            </div>
           )}
           {selectedClip && (
             <div className="ma-hint">
@@ -462,7 +516,11 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
           <div className="ma-card-header">
             <span>编辑参数</span>
           </div>
-          <div className={`ma-fields-grid ${requiresInfill ? 'ma-fields-grid--triple' : ''}`}>
+          <div
+            className={`ma-fields-grid ${
+              requiresInfill ? 'ma-fields-grid--triple' : ''
+            }`}
+          >
             <label className="ma-field">
               <span>续写起点秒数</span>
               <input
@@ -531,16 +589,36 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
         />
       </div>
 
+      <div className="ma-card ma-instrumental-card">
+        <div className="ma-card-header">
+          <span>纯音乐模式</span>
+          <span className="ma-muted">强制传递给 Suno，避免生成演唱或朗诵</span>
+        </div>
+        <Switch
+          value={instrumental}
+          onChange={(value) => setInstrumental(Boolean(value))}
+          label={instrumental ? '仅生成纯音乐' : '生成歌曲（可包含人声）'}
+        />
+      </div>
+
       <div className="ma-card">
         <div className="ma-card-header">
-          <span>提交给 Suno 的歌词/提示词</span>
+          <span>
+            {instrumental
+              ? '提交给 Suno 的纯音乐描述/提示词'
+              : '提交给 Suno 的歌词/提示词'}
+          </span>
         </div>
         <textarea
           className="ma-textarea"
           rows={10}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder="这里的内容会直接作为 prompt 提交给 Suno"
+          placeholder={
+            instrumental
+              ? '描述乐器、节奏、情绪和场景，例如：舒缓钢琴与弦乐纯音乐，无人声'
+              : '这里的内容会直接作为 prompt 提交给 Suno'
+          }
         />
         <KnowledgeNoteContextSelector
           value={knowledgeContextRefs}
@@ -632,10 +710,17 @@ const ClipCard: React.FC<{
       <div className="ma-clip-meta">
         <span className="ma-clip-title">{clip.title || '未命名'}</span>
         {clip.duration != null && (
-          <span className="ma-clip-duration">{formatDuration(clip.duration)}</span>
+          <span className="ma-clip-duration">
+            {formatDuration(clip.duration)}
+          </span>
         )}
       </div>
-      <audio controls src={clip.audioUrl} className="ma-clip-player" preload="metadata" />
+      <audio
+        controls
+        src={clip.audioUrl}
+        className="ma-clip-player"
+        preload="metadata"
+      />
       <div className="ma-clip-actions">
         <button
           className="ma-clip-action-btn"

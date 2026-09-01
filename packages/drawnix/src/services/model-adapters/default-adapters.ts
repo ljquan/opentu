@@ -322,6 +322,7 @@ export const sunoAudioAdapter: AudioModelAdapter = {
         prompt: request.prompt,
         title: request.title,
         tags: request.tags,
+        instrumental: request.instrumental,
         mv: request.mv,
         sunoAction: request.sunoAction,
         notifyHook: request.notifyHook,

@@ -779,6 +779,7 @@ class GenerationAPIService {
           modelRef: requestedModelRef || null,
           title: params.title,
           tags: params.tags,
+          instrumental: params.instrumental,
           mv: params.mv,
           sunoAction: params.sunoAction,
           notifyHook: params.notifyHook,

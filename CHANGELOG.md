@@ -1,3 +1,15 @@
+## 1.1.4 (2026-08-31)
+
+### 🔧 Chores
+
+- 修复 Suno 纯音乐、多音轨结果与画布播放 (#246) ([ae01e51f](https://github.com/ljquan/opentu/commit/ae01e51f))
+- 修复：统一供应商设置页面跳转行为 (#245) ([ab344c47](https://github.com/ljquan/opentu/commit/ab344c47))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- Liang <13642533686@163.com>
+
 ## 1.1.3 (2026-08-28)
 
 ### 🩹 Fixes

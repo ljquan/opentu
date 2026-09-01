@@ -30,6 +30,7 @@ export interface AudioGenerationParams {
   notifyHook?: string;
   title?: string;
   tags?: string;
+  instrumental?: boolean;
   mv?: string;
   continueSource?: 'clip' | 'upload';
   continueClipId?: string;
@@ -71,6 +72,7 @@ async function executeAsync(params: AudioGenerationParams): Promise<MCPResult> {
       notifyHook: params.notifyHook,
       title: params.title,
       tags: params.tags,
+      instrumental: params.instrumental,
       mv: params.mv,
       continueClipId: params.continueClipId,
       continueTaskId: params.continueTaskId,
@@ -131,6 +133,7 @@ function getAudioQueueConfig(params: AudioGenerationParams) {
       notifyHook: params.notifyHook,
       title: params.title,
       tags: params.tags,
+      instrumental: params.instrumental,
       mv: params.mv,
       continueClipId: params.continueClipId,
       continueTaskId: params.continueTaskId,
@@ -200,6 +203,10 @@ export const audioGenerationTool: MCPTool = {
       tags: {
         type: 'string',
         description: '风格标签，逗号分隔',
+      },
+      instrumental: {
+        type: 'boolean',
+        description: '是否只生成纯音乐，不生成演唱人声',
       },
       mv: {
         type: 'string',

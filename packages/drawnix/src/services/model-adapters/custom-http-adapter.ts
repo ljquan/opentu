@@ -295,6 +295,8 @@ export const customHttpAudioAdapter: AudioModelAdapter = {
         ...(request.params || {}),
         title: request.title,
         tags: request.tags,
+        instrumental: request.instrumental,
+        make_instrumental: request.instrumental,
         mv: request.mv,
         sunoAction: request.sunoAction,
         notifyHook: request.notifyHook,

@@ -213,6 +213,8 @@ export interface GenerationParams {
   title?: string;
   /** Audio style tags */
   tags?: string;
+  /** Whether Suno should generate instrumental-only audio */
+  instrumental?: boolean;
   /** Audio model version */
   mv?: string;
   /** Suno action type (e.g. music or lyrics) */
