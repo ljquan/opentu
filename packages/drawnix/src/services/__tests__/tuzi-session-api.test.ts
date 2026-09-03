@@ -14,19 +14,41 @@ const config = {
 };
 
 describe('tuzi embedded config', () => {
-  it('requires both the trusted build flag and a valid HTTP API URL', () => {
+  it('enables with the public Tuzi API by default', () => {
+    expect(readTuziEmbeddedConfig({})).toMatchObject({
+      enabled: true,
+      apiBaseUrl: 'https://api.tu-zi.com',
+    });
+  });
+
+  it('only disables with an explicit false flag', () => {
     expect(
       readTuziEmbeddedConfig({
-        VITE_TUZI_EMBEDDED_MODE: 'true',
         VITE_TUZI_API_BASE_URL: 'http://localhost:3100/',
       })
     ).toMatchObject({ enabled: true, apiBaseUrl: 'http://localhost:3100' });
     expect(
       readTuziEmbeddedConfig({
-        VITE_TUZI_EMBEDDED_MODE: 'true',
+        VITE_TUZI_EMBEDDED_MODE: 'false',
+        VITE_TUZI_API_BASE_URL: 'http://localhost:3100/',
+      }).enabled
+    ).toBe(false);
+    expect(
+      readTuziEmbeddedConfig({
         VITE_TUZI_API_BASE_URL: 'javascript:alert(1)',
       }).enabled
     ).toBe(false);
+  });
+
+  it('allows a valid API URL to override the public default', () => {
+    expect(
+      readTuziEmbeddedConfig({
+        VITE_TUZI_API_BASE_URL: 'http://192.168.50.218:3100/',
+      })
+    ).toMatchObject({
+      enabled: true,
+      apiBaseUrl: 'http://192.168.50.218:3100',
+    });
   });
 
   it('keeps the configured API host for loopback pages and follows LAN hosts', () => {

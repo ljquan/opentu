@@ -13,15 +13,14 @@ OpenTu 的 Tuzi 账户页使用用户在浏览器中提供的系统访问令牌�
 
 ## 构建配置
 
-生产构建启用 Tuzi 集成时配置：
+Tuzi 集成默认开启，API 地址默认使用 `https://api.tu-zi.com`，标准生产部署无需配置这两项。需要切换到其他 Tuzi API 时才设置：
 
 ```env
-VITE_TUZI_EMBEDDED_MODE=true
-VITE_TUZI_API_BASE_URL=https://api.tu-zi.com
+VITE_TUZI_API_BASE_URL=https://其他-tuzi-api.example.com
 VITE_TUZI_PARENT_ORIGIN=https://api.tu-zi.com
 ```
 
-`VITE_TUZI_PARENT_ORIGIN` 当前仅保留为嵌入来源配置。系统令牌和用户 ID 必须由用户输入或 URL 参数提供。
+只有明确设置 `VITE_TUZI_EMBEDDED_MODE=false` 时才关闭 Tuzi 集成。`VITE_TUZI_PARENT_ORIGIN` 当前仅保留为嵌入来源配置。系统令牌和用户 ID 必须由用户输入或 URL 参数提供。
 
 ## 反向代理
 

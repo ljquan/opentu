@@ -4,11 +4,13 @@ export interface TuziEmbeddedConfig {
   parentOrigin: string | null;
 }
 
+const DEFAULT_TUZI_API_BASE_URL = 'https://api.tu-zi.com';
+
 function parseEnabled(value: unknown): boolean {
   return (
-    String(value || '')
+    String(value ?? '')
       .trim()
-      .toLowerCase() === 'true'
+      .toLowerCase() !== 'false'
   );
 }
 
@@ -74,8 +76,13 @@ export function readTuziEmbeddedConfig(
     : window.location.origin
 ): TuziEmbeddedConfig {
   const requested = parseEnabled(env.VITE_TUZI_EMBEDDED_MODE);
+  const configuredApiBaseUrl =
+    env.VITE_TUZI_API_BASE_URL === undefined ||
+    String(env.VITE_TUZI_API_BASE_URL).trim() === ''
+      ? DEFAULT_TUZI_API_BASE_URL
+      : env.VITE_TUZI_API_BASE_URL;
   const apiBaseUrl = followLocalPageHostname(
-    normalizeHttpOrigin(env.VITE_TUZI_API_BASE_URL),
+    normalizeHttpOrigin(configuredApiBaseUrl),
     normalizeHttpOrigin(pageOrigin)
   );
   const parentOrigin = normalizeHttpOrigin(env.VITE_TUZI_PARENT_ORIGIN);
