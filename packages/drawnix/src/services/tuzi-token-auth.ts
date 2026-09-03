@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'opentu.tuzi.systemToken.v1';
 const USER_ID_STORAGE_KEY = 'opentu.tuzi.systemUserId.v1';
 const MAX_TOKEN_LENGTH = 4096;
+let tuziCredentialsProvidedByUrl = false;
 
 function normalizeToken(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -183,10 +184,17 @@ export function initializeTuziSystemTokenFromUrl(): string {
   if (typeof window === 'undefined') return '';
   const userId = getTuziSystemUserIdFromHref(window.location.href);
   const token = getTuziSystemTokenFromHref(window.location.href);
+  if (userId || token) {
+    tuziCredentialsProvidedByUrl = true;
+  }
   if (userId) saveTuziSystemUserId(userId);
   if (token) saveTuziSystemToken(token);
   if (userId || token) removeTuziSystemTokenFromUrl();
   return token;
+}
+
+export function wasTuziCredentialsProvidedByUrl(): boolean {
+  return tuziCredentialsProvidedByUrl;
 }
 
 if (typeof window !== 'undefined') {

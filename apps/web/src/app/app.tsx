@@ -19,6 +19,10 @@ import {
   markTabSyncVersion,
   requestServiceWorkerIdlePrefetch,
   MessagePlugin,
+  hasTuziSystemToken,
+  isTuziEmbeddedMode,
+  syncTuziSessionProvidersOnStartup,
+  wasTuziCredentialsProvidedByUrl,
 } from '@drawnix/drawnix/runtime';
 import type {
   PlaitBoard,
@@ -67,6 +71,10 @@ type BoardCloseSnapshot = BoardPersistencePayload & {
 type BootController = {
   markReady: () => void;
   markError: (message?: string) => void;
+  setProgress?: (
+    progress?: number,
+    options?: { tip?: string; source?: 'phase' }
+  ) => void;
 };
 
 function getBootController(): BootController | undefined {
@@ -75,6 +83,50 @@ function getBootController(): BootController | undefined {
   }
   return (window as Window & { __OPENTU_BOOT__?: BootController })
     .__OPENTU_BOOT__;
+}
+
+function updateBootStatus(options: { progress?: number; tip?: string }): void {
+  getBootController()?.setProgress?.(options.progress, {
+    tip: options.tip,
+    source: 'phase',
+  });
+}
+
+let tuziStartupPromise: Promise<boolean> | null = null;
+
+function shouldWaitForTuziStartup(): boolean {
+  return (
+    wasTuziCredentialsProvidedByUrl() &&
+    isTuziEmbeddedMode() &&
+    hasTuziSystemToken()
+  );
+}
+
+function getTuziStartupPromise(): Promise<boolean> | null {
+  if (!shouldWaitForTuziStartup()) {
+    return null;
+  }
+  if (!tuziStartupPromise) {
+    updateBootStatus({
+      progress: 88,
+      tip: '正在加载 Tuzi 供应商和模型，请稍候...',
+    });
+    tuziStartupPromise = syncTuziSessionProvidersOnStartup();
+  }
+  return tuziStartupPromise;
+}
+
+async function waitForTuziStartup(
+  startupPromise: Promise<boolean> | null
+): Promise<void> {
+  if (!startupPromise) return;
+  const synchronized = await startupPromise;
+  updateBootStatus({
+    progress: synchronized ? 96 : 92,
+    tip: synchronized
+      ? 'Tuzi 供应商模型已就绪，正在进入工作台...'
+      : 'Tuzi 数据同步未完成，正在进入工作台...',
+  });
 }
 
 /**
@@ -276,13 +328,22 @@ export function App() {
         return;
       }
 
+      const tuziStartup = crashRecoveryService.isSafeMode()
+        ? null
+        : getTuziStartupPromise();
+
       // Prevent duplicate initialization in StrictMode
       if (appInitialized) {
         // 等待 workspaceService 完全初始化
         const workspaceService = WorkspaceService.getInstance();
         // 首屏壳子已可挂载，不再等待工作区数据恢复完成才结束启动遮罩。
-        setIsLoading(false);
-        await workspaceService.waitForInitialization();
+        if (!tuziStartup) {
+          setIsLoading(false);
+        }
+        await Promise.all([
+          workspaceService.waitForInitialization(),
+          waitForTuziStartup(tuziStartup),
+        ]);
         // 使用 switchBoard 确保加载完整数据
         const currentBoardId = workspaceService.getState().currentBoardId;
         // 验证画板是否存在，防止旧状态中的 currentBoardId 指向不存在的画板
@@ -317,7 +378,9 @@ export function App() {
       try {
         const workspaceService = WorkspaceService.getInstance();
         // boot loading 只覆盖首屏壳子资源，不阻塞后续工作区初始化与缓存预热。
-        setIsLoading(false);
+        if (!tuziStartup) {
+          setIsLoading(false);
+        }
         await workspaceService.initialize();
 
         // Check and perform migration if needed
@@ -508,6 +571,8 @@ export function App() {
               console.error('[App] Video URL recovery failed:', error);
             });
         }
+
+        await waitForTuziStartup(tuziStartup);
       } catch (error) {
         console.error('[App] Initialization failed:', error);
         setInitError(error instanceof Error ? error : new Error(String(error)));

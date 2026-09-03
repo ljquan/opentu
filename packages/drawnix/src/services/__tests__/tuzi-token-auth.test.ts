@@ -5,6 +5,7 @@ import {
   getTuziSystemUserId,
   getTuziSystemUserIdFromHref,
   initializeTuziSystemTokenFromUrl,
+  wasTuziCredentialsProvidedByUrl,
 } from '../tuzi-token-auth';
 
 describe('Tuzi URL credentials', () => {
@@ -49,6 +50,7 @@ describe('Tuzi URL credentials', () => {
     );
 
     expect(initializeTuziSystemTokenFromUrl()).toBe('system-token');
+    expect(wasTuziCredentialsProvidedByUrl()).toBe(true);
     expect(getTuziSystemUserId()).toBe('40832');
     expect(window.location.search).toBe('?board=board-id');
   });
