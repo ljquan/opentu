@@ -5,6 +5,7 @@ import {
   TUZI_MIX_PROVIDER_PROFILE_ID,
   TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
   TUZI_PROVIDER_ICON_URL,
+  providerCatalogsSettings,
   providerProfilesSettings,
 } from '../utils/settings-manager';
 import type { ProviderProfile } from '../utils/settings-types';
@@ -33,7 +34,9 @@ function tuziV1BaseUrl(): string {
 }
 
 function pricingUrl(): string {
-  return `${tuziEmbeddedConfig.apiBaseUrl?.replace(/\/+$/, '') || ''}/api/pricing`;
+  return `${
+    tuziEmbeddedConfig.apiBaseUrl?.replace(/\/+$/, '') || ''
+  }/api/pricing`;
 }
 
 function managedProviderName(provider: TuziManagedProvider): string {
@@ -49,8 +52,7 @@ function defaultTemplate(profiles: ProviderProfile[]): ProviderProfile | null {
   return (
     profiles.find(
       (profile) => profile.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID
-    ) ||
-    null
+    ) || null
   );
 }
 
@@ -83,15 +85,18 @@ export async function synchronizeTuziManagedProviders(
 ): Promise<void> {
   const existing = providerProfilesSettings.get();
   const template = defaultTemplate(existing);
-  const incoming = new Map(providers.map((provider) => [provider.id, provider]));
+  const incoming = new Map(
+    providers.map((provider) => [provider.id, provider])
+  );
   const retained = existing.filter(
     (profile) =>
-      !profile.id.startsWith(MANAGED_PROVIDER_PREFIX) || incoming.has(profile.id)
+      !profile.id.startsWith(MANAGED_PROVIDER_PREFIX) ||
+      incoming.has(profile.id)
   );
   const merged = retained.map((profile) => {
     const provider = incoming.get(profile.id);
     if (provider) return { ...profile, ...toProfile(provider, template) };
-    if (providers.length > 0 && BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id)) {
+    if (BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id)) {
       return { ...profile, enabled: false };
     }
     return profile;
@@ -101,4 +106,12 @@ export async function synchronizeTuziManagedProviders(
     if (!knownIds.has(provider.id)) merged.push(toProfile(provider, template));
   });
   await providerProfilesSettings.update(merged);
+  const validProfileIds = new Set(merged.map((profile) => profile.id));
+  const existingCatalogs = providerCatalogsSettings.get();
+  const retainedCatalogs = existingCatalogs.filter((catalog) =>
+    validProfileIds.has(catalog.profileId)
+  );
+  if (retainedCatalogs.length !== existingCatalogs.length) {
+    await providerCatalogsSettings.update(retainedCatalogs);
+  }
 }

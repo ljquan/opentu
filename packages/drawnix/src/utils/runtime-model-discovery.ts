@@ -29,6 +29,8 @@ import {
   isSunoLikeModelId,
 } from './suno-model-aliases';
 import { sortModelsByDisplayPriority } from './model-sort';
+import { isTuziEmbeddedMode } from '../services/tuzi-embedded-config';
+import { hasTuziSystemToken } from '../services/tuzi-token-auth';
 
 const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 
@@ -1210,7 +1212,7 @@ function getProfileById(profileId: string): ProviderProfile | null {
 
 function isProfileEnabled(profileId: string): boolean {
   if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
-    return true;
+    return !isTuziEmbeddedMode() || hasTuziSystemToken();
   }
 
   return getProfileById(profileId)?.enabled !== false;

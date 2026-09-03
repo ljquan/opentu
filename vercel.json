@@ -5,6 +5,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/__opentu_tuzi_session__/:path*",
+      "destination": "https://api.tu-zi.com/:path*"
+    },
+    {
       "source": "/__opentu_tuzi_proxy__/api/:path*",
       "destination": "https://api.tu-zi.com/:path*"
     },

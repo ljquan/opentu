@@ -1,14 +1,27 @@
 import { isTuziEmbeddedMode } from './tuzi-embedded-config';
+import { hasTuziSystemToken } from './tuzi-token-auth';
 import { synchronizeTuziManagedProviders } from './tuzi-managed-providers';
-import { TuziSessionApiClient, TuziSessionApiError } from './tuzi-session-api';
+import { TuziSessionApiClient } from './tuzi-session-api';
 import { discoverChangedTuziProviderModels } from './tuzi-managed-provider-models';
 import { providerProfilesSettings } from '../utils/settings-manager';
 
 let activeSync: Promise<boolean> | null = null;
+let lastSuccessfulSyncAt = 0;
+const SYNC_CACHE_TTL_MS = 60_000;
 
-export function syncTuziSessionProviders(): Promise<boolean> {
-  if (!isTuziEmbeddedMode()) return Promise.resolve(false);
+export function resetTuziSessionProviderSyncCache(): void {
+  lastSuccessfulSyncAt = 0;
+}
+
+export function syncTuziSessionProviders(options?: {
+  discoverModels?: boolean;
+}): Promise<boolean> {
+  if (!isTuziEmbeddedMode() || !hasTuziSystemToken())
+    return Promise.resolve(false);
   if (activeSync) return activeSync;
+  if (Date.now() - lastSuccessfulSyncAt < SYNC_CACHE_TTL_MS) {
+    return Promise.resolve(true);
+  }
 
   activeSync = (async () => {
     try {
@@ -18,16 +31,24 @@ export function syncTuziSessionProviders(): Promise<boolean> {
           .filter((profile) => profile.id.startsWith('tuzi-managed-'))
           .map((profile) => [profile.id, profile.apiKey])
       );
-      const providers = await new TuziSessionApiClient().ensureManagedProviders();
+      const providers =
+        await new TuziSessionApiClient().ensureManagedProviders();
       await synchronizeTuziManagedProviders(providers);
-      await discoverChangedTuziProviderModels(providers, previousApiKeys);
+      if (options?.discoverModels !== false) {
+        await discoverChangedTuziProviderModels(providers, previousApiKeys);
+      }
+      lastSuccessfulSyncAt = Date.now();
       return true;
     } catch (error) {
-      if (
-        error instanceof TuziSessionApiError &&
-        (error.code === 'SESSION_EXPIRED' || error.code === 'ACCOUNT_DISABLED')
-      ) {
+      // Never leave stale managed keys visible when the session cannot be
+      // verified. A later focus/visibility sync will repopulate them.
+      try {
         await synchronizeTuziManagedProviders([]);
+      } catch (clearError) {
+        console.warn(
+          '[Tuzi] Failed to clear unavailable Session providers:',
+          clearError
+        );
       }
       console.warn('[Tuzi] Failed to synchronize Session providers:', error);
       return false;

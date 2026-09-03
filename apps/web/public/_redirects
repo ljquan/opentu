@@ -4,6 +4,7 @@
 /mindmap-maker.html         /user-manual/drawing-mindmap.html                  301
 
 # 固定 Tuzi 同源代理必须位于 SPA 通配规则之前
+/__opentu_tuzi_session__/*              https://api.tu-zi.com/:splat          200!
 /__opentu_tuzi_proxy__/api/*             https://api.tu-zi.com/:splat          200!
 /__opentu_tuzi_proxy__/apius/*           https://apius.tu-zi.com/:splat        200!
 /__opentu_tuzi_proxy__/apicdn/*          https://apicdn.tu-zi.com/:splat       200!

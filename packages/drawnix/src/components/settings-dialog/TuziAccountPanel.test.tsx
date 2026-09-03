@@ -16,6 +16,7 @@ const {
   getLogs,
   getModels,
   getUsageSummary,
+  getProfiles,
   rotateManagedProvider,
   synchronizeTuziManagedProviders,
   discoverAndUseAllTuziProviderModels,
@@ -26,6 +27,7 @@ const {
   getLogs: vi.fn(),
   getModels: vi.fn(),
   getUsageSummary: vi.fn(),
+  getProfiles: vi.fn(),
   rotateManagedProvider: vi.fn(),
   synchronizeTuziManagedProviders: vi.fn(),
   discoverAndUseAllTuziProviderModels: vi.fn(),
@@ -61,7 +63,12 @@ vi.mock('../../services/tuzi-managed-provider-models', () => ({
   discoverAndUseAllTuziProviderModels,
 }));
 
+vi.mock('../../utils/settings-manager', () => ({
+  providerProfilesSettings: { get: getProfiles },
+}));
+
 vi.mock('../../services/tuzi-embedded-config', () => ({
+  isTuziEmbeddedMode: () => true,
   tuziEmbeddedConfig: {
     enabled: true,
     apiBaseUrl: 'http://localhost:5173',
@@ -73,6 +80,8 @@ describe('TuziAccountPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    window.localStorage.setItem('opentu.tuzi.systemToken.v1', 'system-token');
+    window.localStorage.setItem('opentu.tuzi.systemUserId.v1', '40832');
     getAccount.mockResolvedValue({
       id: 1,
       role: 1,
@@ -154,11 +163,41 @@ describe('TuziAccountPanel', () => {
     discoverAndUseAllTuziProviderModels.mockResolvedValue(2);
     getModels.mockResolvedValue(['hidden-model']);
     getUsageSummary.mockResolvedValue({ quota: 70, rpm: 0, tpm: 0 });
+    getProfiles.mockReturnValue([
+      {
+        id: 'tuzi-managed-default',
+        name: 'default',
+        pricingGroup: 'default',
+        apiKey: 'sk-test',
+        enabled: true,
+      },
+    ]);
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('clears local account credentials and managed providers on logout', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
+    render(<TuziAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '清除' }));
+
+    await waitFor(() =>
+      expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([])
+    );
+    expect(
+      window.localStorage.getItem('opentu.tuzi.systemToken.v1')
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem('opentu.tuzi.systemUserId.v1')
+    ).toBeNull();
+    expect(
+      (screen.getByLabelText('Tuzi 用户 ID') as HTMLInputElement).value
+    ).toBe('');
+    expect(await screen.findByText('尚未配置系统访问令牌')).not.toBeNull();
   });
 
   it('shows balance and key rotation in the balance view without loading hidden summaries', async () => {
@@ -167,7 +206,7 @@ describe('TuziAccountPanel', () => {
     render(<TuziAccountPanel />);
 
     expect(await screen.findByText('可用额度')).not.toBeNull();
-    expect(await screen.findByText('已登录')).not.toBeNull();
+    expect(await screen.findByText('令牌已连接')).not.toBeNull();
     expect(screen.getByText('已同步')).not.toBeNull();
     expect(screen.getByText('累计用量')).not.toBeNull();
     expect(
@@ -176,27 +215,28 @@ describe('TuziAccountPanel', () => {
     expect(screen.queryByRole('button', { name: '刷新账户数据' })).toBeNull();
     expect(screen.queryByText('近 30 天消费')).toBeNull();
     expect(screen.queryByText('可用模型')).toBeNull();
-    expect(getLogs).toHaveBeenCalledWith(1, 10, false);
+    expect(getLogs).not.toHaveBeenCalled();
     expect(getModels).not.toHaveBeenCalled();
     expect(getUsageSummary).not.toHaveBeenCalled();
   });
 
-  it('opens the Tuzi site rather than the OpenTu API proxy when login expires', async () => {
+  it('asks the user to replace an invalid system token', async () => {
     const { TuziSessionApiError } = await import(
       '../../services/tuzi-session-api'
     );
     getAccount.mockRejectedValueOnce(
-      new TuziSessionApiError('SESSION_EXPIRED', '登录已过期', 401)
+      new TuziSessionApiError('TOKEN_INVALID', '令牌无效', 401)
     );
     const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
 
-    const loginLink = await screen.findByRole('link', { name: '去登录' });
-    expect(loginLink.getAttribute('href')).toBe('http://localhost:3200');
+    expect(await screen.findByText('系统访问令牌无效')).not.toBeNull();
+    expect(screen.getByText('请替换令牌后重试')).not.toBeNull();
+    expect(screen.queryByRole('link', { name: '去登录' })).toBeNull();
   });
 
-  it('keeps the Tuzi login link available when account loading fails', async () => {
+  it('keeps token replacement and retry available when account loading fails', async () => {
     const { TuziSessionApiError } = await import(
       '../../services/tuzi-session-api'
     );
@@ -208,9 +248,55 @@ describe('TuziAccountPanel', () => {
     render(<TuziAccountPanel />);
 
     expect(await screen.findByText('数据加载失败')).not.toBeNull();
-    const loginLink = screen.getByRole('link', { name: '去登录' });
-    expect(loginLink.getAttribute('href')).toBe('http://localhost:3200');
+    expect(screen.queryByRole('link', { name: '去登录' })).toBeNull();
+    expect(screen.getByRole('button', { name: '替换令牌' })).not.toBeNull();
     expect(screen.getByRole('button', { name: '重试' })).not.toBeNull();
+  });
+
+  it('refreshes the visible account and managed groups after replacing the token', async () => {
+    const onProvidersChanged = vi.fn();
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
+    render(<TuziAccountPanel onProvidersChanged={onProvidersChanged} />);
+    await screen.findByText('可用额度');
+
+    getAccount.mockResolvedValueOnce({
+      id: 2,
+      role: 1,
+      username: 'next-user',
+      displayName: 'Next Tuzi User',
+      email: 'next@example.com',
+      group: 'default',
+      quota: 300,
+      usedQuota: 100,
+      requestCount: 9,
+    });
+    ensureManagedProviders.mockResolvedValueOnce([
+      {
+        id: 'tuzi-managed-vip',
+        group: 'vip',
+        displayName: 'VIP',
+        apiKey: 'sk-next',
+        status: 1,
+        rotatedAt: 1700000200,
+      },
+    ]);
+
+    const tokenInput = document.querySelector('#tuzi-system-token');
+    expect(tokenInput).not.toBeNull();
+    fireEvent.change(tokenInput as HTMLInputElement, {
+      target: { value: 'replacement-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '替换令牌' }));
+
+    expect(await screen.findByText('Next Tuzi User')).not.toBeNull();
+    expect(await screen.findByText('VIP')).not.toBeNull();
+    expect(screen.getByText('9')).not.toBeNull();
+    expect(ensureManagedProviders).toHaveBeenCalledTimes(1);
+    expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'tuzi-managed-vip', group: 'vip' }),
+    ]);
+    expect(onProvidersChanged).toHaveBeenCalledTimes(1);
   });
 
   it('rotates provider keys from the balance view', async () => {

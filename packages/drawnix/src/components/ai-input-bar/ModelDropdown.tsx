@@ -17,7 +17,15 @@ import React, {
 } from 'react';
 import { copyToClipboard } from '../../utils/runtime-helpers';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Copy, ExternalLink, Plus, Search, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import { MessagePlugin } from 'tdesign-react';
 import {
   IMAGE_MODELS,
@@ -59,12 +67,46 @@ import {
   type ModelRef,
   type ProviderProfile,
 } from '../../utils/settings-manager';
-import {
-  queueProviderSettingsNavigation,
-} from '../settings-dialog/provider-settings-navigation';
+import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
+import { queueProviderSettingsNavigation } from '../settings-dialog/provider-settings-navigation';
+
+const lazyProviderModelLoads = new Map<string, Promise<void>>();
+
+function ensureProviderModels(profile?: ProviderProfile | null): void {
+  if (
+    !profile?.id.startsWith('tuzi-managed-') ||
+    !profile.apiKey.trim() ||
+    !profile.baseUrl.trim()
+  ) {
+    return;
+  }
+
+  const state = runtimeModelDiscovery.getState(profile.id);
+  if (state.discoveredModels.length > 0 || state.status === 'loading') return;
+  if (lazyProviderModelLoads.has(profile.id)) return;
+
+  const load = runtimeModelDiscovery
+    .discover(profile.id, profile.baseUrl, profile.apiKey)
+    .then((models) => {
+      runtimeModelDiscovery.applySelection(
+        profile.id,
+        models.map((model) => model.id)
+      );
+    })
+    .catch((error) => {
+      console.warn('[ModelDropdown] Failed to load provider models:', error);
+    })
+    .finally(() => {
+      lazyProviderModelLoads.delete(profile.id);
+    });
+  lazyProviderModelLoads.set(profile.id, load);
+}
 
 function normalizeSearchText(value?: string | null): string {
-  return (value || '').toLowerCase().replace(/[\s\-_.:/]+/g, '').trim();
+  return (value || '')
+    .toLowerCase()
+    .replace(/[\s\-_.:/]+/g, '')
+    .trim();
 }
 
 const ModelDropdownPriceTag: React.FC<{ model: ModelConfig }> = React.memo(
@@ -86,9 +128,7 @@ const ModelDropdownDescFallback: React.FC<{ model: ModelConfig }> = React.memo(
   ({ model }) => {
     const meta = useModelMeta(model.sourceProfileId, model.id);
     if (!meta?.description) return null;
-    return (
-      <div className="model-dropdown__item-desc">{meta.description}</div>
-    );
+    return <div className="model-dropdown__item-desc">{meta.description}</div>;
   }
 );
 
@@ -296,9 +336,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const activeCategory = useMemo(() => {
     if (!activeProvider) return null;
     return (
-      activeProvider.vendorCategories.find(
-        (c) => c.vendor === activeVendor
-      ) ||
+      activeProvider.vendorCategories.find((c) => c.vendor === activeVendor) ||
       activeProvider.vendorCategories[0] ||
       null
     );
@@ -388,11 +426,12 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         return { model, score };
       })
       .filter(({ score }) => score > 0)
-      .sort((a, b) =>
-        b.score - a.score ||
-        compareModelsByDisplayPriority(a.model, b.model, {
-          fallbackOrderMap: modelOrderMap,
-        })
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          compareModelsByDisplayPriority(a.model, b.model, {
+            fallbackOrderMap: modelOrderMap,
+          })
       );
   }, [getModelProviderName, models, searchQuery, modelOrderMap]);
 
@@ -415,18 +454,14 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         count: g.totalCount,
         icon: g.providerIconUrl ? (
           <ModelSourceIcon
-            vendor={
-              g.vendorCategories[0]?.vendor || ('OTHER' as ModelVendor)
-            }
+            vendor={g.vendorCategories[0]?.vendor || ('OTHER' as ModelVendor)}
             profileName={g.providerName}
             iconUrl={g.providerIconUrl}
             size={16}
           />
         ) : (
           <ModelVendorMark
-            vendor={
-              g.vendorCategories[0]?.vendor || ('OTHER' as ModelVendor)
-            }
+            vendor={g.vendorCategories[0]?.vendor || ('OTHER' as ModelVendor)}
             size={16}
           />
         ),
@@ -455,8 +490,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       const group = providerGroups.find((g) => g.providerId === providerId);
       setActiveVendor(group?.vendorCategories[0]?.vendor ?? null);
       setHighlightedIndex(0);
+      ensureProviderModels(providerProfileMap.get(providerId));
     },
-    [providerGroups]
+    [providerGroups, providerProfileMap]
   );
 
   // 切换厂商分类
@@ -521,7 +557,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       const validVendors = currentProvider.vendorCategories.map(
         (c) => c.vendor
       );
-      if (!activeVendor || !validVendors.includes(activeVendor as ModelVendor)) {
+      if (
+        !activeVendor ||
+        !validVendors.includes(activeVendor as ModelVendor)
+      ) {
         setActiveVendor(validVendors[0] ?? null);
       }
     }
@@ -546,10 +585,22 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       if (disabled) return;
       const next = !isOpen;
       if (next) {
-        setActiveProviderId(selectedProviderHint);
+        const hintedGroup = providerGroups.find(
+          (group) => group.providerId === selectedProviderHint
+        );
+        const fallbackGroup =
+          providerGroups.find((group) => group.totalCount > 0) ||
+          providerGroups[0];
+        const nextProviderId =
+          hintedGroup?.totalCount || !fallbackGroup
+            ? selectedProviderHint
+            : fallbackGroup.providerId;
+        setActiveProviderId(nextProviderId);
         if (selectedVendorHint) {
           setActiveVendor(selectedVendorHint);
         }
+        ensureProviderModels(providerProfileMap.get(selectedProviderHint));
+        ensureProviderModels(providerProfileMap.get(nextProviderId));
       }
       if (next) {
         // 打开时清空搜索，默认展示当前供应商/分类
@@ -568,6 +619,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       currentModel,
       selectedModel,
       selectedProviderHint,
+      providerGroups,
+      providerProfileMap,
       selectedVendorHint,
     ]
   );
@@ -576,7 +629,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const handleSelect = useCallback(
     (model: ModelConfig) => {
       closeContextMenu();
-      onSelect(model.id, createModelRef(model.sourceProfileId || null, model.id));
+      onSelect(
+        model.id,
+        createModelRef(model.sourceProfileId || null, model.id)
+      );
       onSelectModel?.(model);
       setIsOpen(false);
       if (variant === 'form') {
@@ -607,7 +663,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const getModelDocsUrl = useCallback(
     (modelId: string): string | undefined => {
       const model = models.find((m) => m.id === modelId);
-      return modelPricingService.getModelPrice(model?.sourceProfileId, modelId)?.docsUrl;
+      return modelPricingService.getModelPrice(model?.sourceProfileId, modelId)
+        ?.docsUrl;
     },
     [models]
   );
@@ -617,13 +674,18 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       const model = models.find((m) => m.id === modelId);
       if (model?.description) return model.description;
       if (!model?.sourceProfileId) return undefined;
-      return modelPricingService.getModelPrice(model.sourceProfileId, modelId)?.description;
+      return modelPricingService.getModelPrice(model.sourceProfileId, modelId)
+        ?.description;
     },
     [models]
   );
 
   const buildContextMenuItems = useCallback(
-    ({ modelId }: { modelId: string }): ContextMenuEntry<{ modelId: string }>[] => {
+    ({
+      modelId,
+    }: {
+      modelId: string;
+    }): ContextMenuEntry<{ modelId: string }>[] => {
       const desc = getModelDescription(modelId);
       const items: ContextMenuEntry<{ modelId: string }>[] = [
         { key: 'model-id', label: modelId, disabled: true },
@@ -632,7 +694,16 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         items.push({
           key: 'model-desc',
           label: (
-            <span style={{ fontSize: 11, color: 'var(--td-text-color-secondary)', whiteSpace: 'normal', lineHeight: 1.4, display: 'block', maxWidth: 260 }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--td-text-color-secondary)',
+                whiteSpace: 'normal',
+                lineHeight: 1.4,
+                display: 'block',
+                maxWidth: 260,
+              }}
+            >
               {desc.length > 80 ? desc.slice(0, 80) + '…' : desc}
             </span>
           ),
@@ -646,7 +717,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           label: language === 'zh' ? '复制模型名' : 'Copy model name',
           icon: <Copy size={14} />,
           onSelect: ({ modelId: id }) => handleCopyModelId(id),
-        },
+        }
       );
       const docsUrl = getModelDocsUrl(modelId);
       if (docsUrl) {
@@ -793,7 +864,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           )}
           <ModelHealthBadge
             modelId={selectedModel}
-            profileId={currentProfile?.id || currentModel?.sourceProfileId || null}
+            profileId={
+              currentProfile?.id || currentModel?.sourceProfileId || null
+            }
           />
           <ChevronDown
             size={14}
@@ -857,7 +930,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           />
           <ModelHealthBadge
             modelId={selectedModel}
-            profileId={currentProfile?.id || currentModel?.sourceProfileId || null}
+            profileId={
+              currentProfile?.id || currentModel?.sourceProfileId || null
+            }
           />
         </div>
         <ChevronDown
@@ -966,7 +1041,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                           setSearchQuery('');
                           searchInputRef.current?.focus();
                         }}
-                        aria-label={language === 'zh' ? '清空搜索' : 'Clear search'}
+                        aria-label={
+                          language === 'zh' ? '清空搜索' : 'Clear search'
+                        }
                       >
                         <X size={14} />
                       </button>

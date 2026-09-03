@@ -85,6 +85,11 @@ export function groupModelsByProvider(
   const groups: ProviderGroup[] = [];
 
   for (const [pid, bucket] of buckets) {
+    const profile = profileMap.get(pid);
+    if (profile && profile.enabled === false) {
+      continue;
+    }
+
     // 按 vendor 分组
     const vendorMap = new Map<ModelVendor, ModelConfig[]>();
     for (const m of bucket) {
@@ -107,7 +112,6 @@ export function groupModelsByProvider(
         models: sortModelsByDisplayPriority(vendorModels),
       }));
 
-    const profile = profileMap.get(pid);
     const isDefault = pid === DEFAULT_PROVIDER_ID;
 
     groups.push({
