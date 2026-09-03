@@ -8,6 +8,7 @@
   bottom: 100%;
   left: 0;
   right: 0;
+  min-width: 600px;
   margin-bottom: 8px;
   background: var(--island-bg-color, #ffffff);
   border: 1px solid var(--color-border, #e5e5e5);
@@ -218,6 +219,12 @@
     font-size: 12px;
     color: var(--color-text-tertiary, #999999);
     text-align: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .ai-input-bar .ai-model-selector {
+    min-width: 0;
   }
 }
 

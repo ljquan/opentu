@@ -478,7 +478,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 22px;
     overflow: auto;
     padding-right: 4px;
   }
@@ -490,7 +490,7 @@
   }
 
   &__provider-group--account {
-    padding-top: 14px;
+    padding-top: 18px;
     border-top: 1px solid rgba(15, 23, 42, 0.1);
   }
 

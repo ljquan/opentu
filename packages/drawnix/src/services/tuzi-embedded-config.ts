@@ -4,11 +4,13 @@ export interface TuziEmbeddedConfig {
   parentOrigin: string | null;
 }
 
+const DEFAULT_TUZI_API_BASE_URL = 'https://api.tu-zi.com';
+
 function parseEnabled(value: unknown): boolean {
   return (
-    String(value || '')
+    String(value ?? '')
       .trim()
-      .toLowerCase() === 'true'
+      .toLowerCase() !== 'false'
   );
 }
 
@@ -27,11 +29,14 @@ function normalizeHttpOrigin(value: unknown): string | null {
   }
 }
 
-function isLocalHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
-    return true;
-  }
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  );
+}
 
+function isLocalHostname(hostname: string): boolean {
+  if (isLoopbackHostname(hostname)) return true;
   const octets = hostname.split('.').map(Number);
   if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
     return false;
@@ -51,7 +56,12 @@ function followLocalPageHostname(
 
   const configured = new URL(configuredOrigin);
   const page = new URL(pageOrigin);
-  if (!isLocalHostname(configured.hostname) || !isLocalHostname(page.hostname)) {
+  // A localhost dev page may still be calling a Tuzi API on a LAN host.
+  if (isLoopbackHostname(page.hostname)) return configuredOrigin;
+  if (
+    !isLocalHostname(configured.hostname) ||
+    !isLocalHostname(page.hostname)
+  ) {
     return configuredOrigin;
   }
 
@@ -61,12 +71,18 @@ function followLocalPageHostname(
 
 export function readTuziEmbeddedConfig(
   env: Record<string, unknown> = import.meta.env,
-  pageOrigin: string | null =
-    typeof window === 'undefined' ? null : window.location.origin
+  pageOrigin: string | null = typeof window === 'undefined'
+    ? null
+    : window.location.origin
 ): TuziEmbeddedConfig {
   const requested = parseEnabled(env.VITE_TUZI_EMBEDDED_MODE);
+  const configuredApiBaseUrl =
+    env.VITE_TUZI_API_BASE_URL === undefined ||
+    String(env.VITE_TUZI_API_BASE_URL).trim() === ''
+      ? DEFAULT_TUZI_API_BASE_URL
+      : env.VITE_TUZI_API_BASE_URL;
   const apiBaseUrl = followLocalPageHostname(
-    normalizeHttpOrigin(env.VITE_TUZI_API_BASE_URL),
+    normalizeHttpOrigin(configuredApiBaseUrl),
     normalizeHttpOrigin(pageOrigin)
   );
   const parentOrigin = normalizeHttpOrigin(env.VITE_TUZI_PARENT_ORIGIN);

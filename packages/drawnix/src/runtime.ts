@@ -28,6 +28,17 @@ export { swChannelClient } from './services/sw-channel/client';
 export { unifiedLogService } from './services/unified-log-service';
 export { MessagePlugin } from './utils/message-plugin';
 export {
+  hasTuziSystemToken,
+  wasTuziCredentialsProvidedByUrl,
+} from './services/tuzi-token-auth';
+export { isTuziEmbeddedMode } from './services/tuzi-embedded-config';
+export async function syncTuziSessionProvidersOnStartup(): Promise<boolean> {
+  const { syncTuziSessionProviders } = await import(
+    './services/tuzi-session-provider-sync'
+  );
+  return syncTuziSessionProviders();
+}
+export {
   requestServiceWorkerIdlePrefetch,
   type IdlePrefetchGroup,
 } from './utils/startup-prefetch';

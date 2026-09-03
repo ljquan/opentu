@@ -1,8 +1,9 @@
 import type { TuziEmbeddedConfig } from './tuzi-embedded-config';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
+import { getTuziSystemToken, getTuziSystemUserId } from './tuzi-token-auth';
 
 export type TuziSessionErrorCode =
-  | 'SESSION_EXPIRED'
+  | 'TOKEN_INVALID'
   | 'ACCOUNT_DISABLED'
   | 'REQUEST_FAILED'
   | 'INVALID_RESPONSE'
@@ -137,13 +138,12 @@ export class TuziSessionApiClient {
 
   constructor(
     config: TuziEmbeddedConfig = tuziEmbeddedConfig,
-    private readonly fetcher: typeof fetch = fetch
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly systemToken: string = getTuziSystemToken(),
+    private readonly systemUserId: string = getTuziSystemUserId()
   ) {
     if (!config.enabled || !config.apiBaseUrl) {
-      throw new TuziSessionApiError(
-        'NOT_CONFIGURED',
-        'Tuzi Session 模式未配置'
-      );
+      throw new TuziSessionApiError('NOT_CONFIGURED', 'Tuzi API 地址未配置');
     }
     this.baseUrl = config.apiBaseUrl.replace(/\/+$/, '');
   }
@@ -153,8 +153,19 @@ export class TuziSessionApiClient {
     query?: URLSearchParams,
     method: 'GET' | 'POST' = 'GET'
   ): Promise<unknown> {
-    const url = new URL(path, `${this.baseUrl}/`);
-    if (url.origin !== new URL(this.baseUrl).origin) {
+    if (!this.systemToken) {
+      throw new TuziSessionApiError('NOT_CONFIGURED', '请先填写系统访问令牌');
+    }
+    const useSameOriginSessionProxy =
+      typeof window !== 'undefined' &&
+      new URL(this.baseUrl).origin !== window.location.origin;
+    const url = useSameOriginSessionProxy
+      ? new URL(`/__opentu_tuzi_session__${path}`, window.location.origin)
+      : new URL(path, `${this.baseUrl}/`);
+    if (
+      !useSameOriginSessionProxy &&
+      url.origin !== new URL(this.baseUrl).origin
+    ) {
       throw new TuziSessionApiError('REQUEST_FAILED', '请求地址不受信任');
     }
     if (query) url.search = query.toString();
@@ -163,8 +174,12 @@ export class TuziSessionApiClient {
     try {
       response = await this.fetcher.call(globalThis, url.toString(), {
         method,
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.systemToken}`,
+          'New-Api-User': this.systemUserId,
+        },
       });
     } catch (error) {
       throw new TuziSessionApiError(
@@ -188,10 +203,10 @@ export class TuziSessionApiClient {
 
     const object = asRecord(payload);
     const code = responseCode(object);
-    if (response.status === 401 || code === 'SESSION_EXPIRED') {
+    if (response.status === 401 || code === 'TOKEN_INVALID') {
       throw new TuziSessionApiError(
-        'SESSION_EXPIRED',
-        responseMessage(object, '登录已过期'),
+        'TOKEN_INVALID',
+        responseMessage(object, '系统访问令牌无效或已过期'),
         response.status
       );
     }
@@ -213,9 +228,20 @@ export class TuziSessionApiClient {
   }
 
   async ensureManagedProviders(): Promise<TuziManagedProvider[]> {
-    const data = asRecord(
-      await this.request('/api/opentu/providers/ensure', undefined, 'POST')
-    );
+    let data: JsonRecord | null;
+    try {
+      data = asRecord(
+        await this.request('/api/opentu/providers/ensure', undefined, 'POST')
+      );
+    } catch (error) {
+      // Older Tuzi deployments do not expose managed-provider routes. Keep
+      // account/balance data usable when this optional synchronization API is
+      // unavailable.
+      if (error instanceof TuziSessionApiError && error.status === 404) {
+        return [];
+      }
+      throw error;
+    }
     if (!Array.isArray(data?.providers)) return [];
     return data.providers.flatMap((item) => {
       const provider = asRecord(item);
@@ -326,16 +352,14 @@ export class TuziSessionApiClient {
   async getLogs(
     page = 1,
     pageSize = 20,
-    canViewAllLogs = false
+    _canViewAllLogs = false
   ): Promise<TuziLogPage> {
     const query = new URLSearchParams({
       p: String(Math.max(1, page)),
       page_size: String(Math.max(1, pageSize)),
       type: '2',
     });
-    const data = asRecord(
-      await this.request(canViewAllLogs ? '/api/log/' : '/api/log/self', query)
-    );
+    const data = asRecord(await this.request('/api/log/self', query));
     const rawItems = Array.isArray(data?.items) ? data.items : [];
     return {
       items: rawItems.map((item) => {
