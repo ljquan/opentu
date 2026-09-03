@@ -1,6 +1,31 @@
 {
   "versions": [
     {
+      "version": "1.1.5",
+      "date": "2026-09-03",
+      "changes": {
+        "features": [
+          "使用系统令牌连接 Tuzi 账户",
+          "add Tuzi account workspace and managed keys",
+          "add Tuzi URL token integration mode"
+        ],
+        "fixes": [
+          "URL 入口等待 Tuzi 模型同步完成",
+          "默认启用 Tuzi 集成",
+          "centralize shared database lifecycle"
+        ],
+        "improvements": [
+          "修复：统一供应商设置页面跳转行为",
+          "新增 Tuzi 账户管理",
+          "Revert \"feat: add Tuzi URL token integration mode\"",
+          "Revert \"feat: add Tuzi account workspace and managed keys\"",
+          "Revert \"fix(storage): centralize shared database lifecycle\""
+        ]
+      },
+      "type": "patch",
+      "highlights": "使用系统令牌连接 Tuzi 账户"
+    },
+    {
       "version": "1.1.4",
       "date": "2026-08-31",
       "changes": {
@@ -974,19 +999,6 @@
       },
       "type": "patch",
       "highlights": "增强懒加载资源恢复与SEO优化"
-    },
-    {
-      "version": "0.6.84",
-      "date": "2026-04-28",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "perf: slim startup dependencies without visual regressions"
-        ]
-      },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
     }
   ]
 }
