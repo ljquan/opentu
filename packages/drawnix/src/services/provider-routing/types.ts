@@ -121,6 +121,11 @@ export interface ProviderImageBindingMetadata {
   action?: 'generation' | 'edit';
   maxImageCount?: number;
   supportsMask?: boolean;
+  /** Provider explicitly supports semantic layer decomposition responses. */
+  layerDecomposition?: {
+    enabled: boolean;
+    path?: string;
+  };
 }
 
 export interface ProviderBindingMetadata {
@@ -129,6 +134,11 @@ export interface ProviderBindingMetadata {
   video?: ProviderVideoBindingMetadata;
   audio?: ProviderAudioBindingMetadata;
   pptExplainer?: ProviderPptExplainerBindingMetadata;
+  /** Explicit opt-in for native semantic layer decomposition. */
+  layerDecomposition?: {
+    enabled: boolean;
+    path?: string;
+  };
   manualHttp?: ManualHttpTemplateMetadata;
   [key: string]: unknown;
 }
@@ -248,6 +258,8 @@ export interface ProviderTransportRequest {
   allowImageSubmissionOutcomeRecovery?: boolean;
   /** 响应体将通过 provider transport 的有界 reader 读取。 */
   controlledResponseBody?: boolean;
+  /** Observe the final response before its body is consumed. */
+  onResponse?: (response: Response) => void | Promise<void>;
 }
 
 export interface PreparedProviderTransportRequest {

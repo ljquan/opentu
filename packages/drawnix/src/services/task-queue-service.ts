@@ -28,7 +28,12 @@ import {
 } from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
 import { executorFactory, waitForTaskCompletion } from './media-executor';
-import { hasInvocationRouteCredentials } from '../utils/settings-manager';
+import {
+  createModelRef,
+  hasInvocationRouteCredentials,
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+  resolveInvocationRoute,
+} from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
 import { analytics } from '../utils/umami-analytics';
 import {
@@ -48,6 +53,8 @@ import { buildGenerateContentConfig } from './analysis-core';
 import {
   createTaskInvocationRouteSnapshotFromTask,
   mergeTaskInvocationRoute,
+  resolveLegacyTaskInvocationRouteModel,
+  resolveTaskInvocationRouteModel,
 } from './task-invocation-route';
 import { callGoogleGenerateContentWithLog } from '../utils/gemini-api/logged-calls';
 import { executeVideoAnalysis } from './video-analysis-service';
@@ -132,10 +139,69 @@ const STORAGE_SYNC_FIELDS = [
   'startedAt',
   'remoteId',
   'invocationRoute',
+  'imageRecovery',
   'insertedToCanvas',
   'executionPhase',
   'savedToLibrary',
 ] as const satisfies readonly (keyof Task)[];
+
+function normalizeTaskParamsModelIdentity(
+  params: GenerationParams,
+  routeModelId?: string | null
+): GenerationParams {
+  const modelId =
+    routeModelId?.trim() || params.modelRef?.modelId?.trim() || '';
+  if (!modelId || params.model === modelId) {
+    return params;
+  }
+
+  return {
+    ...params,
+    model: modelId,
+  };
+}
+
+function isLegacyImageAlias(modelId?: string | null): boolean {
+  const normalized = modelId?.trim().toLowerCase();
+  return normalized === 'image2' || normalized === 'image-2';
+}
+
+function shouldRepairLegacyImageAlias(task: Task): boolean {
+  if (task.type !== TaskType.IMAGE) {
+    return false;
+  }
+
+  if (!isLegacyImageAlias(task.params.model)) {
+    return false;
+  }
+
+  const errorMessage = task.error?.message || '';
+  const originalError =
+    typeof task.error?.details?.originalError === 'string'
+      ? task.error.details.originalError
+      : '';
+  return /无可用渠道|distributor/i.test(`${errorMessage} ${originalError}`);
+}
+
+function shouldRefreshUnavailableImageRoute(task: Task): boolean {
+  if (task.type !== TaskType.IMAGE) {
+    return false;
+  }
+
+  const routeProfileId =
+    task.invocationRoute?.modelRef?.profileId ||
+    task.invocationRoute?.providerProfileId;
+  if (routeProfileId && routeProfileId !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
+    return false;
+  }
+
+  const errorMessage = task.error?.message || '';
+  const originalError =
+    typeof task.error?.details?.originalError === 'string'
+      ? task.error.details.originalError
+      : '';
+  return /无可用渠道|distributor/i.test(`${errorMessage} ${originalError}`);
+}
 
 function stableStringify(value: unknown): string | undefined {
   try {
@@ -472,6 +538,7 @@ class TaskQueueService {
       progress: task.progress,
       remoteId: task.remoteId,
       invocationRoute: task.invocationRoute,
+      imageRecovery: task.imageRecovery,
       executionPhase: task.executionPhase,
       savedToLibrary: task.savedToLibrary,
       insertedToCanvas: task.insertedToCanvas,
@@ -839,12 +906,8 @@ class TaskQueueService {
           : task.type === TaskType.CHAT
           ? 'text'
           : 'image';
-      if (
-        !hasInvocationRouteCredentials(
-          routeType,
-          task.params.modelRef || task.params.model
-        )
-      ) {
+      const routeModel = resolveTaskInvocationRouteModel(task);
+      if (!hasInvocationRouteCredentials(routeType, routeModel)) {
         console.warn(
           '[TaskQueueService] No API configuration, cannot execute task'
         );
@@ -877,8 +940,14 @@ class TaskQueueService {
       }
 
       if (task.type === TaskType.AUDIO) {
-        const requestedModel = task.params.model as string | undefined;
-        const requestedModelRef = task.params.modelRef || null;
+        const audioRouteModel = resolveTaskInvocationRouteModel(task);
+        const requestedModelRef =
+          typeof audioRouteModel === 'string' ? null : audioRouteModel;
+        const requestedModel =
+          requestedModelRef?.modelId ||
+          (typeof audioRouteModel === 'string'
+            ? audioRouteModel
+            : (task.params.model as string | undefined));
         const adapter = resolveAdapterForInvocation(
           'audio',
           requestedModel || DEFAULT_AUDIO_MODEL_ID,
@@ -1172,6 +1241,14 @@ class TaskQueueService {
       // Execute based on task type
       switch (task.type) {
         case TaskType.IMAGE: {
+          const imageRouteModel = resolveTaskInvocationRouteModel(task);
+          const imageModelRef =
+            typeof imageRouteModel === 'string' ? null : imageRouteModel;
+          const imageModel =
+            imageModelRef?.modelId ||
+            (typeof imageRouteModel === 'string'
+              ? imageRouteModel
+              : task.params.model);
           // 从 params.params 中提取额外参数，并补齐新图像契约字段
           const extraParams = {
             ...(((task.params as any).params || {}) as Record<string, unknown>),
@@ -1197,8 +1274,8 @@ class TaskQueueService {
               taskId: task.id,
               requestId: submissionRequestId,
               prompt: task.params.prompt,
-              model: task.params.model,
-              modelRef: task.params.modelRef || null,
+              model: imageModel,
+              modelRef: imageModelRef,
               size: task.params.size,
               resolution: task.params.resolution as
                 | '1k'
@@ -1253,6 +1330,14 @@ class TaskQueueService {
           break;
         }
         case TaskType.VIDEO: {
+          const videoRouteModel = resolveTaskInvocationRouteModel(task);
+          const videoModelRef =
+            typeof videoRouteModel === 'string' ? null : videoRouteModel;
+          const videoModel =
+            videoModelRef?.modelId ||
+            (typeof videoRouteModel === 'string'
+              ? videoRouteModel
+              : task.params.model);
           // 从 uploadedImages（UI 层传入的 UploadedVideoImage[]）中提取 URL
           const uploaded = task.params.uploadedImages as
             | Array<{ url?: string }>
@@ -1276,8 +1361,8 @@ class TaskQueueService {
             {
               taskId: task.id,
               prompt: task.params.prompt,
-              model: task.params.model,
-              modelRef: task.params.modelRef || null,
+              model: videoModel,
+              modelRef: videoModelRef,
               duration: (
                 task.params.duration ?? task.params.seconds
               )?.toString(),
@@ -1359,10 +1444,21 @@ class TaskQueueService {
           }
           await executor.generateText(
             {
+              ...(() => {
+                const textRouteModel = resolveTaskInvocationRouteModel(task);
+                const textModelRef =
+                  typeof textRouteModel === 'string' ? null : textRouteModel;
+                return {
+                  model:
+                    textModelRef?.modelId ||
+                    (typeof textRouteModel === 'string'
+                      ? textRouteModel
+                      : task.params.model),
+                  modelRef: textModelRef,
+                };
+              })(),
               taskId: task.id,
               prompt: task.params.prompt,
-              model: task.params.model,
-              modelRef: task.params.modelRef || null,
               referenceImages: task.params.referenceImages as
                 | string[]
                 | undefined,
@@ -2257,8 +2353,10 @@ class TaskQueueService {
     }
 
     // Sanitize parameters
-    const sanitizedParams = normalizeGenerationParamsKnowledgeContext(
-      sanitizeGenerationParams(params)
+    const sanitizedParams = normalizeTaskParamsModelIdentity(
+      normalizeGenerationParamsKnowledgeContext(
+        sanitizeGenerationParams(params)
+      )
     );
 
     // Create new task - starts as PROCESSING since it will be executed immediately
@@ -2721,6 +2819,71 @@ class TaskQueueService {
       return;
     }
 
+    const existingRouteModelRef = createModelRef(
+      task.invocationRoute?.modelRef?.profileId ||
+        task.invocationRoute?.providerProfileId,
+      task.invocationRoute?.modelRef?.modelId || task.invocationRoute?.modelId
+    );
+    let nextParams = normalizeTaskParamsModelIdentity(
+      task.params,
+      existingRouteModelRef?.modelId
+    );
+    if (existingRouteModelRef) {
+      nextParams = {
+        ...nextParams,
+        modelRef: existingRouteModelRef,
+      };
+    }
+    let nextInvocationRoute = task.invocationRoute;
+    if (
+      task.type === TaskType.IMAGE &&
+      (!existingRouteModelRef?.profileId ||
+        shouldRefreshUnavailableImageRoute(task))
+    ) {
+      const repairedRouteModel = resolveLegacyTaskInvocationRouteModel(
+        'image',
+        task
+      );
+      const repairedModelRef =
+        typeof repairedRouteModel === 'string' ? null : repairedRouteModel;
+      if (
+        repairedModelRef?.profileId &&
+        repairedModelRef.modelId &&
+        hasInvocationRouteCredentials('image', repairedModelRef)
+      ) {
+        nextParams = {
+          ...nextParams,
+          model: repairedModelRef.modelId,
+          modelRef: repairedModelRef,
+        };
+        nextInvocationRoute = createTaskInvocationRouteSnapshotFromTask({
+          ...task,
+          params: nextParams,
+        });
+      } else if (shouldRepairLegacyImageAlias(task)) {
+        const activeRoute = resolveInvocationRoute('image');
+        const activeModelRef = createModelRef(
+          activeRoute.profileId,
+          activeRoute.modelId
+        );
+        if (
+          activeModelRef?.profileId &&
+          activeModelRef.modelId &&
+          hasInvocationRouteCredentials('image', activeModelRef)
+        ) {
+          nextParams = {
+            ...nextParams,
+            model: activeModelRef.modelId,
+            modelRef: activeModelRef,
+          };
+          nextInvocationRoute = createTaskInvocationRouteSnapshotFromTask({
+            ...task,
+            params: nextParams,
+          });
+        }
+      }
+    }
+
     // Reset task for retry - set to PROCESSING for immediate execution
     const now = Date.now();
     trackTaskAnalytics('generation_retry_after_failure', task, {
@@ -2767,10 +2930,10 @@ class TaskQueueService {
       : undefined;
     const retryParams =
       task.type === TaskType.IMAGE
-        ? createImageSubmissionParams(task.params, generateTaskId())
+        ? createImageSubmissionParams(nextParams, generateTaskId())
         : pptExplainerState
         ? {
-            ...task.params,
+            ...nextParams,
             pptExplainer: {
               ...pptExplainerState,
               stage: pptExplainerRetryStage,
@@ -2784,9 +2947,10 @@ class TaskQueueService {
                 : {}),
             },
           }
-        : task.params;
+        : nextParams;
     this.updateTaskStatus(taskId, TaskStatus.PROCESSING, {
       params: retryParams,
+      invocationRoute: nextInvocationRoute,
       error: undefined,
       result: undefined,
       startedAt: now, // Set new start time
@@ -2887,7 +3051,6 @@ class TaskQueueService {
   async clearAllTasks(): Promise<void> {
     taskStorageWriter.pauseWrites();
     const tasks = this.getAllTasks();
-
     for (const task of tasks) {
       this.blockedTaskIds.add(task.id);
       this.abortTaskExecution(task.id);

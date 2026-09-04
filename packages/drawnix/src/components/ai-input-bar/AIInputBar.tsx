@@ -230,6 +230,13 @@ import {
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
 import { isAssetLibraryUrl } from '../../utils/virtual-media-url';
 import {
+  buildSemanticReplacementGenerationPrompt,
+  createSemanticForegroundEditMask,
+  getSemanticForegroundEditContext,
+  resolveSemanticForegroundTarget,
+  type SemanticForegroundEditContext,
+} from '../../services/layer-decomposition';
+import {
   ensureTaskIdInStepResult,
   extractTaskIdFromStepResult,
   findWorkflowStepByTaskId,
@@ -698,6 +705,7 @@ interface GenerationRequestOverride {
   selectedParams: Record<string, string>;
   selectedCount: number;
   appendToCurrentChatSession?: boolean;
+  targetSessionId?: string | null;
 }
 
 function filterExecutablePptModels(
@@ -871,6 +879,7 @@ interface BoundImageTarget {
   text?: string;
   generationTaskId?: string;
   generationAnchorId?: string;
+  semanticReplacement?: SemanticForegroundEditContext;
   referenceOnly: boolean;
 }
 
@@ -968,11 +977,17 @@ function resolveImageAnchorForElement(
 
 async function resolveBoundImageTarget(
   board: PlaitBoard,
-  selectedElements: PlaitElement[]
+  selectedElements: PlaitElement[],
+  editPrompt?: string
 ): Promise<BoundImageTarget | null> {
   if (selectedElements.length !== 1) return null;
 
-  const [element] = selectedElements;
+  const selectedElement = selectedElements[0];
+  const element = resolveSemanticForegroundTarget(
+    board,
+    selectedElement,
+    editPrompt
+  );
   const targetType = resolveGenerationTargetType(element);
   if (!targetType) return null;
   const url = readImageUrl(element);
@@ -981,10 +996,20 @@ async function resolveBoundImageTarget(
     targetType === 'image'
       ? resolveImageAnchorForElement(board, element)
       : null;
+  const semanticReplacement =
+    targetType === 'image'
+      ? getSemanticForegroundEditContext(board, element)
+      : null;
   let prompt =
     readBoundTargetGenerationPrompt(element, targetType) ||
     anchor?.prompt ||
-    '';
+    (semanticReplacement
+      ? `${semanticReplacement.semanticLayer.name}${
+          semanticReplacement.semanticLayer.description
+            ? `：${semanticReplacement.semanticLayer.description}`
+            : ''
+        }`
+      : '');
   let generationTaskId =
     typeof record.generationTaskId === 'string'
       ? record.generationTaskId
@@ -1038,6 +1063,7 @@ async function resolveBoundImageTarget(
         typeof record.generationAnchorId === 'string'
           ? record.generationAnchorId
           : anchor?.id,
+      ...(semanticReplacement ? { semanticReplacement } : {}),
       referenceOnly:
         supportsBoundTargetFollowControls(targetType) &&
         isBoundTargetReferenceOnly(record),
@@ -1127,6 +1153,7 @@ const canvasAssociationPointerSessions = new WeakMap<
  */
 const SelectionWatcher: React.FC<{
   language: string;
+  semanticEditPrompt?: string;
   currentBoardId?: string | null;
   onSelectionChange: (content: SelectedContent[]) => void;
   canvasAssociationPicking?: boolean;
@@ -1150,6 +1177,7 @@ const SelectionWatcher: React.FC<{
 }> = React.memo(
   ({
     language,
+    semanticEditPrompt,
     currentBoardId,
     onSelectionChange,
     canvasAssociationPicking,
@@ -1165,6 +1193,8 @@ const SelectionWatcher: React.FC<{
     const board = useBoard();
     const boardRef = useRef(board);
     boardRef.current = board;
+    const semanticEditPromptRef = useRef(semanticEditPrompt || '');
+    semanticEditPromptRef.current = semanticEditPrompt || '';
 
     // 设置 canvas board 引用给 MCP 工具使用
     useEffect(() => {
@@ -1312,7 +1342,8 @@ const SelectionWatcher: React.FC<{
         }
         const boundImageTarget = await resolveBoundImageTarget(
           currentBoard,
-          selectedElements
+          selectedElements,
+          semanticEditPromptRef.current
         );
         if (
           runId !== selectionRunIdRef.current ||
@@ -1482,7 +1513,8 @@ const SelectionWatcher: React.FC<{
           selectionRunIdRef.current = runId;
           void resolveBoundImageTarget(
             currentBoard,
-            getSelectedElements(currentBoard)
+            getSelectedElements(currentBoard),
+            semanticEditPromptRef.current
           ).then((target) => {
             if (
               runId === selectionRunIdRef.current &&
@@ -1531,6 +1563,28 @@ const SelectionWatcher: React.FC<{
         );
       };
     }, [currentBoardId, language]);
+
+    useEffect(() => {
+      if (canvasAssociationPickingRef.current) return;
+      const currentBoard = boardRef.current;
+      const selectedElements = getSelectedElements(currentBoard);
+      if (selectedElements.length !== 1) return;
+      const selectionBoardId = currentBoardIdRef.current;
+      const runId = selectionRunIdRef.current + 1;
+      selectionRunIdRef.current = runId;
+      void resolveBoundImageTarget(
+        currentBoard,
+        selectedElements,
+        semanticEditPrompt
+      ).then((target) => {
+        if (
+          runId === selectionRunIdRef.current &&
+          selectionBoardId === currentBoardIdRef.current
+        ) {
+          onBoundImageTargetChangeRef.current?.(target);
+        }
+      });
+    }, [semanticEditPrompt]);
 
     return null; // 这个组件不渲染任何内容
   }
@@ -2404,6 +2458,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         ),
       [boundImageTarget, effectiveBoundTargetMode, language]
     );
+    const boundTargetGenerationContent = useMemo(
+      () =>
+        boundTargetContent &&
+        effectiveBoundTargetMode === 'follow' &&
+        boundImageTarget?.semanticReplacement
+          ? {
+              ...boundTargetContent,
+              url: boundImageTarget.semanticReplacement.backgroundUrl,
+            }
+          : boundTargetContent,
+      [boundImageTarget, boundTargetContent, effectiveBoundTargetMode]
+    );
     const followedBoundImageTarget =
       boundImageTargetMode === 'follow' ? boundImageTarget : null;
     const displayContent = useMemo(
@@ -2415,10 +2481,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     const generationContent = useMemo(
       () =>
-        boundTargetContent
-          ? [boundTargetContent, ...uploadedContent]
+        boundTargetGenerationContent
+          ? [boundTargetGenerationContent, ...uploadedContent]
           : allContent,
-      [allContent, boundTargetContent, uploadedContent]
+      [allContent, boundTargetGenerationContent, uploadedContent]
     );
     const localImageMessages = useMemo(
       () => ({
@@ -4613,10 +4679,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               selectedParamsRef.current
             );
       const baseParams = { ...loadedParams };
-      if (
-        isSeedance2ModelId(selectedModel) &&
-        baseParams.size?.includes('@')
-      ) {
+      if (isSeedance2ModelId(selectedModel) && baseParams.size?.includes('@')) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
         baseParams.size = resolution;
         if (legacyRatio && !baseParams.ratio) {
@@ -4749,22 +4812,76 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const trigger =
           typeof triggerOrOverride === 'string' ? triggerOrOverride : 'button';
         const effectivePrompt = override?.prompt ?? prompt;
-        const shouldUseActiveBoundTarget =
+        const submittedBoard =
+          (SelectionWatcherBoardRef.current as
+            | (PlaitBoard & { host?: HTMLElement })
+            | null) ?? null;
+        const canUseActiveBoundTarget =
           !override &&
           shouldUseBoundTargetForSubmission(
             generationType,
             effectiveBoundTargetMode
-          ) &&
-          boundImageTarget?.type === generationType;
-        const activeBoundImageTarget = shouldUseActiveBoundTarget
-          ? boundImageTarget
+          );
+        let activeBoundImageTarget =
+          canUseActiveBoundTarget && boundImageTarget?.type === generationType
+            ? boundImageTarget
+            : null;
+        if (
+          !activeBoundImageTarget &&
+          canUseActiveBoundTarget &&
+          generationType === 'image' &&
+          submittedBoard
+        ) {
+          const selectedElements = getSelectedElements(submittedBoard);
+          const selectedSemanticGroup =
+            selectedElements.length === 1 &&
+            selectedElements[0].type === 'group' &&
+            Boolean(
+              selectedElements[0].metadata?.semanticLayerGroup?.providerGroupId
+            );
+          if (selectedSemanticGroup) {
+            const resolvedTarget = await resolveBoundImageTarget(
+              submittedBoard,
+              selectedElements,
+              effectivePrompt
+            );
+            if (resolvedTarget?.semanticReplacement) {
+              activeBoundImageTarget = resolvedTarget;
+              setBoundTargetError(null);
+            } else {
+              setBoundTargetError(
+                language === 'zh'
+                  ? '未能唯一识别要替换的旧主体，请在提示词中明确对象名称'
+                  : 'Could not uniquely identify the subject to replace. Name it explicitly in the prompt.'
+              );
+              return;
+            }
+          }
+        }
+        const activeBoundTargetContent = activeBoundImageTarget
+          ? selectedContentFromBoundTarget(
+              activeBoundImageTarget,
+              language,
+              effectiveBoundTargetMode === 'reference'
+            )
           : null;
+        const activeBoundTargetGenerationContent =
+          activeBoundTargetContent &&
+          effectiveBoundTargetMode === 'follow' &&
+          activeBoundImageTarget?.semanticReplacement
+            ? {
+                ...activeBoundTargetContent,
+                url: activeBoundImageTarget.semanticReplacement.backgroundUrl,
+              }
+            : activeBoundTargetContent;
         const baseEffectiveContent = override
           ? pinBoundTargetReferenceContent(
               override.content,
               boundTargetContent,
               effectiveBoundTargetMode
             )
+          : activeBoundTargetGenerationContent
+          ? [activeBoundTargetGenerationContent, ...uploadedContent]
           : generationContent;
         let effectiveContent = baseEffectiveContent;
         const effectiveGenerationType = activeBoundImageTarget
@@ -4782,6 +4899,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             : override?.selectedCount ?? selectedCount;
         const appendToCurrentChatSession =
           override?.appendToCurrentChatSession ?? false;
+        const targetChatSessionId = override?.targetSessionId ?? null;
         const shouldClearLocalInput = !override && !activeBoundImageTarget;
         const submittedTaskbarDraft = override
           ? null
@@ -4790,10 +4908,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           ? null
           : activeDraftElementIdRef.current;
         const submittedDraftBoardId = activeTaskbarBoardIdRef.current;
-        const submittedBoard =
-          (SelectionWatcherBoardRef.current as
-            | (PlaitBoard & { host?: HTMLElement })
-            | null) ?? null;
         const submittedCanvasAssociations = override
           ? []
           : mergeTrustedCanvasAssociationRefs(effectivePrompt, [
@@ -5228,13 +5342,49 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ? agentMediaDefaultModelRefs
                 : undefined,
           });
-          const imageBoundTargetGenerationParams =
+          let imageBoundTargetGenerationParams =
             activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
                   activeBoundImageTarget,
                   effectiveSelectedCount
                 )
               : null;
+          const semanticReplacement =
+            activeBoundImageTarget?.type === 'image'
+              ? activeBoundImageTarget.semanticReplacement
+              : undefined;
+          if (imageBoundTargetGenerationParams && semanticReplacement) {
+            const semanticMask = await createSemanticForegroundEditMask(
+              semanticReplacement
+            );
+            const semanticLayer = semanticReplacement.semanticLayer;
+            parsedParams.prompt = buildSemanticReplacementGenerationPrompt(
+              parsedParams.prompt,
+              semanticLayer.name,
+              semanticLayer.description
+            );
+            imageBoundTargetGenerationParams = {
+              ...imageBoundTargetGenerationParams,
+              generationMode: 'image_edit',
+              referenceImages: [
+                semanticReplacement.originalCompositeUrl ||
+                  semanticReplacement.backgroundUrl,
+              ],
+              maskImage: semanticMask,
+              semanticReplacement: true,
+              semanticReplacementOldName: semanticLayer.name,
+              semanticReplacementOldDescription: semanticLayer.description,
+              semanticReplacementBackgroundUrl:
+                semanticReplacement.backgroundUrl,
+              semanticReplacementReferenceUrl:
+                semanticReplacement.originalCompositeUrl ||
+                semanticReplacement.backgroundUrl,
+              semanticReplacementBackgroundElementId:
+                semanticReplacement.backgroundElementId,
+              semanticReplacementForegroundUrl:
+                semanticReplacement.foregroundUrl,
+            };
+          }
           const boundTargetGenerationParams = activeBoundImageTarget
             ? activeBoundImageTarget.type === 'image'
               ? imageBoundTargetGenerationParams
@@ -5741,6 +5891,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               workflow,
               {
                 appendToCurrentChatSession,
+                targetSessionId: targetChatSessionId,
               }
             );
             if (usedSW) {
@@ -6357,6 +6508,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           selectedParams: params.selectedParams,
           selectedCount: params.selectedCount,
           appendToCurrentChatSession: true,
+          targetSessionId: params.targetSessionId,
         });
       };
 
@@ -7672,6 +7824,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         >
           <SelectionWatcher
             language={language}
+            semanticEditPrompt={prompt}
             currentBoardId={currentBoardId}
             onSelectionChange={handleSelectionChange}
             canvasAssociationPicking={Boolean(canvasAssociationTrigger)}

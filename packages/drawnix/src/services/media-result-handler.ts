@@ -146,6 +146,10 @@ export async function handleSplitAndInsertTask(
     const result = await splitAndInsertImages(board, url, {
       scrollToResult: config.scrollToResult ?? true,
       boardGuard: config.boardGuard,
+      metadata: {
+        prompt: params.prompt,
+        generationTaskId: taskId,
+      },
     });
 
     if (config.boardGuard && !config.boardGuard()) {
@@ -178,7 +182,16 @@ export async function handleSplitAndInsertTask(
       const insertResult = await executeCanvasInsertion({
         board,
         boardGuard: config.boardGuard,
-        items: [{ type: 'image', content: url }],
+        items: [
+          {
+            type: 'image',
+            content: url,
+            metadata: {
+              prompt: params.prompt,
+              generationTaskId: taskId,
+            },
+          },
+        ],
         startPoint: insertionPoint,
       });
       if (insertResult.success) {
@@ -325,14 +338,18 @@ export async function handleGroupMediaInsert(
     const firstTask = tasks[0];
     const dimensions = parseSizeToPixels(firstTask.params.size);
 
-    const urls = tasks.map((t) => t.url);
+    const results = tasks.map((task) => ({
+      type: task.type,
+      url: task.url,
+      dimensions,
+      metadata: {
+        prompt: task.params.prompt,
+        generationTaskId: task.taskId,
+      },
+    }));
 
     if (config.insertPrompt) {
-      await insertAIFlow(
-        firstTask.params.prompt,
-        urls.map((url) => ({ type: firstTask.type, url, dimensions })),
-        insertionPoint
-      );
+      await insertAIFlow(firstTask.params.prompt, results, insertionPoint);
     } else {
       if (firstTask.type === 'image') {
         await executeCanvasInsertion({

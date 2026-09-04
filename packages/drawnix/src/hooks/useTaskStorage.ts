@@ -82,7 +82,6 @@ export function useTaskStorage(): boolean {
         console.warn(
           `[useTaskStorage] Loaded ${storedTasks.length} tasks from IndexedDB`
         );
-
         const deferredImageRecoveryTasks: Array<{
           taskId: string;
           requestId: string;

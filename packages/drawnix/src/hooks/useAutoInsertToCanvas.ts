@@ -14,9 +14,12 @@
 import { useEffect, useRef } from 'react';
 import {
   getViewportOrigination,
+  PlaitHistoryBoard,
   PlaitBoard as PlaitBoardApi,
+  RectangleClient,
   Transforms,
   type PlaitBoard,
+  type PlaitElement,
   type Point,
 } from '@plait/core';
 import { PlaitDrawElement } from '@plait/draw';
@@ -96,6 +99,15 @@ import {
 } from '../plugins/canvas-association';
 import { workspaceService } from '../services/workspace-service';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
+import {
+  calculateLayerCanvasBounds,
+  getSemanticLayerElementPoints,
+  getSemanticLayerMetadata,
+  prepareSemanticForegroundReplacement,
+  type SemanticLayerGroupMetadata,
+  type SemanticForegroundReplacementResult,
+} from '../services/layer-decomposition';
+import { postprocessGeneratedImage } from '../services/layer-decomposition/artifact-repair';
 import {
   findBoundTargetElement,
   isBoundTargetReferenceOnly,
@@ -537,7 +549,7 @@ async function replaceGeneratedTarget(
     return null;
   }
 
-  const elementIndex = board.children.findIndex(
+  let elementIndex = board.children.findIndex(
     (element: { id?: string }) => element.id === replaceElementId
   );
   if (elementIndex < 0) {
@@ -546,7 +558,7 @@ async function replaceGeneratedTarget(
 
   const imageAnchor =
     type === 'image' ? findImageGenerationAnchorForTask(board, task) : null;
-  const element = board.children[elementIndex] as {
+  const element = board.children[elementIndex] as PlaitElement & {
     points?: [Point, Point];
   };
   const points = element.points;
@@ -557,8 +569,169 @@ async function replaceGeneratedTarget(
           height: Math.abs(points[1][1] - points[0][1]),
         }
       : undefined;
+  let replacementPoints = points;
+  let replacementSize = existingSize;
   const basePatch = buildTaskGenerationElementPatch(task, imageAnchor);
   const record = element as Record<string, unknown>;
+  let replacementContent = content;
+  let semanticReplacementResult: SemanticForegroundReplacementResult | null =
+    null;
+  const semanticLayer =
+    type === 'image' ? getSemanticLayerMetadata(element as PlaitElement) : null;
+
+  if (type === 'image') {
+    const taskParams = task.params as Record<string, unknown>;
+    const generationMode = taskParams.generationMode;
+    const maskImageUrl =
+      typeof taskParams.maskImage === 'string' && taskParams.maskImage.trim()
+        ? taskParams.maskImage
+        : undefined;
+    const isMaskedEdit =
+      !!maskImageUrl &&
+      (generationMode === 'image_edit' || generationMode === 'image_to_image');
+    const isSemanticReplacement =
+      semanticLayer?.kind === 'foreground' &&
+      taskParams.semanticReplacement === true;
+    const semanticBackgroundUrl =
+      typeof taskParams.semanticReplacementBackgroundUrl === 'string' &&
+      taskParams.semanticReplacementBackgroundUrl.trim()
+        ? taskParams.semanticReplacementBackgroundUrl.trim()
+        : undefined;
+    const semanticReferenceUrl =
+      typeof taskParams.semanticReplacementReferenceUrl === 'string' &&
+      taskParams.semanticReplacementReferenceUrl.trim()
+        ? taskParams.semanticReplacementReferenceUrl.trim()
+        : semanticBackgroundUrl;
+    if (isSemanticReplacement) {
+      const expectedForegroundUrl =
+        typeof taskParams.semanticReplacementForegroundUrl === 'string'
+          ? taskParams.semanticReplacementForegroundUrl.trim()
+          : '';
+      const expectedBackgroundElementId =
+        typeof taskParams.semanticReplacementBackgroundElementId === 'string'
+          ? taskParams.semanticReplacementBackgroundElementId.trim()
+          : '';
+      const currentBackground = board.children.find(
+        (candidate) => candidate.id === expectedBackgroundElementId
+      );
+      if (
+        !expectedForegroundUrl ||
+        record.url !== expectedForegroundUrl ||
+        !semanticBackgroundUrl ||
+        !currentBackground ||
+        currentBackground.url !== semanticBackgroundUrl ||
+        currentBackground.groupId !== element.groupId
+      ) {
+        return null;
+      }
+    }
+    const protectedSourceUrl = isSemanticReplacement
+      ? semanticReferenceUrl
+      : typeof record.url === 'string'
+      ? record.url
+      : undefined;
+    if (isMaskedEdit || semanticLayer?.kind === 'foreground') {
+      try {
+        replacementContent = await postprocessGeneratedImage({
+          generatedImageUrl: replacementContent,
+          taskId: task.id,
+          ...(protectedSourceUrl
+            ? { originalImageUrl: protectedSourceUrl }
+            : {}),
+          ...(maskImageUrl ? { maskImageUrl } : {}),
+          model:
+            typeof taskParams.model === 'string'
+              ? taskParams.model
+              : task.invocationRoute?.modelId || undefined,
+          modelRef:
+            task.params.modelRef || task.invocationRoute?.modelRef || undefined,
+          size:
+            typeof taskParams.size === 'string' ? taskParams.size : undefined,
+          resolution:
+            taskParams.resolution === '1k' ||
+            taskParams.resolution === '2k' ||
+            taskParams.resolution === '4k'
+              ? taskParams.resolution
+              : undefined,
+          quality:
+            taskParams.quality === 'auto' ||
+            taskParams.quality === 'low' ||
+            taskParams.quality === 'medium' ||
+            taskParams.quality === 'high' ||
+            taskParams.quality === '1k' ||
+            taskParams.quality === '2k' ||
+            taskParams.quality === '4k'
+              ? taskParams.quality
+              : undefined,
+          prompt:
+            typeof taskParams.prompt === 'string'
+              ? taskParams.prompt
+              : undefined,
+          ...(!isSemanticReplacement && semanticLayer
+            ? {
+                targetName: semanticLayer.name,
+                targetDescription: semanticLayer.description,
+              }
+            : {}),
+          ...(isSemanticReplacement && semanticLayer
+            ? {
+                excludedTargetName: semanticLayer.name,
+                excludedTargetDescription: semanticLayer.description,
+              }
+            : {}),
+        });
+      } catch (error) {
+        console.warn(
+          `[AutoInsert] Generated image artifact post-processing skipped for task ${task.id}:`,
+          error
+        );
+        if (isSemanticReplacement) {
+          return null;
+        }
+      }
+    }
+  }
+  if (semanticLayer?.kind === 'foreground') {
+    const originalUrl = typeof record.url === 'string' ? record.url : undefined;
+    try {
+      semanticReplacementResult = await prepareSemanticForegroundReplacement(
+        replacementContent,
+        task.id,
+        semanticLayer,
+        {
+          editPrompt:
+            typeof task.params.prompt === 'string'
+              ? task.params.prompt
+              : undefined,
+        }
+      );
+      replacementContent = semanticReplacementResult.url;
+    } catch (error) {
+      console.warn(
+        `[AutoInsert] Semantic foreground replacement rejected for task ${task.id}:`,
+        error
+      );
+      return null;
+    }
+    const currentIndex = board.children.findIndex(
+      (candidate) => candidate.id === replaceElementId
+    );
+    const currentElement =
+      currentIndex >= 0 ? board.children[currentIndex] : undefined;
+    const currentSemanticLayer = currentElement
+      ? getSemanticLayerMetadata(currentElement)
+      : null;
+    if (
+      !currentElement ||
+      currentElement.url !== originalUrl ||
+      currentSemanticLayer?.kind !== 'foreground' ||
+      currentSemanticLayer.providerGroupId !== semanticLayer.providerGroupId ||
+      currentSemanticLayer.zIndex !== semanticLayer.zIndex
+    ) {
+      return null;
+    }
+    elementIndex = currentIndex;
+  }
 
   if (type === 'text') {
     if (isCardElement(element as any)) {
@@ -665,14 +838,139 @@ async function replaceGeneratedTarget(
       return null;
     }
   } else if (type === 'image') {
-    Transforms.setNode(
-      board,
+    let groupUpdate:
+      | { index: number; metadata: Record<string, unknown> }
+      | undefined;
+    let semanticElementPatch: Record<string, unknown> | undefined;
+    if (semanticLayer?.kind === 'foreground') {
+      const groupIndex = board.children.findIndex(
+        (candidate) =>
+          candidate.type === 'group' &&
+          candidate.id === element.groupId &&
+          candidate.metadata?.semanticLayerGroup?.providerGroupId ===
+            semanticLayer.providerGroupId
+      );
+      const group = groupIndex >= 0 ? board.children[groupIndex] : undefined;
+      const groupMetadata = group?.metadata?.semanticLayerGroup as
+        | SemanticLayerGroupMetadata
+        | undefined;
+      const manifest = groupMetadata?.manifest;
+      const background = board.children.find((candidate) => {
+        const metadata = getSemanticLayerMetadata(candidate);
+        return (
+          candidate.groupId === group?.id &&
+          metadata?.kind === 'background' &&
+          metadata.providerGroupId === semanticLayer.providerGroupId &&
+          Array.isArray(candidate.points) &&
+          candidate.points.length === 2
+        );
+      });
+      if (
+        !group ||
+        !groupMetadata ||
+        !manifest ||
+        !background?.points ||
+        !semanticReplacementResult
+      ) {
+        return null;
+      }
       {
-        ...basePatch,
-        url: content,
-      } as any,
-      [elementIndex]
-    );
+        const replacementLayer = semanticReplacementResult.layer;
+        const nextSemanticLayer = {
+          ...semanticLayer,
+          name: replacementLayer.name,
+          description: replacementLayer.description,
+          boundingBox: {
+            absolute: [...replacementLayer.boundingBox.absolute],
+            normalized: [...replacementLayer.boundingBox.normalized],
+          },
+          ...(replacementLayer.confidence === undefined
+            ? {}
+            : { confidence: replacementLayer.confidence }),
+        };
+        const backgroundBounds = RectangleClient.getRectangleByPoints(
+          background.points as [Point, Point]
+        );
+        const layerBounds = calculateLayerCanvasBounds(
+          {
+            ...replacementLayer,
+            groupId: semanticLayer.providerGroupId,
+            zIndex: semanticLayer.zIndex,
+          },
+          backgroundBounds,
+          {
+            width: semanticReplacementResult.width,
+            height: semanticReplacementResult.height,
+          }
+        );
+        replacementPoints = getSemanticLayerElementPoints(
+          layerBounds,
+          backgroundBounds,
+          typeof background.angle === 'number' ? background.angle : 0
+        );
+        replacementSize = {
+          width: layerBounds.width,
+          height: layerBounds.height,
+        };
+        semanticElementPatch = {
+          points: replacementPoints,
+          metadata: {
+            ...(element.metadata || {}),
+            semanticLayer: nextSemanticLayer,
+          },
+        };
+        const layers = Array.isArray(manifest.layers)
+          ? manifest.layers.map((item) =>
+              item.kind === 'foreground' && item.zIndex === semanticLayer.zIndex
+                ? {
+                    ...item,
+                    url: replacementContent,
+                    name: replacementLayer.name,
+                    description: replacementLayer.description,
+                    boundingBox: nextSemanticLayer.boundingBox,
+                    ...(replacementLayer.confidence === undefined
+                      ? {}
+                      : { confidence: replacementLayer.confidence }),
+                  }
+                : item
+            )
+          : manifest.layers;
+        groupUpdate = {
+          index: groupIndex,
+          metadata: {
+            ...(group.metadata || {}),
+            semanticLayerGroup: {
+              ...groupMetadata,
+              manifest: {
+                ...manifest,
+                layers,
+              },
+            },
+          },
+        };
+      }
+    }
+    const applyReplacement = () => {
+      Transforms.setNode(
+        board,
+        {
+          ...basePatch,
+          url: replacementContent,
+          ...(semanticElementPatch || {}),
+        } as any,
+        [elementIndex]
+      );
+      if (groupUpdate) {
+        Transforms.setNode(board, { metadata: groupUpdate.metadata } as any, [
+          groupUpdate.index,
+        ]);
+      }
+    };
+    if (groupUpdate) {
+      PlaitHistoryBoard.withNewBatch(board, applyReplacement);
+    } else {
+      applyReplacement();
+    }
   } else {
     return null;
   }
@@ -683,16 +981,16 @@ async function replaceGeneratedTarget(
       imageAnchor,
       task,
       replaceElementId,
-      content,
+      replacementContent,
       false
     );
   }
   notifyAISelectionContentRefresh();
 
   return {
-    point: points?.[0],
+    point: replacementPoints?.[0],
     elementId: replaceElementId,
-    size: existingSize || mediaSize,
+    size: replacementSize || mediaSize,
   };
 }
 
@@ -2413,10 +2711,7 @@ export function useAutoInsertToCanvas(
             !currentBinding ||
             currentBinding.board !== board ||
             currentBinding.boardId !== boardId ||
-            !canInsertTaskCanvasAssociationsOnCurrentBoard(
-              insertionTask,
-              board
-            )
+            !canInsertTaskCanvasAssociationsOnCurrentBoard(insertionTask, board)
           ) {
             return;
           }
@@ -2506,7 +2801,9 @@ export function useAutoInsertToCanvas(
           if (!finalizeTaskInsertion(insertionTask, board)) {
             throw new Error('画板已切换，PPT 讲解视频交付待重试');
           }
-          await getTaskQueueService().waitForTaskPersistence?.(insertionTask.id);
+          await getTaskQueueService().waitForTaskPersistence?.(
+            insertionTask.id
+          );
         }
       )
         .then((result) => {

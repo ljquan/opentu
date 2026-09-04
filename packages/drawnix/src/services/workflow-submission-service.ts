@@ -709,7 +709,7 @@ class WorkflowSubmissionService {
   }
 
   /**
-   * 中止全部运行中的工作流并清空页面内存状态。
+   * 中止全部运行中的工作流并清空页面内存与持久化记录。
    */
   async clearAllWorkflows(): Promise<void> {
     workflowStorageWriter.pauseWrites();

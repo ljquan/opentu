@@ -213,7 +213,7 @@ export const insertVideoFromUrl = async (
   lockReferenceDimensions?: boolean,
   boardGuard?: () => boolean,
   insertWithoutBoardHost?: boolean
-) => {
+): Promise<string | undefined> => {
   if (!board) {
     throw new Error('Board is required for video insertion');
   }
@@ -326,7 +326,6 @@ export const insertVideoFromUrl = async (
     if (boardGuard && !boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
     }
-    const childrenCountBefore = board.children.length;
     let insertedElement;
     if (insertionPoint && insertWithoutBoardHost) {
       insertedElement = insertImageNodeAtPoint(
@@ -335,8 +334,13 @@ export const insertVideoFromUrl = async (
         insertionPoint
       );
     } else {
+      const existingElementIds = new Set(
+        board.children.map((child) => child.id)
+      );
       DrawTransforms.insertImage(board, videoAsImageElement, insertionPoint);
-      insertedElement = board.children[childrenCountBefore];
+      insertedElement = board.children.find(
+        (child) => !existingElementIds.has(child.id)
+      );
     }
 
     // 埋点：视频插入画布

@@ -9,6 +9,13 @@ describe('chat drawer workflow session target', () => {
     });
   });
 
+  it('prefers the explicit target session when provided', () => {
+    expect(resolveWorkflowSessionTarget('session-1', true, 'session-2')).toEqual({
+      mode: 'append',
+      sessionId: 'session-2',
+    });
+  });
+
   it('creates a session when no active session exists', () => {
     expect(resolveWorkflowSessionTarget(null, true)).toEqual({
       mode: 'create',

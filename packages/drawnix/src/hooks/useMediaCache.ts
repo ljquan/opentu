@@ -161,7 +161,6 @@ export function useMediaUrl(
       setIsLoading(false);
       return;
     }
-
     // First try to get cached URL
     const cachedUrl = await unifiedCacheService.getCachedUrl(originalUrl);
     if (requestId !== loadRequestRef.current) {

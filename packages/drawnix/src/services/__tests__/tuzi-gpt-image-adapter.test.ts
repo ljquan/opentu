@@ -97,6 +97,7 @@ describe('tuzi GPT image adapter', () => {
   });
 
   it('preserves official quality and defaults GPT Image 2 sizing to 1k when resolution is unset', async () => {
+    const controller = new AbortController();
     mocks.sendAdapterRequest.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -117,6 +118,8 @@ describe('tuzi GPT image adapter', () => {
         baseUrl: 'https://api.tu-zi.com/v1',
         apiKey: 'test-key',
         authType: 'bearer',
+        requestId: 'task-tuzi-image-1',
+        signal: controller.signal,
         binding: {
           id: 'binding',
           profileId: 'tuzi',
@@ -156,6 +159,116 @@ describe('tuzi GPT image adapter', () => {
     });
   });
 
+  it('uses the provider binding model id instead of a stale image2 task alias', async () => {
+    const controller = new AbortController();
+    mocks.sendAdapterRequest.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ url: 'https://example.com/tuzi.png' }],
+      }),
+    });
+
+    await tuziGPTImageAdapter.generateImage(
+      {
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+        requestId: 'task-tuzi-image-1',
+        signal: controller.signal,
+        binding: {
+          id: 'binding',
+          profileId: 'tuzi',
+          modelId: 'gpt-image-2',
+          operation: 'image',
+          protocol: 'openai.images.generations',
+          requestSchema: 'tuzi.image.gpt-generation-json',
+          responseSchema: 'openai.image.data',
+          submitPath: '/images/generations',
+          priority: 900,
+          confidence: 'high',
+          source: 'manual',
+        },
+      },
+      {
+        model: 'image2',
+        prompt: '兔子',
+        size: '1x1',
+      }
+    );
+
+    const [context, request] = mocks.sendAdapterRequest.mock.calls[0] || [];
+    expect(context).toMatchObject({
+      requestId: 'task-tuzi-image-1',
+      signal: controller.signal,
+    });
+    expect(JSON.parse(request.body)).toMatchObject({
+      model: 'gpt-image-2',
+      prompt: '兔子',
+    });
+  });
+
+  it('retries the legacy Tuzi image-2 binding with the documented model id', async () => {
+    mocks.sendAdapterRequest
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'model_not_found',
+              message: '分组 default 下模型 dall-e 无可用渠道',
+            },
+          }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ url: 'https://example.com/tuzi.png' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    await tuziGPTImageAdapter.generateImage(
+      {
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+        binding: {
+          id: 'legacy-binding',
+          profileId: 'tuzi',
+          modelId: 'image-2',
+          operation: 'image',
+          protocol: 'openai.images.generations',
+          requestSchema: 'tuzi.image.gpt-generation-json',
+          responseSchema: 'openai.image.data',
+          submitPath: '/images/generations',
+          priority: 900,
+          confidence: 'high',
+          source: 'manual',
+        },
+      },
+      {
+        model: 'image-2',
+        prompt: '兔子',
+        size: '1x1',
+      }
+    );
+
+    expect(mocks.sendAdapterRequest).toHaveBeenCalledTimes(2);
+    const firstRequest = mocks.sendAdapterRequest.mock.calls[0]?.[1];
+    const retryRequest = mocks.sendAdapterRequest.mock.calls[1]?.[1];
+    expect(firstRequest.path).toBe('/images/generations');
+    expect(JSON.parse(firstRequest.body)).toMatchObject({
+      model: 'image-2',
+      prompt: '兔子',
+    });
+    expect(JSON.parse(retryRequest.body)).toMatchObject({
+      model: 'gpt-image-2',
+      prompt: '兔子',
+    });
+  });
+
   it('routes edit requests through the dedicated Tuzi edit schema', async () => {
     mocks.sendAdapterRequest.mockResolvedValue(
       new Response(
@@ -176,7 +289,7 @@ describe('tuzi GPT image adapter', () => {
           profileId: 'tuzi',
           modelId: 'gpt-image-2',
           operation: 'image',
-          protocol: 'openai.images.generations',
+          protocol: 'openai.images.edits',
           requestSchema: 'tuzi.image.gpt-edit-json',
           responseSchema: 'openai.image.data',
           submitPath: '/images/generations',

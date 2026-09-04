@@ -10,6 +10,7 @@ import {
 } from '../../utils/seedance-model';
 import type { ImageApiCompatibility } from '../../utils/settings-types';
 import {
+  isTuziGPTImageLegacyAlias,
   OFFICIAL_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
   TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
 } from '../model-adapters/image-request-schemas';
@@ -254,7 +255,10 @@ function resolveImageApiCompatibility(
     return 'openai-gpt-image';
   }
 
-  if (isTuziProfile(profile) && isGptImageModel(model)) {
+  if (
+    isTuziProfile(profile) &&
+    (isGptImageModel(model) || isTuziGPTImageLegacyAlias(model.id))
+  ) {
     return 'tuzi-gpt-image';
   }
 
@@ -395,6 +399,9 @@ function inferImageBindings(
   const bindings: ProviderModelBinding[] = [];
   const isGeminiImageModel =
     isGeminiFamilyModel(model) && !isAsyncImageModel(model.id);
+  const isGPTImageCompatibleModel =
+    isGptImageModel(model) ||
+    (isTuziProfile(profile) && isTuziGPTImageLegacyAlias(model.id));
 
   if (isMidjourneyModel(model)) {
     bindings.push(
@@ -472,10 +479,10 @@ function inferImageBindings(
     );
     const requestSchema = isSeedreamModel(model)
       ? 'openai.image.seedream-json'
-      : isGptImageModel(model) &&
+      : isGPTImageCompatibleModel &&
         resolvedImageApiCompatibility === 'openai-gpt-image'
       ? 'openai.image.gpt-generation-json'
-      : isGptImageModel(model) &&
+      : isGPTImageCompatibleModel &&
         resolvedImageApiCompatibility === 'tuzi-gpt-image'
       ? 'tuzi.image.gpt-generation-json'
       : 'openai.image.basic-json';
@@ -518,7 +525,7 @@ function inferImageBindings(
 
     if (
       !shouldPreferAsyncImageBinding(profile, model) &&
-      isGptImageModel(model) &&
+      isGPTImageCompatibleModel &&
       resolvedImageApiCompatibility === 'openai-gpt-image'
     ) {
       bindings.push(
@@ -545,7 +552,7 @@ function inferImageBindings(
 
     if (
       !shouldPreferAsyncImageBinding(profile, model) &&
-      isGptImageModel(model) &&
+      isGPTImageCompatibleModel &&
       resolvedImageApiCompatibility === 'tuzi-gpt-image'
     ) {
       bindings.push(
@@ -681,8 +688,7 @@ function inferVideoBindings(
                   seedance2Capabilities.minDuration +
                   1,
               },
-              (_, index) =>
-                String(seedance2Capabilities.minDuration + index)
+              (_, index) => String(seedance2Capabilities.minDuration + index)
             ),
             defaultDuration: String(seedance2Capabilities.defaultDuration),
             durationMode: 'request-param' as const,

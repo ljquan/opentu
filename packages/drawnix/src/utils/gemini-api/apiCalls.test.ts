@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   callApiRaw,
   callApiWithRetry,
+  callApiStreamRaw,
   callGoogleGenerateContentRaw,
 } from './apiCalls';
 
@@ -406,6 +407,127 @@ describe('callGoogleGenerateContentRaw', () => {
           'Content-Type': 'application/json',
         },
         requestId: 'task-google-image-1',
+      })
+    );
+  });
+
+  it('uses manual chat binding submit path for non-stream calls', async () => {
+    sendMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'ok' } }],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    );
+
+    await callApiRaw(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com/v1',
+        modelName: 'custom-chat',
+        authType: 'bearer',
+        binding: {
+          id: 'binding',
+          profileId: 'provider-a',
+          modelId: 'custom-chat',
+          operation: 'text',
+          protocol: 'openai.chat.completions',
+          requestSchema: 'openai.chat.messages',
+          responseSchema: 'openai.chat.choices',
+          submitPath: '/custom/chat',
+          baseUrlStrategy: 'trim-v1',
+          priority: 900,
+          confidence: 'high',
+          source: 'manual',
+        },
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+        },
+      ]
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: 'https://api.example.com/v1',
+      }),
+      expect.objectContaining({
+        path: '/custom/chat',
+        baseUrlStrategy: 'trim-v1',
+        method: 'POST',
+      })
+    );
+  });
+
+  it('uses manual chat binding submit path for stream calls', async () => {
+    const encoder = new TextEncoder();
+    sendMock.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+              )
+            );
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream',
+          },
+        }
+      )
+    );
+
+    await callApiStreamRaw(
+      {
+        apiKey: 'secret',
+        baseUrl: 'https://api.example.com/v1',
+        modelName: 'custom-chat',
+        authType: 'bearer',
+        binding: {
+          id: 'binding',
+          profileId: 'provider-a',
+          modelId: 'custom-chat',
+          operation: 'text',
+          protocol: 'openai.chat.completions',
+          requestSchema: 'openai.chat.messages',
+          responseSchema: 'openai.chat.choices',
+          submitPath: '/custom/stream-chat',
+          baseUrlStrategy: 'trim-v1',
+          priority: 900,
+          confidence: 'high',
+          source: 'manual',
+        },
+      },
+      [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+        },
+      ]
+    );
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: 'https://api.example.com/v1',
+      }),
+      expect.objectContaining({
+        path: '/custom/stream-chat',
+        baseUrlStrategy: 'trim-v1',
+        method: 'POST',
       })
     );
   });

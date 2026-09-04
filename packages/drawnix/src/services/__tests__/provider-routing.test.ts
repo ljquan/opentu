@@ -1580,6 +1580,59 @@ describe('provider routing', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('does not switch endpoints when the configured Tuzi endpoint returns HTML', async () => {
+    vi.stubGlobal('location', { hostname: 'opentu.ai' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: {
+            api_address_list: [
+              { url: 'https://api.tu-zi.com' },
+              { url: 'https://apius.tu-zi.com' },
+            ],
+          },
+        })
+      )
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response('<!doctype html><html></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ data: [{ url: 'image.png' }] }));
+
+    try {
+      const response = await providerTransport.send(
+        {
+          profileId: 'provider-tuzi',
+          profileName: 'Tuzi',
+          providerType: 'openai-compatible',
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'secret',
+          authType: 'bearer',
+        },
+        {
+          path: '/images/generations',
+          method: 'POST',
+          body: '{}',
+          fetcher,
+        }
+      );
+
+      expect(response.ok).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+        'https://api.tu-zi.com/v1/images/generations'
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('returns deterministic model_not_found responses without switching Tuzi endpoints', async () => {
     vi.stubGlobal(
       'fetch',

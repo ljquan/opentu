@@ -1439,7 +1439,11 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
         );
       } catch (error) {
         console.error('Failed to insert image:', error);
-        MessagePlugin.error('插入失败');
+        const message =
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : '无法读取图片内容，请重新生成或下载后上传';
+        MessagePlugin.error(`插入失败: ${message}`);
       }
     },
     [board]

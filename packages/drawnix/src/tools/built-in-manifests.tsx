@@ -7,10 +7,16 @@ import {
   Clapperboard,
   History,
 } from 'lucide-react';
-import { BatchIcon, BookOpenIcon, MessageIcon } from '../components/icons';
+import {
+  BatchIcon,
+  BookOpenIcon,
+  ImageInspectionIcon,
+  MessageIcon,
+} from '../components/icons';
 import { ToolCategory, type ToolDefinition } from '../types/toolbox.types';
 import {
   COMIC_CREATOR_TOOL_ID,
+  IMAGE_INSPECTION_TOOL_ID,
   MODEL_BENCHMARK_TOOL_ID,
   MUSIC_PLAYER_TOOL_ID,
 } from './tool-ids';
@@ -101,6 +107,16 @@ export const BUILT_IN_TOOL_MANIFESTS: ToolDefinition[] = [
     defaultWidth: 1000,
     defaultHeight: 700,
     permissions: [...DEFAULT_TOOL_PERMISSIONS],
+  },
+  {
+    id: IMAGE_INSPECTION_TOOL_ID,
+    name: '生图巡检报表',
+    description: '自动测试各分组生图模型的比例与尺寸，并汇总真实图片 URL',
+    icon: <ImageInspectionIcon size={18} />,
+    category: ToolCategory.AI_TOOLS,
+    component: IMAGE_INSPECTION_TOOL_ID,
+    defaultWidth: 1280,
+    defaultHeight: 860,
   },
   {
     id: MODEL_BENCHMARK_TOOL_ID,

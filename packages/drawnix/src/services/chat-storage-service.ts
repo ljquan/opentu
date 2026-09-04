@@ -79,11 +79,18 @@ export async function getAllSessions(): Promise<ChatSession[]> {
 
 export async function updateSession(
   id: string,
-  updates: Partial<ChatSession>
+  updates: Partial<ChatSession>,
+  options?: { preserveUpdatedAt?: boolean }
 ): Promise<void> {
   const session = await getSession(id);
   if (session) {
-    const updated = { ...session, ...updates, updatedAt: Date.now() };
+    const updated = {
+      ...session,
+      ...updates,
+      updatedAt: options?.preserveUpdatedAt
+        ? session.updatedAt
+        : updates.updatedAt || Date.now(),
+    };
     await sessionsStore.setItem(id, updated);
   }
 }
@@ -126,6 +133,34 @@ export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
   });
   // Sort by timestamp ascending (oldest first)
   return messages.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+export async function findWorkflowMessage(
+  workflowId: string
+): Promise<ChatMessage | null> {
+  const matched = await messagesStore.iterate<ChatMessage, ChatMessage | void>(
+    (value) => {
+      if (value.workflow?.id === workflowId) {
+        return value;
+      }
+      return undefined;
+    }
+  );
+  return matched || null;
+}
+
+export async function findWorkflowMessageByTask(
+  matcher: (workflow: NonNullable<ChatMessage['workflow']>) => boolean
+): Promise<ChatMessage | null> {
+  const matched = await messagesStore.iterate<ChatMessage, ChatMessage | void>(
+    (value) => {
+      if (value.workflow && matcher(value.workflow)) {
+        return value;
+      }
+      return undefined;
+    }
+  );
+  return matched || null;
 }
 
 export async function updateMessage(
@@ -225,6 +260,8 @@ export const chatStorageService = {
   deleteSession,
   addMessage,
   getMessages,
+  findWorkflowMessage,
+  findWorkflowMessageByTask,
   updateMessage,
   deleteMessage,
   getDrawerState,

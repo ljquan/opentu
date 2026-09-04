@@ -3,12 +3,12 @@
   <h3>Canvas-first AI Application Platform</h3>
   <p>Connect models, tools, assets, and knowledge flows so AI work keeps running in one workspace.</p>
   <p>
-    <a href="https://github.com/ljquan/aitu/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+    <a href="https://github.com/ljquan/opentu/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
     <a href="https://opentu.ai"><img src="https://img.shields.io/badge/demo-online-brightgreen.svg" alt="Demo"></a>
   </p>
   <p>
-    <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fljquan%2Faitu&project-name=aitu&repository-name=aitu"><img src="https://vercel.com/button" alt="Deploy with Vercel"></a>
-    <a href="https://app.netlify.com/start/deploy?repository=https://github.com/ljquan/aitu"><img src="https://www.netlify.com/img/deploy/button.svg" alt="Deploy to Netlify"></a>
+    <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fljquan%2Fopentu&project-name=opentu&repository-name=opentu"><img src="https://vercel.com/button" alt="Deploy with Vercel"></a>
+    <a href="https://app.netlify.com/start/deploy?repository=https://github.com/ljquan/opentu"><img src="https://www.netlify.com/img/deploy/button.svg" alt="Deploy to Netlify"></a>
   </p>
 </div>
 
@@ -18,6 +18,23 @@
 
 - Production: [opentu.ai](https://opentu.ai)
 - Preview: [pr.opentu.ai](https://pr.opentu.ai)
+
+## Official Install Notice
+
+This repository does not publish official macOS DMG, Windows MSI/EXE, or Linux AppImage desktop installers. Do not run third-party one-line installers or download `Opentu-*.dmg` assets from unverified forks.
+
+Use one of the supported paths instead:
+
+- Terminal install:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/ljquan/opentu/main/scripts/install_opentu.sh | bash
+  ```
+
+- Web/PWA: open [opentu.ai](https://opentu.ai) and install it from your browser.
+- Local development: follow the steps below.
+
+The install script downloads the official source to `~/.opentu/app`, installs dependencies, creates the `~/.local/bin/opentu` launcher, and creates an `Opentu.app` launcher on macOS.
 
 ## Product Showcase
 

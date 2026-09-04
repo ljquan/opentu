@@ -196,6 +196,10 @@ export class WorkflowEngine {
       // 执行步骤
       await this.executeSteps(workflow, abortController?.signal);
 
+      if (this.destroyed) {
+        return;
+      }
+
       // 检查是否所有步骤都完成
       if (this.destroyed) {
         return;

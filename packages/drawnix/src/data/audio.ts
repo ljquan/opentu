@@ -541,7 +541,6 @@ export async function insertAudioFromUrl(
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
-
   return audioNode.id;
 }
 

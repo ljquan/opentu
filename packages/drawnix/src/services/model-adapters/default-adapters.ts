@@ -213,6 +213,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
       ...(context.onSubmissionAttempt
         ? { onSubmissionAttempt: context.onSubmissionAttempt }
         : {}),
+      onResponse: context.onResponse,
     };
     if (responseFormat) {
       imageOptions.response_format = responseFormat;

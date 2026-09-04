@@ -610,6 +610,18 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     tags: ['seedream'],
   },
   {
+    id: 'doubao-seedream-5-0-pro-260628',
+    label: 'Seedream 5.0 Pro',
+    shortLabel: 'Seedream 5.0 Pro',
+    shortCode: 'sd5p',
+    description: '即梦 Seedream 5.0 Pro 图片模型',
+    type: 'image',
+    vendor: ModelVendor.DOUBAO,
+    supportsTools: false,
+    imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
+    tags: ['seedream', 'pro'],
+  },
+  {
     id: 'seedream-v4',
     label: 'Seedream V4',
     shortLabel: 'Seedream V4',
@@ -1859,10 +1871,16 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-4-0-250828',
   'doubao-seedream-4-5-251128',
   'doubao-seedream-5-0-260128',
+  'doubao-seedream-5-0-pro-260628',
 ];
 
 /** GPT Image 2 模型 ID（支持扩展比例） */
-const GPT_IMAGE_2_MODEL_IDS = ['gpt-image-2-vip', 'gpt-image-2'];
+export const GPT_IMAGE_2_MODEL_IDS = [
+  'gpt-image-2-vip',
+  'gpt-image-2',
+  'gpt-image2-vip',
+  'gpt-image2',
+];
 
 /** 所有 GPT 图片模型 ID */
 const GPT_IMAGE_MODEL_IDS = [...GPT_IMAGE_2_MODEL_IDS];

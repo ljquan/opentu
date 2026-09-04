@@ -57,6 +57,46 @@ describe('image-task-prefill', () => {
     ]);
   });
 
+  it('回填时优先保留任务路由里的自定义模型身份', () => {
+    const task = imageTask({
+      params: {
+        prompt: '兔子',
+        model: 'image2',
+      },
+      invocationRoute: {
+        operation: 'image',
+        providerProfileId: 'provider-custom',
+        modelId: 'gemini',
+        modelRef: {
+          profileId: 'provider-custom',
+          modelId: 'gemini',
+        },
+        binding: {
+          id: 'provider-custom:gemini:image:manual:custom-http',
+          protocol: 'custom-http',
+          requestSchema: 'custom-http',
+          responseSchema: 'custom-http.image',
+          submitPath: '/render',
+        },
+      },
+    });
+
+    expect(buildImageTaskPrefillInitialData(task)).toMatchObject({
+      initialModel: 'gemini',
+      initialModelRef: {
+        profileId: 'provider-custom',
+        modelId: 'gemini',
+      },
+    });
+    expect(buildImageTaskAIInputPrefillData(task)).toMatchObject({
+      model: 'gemini',
+      modelRef: {
+        profileId: 'provider-custom',
+        modelId: 'gemini',
+      },
+    });
+  });
+
   it('多参考图任务不自动绑定单张 mask，避免错配', () => {
     const task = imageTask({
       params: {

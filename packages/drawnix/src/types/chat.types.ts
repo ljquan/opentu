@@ -5,6 +5,7 @@
  */
 
 import type { ModelRef } from '../utils/settings-manager';
+import type { GenerationType } from '../utils/ai-input-parser';
 import type {
   CanvasAssociationRef,
   KnowledgeContextRef,
@@ -175,6 +176,15 @@ export interface ChatMessage {
   aiContext?: AIInputContext;
 }
 
+/** 会话级生成栏状态 */
+export interface ChatSessionGenerationState {
+  generationType: GenerationType;
+  selectedModel: string;
+  selectedModelRef?: ModelRef | null;
+  selectedParams: Record<string, string>;
+  selectedCount: number;
+}
+
 /** 对话会话接口 */
 export interface ChatSession {
   id: string;
@@ -182,6 +192,16 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  /** 当前话题顶部对话模型 */
+  sessionModel?: string;
+  /** 当前话题顶部对话模型来源 */
+  sessionModelRef?: ModelRef | null;
+  /** 当前话题输入栏生成配置 */
+  generationState?: ChatSessionGenerationState;
+  /** 当前话题未发送草稿 */
+  draftInput?: string;
+  /** 当前话题未发送附件，仅保存轻量引用 */
+  draftUploadedContent?: SelectedContentItem[];
 }
 
 /** 抽屉状态接口 */
@@ -318,6 +338,8 @@ export interface WorkflowMessageParams {
   autoOpen?: boolean;
   /** 是否追加到当前会话，默认保持创建新会话 */
   appendToCurrentSession?: boolean;
+  /** 明确追加到指定会话，优先于 appendToCurrentSession */
+  appendToSessionId?: string | null;
 }
 
 /** ChatDrawer Ref API - 用于外部控制 ChatDrawer */
@@ -342,6 +364,8 @@ export interface ChatDrawerRef {
   updateThinkingContent: (content: string) => void;
   /** 获取当前打开状态 */
   isOpen: () => boolean;
+  /** 获取当前会话 ID */
+  getActiveSessionId: () => string | null;
   /** 从指定步骤重试工作流 */
   retryWorkflowFromStep: (
     workflow: WorkflowMessageData,

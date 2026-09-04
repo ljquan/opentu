@@ -461,7 +461,7 @@ export function shouldUseBoundTargetForSubmission(
 export function buildBoundTargetGenerationParams(
   target: BoundTargetGenerationMetadata | null,
   count = 1
-): Record<string, string | undefined> | null {
+): Record<string, unknown> | null {
   if (!target || count > 1) return null;
   return {
     generationMode: 'image_to_image',

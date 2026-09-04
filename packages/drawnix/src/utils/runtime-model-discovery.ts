@@ -153,9 +153,11 @@ function extractDiscoveryErrorMessage(
 
 async function fetchRemoteModelList(
   baseUrl: string,
-  apiKey: string
+  apiKey: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const response = await fetch(`${baseUrl}/models`, {
+    signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
     },
@@ -193,7 +195,8 @@ function buildModelDiscoveryBaseUrls(
 async function fetchRemoteModelListWithFallback(
   primaryBaseUrl: string,
   apiKey: string,
-  fallbackBaseUrls: string[] = []
+  fallbackBaseUrls: string[] = [],
+  signal?: AbortSignal
 ): Promise<string> {
   const baseUrls = buildModelDiscoveryBaseUrls(
     primaryBaseUrl,
@@ -203,7 +206,7 @@ async function fetchRemoteModelListWithFallback(
 
   for (let index = 0; index < baseUrls.length; index += 1) {
     try {
-      return await fetchRemoteModelList(baseUrls[index], apiKey);
+      return await fetchRemoteModelList(baseUrls[index], apiKey, signal);
     } catch (error) {
       if (error instanceof Error && !/failed to fetch/i.test(error.message)) {
         throw error;
@@ -1864,7 +1867,8 @@ class RuntimeModelDiscoveryStore {
     profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
     baseUrl: string,
     apiKey: string,
-    fallbackBaseUrls: string[] = []
+    fallbackBaseUrls: string[] = [],
+    signal?: AbortSignal
   ): Promise<ModelConfig[]> {
     const trimmedApiKey = apiKey.trim();
     if (!trimmedApiKey) {
@@ -1890,7 +1894,8 @@ class RuntimeModelDiscoveryStore {
     const rawText = await fetchRemoteModelListWithFallback(
       normalizedBaseUrl,
       trimmedApiKey,
-      fallbackBaseUrls
+      fallbackBaseUrls,
+      signal
     );
 
     let parsed: unknown;

@@ -130,7 +130,9 @@ describe('roundtrip conversions', () => {
   });
 
   it('should roundtrip blobToDataUrl -> dataUrlToBlob', async () => {
-    const original = new Blob(['Binary data'], { type: 'application/octet-stream' });
+    const original = new Blob(['Binary data'], {
+      type: 'application/octet-stream',
+    });
     const dataUrl = await blobToDataUrl(original);
     const restored = dataUrlToBlob(dataUrl);
 

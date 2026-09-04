@@ -106,6 +106,24 @@ describe('image routing to default registered adapters', () => {
     );
   });
 
+  it.each(['gpt-image2-vip', 'gpt-image2'])(
+    'routes the GPT Image 2 alias %s to the Tuzi adapter',
+    (modelId) => {
+      const binding = firstImageBinding(tuziProfile, {
+        id: modelId,
+        label: modelId,
+        type: 'image',
+        vendor: ModelVendor.GPT,
+      });
+
+      expect(binding.modelId).toBe(modelId);
+      expect(binding.requestSchema).toBe('tuzi.image.gpt-generation-json');
+      expect(resolveAdapterForBinding(binding, 'image')?.id).toBe(
+        'tuzi-gpt-image-adapter'
+      );
+    }
+  );
+
   it('routes official GPT Image edit schema to the dedicated adapter', () => {
     const binding = imageBindingBySchema(
       openaiProfile,
@@ -240,6 +258,32 @@ describe('image routing to default registered adapters', () => {
 
     expect(fetcher.mock.calls[0]?.[0]).toBe(
       'https://api.tu-zi.com/v1/images/generations'
+    );
+  });
+
+  it('repairs legacy image-2 only for Tuzi image routing', () => {
+    const tuziBinding = firstImageBinding(tuziProfile, {
+      id: 'image-2',
+      label: 'Legacy Image 2',
+      type: 'image',
+      vendor: ModelVendor.OTHER,
+      tags: ['runtime', 'manual'],
+    });
+    const openaiBinding = firstImageBinding(openaiProfile, {
+      id: 'image-2',
+      label: 'Third-party Image 2',
+      type: 'image',
+      vendor: ModelVendor.OTHER,
+      tags: ['runtime', 'manual'],
+    });
+
+    expect(tuziBinding.requestSchema).toBe('tuzi.image.gpt-generation-json');
+    expect(resolveAdapterForBinding(tuziBinding, 'image')?.id).toBe(
+      'tuzi-gpt-image-adapter'
+    );
+    expect(openaiBinding.requestSchema).toBe('openai.image.basic-json');
+    expect(resolveAdapterForBinding(openaiBinding, 'image')?.id).toBe(
+      'gemini-image-adapter'
     );
   });
 

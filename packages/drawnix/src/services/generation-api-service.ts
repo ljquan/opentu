@@ -574,6 +574,10 @@ class GenerationAPIService {
       if (error.fullResponse) {
         (wrappedError as any).fullResponse = error.fullResponse;
       }
+      if (error.imageRecoveryRequestId) {
+        (wrappedError as any).imageRecoveryRequestId =
+          error.imageRecoveryRequestId;
+      }
       throw wrappedError;
     }
   }

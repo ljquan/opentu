@@ -40,6 +40,7 @@ const LEGACY_DB_NAMES = {
 /** Service Worker 图片缓存名称 */
 const IMAGE_CACHE_NAME = 'drawnix-images';
 const CACHE_WRITE_ID_HEADER = 'x-aitu-cache-write-id';
+const IMAGE_THUMB_CACHE_NAME = 'drawnix-images-thumb';
 
 const VOLATILE_REMOTE_CACHE_QUERY_PARAMS = new Set([
   '_t',
@@ -218,7 +219,9 @@ export interface MainToSWMessage {
   urls?: string[];
 }
 
-function classifyCacheWarningReason(error: unknown): CacheWarningReasonCode {
+function classifyCacheWarningReason(
+  error: unknown
+): CacheWarningReasonCode {
   const message = error instanceof Error ? error.message : String(error || '');
   const normalized = message.toLowerCase();
 
@@ -1667,7 +1670,10 @@ class UnifiedCacheService {
    * 获取缓存的 Blob（兼容 urlCacheService.getVideoAsBlob）
    * 支持 taskId（如 "merged-video-xxx"）或完整 URL
    */
-  async getCachedBlob(url: string): Promise<Blob | null> {
+  async getCachedBlob(
+    url: string,
+    options: { allowNetwork?: boolean } = {}
+  ): Promise<Blob | null> {
     // 检查是否为虚拟 URL（素材库本地 URL 或缓存 URL）
     const isVirtualUrl = isVirtualMediaUrl(url);
     const cacheUrl = isVirtualUrl ? normalizeVirtualMediaUrl(url) : url;
@@ -1717,7 +1723,7 @@ class UnifiedCacheService {
         !url.startsWith('blob:') &&
         !url.startsWith('data:') &&
         !url.startsWith('/');
-      if (isVirtualUrl || isTaskId) {
+      if (isVirtualUrl || isTaskId || options.allowNetwork === false) {
         return null;
       }
 
@@ -1730,6 +1736,66 @@ class UnifiedCacheService {
       console.error('[UnifiedCache] Failed to get cached blob:', error);
       return null;
     }
+  }
+
+  async getCachedImageBlobWithThumbnailFallback(
+    url: string
+  ): Promise<Blob | null> {
+    // 预览回退只读取已有本地内容，避免任务列表挂载时重复下载远程资源。
+    const originalBlob = await this.getCachedBlob(url, { allowNetwork: false });
+    if (originalBlob && originalBlob.size > 0) {
+      return originalBlob;
+    }
+
+    if (typeof caches === 'undefined') {
+      return null;
+    }
+
+    try {
+      const cacheUrl = isVirtualMediaUrl(url)
+        ? normalizeVirtualMediaUrl(url)
+        : url;
+      const normalizedUrl = this.normalizeRemoteCacheUrl(cacheUrl);
+      const thumbCache = await caches.open(IMAGE_THUMB_CACHE_NAME);
+      const candidates = new Set<string>();
+
+      for (const baseUrl of [normalizedUrl, cacheUrl, url]) {
+        if (!baseUrl) continue;
+        for (const size of ['large', 'small'] as const) {
+          try {
+            const thumbnailUrl = new URL(
+              baseUrl,
+              typeof window !== 'undefined'
+                ? window.location.origin
+                : 'http://aitu.local'
+            );
+            thumbnailUrl.searchParams.delete('thumbnail');
+            thumbnailUrl.searchParams.set('_thumb', size);
+            candidates.add(thumbnailUrl.toString());
+            candidates.add(`${thumbnailUrl.pathname}${thumbnailUrl.search}`);
+          } catch {
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            candidates.add(`${baseUrl}${separator}_thumb=${size}`);
+          }
+        }
+      }
+
+      for (const candidate of candidates) {
+        const response = await thumbCache.match(candidate);
+        if (!response) continue;
+        const blob = await response.blob();
+        if (blob.size > 0) {
+          return blob;
+        }
+      }
+    } catch (error) {
+      console.warn(
+        '[UnifiedCache] Failed to read image thumbnail fallback:',
+        error
+      );
+    }
+
+    return null;
   }
 
   async cacheLocalMediaByContent(

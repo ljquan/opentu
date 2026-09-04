@@ -1,3 +1,5 @@
+import { GPT_IMAGE_2_MODEL_IDS } from '../../constants/model-config';
+
 export type ImageResolutionTier = '1k' | '2k' | '4k';
 export type OfficialGPTImageQuality = 'auto' | 'low' | 'medium' | 'high';
 
@@ -15,7 +17,7 @@ type GPTImageAspectRatioKey =
 
 type LegacyGPTImageAspectRatioKey = '1x1' | '2x3' | '3x2';
 
-const GPT_IMAGE_2_MODEL_IDS = new Set(['gpt-image-2-vip', 'gpt-image-2']);
+const GPT_IMAGE_2_MODEL_ID_SET = new Set(GPT_IMAGE_2_MODEL_IDS);
 const LEGACY_GPT_IMAGE_MODEL_IDS = new Set(['gpt-image-1', 'gpt-image-1.5']);
 
 const OFFICIAL_GPT_IMAGE_QUALITY_VALUES = new Set<OfficialGPTImageQuality>([
@@ -202,7 +204,10 @@ function toLegacyAspectRatio(
 }
 
 export function isGPTImage2Model(modelId?: string | null): boolean {
-  return !!modelId && GPT_IMAGE_2_MODEL_IDS.has(modelId);
+  return (
+    typeof modelId === 'string' &&
+    GPT_IMAGE_2_MODEL_ID_SET.has(modelId.trim().toLowerCase())
+  );
 }
 
 export function isLegacyGPTImageModel(modelId?: string | null): boolean {

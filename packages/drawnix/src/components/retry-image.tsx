@@ -22,7 +22,8 @@ import React, {
 import { unifiedCacheService } from '../services/unified-cache-service';
 import { normalizeImageDataUrl } from '@aitu/utils';
 
-export interface RetryImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
+export interface RetryImageProps
+  extends React.ImgHTMLAttributes<HTMLImageElement> {
   /** Image source URL */
   src: string;
   /** Alt text for accessibility */
@@ -47,20 +48,25 @@ export interface RetryImageProps extends React.ImgHTMLAttributes<HTMLImageElemen
   wrapperClassName?: string;
   /** Optional wrapper style */
   wrapperStyle?: React.CSSProperties;
+  /** Prefer a Blob URL from Cache Storage before loading the original URL. */
+  preferCachedBlob?: boolean;
+  /** Reports the URL currently used by the underlying image element. */
+  onSourceChange?: (src: string) => void;
 }
 
 /**
  * Skeleton loading component
  */
-const ImageSkeleton: React.FC<{ className?: string; style?: React.CSSProperties }> = ({
-  className,
-  style,
-}) => (
+const ImageSkeleton: React.FC<{
+  className?: string;
+  style?: React.CSSProperties;
+}> = ({ className, style }) => (
   <div
     className={className}
     style={{
       ...style,
-      background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+      background:
+        'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
       backgroundSize: '200% 100%',
       animation: 'shimmer 1.5s infinite',
       borderRadius: '8px',
@@ -108,11 +114,13 @@ function addBypassSWParam(url: string): string {
  * 检测 URL 是否来自缓存（应该立即加载）
  */
 function isCachedUrl(url: string): boolean {
-  return url.startsWith('data:') ||
-         url.startsWith('blob:') ||
-         url.includes('/__aitu_cache__/') || 
-         url.includes('/asset-library/') ||
-         url.includes('thumbnail=');
+  return (
+    url.startsWith('data:') ||
+    url.startsWith('blob:') ||
+    url.includes('/__aitu_cache__/') ||
+    url.includes('/asset-library/') ||
+    url.includes('thumbnail=')
+  );
 }
 
 /**
@@ -121,322 +129,406 @@ function isCachedUrl(url: string): boolean {
 function isVirtualUrl(url: string): boolean {
   try {
     const pathname = new URL(url, window.location.origin).pathname;
-    return pathname.startsWith('/__aitu_cache__/') ||
-           pathname.startsWith('/asset-library/');
+    return (
+      pathname.startsWith('/__aitu_cache__/') ||
+      pathname.startsWith('/asset-library/')
+    );
   } catch {
-    return url.startsWith('/__aitu_cache__/') ||
-           url.startsWith('/asset-library/');
+    return (
+      url.startsWith('/__aitu_cache__/') || url.startsWith('/asset-library/')
+    );
   }
+}
+
+function isExternalUrl(url: string): boolean {
+  return url.startsWith('http://') || url.startsWith('https://');
+}
+
+/**
+ * Re-trigger an external image request without changing its signed query.
+ * URL fragments are not sent to the server, so they do not affect signature validation.
+ */
+function addRetryFragment(url: string): string {
+  const hashIndex = url.indexOf('#');
+  const baseUrl = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  return `${baseUrl}#retry=${Date.now()}`;
 }
 
 /**
  * 检测 Service Worker 是否可用
  */
 function isSWAvailable(): boolean {
-  return typeof navigator !== 'undefined' && 
-         'serviceWorker' in navigator && 
-         !!navigator.serviceWorker.controller;
+  return (
+    typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    !!navigator.serviceWorker.controller
+  );
 }
 
-export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(({
-  src,
-  alt,
-  maxRetries = 5,
-  initialRetryDelay = 1000,
-  onLoadSuccess,
-  onLoadFailure,
-  fallback,
-  showSkeleton = true,
-  bypassSWAfterRetries = 2,
-  eager,
-  wrapperClassName,
-  wrapperStyle,
-  onLoad,
-  onError,
-  ...imgProps
-}, ref) => {
-  // 存量数据可能存有原始 base64，先统一转为 data URL
-  const normalizedSrc = useMemo(() => normalizeImageDataUrl(src), [src]);
-  // 自动检测是否应该 eager 加载
-  const shouldEagerLoad = eager ?? isCachedUrl(normalizedSrc);
-
-  const [imageSrc, setImageSrc] = useState<string>(normalizedSrc);
-  const [retryCount, setRetryCount] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [hasError, setHasError] = useState<boolean>(false);
-  const [bypassSW, setBypassSW] = useState<boolean>(false);
-  const shouldHideWhileLoading = showSkeleton && isLoading;
-  // 存储降级创建的 blob URL，用于清理
-  const blobUrlRef = useRef<string | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const currentSourceRef = useRef(normalizedSrc);
-  const mountedRef = useRef(true);
-  const sourceVersionRef = useRef(0);
-  currentSourceRef.current = normalizedSrc;
-
-  const isCurrentSource = useCallback((source: string, sourceVersion?: number) => {
-    return mountedRef.current &&
-           currentSourceRef.current === source &&
-           (sourceVersion === undefined || sourceVersionRef.current === sourceVersion);
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const adoptBlobUrl = useCallback((source: string, blobUrl: string, sourceVersion?: number): boolean => {
-    if (!isCurrentSource(source, sourceVersion)) {
-      URL.revokeObjectURL(blobUrl);
-      return false;
-    }
-
-    if (blobUrlRef.current && blobUrlRef.current !== blobUrl) {
-      URL.revokeObjectURL(blobUrlRef.current);
-    }
-    blobUrlRef.current = blobUrl;
-    setImageSrc(blobUrl);
-    return true;
-  }, [isCurrentSource]);
-  
-  /**
-   * 尝试将虚拟路径降级为 blob URL
-   * 当 SW 不可用时，直接从 Cache Storage 读取并创建 blob URL
-   */
-  const tryFallbackToBlobUrl = useCallback(async (url: string): Promise<string | null> => {
-    if (!isVirtualUrl(url)) {
-      return null;
-    }
-    
-    try {
-      const blob = await unifiedCacheService.getCachedBlob(url);
-      if (blob && blob.size > 0) {
-        const blobUrl = URL.createObjectURL(blob);
-        return blobUrl;
-      }
-    } catch (error) {
-      console.warn('[RetryImage] Failed to get blob for virtual URL:', url, error);
-    }
-    return null;
-  }, []);
-
-  // Calculate exponential backoff delay
-  const getRetryDelay = useCallback(
-    (attemptNumber: number): number => {
-      return initialRetryDelay * Math.pow(2, attemptNumber);
+export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
+  (
+    {
+      src,
+      alt,
+      maxRetries = 5,
+      initialRetryDelay = 1000,
+      onLoadSuccess,
+      onLoadFailure,
+      fallback,
+      showSkeleton = true,
+      bypassSWAfterRetries = 2,
+      eager,
+      wrapperClassName,
+      wrapperStyle,
+      preferCachedBlob = false,
+      onSourceChange,
+      onLoad,
+      onError,
+      ...imgProps
     },
-    [initialRetryDelay]
-  );
+    ref
+  ) => {
+    // 存量数据可能存有原始 base64，先统一转为 data URL
+    const normalizedSrc = useMemo(() => normalizeImageDataUrl(src), [src]);
+    // 自动检测是否应该 eager 加载
+    const shouldEagerLoad = eager ?? isCachedUrl(normalizedSrc);
 
-  // Handle image load success
-  const handleLoad = useCallback(
-    (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    setIsLoading(false);
-    setHasError(false);
-      onLoad?.(event);
-    onLoadSuccess?.();
-    },
-    [onLoad, onLoadSuccess]
-  );
+    const [imageSrc, setImageSrc] = useState<string>(normalizedSrc);
+    const [retryCount, setRetryCount] = useState<number>(0);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [hasError, setHasError] = useState<boolean>(false);
+    const [bypassSW, setBypassSW] = useState<boolean>(false);
+    const shouldHideWhileLoading = showSkeleton && isLoading;
+    // 存储降级创建的 blob URL，用于清理
+    const blobUrlRef = useRef<string | null>(null);
+    const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const currentSourceRef = useRef(normalizedSrc);
+    const mountedRef = useRef(true);
+    const sourceVersionRef = useRef(0);
+    currentSourceRef.current = normalizedSrc;
 
-  // Handle image load error with retry logic
-  const handleError = useCallback(async (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    const sourceAtError = normalizedSrc;
-    const sourceVersionAtError = sourceVersionRef.current;
-    if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
-      return;
-    }
+    const isCurrentSource = useCallback(
+      (source: string, sourceVersion?: number) =>
+        mountedRef.current &&
+        currentSourceRef.current === source &&
+        (sourceVersion === undefined ||
+          sourceVersionRef.current === sourceVersion),
+      []
+    );
 
-    if (sourceAtError.startsWith('data:')) {
-      setIsLoading(false);
-      setHasError(true);
-      onError?.(event);
-      onLoadFailure?.(new Error('Failed to load inline data image'));
-      return;
-    }
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
 
-    if (retryCount < maxRetries) {
-      const delay = getRetryDelay(retryCount);
-      const nextRetryCount = retryCount + 1;
-      
-      // 检查是否应该绕过 SW
-      const shouldBypassSW = nextRetryCount >= bypassSWAfterRetries && !bypassSW;
-      
-      if (shouldBypassSW) {
-        setBypassSW(true);
-      }
-      
-      // 对于虚拟路径，在绕过 SW 后尝试降级到 blob URL
-      if (shouldBypassSW && isVirtualUrl(sourceAtError) && !blobUrlRef.current) {
-        const blobUrl = await tryFallbackToBlobUrl(sourceAtError);
-        if (blobUrl && adoptBlobUrl(sourceAtError, blobUrl, sourceVersionAtError)) {
-          setRetryCount(nextRetryCount);
-          return;
+    const adoptBlobUrl = useCallback(
+      (source: string, blobUrl: string, sourceVersion?: number): boolean => {
+        if (!isCurrentSource(source, sourceVersion)) {
+          URL.revokeObjectURL(blobUrl);
+          return false;
         }
-      }
 
-      if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
-        return;
-      }
-      
-      // Schedule retry
-      retryTimeoutRef.current = setTimeout(() => {
+        if (blobUrlRef.current && blobUrlRef.current !== blobUrl) {
+          URL.revokeObjectURL(blobUrlRef.current);
+        }
+        blobUrlRef.current = blobUrl;
+        setImageSrc(blobUrl);
+        return true;
+      },
+      [isCurrentSource]
+    );
+
+    useEffect(() => {
+      onSourceChange?.(imageSrc);
+    }, [imageSrc, onSourceChange]);
+
+    /**
+     * 尝试将虚拟路径降级为 blob URL
+     * 当 SW 不可用时，直接从 Cache Storage 读取并创建 blob URL
+     */
+    const tryFallbackToBlobUrl = useCallback(
+      async (url: string): Promise<string | null> => {
+        if (!isVirtualUrl(url) && !isExternalUrl(url)) {
+          return null;
+        }
+
+        try {
+          const blob =
+            await unifiedCacheService.getCachedImageBlobWithThumbnailFallback(
+              url
+            );
+          if (blob && blob.size > 0) {
+            const blobUrl = URL.createObjectURL(blob);
+            return blobUrl;
+          }
+        } catch (error) {
+          console.warn(
+            '[RetryImage] Failed to get blob for virtual URL:',
+            url,
+            error
+          );
+        }
+        return null;
+      },
+      []
+    );
+
+    // Calculate exponential backoff delay
+    const getRetryDelay = useCallback(
+      (attemptNumber: number): number => {
+        return initialRetryDelay * Math.pow(2, attemptNumber);
+      },
+      [initialRetryDelay]
+    );
+
+    // Handle image load success
+    const handleLoad = useCallback(
+      (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
+        setIsLoading(false);
+        setHasError(false);
+        onLoad?.(event);
+        onLoadSuccess?.();
+      },
+      [onLoad, onLoadSuccess]
+    );
+
+    // Handle image load error with retry logic
+    const handleError = useCallback(
+      async (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
+        const sourceAtError = normalizedSrc;
+        const sourceVersionAtError = sourceVersionRef.current;
         if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
           return;
         }
-        setRetryCount(nextRetryCount);
-        
-        // 如果已经有 blob URL，继续使用它
-        if (blobUrlRef.current) {
-          // 添加时间戳强制重新加载 blob URL
-          setImageSrc(`${blobUrlRef.current}#retry=${Date.now()}`);
+
+        if (sourceAtError.startsWith('data:')) {
+          setIsLoading(false);
+          setHasError(true);
+          onError?.(event);
+          onLoadFailure?.(new Error('Failed to load inline data image'));
           return;
         }
-        
-        // 构建重试 URL
-        let retryUrl = sourceAtError;
-        
-        // 如果需要绕过 SW，添加 bypass_sw 参数
-        if (shouldBypassSW || bypassSW) {
-          retryUrl = addBypassSWParam(retryUrl);
-        }
-        
-        // 添加时间戳强制刷新
-        const separator = retryUrl.includes('?') ? '&' : '?';
-        retryUrl = `${retryUrl}${separator}_retry=${Date.now()}`;
-        
-        setImageSrc(retryUrl);
-      }, delay);
-    } else {
-      // All retries exhausted
-      setIsLoading(false);
-      setHasError(true);
-      onError?.(event);
-      const error = new Error(`Failed to load image after ${maxRetries} retries`);
-      onLoadFailure?.(error);
-    }
-  }, [retryCount, maxRetries, normalizedSrc, getRetryDelay, onError, onLoadFailure, bypassSW, bypassSWAfterRetries, tryFallbackToBlobUrl, adoptBlobUrl, isCurrentSource]);
 
-  // Reset state when src changes and handle virtual path fallback
-  useEffect(() => {
-    // 清理之前的 blob URL
-    sourceVersionRef.current += 1;
-    const sourceVersion = sourceVersionRef.current;
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-      blobUrlRef.current = null;
-    }
+        if (retryCount < maxRetries) {
+          const delay = getRetryDelay(retryCount);
+          const nextRetryCount = retryCount + 1;
 
-    setRetryCount(0);
-    setIsLoading(true);
-    setHasError(false);
-    setBypassSW(false);
-    setImageSrc(normalizedSrc);
+          // 检查是否应该绕过 SW
+          const shouldBypassSW =
+            nextRetryCount >= bypassSWAfterRetries && !bypassSW;
 
-    let active = true;
-
-    // 检查是否需要虚拟路径降级
-    // 条件：是虚拟路径 && SW 不可用
-    if (isVirtualUrl(normalizedSrc) && !isSWAvailable()) {
-      // 异步尝试降级
-      tryFallbackToBlobUrl(normalizedSrc).then((blobUrl) => {
-        if (!active || !isCurrentSource(normalizedSrc, sourceVersion)) {
-          if (blobUrl) {
-            URL.revokeObjectURL(blobUrl);
+          if (shouldBypassSW) {
+            setBypassSW(true);
           }
-          return;
-        }
-        if (blobUrl) {
-          adoptBlobUrl(normalizedSrc, blobUrl, sourceVersion);
+
+          // 优先读取 Cache Storage，避免虚拟路径或远程签名 URL 失效后白板空白。
+          if (
+            (isVirtualUrl(sourceAtError) || isExternalUrl(sourceAtError)) &&
+            !blobUrlRef.current
+          ) {
+            const blobUrl = await tryFallbackToBlobUrl(sourceAtError);
+            if (
+              blobUrl &&
+              adoptBlobUrl(sourceAtError, blobUrl, sourceVersionAtError)
+            ) {
+              setRetryCount(nextRetryCount);
+              return;
+            }
+          }
+
+          if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+            return;
+          }
+
+          // Schedule retry
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+              return;
+            }
+            setRetryCount(nextRetryCount);
+
+            // 如果已经有 blob URL，继续使用它
+            if (blobUrlRef.current) {
+              // 添加时间戳强制重新加载 blob URL
+              setImageSrc(`${blobUrlRef.current}#retry=${Date.now()}`);
+              return;
+            }
+
+            // 外部签名 URL 不能追加参数，否则会破坏签名。
+            let retryUrl = sourceAtError;
+            if (isExternalUrl(sourceAtError)) {
+              // 只改变 fragment，保留签名 query，同时让浏览器重新加载。
+              retryUrl = addRetryFragment(sourceAtError);
+            } else {
+              if (shouldBypassSW || bypassSW) {
+                retryUrl = addBypassSWParam(retryUrl);
+              }
+              const separator = retryUrl.includes('?') ? '&' : '?';
+              retryUrl = `${retryUrl}${separator}_retry=${Date.now()}`;
+            }
+
+            setImageSrc(retryUrl);
+          }, delay);
         } else {
-          // 降级失败，仍然使用原始 URL（可能会失败，但有重试机制）
-          setImageSrc(normalizedSrc);
+          // All retries exhausted
+          setIsLoading(false);
+          setHasError(true);
+          onError?.(event);
+          const error = new Error(
+            `Failed to load image after ${maxRetries} retries`
+          );
+          onLoadFailure?.(error);
         }
-      });
-    } else {
-      setImageSrc(normalizedSrc);
-    }
+      },
+      [
+        retryCount,
+        maxRetries,
+        normalizedSrc,
+        getRetryDelay,
+        onError,
+        onLoadFailure,
+        bypassSW,
+        bypassSWAfterRetries,
+        tryFallbackToBlobUrl,
+        adoptBlobUrl,
+        isCurrentSource,
+      ]
+    );
 
-    // Clear any pending retry timeouts
-    return () => {
-      active = false;
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
-    };
-  }, [normalizedSrc, tryFallbackToBlobUrl, adoptBlobUrl, isCurrentSource]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-      // 清理 blob URL
+    // Reset state when src changes and handle virtual path fallback
+    useEffect(() => {
+      // 清理之前的 blob URL
+      sourceVersionRef.current += 1;
+      const sourceVersion = sourceVersionRef.current;
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;
       }
-    };
-  }, []);
 
-  // Render fallback if all retries failed
-  if (hasError && fallback) {
-    return <>{fallback}</>;
+      setRetryCount(0);
+      setIsLoading(true);
+      setHasError(false);
+      setBypassSW(false);
+      setImageSrc(normalizedSrc);
+
+      let active = true;
+      const shouldReadCachedBlob =
+        (preferCachedBlob &&
+          (isVirtualUrl(normalizedSrc) || isExternalUrl(normalizedSrc))) ||
+        (isVirtualUrl(normalizedSrc) && !isSWAvailable());
+
+      if (shouldReadCachedBlob) {
+        tryFallbackToBlobUrl(normalizedSrc).then((blobUrl) => {
+          if (!active || !isCurrentSource(normalizedSrc, sourceVersion)) {
+            if (blobUrl) {
+              URL.revokeObjectURL(blobUrl);
+            }
+            return;
+          }
+          if (blobUrl) {
+            adoptBlobUrl(normalizedSrc, blobUrl, sourceVersion);
+          } else {
+            // 降级失败，仍然使用原始 URL（可能会失败，但有重试机制）
+            setImageSrc(normalizedSrc);
+          }
+        });
+      } else {
+        setImageSrc(normalizedSrc);
+      }
+
+      // Clear any pending retry timeouts
+      return () => {
+        active = false;
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = null;
+        }
+      };
+    }, [
+      adoptBlobUrl,
+      isCurrentSource,
+      normalizedSrc,
+      preferCachedBlob,
+      tryFallbackToBlobUrl,
+    ]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+      return () => {
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+        }
+        // 清理 blob URL
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlRef.current = null;
+        }
+      };
+    }, []);
+
+    // Render fallback if all retries failed
+    if (hasError && fallback) {
+      return <>{fallback}</>;
+    }
+
+    const needsWrapper =
+      showSkeleton || Boolean(wrapperClassName) || Boolean(wrapperStyle);
+    const imageElement = (
+      <img
+        {...imgProps}
+        ref={ref}
+        src={imageSrc}
+        alt={alt}
+        loading={shouldEagerLoad ? 'eager' : 'lazy'}
+        decoding={shouldEagerLoad ? 'sync' : 'async'}
+        referrerPolicy="no-referrer"
+        onLoad={handleLoad}
+        onError={handleError}
+        style={{
+          ...imgProps.style,
+          opacity: shouldHideWhileLoading ? 0 : 1,
+          transition: 'opacity 0.3s ease-out',
+          ...(needsWrapper ? { width: '100%', height: '100%' } : null),
+        }}
+      />
+    );
+
+    if (!needsWrapper) {
+      return imageElement;
+    }
+
+    // Render image with skeleton loading state
+    return (
+      <div
+        className={wrapperClassName}
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          ...wrapperStyle,
+        }}
+      >
+        {/* Skeleton shown while loading */}
+        {isLoading && showSkeleton && (
+          <ImageSkeleton
+            className={imgProps.className}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              ...imgProps.style,
+            }}
+          />
+        )}
+        {/* Actual image with fade-in effect */}
+        {imageElement}
+      </div>
+    );
   }
-
-  const needsWrapper = showSkeleton || Boolean(wrapperClassName) || Boolean(wrapperStyle);
-  const imageElement = (
-    <img
-      {...imgProps}
-      ref={ref}
-      src={imageSrc}
-      alt={alt}
-      loading={shouldEagerLoad ? 'eager' : 'lazy'}
-      decoding={shouldEagerLoad ? 'sync' : 'async'}
-      referrerPolicy="no-referrer"
-      onLoad={handleLoad}
-      onError={handleError}
-      style={{
-        ...imgProps.style,
-        opacity: shouldHideWhileLoading ? 0 : 1,
-        transition: 'opacity 0.3s ease-out',
-        ...(needsWrapper ? { width: '100%', height: '100%' } : null),
-      }}
-    />
-  );
-
-  if (!needsWrapper) {
-    return imageElement;
-  }
-
-  // Render image with skeleton loading state
-  return (
-    <div
-      className={wrapperClassName}
-      style={{ position: 'relative', width: '100%', height: '100%', ...wrapperStyle }}
-    >
-      {/* Skeleton shown while loading */}
-      {isLoading && showSkeleton && (
-        <ImageSkeleton
-          className={imgProps.className}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            ...imgProps.style,
-          }}
-        />
-      )}
-      {/* Actual image with fade-in effect */}
-      {imageElement}
-    </div>
-  );
-});
+);
 
 RetryImage.displayName = 'RetryImage';
