@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opentu-layer-decomposer"
+version = "0.1.0"
+description = "Provider-neutral semantic layer decomposition API for OpenTu"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pillow>=11,<13",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+local = [
+  "numpy>=1.26,<3",
+  "opencv-python>=4.10,<5",
+  "scikit-image>=0.24,<1",
+  "ultralytics>=8.3,<9",
+]
+test = [
+  "httpx>=0.28,<1",
+  "pytest>=8,<10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/layer_decomposer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

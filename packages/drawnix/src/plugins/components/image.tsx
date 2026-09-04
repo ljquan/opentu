@@ -2,7 +2,13 @@ import type { ImageProps } from '@plait/common';
 import { RectangleClient } from '@plait/core';
 import { Loading, MessagePlugin } from 'tdesign-react';
 import classNames from 'classnames';
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Video } from './video';
 import { generateImage } from '../../mcp/tools/image-generation';
 import { getImageRegion } from '../../services/ppt';
@@ -15,6 +21,7 @@ import {
 import {
   clearVirtualUrlImageError,
   handleVirtualUrlImageError,
+  isVirtualUrl,
 } from '../../utils/asset-cleanup';
 import { unifiedCacheService } from '../../services/unified-cache-service';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
@@ -24,9 +31,11 @@ import {
   isOrdinary3DTransformImage,
   sanitizeImage3DTransform,
 } from '../../utils/image-3d-transform';
+import { RetryImage } from '../../components/retry-image';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
+const EXTERNAL_IMAGE_RETRY_DELAYS = [500, 1500, 3000];
 
 const image3DForeignObjectOverflowRefs = new WeakMap<
   SVGForeignObjectElement,
@@ -154,9 +163,12 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   const cleanupSWRecoveryRef = useRef<(() => void) | null>(null);
   const fallbackBlobUrlRef = useRef<string | null>(null);
   const fallbackAttemptedUrlRef = useRef<string | null>(null);
+  const externalImageRetryAttemptRef = useRef(0);
+  const externalImageRetryTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const svgOverlayRef = useRef<Image3DOverlayRef | null>(null);
   const pptImageGenerationLockRef = useRef(false);
+  const [resolvedImageUrl, setResolvedImageUrl] = useState(props.imageItem.url);
 
   const clearSWRecovery = useCallback(() => {
     cleanupSWRecoveryRef.current?.();
@@ -170,15 +182,64 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     }
   }, []);
 
+  const clearExternalImageRetry = useCallback(() => {
+    if (externalImageRetryTimerRef.current !== null) {
+      window.clearTimeout(externalImageRetryTimerRef.current);
+      externalImageRetryTimerRef.current = null;
+    }
+  }, []);
+
   useLayoutEffect(() => {
     currentImageUrlRef.current = props.imageItem.url;
+    setResolvedImageUrl(props.imageItem.url);
     fallbackAttemptedUrlRef.current = null;
+    externalImageRetryAttemptRef.current = 0;
     clearFallbackBlobUrl();
     return () => {
       clearSWRecovery();
+      clearExternalImageRetry();
       clearFallbackBlobUrl();
     };
-  }, [props.imageItem.url, clearFallbackBlobUrl, clearSWRecovery]);
+  }, [
+    props.imageItem.url,
+    clearExternalImageRetry,
+    clearFallbackBlobUrl,
+    clearSWRecovery,
+  ]);
+
+  const handleResolvedImageUrlChange = useCallback((src: string) => {
+    setResolvedImageUrl(src);
+  }, []);
+
+  const retryExternalImage = useCallback(
+    (imageElement: HTMLImageElement) => {
+      if (!/^https?:\/\//i.test(props.imageItem.url)) {
+        return;
+      }
+
+      const delay =
+        EXTERNAL_IMAGE_RETRY_DELAYS[externalImageRetryAttemptRef.current];
+      if (delay === undefined) {
+        return;
+      }
+
+      externalImageRetryAttemptRef.current += 1;
+      clearExternalImageRetry();
+      externalImageRetryTimerRef.current = window.setTimeout(() => {
+        externalImageRetryTimerRef.current = null;
+        if (
+          !imageElement.isConnected ||
+          currentImageUrlRef.current !== props.imageItem.url
+        ) {
+          return;
+        }
+
+        imageElement.referrerPolicy = 'no-referrer';
+        imageElement.src = props.imageItem.url;
+      }, delay);
+    },
+    [clearExternalImageRetry, props.imageItem.url]
+  );
 
   const retryImageAfterSWClaim = useCallback(
     (imageElement: HTMLImageElement) => {
@@ -245,7 +306,6 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     async (event: any) => {
       const imageElement = event.currentTarget as HTMLImageElement;
       imageElement.style.visibility = 'hidden';
-
       if (
         isVirtualMediaUrl(props.imageItem.url) &&
         fallbackAttemptedUrlRef.current !== props.imageItem.url
@@ -268,7 +328,9 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         }
       }
 
-      retryImageAfterSWClaim(imageElement);
+      if (!/^https?:\/\//i.test(props.imageItem.url)) {
+        retryImageAfterSWClaim(imageElement);
+      }
 
       const retry = handleVirtualUrlImageError(
         props.board,
@@ -282,13 +344,17 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
           }
           imageElement.src = retry.retryUrl;
         }, retry.delay);
+        return;
       }
+
+      retryExternalImage(imageElement);
     },
     [
       clearFallbackBlobUrl,
       props.board,
       props.element,
       props.imageItem.url,
+      retryExternalImage,
       retryImageAfterSWClaim,
     ]
   );
@@ -296,6 +362,8 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     (event: any) => {
       const imageElement = event.currentTarget as HTMLImageElement;
       imageElement.style.visibility = '';
+      externalImageRetryAttemptRef.current = 0;
+      clearExternalImageRetry();
       clearSWRecovery();
       clearVirtualUrlImageError(
         props.board,
@@ -303,7 +371,13 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         props.imageItem.url
       );
     },
-    [clearSWRecovery, props.board, props.element, props.imageItem.url]
+    [
+      clearExternalImageRetry,
+      clearSWRecovery,
+      props.board,
+      props.element,
+      props.imageItem.url,
+    ]
   );
 
   const elementData = props.element as any;
@@ -334,6 +408,34 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   const image3DRotateX = image3DTransform?.rotateX;
   const image3DRotateY = image3DTransform?.rotateY;
   const image3DPerspective = image3DTransform?.perspective;
+  const generationPrompt =
+    typeof elementData?.generationPrompt === 'string' &&
+    elementData.generationPrompt.trim()
+      ? elementData.generationPrompt.trim()
+      : typeof elementData?.aiPrompt === 'string' && elementData.aiPrompt.trim()
+      ? elementData.aiPrompt.trim()
+      : '';
+  const showGenerationPrompt =
+    Boolean(generationPrompt) &&
+    !isVideo &&
+    !isLegacyAudioElement &&
+    !shouldContainFrameImage &&
+    !hasImage3DTransform;
+
+  useLayoutEffect(() => {
+    if (!showGenerationPrompt || !rootRef.current) {
+      return;
+    }
+
+    const foreignObject = rootRef.current.closest(
+      'foreignObject'
+    ) as SVGForeignObjectElement | null;
+    if (!foreignObject) {
+      return;
+    }
+
+    return setImage3DForeignObjectOverflowVisible(foreignObject);
+  }, [showGenerationPrompt]);
 
   useLayoutEffect(() => {
     if (!hasImage3DTransform || !rootRef.current) {
@@ -390,7 +492,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
       releaseForeignObjectVisibility();
       releaseForeignObjectOverflow();
     };
-  }, [elementData?.id, hasImage3DTransform, props.imageItem.url]);
+  }, [elementData?.id, hasImage3DTransform]);
 
   useLayoutEffect(() => {
     if (
@@ -443,8 +545,20 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
       'points',
       overlayGeometry.pointsAttribute
     );
-    overlayGroup.image.setAttribute('href', props.imageItem.url);
-    overlayGroup.image.setAttributeNS(XLINK_NS, 'href', props.imageItem.url);
+    const canRenderResolvedSource =
+      resolvedImageUrl &&
+      (!isVirtualUrl(props.imageItem.url) ||
+        resolvedImageUrl !== props.imageItem.url ||
+        (typeof navigator !== 'undefined' &&
+          !!navigator.serviceWorker?.controller));
+
+    if (canRenderResolvedSource) {
+      overlayGroup.image.setAttribute('href', resolvedImageUrl);
+      overlayGroup.image.setAttributeNS(XLINK_NS, 'href', resolvedImageUrl);
+    } else {
+      overlayGroup.image.removeAttribute('href');
+      overlayGroup.image.removeAttributeNS(XLINK_NS, 'href');
+    }
     overlayGroup.image.setAttribute('x', String(overlayGeometry.boundingBox.x));
     overlayGroup.image.setAttribute('y', String(overlayGeometry.boundingBox.y));
     overlayGroup.image.setAttribute(
@@ -463,7 +577,6 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     } else {
       overlayGroup.image.removeAttribute('transform');
     }
-
   }, [
     elementData?.id,
     image3DRectangle?.height,
@@ -474,6 +587,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     image3DRotateX,
     image3DRotateY,
     props.imageItem.url,
+    resolvedImageUrl,
   ]);
 
   const handlePPTImageGenerate = useCallback(async () => {
@@ -584,9 +698,16 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   }
 
   // 否则使用原来的图片渲染
-  const imgProps = {
+  const imgProps: {
+    src: string;
+    draggable: boolean;
+    referrerPolicy: 'no-referrer';
+    width?: string;
+    style?: React.CSSProperties;
+  } = {
     src: props.imageItem.url,
     draggable: false,
+    referrerPolicy: 'no-referrer' as const,
     ...(shouldContainFrameImage
       ? {
           style: {
@@ -601,21 +722,49 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
           style: undefined,
         }),
   };
+  const elementOpacity =
+    typeof (props.element as any)?.opacity === 'number'
+      ? Math.min(1, Math.max(0, (props.element as any).opacity))
+      : undefined;
+  const semanticLayerHidden =
+    (props.element as any)?.metadata?.semanticLayer?.hidden === true;
+  if (elementOpacity !== undefined) {
+    imgProps.style = {
+      ...(imgProps.style || {}),
+      opacity: elementOpacity,
+    };
+  }
   return (
     <div
       ref={rootRef}
       data-slideshow-legacy-audio={isLegacyAudioElement ? 'true' : undefined}
       style={
-        image3DTransform || shouldContainFrameImage
-          ? { width: '100%', height: '100%' }
+        semanticLayerHidden ||
+        image3DTransform ||
+        shouldContainFrameImage ||
+        showGenerationPrompt
+          ? {
+              width: '100%',
+              height: '100%',
+              display: semanticLayerHidden ? 'none' : undefined,
+              overflow: showGenerationPrompt ? 'visible' : undefined,
+              position: showGenerationPrompt ? 'relative' : undefined,
+            }
           : undefined
       }
     >
-      <img
+      <RetryImage
         {...imgProps}
+        alt=""
         className={classNames('image-origin', {
           'image-origin--focus': props.isFocus,
         })}
+        eager
+        showSkeleton={false}
+        preferCachedBlob
+        initialRetryDelay={500}
+        bypassSWAfterRetries={1}
+        onSourceChange={handleResolvedImageUrlChange}
         style={imgProps.style}
         onError={handleImageError}
         onLoad={handleImageLoad}

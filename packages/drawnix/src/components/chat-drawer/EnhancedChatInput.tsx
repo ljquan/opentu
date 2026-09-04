@@ -21,6 +21,7 @@ import { SelectedContentPreview } from '../shared/SelectedContentPreview';
 import type { SelectedContentItem } from '../../contexts/ChatDrawerContext';
 import { useChatDrawerControl } from '../../contexts/ChatDrawerContext';
 import type { Message } from '../../types/chat-ui.types';
+import type { ChatSessionGenerationState } from '../../types/chat.types';
 import { usePromptHistory } from '../../hooks/usePromptHistory';
 import { useI18n } from '../../i18n';
 import { useAssets } from '../../contexts/AssetContext';
@@ -43,12 +44,24 @@ import { shouldUseImplicitWorkflowReferences } from './workflow-media-results';
 import '../ai-input-bar/ai-input-bar.scss';
 
 interface EnhancedChatInputProps {
+  activeSessionId?: string | null;
   selectedContent: SelectedContentItem[];
   implicitReferenceContent?: SelectedContentItem[];
   implicitReferenceLabel?: string;
   implicitReferencePinned?: boolean;
   onClearImplicitReference?: () => void;
   onImplicitReferenceConsumed?: () => void;
+  generationState?: ChatSessionGenerationState | null;
+  draftInput?: string;
+  draftUploadedContent?: SelectedContentItem[];
+  onGenerationStateChange?: (state: ChatSessionGenerationState) => void;
+  onDraftChange?: (
+    sessionId: string,
+    draft: {
+      draftInput: string;
+      draftUploadedContent: SelectedContentItem[];
+    }
+  ) => void;
   onSend: (message: Message) => void | Promise<void>;
   disabled?: boolean;
   placeholder?: string;
@@ -72,12 +85,18 @@ export const EnhancedChatInput = forwardRef<
 >(
   (
     {
+      activeSessionId = null,
       selectedContent,
       implicitReferenceContent = [],
       implicitReferenceLabel,
       implicitReferencePinned = false,
       onClearImplicitReference,
       onImplicitReferenceConsumed,
+      generationState = null,
+      draftInput = '',
+      draftUploadedContent = [],
+      onGenerationStateChange,
+      onDraftChange,
       onSend,
       disabled = false,
       placeholder = '输入消息...',
@@ -87,10 +106,14 @@ export const EnhancedChatInput = forwardRef<
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [input, setInput] = useState('');
-    const [uploadedContent, setUploadedContent] = useState<
-      SelectedContentItem[]
-    >([]);
+    const activeSessionIdRef = useRef<string | null>(activeSessionId);
+    const isRestoringSessionRef = useRef(false);
+    const draftSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null
+    );
+    const [input, setInput] = useState(draftInput);
+    const [uploadedContent, setUploadedContent] =
+      useState<SelectedContentItem[]>(draftUploadedContent);
     const [showMediaLibrary, setShowMediaLibrary] = useState(false);
     const allContent = useMemo(
       () => [...uploadedContent, ...selectedContent],
@@ -102,7 +125,68 @@ export const EnhancedChatInput = forwardRef<
     const { language } = useI18n();
     const { addAsset } = useAssets();
     const chatDrawerControl = useChatDrawerControl();
-    const generationControls = useChatDrawerGenerationControls();
+    const generationControls = useChatDrawerGenerationControls({
+      sessionId: activeSessionId,
+      sessionGenerationState: generationState,
+      onSessionGenerationStateChange: onGenerationStateChange,
+    });
+
+    useEffect(() => {
+      const previousSessionId = activeSessionIdRef.current;
+      if (previousSessionId === activeSessionId) {
+        return;
+      }
+
+      if (previousSessionId) {
+        if (draftSaveTimeoutRef.current) {
+          clearTimeout(draftSaveTimeoutRef.current);
+          draftSaveTimeoutRef.current = null;
+        }
+        onDraftChange?.(previousSessionId, {
+          draftInput: input,
+          draftUploadedContent: uploadedContent,
+        });
+      }
+
+      activeSessionIdRef.current = activeSessionId;
+      isRestoringSessionRef.current = true;
+      setInput(draftInput);
+      setUploadedContent(draftUploadedContent);
+    }, [
+      activeSessionId,
+      draftInput,
+      draftUploadedContent,
+      input,
+      onDraftChange,
+      uploadedContent,
+    ]);
+
+    useEffect(() => {
+      if (!activeSessionId) {
+        return;
+      }
+      if (isRestoringSessionRef.current) {
+        isRestoringSessionRef.current = false;
+        return;
+      }
+
+      if (draftSaveTimeoutRef.current) {
+        clearTimeout(draftSaveTimeoutRef.current);
+      }
+      draftSaveTimeoutRef.current = setTimeout(() => {
+        onDraftChange?.(activeSessionId, {
+          draftInput: input,
+          draftUploadedContent: uploadedContent,
+        });
+      }, 300);
+
+      return () => {
+        if (draftSaveTimeoutRef.current) {
+          clearTimeout(draftSaveTimeoutRef.current);
+          draftSaveTimeoutRef.current = null;
+        }
+      };
+    }, [activeSessionId, input, onDraftChange, uploadedContent]);
 
     const appendUploadedContent = useCallback(
       (items: SelectedContentItem[]) => {
@@ -274,6 +358,7 @@ export const EnhancedChatInput = forwardRef<
           selectedModelRef: generationControls.selectedModelRef,
           selectedParams: generationControls.selectedParams,
           selectedCount: generationControls.selectedCount,
+          targetSessionId: chatDrawerControl.getActiveSessionId(),
         });
 
         if (!submitted) {
@@ -429,8 +514,7 @@ export const EnhancedChatInput = forwardRef<
       const shouldShowImplicitReferences =
         !hasExplicitContent &&
         implicitReferenceContent.length > 0 &&
-        (implicitReferencePinned ||
-          shouldUseImplicitWorkflowReferences(input));
+        (implicitReferencePinned || shouldUseImplicitWorkflowReferences(input));
 
       if (!shouldShowImplicitReferences) {
         return null;

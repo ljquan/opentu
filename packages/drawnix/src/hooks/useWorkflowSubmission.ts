@@ -66,6 +66,7 @@ export interface UseWorkflowSubmissionReturn {
     existingWorkflow?: LegacyWorkflowDefinition,
     options?: {
       appendToCurrentChatSession?: boolean;
+      targetSessionId?: string | null;
     }
   ) => Promise<{ workflowId: string; usedSW: boolean }>;
   /** Cancel a workflow */
@@ -566,6 +567,7 @@ export function useWorkflowSubmission(
       existingWorkflow?: LegacyWorkflowDefinition,
       options?: {
         appendToCurrentChatSession?: boolean;
+        targetSessionId?: string | null;
       }
     ): Promise<{ workflowId: string; usedSW: boolean }> => {
       // Use existing workflow if provided, otherwise create a new one
@@ -637,9 +639,10 @@ export function useWorkflowSubmission(
         textModel,
         autoOpen: false,
         appendToCurrentSession: options?.appendToCurrentChatSession,
+        appendToSessionId: options?.targetSessionId,
       });
 
-      // Always use main thread execution
+      // 工作流由 AIInputBar 的现有主线程执行链继续处理。
       return { workflowId: legacyWorkflow.id, usedSW: false };
     },
     [workflowControl]

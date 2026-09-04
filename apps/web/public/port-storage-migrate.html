@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenTu 端口数据同步</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f7f8fa;
+        color: #1f2937;
+      }
+      main {
+        box-sizing: border-box;
+        width: min(680px, calc(100vw - 32px));
+        margin: 48px auto;
+        padding: 28px;
+        border: 1px solid #dde3ea;
+        border-radius: 8px;
+        background: #fff;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 22px;
+      }
+      p {
+        line-height: 1.7;
+      }
+      button {
+        height: 40px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 6px;
+        background: #2563eb;
+        color: #fff;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      code {
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #eef2f7;
+      }
+      pre {
+        min-height: 140px;
+        margin-top: 20px;
+        padding: 14px;
+        overflow: auto;
+        border-radius: 6px;
+        background: #111827;
+        color: #d1fae5;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>端口数据同步</h1>
+      <p id="intro">
+        从另一个端口拉取浏览器本地数据到当前端口。7200 和 7300 仍是两个独立应用，不互相嵌入。
+      </p>
+      <p>
+        来源：<code id="sourceLabel"></code><br />
+        目标：<code id="targetLabel"></code>
+      </p>
+      <button id="startButton" type="button">开始同步</button>
+      <pre id="log"></pre>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const mode = params.get("mode") || "target";
+      const SYNC_PORTS = ["7200", "7300"];
+
+      function getCounterpartOrigin() {
+        const url = new URL(location.origin);
+        const currentPort =
+          url.port || (url.protocol === "https:" ? "443" : "80");
+        const nextPort = currentPort === "7200" ? "7300" : "7200";
+        url.port = nextPort;
+        return url.origin;
+      }
+
+      const defaultSource = getCounterpartOrigin();
+      const sourceOrigin = params.get("source") || defaultSource;
+      const targetOrigin = params.get("target") || location.origin;
+      const logEl = document.getElementById("log");
+      const startButton = document.getElementById("startButton");
+
+      document.getElementById("sourceLabel").textContent = sourceOrigin;
+      document.getElementById("targetLabel").textContent = targetOrigin;
+
+      function log(message) {
+        const time = new Date().toLocaleTimeString();
+        logEl.textContent += `[${time}] ${message}\n`;
+      }
+
+      function requestToPromise(request) {
+        return new Promise((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      function assertAllowedSyncOrigin(origin, label) {
+        const url = new URL(origin);
+        const current = new URL(location.origin);
+        if (url.protocol !== current.protocol || url.hostname !== current.hostname) {
+          throw new Error(`${label}必须和当前页面使用同一主机`);
+        }
+        if (!SYNC_PORTS.includes(url.port)) {
+          throw new Error(`${label}端口只支持 7200 或 7300`);
+        }
+      }
+
+      async function openDatabase(name, version, onUpgrade) {
+        return new Promise((resolve, reject) => {
+          const request =
+            typeof version === "number"
+              ? indexedDB.open(name, version)
+              : indexedDB.open(name);
+          request.onupgradeneeded = (event) => onUpgrade?.(request.result, event);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          request.onblocked = () =>
+            log(`数据库 ${name} 被其他页面占用，请关闭旧页面后重试。`);
+        });
+      }
+
+      async function listDatabases() {
+        if (indexedDB.databases) {
+          return (await indexedDB.databases()).filter((item) => item.name);
+        }
+        return [
+          { name: "aitu-workspace" },
+          { name: "aitu-chat" },
+          { name: "aitu-app" },
+          { name: "sw-task-queue" },
+          { name: "drawnix-unified-cache" },
+          { name: "aitu-storage" },
+          { name: "aitu-assets" },
+          { name: "aitu-knowledge-base" },
+        ];
+      }
+
+      async function readStore(db, storeName) {
+        const tx = db.transaction(storeName, "readonly");
+        const store = tx.objectStore(storeName);
+        const indexes = Array.from(store.indexNames).map((indexName) => {
+          const index = store.index(indexName);
+          return {
+            name: index.name,
+            keyPath: index.keyPath,
+            unique: index.unique,
+            multiEntry: index.multiEntry,
+          };
+        });
+        const records = [];
+        await new Promise((resolve, reject) => {
+          const cursorRequest = store.openCursor();
+          cursorRequest.onsuccess = () => {
+            const cursor = cursorRequest.result;
+            if (!cursor) {
+              resolve();
+              return;
+            }
+            records.push({
+              key: cursor.key,
+              value: cursor.value,
+            });
+            cursor.continue();
+          };
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+        });
+        await new Promise((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        });
+        return {
+          name: storeName,
+          keyPath: store.keyPath,
+          autoIncrement: store.autoIncrement,
+          indexes,
+          records,
+        };
+      }
+
+      async function exportIndexedDB() {
+        const databases = [];
+        for (const info of await listDatabases()) {
+          if (!info.name) continue;
+          try {
+            const db = await openDatabase(info.name);
+            const stores = [];
+            for (const storeName of Array.from(db.objectStoreNames)) {
+              stores.push(await readStore(db, storeName));
+            }
+            databases.push({
+              name: db.name,
+              version: db.version,
+              stores,
+            });
+            db.close();
+          } catch (error) {
+            log(`跳过数据库 ${info.name}: ${error?.message || error}`);
+          }
+        }
+        return databases;
+      }
+
+      async function exportPayload() {
+        const localStorageEntries = {};
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          localStorageEntries[key] = localStorage.getItem(key);
+        }
+        return {
+          type: "opentu-port-storage-export",
+          formatVersion: 1,
+          exportedAt: Date.now(),
+          origin: location.origin,
+          localStorage: localStorageEntries,
+          indexedDB: await exportIndexedDB(),
+          cacheStorage: await exportCacheStorage(),
+        };
+      }
+
+      async function exportCacheStorage() {
+        if (!("caches" in window)) {
+          return [];
+        }
+
+        const cacheEntries = [];
+        for (const cacheName of await caches.keys()) {
+          const cache = await caches.open(cacheName);
+          const entries = [];
+          for (const request of await cache.keys()) {
+            const response = await cache.match(request);
+            if (!response) {
+              continue;
+            }
+            const url = new URL(request.url);
+            entries.push({
+              requestPath: url.pathname + url.search,
+              response: {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Array.from(response.headers.entries()),
+                body: await response.arrayBuffer(),
+              },
+            });
+          }
+          cacheEntries.push({ name: cacheName, entries });
+        }
+        return cacheEntries;
+      }
+
+      function createStores(db, stores, upgradeEvent) {
+        const upgradeTransaction = upgradeEvent.target.transaction;
+        for (const storeData of stores) {
+          let store;
+          if (!db.objectStoreNames.contains(storeData.name)) {
+            const options = {};
+            if (storeData.keyPath !== null && storeData.keyPath !== undefined) {
+              options.keyPath = storeData.keyPath;
+            }
+            if (storeData.autoIncrement) {
+              options.autoIncrement = true;
+            }
+            store = db.createObjectStore(storeData.name, options);
+          } else {
+            store = upgradeTransaction.objectStore(storeData.name);
+          }
+          for (const indexData of storeData.indexes || []) {
+            if (!store.indexNames.contains(indexData.name)) {
+              store.createIndex(indexData.name, indexData.keyPath, {
+                unique: Boolean(indexData.unique),
+                multiEntry: Boolean(indexData.multiEntry),
+              });
+            }
+          }
+        }
+      }
+
+      async function ensureTargetDatabase(dbData) {
+        let currentVersion = 0;
+        let missingStore = true;
+        try {
+          const current = await openDatabase(dbData.name);
+          currentVersion = current.version;
+          missingStore = dbData.stores.some(
+            (storeData) => !current.objectStoreNames.contains(storeData.name)
+          );
+          current.close();
+        } catch {
+          currentVersion = 0;
+        }
+        const targetVersion = Math.max(dbData.version || 1, currentVersion || 1);
+        if (!missingStore && currentVersion >= targetVersion) {
+          return openDatabase(dbData.name);
+        }
+        return openDatabase(
+          dbData.name,
+          Math.max(targetVersion, currentVersion + 1, 1),
+          (db, upgradeEvent) => {
+            createStores(db, dbData.stores, upgradeEvent);
+          }
+        );
+      }
+
+      async function importDatabase(dbData) {
+        const db = await ensureTargetDatabase(dbData);
+        for (const storeData of dbData.stores) {
+          if (!db.objectStoreNames.contains(storeData.name)) {
+            continue;
+          }
+          const tx = db.transaction(storeData.name, "readwrite");
+          const store = tx.objectStore(storeData.name);
+          for (const record of storeData.records || []) {
+            if (store.keyPath === null) {
+              store.put(record.value, record.key);
+            } else {
+              store.put(record.value);
+            }
+          }
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+          });
+        }
+        db.close();
+      }
+
+      async function importPayload(payload) {
+        for (const [key, value] of Object.entries(payload.localStorage || {})) {
+          localStorage.setItem(key, value);
+        }
+        localStorage.setItem(
+          "opentu:last-port-sync",
+          JSON.stringify({
+            sourceOrigin: payload.origin,
+            targetOrigin: location.origin,
+            syncedAt: Date.now(),
+          })
+        );
+        for (const dbData of payload.indexedDB || []) {
+          log(`写入数据库 ${dbData.name}`);
+          await importDatabase(dbData);
+        }
+        await importCacheStorage(payload.cacheStorage || []);
+      }
+
+      async function importCacheStorage(cacheEntries) {
+        if (!("caches" in window)) {
+          return;
+        }
+
+        for (const cacheData of cacheEntries) {
+          log(`写入缓存 ${cacheData.name}`);
+          const cache = await caches.open(cacheData.name);
+          for (const entry of cacheData.entries || []) {
+            const response = new Response(entry.response.body, {
+              status: entry.response.status,
+              statusText: entry.response.statusText,
+              headers: entry.response.headers,
+            });
+            await cache.put(entry.requestPath, response);
+          }
+        }
+      }
+
+      if (mode === "source") {
+        assertAllowedSyncOrigin(targetOrigin, "目标");
+        document.getElementById("intro").textContent =
+          "正在从当前端口导出数据，请不要关闭本窗口。";
+        startButton.style.display = "none";
+        exportPayload()
+          .then((payload) => {
+            log("导出完成，发送给目标端口。");
+            window.opener?.postMessage(payload, targetOrigin);
+            setTimeout(() => window.close(), 500);
+          })
+          .catch((error) => {
+            log(`导出失败：${error?.message || error}`);
+          });
+      } else {
+        assertAllowedSyncOrigin(sourceOrigin, "来源");
+        window.addEventListener("message", async (event) => {
+          if (event.origin !== sourceOrigin) {
+            return;
+          }
+          if (event.data?.type !== "opentu-port-storage-export") {
+            return;
+          }
+          startButton.disabled = true;
+          try {
+            log(`收到来自 ${event.data.origin} 的数据。`);
+            await importPayload(event.data);
+            log("同步完成。请回到当前端口的应用页面刷新。");
+          } catch (error) {
+            log(`同步失败：${error?.message || error}`);
+          } finally {
+            startButton.disabled = false;
+          }
+        });
+
+        startButton.addEventListener("click", () => {
+          log("打开来源端口导出窗口。");
+          const sourceUrl =
+            sourceOrigin +
+            "/port-storage-migrate.html?mode=source&target=" +
+            encodeURIComponent(location.origin);
+          const popup = window.open(sourceUrl, "opentu-port-storage-source");
+          if (!popup) {
+            log("弹窗被浏览器拦截，请允许弹窗后重试。");
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

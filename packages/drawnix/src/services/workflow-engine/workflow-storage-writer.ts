@@ -57,7 +57,6 @@ class WorkflowStorageWriter {
       if (this.writesPaused) {
         return;
       }
-
       // 检查 store 是否存在
       if (!db.objectStoreNames.contains(WORKFLOWS_STORE)) {
         return;

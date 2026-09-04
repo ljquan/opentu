@@ -437,6 +437,63 @@ describe('useTaskExecutor image recovery', () => {
     unmount();
   });
 
+  it('completes a resumed async image with a cache warning when caching fails', async () => {
+    mocks.currentTask = {
+      ...createRecoveringTask(),
+      id: 'async-image-1',
+      remoteId: 'remote-image-1',
+    };
+    mocks.isResumableAsyncImageTask.mockReturnValue(true);
+    mocks.resumeAsyncImageGeneration.mockResolvedValue({
+      url: 'https://images.example.com/async.png?sig=expired',
+      format: 'png',
+      size: 0,
+    });
+    mocks.cacheRemoteUrls.mockImplementation(
+      async (
+        urls: string[],
+        _taskId: string,
+        _mediaType: string,
+        _format: string,
+        options: { onCacheWarning?: (warning: any) => void }
+      ) => {
+        options.onCacheWarning?.({
+          status: 'failed',
+          reasonCode: 'http_error',
+          message: 'cache unavailable',
+          detectedAt: Date.now(),
+        });
+        return urls;
+      }
+    );
+    const { useTaskExecutor } = await import('../useTaskExecutor');
+    const { unmount } = renderHook(() => useTaskExecutor());
+
+    act(() => {
+      mocks.taskListener?.({
+        type: 'taskUpdated',
+        task: mocks.currentTask!,
+      });
+    });
+
+    await waitFor(() =>
+      expect(mocks.completeImageAttempt).toHaveBeenCalledWith(
+        'async-image-1',
+        'submission-1',
+        expect.objectContaining({
+          url: 'https://images.example.com/async.png?sig=expired',
+          cacheWarning: expect.objectContaining({
+            status: 'failed',
+            reasonCode: 'http_error',
+          }),
+        })
+      )
+    );
+    expect(mocks.currentTask?.status).toBe(TaskStatus.COMPLETED);
+
+    unmount();
+  });
+
   it('does not let a deleted audio resume overwrite or release a same-id replacement', async () => {
     let finishOldAudio!: (result: Task['result']) => void;
     mocks.currentTask = {
@@ -542,6 +599,10 @@ describe('useTaskExecutor image recovery', () => {
       expect.objectContaining({
         url: 'https://images.example.com/recovered.png',
         resultKind: 'image',
+        cacheWarning: expect.objectContaining({
+          status: 'failed',
+          reasonCode: 'unknown',
+        }),
       })
     );
     expect(mocks.updateTaskStatus).not.toHaveBeenCalled();

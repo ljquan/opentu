@@ -350,12 +350,20 @@ export function convertDirectGenerationToWorkflow(
       const {
         generationMode,
         referenceImages: targetReferenceImages,
+        maskImage: targetMaskImage,
         replaceElementId,
         targetElementId,
         anchorId,
         sourceTaskId,
         sourcePrompt,
         boundTargetFollowControlled,
+        semanticReplacement,
+        semanticReplacementOldName,
+        semanticReplacementOldDescription,
+        semanticReplacementBackgroundUrl,
+        semanticReplacementReferenceUrl,
+        semanticReplacementBackgroundElementId,
+        semanticReplacementForegroundUrl,
         ...adapterExtraParams
       } = extraParams || {};
       if (
@@ -372,6 +380,9 @@ export function convertDirectGenerationToWorkflow(
       ) {
         imageArgs.referenceImages = targetReferenceImages;
       }
+      if (typeof targetMaskImage === 'string' && targetMaskImage.trim()) {
+        imageArgs.maskImage = targetMaskImage;
+      }
       if (replaceElementId) imageArgs.replaceElementId = replaceElementId;
       if (targetElementId) imageArgs.targetElementId = targetElementId;
       if (anchorId) imageArgs.anchorId = anchorId;
@@ -379,6 +390,32 @@ export function convertDirectGenerationToWorkflow(
       if (sourcePrompt) imageArgs.sourcePrompt = sourcePrompt;
       if (boundTargetFollowControlled === true) {
         imageArgs.boundTargetFollowControlled = true;
+      }
+      if (semanticReplacement === true) {
+        imageArgs.semanticReplacement = true;
+      }
+      if (typeof semanticReplacementOldName === 'string') {
+        imageArgs.semanticReplacementOldName = semanticReplacementOldName;
+      }
+      if (typeof semanticReplacementOldDescription === 'string') {
+        imageArgs.semanticReplacementOldDescription =
+          semanticReplacementOldDescription;
+      }
+      if (typeof semanticReplacementBackgroundUrl === 'string') {
+        imageArgs.semanticReplacementBackgroundUrl =
+          semanticReplacementBackgroundUrl;
+      }
+      if (typeof semanticReplacementReferenceUrl === 'string') {
+        imageArgs.semanticReplacementReferenceUrl =
+          semanticReplacementReferenceUrl;
+      }
+      if (typeof semanticReplacementBackgroundElementId === 'string') {
+        imageArgs.semanticReplacementBackgroundElementId =
+          semanticReplacementBackgroundElementId;
+      }
+      if (typeof semanticReplacementForegroundUrl === 'string') {
+        imageArgs.semanticReplacementForegroundUrl =
+          semanticReplacementForegroundUrl;
       }
       // 透传额外参数（如 seedream_quality）
       if (Object.keys(adapterExtraParams).length > 0) {

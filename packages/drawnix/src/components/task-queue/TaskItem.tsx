@@ -252,7 +252,8 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     const isCompleted = task.status === TaskStatus.COMPLETED;
     const isFailed = task.status === TaskStatus.FAILED;
     const isCancelled = task.status === TaskStatus.CANCELLED;
-    const isRetryable = isFailed || isCancelled;
+    const isRetryable =
+      (isFailed || isCancelled) && task.params.agentAnalysis !== true;
     const pptExplainerStage = task.params.pptExplainer?.stage;
     const pptExplainerDiagnostics = task.params.pptExplainer?.diagnostics || [];
     const latestPptExplainerDiagnostic =

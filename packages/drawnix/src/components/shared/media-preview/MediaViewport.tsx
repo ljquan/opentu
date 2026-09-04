@@ -261,6 +261,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(
         ? resolvedCachedMediaUrl || ''
         : normalizeImageDataUrl(item.url)
       : '';
+    const [insertableImageUrl, setInsertableImageUrl] = useState(mediaUrl);
     const posterUrl = item?.posterUrl
       ? normalizeImageDataUrl(item.posterUrl)
       : '';
@@ -268,6 +269,14 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(
     const needsAutoFitGate = Boolean(
       item?.url && !isAudio && !isCompareMode && !imageLoadFailed
     );
+
+    useEffect(() => {
+      setInsertableImageUrl(mediaUrl);
+    }, [mediaUrl]);
+
+    const handleResolvedImageSourceChange = useCallback((src: string) => {
+      setInsertableImageUrl(src);
+    }, []);
 
     const clearPromptHideTimer = useCallback(() => {
       if (promptHideTimerRef.current !== null) {
@@ -576,11 +585,13 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(
           MessagePlugin.warning('音频暂不支持直接插入到画布');
           return;
         }
+        const insertUrl =
+          contentType === 'image' ? insertableImageUrl : mediaUrl;
         const prompt = item.prompt?.trim();
         const generationTaskId = item.generationTaskId?.trim();
         const result = await quickInsertCanvasMedia(
           contentType,
-          mediaUrl,
+          insertUrl,
           undefined,
           undefined,
           prompt || generationTaskId
@@ -601,7 +612,7 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(
         console.error('Failed to insert to canvas:', error);
         MessagePlugin.error('插入失败');
       }
-    }, [item, mediaUrl]);
+    }, [insertableImageUrl, item, mediaUrl]);
 
     // 工具栏方向切换
     const toggleToolbarOrientation = useCallback(() => {
@@ -858,6 +869,8 @@ export const MediaViewport = forwardRef<MediaViewportRef, MediaViewportProps>(
                 draggable={false}
                 showSkeleton={false}
                 eager
+                preferCachedBlob
+                onSourceChange={handleResolvedImageSourceChange}
                 onLoad={scheduleAutoFit}
                 onError={() => {
                   setImageLoadFailed(true);

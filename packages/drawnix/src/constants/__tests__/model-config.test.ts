@@ -35,6 +35,21 @@ describe('model-config image size options', () => {
     expect(
       getSizeOptionsForModel('gpt-image-2-vip').map((option) => option.value)
     ).toEqual(expected);
+
+    for (const modelId of ['gpt-image2-vip', 'gpt-image2']) {
+      setRuntimeModelConfigs([
+        {
+          id: modelId,
+          label: modelId,
+          type: 'image',
+          vendor: ModelVendor.GPT,
+        },
+      ]);
+
+      expect(getSizeOptionsForModel(modelId).map((option) => option.value)).toEqual(
+        expected
+      );
+    }
   });
 
   it('为 gpt-image-2 暴露分辨率和官方画质参数', () => {

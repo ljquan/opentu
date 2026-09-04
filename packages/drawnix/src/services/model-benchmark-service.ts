@@ -139,7 +139,10 @@ export interface ModelBenchmarkLaunchRequest {
   launchedAt?: number;
 }
 
-function buildSelectionKey(profileId: string, modelId: string): string {
+export function buildBenchmarkSelectionKey(
+  profileId: string,
+  modelId: string
+): string {
   return `${profileId}::${modelId}`;
 }
 
@@ -561,7 +564,7 @@ class ModelBenchmarkService {
     profileId: string,
     modelId: string
   ): BenchmarkEntryStatus | null {
-    const key = buildSelectionKey(profileId, modelId);
+    const key = buildBenchmarkSelectionKey(profileId, modelId);
     for (const session of this.state$.value.sessions) {
       for (const entry of session.entries) {
         if (entry.selectionKey === key && entry.status !== 'pending') {
@@ -802,13 +805,12 @@ class ModelBenchmarkService {
       currentSession.promptPresetId,
       currentSession.modality
     );
-    const knowledgeContextResult =
-      currentSession.knowledgeContextRefs?.length
-        ? await buildPromptWithKnowledgeContext(
-            currentSession.prompt,
-            currentSession.knowledgeContextRefs
-          )
-        : null;
+    const knowledgeContextResult = currentSession.knowledgeContextRefs?.length
+      ? await buildPromptWithKnowledgeContext(
+          currentSession.prompt,
+          currentSession.knowledgeContextRefs
+        )
+      : null;
     const executionPrompt =
       knowledgeContextResult?.prompt || currentSession.prompt;
     const queue = [...currentSession.entries];
@@ -1042,7 +1044,8 @@ export function buildBenchmarkTarget(
     modelLabel: model.shortLabel || model.label || model.id,
     modality: model.type,
     vendor: model.vendor,
-    selectionKey: model.selectionKey || buildSelectionKey(profileId, model.id),
+    selectionKey:
+      model.selectionKey || buildBenchmarkSelectionKey(profileId, model.id),
   };
 }
 

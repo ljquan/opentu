@@ -262,12 +262,16 @@ async function executeAsync(
         format: format === 'bin' ? result.format || 'png' : format,
         prompt,
         size: size || '1x1',
+        requestId,
       },
       type: 'image',
     };
   } catch (error: any) {
     console.error('[ImageGenerationTool] Generation failed:', error);
-    return wrapApiError(error, '图片生成失败');
+    return {
+      ...wrapApiError(error, '图片生成失败'),
+      data: { requestId },
+    };
   }
 }
 

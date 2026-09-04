@@ -11,9 +11,11 @@
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { APP_DB_NAME, APP_DB_STORES } from '../app-database';
 import type {
+  ImageRecoveryInfo,
   TaskInvocationRouteSnapshot,
   TaskResultVisibility,
 } from '../../types/task.types';
+import type { CacheWarning } from '../../types/cache-warning.types';
 
 // 使用主线程专用数据库
 const DB_NAME = APP_DB_NAME;
@@ -85,6 +87,7 @@ export interface SWTask {
     chatResponse?: string;
     analysisData?: unknown;
     toolCalls?: any[];
+    cacheWarning?: CacheWarning;
   };
   error?: {
     code: string;
@@ -95,6 +98,7 @@ export interface SWTask {
   remoteId?: string;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: string;
+  imageRecovery?: ImageRecoveryInfo;
   savedToLibrary?: boolean;
   insertedToCanvas?: boolean;
   /** 是否从远程同步（不应被恢复执行） */
@@ -398,6 +402,16 @@ class TaskStorageWriter {
       expectedRequestId,
       { allowPending: true, ...options }
     );
+  }
+
+  async updateImageRecovery(
+    taskId: string,
+    imageRecovery: ImageRecoveryInfo
+  ): Promise<boolean> {
+    return this.updateTask(taskId, (task) => {
+      task.imageRecovery = imageRecovery;
+      task.updatedAt = Date.now();
+    });
   }
 
   /**

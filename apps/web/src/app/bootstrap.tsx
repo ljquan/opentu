@@ -19,19 +19,33 @@ import {
 import { analytics } from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
+function isLocalDevelopmentHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname.endsWith('.localhost') ||
+    /^10(?:\.\d{1,3}){3}$/.test(hostname) ||
+    /^192\.168(?:\.\d{1,3}){2}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}$/.test(hostname)
+  );
+}
+
 const isLocalDev =
   typeof window !== 'undefined' &&
-  (window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1');
+  isLocalDevelopmentHost(window.location.hostname);
 const swQueryParam =
   typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('sw')
     : null;
 const isServiceWorkerExplicitlyDisabled = swQueryParam === '0';
+const isServiceWorkerExplicitlyEnabled = swQueryParam === '1';
 const hasServiceWorkerSupport =
   typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
 const shouldUseServiceWorker =
-  hasServiceWorkerSupport && !isServiceWorkerExplicitlyDisabled;
+  hasServiceWorkerSupport &&
+  !isServiceWorkerExplicitlyDisabled &&
+  (!isLocalDev || isServiceWorkerExplicitlyEnabled);
 
 // ===== 控制台日志捕获（尽早初始化，确保默认 console 被改写） =====
 // 必须在其他业务代码之前执行，否则后续工具（如 rrweb）可能先改写 console 导致捕获失效

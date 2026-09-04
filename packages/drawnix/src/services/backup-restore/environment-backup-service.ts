@@ -149,6 +149,7 @@ const kvExactKeys = new Set<string>([
   'github_sync_master_gist_id',
   'github_media_sync_status',
   'aitu:model-benchmark:sessions',
+  'aitu:image-inspection:sessions',
 ]);
 
 const kvDeniedKeys = new Set<string>([

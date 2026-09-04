@@ -10,6 +10,7 @@ import {
 } from '../../utils/seedance-model';
 import type { ImageApiCompatibility } from '../../utils/settings-types';
 import {
+  isTuziGPTImageLegacyAlias,
   OFFICIAL_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
   TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
 } from '../model-adapters/image-request-schemas';
@@ -254,7 +255,10 @@ function resolveImageApiCompatibility(
     return 'openai-gpt-image';
   }
 
-  if (isTuziProfile(profile) && isGptImageModel(model)) {
+  if (
+    isTuziProfile(profile) &&
+    (isGptImageModel(model) || isTuziGPTImageLegacyAlias(model.id))
+  ) {
     return 'tuzi-gpt-image';
   }
 
@@ -395,6 +399,9 @@ function inferImageBindings(
   const bindings: ProviderModelBinding[] = [];
   const isGeminiImageModel =
     isGeminiFamilyModel(model) && !isAsyncImageModel(model.id);
+  const isGPTImageCompatibleModel =
+    isGptImageModel(model) ||
+    (isTuziProfile(profile) && isTuziGPTImageLegacyAlias(model.id));
 
   if (isMidjourneyModel(model)) {
     bindings.push(
@@ -472,10 +479,10 @@ function inferImageBindings(
     );
     const requestSchema = isSeedreamModel(model)
       ? 'openai.image.seedream-json'
-      : isGptImageModel(model) &&
+      : isGPTImageCompatibleModel &&
         resolvedImageApiCompatibility === 'openai-gpt-image'
       ? 'openai.image.gpt-generation-json'
-      : isGptImageModel(model) &&
+      : isGPTImageCompatibleModel &&
         resolvedImageApiCompatibility === 'tuzi-gpt-image'
       ? 'tuzi.image.gpt-generation-json'
       : 'openai.image.basic-json';
@@ -518,7 +525,7 @@ function inferImageBindings(
 
     if (
       !shouldPreferAsyncImageBinding(profile, model) &&
-      isGptImageModel(model) &&
+      isGPTImageCompatibleModel &&
       resolvedImageApiCompatibility === 'openai-gpt-image'
     ) {
       bindings.push(
@@ -545,15 +552,15 @@ function inferImageBindings(
 
     if (
       !shouldPreferAsyncImageBinding(profile, model) &&
-      isGptImageModel(model) &&
+      isGPTImageCompatibleModel &&
       resolvedImageApiCompatibility === 'tuzi-gpt-image'
     ) {
       bindings.push(
         buildBinding(profile, model, {
-          protocol: 'openai.images.generations',
+          protocol: 'openai.images.edits',
           requestSchema: TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
           responseSchema: 'openai.image.data',
-          submitPath: '/images/generations',
+          submitPath: '/images/edits',
           metadata: {
             image: {
               action: 'edit',

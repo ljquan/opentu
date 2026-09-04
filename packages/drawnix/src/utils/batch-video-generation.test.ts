@@ -69,6 +69,17 @@ describe('batch-video-generation retry classification', () => {
 
     expect(reason).toBeNull();
   });
+
+  it('keeps provider reCAPTCHA blocks retryable', () => {
+    const reason = getNonRetryableBatchVideoFailureReason(
+      buildFailedTask(
+        '供应商风控拦截：当前视频模型触发 reCAPTCHA/异常流量校验，请换用 Seedance/Veo 其他模型或稍后重试。',
+        'PROVIDER_RECAPTCHA_BLOCKED'
+      )
+    );
+
+    expect(reason).toBeNull();
+  });
 });
 
 describe('buildBatchVideoReferenceImages', () => {
@@ -99,8 +110,12 @@ describe('buildBatchVideoReferenceImages', () => {
 
     expect(result.referenceImages?.[0]).toBe('char-url');
     expect(result.referenceImageDescriptions?.[0]).toContain('角色参考图');
-    expect(result.referenceImageDescriptions?.[0]).toContain('不表示时间顺序、动作或剧情');
-    expect(result.referenceImageDescriptions?.[1]).toContain('优先于故事上下文');
+    expect(result.referenceImageDescriptions?.[0]).toContain(
+      '不表示时间顺序、动作或剧情'
+    );
+    expect(result.referenceImageDescriptions?.[1]).toContain(
+      '优先于故事上下文'
+    );
     expect(result.referenceImageDescriptions?.[2]).toContain('全局/补充参考图');
   });
 });

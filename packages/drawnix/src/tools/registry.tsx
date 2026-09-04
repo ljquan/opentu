@@ -16,6 +16,13 @@ const INTERNAL_COMPONENT_LOADERS = new Map<string, InternalComponentLoader>([
       })),
   ],
   [
+    'image-inspection',
+    () =>
+      import('./tools/image-inspection').then((module) => ({
+        default: module.ImageInspectionToolComponent,
+      })),
+  ],
+  [
     'model-benchmark',
     () =>
       import('./tools/model-benchmark').then((module) => ({

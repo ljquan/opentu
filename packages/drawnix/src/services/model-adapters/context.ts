@@ -80,13 +80,15 @@ export async function sendAdapterRequest(
   const timeoutMs =
     request.timeoutMs ??
     (context.operation === 'image' ? IMAGE_GENERATION_TIMEOUT_MS : undefined);
-
+  const isSubmissionRequest =
+    (request.method || 'GET').toUpperCase() === 'POST';
+  const contextResponseObserver = isSubmissionRequest
+    ? context.onResponse
+    : undefined;
   const providerContext = buildProviderContextFromAdapterContext(
     context,
     baseUrlOverride
   );
-  const isSubmissionRequest =
-    (request.method || 'GET').toUpperCase() === 'POST';
   const requestId =
     context.operation === 'image' && context.requestId && isSubmissionRequest
       ? context.requestId
@@ -107,5 +109,12 @@ export async function sendAdapterRequest(
     signal: request.signal || context.signal,
     timeoutMs,
     fetcher: context.fetcher || request.fetcher,
+    onResponse:
+      contextResponseObserver || request.onResponse
+        ? async (response) => {
+            await contextResponseObserver?.(response);
+            await request.onResponse?.(response);
+          }
+        : undefined,
   });
 }

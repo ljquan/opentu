@@ -233,6 +233,45 @@ describe('workflow-converter', () => {
         });
       });
 
+      it('语义替换只把干净背景和编辑蒙版传给图片模型', () => {
+        const params = createMockParams({
+          generationType: 'image',
+          prompt: '把猫替换成兔子',
+          extraParams: {
+            generationMode: 'image_edit',
+            referenceImages: ['/clean-background.png'],
+            maskImage: '/semantic-mask.png',
+            replaceElementId: 'cat-layer',
+            targetElementId: 'cat-layer',
+            semanticReplacement: true,
+            semanticReplacementOldName: '猫',
+            semanticReplacementOldDescription: '灰色宠物猫',
+            semanticReplacementBackgroundUrl: '/clean-background.png',
+            semanticReplacementBackgroundElementId: 'background-layer',
+            semanticReplacementForegroundUrl: '/old-cat.png',
+          },
+        });
+
+        const workflow = convertDirectGenerationToWorkflow(params, [
+          '/old-cat.png',
+        ]);
+
+        expect(workflow.steps[0].args).toMatchObject({
+          generationMode: 'image_edit',
+          referenceImages: ['/clean-background.png'],
+          maskImage: '/semantic-mask.png',
+          replaceElementId: 'cat-layer',
+          semanticReplacement: true,
+          semanticReplacementOldName: '猫',
+          semanticReplacementBackgroundUrl: '/clean-background.png',
+          semanticReplacementBackgroundElementId: 'background-layer',
+          semanticReplacementForegroundUrl: '/old-cat.png',
+        });
+        expect(workflow.steps[0].args.referenceImages).not.toContain(
+          '/old-cat.png'
+        );
+      });
+
       it('单张图片带蒙版时应该创建 image_edit 请求参数', () => {
         const params = createMockParams({
           generationType: 'image',

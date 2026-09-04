@@ -18,6 +18,7 @@ import type {
   VideoAPIConfig,
 } from './types';
 import { Task, TaskStatus, type TaskResult } from '../../types/task.types';
+import type { CacheWarning } from '../../types/cache-warning.types';
 import { taskStorageWriter } from './task-storage-writer';
 import { taskStorageReader } from '../task-storage-reader';
 import {
@@ -86,6 +87,11 @@ import {
 } from '../task-invocation-route';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import { isPptExplainerTask } from '../ppt-explainer/validation';
+import {
+  attachImageRecoveryRequestId,
+  buildImageRecoveryUrl,
+  readImageRecoveryRequestId,
+} from '../image-generation-recovery-metadata';
 
 function isCurrentExecutionAttempt(options?: ExecutionOptions): boolean {
   return !options?.signal?.aborted && options?.isCurrentAttempt?.() !== false;
@@ -439,6 +445,8 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       ),
       taskId,
     });
+    let recoveryRequestId: string | undefined;
+    let recoveryUrl: string | undefined;
     try {
       // 处理参考图片：统一转为 base64（API 要求）
       let processedImages: string[] | undefined;
@@ -480,6 +488,21 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           signal: options?.signal,
           timeoutMs: IMAGE_GENERATION_TIMEOUT_MS,
           requestId,
+          onResponse: (response) => {
+            recoveryRequestId =
+              readImageRecoveryRequestId(response) || recoveryRequestId;
+            recoveryUrl =
+              buildImageRecoveryUrl(config.imageConfig.baseUrl, requestId) ||
+              recoveryUrl;
+            if (recoveryRequestId) {
+              void taskStorageWriter.updateImageRecovery(taskId, {
+                requestId: recoveryRequestId,
+                url: recoveryUrl,
+                status: 'idle',
+                checkedAt: Date.now(),
+              });
+            }
+          },
         }
       );
 
@@ -523,6 +546,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
 
       // 缓存远程 URL 到本地，避免签名 URL 的 Referer 校验问题
       const allImgUrls = result.urls?.length ? result.urls : [result.url];
+      let cacheWarning: CacheWarning | undefined;
       const cachedImgUrls = await cacheRemoteUrls(
         allImgUrls,
         taskId,
@@ -533,9 +557,22 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           returnLocalCacheUrl: true,
           cacheKey: requestId,
           resultVisibility: params.resultVisibility,
+          onCacheWarning: (warning) => {
+            cacheWarning ||= warning;
+          },
         }
       );
       assertCurrentExecutionAttempt(options);
+
+      await taskStorageWriter.updateImageRecovery(taskId, {
+        requestId: recoveryRequestId || requestId,
+        url:
+          recoveryUrl ||
+          buildImageRecoveryUrl(config.imageConfig.baseUrl, requestId),
+        status: 'succeeded',
+        urls: allImgUrls,
+        checkedAt: Date.now(),
+      });
 
       // 完成任务
       const completed = await taskStorageWriter.completeTask(
@@ -545,6 +582,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
           format: 'png',
           size: 0,
+          ...(cacheWarning ? { cacheWarning } : {}),
         },
         requestId,
         createStorageWriteGuard(options)
@@ -555,6 +593,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         throw staleAttemptError;
       }
     } catch (error: any) {
+      attachImageRecoveryRequestId(error, recoveryRequestId);
       const duration = Date.now() - startTime;
       const errorMessage = error.message || 'Image generation failed';
 
@@ -717,6 +756,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       options?.onProgress?.({ progress: 100 });
 
       // 缓存远程 URL 到本地
+      let cacheWarning: CacheWarning | undefined;
       const cachedAsyncUrl = await cacheRemoteUrl(
         result.url,
         taskId,
@@ -731,6 +771,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
             ? { ...params.assetMetadata }
             : undefined,
           resultVisibility: params.resultVisibility,
+          onCacheWarning: (warning) => {
+            cacheWarning ||= warning;
+          },
         }
       );
       assertCurrentExecutionAttempt(options);
@@ -742,6 +785,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           url: cachedAsyncUrl,
           format: result.format,
           size: 0,
+          ...(cacheWarning ? { cacheWarning } : {}),
         },
         submissionRequestId,
         createStorageWriteGuard(options)

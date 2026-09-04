@@ -95,6 +95,7 @@ export interface SWTask {
   remoteId?: string;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: TaskExecutionPhase;
+  imageRecovery?: import('../../../types/task.types').ImageRecoveryInfo;
   insertedToCanvas?: boolean;
 }
 

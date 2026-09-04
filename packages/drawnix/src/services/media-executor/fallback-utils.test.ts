@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cacheMediaFromBlob = vi.fn();
+const cacheLocalMediaByContent = vi.fn();
 const getCachedBlob = vi.fn();
 const getImageForAI = vi.fn();
+const getCachedImageBlobWithThumbnailFallback = vi.fn();
 const cachedUrls = new Set<string>();
 const isCached = vi.fn(async (url: string) => cachedUrls.has(url));
 const calculateBlobChecksum = vi.fn(async () => 'a'.repeat(64));
@@ -25,8 +27,10 @@ vi.mock('@aitu/utils', async () => {
 vi.mock('../unified-cache-service', () => ({
   unifiedCacheService: {
     cacheMediaFromBlob,
+    cacheLocalMediaByContent,
     getCachedBlob,
     getImageForAI,
+    getCachedImageBlobWithThumbnailFallback,
     isCached,
   },
 }));
@@ -147,12 +151,19 @@ describe('cacheRemoteUrl', () => {
   beforeEach(() => {
     cacheMediaFromBlob.mockReset();
     getCachedBlob.mockReset().mockResolvedValue(null);
+    cacheLocalMediaByContent.mockReset();
+    getCachedImageBlobWithThumbnailFallback.mockReset();
     isCached.mockClear();
     calculateBlobChecksum.mockClear();
     cachedUrls.clear();
     cacheMediaFromBlob.mockImplementation(async (url: string) => {
       cachedUrls.add(url);
       return url;
+    });
+    cacheLocalMediaByContent.mockResolvedValue({
+      url: '/__aitu_cache__/image/content-cached.png',
+      contentHash: 'cached',
+      reused: false,
     });
   });
 
@@ -255,6 +266,126 @@ describe('cacheRemoteUrl', () => {
     expect(cacheMediaFromBlob).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
+  });
+
+  it('keeps remote image URLs immediate during canvas insertion', async () => {
+    const remoteUrl = 'https://cdn.example.com/generated/task-123.png?sig=abc';
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const result = await cacheRemoteUrl(
+      remoteUrl,
+      'insert-task',
+      'image',
+      'png',
+      undefined,
+      { materializeContentUrl: true }
+    );
+
+    expect(getCachedImageBlobWithThumbnailFallback).not.toHaveBeenCalled();
+    expect(cacheLocalMediaByContent).not.toHaveBeenCalled();
+    expect(result).toBe(remoteUrl);
+  });
+
+  it('materializes a preview Blob URL before it is inserted into the canvas', async () => {
+    const blobUrl = 'blob:http://localhost/preview-image';
+    const blob = new Blob(['preview-binary'], { type: 'image/webp' });
+    getCachedImageBlobWithThumbnailFallback.mockResolvedValueOnce(blob);
+    cacheLocalMediaByContent.mockResolvedValueOnce({
+      url: '/__aitu_cache__/image/content-preview.webp',
+      contentHash: 'preview',
+      reused: false,
+    });
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const result = await cacheRemoteUrl(
+      blobUrl,
+      'insert-preview',
+      'image',
+      'png',
+      undefined,
+      { materializeContentUrl: true }
+    );
+
+    expect(getCachedImageBlobWithThumbnailFallback).toHaveBeenCalledWith(
+      blobUrl
+    );
+    expect(cacheLocalMediaByContent).toHaveBeenCalledWith(blob, 'image', {
+      taskId: 'insert-preview',
+      source: 'AI_GENERATED',
+    });
+    expect(result).toBe('/__aitu_cache__/image/content-preview.webp');
+  });
+
+  it('recovers a missing virtual image from its cached thumbnail', async () => {
+    const virtualUrl = '/__aitu_cache__/image/expired-task.png';
+    const thumbnailBlob = new Blob(['thumbnail-binary'], {
+      type: 'image/webp',
+    });
+    getCachedImageBlobWithThumbnailFallback.mockResolvedValueOnce(
+      thumbnailBlob
+    );
+    cacheLocalMediaByContent.mockResolvedValueOnce({
+      url: '/__aitu_cache__/image/content-recovered.webp',
+      contentHash: 'recovered',
+      reused: false,
+    });
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const result = await cacheRemoteUrl(
+      virtualUrl,
+      'insert-recovered',
+      'image',
+      'png',
+      undefined,
+      { materializeContentUrl: true }
+    );
+
+    expect(getCachedImageBlobWithThumbnailFallback).toHaveBeenCalledWith(
+      virtualUrl
+    );
+    expect(cacheLocalMediaByContent).toHaveBeenCalledWith(
+      thumbnailBlob,
+      'image',
+      {
+        taskId: 'insert-recovered',
+        source: 'AI_GENERATED',
+      }
+    );
+    expect(result).toBe('/__aitu_cache__/image/content-recovered.webp');
+  });
+
+  it('keeps a virtual URL when materialization has no cached content', async () => {
+    const remoteUrl = '/__aitu_cache__/image/expired.png';
+    getCachedImageBlobWithThumbnailFallback.mockResolvedValueOnce(null);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+
+    await expect(
+      cacheRemoteUrl(remoteUrl, 'insert-missing', 'image', 'png', undefined, {
+        materializeContentUrl: true,
+      })
+    ).resolves.toBe(remoteUrl);
+    expect(cacheLocalMediaByContent).not.toHaveBeenCalled();
+  });
+
+  it('keeps a virtual URL when cache lookup throws during insertion', async () => {
+    const remoteUrl = '/__aitu_cache__/image/cache-error.png';
+    getCachedImageBlobWithThumbnailFallback.mockRejectedValueOnce(
+      new Error('Cache Storage unavailable')
+    );
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+
+    await expect(
+      cacheRemoteUrl(
+        remoteUrl,
+        'insert-cache-error',
+        'image',
+        'png',
+        undefined,
+        { materializeContentUrl: true }
+      )
+    ).resolves.toBe(remoteUrl);
   });
 
   it('caches remote https audio urls while keeping original URLs', async () => {
@@ -395,6 +526,79 @@ describe('cacheRemoteUrl', () => {
         taskId: 'task-cover',
         source: 'AI_GENERATED',
       }
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a cache warning while preserving the original URL on HTTP failure', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, { status: 403, statusText: 'Forbidden' })
+    );
+    const warnings: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const remoteUrl = 'https://cdn.example.com/generated/signed.png?sig=expired';
+
+    const result = await cacheRemoteUrl(
+      remoteUrl,
+      'task-cache-warning',
+      'image',
+      'png',
+      undefined,
+      {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        onCacheWarning: (warning) => warnings.push(warning),
+      }
+    );
+
+    expect(result).toBe(remoteUrl);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        reasonCode: 'http_error',
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a cache warning when the local cache write is not persisted', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Blob(['image-binary'], { type: 'image/png' }), {
+        status: 200,
+      })
+    );
+    const warnings: Array<Record<string, unknown>> = [];
+    cacheMediaFromBlob.mockResolvedValueOnce(
+      '/__aitu_cache__/image/task-unpersisted.png'
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const remoteUrl = 'https://cdn.example.com/generated/unpersisted.png';
+    const result = await cacheRemoteUrl(
+      remoteUrl,
+      'task-unpersisted',
+      'image',
+      'png',
+      undefined,
+      {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        onCacheWarning: (warning) => warnings.push(warning),
+      }
+    );
+
+    expect(result).toBe(remoteUrl);
+    expect(warnings[0]).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        reasonCode: 'cache_missing',
+      })
     );
 
     vi.unstubAllGlobals();

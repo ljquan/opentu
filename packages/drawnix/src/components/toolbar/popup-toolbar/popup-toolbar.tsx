@@ -95,6 +95,7 @@ import {
   Scaling,
   RefreshCw,
   PaintBucket,
+  Layers3,
 } from 'lucide-react';
 import { useDrawnix, DialogType } from '../../../hooks/use-drawnix';
 import { useI18n } from '../../../i18n';
@@ -113,6 +114,10 @@ import { insertVideoFrame } from '../../../utils/video-frame';
 import { isToolElement } from '../../../plugins/with-tool';
 import { isWorkZoneElement } from '../../../plugins/with-workzone';
 import { splitAndInsertImages } from '../../../utils/image-splitter';
+import {
+  LayerDecompositionCorrectionRequiredError,
+  startAutomaticLayerDecomposition,
+} from '../../../services/layer-decomposition';
 import {
   smartDownload,
   BatchDownloadItem,
@@ -345,6 +350,7 @@ export const PopupToolbar = () => {
     hasAIVideo?: boolean; // 是否显示AI视频生成按钮
     hasVideoFrame?: boolean; // 是否显示视频帧选择按钮
     hasSplitImage?: boolean; // 是否显示拆图按钮
+    hasLayerDecomposition?: boolean; // 是否显示 AI 语义分层按钮
     hasDownloadable?: boolean; // 是否显示下载按钮
     hasMergeable?: boolean; // 是否显示合并按钮
     hasVideoMergeable?: boolean; // 是否显示视频合成按钮
@@ -457,6 +463,7 @@ export const PopupToolbar = () => {
 
     // 只有检测到分割线时才显示拆图按钮
     const hasSplitImage = isImageSelected;
+    const hasLayerDecomposition = isImageSelected;
 
     // 图片编辑按钮：选中单个非 SVG 图片时显示
     const hasImageEdit = isImageSelected;
@@ -656,6 +663,7 @@ export const PopupToolbar = () => {
       hasAIVideo,
       hasVideoFrame,
       hasSplitImage,
+      hasLayerDecomposition,
       hasImageEdit,
       hasRegenerateImage: isImageSelected,
       hasDownloadable,
@@ -1640,6 +1648,78 @@ export const PopupToolbar = () => {
                           (language === 'zh' ? '拆图失败' : 'Split failed')
                       );
                     }
+                  }
+                }}
+              />
+            )}
+            {state.hasLayerDecomposition && (
+              <ToolButton
+                className="ai-layer-decomposition"
+                key="ai-layer-decomposition"
+                type="icon"
+                icon={<Layers3 size={16} />}
+                visible={true}
+                tooltip={language === 'zh' ? 'AI 分层' : 'AI Layers'}
+                aria-label={language === 'zh' ? 'AI 分层' : 'AI Layers'}
+                data-track="toolbar_click_ai_layer_decomposition"
+                onPointerUp={() => {
+                  const image = selectedElements[0];
+                  if (
+                    PlaitDrawElement.isDrawElement(image) &&
+                    PlaitDrawElement.isImage(image) &&
+                    image.url
+                  ) {
+                    const launch = startAutomaticLayerDecomposition(
+                      board,
+                      image.id,
+                      image.url
+                    );
+                    if (!launch.started) return;
+
+                    const loadingInstance = MessagePlugin.loading(
+                      language === 'zh'
+                        ? '正在进行 AI 分层...'
+                        : 'Creating AI layers...',
+                      0
+                    );
+                    void launch.promise
+                      .then((outcome) => {
+                        MessagePlugin.close(loadingInstance);
+                        if (outcome.kind === 'test') {
+                          MessagePlugin.warning(
+                            language === 'zh'
+                              ? '当前为测试后端，未接入真实 AI 分层模型；源图片未修改'
+                              : 'The test backend has no real AI layer model; the source image is unchanged'
+                          );
+                          return;
+                        }
+                        MessagePlugin.success(
+                          language === 'zh'
+                            ? `已生成 ${outcome.layerCount} 个可编辑图层`
+                            : `Created ${outcome.layerCount} editable layers`
+                        );
+                      })
+                      .catch((error) => {
+                        MessagePlugin.close(loadingInstance);
+                        if (
+                          error instanceof
+                          LayerDecompositionCorrectionRequiredError
+                        ) {
+                          MessagePlugin.warning(
+                            language === 'zh'
+                              ? '分层质量未通过，源图片保持不变'
+                              : 'Layer quality check failed; the source image is unchanged'
+                          );
+                          return;
+                        }
+                        MessagePlugin.error(
+                          error instanceof Error
+                            ? error.message
+                            : language === 'zh'
+                            ? '图片分层失败'
+                            : 'Layer decomposition failed'
+                        );
+                      });
                   }
                 }}
               />
