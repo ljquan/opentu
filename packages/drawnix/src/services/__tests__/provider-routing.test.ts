@@ -1580,7 +1580,7 @@ describe('provider routing', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back when a trusted Tuzi proxy route returns HTML', async () => {
+  it('does not switch endpoints when the configured Tuzi endpoint returns HTML', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
     vi.stubGlobal(
       'fetch',
@@ -1624,12 +1624,9 @@ describe('provider routing', () => {
       );
 
       expect(response.ok).toBe(true);
-      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher).toHaveBeenCalledTimes(1);
       expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-        '/__opentu_tuzi_proxy__/api/v1/images/generations'
-      );
-      expect(String(fetcher.mock.calls[1]?.[0])).toBe(
-        '/__opentu_tuzi_proxy__/apius/v1/images/generations'
+        'https://api.tu-zi.com/v1/images/generations'
       );
     } finally {
       vi.unstubAllGlobals();

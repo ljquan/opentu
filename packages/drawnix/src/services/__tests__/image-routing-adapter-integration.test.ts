@@ -299,8 +299,8 @@ describe('image routing to default registered adapters', () => {
       'tuzi.image.gpt-edit-json'
     );
 
-    expect(binding.protocol).toBe('openai.images.edits');
-    expect(binding.submitPath).toBe('/images/edits');
+    expect(binding.protocol).toBe('openai.images.generations');
+    expect(binding.submitPath).toBe('/images/generations');
     expect(resolveAdapterForBinding(binding, 'image')?.id).toBe(
       'tuzi-gpt-image-adapter'
     );

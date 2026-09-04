@@ -7,9 +7,6 @@ import type {
 import {
   isTrustedTuziApiBaseUrl,
   isTuziRequestIdCorsBaseUrl,
-  loadTuziApiEndpointBaseUrls,
-  normalizeTuziApiEndpointUrl,
-  TUZI_API_REQUEST_ID_CORS_ENDPOINTS,
 } from './tuzi-api-endpoints';
 
 function trimTrailingSlashes(value: string): string {
@@ -48,13 +45,7 @@ export function supportsTuziSameOriginProxyHostname(
 ): boolean {
   if (!hostname) return false;
   if (explicitlyEnabled) return true;
-  if (isDev && isLocalDevHostname(hostname)) return true;
-  return (
-    hostname === 'opentu.ai' ||
-    hostname.endsWith('.opentu.ai') ||
-    hostname.endsWith('.vercel.app') ||
-    hostname.endsWith('.netlify.app')
-  );
+  return isDev && isLocalDevHostname(hostname);
 }
 
 export function rewriteTuziBaseUrlForSameOriginProxy(
@@ -464,55 +455,15 @@ async function shouldRetryTuziResponse(
   request: ProviderTransportRequest,
   response: Response
 ): Promise<boolean> {
-  if (
-    !isTrustedTuziApiBaseUrl(context.baseUrl) ||
-    /^https?:\/\//i.test(request.path)
-  ) {
-    return false;
-  }
-
-  if (response.status === 404) {
-    return (
-      (request.method || 'GET').toUpperCase() === 'POST' &&
-      /\/images\/(?:generations|edits)\/?$/i.test(request.path)
-    );
-  }
-
-  if (
-    !isReadOnlyRequestMethod(request.method) ||
-    ![502, 503, 504].includes(response.status)
-  ) {
-    return false;
-  }
-
-  if (response.status === 503) {
-    const body = await readProviderResponseText(response.clone()).catch(
-      () => ''
-    );
-    if (/model_not_found|模型.+无可用渠道|model.+not.+found/i.test(body)) {
-      return false;
-    }
-  }
-
-  return true;
+  void context;
+  void request;
+  void response;
+  return false;
 }
 
 async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
-  if (!isTrustedTuziApiBaseUrl(baseUrl)) {
-    return [];
-  }
-
-  const currentOrigin = normalizeTuziApiEndpointUrl(baseUrl);
-  const currentPathSuffix = getBaseUrlPathSuffix(baseUrl);
-  const tuziOrigins = await loadTuziApiEndpointBaseUrls();
-
-  if (!tuziOrigins.includes(currentOrigin)) {
-    return [];
-  }
-
-  return tuziOrigins
-    .filter((origin) => origin !== currentOrigin)
-    .map((origin) => `${origin}${currentPathSuffix}`);
+  void baseUrl;
+  return [];
 }
 
 function buildQueryString(
@@ -760,29 +711,8 @@ function routeTuziRequestIdSubmission(
   context: ResolvedProviderContext,
   request: ProviderTransportRequest
 ): ResolvedProviderContext {
-  const resolvedBaseUrl = applyBaseUrlStrategy(
-    context.baseUrl,
-    request.baseUrlStrategy
-  );
-  if (
-    !isTuziRequestIdSubmission(context, request) ||
-    !/^https?:\/\//i.test(resolvedBaseUrl) ||
-    isTuziRequestIdCorsBaseUrl(context.baseUrl)
-  ) {
-    return context;
-  }
-
-  const corsOrigin = TUZI_API_REQUEST_ID_CORS_ENDPOINTS[0]?.url;
-  if (!corsOrigin) {
-    return context;
-  }
-
-  return {
-    ...context,
-    baseUrl: `${normalizeTuziApiEndpointUrl(corsOrigin)}${getBaseUrlPathSuffix(
-      context.baseUrl
-    )}`,
-  };
+  void request;
+  return context;
 }
 
 /**

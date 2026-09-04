@@ -557,10 +557,10 @@ function inferImageBindings(
     ) {
       bindings.push(
         buildBinding(profile, model, {
-          protocol: 'openai.images.edits',
+          protocol: 'openai.images.generations',
           requestSchema: TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
           responseSchema: 'openai.image.data',
-          submitPath: '/images/edits',
+          submitPath: '/images/generations',
           metadata: {
             image: {
               action: 'edit',
@@ -688,8 +688,7 @@ function inferVideoBindings(
                   seedance2Capabilities.minDuration +
                   1,
               },
-              (_, index) =>
-                String(seedance2Capabilities.minDuration + index)
+              (_, index) => String(seedance2Capabilities.minDuration + index)
             ),
             defaultDuration: String(seedance2Capabilities.defaultDuration),
             durationMode: 'request-param' as const,
