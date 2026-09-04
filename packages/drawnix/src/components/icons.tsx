@@ -116,6 +116,29 @@ export const TaskIcon: React.FC<React.SVGProps<SVGSVGElement> & { size?: number 
   </svg>
 );
 
+export const ImageInspectionIcon: React.FC<
+  React.SVGProps<SVGSVGElement> & { size?: number }
+> = ({ size = 24, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width={size}
+    height={size}
+    {...props}
+  >
+    <rect x="3" y="4" width="14" height="12" rx="2" />
+    <circle cx="7.5" cy="8.5" r="1.25" />
+    <path d="m5 14 3.25-3 2.3 2 2.1-1.8L16 14" />
+    <circle cx="16.5" cy="16.5" r="4" />
+    <path d="m19.4 19.4 2.1 2.1" />
+    <path d="m14.9 16.5 1.05 1.05 2.15-2.25" />
+  </svg>
+);
+
 export const ShapeIcon: React.FC<React.SVGProps<SVGSVGElement> & { size?: number }> = ({ size = 24, ...props }) => (
   <svg
     viewBox="0 0 24 24"

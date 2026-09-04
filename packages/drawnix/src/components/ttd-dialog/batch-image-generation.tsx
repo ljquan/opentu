@@ -41,8 +41,6 @@ import {
 } from '../../types/task.types';
 import {
   hasInvocationRouteCredentials,
-  resolveInvocationRoute,
-  createModelRef,
   type ModelRef,
 } from '../../utils/settings-manager';
 import { promptForApiKey } from '../../utils/gemini-api';
@@ -65,6 +63,9 @@ import {
   findMatchingSelectableModel,
   getModelRefFromConfig,
   getSelectionKey,
+  resolveActiveImageModelSelection,
+  resolveImageSubmissionModelSelection,
+  type ResolvedModelSelection,
 } from '../../utils/model-selection';
 import type { ModelConfig } from '../../constants/model-config';
 import './batch-image-generation.scss';
@@ -511,26 +512,24 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
   }, [previewUrls]);
 
   // 模型选择
-  const initialRoute = resolveInvocationRoute('image');
+  const initialActiveSelection = resolveActiveImageModelSelection(imageModels);
   const initialMatchedModel =
     findMatchingSelectableModel(
       imageModels,
-      initialRoute.modelId,
-      createModelRef(initialRoute.profileId, initialRoute.modelId)
+      initialActiveSelection.modelId,
+      initialActiveSelection.modelRef
     ) ||
     getPinnedSelectableModel(
       'image',
-      initialRoute.modelId,
-      createModelRef(initialRoute.profileId, initialRoute.modelId)
+      initialActiveSelection.modelId,
+      initialActiveSelection.modelRef
     );
   const [selectedModel, setSelectedModel] = useState<string>(
-    initialMatchedModel?.id ||
-      imageModels[0]?.id ||
-      'gemini-2.5-flash-image-vip'
+    initialMatchedModel?.id || initialActiveSelection.modelId
   );
   const [selectedModelRef, setSelectedModelRef] = useState<ModelRef | null>(
     getModelRefFromConfig(initialMatchedModel) ||
-      createModelRef(initialRoute.profileId, initialRoute.modelId)
+      initialActiveSelection.modelRef
   );
   const visibleImageModels = useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
@@ -561,6 +560,26 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     return loadScopedAIImageToolPreferences(selectedModel, selectedSelectionKey)
       .extraParams;
   }, [selectedModel, selectedSelectionKey]);
+
+  const applySelectedModelSelection = useCallback(
+    (selection: ResolvedModelSelection) => {
+      setSelectedModel((prev) =>
+        prev === selection.modelId ? prev : selection.modelId
+      );
+      setSelectedModelRef((prev) => {
+        if (
+          prev?.profileId === selection.modelRef?.profileId &&
+          prev?.modelId === selection.modelRef?.modelId
+        ) {
+          return prev;
+        }
+        return selection.modelRef;
+      });
+      onModelChange?.(selection.modelId);
+      onModelRefChange?.(selection.modelRef);
+    },
+    [onModelChange, onModelRefChange]
+  );
 
   useEffect(() => {
     setTasks((prev) => {
@@ -1848,7 +1867,6 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
         };
         return nextTasks;
       });
-
       deleteTask(generatedTask.id);
       MessagePlugin.success(
         language === 'zh' ? '已删除生成图片' : 'Generated image deleted'
@@ -2156,11 +2174,25 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     async (validTasks: { task: TaskRow; rowIndex: number }[]) => {
       setIsSubmitting(true);
       try {
+        const activeSelection =
+          resolveActiveImageModelSelection(visibleImageModels);
+        const submissionSelection = resolveImageSubmissionModelSelection({
+          models: visibleImageModels,
+          currentModel: selectedModel,
+          currentModelRef: selectedModelRef,
+          controlledModel: controlledSelectedModel,
+          controlledModelRef: controlledSelectedModelRef,
+          activeSelection,
+        });
+        if (selectedSelectionKey !== submissionSelection.selectionKey) {
+          applySelectedModelSelection(submissionSelection);
+        }
+
         // 先检查 API Key，没有则弹窗获取（只弹一次）
         if (
           !hasInvocationRouteCredentials(
             'image',
-            selectedModelRef || selectedModel
+            submissionSelection.modelRef || submissionSelection.modelId
           )
         ) {
           // 退出编辑模式，防止输入被捕获到表格
@@ -2185,9 +2217,12 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
         for (const { task, rowIndex } of validTasks) {
           const generateCount = task.count || 1;
           const batchId = `batch_${task.id}_${globalBatchTimestamp}`;
+          const currentImageModel =
+            submissionSelection.modelId || 'gemini-2.5-flash-image-vip';
+          const submissionModelRef = submissionSelection.modelRef;
           const rowParams = normalizeRowParamsForModel(
             task,
-            selectedModel,
+            currentImageModel,
             defaultModelParams
           );
           const normalizedAspectRatio =
@@ -2196,10 +2231,6 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
             normalizedAspectRatio === 'auto'
               ? undefined
               : normalizedAspectRatio;
-          const currentImageModel =
-            selectedModel ||
-            resolveInvocationRoute('image').modelId ||
-            'gemini-2.5-flash-image-vip';
           const isMJModel = currentImageModel.startsWith('mj');
           const finalPrompt = isMJModel
             ? [task.prompt.trim(), buildMJPromptSuffix(rowParams)]
@@ -2227,7 +2258,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               aspectRatio: normalizedAspectRatio,
               size: normalizedSize,
               model: currentImageModel,
-              modelRef: selectedModelRef || null,
+              modelRef: submissionModelRef,
               uploadedImages,
               batchId,
               batchIndex: i + 1,
@@ -2272,15 +2303,20 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
       }
     },
     [
+      applySelectedModelSelection,
+      controlledSelectedModel,
+      controlledSelectedModelRef,
       createTask,
       defaultModelParams,
       knowledgeContextRefs,
       language,
       selectedModel,
       selectedModelRef,
+      selectedSelectionKey,
       setTasks,
       setEditingCell,
       setActiveCell,
+      visibleImageModels,
     ]
   );
 
@@ -3366,11 +3402,11 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               <ModelDropdown
                 selectedModel={selectedModel}
                 selectedSelectionKey={selectedSelectionKey}
-                onSelect={(value) => {
+                onSelect={(value, modelRef) => {
                   setSelectedModel(value);
-                  setSelectedModelRef(null);
+                  setSelectedModelRef(modelRef || null);
                   onModelChange?.(value);
-                  onModelRefChange?.(null);
+                  onModelRefChange?.(modelRef || null);
                 }}
                 onSelectModel={(model: ModelConfig) => {
                   setSelectedModel(model.id);

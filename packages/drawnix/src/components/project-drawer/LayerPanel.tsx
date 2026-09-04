@@ -6,6 +6,7 @@
  */
 
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import { ArrowDown, ArrowUp, Pencil } from 'lucide-react';
 
 import {
   BrowseIcon,
@@ -16,6 +17,7 @@ import {
 import {
   PlaitBoard,
   PlaitElement,
+  PlaitHistoryBoard,
   Transforms,
   getSelectedElements,
   clearSelectedElement,
@@ -33,6 +35,11 @@ import { isToolElement } from '../../plugins/with-tool';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { extractTextFromElement } from '../../utils/selection-utils';
 import { HoverTip } from '../shared';
+import { getSemanticLayerMetadata } from '../../services/layer-decomposition';
+import { exportSemanticLayerGroup } from '../../services/layer-decomposition';
+import type { LayerManifestItem } from '../../services/layer-decomposition';
+import { DownloadIcon } from '../icons';
+import { MessagePlugin } from 'tdesign-react';
 
 interface LayerItem {
   element: PlaitElement;
@@ -42,6 +49,7 @@ interface LayerItem {
   icon: React.ReactNode;
   hidden: boolean;
   locked: boolean;
+  semantic?: ReturnType<typeof getSemanticLayerMetadata>;
 }
 
 function getElementTypeInfo(
@@ -392,6 +400,8 @@ function getElementDisplayName(
   board: PlaitBoard,
   typeInfo: { typeLabel: string }
 ): string {
+  const semantic = getSemanticLayerMetadata(element);
+  if (semantic?.name) return semantic.name;
   if (isFrameElement(element)) {
     return getFrameDisplayName(element);
   }
@@ -419,6 +429,8 @@ function getElementDisplayName(
 export const LayerPanel: React.FC = () => {
   const { board } = useDrawnix();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [lockedIds, setLockedIds] = useState<Set<string>>(() => {
     if (!board?.children) return new Set<string>();
@@ -442,12 +454,205 @@ export const LayerPanel: React.FC = () => {
     };
   }, [board]);
 
+  const semanticGroups = useMemo(() => {
+    if (!board) return [];
+    return board.children.filter(
+      (element) => element.type === 'group' && element.metadata?.semanticLayerGroup
+    );
+  }, [board, refreshKey]);
+
+  const exportGroup = useCallback(
+    async (group: PlaitElement) => {
+      const providerGroupId = group.metadata?.semanticLayerGroup?.providerGroupId;
+      if (!providerGroupId) return;
+      try {
+        await exportSemanticLayerGroup(board!, providerGroupId);
+        MessagePlugin.success('分层 ZIP 导出完成');
+      } catch (error) {
+        MessagePlugin.error(error instanceof Error ? error.message : '分层导出失败');
+      }
+    },
+    [board]
+  );
+
+  const moveSemanticLayer = useCallback(
+    (item: LayerItem, direction: 'up' | 'down', event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!board || !item.semantic || item.semantic.kind === 'background') return;
+      const groupId = item.element.groupId;
+      if (!groupId) return;
+      const semanticItems = (board.children as PlaitElement[])
+        .map((element, index) => ({
+          element,
+          index,
+          semantic: getSemanticLayerMetadata(element),
+        }))
+        .filter(
+          (entry) =>
+            entry.element.groupId === groupId &&
+            entry.semantic?.providerGroupId === item.semantic?.providerGroupId
+        )
+        .sort((left, right) => left.index - right.index);
+      const currentIndex = semanticItems.findIndex(
+        (entry) => entry.element.id === item.element.id
+      );
+      if (currentIndex < 0) return;
+      const targetIndex = direction === 'up' ? currentIndex + 1 : currentIndex - 1;
+      if (targetIndex < 0 || targetIndex >= semanticItems.length) return;
+
+      const from = semanticItems[currentIndex].index;
+      const targetBoardIndex = semanticItems[targetIndex].index;
+      const to = direction === 'up' ? targetBoardIndex + 1 : targetBoardIndex;
+      Transforms.moveNode(board, [from], [to]);
+
+      const movedItems = (board.children as PlaitElement[])
+        .map((element, index) => ({
+          element,
+          index,
+          semantic: getSemanticLayerMetadata(element),
+        }))
+        .filter(
+          (entry) =>
+            entry.element.groupId === groupId &&
+            entry.semantic?.providerGroupId === item.semantic?.providerGroupId
+        )
+        .sort((left, right) => left.index - right.index);
+      movedItems.forEach((entry, index) => {
+        if (!entry.semantic) return;
+        const zIndex = entry.semantic.kind === 'background' ? 0 : index;
+        if (entry.semantic.zIndex === zIndex) return;
+        Transforms.setNode(
+          board,
+          {
+            metadata: {
+              ...((entry.element as any).metadata || {}),
+              semanticLayer: { ...entry.semantic, zIndex },
+            },
+          } as any,
+          [entry.index]
+        );
+      });
+
+      const groupIndex = (board.children as PlaitElement[]).findIndex(
+        (element) =>
+          element.type === 'group' &&
+          element.metadata?.semanticLayerGroup?.providerGroupId ===
+            item.semantic?.providerGroupId
+      );
+      if (groupIndex >= 0) {
+        const group = board.children[groupIndex];
+        const groupMetadata = group.metadata?.semanticLayerGroup;
+        if (groupMetadata?.manifest?.layers) {
+          const zByUrl = new Map(
+            movedItems
+              .filter((entry) => entry.semantic)
+              .map((entry, index) => [
+                (entry.element as any).url,
+                entry.semantic!.kind === 'background' ? 0 : index,
+              ])
+          );
+          const manifest = {
+            ...groupMetadata.manifest,
+            layers: [...groupMetadata.manifest.layers]
+              .map((layer) => ({
+                ...layer,
+                zIndex: zByUrl.get(layer.url) ?? layer.zIndex,
+              }))
+              .sort((left, right) => left.zIndex - right.zIndex),
+          };
+          Transforms.setNode(
+            board,
+            {
+              metadata: {
+                ...(group.metadata || {}),
+                semanticLayerGroup: { ...groupMetadata, manifest },
+              },
+            } as any,
+            [groupIndex]
+          );
+        }
+      }
+      setRefreshKey((value) => value + 1);
+    },
+    [board]
+  );
+
+  const startRename = useCallback(
+    (item: LayerItem, event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!item.semantic) return;
+      setEditingId(item.element.id!);
+      setEditingName(item.semantic.name);
+    },
+    []
+  );
+
+  const commitRename = useCallback(
+    (item: LayerItem) => {
+      if (!board || !item.semantic || editingId !== item.element.id) return;
+      const name = editingName.trim();
+      if (!name) {
+        MessagePlugin.warning('图层名称不能为空');
+        return;
+      }
+      const elementIndex = (board.children as PlaitElement[]).findIndex(
+        (element) => element.id === item.element.id
+      );
+      if (elementIndex < 0) return;
+
+      PlaitHistoryBoard.withNewBatch(board, () => {
+        Transforms.setNode(
+          board,
+          {
+            metadata: {
+              ...((item.element as any).metadata || {}),
+              semanticLayer: { ...item.semantic, name },
+            },
+          } as any,
+          [elementIndex]
+        );
+        const groupIndex = (board.children as PlaitElement[]).findIndex(
+          (element) =>
+            element.type === 'group' &&
+            element.metadata?.semanticLayerGroup?.providerGroupId ===
+              item.semantic?.providerGroupId
+        );
+        if (groupIndex < 0) return;
+        const group = board.children[groupIndex];
+        const groupMetadata = group.metadata?.semanticLayerGroup;
+        if (!groupMetadata?.manifest?.layers) return;
+        const manifest = {
+          ...groupMetadata.manifest,
+          layers: groupMetadata.manifest.layers.map((layer: LayerManifestItem) =>
+            layer.zIndex === item.semantic?.zIndex
+              ? { ...layer, name }
+              : layer
+          ),
+        };
+        Transforms.setNode(
+          board,
+          {
+            metadata: {
+              ...(group.metadata || {}),
+              semanticLayerGroup: { ...groupMetadata, manifest },
+            },
+          } as any,
+          [groupIndex]
+        );
+      });
+      setEditingId(null);
+      setRefreshKey((value) => value + 1);
+    },
+    [board, editingId, editingName]
+  );
+
   const layers: LayerItem[] = useMemo(() => {
     if (!board?.children) return [];
 
     const items: LayerItem[] = [];
     (board.children as PlaitElement[]).forEach((element, index) => {
       const typeInfo = getElementTypeInfo(element, board);
+      const semantic = getSemanticLayerMetadata(element);
       const name = getElementDisplayName(element, board, typeInfo);
       items.push({
         element,
@@ -455,8 +660,9 @@ export const LayerPanel: React.FC = () => {
         name,
         typeLabel: typeInfo.typeLabel,
         icon: typeInfo.icon,
-        hidden: hiddenIds.has(element.id!),
+        hidden: hiddenIds.has(element.id!) || !!semantic?.hidden,
         locked: lockedIds.has(element.id!) || !!(element as any).locked,
+        semantic,
       });
     });
 
@@ -504,8 +710,9 @@ export const LayerPanel: React.FC = () => {
   const toggleVisibility = useCallback(
     (item: LayerItem, e: React.MouseEvent) => {
       e.stopPropagation();
+      if (!board) return;
       const id = item.element.id!;
-      const willHide = !hiddenIds.has(id);
+      const willHide = !item.hidden;
 
       setHiddenIds((prev) => {
         const next = new Set(prev);
@@ -525,8 +732,24 @@ export const LayerPanel: React.FC = () => {
       } catch {
         // ignore
       }
+      const index = (board.children as PlaitElement[]).findIndex(
+        (child) => child.id === id
+      );
+      const current = getSemanticLayerMetadata(item.element);
+      if (index >= 0 && current) {
+        Transforms.setNode(
+          board,
+          {
+            metadata: {
+              ...((item.element as any).metadata || {}),
+              semanticLayer: { ...current, hidden: willHide },
+            },
+          } as any,
+          [index]
+        );
+      }
     },
-    [hiddenIds]
+    [board, hiddenIds]
   );
 
   const toggleLock = useCallback(
@@ -606,8 +829,23 @@ export const LayerPanel: React.FC = () => {
   return (
     <div className="layer-panel">
       <div className="layer-panel__header">
-        <span className="layer-panel__title">历史记录</span>
+        <span className="layer-panel__title">图层</span>
         <span className="layer-panel__count">{layers.length} 个元素</span>
+        {semanticGroups.length > 0 && (
+          <div className="layer-panel__exports">
+            {semanticGroups.map((group) => (
+              <HoverTip key={group.id} content="导出分层 ZIP">
+                <button
+                  type="button"
+                  className="layer-panel__action-btn"
+                  onClick={() => void exportGroup(group)}
+                >
+                  <DownloadIcon />
+                </button>
+              </HoverTip>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="layer-panel__list">
@@ -622,10 +860,43 @@ export const LayerPanel: React.FC = () => {
             <div className="layer-panel__item-icon">{item.icon}</div>
 
             <div className="layer-panel__item-content">
-              <span className="layer-panel__item-name">{item.name}</span>
+              {editingId === item.element.id ? (
+                <input
+                  autoFocus
+                  className="layer-panel__item-name-input"
+                  value={editingName}
+                  maxLength={128}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setEditingName(event.target.value)}
+                  onBlur={() => commitRename(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                    if (event.key === 'Escape') setEditingId(null);
+                  }}
+                />
+              ) : (
+                <span className="layer-panel__item-name">{item.name}</span>
+              )}
+              {item.semantic && (
+                <span className="layer-panel__item-meta">
+                  {item.semantic.kind === 'background' ? '背景' : `z ${item.semantic.zIndex}`}
+                </span>
+              )}
             </div>
 
             <div className="layer-panel__item-actions">
+              {item.semantic && (
+                <HoverTip content="重命名">
+                  <button
+                    type="button"
+                    className="layer-panel__action-btn"
+                    aria-label="重命名图层"
+                    onClick={(event) => startRename(item, event)}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </HoverTip>
+              )}
               <HoverTip content={item.hidden ? '显示' : '隐藏'}>
                 <button
                   type="button"
@@ -656,6 +927,30 @@ export const LayerPanel: React.FC = () => {
                   )}
                 </button>
               </HoverTip>
+              {item.semantic?.kind === 'foreground' && (
+                <>
+                  <HoverTip content="上移一层">
+                    <button
+                      type="button"
+                      className="layer-panel__action-btn"
+                      aria-label="上移一层"
+                      onClick={(e) => moveSemanticLayer(item, 'up', e)}
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                  </HoverTip>
+                  <HoverTip content="下移一层">
+                    <button
+                      type="button"
+                      className="layer-panel__action-btn"
+                      aria-label="下移一层"
+                      onClick={(e) => moveSemanticLayer(item, 'down', e)}
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </HoverTip>
+                </>
+              )}
             </div>
           </div>
         ))}

@@ -506,6 +506,7 @@ export async function callGoogleGenerateContentRaw(
     generationConfig?: Record<string, unknown>;
     requestId?: string;
     onSubmissionAttempt?: () => void | Promise<void>;
+    onResponse?: (response: Response) => void | Promise<void>;
   } = { stream: false }
 ): Promise<GeminiResponse> {
   const startTime = Date.now();
@@ -553,6 +554,7 @@ export async function callGoogleGenerateContentRaw(
       body: JSON.stringify(requestBody),
       signal: timeoutControl.signal,
       controlledResponseBody: true,
+      onResponse: options.onResponse,
     });
 
     if (!response.ok) {

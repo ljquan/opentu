@@ -7,10 +7,10 @@
   "homepage": "https://opentu.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ljquan/aitu.git"
+    "url": "https://github.com/ljquan/opentu.git"
   },
   "bugs": {
-    "url": "https://github.com/ljquan/aitu/issues"
+    "url": "https://github.com/ljquan/opentu/issues"
   },
   "keywords": [
     "whiteboard",
@@ -24,6 +24,7 @@
   "author": "ljquan",
   "scripts": {
     "start": "nx run web:serve-pwa",
+    "start:lan": "nx run web:serve-app",
     "build": "node scripts/update-version.js && nx run-many -t=build",
     "build:web": "node scripts/update-version.js && pnpm manual:build && nx build web",
     "preview": "npx serve dist/apps/web -l 7288",

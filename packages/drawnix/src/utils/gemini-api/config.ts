@@ -24,6 +24,7 @@ export const NON_STREAM_MODELS: string[] = [
   'seedream-v4',
   'doubao-seedream-4-5-251128',
   'doubao-seedream-5-0-260128',
+  'doubao-seedream-5-0-pro-260628',
   'gemini-3-pro-image-preview-async',
   'gemini-3-pro-image-preview-2k-async',
   'gemini-3-pro-image-preview-4k-async',

@@ -6,7 +6,12 @@ import {
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
-import { TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA } from './image-request-schemas';
+import {
+  normalizeTuziGPTImageModelId,
+  shouldRetryTuziGPTImageAlias,
+  TUZI_GPT_IMAGE_EDIT_REQUEST_SCHEMA,
+  TUZI_GPT_IMAGE_MODEL_ID,
+} from './image-request-schemas';
 import { sendAdapterRequest } from './context';
 import {
   readProviderResponseJson,
@@ -63,7 +68,8 @@ function getResponseFormat(
 }
 
 export function buildTuziGPTImageRequestOptions(
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest,
+  bindingModelId?: string | null
 ): {
   size?: string;
   image?: string[];
@@ -73,7 +79,11 @@ export function buildTuziGPTImageRequestOptions(
   model: string;
   modelRef: ImageGenerationRequest['modelRef'];
 } {
-  const model = request.model || 'gpt-image-2';
+  const model =
+    bindingModelId?.trim() ||
+    request.modelRef?.modelId?.trim() ||
+    request.model?.trim() ||
+    TUZI_GPT_IMAGE_MODEL_ID;
 
   return {
     size: getResolvedOfficialSize(request, model),
@@ -90,9 +100,10 @@ export function buildTuziGPTImageRequestOptions(
 }
 
 export function buildTuziGPTImageRequestBody(
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest,
+  bindingModelId?: string | null
 ): Record<string, unknown> {
-  const options = buildTuziGPTImageRequestOptions(request);
+  const options = buildTuziGPTImageRequestOptions(request, bindingModelId);
   const body: Record<string, unknown> = {
     model: options.model,
     prompt: request.prompt,
@@ -181,15 +192,23 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   ],
   defaultModel: 'gpt-image-2',
   async generateImage(context, request) {
-    const response = await sendAdapterRequest(context, {
-      path: resolveTuziGPTImagePath(context),
-      baseUrlStrategy: 'ensure-v1',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(buildTuziGPTImageRequestBody(request)),
-    });
+    const requestModel =
+      context.binding?.modelId || request.modelRef?.modelId || request.model;
+    const sendRequest = (modelId?: string | null) =>
+      sendAdapterRequest(context, {
+        path: resolveTuziGPTImagePath(context),
+        baseUrlStrategy: 'ensure-v1',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(buildTuziGPTImageRequestBody(request, modelId)),
+      });
+    let response = await sendRequest(requestModel);
+
+    if (await shouldRetryTuziGPTImageAlias(response, requestModel)) {
+      response = await sendRequest(normalizeTuziGPTImageModelId(requestModel));
+    }
 
     if (!response.ok) {
       throw new Error(await readErrorMessage(response));

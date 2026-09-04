@@ -29,6 +29,52 @@ import {
 } from '../../constants/model-config';
 import type { KnowledgeContextRef } from '../../types/task.types';
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
+import { taskQueueService } from '../../services/task-queue';
+import { TaskStatus, TaskType, type Task } from '../../types/task.types';
+import { generateTaskId } from '../../utils/task-utils';
+
+function getAnalysisPrompt(
+  context: AgentExecutionContext,
+  messages?: AIAnalyzeParams['messages']
+): string {
+  const directPrompt =
+    context.rawInput || context.userInstruction || context.finalPrompt;
+  if (directPrompt?.trim()) {
+    return directPrompt.trim();
+  }
+
+  const lastUserMessage = [...(messages || [])]
+    .reverse()
+    .find((message) => message.role === 'user');
+  return typeof lastUserMessage?.content === 'string'
+    ? lastUserMessage.content.trim()
+    : 'AI 文本任务';
+}
+
+function createAnalysisTask(
+  context: AgentExecutionContext,
+  model: string,
+  modelRef: ModelRef | null,
+  messages?: AIAnalyzeParams['messages']
+): Task {
+  const now = Date.now();
+  const task: Task = {
+    id: generateTaskId(),
+    type: TaskType.CHAT,
+    status: TaskStatus.PROCESSING,
+    params: {
+      prompt: getAnalysisPrompt(context, messages),
+      model,
+      modelRef,
+      agentAnalysis: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+  };
+  taskQueueService.trackExternalTask(task);
+  return task;
+}
 
 const GENERATION_CONTEXT_TOOLS = new Set([
   'generate_image',
@@ -146,11 +192,19 @@ export const aiAnalyzeTool: MCPTool = {
         ?.slice(0, 20)
         .map((reference) => ({ ...reference })),
     };
+    const selectedModel = textModel || executionContext.model.id;
+    const selectedModelRef = modelRef || null;
+    const task = createAnalysisTask(
+      executionContext,
+      selectedModel,
+      selectedModelRef,
+      messages
+    );
 
     try {
       const result = await agentExecutor.execute(executionContext, {
-        model: textModel || executionContext.model.id,
-        modelRef: modelRef || null,
+        model: selectedModel,
+        modelRef: selectedModelRef,
         messages: messages as AgentExecuteOptions['messages'],
         onChunk: (chunk) => {
           // console.log('[AIAnalyzeTool] Chunk:', chunk);
@@ -233,6 +287,12 @@ export const aiAnalyzeTool: MCPTool = {
       const duration = Date.now() - startTime;
 
       if (!result.success) {
+        taskQueueService.updateTaskStatus(task.id, TaskStatus.FAILED, {
+          error: {
+            code: 'AI_ANALYZE_ERROR',
+            message: result.error || 'AI 分析失败',
+          },
+        });
         return {
           success: false,
           error: result.error || 'AI 分析失败',
@@ -243,6 +303,21 @@ export const aiAnalyzeTool: MCPTool = {
           },
         };
       }
+
+      taskQueueService.updateTaskStatus(task.id, TaskStatus.COMPLETED, {
+        result: {
+          url: '',
+          format: 'text',
+          size: result.response?.length || 0,
+          resultKind: 'chat',
+          title: task.params.prompt.slice(0, 50) || 'AI 文本任务',
+          chatResponse: result.response || '',
+          toolCalls: generatedSteps.map((step) => ({
+            name: step.mcp,
+            arguments: step.args,
+          })),
+        },
+      });
 
       return {
         success: true,
@@ -255,6 +330,12 @@ export const aiAnalyzeTool: MCPTool = {
       };
     } catch (error: any) {
       console.error('[AIAnalyzeTool] Analysis failed:', error);
+      taskQueueService.updateTaskStatus(task.id, TaskStatus.FAILED, {
+        error: {
+          code: 'AI_ANALYZE_ERROR',
+          message: error.message || 'AI 分析失败',
+        },
+      });
 
       return {
         success: false,

@@ -5,7 +5,13 @@
  * with the local lightweight chat handler interface.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type SetStateAction,
+} from 'react';
 import { chatStorageService } from '../services/chat-storage-service';
 import { chatService } from '../services/chat-service';
 import { MessageStatus, MessageRole } from '../types/chat.types';
@@ -50,7 +56,9 @@ interface UseChatHandlerOptions {
     messageId: string,
     executeTools: () => Promise<ToolCallResult[]>,
     /** AI 分析内容（JSON 中的 content 字段） */
-    aiAnalysis?: string
+    aiAnalysis?: string,
+    /** 触发工具调用的原始会话 */
+    targetSessionId?: string
   ) => void;
   /** 工作流消息更新回调 */
   onWorkflowUpdate?: (messageId: string, workflow: WorkflowMessageData) => void;
@@ -72,6 +80,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   ) => void;
 } {
   const { sessionId, temporaryModel, onToolCalls, onWorkflowUpdate } = options;
+  const sessionIdRef = useRef(sessionId);
 
   // 生成系统提示词（包含 MCP 工具定义）
   const systemPromptRef = useRef<string>(generateSystemPrompt());
@@ -93,6 +102,10 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   const rawMessagesRef = useRef<ChatMessage[]>([]);
   // 防止重复发送的锁
   const isSendingRef = useRef(false);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // Load messages when session changes
   useEffect(() => {
@@ -124,6 +137,21 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
   const sendMessage = useCallback(
     async (msg: Message) => {
       if (!sessionId) return;
+      const targetSessionId = sessionId;
+      const isTargetSessionCurrent = () =>
+        sessionIdRef.current === targetSessionId;
+      const setMessagesForTarget = (
+        updater: SetStateAction<Message[]>
+      ) => {
+        if (isTargetSessionCurrent()) {
+          setMessages(updater);
+        }
+      };
+      const setStatusForTarget = (nextStatus: ChatHandler['status']) => {
+        if (isTargetSessionCurrent()) {
+          setStatus(nextStatus);
+        }
+      };
 
       // 防止重复发送
       if (isSendingRef.current) {
@@ -134,19 +162,19 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
       }
       isSendingRef.current = true;
 
-      setStatus('submitted');
+      setStatusForTarget('submitted');
 
       // Convert to our format and save
-      const ourMsg = fromChatUIMessage(msg, sessionId);
+      const ourMsg = fromChatUIMessage(msg, targetSessionId);
       await chatStorageService.addMessage(ourMsg);
 
       // Update messages state
-      setMessages((prev) => [...prev, msg]);
+      setMessagesForTarget((prev) => [...prev, msg]);
 
       // Get current session for message count
-      const session = await chatStorageService.getSession(sessionId);
+      const session = await chatStorageService.getSession(targetSessionId);
 
-      await chatStorageService.updateSession(sessionId, {
+      await chatStorageService.updateSession(targetSessionId, {
         updatedAt: Date.now(),
         messageCount: (session?.messageCount || 0) + 1,
       });
@@ -160,8 +188,8 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
         role: 'assistant',
         parts: [{ type: 'text', text: '' }],
       };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setStatus('streaming');
+      setMessagesForTarget((prev) => [...prev, assistantMsg]);
+      setStatusForTarget('streaming');
 
       // Build conversation history from raw messages (preserves workflow data)
       // Use rawMessagesRef which contains the original ChatMessage with workflow data
@@ -169,7 +197,9 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
       history.push(ourMsg);
 
       // Also update rawMessagesRef with the new user message
-      rawMessagesRef.current = [...rawMessagesRef.current, ourMsg];
+      if (isTargetSessionCurrent()) {
+        rawMessagesRef.current = [...rawMessagesRef.current, ourMsg];
+      }
 
       // Get the user message content
       const userContent = extractMessageText(msg);
@@ -185,7 +215,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
           (event) => {
             if (event.type === 'content' && event.content) {
               fullContent = event.content;
-              setMessages((prev) =>
+              setMessagesForTarget((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? { ...m, parts: [{ type: 'text', text: fullContent }] }
@@ -232,7 +262,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
 
                 // 更新消息为工作流消息格式（使用特殊前缀，以便 ChatDrawer 识别并渲染 WorkflowMessageBubble）
                 const workflowMessageContent = `${WORKFLOW_MESSAGE_PREFIX}${assistantMsgId}`;
-                setMessages((prev) =>
+                setMessagesForTarget((prev) =>
                   prev.map((m) =>
                     m.id === assistantMsgId
                       ? {
@@ -250,17 +280,18 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
                   processedToolCalls as ToolCall[],
                   assistantMsgId,
                   executeTools,
-                  textContent
+                  textContent,
+                  targetSessionId
                 );
               }
 
-              setStatus('ready');
+              setStatusForTarget('ready');
 
               // Save assistant message
               // 如果有工具调用，保存为工作流消息格式（内容使用前缀，workflow 数据由 ChatDrawer 后续更新）
               const assistantChatMsg: ChatMessage = {
                 id: assistantMsgId,
-                sessionId,
+                sessionId: targetSessionId,
                 role: MessageRole.ASSISTANT,
                 content:
                   toolCalls.length > 0
@@ -274,11 +305,13 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
               };
               chatStorageService.addMessage(assistantChatMsg);
               // Update rawMessagesRef with the assistant message
-              rawMessagesRef.current = [
-                ...rawMessagesRef.current,
-                assistantChatMsg,
-              ];
-              chatStorageService.updateSession(sessionId, {
+              if (isTargetSessionCurrent()) {
+                rawMessagesRef.current = [
+                  ...rawMessagesRef.current,
+                  assistantChatMsg,
+                ];
+              }
+              chatStorageService.updateSession(targetSessionId, {
                 updatedAt: Date.now(),
                 messageCount: (session?.messageCount || 0) + 2,
               });
@@ -288,11 +321,11 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
               isSendingRef.current = false;
             } else if (event.type === 'error' && event.error) {
               streamErrorHandled = true;
-              setStatus('error');
+              setStatusForTarget('error');
 
               // Display error message in chat
               const errorText = `❌ 错误: ${event.error}`;
-              setMessages((prev) =>
+              setMessagesForTarget((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? { ...m, parts: [{ type: 'text', text: errorText }] }
@@ -303,7 +336,7 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
               // Save error message
               const errorChatMsg: ChatMessage = {
                 id: assistantMsgId,
-                sessionId,
+                sessionId: targetSessionId,
                 role: MessageRole.ASSISTANT,
                 content: errorText,
                 timestamp: Date.now(),
@@ -312,10 +345,12 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
               };
               chatStorageService.addMessage(errorChatMsg);
               // Update rawMessagesRef with the error message
-              rawMessagesRef.current = [
-                ...rawMessagesRef.current,
-                errorChatMsg,
-              ];
+              if (isTargetSessionCurrent()) {
+                rawMessagesRef.current = [
+                  ...rawMessagesRef.current,
+                  errorChatMsg,
+                ];
+              }
 
               currentAssistantMsgRef.current = null;
               // 重置发送锁
@@ -327,12 +362,12 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
         );
       } catch (error: any) {
         if (error.message !== 'Request cancelled' && !streamErrorHandled) {
-          setStatus('error');
+          setStatusForTarget('error');
           console.error('[useChatHandler] Stream error:', error);
 
           // Display error in chat
           const errorText = `❌ 错误: ${error.message || '未知错误'}`;
-          setMessages((prev) =>
+          setMessagesForTarget((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
                 ? { ...m, parts: [{ type: 'text', text: errorText }] }
@@ -341,10 +376,10 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
           );
 
           // Save error message
-          if (sessionId && assistantMsgId) {
+          if (targetSessionId && assistantMsgId) {
             const errorChatMsg: ChatMessage = {
               id: assistantMsgId,
-              sessionId,
+              sessionId: targetSessionId,
               role: MessageRole.ASSISTANT,
               content: errorText,
               timestamp: Date.now(),
@@ -353,7 +388,12 @@ export function useChatHandler(options: UseChatHandlerOptions): ChatHandler & {
             };
             chatStorageService.addMessage(errorChatMsg);
             // Update rawMessagesRef with the error message
-            rawMessagesRef.current = [...rawMessagesRef.current, errorChatMsg];
+            if (isTargetSessionCurrent()) {
+              rawMessagesRef.current = [
+                ...rawMessagesRef.current,
+                errorChatMsg,
+              ];
+            }
           }
         }
         currentAssistantMsgRef.current = null;

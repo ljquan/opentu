@@ -334,6 +334,41 @@ export function getLogId(taskId: string): string | undefined {
   return log?.id;
 }
 
+/**
+ * 按任务 ID 获取最近一次成功调用日志。
+ * 报表等调用方可借此读取供应商原始结果 URL，而不是任务缓存后的本地 URL。
+ */
+export async function getLatestSuccessfulLLMApiLogByTaskId(
+  taskId: string
+): Promise<LLMApiLog | null> {
+  const memoryMatch = memoryLogs
+    .filter((log) => log.taskId === taskId && log.status === 'success')
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  if (memoryMatch) {
+    return { ...memoryMatch };
+  }
+
+  try {
+    const db = await openDB();
+    return await new Promise<LLMApiLog | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.index('taskId').getAll(IDBKeyRange.only(taskId));
+      request.onsuccess = () => {
+        const match = (request.result as LLMApiLog[])
+          .filter((log) => log.status === 'success')
+          .sort((left, right) => right.timestamp - left.timestamp)[0];
+        resolve(match ? { ...match } : null);
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => db.close();
+    });
+  } catch (error) {
+    console.warn('[LLMApiLogger:Fallback] Failed to read log by task:', error);
+    return null;
+  }
+}
+
 function truncateResponseBody(text: string): string {
   if (text.length <= MAX_RESPONSE_BODY_LENGTH) return text;
   return `${text.substring(0, MAX_RESPONSE_BODY_LENGTH)}\n... [response truncated for log storage]`;

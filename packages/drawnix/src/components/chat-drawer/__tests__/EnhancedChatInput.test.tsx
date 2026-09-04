@@ -11,14 +11,33 @@ import {
 } from '@testing-library/react';
 import { EnhancedChatInput } from '../EnhancedChatInput';
 
-const submitGenerationFromDrawerMock = vi.fn(async () => true);
-type GenerationType = 'image' | 'video' | 'audio' | 'text' | 'agent';
-let generationTypeMock: GenerationType = 'agent';
+const chatDrawerControlMock = vi.hoisted(() => ({
+  submitGenerationFromDrawer: vi.fn(async () => true),
+  getActiveSessionId: vi.fn(() => 'session-1'),
+}));
+
+const generationControlsMock = vi.hoisted(() => ({
+  controls: {
+    generationType: 'agent',
+    setGenerationType: vi.fn(),
+    selectedModel: 'gpt-5.4',
+    selectedModelRef: null,
+    selectedSelectionKey: 'gpt-5.4',
+    selectedParams: {},
+    compatibleParams: [],
+    selectedCount: 1,
+    setSelectedCount: vi.fn(),
+    currentModels: [],
+    handleModelSelect: vi.fn(),
+    handleModelConfigSelect: vi.fn(),
+    handleParamSelect: vi.fn(),
+  },
+}));
+const submitGenerationFromDrawerMock =
+  chatDrawerControlMock.submitGenerationFromDrawer;
 
 vi.mock('../../../contexts/ChatDrawerContext', () => ({
-  useChatDrawerControl: () => ({
-    submitGenerationFromDrawer: submitGenerationFromDrawerMock,
-  }),
+  useChatDrawerControl: () => chatDrawerControlMock,
 }));
 
 vi.mock('../../../hooks/usePromptHistory', () => ({
@@ -40,21 +59,7 @@ vi.mock('../../../contexts/AssetContext', () => ({
 }));
 
 vi.mock('../useChatDrawerGenerationControls', () => ({
-  useChatDrawerGenerationControls: () => ({
-    generationType: generationTypeMock,
-    setGenerationType: () => undefined,
-    selectedModel: 'gpt-5.4',
-    selectedModelRef: null,
-    selectedSelectionKey: 'gpt-5.4',
-    selectedParams: {},
-    compatibleParams: [],
-    selectedCount: 1,
-    setSelectedCount: () => undefined,
-    currentModels: [],
-    handleModelSelect: () => undefined,
-    handleModelConfigSelect: () => undefined,
-    handleParamSelect: () => undefined,
-  }),
+  useChatDrawerGenerationControls: () => generationControlsMock.controls,
 }));
 
 vi.mock('../../shared/SelectedContentPreview', () => ({
@@ -89,11 +94,14 @@ vi.mock('../../icons', () => ({
 }));
 
 beforeEach(() => {
-  generationTypeMock = 'agent';
+  generationControlsMock.controls.generationType = 'agent';
   submitGenerationFromDrawerMock.mockClear();
 });
 
 afterEach(() => {
+  chatDrawerControlMock.submitGenerationFromDrawer.mockClear();
+  chatDrawerControlMock.getActiveSessionId.mockClear();
+  generationControlsMock.controls.generationType = 'agent';
   cleanup();
 });
 
@@ -142,6 +150,37 @@ describe('EnhancedChatInput placeholder', () => {
 
     expect(screen.getByPlaceholderText('描述你想要的效果...')).toBeTruthy();
   });
+
+  it('passes the active session id when submitting a drawer generation task', async () => {
+    generationControlsMock.controls.generationType = 'image';
+
+    render(
+      <EnhancedChatInput
+        selectedContent={[]}
+        onSend={() => undefined}
+        placeholder="继续描述要修改的内容..."
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('继续描述要修改的内容...'), {
+      target: { value: '继续生成一张图' },
+    });
+    fireEvent.click(screen.getByTestId('drawer-ai-send-btn'));
+
+    await waitFor(() => {
+      expect(
+        chatDrawerControlMock.submitGenerationFromDrawer
+      ).toHaveBeenCalled();
+    });
+    expect(
+      chatDrawerControlMock.submitGenerationFromDrawer
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '继续生成一张图',
+        targetSessionId: 'session-1',
+      })
+    );
+  });
 });
 
 describe('EnhancedChatInput implicit workflow references', () => {
@@ -154,7 +193,7 @@ describe('EnhancedChatInput implicit workflow references', () => {
   ];
 
   it('uses implicit references for image edits that mention prior results', async () => {
-    generationTypeMock = 'image';
+    generationControlsMock.controls.generationType = 'image';
 
     render(
       <EnhancedChatInput
@@ -180,7 +219,7 @@ describe('EnhancedChatInput implicit workflow references', () => {
   });
 
   it('does not use implicit references for unrelated image prompts', async () => {
-    generationTypeMock = 'image';
+    generationControlsMock.controls.generationType = 'image';
 
     render(
       <EnhancedChatInput
@@ -203,7 +242,7 @@ describe('EnhancedChatInput implicit workflow references', () => {
   });
 
   it('uses pinned reply references and consumes them after submit', async () => {
-    generationTypeMock = 'image';
+    generationControlsMock.controls.generationType = 'image';
     const onImplicitReferenceConsumed = vi.fn();
 
     render(

@@ -17,8 +17,8 @@ OpenTu AI 网页版的文本模型和生图模型会走不同供应商端点。�
 ## 架构变更
 
 - 设置页新增端点管理面板，挂在当前供应商的 `baseUrl` 字段下。
-- 端点来源改为读取上游 `tuziapi/tuzi-switch` 的 `codexProviderPresets.ts` raw 文件。
-- 解析 `endpointCandidates` 和 `generateThirdPartyConfig(... baseUrl ...)` 中的真实端点。
+- 端点来源改为读取 [tuziapi/tuzi-api](https://github.com/tuziapi/tuzi-api) 的 `https://api.tu-zi.com/api/status`。
+- 解析 `data.api_address_list` 中的 `name`、`url`、`description`，并只展示 tuzi-api 配置的站点端点。
 - 默认保持自动选择模式，测速后选择延迟最低的端点。
 - 用户手动选择端点时，切换为手动模式并写入当前供应商草稿的 `baseUrl`。
 - 自定义端点只保存在当前设置会话中，避免污染上游来源。
@@ -35,7 +35,7 @@ OpenTu AI 网页版的文本模型和生图模型会走不同供应商端点。�
 
 ## 验证
 
-- 设置页打开后能显示 `tuzi-switch` 来源和端点数量。
+- 设置页打开后能显示 `tuzi-api` 来源和端点数量。
 - 选择端点会更新当前供应商 API 地址。
 - 勾选自动选择后，测速完成会切到最快端点。
 - 添加自定义端点后可立即选择，且可删除。

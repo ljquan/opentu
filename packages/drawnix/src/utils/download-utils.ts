@@ -445,7 +445,8 @@ export function buildTaskDownloadItems(
 export async function downloadAsZip(
   items: BatchDownloadItem[],
   zipFilename?: string,
-  onProgress?: DownloadProgressCallback
+  onProgress?: DownloadProgressCallback,
+  extraFiles?: Array<{ filename: string; content: Blob | string }>
 ): Promise<SmartDownloadResult> {
   if (items.length === 0) {
     throw new Error('No files to download');
@@ -506,6 +507,10 @@ export async function downloadAsZip(
   if (addedCount === 0) {
     throw new Error('No files available to download');
   }
+
+  extraFiles?.forEach(({ filename, content }) => {
+    zip.file(filename, content);
+  });
 
   // 生成 ZIP 并下载
   const content = await zip.generateAsync(

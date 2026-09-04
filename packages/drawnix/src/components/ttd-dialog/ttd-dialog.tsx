@@ -66,8 +66,9 @@ const TTDDialogComponent = ({
     imageDialogInitialData?.prefillId ||
     imageDialogInitialData?.batchId ||
     'ai-image-dialog';
-  const [imageDialogManualModeKey, setImageDialogManualModeKey] =
-    useState<string | null>(null);
+  const [imageDialogManualModeKey, setImageDialogManualModeKey] = useState<
+    string | null
+  >(null);
 
   // 移动端和平板端不显示批量出图
   const showBatchTab = !isMobile && !isTablet;
@@ -106,8 +107,8 @@ const TTDDialogComponent = ({
       prev === nextImageModel ? prev : nextImageModel
     );
     setSelectedImageModelRef((prev) =>
-      getSelectionKey(nextImageModel, prev) ===
-      getSelectionKey(nextImageModel, nextImageModelRef)
+      (prev?.profileId || null) === (nextImageModelRef?.profileId || null) &&
+      (prev?.modelId || null) === (nextImageModelRef?.modelId || null)
         ? prev
         : nextImageModelRef
     );
@@ -115,8 +116,8 @@ const TTDDialogComponent = ({
       prev === nextVideoModel ? prev : nextVideoModel
     );
     setSelectedVideoModelRef((prev) =>
-      getSelectionKey(nextVideoModel, prev) ===
-      getSelectionKey(nextVideoModel, nextVideoModelRef)
+      (prev?.profileId || null) === (nextVideoModelRef?.profileId || null) &&
+      (prev?.modelId || null) === (nextVideoModelRef?.modelId || null)
         ? prev
         : nextVideoModelRef
     );
@@ -165,6 +166,13 @@ const TTDDialogComponent = ({
       return;
     }
 
+    if (
+      selectedImageModelRef?.modelId &&
+      selectedImageModelRef.modelId !== selectedImageModel
+    ) {
+      return;
+    }
+
     const selectionKey = getSelectionKey(
       selectedImageModel,
       selectedImageModelRef
@@ -182,6 +190,13 @@ const TTDDialogComponent = ({
 
   useEffect(() => {
     if (!selectedVideoModel) {
+      return;
+    }
+
+    if (
+      selectedVideoModelRef?.modelId &&
+      selectedVideoModelRef.modelId !== selectedVideoModel
+    ) {
       return;
     }
 
@@ -213,6 +228,12 @@ const TTDDialogComponent = ({
     pptSlideImage?: boolean;
     pptSlidePrompt?: string;
     pptReplaceElementId?: string;
+    replaceElementId?: string;
+    targetElementId?: string;
+    anchorId?: string;
+    sourceTaskId?: string;
+    sourcePrompt?: string;
+    promptMeta?: Record<string, unknown>;
   }>({
     initialPrompt: '',
     initialImages: [],
@@ -242,6 +263,12 @@ const TTDDialogComponent = ({
         pptSlideImage: imageDialogInitialData.pptSlideImage,
         pptSlidePrompt: imageDialogInitialData.pptSlidePrompt,
         pptReplaceElementId: imageDialogInitialData.pptReplaceElementId,
+        replaceElementId: imageDialogInitialData.replaceElementId,
+        targetElementId: imageDialogInitialData.targetElementId,
+        anchorId: imageDialogInitialData.anchorId,
+        sourceTaskId: imageDialogInitialData.sourceTaskId,
+        sourcePrompt: imageDialogInitialData.sourcePrompt,
+        promptMeta: imageDialogInitialData.promptMeta,
       }
     : aiImageData;
 
@@ -273,7 +300,8 @@ const TTDDialogComponent = ({
       }
     });
   const shouldForceImageDialogSingleMode =
-    !!imageDialogInitialData && imageDialogManualModeKey !== imageDialogSessionKey;
+    !!imageDialogInitialData &&
+    imageDialogManualModeKey !== imageDialogSessionKey;
   const imageDialogRenderMode: ImageGenerationMode =
     shouldForceImageDialogSingleMode ? 'single' : imageGenerationMode;
 
@@ -289,22 +317,25 @@ const TTDDialogComponent = ({
   }, [showBatchTab, imageGenerationMode]);
 
   // 处理图片生成模式变化
-  const handleImageModeChange = useCallback((mode: ImageGenerationMode) => {
-    setImageDialogManualModeKey(imageDialogSessionKey);
-    setImageGenerationMode(mode);
-    // 切换到批量模式时触发一次性全屏，切回时不调整尺寸（保持当前状态）
-    if (mode === 'batch') {
-      setImageDialogAutoMaximize(true);
-      // 瞬间重置标识位，使其成为一个“脉冲”触发信号
-      // 这样用户如果手动还原了窗口，再次点批量还能触发全屏
-      setTimeout(() => setImageDialogAutoMaximize(false), 50);
-    }
-    try {
-      localStorage.setItem(AI_IMAGE_MODE_CACHE_KEY, mode);
-    } catch (e) {
-      console.warn('Failed to save image mode:', e);
-    }
-  }, [imageDialogSessionKey]);
+  const handleImageModeChange = useCallback(
+    (mode: ImageGenerationMode) => {
+      setImageDialogManualModeKey(imageDialogSessionKey);
+      setImageGenerationMode(mode);
+      // 切换到批量模式时触发一次性全屏，切回时不调整尺寸（保持当前状态）
+      if (mode === 'batch') {
+        setImageDialogAutoMaximize(true);
+        // 瞬间重置标识位，使其成为一个“脉冲”触发信号
+        // 这样用户如果手动还原了窗口，再次点批量还能触发全屏
+        setTimeout(() => setImageDialogAutoMaximize(false), 50);
+      }
+      try {
+        localStorage.setItem(AI_IMAGE_MODE_CACHE_KEY, mode);
+      } catch (e) {
+        console.warn('Failed to save image mode:', e);
+      }
+    },
+    [imageDialogSessionKey]
+  );
 
   // 当对话框将要打开时，预先计算是否需要自动放大
   // 这需要在 WinBox 组件渲染前确定，且逻辑需要与 AIImageGeneration 的模式判断一致
@@ -397,14 +428,22 @@ const TTDDialogComponent = ({
               imageDialogInitialData.resultUrl,
             initialAspectRatio: imageDialogInitialData.initialAspectRatio,
             targetFrameId: imageDialogInitialData.targetFrameId,
-            targetFrameDimensions:
-              imageDialogInitialData.targetFrameDimensions,
+            targetFrameDimensions: imageDialogInitialData.targetFrameDimensions,
             pptSlideImage: imageDialogInitialData.pptSlideImage,
             pptSlidePrompt: imageDialogInitialData.pptSlidePrompt,
             pptReplaceElementId: imageDialogInitialData.pptReplaceElementId,
+            replaceElementId: imageDialogInitialData.replaceElementId,
+            targetElementId: imageDialogInitialData.targetElementId,
+            anchorId: imageDialogInitialData.anchorId,
+            sourceTaskId: imageDialogInitialData.sourceTaskId,
+            sourcePrompt: imageDialogInitialData.sourcePrompt,
+            promptMeta: imageDialogInitialData.promptMeta,
           });
           if (imageDialogInitialData.initialModel) {
             setSelectedImageModel(imageDialogInitialData.initialModel);
+            if (imageDialogInitialData.initialModelRef === undefined) {
+              setSelectedImageModelRef(null);
+            }
           }
           if (imageDialogInitialData.initialModelRef !== undefined) {
             setSelectedImageModelRef(imageDialogInitialData.initialModelRef);
@@ -549,8 +588,7 @@ const TTDDialogComponent = ({
               videoDialogInitialData.initialModel ||
               videoDialogInitialData.model,
             initialSize:
-              videoDialogInitialData.initialSize ||
-              videoDialogInitialData.size,
+              videoDialogInitialData.initialSize || videoDialogInitialData.size,
             initialResultUrl:
               videoDialogInitialData.initialResultUrl ||
               videoDialogInitialData.resultUrl,
@@ -825,13 +863,21 @@ const TTDDialogComponent = ({
               pptSlideImage={resolvedAiImageData.pptSlideImage}
               pptSlidePrompt={resolvedAiImageData.pptSlidePrompt}
               pptReplaceElementId={resolvedAiImageData.pptReplaceElementId}
+              replaceElementId={resolvedAiImageData.replaceElementId}
+              targetElementId={resolvedAiImageData.targetElementId}
+              anchorId={resolvedAiImageData.anchorId}
+              sourceTaskId={resolvedAiImageData.sourceTaskId}
+              sourcePrompt={resolvedAiImageData.sourcePrompt}
+              promptMeta={resolvedAiImageData.promptMeta as any}
               selectedModel={selectedImageModel}
               selectedModelRef={selectedImageModelRef}
               onModelChange={handleImageModelChange}
               onModelRefChange={handleImageModelRefChange}
               externalBatchId={imageDialogInitialData?.batchId}
               assetMetadata={imageDialogInitialData?.assetMetadata}
-              initialAutoInsertToCanvas={imageDialogInitialData?.autoInsertToCanvas}
+              initialAutoInsertToCanvas={
+                imageDialogInitialData?.autoInsertToCanvas
+              }
               onDraftChange={imageDialogInitialData?.onDraftChange}
             />
           ))}
@@ -874,7 +920,9 @@ const TTDDialogComponent = ({
             onModelChange={handleVideoModelChange}
             onModelRefChange={handleVideoModelRefChange}
             externalBatchId={videoDialogInitialData?.batchId}
-            initialAutoInsertToCanvas={videoDialogInitialData?.autoInsertToCanvas}
+            initialAutoInsertToCanvas={
+              videoDialogInitialData?.autoInsertToCanvas
+            }
             onDraftChange={videoDialogInitialData?.onDraftChange}
           />
         )}

@@ -4,8 +4,13 @@ export type WorkflowSessionTarget =
 
 export function resolveWorkflowSessionTarget(
   activeSessionId: string | null,
-  appendToCurrentSession?: boolean
+  appendToCurrentSession?: boolean,
+  appendToSessionId?: string | null
 ): WorkflowSessionTarget {
+  if (appendToSessionId) {
+    return { mode: 'append', sessionId: appendToSessionId };
+  }
+
   if (appendToCurrentSession && activeSessionId) {
     return { mode: 'append', sessionId: activeSessionId };
   }

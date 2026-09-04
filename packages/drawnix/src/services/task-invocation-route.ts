@@ -6,6 +6,7 @@ import type {
 } from '../types/task.types';
 import {
   createModelRef,
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   providerProfilesSettings,
   resolveInvocationRoute,
   type ModelRef,
@@ -320,11 +321,18 @@ export function resolveLegacyTaskInvocationRouteModel(
   task: Pick<Task, 'params' | 'invocationRoute'>
 ): ModelRef | string | null {
   const routeModel = resolveTaskInvocationRouteModel(task);
-  if (typeof routeModel !== 'string') {
+  if (
+    routeModel &&
+    typeof routeModel !== 'string' &&
+    routeModel.profileId &&
+    routeModel.profileId !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID
+  ) {
     return routeModel;
   }
 
-  const modelId = normalizeString(routeModel);
+  const modelId = normalizeString(
+    typeof routeModel === 'string' ? routeModel : routeModel?.modelId
+  );
   if (!modelId) {
     return routeModel;
   }
@@ -336,7 +344,13 @@ export function resolveLegacyTaskInvocationRouteModel(
 
   const matchingProfiles = providerProfilesSettings
     .get()
-    .filter((profile) => profile.enabled && profile.baseUrl && profile.apiKey);
+    .filter(
+      (profile) =>
+        profile.id !== LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
+        profile.enabled &&
+        profile.baseUrl &&
+        profile.apiKey
+    );
 
   for (const profile of matchingProfiles) {
     const candidate = createModelRef(profile.id, modelId);

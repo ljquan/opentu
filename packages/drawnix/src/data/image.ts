@@ -127,6 +127,51 @@ export const loadHTMLImageElementWithRetry = (
 ): Promise<HTMLImageElement> => {
   // 存量数据可能存有原始 base64，先统一转为 data URL
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
+
+  // 局域网 HTTP 不是安全上下文，浏览器不会提供 Service Worker。虚拟地址
+  // 此时无法被网络层拦截，直接复用统一缓存中的 Blob 完成插入前尺寸读取。
+  if (
+    isVirtualMediaUrl(normalizedURL) &&
+    (typeof navigator === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !navigator.serviceWorker.controller)
+  ) {
+    return unifiedCacheService
+      .getCachedImageBlobWithThumbnailFallback(normalizedURL)
+      .then((blob) =>
+        blob && blob.size > 0
+          ? loadHTMLImageElementFromBlob(blob)
+          : loadHTMLImageElementWithRetryDirect(
+              normalizedURL,
+              crossOrigin,
+              maxRetries,
+              bypassSWAfterRetries
+            )
+      )
+      .catch(() =>
+        loadHTMLImageElementWithRetryDirect(
+          normalizedURL,
+          crossOrigin,
+          maxRetries,
+          bypassSWAfterRetries
+        )
+      );
+  }
+
+  return loadHTMLImageElementWithRetryDirect(
+    normalizedURL,
+    crossOrigin,
+    maxRetries,
+    bypassSWAfterRetries
+  );
+};
+
+const loadHTMLImageElementWithRetryDirect = (
+  normalizedURL: DataURL,
+  crossOrigin: boolean,
+  maxRetries: number,
+  bypassSWAfterRetries: number
+): Promise<HTMLImageElement> => {
   // 外部 URL 不设置 crossOrigin（避免 CORS），不追加参数（避免破坏签名）
   const isExternalUrl =
     normalizedURL.startsWith('http://') || normalizedURL.startsWith('https://');
@@ -392,12 +437,15 @@ export const insertImageFromUrl = async (
   boardGuard?: () => boolean,
   // 暂存画板没有 DOM 宿主；已有明确坐标时直接构造图片节点
   insertWithoutBoardHost?: boolean
-) => {
-  // 外部 URL 和 data URL 先缓存到本地
+): Promise<string | undefined> => {
+  // 插入画布前把临时 Blob、远程签名 URL 和 data URL 固化为稳定本地地址。
   let resolvedUrl = normalizeImageDataUrl(imageUrl);
   if (
+    resolvedUrl.startsWith('/__aitu_cache__/') ||
+    resolvedUrl.startsWith('/asset-library/') ||
     resolvedUrl.startsWith('http://') ||
     resolvedUrl.startsWith('https://') ||
+    resolvedUrl.startsWith('blob:') ||
     resolvedUrl.startsWith('data:')
   ) {
     const cachedUrl = await cacheRemoteUrl(
@@ -516,9 +564,6 @@ export const insertImageFromUrl = async (
     }
   }
 
-  // 记录插入前的 children 数量，用于后续找到新插入的元素
-  const childrenCountBefore = board.children.length;
-
   if (boardGuard && !boardGuard()) {
     throw new Error('画板已切换，取消本次插入');
   }
@@ -527,8 +572,13 @@ export const insertImageFromUrl = async (
   if (insertionPoint && insertWithoutBoardHost) {
     newElement = insertImageNodeAtPoint(board, imageItem, insertionPoint);
   } else {
+    const existingElementIds = new Set(
+      board.children.map((child) => child.id)
+    );
     DrawTransforms.insertImage(board, imageItem, insertionPoint);
-    newElement = board.children[childrenCountBefore];
+    newElement = board.children.find(
+      (child) => !existingElementIds.has(child.id)
+    );
   }
   const insertedElementId = newElement?.id;
 
@@ -577,7 +627,6 @@ export const insertImageFromUrl = async (
       scrollToPointIfNeeded(board, centerPoint);
     });
   }
-
   return insertedElementId;
 };
 
@@ -667,8 +716,26 @@ export const insertImageFromUrlAndSelect = async (
   startPoint: Point,
   referenceDimensions?: { width: number; height: number }
 ): Promise<void> => {
-  const childrenCountBefore = board.children.length;
   const defaultImageWidth = 400;
+  let resolvedUrl = normalizeImageDataUrl(imageUrl);
+
+  if (
+    resolvedUrl.startsWith('/__aitu_cache__/') ||
+    resolvedUrl.startsWith('/asset-library/') ||
+    resolvedUrl.startsWith('http://') ||
+    resolvedUrl.startsWith('https://') ||
+    resolvedUrl.startsWith('blob:') ||
+    resolvedUrl.startsWith('data:')
+  ) {
+    resolvedUrl = await cacheRemoteUrl(
+      resolvedUrl,
+      `insert-select-${Date.now()}`,
+      'image',
+      'png',
+      undefined,
+      { materializeContentUrl: true }
+    );
+  }
 
   let image: HTMLImageElement;
 
@@ -687,7 +754,7 @@ export const insertImageFromUrlAndSelect = async (
 
   const imageItem = buildImage(
     image,
-    imageUrl as DataURL,
+    resolvedUrl as DataURL,
     defaultImageWidth,
     true,
     referenceDimensions
@@ -701,10 +768,13 @@ export const insertImageFromUrlAndSelect = async (
   }
 
   // 插入图片
+  const existingElementIds = new Set(board.children.map((child) => child.id));
   DrawTransforms.insertImage(board, imageItem, startPoint);
 
   // 选中新插入的图片元素
-  const newElement = board.children[childrenCountBefore];
+  const newElement = board.children.find(
+    (child) => !existingElementIds.has(child.id)
+  );
   if (newElement) {
     clearSelectedElement(board);
     addSelectedElement(board, newElement);

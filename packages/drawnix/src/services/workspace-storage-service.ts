@@ -123,6 +123,7 @@ const WORKSPACE_DB_CONFIG = {
 } as const;
 
 const STATE_KEY = 'workspace_state';
+const WORKSPACE_STORE_NAMES = Object.values(WORKSPACE_DB_CONFIG.STORES);
 
 /**
  * Helper to wait for browser idle time
@@ -137,44 +138,92 @@ function waitForIdle(timeout = 50): Promise<void> {
   });
 }
 
-/**
- * Detect existing database version to avoid downgrade errors
- */
-async function detectDatabaseVersion(dbName: string): Promise<number> {
-  return new Promise((resolve) => {
-    if (typeof indexedDB === 'undefined') {
-      console.warn(
-        '[WorkspaceStorage] IndexedDB not available, using min version'
-      );
-      resolve(WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION);
-      return;
-    }
+function hasAllWorkspaceStores(db: IDBDatabase): boolean {
+  return WORKSPACE_STORE_NAMES.every((storeName) =>
+    db.objectStoreNames.contains(storeName)
+  );
+}
 
-    // Open without version to get current version
+function createMissingWorkspaceStores(db: IDBDatabase): void {
+  for (const storeName of WORKSPACE_STORE_NAMES) {
+    if (!db.objectStoreNames.contains(storeName)) {
+      db.createObjectStore(storeName);
+    }
+  }
+}
+
+/**
+ * 按数据库真实版本打开工作区库，并在一次受控升级里补齐缺失 store。
+ * 避免多个 localForage 实例并发初始化时，一个实例把库升到新版，
+ * 另一个实例仍按旧版本打开而触发 downgrade 错误。
+ */
+async function ensureWorkspaceDatabaseVersion(dbName: string): Promise<number> {
+  if (typeof indexedDB === 'undefined') {
+    console.warn(
+      '[WorkspaceStorage] IndexedDB not available, using min version'
+    );
+    return WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION;
+  }
+
+  const current = await new Promise<{
+    version: number;
+    hasAllStores: boolean;
+  }>((resolve, reject) => {
     const request = indexedDB.open(dbName);
 
     request.onsuccess = () => {
       const db = request.result;
       const version = db.version;
+      const hasAllStores = hasAllWorkspaceStores(db);
       db.close();
-      const targetVersion = Math.max(
-        version,
-        WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION
-      );
-      resolve(targetVersion);
+      resolve({ version, hasAllStores });
     };
 
-    request.onerror = (event) => {
-      // Try to get version from error event or use a safe high version
-      console.error('[WorkspaceStorage] Error detecting DB version:', event);
-      // Use a higher version to avoid downgrade - version 10 should be safe
-      resolve(10);
+    request.onerror = () => {
+      reject(request.error || new Error('Failed to inspect workspace DB'));
+    };
+  }).catch((error) => {
+    console.error('[WorkspaceStorage] Error detecting DB version:', error);
+    return {
+      version: WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION,
+      hasAllStores: false,
+    };
+  });
+
+  if (
+    current.version >= WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION &&
+    current.hasAllStores
+  ) {
+    return current.version;
+  }
+
+  const upgradeVersion = Math.max(
+    current.version + 1,
+    WORKSPACE_DB_CONFIG.MIN_DATABASE_VERSION
+  );
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(dbName, upgradeVersion);
+
+    request.onupgradeneeded = () => {
+      createMissingWorkspaceStores(request.result);
+    };
+
+    request.onsuccess = () => {
+      const db = request.result;
+      const version = db.version;
+      db.close();
+      resolve(version);
+    };
+
+    request.onerror = () => {
+      reject(request.error || new Error('Failed to upgrade workspace DB'));
     };
 
     request.onblocked = () => {
-      // Database is blocked by another connection, use a safe high version
-      console.warn('[WorkspaceStorage] DB blocked, using safe version 10');
-      resolve(10);
+      console.warn(
+        '[WorkspaceStorage] DB upgrade blocked by another connection'
+      );
     };
   });
 }
@@ -198,7 +247,7 @@ class WorkspaceStorageService {
    * Create stores with the detected version
    */
   private async createStores(): Promise<void> {
-    const version = await detectDatabaseVersion(
+    const version = await ensureWorkspaceDatabaseVersion(
       WORKSPACE_DB_CONFIG.DATABASE_NAME
     );
 
@@ -256,63 +305,8 @@ class WorkspaceStorageService {
       this.initialized = true;
     } catch (error) {
       console.error('[WorkspaceStorage] Failed to initialize:', error);
-
-      // Check if it's a version downgrade error
-      const errorMsg = String(error);
-      if (
-        errorMsg.includes("can't be downgraded") ||
-        errorMsg.includes('version')
-      ) {
-        console.warn(
-          '[WorkspaceStorage] Version conflict detected, attempting recovery...'
-        );
-
-        // Try to delete the database and reinitialize
-        try {
-          await this.deleteDatabase();
-          await this.createStores();
-          await Promise.all([
-            this.foldersStore!.ready(),
-            this.boardsStore!.ready(),
-            this.stateStore!.ready(),
-          ]);
-          this.initialized = true;
-          return;
-        } catch (recoveryError) {
-          console.error('[WorkspaceStorage] Recovery failed:', recoveryError);
-        }
-      }
-
       throw new Error('Workspace storage initialization failed');
     }
-  }
-
-  /**
-   * Delete the database (for recovery from version conflicts)
-   */
-  private async deleteDatabase(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (typeof indexedDB === 'undefined') {
-        resolve();
-        return;
-      }
-
-      const request = indexedDB.deleteDatabase(
-        WORKSPACE_DB_CONFIG.DATABASE_NAME
-      );
-      request.onsuccess = () => {
-        resolve();
-      };
-      request.onerror = () => {
-        console.error('[WorkspaceStorage] Failed to delete database');
-        reject(new Error('Failed to delete database'));
-      };
-      request.onblocked = () => {
-        console.warn('[WorkspaceStorage] Database deletion blocked');
-        // Still resolve after a timeout
-        setTimeout(resolve, 1000);
-      };
-    });
   }
 
   // ========== Private Store Getters (ensure initialized) ==========

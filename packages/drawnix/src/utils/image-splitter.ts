@@ -1831,6 +1831,8 @@ export interface SplitAndInsertOptions {
   scrollToResult?: boolean;
   /** 异步处理期间确认目标画板仍然有效 */
   boardGuard?: () => boolean;
+  /** AI 生成结果的轻量来源元数据 */
+  metadata?: Record<string, unknown>;
 }
 
 function assertSplitInsertionBoardCurrent(boardGuard?: () => boolean): void {
@@ -1867,6 +1869,7 @@ export async function splitAndInsertImages(
     startPoint,
     scrollToResult = true,
     boardGuard,
+    metadata,
   } = options || {};
   try {
     assertSplitInsertionBoardCurrent(boardGuard);
@@ -2115,7 +2118,15 @@ export async function splitAndInsertImages(
     }
 
     const preparedImages: Array<{
-      imageItem: { url: string; width: number; height: number };
+      imageItem: {
+        url: string;
+        width: number;
+        height: number;
+        prompt?: string;
+        aiPrompt?: string;
+        generationPrompt?: string;
+        generationTaskId?: string;
+      };
       point: Point;
     }> = [];
 
@@ -2173,11 +2184,24 @@ export async function splitAndInsertImages(
       await unifiedCacheService.cacheToCacheStorageOnly(stableUrl, blob);
       assertSplitInsertionBoardCurrent(boardGuard);
 
+      const prompt =
+        typeof metadata?.prompt === 'string' && metadata.prompt.trim()
+          ? metadata.prompt.trim()
+          : undefined;
+      const generationTaskId =
+        typeof metadata?.generationTaskId === 'string' &&
+        metadata.generationTaskId.trim()
+          ? metadata.generationTaskId.trim()
+          : undefined;
       preparedImages.push({
         imageItem: {
           url: stableUrl,
           width: scaledWidth,
           height: scaledHeight,
+          ...(prompt
+            ? { prompt, aiPrompt: prompt, generationPrompt: prompt }
+            : {}),
+          ...(generationTaskId ? { generationTaskId } : {}),
         },
         point: [insertX, insertY] as Point,
       });

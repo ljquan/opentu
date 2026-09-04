@@ -172,6 +172,7 @@ describe('image-generation MCP tool', () => {
         format: 'webp',
         prompt: 'Create an edited image',
         size: '16x9',
+        requestId: 'workflow-image-request-1',
       },
       type: 'image',
     });

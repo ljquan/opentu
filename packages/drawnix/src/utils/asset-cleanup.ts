@@ -57,7 +57,8 @@ function verifyVirtualImageCache(
       }
 
       virtualImageErrorAttempts.delete(key);
-      removeElementFromBoard(board, element);
+      // 渲染失败可能来自局域网 HTTP 的安全上下文限制或缓存瞬时不可用。
+      // 保留元素，避免一次读取失败永久删除用户白板内容。
     })
     .catch(() => {
       virtualImageErrorAttempts.delete(key);

@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => {
     setNode: vi.fn(),
     removeNode: vi.fn(),
     notifyAISelectionContentRefresh: vi.fn(),
+    prepareSemanticForegroundReplacement: vi.fn(),
+    postprocessGeneratedImage: vi.fn(),
     retargetCanvasAssociationLines: vi.fn(),
     imageAnchorByTask: null as any,
     isGridImageTask: vi.fn(),
@@ -57,6 +59,10 @@ vi.mock('@plait/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@plait/core')>();
   return {
     ...actual,
+    PlaitHistoryBoard: {
+      ...actual.PlaitHistoryBoard,
+      withNewBatch: (_board: any, callback: () => void) => callback(),
+    },
     Transforms: {
       ...actual.Transforms,
       setNode: mocks.setNode,
@@ -64,6 +70,27 @@ vi.mock('@plait/core', async (importOriginal) => {
     },
   };
 });
+
+vi.mock('../../services/layer-decomposition', () => ({
+  calculateLayerCanvasBounds: () => ({
+    x: 30,
+    y: 40,
+    width: 200,
+    height: 250,
+  }),
+  getSemanticLayerElementPoints: (bounds: any) => [
+    [bounds.x, bounds.y],
+    [bounds.x + bounds.width, bounds.y + bounds.height],
+  ],
+  getSemanticLayerMetadata: (element: any) =>
+    element?.metadata?.semanticLayer || null,
+  prepareSemanticForegroundReplacement:
+    mocks.prepareSemanticForegroundReplacement,
+}));
+
+vi.mock('../../services/layer-decomposition/artifact-repair', () => ({
+  postprocessGeneratedImage: mocks.postprocessGeneratedImage,
+}));
 
 vi.mock('../../services/task-queue', () => {
   const taskQueueService = {
@@ -415,6 +442,29 @@ describe('useAutoInsertToCanvas', () => {
     mocks.setNode.mockReset();
     mocks.removeNode.mockReset();
     mocks.notifyAISelectionContentRefresh.mockReset();
+    mocks.prepareSemanticForegroundReplacement.mockReset();
+    mocks.prepareSemanticForegroundReplacement.mockResolvedValue({
+      url: '/__aitu_cache__/image/transparent-foreground.png',
+      width: 1000,
+      height: 1000,
+      layer: {
+        groupId: 'replacement-group',
+        url: '/__aitu_cache__/image/transparent-foreground.png',
+        zIndex: 1,
+        name: '兔子',
+        description: '新主体兔子',
+        confidence: 0.97,
+        boundingBox: {
+          absolute: [30, 40, 230, 290],
+          normalized: [30, 40, 230, 290],
+        },
+      },
+    });
+    mocks.postprocessGeneratedImage.mockReset();
+    mocks.postprocessGeneratedImage.mockImplementation(
+      async ({ generatedImageUrl }: { generatedImageUrl: string }) =>
+        generatedImageUrl
+    );
     mocks.retargetCanvasAssociationLines.mockReset();
     mocks.imageAnchorByTask = null;
     mocks.isGridImageTask.mockReset();
@@ -586,6 +636,65 @@ describe('useAutoInsertToCanvas', () => {
     );
   });
 
+  it('flushes a busy group when the maximum wait is reached', async () => {
+    const tasks = Array.from({ length: 4 }, (_, index) =>
+      createCompletedImageTask({
+        id: `task-busy-${index + 1}`,
+        params: {
+          prompt: '持续到达的批量图片',
+          size: '1:1',
+          autoInsertToCanvas: true,
+        },
+        result: {
+          url: `/__aitu_cache__/image/busy-${index + 1}.png`,
+          format: 'png',
+          size: 123,
+        },
+      })
+    );
+    mocks.board = { children: [] };
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 100,
+        maxGroupWait: 250,
+      })
+    );
+
+    act(() => {
+      emitTaskEvent(tasks[0]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(80);
+    });
+    act(() => {
+      emitTaskEvent(tasks[1]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(80);
+    });
+    act(() => {
+      emitTaskEvent(tasks[2]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(80);
+    });
+    act(() => {
+      emitTaskEvent(tasks[3]);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9);
+    });
+    expect(mocks.insertImageGroup).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mocks.insertImageGroup).toHaveBeenCalledTimes(1);
+  });
   it('defers associated results until their source board becomes active', async () => {
     const task = createCompletedImageTask({
       id: 'task-cross-board',
@@ -2202,6 +2311,338 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.board.children).toHaveLength(1);
     expect(mocks.board.children[0]).toBe(originalElement);
     expect(mocks.notifyAISelectionContentRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('post-processes a masked bound edit before replacing the target', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-masked-repair',
+      params: {
+        prompt: '修复耳朵',
+        model: 'gpt-image-2',
+        generationMode: 'image_edit',
+        maskImage: '/__aitu_cache__/image/mask.png',
+        referenceImages: ['/__aitu_cache__/image/original.png'],
+        replaceElementId: 'image-target',
+        targetElementId: 'image-target',
+      },
+      result: {
+        url: '/__aitu_cache__/image/generated.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const originalElement = {
+      id: 'image-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/original.png',
+      points: [
+        [20, 30],
+        [420, 330],
+      ],
+    };
+    mocks.postprocessGeneratedImage.mockResolvedValue(
+      '/__aitu_cache__/image/generated-repaired.png'
+    );
+    mocks.board = { children: [originalElement] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.postprocessGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatedImageUrl: '/__aitu_cache__/image/generated.png',
+        originalImageUrl: '/__aitu_cache__/image/original.png',
+        maskImageUrl: '/__aitu_cache__/image/mask.png',
+        model: 'gpt-image-2',
+      })
+    );
+    expect(mocks.setNode).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/generated-repaired.png',
+      }),
+      [0]
+    );
+  });
+
+  it('二次抠图后只替换语义前景并同步组 manifest', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-semantic-replace',
+      params: {
+        prompt: '把人物改成蓝色',
+        size: '1:1',
+        generationMode: 'image_edit',
+        maskImage: '/__aitu_cache__/image/semantic-mask.png',
+        semanticReplacement: true,
+        semanticReplacementBackgroundUrl:
+          '/__aitu_cache__/image/background.png',
+        semanticReplacementBackgroundElementId: 'semantic-background',
+        semanticReplacementForegroundUrl:
+          '/__aitu_cache__/image/old-foreground.png',
+        replaceElementId: 'foreground-target',
+        targetElementId: 'foreground-target',
+      },
+      result: {
+        url: '/__aitu_cache__/image/generated-full-canvas.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const foregroundMetadata = {
+      schemaVersion: 1,
+      providerGroupId: 'semantic-group',
+      kind: 'foreground',
+      zIndex: 1,
+      name: '人物',
+      description: '主体人物',
+      boundingBox: {
+        absolute: [20, 30, 220, 280],
+        normalized: [100, 100, 800, 900],
+      },
+    };
+    const background = {
+      id: 'semantic-background',
+      type: 'image',
+      url: '/__aitu_cache__/image/background.png',
+      groupId: 'semantic-group',
+      points: [
+        [0, 0],
+        [1000, 1000],
+      ],
+      metadata: {
+        semanticLayer: {
+          ...foregroundMetadata,
+          kind: 'background',
+          zIndex: 0,
+          name: '背景',
+        },
+      },
+    };
+    const foreground = {
+      id: 'foreground-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/old-foreground.png',
+      groupId: 'semantic-group',
+      points: [
+        [20, 30],
+        [220, 280],
+      ],
+      metadata: { semanticLayer: foregroundMetadata },
+    };
+    const sibling = {
+      id: 'foreground-sibling',
+      type: 'image',
+      url: '/__aitu_cache__/image/sibling.png',
+      groupId: 'semantic-group',
+      metadata: {
+        semanticLayer: { ...foregroundMetadata, zIndex: 2, name: '装饰' },
+      },
+    };
+    const group = {
+      id: 'semantic-group',
+      type: 'group',
+      metadata: {
+        semanticLayerGroup: {
+          schemaVersion: 1,
+          providerGroupId: 'semantic-group',
+          manifest: {
+            schemaVersion: 1,
+            groupId: 'semantic-group',
+            layers: [
+              {
+                kind: 'background',
+                zIndex: 0,
+                url: background.url,
+                name: '背景',
+              },
+              {
+                kind: 'foreground',
+                zIndex: 1,
+                url: foreground.url,
+                name: '人物',
+              },
+              {
+                kind: 'foreground',
+                zIndex: 2,
+                url: sibling.url,
+                name: '装饰',
+              },
+            ],
+          },
+        },
+      },
+    };
+    mocks.board = { children: [background, foreground, sibling, group] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.prepareSemanticForegroundReplacement).toHaveBeenCalledWith(
+      '/__aitu_cache__/image/generated-full-canvas.png',
+      task.id,
+      foregroundMetadata,
+      { editPrompt: '把人物改成蓝色' }
+    );
+    expect(mocks.postprocessGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalImageUrl: '/__aitu_cache__/image/background.png',
+        maskImageUrl: '/__aitu_cache__/image/semantic-mask.png',
+        excludedTargetName: '人物',
+      })
+    );
+    expect(mocks.setNode).toHaveBeenNthCalledWith(
+      1,
+      mocks.board,
+      expect.objectContaining({
+        url: '/__aitu_cache__/image/transparent-foreground.png',
+        points: [
+          [30, 40],
+          [230, 290],
+        ],
+        metadata: expect.objectContaining({
+          semanticLayer: expect.objectContaining({
+            name: '兔子',
+            description: '新主体兔子',
+          }),
+        }),
+      }),
+      [1]
+    );
+    expect(mocks.setNode).toHaveBeenNthCalledWith(
+      2,
+      mocks.board,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          semanticLayerGroup: expect.objectContaining({
+            manifest: expect.objectContaining({
+              layers: expect.arrayContaining([
+                expect.objectContaining({
+                  kind: 'foreground',
+                  zIndex: 1,
+                  url: '/__aitu_cache__/image/transparent-foreground.png',
+                  name: '兔子',
+                }),
+                expect.objectContaining({
+                  kind: 'foreground',
+                  zIndex: 2,
+                  url: sibling.url,
+                }),
+              ]),
+            }),
+          }),
+        }),
+      }),
+      [3]
+    );
+    expect(mocks.setNode).toHaveBeenCalledTimes(2);
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith(
+      task.id,
+      1,
+      [30, 40],
+      'foreground-target',
+      { width: 200, height: 250 }
+    );
+  });
+
+  it('旧主体残留复检失败时保持语义图层不变', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-semantic-residual',
+      params: {
+        prompt: '把猫替换成兔子',
+        generationMode: 'image_edit',
+        maskImage: '/__aitu_cache__/image/semantic-mask.png',
+        semanticReplacement: true,
+        semanticReplacementBackgroundUrl:
+          '/__aitu_cache__/image/background.png',
+        semanticReplacementBackgroundElementId: 'semantic-background',
+        semanticReplacementForegroundUrl: '/__aitu_cache__/image/old-cat.png',
+        replaceElementId: 'foreground-target',
+        targetElementId: 'foreground-target',
+      },
+      result: {
+        url: '/__aitu_cache__/image/rabbit-with-cat-tail.png',
+        format: 'png',
+        size: 123,
+      },
+    });
+    const semanticLayer = {
+      schemaVersion: 1,
+      providerGroupId: 'semantic-group',
+      kind: 'foreground',
+      zIndex: 1,
+      name: '猫',
+      description: '原主体猫',
+      boundingBox: {
+        absolute: [20, 30, 220, 280],
+        normalized: [100, 100, 800, 900],
+      },
+    };
+    const background = {
+      id: 'semantic-background',
+      type: 'image',
+      url: '/__aitu_cache__/image/background.png',
+      groupId: 'semantic-group',
+    };
+    const foreground = {
+      id: 'foreground-target',
+      type: 'image',
+      url: '/__aitu_cache__/image/old-cat.png',
+      groupId: 'semantic-group',
+      points: [
+        [20, 30],
+        [220, 280],
+      ],
+      metadata: { semanticLayer },
+    };
+    mocks.postprocessGeneratedImage.mockRejectedValue(
+      new Error('修复后仍检测到旧主体残留，已取消本次替换')
+    );
+    mocks.board = { children: [background, foreground] };
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.postprocessGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatedImageUrl: '/__aitu_cache__/image/rabbit-with-cat-tail.png',
+        excludedTargetName: '猫',
+      })
+    );
+    expect(mocks.prepareSemanticForegroundReplacement).not.toHaveBeenCalled();
+    expect(mocks.setNode).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(foreground.url).toBe('/__aitu_cache__/image/old-cat.png');
+    expect(background.url).toBe('/__aitu_cache__/image/background.png');
   });
 
   it('inserts a new image when taskbar follow was disabled after submission', async () => {

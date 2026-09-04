@@ -15,9 +15,9 @@ import { collectJsonSources } from '../utils/llm-json-extractor';
 import { resolveInvocationPlanFromRoute } from './provider-routing';
 
 /**
- * 构建 google.generateContent 协议的配置
+ * 构建分析文本模型配置。Google 模型走 generateContent，其它文本模型保留原 binding。
  */
-export async function buildGenerateContentConfig(
+export async function buildAnalysisTextConfig(
   model?: string,
   modelRef?: ModelRef | null
 ): Promise<GeminiConfig> {
@@ -27,6 +27,7 @@ export async function buildGenerateContentConfig(
   const route = resolveInvocationRoute('text', routeModel);
   const plan = resolveInvocationPlanFromRoute('text', routeModel);
 
+  const isGoogleBinding = plan?.binding.protocol === 'google.generateContent';
   const config: GeminiConfig = {
     apiKey: route.apiKey,
     baseUrl: route.baseUrl,
@@ -34,18 +35,25 @@ export async function buildGenerateContentConfig(
     authType: plan?.provider.authType || 'bearer',
     providerType: plan?.provider.providerType || 'custom',
     extraHeaders: plan?.provider.extraHeaders,
-    protocol: 'google.generateContent',
-    binding: {
-      ...(plan?.binding || {}),
-      protocol: 'google.generateContent',
-      baseUrlStrategy: 'trim-v1',
-      submitPath: undefined,
-    } as any,
+    protocol: plan?.binding.protocol || null,
+    binding: plan?.binding,
     provider: plan?.provider || null,
   };
 
+  if (isGoogleBinding) {
+    config.protocol = 'google.generateContent';
+    config.binding = {
+      ...(plan?.binding || {}),
+      protocol: 'google.generateContent',
+      baseUrlStrategy: plan?.binding.baseUrlStrategy || 'trim-v1',
+      submitPath: plan?.binding.submitPath,
+    } as any;
+  }
+
   return validateAndEnsureConfig(config);
 }
+
+export const buildGenerateContentConfig = buildAnalysisTextConfig;
 
 /**
  * 从文本中提取顶层 JSON 对象

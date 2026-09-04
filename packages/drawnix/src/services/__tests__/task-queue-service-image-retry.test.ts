@@ -16,7 +16,21 @@ async function flushAsyncWork(turns = 6): Promise<void> {
   }
 }
 
-async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
+async function setupTaskQueueServiceHarness(
+  statusSequence: TaskStatus[],
+  options: {
+    activeImageRoute?: {
+      profileId: string;
+      modelId: string;
+    };
+    customProfiles?: Array<{
+      id: string;
+      baseUrl: string;
+      apiKey: string;
+      enabled: boolean;
+    }>;
+  } = {}
+) {
   const storedTasks = new Map<string, any>();
 
   const mocks = {
@@ -244,6 +258,7 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
   }));
 
   vi.doMock('../../utils/settings-manager', () => ({
+    LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
     hasInvocationRouteCredentials: vi.fn(() => true),
     createModelRef: (profileId?: string | null, modelId?: string | null) =>
       profileId || modelId
@@ -252,22 +267,30 @@ async function setupTaskQueueServiceHarness(statusSequence: TaskStatus[]) {
             modelId: modelId || null,
           }
         : null,
-    resolveInvocationRoute: vi.fn((operation: string, routeModel?: any) => ({
-      routeType: operation,
-      modelId:
-        typeof routeModel === 'string'
-          ? routeModel
-          : routeModel?.modelId || 'default-model',
-      profileId:
-        typeof routeModel === 'object' ? routeModel?.profileId || null : null,
-      profileName: null,
-      providerType: null,
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'test-key',
-      source: 'legacy',
-    })),
+    resolveInvocationRoute: vi.fn((operation: string, routeModel?: any) => {
+      const activeRoute =
+        operation === 'image' && !routeModel ? options.activeImageRoute : null;
+      return {
+        routeType: operation,
+        modelId:
+          activeRoute?.modelId ||
+          (typeof routeModel === 'string'
+            ? routeModel
+            : routeModel?.modelId || 'default-model'),
+        profileId:
+          activeRoute?.profileId ||
+          (typeof routeModel === 'object'
+            ? routeModel?.profileId || null
+            : null),
+        profileName: null,
+        providerType: null,
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'test-key',
+        source: activeRoute ? 'preset' : 'legacy',
+      };
+    }),
     providerProfilesSettings: {
-      get: vi.fn(() => []),
+      get: vi.fn(() => options.customProfiles || []),
     },
     providerPricingCacheSettings: {
       get: vi.fn(() => []),
@@ -1571,6 +1594,255 @@ describe('task-queue-service image edit retry persistence', () => {
       prompt: 'Regenerate completed image',
       model: 'gpt-image-2',
       size: '1x1',
+    });
+  });
+
+  it('uses the invocation route model id when retrying a task with a stale model field', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'task-image-edit-1',
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: 'Retry routed image',
+        model: 'image2',
+      },
+      invocationRoute: {
+        operation: 'image',
+        providerProfileId: 'custom-profile',
+        modelId: 'gpt-image-2',
+        modelRef: {
+          profileId: 'custom-profile',
+          modelId: 'gpt-image-2',
+        },
+        binding: {
+          id: 'custom-profile:gpt-image-2:image',
+          protocol: 'openai.images.generations',
+          requestSchema: 'openai.image.gpt-generation-json',
+          responseSchema: 'openai.image.data',
+          submitPath: '/images/generations',
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'EXECUTION_ERROR',
+        message: '分组 default 下模型 image2 无可用渠道 (distributor)',
+      },
+    };
+
+    taskQueueService.trackExternalTask(clone(task));
+    taskQueueService.retryTask(task.id);
+    await flushAsyncWork();
+
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.generateImage.mock.calls[0]?.[0]).toMatchObject({
+      model: 'gpt-image-2',
+      modelRef: {
+        profileId: 'custom-profile',
+        modelId: 'gpt-image-2',
+      },
+    });
+  });
+
+  it('uses the invocation route model id on the first execution of a new task', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'task-image-first-execution',
+      type: TaskType.IMAGE,
+      status: TaskStatus.PROCESSING,
+      params: {
+        prompt: '兔子',
+        model: 'image2',
+      },
+      invocationRoute: {
+        operation: 'image',
+        providerProfileId: 'custom-profile',
+        modelId: 'gemini',
+        modelRef: {
+          profileId: 'custom-profile',
+          modelId: 'gemini',
+        },
+        binding: {
+          id: 'custom-profile:gemini:image:manual:custom-http',
+          protocol: 'custom-http',
+          requestSchema: 'custom-http',
+          responseSchema: 'custom-http.image',
+          submitPath: '/render',
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    taskQueueService.trackExternalTask(clone(task));
+    await (taskQueueService as any).executeTask(
+      taskQueueService.getTask(task.id)
+    );
+    await flushAsyncWork();
+
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.generateImage.mock.calls[0]?.[0]).toMatchObject({
+      model: 'gemini',
+      modelRef: {
+        profileId: 'custom-profile',
+        modelId: 'gemini',
+      },
+    });
+  });
+
+  it('repairs an unrouted image2 channel failure with the active custom image route', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness(
+      [TaskStatus.COMPLETED],
+      {
+        activeImageRoute: {
+          profileId: 'custom-profile',
+          modelId: 'gpt-image-2',
+        },
+      }
+    );
+    const task: Task = {
+      id: 'task-image-edit-1',
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: '兔子',
+        model: 'image2',
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'EXECUTION_ERROR',
+        message: '分组 default 下模型 image2 无可用渠道 (distributor)',
+      },
+    };
+
+    taskQueueService.trackExternalTask(clone(task));
+    taskQueueService.retryTask(task.id);
+    await flushAsyncWork();
+
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.generateImage.mock.calls[0]?.[0]).toMatchObject({
+      model: 'gpt-image-2',
+      modelRef: {
+        profileId: 'custom-profile',
+        modelId: 'gpt-image-2',
+      },
+    });
+  });
+
+  it('repairs an unrouted custom model failure with its provider catalog binding', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness(
+      [TaskStatus.COMPLETED],
+      {
+        customProfiles: [
+          {
+            id: 'provider-custom',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'test-key',
+            enabled: true,
+          },
+        ],
+      }
+    );
+    const task: Task = {
+      id: 'task-custom-gemini-retry',
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: '兔子',
+        model: 'gemini',
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'EXECUTION_ERROR',
+        message: '分组 default 下模型 gemini 无可用渠道 (distributor)',
+      },
+    };
+
+    taskQueueService.trackExternalTask(clone(task));
+    taskQueueService.retryTask(task.id);
+    await flushAsyncWork();
+
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.generateImage.mock.calls[0]?.[0]).toMatchObject({
+      model: 'gemini',
+      modelRef: {
+        profileId: 'provider-custom',
+        modelId: 'gemini',
+      },
+    });
+  });
+
+  it('replaces a failed legacy-default route snapshot with the matching custom route', async () => {
+    const { taskQueueService, mocks } = await setupTaskQueueServiceHarness(
+      [TaskStatus.COMPLETED],
+      {
+        customProfiles: [
+          {
+            id: 'provider-custom',
+            baseUrl: 'https://api.example.com/v1',
+            apiKey: 'test-key',
+            enabled: true,
+          },
+        ],
+      }
+    );
+    const task: Task = {
+      id: 'task-custom-gemini-legacy-route-retry',
+      type: TaskType.IMAGE,
+      status: TaskStatus.FAILED,
+      params: {
+        prompt: '兔子',
+        model: 'gemini',
+      },
+      invocationRoute: {
+        operation: 'image',
+        providerProfileId: 'legacy-default',
+        modelId: 'gemini',
+        modelRef: {
+          profileId: 'legacy-default',
+          modelId: 'gemini',
+        },
+        binding: {
+          id: 'legacy-default:gemini:image',
+          protocol: 'google.generateContent',
+          requestSchema: 'google.gemini.generate-content.image',
+          responseSchema: 'google.gemini.generate-content',
+          submitPath: '/v1beta/models/{model}:generateContent',
+        },
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'EXECUTION_ERROR',
+        message: '分组 default 下模型 gemini 无可用渠道 (distributor)',
+      },
+    };
+
+    taskQueueService.trackExternalTask(clone(task));
+    taskQueueService.retryTask(task.id);
+    await flushAsyncWork();
+
+    expect(mocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(mocks.generateImage.mock.calls[0]?.[0]).toMatchObject({
+      model: 'gemini',
+      modelRef: {
+        profileId: 'provider-custom',
+        modelId: 'gemini',
+      },
+    });
+    expect(taskQueueService.getTask(task.id)?.invocationRoute).toMatchObject({
+      providerProfileId: 'provider-custom',
+      modelRef: {
+        profileId: 'provider-custom',
+        modelId: 'gemini',
+      },
     });
   });
 

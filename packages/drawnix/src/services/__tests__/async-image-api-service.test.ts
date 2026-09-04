@@ -27,39 +27,41 @@ describe('async-image-api-service', () => {
   });
 
   it('submits async image masks as multipart mask field', async () => {
-    mocks.send.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: 'async-image-task-1',
-          object: 'video',
-          model: 'gpt-image-async',
-          status: 'completed',
-          progress: 100,
-          created_at: 1,
-          url: 'https://cdn.example.com/out.png',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
+    mocks.send
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'async-image-task-1',
+            object: 'video',
+            model: 'gpt-image-async',
+            status: 'completed',
+            progress: 100,
+            created_at: 1,
+            url: 'https://cdn.example.com/out.png',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
       )
-    ).mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: 'async-image-task-1',
-          object: 'video',
-          model: 'gpt-image-async',
-          status: 'completed',
-          progress: 100,
-          created_at: 1,
-          url: 'https://cdn.example.com/out.png',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    );
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'async-image-task-1',
+            object: 'video',
+            model: 'gpt-image-async',
+            status: 'completed',
+            progress: 100,
+            created_at: 1,
+            url: 'https://cdn.example.com/out.png',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
 
     const { asyncImageAPIService } = await import('../async-image-api-service');
     let resolveSubmissionAttempt!: () => void;

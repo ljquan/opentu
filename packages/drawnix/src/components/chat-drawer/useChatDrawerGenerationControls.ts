@@ -24,6 +24,7 @@ import {
   resolveInvocationRoute,
   type ModelRef,
 } from '../../utils/settings-manager';
+import type { ChatSessionGenerationState } from '../../types/chat.types';
 
 function getSelectionKey(modelId: string, modelRef?: ModelRef | null): string {
   return modelRef?.profileId ? `${modelRef.profileId}::${modelId}` : modelId;
@@ -103,37 +104,137 @@ function areParamsEqual(
   );
 }
 
-export function useChatDrawerGenerationControls() {
+function areModelRefsEqual(
+  a?: ModelRef | null,
+  b?: ModelRef | null
+): boolean {
+  return (
+    (a?.profileId || null) === (b?.profileId || null) &&
+    (a?.modelId || null) === (b?.modelId || null)
+  );
+}
+
+function areGenerationStatesEqual(
+  a: ChatSessionGenerationState,
+  b: ChatSessionGenerationState
+): boolean {
+  return (
+    a.generationType === b.generationType &&
+    a.selectedModel === b.selectedModel &&
+    areModelRefsEqual(a.selectedModelRef, b.selectedModelRef) &&
+    a.selectedCount === b.selectedCount &&
+    areParamsEqual(a.selectedParams, b.selectedParams)
+  );
+}
+
+function toGenerationState(
+  preferences: ReturnType<typeof loadAIInputPreferences>,
+  selectedModelRef: ModelRef | null = null
+): ChatSessionGenerationState {
+  return {
+    generationType: preferences.generationType,
+    selectedModel: preferences.selectedModel,
+    selectedModelRef,
+    selectedParams: preferences.selectedParams,
+    selectedCount: preferences.selectedCount,
+  };
+}
+
+interface UseChatDrawerGenerationControlsOptions {
+  sessionId?: string | null;
+  sessionGenerationState?: ChatSessionGenerationState | null;
+  onSessionGenerationStateChange?: (
+    state: ChatSessionGenerationState
+  ) => void;
+}
+
+export function useChatDrawerGenerationControls(
+  options: UseChatDrawerGenerationControlsOptions = {}
+) {
   const imageModels = useSelectableModels('image');
   const videoModels = useSelectableModels('video');
   const audioModels = useSelectableModels('audio');
   const textModels = useSelectableModels('text');
   const initialPreferences = useMemo(() => loadAIInputPreferences(), []);
+  const initialGenerationState = useMemo(
+    () => options.sessionGenerationState || toGenerationState(initialPreferences),
+    []
+  );
 
   const [generationType, setGenerationType] = useState<GenerationType>(
-    initialPreferences.generationType
+    initialGenerationState.generationType
   );
   const [selectedModel, setSelectedModel] = useState(
-    initialPreferences.selectedModel
+    initialGenerationState.selectedModel
   );
   const [selectedModelRef, setSelectedModelRef] = useState<ModelRef | null>(
-    null
+    initialGenerationState.selectedModelRef || null
   );
   const [selectedParams, setSelectedParams] = useState<Record<string, string>>(
-    initialPreferences.selectedParams
+    initialGenerationState.selectedParams
   );
   const [selectedCount, setSelectedCount] = useState(
-    initialPreferences.selectedCount
+    initialGenerationState.selectedCount
   );
 
   const selectedParamsRef = useRef(selectedParams);
   const selectedParamScopeRef = useRef(
     `${generationType}:${getSelectionKey(selectedModel, selectedModelRef)}`
   );
+  const currentGenerationStateRef = useRef<ChatSessionGenerationState>({
+    generationType,
+    selectedModel,
+    selectedModelRef,
+    selectedParams,
+    selectedCount,
+  });
+  const isRestoringGenerationStateRef = useRef(false);
 
   useEffect(() => {
     selectedParamsRef.current = selectedParams;
   }, [selectedParams]);
+
+  useEffect(() => {
+    currentGenerationStateRef.current = {
+      generationType,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+      selectedCount,
+    };
+  }, [
+    generationType,
+    selectedCount,
+    selectedModel,
+    selectedModelRef,
+    selectedParams,
+  ]);
+
+  useEffect(() => {
+    const nextState =
+      options.sessionGenerationState || toGenerationState(loadAIInputPreferences());
+
+    if (areGenerationStatesEqual(currentGenerationStateRef.current, nextState)) {
+      return;
+    }
+
+    setGenerationType(nextState.generationType);
+    setSelectedModel(nextState.selectedModel);
+    setSelectedModelRef(nextState.selectedModelRef || null);
+    setSelectedParams(nextState.selectedParams);
+    setSelectedCount(nextState.selectedCount);
+    selectedParamsRef.current = nextState.selectedParams;
+    selectedParamScopeRef.current = `${
+      nextState.generationType === 'agent'
+        ? 'agent'
+        : `${nextState.generationType}:${getSelectionKey(
+            nextState.selectedModel,
+            nextState.selectedModelRef
+          )}`
+    }`;
+    currentGenerationStateRef.current = nextState;
+    isRestoringGenerationStateRef.current = true;
+  }, [options.sessionGenerationState, options.sessionId]);
 
   const currentModels = useMemo(() => {
     if (generationType === 'video') return videoModels;
@@ -294,6 +395,24 @@ export function useChatDrawerGenerationControls() {
   }, [compatibleParams, generationType, selectedModel, selectedModelRef]);
 
   useEffect(() => {
+    const nextGenerationState: ChatSessionGenerationState = {
+      generationType,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+      selectedCount,
+    };
+
+    if (isRestoringGenerationStateRef.current) {
+      if (!areGenerationStatesEqual(
+        nextGenerationState,
+        currentGenerationStateRef.current
+      )) {
+        return;
+      }
+      isRestoringGenerationStateRef.current = false;
+    }
+
     saveAIInputPreferences({
       generationType,
       selectedModel,
@@ -309,8 +428,10 @@ export function useChatDrawerGenerationControls() {
         getSelectionKey(selectedModel, selectedModelRef)
       );
     }
+    options.onSessionGenerationStateChange?.(nextGenerationState);
   }, [
     generationType,
+    options.onSessionGenerationStateChange,
     selectedCount,
     selectedModel,
     selectedModelRef,

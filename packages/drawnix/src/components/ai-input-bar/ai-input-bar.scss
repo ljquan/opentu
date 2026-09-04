@@ -754,14 +754,34 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     transition: background 0.15s ease;
   }
 
-  &__site-row-url {
+  &__site-row-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__site-row-name,
+  &__site-row-url,
+  &__site-row-desc {
     min-width: 0;
     overflow: hidden;
-    color: #111827;
-    font-size: 13px;
-    line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  &__site-row-name {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  &__site-row-url,
+  &__site-row-desc {
+    color: #6b7280;
+    font-size: 12px;
+    line-height: 1.25;
   }
 
   &__site-row-latency {
@@ -863,8 +883,7 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     background: #fff;
     color: #4b5563;
     cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease,
-      color 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 
     &:hover {
       border-color: #93c5fd;

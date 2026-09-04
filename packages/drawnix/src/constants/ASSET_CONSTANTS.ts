@@ -14,7 +14,17 @@ export const ASSET_CONSTANTS = {
   STORAGE_CRITICAL_THRESHOLD: 0.95, // 95%
 
   // 文件类型
-  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/x-icon', 'image/avif', 'image/jfif'],
+  ALLOWED_IMAGE_TYPES: [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+    'image/bmp',
+    'image/x-icon',
+    'image/avif',
+    'image/jfif',
+  ],
   ALLOWED_VIDEO_TYPES: [
     'video/mp4',
     'video/webm',
@@ -23,7 +33,15 @@ export const ASSET_CONSTANTS = {
     'video/x-m4v',
   ],
   ALLOWED_ZIP_TYPES: ['application/zip', 'application/x-zip-compressed'],
-  ALLOWED_AUDIO_TYPES: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/flac'],
+  ALLOWED_AUDIO_TYPES: [
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/wav',
+    'audio/ogg',
+    'audio/webm',
+    'audio/aac',
+    'audio/flac',
+  ],
 
   // UI配置
   GRID_COLUMNS_DESKTOP: 5,
