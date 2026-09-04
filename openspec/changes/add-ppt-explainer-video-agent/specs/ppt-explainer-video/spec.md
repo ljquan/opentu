@@ -153,7 +153,7 @@
 
 ### Requirement: PPT Explainer SHALL Use Only Configured Existing Models
 
-系统 SHALL 直接展示当前启用供应商已获取并勾选的视频模型，不得追加供应商未获取的静态目录模型，也不得把静态标签包装成音轨能力保证。
+系统 SHALL 分别展示当前启用供应商已获取、勾选且具有可执行路由的图片与视频模型；图片模型 SHALL 复用既有 PPT 页面生图链路，视频模型 SHALL 用于生成讲解音轨。系统不得追加供应商未获取或无路由的静态目录模型，也不得把静态标签包装成音轨能力保证。
 
 #### Scenario: Configure speakers without voice samples
 
@@ -169,13 +169,43 @@
 - **THEN** 系统 SHALL 在任何模型调用、缓存写入和任务持久化前失败
 - **AND** SHALL NOT 构造模型、声音、数字人或专用成片服务
 
-#### Scenario: List configured video models for PPT narration
+#### Scenario: List executable video models for PPT narration
 
-- **GIVEN** 启用供应商已获取并勾选一个或多个视频模型
+- **GIVEN** 启用供应商已获取并勾选一个或多个具有可执行路由的视频模型
 - **WHEN** 用户打开 PPT 讲解视频模型选择器
 - **THEN** 系统 SHALL 展示这些真实配置的视频模型
 - **AND** SHALL NOT 因缺少静态音轨标签而隐藏模型
-- **AND** 供应商禁用或模型取消勾选后，对应模型 SHALL 从候选中移除
+- **AND** 供应商禁用、模型取消勾选、路由失效或凭据缺失后，对应模型 SHALL 从候选中移除
+
+#### Scenario: List configured image models for PPT generation
+
+- **GIVEN** 启用供应商已获取并勾选一个或多个具有可执行路由的图片模型
+- **WHEN** 用户打开 PPT 讲解配置
+- **THEN** 系统 SHALL 展示这些图片模型并允许用户选择
+- **AND** 主题来源 SHALL 使用所选图片模型复用既有 PPT 页面生成链路
+- **AND** 供应商禁用、模型取消勾选、路由失效或凭据缺失后，对应模型 SHALL 从候选中移除
+
+#### Scenario: Preserve provider identity for duplicate model IDs
+
+- **GIVEN** 两个供应商暴露相同的图片或视频模型 ID
+- **WHEN** 用户选择其中一个供应商实例并创建任务
+- **THEN** 系统 SHALL 以 `profileId + modelId` 保存和执行所选模型路由
+- **AND** 所选实例失效后 SHALL 禁止新建任务，恢复时 SHALL 保留原路由错误
+- **AND** SHALL NOT 仅按模型 ID 静默切换到另一个供应商
+
+#### Scenario: Reuse complete current PPT images without regeneration
+
+- **GIVEN** 当前 PPT 的所有已选页面都已有可冻结的页面图
+- **WHEN** 用户创建 PPT 讲解视频任务
+- **THEN** 系统 SHALL 复用这些页面图且 SHALL NOT 调用图片模型
+- **AND** 文本与视频模型仍 SHALL 在任务持久化前通过预检
+
+#### Scenario: Generate only missing current PPT images
+
+- **GIVEN** 当前 PPT 的部分已选页面缺少页面图但具有页面提示词
+- **WHEN** 用户使用所选图片模型创建任务
+- **THEN** 系统 SHALL 只为缺图页调用既有 PPT 页面生图链路
+- **AND** SHALL 在冻结快照和生成讲解前将结果写回对应的用户可见 Frame
 
 ### Requirement: PPT Explainer SHALL Support Local Composition With Existing Models
 
@@ -227,6 +257,14 @@
 - **THEN** 系统 SHALL 将片段缓存为同源 internal 媒体并逐页加载
 - **AND** 缓存或媒体解码失败 SHALL 明确失败，不得静默输出无声或跨域受限视频
 - **AND** 系统 SHALL NOT 同时把全部源片段读入 JS 内存
+
+#### Scenario: Compose on LAN HTTP when Cache Storage is unavailable
+
+- **GIVEN** 用户从局域网 HTTP 地址运行工作台且浏览器不提供 Cache Storage
+- **WHEN** 系统缓存页面图或逐页讲解媒体
+- **THEN** 系统 SHALL 使用既有 IndexedDB Blob 降级路径并保持轻量 URL 引用
+- **AND** SHALL NOT 将大媒体转换为 base64 写入任务状态
+- **AND** 同源代理或跨域策略失败时 SHALL 保留实际错误，不得将 HTML 响应当作媒体继续合成
 
 #### Scenario: Cancel local composition
 

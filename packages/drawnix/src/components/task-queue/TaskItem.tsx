@@ -51,6 +51,7 @@ import './task-queue.scss';
 import './task-progress-overlay.scss';
 import { HoverTip } from '../shared';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
+import { resolveAudioResultUrls } from '../../services/audio-task-result-utils';
 
 // 布局切换阈值：容器宽度小于此值时使用紧凑布局（info 在图片下方全宽）
 // 弹窗侧栏宽度约 280px-500px，任务队列面板宽度约 300px-600px
@@ -405,6 +406,8 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     // Use original URL or cached URL (Service Worker handles caching automatically)
     const mediaCount = isLyricsTask
       ? 0
+      : isAudioTask
+      ? resolveAudioResultUrls(task.result).length
       : task.result?.urls?.length || (task.result?.url ? 1 : 0);
     const actionTrackParams = useMemo(
       () =>
@@ -861,7 +864,21 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                   {isCompleted &&
                     task.result?.url &&
                     !isLyricsTask &&
-                    (isVirtualMediaUrl(task.result.url) ? (
+                    (isAudioTask ? (
+                      <button
+                        type="button"
+                        className="task-item__link"
+                        data-track="task_click_open_audio_results"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onPreviewOpen?.();
+                        }}
+                      >
+                        {mediaCount > 1
+                          ? ` · 查看全部 ${mediaCount} 首`
+                          : ' · 播放音频'}
+                      </button>
+                    ) : isVirtualMediaUrl(task.result.url) ? (
                       <button
                         type="button"
                         className="task-item__link"

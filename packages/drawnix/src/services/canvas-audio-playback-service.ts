@@ -1,7 +1,4 @@
-import {
-  DEFAULT_TTS_SETTINGS,
-  resolveVoice,
-} from '../hooks/useTextToSpeech';
+import { DEFAULT_TTS_SETTINGS, resolveVoice } from '../hooks/useTextToSpeech';
 import { getFileExtension } from '@aitu/utils';
 import { LS_KEYS } from '../constants/storage-keys';
 import { ttsSettings, type TtsSettings } from '../utils/settings-manager';
@@ -28,12 +25,20 @@ export type PlaybackQueueSource = 'canvas' | 'playlist' | 'reading';
 export type CanvasAudioQueueSource = PlaybackQueueSource;
 export type PlaybackMediaType = 'audio' | 'reading' | null;
 export type PlaybackRateMediaType = Exclude<PlaybackMediaType, null>;
-export type PlaybackQueueItem = CanvasAudioPlaybackSource | ReadingPlaybackSource;
-export type PlaybackMode = 'sequential' | 'list-loop' | 'single-loop' | 'shuffle';
+export type PlaybackQueueItem =
+  | CanvasAudioPlaybackSource
+  | ReadingPlaybackSource;
+export type PlaybackMode =
+  | 'sequential'
+  | 'list-loop'
+  | 'single-loop'
+  | 'shuffle';
 
 export const DEFAULT_PLAYBACK_MODE: PlaybackMode = 'sequential';
 export const AUDIO_PLAYBACK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 2, 3] as const;
-export const READING_PLAYBACK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 2, 3, 5, 10] as const;
+export const READING_PLAYBACK_SPEED_PRESETS = [
+  0.75, 1, 1.25, 1.5, 2, 3, 5, 10,
+] as const;
 export const DEFAULT_AUDIO_PLAYBACK_RATE = 1;
 export const PLAYBACK_MODE_LABELS: Record<PlaybackMode, string> = {
   sequential: '顺序播放',
@@ -58,12 +63,14 @@ export function getPlaybackSpeedPresets(
     : AUDIO_PLAYBACK_SPEED_PRESETS;
 }
 
-function isPlaybackMode(value: string | null | undefined): value is PlaybackMode {
+function isPlaybackMode(
+  value: string | null | undefined
+): value is PlaybackMode {
   return (
-    value === 'sequential'
-    || value === 'list-loop'
-    || value === 'single-loop'
-    || value === 'shuffle'
+    value === 'sequential' ||
+    value === 'list-loop' ||
+    value === 'single-loop' ||
+    value === 'shuffle'
   );
 }
 
@@ -73,7 +80,9 @@ function readPersistedPlaybackMode(): PlaybackMode {
   }
 
   try {
-    const stored = window.localStorage.getItem(LS_KEYS.AUDIO_PLAYER_PLAYBACK_MODE);
+    const stored = window.localStorage.getItem(
+      LS_KEYS.AUDIO_PLAYER_PLAYBACK_MODE
+    );
     return isPlaybackMode(stored) ? stored : DEFAULT_PLAYBACK_MODE;
   } catch {
     return DEFAULT_PLAYBACK_MODE;
@@ -114,7 +123,9 @@ function readPersistedAudioPlaybackRate(): number {
   }
 
   try {
-    const stored = window.localStorage.getItem(LS_KEYS.AUDIO_PLAYER_AUDIO_PLAYBACK_RATE);
+    const stored = window.localStorage.getItem(
+      LS_KEYS.AUDIO_PLAYER_AUDIO_PLAYBACK_RATE
+    );
     return normalizeAudioPlaybackRate(stored ? Number(stored) : undefined);
   } catch {
     return DEFAULT_AUDIO_PLAYBACK_RATE;
@@ -266,10 +277,17 @@ export class CanvasAudioPlaybackService {
   private canvasQueue: CanvasAudioPlaybackSource[] = [];
   private currentReadingSource: ReadingPlaybackSource | null = null;
   private readingVersion = 0;
-  private readingProgressHandle: number | ReturnType<typeof setInterval> | null = null;
+  private readingProgressHandle:
+    | number
+    | ReturnType<typeof setInterval>
+    | null = null;
   private readingSegmentResumeAt = 0;
   private readingSegmentOffsetMs = 0;
   private readingResumeRequiresRestart = false;
+  private directPlaybackFallbackUrl: string | null = null;
+  private playbackFallbackInProgress = false;
+  private playbackFallbackPromise: Promise<boolean> | null = null;
+  private analysisEnabledForCurrentAudio = true;
 
   constructor(
     private readonly audioFactory: () => HTMLAudioElement = () => new Audio(),
@@ -303,7 +321,9 @@ export class CanvasAudioPlaybackService {
   private patchState(
     partial:
       | Partial<CanvasAudioPlaybackState>
-      | ((current: CanvasAudioPlaybackState) => Partial<CanvasAudioPlaybackState>)
+      | ((
+          current: CanvasAudioPlaybackState
+        ) => Partial<CanvasAudioPlaybackState>)
   ): void {
     const patch = typeof partial === 'function' ? partial(this.state) : partial;
     this.setState({
@@ -334,7 +354,9 @@ export class CanvasAudioPlaybackService {
     this.patchState((current) => ({
       readingPlaybackRate: nextReadingRate,
       effectivePlaybackRate:
-        current.mediaType !== 'audio' ? nextReadingRate : current.effectivePlaybackRate,
+        current.mediaType !== 'audio'
+          ? nextReadingRate
+          : current.effectivePlaybackRate,
     }));
 
     if (this.state.mediaType !== 'reading' || !this.currentReadingSource) {
@@ -342,7 +364,10 @@ export class CanvasAudioPlaybackService {
     }
 
     if (this.state.playing) {
-      const nextSegmentIndex = Math.max(0, this.state.activeReadingSegmentIndex);
+      const nextSegmentIndex = Math.max(
+        0,
+        this.state.activeReadingSegmentIndex
+      );
       this.startReading(this.currentReadingSource, nextSegmentIndex);
       return;
     }
@@ -350,12 +375,17 @@ export class CanvasAudioPlaybackService {
     this.readingResumeRequiresRestart = true;
   };
 
-  private getUtteranceFactory(): ((text: string) => SpeechSynthesisUtterance) | null {
+  private getUtteranceFactory():
+    | ((text: string) => SpeechSynthesisUtterance)
+    | null {
     if (this.runtime.utteranceFactory) {
       return this.runtime.utteranceFactory;
     }
 
-    if (typeof window === 'undefined' || typeof window.SpeechSynthesisUtterance === 'undefined') {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.SpeechSynthesisUtterance === 'undefined'
+    ) {
       return null;
     }
 
@@ -400,7 +430,6 @@ export class CanvasAudioPlaybackService {
       this.audio.preload = 'metadata';
       this.audio.volume = this.state.volume;
       this.audio.playbackRate = this.state.audioPlaybackRate;
-      this.audio.crossOrigin = 'anonymous';
       this.attachAudioListeners(this.audio);
     }
 
@@ -420,8 +449,10 @@ export class CanvasAudioPlaybackService {
       return undefined;
     }
 
-    const AudioContextCtor = window.AudioContext
-      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
 
     if (!AudioContextCtor) {
       return undefined;
@@ -430,7 +461,9 @@ export class CanvasAudioPlaybackService {
     return () => new AudioContextCtor();
   }
 
-  private getRequestFrame(): ((callback: FrameRequestCallback) => number) | undefined {
+  private getRequestFrame():
+    | ((callback: FrameRequestCallback) => number)
+    | undefined {
     if (this.runtime.requestFrame) {
       return this.runtime.requestFrame;
     }
@@ -486,7 +519,10 @@ export class CanvasAudioPlaybackService {
     return normalized;
   }
 
-  private findQueueIndex(queue: PlaybackQueueItem[], source: PlaybackQueueItem): number {
+  private findQueueIndex(
+    queue: PlaybackQueueItem[],
+    source: PlaybackQueueItem
+  ): number {
     const sourceKey = this.getSourceKey(source);
     return queue.findIndex((item) => this.getSourceKey(item) === sourceKey);
   }
@@ -499,6 +535,16 @@ export class CanvasAudioPlaybackService {
     audio.addEventListener('loadedmetadata', this.handleLoadedMetadata);
     audio.addEventListener('durationchange', this.handleDurationChange);
     audio.addEventListener('error', this.handleError);
+  }
+
+  private detachAudioListeners(audio: HTMLAudioElement): void {
+    audio.removeEventListener('play', this.handlePlay);
+    audio.removeEventListener('pause', this.handlePause);
+    audio.removeEventListener('ended', this.handleEnded);
+    audio.removeEventListener('timeupdate', this.handleTimeUpdate);
+    audio.removeEventListener('loadedmetadata', this.handleLoadedMetadata);
+    audio.removeEventListener('durationchange', this.handleDurationChange);
+    audio.removeEventListener('error', this.handleError);
   }
 
   private handlePlay = (): void => {
@@ -533,9 +579,10 @@ export class CanvasAudioPlaybackService {
       return;
     }
 
-    const duration = this.audio && Number.isFinite(this.audio.duration)
-      ? this.audio.duration
-      : this.state.duration;
+    const duration =
+      this.audio && Number.isFinite(this.audio.duration)
+        ? this.audio.duration
+        : this.state.duration;
 
     this.stopAnalysisLoop();
     this.patchState({
@@ -587,6 +634,18 @@ export class CanvasAudioPlaybackService {
   };
 
   private handleError = (): void => {
+    if (this.playbackFallbackInProgress) {
+      return;
+    }
+
+    if (
+      this.audio &&
+      this.directPlaybackFallbackUrl &&
+      !this.playbackFallbackInProgress
+    ) {
+      void this.playDirectPlaybackFallback();
+      return;
+    }
     this.stopAnalysisLoop();
     this.patchState({
       playing: false,
@@ -598,7 +657,85 @@ export class CanvasAudioPlaybackService {
     });
   };
 
+  private replaceAudioElementForDirectPlayback(): void {
+    const previousAudio = this.audio;
+    if (!previousAudio) {
+      return;
+    }
+
+    this.detachAudioListeners(previousAudio);
+    this.stopAnalysisLoop();
+    this.mediaElementSource?.disconnect?.();
+    this.mediaElementSource = null;
+
+    const audio = this.audioFactory();
+    audio.preload = 'metadata';
+    audio.volume = this.state.volume;
+    audio.playbackRate = this.state.audioPlaybackRate;
+    this.audio = audio;
+    this.attachAudioListeners(audio);
+  }
+
+  private async performDirectPlaybackFallback(): Promise<boolean> {
+    const fallbackUrl = this.directPlaybackFallbackUrl;
+    if (!this.audio || !fallbackUrl || this.playbackFallbackInProgress) {
+      return false;
+    }
+
+    this.directPlaybackFallbackUrl = null;
+    this.playbackFallbackInProgress = true;
+    if (this.mediaElementSource) {
+      this.replaceAudioElementForDirectPlayback();
+    }
+
+    const audio = this.audio;
+    this.analysisEnabledForCurrentAudio = false;
+    this.stopAnalysisLoop();
+    audio.pause();
+    audio.removeAttribute('crossorigin');
+    audio.src = fallbackUrl;
+    audio.currentTime = 0;
+    try {
+      audio.load();
+    } catch {
+      // Let play surface the final error.
+    }
+
+    try {
+      await audio.play();
+      return true;
+    } catch (error) {
+      this.patchState({
+        playing: false,
+        analysisAvailable: false,
+        error: getPlaybackErrorMessage(error),
+      });
+      return false;
+    } finally {
+      this.playbackFallbackInProgress = false;
+    }
+  }
+
+  private playDirectPlaybackFallback(): Promise<boolean> {
+    if (this.playbackFallbackPromise) {
+      return this.playbackFallbackPromise;
+    }
+
+    const fallbackPromise = this.performDirectPlaybackFallback();
+    const trackedPromise = fallbackPromise.finally(() => {
+      if (this.playbackFallbackPromise === trackedPromise) {
+        this.playbackFallbackPromise = null;
+      }
+    });
+    this.playbackFallbackPromise = trackedPromise;
+    return trackedPromise;
+  }
+
   private async ensureAnalysisGraph(): Promise<boolean> {
+    if (!this.analysisEnabledForCurrentAudio) {
+      return false;
+    }
+
     const createAudioContext = this.getAudioContextFactory();
 
     if (!createAudioContext) {
@@ -612,23 +749,30 @@ export class CanvasAudioPlaybackService {
         this.audioContext = createAudioContext();
       }
 
-      if (!this.mediaElementSource) {
-        this.mediaElementSource = this.audioContext.createMediaElementSource(audio);
-      }
-
       if (!this.analyserNode) {
         this.analyserNode = this.audioContext.createAnalyser();
         this.analyserNode.fftSize = ANALYSIS_FFT_SIZE;
         this.analyserNode.smoothingTimeConstant = 0.82;
-        this.mediaElementSource.connect(this.analyserNode);
         this.analyserNode.connect(this.audioContext.destination);
       }
 
-      if (!this.analyserData || this.analyserData.length !== this.analyserNode.frequencyBinCount) {
+      if (!this.mediaElementSource) {
+        this.mediaElementSource =
+          this.audioContext.createMediaElementSource(audio);
+        this.mediaElementSource.connect(this.analyserNode);
+      }
+
+      if (
+        !this.analyserData ||
+        this.analyserData.length !== this.analyserNode.frequencyBinCount
+      ) {
         this.analyserData = new Uint8Array(this.analyserNode.frequencyBinCount);
       }
 
-      if (!this.timeDomainData || this.timeDomainData.length !== this.analyserNode.fftSize) {
+      if (
+        !this.timeDomainData ||
+        this.timeDomainData.length !== this.analyserNode.fftSize
+      ) {
         this.timeDomainData = new Uint8Array(this.analyserNode.fftSize);
       }
 
@@ -644,15 +788,19 @@ export class CanvasAudioPlaybackService {
 
   private normalizeBandRanges(length: number): Array<[number, number]> {
     return Array.from({ length: ANALYSIS_BAND_COUNT }, (_, index) => {
-      const start = Math.floor(((index / ANALYSIS_BAND_COUNT) ** 1.85) * length);
-      const end = Math.floor((((index + 1) / ANALYSIS_BAND_COUNT) ** 1.85) * length);
+      const start = Math.floor((index / ANALYSIS_BAND_COUNT) ** 1.85 * length);
+      const end = Math.floor(
+        ((index + 1) / ANALYSIS_BAND_COUNT) ** 1.85 * length
+      );
       return [start, Math.max(start + 1, end)];
     });
   }
 
-  private readSpectrumLevels():
-    | { levels: number[]; waveformLevels: number[]; pulseLevel: number }
-    | null {
+  private readSpectrumLevels(): {
+    levels: number[];
+    waveformLevels: number[];
+    pulseLevel: number;
+  } | null {
     if (!this.analyserNode || !this.analyserData || !this.timeDomainData) {
       return null;
     }
@@ -674,8 +822,8 @@ export class CanvasAudioPlaybackService {
       { length: ANALYSIS_WAVEFORM_SAMPLE_COUNT },
       (_, index) => {
         const position = Math.round(
-          (index / Math.max(1, ANALYSIS_WAVEFORM_SAMPLE_COUNT - 1))
-            * (timeDomainData.length - 1)
+          (index / Math.max(1, ANALYSIS_WAVEFORM_SAMPLE_COUNT - 1)) *
+            (timeDomainData.length - 1)
         );
         const start = Math.max(0, position - 1);
         const end = Math.min(timeDomainData.length, position + 2);
@@ -687,7 +835,8 @@ export class CanvasAudioPlaybackService {
 
         const average = total / Math.max(1, end - start);
         const emphasized =
-          Math.sign(average) * Math.min(1, Math.pow(Math.abs(average), 0.88) * 1.72);
+          Math.sign(average) *
+          Math.min(1, Math.pow(Math.abs(average), 0.88) * 1.72);
 
         return Math.max(-1, Math.min(1, emphasized));
       }
@@ -695,19 +844,22 @@ export class CanvasAudioPlaybackService {
     const waveformLevels = rawWaveformLevels.map((sample, index, values) => {
       const previous = values[index - 1] ?? sample;
       const next = values[index + 1] ?? sample;
-      return Math.max(-1, Math.min(1, previous * 0.2 + sample * 0.6 + next * 0.2));
+      return Math.max(
+        -1,
+        Math.min(1, previous * 0.2 + sample * 0.6 + next * 0.2)
+      );
     });
     const waveformEnergy =
-      waveformLevels.reduce((total, sample) => total + Math.abs(sample), 0)
-      / Math.max(1, waveformLevels.length);
+      waveformLevels.reduce((total, sample) => total + Math.abs(sample), 0) /
+      Math.max(1, waveformLevels.length);
     const pulseLevel = Math.max(
       0,
       Math.min(
         1,
-        (levels[0] ?? 0) * 0.42
-          + (levels[1] ?? 0) * 0.28
-          + (levels[2] ?? 0) * 0.16
-          + waveformEnergy * 0.22
+        (levels[0] ?? 0) * 0.42 +
+          (levels[1] ?? 0) * 0.28 +
+          (levels[2] ?? 0) * 0.16 +
+          waveformEnergy * 0.22
       )
     );
 
@@ -725,7 +877,12 @@ export class CanvasAudioPlaybackService {
     this.lastAnalysisFrameAt = 0;
 
     const step = (timestamp: number) => {
-      if (!this.analyserNode || !this.analyserData || !this.state.playing || this.state.mediaType !== 'audio') {
+      if (
+        !this.analyserNode ||
+        !this.analyserData ||
+        !this.state.playing ||
+        this.state.mediaType !== 'audio'
+      ) {
         this.analysisFrameHandle = null;
         return;
       }
@@ -739,18 +896,33 @@ export class CanvasAudioPlaybackService {
             analysisAvailable: true,
             spectrumLevels: nextSpectrum.levels.map((level, index) => {
               const previous = current.spectrumLevels[index] ?? 0;
-              return Math.max(0, Math.min(1, previous * ANALYSIS_SMOOTHING + level * (1 - ANALYSIS_SMOOTHING)));
+              return Math.max(
+                0,
+                Math.min(
+                  1,
+                  previous * ANALYSIS_SMOOTHING +
+                    level * (1 - ANALYSIS_SMOOTHING)
+                )
+              );
             }),
             waveformLevels: nextSpectrum.waveformLevels.map((sample, index) => {
               const previous = current.waveformLevels[index] ?? 0;
               return Math.max(
                 -1,
-                Math.min(1, previous * WAVEFORM_SMOOTHING + sample * (1 - WAVEFORM_SMOOTHING))
+                Math.min(
+                  1,
+                  previous * WAVEFORM_SMOOTHING +
+                    sample * (1 - WAVEFORM_SMOOTHING)
+                )
               );
             }),
             pulseLevel: Math.max(
               0,
-              Math.min(1, current.pulseLevel * PULSE_SMOOTHING + nextSpectrum.pulseLevel * (1 - PULSE_SMOOTHING))
+              Math.min(
+                1,
+                current.pulseLevel * PULSE_SMOOTHING +
+                  nextSpectrum.pulseLevel * (1 - PULSE_SMOOTHING)
+              )
             ),
           }));
         }
@@ -804,22 +976,38 @@ export class CanvasAudioPlaybackService {
   private startReadingProgressLoop(): void {
     this.stopReadingProgressLoop();
     const setIntervalFn = this.getSetInterval();
-    if (!setIntervalFn || !this.currentReadingSource || this.state.activeReadingSegmentIndex < 0) {
+    if (
+      !setIntervalFn ||
+      !this.currentReadingSource ||
+      this.state.activeReadingSegmentIndex < 0
+    ) {
       return;
     }
 
     this.readingProgressHandle = setIntervalFn(() => {
-      if (!this.currentReadingSource || this.state.activeReadingSegmentIndex < 0 || !this.state.playing) {
+      if (
+        !this.currentReadingSource ||
+        this.state.activeReadingSegmentIndex < 0 ||
+        !this.state.playing
+      ) {
         return;
       }
 
-      const segment = this.currentReadingSource.segments[this.state.activeReadingSegmentIndex];
+      const segment =
+        this.currentReadingSource.segments[
+          this.state.activeReadingSegmentIndex
+        ];
       if (!segment) {
         return;
       }
 
-      const elapsedMs = this.readingSegmentOffsetMs + Math.max(0, this.getNow() - this.readingSegmentResumeAt);
-      const currentTimeMs = Math.min(segment.endMs, segment.startMs + elapsedMs);
+      const elapsedMs =
+        this.readingSegmentOffsetMs +
+        Math.max(0, this.getNow() - this.readingSegmentResumeAt);
+      const currentTimeMs = Math.min(
+        segment.endMs,
+        segment.startMs + elapsedMs
+      );
       this.patchState({
         currentTime: currentTimeMs / 1000,
       });
@@ -871,16 +1059,33 @@ export class CanvasAudioPlaybackService {
     restartFromBeginning = false
   ): Promise<void> {
     this.stopReadingForAudio();
-    const audio = this.ensureAudio();
+    let audio = this.ensureAudio();
     const playbackUrl = await this.resolvePlaybackAudioUrl(source);
     const switchingTrack =
-      restartFromBeginning
-      || this.state.activeAudioUrl !== source.audioUrl
-      || this.state.mediaType !== 'audio';
+      restartFromBeginning ||
+      this.state.activeAudioUrl !== source.audioUrl ||
+      this.state.mediaType !== 'audio';
     const activeQueueIndex = this.findQueueIndex(this.state.queue, source);
 
     if (switchingTrack) {
       audio.pause();
+      const resolvedToLocalCache = playbackUrl !== source.audioUrl;
+      const directRemotePlayback = /^https?:\/\//i.test(playbackUrl);
+      if (directRemotePlayback && this.mediaElementSource) {
+        this.replaceAudioElementForDirectPlayback();
+        audio = this.ensureAudio();
+      }
+      this.analysisEnabledForCurrentAudio = !directRemotePlayback;
+      this.directPlaybackFallbackUrl =
+        resolvedToLocalCache && /^https?:\/\//i.test(source.audioUrl)
+          ? source.audioUrl
+          : null;
+      this.playbackFallbackInProgress = false;
+      if (/^https?:\/\//i.test(playbackUrl)) {
+        audio.removeAttribute('crossorigin');
+      } else {
+        audio.crossOrigin = 'anonymous';
+      }
       audio.src = playbackUrl;
       audio.currentTime = 0;
 
@@ -904,7 +1109,9 @@ export class CanvasAudioPlaybackService {
       activeClipIds: source.clipIds,
       activeQueueIndex,
       currentTime: switchingTrack ? 0 : audio.currentTime,
-      duration: source.duration || (Number.isFinite(audio.duration) ? audio.duration : 0),
+      duration:
+        source.duration ||
+        (Number.isFinite(audio.duration) ? audio.duration : 0),
       effectivePlaybackRate: this.state.audioPlaybackRate,
       activeReadingSourceId: undefined,
       activeReadingOrigin: undefined,
@@ -921,10 +1128,18 @@ export class CanvasAudioPlaybackService {
     try {
       await audio.play();
     } catch (error) {
-      this.patchState({
-        playing: false,
-        error: getPlaybackErrorMessage(error),
-      });
+      const fallbackWasAvailable = Boolean(
+        this.directPlaybackFallbackUrl || this.playbackFallbackPromise
+      );
+      if (await this.playDirectPlaybackFallback()) {
+        return;
+      }
+      if (!fallbackWasAvailable) {
+        this.patchState({
+          playing: false,
+          error: getPlaybackErrorMessage(error),
+        });
+      }
       throw error;
     }
   }
@@ -952,19 +1167,25 @@ export class CanvasAudioPlaybackService {
         ext !== 'bin' ? ext : 'mp3',
         undefined,
         {
-          source:
-            source.elementId?.startsWith('asset:')
-              ? 'PLAYBACK_CACHE'
-              : 'AI_GENERATED',
+          source: source.elementId?.startsWith('asset:')
+            ? 'PLAYBACK_CACHE'
+            : 'AI_GENERATED',
+          returnLocalCacheUrl: true,
         }
       );
     } catch (error) {
-      console.warn('[CanvasAudioPlayback] Failed to resolve local audio cache:', error);
+      console.warn(
+        '[CanvasAudioPlayback] Failed to resolve local audio cache:',
+        error
+      );
       return audioUrl;
     }
   }
 
-  private createReadingUtterance(text: string, preferredLanguage: string): SpeechSynthesisUtterance | null {
+  private createReadingUtterance(
+    text: string,
+    preferredLanguage: string
+  ): SpeechSynthesisUtterance | null {
     const speechSynthesis = this.getSpeechSynthesis();
     const utteranceFactory = this.getUtteranceFactory();
     if (!speechSynthesis || !utteranceFactory) {
@@ -983,7 +1204,11 @@ export class CanvasAudioPlaybackService {
     utterance.rate = settings.rate;
     utterance.pitch = settings.pitch;
     utterance.volume = settings.volume;
-    const voice = resolveVoice(speechSynthesis.getVoices(), settings, preferredLanguage);
+    const voice = resolveVoice(
+      speechSynthesis.getVoices(),
+      settings,
+      preferredLanguage
+    );
     if (voice) {
       utterance.voice = voice;
     }
@@ -1014,7 +1239,10 @@ export class CanvasAudioPlaybackService {
       return;
     }
 
-    const utterance = this.createReadingUtterance(segment.text, source.preferredLanguage);
+    const utterance = this.createReadingUtterance(
+      segment.text,
+      source.preferredLanguage
+    );
     if (!utterance) {
       this.patchState({
         playing: false,
@@ -1068,7 +1296,8 @@ export class CanvasAudioPlaybackService {
       readingSegments: source.segments,
       subtitleMode: 'estimated',
       currentTime: segment.startMs / 1000,
-      duration: (source.segments[source.segments.length - 1]?.endMs || 0) / 1000,
+      duration:
+        (source.segments[source.segments.length - 1]?.endMs || 0) / 1000,
       effectivePlaybackRate: this.state.readingPlaybackRate,
       playing: true,
       analysisAvailable: false,
@@ -1096,13 +1325,17 @@ export class CanvasAudioPlaybackService {
       activeQueueIndex,
     });
 
-    this.beginReadingSegment(source, Math.max(0, Math.min(segmentIndex, source.segments.length - 1)));
+    this.beginReadingSegment(
+      source,
+      Math.max(0, Math.min(segmentIndex, source.segments.length - 1))
+    );
   }
 
   async togglePlayback(source: CanvasAudioPlaybackSource): Promise<void> {
-    const isSameTrack = this.state.mediaType === 'audio'
-      && this.state.activeElementId === source.elementId
-      && this.state.activeAudioUrl === source.audioUrl;
+    const isSameTrack =
+      this.state.mediaType === 'audio' &&
+      this.state.activeElementId === source.elementId &&
+      this.state.activeAudioUrl === source.audioUrl;
 
     if (isSameTrack && this.state.playing) {
       this.pausePlayback();
@@ -1113,8 +1346,9 @@ export class CanvasAudioPlaybackService {
   }
 
   toggleReadingPlayback(source: ReadingPlaybackSource): void {
-    const isSameSource = this.state.mediaType === 'reading'
-      && this.state.activeReadingSourceId === source.readingSourceId;
+    const isSameSource =
+      this.state.mediaType === 'reading' &&
+      this.state.activeReadingSourceId === source.readingSourceId;
 
     if (isSameSource) {
       if (this.state.playing) {
@@ -1147,11 +1381,16 @@ export class CanvasAudioPlaybackService {
       this.patchState((current) => ({
         readingPlaybackRate: nextRate,
         effectivePlaybackRate:
-          current.mediaType !== 'audio' ? nextRate : current.effectivePlaybackRate,
+          current.mediaType !== 'audio'
+            ? nextRate
+            : current.effectivePlaybackRate,
       }));
 
       if (this.state.mediaType === 'reading' && this.currentReadingSource) {
-        const nextSegmentIndex = Math.max(0, this.state.activeReadingSegmentIndex);
+        const nextSegmentIndex = Math.max(
+          0,
+          this.state.activeReadingSegmentIndex
+        );
         if (this.state.playing) {
           this.startReading(this.currentReadingSource, nextSegmentIndex);
         } else {
@@ -1160,7 +1399,10 @@ export class CanvasAudioPlaybackService {
       }
 
       void ttsSettings.update({ rate: nextRate }).catch((error) => {
-        console.warn('[CanvasAudioPlayback] Failed to persist reading playback rate:', error);
+        console.warn(
+          '[CanvasAudioPlayback] Failed to persist reading playback rate:',
+          error
+        );
       });
       return;
     }
@@ -1178,7 +1420,9 @@ export class CanvasAudioPlaybackService {
     this.patchState((current) => ({
       audioPlaybackRate: nextRate,
       effectivePlaybackRate:
-        current.mediaType !== 'reading' ? nextRate : current.effectivePlaybackRate,
+        current.mediaType !== 'reading'
+          ? nextRate
+          : current.effectivePlaybackRate,
     }));
   }
 
@@ -1230,7 +1474,10 @@ export class CanvasAudioPlaybackService {
     return -1;
   }
 
-  private async playQueueItemAt(index: number, restartFromBeginning = false): Promise<void> {
+  private async playQueueItemAt(
+    index: number,
+    restartFromBeginning = false
+  ): Promise<void> {
     if (index < 0 || index >= this.state.queue.length) {
       return;
     }
@@ -1252,7 +1499,10 @@ export class CanvasAudioPlaybackService {
       return;
     }
 
-    await this.playQueueItemAt(nextIndex, nextIndex === this.state.activeQueueIndex);
+    await this.playQueueItemAt(
+      nextIndex,
+      nextIndex === this.state.activeQueueIndex
+    );
   }
 
   setCanvasQueue(queue: CanvasAudioPlaybackSource[]): void {
@@ -1264,10 +1514,10 @@ export class CanvasAudioPlaybackService {
     }
 
     const activeSource = this.state.activeAudioUrl
-      ? {
+      ? ({
           elementId: this.state.activeElementId,
           audioUrl: this.state.activeAudioUrl,
-        } as CanvasAudioPlaybackSource
+        } as CanvasAudioPlaybackSource)
       : null;
 
     const activeQueueIndex = activeSource
@@ -1304,7 +1554,9 @@ export class CanvasAudioPlaybackService {
   ): void {
     const normalizedQueue = this.normalizeQueue(queue);
     const activeSource = this.state.activeReadingSourceId
-      ? normalizedQueue.find((item) => item.readingSourceId === this.state.activeReadingSourceId)
+      ? normalizedQueue.find(
+          (item) => item.readingSourceId === this.state.activeReadingSourceId
+        )
       : null;
 
     this.patchState({
@@ -1312,7 +1564,9 @@ export class CanvasAudioPlaybackService {
       activePlaylistId: options?.queueId,
       activePlaylistName: options?.queueName,
       queue: normalizedQueue,
-      activeQueueIndex: activeSource ? this.findQueueIndex(normalizedQueue, activeSource) : -1,
+      activeQueueIndex: activeSource
+        ? this.findQueueIndex(normalizedQueue, activeSource)
+        : -1,
     });
   }
 
@@ -1343,20 +1597,26 @@ export class CanvasAudioPlaybackService {
       this.canvasQueue = normalizedQueue.filter(isAudioPlaybackSource);
     }
     const activeSource = this.state.activeAudioUrl
-      ? {
+      ? ({
           elementId: this.state.activeElementId,
           audioUrl: this.state.activeAudioUrl,
-        } as CanvasAudioPlaybackSource
+        } as CanvasAudioPlaybackSource)
       : null;
 
     this.patchState({
       queueSource: options?.queueSource || 'canvas',
       activePlaylistId:
-        options?.queueId ?? (options?.queueSource === 'playlist' ? options.playlistId : undefined),
+        options?.queueId ??
+        (options?.queueSource === 'playlist' ? options.playlistId : undefined),
       activePlaylistName:
-        options?.queueName ?? (options?.queueSource === 'playlist' ? options.playlistName : undefined),
+        options?.queueName ??
+        (options?.queueSource === 'playlist'
+          ? options.playlistName
+          : undefined),
       queue: normalizedQueue,
-      activeQueueIndex: activeSource ? this.findQueueIndex(normalizedQueue, activeSource) : -1,
+      activeQueueIndex: activeSource
+        ? this.findQueueIndex(normalizedQueue, activeSource)
+        : -1,
     });
   }
 
@@ -1369,7 +1629,10 @@ export class CanvasAudioPlaybackService {
 
       speechSynthesis.pause();
       if (this.readingSegmentResumeAt > 0) {
-        this.readingSegmentOffsetMs += Math.max(0, this.getNow() - this.readingSegmentResumeAt);
+        this.readingSegmentOffsetMs += Math.max(
+          0,
+          this.getNow() - this.readingSegmentResumeAt
+        );
       }
       this.readingSegmentResumeAt = 0;
       this.stopReadingProgressLoop();
@@ -1411,7 +1674,10 @@ export class CanvasAudioPlaybackService {
         return;
       }
 
-      if (this.state.activeReadingSegmentIndex < 0 || this.readingResumeRequiresRestart) {
+      if (
+        this.state.activeReadingSegmentIndex < 0 ||
+        this.readingResumeRequiresRestart
+      ) {
         this.startReading(
           this.currentReadingSource,
           Math.max(0, this.state.activeReadingSegmentIndex)
@@ -1468,7 +1734,10 @@ export class CanvasAudioPlaybackService {
       return;
     }
 
-    const boundedIndex = Math.max(0, Math.min(index, this.currentReadingSource.segments.length - 1));
+    const boundedIndex = Math.max(
+      0,
+      Math.min(index, this.currentReadingSource.segments.length - 1)
+    );
     this.startReading(this.currentReadingSource, boundedIndex);
   }
 
@@ -1487,6 +1756,7 @@ export class CanvasAudioPlaybackService {
   stopAndClear(): void {
     this.stopAnalysisLoop();
     this.clearReadingRuntime(true);
+    this.directPlaybackFallbackUrl = null;
 
     if (this.audio) {
       this.audio.pause();

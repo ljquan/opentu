@@ -1,6 +1,58 @@
 {
   "versions": [
     {
+      "version": "1.1.5",
+      "date": "2026-09-03",
+      "changes": {
+        "features": [
+          "使用系统令牌连接 Tuzi 账户",
+          "add Tuzi account workspace and managed keys",
+          "add Tuzi URL token integration mode"
+        ],
+        "fixes": [
+          "URL 入口等待 Tuzi 模型同步完成",
+          "默认启用 Tuzi 集成",
+          "centralize shared database lifecycle"
+        ],
+        "improvements": [
+          "修复：统一供应商设置页面跳转行为",
+          "新增 Tuzi 账户管理",
+          "Revert \"feat: add Tuzi URL token integration mode\"",
+          "Revert \"feat: add Tuzi account workspace and managed keys\"",
+          "Revert \"fix(storage): centralize shared database lifecycle\""
+        ]
+      },
+      "type": "patch",
+      "highlights": "使用系统令牌连接 Tuzi 账户"
+    },
+    {
+      "version": "1.1.4",
+      "date": "2026-08-31",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复 Suno 纯音乐、多音轨结果与画布播放 (#246)",
+          "修复：统一供应商设置页面跳转行为 (#245)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
+      "version": "1.1.3",
+      "date": "2026-08-28",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "修复 PPT 讲解视频模型路由与生图复用"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "修复 PPT 讲解视频模型路由与生图复用"
+    },
+    {
       "version": "1.1.1",
       "date": "2026-08-26",
       "changes": {
@@ -947,45 +999,6 @@
       },
       "type": "patch",
       "highlights": "增强懒加载资源恢复与SEO优化"
-    },
-    {
-      "version": "0.6.84",
-      "date": "2026-04-28",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "perf: slim startup dependencies without visual regressions"
-        ]
-      },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
-    },
-    {
-      "version": "0.6.83",
-      "date": "2026-04-28",
-      "changes": {
-        "features": [
-          "优化懒加载和构建配置，添加分析埋点"
-        ],
-        "fixes": [],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "优化懒加载和构建配置，添加分析埋点"
-    },
-    {
-      "version": "0.6.82",
-      "date": "2026-04-27",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "更新应用版本号至0.6.81并同步构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
     }
   ]
 }

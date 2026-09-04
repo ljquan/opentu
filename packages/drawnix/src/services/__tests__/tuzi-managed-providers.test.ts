@@ -5,6 +5,10 @@ const { update, get } = vi.hoisted(() => ({
   update: vi.fn(),
   get: vi.fn(),
 }));
+const { catalogUpdate, catalogGet } = vi.hoisted(() => ({
+  catalogUpdate: vi.fn(),
+  catalogGet: vi.fn(),
+}));
 
 vi.mock('../../utils/settings-manager', () => ({
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
@@ -13,6 +17,7 @@ vi.mock('../../utils/settings-manager', () => ({
   TUZI_CODEX_PROVIDER_PROFILE_ID: 'tuzi-codex',
   TUZI_BUSINESS_PROVIDER_PROFILE_ID: 'tuzi-business',
   TUZI_PROVIDER_ICON_URL: '/logo-tuzi.png',
+  providerCatalogsSettings: { get: catalogGet, update: catalogUpdate },
   providerProfilesSettings: { get, update },
 }));
 
@@ -27,6 +32,13 @@ vi.mock('../tuzi-embedded-config', () => ({
 describe('synchronizeTuziManagedProviders', () => {
   beforeEach(() => {
     update.mockReset().mockResolvedValue(undefined);
+    catalogUpdate.mockReset().mockResolvedValue(undefined);
+    catalogGet
+      .mockReset()
+      .mockReturnValue([
+        { profileId: 'tuzi-managed-old' },
+        { profileId: 'custom-provider' },
+      ]);
     get.mockReset().mockReturnValue([
       {
         id: 'legacy-default',
@@ -105,5 +117,32 @@ describe('synchronizeTuziManagedProviders', () => {
         (profile: { id: string }) => profile.id === 'custom-provider'
       ).enabled
     ).not.toBe(false);
+  });
+
+  it('disables built-in Tuzi profiles when credentials are cleared', async () => {
+    await synchronizeTuziManagedProviders([]);
+
+    const updatedProfiles = update.mock.calls[0][0];
+    expect(
+      updatedProfiles
+        .filter((profile: { id: string }) =>
+          [
+            'legacy-default',
+            'tuzi-origin',
+            'tuzi-mix',
+            'tuzi-codex',
+            'tuzi-business',
+          ].includes(profile.id)
+        )
+        .every((profile: { enabled: boolean }) => profile.enabled === false)
+    ).toBe(true);
+    expect(
+      updatedProfiles.some(
+        (profile: { id: string }) => profile.id === 'tuzi-managed-old'
+      )
+    ).toBe(false);
+    expect(catalogUpdate).toHaveBeenCalledWith([
+      { profileId: 'custom-provider' },
+    ]);
   });
 });

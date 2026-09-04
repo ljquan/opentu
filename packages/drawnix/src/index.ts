@@ -30,6 +30,7 @@ export type { SWChannelEventHandlers } from './services/sw-channel/client';
 // Export model adapters (registry + types)
 export * from './services/model-adapters';
 export * from './services/provider-routing';
+export * from './services/tuzi-token-auth';
 
 // Export initialization services (for main.tsx)
 export { initWebVitals } from './services/web-vitals-service';

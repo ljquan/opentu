@@ -900,6 +900,7 @@ class TaskQueueService {
             modelRef: requestedModelRef,
             title: task.params.title,
             tags: task.params.tags,
+            instrumental: task.params.instrumental,
             mv: task.params.mv,
             sunoAction: task.params.sunoAction,
             notifyHook: task.params.notifyHook,

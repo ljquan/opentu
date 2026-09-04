@@ -1,11 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Button, Input } from 'tdesign-react';
 import { CheckIcon, RefreshIcon } from 'tdesign-icons-react';
 import { Play, Square, Volume2 } from 'lucide-react';
-import {
-  ttsSettings,
-  type TtsSettings,
-} from '../../utils/settings-manager';
+import { ttsSettings, type TtsSettings } from '../../utils/settings-manager';
 import './project-drawer.scss';
 
 interface VoiceOption {
@@ -133,6 +136,8 @@ export const TtsSettingsPanel: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('all');
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const sliderSaveTimerRef = useRef<number | null>(null);
+  const pendingSettingsRef = useRef<TtsSettings | null>(null);
 
   const loadVoices = useCallback(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -179,7 +184,10 @@ export const TtsSettingsPanel: React.FC = () => {
 
     const reloadVoices = () => {
       loadVoices();
-      if (window.speechSynthesis.getVoices().length === 0 && retryCount < maxRetries) {
+      if (
+        window.speechSynthesis.getVoices().length === 0 &&
+        retryCount < maxRetries
+      ) {
         retryCount += 1;
         retryTimer = window.setTimeout(reloadVoices, 120);
       }
@@ -231,6 +239,11 @@ export const TtsSettingsPanel: React.FC = () => {
       : settings.voicesByLanguage?.[selectedLanguage] || '';
 
   const persistSettings = useCallback(async (nextSettings: TtsSettings) => {
+    if (sliderSaveTimerRef.current !== null) {
+      window.clearTimeout(sliderSaveTimerRef.current);
+      sliderSaveTimerRef.current = null;
+    }
+    pendingSettingsRef.current = null;
     setSettings(nextSettings);
     await ttsSettings.update(nextSettings);
   }, []);
@@ -257,13 +270,33 @@ export const TtsSettingsPanel: React.FC = () => {
   );
 
   const handleSliderChange = useCallback(
-    async (field: 'rate' | 'pitch' | 'volume', value: number) => {
-      await persistSettings({
+    (field: 'rate' | 'pitch' | 'volume', value: number) => {
+      const nextSettings = {
         ...settings,
         [field]: value,
-      });
+      };
+      setSettings(nextSettings);
+      pendingSettingsRef.current = nextSettings;
+      if (sliderSaveTimerRef.current !== null) {
+        window.clearTimeout(sliderSaveTimerRef.current);
+      }
+      sliderSaveTimerRef.current = window.setTimeout(() => {
+        const pendingSettings = pendingSettingsRef.current;
+        pendingSettingsRef.current = null;
+        sliderSaveTimerRef.current = null;
+        if (pendingSettings) void ttsSettings.update(pendingSettings);
+      }, 300);
     },
-    [persistSettings, settings]
+    [settings]
+  );
+
+  useEffect(
+    () => () => {
+      if (sliderSaveTimerRef.current !== null) {
+        window.clearTimeout(sliderSaveTimerRef.current);
+      }
+    },
+    []
   );
 
   const handleResetLanguage = useCallback(async () => {
@@ -333,7 +366,9 @@ export const TtsSettingsPanel: React.FC = () => {
           <Volume2 size={16} />
           <span>播报参数</span>
         </div>
-        <div className="project-drawer-tts__hint">使用浏览器自带能力，免费。</div>
+        <div className="project-drawer-tts__hint">
+          使用浏览器自带能力，免费。
+        </div>
         <label className="project-drawer-tts__slider">
           <span className="project-drawer-tts__slider-label">语速</span>
           <input
@@ -437,7 +472,11 @@ export const TtsSettingsPanel: React.FC = () => {
             >
               刷新
             </Button>
-            <Button size="small" variant="text" onClick={() => void handleResetLanguage()}>
+            <Button
+              size="small"
+              variant="text"
+              onClick={() => void handleResetLanguage()}
+            >
               {selectedLanguage === 'all' ? '清空默认音色' : '改回全局默认'}
             </Button>
           </div>
@@ -446,7 +485,9 @@ export const TtsSettingsPanel: React.FC = () => {
         <div className="project-drawer-tts__hint">
           {selectedLanguage === 'all'
             ? '全局默认会作为所有 TTS 入口的首选音色。'
-            : `${getLanguageLabel(selectedLanguage)} 可单独覆盖音色，未设置时回退到全局默认。`}
+            : `${getLanguageLabel(
+                selectedLanguage
+              )} 可单独覆盖音色，未设置时回退到全局默认。`}
         </div>
 
         {filteredVoices.length === 0 ? (
@@ -488,7 +529,9 @@ export const TtsSettingsPanel: React.FC = () => {
                     size="small"
                     variant="text"
                     theme="default"
-                    icon={isPreviewing ? <Square size={14} /> : <Play size={14} />}
+                    icon={
+                      isPreviewing ? <Square size={14} /> : <Play size={14} />
+                    }
                     onClick={(event) => {
                       event.stopPropagation();
                       handlePreview(voice.uri, voice.lang);

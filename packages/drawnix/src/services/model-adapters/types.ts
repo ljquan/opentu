@@ -99,6 +99,7 @@ export interface AudioGenerationRequest {
   modelRef?: ModelRef | null;
   title?: string;
   tags?: string;
+  instrumental?: boolean;
   mv?: string;
   sunoAction?: string;
   notifyHook?: string;

@@ -35,6 +35,8 @@ import Menu from '../../menu/menu';
 import { useContext, useState, useCallback } from 'react';
 import { MenuContentPropsContext } from '../../menu/common';
 import { EVENT } from '../../../constants';
+import { queueProviderSettingsNavigation } from '../../settings-dialog/provider-settings-navigation';
+import { LEGACY_DEFAULT_PROVIDER_PROFILE_ID } from '../../../utils/settings-manager';
 
 export const SaveToFile = () => {
   const board = useBoard();
@@ -224,17 +226,18 @@ export const DebugPanel = () => {
 DebugPanel.displayName = 'DebugPanel';
 
 export const Settings = () => {
-  const { appState, setAppState } = useDrawnix();
+  const { setAppState } = useDrawnix();
   const { t } = useI18n();
   return (
     <MenuItem
       icon={<SettingsIcon />}
       data-track="toolbar_click_menu_settings"
       onSelect={() => {
-        setAppState({
-          ...appState,
-          openSettings: true,
+        queueProviderSettingsNavigation({
+          action: 'select',
+          profileId: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
         });
+        setAppState((prev) => ({ ...prev, openSettings: true }));
       }}
       aria-label={t('menu.settings')}
     >

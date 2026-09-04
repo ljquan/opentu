@@ -4,6 +4,7 @@ vi.mock('../media-executor/fallback-utils', () => ({
   cacheRemoteUrl: vi.fn(async (url: string) => url),
 }));
 
+import { cacheRemoteUrl } from '../media-executor/fallback-utils';
 import {
   CanvasAudioPlaybackService,
   DEFAULT_PLAYBACK_MODE,
@@ -13,6 +14,9 @@ import {
 import { ttsSettings } from '../../utils/settings-manager';
 
 beforeEach(async () => {
+  vi.mocked(cacheRemoteUrl)
+    .mockReset()
+    .mockImplementation(async (url) => url);
   globalThis.localStorage?.clear?.();
   await ttsSettings.update({
     selectedVoice: '',
@@ -26,15 +30,16 @@ import { createReadingPlaybackSource } from '../reading-playback-source';
 
 class MockAudioElement extends EventTarget {
   src = '';
+  crossOrigin = '';
   currentTime = 0;
   duration = 0;
   preload = '';
   volume = 1;
   playbackRate = 1;
 
-  async play(): Promise<void> {
+  play = vi.fn(async (): Promise<void> => {
     this.dispatchEvent(new Event('play'));
-  }
+  });
 
   pause(): void {
     this.dispatchEvent(new Event('pause'));
@@ -48,11 +53,15 @@ class MockAudioElement extends EventTarget {
     if (name === 'src') {
       this.src = '';
     }
+    if (name.toLowerCase() === 'crossorigin') {
+      this.crossOrigin = '';
+    }
   }
 }
 
 class MockMediaElementSourceNode {
   connect = vi.fn();
+  disconnect = vi.fn();
 }
 
 class MockAnalyserNode {
@@ -78,7 +87,9 @@ class MockAudioContext {
   readonly mediaSource = new MockMediaElementSourceNode();
   readonly analyser = new MockAnalyserNode();
 
-  createMediaElementSource = vi.fn(() => this.mediaSource as unknown as MediaElementAudioSourceNode);
+  createMediaElementSource = vi.fn(
+    () => this.mediaSource as unknown as MediaElementAudioSourceNode
+  );
   createAnalyser = vi.fn(() => this.analyser as unknown as AnalyserNode);
   resume = vi.fn(async () => {
     this.state = 'running';
@@ -127,7 +138,9 @@ describe('CanvasAudioPlaybackService', () => {
   it('starts playback and stores active metadata for a source', async () => {
     const audio = new MockAudioElement();
     audio.duration = 215;
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     await service.togglePlayback({
       elementId: 'audio-node-1',
@@ -145,11 +158,133 @@ describe('CanvasAudioPlaybackService', () => {
       duration: 215,
       playing: true,
     });
+    expect(audio.crossOrigin).toBe('');
+  });
+
+  it('falls back to the original remote URL when cached playback is rejected', async () => {
+    const cachedUrl = '/__aitu_generated__/audio/cached-track.mp3';
+    const remoteUrl = 'https://example.com/remote-track.mp3';
+    vi.mocked(cacheRemoteUrl).mockResolvedValue(cachedUrl);
+
+    const audio = new MockAudioElement();
+    audio.play
+      .mockRejectedValueOnce(new Error('cached media unavailable'))
+      .mockImplementationOnce(async () => {
+        audio.dispatchEvent(new Event('play'));
+      });
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+
+    await service.togglePlayback({
+      elementId: 'audio-node-fallback',
+      audioUrl: remoteUrl,
+      title: 'Fallback Track',
+    });
+
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(audio.src).toBe(remoteUrl);
+    expect(audio.crossOrigin).toBe('');
+    expect(service.getState()).toMatchObject({
+      playing: true,
+      activeAudioUrl: remoteUrl,
+      error: undefined,
+    });
+  });
+
+  it('replaces an analysed audio element before falling back to a remote URL', async () => {
+    const cachedUrl = '/__aitu_generated__/audio/cached-track.mp3';
+    const remoteUrl = 'https://example.com/remote-track.mp3';
+    vi.mocked(cacheRemoteUrl).mockResolvedValue(cachedUrl);
+
+    const cachedAudio = new MockAudioElement();
+    const remoteAudio = new MockAudioElement();
+    const audioContext = new MockAudioContext();
+    const audioFactory = vi
+      .fn<() => HTMLAudioElement>()
+      .mockReturnValueOnce(cachedAudio as unknown as HTMLAudioElement)
+      .mockReturnValueOnce(remoteAudio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(audioFactory, {
+      audioContextFactory: () => audioContext as unknown as AudioContext,
+    });
+
+    await service.togglePlayback({
+      elementId: 'audio-node-analysed',
+      audioUrl: remoteUrl,
+    });
+    await Promise.resolve();
+    expect(audioContext.createMediaElementSource).toHaveBeenCalledWith(
+      cachedAudio
+    );
+
+    cachedAudio.dispatchEvent(new Event('error'));
+    await vi.waitFor(() => expect(remoteAudio.play).toHaveBeenCalledOnce());
+
+    expect(audioFactory).toHaveBeenCalledTimes(2);
+    expect(audioContext.mediaSource.disconnect).toHaveBeenCalledOnce();
+    expect(remoteAudio.src).toBe(remoteUrl);
+    expect(service.getState()).toMatchObject({
+      playing: true,
+      analysisAvailable: false,
+      error: undefined,
+    });
+  });
+
+  it('plays a direct remote URL without creating a Web Audio analysis graph', async () => {
+    const audio = new MockAudioElement();
+    const audioContext = new MockAudioContext();
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement,
+      {
+        audioContextFactory: () => audioContext as unknown as AudioContext,
+      }
+    );
+
+    await service.togglePlayback({
+      elementId: 'audio-node-direct',
+      audioUrl: 'https://example.com/direct-track.mp3',
+    });
+    await Promise.resolve();
+
+    expect(audio.play).toHaveBeenCalledOnce();
+    expect(audioContext.createMediaElementSource).not.toHaveBeenCalled();
+    expect(service.getState()).toMatchObject({
+      playing: true,
+      analysisAvailable: false,
+    });
+  });
+
+  it('reports a final remote playback failure without retrying again', async () => {
+    vi.mocked(cacheRemoteUrl).mockResolvedValue(
+      '/__aitu_generated__/audio/cached-track.mp3'
+    );
+    const audio = new MockAudioElement();
+    audio.play
+      .mockRejectedValueOnce(new Error('cached media unavailable'))
+      .mockRejectedValueOnce(new Error('remote media unavailable'));
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+
+    await expect(
+      service.togglePlayback({
+        elementId: 'audio-node-final-error',
+        audioUrl: 'https://example.com/remote-track.mp3',
+      })
+    ).rejects.toThrow('cached media unavailable');
+
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(service.getState()).toMatchObject({
+      playing: false,
+      error: 'remote media unavailable',
+    });
   });
 
   it('pauses when toggling the same source twice', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
     const source = {
       elementId: 'audio-node-2',
       audioUrl: 'https://example.com/audio-2.mp3',
@@ -167,7 +302,9 @@ describe('CanvasAudioPlaybackService', () => {
   it('seeks and clears playback state', async () => {
     const audio = new MockAudioElement();
     audio.duration = 120;
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     await service.togglePlayback({
       elementId: 'audio-node-3',
@@ -190,7 +327,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('keeps a canvas queue and can move between tracks', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setQueue([
       {
@@ -235,7 +374,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('tracks playlist queue metadata separately from canvas queue', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setQueue(
       [
@@ -268,7 +409,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('switches to the provided canvas queue before playback starts', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setQueue(
       [
@@ -321,7 +464,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('updates stored canvas queue without overriding playlist playback context', () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setQueue(
       [
@@ -362,7 +507,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('updates audio volume and keeps it after clearing playback', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setVolume(0.35);
     expect(service.getState().volume).toBe(0.35);
@@ -381,7 +528,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('updates audio playback rate and persists it across service instances', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
 
     service.setPlaybackRate(1.5, 'audio');
     expect(service.getState()).toMatchObject({
@@ -404,7 +553,9 @@ describe('CanvasAudioPlaybackService', () => {
   it('stops at queue end in sequential mode when playback ends', async () => {
     const audio = new MockAudioElement();
     audio.duration = 180;
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
     const queue = [
       {
         elementId: 'audio-node-1',
@@ -434,7 +585,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('loops back to the first track in list-loop mode when playback ends', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
     const queue = [
       {
         elementId: 'audio-node-1',
@@ -465,7 +618,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('restarts the same track in single-loop mode when playback ends', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
     const track = {
       elementId: 'audio-node-1',
       audioUrl: 'https://example.com/audio-1.mp3',
@@ -492,7 +647,9 @@ describe('CanvasAudioPlaybackService', () => {
 
   it('uses a different queue item for shuffle auto-advance when possible', async () => {
     const audio = new MockAudioElement();
-    const service = new CanvasAudioPlaybackService(() => audio as unknown as HTMLAudioElement);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
     const queue = [
       {
         elementId: 'audio-node-1',
@@ -544,21 +701,21 @@ describe('CanvasAudioPlaybackService', () => {
 
     await service.togglePlayback({
       elementId: 'audio-node-reactive',
-      audioUrl: 'https://example.com/audio-reactive.mp3',
+      audioUrl: '/__aitu_generated__/audio/audio-reactive.mp3',
       title: 'Reactive Track',
     });
 
     await Promise.resolve();
 
     audioContext.analyser.data.set([
-      220, 200, 180, 120, 90, 70, 60, 55,
-      48, 42, 38, 33, 28, 24, 20, 18,
-      16, 14, 12, 10, 9, 8, 7, 6,
-      5, 4, 4, 3, 3, 2, 2, 1,
+      220, 200, 180, 120, 90, 70, 60, 55, 48, 42, 38, 33, 28, 24, 20, 18, 16,
+      14, 12, 10, 9, 8, 7, 6, 5, 4, 4, 3, 3, 2, 2, 1,
     ]);
     audioContext.analyser.timeDomainData.set(
-      Uint8Array.from({ length: 256 }, (_, index) =>
-        128 + Math.round(Math.sin((index / 256) * Math.PI * 12) * 54)
+      Uint8Array.from(
+        { length: 256 },
+        (_, index) =>
+          128 + Math.round(Math.sin((index / 256) * Math.PI * 12) * 54)
       )
     );
 
@@ -567,7 +724,9 @@ describe('CanvasAudioPlaybackService', () => {
     const state = service.getState();
     expect(state.analysisAvailable).toBe(true);
     expect(state.spectrumLevels.some((level) => level > 0.05)).toBe(true);
-    expect(state.waveformLevels.some((level) => Math.abs(level) > 0.04)).toBe(true);
+    expect(state.waveformLevels.some((level) => Math.abs(level) > 0.04)).toBe(
+      true
+    );
     expect(state.pulseLevel).toBeGreaterThan(0.05);
   });
 
@@ -590,7 +749,7 @@ describe('CanvasAudioPlaybackService', () => {
 
     await service.togglePlayback({
       elementId: 'audio-node-reactive-stop',
-      audioUrl: 'https://example.com/audio-reactive-stop.mp3',
+      audioUrl: '/__aitu_generated__/audio/audio-reactive-stop.mp3',
       title: 'Reactive Stop',
     });
 
@@ -603,8 +762,12 @@ describe('CanvasAudioPlaybackService', () => {
 
     expect(service.getState().analysisAvailable).toBe(false);
     expect(service.getState().pulseLevel).toBe(0);
-    expect(service.getState().spectrumLevels).toEqual([...EMPTY_AUDIO_SPECTRUM]);
-    expect(service.getState().waveformLevels).toEqual([...EMPTY_AUDIO_WAVEFORM]);
+    expect(service.getState().spectrumLevels).toEqual([
+      ...EMPTY_AUDIO_SPECTRUM,
+    ]);
+    expect(service.getState().waveformLevels).toEqual([
+      ...EMPTY_AUDIO_WAVEFORM,
+    ]);
   });
 
   it('plays reading sources and tracks subtitle progress', () => {
@@ -638,7 +801,10 @@ describe('CanvasAudioPlaybackService', () => {
       }
     );
 
-    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    service.toggleReadingPlaybackInQueue(
+      readingSource ? [readingSource][0] : (null as never),
+      readingSource ? [readingSource] : []
+    );
 
     expect(service.getState()).toMatchObject({
       mediaType: 'reading',
@@ -683,7 +849,10 @@ describe('CanvasAudioPlaybackService', () => {
     );
 
     service.setPlaybackMode('single-loop');
-    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    service.toggleReadingPlaybackInQueue(
+      readingSource ? [readingSource][0] : (null as never),
+      readingSource ? [readingSource] : []
+    );
 
     const firstUtterance = speechSynthesis.utterances[0];
     firstUtterance?.onend?.(new Event('end') as SpeechSynthesisEvent);
@@ -721,7 +890,10 @@ describe('CanvasAudioPlaybackService', () => {
       }
     );
 
-    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    service.toggleReadingPlaybackInQueue(
+      readingSource ? [readingSource][0] : (null as never),
+      readingSource ? [readingSource] : []
+    );
     service.setPlaybackRate(1.5, 'reading');
     await Promise.resolve();
 
@@ -755,7 +927,10 @@ describe('CanvasAudioPlaybackService', () => {
       }
     );
 
-    service.toggleReadingPlaybackInQueue(readingSource ? [readingSource][0] : (null as never), readingSource ? [readingSource] : []);
+    service.toggleReadingPlaybackInQueue(
+      readingSource ? [readingSource][0] : (null as never),
+      readingSource ? [readingSource] : []
+    );
     await ttsSettings.update({ rate: 2 });
 
     expect(service.getState()).toMatchObject({

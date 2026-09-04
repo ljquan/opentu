@@ -1,3 +1,52 @@
+## 1.1.5 (2026-09-03)
+
+### 🚀 Features
+
+- 使用系统令牌连接 Tuzi 账户 ([ed7013e6](https://github.com/ljquan/opentu/commit/ed7013e6))
+- add Tuzi account workspace and managed keys ([2ff28399](https://github.com/ljquan/opentu/commit/2ff28399))
+- add Tuzi URL token integration mode ([a6fe6c56](https://github.com/ljquan/opentu/commit/a6fe6c56))
+
+### 🩹 Fixes
+
+- URL 入口等待 Tuzi 模型同步完成 ([5bd136d2](https://github.com/ljquan/opentu/commit/5bd136d2))
+- 默认启用 Tuzi 集成 ([c56e5fa5](https://github.com/ljquan/opentu/commit/c56e5fa5))
+- centralize shared database lifecycle ([6e65caca](https://github.com/ljquan/opentu/commit/6e65caca))
+
+### 🔧 Chores
+
+- 修复：统一供应商设置页面跳转行为 ([88630de4](https://github.com/ljquan/opentu/commit/88630de4))
+- 新增 Tuzi 账户管理 ([bd784ec5](https://github.com/ljquan/opentu/commit/bd784ec5))
+- Revert "feat: add Tuzi URL token integration mode" ([005fa1b5](https://github.com/ljquan/opentu/commit/005fa1b5))
+- Revert "feat: add Tuzi account workspace and managed keys" ([12f9f5c1](https://github.com/ljquan/opentu/commit/12f9f5c1))
+- Revert "fix(storage): centralize shared database lifecycle" ([6919731a](https://github.com/ljquan/opentu/commit/6919731a))
+
+### ❤️  Thank You
+
+- Jerry-George-Liang <205779645+Jerry-George-Liang@users.noreply.github.com>
+- 2040725155-star <2040725155@qq.com>
+
+## 1.1.4 (2026-08-31)
+
+### 🔧 Chores
+
+- 修复 Suno 纯音乐、多音轨结果与画布播放 (#246) ([ae01e51f](https://github.com/ljquan/opentu/commit/ae01e51f))
+- 修复：统一供应商设置页面跳转行为 (#245) ([ab344c47](https://github.com/ljquan/opentu/commit/ab344c47))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- Liang <13642533686@163.com>
+
+## 1.1.3 (2026-08-28)
+
+### 🩹 Fixes
+
+- 修复 PPT 讲解视频模型路由与生图复用 ([67f7a3d3](https://github.com/ljquan/opentu/commit/67f7a3d3))
+
+### ❤️  Thank You
+
+- 水滴鱼 <shuidiyu@shuidiyudeMacBook-Neo.local>
+
 ## 1.1.1 (2026-08-26)
 
 ### 🔧 Chores

@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { readTuziEmbeddedConfig } from '../tuzi-embedded-config';
 import { TuziSessionApiClient, TuziSessionApiError } from '../tuzi-session-api';
 
+vi.mock('../tuzi-token-auth', () => ({
+  getTuziSystemToken: () => 'system-token',
+  getTuziSystemUserId: () => '40832',
+}));
+
 const config = {
   enabled: true,
   apiBaseUrl: 'http://localhost:3100',
@@ -9,29 +14,51 @@ const config = {
 };
 
 describe('tuzi embedded config', () => {
-  it('requires both the trusted build flag and a valid HTTP API URL', () => {
+  it('enables with the public Tuzi API by default', () => {
+    expect(readTuziEmbeddedConfig({})).toMatchObject({
+      enabled: true,
+      apiBaseUrl: 'https://api.tu-zi.com',
+    });
+  });
+
+  it('only disables with an explicit false flag', () => {
     expect(
       readTuziEmbeddedConfig({
-        VITE_TUZI_EMBEDDED_MODE: 'true',
         VITE_TUZI_API_BASE_URL: 'http://localhost:3100/',
       })
     ).toMatchObject({ enabled: true, apiBaseUrl: 'http://localhost:3100' });
     expect(
       readTuziEmbeddedConfig({
-        VITE_TUZI_EMBEDDED_MODE: 'true',
+        VITE_TUZI_EMBEDDED_MODE: 'false',
+        VITE_TUZI_API_BASE_URL: 'http://localhost:3100/',
+      }).enabled
+    ).toBe(false);
+    expect(
+      readTuziEmbeddedConfig({
         VITE_TUZI_API_BASE_URL: 'javascript:alert(1)',
       }).enabled
     ).toBe(false);
   });
 
-  it('follows the current local hostname while preserving the API port', () => {
+  it('allows a valid API URL to override the public default', () => {
+    expect(
+      readTuziEmbeddedConfig({
+        VITE_TUZI_API_BASE_URL: 'http://192.168.50.218:3100/',
+      })
+    ).toMatchObject({
+      enabled: true,
+      apiBaseUrl: 'http://192.168.50.218:3100',
+    });
+  });
+
+  it('keeps the configured API host for loopback pages and follows LAN hosts', () => {
     const env = {
       VITE_TUZI_EMBEDDED_MODE: 'true',
       VITE_TUZI_API_BASE_URL: 'http://192.168.50.218:3100',
     };
 
     expect(readTuziEmbeddedConfig(env, 'http://localhost:5173')).toMatchObject({
-      apiBaseUrl: 'http://localhost:3100',
+      apiBaseUrl: 'http://192.168.50.218:3100',
     });
     expect(
       readTuziEmbeddedConfig(env, 'http://192.168.50.99:5173')
@@ -69,7 +96,7 @@ describe('TuziSessionApiClient', () => {
     await expect(client.getModels()).resolves.toEqual([]);
   });
 
-  it('uses credentialed GET requests and parses account data', async () => {
+  it('uses system-token GET requests and parses account data', async () => {
     const fetcher = vi.fn(
       async () =>
         new Response(
@@ -98,7 +125,14 @@ describe('TuziSessionApiClient', () => {
     });
     expect(fetcher).toHaveBeenCalledWith(
       'http://localhost:3100/api/user/self',
-      expect.objectContaining({ method: 'GET', credentials: 'include' })
+      expect.objectContaining({
+        method: 'GET',
+        credentials: 'omit',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer system-token',
+          'New-Api-User': '40832',
+        }),
+      })
     );
   });
 
@@ -126,7 +160,7 @@ describe('TuziSessionApiClient', () => {
     });
   });
 
-  it('maps an expired Session to a stable client error', async () => {
+  it('maps an invalid system token to a stable client error', async () => {
     const fetcher = vi.fn(
       async () =>
         new Response(
@@ -141,10 +175,10 @@ describe('TuziSessionApiClient', () => {
 
     await expect(client.getModels()).rejects.toMatchObject<
       Partial<TuziSessionApiError>
-    >({ code: 'SESSION_EXPIRED', status: 401 });
+    >({ code: 'TOKEN_INVALID', status: 401 });
   });
 
-  it('ensures managed group providers with a credentialed POST', async () => {
+  it('ensures managed group providers with a system-token POST', async () => {
     const fetcher = vi.fn(
       async () =>
         new Response(
@@ -173,7 +207,14 @@ describe('TuziSessionApiClient', () => {
     ]);
     expect(fetcher).toHaveBeenCalledWith(
       'http://localhost:3100/api/opentu/providers/ensure',
-      expect.objectContaining({ method: 'POST', credentials: 'include' })
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'omit',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer system-token',
+          'New-Api-User': '40832',
+        }),
+      })
     );
   });
 
@@ -205,8 +246,12 @@ describe('TuziSessionApiClient', () => {
       'http://localhost:3100/api/opentu/providers/default/rotate?previous_token_action=delete',
       expect.objectContaining({
         method: 'POST',
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        headers: expect.objectContaining({
+          Accept: 'application/json',
+          Authorization: 'Bearer system-token',
+          'New-Api-User': '40832',
+        }),
       })
     );
   });
@@ -315,7 +360,7 @@ describe('TuziSessionApiClient', () => {
     );
   });
 
-  it('uses the all-logs endpoint only for callers with log access', async () => {
+  it('keeps privileged callers scoped to the selected user logs', async () => {
     const fetcher = vi.fn(
       async () =>
         new Response(
@@ -331,7 +376,7 @@ describe('TuziSessionApiClient', () => {
     await client.getLogs(1, 20, true);
 
     expect(fetcher).toHaveBeenCalledWith(
-      expect.stringContaining('/api/log/?'),
+      expect.stringContaining('/api/log/self?'),
       expect.anything()
     );
   });

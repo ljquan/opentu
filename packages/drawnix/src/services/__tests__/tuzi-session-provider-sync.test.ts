@@ -1,22 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { syncTuziSessionProviders } from '../tuzi-session-provider-sync';
+import {
+  resetTuziSessionProviderSyncCache,
+  syncTuziSessionProviders,
+} from '../tuzi-session-provider-sync';
 
 const {
   ensureManagedProviders,
   synchronizeTuziManagedProviders,
   discoverChangedTuziProviderModels,
   getProfiles,
-} = vi.hoisted(
-  () => ({
-    ensureManagedProviders: vi.fn(),
-    synchronizeTuziManagedProviders: vi.fn(),
-    discoverChangedTuziProviderModels: vi.fn(),
-    getProfiles: vi.fn(),
-  })
-);
+} = vi.hoisted(() => ({
+  ensureManagedProviders: vi.fn(),
+  synchronizeTuziManagedProviders: vi.fn(),
+  discoverChangedTuziProviderModels: vi.fn(),
+  getProfiles: vi.fn(),
+}));
 
 vi.mock('../tuzi-embedded-config', () => ({
   isTuziEmbeddedMode: () => true,
+}));
+vi.mock('../tuzi-token-auth', () => ({
+  hasTuziSystemToken: () => true,
 }));
 vi.mock('../tuzi-session-api', () => ({
   TuziSessionApiError: class TuziSessionApiError extends Error {
@@ -39,6 +43,7 @@ vi.mock('../../utils/settings-manager', () => ({
 describe('syncTuziSessionProviders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetTuziSessionProviderSyncCache();
     getProfiles.mockReturnValue([]);
     synchronizeTuziManagedProviders.mockResolvedValue(undefined);
     discoverChangedTuziProviderModels.mockResolvedValue(undefined);

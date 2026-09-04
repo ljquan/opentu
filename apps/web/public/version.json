@@ -1,6 +1,15 @@
 {
-  "version": "1.1.2",
-  "buildTime": "2026-08-26T10:09:06.446Z",
-  "gitCommit": "e63dca3059841c30cd5b42207cc22d6fd7deef3f",
-  "changelog": []
+  "version": "1.1.5",
+  "buildTime": "2026-09-03T13:59:38.815Z",
+  "gitCommit": "unknown",
+  "changelog": [
+    "Revert \"fix(storage): centralize shared database lifecycle\"",
+    "Revert \"feat: add Tuzi URL token integration mode\"",
+    "add Tuzi account workspace and managed keys",
+    "URL 入口等待 Tuzi 模型同步完成",
+    "使用系统令牌连接 Tuzi 账户",
+    "修复：统一供应商设置页面跳转行为",
+    "默认启用 Tuzi 集成",
+    "新增 Tuzi 账户管理"
+  ]
 }

@@ -117,16 +117,18 @@
     min-width: 0;
     align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   &__model-picker {
     display: flex;
-    width: min(320px, 42%);
+    width: calc(50% - 4px);
     min-width: 0;
+    flex: 1 1 calc(50% - 4px);
     align-items: center;
     gap: 6px;
-    margin-right: auto;
+    margin-right: 0;
   }
 
   &__model-label {
@@ -138,7 +140,7 @@
 
   &__footer-status {
     min-width: 0;
-    flex: 1;
+    flex: 1 1 240px;
     overflow: hidden;
     color: var(--td-error-color);
     font-size: 12px;
@@ -172,6 +174,7 @@
 
     &__model-picker {
       width: 100%;
+      flex-basis: 100%;
       margin-right: 0;
     }
 
