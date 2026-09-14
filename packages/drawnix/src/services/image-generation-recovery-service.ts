@@ -725,23 +725,6 @@ export class ImageGenerationRecoveryService {
       return null;
     }
 
-    try {
-      const preparedSubmission = this.transport.prepareRequest(plan.provider, {
-        path: resolvedBinding.submitPath,
-        method: resolvedBinding.method,
-        baseUrlStrategy: resolvedBinding.baseUrlStrategy,
-        requestId: task.requestId,
-      });
-      const preparedRequestId = Object.entries(preparedSubmission.headers).find(
-        ([name]) => name.toLowerCase() === 'x-request-id'
-      )?.[1];
-      if (preparedRequestId !== task.requestId) {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-
     return plan;
   }
 

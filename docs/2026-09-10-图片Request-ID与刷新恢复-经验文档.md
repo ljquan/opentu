@@ -1,10 +1,10 @@
 # 图片请求 Request ID 与刷新恢复经验
 
-更新日期：2026-09-10
+更新日期：2026-09-14
 
 ## 功能目标
 
-OpenTu 为每次图片正式提交建立稳定的 `submissionRequestId`，并在可信 Tuzi 请求头中发送：
+OpenTu 为每次图片正式提交建立稳定的 `submissionRequestId`。仅 Request-ID-CORS 兼容 Tuzi 节点在请求头中发送：
 
 ```http
 POST /v1/images/generations
@@ -16,22 +16,20 @@ X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
 ## 请求头规则
 
 - 图片正式 POST 前先事务持久化稳定的提交 Request ID、提交标记和调用路由。
-- 官方支持部署访问六个普通可信节点时，同步图片正式 POST 必须通过固定同源代理保留原节点、Token、计费和权限域，并附加与提交 Request ID 完全一致的 `X-Request-Id`。
-- 发送前统一校验 Request ID、固定代理 URL 和请求头的一致性；任一条件不成立即阻断，不能发出无法恢复或跨域的正式 POST。
+- 所有图片正式 `POST` 直接请求用户配置节点，不再通过固定同源代理改写地址。
+- 六个普通可信节点不附加 `X-Request-Id`；发送前持久化的 `submissionRequestId` 仍用于刷新后的结果查询。
 - 直接跨域兼容节点：`bus`、`bus2`、`bus3`、`business.tu-zi.com`。
-- 兼容节点保持直连且不混入普通请求备用列表；部署不支持固定代理时保持原配置节点直连，不自动改写到兼容节点。
-- 固定代理只允许已知 Tuzi 节点，不能转发任意地址。
+- 兼容节点保持直连、可附加与提交 ID 一致的 `X-Request-Id`，且不混入普通请求备用列表；系统不会自动改写到兼容节点。
 - 图片 POST 遇到网络模糊失败、404 或 5xx 不跨节点重提，避免重复生成和计费；网络结果未知后只按同一 Request ID 查询原节点结果，不再发送 POST。明确 `model_not_found` 的既有模型别名纠正不属于网络恢复重提。
 - GET、第三方地址和不可信供应商不接收任务 Request ID；恢复 GET 会清除已有的大小写变体。
-- 固定代理返回 `text/html` 表示请求误入 SPA 或部署路由缺失，必须明确报告“同源代理未生效”，不得当作上游响应或回退依据。
 
 ## 环境路由
 
-- 本地和局域网开发沿用既有 Tuzi 开发代理。
-- `opentu.ai`、`pr.opentu.ai`、Vercel、Netlify 对六个普通可信节点的同步图片提交和结果查询启用固定代理；其中正式 POST 不允许绕过代理。
-- `web.opentu.ai`、`share.opentu.ai` 等独立服务不自动假设具备代理；同步图片路径允许可去重的 `/vN` 或 `/vNbetaN` 前缀。
-- Request-ID-CORS 兼容节点在上述环境仍保持直连。
-- 不支持固定代理的自托管页面保持原路由；普通节点无法携带 Request ID 时，该次提交不进入结果恢复。
+- 本地、局域网、官方公网部署和自托管页面的图片 `POST`、刷新恢复 `GET` 均直连用户配置节点。
+- 同步图片路径允许可去重的 `/vN` 或 `/vNbetaN` 前缀。
+- Request-ID-CORS 兼容节点可带请求头；普通六节点不带请求头，但仍保留结果轮询资格。
+- Vite、Vercel、Netlify、生产及预发布 Nginx 中的 `/__opentu_tuzi_proxy__/` 图片代理配置已移除。
+- `/__opentu_tuzi_session__/` 是账户登录和系统 Token 链路，继续保留，不属于图片代理。
 - 文本、音频、视频、异步图片、普通 GET 和第三方绝对 URL 不因本次生产修复改道。
 
 ## 刷新后恢复
@@ -52,6 +50,8 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 健康请求不会并行轮询。只有页面恢复流程会把任务切换为 `PROCESSING + POLLING`。
 
 轮询具有有界并发、FIFO 等待队列、请求超时、响应体限制、退避和完整清理。查询始终固定到原配置节点；网络或协议故障只会等待下一轮。收到 `processing_or_not_found` 后同样等待下一轮，不自动重新提交 POST。
+
+普通六节点的提交未携带 `X-Request-Id`，因此“刷新后发出轮询”和“上游能够关联并返回原结果”是两个不同结论。客户端保证前者；后者取决于上游是否有其他关联机制，必须通过真实环境单独验收。
 
 ## 卡片渲染
 
@@ -78,10 +78,11 @@ GET /v1/images/generations/result?request_id=<submissionRequestId>
 
 ## 回归标准
 
-- 本地、局域网及受支持的公网页面通过固定同源路径访问原配置节点，请求头有唯一正确的 `X-Request-Id`。
-- 受支持部署的正式 POST 缺少稳定 Request ID、未进入固定代理或请求头不一致时，在网络发送前明确失败。
+- 本地、局域网及公网页面的图片 `POST` 和恢复 `GET` 直接访问原配置节点，不出现 `/__opentu_tuzi_proxy__/`。
+- 六个普通节点的正式 `POST` 不携带 `X-Request-Id`；兼容节点携带唯一且正确的 `X-Request-Id`。
+- 正式 `POST` 前仍持久化稳定 Request ID、提交标记和调用路由。
 - 正常健康 POST 期间没有结果查询 GET；网络结果未知时没有第二个图片 POST。
 - 刷新后启动只读结果 GET，GET 不携带 `X-Request-Id`。
-- 固定代理返回 HTML 时明确提示部署代理未生效，不解析为图片结果且不切换节点。
+- 普通节点即使持续返回 `processing_or_not_found`，也只按退避继续轮询至原截止时间，不自动重新提交。
 - 上游成功后原任务完成，卡片显示图片；缓存失败仍可显示远程图片。
 - 旧任务、未正式提交任务、取消任务和新重试不会被旧轮询覆盖。

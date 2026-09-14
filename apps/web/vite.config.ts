@@ -118,47 +118,10 @@ const DEV_FRAME_ANCESTORS =
 const DEV_SERVER_PORT = Number(
   process.env.OPENTU_PORT || process.env.VITE_PORT || process.env.PORT || 7200
 );
-const TUZI_DEV_PROXY_PREFIX = '/__opentu_tuzi_proxy__';
-// Browser requests include X-Request-Id, which Tuzi's public CORS preflight does
-// not currently allow. Keep the same-origin proxy on for local development;
-// VITE_TUZI_DEV_PROXY=0 remains the explicit escape hatch.
-const TUZI_DEV_PROXY_ENABLED = process.env.VITE_TUZI_DEV_PROXY !== '0';
-const TUZI_DEV_PROXY_LOCAL_TARGET = process.env.VITE_TUZI_DEV_PROXY_TARGET;
-const TUZI_DEV_PROXY_TARGETS: Readonly<Record<string, string>> = {
-  api: TUZI_DEV_PROXY_LOCAL_TARGET || 'https://api.tu-zi.com',
-  apius: 'https://apius.tu-zi.com',
-  apicdn: 'https://apicdn.tu-zi.com',
-  sydney: 'https://api.sydney-ai.com',
-  ourzhishi: 'https://api.ourzhishi.top',
-  'ourzhishi-sz': 'https://apisz.ourzhishi.top',
-};
 const TUZI_LOCAL_GATEWAY_TARGET =
   process.env.VITE_TUZI_LOCAL_GATEWAY_TARGET || 'http://127.0.0.1:4173';
 const LAYER_DECOMPOSER_PROXY_TARGET =
-  process.env.VITE_LAYER_DECOMPOSER_PROXY_TARGET ||
-  'http://127.0.0.1:8090';
-
-function createTuziDevProxy(): Record<string, ProxyOptions> | undefined {
-  if (!TUZI_DEV_PROXY_ENABLED) {
-    return undefined;
-  }
-
-  return Object.fromEntries(
-    Object.entries(TUZI_DEV_PROXY_TARGETS).map(([routeKey, routeSource]) => {
-      const routePrefix = `${TUZI_DEV_PROXY_PREFIX}/${routeKey}`;
-      return [
-        routePrefix,
-        {
-          target: routeSource,
-          changeOrigin: true,
-          secure: true,
-          rewrite: (requestPath: string) =>
-            requestPath.slice(routePrefix.length) || '/',
-        },
-      ];
-    })
-  );
-}
+  process.env.VITE_LAYER_DECOMPOSER_PROXY_TARGET || 'http://127.0.0.1:8090';
 
 function createLayerDecomposerProxy(): Record<string, ProxyOptions> {
   return {
@@ -1118,9 +1081,6 @@ export default defineConfig({
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
-    'import.meta.env.VITE_TUZI_DEV_PROXY': JSON.stringify(
-      TUZI_DEV_PROXY_ENABLED ? '1' : '0'
-    ),
     'process.env.NODE_ENV': JSON.stringify(reactNodeEnv),
     __APP_VERSION__: JSON.stringify(appVersion),
     // Vue feature flags - @milkdown/crepe 内部使用了 Vue，需要定义这些编译时标志
@@ -1146,7 +1106,6 @@ export default defineConfig({
       },
       ...createLayerDecomposerProxy(),
       ...createTuziLocalGatewayProxy(),
-      ...createTuziDevProxy(),
     },
     headers: {
       'Content-Security-Policy': `default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com https://umami.tu-zi.com https://wiki.tu-zi.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: https: ws: wss: data:; frame-ancestors ${DEV_FRAME_ANCESTORS};`,

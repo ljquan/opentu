@@ -1,6 +1,6 @@
 # Tuzi GPT Image 2.5 接入验收
 
-**更新日期**：2026-09-10
+**更新日期**：2026-09-14
 
 **关联文档**：[图片 Request ID 与网络中断结果恢复人工测试文档](./2026-08-07-图片请求ID与网络中断结果恢复-人工测试文档.md)
 
@@ -24,19 +24,19 @@
 | 7    | 手动输入 `2048x2048` 等其他尺寸 | 参数被过滤或回退为自动，不向 Tuzi 发送该尺寸                    |
 | 8    | 在公网和局域网站点分别生成      | 两端均沿用现有 Provider 配置和价格，不依赖额外 Key/数据库同步   |
 
-## 同源代理与 Request ID 验收
+## 直连与 Request ID 验收
 
-在 `opentu.ai`、`pr.opentu.ai`、Vercel 或 Netlify 部署中，选择六个普通可信 Tuzi 节点之一并生成一次图片，同时开启浏览器 Network 的“保留日志”。
+在本机、局域网及 `opentu.ai`、`pr.opentu.ai`、Vercel 或 Netlify 部署中，分别选择普通可信 Tuzi 节点和 Request-ID-CORS 兼容节点生成图片，同时开启浏览器 Network 的“保留日志”。
 
-| 编号 | 检查项                                             | 预期结果                                                                                        |
-| ---- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 1    | 检查正式请求 URL                                   | 只产生一次 `POST /__opentu_tuzi_proxy__/<节点>/v1/images/generations`，不直接跨域请求上游       |
-| 2    | 检查请求头                                         | 同时存在 `Authorization` 和唯一的 `X-Request-Id`，Request ID 与当前提交任务一致；记录时必须脱敏 |
-| 3    | 模拟缺少 Request ID                                | 正式请求在发送前被阻断，Network 中不出现无法恢复的图片 `POST`                                   |
-| 4    | 模拟 `Failed to fetch` 或响应体中断                | 不发送第二个图片 `POST`，使用相同 Request ID 查询原节点结果                                     |
-| 5    | 让代理返回 HTML                                    | 明确提示同源代理未生效，不把 HTML 当作图片响应，不切换节点或直连重发                            |
-| 6    | 使用 `bus`、`bus2`、`bus3` 或 `business.tu-zi.com` | 保持直连并携带 Request ID，不误改写到固定代理                                                   |
-| 7    | 执行文本、音频、视频任务                           | 不进入图片固定代理，既有路由不变                                                                |
+| 编号 | 检查项                                             | 预期结果                                                                              |
+| ---- | -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1    | 检查正式请求 URL                                   | 只产生一次直连当前 Provider API 的图片 `POST`，URL 中不出现 `/__opentu_tuzi_proxy__/` |
+| 2    | 检查普通六节点请求头                               | 存在 `Authorization`，不携带 `X-Request-Id`                                           |
+| 3    | 使用 `bus`、`bus2`、`bus3` 或 `business.tu-zi.com` | 保持直连并可携带唯一 Request ID，不改写到任何中间代理                                 |
+| 4    | 模拟 `Failed to fetch` 或响应体中断                | 不发送第二个图片 `POST`，使用保存的 Request ID 直连原节点查询结果                     |
+| 5    | 刷新页面                                           | 只发送 `GET /v1/images/generations/result?request_id=...` 并有界轮询，不重新提交图片  |
+| 6    | 普通节点持续返回 `processing_or_not_found`         | 继续有界轮询直至 15 分钟总时限；允许最终超时，不切换节点或补发 POST                   |
+| 7    | 执行文本、音频、视频任务                           | 既有路由不变                                                                          |
 
 ## 鉴权与异常验收
 
@@ -54,9 +54,9 @@
 - 比例到尺寸偏好迁移测试
 - 运行时模型发现测试
 - GPT Image 尺寸解析测试
-- GPT Image 2.5 从 adapter context 到 Provider Transport 的同源代理组合测试
-- 缺少 Request ID 的发送前阻断测试
-- 代理 HTML 响应、单次提交及同 Request ID 恢复测试
+- GPT Image 2.5 从 adapter context 到 Provider Transport 的直连组合测试
+- 普通节点移除 `X-Request-Id`、兼容节点保留该头的边界测试
+- 单次提交、刷新后直连原节点及同 Request ID 有界恢复测试
 
 2026-09-10 自动化结果：
 

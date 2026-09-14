@@ -191,7 +191,7 @@ describe('image generation recovery service', () => {
     );
   });
 
-  it('queries a main Tuzi task through the fixed proxy on opentu.ai', async () => {
+  it('queries a main Tuzi task directly after page recovery', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
     const plan = createPlan();
     plan.provider.baseUrl = 'https://api.tu-zi.com/v1';
@@ -220,7 +220,7 @@ describe('image generation recovery service', () => {
 
     const [url, init] = fetcher.mock.calls[0] || [];
     expect(String(url)).toBe(
-      '/__opentu_tuzi_proxy__/api/v1/images/generations/result?request_id=submission-main'
+      'https://api.tu-zi.com/v1/images/generations/result?request_id=submission-main'
     );
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
