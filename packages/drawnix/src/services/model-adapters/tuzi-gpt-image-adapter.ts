@@ -92,7 +92,7 @@ export function buildTuziGPTImageRequestOptions(
         ? request.referenceImages
         : undefined,
     response_format: getResponseFormat(request),
-    quality: resolveOfficialGPTImageQuality(request.params),
+    quality: resolveOfficialGPTImageQuality(request.params, model),
     count: getRequestedCount(request),
     model,
     modelRef: request.modelRef || null,

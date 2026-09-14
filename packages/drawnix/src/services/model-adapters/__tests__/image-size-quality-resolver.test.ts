@@ -27,10 +27,29 @@ describe('GPT Image 2.5 size and quality resolution', () => {
     }
   );
 
-  it('支持 GPT Image 2.5 官方最高画质档位', () => {
-    expect(resolveOfficialGPTImageQuality({ quality: 'xhigh' })).toBe('xhigh');
-    expect(resolveOfficialGPTImageQuality({ quality: 'max' })).toBe('max');
-  });
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s 支持 GPT Image 2.5 官方最高画质档位',
+    (modelId) => {
+      expect(
+        resolveOfficialGPTImageQuality({ quality: 'xhigh' }, modelId)
+      ).toBe('xhigh');
+      expect(resolveOfficialGPTImageQuality({ quality: 'max' }, modelId)).toBe(
+        'max'
+      );
+    }
+  );
+
+  it.each(['gpt-image-2', 'gpt-image-2.5', undefined])(
+    '%s 不透传新型号专用的画质档位',
+    (modelId) => {
+      expect(
+        resolveOfficialGPTImageQuality({ quality: 'xhigh' }, modelId)
+      ).toBeUndefined();
+      expect(
+        resolveOfficialGPTImageQuality({ quality: 'max' }, modelId)
+      ).toBeUndefined();
+    }
+  );
 
   it.each(GPT_IMAGE_25_MODEL_IDS)(
     '%s 仅透传官方支持的像素尺寸并省略 auto',

@@ -28,6 +28,10 @@ type LegacyGPTImageAspectRatioKey = '1x1' | '2x3' | '3x2';
 
 const GPT_IMAGE_2_MODEL_ID_SET = new Set(GPT_IMAGE_2_MODEL_IDS);
 const GPT_IMAGE_25_MODEL_ID_SET = new Set(GPT_IMAGE_25_MODEL_IDS);
+const EXTENDED_GPT_IMAGE_QUALITY_MODEL_IDS = new Set([
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
+]);
 const LEGACY_GPT_IMAGE_MODEL_IDS = new Set(['gpt-image-1', 'gpt-image-1.5']);
 
 const OFFICIAL_GPT_IMAGE_QUALITY_VALUES = new Set<OfficialGPTImageQuality>([
@@ -272,9 +276,18 @@ export function normalizeOfficialGPTImageQuality(
 }
 
 export function resolveOfficialGPTImageQuality(
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  modelId?: string
 ): OfficialGPTImageQuality | undefined {
-  return normalizeOfficialGPTImageQuality(params?.quality);
+  const quality = normalizeOfficialGPTImageQuality(params?.quality);
+  if (quality !== 'xhigh' && quality !== 'max') {
+    return quality;
+  }
+
+  return modelId &&
+    EXTENDED_GPT_IMAGE_QUALITY_MODEL_IDS.has(modelId.trim().toLowerCase())
+    ? quality
+    : undefined;
 }
 
 export function resolveOfficialGPTImageSize(

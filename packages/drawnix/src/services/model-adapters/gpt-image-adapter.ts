@@ -127,7 +127,7 @@ function applyCommonGPTImageOptions(
     mode === 'edit'
       ? resolveOfficialGPTImageEditSize(request.model, requestedSize, params)
       : resolveOfficialGPTImageSize(request.model, requestedSize, params);
-  const quality = resolveOfficialGPTImageQuality(params);
+  const quality = resolveOfficialGPTImageQuality(params, request.model);
   const n = getNumberParam(params, 'n') ?? getNumberParam(params, 'count');
   const outputCompression = getNumberFieldOrParam(
     request.outputCompression,

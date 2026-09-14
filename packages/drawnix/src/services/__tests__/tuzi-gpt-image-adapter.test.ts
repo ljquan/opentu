@@ -126,6 +126,17 @@ describe('tuzi GPT image adapter', () => {
     }
   );
 
+  it('does not send Sunburst and Flare quality values to older GPT Image models', () => {
+    expect(
+      buildTuziGPTImageRequestBody({
+        model: 'gpt-image-2',
+        prompt: 'Draw a clean product photo',
+        size: '1x1',
+        params: { quality: 'max' },
+      })
+    ).not.toHaveProperty('quality');
+  });
+
   it('treats legacy 1K/2K/4K quality values as resolution compatibility hints', () => {
     expect(
       buildTuziGPTImageRequestBody({
