@@ -71,7 +71,7 @@ describe('image-inspection-pure', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('每个完整分组共生成 182 个白名单巡检用例', () => {
+  it('每个完整分组共生成 242 个白名单巡检用例', () => {
     const cases = buildImageInspectionCases(
       IMAGE_INSPECTION_MODEL_IDS.map((modelId) => ({
         profileId: 'complete-profile',
@@ -80,7 +80,7 @@ describe('image-inspection-pure', () => {
       }))
     );
 
-    expect(cases).toHaveLength(182);
+    expect(cases).toHaveLength(242);
     expect(new Set(cases.map((item) => item.modelId))).toEqual(
       new Set(IMAGE_INSPECTION_MODEL_IDS)
     );

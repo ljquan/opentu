@@ -74,7 +74,7 @@ export function buildTuziGPTImageRequestOptions(
   size?: string;
   image?: string[];
   response_format?: TuziResponseFormat;
-  quality?: 'auto' | 'low' | 'medium' | 'high';
+  quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   count?: number;
   model: string;
   modelRef: ImageGenerationRequest['modelRef'];

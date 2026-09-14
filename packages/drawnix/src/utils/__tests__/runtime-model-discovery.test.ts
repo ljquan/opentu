@@ -731,6 +731,8 @@ describe('runtime-model-discovery', () => {
                   'gpt-image-2.5-1k',
                   'gpt-image-2.5',
                   'gpt-image-2.5-vip',
+                  'gpt-image-2.5-sunburst',
+                  'gpt-image-2.5-flare',
                 ].map((id) => ({
                   id,
                   owned_by: 'openai',
@@ -805,6 +807,8 @@ describe('runtime-model-discovery', () => {
       'gpt-image-2.5-1k',
       'gpt-image-2.5',
       'gpt-image-2.5-vip',
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
     ]) {
       expect(models.find((model) => model.id === modelId)).toMatchObject({
         type: 'image',

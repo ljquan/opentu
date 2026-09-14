@@ -8,6 +8,7 @@ import {
   DEFAULT_VIDEO_MODEL_ID,
   DEFAULT_TEXT_MODEL_ID,
   GPT_IMAGE_25_MODEL_IDS,
+  GPT_IMAGE_2_MODEL_IDS,
   getStaticModelsByType,
   getStaticModelConfig,
   isDefaultModelHidden,
@@ -1161,7 +1162,10 @@ function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
   const staticConfig = getStaticModelConfig(model.id);
   if (staticConfig) {
     const clonedConfig = cloneModelConfig(staticConfig);
-    if (GPT_IMAGE_25_MODEL_IDS.includes(staticConfig.id)) {
+    if (
+      GPT_IMAGE_25_MODEL_IDS.includes(staticConfig.id) ||
+      GPT_IMAGE_2_MODEL_IDS.includes(staticConfig.id)
+    ) {
       return clonedConfig;
     }
     const categoryType = inferModelTypeFromCategory(model.category);

@@ -217,6 +217,8 @@ const BUILT_IN_MODEL_RECOMMENDATION_SCORES: Readonly<Record<string, number>> = {
   'gemini-2.5-flash-image-vip': 96,
   'gpt-image-2-vip': 96,
   'gpt-image-2': 95,
+  'gpt-image-2.5-sunburst': 99,
+  'gpt-image-2.5-flare': 98,
   'gemini-2.5-flash-image': 95,
   'doubao-seedream-4-0-250828': 94,
   'gemini-3.1-flash-image-preview': 93,
@@ -482,6 +484,30 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     type: 'image',
     vendor: ModelVendor.GPT,
     isVip: true,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-image-2.5-sunburst',
+    label: 'gpt-image-2.5-sunburst',
+    shortLabel: 'GPT Image 2.5 Sunburst',
+    shortCode: 'gpt25s',
+    description: 'OpenAI 最高能力的图片生成与精细编辑模型',
+    type: 'image',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-image-2.5-flare',
+    label: 'gpt-image-2.5-flare',
+    shortLabel: 'GPT Image 2.5 Flare',
+    shortCode: 'gpt25f',
+    description: 'OpenAI 高质量、高速度的日常图片生成模型',
+    type: 'image',
+    vendor: ModelVendor.GPT,
     supportsTools: true,
     imageDefaults: IMAGE_DEFAULT_PARAMS,
     tags: ['new'],
@@ -1908,12 +1934,14 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-5-0-pro-260628',
 ];
 
-/** GPT Image 2 模型 ID（支持扩展比例） */
+/** 支持扩展比例和 1K / 2K / 4K 分辨率的 GPT Image 模型 ID */
 export const GPT_IMAGE_2_MODEL_IDS = [
   'gpt-image-2-vip',
   'gpt-image-2',
   'gpt-image2-vip',
   'gpt-image2',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
 ];
 
 /** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
@@ -2684,7 +2712,33 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: 'high', label: '高清' },
     ],
     defaultValue: 'auto',
-    compatibleModels: GPT_IMAGE_MODEL_IDS,
+    compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
+      (modelId) =>
+        modelId !== 'gpt-image-2.5-sunburst' &&
+        modelId !== 'gpt-image-2.5-flare'
+    ),
+    modelType: 'image',
+  },
+  // GPT Image 2.5 Sunburst / Flare 额外支持 xhigh 与 max
+  {
+    id: 'quality',
+    label: '画质',
+    shortLabel: '画质',
+    description: '选择 GPT Image 2.5 官方画质',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'low', label: '快速' },
+      { value: 'medium', label: '标准' },
+      { value: 'high', label: '高清' },
+      { value: 'xhigh', label: '超高清' },
+      { value: 'max', label: '最高' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: [
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+    ],
     modelType: 'image',
   },
   // Gemini 图片模型尺寸（支持完整尺寸）

@@ -4,7 +4,13 @@ import {
 } from '../../constants/model-config';
 
 export type ImageResolutionTier = '1k' | '2k' | '4k';
-export type OfficialGPTImageQuality = 'auto' | 'low' | 'medium' | 'high';
+export type OfficialGPTImageQuality =
+  | 'auto'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 
 type GPTImageAspectRatioKey =
   | '1x1'
@@ -29,6 +35,8 @@ const OFFICIAL_GPT_IMAGE_QUALITY_VALUES = new Set<OfficialGPTImageQuality>([
   'low',
   'medium',
   'high',
+  'xhigh',
+  'max',
 ]);
 
 const LEGACY_RESOLUTION_VALUES = new Set<ImageResolutionTier>([

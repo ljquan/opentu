@@ -36,6 +36,20 @@ describe('model-config image size options', () => {
       getSizeOptionsForModel('gpt-image-2-vip').map((option) => option.value)
     ).toEqual(expected);
 
+    for (const modelId of [
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-flare',
+    ]) {
+      expect(getStaticModelConfig(modelId)).toMatchObject({
+        id: modelId,
+        type: 'image',
+        vendor: ModelVendor.GPT,
+      });
+      expect(
+        getSizeOptionsForModel(modelId).map((option) => option.value)
+      ).toEqual(expected);
+    }
+
     for (const modelId of ['gpt-image2-vip', 'gpt-image2']) {
       setRuntimeModelConfigs([
         {
@@ -70,6 +84,24 @@ describe('model-config image size options', () => {
     ]);
   });
 
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '为 %s 暴露 1K / 2K / 4K 与完整官方画质',
+    (modelId) => {
+      const params = getCompatibleParams(modelId);
+
+      expect(
+        params
+          .find((param) => param.id === 'resolution')
+          ?.options?.map((option) => option.value)
+      ).toEqual(['1k', '2k', '4k']);
+      expect(
+        params
+          .find((param) => param.id === 'quality')
+          ?.options?.map((option) => option.value)
+      ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
+    }
+  );
+
   it.each(['gpt-image-2.5-1k', 'gpt-image-2.5', 'gpt-image-2.5-vip'])(
     '将 %s 注册为仅支持官方像素尺寸的 GPT 图片模型',
     (modelId) => {
@@ -103,6 +135,8 @@ describe('model-config image size options', () => {
         'gpt-image-2.5-1k',
         'gpt-image-2.5',
         'gpt-image-2.5-vip',
+        'gpt-image-2.5-sunburst',
+        'gpt-image-2.5-flare',
       ])
     );
   });

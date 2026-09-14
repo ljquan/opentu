@@ -107,6 +107,25 @@ describe('tuzi GPT image adapter', () => {
     }
   );
 
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    'builds %s requests with extended resolution and quality',
+    (modelId) => {
+      expect(
+        buildTuziGPTImageRequestBody({
+          model: modelId,
+          prompt: 'Draw a clean product photo',
+          size: '16x9',
+          params: { resolution: '4k', quality: 'max' },
+        })
+      ).toEqual({
+        model: modelId,
+        prompt: 'Draw a clean product photo',
+        size: '3840x2160',
+        quality: 'max',
+      });
+    }
+  );
+
   it('treats legacy 1K/2K/4K quality values as resolution compatibility hints', () => {
     expect(
       buildTuziGPTImageRequestBody({

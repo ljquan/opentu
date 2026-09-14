@@ -166,6 +166,8 @@ const GEMINI_FLASH_31_EXTRA_ASPECT_RATIOS = ['1x4', '4x1', '1x8', '8x1'];
 export const IMAGE_INSPECTION_MODEL_IDS = Object.freeze([
   'gpt-image-2-vip',
   'gpt-image-2',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
   'gemini-3.1-flash-image-preview',
   'gemini-3-pro-image-preview',
   'gemini-3-pro-image-preview-2k-vip',
@@ -470,7 +472,9 @@ function isDefaultGPTImage2RatioOnlyCase(
   return (
     inspectionCase.profileId === 'default' &&
     (inspectionCase.modelId === 'gpt-image-2' ||
-      inspectionCase.modelId === 'gpt-image-2-vip')
+      inspectionCase.modelId === 'gpt-image-2-vip' ||
+      inspectionCase.modelId === 'gpt-image-2.5-sunburst' ||
+      inspectionCase.modelId === 'gpt-image-2.5-flare')
   );
 }
 
