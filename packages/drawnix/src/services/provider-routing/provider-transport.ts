@@ -380,6 +380,7 @@ async function getTuziFallbackBaseUrls(baseUrl: string): Promise<string[]> {
         isTrustedTuziApiBaseUrl(candidate) &&
         normalizeTuziApiEndpointUrl(candidate) !== currentOrigin
     )
+    .slice(0, 1)
     .map((candidate) => `${candidate}${versionSuffix}`);
 }
 

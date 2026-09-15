@@ -1890,6 +1890,53 @@ describe('provider routing', () => {
     }
   });
 
+  it('replays an explicitly rejected image POST on at most one trusted fallback', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: {
+            api_address_list: [
+              { url: 'https://api.tu-zi.com' },
+              { url: 'https://apius.tu-zi.com' },
+              { url: 'https://apicdn.tu-zi.com' },
+            ],
+          },
+        })
+      )
+    );
+    const retryableResponse = () =>
+      Response.json(
+        { accepted: false, retryable: true },
+        {
+          status: 429,
+          headers: {
+            'X-Tuzi-Request-Accepted': 'false',
+            'X-Tuzi-Request-Retryable': 'true',
+          },
+        }
+      );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(retryableResponse())
+      .mockResolvedValueOnce(retryableResponse());
+
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'single-fallback-request-id',
+      body: '{}',
+      fetcher,
+    });
+
+    expect(response.status).toBe(429);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://api.tu-zi.com/v1/images/generations',
+      'https://apius.tu-zi.com/v1/images/generations',
+    ]);
+  });
+
   it.each([
     new Response('{}', { status: 429 }),
     new Response('{}', {
