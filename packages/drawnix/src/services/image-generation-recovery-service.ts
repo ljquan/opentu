@@ -17,7 +17,12 @@ import {
   getManualHttpTemplate,
   resolveManualHttpRequestMethod,
 } from './provider-routing/manual-http-template';
-import { isTrustedTuziApiBaseUrl } from './provider-routing/tuzi-api-endpoints';
+import {
+  isTuziRequestRecoveryBaseUrl,
+  isTrustedTuziApiBaseUrl,
+  loadTuziApiEndpointBaseUrls,
+  normalizeTuziApiEndpointUrl,
+} from './provider-routing/tuzi-api-endpoints';
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -115,6 +120,7 @@ interface ImageGenerationRecoveryServiceOptions {
   fetcher?: typeof fetch;
   resolveInvocationPlan?: InvocationResolver;
   transport?: RequestPreparer;
+  loadEndpointBaseUrls?: () => Promise<string[]>;
 }
 
 interface RecoveryRouteDescriptor {
@@ -513,6 +519,7 @@ export class ImageGenerationRecoveryService {
   private readonly fetcher: typeof fetch;
   private readonly resolveInvocationPlan: InvocationResolver;
   private readonly transport: RequestPreparer;
+  private readonly loadEndpointBaseUrls: () => Promise<string[]>;
 
   private readonly entries = new Map<string, RecoveryEntry>();
   private queue: RecoveryEntry[] = [];
@@ -545,6 +552,8 @@ export class ImageGenerationRecoveryService {
     this.resolveInvocationPlan =
       options.resolveInvocationPlan ?? resolveInvocationPlanFromRoute;
     this.transport = options.transport ?? providerTransport;
+    this.loadEndpointBaseUrls =
+      options.loadEndpointBaseUrls ?? loadTuziApiEndpointBaseUrls;
   }
 
   canRecover(task: ImageGenerationRecoveryTask): boolean {
@@ -718,7 +727,7 @@ export class ImageGenerationRecoveryService {
       plan.modelRef.modelId !== task.route.modelId ||
       !plan.provider.apiKey?.trim() ||
       CryptoUtils.isEncrypted(plan.provider.apiKey.trim()) ||
-      !isTrustedTuziApiBaseUrl(plan.provider.baseUrl) ||
+      !isTuziRequestRecoveryBaseUrl(plan.provider.baseUrl) ||
       !isSynchronousImageBinding(resolvedBinding) ||
       !isSameRecoveryBinding(task.route.binding, resolvedBinding)
     ) {
@@ -816,6 +825,12 @@ export class ImageGenerationRecoveryService {
     }
 
     const queryTargets = this.createQueryTargets(plan);
+    let fallbackTargetsLoaded = false;
+    const appendFallbackTargets = async () => {
+      if (fallbackTargetsLoaded) return;
+      fallbackTargetsLoaded = true;
+      queryTargets.push(...(await this.createFallbackQueryTargets(plan)));
+    };
     for (const target of queryTargets) {
       if (!this.isCurrent(entry)) {
         return { type: 'transient' };
@@ -867,6 +882,7 @@ export class ImageGenerationRecoveryService {
         }
         if (isNodeFallbackStatus(response.status)) {
           releaseResponseBody(response);
+          await appendFallbackTargets();
           continue;
         }
         if (!response.ok) {
@@ -897,6 +913,7 @@ export class ImageGenerationRecoveryService {
         if (!this.isCurrent(entry)) {
           return { type: 'transient' };
         }
+        await appendFallbackTargets();
       } finally {
         if (entry.requestTimer) {
           clearTimeout(entry.requestTimer);
@@ -917,6 +934,27 @@ export class ImageGenerationRecoveryService {
     return [{ url: plan.provider.baseUrl, isOriginalProvider: true }];
   }
 
+  private async createFallbackQueryTargets(
+    plan: InvocationPlan
+  ): Promise<Array<{ url: string; isOriginalProvider: boolean }>> {
+    const originalUrl = plan.provider.baseUrl;
+    const originalOrigin = normalizeTuziApiEndpointUrl(originalUrl);
+    const versionSuffix = /\/v\d+(?:beta\d*)?\/?$/i.test(originalUrl.trim())
+      ? originalUrl.trim().match(/(\/v\d+(?:beta\d*)?)\/?$/i)?.[1] || ''
+      : '';
+    const fallbackUrls = await this.loadEndpointBaseUrls();
+    return [...new Set(fallbackUrls)]
+      .filter(
+        (url) =>
+          isTrustedTuziApiBaseUrl(url) &&
+          normalizeTuziApiEndpointUrl(url) !== originalOrigin
+      )
+      .map((url) => ({
+        url: `${url}${versionSuffix}`,
+        isOriginalProvider: false,
+      }));
+  }
+
   private prepareNodeRequest(
     plan: InvocationPlan,
     nodeUrl: string,
@@ -934,6 +972,7 @@ export class ImageGenerationRecoveryService {
         method: 'GET',
         baseUrlStrategy: 'ensure-v1',
         query: { request_id: requestId },
+        requestId,
         signal,
       }
     );

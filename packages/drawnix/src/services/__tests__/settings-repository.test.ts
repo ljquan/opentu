@@ -71,6 +71,69 @@ describe('settings-repository', () => {
     });
   });
 
+  it('builds a routable legacy snapshot for a non-default selected image model', async () => {
+    vi.doMock('../../utils/settings-manager', () => ({
+      DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY: 'openai-gpt-image',
+      LEGACY_DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY: 'tuzi-gpt-image',
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      TUZI_DEFAULT_PROVIDER_NAME: '兔子 AI',
+      TUZI_PROVIDER_DEFAULT_BASE_URL: 'https://api.tu-zi.com/v1',
+      createModelRef: (profileId?: string | null, modelId?: string | null) => ({
+        profileId: profileId ?? null,
+        modelId: modelId ?? null,
+      }),
+      geminiSettings: {
+        get: () => ({
+          apiKey: 'legacy-key',
+          baseUrl: 'http://192.168.50.225:18180/v1',
+          imageModelName: 'gpt-image-2-vip',
+        }),
+      },
+      providerProfilesSettings: {
+        get: () => [
+          {
+            id: 'legacy-default',
+            name: 'default 分组',
+            providerType: 'openai-compatible',
+            baseUrl: 'http://192.168.50.225:18180/v1',
+            apiKey: 'legacy-key',
+            authType: 'bearer',
+            imageApiCompatibility: 'tuzi-gpt-image',
+            enabled: true,
+            capabilities: {},
+          },
+        ],
+      },
+      providerCatalogsSettings: { get: () => [] },
+      resolveInvocationRoute: () => ({
+        routeType: 'image',
+        profileId: null,
+        providerType: null,
+        modelId: 'gpt-image-2.5',
+        baseUrl: 'http://192.168.50.225:18180/v1',
+        apiKey: 'legacy-key',
+        source: 'legacy',
+      }),
+    }));
+    vi.doMock('../../utils/model-pricing-service', () => ({
+      modelPricingService: { getCache: () => null },
+    }));
+
+    const { resolveInvocationPlanFromRoute } = await import(
+      '../provider-routing/settings-repository'
+    );
+
+    const plan = resolveInvocationPlanFromRoute('image', 'gpt-image-2.5');
+
+    expect(plan?.provider.profileId).toBe('legacy-default');
+    expect(plan?.provider.baseUrl).toBe('http://192.168.50.225:18180/v1');
+    expect(plan?.modelRef).toEqual({
+      profileId: 'legacy-default',
+      modelId: 'gpt-image-2.5',
+    });
+    expect(plan?.binding.submitPath).toBe('/images/generations');
+  });
+
   it('preserves saved legacy image compatibility overrides in snapshots', async () => {
     vi.doMock('../../utils/settings-manager', () => ({
       DEFAULT_PROVIDER_IMAGE_API_COMPATIBILITY: 'openai-gpt-image',

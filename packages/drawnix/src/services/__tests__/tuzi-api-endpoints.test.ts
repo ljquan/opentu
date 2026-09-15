@@ -77,4 +77,38 @@ describe('tuzi-api-endpoints', () => {
       )
     );
   });
+
+  it('只把显式配置的本地 API 作为直连恢复节点', async () => {
+    vi.resetModules();
+    vi.doMock('../tuzi-embedded-config', () => ({
+      tuziEmbeddedConfig: {
+        enabled: true,
+        apiBaseUrl: 'http://192.168.50.225:18180',
+        parentOrigin: null,
+      },
+    }));
+
+    try {
+      const {
+        isConfiguredTuziApiBaseUrl,
+        isTrustedTuziApiBaseUrl,
+        isTuziRequestRecoveryBaseUrl,
+      } = await import('../provider-routing/tuzi-api-endpoints');
+
+      expect(isConfiguredTuziApiBaseUrl('http://192.168.50.225:18180/v1')).toBe(
+        true
+      );
+      expect(
+        isTuziRequestRecoveryBaseUrl('http://192.168.50.225:18180/v1')
+      ).toBe(true);
+      expect(isTrustedTuziApiBaseUrl('http://192.168.50.225:18180/v1')).toBe(
+        false
+      );
+      expect(
+        isTuziRequestRecoveryBaseUrl('http://192.168.50.226:18180/v1')
+      ).toBe(false);
+    } finally {
+      vi.doUnmock('../tuzi-embedded-config');
+    }
+  });
 });

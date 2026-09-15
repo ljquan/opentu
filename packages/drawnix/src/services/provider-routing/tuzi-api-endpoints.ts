@@ -1,3 +1,5 @@
+import { tuziEmbeddedConfig } from '../tuzi-embedded-config';
+
 export interface TuziApiEndpointSource {
   name?: string;
   url: string;
@@ -79,8 +81,7 @@ export function normalizeTuziApiEndpointUrl(url?: string | null): string {
 
 const TRUSTED_TUZI_API_ORIGINS = new Set(
   [...TUZI_API_FALLBACK_ENDPOINTS, ...TUZI_API_REQUEST_ID_CORS_ENDPOINTS].map(
-    (endpoint) =>
-      normalizeTuziApiEndpointUrl(endpoint.url)
+    (endpoint) => normalizeTuziApiEndpointUrl(endpoint.url)
   )
 );
 
@@ -92,6 +93,24 @@ const TUZI_REQUEST_ID_CORS_ORIGINS = new Set(
 
 export function isTrustedTuziApiBaseUrl(url?: string | null): boolean {
   return TRUSTED_TUZI_API_ORIGINS.has(normalizeTuziApiEndpointUrl(url));
+}
+
+/**
+ * 本地联调地址只作为当前部署配置的直连 Tuzi 节点使用，不加入公网故障切换集合。
+ */
+export function isConfiguredTuziApiBaseUrl(url?: string | null): boolean {
+  const configuredOrigin = normalizeTuziApiEndpointUrl(
+    tuziEmbeddedConfig.apiBaseUrl
+  );
+  return Boolean(
+    tuziEmbeddedConfig.enabled &&
+      configuredOrigin &&
+      normalizeTuziApiEndpointUrl(url) === configuredOrigin
+  );
+}
+
+export function isTuziRequestRecoveryBaseUrl(url?: string | null): boolean {
+  return isTrustedTuziApiBaseUrl(url) || isConfiguredTuziApiBaseUrl(url);
 }
 
 export function isTuziRequestIdCorsBaseUrl(url?: string | null): boolean {

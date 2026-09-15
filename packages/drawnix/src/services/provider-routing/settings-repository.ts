@@ -420,7 +420,32 @@ export function resolveInvocationPlanFromRoute(
   options: SettingsInvocationPlannerOptions = {}
 ): InvocationPlan | null {
   const route = resolveInvocationRoute(operation, requestedModel);
-  const modelRef = createModelRef(route.profileId, route.modelId);
+  let modelRef = createModelRef(route.profileId, route.modelId);
+  let plannerOptions = options;
+
+  // 旧版直连设置允许选择非默认静态模型。执行器会使用 legacy 凭据发送，
+  // 因此这里也必须为同一个实际节点生成可持久化的 profile/binding 快照。
+  if (
+    !modelRef?.profileId &&
+    route.modelId &&
+    route.baseUrl?.trim() &&
+    route.apiKey?.trim()
+  ) {
+    const legacyProfile = buildLegacyProfileSnapshot();
+    modelRef = createModelRef(
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+      route.modelId
+    );
+    plannerOptions = {
+      ...options,
+      manualBindings: [
+        ...(options.manualBindings || []),
+        ...inferBindingsForProviderCatalog(legacyProfile, [
+          getLegacyModelConfig(route.modelId, operation),
+        ]),
+      ],
+    };
+  }
 
   if (!modelRef) {
     return null;
@@ -434,7 +459,7 @@ export function resolveInvocationPlanFromRoute(
         bindingId: options.bindingId,
         preferredRequestSchema: options.preferredRequestSchema,
       },
-      options
+      plannerOptions
     );
   } catch {
     return null;

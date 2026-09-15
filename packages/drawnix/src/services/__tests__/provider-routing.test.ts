@@ -561,11 +561,11 @@ describe('provider routing', () => {
       };
 
       try {
-        expect(canAttachProviderRequestIdHeader(context, request)).toBe(false);
+        expect(canAttachProviderRequestIdHeader(context, request)).toBe(true);
 
         const prepared = providerTransport.prepareRequest(context, request);
         expect(prepared.url).toBe(`${baseUrl}/v1/images/generations`);
-        expect(prepared.headers['X-Request-Id']).toBeUndefined();
+        expect(prepared.headers['X-Request-Id']).toBe('public-task-id');
       } finally {
         vi.unstubAllGlobals();
       }
@@ -590,14 +590,16 @@ describe('provider routing', () => {
         expect(prepared.url).toBe(
           'https://api.tu-zi.com/v1/images/generations'
         );
-        expect(prepared.headers['X-Request-Id']).toBeUndefined();
+        expect(prepared.headers['X-Request-Id']).toBe(
+          'supported-deployment-task-id'
+        );
       } finally {
         vi.unstubAllGlobals();
       }
     }
   );
 
-  it('keeps a GPT Image 2.5 submission direct without a custom request header', async () => {
+  it('keeps a GPT Image 2.5 submission direct with a stable request header', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
     const fetcher = vi
       .fn<typeof fetch>()
@@ -647,9 +649,9 @@ describe('provider routing', () => {
       expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
         Authorization: 'Bearer secret',
       });
-      expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
-        'X-Request-Id'
-      );
+      expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+        'X-Request-Id': 'gpt-image-25-task-id',
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -693,9 +695,9 @@ describe('provider routing', () => {
         expect(String(fetcher.mock.calls[0]?.[0])).toBe(
           `https://api.tu-zi.com/v1${path}`
         );
-        expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
-          'X-Request-Id'
-        );
+        expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+          'X-Request-Id': 'main-endpoint-task-id',
+        });
       } finally {
         vi.unstubAllGlobals();
       }
@@ -724,9 +726,9 @@ describe('provider routing', () => {
       expect(String(fetcher.mock.calls[0]?.[0])).toBe(
         'https://api.tu-zi.com/v1/images/generations'
       );
-      expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
-        'X-Request-Id'
-      );
+      expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+        'X-Request-Id': 'versioned-path-task-id',
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -763,12 +765,13 @@ describe('provider routing', () => {
         path: '/images/generations/result',
         method: 'GET',
         query: { request_id: 'main-endpoint-task-id' },
+        requestId: 'main-endpoint-task-id',
       });
 
       expect(prepared.url).toBe(
         'https://api.tu-zi.com/v1/images/generations/result?request_id=main-endpoint-task-id'
       );
-      expect(prepared.headers['X-Request-Id']).toBeUndefined();
+      expect(prepared.headers['X-Request-Id']).toBe('main-endpoint-task-id');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -814,7 +817,7 @@ describe('provider routing', () => {
   );
 
   it.each(['self-hosted.example.com', 'web.opentu.ai', 'share.opentu.ai'])(
-    'keeps the configured endpoint on unsupported host %s',
+    'uses the trusted API contract independently of frontend host %s',
     (hostname) => {
       vi.stubGlobal('location', { hostname });
       const request = {
@@ -826,7 +829,7 @@ describe('provider routing', () => {
       try {
         expect(
           canAttachProviderRequestIdHeader(tuziTransportContext, request)
-        ).toBe(false);
+        ).toBe(true);
         const prepared = providerTransport.prepareRequest(
           tuziTransportContext,
           request
@@ -834,7 +837,9 @@ describe('provider routing', () => {
         expect(prepared.url).toBe(
           'https://api.tu-zi.com/v1/images/generations'
         );
-        expect(prepared.headers['X-Request-Id']).toBeUndefined();
+        expect(prepared.headers['X-Request-Id']).toBe(
+          'unsupported-host-task-id'
+        );
       } finally {
         vi.unstubAllGlobals();
       }
@@ -1567,8 +1572,9 @@ describe('provider routing', () => {
       expect(String(fetcher.mock.calls[0]?.[0])).toBe(
         'https://api.tu-zi.com/v1/images/generations/result'
       );
-      expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
-        'X-Request-Id'
+      const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
+      expect(headers.get('X-Request-Id')).toBe(
+        method === 'GET' ? 'get-request-id-that-must-not-change-routing' : null
       );
     }
   );
@@ -1828,6 +1834,87 @@ describe('provider routing', () => {
     expect(response.status).toBe(504);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it('switches nodes only when the API explicitly reports the image POST was not accepted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          data: {
+            api_address_list: [
+              { url: 'https://api.tu-zi.com' },
+              { url: 'https://apius.tu-zi.com' },
+            ],
+          },
+        })
+      )
+    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          { accepted: false, retryable: true },
+          {
+            status: 429,
+            headers: {
+              'X-Tuzi-Request-Accepted': 'false',
+              'X-Tuzi-Request-Retryable': 'true',
+            },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [{ url: 'https://images.example.com/result.png' }],
+        })
+      );
+
+    const response = await sendTuzi({
+      path: '/images/generations',
+      method: 'POST',
+      requestId: 'shared-request-id',
+      body: '{}',
+      fetcher,
+    });
+
+    expect(response.ok).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://api.tu-zi.com/v1/images/generations',
+      'https://apius.tu-zi.com/v1/images/generations',
+    ]);
+    for (const [, init] of fetcher.mock.calls) {
+      expect(new Headers(init?.headers).get('X-Request-Id')).toBe(
+        'shared-request-id'
+      );
+    }
+  });
+
+  it.each([
+    new Response('{}', { status: 429 }),
+    new Response('{}', {
+      status: 429,
+      headers: { 'X-Tuzi-Request-Retryable': 'true' },
+    }),
+  ])(
+    'does not switch nodes without the complete retry contract',
+    async (firstResponse) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(firstResponse);
+
+      const response = await sendTuzi({
+        path: '/images/generations',
+        method: 'POST',
+        requestId: 'strict-contract-id',
+        body: '{}',
+        fetcher,
+      });
+
+      expect(response.status).toBe(429);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('returns a direct provider HTML response without switching endpoints', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
