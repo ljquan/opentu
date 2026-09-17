@@ -10,12 +10,14 @@ const {
   discoverChangedTuziProviderModels,
   getProfiles,
   getSystemUserId,
+  consumeProviderGroup,
 } = vi.hoisted(() => ({
   ensureManagedProviders: vi.fn(),
   synchronizeTuziManagedProviders: vi.fn(),
   discoverChangedTuziProviderModels: vi.fn(),
   getProfiles: vi.fn(),
   getSystemUserId: vi.fn(),
+  consumeProviderGroup: vi.fn(),
 }));
 
 vi.mock('../tuzi-embedded-config', () => ({
@@ -24,6 +26,7 @@ vi.mock('../tuzi-embedded-config', () => ({
 vi.mock('../tuzi-token-auth', () => ({
   hasTuziSystemToken: () => true,
   getTuziSystemUserId: getSystemUserId,
+  consumeTuziProviderGroupFromUrl: consumeProviderGroup,
 }));
 vi.mock('../tuzi-session-api', () => ({
   TuziSessionApiError: class TuziSessionApiError extends Error {
@@ -48,6 +51,7 @@ describe('syncTuziSessionProviders', () => {
     vi.clearAllMocks();
     resetTuziSessionProviderSyncCache();
     getSystemUserId.mockReturnValue('1');
+    consumeProviderGroup.mockReturnValue('');
     getProfiles.mockReturnValue([]);
     synchronizeTuziManagedProviders.mockResolvedValue(undefined);
     discoverChangedTuziProviderModels.mockResolvedValue(undefined);
@@ -93,6 +97,22 @@ describe('syncTuziSessionProviders', () => {
 
     await expect(Promise.all([startup, focus])).resolves.toEqual([true, true]);
     expect(ensureManagedProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests image model selection for the group provided by the parent URL', async () => {
+    const providers = [
+      { id: 'tuzi-managed-vip', group: 'vip', apiKey: 'sk-vip' },
+    ];
+    consumeProviderGroup.mockReturnValueOnce('vip');
+    ensureManagedProviders.mockResolvedValue(providers);
+
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+
+    expect(discoverChangedTuziProviderModels).toHaveBeenCalledWith(
+      providers,
+      new Map(),
+      { selectImageModelForProviderId: 'tuzi-managed-vip' }
+    );
   });
 
   it('removes managed providers when the Tuzi Session has expired', async () => {

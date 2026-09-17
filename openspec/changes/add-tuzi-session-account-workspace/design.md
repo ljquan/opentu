@@ -47,12 +47,15 @@ Managed Tokens use a stable `OpenTu Managed / <group>` name prefix and are idemp
 
 Connected users can reopen the same authorized-group selector from the Provider list. The selector preselects the persisted groups, so adding another group submits the union of the existing and newly selected groups instead of accidentally removing an existing Provider.
 
+When the Tuzi parent site already owns the token-creation guidance and group selector, it hands the numeric user ID, system token, and selected group to embedded OpenTu in a namespaced URL fragment. Fragments are not sent in HTTP requests and therefore do not enter ordinary reverse-proxy access logs. OpenTu validates and stores the values during startup, removes the fragment immediately, keeps legacy query parsing during migration, synchronizes the selected managed Provider, and selects its first discovered image model so the prompt workflow is ready without a second configuration step.
+
 The Provider base URL is derived from trusted build configuration and normalized to the fixed Tuzi `/v1` endpoint. Group/model/price metadata remains sourced from Tuzi's existing user-group, user-model and pricing endpoints; OpenTu does not calculate billing from a simplified group multiplier.
 
 ## Risks / Trade-offs
 
 - Cross-site iframe cookies may be blocked. Prefer same-site deployment; local testing uses explicit HTTP development configuration.
 - Browser-stored managed Tokens remain extractable through browser runtime, network tools or exported settings; a later server-side Session Provider is required for a stronger leak boundary.
+- Fragment handoff avoids server access-log exposure but remains visible to same-page browser code and history until OpenTu removes it during startup; strict trusted-origin validation and immediate cleanup limit that exposure.
 - Cross-origin image hosts may block preview loading or canvas import even when the URL is present; the UI must keep the log usable and report the failed insert without retrying a paid generation request.
 - Concurrent first loads can race Token creation; the backend must serialize or transactionally re-check the managed name/group before inserting.
 - Authentication middleware is shared with the existing Tuzi web client. Session and access-token paths require separate regression tests.

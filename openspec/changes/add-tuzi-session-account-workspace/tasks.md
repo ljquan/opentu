@@ -27,6 +27,7 @@
 - [x] 4.4 Add refresh/rotation controls without changing standalone Provider behavior.
 - [x] 4.5 Let users choose authorized groups before first connection or system-token replacement, and create managed Tokens and Providers only for selected groups.
 - [x] 4.6 Let connected users reopen the group selector and add another authorized group while preserving current selections.
+- [x] 4.7 Accept the parent-selected group through a credential-safe URL fragment, synchronize only its managed Provider, and preselect its image model.
 
 ## 5. Verification
 

@@ -111,6 +111,14 @@ The system SHALL derive OpenTu managed Providers from the authenticated user's a
 - **WHEN** a requested group is not assignable to the Session user
 - **THEN** the API SHALL reject the request without creating a Token or Provider
 
+#### Scenario: Parent site group handoff
+
+- **GIVEN** the authenticated Tuzi parent site has obtained the user's system access token and the user selected an authorized group
+- **WHEN** the parent site opens embedded OpenTu
+- **THEN** it SHALL pass the user ID, system token, and selected group in a namespaced URL fragment that is not included in HTTP requests
+- **AND** OpenTu SHALL persist the validated values, remove the credential fragment from the address bar, synchronize only the selected managed Provider, and select its first available image model
+- **AND** legacy query-parameter handoff SHALL remain readable during migration
+
 #### Scenario: Managed rotation
 
 - **WHEN** the user requests a managed Provider rotation
