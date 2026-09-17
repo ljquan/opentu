@@ -1,7 +1,20 @@
+import { saveTuziProviderGroupSelection } from './tuzi-provider-selection';
+
 const STORAGE_KEY = 'opentu.tuzi.systemToken.v1';
 const USER_ID_STORAGE_KEY = 'opentu.tuzi.systemUserId.v1';
+const AUTH_FRAGMENT_PARAM = 'opentu_auth';
 const MAX_TOKEN_LENGTH = 4096;
+const MAX_GROUP_LENGTH = 128;
+const MAX_RESTORED_HASH_LENGTH = 2048;
 let tuziCredentialsProvidedByUrl = false;
+let tuziProviderGroupProvidedByUrl = '';
+
+type TuziAuthFragment = {
+  id?: unknown;
+  token?: unknown;
+  group?: unknown;
+  hash?: unknown;
+};
 
 function normalizeToken(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -12,6 +25,12 @@ function normalizeToken(value: unknown): string {
 function normalizeUserId(value: unknown): string {
   const id = String(value ?? '').trim();
   return /^\d+$/.test(id) ? id : '';
+}
+
+function normalizeGroup(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const group = value.trim();
+  return group.length > 0 && group.length <= MAX_GROUP_LENGTH ? group : '';
 }
 
 function getUrlParam(url: URL, names: string[]): string {
@@ -56,9 +75,34 @@ function parseHref(href: string): URL | null {
   }
 }
 
+function getAuthFragment(url: URL): TuziAuthFragment | null {
+  if (!url.hash) return null;
+  const rawPayload = new URLSearchParams(url.hash.slice(1)).get(
+    AUTH_FRAGMENT_PARAM
+  );
+  if (!rawPayload) return null;
+  try {
+    const payload = JSON.parse(rawPayload);
+    return payload && typeof payload === 'object'
+      ? (payload as TuziAuthFragment)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getTuziSystemUserIdFromHref(href: string): string {
   const url = parseHref(href);
-  return url ? normalizeUserId(getUrlParam(url, ['id', 'tuzi_user_id'])) : '';
+  if (!url) return '';
+  const fragmentValue = normalizeUserId(getAuthFragment(url)?.id);
+  return fragmentValue || normalizeUserId(getUrlParam(url, ['id', 'tuzi_user_id']));
+}
+
+export function getTuziProviderGroupFromHref(href: string): string {
+  const url = parseHref(href);
+  if (!url) return '';
+  const fragmentValue = normalizeGroup(getAuthFragment(url)?.group);
+  return fragmentValue || normalizeGroup(getUrlParam(url, ['group', 'tuzi_group']));
 }
 
 export function getTuziSystemUserId(): string {
@@ -95,16 +139,19 @@ export function clearTuziSystemUserId(): void {
 
 export function getTuziSystemTokenFromHref(href: string): string {
   const url = parseHref(href);
-  return url
-    ? normalizeToken(
-        getRawUrlParam(href, [
-          'token',
-          'key',
-          'tuzi_token',
-          'tuzi_api_token',
-        ]) || getUrlParam(url, ['token', 'key', 'tuzi_token', 'tuzi_api_token'])
-      )
-    : '';
+  if (!url) return '';
+  const fragmentValue = normalizeToken(getAuthFragment(url)?.token);
+  return (
+    fragmentValue ||
+    normalizeToken(
+      getRawUrlParam(href, [
+        'token',
+        'key',
+        'tuzi_token',
+        'tuzi_api_token',
+      ]) || getUrlParam(url, ['token', 'key', 'tuzi_token', 'tuzi_api_token'])
+    )
+  );
 }
 
 export function getTuziSystemToken(): string {
@@ -162,11 +209,28 @@ export function removeTuziSystemTokenFromUrl(): void {
     'key',
     'tuzi_token',
     'tuzi_api_token',
+    'group',
+    'tuzi_group',
   ]) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;
     }
+  }
+  const fragmentParams = new URLSearchParams(url.hash.slice(1));
+  if (fragmentParams.has(AUTH_FRAGMENT_PARAM)) {
+    const restoredHash = getAuthFragment(url)?.hash;
+    if (
+      typeof restoredHash === 'string' &&
+      restoredHash.length <= MAX_RESTORED_HASH_LENGTH
+    ) {
+      url.hash = restoredHash ? `#${restoredHash}` : '';
+    } else {
+      fragmentParams.delete(AUTH_FRAGMENT_PARAM);
+      const remainingFragment = fragmentParams.toString();
+      url.hash = remainingFragment ? `#${remainingFragment}` : '';
+    }
+    changed = true;
   }
   if (!changed) return;
   try {
@@ -184,17 +248,28 @@ export function initializeTuziSystemTokenFromUrl(): string {
   if (typeof window === 'undefined') return '';
   const userId = getTuziSystemUserIdFromHref(window.location.href);
   const token = getTuziSystemTokenFromHref(window.location.href);
+  const group = getTuziProviderGroupFromHref(window.location.href);
   if (userId || token) {
     tuziCredentialsProvidedByUrl = true;
   }
   if (userId) saveTuziSystemUserId(userId);
   if (token) saveTuziSystemToken(token);
-  if (userId || token) removeTuziSystemTokenFromUrl();
+  if (userId && token && group) {
+    saveTuziProviderGroupSelection(userId, [group]);
+    tuziProviderGroupProvidedByUrl = group;
+  }
+  if (userId || token || group) removeTuziSystemTokenFromUrl();
   return token;
 }
 
 export function wasTuziCredentialsProvidedByUrl(): boolean {
   return tuziCredentialsProvidedByUrl;
+}
+
+export function consumeTuziProviderGroupFromUrl(): string {
+  const group = tuziProviderGroupProvidedByUrl;
+  tuziProviderGroupProvidedByUrl = '';
+  return group;
 }
 
 if (typeof window !== 'undefined') {

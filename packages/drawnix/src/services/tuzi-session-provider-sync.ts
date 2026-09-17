@@ -1,5 +1,9 @@
 import { isTuziEmbeddedMode } from './tuzi-embedded-config';
-import { getTuziSystemUserId, hasTuziSystemToken } from './tuzi-token-auth';
+import {
+  consumeTuziProviderGroupFromUrl,
+  getTuziSystemUserId,
+  hasTuziSystemToken,
+} from './tuzi-token-auth';
 import { synchronizeTuziManagedProviders } from './tuzi-managed-providers';
 import { TuziSessionApiClient } from './tuzi-session-api';
 import { discoverChangedTuziProviderModels } from './tuzi-managed-provider-models';
@@ -54,7 +58,17 @@ export function syncTuziSessionProviders(options?: {
       );
       await synchronizeTuziManagedProviders(providers);
       if (options?.discoverModels !== false) {
-        await discoverChangedTuziProviderModels(providers, previousApiKeys);
+        const requestedGroup = consumeTuziProviderGroupFromUrl();
+        const requestedProvider = requestedGroup
+          ? providers.find((provider) => provider.group === requestedGroup)
+          : undefined;
+        if (requestedProvider) {
+          await discoverChangedTuziProviderModels(providers, previousApiKeys, {
+            selectImageModelForProviderId: requestedProvider.id,
+          });
+        } else {
+          await discoverChangedTuziProviderModels(providers, previousApiKeys);
+        }
       }
       lastSuccessfulSyncAt = Date.now();
       return true;
