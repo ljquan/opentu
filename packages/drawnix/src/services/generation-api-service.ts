@@ -5,6 +5,7 @@
  * Handles timeouts, cancellation, and error handling.
  */
 
+import { mergeImageGenerationParams, remapImageReferenceMetadata } from './model-adapters/image-generation-intent';
 import {
   GenerationParams,
   TaskType,
@@ -386,15 +387,17 @@ class GenerationAPIService {
    */
   private async extractReferenceImages(
     params: GenerationParams
-  ): Promise<string[]> {
+  ) {
     const referenceImages: string[] = [];
+    const sourceUrls: string[] = [];
 
     const uploadedImages = (params as any).uploadedImages as
       | Array<{ url?: string; type?: string }>
       | undefined;
     if (Array.isArray(uploadedImages)) {
       for (const img of uploadedImages) {
-        if (img?.url) {
+        if (img?.url && !sourceUrls.includes(img.url)) {
+          sourceUrls.push(img.url);
           if (img.type === 'url') {
             const imageData = await unifiedCacheService.getImageForAI(img.url);
             referenceImages.push(imageData.value);
@@ -405,15 +408,30 @@ class GenerationAPIService {
       }
     }
 
-    if ((params as any).uploadedImage?.url) {
+    if ((params as any).uploadedImage?.url && !sourceUrls.includes((params as any).uploadedImage.url)) {
       referenceImages.push((params as any).uploadedImage.url);
+      sourceUrls.push((params as any).uploadedImage.url);
     }
 
     if (Array.isArray((params as any).referenceImages)) {
-      referenceImages.push(...((params as any).referenceImages as string[]));
+      for (const url of (params as any).referenceImages as string[]) {
+        if (!sourceUrls.includes(url)) {
+          referenceImages.push(url);
+          sourceUrls.push(url);
+        }
+      }
     }
 
-    return referenceImages;
+    const adapterParams = mergeImageGenerationParams(params as any);
+    return {
+      referenceImages: [...new Set(referenceImages)],
+      adapterParams: {
+        ...adapterParams,
+        referenceImageMetadata: remapImageReferenceMetadata(
+          adapterParams.referenceImageMetadata, sourceUrls, referenceImages
+        ),
+      },
+    };
   }
 
   /**
@@ -431,7 +449,7 @@ class GenerationAPIService {
         | ModelRef
         | null
         | undefined;
-      const referenceImages = await this.extractReferenceImages(params);
+      const { referenceImages, adapterParams } = await this.extractReferenceImages(params);
       const shouldUseEditSchema = isImageEditRequest(params, referenceImages);
       const invocationOptions = {
         preferredRequestSchema: shouldUseEditSchema
@@ -454,9 +472,7 @@ class GenerationAPIService {
       if (!size) {
         size = this.convertAspectRatioToSize((params as any).aspectRatio);
       }
-      if (!size && isAsyncImageModel(requestedModel)) {
-        size = this.deriveAspectRatio(params) || '1:1';
-      }
+      if (!size && isAsyncImageModel(requestedModel)) size = this.deriveAspectRatio(params);
 
       const adapterContext = getAdapterContextFromSettings(
         'image',
@@ -518,10 +534,8 @@ class GenerationAPIService {
           'output_compression',
         ]),
         params: {
-          resolution: (params as any).resolution,
-          quality: (params as any).quality,
-          response_format: (params as any).response_format,
-          ...(params as any).params,
+          ...adapterParams,
+          ...((params as any).response_format ? { response_format: (params as any).response_format } : {}),
           onProgress: (progress: number) => {
             void taskQueueService
               .updateImageAttemptProgress(
@@ -716,7 +730,7 @@ class GenerationAPIService {
         executionPhase: TaskExecutionPhase.SUBMITTING,
       });
 
-      const referenceImages = await this.extractReferenceImages(params);
+      const { referenceImages } = await this.extractReferenceImages(params);
       const durationValue = (params as any).duration ?? (params as any).seconds;
 
       const result = await adapter.generateVideo(

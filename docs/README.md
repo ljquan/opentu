@@ -28,6 +28,8 @@
 
 ## 关键能力
 
+- [图片分辨率参数](./IMAGE_RESOLUTION_CONTRACT.md)：比例、K 档、参考图元数据及渠道兼容边界。
+- [图片分辨率修复 QA](./IMAGE_RESOLUTION_QA.md)：实际回归结果、复现命令和未执行项。
 - [统一缓存设计](./UNIFIED_CACHE_DESIGN.md)：缓存模型、存储和清理策略。
 - [统一缓存实现总结](./UNIFIED_CACHE_IMPLEMENTATION_SUMMARY.md)：落地细节和验证要点。
 - [网站数据清理交接文档](./2026-08-04-网站数据清理-交接文档.md)：桌面清理入口、两档清理范围、配置保留、迟到写回防护与失败恢复。

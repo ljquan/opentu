@@ -5,6 +5,8 @@
  * 所有 LLM API 请求在主线程直接发起（不经过 Service Worker）。
  */
 
+import { mergeImageGenerationParams, prepareImageGenerationRequest } from '../model-adapters/image-generation-intent';
+import { resolveImageResolutionTier, isGPTImage2Model } from '../model-adapters/image-size-quality-resolver';
 import type {
   IMediaExecutor,
   ImageGenerationParams,
@@ -381,6 +383,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           model: modelName,
           modelRef: modelRef || null,
           size,
+          params: mergeImageGenerationParams(params),
           referenceImages,
           maskImage: params.maskImage,
           assetMetadata: params.assetMetadata,
@@ -422,7 +425,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           background: params.background,
           outputFormat: params.outputFormat,
           outputCompression: params.outputCompression,
-          params: params.params,
+          params: mergeImageGenerationParams(params),
           assetMetadata: params.assetMetadata,
           resultVisibility: params.resultVisibility,
           preferredRequestSchema: invocationOptions.preferredRequestSchema,
@@ -448,6 +451,10 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     let recoveryRequestId: string | undefined;
     let recoveryUrl: string | undefined;
     try {
+      const prepared = await prepareImageGenerationRequest({
+        prompt, model: modelName, size, referenceImages,
+        params: mergeImageGenerationParams(params),
+      });
       // 处理参考图片：统一转为 base64（API 要求）
       let processedImages: string[] | undefined;
       if (referenceImages && referenceImages.length > 0) {
@@ -461,9 +468,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       const requestBody = buildImageRequestBody({
         prompt,
         model: modelName,
-        size,
+        size: prepared.size,
         referenceImages: processedImages,
-        quality,
+        quality: resolveImageResolutionTier(prepared.params) || (isGPTImage2Model(modelName) ? '1k' : quality),
         n: Math.min(Math.max(1, count), 10),
       });
 
@@ -582,6 +589,8 @@ export class FallbackMediaExecutor implements IMediaExecutor {
           urls: cachedImgUrls.length > 1 ? cachedImgUrls : undefined,
           format: 'png',
           size: 0,
+          width: result.width,
+          height: result.height,
           ...(cacheWarning ? { cacheWarning } : {}),
         },
         requestId,
@@ -654,6 +663,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       model: string;
       modelRef?: ImageGenerationParams['modelRef'];
       size?: string;
+      params?: Record<string, unknown>;
       referenceImages?: string[];
       maskImage?: string;
       assetMetadata?: ImageGenerationParams['assetMetadata'];
@@ -681,6 +691,11 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     });
 
     try {
+      if (resolveImageResolutionTier(params.params) || params.params?.seedream_quality ||
+        (params.params?.quality && params.params.quality !== 'auto')) {
+        throw new Error('当前异步图片渠道未配置分辨率或画质参数支持，请使用支持所选规格的同步渠道。');
+      }
+      const prepared = await prepareImageGenerationRequest(params);
       // 处理参考图片：统一转为 base64（与同步路径一致）
       let processedImages: string[] | undefined;
       if (params.referenceImages && params.referenceImages.length > 0) {
@@ -702,7 +717,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         {
           prompt: params.prompt,
           model: params.model,
-          size: params.size,
+          size: prepared.size,
           referenceImages: processedImages,
           maskImage: processedMaskImage,
         },

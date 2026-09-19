@@ -37,6 +37,7 @@ import { registerGPTImageAdapter } from './gpt-image-adapter';
 import { registerTuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
 import { registerCustomHttpAdapters } from './custom-http-adapter';
 import { registerSeedance2Adapter } from './seedance2-adapter';
+import { prepareImageGenerationRequest } from './image-generation-intent';
 import {
   isGPTImage2Model,
   resolveImageResolutionTier,
@@ -158,9 +159,14 @@ export const geminiImageAdapter: ImageModelAdapter = {
   supportedModels: imageModelIds,
   defaultModel: DEFAULT_IMAGE_MODEL_ID,
   async generateImage(context, request: ImageGenerationRequest) {
+    request = await prepareImageGenerationRequest(request);
     const model = request.model || DEFAULT_IMAGE_MODEL_ID;
 
     if (shouldUseAsyncImageEndpoint(context, model)) {
+      if (resolveImageResolutionTier(request.params) || request.params?.seedream_quality ||
+        (request.params?.quality && request.params.quality !== 'auto')) {
+        throw new Error('当前异步图片渠道未配置分辨率或画质参数支持，请使用支持所选规格的同步渠道。');
+      }
       const result = await asyncImageAPIService.generateWithPolling(
         {
           model,

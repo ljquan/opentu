@@ -418,8 +418,18 @@ export function convertDirectGenerationToWorkflow(
           semanticReplacementForegroundUrl;
       }
       // 透传额外参数（如 seedream_quality）
-      if (Object.keys(adapterExtraParams).length > 0) {
-        imageArgs.params = adapterExtraParams;
+      const resolvedReferenceImages = imageArgs.referenceImages as string[] | undefined;
+      if (Object.keys(adapterExtraParams).length > 0 || resolvedReferenceImages?.length) {
+        const selectionUrls = [...(selection?.images || []), ...(selection?.graphics || [])];
+        imageArgs.params = {
+          ...adapterExtraParams,
+          ...(resolvedReferenceImages?.length ? {
+            referenceImageMetadata: resolvedReferenceImages.map((url) => ({
+              url,
+              ...selection?.imageDimensions?.[selectionUrls.indexOf(url)],
+            })),
+          } : {}),
+        };
       }
 
       steps.push({

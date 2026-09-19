@@ -15,6 +15,7 @@ import {
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { getRequestedImageSize, prepareImageGenerationRequest } from './image-generation-intent';
 import type {
   ImageGenerationRequest,
   ImageGenerationResult,
@@ -122,7 +123,7 @@ function applyCommonGPTImageOptions(
   mode: 'generation' | 'edit' = 'generation'
 ): void {
   const params = request.params;
-  const requestedSize = getStringParam(params, 'size') || request.size;
+  const requestedSize = getRequestedImageSize(request);
   const size =
     mode === 'edit'
       ? resolveOfficialGPTImageEditSize(request.model, requestedSize, params)
@@ -542,6 +543,7 @@ export const gptImageAdapter: ImageModelAdapter = {
   ],
   defaultModel: 'gpt-image-2',
   async generateImage(context, request) {
+    request = await prepareImageGenerationRequest(request);
     const requestModel =
       context.binding?.modelId || request.modelRef?.modelId || request.model;
     const isTuziRequest = isTuziProviderBaseUrl(

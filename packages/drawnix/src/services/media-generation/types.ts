@@ -33,7 +33,7 @@ export interface ImageGenerationOptions {
   background?: 'transparent' | 'opaque' | 'auto';
   outputFormat?: 'png' | 'jpeg' | 'webp';
   outputCompression?: number;
-  uploadedImages?: Array<{ url?: string; base64?: string }>;
+  uploadedImages?: Array<{ url?: string; base64?: string; width?: number; height?: number }>;
   count?: number;
   /** 透传给具体适配器的额外参数（如 seedream_quality、aspect_ratio） */
   params?: Record<string, unknown>;

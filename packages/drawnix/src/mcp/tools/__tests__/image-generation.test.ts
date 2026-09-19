@@ -70,6 +70,13 @@ vi.mock('../shared/queue-utils', () => ({
 import { imageGenerationTool } from '../image-generation';
 
 describe('image-generation MCP tool', () => {
+  it.each([undefined, 'auto', '1000x1001', '5:4'])('preserves size intent %s in queued tasks', async (size) => {
+    await imageGenerationTool.execute({ prompt: 'test', size, resolution: '4k' }, { mode: 'queue' });
+    const config = mocks.createQueueTask.mock.calls[0][2];
+    expect(config.buildTaskPayload().size).toBe(size?.replace(':', 'x'));
+    expect(config.buildTaskPayload().params.resolution).toBe('4k');
+  });
+
   beforeEach(() => {
     mocks.createQueueTask.mockReset();
     mocks.resolveAdapterForInvocation.mockReset();

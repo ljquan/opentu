@@ -92,8 +92,8 @@ describe('gpt-image-adapter', () => {
     });
   });
 
-  it('keeps legacy GPT Image models on official standard sizes only', () => {
-    const body = buildGPTImageGenerationBody({
+  it('rejects unsupported resolution tiers for legacy GPT Image models', () => {
+    expect(() => buildGPTImageGenerationBody({
       model: 'gpt-image-1',
       prompt: 'Draw a clean product photo',
       size: '16x9',
@@ -101,14 +101,7 @@ describe('gpt-image-adapter', () => {
         resolution: '4k',
         quality: 'high',
       },
-    });
-
-    expect(body).toEqual({
-      model: 'gpt-image-1',
-      prompt: 'Draw a clean product photo',
-      size: '1536x1024',
-      quality: 'high',
-    });
+    })).toThrow('不支持所选分辨率');
   });
 
   it('preserves explicit b64_json response_format for GPT Image generation', () => {
@@ -195,8 +188,8 @@ describe('gpt-image-adapter', () => {
     expect(body.get('size')).toBe('3312x2480');
   });
 
-  it('keeps legacy GPT Image edit requests on standard edit sizes', async () => {
-    const body = await buildGPTImageEditFormData({
+  it('rejects unsupported resolution tiers for legacy GPT Image edits', async () => {
+    await expect(buildGPTImageEditFormData({
       model: 'gpt-image-1',
       prompt: 'Change the style',
       size: '16x9',
@@ -204,9 +197,7 @@ describe('gpt-image-adapter', () => {
       params: {
         resolution: '4k',
       },
-    });
-
-    expect(body.get('size')).toBe('1536x1024');
+    })).rejects.toThrow('不支持所选分辨率');
   });
 
   it('fetches remote image and mask URLs for edit form data', async () => {
@@ -457,7 +448,7 @@ describe('gpt-image-adapter', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/out.png' }],
+            data: [{ url: 'https://example.com/out.png', width: 1024, height: 1024 }],
           }),
           {
             status: 200,
@@ -519,7 +510,7 @@ describe('gpt-image-adapter', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/out.png' }],
+            data: [{ url: 'https://example.com/out.png', width: 1024, height: 1024 }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )
@@ -678,6 +669,7 @@ describe('gpt-image-adapter', () => {
         prompt: 'Change the style',
         referenceImages: [tinyPngDataUrl],
         generationMode: 'image_to_image',
+        params: { referenceImageMetadata: [{ url: tinyPngDataUrl, width: 1, height: 1 }] },
       }
     );
 

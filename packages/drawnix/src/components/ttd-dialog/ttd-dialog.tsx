@@ -844,6 +844,8 @@ const TTDDialogComponent = ({
               key={imageDialogSessionKey}
               initialPrompt={resolvedAiImageData.initialPrompt}
               initialImages={resolvedAiImageData.initialImages}
+              initialParams={imageDialogInitialData?.initialParams}
+              initialParameterModel={imageDialogInitialData?.initialModel}
               initialKnowledgeContextRefs={
                 resolvedAiImageData.initialKnowledgeContextRefs || []
               }

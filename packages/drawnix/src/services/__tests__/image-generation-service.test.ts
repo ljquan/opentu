@@ -183,11 +183,11 @@ describe('image-generation-service', () => {
         count: 2,
         resultVisibility: 'internal',
         autoInsertToCanvas: false,
-        params: {
+        params: expect.objectContaining({
           resolution: '2k',
           quality: 'high',
           n: 2,
-        },
+        }),
         submissionRequestId: 'task-image-1',
         imageSubmissionAttempted: false,
       }),
@@ -211,11 +211,11 @@ describe('image-generation-service', () => {
           maskImage: 'https://example.com/mask.png',
           resultVisibility: 'internal',
           autoInsertToCanvas: false,
-          params: {
+          params: expect.objectContaining({
             resolution: '2k',
             quality: 'high',
             n: 2,
-          },
+          }),
           submissionRequestId: 'task-image-1',
           imageSubmissionAttempted: false,
         }),

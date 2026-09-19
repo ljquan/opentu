@@ -47,6 +47,10 @@ vi.mock('../../../contexts/AssetContext', () => ({
   useAssets: () => ({ addAsset }),
 }));
 
+vi.mock('../../../utils/image-natural-size', () => ({
+  getImageNaturalSize: vi.fn().mockResolvedValue({ width: 600, height: 800 }),
+}));
+
 function PasteScopeHarness({
   images,
   onImagesChange,
@@ -138,7 +142,11 @@ describe('ReferenceImageUpload paste scope', () => {
     expect(event.defaultPrevented).toBe(true);
     await vi.waitFor(() => {
       expect(onImagesChange).toHaveBeenCalledWith([
-        expect.objectContaining({ name: 'reference.png' }),
+        expect.objectContaining({
+          name: 'reference.png',
+          width: 600,
+          height: 800,
+        }),
       ]);
     });
   });

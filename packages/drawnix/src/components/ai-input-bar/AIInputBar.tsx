@@ -5311,11 +5311,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 return { width: item.width, height: item.height };
               }
               return undefined;
-            })
-            .filter(
-              (dim): dim is { width: number; height: number } =>
-                dim !== undefined
-            );
+            });
 
           const selection = {
             texts: effectiveContent
