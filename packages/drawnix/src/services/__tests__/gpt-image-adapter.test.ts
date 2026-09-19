@@ -13,6 +13,33 @@ const tinyPngBase64Only =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 describe('gpt-image-adapter', () => {
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s sends concrete 4K size for automatic generation and stale edit size',
+    async (model) => {
+      expect(buildGPTImageGenerationBody({
+        model,
+        prompt: 'Draw a product photo',
+        size: 'auto',
+        params: { resolution: '4k', quality: 'max' },
+      })).toEqual({
+        model,
+        prompt: 'Draw a product photo',
+        size: '2880x2880',
+        quality: 'max',
+      });
+      const form = await buildGPTImageEditFormData({
+        model,
+        prompt: 'Edit a product photo',
+        size: '1024x1024',
+        referenceImages: [tinyPngDataUrl],
+        params: { resolution: '4k', quality: 'max' },
+      });
+      expect(form.get('model')).toBe(model);
+      expect(form.get('size')).toBe('2880x2880');
+      expect(form.get('quality')).toBe('max');
+    }
+  );
+
   it('builds official GPT Image generation JSON without response_format by default', () => {
     const body = buildGPTImageGenerationBody({
       model: 'gpt-image-2',

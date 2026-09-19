@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import './ttd-dialog.scss';
 import './ai-image-generation.scss';
+import { normalizeGPTImage25ResolutionParams } from '../../services/model-adapters/image-size-quality-resolver';
 import { useI18n } from '../../i18n';
 import { type Language } from '../../constants/prompts';
 import { useDeviceType } from '../../hooks/useDeviceType';
@@ -370,16 +371,15 @@ const AIImageGeneration = ({
       });
       return;
     }
-    if (paramId === 'size') {
-      setAspectRatio(
-        getAspectRatioFromSizeParam(value) || DEFAULT_ASPECT_RATIO
-      );
+    const nextParams = normalizeGPTImage25ResolutionParams(
+      currentModel,
+      { ...mjSelectedParams, [paramId]: value }
+    );
+    if (paramId === 'size' || nextParams.size !== mjSelectedParams.size) {
+      setAspectRatio(getAspectRatioFromParams(nextParams));
     }
-    setMjSelectedParams((prev) => ({
-      ...prev,
-      [paramId]: value,
-    }));
-  }, []);
+    setMjSelectedParams(nextParams);
+  }, [currentModel, mjSelectedParams]);
 
   // 处理宽度变化
   const handleWidthChange = useCallback((width: number) => {

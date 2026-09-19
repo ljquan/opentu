@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { normalizeGPTImage25ResolutionParams } from '../../services/model-adapters/image-size-quality-resolver';
 import {
   getCompatibleParams,
   getDefaultAudioModel,
@@ -488,9 +489,9 @@ export function useChatDrawerGenerationControls(
       } else {
         next[paramId] = value;
       }
-      return next;
+      return normalizeGPTImage25ResolutionParams(selectedModel, next);
     });
-  }, []);
+  }, [selectedModel]);
 
   return {
     generationType,
