@@ -1,6 +1,44 @@
 # 图片分辨率修复 QA
 
-## 高风险审查修复（当前，2026-09-19）
+## PR 前最终验证（2026-09-19）
+
+- 范围：本次分辨率意图、参考图宽高传递、任务回填及高风险修复，共 43 个文件；不包含无关重构、依赖或版本升级。
+- 分支：`dev/image-resolution-intent`；功能提交 `dfd25af1`，目标为 `ljquan/opentu:develop`。
+- 同步：提交本地修复后显式执行 `git fetch origin develop`、`git merge --no-edit origin/develop`；远程最新为 `b730d01125423ae261b596142c5c24b9fc3efebf`，GitHub API 复核一致。该提交已包含在本地历史中，合并返回 `Already up to date`，本轮无冲突、无额外合并提交。
+- 环境：macOS、Node.js 26.8.1、pnpm 10.21.0、已安装依赖。模拟传输不需要真实凭据，不发送收费生成请求；没有启动或操作浏览器页面。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 下列 19 个相关测试文件 | 同步前、同步后各运行一次，均为 314/314 通过 |
+| Drawnix TypeScript | 通过 |
+| Web Vite 生产构建 | 通过，51.28 秒；存在 Sass/CSS、包体、混合导入等警告 |
+| 40 个变更 TS/TSX 文件 ESLint 对照 | 上游 75 错误/143 警告，当前 75 错误/146 警告；按文件、规则和消息计数，无新增错误，警告净增 3，涉及 any 和非空断言；不等于 lint 全绿 |
+| `git diff origin/develop...HEAD --check` | 通过 |
+| 新增差异常见令牌/私钥格式扫描 | 未命中；不代替完整安全审计 |
+| 全仓测试、覆盖率、页面交互、真实渠道与计费 | 未执行；历史任务恢复/重试失败记录保留在下方，未宣称修复 |
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  --config packages/drawnix/vite.config.ts \
+  packages/drawnix/src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts \
+  packages/drawnix/src/services/__tests__/{image-resolution-intent,generation-api-resolution,image-resolution-routing,default-image-adapter,gpt-image-adapter,tuzi-gpt-image-adapter,media-executor,image-generation-service,image-routing-adapter-integration,model-adapter-registry,ai-generation-preferences-service,async-image-api-service}.test.ts \
+  packages/drawnix/src/components/ai-input-bar/__tests__/workflow-converter.test.ts \
+  packages/drawnix/src/utils/__tests__/image-task-prefill.test.ts \
+  packages/drawnix/src/services/media-api/image-api.test.ts \
+  packages/drawnix/src/mcp/tools/__tests__/image-generation.test.ts \
+  packages/drawnix/src/components/ttd-dialog/shared/ReferenceImageUpload.test.tsx \
+  packages/drawnix/src/components/ttd-dialog/shared/ReferenceImageUpload.paste-scope.test.tsx \
+  --silent --maxWorkers=1
+pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit --pretty false
+pnpm exec vite build --config apps/web/vite.config.ts
+git diff origin/develop...HEAD --check
+```
+
+ESLint 对照方法：对上述差异中的所有 TS/TSX 文件执行 `ESLint.lintFiles`；使用 `git show origin/develop:<文件>` 获取未改源码，以相同 `filePath` 调用 `ESLint.lintText`，按文件、规则和消息比较计数；新增文件的上游计数为零。未使用忽略规则或放宽测试断言掩盖失败。
+
+注意事项：无新增配置、环境变量、依赖、迁移或权限要求；沿用前端发布流程，不自动部署或合并 PR。无参考图且选择高档位的自动比例任务现在会失败，用户需选择明确比例或提供参考图；历史任务不迁移，GPT auto + 1K 保留兼容。通用渠道 quality 档位语义及批量入队前远程参考图读取问题仍待独立处理。上线前需另行授权逐渠道核验真实请求、输出像素和账单；回滚恢复上一前端版本即可。
+
+## 高风险审查修复（前轮记录，2026-09-19）
 
 - 范围：只修复 GPT/Seedream 专用渠道无参考图自动比例下的显式高档位丢失，以及批量入口的模型名正则分流。未处理本轮审查的其他中风险项，未提交、推送或部署。
 - 前置条件：现有本机 Node/pnpm 和已安装依赖；测试使用模拟传输，不需要真实 API Key，不产生上游收费请求。

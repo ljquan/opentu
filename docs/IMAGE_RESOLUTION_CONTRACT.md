@@ -43,4 +43,4 @@
 
 公共入口为 `services/model-adapters/image-generation-intent.ts`；GPT 和 Seedream 负责各自尺寸约束，fallback 执行器负责路由兼容，`utils/image-task-prefill.ts` 负责历史参数恢复。
 
-没有新增依赖、配置项或数据迁移。修复仅在本地实现，未提交、推送或部署。验证结果及剩余风险见 [IMAGE_RESOLUTION_QA.md](IMAGE_RESOLUTION_QA.md)。真实渠道参数接收、输出和账单必须在获得测试授权后核对，不能用单元测试代替。
+没有新增依赖、配置项或数据迁移。部署沿用现有前端发布流程；回滚时恢复上一前端版本，不需要回滚数据库。验证结果及剩余风险见 [IMAGE_RESOLUTION_QA.md](IMAGE_RESOLUTION_QA.md)。真实渠道参数接收、输出和账单必须在获得测试授权后核对，不能用单元测试代替。
