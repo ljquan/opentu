@@ -58,7 +58,16 @@
 
 ## 自动化验证
 
-2026-09-20 补齐 Sunburst/Flare 的自动尺寸修正（当前最终结果）：
+2026-09-20 同步 develop 后最终验证：
+
+- 分支：`fix/gpt-image-25-resolution-tiers`。显式 fetch 并 merge `origin/develop`（`b730d01125423ae261b596142c5c24b9fc3efebf`），结果 Already up to date，无冲突。
+- 环境：Node.js 26.8.1、pnpm 10.21.0。在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/constants/__tests__/model-config.test.ts src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts src/services/__tests__/image-inspection-pure.test.ts src/services/__tests__/default-image-adapter.test.ts src/utils/__tests__/runtime-model-discovery.test.ts --testTimeout 20000 --silent`：8 文件、190 项通过。
+- 根目录执行 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`、`pnpm exec vite build --config apps/web/vite.config.ts`、`git diff origin/develop...HEAD --check` 均通过；构建耗时 49.49 秒。
+- 构建存在 Sass 弃用、Browserslist 数据过期、静态/动态混合导入和大 chunk 警告；未在本任务扩大范围处理。
+- 未执行全仓测试、全仓 lint、页面交互和真实计费生图；上游最终图片尺寸、计费和实际偏好持久化仍待人工验收。以下“人工验收”均为待执行步骤，并非已通过记录。
+- DOC 已同步。另一个待合并 PR #265 涉及同一尺寸解析器，其自动比例 + 显式 K 档位策略与本次自动转正方形不同；后续合并须统一策略，本次未修改或合并该 PR。
+
+2026-09-20 补齐 Sunburst/Flare 的自动尺寸修正（同步前阶段结果）：
 
 - 普通 2.5、VIP、Sunburst、Flare 共用 `GPT_IMAGE_25_EXTENDED_MODEL_IDS`，统一自动/1K/2K/4K 参数、界面选择归一化、旧偏好恢复和生成/编辑尺寸转换；image-2 与固定 1k 型号保持原行为。
 - `packages/drawnix` 下执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/constants/__tests__/model-config.test.ts src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts --testTimeout 20000 --silent`：5 文件、127 项通过。
