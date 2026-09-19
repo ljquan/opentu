@@ -31,6 +31,7 @@ import {
 import { useAssets } from '../../../contexts/AssetContext';
 import { unifiedCacheService } from '../../../services/unified-cache-service';
 import './ReferenceImageUpload.scss';
+import { getImageNaturalSize } from '../../../utils/image-natural-size';
 
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const COMPRESSION_THRESHOLD_BYTES = 10 * 1024 * 1024;
@@ -41,6 +42,8 @@ export interface ReferenceImage {
   file?: File;
   maskImage?: string;
   slot?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface ReferenceImageUploadHandle {
@@ -215,6 +218,7 @@ export const ReferenceImageUpload = forwardRef<
       return {
         url: dataUrl,
         name: asset.name,
+        ...await getImageNaturalSize(dataUrl, 0, 0),
       };
     },
     []
@@ -273,11 +277,12 @@ export const ReferenceImageUpload = forwardRef<
     (file: File | Blob, originalName: string): Promise<ReferenceImage> => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           resolve({
             url: reader.result as string,
             name: originalName,
             file: file instanceof File ? file : (file as any),
+            ...await getImageNaturalSize(reader.result as string, 0, 0),
           });
         };
         reader.onerror = reject;

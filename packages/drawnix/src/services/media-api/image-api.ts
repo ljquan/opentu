@@ -28,6 +28,7 @@ import {
   readProviderResponseText,
 } from '../provider-routing/provider-transport';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
+import { hasImageDimensions } from '../model-adapters/image-generation-intent';
 
 // 重新导出工具函数，方便外部使用
 export { isAsyncImageModel, aspectRatioToSize };
@@ -67,9 +68,9 @@ export function buildImageRequestBody(
     body.n = params.n;
   }
 
-  if (params.size) {
+  if (params.size && params.size !== 'auto') {
     body.size = aspectRatioToSize(params.size) || params.size;
-  } else if (params.aspectRatio) {
+  } else if (!params.size && params.aspectRatio && params.aspectRatio !== 'auto') {
     body.size = aspectRatioToSize(params.aspectRatio);
   }
 
@@ -115,8 +116,10 @@ export function parseImageResponse(
     }
 
     const format = getFileExtension(urls[0]) || 'png';
+    const firstImage = data.data.find((item: Record<string, unknown>) => normalizeImageResultUrl(item));
     return {
       url: urls[0],
+      ...(hasImageDimensions(firstImage) ? { width: firstImage.width, height: firstImage.height } : {}),
       urls: urls.length > 1 ? urls : undefined,
       format: format === 'bin' ? 'png' : format,
     };
@@ -127,6 +130,8 @@ export function parseImageResponse(
     const format = getFileExtension(normalizedUrl);
     return {
       url: normalizedUrl,
+      ...(hasImageDimensions(data)
+        ? { width: data.width, height: data.height } : {}),
       format: format === 'bin' ? 'png' : format,
     };
   }
@@ -218,13 +223,15 @@ export async function generateImageAsync(
   const model =
     params.model || config.defaultModel || 'gemini-3-pro-image-preview-async';
   // 计算宽高比
-  const aspectRatio =
-    params.aspectRatio || sizeToAspectRatio(params.size) || '1:1';
+  if (params.quality && params.quality !== 'auto') {
+    throw new Error('当前异步图片渠道不支持指定分辨率或画质。');
+  }
+  const aspectRatio = params.aspectRatio || sizeToAspectRatio(params.size) || params.size;
   // 构建 FormData
   const formData = new FormData();
   formData.append('model', model);
   formData.append('prompt', params.prompt);
-  formData.append('size', aspectRatio);
+  if (aspectRatio && aspectRatio !== 'auto') formData.append('size', aspectRatio);
 
   // 处理参考图片：需要转换为 Blob
   if (params.referenceImages && params.referenceImages.length > 0) {

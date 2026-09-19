@@ -10,6 +10,7 @@ import {
 import React, { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssetSource, AssetType, type Asset } from '../../../types/asset.types';
+import { getImageNaturalSize } from '../../../utils/image-natural-size';
 import { useLocalFileDrop } from '../../shared/local-image-drag-drop';
 import {
   ReferenceImageUpload,
@@ -37,6 +38,10 @@ vi.mock('../../../services/unified-cache-service', () => ({
 
 vi.mock('../../../contexts/AssetContext', () => ({
   useAssets: () => assetMocks,
+}));
+
+vi.mock('../../../utils/image-natural-size', () => ({
+  getImageNaturalSize: vi.fn().mockResolvedValue({ width: 600, height: 800 }),
 }));
 
 vi.mock('tdesign-react', () => ({
@@ -131,6 +136,7 @@ describe('ReferenceImageUpload media library selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     assetMocks.addAsset.mockResolvedValue(undefined);
+    vi.mocked(getImageNaturalSize).mockResolvedValue({ width: 600, height: 800 });
     selectedAsset = generatedAsset;
     selectedAssets = [generatedAsset];
   });
@@ -166,6 +172,8 @@ describe('ReferenceImageUpload media library selection', () => {
       expect.objectContaining({
         name: image.name,
         url: 'data:image/png;base64,aW1hZ2U=',
+        width: 600,
+        height: 800,
       }),
     ]);
     expect(assetMocks.addAsset).toHaveBeenCalledTimes(1);
@@ -278,6 +286,8 @@ describe('ReferenceImageUpload media library selection', () => {
         expect.objectContaining({
           name: generatedAsset.name,
           url: 'data:image/png;base64,cG5n',
+          width: 600,
+          height: 800,
         }),
       ]);
     });
@@ -442,7 +452,11 @@ describe('ReferenceImageUpload media library selection', () => {
 
     await waitFor(() => {
       expect(onImagesChange).toHaveBeenCalledWith([
-        expect.objectContaining({ url: 'data:image/png;base64,cG5n' }),
+        expect.objectContaining({
+          url: 'data:image/png;base64,cG5n',
+          width: 600,
+          height: 800,
+        }),
       ]);
     });
     expect(onError).toHaveBeenLastCalledWith(null);

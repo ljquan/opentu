@@ -70,14 +70,48 @@ describe('GPT Image 2.5 size and quality resolution', () => {
   );
 
   it.each(GPT_IMAGE_25_MODEL_IDS)(
-    '%s 不使用 GPT Image 2 分辨率矩阵',
+    '%s 无显式高分辨率时使用标准尺寸映射',
+    (modelId) => {
+      expect(resolveOfficialGPTImageSize(modelId, '3x4')).toBe('1024x1536');
+      expect(
+        resolveOfficialGPTImageSize(modelId, '3x4', { resolution: '1k' })
+      ).toBe('1024x1536');
+      expect(resolveOfficialGPTImageSize(modelId, '16x9')).toBe('1536x1024');
+    }
+  );
+
+  it.each(GPT_IMAGE_25_MODEL_IDS)(
+    '%s 拒绝不支持的高分辨率，不静默回退到标准尺寸',
     (modelId) => {
       expect(
-        resolveOfficialGPTImageSize(modelId, '3x4', { resolution: '4k' })
-      ).toBe('1024x1536');
+        () => resolveOfficialGPTImageSize(modelId, '3x4', { resolution: '4k' })
+      ).toThrow('不支持所选分辨率');
       expect(
-        resolveOfficialGPTImageSize(modelId, '16x9', { resolution: '2k' })
-      ).toBe('1536x1024');
+        () => resolveOfficialGPTImageSize(modelId, '16x9', { resolution: '2k' })
+      ).toThrow('不支持所选分辨率');
+      expect(
+        () => resolveOfficialGPTImageEditSize(modelId, '1024x1536', { resolution: '4k' })
+      ).toThrow('不支持所选分辨率');
+    }
+  );
+
+  it.each(GPT_IMAGE_25_MODEL_IDS)(
+    '%s 在自动比例下仍拒绝不支持的高分辨率，但不再拒绝 1K',
+    (modelId) => {
+      expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '1k' })).toBeUndefined();
+      expect(() =>
+        resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '4k' })
+      ).toThrow('不支持所选分辨率');
+    }
+  );
+
+  it.each(['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s 在自动比例且无参考图时拒绝无法表达的 2K/4K',
+    (modelId) => {
+      expect(() => resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '2k' }))
+        .toThrow('必须明确图片比例或提供参考图');
+      expect(() => resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '4k' }))
+        .toThrow('必须明确图片比例或提供参考图');
     }
   );
 

@@ -88,6 +88,8 @@ export interface VideoGenerationParams {
  * 图片生成结果
  */
 export interface ImageGenerationResult {
+  width?: number;
+  height?: number;
   /** 主图片 URL */
   url: string;
   /** 多图时的所有 URL */

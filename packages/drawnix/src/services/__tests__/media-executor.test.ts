@@ -307,6 +307,10 @@ describe('Media Executor Module', () => {
         {
           prompt: 'Edit this',
           model: 'gpt-image-2',
+          params: {
+            referenceImageMetadata: [{ url: 'data:image/png;base64,source', width: 1086, height: 1448 }],
+            resolution: '4k',
+          },
           referenceImages: ['data:image/png;base64,source'],
           generationMode: 'image_edit',
           maskImage: 'data:image/png;base64,mask',
@@ -333,6 +337,11 @@ describe('Media Executor Module', () => {
         expect.objectContaining({
           generationMode: 'image_edit',
           referenceImages: ['data:image/png;base64,abc'],
+          size: '3x4',
+          params: expect.objectContaining({
+            resolution: '4k',
+            referenceImageMetadata: [{ url: 'data:image/png;base64,abc', width: 1086, height: 1448 }],
+          }),
           maskImage: 'data:image/png;base64,mask',
           outputFormat: 'png',
         })
@@ -426,12 +435,16 @@ describe('Media Executor Module', () => {
         prompt: 'Edit this',
         model: 'gpt-image-2',
         referenceImages: [remoteReference],
+        params: {
+          resolution: '4k',
+          referenceImageMetadata: [{ url: remoteReference, width: 1086, height: 1448 }],
+        },
         generationMode: 'image_edit',
       });
 
       expect(adapter.generateImage).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.objectContaining({ referenceImages: [remoteReference] })
+        expect.objectContaining({ referenceImages: [remoteReference], size: '3x4' })
       );
       expect(getImageForAI).not.toHaveBeenCalled();
     }, 15000);

@@ -160,7 +160,7 @@ class AsyncImageAPIService {
     const formData = new FormData();
     formData.append('model', params.model);
     formData.append('prompt', params.prompt);
-    if (params.size) {
+    if (params.size && params.size !== 'auto') {
       formData.append('size', params.size);
     }
     if (params.referenceImages?.length) {

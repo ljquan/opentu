@@ -50,7 +50,7 @@ export interface ImageGenerationParams {
   /** GPT Image 输出压缩率 */
   outputCompression?: number;
   /** 上传图片列表（与 SW 一致，fallback 会从中提取 URL） */
-  uploadedImages?: Array<{ url?: string }>;
+  uploadedImages?: Array<{ url?: string; width?: number; height?: number }>;
   /** 分辨率档位 */
   resolution?: '1k' | '2k' | '4k';
   /** 官方画质（GPT）或兼容旧值 */

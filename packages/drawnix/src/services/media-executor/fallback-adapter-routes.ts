@@ -11,6 +11,7 @@ import type {
   TaskResultVisibility,
 } from '../../types/shared/core.types';
 import type { CacheWarning } from '../../types/cache-warning.types';
+import { mergeImageGenerationParams, prepareImageGenerationRequest, remapImageReferenceMetadata } from '../model-adapters/image-generation-intent';
 import type { ExecutionOptions } from './types';
 import { taskStorageWriter } from './task-storage-writer';
 import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
@@ -176,6 +177,10 @@ export async function executeImageViaAdapter(
   let recoveryUrl: string | undefined;
 
   try {
+    const adapterParams = mergeImageGenerationParams(params);
+    const sizingRequest = ['gpt-image-adapter', 'tuzi-gpt-image-adapter', 'seedream-image-adapter', 'gemini-image-adapter'].includes(adapter.id)
+      ? await prepareImageGenerationRequest({ ...params, params: adapterParams })
+      : { size: params.size, params: adapterParams };
     let processedImages: string[] | undefined;
     if (params.referenceImages && params.referenceImages.length > 0) {
       processedImages = await materializeReferenceImagesSequentially(
@@ -222,7 +227,7 @@ export async function executeImageViaAdapter(
         prompt: params.prompt,
         model: requestModel,
         modelRef: params.modelRef || null,
-        size: params.size,
+        size: sizingRequest.size,
         generationMode:
           params.generationMode ||
           (isGPTImageEditRequestSchema(preferredRequestSchema)
@@ -235,10 +240,13 @@ export async function executeImageViaAdapter(
         outputFormat: params.outputFormat,
         outputCompression: params.outputCompression,
         params: {
-          resolution: params.resolution,
-          quality: params.quality,
-          n: params.count,
-          ...params.params,
+          ...sizingRequest.params,
+          referenceImageMetadata: remapImageReferenceMetadata(
+            sizingRequest.params?.referenceImageMetadata,
+            params.referenceImages || [],
+            processedImages || []
+          ),
+          n: params.count ?? adapterParams.n,
         },
       }
     );

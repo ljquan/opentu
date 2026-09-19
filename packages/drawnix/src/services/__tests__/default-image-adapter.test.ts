@@ -35,6 +35,21 @@ vi.mock('../unified-cache-service', () => ({
 import { geminiImageAdapter } from '../model-adapters/default-adapters';
 
 describe('default image adapter compatibility', () => {
+  it('preserves auto + 4K for synchronous basic/native-compatible requests', async () => {
+    mocks.generateImage.mockResolvedValue({ data: [{ url: 'https://example.com/out.png' }] });
+    await geminiImageAdapter.generateImage({ baseUrl: 'https://example.invalid' }, {
+      prompt: 'test', model: 'gemini-3-pro-image-preview', size: 'auto', params: { resolution: '4k' },
+    });
+    expect(mocks.generateImage).toHaveBeenCalledWith('test', expect.objectContaining({ size: 'auto', quality: '4k' }));
+  });
+
+  it('rejects unsupported async resolution before submission', async () => {
+    await expect(geminiImageAdapter.generateImage({ baseUrl: 'https://example.invalid', binding: {
+      protocol: 'openai.async.media', requestSchema: 'openai.async.image.form',
+    } as any }, { prompt: 'test', size: 'auto', params: { resolution: '4k' } })).rejects.toThrow('异步图片渠道');
+    expect(mocks.generateWithPolling).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     mocks.generateImage.mockReset();
     mocks.generateWithPolling.mockReset();

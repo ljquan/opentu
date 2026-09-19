@@ -285,7 +285,7 @@ export interface AgentExecutionContext {
     /** 选中的图形转换为的图片 URL */
     graphics: string[];
     /** 图片尺寸信息（按顺序对应 images + graphics） */
-    imageDimensions?: ImageDimensions[];
+    imageDimensions?: Array<ImageDimensions | null | undefined>;
   };
 
   /** 最终生成用的 prompt */

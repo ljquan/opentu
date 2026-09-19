@@ -226,13 +226,13 @@ ${toolsDescription}
  */
 export function generateReferenceImagesPrompt(
   imageCount: number,
-  imageDimensions?: ImageDimensions[]
+  imageDimensions?: Array<ImageDimensions | null | undefined>
 ): string {
   // 生成带尺寸信息的占位符描述
   const placeholdersWithSize = Array.from({ length: imageCount }, (_, i) => {
     const placeholder = `[图片${i + 1}]`;
-    if (imageDimensions && imageDimensions[i]) {
-      const dim = imageDimensions[i];
+    const dim = imageDimensions?.[i];
+    if (dim) {
       return `${placeholder}(${dim.width}x${dim.height})`;
     }
     return placeholder;

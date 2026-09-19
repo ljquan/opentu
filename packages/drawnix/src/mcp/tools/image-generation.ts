@@ -23,7 +23,6 @@ import {
   IMAGE_PARAMS,
 } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
-import { normalizeToClosestImageSize } from '../../services/media-api/utils';
 import { generateTaskId } from '../../utils/task-utils';
 import {
   getAdapterContextFromSettings,
@@ -229,7 +228,7 @@ async function executeAsync(
         prompt,
         model: requestedModel,
         modelRef: modelRef || null,
-        size: size || '1x1',
+        size,
         generationMode:
           params.generationMode ||
           (isGPTImageEditRequestSchema(preferredRequestSchema)
@@ -261,7 +260,7 @@ async function executeAsync(
         urls: result.urls?.map((url) => normalizeImageDataUrl(url)),
         format: format === 'bin' ? result.format || 'png' : format,
         prompt,
-        size: size || '1x1',
+        size,
         requestId,
       },
       type: 'image',
@@ -288,7 +287,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
       const adapterParams = buildQueueAdapterParams(params);
       return {
         prompt: params.prompt,
-        size: params.size || '1x1',
+        size: params.size,
         uploadedImages:
           uploadedImages && uploadedImages.length > 0
             ? uploadedImages
@@ -327,7 +326,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
       };
     },
     buildResultData: () => ({
-      size: params.size || '1x1',
+      size: params.size,
     }),
   };
 }
@@ -361,7 +360,7 @@ export const imageGenerationTool: MCPTool = {
         type: 'string',
         description: '图片尺寸比例',
         enum: getImageSizeOptions(),
-        default: '1x1',
+        default: 'auto',
       },
       referenceImages: {
         type: 'array',
@@ -450,7 +449,7 @@ export const imageGenerationTool: MCPTool = {
     parameterGuidance: {
       prompt:
         '将用户描述扩展为详细的英文提示词，包含：主体描述、风格（如 cinematic, watercolor, anime）、光线（如 soft lighting, golden hour）、构图（如 close-up, wide shot）、质量词（如 high quality, detailed）。',
-      size: '根据内容选择：人像用 9x16，风景用 16x9，正方形内容用 1x1。默认 1x1。',
+      size: '优先使用用户指定比例；auto 或省略时跟随第一张参考图，无参考图则保留自动比例。指定 K 档的渠道若不支持自动比例，应提示用户选择比例。',
       referenceImages:
         '当用户提供参考图片时使用占位符如 ["[图片1]"]，系统会自动替换为真实 URL。',
       count: '用户明确要求批量生成时使用，如 "+3 画一只猫" 则 count=3。',
@@ -500,11 +499,11 @@ export const imageGenerationTool: MCPTool = {
     const rawParams = params as unknown as ImageGenerationParams;
     const mode = options?.mode || 'async';
 
-    // 规范化 size：将不在可用范围内的 size 自动转换为最接近的可用值
+    // Preserve intent; model adapters validate ratios without silently replacing them.
     const typedParams: ImageGenerationParams = {
       ...rawParams,
       size: rawParams.size
-        ? normalizeToClosestImageSize(rawParams.size, '1x1')
+        ? rawParams.size.trim().toLowerCase().replace(':', 'x')
         : rawParams.size,
     };
 

@@ -142,7 +142,7 @@ function parsePixelSize(
 
   const width = Number(match[1]);
   const height = Number(match[2]);
-  if (!width || !height) {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || !width || !height) {
     return undefined;
   }
 
@@ -181,11 +181,7 @@ function resolveKnownAspectRatio(
     return ratioKey as GPTImageAspectRatioKey;
   }
 
-  if (parsed.width === parsed.height) {
-    return '1x1';
-  }
-
-  return parsed.width > parsed.height ? '16x9' : '9x16';
+  return undefined;
 }
 
 function isValidGPTImage2PixelSize(width: number, height: number): boolean {
@@ -256,6 +252,9 @@ export function normalizeImageResolutionTier(
 export function resolveImageResolutionTier(
   params?: Record<string, unknown>
 ): ImageResolutionTier | undefined {
+  if (params?.resolution !== undefined && !normalizeImageResolutionTier(params.resolution)) {
+    throw new Error('当前图片模型的分辨率必须为 1K、2K 或 4K。');
+  }
   return (
     normalizeImageResolutionTier(params?.resolution) ||
     normalizeImageResolutionTier(params?.quality)
@@ -296,13 +295,29 @@ export function resolveOfficialGPTImageSize(
   params?: Record<string, unknown>
 ): string | undefined {
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
+  const requestedResolution = resolveImageResolutionTier(params);
+  const useLegacySizing = isLegacyGPTImageModel(modelId);
+  const useGPTImage25Sizing = isGPTImage25Model(modelId);
+
+  // Keep model capability validation even when the aspect ratio is automatic.
+  if (
+    (useLegacySizing || useGPTImage25Sizing) &&
+    requestedResolution &&
+    requestedResolution !== '1k'
+  ) {
+    throw new Error('当前 GPT Image 模型不支持所选分辨率，请选择 1K 或更换模型。');
+  }
+
   if (!normalizedSize || normalizedSize === 'auto') {
+    if (requestedResolution && requestedResolution !== '1k') {
+      throw new Error(
+        'GPT Image 选择 2K/4K 时必须明确图片比例或提供参考图，避免分辨率档位被上游忽略。'
+      );
+    }
     return undefined;
   }
 
   const parsedPixelSize = parsePixelSize(normalizedSize);
-  const useLegacySizing = isLegacyGPTImageModel(modelId);
-  const useGPTImage25Sizing = isGPTImage25Model(modelId);
 
   if (parsedPixelSize && isPixelSize(normalizedSize)) {
     if (useGPTImage25Sizing) {
@@ -313,7 +328,7 @@ export function resolveOfficialGPTImageSize(
       if (
         isValidGPTImage2PixelSize(parsedPixelSize.width, parsedPixelSize.height)
       ) {
-        return normalizedSize;
+        if (!requestedResolution) return normalizedSize;
       }
     } else if (useLegacySizing && LEGACY_GPT_IMAGE_SIZES.has(normalizedSize)) {
       return normalizedSize;
@@ -322,15 +337,34 @@ export function resolveOfficialGPTImageSize(
 
   const aspectRatio = resolveKnownAspectRatio(normalizedSize);
   if (!aspectRatio) {
-    return undefined;
+    if (parsedPixelSize && !useLegacySizing && !useGPTImage25Sizing) {
+      return scaleGPTImageSize(parsedPixelSize.width, parsedPixelSize.height, requestedResolution || '1k');
+    }
+    throw new Error('图片尺寸或比例不受当前 GPT Image 模型支持。');
   }
 
   if (useLegacySizing || useGPTImage25Sizing) {
     return LEGACY_GPT_IMAGE_SIZE_BY_RATIO[toLegacyAspectRatio(aspectRatio)];
   }
 
-  const resolution = resolveImageResolutionTier(params) || '1k';
+  const resolution = requestedResolution || '1k';
   return GPT_IMAGE_2_SIZE_MATRIX[resolution][aspectRatio];
+}
+
+function scaleGPTImageSize(width: number, height: number, tier: ImageResolutionTier): string {
+  const ratio = width / height;
+  if (!Number.isFinite(ratio) || ratio > 3 || ratio < 1 / 3) {
+    throw new Error('GPT Image 图片的长短边比例不能超过 3:1。');
+  }
+  const pixels = { '1k': 1_048_576, '2k': 4_194_304, '4k': 8_294_400 }[tier];
+  const scale = Math.min(Math.sqrt(pixels / (width * height)), 3840 / Math.max(width, height));
+  let w = Math.max(16, Math.floor(width * scale / 16) * 16);
+  let h = Math.max(16, Math.floor(height * scale / 16) * 16);
+  // Grid rounding must not cross the provider's aspect-ratio boundary.
+  if (w > h * 3) w = h * 3;
+  if (h > w * 3) h = w * 3;
+  if (!isValidGPTImage2PixelSize(w, h)) throw new Error('无法为所选比例生成有效的 GPT Image 尺寸。');
+  return `${w}x${h}`;
 }
 
 export function resolveOfficialGPTImageEditSize(
@@ -341,6 +375,9 @@ export function resolveOfficialGPTImageEditSize(
   if (isGPTImage2Model(modelId) || isGPTImage25Model(modelId)) {
     return resolveOfficialGPTImageSize(modelId, size, params);
   }
+
+  const tier = resolveImageResolutionTier(params);
+  if (tier && tier !== '1k') throw new Error('当前 GPT Image 编辑模型不支持所选分辨率。');
 
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
   if (!normalizedSize || normalizedSize === 'auto') {

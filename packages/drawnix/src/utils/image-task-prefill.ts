@@ -2,11 +2,14 @@ import type { KnowledgeContextRef, Task } from '../types/task.types';
 import type { ModelRef } from './settings-manager';
 import type { AIInputPrefillEventDetail } from '../services/ai-input-ui-events';
 import { resolveTaskInvocationRouteModel } from '../services/task-invocation-route';
+import { mergeImageGenerationParams, hasImageDimensions } from '../services/model-adapters/image-generation-intent';
 
 export interface ImageGenerationReferenceImage {
   url: string;
   name: string;
   maskImage?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface ImageGenerationInitialData {
@@ -16,10 +19,11 @@ export interface ImageGenerationInitialData {
   initialHeight?: number;
   initialResultUrl?: string;
   initialAspectRatio?: string;
-  initialImages: ImageGenerationReferenceImage[];
-  initialKnowledgeContextRefs?: KnowledgeContextRef[];
   initialModel?: string;
   initialModelRef?: ModelRef | null;
+  initialParams?: Record<string, string>;
+  initialImages: ImageGenerationReferenceImage[];
+  initialKnowledgeContextRefs?: KnowledgeContextRef[];
 }
 
 function normalizeImageTaskDataUrl(value: string): string {
@@ -148,6 +152,7 @@ function normalizeReferenceImage(
   return {
     url: normalizeImageTaskDataUrl(url),
     name: readString(record.name) || `${labelPrefix} ${index + 1}`,
+    ...(hasImageDimensions(record) ? { width: record.width, height: record.height } : {}),
   };
 }
 
@@ -163,7 +168,13 @@ function appendReferenceImages(
 
   values.forEach((value, index) => {
     const image = normalizeReferenceImage(value, index, labelPrefix);
-    if (!image || seenUrls.has(image.url)) {
+    if (!image) return;
+    if (seenUrls.has(image.url)) {
+      const existing = target.find((item) => item.url === image.url);
+      if (existing && !hasImageDimensions(existing) && hasImageDimensions(image)) {
+        existing.width = image.width;
+        existing.height = image.height;
+      }
       return;
     }
 
@@ -229,7 +240,34 @@ export function getImageTaskReferenceImages(
     };
   }
 
-  return images;
+  const metadata = (params.params as Record<string, unknown> | undefined)?.referenceImageMetadata;
+  return images.map((image) => {
+    const source = Array.isArray(metadata) ? metadata.find((item) =>
+      typeof item?.url === 'string' && normalizeImageTaskDataUrl(item.url) === image.url
+    ) : undefined;
+    return !hasImageDimensions(image) && hasImageDimensions(source)
+      ? { ...image, width: source.width, height: source.height }
+      : image;
+  });
+}
+
+export function getImageTaskGenerationParams(task: Pick<Task, 'params' | 'invocationRoute'>): Record<string, string> {
+  const params = task.params as Record<string, unknown>;
+  const merged = readStringParams(mergeImageGenerationParams({
+    ...params,
+    params: params.params as Record<string, unknown> | undefined,
+  }));
+  const size = readString(params.size) || merged.size || readString(params.aspectRatio);
+  if (size) merged.size = size.replace(':', 'x').toLowerCase();
+  const routeModel = resolveTaskInvocationRouteModel(task);
+  const model = (typeof routeModel === 'string' ? routeModel : routeModel?.modelId) || '';
+  if (model.startsWith('gpt-image') && /^(1k|2k|4k)$/i.test(merged.quality || '')) {
+    merged.resolution ||= merged.quality.toLowerCase();
+    delete merged.quality;
+  }
+  if (model.includes('seedream') && merged.resolution) merged.seedream_quality = merged.resolution;
+  if (model.includes('gemini') && merged.resolution) merged.quality = merged.resolution;
+  return merged;
 }
 
 export function buildImageTaskPrefillInitialData(
@@ -242,6 +280,7 @@ export function buildImageTaskPrefillInitialData(
   const model =
     modelRef?.modelId ||
     (typeof routeModel === 'string' ? routeModel : readString(params.model));
+  const generationParams = getImageTaskGenerationParams(task);
 
   return {
     prefillId: `${task.id}-${Date.now()}`,
@@ -249,7 +288,8 @@ export function buildImageTaskPrefillInitialData(
     initialWidth: readFiniteNumber(params.width),
     initialHeight: readFiniteNumber(params.height),
     initialResultUrl: readString(task.result?.url),
-    initialAspectRatio: readString(params.aspectRatio),
+    initialAspectRatio: generationParams.size || readString(params.aspectRatio),
+    initialParams: generationParams,
     initialImages: getImageTaskReferenceImages(task),
     ...(model ? { initialModel: model } : {}),
     initialModelRef: modelRef,
@@ -263,8 +303,6 @@ export function buildImageTaskAIInputPrefillData(
   task: Task
 ): AIInputPrefillEventDetail {
   const params = task.params as Record<string, unknown>;
-  const nestedParams = readStringParams(params.params);
-  const size = readString(params.size) || readString(params.aspectRatio);
   const routeModel = resolveTaskInvocationRouteModel(task);
   const modelRef = typeof routeModel === 'string' ? null : routeModel;
   const model =
@@ -280,10 +318,7 @@ export function buildImageTaskAIInputPrefillData(
     ...(model ? { model } : {}),
     modelRef: modelRef || readModelRef(params.modelRef),
     ...(knowledgeContextRefs.length > 0 ? { knowledgeContextRefs } : {}),
-    params: {
-      ...nestedParams,
-      ...(size ? { size: size.replace(':', 'x').toLowerCase() } : {}),
-    },
+    params: getImageTaskGenerationParams(task),
     ...(count ? { count } : {}),
   };
 }

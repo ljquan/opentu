@@ -77,6 +77,7 @@ import {
   sanitizeImageToolExtraParams,
 } from '../../services/ai-generation-preferences-service';
 import { buildMJPromptSuffix } from '../../utils/mj-params';
+import { prepareImageGenerationRequest } from '../../services/model-adapters/image-generation-intent';
 
 // 本地缓存 key
 const BATCH_IMAGE_CACHE_KEY = LS_KEYS_TO_MIGRATE.BATCH_IMAGE_CACHE;
@@ -2246,9 +2247,20 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
                 .filter(Boolean)
                 .join(' ')
             : task.prompt.trim();
-          const adapterParams = isMJModel
+          let adapterParams: Record<string, unknown> | undefined = isMJModel
             ? undefined
             : buildTaskAdapterParams(rowParams);
+
+          if (!isMJModel) {
+            const prepared = await prepareImageGenerationRequest({
+              prompt: finalPrompt,
+              size: normalizedAspectRatio,
+              referenceImages: task.images,
+              params: adapterParams,
+            });
+            // Persist the source dimensions, not the resolved ratio, for retry/prefill.
+            adapterParams = prepared.params;
+          }
 
           const uploadedImages = task.images.map((url, index) => ({
             type: 'url',

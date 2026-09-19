@@ -136,6 +136,20 @@ describe('workflow-converter', () => {
 
   describe('convertDirectGenerationToWorkflow', () => {
     describe('图片生成场景', () => {
+      it('keeps reference dimensions keyed by URL without shifting missing entries', () => {
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({ size: 'auto', count: 2,
+          extraParams: { resolution: '4k' },
+          selection: { texts: [], images: ['first', 'second'], graphics: [], videos: [],
+            imageDimensions: [undefined, { width: 1086, height: 1448 }] },
+        }), ['first', 'second']);
+        for (const step of workflow.steps) {
+          expect(step.args.params).toMatchObject({ resolution: '4k', referenceImageMetadata: [
+            { url: 'first' }, { url: 'second', width: 1086, height: 1448 },
+          ] });
+          expect((step.args.params as any).referenceImageMetadata[0].width).toBeUndefined();
+        }
+      });
+
       it('应该正确转换单张图片生成请求', () => {
         const params = createMockParams({
           generationType: 'image',

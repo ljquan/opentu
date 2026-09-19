@@ -15,6 +15,7 @@ import {
   TaskType,
   type GenerationParams,
   type KnowledgeContextRef,
+  type Task,
 } from '../../types/task.types';
 import { MessagePlugin } from 'tdesign-react';
 import { useGenerationHistory } from '../../hooks/useGenerationHistory';
@@ -55,6 +56,7 @@ import {
   setAIImageDraftState,
 } from '../../utils/ai-image-draft-state';
 import {
+  buildImageTaskPrefillInitialData,
   getImageTaskKnowledgeContextRefs,
   getImageTaskReferenceImages,
 } from '../../utils/image-task-prefill';
@@ -93,6 +95,8 @@ interface AIImageGenerationProps {
   initialHeight?: number;
   initialResultUrl?: string;
   initialAspectRatio?: string;
+  initialParams?: Record<string, string>;
+  initialParameterModel?: string;
   targetFrameId?: string;
   targetFrameDimensions?: { width: number; height: number };
   pptSlideImage?: boolean;
@@ -194,6 +198,8 @@ const AIImageGeneration = ({
   initialHeight,
   initialResultUrl,
   initialAspectRatio,
+  initialParams,
+  initialParameterModel,
   targetFrameId,
   targetFrameDimensions,
   pptSlideImage,
@@ -249,7 +255,8 @@ const AIImageGeneration = ({
   >(initialKnowledgeContextRefs);
   const [mjSelectedParams, setMjSelectedParams] = useState<
     Record<string, string>
-  >(initialScopedPreferences.extraParams);
+  >(initialParams && (!initialParameterModel || currentModel === initialParameterModel)
+    ? initialParams : initialScopedPreferences.extraParams);
   const visibleImageModels = useMemo(() => {
     const currentMatch = findMatchingSelectableModel(
       imageModels,
@@ -331,6 +338,7 @@ const AIImageGeneration = ({
 
   // Track if we're in manual edit mode (from handleEditTask) to prevent props from overwriting
   const [isManualEdit, setIsManualEdit] = useState(false);
+  const initialParamsAppliedRef = useRef(false);
 
   // 模型切换时恢复该模型上次使用的偏好
   useEffect(() => {
@@ -342,13 +350,19 @@ const AIImageGeneration = ({
       currentModel,
       getSelectionKey(currentModel, currentModelRef)
     );
+    const applyInitialParams = initialParams && !initialParamsAppliedRef.current &&
+      (!initialParameterModel || currentModel === initialParameterModel);
+    const prefillParams = applyInitialParams
+      ? initialParams
+      : scopedPreferences.extraParams;
+    if (applyInitialParams) initialParamsAppliedRef.current = true;
     const nextParams = initialAspectRatio
       ? applyAspectRatioToParams(
           currentModel,
-          scopedPreferences.extraParams,
+          prefillParams,
           initialAspectRatio
         )
-      : scopedPreferences.extraParams;
+      : prefillParams;
     setMjSelectedParams(nextParams);
     setAspectRatio(
       getAspectRatioFromParams(
@@ -356,7 +370,7 @@ const AIImageGeneration = ({
         initialAspectRatio || scopedPreferences.aspectRatio
       )
     );
-  }, [currentModel, currentModelRef, initialAspectRatio, isManualEdit]);
+  }, [currentModel, currentModelRef, initialAspectRatio, initialParams, initialParameterModel, isManualEdit]);
 
   const handleMJParamChange = useCallback((paramId: string, value: string) => {
     if (!value || value === 'default') {
@@ -649,23 +663,12 @@ const AIImageGeneration = ({
   };
 
   // 处理任务编辑（从弹窗内的任务列表点击编辑）
-  const handleEditTask = (task: any) => {
-    // console.log('Image handleEditTask - task params:', task.params);
-    const taskModel = task.params.model || currentModel;
-    const taskExtraParams = {
-      ...(task.params.params || {}),
-      ...(task.params.size !== undefined ? { size: task.params.size } : {}),
-      ...(task.params.resolution !== undefined
-        ? { resolution: task.params.resolution }
-        : {}),
-      ...(task.params.quality !== undefined
-        ? { quality: task.params.quality }
-        : {}),
-    };
-    const sanitizedTaskParams =
-      Object.keys(taskExtraParams).length > 0
-        ? sanitizeImageToolExtraParams(taskModel, taskExtraParams)
-        : sanitizeImageToolExtraParams(taskModel, {});
+  const handleEditTask = (task: Task) => {
+    const prefill = buildImageTaskPrefillInitialData(task);
+    const taskModel = prefill.initialModel || currentModel;
+    const sanitizedTaskParams = sanitizeImageToolExtraParams(
+      taskModel, prefill.initialParams || {}
+    );
 
     // 标记为手动编辑模式,防止 props 的 useEffect 覆盖我们的更改
     setIsManualEdit(true);
@@ -681,21 +684,21 @@ const AIImageGeneration = ({
     setKnowledgeContextRefs(getImageTaskKnowledgeContextRefs(task));
 
     // 更新模型选择（通过全局设置）
-    if (task.params.model) {
-      setCurrentModel(task.params.model);
-      setCurrentModelRef((task.params.modelRef as ModelRef | null) || null);
+    if (prefill.initialModel) {
+      setCurrentModel(taskModel);
+      setCurrentModelRef(prefill.initialModelRef || null);
       // console.log('Updating image model to:', task.params.model);
       const settings = geminiSettings.get();
       // console.log('Current settings:', settings);
       geminiSettings.update({
         ...settings,
-        imageModelName: task.params.model,
+        imageModelName: taskModel,
       });
       // console.log('Updated settings:', geminiSettings.get());
     }
 
     setAspectRatio(
-      getAspectRatioFromParams(sanitizedTaskParams, task.params.aspectRatio)
+      getAspectRatioFromParams(sanitizedTaskParams, prefill.initialAspectRatio)
     );
 
     setError(null);
@@ -711,6 +714,8 @@ const AIImageGeneration = ({
             url: string;
             name: string;
             maskImage?: string;
+            width?: number;
+            height?: number;
           }>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
@@ -719,6 +724,8 @@ const AIImageGeneration = ({
                 url: reader.result as string,
                 name: img.name,
                 maskImage: img.maskImage,
+                width: img.width,
+                height: img.height,
               });
             };
             reader.onerror = reject;
@@ -730,6 +737,8 @@ const AIImageGeneration = ({
             url: img.url,
             name: img.name,
             maskImage: img.maskImage,
+            width: img.width,
+            height: img.height,
           };
         }
         throw new Error('Invalid image data');

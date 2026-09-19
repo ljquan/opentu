@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { parseImageResponse } from './image-api';
+import { buildImageRequestBody, parseImageResponse } from './image-api';
 import { normalizeToClosestImageSize } from './utils';
 
 describe('parseImageResponse', () => {
+  it('keeps actual output dimensions for result persistence', () => {
+    expect(parseImageResponse({ data: [{ url: 'https://example.com/output.png', width: 2480, height: 3312 }] }))
+      .toMatchObject({ width: 2480, height: 3312 });
+    expect(parseImageResponse({ data: [{ width: 1, height: 1 }, { url: 'https://example.com/output.png', width: 2480, height: 3312 }] }))
+      .toMatchObject({ width: 2480, height: 3312 });
+  });
+
+  it('keeps automatic sizing independent of the generic gateway K tier', () => {
+    expect(buildImageRequestBody({ prompt: 'test', size: 'auto', quality: '4k' })).toEqual({ prompt: 'test', model: undefined, quality: '4k' });
+  });
+
   it('normalizes raw base64 image payloads into data URLs', () => {
     const result = parseImageResponse({
       data: [

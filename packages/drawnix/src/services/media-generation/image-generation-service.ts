@@ -31,24 +31,12 @@ import {
   createImageSubmissionParams,
   getImageSubmissionRequestId,
 } from '../image-generation-recovery-service';
+import { mergeImageGenerationParams } from '../model-adapters/image-generation-intent';
 
 function buildStoredImageAdapterParams(
   options: ImageGenerationOptions
 ): Record<string, unknown> | undefined {
-  const adapterParams: Record<string, unknown> = {
-    ...(options.params || {}),
-  };
-
-  if (
-    options.resolution !== undefined &&
-    adapterParams.resolution === undefined
-  ) {
-    adapterParams.resolution = options.resolution;
-  }
-
-  if (options.quality !== undefined && adapterParams.quality === undefined) {
-    adapterParams.quality = options.quality;
-  }
+  const adapterParams = mergeImageGenerationParams(options);
 
   if (
     typeof options.count === 'number' &&
@@ -178,7 +166,7 @@ export async function generateImage(
     count: options.count,
     assetMetadata: options.assetMetadata,
     resultVisibility: options.resultVisibility,
-    params: options.params,
+    params: buildStoredImageAdapterParams(options),
   };
 
   // 调用 executor 执行

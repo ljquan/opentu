@@ -7,6 +7,7 @@ import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
 import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson } from '../provider-routing';
+import { prepareImageGenerationRequest } from './image-generation-intent';
 
 const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';
 const SEEDREAM_MODELS = [
@@ -98,15 +99,21 @@ const resolveSeedreamSize = (
   const mapped = sizeMap[size];
   if (mapped) return mapped;
 
-  // 如果已经是像素值格式（如 2048x2048），直接使用
-  if (/^\d+x\d+$/.test(size)) return size;
-
-  // 默认 1:1
-  return quality === '4k'
-    ? '4096x4096'
-    : quality === '3k'
-    ? '3072x3072'
-    : '2048x2048';
+  const match = size.match(/^(\d+)[x:](\d+)$/);
+  if (!match) throw new Error('Seedream 图片尺寸或比例无效。');
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || !width || !height) {
+    throw new Error('Seedream 图片尺寸必须为有效的正整数。');
+  }
+  const edge = quality === '4k' ? 4096 : quality === '3k' ? 3072 : 2048;
+  const scale = edge / Math.sqrt(width * height);
+  const outputWidth = Math.floor(width * scale);
+  const outputHeight = Math.floor(height * scale);
+  if (!outputWidth || !outputHeight) {
+    throw new Error('图片比例过大，无法生成有效的 Seedream 尺寸。');
+  }
+  return `${outputWidth}x${outputHeight}`;
 };
 
 const resolveBaseUrl = (context: AdapterContext): string => {
@@ -128,8 +135,23 @@ export const seedreamImageAdapter: ImageModelAdapter = {
   defaultModel: DEFAULT_SEEDREAM_MODEL,
 
   async generateImage(context, request: ImageGenerationRequest) {
-    const model = request.model || DEFAULT_SEEDREAM_MODEL;
-    const quality = (request.params?.seedream_quality as string) || '2k';
+    request = await prepareImageGenerationRequest(request);
+    const model = context.binding?.modelId || request.modelRef?.modelId || request.model || DEFAULT_SEEDREAM_MODEL;
+    const explicitTier = request.params?.resolution ?? request.params?.seedream_quality;
+    const rawTier = explicitTier ?? '2k';
+    const quality = typeof rawTier === 'string' ? rawTier.trim().toLowerCase() : '';
+    const supportedTiers = model === DEFAULT_SEEDREAM_MODEL ? ['2k', '3k'] : ['2k', '4k'];
+    if (!supportedTiers.includes(quality)) {
+      throw new Error(`当前 Seedream 模型仅支持 ${supportedTiers.join('、').toUpperCase()}。`);
+    }
+    if (
+      explicitTier !== undefined &&
+      (!request.size || request.size.trim().toLowerCase() === 'auto')
+    ) {
+      throw new Error(
+        'Seedream 选择分辨率档位时必须明确图片比例或提供参考图，避免分辨率档位被上游忽略。'
+      );
+    }
     const size = resolveSeedreamSize(request.size, quality);
 
     const body: Record<string, unknown> = {

@@ -18,6 +18,7 @@ import {
   readProviderResponseText,
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { getRequestedImageSize, prepareImageGenerationRequest } from './image-generation-intent';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 
 type TuziResponseFormat = 'url' | 'b64_json';
@@ -44,7 +45,7 @@ function getResolvedOfficialSize(
   request: ImageGenerationRequest,
   model: string
 ): string | undefined {
-  const requestedSize = getStringParam(request.params, 'size') || request.size;
+  const requestedSize = getRequestedImageSize(request);
   return resolveOfficialGPTImageSize(model, requestedSize, request.params);
 }
 
@@ -192,6 +193,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   ],
   defaultModel: 'gpt-image-2',
   async generateImage(context, request) {
+    request = await prepareImageGenerationRequest(request);
     const requestModel =
       context.binding?.modelId || request.modelRef?.modelId || request.model;
     const sendRequest = (modelId?: string | null) =>
