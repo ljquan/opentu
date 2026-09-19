@@ -220,7 +220,7 @@ describe('pollVideoStatus', () => {
     expect(result).toEqual({ url: 'https://cdn.example.com/minimax.mp4' });
   });
 
-  it('uses the default MiniMax-H3 v1 polling path', async () => {
+  it('ignores stale v1 params and uses the MiniMax-H3 v2 polling path', async () => {
     providerSend.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -243,6 +243,7 @@ describe('pollVideoStatus', () => {
         apiKey: 'test-key',
         baseUrl: 'https://video.example.com/v1',
         model: 'MiniMax-H3',
+        params: { api_version: 'v1' },
         provider: {
           profileId: 'runtime',
           profileName: 'Runtime',
@@ -258,7 +259,7 @@ describe('pollVideoStatus', () => {
     expect(providerSend).toHaveBeenCalledWith(
       expect.objectContaining({ baseUrl: 'https://video.example.com/v1' }),
       expect.objectContaining({
-        path: '/v1/videos/minimax-v1-task-1',
+        path: '/v2/query/video_generation/minimax-v1-task-1',
         baseUrlStrategy: 'trim-v1',
         method: 'GET',
       })

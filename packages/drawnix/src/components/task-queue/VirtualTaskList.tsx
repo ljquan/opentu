@@ -34,6 +34,7 @@ export interface VirtualTaskListProps {
   onCopy?: (taskId: string) => void;
   onEdit?: (taskId: string) => void;
   onRegenerate?: (taskId: string) => void;
+  onUpgradeTo2K?: (taskId: string) => void;
   onPreviewOpen?: (taskId: string) => void;
   onExtractCharacter?: (taskId: string) => void;
   className?: string;
@@ -75,6 +76,7 @@ export const VirtualTaskList: React.FC<VirtualTaskListProps> = ({
   onCopy,
   onEdit,
   onRegenerate,
+  onUpgradeTo2K,
   onPreviewOpen,
   onExtractCharacter,
   className = '',
@@ -361,6 +363,7 @@ export const VirtualTaskList: React.FC<VirtualTaskListProps> = ({
               onInsert={onInsert}
               onEdit={onEdit}
               onRegenerate={onRegenerate}
+              onUpgradeTo2K={onUpgradeTo2K}
               onPreviewOpen={() => onPreviewOpen?.(task.id)}
               onExtractCharacter={onExtractCharacter}
             />
@@ -448,6 +451,7 @@ export const VirtualTaskList: React.FC<VirtualTaskListProps> = ({
                   onCopy={onCopy}
                   onEdit={onEdit}
                   onRegenerate={onRegenerate}
+                  onUpgradeTo2K={onUpgradeTo2K}
                   onPreviewOpen={() => onPreviewOpen?.(task.id)}
                   onExtractCharacter={onExtractCharacter}
                 />

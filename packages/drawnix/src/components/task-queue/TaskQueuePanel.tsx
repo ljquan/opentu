@@ -73,6 +73,7 @@ import {
 import { requestAIInputPrefill } from '../../services/ai-input-ui-events';
 import './task-queue.scss';
 import { HoverTip } from '../shared';
+import { createMiniMaxH3RegenerationTask } from '../../services/minimax-h3-regeneration-service';
 
 const { TabPanel } = Tabs;
 
@@ -798,6 +799,25 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     onTaskAction?.('regenerate', taskId);
   };
 
+  const handleUpgradeTo2K = async (taskId: string) => {
+    try {
+      const sourceTask =
+        (await taskStorageReader.getTask(taskId)) ||
+        taskQueueService.getTask(taskId) ||
+        tasks.find((item) => item.id === taskId);
+      if (!sourceTask) {
+        throw new Error('未找到源视频任务');
+      }
+      createMiniMaxH3RegenerationTask(sourceTask);
+      MessagePlugin.success('已提交升至 2K 的视频重制任务');
+      onTaskAction?.('upgradeTo2K', taskId);
+    } catch (error) {
+      MessagePlugin.error(
+        error instanceof Error ? error.message : '视频升至 2K 提交失败'
+      );
+    }
+  };
+
   const handleEdit = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) {
@@ -1337,6 +1357,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
             onCopy={handleCopy}
             onEdit={handleEdit}
             onRegenerate={handleRegenerate}
+            onUpgradeTo2K={handleUpgradeTo2K}
             onPreviewOpen={handlePreviewOpen}
             onExtractCharacter={handleExtractCharacter}
             hasMore={hasMore}

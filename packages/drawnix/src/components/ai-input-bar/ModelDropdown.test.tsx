@@ -7,23 +7,27 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModelVendor, type ModelConfig } from '../../constants/model-config';
 import { ModelDropdown } from './ModelDropdown';
 
-const { discoverMock, applySelectionMock } = vi.hoisted(() => ({
-  discoverMock: vi.fn(),
-  applySelectionMock: vi.fn(),
-}));
+const { discoverMock, applySelectionMock, setErrorMock, getStateMock } =
+  vi.hoisted(() => ({
+    discoverMock: vi.fn(),
+    applySelectionMock: vi.fn(),
+    setErrorMock: vi.fn(),
+    getStateMock: vi.fn(),
+  }));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
   runtimeModelDiscovery: {
-    getState: () => ({
-      status: 'idle',
-      discoveredModels: [],
-    }),
+    getState: getStateMock,
+    subscribe: () => () => undefined,
+    getRevision: () => 0,
+    getInFlightDiscovery: () => null,
     discover: discoverMock,
     applySelection: applySelectionMock,
+    setError: setErrorMock,
   },
 }));
 
@@ -48,9 +52,9 @@ vi.mock('../../utils/settings-manager', () => ({
   TUZI_PROVIDER_ICON_URL: 'https://tuzi.example/icon.png',
   providerCatalogsSettings: {
     get: () => [],
-    addListener: () => {},
-    removeListener: () => {},
-    update: async () => {},
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    update: vi.fn().mockResolvedValue(undefined),
   },
   createModelRef: (profileId: string | null, modelId: string) => ({
     profileId,
@@ -79,10 +83,22 @@ vi.mock('../shared/ModelBenchmarkBadge', () => ({
 }));
 
 describe('ModelDropdown', () => {
+  beforeEach(() => {
+    discoverMock.mockResolvedValue([]);
+    getStateMock.mockReturnValue({
+      status: 'idle',
+      discoveredModels: [],
+      selectedModelIds: [],
+      error: null,
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     discoverMock.mockReset();
     applySelectionMock.mockReset();
+    setErrorMock.mockReset();
+    getStateMock.mockReset();
     cleanup();
   });
 
@@ -297,7 +313,7 @@ describe('ModelDropdown', () => {
     expect(menu.textContent).toContain('vip');
   });
 
-  it('模型查询未完成时强制显示加载动画，完成后移除加载状态', async () => {
+  it('自定义供应商也会懒加载模型，完成后移除加载状态', async () => {
     let resolveDiscovery: ((models: ModelConfig[]) => void) | undefined;
     discoverMock.mockImplementation(
       () =>
@@ -306,22 +322,22 @@ describe('ModelDropdown', () => {
         })
     );
 
-    const managedModel: ModelConfig = {
+    const customModel: ModelConfig = {
       ...baseModel,
-      sourceProfileId: 'tuzi-managed-default',
-      sourceProfileName: 'Tuzi 默认分组',
-      selectionKey: 'tuzi-managed-default::gpt-image-2',
+      sourceProfileId: 'custom-provider',
+      sourceProfileName: 'mj原生',
+      selectionKey: 'custom-provider::gpt-image-2',
     };
 
     const { container } = render(
       <ModelDropdown
-        selectedModel={managedModel.id}
-        selectedSelectionKey={managedModel.selectionKey}
-        models={[managedModel]}
+        selectedModel={customModel.id}
+        selectedSelectionKey={customModel.selectionKey}
+        models={[customModel]}
         providerProfilesOverride={[
           {
-            id: 'tuzi-managed-default',
-            name: 'Tuzi 默认分组',
+            id: 'custom-provider',
+            name: 'mj原生',
             baseUrl: 'https://tuzi.example/v1',
             apiKey: 'sk-test',
             enabled: true,
@@ -340,6 +356,11 @@ describe('ModelDropdown', () => {
     );
 
     expect(discoverMock).toHaveBeenCalledTimes(1);
+    expect(discoverMock).toHaveBeenCalledWith(
+      'custom-provider',
+      'https://tuzi.example/v1',
+      'sk-test'
+    );
     expect(await screen.findByText('正在加载模型...')).toBeTruthy();
     const loadingStatus = document.querySelector(
       '.model-dropdown__loading-overlay'
@@ -349,8 +370,113 @@ describe('ModelDropdown', () => {
       loadingStatus.querySelector('.model-dropdown__loading-icon')
     ).not.toBeNull();
 
-    resolveDiscovery?.([managedModel]);
+    resolveDiscovery?.([customModel]);
     await waitFor(() => {
+      expect(
+        document.querySelector('.model-dropdown__loading-overlay')
+      ).toBeNull();
+    });
+  });
+
+  it.each(['image', 'video'] as const)(
+    '已发现但未添加的模型按 %s 模式显示准确状态',
+    (modelType) => {
+      const imageModel = {
+        ...baseModel,
+        id: 'mj_fast_imagine',
+        sourceProfileId: 'custom-mj',
+      };
+      getStateMock.mockReturnValue({
+        status: 'ready',
+        discoveredModels: [imageModel],
+        selectedModelIds: ['existing-video'],
+        error: null,
+      });
+      render(
+        <ModelDropdown
+          selectedModel=""
+          models={[]}
+          modelType={modelType}
+          isOpen
+          providerProfilesOverride={[
+            {
+              id: 'custom-mj',
+              name: 'mj原生',
+              baseUrl: 'https://api.tu-zi.com',
+              apiKey: 'sk-test',
+              enabled: true,
+              providerType: 'openai-compatible',
+              authType: 'bearer',
+            },
+          ]}
+          onSelect={vi.fn()}
+        />
+      );
+      if (modelType === 'image') {
+        expect(screen.getByText('已发现 1 个图片模型，尚未添加')).toBeTruthy();
+        expect(applySelectionMock).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText('添加图片模型'));
+        expect(applySelectionMock).toHaveBeenCalledWith('custom-mj', [
+          'existing-video',
+          'mj_fast_imagine',
+        ]);
+      } else {
+        expect(screen.getByText('该供应商暂无可用的视频模型')).toBeTruthy();
+        expect(screen.queryByText('添加视频模型')).toBeNull();
+      }
+      expect(discoverMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('模型获取失败时结束加载并记录可重试错误', async () => {
+    setErrorMock.mockImplementation((_profileId, error) => {
+      getStateMock.mockReturnValue({
+        status: 'error',
+        discoveredModels: [],
+        selectedModelIds: [],
+        error,
+      });
+    });
+    discoverMock.mockRejectedValue(new Error('模型接口暂时不可用'));
+    const customModel: ModelConfig = {
+      ...baseModel,
+      sourceProfileId: 'custom-provider-error',
+      sourceProfileName: 'mj原生',
+      selectionKey: 'custom-provider-error::gpt-image-2',
+    };
+
+    const { container } = render(
+      <ModelDropdown
+        selectedModel={customModel.id}
+        selectedSelectionKey={customModel.selectionKey}
+        models={[]}
+        providerProfilesOverride={[
+          {
+            id: 'custom-provider-error',
+            name: 'mj原生',
+            baseUrl: 'https://tuzi.example/v1',
+            apiKey: 'sk-test',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+          },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    fireEvent.mouseDown(
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
+    );
+
+    await waitFor(() => {
+      expect(setErrorMock).toHaveBeenCalledWith(
+        'custom-provider-error',
+        '模型接口暂时不可用'
+      );
+      expect(screen.getByText('模型获取失败：模型接口暂时不可用')).toBeTruthy();
       expect(
         document.querySelector('.model-dropdown__loading-overlay')
       ).toBeNull();

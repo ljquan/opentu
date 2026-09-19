@@ -1172,6 +1172,7 @@ describe('task-queue-service image edit retry persistence', () => {
 
   it('does not let a late analyzer response overwrite a newer same-id restore', async () => {
     vi.stubGlobal('window', {
+      location: { origin: 'http://localhost:7200' },
       setInterval: vi.fn(() => 1),
       clearInterval: vi.fn(),
     });
@@ -1530,6 +1531,116 @@ describe('task-queue-service image edit retry persistence', () => {
       'data:image/png;base64,source',
     ]);
   });
+
+  it.each([
+    [TaskStatus.COMPLETED, true],
+    [TaskStatus.COMPLETED, false],
+    [TaskStatus.FAILED, true],
+    [TaskStatus.FAILED, false],
+  ] as const)(
+    'preserves the video provider ID and route on %s writeback (progress callback: %s)',
+    async (terminalStatus, emitProgress) => {
+      const { taskQueueService, storedTasks, mocks } =
+        await setupTaskQueueServiceHarness([terminalStatus]);
+      const updates: Task[] = [];
+      const subscription = taskQueueService
+        .observeTaskUpdates()
+        .subscribe((event) => {
+          if (
+            event.type === 'taskUpdated' &&
+            event.task.status === terminalStatus
+          ) {
+            updates.push(clone(event.task));
+          }
+        });
+      let submittedRoute: Task['invocationRoute'];
+      mocks.generateVideo.mockImplementationOnce(async (params) => {
+        const storedTask = storedTasks.get(params.taskId);
+        submittedRoute = {
+          ...storedTask.invocationRoute,
+          providerProfileId: 'submitted-video-provider',
+          modelRef: {
+            profileId: 'submitted-video-provider',
+            modelId: 'MiniMax-H3',
+          },
+        };
+        // The executor writes submission metadata directly to IndexedDB.
+        storedTasks.set(params.taskId, {
+          ...storedTask,
+          remoteId: 'h3-provider-task-1',
+          invocationRoute: submittedRoute,
+        });
+      });
+      mocks.waitForTaskCompletion.mockImplementationOnce(
+        async (taskId, options) => {
+          const completedTask = {
+            ...clone(storedTasks.get(taskId)),
+            status: terminalStatus,
+            completedAt: Date.now(),
+            ...(terminalStatus === TaskStatus.COMPLETED
+              ? {
+                  result: {
+                    url: 'https://example.com/video.mp4',
+                    format: 'mp4',
+                    size: 1,
+                  },
+                }
+              : {
+                  error: {
+                    code: 'VIDEO_FAILED',
+                    message: 'Provider task failed',
+                  },
+                }),
+          };
+          storedTasks.set(taskId, clone(completedTask));
+          if (emitProgress) options?.onProgress?.(clone(completedTask));
+          return {
+            success: terminalStatus === TaskStatus.COMPLETED,
+            task: completedTask,
+          };
+        }
+      );
+
+      const task = taskQueueService.createTask(
+        { prompt: 'Generate a video', model: 'MiniMax-H3', size: '768P' },
+        TaskType.VIDEO
+      );
+      await flushAsyncWork();
+
+      expect(mocks.generateVideo).toHaveBeenCalledTimes(1);
+      expect(updates).toHaveLength(emitProgress ? 2 : 1);
+      for (const updatedTask of updates) {
+        expect(updatedTask).toMatchObject({
+          remoteId: 'h3-provider-task-1',
+          invocationRoute: submittedRoute,
+        });
+      }
+      expect(taskQueueService.getTask(task.id)).toMatchObject({
+        status: terminalStatus,
+        remoteId: 'h3-provider-task-1',
+        invocationRoute: submittedRoute,
+      });
+      expect(storedTasks.get(task.id)).toMatchObject({
+        status: terminalStatus,
+        remoteId: 'h3-provider-task-1',
+        invocationRoute: submittedRoute,
+      });
+      if (terminalStatus === TaskStatus.COMPLETED) {
+        const { getMiniMaxH3RegenerationEligibility } = await import(
+          '../minimax-h3-regeneration-service'
+        );
+        const completedTask = taskQueueService.getTask(task.id);
+        if (!completedTask) throw new Error('Completed video task is missing');
+        expect(
+          getMiniMaxH3RegenerationEligibility(completedTask)
+        ).toMatchObject({
+          supported: true,
+          enabled: true,
+        });
+      }
+      subscription.unsubscribe();
+    }
+  );
 
   it('forwards internal result visibility when executing video tasks', async () => {
     const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([

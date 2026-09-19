@@ -36,6 +36,7 @@ import {
 } from '../shared/media-preview';
 import './dialog-task-list.scss';
 import { HoverTip } from '../shared';
+import { createMiniMaxH3RegenerationTask } from '../../services/minimax-h3-regeneration-service';
 
 export interface DialogTaskListProps {
   /** Task IDs to display. If not provided, shows all tasks (subject to taskType filter) */
@@ -319,6 +320,24 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
     MessagePlugin.success('已回填历史提示词和参考图，请手动发送');
   };
 
+  const handleUpgradeTo2K = async (taskId: string) => {
+    try {
+      const sourceTask =
+        (await taskStorageReader.getTask(taskId)) ||
+        taskQueueService.getTask(taskId) ||
+        tasks.find((item) => item.id === taskId);
+      if (!sourceTask) {
+        throw new Error('未找到源视频任务');
+      }
+      createMiniMaxH3RegenerationTask(sourceTask);
+      MessagePlugin.success('已提交升至 2K 的视频重制任务');
+    } catch (error) {
+      MessagePlugin.error(
+        error instanceof Error ? error.message : '视频升至 2K 提交失败'
+      );
+    }
+  };
+
   const handleEdit = async (taskId: string) => {
     const task =
       (await taskStorageReader.getTask(taskId)) ||
@@ -567,6 +586,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
           onInsert={handleInsert}
           onEdit={handleEdit}
           onRegenerate={handleRegenerate}
+          onUpgradeTo2K={handleUpgradeTo2K}
           onPreviewOpen={handlePreviewOpen}
           onExtractCharacter={handleExtractCharacter}
           hasMore={hasMore && !searchText.trim()}

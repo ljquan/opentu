@@ -98,6 +98,8 @@ export interface ParamConfig {
   valueType: ParamValueType;
   /** 可选值列表（enum 类型时使用） */
   options?: Array<{ value: string; label: string }>;
+  /** 二元枚举的展示控件 */
+  control?: 'switch';
   /** 默认值 */
   defaultValue?: string;
   /** 数值最小值（number 类型时使用） */
@@ -237,7 +239,6 @@ const BUILT_IN_MODEL_RECOMMENDATION_SCORES: Readonly<Record<string, number>> = {
   kling_image: 42,
   'gemini-3-pro-image-preview-4k': 41,
 
-  'MiniMax-H3': 103,
   kling_video: 98,
   [SEEDANCE_25_MODEL_ID]: 102,
   'doubao-seedance-2-0-260128': 101,
@@ -806,20 +807,6 @@ const HAPPYHORSE_DEFAULT_PARAMS: VideoModelDefaults = {
  */
 const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
   {
-    id: 'MiniMax-H3',
-    label: 'MiniMax-H3',
-    shortCode: 'mh3',
-    description: 'MiniMax-H3 视频生成模型',
-    type: 'video',
-    vendor: ModelVendor.MINIMAX,
-    tags: ['new'],
-    videoDefaults: {
-      duration: '5',
-      size: '768P',
-      aspectRatio: '16:9',
-    },
-  },
-  {
     id: 'kling_video',
     label: 'Kling',
     shortCode: 'kling',
@@ -1129,6 +1116,21 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
  * 隐藏/非内置视频模型（不在选择器显示，但保留参数定义支持自定义接入）
  */
 const HIDDEN_VIDEO_MODELS: ModelConfig[] = [
+  {
+    id: 'MiniMax-H3',
+    label: 'MiniMax-H3',
+    shortCode: 'mh3',
+    description: 'MiniMax-H3 视频生成模型',
+    type: 'video',
+    vendor: ModelVendor.MINIMAX,
+    tags: ['new'],
+    recommendedScore: 103,
+    videoDefaults: {
+      duration: '5',
+      size: '768P',
+      aspectRatio: '16:9',
+    },
+  },
   {
     id: 'sora-2',
     label: 'Sora 2',
@@ -1658,9 +1660,23 @@ export function getModelsByType(type: ModelType): ModelConfig[] {
  * 获取模型配置
  */
 export function getModelConfig(modelId: string): ModelConfig | undefined {
-  return (
+  const exactMatch =
     runtimeModels.find((model) => model.id === modelId) ||
-    getStaticModelConfig(modelId)
+    getStaticModelConfig(modelId);
+  if (exactMatch) return exactMatch;
+
+  const normalizedModelId = modelId.toLowerCase();
+  return (
+    runtimeModels.find(
+      (model) => model.id.toLowerCase() === normalizedModelId
+    ) ||
+    ALL_MODELS.find((model) => model.id.toLowerCase() === normalizedModelId) ||
+    BUILT_IN_TEXT_MODELS.find(
+      (model) => model.id.toLowerCase() === normalizedModelId
+    ) ||
+    HIDDEN_VIDEO_MODELS.find(
+      (model) => model.id.toLowerCase() === normalizedModelId
+    )
   );
 }
 
@@ -2246,16 +2262,17 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     modelType: 'video',
   },
   {
-    id: 'api_version',
-    label: '接口版本',
-    shortLabel: '接口',
-    description: 'MiniMax-H3 视频生成接口版本',
+    id: 'prompt_enhancement',
+    label: '提示词增强',
+    shortLabel: '增强',
+    description: '使用 H3 Context IR 增强视频提示词',
     valueType: 'enum',
     options: [
-      { value: 'v2', label: 'V2' },
-      { value: 'v1', label: 'V1' },
+      { value: 'true', label: '开启' },
+      { value: 'false', label: '关闭' },
     ],
-    defaultValue: 'v1',
+    control: 'switch',
+    defaultValue: 'false',
     compatibleModels: MINIMAX_H3_MODEL_IDS,
     modelType: 'video',
   },
@@ -3121,14 +3138,7 @@ export function getParamsByModelType(modelType: ModelType): ParamConfig[] {
  * 根据模型 ID 获取兼容的参数列表
  */
 export function getCompatibleParams(modelId: string): ParamConfig[] {
-  const requestedModelId = modelId.trim().toLowerCase();
-  const modelConfig =
-    getModelConfig(modelId) ||
-    (requestedModelId === 'minimax-h3'
-      ? runtimeModels.find(
-          (model) => model.id.toLowerCase() === requestedModelId
-        )
-      : undefined);
+  const modelConfig = getModelConfig(modelId);
   if (!modelConfig) return [];
   const normalizedModelId = modelConfig.id.toLowerCase();
 
