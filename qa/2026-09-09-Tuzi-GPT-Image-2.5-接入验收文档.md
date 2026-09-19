@@ -1,6 +1,6 @@
 # Tuzi GPT Image 2.5 接入验收
 
-**更新日期**：2026-09-14
+**更新日期**：2026-09-20
 
 **实现规则**：[Tuzi GPT Image 2.5 接入说明](../docs/TUZI_GPT_IMAGE_25_INTEGRATION.md)
 
@@ -19,15 +19,15 @@
 | --- | --- | --- |
 | 1 | 打开图片模型选择器 | 可看到旧三型号及 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` |
 | 2 | 查看 Sunburst 和 Flare 参数 | 提供扩展比例、1K/2K/4K 以及 `auto` 至 `max` 六个画质档位 |
-| 3 | 查看旧三型号参数 | 仍只提供三种固定像素尺寸，不出现 1K/2K/4K 档位 |
+| 3 | 查看普通 `gpt-image-2.5` 和 VIP 参数 | 两者均提供扩展比例、1K/2K/4K；普通型号六档画质，VIP 保留四档；1k 型号保持固定尺寸 |
 | 4 | 从 Tuzi 运行时模型列表同步 | 即使上游 `category` 为文本，五个型号仍显示为图片模型 |
 
 ## 尺寸与请求验收
 
 | 编号 | 模型与操作 | 预期请求 |
 | --- | --- | --- |
-| 1 | 旧三型号选择 `1:1`、`2:3`、`3:2` | 分别为 `1024x1024`、`1024x1536`、`1536x1024` |
-| 2 | 旧三型号选择其他纵向或横向比例 | 映射到最接近的固定尺寸，不发送非法像素值 |
+| 1 | 1k 型号选择 `1:1`、`2:3`、`3:2` | 分别为 `1024x1024`、`1024x1536`、`1536x1024` |
+| 2 | 1k 型号选择其他纵向或横向比例 | 映射到最接近的固定尺寸，不发送非法像素值 |
 | 3 | Sunburst/Flare 选择 1K + `16:9` | `size: 1360x768` |
 | 4 | Sunburst/Flare 选择 2K + `1:1` | `size: 2048x2048` |
 | 5 | Sunburst/Flare 选择 4K + `16:9` | `size: 3840x2160` |
@@ -57,6 +57,43 @@
 - 生成失败卡片中的重试操作应复用原模型、比例和尺寸参数。
 
 ## 自动化验证
+
+2026-09-20 补齐 Sunburst/Flare 的自动尺寸修正（当前最终结果）：
+
+- 普通 2.5、VIP、Sunburst、Flare 共用 `GPT_IMAGE_25_EXTENDED_MODEL_IDS`，统一自动/1K/2K/4K 参数、界面选择归一化、旧偏好恢复和生成/编辑尺寸转换；image-2 与固定 1k 型号保持原行为。
+- `packages/drawnix` 下执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/constants/__tests__/model-config.test.ts src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts --testTimeout 20000 --silent`：5 文件、127 项通过。
+- `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`、`git diff --check` 通过。
+- 新增 Sunburst/Flare 的自动及旧尺寸 + K 档位、缺省尺寸、编辑尺寸、最高画质和请求模型名保留验证。
+- 人工验收：Sunburst/Flare 选择 4K + 自动比例时变为 1:1，生成和编辑均携带 `size: 2880x2880`；4K + 16:9 为 `3840x2160`；自动分辨率 + 自动比例省略 `size`；刷新后保留选定档位。
+- 未运行页面交互、构建或真实计费生图，不能据此确认上游最终图片尺寸。DOC 已同步，以下为之前阶段记录。
+
+2026-09-19 修正 4K + 自动尺寸：
+
+- 范围：普通 2.5 和 VIP。分辨率新增自动档，默认自动；选 K 档位时自动比例变为 1:1，旧像素尺寸按比例重新计算。保留 `image-2`、Sunburst/Flare 和固定 1k 型号的原逻辑。
+- 在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run`，指定模型配置、尺寸解析器、Tuzi 请求体、偏好服务四个测试文件，87 项通过。
+- 同命令执行 `src/services/__tests__/gpt-image-adapter.test.ts --testTimeout 20000`，29 项通过。最初默认 5 秒时限导致两个等待图片尺寸读取 15 秒兜底的测试超时；仅调整本次命令时限后通过，未改业务超时逻辑。
+- 仓库根目录执行 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` 通过；`git diff --check` 通过。
+- 覆盖：自动/缺失/旧像素尺寸 + 1K/2K/4K、保留自动分辨率、自定义像素透传、生成与编辑请求、偏好恢复、旧模型兼容。
+- 人工验收：普通版/VIP 选择 4K，比例应从自动变为 1:1；请求应保留模型名且携带 `size: 2880x2880`。改成 16:9 应发送 `3840x2160`；分辨率及比例均选自动时才省略 `size`。刷新后 4K 与比例仍应保留。
+- 未运行页面交互、构建和计费生图；真实上游输出尺寸仍待验收。测试中的 IndexedDB 后台写入日志不代表持久化已验证。
+
+2026-09-19 VIP 分辨率补充及最终回归：
+
+- VIP 新增扩展比例与 1K/2K/4K，保留四档画质和请求模型名；1k 型号维持固定尺寸。
+- Node 直接运行实际尺寸解析器，10 项 VIP 生成、编辑、画质及 1k 兼容断言通过。
+- 当前依赖已可用。在 `packages/drawnix` 下使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run` 执行 `model-config.test.ts`、`image-size-quality-resolver.test.ts`、`tuzi-gpt-image-adapter.test.ts`、`ai-generation-preferences-service.test.ts`：4 个文件、79 项测试全部通过。
+- 初次偏好测试受 Node 26 原生 localStorage 影响而失败，使用上述单次环境变量后解决；修正上一轮 21:9 测试预期，保留实际 `size: 21x9` 和旧图片工具的 `aspectRatio: auto` 行为。
+- 测试环境仍输出缺少 IndexedDB 的后台写入日志；数据库持久化不在此次验证覆盖内。
+- `git diff --check` 通过；DOC 已同步，未做页面测试、构建及真实生图验证。
+
+2026-09-19 普通 `gpt-image-2.5` 参数对齐：
+
+- 前置约定：后端将该模型映射至 Sunburst/Flare；客户端保留原模型 ID。
+- 使用 Node.js 26.8.1 的 `stripTypeScriptTypes` 和 `node:vm` 加载实际尺寸解析器及模型分组，19 项断言通过：普通型号与 Sunburst/Flare 的 1K/2K/4K、编辑尺寸、最高画质一致；1k/vip 型号仍过滤扩展尺寸和最高画质。
+- `git diff --check` 通过。
+- 已更新配置、尺寸解析、请求体、偏好存储测试；执行 `pnpm exec vitest run` 加上述四个测试文件时因当前目录缺少 Vitest 而未运行，完整回归尚未验证。
+- 未执行页面测试、构建和真实生图请求；后端映射依据用户确认，实际输出尺寸待具备运行环境后验证。
+- 人工验收：普通型号选择 2K + 1:1 时应发送 `size: 2048x2048`，选择 4K + 16:9 + max 时应发送 `size: 3840x2160`、`quality: max`，模型名均保持 `gpt-image-2.5`。
 
 本次实现已覆盖：
 

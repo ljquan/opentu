@@ -79,7 +79,7 @@ describe('tuzi GPT image adapter', () => {
     });
   });
 
-  it.each(['gpt-image-2.5-1k', 'gpt-image-2.5', 'gpt-image-2.5-vip'])(
+  it.each(['gpt-image-2.5-1k'])(
     'builds %s requests with only supported sizes',
     (modelId) => {
       expect(
@@ -107,7 +107,40 @@ describe('tuzi GPT image adapter', () => {
     }
   );
 
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+  it.each(['1k', '2k', '4k'])(
+    'builds VIP requests with %s resolution without changing model identity',
+    (resolution) => {
+      const sizes = { '1k': '1360x768', '2k': '2736x1536', '4k': '3840x2160' };
+      expect(buildTuziGPTImageRequestBody({
+        model: 'gpt-image-2.5-vip',
+        prompt: 'Draw a clean product photo',
+        size: '16x9',
+        params: { resolution, quality: 'high' },
+      })).toEqual({
+        model: 'gpt-image-2.5-vip',
+        prompt: 'Draw a clean product photo',
+        size: sizes[resolution as keyof typeof sizes],
+        quality: 'high',
+      });
+    }
+  );
+
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('将 %s 的自动尺寸和 4K 分辨率转换为明确像素尺寸', (model) => {
+    expect(
+      buildTuziGPTImageRequestBody({
+        model,
+        prompt: 'Draw a clean product photo',
+        size: 'auto',
+        params: { resolution: '4k' },
+      })
+    ).toEqual({
+      model,
+      prompt: 'Draw a clean product photo',
+      size: '2880x2880',
+    });
+  });
+
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     'builds %s requests with extended resolution and quality',
     (modelId) => {
       expect(

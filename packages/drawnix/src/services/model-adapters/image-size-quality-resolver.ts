@@ -1,4 +1,5 @@
 import {
+  GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
 } from '../../constants/model-config';
@@ -29,6 +30,7 @@ type LegacyGPTImageAspectRatioKey = '1x1' | '2x3' | '3x2';
 const GPT_IMAGE_2_MODEL_ID_SET = new Set(GPT_IMAGE_2_MODEL_IDS);
 const GPT_IMAGE_25_MODEL_ID_SET = new Set(GPT_IMAGE_25_MODEL_IDS);
 const EXTENDED_GPT_IMAGE_QUALITY_MODEL_IDS = new Set([
+  'gpt-image-2.5',
   'gpt-image-2.5-sunburst',
   'gpt-image-2.5-flare',
 ]);
@@ -290,12 +292,47 @@ export function resolveOfficialGPTImageQuality(
     : undefined;
 }
 
+export function normalizeGPTImage25ResolutionParams(
+  modelId: string,
+  params: Record<string, string>
+): Record<string, string> {
+  if (
+    !GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId.trim().toLowerCase()) ||
+    !normalizeImageResolutionTier(params.resolution)
+  ) {
+    return params;
+  }
+  return {
+    ...params,
+    size: resolveKnownAspectRatio(params.size) || '1x1',
+  };
+}
+
 export function resolveOfficialGPTImageSize(
   modelId: string | undefined,
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
+  const useExtendedSizing =
+    typeof modelId === 'string' &&
+    GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId.trim().toLowerCase());
+  const resolution = useExtendedSizing && params?.resolution === 'auto'
+    ? undefined
+    : resolveImageResolutionTier(params);
+
+  // These models use size as the actual resolution. When the UI keeps
+  // `auto` or a stale 1K size, the selected K tier must still win.
+  if (useExtendedSizing && resolution) {
+    const aspectRatio =
+      !normalizedSize || normalizedSize === 'auto'
+        ? '1x1'
+        : resolveKnownAspectRatio(normalizedSize);
+    if (aspectRatio) {
+      return GPT_IMAGE_2_SIZE_MATRIX[resolution][aspectRatio];
+    }
+  }
+
   if (!normalizedSize || normalizedSize === 'auto') {
     return undefined;
   }
@@ -329,8 +366,7 @@ export function resolveOfficialGPTImageSize(
     return LEGACY_GPT_IMAGE_SIZE_BY_RATIO[toLegacyAspectRatio(aspectRatio)];
   }
 
-  const resolution = resolveImageResolutionTier(params) || '1k';
-  return GPT_IMAGE_2_SIZE_MATRIX[resolution][aspectRatio];
+  return GPT_IMAGE_2_SIZE_MATRIX[resolution || '1k'][aspectRatio];
 }
 
 export function resolveOfficialGPTImageEditSize(

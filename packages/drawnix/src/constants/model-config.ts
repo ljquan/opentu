@@ -1951,21 +1951,26 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-5-0-pro-260628',
 ];
 
+/** 支持独立分辨率档位的 GPT Image 2.5 模型。 */
+export const GPT_IMAGE_25_EXTENDED_MODEL_IDS = [
+  'gpt-image-2.5',
+  'gpt-image-2.5-vip',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
+];
+
 /** 支持扩展比例和 1K / 2K / 4K 分辨率的 GPT Image 模型 ID */
 export const GPT_IMAGE_2_MODEL_IDS = [
   'gpt-image-2-vip',
   'gpt-image-2',
   'gpt-image2-vip',
   'gpt-image2',
-  'gpt-image-2.5-sunburst',
-  'gpt-image-2.5-flare',
+  ...GPT_IMAGE_25_EXTENDED_MODEL_IDS,
 ];
 
 /** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
 export const GPT_IMAGE_25_MODEL_IDS = [
   'gpt-image-2.5-1k',
-  'gpt-image-2.5',
-  'gpt-image-2.5-vip',
 ];
 
 /** 所有 GPT 图片模型 ID */
@@ -2773,7 +2778,24 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: '4k', label: '4K' },
     ],
     defaultValue: '1k',
-    compatibleModels: GPT_IMAGE_2_MODEL_IDS,
+    compatibleModels: GPT_IMAGE_2_MODEL_IDS.filter(
+      (modelId) => !GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId)
+    ),
+    modelType: 'image',
+  },
+  {
+    id: 'resolution',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: '1k', label: '1K' },
+      { value: '2k', label: '2K' },
+      { value: '4k', label: '4K' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_25_EXTENDED_MODEL_IDS,
     modelType: 'image',
   },
   // GPT Image 官方画质参数
@@ -2792,6 +2814,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
       (modelId) =>
+        modelId !== 'gpt-image-2.5' &&
         modelId !== 'gpt-image-2.5-sunburst' &&
         modelId !== 'gpt-image-2.5-flare'
     ),
@@ -2814,6 +2837,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     defaultValue: 'auto',
     compatibleModels: [
+      'gpt-image-2.5',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-flare',
     ],

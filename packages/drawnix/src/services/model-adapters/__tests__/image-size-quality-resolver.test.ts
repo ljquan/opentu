@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeGPTImage25ResolutionParams,
   resolveOfficialGPTImageEditSize,
   resolveOfficialGPTImageQuality,
   resolveOfficialGPTImageSize,
@@ -7,12 +8,39 @@ import {
 
 const GPT_IMAGE_25_MODEL_IDS = [
   'gpt-image-2.5-1k',
-  'gpt-image-2.5',
-  'gpt-image-2.5-vip',
 ];
 
 describe('GPT Image 2.5 size and quality resolution', () => {
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s 将档位转换为有效尺寸并保留自动模式',
+    (modelId) => {
+      for (const [resolution, size] of [
+        ['1k', '1024x1024'],
+        ['2k', '2048x2048'],
+        ['4k', '2880x2880'],
+      ]) {
+        expect(resolveOfficialGPTImageSize(modelId, undefined, { resolution })).toBe(size);
+        expect(resolveOfficialGPTImageEditSize(modelId, 'auto', { resolution })).toBe(size);
+        expect(normalizeGPTImage25ResolutionParams(modelId, {
+          size: 'auto', resolution,
+        })).toEqual({ size: '1x1', resolution });
+      }
+      expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: 'auto' })).toBeUndefined();
+      expect(resolveOfficialGPTImageSize(modelId, '2048x1152', { resolution: 'auto' })).toBe('2048x1152');
+      expect(normalizeGPTImage25ResolutionParams(modelId, {
+        size: '1536x1024', resolution: '4k', quality: 'high',
+      })).toEqual({ size: '3x2', resolution: '4k', quality: 'high' });
+    }
+  );
+
+  it('保持 image-2 的自动和显式像素尺寸行为', () => {
+    expect(resolveOfficialGPTImageSize('gpt-image-2', 'auto', { resolution: '4k' })).toBeUndefined();
+    expect(resolveOfficialGPTImageSize('gpt-image-2', '1024x1024', { resolution: '4k' })).toBe('1024x1024');
+    expect(normalizeGPTImage25ResolutionParams('gpt-image-2', {
+      size: 'auto', resolution: '4k',
+    })).toEqual({ size: 'auto', resolution: '4k' });
+  });
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s 使用扩展尺寸矩阵与 1K / 2K / 4K 档位',
     (modelId) => {
       expect(
@@ -27,7 +55,22 @@ describe('GPT Image 2.5 size and quality resolution', () => {
     }
   );
 
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s 选择 K 档位时覆盖自动或旧尺寸',
+    (modelId) => {
+      expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '4k' })).toBe(
+        '2880x2880'
+      );
+      expect(
+        resolveOfficialGPTImageSize(modelId, '1024x1024', { resolution: '4k' })
+      ).toBe('2880x2880');
+      expect(
+        resolveOfficialGPTImageSize(modelId, '16x9', { resolution: '4k' })
+      ).toBe('3840x2160');
+    }
+  );
+
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s 支持 GPT Image 2.5 官方最高画质档位',
     (modelId) => {
       expect(
@@ -39,7 +82,7 @@ describe('GPT Image 2.5 size and quality resolution', () => {
     }
   );
 
-  it.each(['gpt-image-2', 'gpt-image-2.5', undefined])(
+  it.each(['gpt-image-2', 'gpt-image-2.5-1k', 'gpt-image-2.5-vip', undefined])(
     '%s 不透传新型号专用的画质档位',
     (modelId) => {
       expect(
@@ -81,10 +124,10 @@ describe('GPT Image 2.5 size and quality resolution', () => {
     }
   );
 
-  it('编辑请求同样限制尺寸，且保留官方 quality', () => {
+  it('编辑请求支持扩展尺寸，且保留官方 quality', () => {
     expect(
       resolveOfficialGPTImageEditSize('gpt-image-2.5', '2048x2048')
-    ).toBeUndefined();
+    ).toBe('2048x2048');
     expect(resolveOfficialGPTImageEditSize('gpt-image-2.5', '1024x1536')).toBe(
       '1024x1536'
     );

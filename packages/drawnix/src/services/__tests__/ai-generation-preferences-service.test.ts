@@ -7,6 +7,22 @@ describe('ai-generation-preferences-service', () => {
     localStorage.clear();
   });
 
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s 恢复 4K 偏好时修正自动和旧像素尺寸',
+    async (modelId) => {
+      const { sanitizeImageToolExtraParams } = await import('../ai-generation-preferences-service');
+      expect(sanitizeImageToolExtraParams(modelId, {
+        size: 'auto', resolution: '4k',
+      })).toMatchObject({ size: '1x1', resolution: '4k' });
+      expect(sanitizeImageToolExtraParams(modelId, {
+        size: '1536x1024', resolution: '4k',
+      })).toMatchObject({ size: '3x2', resolution: '4k' });
+      expect(sanitizeImageToolExtraParams(modelId, {
+        size: 'auto', resolution: 'auto',
+      })).toMatchObject({ size: 'auto', resolution: 'auto' });
+    }
+  );
+
   it('兼容旧 text 偏好并恢复为 agent 模式', async () => {
     localStorage.setItem(
       'aitu_ai_input_preferences',
@@ -119,19 +135,19 @@ describe('ai-generation-preferences-service', () => {
 
   it.each([
     ['auto', 'auto', 'auto'],
-    ['1:1', '1024x1024', '1:1'],
-    ['2:3', '1024x1536', '2:3'],
-    ['3:2', '1536x1024', '3:2'],
-    ['3:4', '1024x1536', '2:3'],
-    ['4:3', '1536x1024', '3:2'],
-    ['4:5', '1024x1536', '2:3'],
-    ['5:4', '1536x1024', '3:2'],
-    ['9:16', '1024x1536', '2:3'],
-    ['16:9', '1536x1024', '3:2'],
+    ['1:1', '1x1', '1:1'],
+    ['2:3', '2x3', '2:3'],
+    ['3:2', '3x2', '3:2'],
+    ['3:4', '3x4', '3:4'],
+    ['4:3', '4x3', '4:3'],
+    ['4:5', '4x5', '4:5'],
+    ['5:4', '5x4', '5:4'],
+    ['9:16', '9x16', '9:16'],
+    ['16:9', '16x9', '16:9'],
     ['1:4', 'auto', 'auto'],
-    ['21:9', 'auto', 'auto'],
+    ['21:9', '21x9', 'auto'],
   ])(
-    'GPT Image 2.5 将图片工具比例 %s 映射为官方尺寸 %s',
+    'GPT Image 2.5 将图片工具比例 %s 保留为扩展比例 %s',
     async (aspectRatio, expectedSize, expectedAspectRatio) => {
       const {
         loadScopedAIImageToolPreferences,
@@ -154,6 +170,7 @@ describe('ai-generation-preferences-service', () => {
       ).toMatchObject({
         extraParams: {
           size: expectedSize,
+          resolution: 'auto',
           quality: 'auto',
         },
         aspectRatio: expectedAspectRatio,

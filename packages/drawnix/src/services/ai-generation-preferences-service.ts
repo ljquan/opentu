@@ -26,6 +26,7 @@ import { isSeedance2ModelId } from '../utils/seedance-model';
 import { matchFrameSizeForModel } from '../utils/frame-size-matcher';
 import { sizeToAspectRatio } from './media-api/utils';
 import { getEffectiveVideoCompatibleParams } from './video-binding-utils';
+import { normalizeGPTImage25ResolutionParams } from './model-adapters/image-size-quality-resolver';
 
 type PersistedParams = Record<string, string>;
 
@@ -198,9 +199,9 @@ function sanitizeSelectedParams(
 ): PersistedParams {
   const compatibleParams = getCompatibleParams(modelId);
   const excludeParamIds = new Set(options?.excludeParamIds || []);
-  const persistedParams = migrateLegacyGPTImageQualityParam(
-    compatibleParams,
-    asRecord(rawParams)
+  const persistedParams = normalizeGPTImage25ResolutionParams(
+    modelId,
+    migrateLegacyGPTImageQualityParam(compatibleParams, asRecord(rawParams))
   );
   const nextParams: PersistedParams = {};
 

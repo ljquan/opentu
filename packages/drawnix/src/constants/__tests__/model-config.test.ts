@@ -38,6 +38,8 @@ describe('model-config image size options', () => {
     ).toEqual(expected);
 
     for (const modelId of [
+      'gpt-image-2.5',
+      'gpt-image-2.5-vip',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-flare',
     ]) {
@@ -85,7 +87,7 @@ describe('model-config image size options', () => {
     ]);
   });
 
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '为 %s 暴露 1K / 2K / 4K 与完整官方画质',
     (modelId) => {
       const params = getCompatibleParams(modelId);
@@ -94,7 +96,7 @@ describe('model-config image size options', () => {
         params
           .find((param) => param.id === 'resolution')
           ?.options?.map((option) => option.value)
-      ).toEqual(['1k', '2k', '4k']);
+      ).toEqual(['auto', '1k', '2k', '4k']);
       expect(
         params
           .find((param) => param.id === 'quality')
@@ -103,7 +105,21 @@ describe('model-config image size options', () => {
     }
   );
 
-  it.each(['gpt-image-2.5-1k', 'gpt-image-2.5', 'gpt-image-2.5-vip'])(
+  it('为 GPT Image 2.5 VIP 提供分辨率并保留原画质档位', () => {
+    const params = getCompatibleParams('gpt-image-2.5-vip');
+    expect(
+      params.find((param) => param.id === 'resolution')?.options?.map(
+        (option) => option.value
+      )
+    ).toEqual(['auto', '1k', '2k', '4k']);
+    expect(
+      params.find((param) => param.id === 'quality')?.options?.map(
+        (option) => option.value
+      )
+    ).toEqual(['auto', 'low', 'medium', 'high']);
+  });
+
+  it.each(['gpt-image-2.5-1k'])(
     '将 %s 注册为仅支持官方像素尺寸的 GPT 图片模型',
     (modelId) => {
       const model = getStaticModelConfig(modelId);
