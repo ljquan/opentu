@@ -168,4 +168,88 @@ describe('model-grouping', () => {
     expect(groups[0]?.totalCount).toBe(0);
     expect(groups[0]?.vendorCategories).toHaveLength(0);
   });
+
+  it('Tuzi managed default 会合并旧默认模型，不重复显示同名分组', () => {
+    const groups = groupModelsByProvider(
+      [
+        {
+          id: 'MiniMax-H3',
+          label: 'MiniMax-H3',
+          type: 'video',
+          vendor: ModelVendor.MINIMAX,
+        },
+        {
+          id: 'seedance-1.5-pro',
+          label: 'Seedance 1.5 Pro',
+          type: 'video',
+          vendor: ModelVendor.DOUBAO,
+          sourceProfileId: 'tuzi-managed-default',
+          sourceProfileName: 'default 分组',
+          selectionKey: 'tuzi-managed-default::seedance-1.5-pro',
+        },
+      ],
+      [
+        {
+          id: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
+          name: 'default 分组',
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'legacy-key',
+          enabled: true,
+          providerType: 'openai-compatible',
+          authType: 'bearer',
+          capabilities: {
+            supportsModelsEndpoint: true,
+            supportsText: true,
+            supportsImage: true,
+            supportsVideo: true,
+            supportsAudio: true,
+            supportsTools: true,
+          },
+        },
+        {
+          id: 'tuzi-managed-default',
+          name: 'default 分组',
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'managed-key',
+          enabled: true,
+          providerType: 'openai-compatible',
+          authType: 'bearer',
+          pricingGroup: 'default',
+          capabilities: {
+            supportsModelsEndpoint: true,
+            supportsText: true,
+            supportsImage: true,
+            supportsVideo: true,
+            supportsAudio: true,
+            supportsTools: true,
+          },
+        },
+        {
+          id: 'aaa-provider',
+          name: 'AAA Provider',
+          baseUrl: 'https://aaa.example.com/v1',
+          apiKey: 'aaa-key',
+          enabled: true,
+          providerType: 'openai-compatible',
+          authType: 'bearer',
+          capabilities: {
+            supportsModelsEndpoint: true,
+            supportsText: true,
+            supportsImage: true,
+            supportsVideo: true,
+            supportsAudio: true,
+            supportsTools: true,
+          },
+        },
+      ]
+    );
+
+    expect(groups).toHaveLength(2);
+    expect(
+      groups.filter((group) => group.providerName === 'default 分组')
+    ).toHaveLength(1);
+    expect(groups[0]?.providerId).toBe('tuzi-managed-default');
+    expect(groups[0]?.providerName).toBe('default 分组');
+    expect(groups[0]?.totalCount).toBe(2);
+  });
 });

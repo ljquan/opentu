@@ -121,7 +121,14 @@ import {
 import {
   getEffectiveVideoCompatibleParams,
   getEffectiveVideoModelConfigForSelection,
+  isMiniMaxH3Model,
 } from '../../services/video-binding-utils';
+import { unifiedCacheService } from '../../services/unified-cache-service';
+import {
+  enhanceMiniMaxH3Prompt,
+  isMiniMaxH3PromptEnhancementEnabled,
+  MINIMAX_H3_PROMPT_ENHANCEMENT_PARAM_ID,
+} from '../../services/minimax-h3-video-workflow';
 import { initializeMCP, mcpRegistry } from '../../mcp';
 import {
   clearCanvasBoard,
@@ -5356,6 +5363,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ? agentMediaDefaultModelRefs
                 : undefined,
           });
+          const promptForHistory = effectivePrompt;
           let imageBoundTargetGenerationParams =
             activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
@@ -5431,6 +5439,64 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
           // 收集所有参考媒体（图片 + 图形 + 视频）
           const referenceImages = [...selection.images, ...selection.graphics];
+
+          if (
+            parsedParams.generationType === 'video' &&
+            isMiniMaxH3Model(parsedParams.modelId) &&
+            isMiniMaxH3PromptEnhancementEnabled(parsedParams.extraParams)
+          ) {
+            try {
+              const plan = resolveInvocationPlanFromRoute(
+                'video',
+                parsedParams.modelRef || parsedParams.modelId
+              );
+              if (!plan) {
+                throw new Error(
+                  language === 'zh'
+                    ? '未找到 MiniMax-H3 的视频供应商配置'
+                    : 'No video provider is configured for MiniMax-H3'
+                );
+              }
+
+              const miniMaxReferenceImages: string[] = [];
+              for (const referenceImage of referenceImages) {
+                const imageData = await unifiedCacheService.getImageForAI(
+                  referenceImage
+                );
+                miniMaxReferenceImages.push(imageData.value);
+              }
+
+              parsedParams.prompt = await enhanceMiniMaxH3Prompt(
+                {
+                  prompt: parsedParams.prompt,
+                  promptLanguage: language === 'zh' ? 'zh' : 'en',
+                  duration: parsedParams.duration,
+                  size: parsedParams.size,
+                  ratio: parsedParams.extraParams?.ratio,
+                  referenceImages: miniMaxReferenceImages,
+                  params: parsedParams.extraParams,
+                },
+                { provider: plan.provider }
+              );
+              // The prompt has already been enhanced in this preflight. Keep
+              // the flag for the UI, but prevent the downstream video executor
+              // from submitting a second Context IR task.
+              parsedParams.extraParams = {
+                ...(parsedParams.extraParams || {}),
+                [MINIMAX_H3_PROMPT_ENHANCEMENT_PARAM_ID]: false,
+              };
+              if (abortIfSubmittedBoardChanged('prompt_enhancement')) return;
+            } catch (error) {
+              MessagePlugin.error(
+                error instanceof Error
+                  ? error.message
+                  : language === 'zh'
+                  ? 'MiniMax-H3 提示词增强失败，请重试'
+                  : 'MiniMax-H3 prompt enhancement failed. Please retry.'
+              );
+              throw error;
+            }
+          }
 
           // 创建工作流定义（仅用于 WorkZone 显示，实际工作流由 submitWorkflowToSW 创建）
           let workflow: WorkflowDefinition;
@@ -5953,8 +6019,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               ) {
                 applyCurrentImageAnchorPresentationState(board, 'accepted');
               }
-              if (effectivePrompt.trim()) {
-                const trimmedPrompt = effectivePrompt.trim();
+              if (promptForHistory.trim()) {
+                const trimmedPrompt = promptForHistory.trim();
                 const hasSelection = effectiveContent.length > 0;
                 addPromptHistory(
                   trimmedPrompt,
@@ -6002,8 +6068,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           }
 
           // 工作流已提交，立即保存历史、清空输入并解锁，步骤执行在后台继续
-          if (effectivePrompt.trim()) {
-            const trimmedPrompt = effectivePrompt.trim();
+          if (promptForHistory.trim()) {
+            const trimmedPrompt = promptForHistory.trim();
             const hasSelection = effectiveContent.length > 0;
             addPromptHistory(
               trimmedPrompt,
@@ -7999,6 +8065,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                   onSelectModel={handleModelConfigSelect}
                   language={language}
                   models={currentModels}
+                  modelType={
+                    generationType === 'agent' ? 'text' : generationType
+                  }
                   header={
                     language === 'zh'
                       ? generationType === 'agent'
@@ -8029,6 +8098,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       }
                       language={language}
                       models={visibleAgentImageModels}
+                      modelType="image"
                       header={
                         language === 'zh'
                           ? '选择图片模型 (↑↓ Tab)'
@@ -8069,6 +8139,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       }
                       language={language}
                       models={visibleAgentVideoModels}
+                      modelType="video"
                       header={
                         language === 'zh'
                           ? '选择视频模型 (↑↓ Tab)'
@@ -8109,6 +8180,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       }
                       language={language}
                       models={visibleAgentAudioModels}
+                      modelType="audio"
                       header={
                         language === 'zh'
                           ? '选择音频模型 (↑↓ Tab)'

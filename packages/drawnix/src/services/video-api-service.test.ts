@@ -75,16 +75,18 @@ describe('appendVideoOutputParams', () => {
   });
 
   it('转换 MiniMax-H3 官方任务响应和轮询地址', () => {
+    // Keep the legacy resolver for stored V1 metadata, but all new H3
+    // submissions and polls are fixed to the official V2 routes.
     expect(resolveMiniMaxH3ApiVersion()).toBe('v1');
     expect(resolveMiniMaxH3ApiVersion({ api_version: 'V1' })).toBe('v1');
     expect(resolveMiniMaxH3ApiVersion({ api_version: 'invalid' })).toBe('v1');
     expect(resolveMiniMaxH3ApiVersion({ api_version: 'V2' })).toBe('v2');
-    expect(resolveMiniMaxH3VideoSubmitPath()).toBe('/v1/videos');
+    expect(resolveMiniMaxH3VideoSubmitPath()).toBe('/v2/video_generation');
     expect(resolveMiniMaxH3VideoSubmitPath({ api_version: 'v1' })).toBe(
-      '/v1/videos'
+      '/v2/video_generation'
     );
     expect(resolveVideoPollPathForModel('task/1', 'MiniMax-H3')).toBe(
-      '/v1/videos/task%2F1'
+      '/v2/query/video_generation/task%2F1'
     );
     expect(
       resolveVideoPollPathForModel('task/1', 'MiniMax-H3', null, {
@@ -95,7 +97,7 @@ describe('appendVideoOutputParams', () => {
       resolveVideoPollPathForModel('task/1', 'MiniMax-H3', null, {
         api_version: 'v1',
       })
-    ).toBe('/v1/videos/task%2F1');
+    ).toBe('/v2/query/video_generation/task%2F1');
     expect(
       normalizeMiniMaxH3VideoResponse({
         task: {

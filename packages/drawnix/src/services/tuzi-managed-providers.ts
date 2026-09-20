@@ -11,6 +11,7 @@ import {
 import type { ProviderProfile } from '../utils/settings-types';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
 import type { TuziManagedProvider } from './tuzi-session-api';
+import { normalizeModelApiBaseUrl } from '../utils/provider-base-url';
 
 const MANAGED_PROVIDER_PREFIX = 'tuzi-managed-';
 const BUILT_IN_TUZI_PROVIDER_IDS = new Set([
@@ -64,7 +65,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 }
 
 function tuziV1BaseUrl(): string {
-  return `${tuziEmbeddedConfig.apiBaseUrl?.replace(/\/+$/, '') || ''}/v1`;
+  return normalizeModelApiBaseUrl(tuziEmbeddedConfig.apiBaseUrl || '');
 }
 
 function pricingUrl(): string {

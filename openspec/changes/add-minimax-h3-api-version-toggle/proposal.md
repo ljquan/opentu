@@ -1,31 +1,24 @@
-# Change: 为 MiniMax-H3 增加 V1/V2 接口切换
+# Change: MiniMax-H3 固定 V2、自动提示词增强与 2K 重制
 
 ## Why
 
-MiniMax-H3 当前固定通过官方 V2 视频接口提交和轮询，但 Tuzi 同时提供使用相同 H3 JSON 请求体的 `/v1/videos` 兼容入口。用户需要在生成参数面板中显式选择接口版本，以便按供应商运行情况切换，同时保持分辨率、时长、比例和内容结构一致。
+根据后续已确认需求，本变更覆盖原来的 V1/V2 切换方案：新任务统一使用 V2，提示词增强成功后自动生成视频，不再显示增强审阅弹窗。沿用原 change-id，避免产生两份互相矛盾的活动方案。
 
 ## What Changes
 
-- 仅为 `MiniMax-H3` 增加“接口版本”参数，提供 `V2` 和 `V1` 两个选项
-- 默认使用 `V1`；用户可手动切换到 `V2`
-- V1 提交使用 `POST /v1/videos`，请求体仍为 H3 JSON：`model/content/duration/resolution/ratio`
-- V2 保持 `POST /v2/video_generation` 和 `GET /v2/query/video_generation/{task_id}`
-- V1 使用对应的 `/v1/videos/{task_id}` 状态查询路径
-- 两条现有视频调用链共享相同的版本解析和路径选择逻辑
+- 移除 MiniMax-H3 接口版本参数，固定 V2 提交和轮询；保留 V1 兼容常量与版本解析代码。
+- 增加默认关闭的提示词增强开关。开启后调用 Context IR 并轮询增强结果，成功后自动提交视频，失败时终止并反馈供应商错误。
+- 主输入栏按界面语言在输入文本末尾附加中文或英文输出指令，不翻译返回结果、不增加 language 请求字段。
+- 已完成的 768P MiniMax-H3 任务可通过 source_task_id 发起 2K 重制；UI 和业务层均校验资格。
+- 保留任务执行器写入的远端 ID 与供应商路由，避免任务完成回写丢失升 2K 所需信息。
+- 不限制 Key 分组，不自动切换供应商；接口是否支持由实际响应决定。
 
 ## Impact
 
-- Affected specs:
-  - `provider-routing`
-- Affected code:
-  - `packages/drawnix/src/constants/model-config.ts`
-  - `packages/drawnix/src/services/video-binding-utils.ts`
-  - `packages/drawnix/src/services/media-api/video-api.ts`
-  - `packages/drawnix/src/services/video-api-service.ts`
-  - 相关单元测试
+- Affected specs: provider-routing
+- Affected code: MiniMax-H3 参数、AIInputBar、视频 API/工作流、任务队列和重制操作。
+- 不新增依赖、环境变量或数据迁移；其他模型保持原有接口。
 
 ## Compatibility
 
-- 其他视频模型不显示该参数，也不改变现有路径、请求体或轮询行为
-- 未保存过接口版本的 MiniMax-H3 任务默认使用 V1
-- V1 和 V2 均发送 `application/json`，不复用通用 multipart 视频请求体
+历史 api_version 参数不再影响 H3 新提交或查询路径。旧 V1 兼容实现保留但不属于本轮验收。缺失远端 ID 的历史任务不会自动恢复或伪造 ID。

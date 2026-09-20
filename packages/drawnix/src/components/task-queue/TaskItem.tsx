@@ -18,6 +18,7 @@ import {
   CloseCircleIcon,
   CopyIcon,
   RefreshIcon,
+  ArrowUpCircleIcon,
 } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { Task, TaskStatus, TaskType } from '../../types/task.types';
@@ -52,6 +53,7 @@ import './task-progress-overlay.scss';
 import { HoverTip } from '../shared';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import { resolveAudioResultUrls } from '../../services/audio-task-result-utils';
+import { getMiniMaxH3RegenerationEligibility } from '../../services/minimax-h3-regeneration-service';
 
 // 布局切换阈值：容器宽度小于此值时使用紧凑布局（info 在图片下方全宽）
 // 弹窗侧栏宽度约 280px-500px，任务队列面板宽度约 300px-600px
@@ -181,6 +183,7 @@ export interface TaskItemProps {
   onEdit?: (taskId: string) => void;
   /** Callback when reusing image task input */
   onRegenerate?: (taskId: string) => void;
+  onUpgradeTo2K?: (taskId: string) => void;
   /** Callback when extract character button is clicked */
   onExtractCharacter?: (taskId: string) => void;
 }
@@ -245,6 +248,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     onPreviewOpen,
     onEdit,
     onRegenerate,
+    onUpgradeTo2K,
     onExtractCharacter,
   }) => {
     const [internalIsCompact, setInternalIsCompact] = useState(false);
@@ -324,6 +328,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     const isChatTask = task.type === TaskType.CHAT;
     const isLyricsTask = isAudioTask && isLyricsResult(task.result);
     const canRegenerateTask = task.type === TaskType.IMAGE;
+    const h3Upgrade = getMiniMaxH3RegenerationEligibility(task);
     const isPreviewableTask =
       task.type === TaskType.IMAGE ||
       task.type === TaskType.VIDEO ||
@@ -1000,6 +1005,24 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     </HoverTip>
                   )}
 
+                  {h3Upgrade.supported && isCompleted && (
+                    <HoverTip content={h3Upgrade.reason}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="text"
+                          icon={<ArrowUpCircleIcon />}
+                          aria-label="升至 2K"
+                          disabled={!h3Upgrade.enabled}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpgradeTo2K?.(task.id);
+                          }}
+                        />
+                      </span>
+                    </HoverTip>
+                  )}
+
                   <HoverTip content="删除">
                     <Button
                       size="small"
@@ -1099,7 +1122,8 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
       prev.isSelected === next.isSelected &&
       prev.selectionMode === next.selectionMode &&
       prev.isCompact === next.isCompact &&
-      prev.onRegenerate === next.onRegenerate
+      prev.onRegenerate === next.onRegenerate &&
+      prev.onUpgradeTo2K === next.onUpgradeTo2K
     );
   }
 );

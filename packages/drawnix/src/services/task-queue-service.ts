@@ -1512,6 +1512,10 @@ class TaskQueueService {
               ...localTask,
               status: updatedTask.status as TaskStatus,
               progress: updatedTask.progress,
+              // Preserve submission metadata written directly by the executor.
+              remoteId: updatedTask.remoteId ?? localTask.remoteId,
+              invocationRoute:
+                updatedTask.invocationRoute ?? localTask.invocationRoute,
               updatedAt: Date.now(),
               ...(updatedTask.result && { result: updatedTask.result }),
               ...(updatedTask.error && { error: updatedTask.error }),
@@ -1545,6 +1549,9 @@ class TaskQueueService {
         const finalTask: Task = {
           ...localTask,
           status: result.task.status as TaskStatus,
+          remoteId: result.task.remoteId ?? localTask.remoteId,
+          invocationRoute:
+            result.task.invocationRoute ?? localTask.invocationRoute,
           result: result.task.result,
           error: result.task.error,
           completedAt: result.task.completedAt,

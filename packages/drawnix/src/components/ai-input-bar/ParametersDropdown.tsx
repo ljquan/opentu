@@ -13,6 +13,7 @@ import React, {
   useMemo,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Switch } from 'tdesign-react';
 import { Check, ChevronDown, Dices, Settings2 } from 'lucide-react';
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import {
@@ -44,6 +45,10 @@ function getCompactEnumSummaryLabel(
 
   if (paramId === 'mode') {
     return value;
+  }
+
+  if (paramId === 'prompt_enhancement') {
+    return value === 'true' ? '增强开' : '增强关';
   }
 
   return label;
@@ -311,7 +316,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                 type="button"
                 disabled={disabled}
               >
-                <span className="parameters-dropdown__label">{triggerLabel}</span>
+                <span className="parameters-dropdown__label">
+                  {triggerLabel}
+                </span>
                 <ChevronDown
                   size={14}
                   className={`parameters-dropdown__icon ${
@@ -358,7 +365,24 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                           <div className="parameters-dropdown__section-title">
                             {param.label}
                           </div>
-                          {param.valueType === 'enum' ? (
+                          {param.control === 'switch' ? (
+                            <div className="parameters-dropdown__switch-row">
+                              <span className="parameters-dropdown__switch-state">
+                                {currentValue === 'true' ? '开启' : '关闭'}
+                              </span>
+                              <Switch
+                                size="small"
+                                value={currentValue === 'true'}
+                                aria-label={param.label}
+                                onChange={(checked) =>
+                                  handleValueSelect(
+                                    param.id,
+                                    checked ? 'true' : 'false'
+                                  )
+                                }
+                              />
+                            </div>
+                          ) : param.valueType === 'enum' ? (
                             <div className="parameters-dropdown__options">
                               {param.options?.map((option, optionIndex) => {
                                 const isSelected =
@@ -450,7 +474,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                                   <button
                                     type="button"
                                     className="parameters-dropdown__field-action"
-                                    onClick={() => handleRandomParamValue(param)}
+                                    onClick={() =>
+                                      handleRandomParamValue(param)
+                                    }
                                     onMouseDown={(event) =>
                                       event.stopPropagation()
                                     }
