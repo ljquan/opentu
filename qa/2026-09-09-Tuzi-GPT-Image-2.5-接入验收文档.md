@@ -42,7 +42,6 @@
 覆盖菜单档位、旧最高分辨率偏好回退、尺寸与画质请求适配；`git diff --check` 通过。
 恢复独立自动选项后，在上述命令中追加 `src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts --silent`，96/96 通过；覆盖业务 1K 的独立保存和旧自动请求语义。
 随后按最新要求移除分辨率自动选项、默认改为业务 1K，并更新旧自动偏好和图片工具默认值断言；同四个测试文件重新运行，96/96 通过。
-推送 PR #266 前已 fetch 并 merge `origin/develop`（`b730d011`），无冲突。最终以 `NODE_OPTIONS=--no-experimental-webstorage` 和 `--silent --testTimeout 20000` 运行以上四文件及 `gpt-image-adapter.test.ts`、`image-inspection-pure.test.ts`、`default-image-adapter.test.ts`、`utils/__tests__/runtime-model-discovery.test.ts`：8 文件 190/190 通过。仓库根目录执行 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`、`pnpm exec vite build --config apps/web/vite.config.ts` 均通过；构建仍有 Sass、Browserslist、混合导入及大 chunk 警告。
 测试环境存在 IndexedDB 缺失日志，未验证真实持久化、页面交互、上游出图或账单。
 菜单现仅保留业务 1K/2K/4K，分别对应内部 `billing-1k/1k/2k`，默认及旧自动偏好恢复为业务 1K；业务 1K 保留原自动档请求方式。明确比例下前两档可能发送相同尺寸，输出尺寸和实际费用由服务端决定。图片比例和画质中的自动选项保留。
 下文历史验证记录中的 K 档位与最高画质指当时的内部请求值，不代表当前菜单。
