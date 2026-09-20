@@ -162,7 +162,7 @@ function migrateLegacyGPTImageQualityParam(
   const hasGPTResolutionOptions =
     resolutionOptions.has('1k') &&
     resolutionOptions.has('2k') &&
-    (resolutionOptions.has('4k') || resolutionOptions.has('billing-1k'));
+    (resolutionOptions.has('4k') || resolutionOptions.has('auto'));
   const hasOfficialGPTQualityOptions =
     qualityOptions.has('auto') &&
     qualityOptions.has('low') &&

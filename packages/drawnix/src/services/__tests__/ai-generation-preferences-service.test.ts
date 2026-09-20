@@ -19,10 +19,7 @@ describe('ai-generation-preferences-service', () => {
       })).toMatchObject({ size: '3x2', resolution: '2k' });
       expect(sanitizeImageToolExtraParams(modelId, {
         size: 'auto', resolution: 'auto',
-      })).toMatchObject({ size: 'auto', resolution: 'billing-1k' });
-      expect(sanitizeImageToolExtraParams(modelId, {})).toMatchObject({
-        resolution: 'billing-1k',
-      });
+      })).toMatchObject({ size: 'auto', resolution: 'auto' });
       expect(sanitizeImageToolExtraParams(modelId, {
         size: '2x3', resolution: 'billing-1k',
       })).toMatchObject({ size: '2x3', resolution: 'billing-1k' });
@@ -176,7 +173,7 @@ describe('ai-generation-preferences-service', () => {
       ).toMatchObject({
         extraParams: {
           size: expectedSize,
-          resolution: 'billing-1k',
+          resolution: 'auto',
           quality: 'auto',
         },
         aspectRatio: expectedAspectRatio,

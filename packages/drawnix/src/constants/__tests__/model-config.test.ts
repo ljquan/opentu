@@ -96,8 +96,9 @@ describe('model-config image size options', () => {
         params
           .find((param) => param.id === 'resolution')
           ?.options?.map((option) => option.value)
-      ).toEqual(['billing-1k', '1k', '2k']);
+      ).toEqual(['auto', 'billing-1k', '1k', '2k']);
       expect(params.find((param) => param.id === 'resolution')?.options).toEqual([
+        { value: 'auto', label: '自动' },
         { value: 'billing-1k', label: '1K' },
         { value: '1k', label: '2K' },
         { value: '2k', label: '4K' },
@@ -116,7 +117,7 @@ describe('model-config image size options', () => {
       params.find((param) => param.id === 'resolution')?.options?.map(
         (option) => option.value
       )
-    ).toEqual(['billing-1k', '1k', '2k']);
+    ).toEqual(['auto', 'billing-1k', '1k', '2k']);
     expect(
       params.find((param) => param.id === 'quality')?.options?.map(
         (option) => option.value
