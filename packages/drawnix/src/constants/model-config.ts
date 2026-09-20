@@ -2789,12 +2789,11 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     shortLabel: '分辨率',
     valueType: 'enum',
     options: [
-      { value: 'auto', label: '自动' },
       { value: 'billing-1k', label: '1K' },
       { value: '1k', label: '2K' },
       { value: '2k', label: '4K' },
     ],
-    defaultValue: 'auto',
+    defaultValue: 'billing-1k',
     compatibleModels: GPT_IMAGE_25_EXTENDED_MODEL_IDS,
     modelType: 'image',
   },
