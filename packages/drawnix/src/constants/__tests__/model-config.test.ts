@@ -88,7 +88,7 @@ describe('model-config image size options', () => {
   });
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
-    '为 %s 暴露 1K / 2K / 4K 与完整官方画质',
+    '为 %s 暴露分辨率与最高到 xhigh 的画质选项',
     (modelId) => {
       const params = getCompatibleParams(modelId);
 
@@ -96,12 +96,18 @@ describe('model-config image size options', () => {
         params
           .find((param) => param.id === 'resolution')
           ?.options?.map((option) => option.value)
-      ).toEqual(['auto', '1k', '2k', '4k']);
+      ).toEqual(['auto', 'billing-1k', '1k', '2k']);
+      expect(params.find((param) => param.id === 'resolution')?.options).toEqual([
+        { value: 'auto', label: '自动' },
+        { value: 'billing-1k', label: '1K' },
+        { value: '1k', label: '2K' },
+        { value: '2k', label: '4K' },
+      ]);
       expect(
         params
           .find((param) => param.id === 'quality')
           ?.options?.map((option) => option.value)
-      ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
+      ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh']);
     }
   );
 
@@ -111,7 +117,7 @@ describe('model-config image size options', () => {
       params.find((param) => param.id === 'resolution')?.options?.map(
         (option) => option.value
       )
-    ).toEqual(['auto', '1k', '2k', '4k']);
+    ).toEqual(['auto', 'billing-1k', '1k', '2k']);
     expect(
       params.find((param) => param.id === 'quality')?.options?.map(
         (option) => option.value

@@ -162,7 +162,7 @@ function migrateLegacyGPTImageQualityParam(
   const hasGPTResolutionOptions =
     resolutionOptions.has('1k') &&
     resolutionOptions.has('2k') &&
-    resolutionOptions.has('4k');
+    (resolutionOptions.has('4k') || resolutionOptions.has('auto'));
   const hasOfficialGPTQualityOptions =
     qualityOptions.has('auto') &&
     qualityOptions.has('low') &&
@@ -179,7 +179,7 @@ function migrateLegacyGPTImageQualityParam(
 
   if (
     persistedQuality &&
-    resolutionOptions.has(persistedQuality) &&
+    ['1k', '2k', '4k'].includes(persistedQuality) &&
     !resolutionOptions.has(persistedResolution)
   ) {
     nextParams.resolution = persistedQuality;
@@ -187,6 +187,11 @@ function migrateLegacyGPTImageQualityParam(
 
   if (persistedQuality && !qualityOptions.has(persistedQuality)) {
     delete nextParams.quality;
+  }
+
+  // The removed top tier restores to the highest selectable billing tier.
+  if (nextParams.resolution === '4k' && !resolutionOptions.has('4k')) {
+    nextParams.resolution = '2k';
   }
 
   return nextParams;

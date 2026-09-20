@@ -26,6 +26,12 @@ describe('GPT Image 2.5 size and quality resolution', () => {
         })).toEqual({ size: '1x1', resolution });
       }
       expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: 'auto' })).toBeUndefined();
+      expect(resolveOfficialGPTImageSize(modelId, 'auto', {
+        resolution: 'billing-1k', quality: '2k',
+      })).toBeUndefined();
+      expect(resolveOfficialGPTImageSize(modelId, '2x3', {
+        resolution: 'billing-1k',
+      })).toBe('832x1248');
       expect(resolveOfficialGPTImageSize(modelId, '2048x1152', { resolution: 'auto' })).toBe('2048x1152');
       expect(normalizeGPTImage25ResolutionParams(modelId, {
         size: '1536x1024', resolution: '4k', quality: 'high',

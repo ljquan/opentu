@@ -2790,9 +2790,9 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: '1k', label: '1K' },
-      { value: '2k', label: '2K' },
-      { value: '4k', label: '4K' },
+      { value: 'billing-1k', label: '1K' },
+      { value: '1k', label: '2K' },
+      { value: '2k', label: '4K' },
     ],
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_25_EXTENDED_MODEL_IDS,
@@ -2820,7 +2820,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ),
     modelType: 'image',
   },
-  // GPT Image 2.5 Sunburst / Flare 额外支持 xhigh 与 max
+  // GPT Image 2.5 画质选项最高开放到 xhigh
   {
     id: 'quality',
     label: '画质',
@@ -2833,7 +2833,6 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: 'medium', label: '标准' },
       { value: 'high', label: '高清' },
       { value: 'xhigh', label: '超高清' },
-      { value: 'max', label: '最高' },
     ],
     defaultValue: 'auto',
     compatibleModels: [

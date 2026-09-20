@@ -317,7 +317,9 @@ export function resolveOfficialGPTImageSize(
   const useExtendedSizing =
     typeof modelId === 'string' &&
     GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId.trim().toLowerCase());
-  const resolution = useExtendedSizing && params?.resolution === 'auto'
+  // Business 1K retains the former automatic tier independently of UI auto.
+  const resolution = useExtendedSizing &&
+    (params?.resolution === 'auto' || params?.resolution === 'billing-1k')
     ? undefined
     : resolveImageResolutionTier(params);
 

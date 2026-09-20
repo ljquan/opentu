@@ -8,18 +8,21 @@ describe('ai-generation-preferences-service', () => {
   });
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
-    '%s 恢复 4K 偏好时修正自动和旧像素尺寸',
+    '%s 将已移除的旧 4K 偏好恢复到最高可选计费档并修正尺寸',
     async (modelId) => {
       const { sanitizeImageToolExtraParams } = await import('../ai-generation-preferences-service');
       expect(sanitizeImageToolExtraParams(modelId, {
         size: 'auto', resolution: '4k',
-      })).toMatchObject({ size: '1x1', resolution: '4k' });
+      })).toMatchObject({ size: '1x1', resolution: '2k' });
       expect(sanitizeImageToolExtraParams(modelId, {
         size: '1536x1024', resolution: '4k',
-      })).toMatchObject({ size: '3x2', resolution: '4k' });
+      })).toMatchObject({ size: '3x2', resolution: '2k' });
       expect(sanitizeImageToolExtraParams(modelId, {
         size: 'auto', resolution: 'auto',
       })).toMatchObject({ size: 'auto', resolution: 'auto' });
+      expect(sanitizeImageToolExtraParams(modelId, {
+        size: '2x3', resolution: 'billing-1k',
+      })).toMatchObject({ size: '2x3', resolution: 'billing-1k' });
     }
   );
 
