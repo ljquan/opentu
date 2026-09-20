@@ -66,6 +66,26 @@
 
 ## 自动化验证
 
+### 2026-09-20 Image 2 与 2.5 自动比例保留 K 档（最新本地增量）
+
+- 最终五文件定向测试 145/145 通过，Drawnix TypeScript 与 `git diff --check` 通过。
+- 核对 Image 2 同样存在 auto 时丢失所选 K 档的问题，Tuzi 扩展覆盖 Image 2 普通、VIP、gpt-image2/gpt-image2-vip 别名和 Image 2.5 普通、VIP、Sunburst、Flare 共八个模型。固定 gpt-image-2-1k 与 gpt-image-2.5-1k 不变；官方适配器、明确比例尺寸表和画质不变。
+- 下节同一五文件命令覆盖八个模型的 auto + 1K/2K/4K/auto、生成/编辑，以及 Image 2 普通和 VIP 的偏好恢复。无连字符别名没有独立 UI 配置，仅验证请求兼容，不扩展模型目录。未再次付费生成；当前只验证客户端传参，不宣称所有渠道实测成功。无新配置、依赖或迁移，未做页面测试、构建或全仓 lint，未提交或推送。
+
+### 2026-09-20 Image 2.5 自动比例保留 K 档（前序本地增量）
+
+- 修正前一版本只保留界面档位、未传给后端而命中 default 的问题。Tuzi Image 2.5 自动比例请求包含 size=auto 与 generationConfig.imageConfig.imageSize=所选大写 K 档；quality 不变。分辨率也为 auto 时不含 imageSize。明确比例和 Image 2、固定 1K 模型不使用该扩展，官方适配器不加 Tuzi 字段。
+- 沿用下节五文件定向测试命令，新增全部四种 Image 2.5 型号的自动比例生成/编辑、1K/2K/4K/auto、binding 模型优先级、params.size 优先级、Image 2 与固定 1K 排除回归。
+- 计费字段按用户提供的表达式构造；未再次付费生图，也未验证最终账单。未提交或推送。
+- 定向测试 140/140 通过；Drawnix TypeScript 与 git diff --check 通过。未运行页面测试、构建或全仓 lint。QA/DOC 已同步。
+
+### 2026-09-20 自动比例独立选择（已被上节修正）
+
+- 本节替代历史记录中“auto 配合 K 档强制转方图”的预期。Image 2.5 普通、VIP、Sunburst、Flare 的 auto 比例保持独立，允许保存 2K/4K 选择；auto 时生成与编辑均省略 size，不发送独立分辨率字段，不保证实际输出尺寸及计费档位。明确比例继续按 K 档映射，Image 2 与固定 1K 型号不变。
+- 在 packages/drawnix 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/constants/__tests__/model-config.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts --silent`，136/136 通过，覆盖参数恢复、四个模型、自动/明确比例、生成 JSON 和编辑 FormData。
+- 非页面验收：auto + 2K/4K 的请求无固定 size，quality 原样传递；换为明确比例后恢复尺寸表。此次未额外调用付费生图，未执行页面测试、全量构建或 lint。未提交或推送，DOC 已同步。
+- 根目录 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` 和 `git diff --check` 通过。
+
 ### 2026-09-20 Image 2/2.5 修正后的 PR 最终验证
 
 - 本记录优先于下方历史结果。合入远程功能分支 `cb5aef01` 和最新 `origin/develop` `81dfaf1a`，合并提交为 `f816dbbf`、`fb7fefc8`；均自动合并，无未解决冲突，不强推、不改写历史。保留上游 MiniMax 功能。

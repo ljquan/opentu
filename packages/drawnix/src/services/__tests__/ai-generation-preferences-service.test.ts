@@ -13,7 +13,10 @@ describe('ai-generation-preferences-service', () => {
       const { sanitizeImageToolExtraParams } = await import('../ai-generation-preferences-service');
       expect(sanitizeImageToolExtraParams(modelId, {
         size: 'auto', resolution: '4k',
-      })).toMatchObject({ size: '1x1', resolution: '4k' });
+      })).toMatchObject({ size: 'auto', resolution: '4k' });
+      expect(sanitizeImageToolExtraParams(modelId, {
+        size: 'auto', resolution: '2k',
+      })).toMatchObject({ size: 'auto', resolution: '2k' });
       expect(sanitizeImageToolExtraParams(modelId, {
         size: '1536x1024', resolution: '4k',
       })).toMatchObject({ size: '3x2', resolution: '4k' });
@@ -23,6 +26,18 @@ describe('ai-generation-preferences-service', () => {
       expect(sanitizeImageToolExtraParams(modelId, {
         size: '2x3', resolution: 'billing-1k',
       })).toMatchObject({ size: '2x3', resolution: 'auto' });
+    }
+  );
+
+  it.each(['gpt-image-2', 'gpt-image-2-vip'])(
+    '%s retains automatic aspect ratio with the selected K tier',
+    async (modelId) => {
+      const { sanitizeImageToolExtraParams } = await import('../ai-generation-preferences-service');
+      for (const resolution of ['1k', '2k', '4k']) {
+        expect(sanitizeImageToolExtraParams(modelId, {
+          size: 'auto', resolution, quality: 'medium',
+        })).toMatchObject({ size: 'auto', resolution, quality: 'medium' });
+      }
     }
   );
 

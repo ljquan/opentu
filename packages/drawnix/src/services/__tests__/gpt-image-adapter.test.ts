@@ -14,7 +14,7 @@ const tinyPngBase64Only =
 
 describe('gpt-image-adapter', () => {
   it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
-    '%s sends concrete 4K size for automatic generation and stale edit size',
+    '%s keeps automatic generation size independent and maps stale edit size',
     async (model) => {
       expect(buildGPTImageGenerationBody({
         model,
@@ -24,7 +24,6 @@ describe('gpt-image-adapter', () => {
       })).toEqual({
         model,
         prompt: 'Draw a product photo',
-        size: '2880x2880',
         quality: 'max',
       });
       const form = await buildGPTImageEditFormData({
@@ -37,6 +36,17 @@ describe('gpt-image-adapter', () => {
       expect(form.get('model')).toBe(model);
       expect(form.get('size')).toBe('2880x2880');
       expect(form.get('quality')).toBe('max');
+      for (const resolution of ['2k', '4k']) {
+        const autoForm = await buildGPTImageEditFormData({
+          model,
+          prompt: 'Edit a product photo',
+          size: 'auto',
+          referenceImages: [tinyPngDataUrl],
+          params: { resolution, quality: 'medium' },
+        });
+        expect(autoForm.has('size')).toBe(false);
+        expect(autoForm.get('quality')).toBe('medium');
+      }
     }
   );
 

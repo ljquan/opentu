@@ -55,10 +55,12 @@ describe('GPT Image 2.5 size and quality resolution', () => {
         ['4k', '2880x2880'],
       ]) {
         expect(resolveOfficialGPTImageSize(modelId, undefined, { resolution })).toBe(size);
-        expect(resolveOfficialGPTImageEditSize(modelId, 'auto', { resolution })).toBe(size);
+        expect(resolveOfficialGPTImageEditSize(modelId, 'auto', { resolution })).toBeUndefined();
+        expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution })).toBeUndefined();
+        expect(resolveOfficialGPTImageSize(modelId, '1x1', { resolution })).toBe(size);
         expect(normalizeGPTImage25ResolutionParams(modelId, {
           size: 'auto', resolution,
-        })).toEqual({ size: '1x1', resolution });
+        })).toEqual({ size: 'auto', resolution });
       }
       expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: 'auto' })).toBeUndefined();
       expect(resolveOfficialGPTImageSize(modelId, 'auto', {
@@ -97,11 +99,9 @@ describe('GPT Image 2.5 size and quality resolution', () => {
   );
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
-    '%s 选择 K 档位时覆盖自动或旧尺寸',
+    '%s 选择 K 档位时保留自动比例并覆盖旧像素尺寸',
     (modelId) => {
-      expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '4k' })).toBe(
-        '2880x2880'
-      );
+      expect(resolveOfficialGPTImageSize(modelId, 'auto', { resolution: '4k' })).toBeUndefined();
       expect(
         resolveOfficialGPTImageSize(modelId, '1024x1024', { resolution: '4k' })
       ).toBe('2880x2880');

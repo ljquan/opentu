@@ -36,11 +36,9 @@ describe('tuzi GPT image adapter', () => {
         expect(width * height).toBeGreaterThan(1_048_576);
         expect(width * height).toBeLessThanOrEqual(3_686_400);
       }
-      for (const size of ['auto', '2048x2048']) {
-        expect(buildTuziGPTImageRequestBody({
-          model, prompt: 'Test', size, params: { resolution: '2k', quality: 'medium' },
-        }).size).toBe('1920x1920');
-      }
+      expect(buildTuziGPTImageRequestBody({
+        model, prompt: 'Test', size: '2048x2048', params: { resolution: '2k', quality: 'medium' },
+      }).size).toBe('1920x1920');
     }
   );
 
@@ -156,20 +154,52 @@ describe('tuzi GPT image adapter', () => {
     }
   );
 
-  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('将 %s 的自动尺寸和 4K 分辨率转换为明确像素尺寸', (model) => {
-    expect(
-      buildTuziGPTImageRequestBody({
-        model,
-        prompt: 'Draw a clean product photo',
-        size: 'auto',
-        params: { resolution: '4k' },
-      })
-    ).toEqual({
-      model,
-      prompt: 'Draw a clean product photo',
-      size: '2880x2880',
+  it.each([
+    'gpt-image-2', 'gpt-image-2-vip', 'gpt-image2', 'gpt-image2-vip',
+    'gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare',
+  ])('保留 %s 的自动比例和独立 K 档位', (model) => {
+    for (const resolution of ['1k', '2k', '4k', 'auto']) {
+      for (const referenceImages of [undefined, ['data:image/png;base64,source']]) {
+        expect(
+          buildTuziGPTImageRequestBody({
+            model,
+            prompt: 'Draw a clean product photo',
+            size: 'auto',
+            referenceImages,
+            params: { resolution, quality: 'medium' },
+          })
+        ).toEqual({
+          model,
+          prompt: 'Draw a clean product photo',
+          size: 'auto',
+          quality: 'medium',
+          ...(referenceImages ? { image: referenceImages } : {}),
+          ...(resolution === 'auto' ? {} : {
+            generationConfig: { imageConfig: { imageSize: resolution.toUpperCase() } },
+          }),
+        });
+      }
+    }
+  });
+
+  it('uses the bound model and params.size when preserving the automatic tier', () => {
+    expect(buildTuziGPTImageRequestBody({
+      model: 'stale-model', prompt: 'Test', size: '1x1',
+      params: { size: 'auto', resolution: '4k', quality: 'high' },
+    }, 'gpt-image-2.5')).toEqual({
+      model: 'gpt-image-2.5', prompt: 'Test', size: 'auto', quality: 'high',
+      generationConfig: { imageConfig: { imageSize: '4K' } },
     });
   });
+
+  it.each(['gpt-image-2-1k', 'gpt-image-2.5-1k'])(
+    '%s does not receive the Image 2.5 automatic tier extension',
+    (model) => {
+      expect(buildTuziGPTImageRequestBody({
+        model, prompt: 'Test', size: 'auto', params: { resolution: '4k' },
+      })).toEqual({ model, prompt: 'Test' });
+    }
+  );
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('builds %s requests with extended resolution and quality',
     (modelId) => {

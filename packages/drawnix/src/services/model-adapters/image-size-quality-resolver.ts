@@ -313,7 +313,8 @@ export function normalizeGPTImage25ResolutionParams(
 ): Record<string, string> {
   if (
     !GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId.trim().toLowerCase()) ||
-    !normalizeImageResolutionTier(params.resolution)
+    !normalizeImageResolutionTier(params.resolution) ||
+    params.size?.trim().toLowerCase() === 'auto'
   ) {
     return params;
   }
@@ -338,11 +339,15 @@ export function resolveOfficialGPTImageSize(
     ? undefined
     : resolveImageResolutionTier(params);
 
-  // These models use size as the actual resolution. When the UI keeps
-  // `auto` or a stale 1K size, the selected K tier must still win.
+  // Explicit automatic aspect ratio remains independent of the selected tier.
+  if (normalizedSize === 'auto') {
+    return undefined;
+  }
+
+  // For concrete ratios or stale pixel sizes, apply the selected K tier.
   if (useExtendedSizing && resolution) {
     const aspectRatio =
-      !normalizedSize || normalizedSize === 'auto'
+      !normalizedSize
         ? '1x1'
         : resolveKnownAspectRatio(normalizedSize);
     if (aspectRatio) {
