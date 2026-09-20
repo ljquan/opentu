@@ -343,7 +343,6 @@ describe('model-config image size options', () => {
     ]);
     expect(videoIds).toEqual(
       expect.arrayContaining([
-        'MiniMax-H3',
         'doubao-seedance-2-0-260128',
         'doubao-seedance-2-0-fast-260128',
         'doubao-seedance-2-0-mini-260615',
@@ -474,11 +473,12 @@ describe('model-config image size options', () => {
       'adaptive',
     ]);
     expect(param('ratio')?.defaultValue).toBe('16:9');
-    expect(param('api_version')?.options).toEqual([
-      { value: 'v2', label: 'V2' },
-      { value: 'v1', label: 'V1' },
-    ]);
-    expect(param('api_version')?.defaultValue).toBe('v1');
+    expect(param('api_version')).toBeUndefined();
+    expect(param('prompt_enhancement')).toMatchObject({
+      label: '提示词增强',
+      control: 'switch',
+      defaultValue: 'false',
+    });
     expect(params.some((item) => item.id === 'generate_audio')).toBe(false);
 
     const videoConfig = getVideoModelConfig('MiniMax-H3');
@@ -504,8 +504,8 @@ describe('model-config image size options', () => {
     expect(videoConfig.defaultSize).toBe('768P');
   });
 
-  it('默认视频目录内置 MiniMax-H3 并显示 NEW', () => {
-    expect(getStaticModelsByType('video')[0]).toMatchObject({
+  it('为 MiniMax-H3 提供置顶与 NEW 展示元数据', () => {
+    expect(getStaticModelConfig('MiniMax-H3')).toMatchObject({
       id: 'MiniMax-H3',
       type: 'video',
       vendor: ModelVendor.MINIMAX,
@@ -529,7 +529,13 @@ describe('model-config image size options', () => {
     );
 
     expect(paramIds).toEqual(
-      expect.arrayContaining(['duration', 'size', 'ratio', 'api_version'])
+      expect.arrayContaining([
+        'duration',
+        'size',
+        'ratio',
+        'prompt_enhancement',
+      ])
     );
+    expect(paramIds).not.toContain('api_version');
   });
 });

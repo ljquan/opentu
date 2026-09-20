@@ -1,9 +1,10 @@
 import { runtimeModelDiscovery } from '../utils/runtime-model-discovery';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
 import type { TuziManagedProvider } from './tuzi-session-api';
+import { normalizeModelApiBaseUrl } from '../utils/provider-base-url';
 
 function tuziV1BaseUrl(): string {
-  return `${tuziEmbeddedConfig.apiBaseUrl?.replace(/\/+$/, '') || ''}/v1`;
+  return normalizeModelApiBaseUrl(tuziEmbeddedConfig.apiBaseUrl || '');
 }
 
 export async function discoverAndUseAllTuziProviderModels(

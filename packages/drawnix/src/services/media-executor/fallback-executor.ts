@@ -938,7 +938,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
       const videoApiConfig = {
         ...config.videoConfig,
         params: params.params,
-        defaultModel: 'veo3' as const,
+        defaultModel: model,
       };
       const videoId = await submitVideoGeneration(
         {

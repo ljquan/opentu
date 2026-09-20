@@ -20,17 +20,16 @@ import {
 import { providerTransport } from '../provider-routing/provider-transport';
 import {
   appendVideoOutputParams,
-  buildMiniMaxH3VideoRequest,
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   isMiniMaxH3Model,
   normalizeMiniMaxH3VideoResponse,
-  resolveMiniMaxH3VideoSubmitPath,
   resolveVideoPollPathForModel,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
 } from '../video-binding-utils';
 import { prepareVideoReferenceImageBlob } from '../video-reference-image-utils';
+import { prepareMiniMaxH3Submission } from '../minimax-h3-video-workflow';
 
 const DURATION_IN_MODEL_PREFIX = 'sora-2-';
 const PROVIDER_ERROR_PREVIEW_LIMIT = 1000;
@@ -196,9 +195,6 @@ export async function submitVideoGeneration(
     params.params as Record<string, string> | undefined
   );
   const isMiniMaxH3 = isMiniMaxH3Model(model);
-  const submitPath = isMiniMaxH3
-    ? resolveMiniMaxH3VideoSubmitPath(params.params)
-    : config.binding?.submitPath || '/v1/videos';
 
   // 构建 FormData
   const formData = new FormData();
@@ -234,6 +230,26 @@ export async function submitVideoGeneration(
     }
   }
 
+  const miniMaxSubmission = isMiniMaxH3
+    ? await prepareMiniMaxH3Submission(
+        {
+          prompt: params.prompt,
+          duration: submission.duration,
+          size: params.size,
+          ratio: params.params?.ratio,
+          referenceImages: params.referenceImages,
+          params: params.params,
+        },
+        {
+          provider: providerContext,
+          fetcher: fetchFn,
+          signal,
+        }
+      )
+    : null;
+  const submitPath =
+    miniMaxSubmission?.path || config.binding?.submitPath || '/v1/videos';
+
   const response = await providerTransport.send(providerContext, {
     path: submitPath,
     baseUrlStrategy: isMiniMaxH3
@@ -242,15 +258,7 @@ export async function submitVideoGeneration(
     method: 'POST',
     headers: isMiniMaxH3 ? { 'Content-Type': 'application/json' } : undefined,
     body: isMiniMaxH3
-      ? JSON.stringify(
-          buildMiniMaxH3VideoRequest({
-            prompt: params.prompt,
-            duration: submission.duration,
-            size: params.size,
-            ratio: params.params?.ratio,
-            referenceImages: params.referenceImages,
-          })
-        )
+      ? JSON.stringify(miniMaxSubmission!.body)
       : formData,
     signal,
     fetcher: fetchFn,

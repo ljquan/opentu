@@ -24,9 +24,9 @@ const FIXED_SORA_DURATION_MODEL_PATTERN = /^sora-2-(\d+)s$/i;
 const DEFAULT_VIDEO_POLL_PATH = '/videos/{taskId}';
 const DEFAULT_VIDEO_DOWNLOAD_PATH = '/videos/{taskId}/content';
 export const MINIMAX_H3_VIDEO_SUBMIT_PATH = '/v2/video_generation';
-const MINIMAX_H3_V1_VIDEO_SUBMIT_PATH = '/v1/videos';
+export const MINIMAX_H3_V1_VIDEO_SUBMIT_PATH = '/v1/videos';
 const MINIMAX_H3_VIDEO_POLL_PATH = '/v2/query/video_generation/{taskId}';
-const MINIMAX_H3_V1_VIDEO_POLL_PATH = '/v1/videos/{taskId}';
+export const MINIMAX_H3_V1_VIDEO_POLL_PATH = '/v1/videos/{taskId}';
 export const MINIMAX_H3_API_VERSION_PARAM_ID = 'api_version';
 const MINIMAX_H3_RESOLUTIONS = new Set(['768P', '2K']);
 const MINIMAX_H3_RATIOS = new Set([
@@ -301,11 +301,9 @@ export function resolveMiniMaxH3ApiVersion(
 }
 
 export function resolveMiniMaxH3VideoSubmitPath(
-  params?: Record<string, unknown> | null
+  _params?: Record<string, unknown> | null
 ): string {
-  return resolveMiniMaxH3ApiVersion(params) === 'v1'
-    ? MINIMAX_H3_V1_VIDEO_SUBMIT_PATH
-    : MINIMAX_H3_VIDEO_SUBMIT_PATH;
+  return MINIMAX_H3_VIDEO_SUBMIT_PATH;
 }
 
 export function buildMiniMaxH3VideoRequest(params: {
@@ -379,6 +377,26 @@ export function normalizeMiniMaxH3VideoResponse(
   const id = payload?.task_id || task?.id || fallbackId;
   const videoUrl = task?.content?.url || task?.video_url || task?.url;
   const duration = task?.duration;
+  const businessCode = payload?.base_resp?.status_code;
+  const businessMessage = String(
+    payload?.base_resp?.status_msg || payload?.message || ''
+  ).trim();
+
+  // Tuzi may return provider/business errors in a successful HTTP response.
+  // Convert them to a terminal failure so the shared poller cannot spin on a
+  // response without a task status.
+  if (businessCode !== undefined && String(businessCode) !== '0') {
+    return {
+      ...task,
+      id,
+      model: task?.model || 'MiniMax-H3',
+      status: 'failed',
+      error: {
+        code: String(businessCode),
+        message: businessMessage || `MiniMax-H3 请求失败（${businessCode}）`,
+      },
+    };
+  }
 
   return {
     ...task,
@@ -673,11 +691,7 @@ export function resolveVideoPollPathForModel(
   params?: Record<string, unknown> | null
 ): string {
   if (isMiniMaxH3Model(modelId)) {
-    const template =
-      resolveMiniMaxH3ApiVersion(params) === 'v1'
-        ? MINIMAX_H3_V1_VIDEO_POLL_PATH
-        : MINIMAX_H3_VIDEO_POLL_PATH;
-    return resolveTemplatePath(template, videoId);
+    return resolveTemplatePath(MINIMAX_H3_VIDEO_POLL_PATH, videoId);
   }
   return resolveVideoPollPath(videoId, binding, params);
 }

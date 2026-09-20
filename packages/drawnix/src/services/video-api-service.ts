@@ -25,17 +25,20 @@ import {
 } from './media-executor/llm-api-logger';
 import {
   appendVideoOutputParams,
-  buildMiniMaxH3VideoRequest,
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   isMiniMaxH3Model,
   normalizeMiniMaxH3VideoResponse,
-  resolveMiniMaxH3VideoSubmitPath,
   resolveVideoPollPathForModel,
   resolveVideoSubmission,
   shouldDownloadVideoContent,
 } from './video-binding-utils';
 import { prepareVideoReferenceImageBlob } from './video-reference-image-utils';
+import {
+  isMiniMaxH3RegenerationRequest,
+  prepareMiniMaxH3Submission,
+  resolveMiniMaxH3InitialSubmitPath,
+} from './minimax-h3-video-workflow';
 
 // Re-export VideoModel for backward compatibility
 export type { VideoModel };
@@ -104,7 +107,9 @@ interface PollingOptions {
   params?: Record<string, unknown>;
 }
 
-function inferAuthType(route: ReturnType<typeof resolveInvocationRoute>): ProviderAuthStrategy {
+function inferAuthType(
+  route: ReturnType<typeof resolveInvocationRoute>
+): ProviderAuthStrategy {
   return 'bearer';
 }
 
@@ -129,9 +134,9 @@ function resolveProviderContext(
 
 function resolveVideoPlanContext(routeModel?: string | ModelRef | null): {
   providerContext: ResolvedProviderContext;
-  binding: NonNullable<
-    ReturnType<typeof resolveInvocationPlanFromRoute>
-  >['binding'] | null;
+  binding:
+    | NonNullable<ReturnType<typeof resolveInvocationPlanFromRoute>>['binding']
+    | null;
 } {
   const plan = resolveInvocationPlanFromRoute('video', routeModel);
   return {
@@ -165,7 +170,7 @@ class VideoAPIService {
       params.inputReferences?.length || (params.inputReference ? 1 : 0);
     const isMiniMaxH3 = isMiniMaxH3Model(params.model);
     const submitPath = isMiniMaxH3
-      ? resolveMiniMaxH3VideoSubmitPath(params.params)
+      ? resolveMiniMaxH3InitialSubmitPath(params.params)
       : binding?.submitPath || '/videos';
     const logId = startLLMApiLog({
       endpoint: submitPath,
@@ -298,7 +303,7 @@ class VideoAPIService {
     // console.log('[VideoAPI] Sending request to:', `${this.baseUrl}/v1/videos`);
 
     const miniMaxReferenceImages: string[] = [];
-    if (isMiniMaxH3) {
+    if (isMiniMaxH3 && !isMiniMaxH3RegenerationRequest(params.params)) {
       const sortedReferences = params.inputReferences?.length
         ? [...params.inputReferences].sort((a, b) => a.slot - b.slot)
         : params.inputReference
@@ -311,21 +316,27 @@ class VideoAPIService {
       }
     }
 
+    const miniMaxSubmission = isMiniMaxH3
+      ? await prepareMiniMaxH3Submission(
+          {
+            prompt: params.prompt,
+            duration: submission.duration,
+            size: params.size,
+            ratio: params.params?.ratio,
+            referenceImages: miniMaxReferenceImages,
+            params: params.params,
+          },
+          { provider: providerContext }
+        )
+      : null;
+
     const response = await providerTransport.send(providerContext, {
-      path: submitPath,
+      path: miniMaxSubmission?.path || submitPath,
       baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : binding?.baseUrlStrategy,
       method: 'POST',
       headers: isMiniMaxH3 ? { 'Content-Type': 'application/json' } : undefined,
       body: isMiniMaxH3
-        ? JSON.stringify(
-            buildMiniMaxH3VideoRequest({
-              prompt: params.prompt,
-              duration: submission.duration,
-              size: params.size,
-              ratio: params.params?.ratio,
-              referenceImages: miniMaxReferenceImages,
-            })
-          )
+        ? JSON.stringify(miniMaxSubmission!.body)
         : formData,
     });
 
@@ -662,7 +673,13 @@ class VideoAPIService {
     );
     const inlineUrl = extractInlineVideoUrl(status as Record<string, any>);
 
-    if (!shouldDownloadVideoContent(status.model, binding, status as Record<string, any>)) {
+    if (
+      !shouldDownloadVideoContent(
+        status.model,
+        binding,
+        status as Record<string, any>
+      )
+    ) {
       return inlineUrl ? { ...status, url: inlineUrl } : status;
     }
 

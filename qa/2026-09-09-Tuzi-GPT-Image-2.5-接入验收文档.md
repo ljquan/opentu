@@ -68,6 +68,16 @@
 
 ## 自动化验证
 
+2026-09-20 PR #266 隔离冲突处理（最新验收记录）：
+
+- 基于远程 PR `5b600182`，合并 `origin/develop` 的 `84b5e01f`；不纳入原目录的两条本地回退提交及五个未提交文件。
+- 按用户确认，图片参数以远程 PR #266 为准：保留业务 1K/2K/4K 到 `billing-1k/1k/2k` 的映射、默认业务 1K、原画质选项和尺寸转换；不采用 `84b5e01f` 的独立 resolution 传参、全系列六档画质及固定 1k 型号扩展。保留 develop 的 MiniMax 与其他无关更新及对应测试。
+- 在隔离目录 `packages/drawnix` 使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run`，指定 model-config、image-size-quality-resolver、tuzi-gpt-image-adapter、gpt-image-adapter、ai-generation-preferences-service、image-inspection-pure、default-image-adapter、media-api/image-api、minimax-h3-regeneration-service、minimax-h3-video-workflow 共 10 个测试文件，附加 `--testTimeout 20000 --silent`：195/195 通过。
+- `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` 通过；`pnpm exec vite build --config apps/web/vite.config.ts` 通过（59.05 秒）；差异空白检查通过，无未解决冲突。
+- 额外执行 runtime-model-discovery.test.ts：14 通过、1 失败，失败项为“主端点浏览器 fetch 失败时会尝试 tuzi-api 候选端点获取模型”，预期直连而实际使用同源会话代理。已在独立的纯 develop `84b5e01f` 工作区复现相同失败，未修改该上游问题；不得据此宣称全部测试或 CI 通过。
+- 构建保留 Sass 弃用、Browserslist 数据过期、混合导入和大 chunk 警告。未做页面测试、真实计费生图、全仓测试或全仓 lint；供应商实际输出与计费仍待验收。
+- DOC 的业务参数说明保持有效，无需改变规则；本记录覆盖下方较早阶段的同步与测试结果。
+
 2026-09-20 同步 develop 后最终验证：
 
 - 分支：`fix/gpt-image-25-resolution-tiers`。显式 fetch 并 merge `origin/develop`（`b730d01125423ae261b596142c5c24b9fc3efebf`），结果 Already up to date，无冲突。
