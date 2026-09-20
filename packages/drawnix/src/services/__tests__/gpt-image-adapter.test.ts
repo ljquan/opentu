@@ -57,7 +57,7 @@ describe('gpt-image-adapter', () => {
     expect(body).toEqual({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
-      size: '2736x1536',
+      size: '2560x1440',
       quality: 'high',
       output_format: 'webp',
       output_compression: 80,
@@ -98,7 +98,7 @@ describe('gpt-image-adapter', () => {
     expect(body).toEqual({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
-      size: '2368x1776',
+      size: '2176x1632',
     });
   });
 
@@ -115,7 +115,7 @@ describe('gpt-image-adapter', () => {
     expect(body).toEqual({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
-      size: '2368x1776',
+      size: '2176x1632',
     });
   });
 
@@ -484,7 +484,7 @@ describe('gpt-image-adapter', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/out.png' }],
+            data: [{ url: 'https://example.com/out.png', width: 1024, height: 1024 }],
           }),
           {
             status: 200,
@@ -546,7 +546,7 @@ describe('gpt-image-adapter', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: [{ url: 'https://example.com/out.png' }],
+            data: [{ url: 'https://example.com/out.png', width: 1024, height: 1024 }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )

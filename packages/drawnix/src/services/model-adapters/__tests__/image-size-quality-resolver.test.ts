@@ -11,12 +11,47 @@ const GPT_IMAGE_25_MODEL_IDS = [
 ];
 
 describe('GPT Image 2.5 size and quality resolution', () => {
+  it.each(['gpt-image-2', 'gpt-image-2-vip', 'gpt-image2', 'gpt-image2-vip'])(
+    '%s keeps every 2K ratio within the billing pixel limits',
+    (modelId) => {
+      for (const [ratio, expected] of Object.entries({
+        '1x1': '1920x1920',
+        '2x3': '1536x2304',
+        '3x2': '2304x1536',
+        '3x4': '1632x2176',
+        '4x3': '2176x1632',
+        '4x5': '1664x2080',
+        '5x4': '2080x1664',
+        '9x16': '1440x2560',
+        '16x9': '2560x1440',
+        '21x9': '2912x1248',
+      })) {
+        const size = resolveOfficialGPTImageSize(modelId, ratio, { resolution: '2k' });
+        expect(size).toBe(expected);
+        expect(resolveOfficialGPTImageEditSize(modelId, ratio, { resolution: '2k' })).toBe(expected);
+        const [width, height] = size!.split('x').map(Number);
+        const [ratioWidth, ratioHeight] = ratio.split('x').map(Number);
+        expect(width * ratioHeight).toBe(height * ratioWidth);
+        expect(width % 16).toBe(0);
+        expect(height % 16).toBe(0);
+        expect(width * height).toBeGreaterThan(1_048_576);
+        expect(width * height).toBeLessThanOrEqual(3_686_400);
+      }
+      expect(resolveOfficialGPTImageSize(modelId, '4x5', { resolution: '1k' })).toBe('912x1152');
+      expect(resolveOfficialGPTImageSize(modelId, '4x5', { resolution: '4k' })).toBe('2576x3216');
+    }
+  );
+
+  it('does not apply the 2K billing override to gpt-image-2-1k', () => {
+    expect(resolveOfficialGPTImageSize('gpt-image-2-1k', '4x5', { resolution: '2k' })).toBe('1824x2288');
+  });
+
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s 将档位转换为有效尺寸并保留自动模式',
     (modelId) => {
       for (const [resolution, size] of [
         ['1k', '1024x1024'],
-        ['2k', '2048x2048'],
+        ['2k', '1920x1920'],
         ['4k', '2880x2880'],
       ]) {
         expect(resolveOfficialGPTImageSize(modelId, undefined, { resolution })).toBe(size);
@@ -54,7 +89,7 @@ describe('GPT Image 2.5 size and quality resolution', () => {
       ).toBe('3840x2160');
       expect(
         resolveOfficialGPTImageSize(modelId, '1x1', { resolution: '2k' })
-      ).toBe('2048x2048');
+      ).toBe('1920x1920');
       expect(resolveOfficialGPTImageSize(modelId, '3840x2160')).toBe(
         '3840x2160'
       );
@@ -88,7 +123,7 @@ describe('GPT Image 2.5 size and quality resolution', () => {
     }
   );
 
-  it.each(['gpt-image-2', 'gpt-image-2.5-1k', 'gpt-image-2.5-vip', undefined])(
+  it.each(['gpt-image-2', 'gpt-image-2.5-1k', undefined])(
     '%s 不透传新型号专用的画质档位',
     (modelId) => {
       expect(

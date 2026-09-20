@@ -130,6 +130,25 @@
 - Drawnix TypeScript 类型检查通过；
 - `git diff --check` 通过。
 
+## 2026-09-20 GPT Image 2.5 的 2K 计费边界修正
+
+- 本节替代历史记录中的 2K 尺寸预期。普通、VIP、Sunburst、Flare 的 2K 使用独立尺寸表；固定 1k、image-2、自动、1K、4K 和画质逻辑不在本次尺寸变更范围内。
+- 依据用户提供的审计表达式，2K 总像素须大于 1,048,576 且不超过 3,686,400。1:1 为 1920x1920，4:5 为 1664x2080，完整表见接入说明。
+- Tuzi 请求体测试覆盖四个模型的全部十种比例：精确比例、宽高为 16 的倍数、总像素上下界、medium 原样传递、自动比例和旧方图尺寸被 2K 档覆盖。尺寸表不包含表达式中的 1K 特殊白名单尺寸。
+- 命令（packages/drawnix）：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/constants/__tests__/model-config.test.ts src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts src/services/__tests__/gpt-image-adapter.test.ts --silent --testTimeout=15000`。
+- 结果：129 通过、2 超时。前四个测试文件全通过；gpt-image-adapter 的 stale task model alias、model_not_found 重试用例超时，未修改其业务逻辑，未确认基线结果，不能宣称全套通过。
+- `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` 通过。未执行页面测试、构建或真实付费生图；实际接口对新尺寸的接受及最终账单仍待验证。
+- 已同步旧偏好测试：恢复 4K 后不再断言降为 2K，已移除的 billing-1k 偏好回退自动。不新增配置、依赖或迁移；未提交或推送。
+
+## 2026-09-20 GPT Image 2 的 2K 增量调整
+
+- 普通、VIP 及其无连字符别名的 2K 比例映射复用计费安全尺寸表，覆盖生成和编辑；不修改 Image 2 的 1K/4K、自动、合法显式像素尺寸、画质或固定 `gpt-image-2-1k` 行为。此前 Image 2.5 改动保留。
+- 回归覆盖四个模型的全部十种比例、精确比例、16 倍数、总像素上下界，以及固定 1K 模型不进入新覆盖逻辑。JSON 生成与 Tuzi 编辑请求同步验证新尺寸。
+- 命令（packages/drawnix）：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/constants/__tests__/model-config.test.ts --silent`。
+- 结果：105 通过、2 超时；超时仍为上节列出的 stale task model alias 和 model_not_found 重试用例，未重新执行修改前基线，不能宣称全套通过。
+- 根目录 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` 与 `git diff --check` 通过。未运行构建、lint、页面测试或真实付费生成，服务端尺寸接受情况和最终账单待验证。
+- 现有接入说明已补充共享适配器影响；无需新增配置、依赖或迁移。仅本地修改，未提交或推送。
+
 2026-09-10 自动化结果：
 
 - Provider 路由、Tuzi GPT Image adapter 与图片恢复服务：`174/174` 通过；

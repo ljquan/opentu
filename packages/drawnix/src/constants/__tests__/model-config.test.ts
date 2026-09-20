@@ -96,12 +96,12 @@ describe('model-config image size options', () => {
         params
           .find((param) => param.id === 'resolution')
           ?.options?.map((option) => option.value)
-      ).toEqual(['auto', 'billing-1k', '1k', '2k']);
+      ).toEqual(['auto', '1k', '2k', '4k']);
       expect(params.find((param) => param.id === 'resolution')?.options).toEqual([
         { value: 'auto', label: '自动' },
-        { value: 'billing-1k', label: '1K' },
-        { value: '1k', label: '2K' },
-        { value: '2k', label: '4K' },
+        { value: '1k', label: '1K' },
+        { value: '2k', label: '2K' },
+        { value: '4k', label: '4K' },
       ]);
       expect(
         params
@@ -111,18 +111,18 @@ describe('model-config image size options', () => {
     }
   );
 
-  it('为 GPT Image 2.5 VIP 提供分辨率并保留原画质档位', () => {
+  it('为 GPT Image 2.5 VIP 提供分辨率与超高清画质档位', () => {
     const params = getCompatibleParams('gpt-image-2.5-vip');
     expect(
       params.find((param) => param.id === 'resolution')?.options?.map(
         (option) => option.value
       )
-    ).toEqual(['auto', 'billing-1k', '1k', '2k']);
+    ).toEqual(['auto', '1k', '2k', '4k']);
     expect(
       params.find((param) => param.id === 'quality')?.options?.map(
         (option) => option.value
       )
-    ).toEqual(['auto', 'low', 'medium', 'high']);
+    ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh']);
   });
 
   it.each(['gpt-image-2.5-1k'])(

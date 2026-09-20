@@ -2790,9 +2790,9 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: 'billing-1k', label: '1K' },
-      { value: '1k', label: '2K' },
-      { value: '2k', label: '4K' },
+      { value: '1k', label: '1K' },
+      { value: '2k', label: '2K' },
+      { value: '4k', label: '4K' },
     ],
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_25_EXTENDED_MODEL_IDS,
@@ -2815,6 +2815,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
       (modelId) =>
         modelId !== 'gpt-image-2.5' &&
+        modelId !== 'gpt-image-2.5-vip' &&
         modelId !== 'gpt-image-2.5-sunburst' &&
         modelId !== 'gpt-image-2.5-flare'
     ),
@@ -2837,6 +2838,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     defaultValue: 'auto',
     compatibleModels: [
       'gpt-image-2.5',
+      'gpt-image-2.5-vip',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-flare',
     ],
