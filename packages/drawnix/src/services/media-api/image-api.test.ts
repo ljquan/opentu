@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseImageResponse } from './image-api';
-import { normalizeToClosestImageSize } from './utils';
+import { normalizeToClosestImageSize, sizeToAspectRatio } from './utils';
 
 describe('parseImageResponse', () => {
   it('normalizes raw base64 image payloads into data URLs', () => {
@@ -42,5 +42,11 @@ describe('normalizeToClosestImageSize', () => {
   it('still normalizes aspect-ratio input to supported size tokens', () => {
     expect(normalizeToClosestImageSize('16:9', '1x1')).toBe('16x9');
     expect(normalizeToClosestImageSize('1024', '1x1')).toBe('1x1');
+  });
+});
+
+describe('sizeToAspectRatio', () => {
+  it('保留业界约定的 21:9 比例名称', () => {
+    expect(sizeToAspectRatio('21x9')).toBe('21:9');
   });
 });

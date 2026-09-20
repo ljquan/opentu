@@ -58,7 +58,44 @@ describe('gpt-image-adapter', () => {
     }
   );
 
-  it('treats legacy 1K/2K/4K quality values as resolution compatibility hints', () => {
+  it.each([
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])('maps %s through the extended 4K size matrix', (modelId) => {
+    expect(
+      buildGPTImageGenerationBody({
+        model: modelId,
+        prompt: 'Draw a clean product photo',
+        size: '21x9',
+        params: { resolution: '4k', quality: 'max' },
+      })
+    ).toEqual({
+      model: modelId,
+      prompt: 'Draw a clean product photo',
+      size: '3840x1632',
+      quality: 'max',
+    });
+  });
+
+  it('forces official gpt-image-2.5-1k requests to the 1K matrix', () => {
+    expect(
+      buildGPTImageGenerationBody({
+        model: 'gpt-image-2.5-1k',
+        prompt: 'Draw a clean product photo',
+        size: '9x16',
+        params: { resolution: '4k', quality: 'max' },
+      })
+    ).toEqual({
+      model: 'gpt-image-2.5-1k',
+      prompt: 'Draw a clean product photo',
+      size: '768x1360',
+      quality: 'max',
+    });
+  });
+
+  it('does not treat quality as a resolution compatibility hint', () => {
     const body = buildGPTImageGenerationBody({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
@@ -71,8 +108,19 @@ describe('gpt-image-adapter', () => {
     expect(body).toEqual({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
-      size: '2368x1776',
+      size: '1184x880',
     });
+  });
+
+  it('maps concrete source dimensions to the selected GPT Image 2 tier', () => {
+    const body = buildGPTImageGenerationBody({
+      model: 'gpt-image-2',
+      prompt: 'Draw a clean product photo',
+      size: '1086x1448',
+      params: { resolution: '4k' },
+    });
+
+    expect(body).toMatchObject({ size: '2480x3312' });
   });
 
   it('normalizes invalid GPT Image pixel sizes back to a supported mapped size', () => {

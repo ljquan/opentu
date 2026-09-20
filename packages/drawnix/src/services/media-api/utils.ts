@@ -126,6 +126,7 @@ export function getExtensionFromUrl(url: string): string {
  */
 export function sizeToAspectRatio(size?: string): string | undefined {
   if (!size || !size.includes('x')) return undefined;
+  if (size.toLowerCase() === '21x9') return '21:9';
   const [wStr, hStr] = size.split('x');
   const w = Number(wStr);
   const h = Number(hStr);

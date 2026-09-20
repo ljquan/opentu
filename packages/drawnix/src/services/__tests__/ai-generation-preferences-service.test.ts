@@ -119,19 +119,19 @@ describe('ai-generation-preferences-service', () => {
 
   it.each([
     ['auto', 'auto', 'auto'],
-    ['1:1', '1024x1024', '1:1'],
-    ['2:3', '1024x1536', '2:3'],
-    ['3:2', '1536x1024', '3:2'],
-    ['3:4', '1024x1536', '2:3'],
-    ['4:3', '1536x1024', '3:2'],
-    ['4:5', '1024x1536', '2:3'],
-    ['5:4', '1536x1024', '3:2'],
-    ['9:16', '1024x1536', '2:3'],
-    ['16:9', '1536x1024', '3:2'],
+    ['1:1', '1x1', '1:1'],
+    ['2:3', '2x3', '2:3'],
+    ['3:2', '3x2', '3:2'],
+    ['3:4', '3x4', '3:4'],
+    ['4:3', '4x3', '4:3'],
+    ['4:5', '4x5', '4:5'],
+    ['5:4', '5x4', '5:4'],
+    ['9:16', '9x16', '9:16'],
+    ['16:9', '16x9', '16:9'],
     ['1:4', 'auto', 'auto'],
-    ['21:9', 'auto', 'auto'],
+    ['21:9', '21x9', '21:9'],
   ])(
-    'GPT Image 2.5 将图片工具比例 %s 映射为官方尺寸 %s',
+    'GPT Image 2.5 保留图片工具比例 %s 为尺寸 %s',
     async (aspectRatio, expectedSize, expectedAspectRatio) => {
       const {
         loadScopedAIImageToolPreferences,
@@ -154,6 +154,7 @@ describe('ai-generation-preferences-service', () => {
       ).toMatchObject({
         extraParams: {
           size: expectedSize,
+          resolution: '1k',
           quality: 'auto',
         },
         aspectRatio: expectedAspectRatio,
@@ -167,6 +168,20 @@ describe('ai-generation-preferences-service', () => {
       ).toMatchObject({ size: expectedSize });
     }
   );
+
+  it('切换到 gpt-image-2.5-1k 时将历史高分辨率回退为 1K', async () => {
+    const { sanitizeImageToolExtraParams } = await import(
+      '../ai-generation-preferences-service'
+    );
+
+    expect(
+      sanitizeImageToolExtraParams('gpt-image-2.5-1k', {
+        size: '21x9',
+        resolution: '4k',
+        quality: 'max',
+      })
+    ).toEqual({ size: '21x9', resolution: '1k', quality: 'max' });
+  });
 
   it('将 GPT Image 的旧 quality 档位偏好迁移到 resolution', async () => {
     localStorage.setItem(

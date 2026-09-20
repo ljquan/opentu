@@ -1,4 +1,5 @@
 import {
+  resolveImageResolutionTier,
   resolveOfficialGPTImageQuality,
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
@@ -74,6 +75,7 @@ export function buildTuziGPTImageRequestOptions(
   size?: string;
   image?: string[];
   response_format?: TuziResponseFormat;
+  resolution?: '1k' | '2k' | '4k';
   quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   count?: number;
   model: string;
@@ -92,6 +94,7 @@ export function buildTuziGPTImageRequestOptions(
         ? request.referenceImages
         : undefined,
     response_format: getResponseFormat(request),
+    resolution: resolveImageResolutionTier(request.params, model),
     quality: resolveOfficialGPTImageQuality(request.params, model),
     count: getRequestedCount(request),
     model,
@@ -114,6 +117,9 @@ export function buildTuziGPTImageRequestBody(
 
   if (options.size) {
     body.size = options.size;
+  }
+  if (options.resolution) {
+    body.resolution = options.resolution;
   }
   if (options.image && options.image.length > 0) {
     body.image = options.image;

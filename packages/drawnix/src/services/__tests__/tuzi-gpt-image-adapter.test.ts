@@ -73,39 +73,49 @@ describe('tuzi GPT image adapter', () => {
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
       size: '3840x2160',
+      resolution: '4k',
       image: ['data:image/png;base64,abc123'],
       quality: 'high',
       n: 2,
     });
   });
 
-  it.each(['gpt-image-2.5-1k', 'gpt-image-2.5', 'gpt-image-2.5-vip'])(
-    'builds %s requests with only supported sizes',
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-vip'])(
+    'builds %s requests with extended resolution and quality',
     (modelId) => {
       expect(
         buildTuziGPTImageRequestBody({
           model: modelId,
           prompt: 'Draw a clean product photo',
-          size: '1024x1536',
+          size: '16x9',
+          params: { resolution: '4k', quality: 'max' },
         })
       ).toEqual({
         model: modelId,
         prompt: 'Draw a clean product photo',
-        size: '1024x1536',
-      });
-
-      expect(
-        buildTuziGPTImageRequestBody({
-          model: modelId,
-          prompt: 'Draw a clean product photo',
-          size: '2048x2048',
-        })
-      ).toEqual({
-        model: modelId,
-        prompt: 'Draw a clean product photo',
+        size: '3840x2160',
+        resolution: '4k',
+        quality: 'max',
       });
     }
   );
+
+  it('forces gpt-image-2.5-1k requests to the 1K matrix', () => {
+    expect(
+      buildTuziGPTImageRequestBody({
+        model: 'gpt-image-2.5-1k',
+        prompt: 'Draw a clean product photo',
+        size: '21x9',
+        params: { resolution: '4k', quality: 'max' },
+      })
+    ).toEqual({
+      model: 'gpt-image-2.5-1k',
+      prompt: 'Draw a clean product photo',
+      size: '1568x672',
+      resolution: '1k',
+      quality: 'max',
+    });
+  });
 
   it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     'builds %s requests with extended resolution and quality',
@@ -121,6 +131,7 @@ describe('tuzi GPT image adapter', () => {
         model: modelId,
         prompt: 'Draw a clean product photo',
         size: '3840x2160',
+        resolution: '4k',
         quality: 'max',
       });
     }
@@ -137,7 +148,7 @@ describe('tuzi GPT image adapter', () => {
     ).not.toHaveProperty('quality');
   });
 
-  it('treats legacy 1K/2K/4K quality values as resolution compatibility hints', () => {
+  it('does not treat quality as a resolution compatibility hint', () => {
     expect(
       buildTuziGPTImageRequestBody({
         model: 'gpt-image-2',
@@ -150,7 +161,23 @@ describe('tuzi GPT image adapter', () => {
     ).toEqual({
       model: 'gpt-image-2',
       prompt: 'Draw a clean product photo',
-      size: '2368x1776',
+      size: '1184x880',
+    });
+  });
+
+  it('keeps auto size and independently sends the selected resolution', () => {
+    expect(
+      buildTuziGPTImageRequestBody({
+        model: 'gpt-image-2',
+        prompt: 'Draw a clean product photo',
+        size: 'auto',
+        params: { resolution: '4k' },
+      })
+    ).toEqual({
+      model: 'gpt-image-2',
+      prompt: 'Draw a clean product photo',
+      size: 'auto',
+      resolution: '4k',
     });
   });
 
@@ -391,6 +418,7 @@ describe('tuzi GPT image adapter', () => {
       model: 'gpt-image-2',
       prompt: 'Edit this image',
       size: '2736x1536',
+      resolution: '2k',
       image: ['data:image/png;base64,source'],
       response_format: 'b64_json',
       quality: 'medium',

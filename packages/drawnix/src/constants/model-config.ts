@@ -1951,28 +1951,32 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-5-0-pro-260628',
 ];
 
-/** 支持扩展比例和 1K / 2K / 4K 分辨率的 GPT Image 模型 ID */
+/** 支持扩展比例的 GPT Image 模型 ID，分辨率能力由独立参数配置约束 */
 export const GPT_IMAGE_2_MODEL_IDS = [
   'gpt-image-2-vip',
   'gpt-image-2',
   'gpt-image2-vip',
   'gpt-image2',
+  'gpt-image-2.5-1k',
+  'gpt-image-2.5',
+  'gpt-image-2.5-vip',
   'gpt-image-2.5-sunburst',
   'gpt-image-2.5-flare',
 ];
 
-/** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
+/** GPT Image 2.5 模型 ID */
 export const GPT_IMAGE_25_MODEL_IDS = [
   'gpt-image-2.5-1k',
   'gpt-image-2.5',
   'gpt-image-2.5-vip',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
 ];
 
 /** 所有 GPT 图片模型 ID */
-const GPT_IMAGE_MODEL_IDS = [
-  ...GPT_IMAGE_2_MODEL_IDS,
-  ...GPT_IMAGE_25_MODEL_IDS,
-];
+const GPT_IMAGE_MODEL_IDS = Array.from(
+  new Set([...GPT_IMAGE_2_MODEL_IDS, ...GPT_IMAGE_25_MODEL_IDS])
+);
 const MJ_IMAGE_MODEL_IDS = ['mj-imagine'];
 const GEMINI_31_FLASH_IMAGE_MODEL_IDS = ['gemini-3.1-flash-image-preview'];
 
@@ -2743,23 +2747,6 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: GPT_IMAGE_2_MODEL_IDS,
     modelType: 'image',
   },
-  // GPT Image 2.5 官方像素尺寸
-  {
-    id: 'size',
-    label: '图片尺寸',
-    shortLabel: '尺寸',
-    description: '生成图片的官方像素尺寸',
-    valueType: 'enum',
-    options: [
-      { value: 'auto', label: '自动' },
-      { value: '1024x1024', label: '1024x1024' },
-      { value: '1024x1536', label: '1024x1536' },
-      { value: '1536x1024', label: '1536x1024' },
-    ],
-    defaultValue: 'auto',
-    compatibleModels: GPT_IMAGE_25_MODEL_IDS,
-    modelType: 'image',
-  },
   // GPT Image 2 分辨率档位（由 adapter 结合宽高比映射为官方像素 size）
   {
     id: 'resolution',
@@ -2773,7 +2760,21 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: '4k', label: '4K' },
     ],
     defaultValue: '1k',
-    compatibleModels: GPT_IMAGE_2_MODEL_IDS,
+    compatibleModels: GPT_IMAGE_2_MODEL_IDS.filter(
+      (modelId) => modelId !== 'gpt-image-2.5-1k'
+    ),
+    modelType: 'image',
+  },
+  // gpt-image-2.5-1k 固定使用 1K，仍保留独立参数供切模与请求层校验
+  {
+    id: 'resolution',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    description: '固定使用 1K 输出档位',
+    valueType: 'enum',
+    options: [{ value: '1k', label: '1K' }],
+    defaultValue: '1k',
+    compatibleModels: ['gpt-image-2.5-1k'],
     modelType: 'image',
   },
   // GPT Image 官方画质参数
@@ -2791,13 +2792,11 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
-      (modelId) =>
-        modelId !== 'gpt-image-2.5-sunburst' &&
-        modelId !== 'gpt-image-2.5-flare'
+      (modelId) => !GPT_IMAGE_25_MODEL_IDS.includes(modelId)
     ),
     modelType: 'image',
   },
-  // GPT Image 2.5 Sunburst / Flare 额外支持 xhigh 与 max
+  // GPT Image 2.5 全系列额外支持 xhigh 与 max
   {
     id: 'quality',
     label: '画质',
@@ -2813,10 +2812,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: 'max', label: '最高' },
     ],
     defaultValue: 'auto',
-    compatibleModels: [
-      'gpt-image-2.5-sunburst',
-      'gpt-image-2.5-flare',
-    ],
+    compatibleModels: GPT_IMAGE_25_MODEL_IDS,
     modelType: 'image',
   },
   // Gemini 图片模型尺寸（支持完整尺寸）

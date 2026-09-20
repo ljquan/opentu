@@ -38,6 +38,9 @@ describe('model-config image size options', () => {
     ).toEqual(expected);
 
     for (const modelId of [
+      'gpt-image-2.5-1k',
+      'gpt-image-2.5',
+      'gpt-image-2.5-vip',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-flare',
     ]) {
@@ -85,7 +88,12 @@ describe('model-config image size options', () => {
     ]);
   });
 
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+  it.each([
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])(
     '为 %s 暴露 1K / 2K / 4K 与完整官方画质',
     (modelId) => {
       const params = getCompatibleParams(modelId);
@@ -103,28 +111,20 @@ describe('model-config image size options', () => {
     }
   );
 
-  it.each(['gpt-image-2.5-1k', 'gpt-image-2.5', 'gpt-image-2.5-vip'])(
-    '将 %s 注册为仅支持官方像素尺寸的 GPT 图片模型',
-    (modelId) => {
-      const model = getStaticModelConfig(modelId);
-      const params = getCompatibleParams(modelId);
+  it('为 gpt-image-2.5-1k 暴露完整比例、固定 1K 和完整画质', () => {
+    const params = getCompatibleParams('gpt-image-2.5-1k');
 
-      expect(model).toMatchObject({
-        id: modelId,
-        type: 'image',
-        vendor: ModelVendor.GPT,
-      });
-      expect(
-        getSizeOptionsForModel(modelId).map((option) => option.value)
-      ).toEqual(['auto', '1024x1024', '1024x1536', '1536x1024']);
-      expect(params.some((param) => param.id === 'resolution')).toBe(false);
-      expect(
-        params
-          .find((param) => param.id === 'quality')
-          ?.options?.map((option) => option.value)
-      ).toEqual(['auto', 'low', 'medium', 'high']);
-    }
-  );
+    expect(
+      params
+        .find((param) => param.id === 'resolution')
+        ?.options?.map((option) => option.value)
+    ).toEqual(['1k']);
+    expect(
+      params
+        .find((param) => param.id === 'quality')
+        ?.options?.map((option) => option.value)
+    ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
+  });
 
   it('在静态图片模型目录中公开全部 GPT Image 2.5 模型', () => {
     const imageModelIds = getStaticModelsByType('image').map(
