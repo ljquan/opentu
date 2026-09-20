@@ -66,6 +66,14 @@
 
 ## 自动化验证
 
+### 2026-09-20 自动比例 K 档 PR 发布验证（最新）
+
+- 功能提交 `2ffebc51`，分支 `fix/gpt-image-25-resolution-tiers`，PR #266 目标 develop。显式 fetch 后分别 merge 远端功能分支与 `origin/develop`（81dfaf1a），均 Already up to date，无冲突，无强推。
+- packages/drawnix 下使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run` 指定 model-config、image-size-quality-resolver、tuzi-gpt-image-adapter、gpt-image-adapter、ai-generation-preferences-service、image-inspection-pure、default-image-adapter、media-api/image-api、minimax-h3-regeneration-service、minimax-h3-video-workflow，附加 `--silent`：10 文件、213/213 通过。
+- 根目录 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`、`pnpm exec vite build --config apps/web/vite.config.ts`、`git diff origin/develop...HEAD --check` 通过；构建 49.80 秒，保留 Sass、Browserslist、混合导入、大 chunk 警告。
+- 此前经授权仅一次 Image 2.5 手工请求以 size=auto 和 imageSize=2K 返回 HTTP 200，PNG 实际 1207x1303；该结果不证明档位控制输出分辨率，也未核实账单。本轮发布未再次生图，其他型号渠道未实测。未执行页面测试、全仓测试或全仓 lint。
+- DOC 已同步，固定 1K 型号未纳入扩展；Tuzi 请求保留所选 K 档，官方适配器不加入 Tuzi 字段。无需新增配置、依赖或迁移，正常前端部署。回滚本次功能提交可恢复原行为。本轮只更新 PR，不合并、不部署；下方未提交记录为历史阶段状态。
+
 ### 2026-09-20 Image 2 与 2.5 自动比例保留 K 档（最新本地增量）
 
 - 最终五文件定向测试 145/145 通过，Drawnix TypeScript 与 `git diff --check` 通过。
