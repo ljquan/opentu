@@ -18,8 +18,8 @@
 | 编号 | 操作 | 预期结果 |
 | --- | --- | --- |
 | 1 | 打开图片模型选择器 | 可看到旧三型号及 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` |
-| 2 | 查看 Sunburst 和 Flare 参数 | 提供扩展比例、业务 1K/2K/4K 以及 `auto` 至 `xhigh` 五个画质档位 |
-| 3 | 查看普通 `gpt-image-2.5` 和 VIP 参数 | 两者均提供扩展比例、业务 1K/2K/4K；普通型号五档画质，VIP 保留四档；1k 型号保持固定尺寸 |
+| 2 | 查看 Sunburst 和 Flare 参数 | 提供扩展比例、自动/1K/2K/4K 以及 `auto` 至 `xhigh` 五个画质档位 |
+| 3 | 查看普通 `gpt-image-2.5` 和 VIP 参数 | 两者均提供扩展比例、自动/1K/2K/4K 和五档画质；1k 型号保持固定尺寸 |
 | 4 | 从 Tuzi 运行时模型列表同步 | 即使上游 `category` 为文本，五个型号仍显示为图片模型 |
 
 ## 尺寸与请求验收
@@ -29,20 +29,20 @@
 | 1 | 1k 型号选择 `1:1`、`2:3`、`3:2` | 分别为 `1024x1024`、`1024x1536`、`1536x1024` |
 | 2 | 1k 型号选择其他纵向或横向比例 | 映射到最接近的固定尺寸，不发送非法像素值 |
 | 3 | Sunburst/Flare 选择 1K + `16:9` | `size: 1360x768` |
-| 4 | Sunburst/Flare 选择业务 2K + `1:1` | `size: 1024x1024` |
-| 5 | Sunburst/Flare 选择业务 4K + `16:9` | `size: 2736x1536` |
+| 4 | Image 2/2.5 选择 2K + `1:1` | `size: 1920x1920` |
+| 5 | Sunburst/Flare 选择 4K + `16:9` | `size: 3840x2160` |
 | 6 | Sunburst/Flare 选择超高清 | 请求透传 `quality: xhigh`；菜单不提供 `max` |
 | 7 | Sunburst/Flare 使用参考图编辑 | 保留所选模型、尺寸和画质，走图片编辑能力 |
 | 8 | 在本机和局域网地址分别生成 | 两端复用同一 Provider 配置与价格，不依赖额外 Key 或数据库同步 |
 
 ## 直连与 Request ID 验收
 
-2026-09-20 业务档位调整验证：在 `packages/drawnix` 执行
+历史业务档位调整验证（已被本次 2K 修正替代）：在 `packages/drawnix` 执行
 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run src/constants/__tests__/model-config.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts`，73/73 通过。
 覆盖菜单档位、旧最高分辨率偏好回退、尺寸与画质请求适配；`git diff --check` 通过。
 恢复独立自动选项后，在上述命令中追加 `src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts --silent`，96/96 通过；覆盖业务 1K 的独立保存和旧自动请求语义。
 测试环境存在 IndexedDB 缺失日志，未验证真实持久化、页面交互、上游出图或账单。
-菜单保留独立自动选项，业务 1K/2K/4K 分别对应内部 `billing-1k/1k/2k`；业务 1K 保留原自动档请求方式。明确比例下前两档可能发送相同尺寸，输出尺寸和实际费用由服务端决定。
+当时菜单保留独立自动选项，业务 1K/2K/4K 分别对应内部 `billing-1k/1k/2k`；该映射已废弃。当前菜单与内部档位同名，2K 使用计费安全尺寸表，实际费用由服务端决定。
 下文历史验证记录中的 K 档位与最高画质指当时的内部请求值，不代表当前菜单。
 
 在本机、局域网及 `opentu.ai`、`pr.opentu.ai`、Vercel 或 Netlify 部署中，分别选择普通可信 Tuzi 节点和 Request-ID-CORS 兼容节点生成图片，同时开启浏览器 Network 的“保留日志”。
@@ -66,7 +66,17 @@
 
 ## 自动化验证
 
-2026-09-20 PR #266 隔离冲突处理（最新验收记录）：
+### 2026-09-20 Image 2/2.5 修正后的 PR 最终验证
+
+- 本记录优先于下方历史结果。合入远程功能分支 `cb5aef01` 和最新 `origin/develop` `81dfaf1a`，合并提交为 `f816dbbf`、`fb7fefc8`；均自动合并，无未解决冲突，不强推、不改写历史。保留上游 MiniMax 功能。
+- Image 2.5 恢复自动/1K/2K/4K 同名档位，VIP 支持 xhigh；Image 2/2.5 的 2K 比例映射限制到计费区间。固定 1K 模型不加入新覆盖逻辑，未更改服务端计费表达式。
+- 两项路由测试的无宽高占位 URL 触发图片尺寸探测等待，现补齐模拟响应的宽高，不修改生产逻辑。此前记录的两项超时已消除。
+- 在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run`，指定 model-config、image-size-quality-resolver、tuzi-gpt-image-adapter、gpt-image-adapter、ai-generation-preferences-service、image-inspection-pure、default-image-adapter、media-api/image-api、minimax-h3-regeneration-service、minimax-h3-video-workflow 十个测试文件并附加 `--silent`：204/204 通过。
+- 根目录 `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`、`pnpm exec vite build --config apps/web/vite.config.ts`、`git diff origin/develop...HEAD --check` 通过。构建耗时约 77 秒；最初未指定配置的构建命令未找到入口，改用项目配置后通过。
+- 构建有 Sass 弃用、Browserslist 过期、混合导入和大 chunk 警告。未执行全仓测试、lint、页面交互或真实计费生图；下方记录的上游模型发现问题本次未重测。不宣称 CI 全绿。
+- QA/DOC 已更新；无新配置、依赖、权限或迁移，按正常前端发布流程部署。共享解析器同时影响官方和 Tuzi 适配器，其他渠道计费未实测。回滚可 revert 本次修正提交，不需数据库操作。本轮授权更新 PR，不合并、不部署。
+
+2026-09-20 PR #266 隔离冲突处理（历史验收记录）：
 
 - 基于远程 PR `5b600182`，合并 `origin/develop` 的 `84b5e01f`；不纳入原目录的两条本地回退提交及五个未提交文件。
 - 按用户确认，图片参数以远程 PR #266 为准：保留业务 1K/2K/4K 到 `billing-1k/1k/2k` 的映射、默认业务 1K、原画质选项和尺寸转换；不采用 `84b5e01f` 的独立 resolution 传参、全系列六档画质及固定 1k 型号扩展。保留 develop 的 MiniMax 与其他无关更新及对应测试。

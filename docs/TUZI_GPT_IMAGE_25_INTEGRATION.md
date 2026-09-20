@@ -20,7 +20,7 @@ OpenTu 内置以下三个 Tuzi 图片模型：
 | 模型组 | 模型 | 尺寸 | 画质 |
 | --- | --- | --- | --- |
 | Tuzi 固定尺寸型号 | `gpt-image-2.5-1k` | 三种固定像素尺寸 | `auto`、`low`、`medium`、`high` |
-| Tuzi VIP 型号 | `gpt-image-2.5-vip` | 扩展比例及 1K/2K/4K | `auto`、`low`、`medium`、`high` |
+| Tuzi VIP 型号 | `gpt-image-2.5-vip` | 扩展比例及 1K/2K/4K | `auto`、`low`、`medium`、`high`、`xhigh` |
 | Tuzi 映射型号 | `gpt-image-2.5` | 扩展比例及 1K/2K/4K | `auto`、`low`、`medium`、`high`、`xhigh` |
 | OpenAI 官方型号 | `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` | 扩展比例及 1K/2K/4K | `auto`、`low`、`medium`、`high`、`xhigh` |
 
@@ -44,7 +44,7 @@ Sunburst 面向最高生成与编辑精度，Flare 面向高质量、低延迟�
 
 ### Sunburst、Flare 与 gpt-image-2.5
 
-`gpt-image-2.5-vip` 同样使用下述比例和分辨率映射，但保留原有四档画质。请求保留 VIP 模型名。
+`gpt-image-2.5-vip` 同样使用下述比例和分辨率映射，并支持至 `xhigh` 的五档画质。请求保留 VIP 模型名。
 
 根据后端映射约定，`gpt-image-2.5` 使用 Sunburst/Flare 的参数能力。请求仍发送 `model: gpt-image-2.5`，具体上游型号由后端选择。`resolution` 在客户端结合比例转换为 `size`，不作为独立字段发送。
 
