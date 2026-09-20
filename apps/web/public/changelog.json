@@ -1,6 +1,21 @@
 {
   "versions": [
     {
+      "version": "1.1.13",
+      "date": "2026-09-20",
+      "changes": {
+        "features": [
+          "complete MiniMax-H3 V2 workflow"
+        ],
+        "fixes": [],
+        "improvements": [
+          "功能：补齐 GPT Image 2.5 尺寸与分辨率参数"
+        ]
+      },
+      "type": "patch",
+      "highlights": "complete MiniMax-H3 V2 workflow"
+    },
+    {
       "version": "1.1.12",
       "date": "2026-09-15",
       "changes": {
@@ -964,32 +979,6 @@
       },
       "type": "patch",
       "highlights": "防止复制粘贴事件在可编辑元素中触发"
-    },
-    {
-      "version": "0.6.92",
-      "date": "2026-04-30",
-      "changes": {
-        "features": [
-          "在历史记录中显示创建时间并调整排序",
-          "新增 HappyHorse 视频模型支持并重构工作流外壳",
-          "完善多图生成视觉提示词工作流",
-          "优化多图生成提示词预览"
-        ],
-        "fixes": [
-          "修正任务队列批量序号显示",
-          "修复多图生成队列参数并记录经验",
-          "优化媒体预览缩放同步",
-          "优化媒体预览自适应展示",
-          "修复 Milkdown 节点上下文注册顺序"
-        ],
-        "improvements": [
-          "同步 0.6.91 Web 版本元数据",
-          "Refresh docs, CI, and Docker build",
-          "perf(changelog): 限制解析的版本数量以避免内存问题"
-        ]
-      },
-      "type": "patch",
-      "highlights": "在历史记录中显示创建时间并调整排序"
     }
   ]
 }

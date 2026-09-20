@@ -1,10 +1,9 @@
 {
-  "version": "1.1.12",
-  "buildTime": "2026-09-15T14:55:54.492Z",
+  "version": "1.1.13",
+  "buildTime": "2026-09-20T07:38:26.857Z",
   "gitCommit": "unknown",
   "changelog": [
-    "功能：支持 MiniMax-H3 V1/V2 专用视频接口 (#262)",
-    "功能：完善图片 Request ID 幂等恢复与安全切换 (#261)",
-    "完善 Tuzi 账户工作区与日志图片预览 (#260)"
+    "完善 MiniMax-H3 V2 视频生成工作流",
+    "功能：补齐 GPT Image 2.5 尺寸与分辨率参数"
   ]
 }
