@@ -98,6 +98,10 @@ import { WinBoxWindow } from '../winbox';
 import { TtsSettingsPanel } from '../project-drawer/TtsSettingsPanel';
 import { TuziAccountPanel } from './TuziAccountPanel';
 import { isTuziEmbeddedMode } from '../../services/tuzi-embedded-config';
+import {
+  requestTuziParentContext,
+  TUZI_BRIDGE_EVENT,
+} from '../../services/tuzi-postmessage-bridge';
 import { syncTuziSessionProviders } from '../../services/tuzi-session-provider-sync';
 import { hasTuziSystemToken } from '../../services/tuzi-token-auth';
 import { openModelBenchmarkTool } from '../../services/model-benchmark-launcher';
@@ -1136,7 +1140,17 @@ export const SettingsDialog = ({
   } = useDeviceType();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [dialogWidth, setDialogWidth] = useState(0);
-  const tuziMode = isTuziEmbeddedMode();
+  const [tuziMode, setTuziMode] = useState(() => isTuziEmbeddedMode());
+  useEffect(() => {
+    const syncBridgeMode = () => setTuziMode(isTuziEmbeddedMode());
+    window.addEventListener(TUZI_BRIDGE_EVENT, syncBridgeMode);
+
+    if (appState.openSettings) {
+      void requestTuziParentContext({ refresh: true }).finally(syncBridgeMode);
+    }
+
+    return () => window.removeEventListener(TUZI_BRIDGE_EVENT, syncBridgeMode);
+  }, [appState.openSettings]);
   const settingsSections = tuziMode
     ? [TUZI_ACCOUNT_SECTION, ...VIEW_SECTIONS]
     : VIEW_SECTIONS;
