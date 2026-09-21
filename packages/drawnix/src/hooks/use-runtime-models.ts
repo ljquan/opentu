@@ -55,27 +55,27 @@ function useRuntimeModelDiscoveryRevision(): number {
 }
 
 export function usePreferredModels(modelType: ModelType): ModelConfig[] {
-  const state = useRuntimeModelDiscoveryState();
+  const revision = useRuntimeModelDiscoveryRevision();
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
-    void state;
+    void revision;
     const next = getPreferredModels(modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
     return next;
-  }, [modelType, state]);
+  }, [modelType, revision]);
 }
 
 export function useSelectableModels(modelType: ModelType): ModelConfig[] {
-  const state = useRuntimeModelDiscoveryState();
+  const revision = useRuntimeModelDiscoveryRevision();
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
-    void state;
+    void revision;
     const next = getSelectableModels(modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
     return next;
-  }, [modelType, state]);
+  }, [modelType, revision]);
 }
 
 export function useConfiguredSelectableModels(
@@ -92,13 +92,13 @@ export function useProfilePreferredModels(
   profileId: string,
   modelType: ModelType
 ): ModelConfig[] {
-  const state = useRuntimeModelDiscoveryState(profileId);
+  const revision = useRuntimeModelDiscoveryRevision();
   const prevRef = useRef<ModelConfig[]>([]);
   return useMemo(() => {
-    void state;
+    void revision;
     const next = getProfilePreferredModels(profileId, modelType);
     if (areModelListsEqual(prevRef.current, next)) return prevRef.current;
     prevRef.current = next;
     return next;
-  }, [profileId, modelType, state]);
+  }, [profileId, modelType, revision]);
 }

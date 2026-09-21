@@ -113,6 +113,10 @@ import {
   normalizeEndpointUrl,
   resolveEndpointSelectionUrl,
 } from './provider-endpoint-utils';
+import {
+  getCredentialChangedProfiles,
+  refreshChangedProviderModels,
+} from './provider-model-refresh';
 import { MessagePlugin } from '../../utils/message-plugin';
 import {
   isTrustedTuziApiBaseUrl,
@@ -2250,7 +2254,7 @@ export const SettingsDialog = ({
     }
 
     if (hasPendingChanges) {
-      const saved = await persistDrafts(false);
+      const saved = await persistDrafts(false, false);
       if (!saved) {
         return;
       }
@@ -2677,7 +2681,10 @@ export const SettingsDialog = ({
     setAppState((prev) => ({ ...prev, openSettings: false }));
   };
 
-  const persistDrafts = async (closeAfterSave = false): Promise<boolean> => {
+  const persistDrafts = async (
+    closeAfterSave = false,
+    refreshModels = true
+  ): Promise<boolean> => {
     if (isPersisting) {
       return false;
     }
@@ -2778,6 +2785,14 @@ export const SettingsDialog = ({
       const normalizedActiveTextModel =
         getRouteModelId(activePreset?.text) || normalizedTextModel;
 
+      const changedProfiles = getCredentialChangedProfiles(
+        normalizedProfiles,
+        initialProfiles
+      );
+      // Invalidate even legacy catalogs without a credential signature.
+      changedProfiles.forEach((profile) =>
+        runtimeModelDiscovery.clear(profile.id)
+      );
       normalizedProfiles.forEach((profile) => {
         runtimeModelDiscovery.invalidateIfConfigChanged(
           profile.id,
@@ -2834,6 +2849,15 @@ export const SettingsDialog = ({
           showWorkZoneCard,
         })
       );
+
+      if (refreshModels) {
+        const failures = await refreshChangedProviderModels(changedProfiles);
+        if (failures.length > 0) {
+          MessagePlugin.warning(
+            `配置已保存，以下供应商模型刷新失败：${failures.join('、')}`
+          );
+        }
+      }
 
       if (closeAfterSave) {
         closeSettingsDialog();
@@ -3140,7 +3164,10 @@ export const SettingsDialog = ({
     const selectedCounts = getModelTypeCounts(runtimeState.models);
     const draftState = getProviderDraftState(selectedProfile, initialProfiles);
     const totalModels =
-      selectedCounts.image + selectedCounts.video + selectedCounts.text;
+      selectedCounts.image +
+      selectedCounts.video +
+      selectedCounts.text +
+      selectedCounts.audio;
     const selectedProfileHomepageUrl = getProviderHomepageUrl(selectedProfile);
 
     return (
@@ -3202,7 +3229,13 @@ export const SettingsDialog = ({
                     {PROVIDER_TYPE_META[selectedProfile.providerType].label}
                   </span>
                   <span>{selectedProfile.enabled ? '启用' : '停用'}</span>
-                  <span>{totalModels} 个模型</span>
+                  <span>
+                    {runtimeState.status === 'loading'
+                      ? '模型刷新中...'
+                      : runtimeState.status === 'error'
+                      ? '模型刷新失败'
+                      : `${totalModels} 个模型`}
+                  </span>
                   <span>{draftState === 'saved' ? '已保存' : '未保存'}</span>
                 </div>
               </div>

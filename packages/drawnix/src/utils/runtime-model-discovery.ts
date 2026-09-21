@@ -1281,10 +1281,27 @@ function getProfileById(profileId: string): ProviderProfile | null {
 
 function isProfileEnabled(profileId: string): boolean {
   if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
-    return !isTuziEmbeddedMode() || hasTuziSystemToken();
+    const profile = getProfileById(profileId);
+    // An explicitly configured API key does not require a Tuzi login token.
+    return profile?.enabled !== false && (
+      !isTuziEmbeddedMode() ||
+      hasTuziSystemToken() ||
+      Boolean(profile?.apiKey?.trim() && profile?.baseUrl?.trim())
+    );
   }
 
   return getProfileById(profileId)?.enabled !== false;
+}
+
+function canDiscoverProfileModels(profile: ProviderProfile | null): boolean {
+  return Boolean(
+    profile &&
+      isProfileEnabled(profile.id) &&
+      profile.enabled !== false &&
+      profile.capabilities?.supportsModelsEndpoint !== false &&
+      profile.baseUrl?.trim() &&
+      profile.apiKey?.trim()
+  );
 }
 
 function attachRuntimeSource(
@@ -1659,10 +1676,17 @@ class RuntimeModelDiscoveryStore {
   }
 
   getSelectableModels(type: ModelType): ModelConfig[] {
-    return sortModelsByDisplayPriority([
-      ...this.getConfiguredSelectableModels(type),
-      ...decorateStaticModels(getStaticModelsByType(type)),
-    ]);
+    if (
+      providerProfilesSettings
+        .get()
+        .some((profile) => canDiscoverProfileModels(profile))
+    ) {
+      return this.getConfiguredSelectableModels(type);
+    }
+
+    return sortModelsByDisplayPriority(
+      decorateStaticModels(getStaticModelsByType(type))
+    );
   }
 
   getConfiguredSelectableModels(type: ModelType): ModelConfig[] {
@@ -1771,6 +1795,9 @@ class RuntimeModelDiscoveryStore {
           isDefaultModelHidden(model.id)
         )
     );
+    if (canDiscoverProfileModels(getProfileById(profileId))) {
+      return sortModelsByDisplayPriority(runtimeModels);
+    }
     return mergeModels(getStaticModelsByType(type), runtimeModels);
   }
 

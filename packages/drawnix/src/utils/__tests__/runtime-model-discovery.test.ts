@@ -66,12 +66,24 @@ describe('runtime-model-discovery', () => {
     ).toBeNull();
   });
 
-  it('已配置候选只包含启用供应商实际勾选的模型', async () => {
+  it.each(['provider-video', 'legacy-default'])(
+    '%s 已配置候选在无系统令牌时只包含实际勾选的模型', async (profileId) => {
+    vi.doMock('../../services/tuzi-embedded-config', () => ({
+      isTuziEmbeddedMode: () => true,
+    }));
+    vi.doMock('../../services/tuzi-token-auth', () => ({
+      hasTuziSystemToken: () => false,
+    }));
     const profiles = [
       {
-        id: 'provider-video',
+        id: profileId,
         name: '视频供应商',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'test-key',
         enabled: true,
+        capabilities: {
+          supportsModelsEndpoint: true,
+        },
       },
       {
         id: 'provider-disabled',
@@ -85,7 +97,7 @@ describe('runtime-model-discovery', () => {
       providerCatalogsSettings: {
         get: () => [
           {
-            profileId: 'provider-video',
+            profileId,
             discoveredAt: Date.now(),
             discoveredModels: [
               {
@@ -144,18 +156,25 @@ describe('runtime-model-discovery', () => {
 
     const {
       getConfiguredSelectableModels,
+      getProfilePreferredModels,
       getSelectableModels,
       runtimeModelDiscovery,
     } = await import('../runtime-model-discovery');
 
-    expect(getSelectableModels('video').map((model) => model.id)).toContain(
-      'doubao-seedance-2-0-260128'
-    );
+    expect(getSelectableModels('video').map((model) => model.id)).toEqual([
+      'doubao-seedance-1-5-pro_1080p',
+    ]);
+    expect(
+      getProfilePreferredModels(profileId, 'video').map(
+        (model) => model.id
+      )
+    ).toEqual(['doubao-seedance-1-5-pro_1080p']);
+    expect(getSelectableModels('audio')).toEqual([]);
     expect(
       getConfiguredSelectableModels('video').map((model) => model.id)
     ).toEqual(['doubao-seedance-1-5-pro_1080p']);
 
-    runtimeModelDiscovery.applySelection('provider-video', [
+    runtimeModelDiscovery.applySelection(profileId, [
       'doubao-seedance-2-0-260128',
     ]);
 
@@ -164,12 +183,18 @@ describe('runtime-model-discovery', () => {
         model.sourceProfileId,
         model.id,
       ])
-    ).toEqual([['provider-video', 'doubao-seedance-2-0-260128']]);
+    ).toEqual([[profileId, 'doubao-seedance-2-0-260128']]);
+    expect(getSelectableModels('video').map((model) => model.id)).toEqual([
+      'doubao-seedance-2-0-260128',
+    ]);
 
     profiles[0].enabled = false;
     handleProfileSettingsChange?.();
 
     expect(getConfiguredSelectableModels('video')).toEqual([]);
+    expect(getSelectableModels('video').map((model) => model.id)).toContain(
+      'veo3-fast-frames'
+    );
     expect(runtimeModelDiscovery.getRevision()).toBeGreaterThan(0);
   });
 
