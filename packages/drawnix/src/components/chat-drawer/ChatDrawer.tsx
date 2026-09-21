@@ -24,12 +24,14 @@ import { chatStorageService } from '../../services/chat-storage-service';
 import { useChatHandler } from '../../hooks/useChatHandler';
 import {
   createModelRef,
-  geminiSettings,
+  providerProfilesSettings,
   resolveInvocationRoute,
+  settingsManager,
   type ModelRef,
 } from '../../utils/settings-manager';
 import { useDrawnix } from '../../hooks/use-drawnix';
 import { useChatDrawer } from '../../contexts/ChatDrawerContext';
+import type { DrawerGenerationSubmitParams } from '../../contexts/ChatDrawerContext';
 import type {
   ChatDrawerProps,
   ChatDrawerRef,
@@ -53,6 +55,8 @@ import {
 } from './workflow-media-results';
 
 import { analytics } from '../../utils/umami-analytics';
+import { prepareTuziManagedRoute } from '../../services/tuzi-managed-route-gate';
+import { resolveDrawerGenerationRoute } from './drawer-generation-route';
 import { HoverTip } from '../shared';
 import './chat-drawer.scss';
 
@@ -274,6 +278,9 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     const {
       executeRetry,
       selectedContent,
+      submitGenerationFromDrawer,
+      generationSubmitterReady,
+      registerGenerationCredentialGate,
       setIsDrawerOpen: setContextIsOpen,
       setDrawerWidth: setContextDrawerWidth,
     } = useChatDrawer();
@@ -589,8 +596,8 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     useEffect(() => {
       // When settings dialog closes, check if we have a pending message and API key
       if (!appState.openSettings && pendingMessageRef.current) {
-        const settings = geminiSettings.get();
-        if (settings?.apiKey) {
+        const route = resolveInvocationRoute('text');
+        if (route.apiKey) {
           const msg = pendingMessageRef.current;
           pendingMessageRef.current = null;
           // If there's no active session, create one first
@@ -939,6 +946,94 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // Store pending message for retry after session creation or API key config
     const pendingMessageRef = React.useRef<Message | null>(null);
+    const pendingGenerationRef =
+      React.useRef<DrawerGenerationSubmitParams | null>(null);
+    const isResumingGenerationRef = React.useRef(false);
+    const isPreparingGenerationCredentialsRef = React.useRef(false);
+    const [providerProfilesRevision, setProviderProfilesRevision] = useState(0);
+
+    useEffect(() => {
+      const handleProviderProfilesChange = () => {
+        setProviderProfilesRevision((current) => current + 1);
+      };
+      providerProfilesSettings.addListener(handleProviderProfilesChange);
+      return () =>
+        providerProfilesSettings.removeListener(handleProviderProfilesChange);
+    }, []);
+
+    const handleGenerationSubmit = useCallback(
+      async (params: DrawerGenerationSubmitParams): Promise<boolean> => {
+        await settingsManager.waitForInitialization();
+        const route = resolveDrawerGenerationRoute(params);
+        const preparation = await prepareTuziManagedRoute(route);
+        if (!route.apiKey || preparation.managedRoute) {
+          pendingGenerationRef.current = params;
+          isPreparingGenerationCredentialsRef.current = true;
+          const preparedRoute = resolveDrawerGenerationRoute(params);
+          if (
+            preparedRoute.apiKey &&
+            (!preparation.managedRoute ||
+              preparation.context?.status === 'ready')
+          ) {
+            window.setTimeout(() => {
+              isPreparingGenerationCredentialsRef.current = false;
+              setProviderProfilesRevision((current) => current + 1);
+            }, 0);
+            return true;
+          }
+          isPreparingGenerationCredentialsRef.current = false;
+          setAppState((current) => ({ ...current, openSettings: true }));
+          return true;
+        }
+
+        pendingGenerationRef.current = null;
+        return submitGenerationFromDrawer(params);
+      },
+      [setAppState, submitGenerationFromDrawer]
+    );
+
+    useEffect(() => {
+      registerGenerationCredentialGate(handleGenerationSubmit);
+      return () => registerGenerationCredentialGate(null);
+    }, [handleGenerationSubmit, registerGenerationCredentialGate]);
+
+    useEffect(() => {
+      const pending = pendingGenerationRef.current;
+      if (
+        appState.openSettings ||
+        !pending ||
+        !generationSubmitterReady ||
+        isPreparingGenerationCredentialsRef.current ||
+        isResumingGenerationRef.current ||
+        !resolveDrawerGenerationRoute(pending).apiKey
+      ) {
+        return;
+      }
+
+      pendingGenerationRef.current = null;
+      isResumingGenerationRef.current = true;
+      void submitGenerationFromDrawer(pending)
+        .then((submitted) => {
+          if (!submitted) {
+            pendingGenerationRef.current = pending;
+          }
+        })
+        .catch((error) => {
+          pendingGenerationRef.current = pending;
+          console.error(
+            '[ChatDrawer] pending generation resume failed:',
+            error
+          );
+        })
+        .finally(() => {
+          isResumingGenerationRef.current = false;
+        });
+    }, [
+      appState.openSettings,
+      generationSubmitterReady,
+      providerProfilesRevision,
+      submitGenerationFromDrawer,
+    ]);
 
     // Handle send with auto-create session
     const handleSendWrapper = useCallback(
@@ -962,12 +1057,17 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
               ),
           });
           // Check if API key is configured
-          const settings = geminiSettings.get();
-          if (!settings?.apiKey) {
+          const route = resolveInvocationRoute('text');
+          const preparation = await prepareTuziManagedRoute(route);
+          const preparedRoute = resolveInvocationRoute('text');
+          if (
+            !preparedRoute.apiKey ||
+            (preparation.managedRoute &&
+              preparation.context?.status !== 'ready')
+          ) {
             // Store message for sending after API key is configured
             pendingMessageRef.current = msg;
-            // Open settings dialog to configure API key
-            setAppState({ ...appState, openSettings: true });
+            setAppState((current) => ({ ...current, openSettings: true }));
             return;
           }
 
@@ -989,13 +1089,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           pendingMessageRef.current = msg;
         }
       },
-      [
-        activeSessionId,
-        chatHandler,
-        appState,
-        setAppState,
-        updateActiveSessionId,
-      ]
+      [activeSessionId, chatHandler, setAppState, updateActiveSessionId]
     );
 
     // 发送工作流消息
@@ -1968,6 +2062,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
                 onGenerationStateChange={handleGenerationStateChange}
                 onDraftChange={handleDraftChange}
                 onSend={handleSubmitDrawerGeneration}
+                onGenerationSubmit={handleGenerationSubmit}
                 placeholder="继续描述要修改的内容..."
               />
             </div>

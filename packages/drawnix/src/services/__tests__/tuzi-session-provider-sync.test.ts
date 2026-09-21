@@ -10,12 +10,14 @@ const {
   discoverChangedTuziProviderModels,
   getProfiles,
   getSystemUserId,
+  getProviderGroupSelection,
 } = vi.hoisted(() => ({
   ensureManagedProviders: vi.fn(),
   synchronizeTuziManagedProviders: vi.fn(),
   discoverChangedTuziProviderModels: vi.fn(),
   getProfiles: vi.fn(),
   getSystemUserId: vi.fn(),
+  getProviderGroupSelection: vi.fn(),
 }));
 
 vi.mock('../tuzi-embedded-config', () => ({
@@ -24,6 +26,9 @@ vi.mock('../tuzi-embedded-config', () => ({
 vi.mock('../tuzi-token-auth', () => ({
   hasTuziSystemToken: () => true,
   getTuziSystemUserId: getSystemUserId,
+}));
+vi.mock('../tuzi-provider-selection', () => ({
+  getTuziProviderGroupSelection: getProviderGroupSelection,
 }));
 vi.mock('../tuzi-session-api', () => ({
   TuziSessionApiError: class TuziSessionApiError extends Error {
@@ -48,12 +53,13 @@ describe('syncTuziSessionProviders', () => {
     vi.clearAllMocks();
     resetTuziSessionProviderSyncCache();
     getSystemUserId.mockReturnValue('1');
+    getProviderGroupSelection.mockReturnValue(['default']);
     getProfiles.mockReturnValue([]);
     synchronizeTuziManagedProviders.mockResolvedValue(undefined);
     discoverChangedTuziProviderModels.mockResolvedValue(undefined);
   });
 
-  it('keeps legacy managed group selection when no saved choice exists', async () => {
+  it("does not reuse another account's managed groups when no choice exists", async () => {
     const providers = [
       { id: 'tuzi-managed-default', group: 'default', apiKey: 'sk-default' },
       { id: 'tuzi-managed-vip', group: 'vip', apiKey: 'sk-vip' },
@@ -65,18 +71,11 @@ describe('syncTuziSessionProviders', () => {
         pricingGroup: provider.group,
       }))
     );
-    ensureManagedProviders.mockResolvedValue(providers);
-
+    getProviderGroupSelection.mockReturnValue(null);
     await expect(syncTuziSessionProviders()).resolves.toBe(true);
-    expect(ensureManagedProviders).toHaveBeenCalledWith(['default', 'vip']);
-    expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith(providers);
-    expect(discoverChangedTuziProviderModels).toHaveBeenCalledWith(
-      providers,
-      new Map([
-        ['tuzi-managed-default', 'sk-default'],
-        ['tuzi-managed-vip', 'sk-vip'],
-      ])
-    );
+    expect(ensureManagedProviders).not.toHaveBeenCalled();
+    expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([]);
+    expect(discoverChangedTuziProviderModels).not.toHaveBeenCalled();
   });
 
   it('deduplicates overlapping startup and focus synchronization', async () => {
@@ -93,6 +92,33 @@ describe('syncTuziSessionProviders', () => {
 
     await expect(Promise.all([startup, focus])).resolves.toEqual([true, true]);
     expect(ensureManagedProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse the successful-sync cache across user accounts', async () => {
+    ensureManagedProviders.mockResolvedValue([]);
+
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+    getSystemUserId.mockReturnValue('2');
+    getProviderGroupSelection.mockReturnValue(['vip']);
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+
+    expect(ensureManagedProviders).toHaveBeenNthCalledWith(1, ['default']);
+    expect(ensureManagedProviders).toHaveBeenNthCalledWith(2, ['vip']);
+  });
+
+  it('discovers models without reading a group from URL credentials', async () => {
+    const providers = [
+      { id: 'tuzi-managed-vip', group: 'vip', apiKey: 'sk-vip' },
+    ];
+    getProviderGroupSelection.mockReturnValue(['vip']);
+    ensureManagedProviders.mockResolvedValue(providers);
+
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+
+    expect(discoverChangedTuziProviderModels).toHaveBeenCalledWith(
+      providers,
+      new Map()
+    );
   });
 
   it('removes managed providers when the Tuzi Session has expired', async () => {

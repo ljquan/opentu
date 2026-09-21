@@ -1,57 +1,51 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  getTuziSystemTokenFromHref,
+  clearTuziBridgeCredentials,
+  clearTuziSystemToken,
+  clearTuziSystemUserId,
+  getTuziSystemToken,
   getTuziSystemUserId,
-  getTuziSystemUserIdFromHref,
-  initializeTuziSystemTokenFromUrl,
-  wasTuziCredentialsProvidedByUrl,
+  hasTuziSystemToken,
+  saveTuziSystemToken,
+  saveTuziSystemUserId,
+  setTuziBridgeCredentials,
 } from '../tuzi-token-auth';
 
-describe('Tuzi URL credentials', () => {
+describe('Tuzi system credentials', () => {
   beforeEach(() => {
-    window.localStorage.clear();
-    window.history.replaceState({}, '', '/');
+    clearTuziBridgeCredentials();
+    clearTuziSystemToken();
+    clearTuziSystemUserId();
+    window.history.replaceState({}, '', '/?id=legacy&token=legacy-token');
   });
 
-  it('reads the short id and token parameters', () => {
-    expect(
-      getTuziSystemUserIdFromHref(
-        'http://localhost:7200/?id=40832&token=system-token'
-      )
-    ).toBe('40832');
-    expect(
-      getTuziSystemTokenFromHref(
-        'http://localhost:7200/?id=40832&token=system-token'
-      )
-    ).toBe('system-token');
-  });
-
-  it('preserves literal plus characters in token parameters', () => {
-    expect(
-      getTuziSystemTokenFromHref(
-        'http://localhost:7200/?id=40832&token=Xxj+rqmrWFRt3vubveJeOfTT%2BJ'
-      )
-    ).toBe('Xxj+rqmrWFRt3vubveJeOfTT+J');
-  });
-
-  it('accepts the existing compatibility parameter names', () => {
-    expect(getTuziSystemUserIdFromHref('?tuzi_user_id=40832')).toBe('40832');
-    expect(getTuziSystemTokenFromHref('?key=system-token')).toBe(
-      'system-token'
-    );
-  });
-
-  it('stores both URL values and removes them from the address bar', () => {
-    window.history.replaceState(
-      {},
-      '',
-      '/?board=board-id&id=40832&token=system-token'
-    );
-
-    expect(initializeTuziSystemTokenFromUrl()).toBe('system-token');
-    expect(wasTuziCredentialsProvidedByUrl()).toBe(true);
+  it('persists standalone credentials without reading URL parameters', () => {
+    expect(getTuziSystemToken()).toBe('');
+    expect(getTuziSystemUserId()).toBe('');
+    expect(saveTuziSystemToken('system-token')).toBe(true);
+    expect(saveTuziSystemUserId('40832')).toBe(true);
+    expect(getTuziSystemToken()).toBe('system-token');
     expect(getTuziSystemUserId()).toBe('40832');
-    expect(window.location.search).toBe('?board=board-id');
+    expect(hasTuziSystemToken()).toBe(true);
+    expect(window.location.search).toContain('token=legacy-token');
+  });
+
+  it('uses bridge credentials in memory and does not write them to storage', () => {
+    setTuziBridgeCredentials('40832', 'bridge-token');
+    expect(getTuziSystemUserId()).toBe('40832');
+    expect(getTuziSystemToken()).toBe('bridge-token');
+    expect(
+      window.localStorage.getItem('opentu.tuzi.systemToken.v1')
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem('opentu.tuzi.systemUserId.v1')
+    ).toBeNull();
+  });
+
+  it('rejects invalid credentials', () => {
+    expect(saveTuziSystemToken('   ')).toBe(false);
+    expect(saveTuziSystemUserId('not-a-number')).toBe(false);
+    expect(hasTuziSystemToken()).toBe(false);
   });
 });

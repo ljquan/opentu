@@ -739,10 +739,11 @@ describe('settings-manager', () => {
     });
   });
 
-  it('uses an embedded managed provider when the legacy route has no key', async () => {
+  it('uses a bridge-managed provider when the legacy route has no key', async () => {
     mockSettingsManagerDeps();
-    vi.stubEnv('VITE_TUZI_EMBEDDED_MODE', 'true');
-    vi.stubEnv('VITE_TUZI_API_BASE_URL', 'http://localhost:3100');
+    vi.doMock('../../services/tuzi-postmessage-bridge', () => ({
+      isTuziBridgeConnected: () => true,
+    }));
     localStorage.setItem(
       DRAWNIX_SETTINGS_KEY,
       JSON.stringify({

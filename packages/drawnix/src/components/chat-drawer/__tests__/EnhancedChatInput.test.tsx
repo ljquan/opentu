@@ -181,6 +181,38 @@ describe('EnhancedChatInput placeholder', () => {
       })
     );
   });
+
+  it('lets the drawer queue a generation without submitting it twice', async () => {
+    generationControlsMock.controls.generationType = 'image';
+    const onGenerationSubmit = vi.fn(async () => true);
+
+    render(
+      <EnhancedChatInput
+        selectedContent={[]}
+        onSend={() => undefined}
+        onGenerationSubmit={onGenerationSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '生成一张海报' },
+    });
+    fireEvent.click(screen.getByTestId('drawer-ai-send-btn'));
+
+    await waitFor(() => {
+      expect(onGenerationSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(onGenerationSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: '生成一张海报',
+        generationType: 'image',
+        selectedModel: 'gpt-5.4',
+        targetSessionId: 'session-1',
+      })
+    );
+    expect(submitGenerationFromDrawerMock).not.toHaveBeenCalled();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+  });
 });
 
 describe('EnhancedChatInput implicit workflow references', () => {

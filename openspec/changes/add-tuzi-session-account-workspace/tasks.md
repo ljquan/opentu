@@ -27,6 +27,9 @@
 - [x] 4.4 Add refresh/rotation controls without changing standalone Provider behavior.
 - [x] 4.5 Let users choose authorized groups before first connection or system-token replacement, and create managed Tokens and Providers only for selected groups.
 - [x] 4.6 Let connected users reopen the group selector and add another authorized group while preserving current selections.
+- [x] 4.7 Add the validated parent/iframe postMessage bridge and 10-second standalone fallback.
+- [x] 4.8 Move embedded system-token handoff to memory-only bridge credentials and remove URL handoff from the active path.
+- [x] 4.9 Open the Tuzi account workflow only after a confirmed parent response, create a missing system token in place, and resume the pending message after Provider setup.
 
 ## 5. Verification
 
@@ -34,6 +37,7 @@
 - [x] 5.2 Run focused Vitest tests, type checks, and frontend build.
 - [ ] 5.3 Start both local services and verify managed Provider synchronization.
 - [x] 5.4 Review final diffs and update QA/documentation status.
+- [ ] 5.5 Verify existing-token, missing-token creation, remembered-group and non-Tuzi fallback flows in a real browser.
 
 ## 6. Generated-image previews
 

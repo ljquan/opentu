@@ -4,18 +4,23 @@ import {
   discoverChangedTuziProviderModels,
 } from '../tuzi-managed-provider-models';
 
-const { discover, applySelection, setError, getState } = vi.hoisted(() => ({
-  discover: vi.fn(),
-  applySelection: vi.fn(),
-  setError: vi.fn(),
-  getState: vi.fn(),
-}));
+const { discover, applySelection, setError, getState, setPersistedSelection } =
+  vi.hoisted(() => ({
+    discover: vi.fn(),
+    applySelection: vi.fn(),
+    setError: vi.fn(),
+    getState: vi.fn(),
+    setPersistedSelection: vi.fn(),
+  }));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
   runtimeModelDiscovery: { discover, applySelection, setError, getState },
 }));
 vi.mock('../tuzi-embedded-config', () => ({
   tuziEmbeddedConfig: { apiBaseUrl: 'http://localhost:3100' },
+}));
+vi.mock('../../utils/ai-model-selection-storage', () => ({
+  setPersistedModelSelection: setPersistedSelection,
 }));
 
 const provider = {
@@ -32,7 +37,14 @@ describe('Tuzi managed provider model synchronization', () => {
     vi.clearAllMocks();
     discover.mockResolvedValue([{ id: 'model-a' }, { id: 'model-b' }]);
     getState.mockReturnValue({
-      discoveredModels: [{ id: 'model-a' }, { id: 'model-b' }],
+      models: [
+        { id: 'text-model', type: 'text', vendor: 'OTHER' },
+        { id: 'image-model', type: 'image', vendor: 'GPT' },
+      ],
+      discoveredModels: [
+        { id: 'text-model', type: 'text', vendor: 'OTHER' },
+        { id: 'image-model', type: 'image', vendor: 'GPT' },
+      ],
     });
   });
 
@@ -81,5 +93,27 @@ describe('Tuzi managed provider model synchronization', () => {
     );
 
     expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects the first image model only when explicitly requested', async () => {
+    await discoverChangedTuziProviderModels([provider], new Map(), {
+      selectImageModelForProviderId: provider.id,
+    });
+
+    expect(setPersistedSelection).toHaveBeenCalledWith('image', {
+      modelId: 'image-model',
+      modelRef: {
+        profileId: provider.id,
+        modelId: 'image-model',
+      },
+      providerIdHint: provider.id,
+      vendorHint: 'GPT',
+    });
+  });
+
+  it('does not override image selection during background synchronization', async () => {
+    await discoverChangedTuziProviderModels([provider], new Map());
+
+    expect(setPersistedSelection).not.toHaveBeenCalled();
   });
 });

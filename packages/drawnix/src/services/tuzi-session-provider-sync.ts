@@ -7,11 +7,14 @@ import { providerProfilesSettings } from '../utils/settings-manager';
 import { getTuziProviderGroupSelection } from './tuzi-provider-selection';
 
 let activeSync: Promise<boolean> | null = null;
+let activeSyncUserId = '';
 let lastSuccessfulSyncAt = 0;
+let lastSuccessfulUserId = '';
 const SYNC_CACHE_TTL_MS = 60_000;
 
 export function resetTuziSessionProviderSyncCache(): void {
   lastSuccessfulSyncAt = 0;
+  lastSuccessfulUserId = '';
 }
 
 export function syncTuziSessionProviders(options?: {
@@ -19,26 +22,34 @@ export function syncTuziSessionProviders(options?: {
 }): Promise<boolean> {
   if (!isTuziEmbeddedMode() || !hasTuziSystemToken())
     return Promise.resolve(false);
-  if (activeSync) return activeSync;
-  if (Date.now() - lastSuccessfulSyncAt < SYNC_CACHE_TTL_MS) {
+  const currentUserId = getTuziSystemUserId();
+  if (activeSync) {
+    if (currentUserId === activeSyncUserId) return activeSync;
+    return activeSync.then(() => syncTuziSessionProviders(options));
+  }
+  if (
+    currentUserId &&
+    currentUserId === lastSuccessfulUserId &&
+    Date.now() - lastSuccessfulSyncAt < SYNC_CACHE_TTL_MS
+  ) {
     return Promise.resolve(true);
   }
 
+  activeSyncUserId = currentUserId;
   activeSync = (async () => {
     try {
       const userId = getTuziSystemUserId();
-      let selectedGroups: string[] | null | undefined = userId
+      const selectedGroups: string[] | null | undefined = userId
         ? getTuziProviderGroupSelection(userId)
         : undefined;
       if (selectedGroups === null && userId) {
-        selectedGroups = providerProfilesSettings
-          .get()
-          .filter((profile) => profile.id.startsWith('tuzi-managed-'))
-          .map((profile) => profile.pricingGroup || profile.name)
-          .filter(Boolean);
-        if (userId && selectedGroups.length > 0) {
-          selectedGroups = [...new Set(selectedGroups)];
-        }
+        // Managed Provider keys are browser-global, while the remembered
+        // group choice is account-scoped. Never infer a new account's choice
+        // from keys that may belong to a previously signed-in user.
+        await synchronizeTuziManagedProviders([]);
+        lastSuccessfulUserId = userId;
+        lastSuccessfulSyncAt = Date.now();
+        return true;
       }
       if (selectedGroups === null) {
         return true;
@@ -57,6 +68,7 @@ export function syncTuziSessionProviders(options?: {
         await discoverChangedTuziProviderModels(providers, previousApiKeys);
       }
       lastSuccessfulSyncAt = Date.now();
+      lastSuccessfulUserId = userId;
       return true;
     } catch (error) {
       // Never leave stale managed keys visible when the session cannot be
@@ -73,6 +85,7 @@ export function syncTuziSessionProviders(options?: {
       return false;
     } finally {
       activeSync = null;
+      activeSyncUserId = '';
     }
   })();
 

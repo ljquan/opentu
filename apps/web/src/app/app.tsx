@@ -22,7 +22,6 @@ import {
   hasTuziSystemToken,
   isTuziEmbeddedMode,
   syncTuziSessionProvidersOnStartup,
-  wasTuziCredentialsProvidedByUrl,
 } from '@drawnix/drawnix/runtime';
 import type {
   PlaitBoard,
@@ -95,11 +94,7 @@ function updateBootStatus(options: { progress?: number; tip?: string }): void {
 let tuziStartupPromise: Promise<boolean> | null = null;
 
 function shouldWaitForTuziStartup(): boolean {
-  return (
-    wasTuziCredentialsProvidedByUrl() &&
-    isTuziEmbeddedMode() &&
-    hasTuziSystemToken()
-  );
+  return isTuziEmbeddedMode() && hasTuziSystemToken();
 }
 
 function getTuziStartupPromise(): Promise<boolean> | null {

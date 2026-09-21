@@ -39,6 +39,12 @@ Dragging a preview publishes only standard browser drag payloads (`text/uri-list
 
 Reloading the account logs after local data has been cleared can rediscover previews because the source records belong to Tuzi API rather than IndexedDB. This is recovery of server-retained result references, not a new durability guarantee: a result cannot be recovered when Tuzi API did not retain a user-visible URL or when the retained upstream URL has expired and no durable Tuzi-hosted copy exists.
 
+### Runtime parent handshake
+
+OpenTu does not infer Tuzi mode merely from being embedded or from build defaults. When a user sends without a usable Provider, it sends a credential-free readiness message to the exact parent Origin derived from trusted configuration or the iframe referrer. A response is accepted only from `window.parent` with the matching Origin, protocol version, request ID and `environment: tuzi-api` marker. No valid response within 10 seconds selects standalone mode and opens the original manual Provider/API-key settings without Tuzi-specific UI, requests or storage writes.
+
+The parent returns the authenticated user ID, authorized groups and an existing system token when present. A missing token is represented explicitly and is the only state that exposes the one-click create action. Tokens received through this channel remain in memory and are never imported from URLs or persisted as Tuzi system credentials.
+
 ### Managed group Providers
 
 Tuzi API exposes a thin Session-authenticated `/api/opentu/providers` orchestration endpoint. It derives the current user's assignable groups, reuses the existing Token creation and lookup rules, and returns Provider metadata plus the plaintext key needed to synchronize the existing OpenTu `providerProfilesSettings`. The endpoint never writes keys to logs and never exposes arbitrary Token management operations.
@@ -52,6 +58,7 @@ The Provider base URL is derived from trusted build configuration and normalized
 ## Risks / Trade-offs
 
 - Cross-site iframe cookies may be blocked. Prefer same-site deployment; local testing uses explicit HTTP development configuration.
+- A 10-second first-send fallback delays the manual settings dialog for non-Tuzi iframe hosts; the delay is bounded and cached for the page lifetime.
 - Browser-stored managed Tokens remain extractable through browser runtime, network tools or exported settings; a later server-side Session Provider is required for a stronger leak boundary.
 - Cross-origin image hosts may block preview loading or canvas import even when the URL is present; the UI must keep the log usable and report the failed insert without retrying a paid generation request.
 - Concurrent first loads can race Token creation; the backend must serialize or transactionally re-check the managed name/group before inserting.

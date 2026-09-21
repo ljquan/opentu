@@ -38,6 +38,11 @@ import type { ProviderProfile } from '../../utils/settings-types';
 import { resetTuziSessionProviderSyncCache } from '../../services/tuzi-session-provider-sync';
 import { extractTuziGeneratedImageUrls } from '../../services/tuzi-log-media';
 import {
+  createTuziSystemToken,
+  getTuziBridgeContext,
+  isTuziBridgeConnected,
+} from '../../services/tuzi-postmessage-bridge';
+import {
   clearTuziProviderGroupSelection,
   getTuziProviderGroupSelection,
   saveTuziProviderGroupSelection,
@@ -46,7 +51,6 @@ import {
   clearTuziSystemUserId,
   clearTuziSystemToken,
   getTuziSystemToken,
-  initializeTuziSystemTokenFromUrl,
   getTuziSystemUserId,
   maskTuziSystemToken,
   saveTuziSystemToken,
@@ -65,8 +69,7 @@ const LOG_PAGE_SIZE = 10;
 const ACCOUNT_CACHE_KEY = 'opentu.tuzi.account-cache.v2';
 const LOG_CACHE_KEY = 'opentu.tuzi.logs-cache.v2';
 const CACHE_TTL_MS = 60_000;
-const TUZI_PERSONAL_SETTINGS_URL =
-  'https://api.tu-zi.com/console/personal';
+const TUZI_PERSONAL_SETTINGS_URL = 'https://api.tu-zi.com/console/personal';
 const TUZI_SYSTEM_TOKEN_GUIDE_URL =
   'https://wiki.tu-zi.com/s/8c61a536-7a59-4410-a5e2-8dab3d041958/zh-cn/doc/opentuid-ZUZUoZjTgm';
 const TUZI_TOP_UP_URL = 'https://api.tu-zi.com/console/topup';
@@ -542,12 +545,30 @@ function writeCache<T>(key: string, value: T): void {
   }
 }
 
+function tuziCacheKey(
+  baseKey: string,
+  userId: number | string | null | undefined,
+  suffix?: number | string
+): string {
+  const normalizedUserId = String(userId || '').trim();
+  return [baseKey, normalizedUserId || null, suffix ?? null]
+    .filter((value) => value !== null)
+    .join('.');
+}
+
 function clearTuziDataCache(): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.removeItem(ACCOUNT_CACHE_KEY);
-    for (let page = 1; page <= 100; page += 1) {
-      window.localStorage.removeItem(`${LOG_CACHE_KEY}.${page}`);
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (
+        key === ACCOUNT_CACHE_KEY ||
+        key?.startsWith(`${ACCOUNT_CACHE_KEY}.`) ||
+        key === LOG_CACHE_KEY ||
+        key?.startsWith(`${LOG_CACHE_KEY}.`)
+      ) {
+        window.localStorage.removeItem(key);
+      }
     }
   } catch {
     // localStorage is optional in embedded environments.
@@ -585,10 +606,12 @@ function localManagedProviders(
 
 interface TuziAccountPanelProps {
   onProvidersChanged?: () => void;
+  onSetupCompleted?: () => void;
 }
 
 export function TuziAccountPanel({
   onProvidersChanged,
+  onSetupCompleted,
 }: TuziAccountPanelProps) {
   const accountRequestVersion = useRef(0);
   const modelsRequestVersion = useRef(0);
@@ -602,6 +625,7 @@ export function TuziAccountPanel({
       initialStoredSelection === null
   );
   const onProvidersChangedRef = useRef(onProvidersChanged);
+  const onSetupCompletedRef = useRef(onSetupCompleted);
   const [systemToken, setSystemToken] = useState(getTuziSystemToken);
   const [systemUserId, setSystemUserId] = useState(getTuziSystemUserId);
   const [connectionRevision, setConnectionRevision] = useState(0);
@@ -649,7 +673,27 @@ export function TuziAccountPanel({
   }, [onProvidersChanged]);
 
   useEffect(() => {
-    initializeTuziSystemTokenFromUrl();
+    onSetupCompletedRef.current = onSetupCompleted;
+  }, [onSetupCompleted]);
+
+  const createEmbeddedToken = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const nextContext = await createTuziSystemToken();
+      setSystemUserId(nextContext.userId);
+      setSystemToken(nextContext.systemToken || '');
+      setAvailableGroups(nextContext.groups);
+      setSelectedGroups([]);
+      providerSelectionRequired.current = true;
+      refreshProvidersOnNextLoad.current = true;
+      resetTuziSessionProviderSyncCache();
+      setConnectionRevision((current) => current + 1);
+    } catch (createError) {
+      setError(errorState(createError));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const saveToken = useCallback(async () => {
@@ -754,7 +798,14 @@ export function TuziAccountPanel({
         if (requestVersion !== logsRequestVersion.current) return;
         setLogs(nextLogs);
         setExpandedLogId(null);
-        writeCache(`${LOG_CACHE_KEY}.${Math.max(1, page)}`, nextLogs);
+        writeCache(
+          tuziCacheKey(
+            LOG_CACHE_KEY,
+            isTuziBridgeConnected() ? account?.id || systemUserId : null,
+            Math.max(1, page)
+          ),
+          nextLogs
+        );
       } catch (loadError) {
         if (requestVersion !== logsRequestVersion.current) return;
         setError(errorState(loadError));
@@ -764,7 +815,7 @@ export function TuziAccountPanel({
         }
       }
     },
-    [account, createClient]
+    [account, createClient, systemUserId]
   );
 
   const load = useCallback(
@@ -815,10 +866,14 @@ export function TuziAccountPanel({
           refreshProvidersOnNextLoad.current = false;
           return;
         }
+        const accountCacheKey = tuziCacheKey(
+          ACCOUNT_CACHE_KEY,
+          isTuziBridgeConnected() ? getTuziSystemUserId() : null
+        );
         const cached = readStoredCache<{
           account: TuziAccount;
           displayConfig: TuziDisplayConfig;
-        }>(ACCOUNT_CACHE_KEY);
+        }>(accountCacheKey);
         if (cached) {
           hasCachedAccount = true;
           setAccount(cached.account);
@@ -847,14 +902,15 @@ export function TuziAccountPanel({
         setAccount(nextAccount);
         hasCachedAccount = true;
         setLoading(false);
-        if (saveTuziSystemUserId(nextAccount.id)) {
-          setSystemUserId(String(nextAccount.id));
+        setSystemUserId(String(nextAccount.id));
+        if (!isTuziBridgeConnected()) {
+          saveTuziSystemUserId(nextAccount.id);
         }
         void displayConfigPromise.then((nextDisplayConfig) => {
           if (!isCurrentRequest()) return;
           setDisplayConfig(nextDisplayConfig);
           setDisplayConfigReady(true);
-          writeCache(ACCOUNT_CACHE_KEY, {
+          writeCache(accountCacheKey, {
             account: nextAccount,
             displayConfig: nextDisplayConfig,
           });
@@ -914,6 +970,7 @@ export function TuziAccountPanel({
         }
         setAccount(nextAccount);
         setProviders(nextProviders);
+        return true;
       } catch (loadError) {
         if (!isCurrentRequest()) return;
         if (prepareProviderSelection) {
@@ -927,6 +984,7 @@ export function TuziAccountPanel({
           setProviders([]);
         }
         setError(errorState(loadError));
+        return false;
       } finally {
         if (isCurrentRequest()) {
           if (prepareProviderSelection) {
@@ -966,6 +1024,25 @@ export function TuziAccountPanel({
     systemToken,
   ]);
 
+  const applyProviderSelection = useCallback(async () => {
+    if (loading || providerSelectionLoading || providerSelectionFailed) return;
+    const selectionUserId = account?.id || systemUserId;
+    if (!selectionUserId) return;
+    saveTuziProviderGroupSelection(selectionUserId, selectedGroups);
+    setProviderSelectionPending(false);
+    resetTuziSessionProviderSyncCache();
+    const completed = await load(true, true, selectedGroups);
+    if (completed) onSetupCompletedRef.current?.();
+  }, [
+    account,
+    load,
+    loading,
+    providerSelectionFailed,
+    providerSelectionLoading,
+    selectedGroups,
+    systemUserId,
+  ]);
+
   const openProviderSelection = useCallback(() => {
     if (
       loading ||
@@ -977,7 +1054,7 @@ export function TuziAccountPanel({
     ) {
       return;
     }
-    void load(false, false, undefined, true);
+    void load(false, false, undefined, true, false);
   }, [
     load,
     loading,
@@ -986,24 +1063,6 @@ export function TuziAccountPanel({
     providersLoading,
     rotatingGroup,
     systemToken,
-  ]);
-
-  const applyProviderSelection = useCallback(() => {
-    if (loading || providerSelectionLoading || providerSelectionFailed) return;
-    const selectionUserId = account?.id || systemUserId;
-    if (!selectionUserId) return;
-    saveTuziProviderGroupSelection(selectionUserId, selectedGroups);
-    setProviderSelectionPending(false);
-    resetTuziSessionProviderSyncCache();
-    void load(true, true, selectedGroups);
-  }, [
-    account,
-    load,
-    loading,
-    providerSelectionFailed,
-    providerSelectionLoading,
-    selectedGroups,
-    systemUserId,
   ]);
 
   const rotateProvider = useCallback(
@@ -1069,7 +1128,13 @@ export function TuziAccountPanel({
     ) {
       return;
     }
-    const cached = readCache<TuziLogPage>(`${LOG_CACHE_KEY}.1`);
+    const cached = readCache<TuziLogPage>(
+      tuziCacheKey(
+        LOG_CACHE_KEY,
+        isTuziBridgeConnected() ? account.id : null,
+        1
+      )
+    );
     if (cached) {
       setLogs(cached);
       return;
@@ -1174,6 +1239,9 @@ export function TuziAccountPanel({
     : error
     ? '同步失败'
     : '已同步';
+  const embeddedBridge = isTuziBridgeConnected();
+  const bridgeNeedsToken =
+    embeddedBridge && getTuziBridgeContext()?.status === 'need_system_token';
   return (
     <div className="tuzi-account-panel">
       <div className="tuzi-account-panel__body">
@@ -1273,72 +1341,97 @@ export function TuziAccountPanel({
                       <KeyRound size={16} aria-hidden="true" />
                       系统访问令牌
                     </h3>
-                    <p>使用系统令牌读取账户数据并同步托管 Provider。</p>
-                    <div className="tuzi-account-panel__token-links">
-                      <a
-                        href={TUZI_PERSONAL_SETTINGS_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="tuzi-account-panel__token-link"
-                      >
-                        <span>获取 ID 和个人令牌</span>
-                        <ExternalLink size={13} aria-hidden="true" />
-                      </a>
-                      <a
-                        href={TUZI_SYSTEM_TOKEN_GUIDE_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="tuzi-account-panel__token-link"
-                      >
-                        <span>查看教程</span>
-                        <ExternalLink size={13} aria-hidden="true" />
-                      </a>
-                    </div>
+                    <p>
+                      {embeddedBridge
+                        ? '系统令牌由当前 Tuzi 账户安全提供，不会保存在 OpenTu。'
+                        : '使用系统令牌读取账户数据并同步托管 Provider。'}
+                    </p>
+                    {!embeddedBridge ? (
+                      <div className="tuzi-account-panel__token-links">
+                        <a
+                          href={TUZI_PERSONAL_SETTINGS_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="tuzi-account-panel__token-link"
+                        >
+                          <span>获取 ID 和个人令牌</span>
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </a>
+                        <a
+                          href={TUZI_SYSTEM_TOKEN_GUIDE_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="tuzi-account-panel__token-link"
+                        >
+                          <span>查看教程</span>
+                          <ExternalLink size={13} aria-hidden="true" />
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-                <div className="tuzi-account-panel__token-actions">
-                  <input
-                    id="tuzi-system-user-id"
-                    type="text"
-                    inputMode="numeric"
-                    value={systemUserId}
-                    onChange={(event) =>
-                      setSystemUserId(event.target.value.replace(/\D/g, ''))
-                    }
-                    onBlur={() => saveTuziSystemUserId(systemUserId)}
-                    placeholder="用户 ID"
-                    aria-label="Tuzi 用户 ID"
-                    autoComplete="off"
-                  />
-                  <input
-                    id="tuzi-system-token"
-                    type="password"
-                    value={tokenDraft}
-                    onChange={(event) => setTokenDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void saveToken();
-                    }}
-                    placeholder={
-                      systemToken
-                        ? maskTuziSystemToken(systemToken)
-                        : '粘贴系统访问令牌'
-                    }
-                    aria-label="系统访问令牌"
-                    autoComplete="off"
-                  />
-                  <button type="button" onClick={() => void saveToken()}>
-                    {systemToken ? '替换令牌' : '连接'}
-                  </button>
-                  {systemToken ? (
-                    <button
-                      type="button"
-                      className="is-subtle"
-                      onClick={() => void clearToken()}
-                    >
-                      清除
+                {embeddedBridge ? (
+                  <div className="tuzi-account-panel__token-actions">
+                    {bridgeNeedsToken ? (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void createEmbeddedToken()}
+                      >
+                        {loading ? (
+                          <Loader2 size={16} className="is-spinning" />
+                        ) : null}
+                        创建系统令牌
+                      </button>
+                    ) : (
+                      <span>系统令牌已就绪</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="tuzi-account-panel__token-actions">
+                    <input
+                      id="tuzi-system-user-id"
+                      type="text"
+                      inputMode="numeric"
+                      value={systemUserId}
+                      onChange={(event) =>
+                        setSystemUserId(event.target.value.replace(/\D/g, ''))
+                      }
+                      onBlur={() => saveTuziSystemUserId(systemUserId)}
+                      placeholder="用户 ID"
+                      aria-label="Tuzi 用户 ID"
+                      autoComplete="off"
+                    />
+                    <input
+                      id="tuzi-system-token"
+                      type="password"
+                      value={tokenDraft}
+                      onChange={(event) => setTokenDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void saveToken();
+                      }}
+                      placeholder={
+                        systemToken
+                          ? maskTuziSystemToken(systemToken)
+                          : '粘贴系统访问令牌'
+                      }
+                      aria-label="系统访问令牌"
+                      autoComplete="off"
+                    />
+                    <button type="button" onClick={() => void saveToken()}>
+                      {systemToken ? '替换令牌' : '连接'}
                     </button>
-                  ) : null}
-                </div>
+                    {systemToken ? (
+                      <button
+                        type="button"
+                        className="is-subtle"
+                        onClick={() => void clearToken()}
+                      >
+                        清除
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </section>
             ) : null}
             {providerSelectionPending ? (
@@ -1399,14 +1492,15 @@ export function TuziAccountPanel({
                       loading ||
                       providerSelectionLoading ||
                       providerSelectionFailed ||
+                      selectedGroups.length === 0 ||
                       (!account && !systemUserId)
                     }
-                    onClick={applyProviderSelection}
+                    onClick={() => void applyProviderSelection()}
                   >
                     {loading ? (
                       <Loader2 size={16} className="is-spinning" />
                     ) : null}
-                    应用分组并连接
+                    确认并继续
                   </button>
                 </div>
               </section>
@@ -1576,6 +1670,16 @@ export function TuziAccountPanel({
                       暂无授权分组
                     </div>
                   )}
+                  <div className="tuzi-account-panel__provider-selection-actions">
+                    <button
+                      type="button"
+                      className="is-subtle"
+                      disabled={loading || providersLoading || modelsLoading}
+                      onClick={openProviderSelection}
+                    >
+                      创建新的令牌分组
+                    </button>
+                  </div>
                 </section>
               </>
             ) : (

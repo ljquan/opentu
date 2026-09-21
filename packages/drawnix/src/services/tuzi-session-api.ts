@@ -1,5 +1,10 @@
 import type { TuziEmbeddedConfig } from './tuzi-embedded-config';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
+import {
+  ensureTuziProviders,
+  getTuziBridgeContext,
+  isTuziBridgeConnected,
+} from './tuzi-postmessage-bridge';
 import { getTuziSystemToken, getTuziSystemUserId } from './tuzi-token-auth';
 import { extractTuziGeneratedImageUrls } from './tuzi-log-media';
 
@@ -264,6 +269,9 @@ export class TuziSessionApiClient {
     const body = selectedGroups
       ? JSON.stringify({ groups: [...selectedGroups] })
       : undefined;
+    if (isTuziBridgeConnected()) {
+      return ensureTuziProviders(selectedGroups ? [...selectedGroups] : []);
+    }
     let data: JsonRecord | null;
     try {
       data = asRecord(
@@ -312,6 +320,12 @@ export class TuziSessionApiClient {
   }
 
   async getProviderGroups(): Promise<TuziProviderGroup[]> {
+    if (isTuziBridgeConnected()) {
+      return (getTuziBridgeContext()?.groups || []).map((group) => ({
+        group: group.group,
+        displayName: group.displayName,
+      }));
+    }
     let data: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {

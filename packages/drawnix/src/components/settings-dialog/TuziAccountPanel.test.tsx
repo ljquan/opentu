@@ -213,7 +213,7 @@ describe('TuziAccountPanel', () => {
       (screen.getByLabelText('Tuzi 用户 ID') as HTMLInputElement).value
     ).toBe('');
     expect(await screen.findByText('尚未配置系统访问令牌')).not.toBeNull();
-  });
+  }, 10_000);
 
   it('shows balance and key rotation in the balance view without loading hidden summaries', async () => {
     const { TuziAccountPanel } = await import('./TuziAccountPanel');
@@ -427,7 +427,7 @@ describe('TuziAccountPanel', () => {
     expect(
       (
         screen.getByRole('button', {
-          name: '应用分组并连接',
+          name: '确认并继续',
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true);
@@ -505,7 +505,7 @@ describe('TuziAccountPanel', () => {
     expect(ensureManagedProviders).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('checkbox', { name: /VIP/ }));
-    fireEvent.click(screen.getByRole('button', { name: '应用分组并连接' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认并继续' }));
 
     expect(await screen.findByText('Next Tuzi User')).not.toBeNull();
     expect(
@@ -586,7 +586,7 @@ describe('TuziAccountPanel', () => {
     expect(vipCheckbox.checked).toBe(false);
 
     fireEvent.click(vipCheckbox);
-    fireEvent.click(screen.getByRole('button', { name: '应用分组并连接' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认并继续' }));
 
     await waitFor(() =>
       expect(ensureManagedProviders).toHaveBeenCalledWith(['default', 'vip'])

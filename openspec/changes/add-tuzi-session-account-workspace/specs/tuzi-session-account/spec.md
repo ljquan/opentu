@@ -83,6 +83,33 @@ The system SHALL preserve OpenTu standalone Provider/API Key behavior and Tuzi A
 - **WHEN** a client authenticates with an existing access token
 - **THEN** Tuzi API SHALL continue to require and verify the compatible user ID header
 
+#### Scenario: Parent does not implement Tuzi handshake
+
+- **WHEN** OpenTu sends a readiness message but receives no valid Tuzi context within 10 seconds
+- **THEN** OpenTu SHALL open its original manual Provider/API-key workflow
+- **AND** SHALL NOT show Tuzi token or group UI, call Tuzi operations, or write Tuzi integration state
+
+### Requirement: Runtime Tuzi parent handshake
+
+OpenTu SHALL enable the embedded Tuzi token workflow only after a response from the exact parent window and Origin with a matching protocol version, request ID and Tuzi environment marker.
+
+#### Scenario: Existing system token
+
+- **WHEN** the validated parent reports that the authenticated user already has a system token
+- **THEN** it SHALL return the user ID, token and authorized groups
+- **AND** OpenTu SHALL keep the system token in memory only and SHALL NOT show the token creation action
+
+#### Scenario: Missing system token
+
+- **WHEN** the validated parent explicitly reports that the authenticated user has no system token
+- **THEN** OpenTu SHALL show a one-click token creation action inside the existing settings dialog
+- **AND** SHALL request creation through the validated parent without navigating away
+
+#### Scenario: Untrusted response
+
+- **WHEN** a response has a mismatched Origin, source window, version, request ID or environment marker
+- **THEN** OpenTu SHALL ignore it and SHALL NOT enable Tuzi mode or store its payload
+
 ### Requirement: Managed group Providers
 
 The system SHALL derive OpenTu managed Providers from the authenticated user's authorized Tuzi groups and SHALL reuse the existing Token storage, group authorization, Relay, billing and log paths.

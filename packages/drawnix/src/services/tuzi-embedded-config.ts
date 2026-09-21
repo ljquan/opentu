@@ -1,3 +1,5 @@
+import { isTuziBridgeConnected } from './tuzi-postmessage-bridge';
+
 export interface TuziEmbeddedConfig {
   enabled: boolean;
   apiBaseUrl: string | null;
@@ -97,5 +99,5 @@ export function readTuziEmbeddedConfig(
 export const tuziEmbeddedConfig = readTuziEmbeddedConfig();
 
 export function isTuziEmbeddedMode(): boolean {
-  return tuziEmbeddedConfig.enabled;
+  return isTuziBridgeConnected();
 }

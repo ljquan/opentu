@@ -30,6 +30,13 @@ const DEFAULT_CAPABILITIES: ProviderProfile['capabilities'] = {
   supportsTools: true,
 };
 
+export function isTuziManagedProviderProfileId(profileId: unknown): boolean {
+  return (
+    typeof profileId === 'string' &&
+    profileId.startsWith(MANAGED_PROVIDER_PREFIX)
+  );
+}
+
 function valuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -125,8 +132,7 @@ export async function synchronizeTuziManagedProviders(
   );
   const retained = existing.filter(
     (profile) =>
-      !profile.id.startsWith(MANAGED_PROVIDER_PREFIX) ||
-      incoming.has(profile.id)
+      !isTuziManagedProviderProfileId(profile.id) || incoming.has(profile.id)
   );
   const merged = retained.map((profile) => {
     const provider = incoming.get(profile.id);

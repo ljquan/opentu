@@ -18,7 +18,10 @@ import React, {
 import { Send } from 'lucide-react';
 import { MessagePlugin } from 'tdesign-react';
 import { SelectedContentPreview } from '../shared/SelectedContentPreview';
-import type { SelectedContentItem } from '../../contexts/ChatDrawerContext';
+import type {
+  DrawerGenerationSubmitParams,
+  SelectedContentItem,
+} from '../../contexts/ChatDrawerContext';
 import { useChatDrawerControl } from '../../contexts/ChatDrawerContext';
 import type { Message } from '../../types/chat-ui.types';
 import type { ChatSessionGenerationState } from '../../types/chat.types';
@@ -63,6 +66,9 @@ interface EnhancedChatInputProps {
     }
   ) => void;
   onSend: (message: Message) => void | Promise<void>;
+  onGenerationSubmit?: (
+    params: DrawerGenerationSubmitParams
+  ) => Promise<boolean>;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -98,6 +104,7 @@ export const EnhancedChatInput = forwardRef<
       onGenerationStateChange,
       onDraftChange,
       onSend,
+      onGenerationSubmit,
       disabled = false,
       placeholder = '输入消息...',
     },
@@ -350,7 +357,7 @@ export const EnhancedChatInput = forwardRef<
         const generationContent = shouldUseImplicitReferences
           ? implicitReferenceContent
           : allContent;
-        const submitted = await chatDrawerControl.submitGenerationFromDrawer({
+        const params: DrawerGenerationSubmitParams = {
           prompt: trimmedInput,
           selectedContent: generationContent,
           generationType: generationControls.generationType,
@@ -359,7 +366,10 @@ export const EnhancedChatInput = forwardRef<
           selectedParams: generationControls.selectedParams,
           selectedCount: generationControls.selectedCount,
           targetSessionId: chatDrawerControl.getActiveSessionId(),
-        });
+        };
+        const submitted = onGenerationSubmit
+          ? await onGenerationSubmit(params)
+          : await chatDrawerControl.submitGenerationFromDrawer(params);
 
         if (!submitted) {
           MessagePlugin.error('生成入口未准备好，请稍后重试');
@@ -383,6 +393,7 @@ export const EnhancedChatInput = forwardRef<
         implicitReferenceContent,
         implicitReferencePinned,
         onImplicitReferenceConsumed,
+        onGenerationSubmit,
       ]
     );
 

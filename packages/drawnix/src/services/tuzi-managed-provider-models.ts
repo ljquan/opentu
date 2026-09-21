@@ -1,4 +1,5 @@
 import { runtimeModelDiscovery } from '../utils/runtime-model-discovery';
+import { setPersistedModelSelection } from '../utils/ai-model-selection-storage';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
 import type { TuziManagedProvider } from './tuzi-session-api';
 import { normalizeModelApiBaseUrl } from '../utils/provider-base-url';
@@ -29,9 +30,33 @@ export async function discoverAndUseAllTuziProviderModels(
   }
 }
 
+export function selectTuziProviderImageModel(
+  provider: TuziManagedProvider
+): boolean {
+  const state = runtimeModelDiscovery.getState(provider.id);
+  const imageModel = [...state.models, ...state.discoveredModels].find(
+    (model, index, models) =>
+      model.type === 'image' &&
+      models.findIndex((candidate) => candidate.id === model.id) === index
+  );
+  if (!imageModel) return false;
+
+  setPersistedModelSelection('image', {
+    modelId: imageModel.id,
+    modelRef: {
+      profileId: provider.id,
+      modelId: imageModel.id,
+    },
+    providerIdHint: provider.id,
+    vendorHint: imageModel.vendor,
+  });
+  return true;
+}
+
 export async function discoverChangedTuziProviderModels(
   providers: TuziManagedProvider[],
-  previousApiKeys: ReadonlyMap<string, string>
+  previousApiKeys: ReadonlyMap<string, string>,
+  options?: { selectImageModelForProviderId?: string }
 ): Promise<void> {
   const changedProviders = providers.filter(
     (provider) =>
@@ -49,4 +74,10 @@ export async function discoverChangedTuziProviderModels(
       );
     }
   });
+  const selectedProvider = providers.find(
+    (provider) => provider.id === options?.selectImageModelForProviderId
+  );
+  if (selectedProvider) {
+    selectTuziProviderImageModel(selectedProvider);
+  }
 }

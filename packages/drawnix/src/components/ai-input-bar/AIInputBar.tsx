@@ -175,9 +175,11 @@ import {
   hasInvocationRouteCredentials,
   resolveInvocationRoute,
   createModelRef,
+  settingsManager,
   type ModelRef,
 } from '../../utils/settings-manager';
 import { promptForApiKey } from '../../utils/gemini-api/auth';
+import { prepareTuziManagedRoute } from '../../services/tuzi-managed-route-gate';
 import type { WorkflowMessageData } from '../../types/chat.types';
 import type {
   CanvasAssociationRef,
@@ -1670,6 +1672,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     registerGenerationSubmitterRef.current =
       chatDrawerControl.registerGenerationSubmitter;
+    const submitGenerationWithCredentialGateRef = useRef(
+      chatDrawerControl.submitGenerationWithCredentialGate
+    );
+    submitGenerationWithCredentialGateRef.current =
+      chatDrawerControl.submitGenerationWithCredentialGate;
 
     // 当前工作流的重试上下文（用于在更新时保持 retryContext）
     const currentRetryContextRef = useRef<WorkflowRetryContext | null>(null);
@@ -5284,22 +5291,62 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 effectiveGenerationType === 'agent'
               ? 'text'
               : 'image';
-          const hasRouteCredentials = hasInvocationRouteCredentials(
+          await settingsManager.waitForInitialization();
+          if (abortIfSubmittedBoardChanged('settings_initialization')) return;
+          const initialRoute = resolveInvocationRoute(
             currentRouteType,
             effectiveSelectedModelRef || effectiveSelectedModel
           );
-          if (!hasRouteCredentials) {
-            const newApiKey = await promptForApiKey();
-            if (abortIfSubmittedBoardChanged('api_key_prompt')) return;
-            if (!newApiKey) {
-              trackSubmitStatus('cancelled', {
-                reason: 'missing_api_key',
-                submitMode: 'preflight',
-                submit_mode: 'preflight',
-              });
-              submitLockRef.current = false;
-              setIsSubmitting(false);
-              return;
+          let hasRouteCredentials = Boolean(
+            initialRoute.baseUrl && initialRoute.apiKey
+          );
+          const routePreparation = await prepareTuziManagedRoute(initialRoute);
+          if (!hasRouteCredentials || routePreparation.managedRoute) {
+            if (abortIfSubmittedBoardChanged('tuzi_context')) return;
+            hasRouteCredentials =
+              hasInvocationRouteCredentials(
+                currentRouteType,
+                effectiveSelectedModelRef || effectiveSelectedModel
+              ) &&
+              (!routePreparation.managedRoute ||
+                routePreparation.context?.status === 'ready');
+            if (!hasRouteCredentials && routePreparation.context && !override) {
+              const delegated =
+                await submitGenerationWithCredentialGateRef.current({
+                  prompt: effectivePrompt,
+                  selectedContent: effectiveContent,
+                  generationType: effectiveGenerationType,
+                  selectedModel: effectiveSelectedModel,
+                  selectedModelRef: effectiveSelectedModelRef,
+                  selectedParams: effectiveSelectedParams,
+                  selectedCount: effectiveSelectedCount,
+                  targetSessionId: targetChatSessionId,
+                });
+              if (delegated) {
+                clearSubmittedLocalInput();
+                trackSubmitStatus('cancelled', {
+                  reason: 'credential_setup_pending',
+                  submitMode: 'preflight',
+                  submit_mode: 'preflight',
+                });
+                submitLockRef.current = false;
+                setIsSubmitting(false);
+                return;
+              }
+            }
+            if (!hasRouteCredentials && !routePreparation.context) {
+              const newApiKey = await promptForApiKey();
+              if (abortIfSubmittedBoardChanged('api_key_prompt')) return;
+              if (!newApiKey) {
+                trackSubmitStatus('cancelled', {
+                  reason: 'missing_api_key',
+                  submitMode: 'preflight',
+                  submit_mode: 'preflight',
+                });
+                submitLockRef.current = false;
+                setIsSubmitting(false);
+                return;
+              }
             }
           }
           if (abortIfSubmittedBoardChanged('credentials_ready')) return;

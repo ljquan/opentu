@@ -18,6 +18,9 @@ OpenTu can run independently with user-managed provider credentials, but the Tuz
 - Keep the Tuzi API base URL fixed by trusted runtime configuration.
 - Allow refresh and managed-token rotation without exposing Token management controls in the normal OpenTu UI.
 - Allow connected users to reopen the authorized-group selector and add other managed group Providers without dropping their current selections.
+- Replace URL credential handoff with a runtime `postMessage` handshake initiated only when a send lacks a usable Provider.
+- Treat a validated Tuzi parent response as the only runtime switch for Tuzi guidance; after 10 seconds without a response, preserve the original manual API-key flow with no Tuzi UI or storage side effects.
+- Let the Tuzi parent return an existing system token or create one on request while keeping that credential in OpenTu memory only.
 
 ## Non-Goals
 
