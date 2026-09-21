@@ -348,6 +348,7 @@ describe('model-config image size options', () => {
     'doubao-seedance-2-0-mini-260615',
   ])('Seedance 2.0 参数与官方 JSON 契约一致：%s', (modelId) => {
     const params = getCompatibleParams(modelId);
+    expect(params.map((param) => param.id)).not.toContain('watermark');
     const options = (paramId: string) =>
       params
         .find((param) => param.id === paramId)
@@ -375,17 +376,13 @@ describe('model-config image size options', () => {
       'adaptive',
     ]);
     expect(params.map((param) => param.id)).toEqual(
-      expect.arrayContaining([
-        'generate_audio',
-        'watermark',
-        'seed',
-        'camera_fixed',
-      ])
+      expect.arrayContaining(['generate_audio', 'seed', 'camera_fixed'])
     );
   });
 
   it('Seedance 2.5 exposes its own duration and ratio boundaries', () => {
     const params = getCompatibleParams('doubao-seedance-2-5-260628');
+    expect(params.map((param) => param.id)).not.toContain('watermark');
     const options = (paramId: string) =>
       params
         .find((param) => param.id === paramId)

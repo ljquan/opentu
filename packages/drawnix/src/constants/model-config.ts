@@ -2281,20 +2281,6 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     modelType: 'video',
   },
   {
-    id: 'watermark',
-    label: '水印',
-    shortLabel: '水印',
-    description: '是否添加 Seedance 2.0 水印',
-    valueType: 'enum',
-    options: [
-      { value: 'true', label: '开启' },
-      { value: 'false', label: '关闭' },
-    ],
-    defaultValue: 'false',
-    compatibleModels: SEEDANCE_2_MODEL_IDS,
-    modelType: 'video',
-  },
-  {
     id: 'seed',
     label: '随机种子',
     shortLabel: 'Seed',

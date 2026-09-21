@@ -136,7 +136,6 @@ describe('seedance 2.0 video adapter', () => {
       ratio: '9:16',
       duration: 12,
       generate_audio: true,
-      watermark: false,
       seed: 0,
       camera_fixed: false,
     });
@@ -181,8 +180,8 @@ describe('seedance 2.0 video adapter', () => {
       ratio: '16:9',
       duration: 4,
       generate_audio: true,
-      watermark: false,
     });
+    expect(submitBody).not.toHaveProperty('watermark');
   });
 
   it('uses Seedance 2.5 duration and reference limits without 2.0-only controls', async () => {
@@ -225,6 +224,7 @@ describe('seedance 2.0 video adapter', () => {
           ],
           seed: '7',
           camera_fixed: 'true',
+          watermark: 'true',
         },
       }
     );
@@ -242,6 +242,7 @@ describe('seedance 2.0 video adapter', () => {
       duration: 30,
     });
     expect(submitBody.resolution).toBeUndefined();
+    expect(submitBody).not.toHaveProperty('watermark');
     expect(submitBody.seed).toBeUndefined();
     expect(submitBody.camera_fixed).toBeUndefined();
     expect(

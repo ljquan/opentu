@@ -548,12 +548,6 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
         '生成音频',
         modelLabel
       ),
-      watermark: parseBoolean(
-        request.params?.watermark,
-        false,
-        '水印',
-        modelLabel
-      ),
       ...(seed !== undefined ? { seed } : {}),
       ...(cameraFixed !== undefined ? { camera_fixed: cameraFixed } : {}),
     };
