@@ -5,7 +5,6 @@ import {
 } from './tuzi-managed-providers';
 import {
   requestTuziParentContext,
-  requestTuziParentAuthentication,
   type TuziBridgeContext,
 } from './tuzi-postmessage-bridge';
 import {
@@ -26,13 +25,7 @@ export async function prepareTuziManagedRoute(
     return { context: null, managedRoute: false };
   }
 
-  let context = await requestTuziParentContext({ refresh: managedRoute });
-  if (context?.status === 'unauthenticated') {
-    const authenticated = await requestTuziParentAuthentication();
-    if (authenticated) {
-      context = await requestTuziParentContext({ refresh: true });
-    }
-  }
+  const context = await requestTuziParentContext({ refresh: managedRoute });
   if (managedRoute && (!context || context.status !== 'ready')) {
     resetTuziSessionProviderSyncCache();
     await synchronizeTuziManagedProviders([]);

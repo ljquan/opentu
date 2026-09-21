@@ -35,9 +35,9 @@
 
 - [x] 5.1 Run focused Go tests and backend build checks.
 - [x] 5.2 Run focused Vitest tests, type checks, and frontend build.
-- [x] 5.3 Start both local services and verify managed Provider synchronization.
+- [ ] 5.3 Start both local services and verify managed Provider synchronization.
 - [x] 5.4 Review final diffs and update QA/documentation status.
-- [x] 5.5 Verify existing-token, missing-token creation, remembered-group and non-Tuzi fallback flows in a real browser.
+- [ ] 5.5 Verify existing-token, missing-token creation, remembered-group and non-Tuzi fallback flows in a real browser.
 
 ## 6. Generated-image previews
 
