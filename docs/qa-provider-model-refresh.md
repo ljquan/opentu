@@ -12,6 +12,9 @@ can discover models. The count includes audio models.
 
 Validation on 2026-09-21:
 
+- Final post-merge focused run: 36 tests passed and the known stale proxy URL
+  assertion was explicitly skipped. Drawnix TypeScript validation and diff
+  checks passed.
 - Follow-up for the 160 discovered image models versus 34 static image models:
   embedded mode previously excluded `legacy-default` without a Tuzi system
   token, even when its independent API key and base URL were configured.
