@@ -387,6 +387,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
   const [taskIdCounter, setTaskIdCounter] = useState<number>(6);
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const submitLockRef = useRef(false);
   const [knowledgeContextRefs, setKnowledgeContextRefs] = useState<
     KnowledgeContextRef[]
@@ -2091,6 +2092,8 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
 
   // 批量下载已选行的预览图（单张直接下载，多张打包zip）
   const downloadSelectedImages = useCallback(async () => {
+    if (isDownloading) return;
+
     const selectedRowIndices = [...selectedRows].sort((a, b) => a - b);
 
     if (selectedRowIndices.length === 0) {
@@ -2135,6 +2138,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     }
 
     // 智能下载（单张直接下载，多张打包zip）
+    setIsDownloading(true);
     try {
       MessagePlugin.info(
         language === 'zh' ? '正在准备下载...' : 'Preparing download...'
@@ -2175,8 +2179,10 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     } catch (error) {
       console.error('Download failed:', error);
       MessagePlugin.error(language === 'zh' ? '下载失败' : 'Download failed');
+    } finally {
+      setIsDownloading(false);
     }
-  }, [selectedRows, tasks, queueTasks, language]);
+  }, [isDownloading, selectedRows, tasks, queueTasks, language]);
 
   // 执行实际的任务提交
   const executeSubmit = useCallback(
@@ -3386,11 +3392,20 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               theme="default"
               icon={<DownloadIcon />}
               onClick={downloadSelectedImages}
+              disabled={isDownloading}
+              loading={isDownloading}
+              aria-busy={isDownloading}
               className="batch-download-btn"
               data-track="batch_download_images_click"
               data-track-params={JSON.stringify({ count: selectedRows.size })}
             >
-              {language === 'zh' ? '下载选中图片' : 'Download'}
+              {isDownloading
+                ? language === 'zh'
+                  ? '下载中...'
+                  : 'Downloading...'
+                : language === 'zh'
+                ? '下载选中图片'
+                : 'Download'}
             </Button>
           </div>
 
