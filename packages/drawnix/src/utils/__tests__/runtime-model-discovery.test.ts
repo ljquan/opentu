@@ -825,7 +825,7 @@ describe('runtime-model-discovery', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      'http://localhost:3000/__opentu_tuzi_session__/v1/models',
+      'https://api.tu-zi.com/v1/models',
       expect.any(Object)
     );
     expect(models[0]).toMatchObject({
