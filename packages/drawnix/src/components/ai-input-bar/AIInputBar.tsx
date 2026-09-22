@@ -6096,10 +6096,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               return;
             }
           } catch (swError) {
-            console.warn(
-              '[AIInputBar] SW execution failed, falling back to main thread:',
-              swError
-            );
+            // Submission now runs on the main thread; a failed preparation
+            // must reach the outer cleanup instead of starting generation.
+            console.warn('[AIInputBar] Workflow preparation failed:', swError);
+            throw swError;
           }
           if (abortIfSubmittedBoardChanged('service_worker_fallback')) return;
           if (board && publishedTaskTargetElementId) {
