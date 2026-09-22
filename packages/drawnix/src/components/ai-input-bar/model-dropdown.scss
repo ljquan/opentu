@@ -530,6 +530,12 @@ $green-health: #10b981;
     color: $orange-dark;
     cursor: pointer;
     transition: all 0.15s ease;
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0;
+    white-space: nowrap;
 
     &:hover {
       background: rgba($orange-primary, 0.12);

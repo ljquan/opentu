@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -11,13 +12,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModelVendor, type ModelConfig } from '../../constants/model-config';
 import { ModelDropdown } from './ModelDropdown';
 
-const { discoverMock, applySelectionMock, setErrorMock, getStateMock } =
-  vi.hoisted(() => ({
-    discoverMock: vi.fn(),
-    applySelectionMock: vi.fn(),
-    setErrorMock: vi.fn(),
-    getStateMock: vi.fn(),
-  }));
+const {
+  discoverMock,
+  applySelectionMock,
+  setErrorMock,
+  getStateMock,
+  isTuziEmbeddedModeMock,
+  requestContextMock,
+  queueNavigationMock,
+  saveActiveGroupMock,
+} = vi.hoisted(() => ({
+  discoverMock: vi.fn(),
+  applySelectionMock: vi.fn(),
+  setErrorMock: vi.fn(),
+  getStateMock: vi.fn(),
+  isTuziEmbeddedModeMock: vi.fn(),
+  requestContextMock: vi.fn(),
+  queueNavigationMock: vi.fn(),
+  saveActiveGroupMock: vi.fn(),
+}));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
   runtimeModelDiscovery: {
@@ -43,6 +56,27 @@ vi.mock('../../hooks/use-provider-profiles', () => ({
       enabled: true,
     },
   ],
+}));
+
+vi.mock('../../services/tuzi-embedded-config', () => ({
+  isTuziEmbeddedMode: isTuziEmbeddedModeMock,
+}));
+
+vi.mock('../../services/tuzi-postmessage-bridge', () => ({
+  TUZI_BRIDGE_EVENT: 'opentu:tuzi-bridge-status',
+  requestTuziParentContext: requestContextMock,
+}));
+
+vi.mock('../../services/tuzi-token-auth', () => ({
+  getTuziSystemUserId: () => '40832',
+}));
+
+vi.mock('../../services/tuzi-provider-selection', () => ({
+  saveTuziActiveProviderGroup: saveActiveGroupMock,
+}));
+
+vi.mock('../settings-dialog/provider-settings-navigation', () => ({
+  queueProviderSettingsNavigation: queueNavigationMock,
 }));
 
 vi.mock('../../utils/settings-manager', () => ({
@@ -84,6 +118,8 @@ vi.mock('../shared/ModelBenchmarkBadge', () => ({
 
 describe('ModelDropdown', () => {
   beforeEach(() => {
+    isTuziEmbeddedModeMock.mockReturnValue(false);
+    requestContextMock.mockResolvedValue(null);
     discoverMock.mockResolvedValue([]);
     getStateMock.mockReturnValue({
       status: 'idle',
@@ -99,6 +135,10 @@ describe('ModelDropdown', () => {
     applySelectionMock.mockReset();
     setErrorMock.mockReset();
     getStateMock.mockReset();
+    isTuziEmbeddedModeMock.mockReset();
+    requestContextMock.mockReset();
+    queueNavigationMock.mockReset();
+    saveActiveGroupMock.mockReset();
     cleanup();
   });
 
@@ -112,6 +152,105 @@ describe('ModelDropdown', () => {
     sourceProfileName: 'Tuzi Provider',
     selectionKey: 'tuzi-provider::gpt-image-2',
   };
+
+  it('shows the Tuzi add-group action and opens group management', async () => {
+    const managedModel: ModelConfig = {
+      ...baseModel,
+      sourceProfileId: 'tuzi-managed-default',
+      sourceProfileName: 'default 分组',
+      selectionKey: 'tuzi-managed-default::gpt-image-2',
+    };
+    const { container } = render(
+      <ModelDropdown
+        selectedModel={managedModel.id}
+        selectedSelectionKey={managedModel.selectionKey}
+        models={[managedModel]}
+        providerProfilesOverride={[
+          {
+            id: 'tuzi-managed-default',
+            name: 'default 分组',
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'sk-managed',
+            pricingGroup: 'default',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+          },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    await act(async () => undefined);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('opentu:tuzi-bridge-status', {
+          detail: { mode: 'tuzi' },
+        })
+      );
+    });
+
+    fireEvent.mouseDown(
+      container.querySelector(
+        '.model-dropdown__trigger--minimal'
+      ) as HTMLElement
+    );
+    const addGroupButton = await waitFor(() => {
+      const button = document.querySelector(
+        '.model-dropdown__provider-action'
+      ) as HTMLButtonElement | null;
+      expect(button?.textContent).toContain('添加分组');
+      return button as HTMLButtonElement;
+    });
+    fireEvent.click(addGroupButton);
+
+    await waitFor(() =>
+      expect(queueNavigationMock).toHaveBeenCalledWith({
+        action: 'tuzi-groups',
+      })
+    );
+  });
+
+  it('switches the remembered active group when selecting its model', async () => {
+    const onSelect = vi.fn();
+    const managedModel: ModelConfig = {
+      ...baseModel,
+      sourceProfileId: 'tuzi-managed-vip',
+      sourceProfileName: 'vip 分组',
+      selectionKey: 'tuzi-managed-vip::gpt-image-2',
+    };
+    render(
+      <ModelDropdown
+        selectedModel=""
+        models={[managedModel]}
+        isOpen
+        providerProfilesOverride={[
+          {
+            id: 'tuzi-managed-vip',
+            name: 'vip 分组',
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'sk-vip',
+            pricingGroup: 'vip',
+            enabled: true,
+            providerType: 'openai-compatible',
+            authType: 'bearer',
+          },
+        ]}
+        onSelect={onSelect}
+      />
+    );
+
+    fireEvent.change(
+      screen.getByPlaceholderText('搜索模型名 / 展示名 / 供应商'),
+      {
+        target: { value: 'gpt-image-2' },
+      }
+    );
+    fireEvent.click(await screen.findByRole('option', { hidden: true }));
+
+    expect(saveActiveGroupMock).toHaveBeenCalledWith('40832', 'vip');
+    expect(onSelect).toHaveBeenCalled();
+  });
 
   function mockRect(
     element: Element,

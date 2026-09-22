@@ -6,8 +6,8 @@
   --tuzi-panel-soft-border: #edf1f5;
   --tuzi-panel-surface: #ffffff;
   --tuzi-panel-surface-soft: #f8fafc;
-  --tuzi-panel-accent: #f59e0b;
-  --tuzi-panel-accent-soft: #fff7e8;
+  --tuzi-panel-accent: #3478e5;
+  --tuzi-panel-accent-soft: #edf4ff;
 
   min-height: 0;
   height: 100%;
@@ -344,7 +344,7 @@
       }
 
       &.is-active {
-        border-color: #f7c76f;
+        border-color: #9cc2ff;
         background: var(--tuzi-panel-accent-soft);
         color: #111827;
         box-shadow: inset 3px 0 0 var(--tuzi-panel-accent);
@@ -574,6 +574,7 @@
       border: 1px solid var(--tuzi-panel-border);
       border-radius: 6px;
       background: #fff;
+
       cursor: pointer;
 
       input {
@@ -604,9 +605,30 @@
       }
 
       &.is-selected {
-        border-color: #f3b34c;
-        background: #fffaf0;
+        border-color: #76a9fa;
+        background: var(--tuzi-panel-accent-soft);
       }
+    }
+  }
+
+  &__selection-complete {
+    min-height: 92px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 16px;
+    border: 1px solid #b9d3ff;
+    border-radius: 6px;
+    background: var(--tuzi-panel-accent-soft);
+
+    strong {
+      color: #1f5fbf;
+      font-size: 14px;
+    }
+
+    span {
+      color: var(--tuzi-panel-muted);
     }
   }
 
@@ -790,13 +812,17 @@
       gap: 12px;
       padding: 10px 14px;
       background: #fff;
+
+      &.is-active {
+        background: var(--tuzi-panel-accent-soft);
+      }
     }
 
     > div + div {
       border-top: 1px solid var(--tuzi-panel-soft-border);
     }
 
-    > div > div {
+    .tuzi-account-panel__provider-copy {
       min-width: 0;
       display: flex;
       flex-direction: column;
@@ -814,6 +840,34 @@
       span {
         color: var(--tuzi-panel-muted);
         font-size: 12px;
+      }
+    }
+
+    .tuzi-account-panel__provider-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tuzi-account-panel__active-provider {
+      min-width: 94px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 10px;
+      border: 1px solid var(--tuzi-panel-border);
+      border-radius: 6px;
+      color: #344054;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 650;
+      cursor: pointer;
+
+      input {
+        margin: 0;
+        accent-color: var(--tuzi-panel-accent);
       }
     }
 

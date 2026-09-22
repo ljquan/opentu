@@ -3,6 +3,7 @@ import { prepareTuziManagedRoute } from '../tuzi-managed-route-gate';
 
 const mocks = vi.hoisted(() => ({
   requestContext: vi.fn(),
+  requestAuthentication: vi.fn(),
   synchronizeProviders: vi.fn(),
   resetSyncCache: vi.fn(),
   syncProviders: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../tuzi-postmessage-bridge', () => ({
   requestTuziParentContext: mocks.requestContext,
+  requestTuziParentAuthentication: mocks.requestAuthentication,
 }));
 vi.mock('../tuzi-managed-providers', () => ({
   isTuziManagedProviderProfileId: (profileId: unknown) =>
@@ -26,6 +28,7 @@ describe('prepareTuziManagedRoute', () => {
     vi.clearAllMocks();
     mocks.synchronizeProviders.mockResolvedValue(undefined);
     mocks.syncProviders.mockResolvedValue(true);
+    mocks.requestAuthentication.mockResolvedValue(true);
   });
 
   it('does not contact a parent for an ordinary configured provider', async () => {
@@ -34,6 +37,35 @@ describe('prepareTuziManagedRoute', () => {
     ).resolves.toEqual({ context: null, managedRoute: false });
 
     expect(mocks.requestContext).not.toHaveBeenCalled();
+  });
+
+  it('requests parent authentication before the first provider is configured', async () => {
+    mocks.requestContext
+      .mockResolvedValueOnce({
+        environment: 'tuzi-api',
+        status: 'unauthenticated',
+        userId: '',
+        groups: [],
+      })
+      .mockResolvedValueOnce({
+        environment: 'tuzi-api',
+        status: 'need_system_token',
+        userId: '42',
+        groups: [],
+      });
+
+    await expect(
+      prepareTuziManagedRoute({ profileId: 'custom-openai', apiKey: '' })
+    ).resolves.toMatchObject({
+      context: { status: 'need_system_token', userId: '42' },
+      managedRoute: false,
+    });
+
+    expect(mocks.requestAuthentication).toHaveBeenCalledOnce();
+    expect(mocks.requestContext).toHaveBeenNthCalledWith(1, {
+      refresh: false,
+    });
+    expect(mocks.requestContext).toHaveBeenNthCalledWith(2, { refresh: true });
   });
 
   it('clears a stale managed key when the current user needs a token', async () => {

@@ -2,7 +2,8 @@ export const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
 
 export type ProviderNavigationIntent =
   | { action: 'select'; profileId: string }
-  | { action: 'create' };
+  | { action: 'create' }
+  | { action: 'tuzi-groups' };
 
 export function queueProviderSettingsNavigation(
   intent: ProviderNavigationIntent

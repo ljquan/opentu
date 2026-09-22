@@ -8,6 +8,8 @@ import { CryptoUtils } from './crypto-utils';
 import { DRAWNIX_SETTINGS_KEY } from '../constants/storage';
 import { configIndexedDBWriter } from './config-indexeddb-writer';
 import { isTuziEmbeddedMode } from '../services/tuzi-embedded-config';
+import { getTuziSystemUserId } from '../services/tuzi-token-auth';
+import { resolveTuziActiveProviderGroup } from '../services/tuzi-provider-selection';
 import type { GeminiConfig } from './gemini-api/types';
 import type { VideoAPIConfig } from './config-indexeddb-writer';
 import type { ProviderPricingCache } from './model-pricing-types';
@@ -1836,7 +1838,12 @@ class SettingsManager {
         profile.enabled !== false &&
         Boolean(profile.apiKey?.trim())
     );
+    const activeGroup = resolveTuziActiveProviderGroup(
+      getTuziSystemUserId(),
+      managed.map((profile) => profile.pricingGroup || '')
+    );
     return (
+      managed.find((profile) => profile.pricingGroup === activeGroup) ||
       managed.find((profile) => profile.pricingGroup === 'default') ||
       managed[0] ||
       null
@@ -2059,10 +2066,11 @@ class SettingsManager {
         null
     );
     const hasExplicitProfile = Boolean(requestedModelRef?.profileId);
+    const profileIsManaged = profile?.id.startsWith('tuzi-managed-') === true;
     if (
-      !hasExplicitProfile &&
       isTuziEmbeddedMode() &&
-      (!profile || !profile.apiKey?.trim())
+      ((!hasExplicitProfile && (!profile || !profile.apiKey?.trim())) ||
+        profileIsManaged)
     ) {
       profile = this.getEmbeddedManagedProvider();
     }

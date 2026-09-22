@@ -1158,6 +1158,7 @@ export const SettingsDialog = ({
   const [activeView, setActiveView] = useState<SettingsView>(() =>
     tuziMode ? 'tuzi-account' : 'providers'
   );
+  const [tuziGroupPickerRequest, setTuziGroupPickerRequest] = useState(0);
   const [selectedProfileId, setSelectedProfileId] = useState(
     LEGACY_DEFAULT_PROVIDER_PROFILE_ID
   );
@@ -1967,6 +1968,12 @@ export const SettingsDialog = ({
     baseProfiles?: ProviderProfile[]
   ) => {
     const sourceProfiles = baseProfiles || profilesDraft;
+
+    if (intent.action === 'tuzi-groups') {
+      setActiveView('tuzi-account');
+      setTuziGroupPickerRequest((current) => current + 1);
+      return sourceProfiles;
+    }
 
     setActiveView('providers');
     if (isCompactLayout) {
@@ -4747,6 +4754,7 @@ export const SettingsDialog = ({
         <TuziAccountPanel
           onProvidersChanged={handleTuziProvidersChanged}
           onSetupCompleted={closeSettingsDialog}
+          openProviderSelectionRequest={tuziGroupPickerRequest}
         />
       );
     }

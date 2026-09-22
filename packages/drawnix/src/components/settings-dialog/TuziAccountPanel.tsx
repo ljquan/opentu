@@ -45,6 +45,8 @@ import {
 import {
   clearTuziProviderGroupSelection,
   getTuziProviderGroupSelection,
+  resolveTuziActiveProviderGroup,
+  saveTuziActiveProviderGroup,
   saveTuziProviderGroupSelection,
 } from '../../services/tuzi-provider-selection';
 import {
@@ -607,15 +609,18 @@ function localManagedProviders(
 interface TuziAccountPanelProps {
   onProvidersChanged?: () => void;
   onSetupCompleted?: () => void;
+  openProviderSelectionRequest?: number;
 }
 
 export function TuziAccountPanel({
   onProvidersChanged,
   onSetupCompleted,
+  openProviderSelectionRequest = 0,
 }: TuziAccountPanelProps) {
   const accountRequestVersion = useRef(0);
   const modelsRequestVersion = useRef(0);
   const logsRequestVersion = useRef(0);
+  const handledProviderSelectionRequest = useRef(0);
   const refreshProvidersOnNextLoad = useRef(false);
   const initialStoredSelection = getTuziProviderGroupSelection(
     getTuziSystemUserId()
@@ -640,11 +645,22 @@ export function TuziAccountPanel({
   const [providers, setProviders] = useState<TuziManagedProvider[]>(() =>
     localManagedProviders(initialStoredSelection)
   );
+  const [activeGroup, setActiveGroup] = useState(
+    () =>
+      resolveTuziActiveProviderGroup(
+        getTuziSystemUserId(),
+        localManagedProviders(initialStoredSelection).map(
+          (provider) => provider.group
+        )
+      ) || ''
+  );
   const [availableGroups, setAvailableGroups] = useState<TuziProviderGroup[]>(
     []
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [providerSelectionPending, setProviderSelectionPending] =
+    useState(false);
+  const [providerSelectionCompleted, setProviderSelectionCompleted] =
     useState(false);
   const [providerSelectionLoading, setProviderSelectionLoading] =
     useState(false);
@@ -685,6 +701,7 @@ export function TuziAccountPanel({
       setSystemToken(nextContext.systemToken || '');
       setAvailableGroups(nextContext.groups);
       setSelectedGroups([]);
+      setProviderSelectionCompleted(false);
       providerSelectionRequired.current = true;
       refreshProvidersOnNextLoad.current = true;
       resetTuziSessionProviderSyncCache();
@@ -728,6 +745,7 @@ export function TuziAccountPanel({
     setAvailableGroups([]);
     setSelectedGroups([]);
     setProviderSelectionPending(false);
+    setProviderSelectionCompleted(false);
     setProviderSelectionLoading(false);
     setProviderSelectionFailed(false);
     providerSelectionRequired.current = true;
@@ -763,6 +781,7 @@ export function TuziAccountPanel({
     setAvailableGroups([]);
     setSelectedGroups([]);
     setProviderSelectionPending(false);
+    setProviderSelectionCompleted(false);
     setProviderSelectionLoading(false);
     setProviderSelectionFailed(false);
     providerSelectionRequired.current = true;
@@ -838,6 +857,7 @@ export function TuziAccountPanel({
         // Reveal the selection step immediately. Account and provider work is
         // the second phase and must not hide this first, actionable screen.
         setProviderSelectionPending(true);
+        setProviderSelectionCompleted(false);
         setProviderSelectionLoading(true);
         setProviderSelectionFailed(false);
       }
@@ -855,10 +875,15 @@ export function TuziAccountPanel({
             : localManagedProviders().map((provider) => provider.group);
           const allowedGroups = new Set(nextGroups.map((group) => group.group));
           setAvailableGroups(nextGroups);
+          const initialSelection =
+            persistedSelection ??
+            (existingSelection.length > 0
+              ? existingSelection
+              : nextGroups.some((group) => group.group === 'default')
+                ? ['default']
+                : []);
           setSelectedGroups(
-            (persistedSelection || existingSelection).filter((group) =>
-              allowedGroups.has(group)
-            )
+            initialSelection.filter((group) => allowedGroups.has(group))
           );
           setProviderSelectionLoading(false);
           setProviderSelectionFailed(false);
@@ -902,8 +927,8 @@ export function TuziAccountPanel({
         setAccount(nextAccount);
         hasCachedAccount = true;
         setLoading(false);
-        setSystemUserId(String(nextAccount.id));
-        if (!isTuziBridgeConnected()) {
+        if (!systemUserId) {
+          setSystemUserId(String(nextAccount.id));
           saveTuziSystemUserId(nextAccount.id);
         }
         void displayConfigPromise.then((nextDisplayConfig) => {
@@ -1025,20 +1050,35 @@ export function TuziAccountPanel({
   ]);
 
   const applyProviderSelection = useCallback(async () => {
+    if (providerSelectionCompleted) {
+      setProviderSelectionPending(false);
+      setProviderSelectionCompleted(false);
+      onSetupCompletedRef.current?.();
+      return;
+    }
     if (loading || providerSelectionLoading || providerSelectionFailed) return;
-    const selectionUserId = account?.id || systemUserId;
+    const selectionUserId = systemUserId || account?.id;
     if (!selectionUserId) return;
     saveTuziProviderGroupSelection(selectionUserId, selectedGroups);
-    setProviderSelectionPending(false);
+    const nextActiveGroup = resolveTuziActiveProviderGroup(
+      selectionUserId,
+      selectedGroups
+    );
+    if (nextActiveGroup) {
+      saveTuziActiveProviderGroup(selectionUserId, nextActiveGroup);
+      setActiveGroup(nextActiveGroup);
+    }
+    setProviderSelectionCompleted(false);
     resetTuziSessionProviderSyncCache();
     const completed = await load(true, true, selectedGroups);
-    if (completed) onSetupCompletedRef.current?.();
+    if (completed) setProviderSelectionCompleted(true);
   }, [
     account,
     load,
     loading,
     providerSelectionFailed,
     providerSelectionLoading,
+    providerSelectionCompleted,
     selectedGroups,
     systemUserId,
   ]);
@@ -1064,6 +1104,55 @@ export function TuziAccountPanel({
     rotatingGroup,
     systemToken,
   ]);
+
+  useEffect(() => {
+    if (
+      openProviderSelectionRequest <= handledProviderSelectionRequest.current ||
+      loading ||
+      providersLoading ||
+      modelsLoading ||
+      rotatingGroup !== null ||
+      providerSelectionPending ||
+      !systemToken
+    ) {
+      return;
+    }
+    handledProviderSelectionRequest.current = openProviderSelectionRequest;
+    openProviderSelection();
+  }, [
+    loading,
+    modelsLoading,
+    openProviderSelection,
+    openProviderSelectionRequest,
+    providerSelectionPending,
+    providersLoading,
+    rotatingGroup,
+    systemToken,
+  ]);
+
+  useEffect(() => {
+    const selectionUserId = systemUserId || account?.id;
+    if (!selectionUserId || providers.length === 0) return;
+    const nextActiveGroup = resolveTuziActiveProviderGroup(
+      selectionUserId,
+      providers.map((provider) => provider.group)
+    );
+    if (!nextActiveGroup) return;
+    setActiveGroup(nextActiveGroup);
+    saveTuziActiveProviderGroup(selectionUserId, nextActiveGroup);
+  }, [account?.id, providers, systemUserId]);
+
+  const handleActiveGroupChange = useCallback(
+    (group: string) => {
+      const selectionUserId = systemUserId || account?.id;
+      if (!selectionUserId || !providers.some((item) => item.group === group)) {
+        return;
+      }
+      saveTuziActiveProviderGroup(selectionUserId, group);
+      setActiveGroup(group);
+    },
+    [account?.id, providers, systemUserId]
+  );
 
   const rotateProvider = useCallback(
     async (group: string) => {
@@ -1441,14 +1530,23 @@ export function TuziAccountPanel({
               >
                 <div className="tuzi-account-panel__section-heading">
                   <div>
-                    <h3 id="tuzi-provider-selection-title">选择要连接的分组</h3>
+                    <h3 id="tuzi-provider-selection-title">
+                      {providerSelectionCompleted ? '分组已新增' : '选择要新增的分组'}
+                    </h3>
                     <span>
-                      未勾选的分组不会创建 API Key，也不会出现在供应商中。
+                      {providerSelectionCompleted
+                        ? '已创建的分组已添加到 OpenTu 供应商列表。'
+                        : '勾选后将为这些分组创建 API Key，并添加到 OpenTu 的供应商列表中。'}
                     </span>
                   </div>
                   <span>{selectedGroups.length} 个已选</span>
                 </div>
-                {providerSelectionLoading ? (
+                {providerSelectionCompleted ? (
+                  <div className="tuzi-account-panel__selection-complete">
+                    <strong>配置已完成</strong>
+                    <span>当前使用分组：{activeGroup || 'default'}</span>
+                  </div>
+                ) : providerSelectionLoading ? (
                   <div className="tuzi-account-panel__loading">
                     <Loader2 size={18} className="is-spinning" />
                     <span>正在读取可用分组</span>
@@ -1500,7 +1598,7 @@ export function TuziAccountPanel({
                     {loading ? (
                       <Loader2 size={16} className="is-spinning" />
                     ) : null}
-                    确认并继续
+                    {providerSelectionCompleted ? '完成' : '创建并继续'}
                   </button>
                 </div>
               </section>
@@ -1635,33 +1733,55 @@ export function TuziAccountPanel({
                   {providers.length ? (
                     <div className="tuzi-account-panel__providers">
                       {providers.map((provider) => (
-                        <div key={provider.id}>
-                          <div>
+                        <div
+                          key={provider.id}
+                          className={
+                            activeGroup === provider.group ? 'is-active' : ''
+                          }
+                        >
+                          <div className="tuzi-account-panel__provider-copy">
                             <strong>
                               {provider.displayName || provider.group}
                             </strong>
                             <span>{provider.group}</span>
                           </div>
-                          <HoverTip
-                            content={`换新 ${provider.group} 分组 Key`}
-                            showArrow={false}
-                          >
-                            <button
-                              type="button"
-                              aria-label={`换新 ${provider.group} 分组 Key`}
-                              disabled={rotatingGroup !== null}
-                              onClick={() =>
-                                void rotateProvider(provider.group)
-                              }
+                          <div className="tuzi-account-panel__provider-actions">
+                            <label className="tuzi-account-panel__active-provider">
+                              <input
+                                type="radio"
+                                name="tuzi-active-provider-group"
+                                checked={activeGroup === provider.group}
+                                onChange={() =>
+                                  handleActiveGroupChange(provider.group)
+                                }
+                              />
+                              <span>
+                                {activeGroup === provider.group
+                                  ? '当前使用'
+                                  : '设为当前'}
+                              </span>
+                            </label>
+                            <HoverTip
+                              content={`换新 ${provider.group} 分组 Key`}
+                              showArrow={false}
                             >
-                              {rotatingGroup === provider.group ? (
-                                <Loader2 size={16} className="is-spinning" />
-                              ) : (
-                                <KeyRound size={16} />
-                              )}
-                              <span>换新 Key</span>
-                            </button>
-                          </HoverTip>
+                              <button
+                                type="button"
+                                aria-label={`换新 ${provider.group} 分组 Key`}
+                                disabled={rotatingGroup !== null}
+                                onClick={() =>
+                                  void rotateProvider(provider.group)
+                                }
+                              >
+                                {rotatingGroup === provider.group ? (
+                                  <Loader2 size={16} className="is-spinning" />
+                                ) : (
+                                  <KeyRound size={16} />
+                                )}
+                                <span>换新 Key</span>
+                              </button>
+                            </HoverTip>
+                          </div>
                         </div>
                       ))}
                     </div>
