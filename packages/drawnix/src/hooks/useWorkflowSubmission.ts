@@ -34,7 +34,6 @@ import { PlaitBoard } from '@plait/core';
 import { geminiSettings } from '../utils/settings-manager';
 import { useTaskWorkflowSync } from './useTaskWorkflowSync';
 import { toWorkflowMessageData } from './workflow-message-data';
-import { withWorkflowSubmissionTimeout } from '../utils/workflow-submission-timeout';
 
 export { toWorkflowMessageData } from './workflow-message-data';
 
@@ -634,17 +633,14 @@ export function useWorkflowSubmission(
         legacyWorkflow,
         finalRetryContext
       );
-      await withWorkflowSubmissionTimeout((signal) =>
-        sendWorkflowMessageRef.current({
-          signal,
-          context: finalRetryContext.aiContext,
-          workflow: workflowMessageData,
-          textModel,
-          autoOpen: false,
-          appendToCurrentSession: options?.appendToCurrentChatSession,
-          appendToSessionId: options?.targetSessionId,
-        })
-      );
+      await sendWorkflowMessageRef.current({
+        context: finalRetryContext.aiContext,
+        workflow: workflowMessageData,
+        textModel,
+        autoOpen: false,
+        appendToCurrentSession: options?.appendToCurrentChatSession,
+        appendToSessionId: options?.targetSessionId,
+      });
 
       // 工作流由 AIInputBar 的现有主线程执行链继续处理。
       return { workflowId: legacyWorkflow.id, usedSW: false };

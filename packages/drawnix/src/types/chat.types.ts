@@ -328,7 +328,6 @@ export interface AIInputContext {
 
 /** 工作流消息参数 */
 export interface WorkflowMessageParams {
-  signal?: AbortSignal;
   /** 完整的 AI 输入上下文 */
   context: AIInputContext;
   /** 工作流数据 */

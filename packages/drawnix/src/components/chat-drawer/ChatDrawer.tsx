@@ -1095,7 +1095,6 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
     // 发送工作流消息
     const handleSendWorkflowMessage = useCallback(
       async (params: WorkflowMessageParams) => {
-        params.signal?.throwIfAborted();
         const {
           context,
           workflow,
@@ -1201,10 +1200,8 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           targetSessionId = sessionTarget.sessionId;
         } else {
           const newSession = await chatStorageService.createSession();
-          params.signal?.throwIfAborted();
           const title = titleText;
           await chatStorageService.updateSession(newSession.id, { title });
-          params.signal?.throwIfAborted();
           newSession.title = title;
 
           setSessions((prev) => [newSession, ...prev]);
@@ -1310,7 +1307,6 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
               : undefined,
         };
         await chatStorageService.addMessage(userChatMsg);
-        params.signal?.throwIfAborted();
 
         // 持久化工作流消息到本地存储
         const workflowChatMsg: ChatMessageType = {
@@ -1323,17 +1319,14 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           workflow: workflow,
         };
         await chatStorageService.addMessage(workflowChatMsg);
-        params.signal?.throwIfAborted();
 
         const session = await chatStorageService.getSession(targetSessionId);
-        params.signal?.throwIfAborted();
         const nextUpdatedAt = Date.now();
         const nextMessageCount = (session?.messageCount || 0) + 2;
         await chatStorageService.updateSession(targetSessionId, {
           updatedAt: nextUpdatedAt,
           messageCount: nextMessageCount,
         });
-        params.signal?.throwIfAborted();
         setSessions((prev) =>
           prev.map((item) =>
             item.id === targetSessionId
