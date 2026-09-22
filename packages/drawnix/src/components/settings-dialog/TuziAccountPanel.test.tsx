@@ -398,7 +398,7 @@ describe('TuziAccountPanel', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '替换令牌' }));
 
-    expect(await screen.findByText('选择要连接的分组')).not.toBeNull();
+    expect(await screen.findByText('选择要新增的分组')).not.toBeNull();
     expect(screen.queryByText('正在读取账户数据')).toBeNull();
     expect(synchronizeTuziManagedProviders).not.toHaveBeenCalled();
   });
@@ -427,7 +427,7 @@ describe('TuziAccountPanel', () => {
     expect(
       (
         screen.getByRole('button', {
-          name: '确认并继续',
+          name: '创建并继续',
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true);
@@ -501,22 +501,16 @@ describe('TuziAccountPanel', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '替换令牌' }));
 
-    expect(await screen.findByText('选择要连接的分组')).not.toBeNull();
+    expect(await screen.findByText('选择要新增的分组')).not.toBeNull();
     expect(ensureManagedProviders).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('checkbox', { name: /VIP/ }));
-    fireEvent.click(screen.getByRole('button', { name: '确认并继续' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建并继续' }));
 
     expect(await screen.findByText('Next Tuzi User')).not.toBeNull();
-    expect(
-      await screen.findByRole('button', { name: '换新 vip 分组 Key' })
-    ).not.toBeNull();
-    expect(await screen.findByText('9')).not.toBeNull();
-    expect(await screen.findByText('Provider 同步中')).not.toBeNull();
-    expect(screen.queryByText('正在读取账户数据')).toBeNull();
-    expect(ensureManagedProviders).toHaveBeenCalledWith(['vip']);
-
     resolveProviderSync();
+    expect(ensureManagedProviders).toHaveBeenCalledWith(['default', 'vip']);
+
     expect(await screen.findByText('模型同步中')).not.toBeNull();
     expect(screen.queryByText('正在读取账户数据')).toBeNull();
     expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([
@@ -525,7 +519,12 @@ describe('TuziAccountPanel', () => {
     expect(onProvidersChanged).toHaveBeenCalledTimes(2);
 
     resolveDiscovery(1);
-    await waitFor(() => expect(screen.getByText('已同步')).not.toBeNull());
+    await waitFor(() => expect(screen.getByText('配置已完成')).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(
+      await screen.findByRole('button', { name: '换新 vip 分组 Key' })
+    ).not.toBeNull();
+    expect(await screen.findByText('9')).not.toBeNull();
   });
 
   it('rotates provider keys from the balance view', async () => {
@@ -549,6 +548,7 @@ describe('TuziAccountPanel', () => {
 
   it('adds another authorized group without dropping the current group', async () => {
     const { TuziAccountPanel } = await import('./TuziAccountPanel');
+    const onSetupCompleted = vi.fn();
     ensureManagedProviders.mockResolvedValueOnce([
       {
         id: 'tuzi-managed-default',
@@ -568,13 +568,13 @@ describe('TuziAccountPanel', () => {
       },
     ]);
 
-    render(<TuziAccountPanel />);
+    render(<TuziAccountPanel onSetupCompleted={onSetupCompleted} />);
 
     fireEvent.click(
       await screen.findByRole('button', { name: '获取其他分组' })
     );
 
-    expect(await screen.findByText('选择要连接的分组')).not.toBeNull();
+    expect(await screen.findByText('选择要新增的分组')).not.toBeNull();
     expect(getProviderGroups).toHaveBeenCalledTimes(1);
     expect(
       (screen.getByRole('checkbox', { name: /default/ }) as HTMLInputElement)
@@ -586,11 +586,49 @@ describe('TuziAccountPanel', () => {
     expect(vipCheckbox.checked).toBe(false);
 
     fireEvent.click(vipCheckbox);
-    fireEvent.click(screen.getByRole('button', { name: '确认并继续' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建并继续' }));
 
     await waitFor(() =>
       expect(ensureManagedProviders).toHaveBeenCalledWith(['default', 'vip'])
     );
+    expect(await screen.findByText('配置已完成')).not.toBeNull();
+    expect(onSetupCompleted).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    expect(onSetupCompleted).toHaveBeenCalledOnce();
+  });
+
+  it('remembers the active group for the system-token user', async () => {
+    getProfiles.mockReturnValue([
+      {
+        id: 'tuzi-managed-default',
+        name: 'default',
+        pricingGroup: 'default',
+        apiKey: 'sk-default',
+        enabled: true,
+      },
+      {
+        id: 'tuzi-managed-vip',
+        name: 'VIP',
+        pricingGroup: 'vip',
+        apiKey: 'sk-vip',
+        enabled: true,
+      },
+    ]);
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
+    render(<TuziAccountPanel />);
+
+    const vipRadio = await screen.findByRole('radio', { name: '设为当前' });
+    fireEvent.click(vipRadio);
+
+    expect(
+      JSON.parse(
+        window.localStorage.getItem('opentu.tuzi.active-provider-group.v1') ||
+          '{}'
+      )
+    ).toEqual({ '40832': 'vip' });
+    expect(screen.getByRole('radio', { name: '当前使用' })).toBe(vipRadio);
   });
 
   it('shows logs in the logs view with pagination', async () => {

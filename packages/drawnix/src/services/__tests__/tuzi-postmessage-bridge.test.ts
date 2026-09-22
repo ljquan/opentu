@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createTuziSystemToken,
   getTuziBridgeMode,
+  requestTuziParentAuthentication,
   requestTuziParentContext,
   resetTuziBridgeForTests,
 } from '../tuzi-postmessage-bridge';
@@ -119,6 +120,50 @@ describe('Tuzi postMessage bridge', () => {
     expect(
       window.localStorage.getItem('opentu.tuzi.systemUserId.v1')
     ).toBeNull();
+  });
+
+  it('requests Tuzi authentication only after an unauthenticated context', async () => {
+    let authenticated = false;
+    installParent((request) => {
+      if (request.type === 'TUZI_AUTH_REQUIRED') {
+        authenticated = true;
+        return {
+          version: 1,
+          type: 'TUZI_AUTH_COMPLETED',
+          requestId: request.requestId,
+          payload: { environment: 'tuzi-api' },
+        };
+      }
+      return {
+        version: 1,
+        type: 'TUZI_OPENTU_CONTEXT',
+        requestId: request.requestId,
+        payload: authenticated
+          ? {
+              environment: 'tuzi-api',
+              status: 'need_system_token',
+              userId: '50001',
+              groups: [{ group: 'default', displayName: '默认分组' }],
+            }
+          : {
+              environment: 'tuzi-api',
+              status: 'unauthenticated',
+              userId: '',
+              groups: [],
+            },
+      };
+    });
+
+    await expect(requestTuziParentContext()).resolves.toMatchObject({
+      status: 'unauthenticated',
+      userId: '',
+    });
+    await expect(requestTuziParentAuthentication()).resolves.toBe(true);
+    expect(getTuziSystemToken()).toBe('');
+    await expect(requestTuziParentContext()).resolves.toMatchObject({
+      status: 'need_system_token',
+      userId: '50001',
+    });
   });
 
   it('retries the read-only handshake when the parent listener mounts late', async () => {

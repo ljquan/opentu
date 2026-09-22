@@ -16,7 +16,7 @@ export interface TuziBridgeGroup {
 
 export interface TuziBridgeContext {
   environment: 'tuzi-api';
-  status: 'ready' | 'need_system_token';
+  status: 'ready' | 'need_system_token' | 'unauthenticated';
   userId: string;
   systemToken?: string;
   groups: TuziBridgeGroup[];
@@ -39,6 +39,13 @@ let mode: BridgeMode = 'unknown';
 let context: TuziBridgeContext | null = null;
 let parentOrigin: string | null = null;
 let contextRequest: Promise<TuziBridgeContext | null> | null = null;
+
+async function clearManagedProvidersForAccountBoundary(): Promise<void> {
+  const { synchronizeTuziManagedProviders } = await import(
+    './tuzi-managed-providers'
+  );
+  await synchronizeTuziManagedProviders([]);
+}
 
 function normalizeOrigin(value: unknown): string | null {
   const raw = String(value || '').trim();
@@ -99,6 +106,15 @@ function acceptContext(payload: MessagePayload): TuziBridgeContext | null {
   const status = payload.status;
   const userId = String(payload.userId || '').trim();
   const systemToken = String(payload.systemToken || '').trim();
+  if (status === 'unauthenticated') {
+    if (userId || systemToken) return null;
+    return {
+      environment: 'tuzi-api',
+      status,
+      userId: '',
+      groups: normalizeGroups(payload.groups),
+    };
+  }
   if (
     (status !== 'ready' && status !== 'need_system_token') ||
     !/^\d+$/.test(userId) ||
@@ -204,9 +220,16 @@ export async function requestTuziParentContext(options?: {
     TUZI_HANDSHAKE_TIMEOUT_MS,
     TUZI_HANDSHAKE_RETRY_MS
   )
-    .then((payload) => {
+    .then(async (payload) => {
       const nextContext = acceptContext(payload);
       if (!nextContext) throw new Error('TUZI_PARENT_INVALID_CONTEXT');
+      const previousUserId = context?.userId || '';
+      if (
+        previousUserId !== nextContext.userId ||
+        nextContext.status !== 'ready'
+      ) {
+        await clearManagedProvidersForAccountBoundary();
+      }
       context = nextContext;
       mode = 'tuzi';
       setTuziBridgeCredentials(
@@ -227,6 +250,27 @@ export async function requestTuziParentContext(options?: {
       contextRequest = null;
     });
   return contextRequest;
+}
+
+export async function requestTuziParentAuthentication(): Promise<boolean> {
+  if (mode !== 'tuzi' || context?.status !== 'unauthenticated') {
+    return context?.status === 'ready' || context?.status === 'need_system_token';
+  }
+  try {
+    await requestParent(
+      'TUZI_AUTH_REQUIRED',
+      {},
+      'TUZI_AUTH_COMPLETED',
+      TUZI_REQUEST_TIMEOUT_MS * 4,
+    );
+    const nextContext = await requestTuziParentContext({ refresh: true });
+    return (
+      nextContext?.status === 'ready' ||
+      nextContext?.status === 'need_system_token'
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function createTuziSystemToken(): Promise<TuziBridgeContext> {

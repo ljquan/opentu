@@ -739,11 +739,22 @@ describe('settings-manager', () => {
     });
   });
 
-  it('uses a bridge-managed provider when the legacy route has no key', async () => {
+  it('uses the remembered bridge-managed group for Tuzi routes', async () => {
     mockSettingsManagerDeps();
-    vi.doMock('../../services/tuzi-postmessage-bridge', () => ({
-      isTuziBridgeConnected: () => true,
+    vi.doMock('../../services/tuzi-embedded-config', () => ({
+      isTuziEmbeddedMode: () => true,
     }));
+    vi.doMock('../../services/tuzi-token-auth', () => ({
+      getTuziSystemUserId: () => '40832',
+    }));
+    vi.doMock('../../services/tuzi-provider-selection', () => ({
+      resolveTuziActiveProviderGroup: () => 'vip',
+    }));
+    localStorage.setItem('opentu.tuzi.systemUserId.v1', '40832');
+    localStorage.setItem(
+      'opentu.tuzi.active-provider-group.v1',
+      JSON.stringify({ '40832': 'vip' })
+    );
     localStorage.setItem(
       DRAWNIX_SETTINGS_KEY,
       JSON.stringify({
@@ -774,14 +785,25 @@ describe('settings-manager', () => {
             capabilities: {},
             pricingGroup: 'default',
           },
+          {
+            id: 'tuzi-managed-vip',
+            name: 'vip',
+            providerType: 'openai-compatible',
+            baseUrl: 'http://localhost:3100/v1',
+            apiKey: 'sk-vip',
+            authType: 'bearer',
+            enabled: true,
+            capabilities: {},
+            pricingGroup: 'vip',
+          },
         ],
       })
     );
 
     const { settingsManager } = await import('../settings-manager');
     expect(settingsManager.resolveInvocationRoute('image')).toMatchObject({
-      profileId: 'tuzi-managed-default',
-      apiKey: 'sk-managed',
+      profileId: 'tuzi-managed-vip',
+      apiKey: 'sk-vip',
     });
     expect(settingsManager.hasInvocationRouteCredentials('image')).toBe(true);
   });
