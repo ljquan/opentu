@@ -1,4 +1,5 @@
 import 'tdesign-react/es/message/style/css';
+import { flushSync } from 'react-dom';
 
 type TDesignMessagePlugin =
   typeof import('tdesign-react/es/message')['MessagePlugin'];
@@ -77,7 +78,14 @@ export const MessagePlugin = {
   loading(...args: MessageArgs): LazyMessageInstance {
     const instancePromise = loadMessagePlugin().then((plugin) => {
       const loading = plugin.loading as (...handlerArgs: MessageArgs) => unknown;
-      return loading(...args) as MessageInstanceLike;
+      let instance: ReturnType<TDesignMessagePlugin['loading']> | undefined;
+      // TDesign ignores close() until its React root has mounted. Commit the
+      // loading toast before exposing the instance, including on cached imports.
+      // This callback runs in a microtask, outside React's render lifecycle.
+      flushSync(() => {
+        instance = loading(...args) as ReturnType<TDesignMessagePlugin['loading']>;
+      });
+      return instance;
     });
 
     return Object.assign(instancePromise, {
