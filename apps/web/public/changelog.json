@@ -1,6 +1,22 @@
 {
   "versions": [
     {
+      "version": "1.1.16",
+      "date": "2026-09-26",
+      "changes": {
+        "features": [
+          "add new Tuzi text models (#274)"
+        ],
+        "fixes": [
+          "修复下载完成后提示持续转圈 (#276)",
+          "align MiniMax reference image limits (#275)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "add new Tuzi text models (#274)"
+    },
+    {
       "version": "1.1.15",
       "date": "2026-09-22",
       "changes": {
@@ -970,21 +986,6 @@
       },
       "type": "patch",
       "highlights": "优化视频工作流批量生成"
-    },
-    {
-      "version": "0.6.95",
-      "date": "2026-04-30",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "优化页面卡片布局并修复提示词回填逻辑"
-        ],
-        "improvements": [
-          "更新应用版本号至0.6.94并刷新构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "优化页面卡片布局并修复提示词回填逻辑"
     }
   ]
 }
