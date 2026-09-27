@@ -90,6 +90,14 @@ Tuzi 的 Image 2 普通、VIP 及上述别名现在也支持自动比例保留�
 
 ## 官方参考
 
+### 透明背景
+
+GPT Image 2 / 2.5 的生成参数新增“背景”：自动、不透明、透明，默认自动。图片工具、底部输入栏和批量生成共用参数配置，选择随模型偏好保存。
+
+官方与 Tuzi 请求均传递 `background`。透明模式默认发送 `output_format: png`，显式 JPEG 转换为 PNG；显式 WebP 保留。`output_compression` 只在 JPEG / WebP 输出时发送。无需配置或迁移。
+
+参数透传不代表上游已验证支持透明出图；实际验收需使用有效凭据生成图片，检查 Alpha 通道中存在透明像素。
+
 - [GPT Image 2.5 Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst)
 - [GPT Image 2.5 Flare](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare)
 - [OpenAI 图片生成指南](https://developers.openai.com/api/docs/guides/image-generation)

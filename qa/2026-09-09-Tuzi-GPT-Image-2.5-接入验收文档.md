@@ -203,3 +203,11 @@
 - Provider 路由最终回归：`114/114` 通过；
 - Drawnix TypeScript 类型检查通过；
 - `git diff --check` 通过。
+# 2026-09-27 透明背景增量验收
+
+- 环境：本地 macOS / Vitest，`NODE_OPTIONS=--no-experimental-webstorage`。
+- 在仓库根目录执行 `pnpm exec vitest run packages/drawnix/src/constants/__tests__/model-config.test.ts packages/drawnix/src/services/__tests__/gpt-image-adapter.test.ts packages/drawnix/src/services/__tests__/tuzi-gpt-image-adapter.test.ts packages/drawnix/src/services/__tests__/image-generation-service.test.ts packages/drawnix/src/services/__tests__/ai-generation-preferences-service.test.ts --no-file-parallelism --maxWorkers=1`。
+- 结果：5 文件、125 项通过。覆盖嵌套透明参数、默认 PNG、JPEG 转 PNG、WebP 保留压缩参数、PNG 省略压缩参数以及尺寸/画质/偏好回归。
+- 未执行页面测试和真实透明出图验证；此前无凭据请求返回 401，不能作为上游透明输出支持证据。
+- 人工验收：选择 Image 2 或 2.5 → 参数 → 背景 → 透明，使用有效凭据生成，预期请求含 transparent 与 png；下载后确认 Alpha 通道有透明像素。切换自动背景后确认不强制 PNG。
+- 无配置、依赖或迁移变更。上游可能拒绝或忽略透明参数，仍需实测。
