@@ -85,6 +85,12 @@ describe('model-config image size options', () => {
       'medium',
       'high',
     ]);
+
+    expect(params.find((param) => param.id === 'background')?.options).toEqual([
+      { value: 'auto', label: '自动' },
+      { value: 'opaque', label: '不透明' },
+      { value: 'transparent', label: '透明' },
+    ]);
   });
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(

@@ -116,6 +116,41 @@ function getGPTImageResponseFormat(
     : undefined;
 }
 
+export function applyGPTImageOutputOptions(
+  body: Record<string, unknown>,
+  request: ImageGenerationRequest
+): void {
+  const params = request.params;
+  const outputCompression = getNumberFieldOrParam(
+    request.outputCompression,
+    params,
+    'output_compression'
+  );
+  const outputFormat = getStringFieldOrParam(
+    request.outputFormat,
+    params,
+    'output_format'
+  );
+  const background = getStringFieldOrParam(
+    request.background,
+    params,
+    'background'
+  );
+
+  const format = background === 'transparent' && outputFormat !== 'webp'
+    ? 'png'
+    : outputFormat;
+  setAllowedStringValue(body, 'output_format', format, GPT_IMAGE_OUTPUT_FORMATS);
+  setAllowedStringValue(body, 'background', background, GPT_IMAGE_BACKGROUND_VALUES);
+  if (
+    (format === 'jpeg' || format === 'webp') &&
+    outputCompression !== undefined &&
+    outputCompression >= 0 && outputCompression <= 100
+  ) {
+    body.output_compression = outputCompression;
+  }
+}
+
 function applyCommonGPTImageOptions(
   body: Record<string, unknown>,
   request: ImageGenerationRequest,
@@ -129,35 +164,13 @@ function applyCommonGPTImageOptions(
       : resolveOfficialGPTImageSize(request.model, requestedSize, params);
   const quality = resolveOfficialGPTImageQuality(params, request.model);
   const n = getNumberParam(params, 'n') ?? getNumberParam(params, 'count');
-  const outputCompression = getNumberFieldOrParam(
-    request.outputCompression,
-    params,
-    'output_compression'
-  );
   const user = getStringParam(params, 'user');
-  const outputFormat = getStringFieldOrParam(
-    request.outputFormat,
-    params,
-    'output_format'
-  );
-  const background = getStringFieldOrParam(
-    request.background,
-    params,
-    'background'
-  );
 
   if (size) {
     body.size = size;
   }
   if (n !== undefined && n >= 1 && n <= 10) {
     body.n = n;
-  }
-  if (
-    outputCompression !== undefined &&
-    outputCompression >= 0 &&
-    outputCompression <= 100
-  ) {
-    body.output_compression = outputCompression;
   }
   if (user) {
     body.user = user;
@@ -166,18 +179,7 @@ function applyCommonGPTImageOptions(
     body.quality = quality;
   }
 
-  setAllowedStringValue(
-    body,
-    'output_format',
-    outputFormat,
-    GPT_IMAGE_OUTPUT_FORMATS
-  );
-  setAllowedStringValue(
-    body,
-    'background',
-    background,
-    GPT_IMAGE_BACKGROUND_VALUES
-  );
+  applyGPTImageOutputOptions(body, request);
   setAllowedStringParam(
     body,
     params,

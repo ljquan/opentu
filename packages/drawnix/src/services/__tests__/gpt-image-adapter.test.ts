@@ -13,6 +13,22 @@ const tinyPngBase64Only =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 describe('gpt-image-adapter', () => {
+  it.each(['gpt-image-2', 'gpt-image-2.5'])(
+    '%s forwards nested transparent settings and preserves only compatible formats',
+    (model) => {
+      for (const format of [undefined, 'jpeg', 'png', 'webp']) {
+        const body = buildGPTImageGenerationBody({
+          model, prompt: 'A red circle',
+          params: { background: 'transparent', output_format: format, output_compression: 80 },
+        });
+        expect(body.background).toBe('transparent');
+        expect(body.output_format).toBe(format === 'webp' ? 'webp' : 'png');
+        expect(body.output_compression).toBe(format === 'webp' ? 80 : undefined);
+      }
+      expect(buildGPTImageGenerationBody({ model, prompt: 'Default' })).not.toHaveProperty('output_format');
+    }
+  );
+
   it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s keeps automatic generation size independent and maps stale edit size',
     async (model) => {
@@ -72,6 +88,22 @@ describe('gpt-image-adapter', () => {
       output_format: 'webp',
       output_compression: 80,
       n: 2,
+    });
+  });
+
+  it('uses PNG by default when transparent background is requested', () => {
+    expect(
+      buildGPTImageGenerationBody({
+        model: 'gpt-image-2',
+        prompt: 'Draw a red circle',
+        background: 'transparent',
+        params: {},
+      })
+    ).toEqual({
+      model: 'gpt-image-2',
+      prompt: 'Draw a red circle',
+      output_format: 'png',
+      background: 'transparent',
     });
   });
 
@@ -184,7 +216,7 @@ describe('gpt-image-adapter', () => {
     expect(body.get('input_fidelity')).toBe('high');
     expect(body.get('size')).toBe('1024x1024');
     expect(body.get('output_format')).toBe('png');
-    expect(body.get('output_compression')).toBe('80');
+    expect(body.has('output_compression')).toBe(false);
     expect(body.get('background')).toBe('transparent');
     expect(body.getAll('image[]')).toHaveLength(1);
     expect(body.get('image[]')).toBeInstanceOf(Blob);

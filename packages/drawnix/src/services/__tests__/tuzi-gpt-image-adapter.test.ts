@@ -13,6 +13,22 @@ vi.mock('../model-adapters/context', () => ({
 }));
 
 describe('tuzi GPT image adapter', () => {
+  it.each(['gpt-image-2', 'gpt-image-2.5'])(
+    '%s forwards nested transparent settings and preserves only compatible formats',
+    (model) => {
+      for (const format of [undefined, 'jpeg', 'png', 'webp']) {
+        const body = buildTuziGPTImageRequestBody({
+          model, prompt: 'A red circle',
+          params: { background: 'transparent', output_format: format, output_compression: 80 },
+        });
+        expect(body.background).toBe('transparent');
+        expect(body.output_format).toBe(format === 'webp' ? 'webp' : 'png');
+        expect(body.output_compression).toBe(format === 'webp' ? 80 : undefined);
+      }
+      expect(buildTuziGPTImageRequestBody({ model, prompt: 'Default' })).not.toHaveProperty('output_format');
+    }
+  );
+
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s keeps every 2K ratio within the billing cap without changing quality',
     (model) => {

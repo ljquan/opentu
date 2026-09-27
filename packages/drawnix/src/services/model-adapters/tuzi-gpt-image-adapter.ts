@@ -4,6 +4,7 @@ import {
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
 import {
+  applyGPTImageOutputOptions,
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
@@ -138,6 +139,7 @@ export function buildTuziGPTImageRequestBody(
     body.n = options.count;
   }
 
+  applyGPTImageOutputOptions(body, request);
   return body;
 }
 

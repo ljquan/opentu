@@ -2890,6 +2890,22 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     modelType: 'image',
   },
+  // GPT Image 透明背景
+  {
+    id: 'background',
+    label: '背景',
+    shortLabel: '背景',
+    description: '选择生成图片的背景模式',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'opaque', label: '不透明' },
+      { value: 'transparent', label: '透明' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_MODEL_IDS,
+    modelType: 'image',
+  },
   // Gemini 图片模型尺寸（支持完整尺寸）
   {
     id: 'size',
