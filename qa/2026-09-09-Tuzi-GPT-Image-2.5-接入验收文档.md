@@ -211,3 +211,11 @@
 - 未执行页面测试和真实透明出图验证；此前无凭据请求返回 401，不能作为上游透明输出支持证据。
 - 人工验收：选择 Image 2 或 2.5 → 参数 → 背景 → 透明，使用有效凭据生成，预期请求含 transparent 与 png；下载后确认 Alpha 通道有透明像素。切换自动背景后确认不强制 PNG。
 - 无配置、依赖或迁移变更。上游可能拒绝或忽略透明参数，仍需实测。
+
+# 2026-09-27 通用图片请求路径透明参数修复
+
+- 修复范围：当图片模型未命中 GPT Image adapter、进入通用 `/images/generations` fallback 时，补齐 `background`、`output_format` 和受限的 `output_compression` 请求字段；透明背景默认强制 PNG，显式 WebP 保留 WebP。
+- 回归命令：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run packages/drawnix/src/services/media-api/image-api.test.ts packages/drawnix/src/services/__tests__/gpt-image-adapter.test.ts packages/drawnix/src/services/__tests__/tuzi-gpt-image-adapter.test.ts --no-file-parallelism --maxWorkers=1`。
+- 结果：3 个文件、76 项通过。覆盖通用请求体透明参数、透明背景 PNG 约束、WebP 压缩参数和两个 GPT Image adapter 回归。
+- 类型检查：待与 `develop` 合并后执行最终检查；本次未做页面交互、真实计费生图或 Alpha 像素验证，因此不能据此确认上游最终返回透明像素。
+- 注意事项：若供应商或代理仍忽略透明字段，仍需通过脱敏请求日志和下载图片 Alpha 通道继续确认；回滚为撤销本次四个代码文件的提交。

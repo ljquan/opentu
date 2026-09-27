@@ -465,6 +465,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
         referenceImages: processedImages,
         quality,
         n: Math.min(Math.max(1, count), 10),
+        background: params.background,
+        outputFormat: params.outputFormat,
+        outputCompression: params.outputCompression,
       });
 
       options?.onProgress?.({ progress: 10, phase: 'submitting' });

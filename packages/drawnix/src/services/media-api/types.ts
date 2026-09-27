@@ -66,6 +66,12 @@ export interface ImageGenerationParams {
   quality?: '1k' | '2k' | '4k' | string;
   /** 生成数量 */
   n?: number;
+  /** GPT Image 输出背景 */
+  background?: 'transparent' | 'opaque' | 'auto';
+  /** GPT Image 输出格式 */
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  /** GPT Image 输出压缩率 */
+  outputCompression?: number;
 }
 
 /**

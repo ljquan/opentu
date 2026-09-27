@@ -77,6 +77,28 @@ export function buildImageRequestBody(
     body.quality = params.quality;
   }
 
+  if (params.background) {
+    body.background = params.background;
+  }
+
+  const outputFormat =
+    params.background === 'transparent' && params.outputFormat !== 'webp'
+      ? 'png'
+      : params.outputFormat;
+  if (outputFormat) {
+    body.output_format = outputFormat;
+  }
+
+  if (
+    (outputFormat === 'jpeg' || outputFormat === 'webp') &&
+    typeof params.outputCompression === 'number' &&
+    Number.isFinite(params.outputCompression) &&
+    params.outputCompression >= 0 &&
+    params.outputCompression <= 100
+  ) {
+    body.output_compression = params.outputCompression;
+  }
+
   // 添加参考图片（已经转换为 base64 或 URL）
   if (params.referenceImages && params.referenceImages.length > 0) {
     body.image = params.referenceImages;
