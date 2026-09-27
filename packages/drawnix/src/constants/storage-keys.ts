@@ -43,6 +43,8 @@ export const LS_KEYS = {
   AI_BOUND_TARGET_FOLLOW_ENABLED: 'aitu_ai_bound_target_follow_enabled',
   /** AI 任务栏是否允许从画布拾取联想引用 */
   AI_CANVAS_ASSOCIATION_ENABLED: 'aitu_ai_canvas_association_enabled',
+  /** 点击图片后是否自动将画布居中到图片 */
+  AI_CENTER_IMAGE_ON_CLICK_ENABLED: 'aitu_ai_center_image_on_click_enabled',
   /** 提示词优化文本模型选择 */
   PROMPT_OPTIMIZE_TEXT_MODEL: 'aitu_prompt_optimize_text_model',
   /** 提示词优化补充要求历史 */

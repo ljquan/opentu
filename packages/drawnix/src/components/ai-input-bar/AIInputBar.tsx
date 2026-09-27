@@ -31,6 +31,7 @@ import {
   Maximize2,
   Minimize2,
   PinOff,
+  Settings2,
   Send,
   Unlink,
   X,
@@ -38,6 +39,7 @@ import {
 import {
   Dropdown,
   MessagePlugin,
+  Popup,
   Switch,
   type DropdownOption,
 } from 'tdesign-react';
@@ -286,6 +288,10 @@ import {
   type BoundTargetTaskbarDraftEntry,
   type BoundImageTargetMode,
 } from './target-bound-taskbar-state';
+import {
+  persistCenterImageOnClickEnabled,
+  readCenterImageOnClickEnabled,
+} from './canvas-view-settings';
 import {
   appendCanvasAssociationRef,
   areCanvasAssociationRefsEqual,
@@ -1957,6 +1963,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [boundTargetFollowEnabled, setBoundTargetFollowEnabled] = useState(
       () => readBoundTargetFollowEnabled()
     );
+    const [centerImageOnClickEnabled, setCenterImageOnClickEnabled] =
+      useState(() => readCenterImageOnClickEnabled());
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
@@ -4430,6 +4438,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const handleBoundTargetFollowChange = useCallback((enabled: boolean) => {
       setBoundTargetFollowEnabled(persistBoundTargetFollowEnabled(enabled));
       setBoundInputLayoutTick((tick) => tick + 1);
+    }, []);
+
+    const handleCenterImageOnClickChange = useCallback((enabled: boolean) => {
+      setCenterImageOnClickEnabled(persistCenterImageOnClickEnabled(enabled));
     }, []);
 
     const handleBoundInputViewportChange = useCallback(() => {
@@ -7870,94 +7882,102 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [boundTargetFollowCopy]
     );
     const boundTargetFollowActions = followControlsTarget ? (
-      <div
-        className="ai-input-bar__bound-dismiss-actions"
-        data-testid="ai-bound-follow-actions"
-      >
-        <HoverTip
-          content={
-            boundTargetFollowEnabled
-              ? language === 'zh'
-                ? '任务栏跟随默认开启'
-                : 'Taskbar follow defaults to on'
-              : language === 'zh'
-              ? '任务栏跟随默认关闭'
-              : 'Taskbar follow defaults to off'
-          }
-          showArrow={false}
-        >
-          <span
-            className="ai-input-bar__bound-follow-toggle"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
+      <Popup
+        trigger="click"
+        placement="top-right"
+        overlayClassName="ai-input-bar__settings-popup"
+        content={
+          <div
+            className="ai-input-bar__settings-panel"
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <Switch
-              size="small"
-              value={boundTargetFollowEnabled}
-              label={
-                <span className="ai-input-bar__bound-follow-label">
-                  {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
-                </span>
-              }
-              onChange={(checked) =>
-                handleBoundTargetFollowChange(checked as boolean)
-              }
-            />
-          </span>
-        </HoverTip>
-        {boundTargetFollowEnabled ? (
-          <div className="ai-input-bar__bound-dismiss-secondary-actions">
-            <HoverTip content={boundTargetFollowCopy.stop} showArrow={false}>
-              <button
-                type="button"
-                className="ai-input-bar__bound-dismiss-btn"
-                aria-label={boundTargetFollowCopy.once}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={() => handleDismissBoundTarget('once')}
-                disabled={isSubmitting}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </HoverTip>
-            <Dropdown
-              options={boundTargetDismissOptions}
-              trigger="hover"
-              placement="top-right"
-              minColumnWidth={190}
-              popupProps={{
-                visible: isBoundTargetDismissMenuOpen,
-                onVisibleChange: setIsBoundTargetDismissMenuOpen,
-              }}
-              onClick={(data) =>
-                handleDismissBoundTarget(data.value as BoundTargetDismissMode)
-              }
-            >
-              <button
-                type="button"
-                className="ai-input-bar__bound-dismiss-menu-btn"
-                aria-label={
-                  language === 'zh' ? '选择跟随方式' : 'Choose follow behavior'
+            <div className="ai-input-bar__settings-title">
+              {language === 'zh' ? '任务栏设置' : 'Taskbar settings'}
+            </div>
+            <div className="ai-input-bar__settings-row">
+              <span>
+                {language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
+              </span>
+              <Switch
+                size="small"
+                value={boundTargetFollowEnabled}
+                aria-label={language === 'zh' ? '任务栏跟随' : 'Taskbar follow'}
+                onChange={(checked) =>
+                  handleBoundTargetFollowChange(checked as boolean)
                 }
-                aria-haspopup="menu"
-                aria-expanded={isBoundTargetDismissMenuOpen}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={() => setIsBoundTargetDismissMenuOpen(true)}
-                disabled={isSubmitting}
-              >
-                <ChevronDown size={14} aria-hidden="true" />
-              </button>
-            </Dropdown>
+              />
+            </div>
+            <div className="ai-input-bar__settings-row">
+              <span>
+                {language === 'zh'
+                  ? '点击图片后自动居中'
+                  : 'Center image after clicking'}
+              </span>
+              <Switch
+                size="small"
+                value={centerImageOnClickEnabled}
+                aria-label={language === 'zh' ? '点击图片后自动居中' : 'Center image after clicking'}
+                onChange={(checked) =>
+                  handleCenterImageOnClickChange(checked as boolean)
+                }
+              />
+            </div>
+            {boundTargetFollowEnabled ? (
+              <div className="ai-input-bar__settings-actions">
+                <button
+                  type="button"
+                  className="ai-input-bar__bound-dismiss-btn"
+                  aria-label={boundTargetFollowCopy.once}
+                  onClick={() => handleDismissBoundTarget('once')}
+                  disabled={isSubmitting}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+                <Dropdown
+                  options={boundTargetDismissOptions}
+                  trigger="hover"
+                  placement="top-right"
+                  minColumnWidth={190}
+                  popupProps={{
+                    visible: isBoundTargetDismissMenuOpen,
+                    onVisibleChange: setIsBoundTargetDismissMenuOpen,
+                  }}
+                  onClick={(data) =>
+                    handleDismissBoundTarget(data.value as BoundTargetDismissMode)
+                  }
+                >
+                  <button
+                    type="button"
+                    className="ai-input-bar__bound-dismiss-menu-btn"
+                    aria-label={
+                      language === 'zh' ? '选择跟随方式' : 'Choose follow behavior'
+                    }
+                    aria-haspopup="menu"
+                    aria-expanded={isBoundTargetDismissMenuOpen}
+                    onClick={() => setIsBoundTargetDismissMenuOpen(true)}
+                    disabled={isSubmitting}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                </Dropdown>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        }
+      >
+        <button
+          type="button"
+          className="ai-input-bar__settings-btn"
+          aria-label={language === 'zh' ? '设置' : 'Settings'}
+          data-testid="ai-input-settings"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          <Settings2 size={18} aria-hidden="true" />
+        </button>
+      </Popup>
     ) : null;
 
     const boundInputStyle = boundInputPosition
