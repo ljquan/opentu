@@ -161,14 +161,13 @@ describe('appendVideoOutputParams', () => {
     });
   });
 
-  it('将 MiniMax-H3 单图输入作为首帧且只使用第一个有效地址', () => {
+  it('将 MiniMax-H3 单图输入作为首帧', () => {
     expect(
       buildMiniMaxH3VideoRequest({
         prompt: '让画面动起来',
         referenceImages: [
           '  ',
           ' https://cdn.example.com/first.png ',
-          'https://cdn.example.com/ignored.png',
         ],
         ratio: 'adaptive',
       })
@@ -182,6 +181,32 @@ describe('appendVideoOutputParams', () => {
         },
       ],
       ratio: 'adaptive',
+    });
+  });
+
+  it('将 MiniMax-H3 双图输入按官方首帧/尾帧结构写入请求', () => {
+    expect(
+      buildMiniMaxH3VideoRequest({
+        prompt: '从首帧过渡到尾帧',
+        referenceImages: [
+          'https://cdn.example.com/first.png',
+          'https://cdn.example.com/last.png',
+        ],
+      })
+    ).toMatchObject({
+      content: [
+        { type: 'text', text: '从首帧过渡到尾帧' },
+        {
+          type: 'image_url',
+          role: 'first_frame',
+          image_url: { url: 'https://cdn.example.com/first.png' },
+        },
+        {
+          type: 'image_url',
+          role: 'last_frame',
+          image_url: { url: 'https://cdn.example.com/last.png' },
+        },
+      ],
     });
   });
 
@@ -216,6 +241,23 @@ describe('appendVideoOutputParams', () => {
       ],
       ratio: 'adaptive',
     });
+  });
+
+  it('限制首尾帧和全能参考模式的官方图片数量', () => {
+    expect(() =>
+      buildMiniMaxH3VideoRequest({
+        prompt: '超过首尾帧限制',
+        referenceImages: ['1', '2', '3'],
+      })
+    ).toThrow('首帧/尾帧图片最多支持 2 张');
+
+    expect(() =>
+      buildMiniMaxH3VideoRequest({
+        prompt: '超过全能参考限制',
+        referenceImages: Array.from({ length: 10 }, (_, index) => `image-${index}`),
+        referenceVideos: ['video-1'],
+      })
+    ).toThrow('参考图片最多支持 9 张');
   });
 
   it('保留 MiniMax-H3 参考视频的 2K 与显式比例', () => {

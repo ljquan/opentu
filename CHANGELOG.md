@@ -1,3 +1,19 @@
+## 1.1.16 (2026-09-26)
+
+### 🚀 Features
+
+- add new Tuzi text models (#274) ([892e948b](https://github.com/ljquan/opentu/commit/892e948b))
+
+### 🩹 Fixes
+
+- 修复下载完成后提示持续转圈 (#276) ([15c4f972](https://github.com/ljquan/opentu/commit/15c4f972))
+- align MiniMax reference image limits (#275) ([cf7d8fff](https://github.com/ljquan/opentu/commit/cf7d8fff))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- yk1125 <1160314789@qq.com>
+
 ## 1.1.15 (2026-09-22)
 
 ### 🚀 Features

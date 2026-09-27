@@ -335,12 +335,12 @@ describe('model-config image size options', () => {
     const videoIds = getStaticModelsByType('video').map((model) => model.id);
 
     expect(textIds.slice(0, 6)).toEqual([
+      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
       'deepseek-v4-pro',
-      'deepseek-v4-flash',
-      'deepseek-v4-flash-0731',
     ]);
     expect(videoIds).toEqual(
       expect.arrayContaining([

@@ -328,16 +328,22 @@ export function buildMiniMaxH3VideoRequest(params: {
     ? requestedResolution
     : '768P';
   const requestedRatio = String(params.ratio || '').trim();
-  const referenceImage = (params.referenceImages || [])
+  const referenceImages = (params.referenceImages || [])
     .map((url) => url?.trim())
-    .find(Boolean);
+    .filter((url): url is string => Boolean(url));
   const referenceVideos = (params.referenceVideos || [])
     .map((url) => url?.trim())
     .filter((url): url is string => Boolean(url));
   if (referenceVideos.length > 3) {
     throw new Error('MiniMax-H3 参考视频最多支持 3 个');
   }
-  const hasReferenceImages = Boolean(referenceImage);
+  if (referenceVideos.length > 0 && referenceImages.length > 9) {
+    throw new Error('MiniMax-H3 参考图片最多支持 9 张');
+  }
+  if (referenceVideos.length === 0 && referenceImages.length > 2) {
+    throw new Error('MiniMax-H3 首帧/尾帧图片最多支持 2 张');
+  }
+  const hasReferenceImages = referenceImages.length > 0;
   const ratio =
     MINIMAX_H3_RATIOS.has(requestedRatio) &&
     (requestedRatio !== 'adaptive' || hasReferenceImages || referenceVideos.length > 0)
@@ -350,9 +356,7 @@ export function buildMiniMaxH3VideoRequest(params: {
   ];
 
   if (referenceVideos.length > 0) {
-    const images = (params.referenceImages || []).map(url => url.trim()).filter(Boolean);
-    if (images.length > 9) throw new Error('MiniMax-H3 参考图片最多支持 9 张');
-    for (const url of images) {
+    for (const url of referenceImages) {
       content.push({ type: 'image_url', role: 'reference_image', image_url: { url } });
     }
     for (const referenceVideo of referenceVideos) {
@@ -362,12 +366,19 @@ export function buildMiniMaxH3VideoRequest(params: {
         video_url: { url: referenceVideo },
       });
     }
-  } else if (referenceImage) {
+  } else if (referenceImages.length > 0) {
     content.push({
       type: 'image_url',
       role: 'first_frame',
-      image_url: { url: referenceImage },
+      image_url: { url: referenceImages[0] },
     });
+    if (referenceImages.length === 2) {
+      content.push({
+        type: 'image_url',
+        role: 'last_frame',
+        image_url: { url: referenceImages[1] },
+      });
+    }
   }
 
   return {
