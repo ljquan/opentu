@@ -138,13 +138,12 @@ describe('Tuzi token selection', () => {
       ).checked
     ).toBe(true);
   });
-  it('starts creation with default only, expands other groups, previews names and blocks empty names', async () => {
+  it('starts creation with default only, shows other groups, previews names and blocks empty names', async () => {
     setup();
     fireEvent.click(screen.getByRole('button', { name: /创建新令牌/ }));
     const checkbox = await screen.findByRole('checkbox', { name: /default/ });
     expect((checkbox as HTMLInputElement).checked).toBe(true);
-    expect(screen.queryByRole('checkbox', { name: /VIP/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '选择其他分组' }));
+    expect(screen.getByText('选择其他分组')).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: /VIP/ }));
     fireEvent.change(screen.getByRole('textbox', { name: /令牌名称/ }), {
       target: { value: '设计专用' },

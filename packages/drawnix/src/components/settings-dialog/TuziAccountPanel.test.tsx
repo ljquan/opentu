@@ -763,17 +763,10 @@ describe('TuziAccountPanel', () => {
     fireEvent.click(channelCheckbox);
     expect((channelCheckbox as HTMLInputElement).checked).toBe(true);
   });
-  it('opens ordinary token management separately from adding managed groups', async () => {
+  it('keeps token creation inside the managed group flow', async () => {
     const { TuziAccountPanel } = await import('./TuziAccountPanel');
     render(<TuziAccountPanel />);
-    const link = await screen.findByRole('link', {
-      name: '管理/创建 API 令牌',
-    });
-    expect(link.getAttribute('href')).toBe(
-      'https://api.tu-zi.com/console/token'
-    );
-    expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(screen.queryByRole('link', { name: '管理/创建 API 令牌' })).toBeNull();
     expect(ensureManagedProviders).not.toHaveBeenCalled();
     expect(
       await screen.findByRole('button', { name: '添加 Tuzi 令牌' })
@@ -792,7 +785,7 @@ describe('TuziAccountPanel', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /创建新令牌/ }));
     await screen.findByRole('checkbox', { name: /default/ });
-    fireEvent.click(screen.getByRole('button', { name: '选择其他分组' }));
+    expect(screen.getByText('选择其他分组')).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: /VIP/ }));
     fireEvent.click(screen.getByRole('button', { name: '创建并添加' }));
     expect(await screen.findByText(/temporary failure/)).toBeTruthy();

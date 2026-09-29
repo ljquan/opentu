@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ChevronDown,
-  ChevronUp,
   KeyRound,
   Loader2,
   Plus,
@@ -72,7 +70,6 @@ export function TuziTokenPicker({
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [name, setName] = useState('OpenTu 日常使用');
-  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -127,7 +124,6 @@ export function TuziTokenPicker({
           setSelectedGroups(
             next.some((g) => g.group === 'default') ? ['default'] : []
           );
-          setExpanded(!next.some((g) => g.group === 'default'));
         }
       })
       .catch((e) => {
@@ -350,27 +346,21 @@ export function TuziTokenPicker({
               />
               <small>这个名称也会显示在 Tuzi 的令牌管理中。</small>
             </label>
-            <div className="tuzi-token-picker__label">
+            <div className="tuzi-token-picker__label tuzi-token-picker__label--groups">
               所属分组 <small>默认只选择 default</small>
             </div>
             {defaultGroup && renderGroup(defaultGroup, true)}
             {groups.some((g) => g.group !== 'default') && (
-              <button
-                type="button"
-                className="tuzi-token-picker__expand"
-                aria-expanded={expanded}
-                onClick={() => setExpanded(!expanded)}
-              >
-                {expanded ? '收起其他分组' : '选择其他分组'}
-                {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </button>
-            )}
-            {expanded && (
-              <div className="tuzi-token-picker__groups">
-                {groups
-                  .filter((g) => g.group !== 'default')
-                  .map((g) => renderGroup(g))}
-              </div>
+              <>
+                <div className="tuzi-token-picker__other-groups-title">
+                  选择其他分组
+                </div>
+                <div className="tuzi-token-picker__groups">
+                  {groups
+                    .filter((g) => g.group !== 'default')
+                    .map((g) => renderGroup(g))}
+                </div>
+              </>
             )}
             {!groups.length && !error && (
               <div className="tuzi-token-picker__empty">暂无可用分组</div>

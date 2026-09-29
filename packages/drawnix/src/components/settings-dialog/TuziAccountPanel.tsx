@@ -1731,20 +1731,6 @@ export function TuziAccountPanel({
                   <div className="tuzi-account-panel__section-heading">
                     <h3>分组 Key</h3>
                     <div className="tuzi-account-panel__section-actions">
-                      <button
-                        type="button"
-                        className="tuzi-account-panel__add-provider"
-                        disabled={
-                          loading ||
-                          providersLoading ||
-                          modelsLoading ||
-                          rotatingGroup !== null
-                        }
-                        onClick={openProviderSelection}
-                      >
-                        <Plus size={15} aria-hidden="true" />
-                        <span>添加 Tuzi 令牌</span>
-                      </button>
                       <span aria-label={`${providers.length} 个分组 Key`}>
                         {providers.length}
                       </span>
@@ -1843,14 +1829,20 @@ export function TuziAccountPanel({
                     </div>
                   )}
                   <div className="tuzi-account-panel__provider-selection-actions">
-                    <a
-                      href={getTuziTokenManagementUrl()}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      className="tuzi-account-panel__add-provider"
+                      disabled={
+                        loading ||
+                        providersLoading ||
+                        modelsLoading ||
+                        rotatingGroup !== null
+                      }
+                      onClick={openProviderSelection}
                     >
-                      管理/创建 API 令牌
-                      <ExternalLink size={14} aria-hidden="true" />
-                    </a>
+                      <Plus size={15} aria-hidden="true" />
+                      <span>添加 Tuzi 令牌</span>
+                    </button>
                   </div>
                 </section>
               </>

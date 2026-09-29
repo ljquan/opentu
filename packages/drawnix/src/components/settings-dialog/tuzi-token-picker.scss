@@ -66,7 +66,7 @@
     align-items: center;
     margin-bottom: 24px;
     h3 {
-      font-size: 21px;
+      font-size: 18px;
       margin: 0;
     }
     p {
@@ -157,6 +157,16 @@
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 10px;
+  }
+  &__label--groups {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  &__other-groups-title {
+    margin: 22px 0 10px;
+    color: var(--picker-text);
+    font-size: 16px;
+    font-weight: 600;
   }
   &__group {
     strong {
