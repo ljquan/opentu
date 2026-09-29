@@ -504,6 +504,63 @@ describe('useAutoInsertToCanvas', () => {
     expect(mocks.markAsInserted).not.toHaveBeenCalled();
   });
 
+  it('does not insert archived workflow generation results into the normal board', async () => {
+    const task = createCompletedImageTask({
+      id: 'task-workflow-target',
+      params: {
+        prompt: '工作流节点图片',
+        size: '1:1',
+        autoInsertToCanvas: true,
+        workflowGenerationTarget: {
+          documentId: 'workflow-local',
+          frameId: 'frame-target',
+          inputReferences: [],
+        },
+      },
+    });
+    const anchor = {
+      id: 'anchor-workflow-target',
+      type: 'generation-anchor',
+      anchorType: 'ghost',
+      points: [
+        [470, 30],
+        [638, 102],
+      ],
+      expectedInsertPosition: [470, 30],
+      transitionMode: 'hold',
+      taskIds: [task.id],
+      workflowId: 'workflow-target',
+      zoom: 1,
+    };
+    mocks.board = { children: [anchor] };
+    mocks.imageAnchorByTask = anchor;
+    mocks.taskState.tasks = [task];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: false,
+      })
+    );
+
+    act(() => {
+      emitTaskEvent(task);
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.executeCanvasInsertion).not.toHaveBeenCalled();
+    expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
+    expect(mocks.insertAIFlow).not.toHaveBeenCalled();
+    expect(mocks.insertImageGroup).not.toHaveBeenCalled();
+    expect(mocks.handleSplitAndInsertTask).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    expect(mocks.completePostProcessing).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

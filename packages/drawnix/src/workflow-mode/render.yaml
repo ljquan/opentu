@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: infinite-canvas
+    runtime: docker
+    plan: free
+    autoDeployTrigger: off
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 3000

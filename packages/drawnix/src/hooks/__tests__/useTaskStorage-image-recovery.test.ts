@@ -12,6 +12,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   storedTasks: [] as Task[],
+  memoryTasks: [] as Task[],
   restoreTasks: vi.fn(),
   updateTaskStatus: vi.fn(),
   markImageAttemptRecovering: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../services/task-queue', () => ({
   taskQueueService: {
+    getAllTasks: vi.fn(() => mocks.memoryTasks),
     restoreTasks: mocks.restoreTasks,
     isTaskExecutionActive: mocks.isTaskExecutionActive,
     getTaskExecutionToken: mocks.getTaskExecutionToken,
@@ -163,6 +165,7 @@ describe('useTaskStorage image request recovery', () => {
     mocks.resolveInvocationPlanFromRoute.mockReset();
     mocks.prepareRequest.mockReset();
     mocks.storedTasks = [];
+    mocks.memoryTasks = [];
   });
 
   it('does not treat an in-page active request as a refreshed task', async () => {
@@ -177,6 +180,32 @@ describe('useTaskStorage image request recovery', () => {
 
     expect(mocks.markImageAttemptRecovering).not.toHaveBeenCalled();
     expect(mocks.failImageAttempt).not.toHaveBeenCalled();
+    expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not restore or interrupt a text request created while deferred storage initializes', async () => {
+    const liveTask: Task = {
+      id: 'live-text-task',
+      type: TaskType.CHAT,
+      status: TaskStatus.PROCESSING,
+      params: {
+        prompt: '帮我写一个图片的提示词',
+        model: 'deepseek-v4-flash-0731',
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      startedAt: Date.now(),
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+    };
+    mocks.storedTasks = [{ ...liveTask }];
+    mocks.memoryTasks = [liveTask];
+
+    const { useTaskStorage } = await import('../useTaskStorage');
+    const { result } = renderHook(() => useTaskStorage());
+
+    await waitFor(() => expect(result.current).toBe(true));
+
+    expect(mocks.restoreTasks).toHaveBeenCalledWith([]);
     expect(mocks.updateTaskStatus).not.toHaveBeenCalled();
   });
 
@@ -264,7 +293,9 @@ describe('useTaskStorage image request recovery', () => {
   });
 
   it('fails an expired recovery task even when settings initialization never settles', async () => {
-    mocks.waitForInitialization.mockReturnValue(new Promise<void>(() => {}));
+    mocks.waitForInitialization.mockReturnValue(
+      new Promise<void>(() => undefined)
+    );
     const expiredTask = createImageTask(
       TaskStatus.PROCESSING,
       true,

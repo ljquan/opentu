@@ -1688,6 +1688,11 @@ export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
   );
 }
 
+/** Includes models hidden from default pickers, for explicit model contracts. */
+export function getAllBuiltInModelConfigs(): ModelConfig[] {
+  return mergeModels(ALL_MODELS, [...BUILT_IN_TEXT_MODELS, ...HIDDEN_VIDEO_MODELS]);
+}
+
 // ============================================
 // 辅助函数
 // ============================================

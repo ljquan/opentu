@@ -1,0 +1,11 @@
+services:
+  app:
+    image: ghcr.io/basketikun/infinite-canvas:latest
+    container_name: infinite-canvas
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
+    # environment:
+    #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
+    #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID

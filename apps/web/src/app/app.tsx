@@ -142,6 +142,7 @@ function updateBoardIdInUrl(
   replace: boolean = false
 ): void {
   const url = new URL(window.location.href);
+  if (url.pathname === '/workflow' || url.pathname === '/workflow/') return;
   if (boardId) {
     url.searchParams.set(BOARD_URL_PARAM, boardId);
   } else {

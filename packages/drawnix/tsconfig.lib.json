@@ -10,6 +10,10 @@
     ]
   },
   "exclude": [
+    "src/workflow-mode/web/**",
+    "src/workflow-mode/canvas-agent/**",
+    "src/workflow-mode/canvas-proxy/**",
+    "src/workflow-mode/docs/**",
     "**/*.spec.ts",
     "**/*.test.ts",
     "**/*.spec.tsx",

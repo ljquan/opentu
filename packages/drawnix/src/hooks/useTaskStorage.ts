@@ -79,6 +79,9 @@ export function useTaskStorage(): boolean {
 
         // Load tasks from IndexedDB (aitu-app)
         const storedTasks = await taskStorageReader.getAllTasks();
+        const inPageTaskIds = new Set(
+          taskQueueService.getAllTasks().map((task) => task.id)
+        );
         console.warn(
           `[useTaskStorage] Loaded ${storedTasks.length} tasks from IndexedDB`
         );
@@ -91,40 +94,42 @@ export function useTaskStorage(): boolean {
         }> = [];
 
         if (storedTasks.length > 0) {
-          const tasksForMemory = storedTasks.map((task) => {
-            if (
-              task.status !== TaskStatus.PROCESSING ||
-              task.type !== TaskType.IMAGE ||
-              task.remoteId ||
-              taskQueueService.isTaskExecutionActive(task.id) ||
-              (task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
-                task.executionPhase !== TaskExecutionPhase.DOWNLOADING &&
-                task.executionPhase !== TaskExecutionPhase.POLLING)
-            ) {
-              return task;
-            }
+          const tasksForMemory = storedTasks
+            .filter((task) => !inPageTaskIds.has(task.id))
+            .map((task) => {
+              if (
+                task.status !== TaskStatus.PROCESSING ||
+                task.type !== TaskType.IMAGE ||
+                task.remoteId ||
+                taskQueueService.isTaskExecutionActive(task.id) ||
+                (task.executionPhase !== TaskExecutionPhase.SUBMITTING &&
+                  task.executionPhase !== TaskExecutionPhase.DOWNLOADING &&
+                  task.executionPhase !== TaskExecutionPhase.POLLING)
+              ) {
+                return task;
+              }
 
-            const recoveryTask = {
-              ...task,
-              executionPhase: TaskExecutionPhase.POLLING,
-            };
-            if (!isImageRequestRecoveryCandidate(recoveryTask)) {
-              return task;
-            }
+              const recoveryTask = {
+                ...task,
+                executionPhase: TaskExecutionPhase.POLLING,
+              };
+              if (!isImageRequestRecoveryCandidate(recoveryTask)) {
+                return task;
+              }
 
-            const startedAt = task.startedAt ?? task.createdAt;
-            deferredImageRecoveryTasks.push({
-              taskId: task.id,
-              requestId: getImageSubmissionRequestId(recoveryTask),
-              startedAt,
-              deadline: startedAt + IMAGE_GENERATION_TIMEOUT_MS,
+              const startedAt = task.startedAt ?? task.createdAt;
+              deferredImageRecoveryTasks.push({
+                taskId: task.id,
+                requestId: getImageSubmissionRequestId(recoveryTask),
+                startedAt,
+                deadline: startedAt + IMAGE_GENERATION_TIMEOUT_MS,
+              });
+
+              return {
+                ...task,
+                executionPhase: TaskExecutionPhase.SUBMITTING,
+              };
             });
-
-            return {
-              ...task,
-              executionPhase: TaskExecutionPhase.SUBMITTING,
-            };
-          });
 
           await taskQueueService.restoreTasks(tasksForMemory);
           for (const deferredTask of deferredImageRecoveryTasks) {
@@ -132,13 +137,14 @@ export function useTaskStorage(): boolean {
               taskQueueService.getTaskExecutionToken(deferredTask.taskId);
           }
           console.warn(
-            `[useTaskStorage] Restored ${storedTasks.length} tasks to memory`
+            `[useTaskStorage] Restored ${tasksForMemory.length} tasks to memory`
           );
 
           // Handle interrupted processing tasks based on task type and remoteId
           const processingTasks = storedTasks.filter(
             (task) =>
               task.status === 'processing' &&
+              !inPageTaskIds.has(task.id) &&
               !taskQueueService.isTaskExecutionActive(task.id)
           );
 

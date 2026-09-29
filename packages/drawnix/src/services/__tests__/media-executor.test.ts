@@ -1001,6 +1001,12 @@ describe('Media Executor Module', () => {
       const result = await executor.generateText({
         taskId: 'task-text-1',
         prompt: 'hello',
+        messages: [
+          { role: 'system', content: 'Keep the full conversation.' },
+          { role: 'user', content: 'previous question' },
+          { role: 'assistant', content: 'previous answer' },
+          { role: 'user', content: 'hello' },
+        ],
         model: 'custom-chat-model',
         modelRef: {
           profileId: 'provider-manual',
@@ -1031,6 +1037,9 @@ describe('Media Executor Module', () => {
             model: 'custom-chat-model',
             prompt: 'hello',
             messages: [
+              { role: 'system', content: [{ type: 'text', text: 'Keep the full conversation.' }] },
+              { role: 'user', content: [{ type: 'text', text: 'previous question' }] },
+              { role: 'assistant', content: [{ type: 'text', text: 'previous answer' }] },
               {
                 role: 'user',
                 content: [

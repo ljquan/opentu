@@ -126,6 +126,7 @@ export interface AIAnalyzeParams {
 }
 
 export interface TextGenerationParams {
+  messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   taskId?: string;
   prompt: string;
   model?: string;

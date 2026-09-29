@@ -2820,6 +2820,8 @@ export function useAutoInsertToCanvas(
       if (!isUserVisibleTaskResult(task.result)) {
         return;
       }
+      // Archived workflow jobs must never be inserted into the normal board.
+      if (task.params.workflowGenerationTarget) return;
 
       const binding = getCurrentCanvasBoardBinding();
       if (!binding) {

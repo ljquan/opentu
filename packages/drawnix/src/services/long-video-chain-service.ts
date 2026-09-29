@@ -146,6 +146,8 @@ class LongVideoChainService {
   private async handleSegmentCompleted(task: Task): Promise<void> {
     const meta = getLongVideoMeta(task);
     if (!meta) return;
+    // The replacement app owns a separate queue; leave archived workflow jobs untouched.
+    if (meta.workflowGenerationTarget) return;
 
     const { segmentIndex, totalSegments, scripts, batchId } = meta;
     const videoUrl = task.result?.url;

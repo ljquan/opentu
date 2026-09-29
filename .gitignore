@@ -56,3 +56,4 @@ apps/web-e2e/test-results/
 apps/web-e2e/playwright-report/
 test-results/
 apps/web/public/user-manual/
+apps/web/public/workflow-app/

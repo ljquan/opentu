@@ -37,6 +37,7 @@ export interface BaseGenerationParams {
   pptSlidePrompt?: string;
   pptReplaceElementId?: string;
   promptMeta?: PromptLineageMeta;
+  workflowGenerationTarget?: unknown;
 }
 
 /** 队列任务创建配置 */
@@ -153,6 +154,9 @@ export function createQueueTask(
           batchTotal,
           globalIndex,
           autoInsertToCanvas: params.autoInsertToCanvas ?? true,
+          ...(params.workflowGenerationTarget !== undefined
+            ? { workflowGenerationTarget: params.workflowGenerationTarget }
+            : {}),
         },
         config.taskType
       );
@@ -170,6 +174,9 @@ export function createQueueTask(
             batchTotal: actualCount,
             globalIndex: globalIndex ? globalIndex + i : i + 1,
             autoInsertToCanvas: params.autoInsertToCanvas ?? true,
+            ...(params.workflowGenerationTarget !== undefined
+              ? { workflowGenerationTarget: params.workflowGenerationTarget }
+              : {}),
           },
           config.taskType
         );

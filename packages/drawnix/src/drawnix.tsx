@@ -133,6 +133,9 @@ import {
 import { syncEditedPPTSlideImage } from './utils/frame-insertion-utils';
 import type { MediaLibraryModalProps } from './types/asset.types';
 import { SelectionMode } from './types/asset.types';
+import { WorkflowModeHost } from './workflow-mode/host/WorkflowModeHost';
+import { queueProviderSettingsNavigation } from './components/settings-dialog/provider-settings-navigation';
+import { useWorkflowRoute } from './workflow-mode/host/use-workflow-route';
 const PopupToolbar = lazy(() =>
   import('./components/toolbar/popup-toolbar/popup-toolbar').then((module) => ({
     default: module.PopupToolbar,
@@ -1073,6 +1076,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   currentBoardId,
 }) => {
   const { setAppState: updateState } = useDrawnix();
+  const workflowRoute = useWorkflowRoute(currentBoardId);
   const { chatDrawerRef } = useChatDrawer();
   const { language } = useI18n();
   const playbackError = useCanvasAudioPlaybackSelector((state) => state.error);
@@ -1759,6 +1763,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             onTaskPanelToggle={handleTaskPanelToggle}
             onOpenBackupRestore={handleOpenBackupRestore}
             onOpenCloudSync={handleOpenCloudSync}
+            onOpenWorkflowMode={workflowRoute.enter}
             onKnowledgeBaseToggle={handleKnowledgeBaseToggle}
             onOpenMediaLibrary={handleOpenMediaLibrary}
             deferredFeaturesEnabled={toolWindowManagerEnabled}
@@ -1770,6 +1775,14 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
               <CanvasAudioPlayer />
             </Suspense>
           )}
+          <WorkflowModeHost
+            open={workflowRoute.open && !appState.openSettings}
+            onExit={workflowRoute.exit}
+            onOpenProviderSettings={(profileId) => {
+              queueProviderSettingsNavigation(profileId === undefined ? { action: 'create' } : { action: 'select', profileId: profileId || 'legacy-default' });
+              updateState((prev) => ({ ...prev, openSettings: true }));
+            }}
+          />
 
           <Suspense fallback={null}>
             <PopupToolbar></PopupToolbar>

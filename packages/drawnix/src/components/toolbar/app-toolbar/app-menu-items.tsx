@@ -35,6 +35,7 @@ import { useDrawnix } from '../../../hooks/use-drawnix';
 import { useI18n } from '../../../i18n';
 import Menu from '../../menu/menu';
 import { useContext, useState, useCallback } from 'react';
+import { Workflow as WorkflowIcon } from 'lucide-react';
 import { MenuContentPropsContext } from '../../menu/common';
 import { EVENT } from '../../../constants';
 import { queueProviderSettingsNavigation } from '../../settings-dialog/provider-settings-navigation';
@@ -53,7 +54,9 @@ export const SaveToFile = () => {
       icon={<SaveFileIcon />}
       aria-label={t('menu.saveFile')}
       shortcut={`Cmd+S`}
-    >{t('menu.saveFile')}</MenuItem>
+    >
+      {t('menu.saveFile')}
+    </MenuItem>
   );
 };
 SaveToFile.displayName = 'SaveToFile';
@@ -95,7 +98,9 @@ export const OpenFile = () => {
       }}
       icon={<OpenFileIcon />}
       aria-label={t('menu.open')}
-    >{t('menu.open')}</MenuItem>
+    >
+      {t('menu.open')}
+    </MenuItem>
   );
 };
 OpenFile.displayName = 'OpenFile';
@@ -113,13 +118,15 @@ export const SaveAsImage = () => {
         saveAsImage(board, true);
       }}
       submenu={
-        <Menu onSelect={() => {
-          const itemSelectEvent = new CustomEvent(EVENT.MENU_ITEM_SELECT, {
-            bubbles: true,
-            cancelable: true,
-          });
-          menuContentProps.onSelect?.(itemSelectEvent);
-        }}>
+        <Menu
+          onSelect={() => {
+            const itemSelectEvent = new CustomEvent(EVENT.MENU_ITEM_SELECT, {
+              bubbles: true,
+              cancelable: true,
+            });
+            menuContentProps.onSelect?.(itemSelectEvent);
+          }}
+        >
           <MenuItem
             data-track="toolbar_click_menu_export_png"
             onSelect={() => {
@@ -209,6 +216,26 @@ export const CloudSync = ({
   );
 };
 CloudSync.displayName = 'CloudSync';
+
+export const WorkflowModeMenuItem = ({
+  onOpenWorkflowMode,
+}: {
+  onOpenWorkflowMode: () => void;
+}) => {
+  const { t } = useI18n();
+  return (
+    <MenuItem
+      icon={<WorkflowIcon size={18} />}
+      data-testid="workflow-mode-button"
+      data-track="toolbar_click_menu_workflow_mode"
+      onSelect={onOpenWorkflowMode}
+      aria-label={t('menu.workflowMode')}
+    >
+      {t('menu.workflowMode')}
+    </MenuItem>
+  );
+};
+WorkflowModeMenuItem.displayName = 'WorkflowModeMenuItem';
 
 export const DebugPanel = () => {
   const { t } = useI18n();
@@ -308,16 +335,28 @@ UserManual.displayName = 'UserManual';
 export const VersionInfo = () => {
   const { t } = useI18n();
   // 从 HTML meta 标签获取版本号
-  const version = document.querySelector('meta[name="app-version"]')?.getAttribute('content') || '0.0.0';
-  
+  const version =
+    document
+      .querySelector('meta[name="app-version"]')
+      ?.getAttribute('content') || '0.0.0';
+
   return (
     <MenuItem
       data-track="toolbar_click_menu_version"
       onSelect={() => {}}
       aria-label={t('menu.version')}
     >
-      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-        <span style={{ color: '#666' }}>{t('menu.version')}：{version}</span>
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+        }}
+      >
+        <span style={{ color: '#666' }}>
+          {t('menu.version')}：{version}
+        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span
             style={{ color: '#1890ff', cursor: 'pointer' }}
@@ -421,7 +460,10 @@ export const CleanInvalidLinks = () => {
     if (isScanning) return;
 
     setIsScanning(true);
-    const loadingInstance = MessagePlugin.loading(t('menu.cleanInvalidLinks.scanning'), 0);
+    const loadingInstance = MessagePlugin.loading(
+      t('menu.cleanInvalidLinks.scanning'),
+      0
+    );
 
     try {
       // 收集所有媒体元素，以及已经失败的生成占位卡片
@@ -441,7 +483,9 @@ export const CleanInvalidLinks = () => {
         if (!url || typeof url !== 'string') continue;
 
         // 检查是否为图片或视频元素
-        const isImage = PlaitDrawElement.isDrawElement(element) && PlaitDrawElement.isImage(element);
+        const isImage =
+          PlaitDrawElement.isDrawElement(element) &&
+          PlaitDrawElement.isImage(element);
         const isVideo = isVideoElement(element);
 
         if (isImage || isVideo) {

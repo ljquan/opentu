@@ -7,11 +7,14 @@ const mocks = vi.hoisted(() => ({
   createCanvasAssociationLines: vi.fn(),
   createLongVideoSegmentTask: vi.fn(),
   currentBoardId: 'board-1' as string | null,
+  getTask: vi.fn(),
   getCanvasBoard: vi.fn(),
   mergeVideos: vi.fn(),
   quickInsert: vi.fn(),
   retargetCanvasAssociationLines: vi.fn(),
   subscribers: [] as Array<(event: { type: string; task: Task }) => void>,
+  trackExternalTask: vi.fn(),
+  updateTaskStatus: vi.fn(),
   workspaceSubscribers: [] as Array<(event: { type: string }) => void>,
 }));
 
@@ -25,6 +28,9 @@ vi.mock('./task-queue', () => ({
         return { unsubscribe: vi.fn() };
       },
     })),
+    getTask: mocks.getTask,
+    trackExternalTask: mocks.trackExternalTask,
+    updateTaskStatus: mocks.updateTaskStatus,
   },
 }));
 
@@ -80,6 +86,7 @@ function createCompletedLongVideoTask(
   sourceBoardId: string,
   options: {
     sourceElementIds?: string[];
+    workflowGenerationTarget?: Record<string, unknown>;
     workflowId?: string;
   } = {}
 ): Task {
@@ -111,6 +118,7 @@ function createCompletedLongVideoTask(
         segmentIndex: 1,
         size: '16x9',
         totalSegments: 1,
+        workflowGenerationTarget: options.workflowGenerationTarget,
         workflowId: options.workflowId,
       },
     },
@@ -126,11 +134,14 @@ describe('long video canvas associations', () => {
     mocks.createCanvasAssociationLines.mockReset();
     mocks.createLongVideoSegmentTask.mockReset();
     mocks.currentBoardId = 'board-1';
+    mocks.getTask.mockReset();
     mocks.getCanvasBoard.mockReset();
     mocks.mergeVideos.mockReset();
     mocks.quickInsert.mockReset();
     mocks.retargetCanvasAssociationLines.mockReset();
     mocks.subscribers.length = 0;
+    mocks.trackExternalTask.mockReset();
+    mocks.updateTaskStatus.mockReset();
     mocks.workspaceSubscribers.length = 0;
 
     mocks.getCanvasBoard.mockImplementation(() => mocks.activeBoard);
@@ -146,6 +157,33 @@ describe('long video canvas associations', () => {
         type: 'video',
       };
     });
+  });
+
+  it('ignores archived workflow results without inserting into the normal board', async () => {
+    const workflowGenerationTarget = {
+      documentId: 'workflow-document-1',
+      frameId: 'workflow-frame-1',
+      inputReferences: [],
+    };
+    mocks.currentBoardId = 'normal-board-1';
+    mocks.boundBoardId = 'normal-board-1';
+    const { initializeLongVideoChainService } = await import(
+      './long-video-chain-service'
+    );
+    initializeLongVideoChainService();
+
+    mocks.subscribers[0]({
+      type: 'taskUpdated',
+      task: createCompletedLongVideoTask(
+        'workflow-result',
+        'workflow-document-1',
+        { workflowGenerationTarget }
+      ),
+    });
+
+    await Promise.resolve();
+    expect(mocks.trackExternalTask).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
   });
 
   it('defers insertion until the source board is active and then retargets the task link', async () => {

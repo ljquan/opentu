@@ -90,4 +90,48 @@ describe('queue-utils', () => {
       });
     });
   });
+
+  it.each([
+    {
+      name: 'workflow-batch',
+      params: {
+        prompt: 'test prompt',
+        batchId: 'workflow-batch-1',
+        batchIndex: 1,
+        batchTotal: 1,
+      },
+      expectedTaskCount: 1,
+    },
+    {
+      name: 'direct-count',
+      params: {
+        prompt: 'test prompt',
+        count: 2,
+      },
+      expectedTaskCount: 2,
+    },
+  ])(
+    'preserves workflow generation targets for $name tasks',
+    ({ params, expectedTaskCount }) => {
+      const workflowGenerationTarget = {
+        documentId: 'workflow-document-1',
+        frameId: 'workflow-frame-1',
+        region: { x: 10, y: 20, width: 300, height: 200 },
+        inputReferences: [],
+      };
+
+      createQueueTask(
+        { ...params, workflowGenerationTarget },
+        {},
+        createConfig()
+      );
+
+      expect(createTaskMock).toHaveBeenCalledTimes(expectedTaskCount);
+      createTaskMock.mock.calls.forEach(([taskParams]) => {
+        expect(taskParams.workflowGenerationTarget).toEqual(
+          workflowGenerationTarget
+        );
+      });
+    }
+  );
 });

@@ -1,2 +1,6 @@
 # Exclude excalidraw directory from Nx processing
 excalidraw
+packages/drawnix/src/workflow-mode/web
+packages/drawnix/src/workflow-mode/docs
+packages/drawnix/src/workflow-mode/canvas-agent
+packages/drawnix/src/workflow-mode/canvas-proxy

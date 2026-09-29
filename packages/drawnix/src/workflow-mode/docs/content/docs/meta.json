@@ -1,0 +1,5 @@
+{
+  "title": "Documentation",
+  "root": true,
+  "pages": ["overview", "canvas", "development", "progress", "business", "support"]
+}

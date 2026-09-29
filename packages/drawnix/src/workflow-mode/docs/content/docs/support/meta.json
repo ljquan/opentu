@@ -1,0 +1,6 @@
+{
+  "title": "Support and Security",
+  "root": true,
+  "defaultOpen": true,
+  "pages": ["security", "sponsor"]
+}

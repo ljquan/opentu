@@ -130,6 +130,62 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     flex-shrink: 0;
   }
 
+  &__settings-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--td-text-color-secondary, #666);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      background: var(--td-bg-color-container-hover, rgba(0, 0, 0, 0.04));
+      color: var(--td-text-color-primary, #333);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--td-text-color-secondary, #666);
+      outline-offset: 2px;
+    }
+  }
+
+  &__settings-panel {
+    width: 248px;
+    padding: 12px;
+    color: var(--td-text-color-primary, #333);
+  }
+
+  &__settings-title {
+    margin-bottom: 10px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  &__settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 32px;
+    font-size: 12px;
+  }
+
+  &__settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 2px;
+    margin-top: 6px;
+    border-top: 1px solid var(--td-component-stroke, #e7e7e7);
+    padding-top: 6px;
+  }
+
   &__bound-dismiss-secondary-actions {
     display: flex;
     align-items: center;

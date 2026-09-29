@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedance2VideoAdapter } from '../model-adapters/seedance2-adapter';
 import type { AdapterContext } from '../model-adapters/types';
 
-const { getCachedBlob } = vi.hoisted(() => ({
+const { getCachedBlob, cacheMediaFromBlob } = vi.hoisted(() => ({
   getCachedBlob: vi.fn(),
+  cacheMediaFromBlob: vi.fn(),
 }));
 
 vi.mock('../unified-cache-service', () => ({
-  unifiedCacheService: { getCachedBlob },
+  unifiedCacheService: { getCachedBlob, cacheMediaFromBlob },
 }));
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -45,10 +46,299 @@ describe('seedance 2.0 video adapter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     getCachedBlob.mockReset();
+    cacheMediaFromBlob.mockReset();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(['video_url', 'metadata'])(
+    'uses the configured content endpoint even with an inline %s result',
+    async (field) => {
+      const remoteUrl =
+        'https://pixmax-prod.oss-accelerate.aliyuncs.com/static/video/result.mp4';
+      const download = vi.fn().mockImplementation(
+        async () =>
+          new Response('video bytes', {
+            headers: { 'Content-Type': 'video/mp4' },
+          })
+      );
+      const fetcher = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).endsWith('/content')
+            ? download(input, init)
+            : init?.method === 'POST'
+            ? jsonResponse({ id: 'seedance-25-content', status: 'queued' })
+            : jsonResponse({
+                status: 'completed',
+                [field]: field === 'metadata' ? { url: remoteUrl } : remoteUrl,
+              })
+      );
+      const globalFetch = vi
+        .fn()
+        .mockRejectedValue(new Error('Unexpected global fetch'));
+      vi.stubGlobal('fetch', globalFetch);
+      const context = createContext(fetcher);
+      context.binding = {
+        ...context.binding!,
+        metadata: {
+          video: {
+            resultMode: 'download-content',
+            downloadPathTemplate: '/videos/{taskId}/content',
+          },
+        },
+      };
+      const resultPromise = seedance2VideoAdapter.generateVideo(context, {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'content delivery',
+        duration: 4,
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect((await resultPromise).url).toBe(
+        '/__aitu_cache__/video/seedance-25-content.mp4'
+      );
+      expect(download).toHaveBeenCalledWith(
+        'https://video.example.com/v1/videos/seedance-25-content/content',
+        expect.objectContaining({ method: 'GET' })
+      );
+      expect(cacheMediaFromBlob).toHaveBeenCalledWith(
+        '/__aitu_cache__/video/seedance-25-content.mp4',
+        expect.objectContaining({ size: 11, type: 'video/mp4' }),
+        'video',
+        expect.objectContaining({ taskId: 'seedance-25-content' })
+      );
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(globalFetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('surfaces a failed content download without resubmitting generation or returning an unusable remote URL', async () => {
+    const download = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response('forbidden', { status: 403 })
+      );
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith('/content')
+          ? download()
+          : init?.method === 'POST'
+          ? jsonResponse({ id: 'content-failed', status: 'queued' })
+          : jsonResponse({
+              status: 'completed',
+              video_url: 'https://cdn.example.com/download-only.mp4',
+            })
+    );
+    const context = createContext(fetcher);
+    context.binding = {
+      ...context.binding!,
+      metadata: { video: { resultMode: 'download-content' } },
+    };
+    const resultPromise = seedance2VideoAdapter.generateVideo(context, {
+      model: 'doubao-seedance-2-5-260628',
+      prompt: 'download failure',
+      duration: 4,
+    });
+    const rejection =
+      expect(resultPromise).rejects.toThrow('视频内容下载失败: 403');
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejection;
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+  });
+
+  describe('completed content delivery', () => {
+    const request = {
+      model: 'doubao-seedance-2-5-260628',
+      prompt: 'recover completed video',
+      duration: 4,
+    };
+
+    function createDeliveryContext(download: typeof fetch) {
+      const fetcher = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith('/content')) return download(input, init);
+          return init?.method === 'POST'
+            ? jsonResponse({ id: 'completed-task', status: 'queued' })
+            : jsonResponse({
+                status: 'completed',
+                video_url: 'https://cdn.example.com/result.mp4',
+              });
+        }
+      );
+      const context = createContext(fetcher);
+      context.binding = {
+        ...context.binding!,
+        metadata: { video: { resultMode: 'download-content' } },
+      };
+      const globalFetch = vi
+        .fn()
+        .mockRejectedValue(new Error('Unexpected global fetch'));
+      vi.stubGlobal('fetch', globalFetch);
+      return { context, fetcher, globalFetch };
+    }
+
+    function videoResponse() {
+      return new Response('video bytes', {
+        headers: { 'Content-Type': 'video/mp4' },
+      });
+    }
+
+    it.each([408, 425, 429, 500, 503, 'network'])(
+      'recovers from %s by downloading the same task without polling or submitting again',
+      async (failure) => {
+        const download = vi.fn<typeof fetch>();
+        if (failure === 'network') {
+          download.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        } else {
+          download.mockResolvedValueOnce(
+            new Response('temporary failure', { status: Number(failure) })
+          );
+        }
+        download.mockResolvedValueOnce(videoResponse());
+        const { context, fetcher, globalFetch } =
+          createDeliveryContext(download);
+        const result = seedance2VideoAdapter.generateVideo(context, request);
+
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(download).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(999);
+        expect(download).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(result).resolves.toMatchObject({
+          url: '/__aitu_cache__/video/completed-task.mp4',
+        });
+        expect(download).toHaveBeenCalledTimes(2);
+        for (const [url, init] of download.mock.calls) {
+          expect(url).toBe(
+            'https://video.example.com/v1/videos/completed-task/content'
+          );
+          expect(init?.method).toBe('GET');
+        }
+        expect(fetcher).toHaveBeenCalledTimes(4);
+        expect(globalFetch).not.toHaveBeenCalled();
+        expect(cacheMediaFromBlob).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('stops after three failed downloads without resetting the delivery budget', async () => {
+      const download = vi
+        .fn<typeof fetch>()
+        .mockImplementation(
+          async () => new Response('temporarily unavailable', { status: 503 })
+        );
+      const { context, fetcher } = createDeliveryContext(download);
+      const result = seedance2VideoAdapter.generateVideo(context, request);
+      const rejection = expect(result).rejects.toThrow('视频内容下载失败: 503');
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(download).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(download).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      await rejection;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(download).toHaveBeenCalledTimes(3);
+      expect(fetcher).toHaveBeenCalledTimes(5);
+      expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    });
+
+    it.each([401, 403, 404])(
+      'does not retry permanent HTTP %s errors',
+      async (status) => {
+        const download = vi
+          .fn<typeof fetch>()
+          .mockImplementation(
+            async () => new Response('permanent failure', { status })
+          );
+        const { context, fetcher } = createDeliveryContext(download);
+        const result = seedance2VideoAdapter.generateVideo(context, request);
+        const rejection = expect(result).rejects.toThrow(
+          `视频内容下载失败: ${status}`
+        );
+        await vi.advanceTimersByTimeAsync(60000);
+        await rejection;
+        expect(download).toHaveBeenCalledTimes(1);
+        expect(fetcher).toHaveBeenCalledTimes(3);
+        expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+      }
+    );
+
+    it('stops retrying when cancelled during the backoff', async () => {
+      const download = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new TypeError('Failed to fetch'));
+      const { context, fetcher } = createDeliveryContext(download);
+      const controller = new AbortController();
+      context.signal = controller.signal;
+      const result = seedance2VideoAdapter.generateVideo(context, request);
+      const rejection = expect(result).rejects.toThrow('cancelled');
+
+      await vi.advanceTimersByTimeAsync(5000);
+      controller.abort();
+      await rejection;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    });
+
+    it('passes cancellation to an in-flight download without retrying AbortError', async () => {
+      const download = vi.fn<typeof fetch>().mockImplementation(
+        (_input, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(init.signal?.reason),
+              { once: true }
+            );
+          })
+      );
+      const { context } = createDeliveryContext(download);
+      const controller = new AbortController();
+      context.signal = controller.signal;
+      const result = seedance2VideoAdapter.generateVideo(context, request);
+      const rejection = expect(result).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(download.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+      controller.abort();
+      await rejection;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(download).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports empty content immediately instead of retrying a non-transport error', async () => {
+      const download = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(''));
+      const { context } = createDeliveryContext(download);
+      const result = seedance2VideoAdapter.generateVideo(context, request);
+      const rejection = expect(result).rejects.toThrow('视频内容下载为空');
+      await vi.advanceTimersByTimeAsync(60000);
+      await rejection;
+      expect(download).toHaveBeenCalledTimes(1);
+      expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    });
+
+    it('keeps global fetch working when no context fetcher is supplied', async () => {
+      const download = vi.fn<typeof fetch>().mockResolvedValue(videoResponse());
+      const { context, fetcher } = createDeliveryContext(download);
+      delete context.fetcher;
+      vi.stubGlobal('fetch', fetcher);
+      const result = seedance2VideoAdapter.generateVideo(context, request);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(result).resolves.toMatchObject({
+        url: '/__aitu_cache__/video/completed-task.mp4',
+      });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    });
   });
 
   it('submits official model IDs as JSON and polls queued tasks to completion', async () => {
@@ -246,10 +536,14 @@ describe('seedance 2.0 video adapter', () => {
     expect(submitBody.seed).toBeUndefined();
     expect(submitBody.camera_fixed).toBeUndefined();
     expect(
-      submitBody.content.filter((item: { type: string }) => item.type === 'video_url')
+      submitBody.content.filter(
+        (item: { type: string }) => item.type === 'video_url'
+      )
     ).toHaveLength(4);
     expect(
-      submitBody.content.filter((item: { type: string }) => item.type === 'audio_url')
+      submitBody.content.filter(
+        (item: { type: string }) => item.type === 'audio_url'
+      )
     ).toHaveLength(4);
   });
 

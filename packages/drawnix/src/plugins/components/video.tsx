@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import classNames from 'classnames';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 
 export interface VideoItem {
   url: string;
@@ -16,40 +17,73 @@ export interface VideoProps {
   readonly?: boolean;
 }
 
-export const Video: React.FC<VideoProps> = (props: VideoProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+export const Video: React.FC<VideoProps> = (props) => {
+  // A new source needs a fresh player, including its loading/error state.
+  const url = props.videoItem.url?.replace('#video', '') || '';
+  return <VideoPlayer key={url} {...props} url={url} />;
+};
+
+const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
+  const {
+    videoItem,
+    url,
+    isFocus = false,
+    isSelected = false,
+    readonly = false,
+  } = props;
+  const { poster } = videoItem;
+  const fallbackBlobUrlRef = useRef<string | null>(null);
+  const fallbackAttemptedRef = useRef(false);
+  const fallbackPendingRef = useRef(false);
+  const loadAttemptRef = useRef(0);
   const [videoError, setVideoError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(Boolean(url));
+  const [playbackUrl, setPlaybackUrl] = useState(url);
 
-  const { videoItem, isFocus = false, isSelected = false, readonly = false } = props;
-  const { url: rawUrl, poster, videoType } = videoItem;
-
-  // 清理 URL 中的 #video 标识符（用于视频类型识别，但不影响实际播放）
-  const url = rawUrl?.replace('#video', '') || '';
-  
   useEffect(() => {
-    const video = videoRef.current;
-    if (video) {
-      const handleLoadedData = () => {
-        setIsLoading(false);
-        setVideoError(false);
-      };
-      
-      const handleError = () => {
-        setIsLoading(false);
-        setVideoError(true);
-      };
+    return () => {
+      // Ignore pending cache reads after this source is removed.
+      loadAttemptRef.current += 1;
+      if (fallbackBlobUrlRef.current) {
+        URL.revokeObjectURL(fallbackBlobUrlRef.current);
+        fallbackBlobUrlRef.current = null;
+      }
+    };
+  }, []);
 
-      video.addEventListener('loadeddata', handleLoadedData);
-      video.addEventListener('error', handleError);
-
-      return () => {
-        video.removeEventListener('loadeddata', handleLoadedData);
-        video.removeEventListener('error', handleError);
-      };
+  const handleVideoError = async () => {
+    if (fallbackPendingRef.current) return;
+    const attempt = loadAttemptRef.current;
+    if (isVirtualMediaUrl(url) && !fallbackAttemptedRef.current) {
+      fallbackAttemptedRef.current = true;
+      fallbackPendingRef.current = true;
+      setIsLoading(true);
+      try {
+        const { unifiedCacheService } = await import(
+          '../../services/unified-cache-service'
+        );
+        if (attempt !== loadAttemptRef.current) return;
+        const cachedBlob = await unifiedCacheService.getCachedBlob(url, {
+          allowNetwork: false,
+        });
+        if (attempt !== loadAttemptRef.current) return;
+        if (cachedBlob?.size) {
+          const blobUrl = URL.createObjectURL(cachedBlob);
+          fallbackBlobUrlRef.current = blobUrl;
+          setPlaybackUrl(blobUrl);
+          return;
+        }
+      } catch {
+        // Cache failures use the same visible error as a failed media request.
+      } finally {
+        fallbackPendingRef.current = false;
+      }
     }
-    return undefined;
-  }, [url]);
+    if (attempt === loadAttemptRef.current) {
+      setIsLoading(false);
+      setVideoError(true);
+    }
+  };
 
   const stopCanvasPropagation = (e: React.SyntheticEvent) => {
     if (readonly) {
@@ -62,7 +96,7 @@ export const Video: React.FC<VideoProps> = (props: VideoProps) => {
       e.stopPropagation();
       // 在只读模式下，点击视频在新窗口打开
       e.preventDefault();
-      window.open(url, '_blank');
+      window.open(playbackUrl, '_blank');
     }
   };
 
@@ -137,9 +171,8 @@ export const Video: React.FC<VideoProps> = (props: VideoProps) => {
         </div>
       )}
       <video
-        ref={videoRef}
         data-slideshow-media-control="true"
-        src={url}
+        src={playbackUrl || undefined}
         poster={poster}
         width="100%"
         height="100%"
@@ -158,7 +191,11 @@ export const Video: React.FC<VideoProps> = (props: VideoProps) => {
         }}
         onPointerDown={stopCanvasPropagation}
         onPointerUp={stopCanvasPropagation}
-        onError={() => setVideoError(true)}
+        onLoadedData={() => {
+          setIsLoading(false);
+          setVideoError(false);
+        }}
+        onError={handleVideoError}
       />
       {readonly && (
         <div style={{

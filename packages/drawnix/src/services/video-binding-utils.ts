@@ -763,6 +763,13 @@ export function resolveVideoDownloadPath(
   return resolveTemplatePath(template, videoId);
 }
 
+export class VideoContentHttpError extends Error {
+  constructor(public readonly status: number, detail: string) {
+    super(`视频内容下载失败: ${status}${detail ? ` - ${detail}` : ''}`);
+    this.name = 'VideoContentHttpError';
+  }
+}
+
 export async function downloadVideoContentToLocalUrl(params: {
   videoId: string;
   provider: ResolvedProviderContext;
@@ -771,6 +778,7 @@ export async function downloadVideoContentToLocalUrl(params: {
   cacheKey?: string;
   resultVisibility?: 'user' | 'internal';
   signal?: AbortSignal;
+  fetcher?: typeof fetch;
   fallbackToObjectUrl?: boolean;
 }): Promise<string> {
   const response = await providerTransport.send(params.provider, {
@@ -785,15 +793,12 @@ export async function downloadVideoContentToLocalUrl(params: {
       Accept: 'video/*,application/octet-stream',
     },
     signal: params.signal,
+    fetcher: params.fetcher,
   });
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    throw new Error(
-      `视频内容下载失败: ${response.status}${
-        errorText ? ` - ${errorText}` : ''
-      }`
-    );
+    throw new VideoContentHttpError(response.status, errorText);
   }
 
   const blob = await response.blob();
