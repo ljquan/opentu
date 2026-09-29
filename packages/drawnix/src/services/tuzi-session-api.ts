@@ -453,7 +453,30 @@ export class TuziSessionApiClient {
     if (bridgeConnected) {
       const managed = missing.length ? await ensureTuziProviders(missing) : [];
       recordTuziManagedGroups(managed.map((provider) => provider.group));
-      return [...reused, ...managed];
+      // The parent bridge returns only providers created in this request. Keep
+      // previously persisted managed providers in the synchronization result;
+      // otherwise synchronizeTuziManagedProviders treats them as stale and
+      // removes them on refresh.
+      const persisted = providerProfilesSettings
+        .get()
+        .filter(
+          (profile) =>
+            profile.id.startsWith('tuzi-managed-') &&
+            Boolean(profile.apiKey?.trim()) &&
+            profile.enabled !== false &&
+            (selectedGroups === null ||
+              selectedGroups.has(profile.pricingGroup || '')) &&
+            !managed.some((provider) => provider.id === profile.id)
+        )
+        .map((profile) => ({
+          id: profile.id,
+          group: (profile.pricingGroup || profile.name).trim(),
+          displayName: profile.name,
+          apiKey: profile.apiKey,
+          status: 1,
+          rotatedAt: 0,
+        }));
+      return [...reused, ...persisted, ...managed];
     }
     if (hasImportedTokens && !missing.length) return reused;
     const body = selectedGroups
