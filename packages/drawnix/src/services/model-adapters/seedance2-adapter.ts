@@ -13,6 +13,8 @@ import {
   extractInlineVideoUrl,
   isSeedanceAudioReference,
   isPublicHttpMediaUrl,
+  shouldDownloadVideoContent,
+  VideoContentHttpError,
 } from '../video-binding-utils';
 import { unifiedCacheService } from '../unified-cache-service';
 import {
@@ -31,6 +33,8 @@ import {
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 const MAX_POLL_ATTEMPTS = 1080;
+const MAX_CONTENT_DOWNLOAD_ATTEMPTS = 3;
+const CONTENT_DOWNLOAD_RETRY_DELAY_MS = 1000;
 
 interface Seedance2ContentItem {
   type: 'text' | 'image_url' | 'video_url' | 'audio_url';
@@ -486,6 +490,48 @@ function isTransientPollError(error: unknown): boolean {
   );
 }
 
+function isTransientContentError(error: unknown): boolean {
+  if (error instanceof VideoContentHttpError) {
+    return (
+      error.status === 408 ||
+      error.status === 425 ||
+      error.status === 429 ||
+      error.status >= 500
+    );
+  }
+  return (
+    error instanceof Error &&
+    error.name !== 'AbortError' &&
+    (error instanceof TypeError ||
+      error.name === 'NetworkError' ||
+      error.name === 'TimeoutError')
+  );
+}
+
+async function downloadCompletedVideo(
+  params: Parameters<typeof downloadVideoContentToLocalUrl>[0]
+): Promise<string> {
+  // Retry delivery only: a completed task must never be submitted again here.
+  for (let attempt = 1; ; attempt += 1) {
+    params.signal?.throwIfAborted();
+    try {
+      return await downloadVideoContentToLocalUrl(params);
+    } catch (error) {
+      if (
+        params.signal?.aborted ||
+        attempt >= MAX_CONTENT_DOWNLOAD_ATTEMPTS ||
+        !isTransientContentError(error)
+      ) {
+        throw error;
+      }
+      await sleep(
+        CONTENT_DOWNLOAD_RETRY_DELAY_MS * 2 ** (attempt - 1),
+        params.signal
+      );
+    }
+  }
+}
+
 export const seedance2VideoAdapter: VideoModelAdapter = {
   id: 'seedance-2-video-adapter',
   label: 'Seedance 2.0 Video',
@@ -601,16 +647,27 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
           normalizedStatus === 'completed' ||
           normalizedStatus === 'succeeded'
         ) {
+          // Delivery has its own retry budget; do not restart polling after it
+          // is exhausted (a successful poll resets consecutiveErrors).
+          businessFailure = true;
           const inlineUrl = extractResultUrl(status);
           const url =
-            inlineUrl ||
-            (await downloadVideoContentToLocalUrl({
-              videoId: taskId,
-              provider,
-              binding: context.binding,
-              modelId: status.model || model,
-              cacheKey: taskId,
-            }));
+            inlineUrl &&
+            !shouldDownloadVideoContent(
+              status.model || model,
+              context.binding,
+              { ...status, video_url: inlineUrl }
+            )
+              ? inlineUrl
+              : await downloadCompletedVideo({
+                  videoId: taskId,
+                  provider,
+                  binding: context.binding,
+                  modelId: status.model || model,
+                  cacheKey: taskId,
+                  signal: context.signal,
+                  fetcher: context.fetcher,
+                });
           onProgress?.(100, normalizedStatus);
           return {
             url,
