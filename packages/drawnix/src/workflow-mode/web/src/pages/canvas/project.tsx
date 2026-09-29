@@ -594,8 +594,9 @@ function InfiniteCanvasPage() {
                     if (task?.status === "processing" || task?.status === "failed") {
                         const failed = task.status === "failed";
                         const text = typeof task.params.textProgress === "string" ? task.params.textProgress : undefined;
-                        const unavailable = attempt.kind === "text" && (task.params.textRecoveryUnavailable || !task.params.localTextResponseId);
-                        const detail = failed ? task.error?.message || "生成失败" : unavailable ? TEXT_RECOVERY_UNAVAILABLE_MESSAGE : recoveryMessage();
+                        const unavailable = attempt.kind === "text" && Boolean(task.params.textRecoveryUnavailable);
+                        const recoveryError = attempt.kind === "text" && typeof task.params.recoveryError === "string" ? task.params.recoveryError : undefined;
+                        const detail = failed ? task.error?.message || "生成失败" : unavailable ? TEXT_RECOVERY_UNAVAILABLE_MESSAGE : recoveryError ? `结果待确认：${recoveryError}` : recoveryMessage();
                         setNodes(previous => previous.map(item => item.id === node.id ? updateWorkflowRecoveryState(item, slotId, attempt.id, failed ? "error" : unavailable ? "idle" : "loading", detail, text) : item));
                     }
                     return recoverWorkflowTask(attempt.id, recoveryConfigRef.current);
@@ -614,10 +615,13 @@ function InfiniteCanvasPage() {
                         const task = await readWorkflowTask(attempt.id);
                         if (cancelled || attempt.scopeId !== getDocumentBatchScope()) return;
                         const text = typeof task?.params.textProgress === "string" ? task.params.textProgress : undefined;
-                        const unavailable = attempt.kind === "text" && !task?.params.localTextResponseId;
+                        const unavailable = attempt.kind === "text" && Boolean(task?.params.textRecoveryUnavailable);
+                        const recoveryError = attempt.kind === "text" && typeof task?.params.recoveryError === "string" ? task.params.recoveryError : undefined;
                         const detail = unavailable
-                            ? "结果待确认：已保留收到的文本；此接口未提供查询标识，无法自动取回剩余内容。"
-                            : isWorkflowMediaKind(attempt.kind) ? recoveryMessage() : "结果待确认：尚未取回结果；支持查询的任务会继续查询。";
+                            ? TEXT_RECOVERY_UNAVAILABLE_MESSAGE
+                            : recoveryError
+                                ? `结果待确认：${recoveryError}`
+                                : isWorkflowMediaKind(attempt.kind) ? recoveryMessage() : "结果待确认：尚未取回结果；支持查询的任务会继续查询。";
                         setNodes(previous => previous.map(item => item.id === node.id ? updateWorkflowRecoveryState(item, slotId, attempt.id, unavailable ? "idle" : "loading", detail, text) : item));
                         return;
                     }

@@ -80,6 +80,16 @@ export async function runLocalWorkflowTask<T>(id: string, kind: ModelCapability,
                 task.executionPhase = undefined;
                 return true;
             });
+        } else if (kind === 'text' && resolveModelRequestConfig(config, model, kind).apiFormat !== 'gemini') {
+            // Keep the original transport error when the request ended before a
+            // Responses id was received. Recovery must not reinterpret that
+            // unknown outcome as an unsupported GET contract.
+            const message = safeWorkflowErrorMessage(error, [resolveModelRequestConfig(config, model, kind).apiKey]);
+            await taskStorageWriter.mutateWorkflowTask(id, scopeId, task => {
+                if (task.status !== 'processing') return false;
+                task.params.recoveryError = message;
+                return true;
+            }).catch(() => false);
         }
         throw error;
     } finally { active.delete(id); }
@@ -212,6 +222,7 @@ async function recoverStoredWorkflowTask(id: string, config: AiConfig): Promise<
         result = { resultKind: 'video', urls: [output.url || await blobDataUrl(output.blob!)] };
     } else {
         const { isTuziRequestRecoveryBaseUrl } = await import('../../../../services/provider-routing/tuzi-api-endpoints');
+        if (kind === 'text' && typeof task.params.recoveryError === 'string' && !task.params.localTextResponseId) return null;
         if (kind !== 'image' || route.apiFormat !== 'openai' || resolveModelScript(originalConfig, model, kind) || !isTuziRequestRecoveryBaseUrl(route.baseUrl)) {
             throw new WorkflowRecoveryUnavailable(kind === 'text' ? TEXT_RECOVERY_UNAVAILABLE_MESSAGE : '原任务没有可用查询标识，无法安全找回；不会自动重发');
         }

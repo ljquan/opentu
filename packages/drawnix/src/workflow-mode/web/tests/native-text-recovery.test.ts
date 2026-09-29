@@ -29,6 +29,12 @@ async function interrupted() {
     taskStorageWriter.close();
 }
 
+async function interruptedWithoutResponseId() {
+    fetcher.mockResolvedValueOnce(sse(delta));
+    await expect(requestImageQuestion(config, messages, vi.fn(), { taskId: 'attempt' })).rejects.toThrow('连接中断');
+    taskStorageWriter.close();
+}
+
 describe('text refresh recovery', () => {
     it.each(['MAX_TOKENS', 'SAFETY', 'RECITATION'])('does not mark a Gemini %s response successful and keeps the received prefix', async finishReason => {
         const gemini = { ...config, apiFormat: 'gemini' as const };
@@ -57,6 +63,14 @@ describe('text refresh recovery', () => {
         expect(fetcher.mock.calls.filter(([, init]) => init.method === 'POST')).toHaveLength(1);
         expect(await recoverWorkflowTask('attempt', config)).toMatchObject({ text: payload().output_text });
         expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps an interrupted response without an id pending instead of claiming the channel is unsupported', async () => {
+        await interruptedWithoutResponseId();
+        expect(await taskStorageWriter.getTask('attempt')).toMatchObject({ status: 'processing', params: { textProgress: 'Once upon a time', recoveryError: expect.stringContaining('连接中断') } });
+        expect(await recoverWorkflowTask('attempt', config)).toBeNull();
+        expect((await taskStorageWriter.getTask('attempt'))?.params.textRecoveryUnavailable).toBeUndefined();
+        expect(fetcher).toHaveBeenCalledTimes(1);
     });
 
     it('keeps a partial query pending and saves the later full result', async () => {

@@ -83,10 +83,11 @@ describe('workflow synchronous recovery', () => {
     await expect(recoverWorkflowTask('offline', config)).rejects.toThrow('network unavailable');
     expect((await taskStorageWriter.getTask('offline'))?.status).toBe('processing');
   });
-  it('keeps unsupported text uncertain without resubmitting', async () => {
+  it('keeps an interrupted text request pending without resubmitting', async () => {
     const post = vi.fn().mockRejectedValue(new Error('interrupt'));
     await expect(runLocalWorkflowTask('one', 'text', config, 'text', {}, post, () => ({ text: '' }))).rejects.toThrow();
-    await expect(recoverWorkflowTask('one', config)).rejects.toMatchObject({ name: 'WorkflowRecoveryUnavailable' });
+    expect((await taskStorageWriter.getTask('one'))?.params.recoveryError).toBe('interrupt');
+    expect(await recoverWorkflowTask('one', config)).toBeNull();
     expect(post).toHaveBeenCalledTimes(1);
     expect(axios.get).not.toHaveBeenCalled();
   });
