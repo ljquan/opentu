@@ -326,19 +326,22 @@ function resolveClipLifecycleStatus(clips: AudioClipRecord[]): string {
   return '';
 }
 
-function collectNestedDataCandidates(payload: any, maxDepth = 6): any[] {
+function collectNestedDataCandidates(payload: any): any[] {
   const candidates: any[] = [];
-  let current = payload;
-
-  for (let depth = 0; depth < maxDepth; depth += 1) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      break;
-    }
-
+  const queue = [payload];
+  const visited = new Set<object>();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || Array.isArray(current))
+      continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
     candidates.push(current);
-    current = current.data;
+    // Only task envelopes carry task status/lyrics; collections may contain summaries.
+    for (const key of ['data', 'result', 'task']) {
+      if (current[key] !== undefined) queue.push(current[key]);
+    }
   }
-
   return candidates;
 }
 
@@ -407,14 +410,10 @@ function normalizeLifecycleStatus(payload: any): string {
     }
   }
 
-  const statusCandidates = [
-    payload?.data?.data?.status,
-    payload?.data?.status,
-    payload?.status,
-    payload?.data?.data?.state,
-    payload?.data?.state,
-    payload?.state,
-  ]
+  const candidates = collectNestedDataCandidates(payload);
+  const statusCandidates = [...candidates]
+    .reverse()
+    .flatMap((candidate) => [candidate.status, candidate.state])
     .map((candidate) => normalizeStatus(candidate))
     .filter(Boolean);
 
@@ -429,9 +428,7 @@ function normalizeLifecycleStatus(payload: any): string {
   }
 
   const progress = resolveProgressValue(
-    payload?.progress,
-    payload?.data?.progress,
-    payload?.data?.data?.progress
+    ...candidates.map((candidate) => candidate.progress)
   );
   const hasAudioResult = clips.some(
     (clip) =>
@@ -450,11 +447,12 @@ function normalizeLifecycleStatus(payload: any): string {
 }
 
 function extractAudioClips(payload: any): AudioClipRecord[] {
-  const queue: any[] = [payload];
+  const queue = [{ value: payload, source: 'data' }];
+  let urlFallback: AudioClipRecord[] = [];
   const visited = new Set<object>();
 
   while (queue.length > 0) {
-    const current = queue.shift();
+    const { value: current, source } = queue.shift()!;
     if (!current || typeof current !== 'object') continue;
     if (visited.has(current)) continue;
     visited.add(current);
@@ -468,29 +466,37 @@ function extractAudioClips(payload: any): AudioClipRecord[] {
             typeof item.audioUrl === 'string' ||
             typeof item.clip_id === 'string' ||
             typeof item.clipId === 'string' ||
-            typeof item.id === 'string' ||
-            typeof item.status === 'string' ||
-            typeof item.state === 'string')
+            ((source === 'clips' || source === 'data') &&
+              !['clips', 'items', 'results', 'data', 'result', 'task'].some(
+                (key) => item[key] !== undefined
+              ) &&
+              (typeof item.id === 'string' ||
+                typeof item.status === 'string' ||
+                typeof item.state === 'string')))
       );
       if (clips.length > 0) return clips.map(normalizeAudioClipRecord);
-      queue.push(...current);
+      queue.push(...current.map((value) => ({ value, source })));
       continue;
     }
 
     for (const key of ['clips', 'items', 'results', 'data', 'result', 'task']) {
-      if (current[key] !== undefined) queue.push(current[key]);
+      if (current[key] !== undefined)
+        queue.push({ value: current[key], source: key });
     }
 
     const urls = [current.audio_urls, current.audioUrls]
       .filter(Array.isArray)
       .flat()
       .filter((url): url is string => typeof url === 'string' && !!url.trim());
-    if (urls.length > 0) {
-      return urls.map((audio_url, batch_index) => ({ audio_url, batch_index }));
+    if (urls.length > 0 && urlFallback.length === 0) {
+      urlFallback = urls.map((audio_url, batch_index) => ({
+        audio_url,
+        batch_index,
+      }));
     }
   }
 
-  return [];
+  return urlFallback;
 }
 
 function normalizeAudioClipRecord(clip: AudioClipRecord): AudioClipRecord {
@@ -687,9 +693,9 @@ function normalizeAudioTaskResponse(
     status: normalizeLifecycleStatus(payload),
     progress:
       resolveProgressValue(
-        payload?.progress,
-        payload?.data?.progress,
-        payload?.data?.data?.progress
+        ...collectNestedDataCandidates(payload).map(
+          (candidate) => candidate.progress
+        )
       ) ??
       (clips.length > 0 &&
       clips.every((clip) =>
@@ -959,13 +965,16 @@ function normalizeManualAudioTaskResponse(
     (url): url is string => Boolean(url)
   );
   const urls = [...new Set(audioUrls.length > 0 ? audioUrls : resultUrls)];
-  const status = task.status || (urls.length > 0 ? 'completed' : 'processing');
+  const native = normalizeAudioTaskResponse(payload, fallbackTaskId);
+  const status = task.status || (urls.length > 0 ? 'completed' : native.status);
 
   return {
-    taskId: task.taskId || fallbackTaskId,
+    taskId: task.taskId || native.taskId,
+    action: native.action,
+    lyrics: native.lyrics,
     status,
-    progress: task.progress,
-    failReason: task.error || '',
+    progress: task.progress ?? native.progress,
+    failReason: task.error || native.failReason,
     clips: urls.map((url, index) => ({
       id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
       clip_id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,

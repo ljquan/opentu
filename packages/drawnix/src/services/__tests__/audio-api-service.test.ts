@@ -871,4 +871,128 @@ describe('audio result recovery regressions', () => {
       'provider rejected'
     );
   });
+
+  it('prefers full clips over a URL-list fallback and preserves continuation metadata', async () => {
+    const clips = urls.map((audio_url, batch_index) => ({
+      clip_id: `provider-${batch_index}`,
+      audio_url,
+      batch_index,
+      image_url: 'https://cdn.example.com/cover.jpeg',
+      status: 'complete',
+    }));
+    const { audioAPIService, extractAudioGenerationResult } = await setup([
+      { status: 'SUCCESS', audio_urls: urls, data: { clips } },
+    ]);
+    const result = extractAudioGenerationResult(
+      await audioAPIService.resumePolling(taskId)
+    );
+    expect(result.urls).toEqual(urls);
+    expect(result.clipIds).toEqual(['provider-0', 'provider-1']);
+    expect(result.imageUrl).toBe('https://cdn.example.com/cover.jpeg');
+  });
+
+  it.each(['items', 'results'])(
+    'ignores %s summaries before deeper audio clips',
+    async (key) => {
+      const { audioAPIService } = await setup([
+        {
+          status: 'SUCCESS',
+          [key]: [{ id: 'summary', status: 'failed' }],
+          data: { result: { clips: urls.map((audioUrl) => ({ audioUrl })) } },
+        },
+      ]);
+      const result = await audioAPIService.resumePolling(taskId, {
+        interval: 1,
+        maxAttempts: 1,
+      });
+      expect(result.clips.map((clip) => clip.audio_url)).toEqual(urls);
+    }
+  );
+
+  it.each(['clips', 'audio_urls'])(
+    'uses nested task status without per-clip status for %s',
+    async (key) => {
+      const { audioAPIService } = await setup([
+        {
+          data: {
+            result: {
+              task: {
+                status: 'SUCCESS',
+                progress: '100%',
+                [key]:
+                  key === 'clips'
+                    ? urls.map((audioUrl) => ({ audioUrl }))
+                    : urls,
+              },
+            },
+          },
+        },
+      ]);
+      const result = await audioAPIService.resumePolling(taskId, {
+        interval: 1,
+        maxAttempts: 1,
+      });
+      expect(result.status).toBe('completed');
+      expect(result.progress).toBe(100);
+      expect(result.clips.map((clip) => clip.audio_url)).toEqual(urls);
+    }
+  );
+
+  it.each(['IN_PROGRESS', 'FAILED'])(
+    'respects nested %s status even with audio URLs',
+    async (status) => {
+      const payload = {
+        data: { result: { task: { status, audio_urls: urls } } },
+      };
+      const { audioAPIService, send } = await setup([payload, payload]);
+      await expect(
+        audioAPIService.resumePolling(taskId, { interval: 1, maxAttempts: 1 })
+      ).rejects.toThrow(status === 'FAILED' ? '音乐生成失败' : 'Suno 生成超时');
+      expect(send).toHaveBeenCalledTimes(status === 'FAILED' ? 1 : 2);
+    }
+  );
+
+  it.each(['immediate', 'poll', 'submit'] as const)(
+    'preserves native lyrics with a manual template during %s',
+    async (mode) => {
+      const complete = {
+        data: {
+          task_id: taskId,
+          action: 'LYRICS',
+          status: 'SUCCESS',
+          data: { text: 'test lyrics', title: 'Song', status: 'complete' },
+        },
+      };
+      const payloads =
+        mode === 'immediate'
+          ? [complete]
+          : mode === 'poll'
+          ? [{ status: 'IN_PROGRESS' }, complete]
+          : [{ job: taskId }, complete];
+      const { audioAPIService, extractAudioGenerationResult } = await setup(
+        payloads,
+        {
+          responsePaths: { taskId: 'job' },
+          pollResponsePaths: { status: 'data.status' },
+        }
+      );
+      const options = {
+        interval: 1,
+        maxAttempts: 1,
+        routeModel: 'suno_lyrics',
+      };
+      const result =
+        mode === 'submit'
+          ? await audioAPIService.generateAudioWithPolling(
+              { model: 'suno_lyrics', prompt: 'test' },
+              options
+            )
+          : await audioAPIService.resumePolling(taskId, options);
+      expect(result.action).toBe('LYRICS');
+      expect(extractAudioGenerationResult(result)).toMatchObject({
+        resultKind: 'lyrics',
+        lyricsText: 'test lyrics',
+      });
+    }
+  );
 });
