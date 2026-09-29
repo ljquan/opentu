@@ -33,9 +33,13 @@ export function localModelContract(
   const alias = capability === 'audio' ? getSunoModelAlias(model) : null;
   const contractModel = alias?.entryModelId || model;
   const known = getModelConfig(contractModel);
-  if (!known || known.type !== capability) return undefined;
-  const contract = describeNativeModel(contractModel, capability);
-  if (capability === 'text')
+  if (capability === 'text') {
+    // Discovered/custom OpenAI-compatible text models are not necessarily in
+    // the built-in catalog, but they still share the standard sampling fields.
+    // Keep the text settings panel and request body consistent for those models.
+    const contract = known?.type === capability
+      ? describeNativeModel(contractModel, capability)
+      : describeNativeModel('gpt-5.5', 'text');
     return {
       ...contract,
       adapterId: 'fallback-text-executor',
@@ -43,6 +47,9 @@ export function localModelContract(
       requestSchema: undefined,
       unavailableReason: undefined,
     };
+  }
+  if (!known || known.type !== capability) return undefined;
+  const contract = describeNativeModel(contractModel, capability);
   const bindings = inferBindingsForProviderModel(
     {
       id: 'workflow-local',

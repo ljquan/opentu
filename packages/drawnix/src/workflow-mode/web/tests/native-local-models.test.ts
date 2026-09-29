@@ -75,6 +75,16 @@ describe("OpenTu complete local model parameters", () => {
             ],
         });
     });
+    it("uses standard text parameters for discovered models outside the built-in catalog", async () => {
+        const fetcher = vi.fn().mockResolvedValue({ ok: true, body: null, json: async () => ({ output_text: "Answer" }) });
+        vi.stubGlobal("fetch", fetcher);
+        const config = configFor("deepseek-v4.1-preview", "text", { temperature: 0.3, top_p: 0.85, max_tokens: 777 });
+        config.reasoningEffort = "high";
+        expect(nativeModel(config, "text")?.parameters?.map((parameter) => parameter.id)).toEqual(["temperature", "top_p", "max_tokens"]);
+        await requestImageQuestion(config, [{ role: "user", content: "Question" }], vi.fn());
+        expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ temperature: 0.3, top_p: 0.85, max_output_tokens: 777 });
+        expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning).toBeUndefined();
+    });
     it("uses the Suno music endpoint and preserves multiple clips", async () => {
         const fetcher = vi.fn().mockResolvedValue(
             json({

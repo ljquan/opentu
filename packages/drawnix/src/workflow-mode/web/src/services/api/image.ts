@@ -1004,7 +1004,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
             model: requestConfig.model,
             temperature: params.temperature, top_p: params.top_p, max_output_tokens: params.max_tokens,
             input: toResponseInput(withSystemMessage(requestConfig, messages)),
-            ...(requestConfig.reasoningEffort === "auto" ? {} : { reasoning: { effort: requestConfig.reasoningEffort } }),
+            ...(nativeModel(config, "text") || requestConfig.reasoningEffort === "auto" ? {} : { reasoning: { effort: requestConfig.reasoningEffort } }),
         }, onDelta, options)).content || apiText("noContent");
         if (answer === apiText("noContent")) onDelta(answer);
         return answer;
