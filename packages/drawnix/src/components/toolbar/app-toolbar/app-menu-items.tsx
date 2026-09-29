@@ -25,6 +25,8 @@ import {
 } from '@plait/core';
 import { PlaitDrawElement } from '@plait/draw';
 import { isVideoElement } from '../../../plugins/with-video';
+import { isWorkZoneElement } from '../../../plugins/workzone-transforms';
+import { isImageGenerationAnchorElement } from '../../../types/image-generation-anchor.types';
 import { MessagePlugin } from 'tdesign-react';
 import { loadFromJSON, saveAsJSON } from '../../../data/json';
 import MenuItem from '../../menu/menu-item';
@@ -389,6 +391,25 @@ async function checkUrlValidity(url: string): Promise<boolean> {
 }
 
 /**
+ * 判断画布上的生成占位卡片是否已经进入失败终态。
+ * 这类元素没有可供 HEAD/GET 检查的媒体 URL，但仍属于失效生成内容。
+ */
+function isFailedGenerationElement(element: PlaitElement): boolean {
+  if (isImageGenerationAnchorElement(element)) {
+    return element.phase === 'failed';
+  }
+
+  if (isWorkZoneElement(element)) {
+    return (
+      element.workflow?.status === 'failed' ||
+      element.workflow?.steps?.some((step) => step.status === 'failed') === true
+    );
+  }
+
+  return false;
+}
+
+/**
  * 清除失效链接菜单项
  */
 export const CleanInvalidLinks = () => {
@@ -403,11 +424,18 @@ export const CleanInvalidLinks = () => {
     const loadingInstance = MessagePlugin.loading(t('menu.cleanInvalidLinks.scanning'), 0);
 
     try {
-      // 收集所有媒体元素
+      // 收集所有媒体元素，以及已经失败的生成占位卡片
       const mediaElements: { element: PlaitElement; index: number; url: string }[] = [];
+      const invalidElements: { element: PlaitElement; index: number }[] = [];
 
       for (let i = 0; i < board.children.length; i++) {
         const element = board.children[i];
+
+        if (isFailedGenerationElement(element)) {
+          invalidElements.push({ element, index: i });
+          continue;
+        }
+
         const url = (element as any).url;
 
         if (!url || typeof url !== 'string') continue;
@@ -422,8 +450,6 @@ export const CleanInvalidLinks = () => {
       }
 
       // 检查每个媒体元素的 URL 有效性
-      const invalidElements: { element: PlaitElement; index: number }[] = [];
-
       await Promise.all(
         mediaElements.map(async ({ element, index, url }) => {
           const isValid = await checkUrlValidity(url);
