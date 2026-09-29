@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { ChevronRight, Copy, Download, Group, Image as ImageIcon, LoaderCircle, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -14,6 +14,7 @@ import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasN
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { useTranslation } from "react-i18next";
+import styles from "./canvas-node.module.css";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
@@ -63,7 +64,7 @@ type NodeContentRendererProps = {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     isEditingContent: boolean;
-    textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+    textareaRef: React.RefObject<HTMLTextAreaElement>;
     isBatchRoot: boolean;
     batchCount: number;
     batchExpanded: boolean;
@@ -454,8 +455,8 @@ export const CanvasNode = React.memo(function CanvasNode({
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot && props.node.type === CanvasNodeType.Image) return <ImageNodeContent {...props} />;
-    if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.type === CanvasNodeType.Text && (props.node.metadata?.content || props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content)))) return <TextContent {...props} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} message={props.node.metadata.errorDetails} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -494,12 +495,12 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
     );
 }
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ theme, message }: Pick<NodeContentRendererProps, "theme"> & { message?: string }) {
     const { t } = useTranslation();
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
-            <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
+        <div role="status" className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ color: theme.node.activeStroke }}>
+            <LoaderCircle aria-hidden="true" className={styles.loadingSpinner} />
+            <span className="text-xs leading-5">{message || t("canvas.node.generating")}</span>
         </div>
     );
 }
@@ -546,6 +547,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
     const isBatchRoot = batchCount > 1;
     const primaryTextId = node.metadata?.primaryTextId || texts[0]?.id;
     const primaryText = texts.find((text) => text.id === primaryTextId);
+    const progress = primaryText || { id: node.id, content: node.metadata?.content || "", status: node.metadata?.status || "idle", errorDetails: node.metadata?.errorDetails };
     const content = primaryText?.content || node.metadata?.content || "";
     const paddingClass = isBatchRoot ? "px-4 pb-4 pt-14" : "p-4";
 
@@ -577,9 +579,10 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 ) : content ? (
                     <div className={`thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent font-mono ${paddingClass}`} style={textStyle} onWheel={(event) => event.stopPropagation()}>
                         {content}
+                        {progress.status !== "success" && (progress.status !== "idle" || progress.errorDetails) ? <TextProgress text={progress} /> : null}
                     </div>
-                ) : primaryText ? (
-                    <TextSlotStatus text={primaryText} />
+                ) : primaryText || progress.errorDetails ? (
+                    <TextSlotStatus text={progress} />
                 ) : (
                     <div className="p-4 font-mono" style={{ color: theme.node.placeholder }}>
                         {t("canvas.node.editText")}
@@ -642,6 +645,7 @@ function ExpandedTextCard({ node, text, index, onSetPrimary }: { node: CanvasNod
                 <>
                     <div className="thin-scrollbar h-full overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 pt-14 font-mono text-sm leading-6" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
                         {text.content}
+                        {text.status !== "success" ? <TextProgress text={text} /> : null}
                     </div>
                     <button type="button" className="pointer-events-none absolute right-2.5 top-2.5 flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium opacity-0 transition duration-150 hover:bg-black/5 group-hover/node:pointer-events-auto group-hover/node:opacity-100 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onSetPrimary())}>
                         <Star className="size-3.5" style={{ color: selectionBlue }} />
@@ -655,15 +659,23 @@ function ExpandedTextCard({ node, text, index, onSetPrimary }: { node: CanvasNod
     );
 }
 
+function TextProgress({ text }: { text: CanvasNodeText }) {
+    const { t } = useTranslation();
+    return <div role="status" className="mt-3 flex items-center gap-2 text-xs opacity-75">
+        {text.status === "loading" ? <span aria-hidden="true" className="size-3 shrink-0 animate-spin rounded-full border border-current border-t-transparent" /> : null}
+        <span>{text.errorDetails || t(text.status === "loading" ? "canvas.node.generating" : "canvas.node.failed")}</span>
+    </div>;
+}
+
 function TextSlotStatus({ text }: { text: CanvasNodeText }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const failed = text.status === "error";
     const loading = text.status === "loading";
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
-            {failed ? <span className="text-xs leading-5">{text.errorDetails || t("canvas.node.failed")}</span> : loading ? <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} /> : <span className="text-xs">{t("apiErrors.noContent")}</span>}
-            {loading ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 break-words px-6 text-center" style={{ background: theme.node.fill, color: loading ? theme.node.activeStroke : theme.node.text }}>
+            {failed ? <span className="text-xs leading-5">{text.errorDetails || t("canvas.node.failed")}</span> : loading ? <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} /> : <span role="status" className="text-xs leading-5">{text.errorDetails || t("apiErrors.noContent")}</span>}
+            {loading ? <span role="status" className="text-xs leading-5">{text.errorDetails || t("canvas.node.generating")}</span> : null}
         </div>
     );
 }
@@ -916,10 +928,10 @@ function ImageSlotStatus({ image }: { image?: CanvasNodeImage }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const failed = image?.status === "error";
+    if (!failed) return <div className="h-full w-full" style={{ background: theme.node.fill }}><LoadingContent theme={theme} message={image?.errorDetails} /></div>;
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
-            {failed ? <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
-            {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: theme.node.text }}>
+            <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span>
         </div>
     );
 }

@@ -297,12 +297,8 @@ async function throwProviderError(
   operation: string
 ): Promise<never> {
   const rawText = await response.text().catch(() => '');
-  throw new Error(
-    extractProviderErrorMessage(
-      rawText,
-      `${operation}失败：HTTP ${response.status}`
-    )
-  );
+  const detail = extractProviderErrorMessage(rawText, `HTTP ${response.status}`);
+  throw new Error(`${operation}失败：${detail}`);
 }
 
 function getTaskFailureMessage(payload: Record<string, any>): string {

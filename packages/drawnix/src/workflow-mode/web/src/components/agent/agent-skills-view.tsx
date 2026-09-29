@@ -90,10 +90,10 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
     };
     const generateDraft = async (source: SkillDraftSource) => {
         const agent = useAgentStore.getState();
-        if (agent.sending || agent.waiting) return message.warning(t("agent.skillManager.codexBusy"));
-        if (source === "conversation" && !hasSettledConversation(agent.messages, agent.activeThreadId)) return message.warning(t("agent.skillManager.noConversation"));
-        if (source === "canvas" && !agent.canvasContext) return message.warning(t("agent.skillManager.noCanvas"));
-        if (!clientId) return message.warning(t("agent.skillManager.connecting"));
+        if (agent.sending || agent.waiting) return void message.warning(t("agent.skillManager.codexBusy"));
+        if (source === "conversation" && !hasSettledConversation(agent.messages, agent.activeThreadId)) return void message.warning(t("agent.skillManager.noConversation"));
+        if (source === "canvas" && !agent.canvasContext) return void message.warning(t("agent.skillManager.noCanvas"));
+        if (!clientId) return void message.warning(t("agent.skillManager.connecting"));
         const connectionRevision = useAgentSkillStore.getState().connectionRevision;
         setGeneratingSource(source);
         try {

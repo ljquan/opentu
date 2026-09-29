@@ -4,6 +4,15 @@ export type ReleaseInfo = {
     items: { type: string; content: string }[];
 };
 
+export function releasesFromChangelog(changelog: { versions?: Array<{ version: string; date: string; changes: Record<string, string[]> }> }): ReleaseInfo[] {
+    const types: Record<string, string> = { features: "新增", fixes: "修复", improvements: "优化" };
+    return (changelog.versions || []).map((release) => ({
+        version: release.version,
+        date: release.date,
+        items: Object.entries(release.changes).flatMap(([kind, items]) => items.map(content => ({ type: types[kind] || "调整", content }))),
+    }));
+}
+
 export function parseChangelog(content: string): ReleaseInfo[] {
     return content
         .split(/^## /m)

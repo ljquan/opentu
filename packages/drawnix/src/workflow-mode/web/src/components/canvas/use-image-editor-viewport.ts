@@ -8,7 +8,7 @@ const zoomStep = 1.2;
 const viewportPadding = 16;
 
 export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
-    const viewportNodeRef = useRef<HTMLDivElement>(null);
+    const viewportNodeRef = useRef<HTMLDivElement | null>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     const panRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
     const zoomAnchorRef = useRef<{ zoom: number; ratioX: number; ratioY: number; viewportX: number; viewportY: number } | null>(null);

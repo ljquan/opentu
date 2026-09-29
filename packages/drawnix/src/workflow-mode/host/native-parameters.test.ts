@@ -9,8 +9,46 @@ import {
   applyNativeAdapterContract,
 } from './native-parameters';
 import { buildNativeModelCoverage } from './native-model-coverage';
+import { getVideoModelConfig } from '../../constants/video-model-config';
+import { validateNativeReferences } from '../shared/native-parameters';
 
 describe('complete native catalog parameter coverage', () => {
+  it('aligns H3 reference inputs with OpenTu limits without discarding images', () => {
+    const inputs = describeNativeModel('MiniMax-H3', 'video').referenceInputs!;
+    expect(inputs.images?.maxCountWithoutVideos).toBe(
+      getVideoModelConfig('MiniMax-H3').imageUpload.maxCount
+    );
+    expect(inputs.images?.maxCount).toBe(9);
+    expect(inputs.videos).toEqual({
+      maxCount: 3,
+      formats: ['url', 'data', 'asset'],
+    });
+    expect(() => validateNativeReferences(inputs, {})).not.toThrow();
+    expect(() => validateNativeReferences(inputs, {
+      images: ['https://example.test/first.png', 'https://example.test/last.png'],
+    })).not.toThrow();
+    expect(() => validateNativeReferences(inputs, {
+      images: ['https://example.test/frame.png'],
+      videos: ['https://example.test/a.mp4', 'data:video/mp4;base64,AA==', '/asset-library/video.mov'],
+    })).not.toThrow();
+    expect(() => validateNativeReferences(inputs, {
+      images: ['https://example.test/1.png', 'https://example.test/2.png', 'https://example.test/3.png'],
+    })).toThrow('最多支持 2 个');
+    expect(() => validateNativeReferences(inputs, {
+      images: Array(9).fill('https://example.test/image.png'),
+      videos: ['https://example.test/video.mp4'],
+    })).not.toThrow();
+    expect(() => validateNativeReferences(inputs, {
+      images: Array(10).fill('https://example.test/image.png'),
+      videos: ['https://example.test/video.mp4'],
+    })).toThrow('最多支持 9 个');
+    expect(() => validateNativeReferences(inputs, {
+      videos: Array(4).fill('https://example.test/video.mp4'),
+    })).toThrow('最多支持 3 个');
+    expect(() => validateNativeReferences(inputs, {
+      audios: ['https://example.test/audio.mp3'],
+    })).toThrow();
+  });
   it('reports actual adapter limitations rather than claiming generic parameter forwarding', () => {
     const gpt = describeNativeModel('gpt-image-2', 'image').parameters!;
     const compatibility = applyNativeAdapterContract(

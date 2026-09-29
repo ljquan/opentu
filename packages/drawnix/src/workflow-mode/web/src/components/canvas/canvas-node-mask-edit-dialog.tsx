@@ -1,3 +1,4 @@
+import { workflowRoot } from "@/integration/workflow-dom";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Button, Input, Modal, Slider, Tooltip } from "antd";
@@ -258,7 +259,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                           >
                               {brushPreview.adjusting ? <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-semibold text-white">{brushSize}px</span> : null}
                           </div>,
-                          document.body,
+                          workflowRoot(),
                       )
                     : null}
 

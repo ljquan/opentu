@@ -20,9 +20,9 @@ export function PromptSourceEditorDrawer({ open, source, onSave, onClose }: { op
     const save = () => {
         const name = draft.name.trim();
         const url = draft.url.trim();
-        if (!name) return message.warning(t("config.promptSources.editor.nameRequired"));
-        if (!isHttpUrl(url)) return message.warning(t("config.promptSources.editor.invalidUrl"));
-        if (draft.homepage.trim() && !isHttpUrl(draft.homepage.trim())) return message.warning(t("config.promptSources.editor.invalidHomepage"));
+        if (!name) return void message.warning(t("config.promptSources.editor.nameRequired"));
+        if (!isHttpUrl(url)) return void message.warning(t("config.promptSources.editor.invalidUrl"));
+        if (draft.homepage.trim() && !isHttpUrl(draft.homepage.trim())) return void message.warning(t("config.promptSources.editor.invalidHomepage"));
         onSave({ ...draft, name, url, homepage: draft.homepage.trim(), builtIn: false });
         onClose();
     };

@@ -44,6 +44,7 @@ export const PARAMETER_CONSUMERS: Record<Capability, Record<string, string>> = {
     ratio: 'MiniMax/Seedance2/HappyHorse request body',
     generate_audio: 'Seedance2 submitBody.generate_audio',
     api_version: 'video-api-service MiniMax route',
+    prompt_enhancement: 'minimax-h3-video-workflow Context IR preflight',
     watermark: 'Seedance2/HappyHorse body.watermark',
     seed: 'Seedance2/HappyHorse body.seed',
     camera_fixed: 'Seedance2 body.camera_fixed',
@@ -118,6 +119,7 @@ const ADAPTER_PARAMETER_IDS: Record<string, string[]> = {
     'duration',
     'sora_mode',
     'api_version',
+    'prompt_enhancement',
     'ratio',
   ],
   'seedance-video-adapter': ['size', 'duration', 'aspect_ratio'],
@@ -261,15 +263,35 @@ export function describeNativeModel(
   modelId: string,
   capability: Capability
 ): Pick<WorkflowChannel['models'][number], 'parameters' | 'referenceInputs'> {
-  const known = getModelConfig(modelId);
+  const normalizedModelId = modelId.toLowerCase();
+  // Tuzi discovery may return a concrete Kling version while OpenTu's
+  // contract is declared on the capability model. Resolve that alias before
+  // loading parameters so local channels receive the same dedicated fields.
+  const physicalSeedance = normalizedModelId.match(/^doubao-seedance-(1-5-pro|1-0-pro(?:-fast)?|1-0-lite)_(480p|720p|1080p)$/);
+  const seedanceFamily = physicalSeedance ? `seedance-${physicalSeedance[1].replace(/^1-([05])/, '1.$1')}` : undefined;
+  const contractModelId = /^kling-v\d(?:[-.]\d+)?$/.test(normalizedModelId)
+    ? 'kling_video'
+    : seedanceFamily || modelId;
+  const known = getModelConfig(contractModelId);
   // Later model-specific definitions override broad tag-based definitions.
   const parameters = [
     ...new Map(
-      getCompatibleParams(modelId)
+      getCompatibleParams(contractModelId)
         .filter((parameter) => parameter.modelType === capability)
         .map((parameter) => [parameter.id, serializeNativeParameter(parameter)])
     ).values(),
   ];
+  if (contractModelId !== modelId) {
+    const version = parameters.find(parameter => parameter.id === 'model_name');
+    if (version) {
+      version.options = [{ value: modelId, label: modelId }];
+      version.defaultValue = modelId;
+    }
+  }
+  if (physicalSeedance) {
+    const size = parameters.find(parameter => parameter.id === 'size');
+    if (size) { size.options = [{ value: physicalSeedance[2], label: physicalSeedance[2] }]; size.defaultValue = physicalSeedance[2]; }
+  }
   const referenceInputs: NativeReferenceInputs = {};
   if (
     capability === 'image' &&
@@ -293,7 +315,7 @@ export function describeNativeModel(
     referenceInputs.images = { mode: 'reference' };
   const builtInVideo =
     capability === 'video' &&
-    (VIDEO_MODEL_CONFIGS[modelId] ||
+    (contractModelId !== modelId || VIDEO_MODEL_CONFIGS[modelId] ||
       getAllBuiltInModelConfigs().some((model) => model.id === modelId));
   if (builtInVideo) {
     const config = getVideoModelConfig(modelId);
@@ -320,6 +342,14 @@ export function describeNativeModel(
       labels: config.imageUpload.labels,
     };
     const seedance = getSeedance2Capabilities(modelId);
+    if (modelId.toLowerCase() === 'minimax-h3') {
+      referenceInputs.images = {
+        ...referenceInputs.images,
+        maxCount: 9,
+        maxCountWithoutVideos: 2,
+      };
+      referenceInputs.videos = { maxCount: 3, formats: ['url', 'data', 'asset'] };
+    }
     if (seedance) {
       referenceInputs.images.maxCount = Math.min(
         config.imageUpload.maxCount,

@@ -716,9 +716,9 @@ function getConfigOrDefault(model?: string | null): VideoModelConfig {
       sizeOptions: MINIMAX_H3_SIZE_OPTIONS,
       defaultSize: '768P',
       imageUpload: {
-        maxCount: 1,
-        mode: 'reference',
-        labels: ['参考图'],
+        maxCount: 2,
+        mode: 'frames',
+        labels: ['首帧', '尾帧'],
       },
     };
   }

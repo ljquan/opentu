@@ -948,7 +948,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     useLayoutEffect(() => {
         const bootstrap = readAgentUrlBootstrap(hash);
         if (!bootstrap) return;
-        navigate(`${window.location.pathname}${window.location.search}${bootstrap.remainingHash}`, { replace: true });
+        navigate(`${window.location.pathname.replace(/^\/workflow(?=\/|$)/, "") || "/"}${window.location.search}${bootstrap.remainingHash}`, { replace: true });
         if (!bootstrap.url || !bootstrap.token) {
             setAgentState({ fragmentBootstrap: false, activeTab: "setup", connectError: rt(!bootstrap.url ? "addressRequired" : "agentNotFound") });
             useAgentStore.getState().openPanel();

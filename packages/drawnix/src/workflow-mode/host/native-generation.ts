@@ -1,3 +1,4 @@
+import type { AdapterContext } from '../../services/model-adapters';
 import type {
   GenerationRequest,
   GenerationResult,
@@ -7,11 +8,16 @@ import {
   resolveNativeParameters,
   validateNativeReferences,
 } from '../shared/native-parameters';
+import { notifyTaskSubmitted } from '../../services/submission-persistence';
 
 export async function generateNative(
   request: GenerationRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  persistence?: { requestId: string; onSubmitted: (id: string) => Promise<void>; assertAvailable?: (context?: AdapterContext) => void }
 ): Promise<GenerationResult> {
+  const onSubmitted = persistence
+    ? (remoteId: string) => notifyTaskSubmitted(remoteId, persistence.onSubmitted)
+    : undefined;
   const catalog = await readNativeModels();
   signal.throwIfAborted();
   const channel = catalog.channels.find(
@@ -84,6 +90,8 @@ export async function generateNative(
     const { fallbackMediaExecutor } = await import(
       '../../services/media-executor/fallback-executor'
     );
+    persistence?.assertAvailable?.();
+    signal.throwIfAborted();
     const result = await fallbackMediaExecutor.generateText(
       {
         prompt: request.prompt,
@@ -116,7 +124,9 @@ export async function generateNative(
   const context = {
     ...getAdapterContextFromSettings(request.capability, modelRef, options),
     signal,
+    requestId: persistence?.requestId,
   };
+  persistence?.assertAvailable?.(context);
   signal.throwIfAborted();
   const common = {
     prompt: request.prompt,
@@ -140,11 +150,11 @@ export async function generateNative(
         | undefined,
       outputCompression: params?.output_compression as number | undefined,
       inputFidelity: params?.input_fidelity as 'high' | 'low' | undefined,
-      params: params ?? {
+      params: { ...(params ?? {
         quality: request.quality,
         n: request.count,
         count: request.count,
-      },
+      }), ...(onSubmitted ? { onSubmitted } : {}) },
     });
     signal.throwIfAborted();
     return {
@@ -169,6 +179,7 @@ export async function generateNative(
         ? { input_videos: request.videos, input_video: request.videos[0] }
         : {}),
       ...(request.audios?.length ? { input_audios: request.audios } : {}),
+      ...(onSubmitted ? { onSubmitted } : {}),
     };
     const result = await adapter.generateVideo(context, {
       ...common,
@@ -198,11 +209,11 @@ export async function generateNative(
       continueAt: params?.continueAt as number | undefined,
       infillStartS: params?.infillStartS as number | undefined,
       infillEndS: params?.infillEndS as number | undefined,
-      params: params ?? {
+      params: { ...(params ?? {
         voice: request.voice,
         response_format: request.format,
         speed: Number(request.speed || 1),
-      },
+      }), ...(onSubmitted ? { onSubmitted } : {}) },
     });
     signal.throwIfAborted();
     if (result.resultKind === 'lyrics')

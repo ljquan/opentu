@@ -1,54 +1,47 @@
-# OpenTu Integration
+# OpenTu 工作流集成
 
-The upstream application stays in `web/`, with its own React runtime and dependencies.
-OpenTu renders `host/WorkflowModeHost.tsx` from its existing workflow menu entry.
-The normal board stays mounted; the workflow iframe stays mounted after its first open.
-Returning to the board hides the iframe rather than navigating or clearing either app.
-The host URL is /workflow while open. Direct navigation and refresh reopen the
-workflow; browser history toggles its visibility without unmounting it. Returning
-restores the previous board URL. Inner workflow routes remain inside the iframe.
+工作流源码现在与 OpenTu 共用 React 18、Vite 开发服务器和生产构建。`WorkflowModeHost` 按需加载 `WorkflowApp`，直接渲染页面；原来的 iframe、独立安装与 `build:workflow` 已移除。
 
-## Development
+## 开发与部署
 
-Install the independent frontend dependencies once:
+在 OpenTu 根目录安装依赖后运行 `pnpm start`（包含 Service Worker）或 `pnpm start:lan`。普通画布与工作流源码均进入同一个 Vite HMR 模块图，无需另行构建工作流。`pnpm build:web` 输出统一应用。
 
-```powershell
-pnpm --dir packages/drawnix/src/workflow-mode/web install --ignore-workspace --ignore-scripts
-```
+入口为 `/workflow`，内部页面地址为 `/workflow/canvas`、`/workflow/canvas/:id`、`/workflow/image`、`/workflow/video`、`/workflow/prompts`、`/workflow/assets` 和 `/workflow/config`。部署静态服务器必须将这些页面地址回退到 OpenTu 的 `index.html`；仅复制文件但没有 SPA fallback 的服务器不能保证直接刷新深层路由。
 
-Run `pnpm start` from OpenTu. Its prebuild writes the workflow application to
-`apps/web/public/workflow-app/`. After editing upstream frontend code, run
-`pnpm build:workflow` and reload the host page.
+工作流图标和内置插件从 `/workflow-assets/*` 加载。Vite 开发中直接提供 `web/public`，生产构建自动复制这些资源。不再生成或依赖 `/workflow-app/index.html`。旧目录残留不会参与应用入口，但部署时应使用本次完整构建产物。
 
-The embedded build uses hash routing so static hosting does not need nested SPA
-fallback rules. The normal OpenTu production build copies the generated assets.
-Do not build OpenTu directly with Nx without first running `pnpm build:workflow`.
+`/workflow-assets/plugins/index.json` 在开发时按目录实时生成，构建时输出静态清单；没有已编译插件时是空数组。已有 `/plugins/*.js` 配置在加载时映射到新路径，不重写存储。插件开发变量 `VITE_DEV_PLUGINS` 放在 `apps/web/.env.local`，仍可使用旧路径。原工作流 `web/.env*` 不再作为独立 Vite 配置读取。
 
-## Data Boundary
+入口 HTML 为 `/workflow/*` 设置根资源基址，避免深层刷新误请求嵌套的 assets 地址。工作流当前按站点根路径部署；非根目录部署未验证。自建 CSP 应与仓库配置一致允许插件的 `blob:` 脚本加载；插件现在与 OpenTu 处于同一窗口，只安装可信插件。
 
-Infinite Canvas keeps its own browser persistence. Embedded initialization adds
-OpenTu native channels from enabled providers, all their discovered models, selected
-models and default routes. Legacy default routes also expose the built-in OpenTu
-catalog for their corresponding capabilities. Catalog visibility is not a guarantee
-that the configured endpoint or account supports every model.
-Existing custom channels, scripts and valid selections are preserved. Missing defaults
-are filled, and unchanged upstream defaults use the OpenTu choices. Reopening is idempotent.
-Native channels contain profile IDs, not API keys. The host validates the exact iframe,
-origin and current model catalog, then invokes OpenTu adapters with current credentials.
-Results return only to workflow storage; no normal-board generation tasks are created.
-Legacy imported channels and their locally stored keys are left untouched.
-Custom scripts retain precedence. Unbound adapters fail explicitly, never fall back to
-another provider. Native channels require the OpenTu host, not standalone mode.
-Video/audio reference inputs are not yet bridged. Text returns once, not streaming.
-Video generation follows the existing synchronous plugin-result path; pending tasks
-do not resume after a page reload. Completed assets retain normal local persistence.
-Cancellation stops client waiting and forwards an AbortSignal; some existing adapters
-do not cancel provider polling, and cancellation does not guarantee billing cancellation.
-Only the first audio clip is stored by the existing single-audio workflow interface.
-Old workflow nodes, tasks and assets are not migrated. Standalone mode does not import.
-The old implementation is archived outside this repository.
+## 模式、配置与数据
 
-## Upstream
+普通画布与工作流互斥挂载，避免全局快捷键相互响应。从普通画布入口进入时保留当前画布内容、视口与返回 URL；返回重新挂载普通画布。工作流内部导航使用主窗口历史记录，浏览器前进后退跟随 `/workflow/*` 路径。
 
-Source: https://github.com/basketikun/infinite-canvas
-Snapshot: e856c87 (v0.19.0). Keep LICENSE and upstream attribution.
+原生模型目录通过 `readNativeModels` 同步，生成通过 `executeNative` 直接调用已有 OpenTu 适配器。渠道只保留 profile ID 和可公开模型信息，不复制 OpenTu API Key。同步保留用户主动清空的默认模型，失效的非空选择才回退。生成仍校验模型、参数与素材约束；取消/退出模式传播 AbortSignal、忽略取消后的结果。部分供应商适配器无法撤销远端任务或计费，刷新不恢复原生生成中的请求。退出工作流清理已激活插件的样式和监听器，再进入时重新加载。
+
+配置页直接打开主应用渠道设置。显示设置时暂时卸载工作流页面，关闭后重新挂载并同步最新模型目录；已保存的工作流记录保留，未保存的局部表单/弹窗状态可能重置。
+
+本地渠道（包括“默认渠道”）的编辑器提供“从 OpenTu 自动填入”。打开时读取已启用、已填写 URL/API Key、采用 Bearer 鉴权且无需额外请求头的 OpenAI/Gemini 兼容分组，不要求先发现或选择模型。API Key 为空且地址为默认值时，优先选择当前图片路由分组，其次 default 分组，再其次唯一候选；多个无法确定的候选需要手动选择。自定义地址只匹配同地址同协议的分组，已有 API Key 和读取期间的手动编辑不会被自动覆盖。
+
+选择分组会成对填入 URL/API Key 并带入协议，保留渠道名称、模型和脚本；密钥默认遮罩，保存后写入现有工作流本地配置，取消不保存。它是本地副本：宿主更新 Key 后需要重新选择分组导入；配置导出仍包含本地渠道 Key。原生托管渠道继续按 profile ID 从宿主调用，模型同步数据仍不复制密钥。特殊鉴权、额外请求头和自定义协议继续使用原生托管渠道。读取失败仅显示通用提示，不输出凭据或原始异常。
+
+工作流继续使用 `infinite-canvas` 数据库及原有 `app_state`、`media_files` 等 store、持久化键与导入导出格式。`app_state` 改用独立 localforage 实例，避免改变 OpenTu 全局实例的配置。同一源已有数据直接读取，不清理、不迁移。其他域名或端口的旧数据受浏览器同源规则约束，不能自动读取。
+
+工作流 Tailwind/重置样式限定在 `.workflow-app-root`，弹层挂载在该根节点。工作流保留既有主题、语言偏好键，主题类、color-scheme 和 lang 限定到根节点；主文档标题继续由 OpenTu 管理。版本检查读取 OpenTu `/version.json` 和 `/changelog.json`，网络失败回退到构建时打包的 OpenTu 发布记录。
+
+## 验证与限制
+
+自动化命令、结果和已知基线失败见仓库根目录 `docs/qa-workflow-runtime.md`，人工待验收项也记录于工作流 `docs/content/docs/progress/pending-test.mdx`。没有执行浏览器页面测试、真实付费模型调用或生产部署验证。人工验收应覆盖两个模式的进入/返回、深层路由刷新、历史导航、主题/弹层、旧数据读写和代码热更新。
+
+回滚采用代码回退并重新构建应用；本次没有数据结构迁移。不要通过清空浏览器数据排查加载问题。
+
+## 生成任务刷新恢复
+
+工作台和画布在提交前保存输入、归属和独立尝试 ID，并通过宿主 IndexedDB 条件事务取得一次提交资格。普通任务执行器跳过 `params.workflow`，恢复不调用生成 POST。`native-task-recovery` 处理宿主原生渠道；`workflow-local-task` 处理本地渠道和脚本，保存渠道/Key 指纹而不复制明文 Key。Tuzi 图片按稳定 Request ID 查询；有远端 ID 的视频和异步图片按原路由查询。画布关键保存使用 `flushCanvasStorage`，普通编辑保持防抖。
+
+重新生成属于新尝试，结果不明时可能重复计费。没有查询契约的同步任务保留“结果待确认”，不能保证刷新后供应商仍处理请求。旧记录没有 ID 时不会猜测或补发。恢复要求原账号、原渠道和原 Key 可用；不要通过删除提交标记“修复”任务。未新增后端、数据库版本迁移、部署配置或依赖。
+
+## 当前模型来源规则（2026-09-26 更新）
+
+工作流模型选择器仅使用渠道页配置的渠道，不再自动导入宿主 OpenTu 模型。本地初始化会清理旧自动托管渠道，并在唯一同名/同能力匹配时迁移默认选择；找不到或存在歧义则要求用户重新选择。Tuzi 榜单仍仅在用户点击“获取热门 200”或“获取全部模型”后请求，保存后生效。此规则取代本文早期的自动同步说明，不修改宿主渠道设置、历史任务或画布数据。

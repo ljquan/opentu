@@ -1,3 +1,4 @@
+import { workflowRoot } from "@/integration/workflow-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { flushSync } from "react-dom";
@@ -95,13 +96,13 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
         }
 
         const updateTheme = () => {
-            setIsDark(document.documentElement.classList.contains("dark"));
+            setIsDark(workflowRoot().classList.contains("dark"));
         };
 
         updateTheme();
 
         const observer = new MutationObserver(updateTheme);
-        observer.observe(document.documentElement, {
+        observer.observe(workflowRoot(), {
             attributes: true,
             attributeFilter: ["class"],
         });
@@ -113,8 +114,9 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
         const button = buttonRef.current;
         if (!button) return;
 
-        const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+        const rootRect = workflowRoot().getBoundingClientRect();
+        const viewportWidth = rootRect.width;
+        const viewportHeight = rootRect.height;
 
         let x: number;
         let y: number;
@@ -123,8 +125,8 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
             y = viewportHeight / 2;
         } else {
             const { top, left, width, height } = button.getBoundingClientRect();
-            x = left + width / 2;
-            y = top + height / 2;
+            x = left + width / 2 - rootRect.left;
+            y = top + height / 2 - rootRect.top;
         }
 
         const maxRadius = Math.hypot(Math.max(x, viewportWidth - x), Math.max(y, viewportHeight - y));
@@ -133,56 +135,17 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
             const nextTheme = targetTheme ?? (isDark ? "light" : "dark");
             if (nextTheme === (isDark ? "dark" : "light")) return;
             setIsDark(nextTheme === "dark");
-            document.documentElement.classList.toggle("dark", nextTheme === "dark");
-            document.documentElement.style.colorScheme = nextTheme;
+            workflowRoot().classList.toggle("dark", nextTheme === "dark");
+            workflowRoot().style.colorScheme = nextTheme;
             onThemeChange?.(nextTheme);
         };
 
-        if (typeof document.startViewTransition !== "function") {
-            applyTheme();
-            return;
-        }
-
-        const clipPath = getThemeTransitionClipPaths(shape, x, y, maxRadius, viewportWidth, viewportHeight);
-
-        const root = document.documentElement;
-        root.dataset.magicuiThemeVt = "active";
-        root.style.setProperty("--magicui-theme-toggle-vt-duration", `${duration}ms`);
-        // Pin the collapsed clip-path via CSS so Firefox does not paint the new
-        // theme unclipped between snapshot and the ready.then() JS animation.
-        root.style.setProperty("--magicui-theme-vt-clip-from", clipPath[0]);
-        const cleanup = () => {
-            delete root.dataset.magicuiThemeVt;
-            root.style.removeProperty("--magicui-theme-toggle-vt-duration");
-            root.style.removeProperty("--magicui-theme-vt-clip-from");
-        };
-
-        const transition = document.startViewTransition(() => {
-            flushSync(applyTheme);
-        });
-        if (typeof transition?.finished?.finally === "function") {
-            transition.finished.finally(cleanup);
-        } else {
-            cleanup();
-        }
-
-        const ready = transition?.ready;
-        if (ready && typeof ready.then === "function") {
-            ready.then(() => {
-                document.documentElement.animate(
-                    {
-                        clipPath,
-                    },
-                    {
-                        duration,
-                        // Star: linear avoids easing overshoot that fights polygon interpolation at t→1; VT group duration is synced above.
-                        easing: shape === "star" ? "linear" : "ease-in-out",
-                        fill: "forwards",
-                        pseudoElement: "::view-transition-new(root)",
-                    },
-                );
-            });
-        }
+        // Animate only this mode; document-level transitions also capture OpenTu's shell.
+        flushSync(applyTheme);
+        workflowRoot().animate?.(
+            { clipPath: getThemeTransitionClipPaths(shape, x, y, maxRadius, viewportWidth, viewportHeight) },
+            { duration, easing: shape === "star" ? "linear" : "ease-in-out" },
+        );
     }, [shape, fromCenter, duration, isDark, targetTheme, onThemeChange]);
 
     return (

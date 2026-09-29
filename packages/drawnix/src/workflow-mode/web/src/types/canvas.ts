@@ -45,6 +45,7 @@ export type CanvasNodeText = {
 };
 
 export type CanvasNodeMetadata = {
+    workflowTasks?: Record<string, { id: string; scopeId: string; kind: "image" | "text" | "video" | "audio" }>;
     nativeParams?: string;
     content?: string;
     composerContent?: string;
@@ -83,7 +84,9 @@ export type CanvasNodeMetadata = {
     bytes?: number;
     durationMs?: number;
     videoTaskId?: string;
-    videoTaskProvider?: "openai" | "gemini";
+    videoTaskProvider?: "openai" | "gemini" | "native" | "plugin";
+    videoTaskProtocol?: "minimax-h3-v2" | "kling-text2video" | "kling-image2video";
+    videoTaskTuziCredential?: { channelId: string; credentialId: string };
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };

@@ -28,6 +28,7 @@ import {
   readProviderResponseText,
 } from '../provider-routing/provider-transport';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
+import { notifyTaskSubmitted } from '../submission-persistence';
 
 // 重新导出工具函数，方便外部使用
 export { isAsyncImageModel, aspectRatioToSize };
@@ -295,7 +296,7 @@ export async function generateImageAsync(
   }
 
   // 通知调用方保存 remoteId（用于页面刷新后恢复轮询）
-  await onSubmitted?.(taskRemoteId);
+  await notifyTaskSubmitted(taskRemoteId, onSubmitted);
   onProgress?.(10);
   // 轮询等待结果
   let progress = submitData.progress ?? 0;

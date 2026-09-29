@@ -1,6 +1,9 @@
+import { requestLocalModelImage } from "./local-model";
+import { persistWorkflowText, runLocalWorkflowTask } from "../workflow-local-task";
+import { getDocumentBatchScope } from "../document-batch-scope";
 import axios from "axios";
 import { nativeChannel, requestNative } from "./opentu";
-import { getNativeParameterValues } from "@/integration/native-parameters";
+import { getNativeParameterValues, nativeModel } from "@/integration/native-parameters";
 
 import i18n from "@/i18n";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
@@ -65,13 +68,15 @@ type ResponseApiOutputItem =
     | { type?: "function_call"; id?: string; call_id?: string; name?: string; arguments?: string };
 type ResponseApiPayload = {
     id?: string;
+    status?: string;
+    incomplete_details?: { reason?: string };
     output?: ResponseApiOutputItem[];
     output_text?: string;
     error?: { message?: string };
     code?: number;
     msg?: string;
 };
-type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
+type ResponseStreamState = { buffer: string; text: string; responseId?: string; payload?: ResponseApiPayload; error?: string };
 
 type ImageApiResponse = {
     data?: Array<Record<string, unknown>>;
@@ -96,8 +101,8 @@ type GeminiPayload = {
     error?: { message?: string };
     promptFeedback?: { blockReason?: string };
 };
-type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string; finished?: boolean };
+type RequestOptions = { signal?: AbortSignal; taskId?: string; requestId?: string; onTextCheckpoint?: (progress: { responseId: string }) => Promise<void> };
 
 const QUALITY_BASE: Record<string, number> = {
     low: 1024,
@@ -471,6 +476,11 @@ function consumeResponseStreamBlock(block: string, state: ResponseStreamState, o
     if (!data || data === "[DONE]") return;
     const event = JSON.parse(data) as Record<string, unknown>;
     const type = stringValue(event.type);
+    if (isRecord(event.response)) {
+        const id = stringValue(event.response.id);
+        if (id && state.responseId && id !== state.responseId) throw new Error("文本响应与原任务不匹配");
+        if (id) state.responseId = id;
+    }
     const errorMessage = responseErrorMessage(event);
     if (errorMessage) state.error = errorMessage;
     if (type === "response.output_text.delta" && typeof event.delta === "string") {
@@ -481,8 +491,8 @@ function consumeResponseStreamBlock(block: string, state: ResponseStreamState, o
         state.text = event.text;
         onDelta?.(state.text);
     }
-    if (type === "response.completed" && isRecord(event.response)) {
-        state.payload = event.response as ResponseApiPayload;
+    if (["response.completed", "response.failed", "response.incomplete", "response.cancelled"].includes(type) && isRecord(event.response)) {
+        state.payload = { ...event.response, status: stringValue(event.response.status) || type.slice("response.".length) } as ResponseApiPayload;
     } else if (Array.isArray(event.output)) {
         state.payload = event as ResponseApiPayload;
     }
@@ -510,28 +520,84 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
         body: JSON.stringify({ ...body, stream: true }),
         signal: options?.signal,
     });
-    if (!response.ok) throw new Error(await readFetchError(response, apiText("requestFailed")));
-    if (!response.body) {
+    if (!response.ok) throw Object.assign(new Error(await readFetchError(response, apiText("requestFailed"))), { httpStatus: response.status });
+    if (!response.body || response.headers.get('Content-Type')?.includes('application/json')) {
         const payload = (await response.json()) as ResponseApiPayload;
+        if (payload.id) await options?.onTextCheckpoint?.({ responseId: payload.id });
+        const content = parseToolResponse(payload).content;
+        if (content) onDelta?.(content);
+        const terminalError = responseTerminalError(payload);
+        if (terminalError) throw Object.assign(new Error(terminalError), { workflowProviderFailure: true });
         validateResponsePayload(payload);
+        if (payload.status && payload.status !== 'completed') throw new Error('文本结果待确认，将继续查询原响应');
         return parseToolResponse(payload);
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const state: ResponseStreamState = { buffer: "", text: "" };
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        consumeResponseStreamText(state, decoder.decode(value, { stream: true }), onDelta);
-        if (state.error) throw new Error(state.error);
+    let savedId: string | undefined;
+    const checkpoint = async () => {
+        if (state.responseId && state.responseId !== savedId) {
+            await options?.onTextCheckpoint?.({ responseId: state.responseId });
+            savedId = state.responseId;
+        }
+    };
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const previousText = state.text;
+            consumeResponseStreamText(state, decoder.decode(value, { stream: true }));
+            await checkpoint();
+            if (state.text !== previousText) onDelta?.(state.text);
+            if (state.error) throw Object.assign(new Error(state.error), { workflowProviderFailure: true });
+        }
+        const previousText = state.text;
+        consumeResponseStreamText(state, decoder.decode(), undefined, true);
+        await checkpoint();
+        if (state.text !== previousText) onDelta?.(state.text);
+        if (state.error) throw Object.assign(new Error(state.error), { workflowProviderFailure: true });
+        if (!state.payload) throw new Error("文本连接中断，已收到的内容已保留，结果待确认");
+        const terminalError = responseTerminalError(state.payload);
+        if (terminalError) throw Object.assign(new Error(terminalError), { workflowProviderFailure: true });
+        if (state.payload.status && state.payload.status !== 'completed') throw new Error('文本连接中断，已收到的内容已保留，结果待确认');
+        validateResponsePayload(state.payload);
+        const result = parseToolResponse(state.payload);
+        return { ...result, content: result.content || state.text };
+    } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
     }
-    consumeResponseStreamText(state, decoder.decode(), onDelta, true);
-    if (state.error) throw new Error(state.error);
-    if (!state.payload) return { content: state.text, toolCalls: [] };
-    validateResponsePayload(state.payload);
-    const result = parseToolResponse(state.payload);
-    return { ...result, content: state.text || result.content };
+}
+
+function responseTerminalError(payload: ResponseApiPayload): string | undefined {
+    if (!["failed", "cancelled", "incomplete"].includes(payload.status || "")) return undefined;
+    return payload.error?.message || `文本生成未完成：${payload.incomplete_details?.reason || payload.status}`;
+}
+
+/** Retrieval is query-only. Compatible providers may not retain Responses. */
+export async function queryTextResponse(config: AiConfig, responseId: string) {
+    const response = await fetch(aiApiUrl(config, `/responses/${encodeURIComponent(responseId)}`), { headers: aiHeaders(config) });
+    if (!response.ok) {
+        const message = await readFetchError(response, "暂时无法查询原文本任务");
+        // A missing GET route cannot improve by polling the same task again.
+        // A plain 404 can also mean the response is not yet available, so it is not enough.
+        if (unsupportedTextQuery(response.status, message)) return { status: "unavailable" as const };
+        throw new Error(message);
+    }
+    const payload = await response.json() as ResponseApiPayload;
+    if (unsupportedTextQuery(response.status, responseErrorMessage(payload))) return { status: "unavailable" as const };
+    if (payload.id !== responseId) throw new Error("文本查询结果与原任务不匹配");
+    const content = parseToolResponse({ ...payload, error: undefined }).content;
+    const error = responseTerminalError(payload);
+    if (error) return { status: "failed" as const, content, error };
+    validateResponsePayload(payload);
+    return { status: payload.status === "completed" ? "completed" as const : "pending" as const, content };
+}
+
+function unsupportedTextQuery(status: number, message: string) {
+    return [405, 501].includes(status) || ((status === 200 || status >= 400 && status < 500) && /Invalid URL\s*\(\s*GET\b/i.test(message) && /\/responses\//.test(message));
 }
 
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
@@ -634,6 +700,7 @@ async function requestGeminiStreamingResponse(config: AiConfig, body: Record<str
     }
     consumeGeminiStreamText(state, decoder.decode(), onDelta, true);
     if (state.error) throw new Error(state.error);
+    if (options?.requestId && !state.finished) throw new Error("文本连接中断，已收到的内容已保留；此接口不支持查询未返回的全文");
     return { content: state.text, toolCalls: state.toolCalls };
 }
 
@@ -660,12 +727,16 @@ function consumeGeminiStreamBlock(block: string, state: GeminiStreamState, onDel
         .join("\n")
         .trim();
     if (!data || data === "[DONE]") return;
-    const result = parseGeminiToolResponse(JSON.parse(data) as GeminiPayload);
+    const payload = JSON.parse(data) as GeminiPayload;
+    if (payload.candidates?.some(candidate => candidate.finishReason === 'STOP')) state.finished = true;
+    const failure = payload.candidates?.find(candidate => candidate.finishReason && candidate.finishReason !== 'STOP');
+    const result = parseGeminiToolResponse(payload);
     if (result.content) {
         state.text += result.content;
         onDelta?.(state.text);
     }
     state.toolCalls.push(...result.toolCalls);
+    if (failure) throw Object.assign(new Error(`Gemini 未正常完成：${failure.finishReason}`), { workflowProviderFailure: true });
 }
 
 function parseGeminiToolResponse(payload: GeminiPayload): ToolResponseResult {
@@ -725,8 +796,14 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
-export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Array<{ id: string; dataUrl: string }>> {
+    if (options?.taskId && !nativeChannel(config, config.model || config.imageModel, "image")) return runLocalWorkflowTask(options.taskId, "image", config, config.model || config.imageModel, { prompt, nativeParams: config.nativeParams, images: [], params: { size: config.size, quality: config.quality, count: config.count } }, () => requestGeneration(config, prompt, { ...options, taskId: undefined, requestId: options.taskId }), value => ({ resultKind: "image", urls: value.map(image => image.dataUrl) }));
     if (nativeChannel(config, config.model || config.imageModel, "image")) return requestNativeImages(config, prompt, [], options);
+    if (nativeModel(config, "image")) {
+        const urls = await requestLocalModelImage(config, withSystemPrompt(config, prompt), [], options);
+        if (!urls.length) throw new Error(apiText("noContent"));
+        return urls.map(dataUrl => ({ id: nanoid(), dataUrl }));
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel, "image");
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel, "image");
@@ -746,14 +823,14 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
         } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
+            throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
         }
     }
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
         } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
+            throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
         }
     }
     const quality = normalizeQuality(config.quality);
@@ -774,7 +851,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 output_format: IMAGE_OUTPUT_FORMAT,
             },
             {
-                headers: aiHeaders(requestConfig, "application/json"),
+                headers: { ...aiHeaders(requestConfig, "application/json"), ...(options?.requestId ? { "X-Request-Id": options.requestId } : {}) },
                 signal: options?.signal,
                 timeout: IMAGE_REQUEST_TIMEOUT_MS,
             },
@@ -782,12 +859,18 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         const images = await parseImagePayload(response.data);
         return images;
     } catch (error) {
-        throw new Error(readAxiosError(error, apiText("requestFailed")));
+        throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
     }
 }
 
-export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
+export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<Array<{ id: string; dataUrl: string }>> {
+    if (options?.taskId && !nativeChannel(config, config.model || config.imageModel, "image")) return runLocalWorkflowTask(options.taskId, "image", config, config.model || config.imageModel, { prompt, nativeParams: config.nativeParams, images: await Promise.all(references.map(image => imageToDataUrl(image))) }, () => requestEdit(config, prompt, references, { ...options, taskId: undefined, requestId: options.taskId }), value => ({ resultKind: "image", urls: value.map(image => image.dataUrl) }));
     if (nativeChannel(config, config.model || config.imageModel, "image")) return requestNativeImages(config, buildImageReferencePromptText(prompt, references), references, options);
+    if (nativeModel(config, "image")) {
+        const urls = await requestLocalModelImage(config, withSystemPrompt(config, buildImageReferencePromptText(prompt, references)), await Promise.all(references.map(image => imageToDataUrl(image))), options);
+        if (!urls.length) throw new Error(apiText("noContent"));
+        return urls.map(dataUrl => ({ id: nanoid(), dataUrl }));
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel, "image");
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
@@ -809,14 +892,14 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
         } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
+            throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
         }
     }
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
         } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
+            throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
         }
     }
 
@@ -846,22 +929,47 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     files.forEach((file) => formData.append(imageField, file));
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS });
+        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: { ...aiHeaders(requestConfig), ...(options?.requestId ? { "X-Request-Id": options.requestId } : {}) }, signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS });
         const images = await parseImagePayload(response.data);
         return images;
     } catch (error) {
-        throw new Error(readAxiosError(error, apiText("requestFailed")));
+        throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
     }
 }
 
-export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
+export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions): Promise<string> {
+    if (options?.taskId && !nativeChannel(config, config.model || config.textModel, "text")) {
+        const id = options.taskId;
+        const scopeId = getDocumentBatchScope();
+        if (!scopeId) throw new Error('账号配置尚未就绪');
+        return runLocalWorkflowTask(id, "text", config, config.model || config.textModel, { messages, nativeParams: config.nativeParams }, async () => {
+            let writes = Promise.resolve();
+            let writeError: unknown;
+            const checkpoint = (progress: { text?: string; responseId?: string }) => {
+                const write = writes.then(async () => {
+                    if (writeError) throw writeError;
+                    await persistWorkflowText(id, scopeId, progress);
+                });
+                writes = write.catch(error => { writeError = error; });
+                return write;
+            };
+            try {
+                const answer = await requestImageQuestion(config, messages, text => {
+                    void checkpoint({ text }).then(() => onDelta(text), () => undefined);
+                }, { ...options, taskId: undefined, requestId: id, onTextCheckpoint: checkpoint });
+                await writes;
+                if (writeError) throw writeError;
+                return answer;
+            } finally { await writes; }
+        }, value => ({ resultKind: "text", text: value }));
+    }
     if (nativeChannel(config, config.model || config.textModel, "text")) {
         const images = messages.flatMap((message) => typeof message.content === "string" ? [] : message.content.flatMap((part) => part.type === "image_url" ? [part.image_url.url] : []));
-        const nativeMessages = messages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n") }));
+        const nativeMessages = messages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n") }));
         if (config.systemPrompt.trim()) nativeMessages.unshift({ role: "system", content: config.systemPrompt.trim() });
         const prompt = [...nativeMessages].reverse().find((message) => message.role === "user")?.content || "";
         const model = config.model || config.textModel;
-        const result = await requestNative(config, model, { capability: "text", prompt, images, messages: nativeMessages, params: getNativeParameterValues(config, model, "text") }, options?.signal);
+        const result = await requestNative(config, model, { capability: "text", prompt, images, messages: nativeMessages, params: getNativeParameterValues(config, model, "text") }, options?.signal, options?.taskId);
         const text = result.text || apiText("noContent");
         onDelta(text);
         return text;
@@ -882,24 +990,26 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
             if (text === apiText("noContent")) onDelta(text);
             return text;
         } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
+            throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
         }
     }
+    const params = nativeModel(config, "text") ? getNativeParameterValues(config, config.model || config.textModel, "text") : {};
     try {
         if (requestConfig.apiFormat === "gemini") {
-            const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages), onDelta, options)).content || apiText("noContent");
+            const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, { generationConfig: { temperature: params.temperature, topP: params.top_p, maxOutputTokens: params.max_tokens } }), onDelta, options)).content || apiText("noContent");
             if (answer === apiText("noContent")) onDelta(answer);
             return answer;
         }
         const answer = (await requestStreamingResponse(requestConfig, {
             model: requestConfig.model,
+            temperature: params.temperature, top_p: params.top_p, max_output_tokens: params.max_tokens,
             input: toResponseInput(withSystemMessage(requestConfig, messages)),
             ...(requestConfig.reasoningEffort === "auto" ? {} : { reasoning: { effort: requestConfig.reasoningEffort } }),
         }, onDelta, options)).content || apiText("noContent");
         if (answer === apiText("noContent")) onDelta(answer);
         return answer;
     } catch (error) {
-        throw new Error(readAxiosError(error, apiText("requestFailed")));
+        throw Object.assign(new Error(readAxiosError(error, apiText("requestFailed"))), { cause: error });
     }
 }
 
@@ -915,7 +1025,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
         }
         let modelsUrl = buildApiUrl(config.baseUrl, "/models");
         // The local OpenTu host already proxies this provider; its error responses omit CORS headers.
-        if (import.meta.env.VITE_EMBEDDED === "true" && window.parent !== window && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)) {
+        if (["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)) {
             const target = new URL(modelsUrl, window.location.origin);
             if (target.origin === "https://api.tu-zi.com" && target.pathname === "/v1/models") {
                 modelsUrl = `/__opentu_tuzi_session__${target.pathname}`;
@@ -950,7 +1060,7 @@ async function requestNativeImages(config: AiConfig, prompt: string, references:
         capability: "image", prompt: withSystemPrompt(config, prompt),
         images: await Promise.all(references.map((image) => imageToDataUrl(image))),
         params: getNativeParameterValues(config, model, "image"),
-    }, options?.signal);
+    }, options?.signal, options?.taskId);
     return result.urls!.map((dataUrl) => ({ id: nanoid(), dataUrl }));
 }
 

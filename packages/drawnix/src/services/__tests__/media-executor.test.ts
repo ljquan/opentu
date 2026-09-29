@@ -1774,9 +1774,12 @@ describe('Media Executor Module', () => {
       expect((executor as any).pollingTasks.size).toBe(0);
     }, 15000);
 
-    it('passes video adapter progress through fallback adapter routes', async () => {
-      const updateRemoteId = vi.fn(async () => {});
+    it.each([false, true])('awaits video submission persistence (storage failure: %s)', async (storageFailure) => {
+      const updateRemoteId = vi.fn(async () => {
+        if (storageFailure) throw new Error('storage unavailable');
+      });
       const completeTask = vi.fn(async () => {});
+      const failTask = vi.fn(async () => {});
       const onProgress = vi.fn();
 
       vi.doMock('../media-executor/llm-api-logger', () => ({
@@ -1788,7 +1791,7 @@ describe('Media Executor Module', () => {
         taskStorageWriter: {
           updateRemoteId,
           completeTask,
-          failTask: vi.fn(async () => {}),
+          failTask,
         },
       }));
       vi.doMock('../unified-cache-service', () => ({
@@ -1820,6 +1823,7 @@ describe('Media Executor Module', () => {
       const { executeVideoViaAdapter } = await import(
         '../media-executor/fallback-adapter-routes'
       );
+      const { notifyTaskSubmitted } = await import('../submission-persistence');
       const adapter: VideoModelAdapter = {
         id: 'happyhorse-adapter',
         label: 'HappyHorse',
@@ -1829,10 +1833,10 @@ describe('Media Executor Module', () => {
             | ((progress: number, status?: string) => void)
             | undefined;
           const handleSubmitted = request.params?.onSubmitted as
-            | ((videoId: string) => void)
+            | ((videoId: string) => void | Promise<void>)
             | undefined;
 
-          handleSubmitted?.('video-task-1');
+          await notifyTaskSubmitted('video-task-1', handleSubmitted);
           handleProgress?.(30, 'in_progress');
 
           return {
@@ -1842,7 +1846,7 @@ describe('Media Executor Module', () => {
         },
       };
 
-      await executeVideoViaAdapter(
+      const pending = executeVideoViaAdapter(
         'task-1',
         adapter,
         {
@@ -1851,6 +1855,17 @@ describe('Media Executor Module', () => {
         },
         { onProgress }
       );
+
+      if (storageFailure) {
+        await expect(pending).rejects.toMatchObject({
+          code: 'SUBMISSION_PERSISTENCE_FAILED', remoteId: 'video-task-1', retryable: false,
+        });
+        expect(updateRemoteId).toHaveBeenCalledOnce();
+        expect(completeTask).not.toHaveBeenCalled();
+        expect(failTask).not.toHaveBeenCalled();
+        return;
+      }
+      await pending;
 
       expect(updateRemoteId).toHaveBeenCalledWith(
         'task-1',

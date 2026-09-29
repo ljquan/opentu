@@ -15,6 +15,7 @@ import type {
   TaskInvocationRouteSnapshot,
   TaskResultVisibility,
 } from '../../types/task.types';
+import type { DocumentBatchTaskMetadata } from '../../types/shared/core.types';
 import type { CacheWarning } from '../../types/cache-warning.types';
 
 // 使用主线程专用数据库
@@ -46,6 +47,7 @@ export interface SWTask {
   status: SWTaskStatus;
   params: {
     prompt: string;
+    documentBatch?: DocumentBatchTaskMetadata;
     [key: string]: unknown;
   };
   createdAt: number;
@@ -114,6 +116,57 @@ export interface SWTask {
   };
 }
 
+export type DocumentBatchTaskIdentity = DocumentBatchTaskMetadata;
+
+const documentBatchGuards = new Map<string, {
+  identity: DocumentBatchTaskIdentity;
+  guard: () => boolean;
+}>();
+
+const workflowGuards = new Map<string, () => boolean>();
+export function registerWorkflowTaskGuard(taskId: string, guard: () => boolean): () => void {
+  workflowGuards.set(taskId, guard);
+  return () => { if (workflowGuards.get(taskId) === guard) workflowGuards.delete(taskId); };
+}
+
+/** Ephemeral authorization is deliberately absent after a reload. */
+export function registerDocumentBatchTaskGuard(
+  taskId: string,
+  identity: DocumentBatchTaskIdentity,
+  guard: () => boolean
+): () => void {
+  const binding = { identity, guard };
+  documentBatchGuards.set(taskId, binding);
+  return () => {
+    if (documentBatchGuards.get(taskId) === binding) documentBatchGuards.delete(taskId);
+  };
+}
+
+export function isDocumentBatchTaskScopeCurrent(
+  task: { id: string; params: { documentBatch?: unknown; workflow?: unknown } }
+): boolean {
+  if (task.params.workflow) return workflowGuards.get(task.id)?.() === true;
+  const metadata = task.params.documentBatch as DocumentBatchTaskIdentity | undefined;
+  if (!metadata) return true;
+  const binding = documentBatchGuards.get(task.id);
+  return Boolean(binding && sameBatchIdentity(metadata, binding.identity) && binding.guard());
+}
+
+function sameBatchIdentity(
+  left: DocumentBatchTaskIdentity | undefined,
+  right: DocumentBatchTaskIdentity
+): boolean {
+  return Boolean(
+    left &&
+      left.dispatchOwner === 'document-batch' &&
+      left.scopeId === right.scopeId &&
+      left.batchId === right.batchId &&
+      left.workItemId === right.workItemId &&
+      left.attemptId === right.attemptId &&
+      left.epoch === right.epoch
+  );
+}
+
 /**
  * 任务存储写入器
  *
@@ -180,6 +233,8 @@ class TaskStorageWriter {
     if (this.writesPaused) {
       return;
     }
+    if (task.params.workflow) return; // Workflow records are owned by conditional transactions.
+    if (task.params.documentBatch && !isDocumentBatchTaskScopeCurrent(task)) return;
 
     const db = await this.getDB();
     if (this.writesPaused) {
@@ -239,6 +294,7 @@ class TaskStorageWriter {
         if (!task) {
           return;
         }
+        if (!isDocumentBatchTaskScopeCurrent(task)) return;
         if (
           (options.expectedStartedAt !== undefined &&
             (task.startedAt ?? task.createdAt) !== options.expectedStartedAt) ||
@@ -310,6 +366,31 @@ class TaskStorageWriter {
     });
   }
 
+  /** Find a workflow task by the page/canvas target it was created for. */
+  async findWorkflowTask(targetId: string, scopeId: string): Promise<SWTask | null> {
+    if (!targetId || !scopeId) return null;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(TASKS_STORE, 'readonly');
+      const request = transaction.objectStore(TASKS_STORE).openCursor();
+      let found: SWTask | null = null;
+      request.onsuccess = () => {
+        const cursor = request.result as IDBCursorWithValue | null;
+        if (!cursor) {
+          resolve(found);
+          return;
+        }
+        const task = cursor.value as SWTask;
+        const owner = task.params.workflow as { scopeId?: string; targetId?: string; logId?: string } | undefined;
+        if (owner?.scopeId === scopeId && (owner.targetId === targetId || owner.logId === targetId)) {
+          if (!found || task.createdAt > found.createdAt) found = task;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   /**
    * 创建新任务
    */
@@ -331,6 +412,165 @@ class TaskStorageWriter {
     };
     await this.saveTask(task);
     return task;
+  }
+
+  /** Prepare once, then claim once in the same task store used by normal tasks. */
+  async prepareWorkflowTask(task: SWTask): Promise<void> {
+    const db = await this.getDB();
+    if (this.writesPaused) throw new Error('Task storage writes are paused');
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(TASKS_STORE, 'readwrite');
+      tx.objectStore(TASKS_STORE).add(task);
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Task preparation failed'));
+    });
+  }
+
+  async claimWorkflowTask(taskId: string, scopeId: string): Promise<boolean> {
+    return this.mutateWorkflowTask(taskId, scopeId, task => {
+      if (task.status !== 'pending') return false;
+      task.status = 'processing';
+      task.startedAt = Date.now();
+      task.executionPhase = 'submitting';
+      task.params.imageSubmissionAttempted = task.type === 'image';
+      return true;
+    });
+  }
+
+  async mutateWorkflowTask(taskId: string, scopeId: string, mutate: (task: SWTask) => boolean): Promise<boolean> {
+    const db = await this.getDB();
+    if (this.writesPaused) throw new Error('Task storage writes are paused');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TASKS_STORE, 'readwrite');
+      const store = tx.objectStore(TASKS_STORE);
+      const read = store.get(taskId);
+      let changed = false;
+      read.onsuccess = () => {
+        const task = read.result as SWTask | undefined;
+        const owner = task?.params.workflow as { scopeId?: string; attemptId?: string } | undefined;
+        if (!task || owner?.scopeId !== scopeId || owner.attemptId !== taskId || this.writesPaused) return;
+        try {
+          if (!mutate(task)) return;
+          task.updatedAt = Date.now();
+          store.put(task);
+          changed = true;
+        } catch (error) {
+          tx.abort();
+          reject(error);
+        }
+      };
+      tx.oncomplete = () => resolve(changed);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Workflow task transaction failed'));
+    });
+  }
+
+  async recordRecoveryError(taskId: string, expectedRequestId: string, message: string): Promise<boolean> {
+    return this.updateTask(taskId, task => {
+      task.params.recoveryError = message;
+    }, expectedRequestId, { allowPending: true });
+  }
+
+  /** Atomically prepare a document-batch task. Existing IDs are immutable. */
+  async prepareDocumentBatchTask(
+    taskId: string,
+    params: SWTask['params'],
+    metadata: DocumentBatchTaskIdentity,
+    invocationRoute?: TaskInvocationRouteSnapshot
+  ): Promise<SWTask> {
+    if (!taskId || metadata.dispatchOwner !== 'document-batch') {
+      throw new Error('Invalid document batch task identity');
+    }
+    const db = await this.getDB();
+    if (this.writesPaused) throw new Error('Task storage writes are paused');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TASKS_STORE, 'readwrite');
+      const store = tx.objectStore(TASKS_STORE);
+      const request = store.get(taskId);
+      let result: SWTask | undefined;
+      let failure: unknown;
+      request.onerror = () => {
+        failure = request.error;
+        tx.abort();
+      };
+      request.onsuccess = () => {
+        if (this.writesPaused) { failure = new Error('Task storage writes are paused'); tx.abort(); return; }
+        const existing = request.result as SWTask | undefined;
+        const existingMeta = existing?.params.documentBatch as
+          | DocumentBatchTaskIdentity
+          | undefined;
+        if (existing) {
+          if (!sameBatchIdentity(existingMeta, metadata)) {
+            failure = new Error('Document batch task identity conflict');
+            tx.abort();
+            return;
+          }
+          result = existing;
+          return;
+        }
+        const now = Date.now();
+        const task: SWTask = {
+          id: taskId,
+          type: 'image',
+          status: 'pending',
+          params: {
+            ...params,
+            autoInsertToCanvas: false,
+            submissionRequestId: params.submissionRequestId || taskId,
+            documentBatch: metadata,
+          },
+          invocationRoute,
+          createdAt: now,
+          updatedAt: now,
+          executionPhase: 'submitting',
+        };
+        store.add(task);
+        result = task;
+      };
+      tx.oncomplete = () => {
+        if (failure) reject(failure);
+        else if (result) resolve(result);
+        else reject(new Error('Document batch task transaction produced no result'));
+      };
+      tx.onerror = () => reject(failure || tx.error || new Error('Task transaction failed'));
+      tx.onabort = () => reject(failure || tx.error || new Error('Task transaction aborted'));
+    });
+  }
+
+  /** CAS transition pending -> processing after the scheduler consumed its ticket. */
+  async claimDocumentBatchTask(
+    taskId: string,
+    metadata: DocumentBatchTaskIdentity,
+    dispatchTicket: string
+  ): Promise<SWTask | null> {
+    if (!taskId || !dispatchTicket) return null;
+    const db = await this.getDB();
+    if (this.writesPaused) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TASKS_STORE, 'readwrite');
+      const store = tx.objectStore(TASKS_STORE);
+      const request = store.get(taskId);
+      let result: SWTask | null = null;
+      let failure: unknown;
+      request.onerror = () => { failure = request.error; tx.abort(); };
+      request.onsuccess = () => {
+        if (this.writesPaused) return;
+        const task = request.result as SWTask | undefined;
+        const current = task?.params.documentBatch as DocumentBatchTaskIdentity | undefined;
+        if (!task || !sameBatchIdentity(current, metadata) || task.status !== 'pending') return;
+        const now = Date.now();
+        task.status = 'processing';
+        task.startedAt = now;
+        task.updatedAt = now;
+        task.executionPhase = 'submitting';
+        task.params = { ...task.params, autoInsertToCanvas: false, imageSubmissionAttempted: true };
+        task.params.documentBatch = { ...metadata, dispatchTicket };
+        store.put(task);
+        result = task;
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(failure || tx.error || new Error('Task claim transaction failed'));
+      tx.onabort = () => reject(failure || tx.error || new Error('Task claim transaction aborted'));
+    });
   }
 
   /**

@@ -1,3 +1,4 @@
+import { registerWorkflowTaskTarget } from "@/services/workflow-task-target";
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, ImagePlus, LoaderCircle, PenLine, Plus, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Tag, Tooltip, Typography } from "antd";
@@ -22,6 +23,8 @@ import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import type { ReferenceImage } from "@/types/image";
 import i18n from "@/i18n";
 import { nativeImageCount, nativeParameterSummary, singleImageConfig } from "@/integration/native-parameters";
+import { WorkflowTaskFailed, recoverWorkflowTask } from "@/services/workflow-local-task";
+import { getDocumentBatchScope, subscribeDocumentBatchScope } from "@/services/document-batch-scope";
 
 type GeneratedImage = {
     id: string;
@@ -36,12 +39,15 @@ type GeneratedImage = {
 
 type GenerationResult = {
     id: string;
-    status: "pending" | "success" | "failed";
+    status: "pending" | "success" | "failed" | "uncertain";
     image?: GeneratedImage;
     error?: string;
 };
 
 type GenerationLog = {
+    scopeId?: string;
+    taskIds?: string[];
+    recoveryError?: string;
     id: string;
     createdAt: number;
     title: string;
@@ -56,7 +62,7 @@ type GenerationLog = {
     imageCount: number;
     size: string;
     quality: string;
-    status: "success" | "failed";
+    status: "pending" | "success" | "failed";
     images: GeneratedImage[];
 };
 
@@ -76,6 +82,8 @@ export default function ImagePage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragDepthRef = useRef(0);
     const effectiveConfig = useEffectiveConfig();
+    const recoveryConfigRef = useRef(effectiveConfig);
+    recoveryConfigRef.current = effectiveConfig;
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -102,6 +110,7 @@ export default function ImagePage() {
     const updateAgentTask = useWorkbenchAgentStore((state) => state.updateTask);
     const processedCommandRef = useRef(0);
     const agentTaskIdRef = useRef<string | undefined>(undefined);
+    const progressWriteRef = useRef(Promise.resolve());
 
     const model = effectiveConfig.imageModel || effectiveConfig.model;
     const canGenerate = Boolean(prompt.trim());
@@ -177,11 +186,45 @@ export default function ImagePage() {
         setRunning(true);
         if (agentTaskId) updateAgentTask(agentTaskId, { status: "running", error: undefined });
         setPreviewLog(null);
-        setResults(Array.from({ length: generationCount }, () => ({ id: nanoid(), status: "pending" })));
+        const resultSlots = Array.from({ length: generationCount }, () => ({ id: nanoid(), status: "pending" as const }));
+        setResults(resultSlots);
         const batchStartedAt = performance.now();
         setStartedAt(batchStartedAt);
 
-        const tasks = Array.from({ length: generationCount }, (_, index) => runGenerationSlot(index, snapshot));
+        const logId = nanoid();
+        const pendingLog: GenerationLog = { ...buildLog({
+            id: logId,
+            prompt: text,
+            model,
+            config: { ...snapshot.config, count: String(generationCount) },
+            references: snapshot.references,
+            durationMs: 0,
+            successCount: 0,
+            failCount: 0,
+            status: "pending",
+            images: [],
+        }), taskIds: resultSlots.map(slot => slot.id), scopeId: getDocumentBatchScope() || undefined };
+        progressWriteRef.current = Promise.resolve();
+        try {
+            if (!pendingLog.scopeId) throw new Error("账号配置尚未就绪");
+            await saveLog(pendingLog);
+            resultSlots.forEach(slot => registerWorkflowTaskTarget(slot.id, { targetId: logId, logId, slotId: slot.id }));
+        }
+        catch {
+            message.error('任务保存失败，未发送生成请求');
+            setRunning(false);
+            return;
+        }
+
+        const tasks = Array.from({ length: generationCount }, (_, index) => runGenerationSlot(index, snapshot, async (image) => {
+            progressWriteRef.current = progressWriteRef.current.catch(() => undefined).then(async () => {
+                const current = await readStoredLog(logId);
+                if (!current || current.scopeId !== getDocumentBatchScope()) return;
+                const images = [...current.images.filter((item) => item.id !== image.id), image];
+                await saveLog({ ...current, images, imageCount: generationCount, successCount: images.length, durationMs: performance.now() - batchStartedAt }, false);
+            });
+            await progressWriteRef.current;
+        }, resultSlots[index].id));
 
         const result = await Promise.allSettled(tasks);
         const successImages = result.filter((item): item is PromiseFulfilledResult<GeneratedImage> => item.status === "fulfilled").map((item) => item.value);
@@ -192,8 +235,12 @@ export default function ImagePage() {
         if (agentTaskId) updateAgentTask(agentTaskId, { status: successCount ? "succeeded" : "failed", successCount, failCount, error: successCount ? undefined : error });
 
         try {
-            saveLog(
-                buildLog({
+            await progressWriteRef.current;
+            const latest = await readStoredLog(logId);
+            if (!latest || pendingLog.scopeId !== getDocumentBatchScope()) return;
+            await saveLog(
+                { ...buildLog({
+                    id: logId,
                     prompt: text,
                     model,
                     config: { ...snapshot.config, count: String(generationCount) },
@@ -201,11 +248,11 @@ export default function ImagePage() {
                     durationMs: performance.now() - batchStartedAt,
                     successCount,
                     failCount,
-                    status: successCount ? "success" : "failed",
-                    images: successImages,
-                }),
+                    status: failCount ? "pending" : "success",
+                    images: latest?.images || successImages,
+                }), createdAt: pendingLog.createdAt, time: pendingLog.time, taskIds: pendingLog.taskIds, scopeId: pendingLog.scopeId, recoveryError: failCount ? "部分结果待确认；未自动重新提交。" : undefined },
             );
-            successCount ? message.success(t("imageWorkbench.generated")) : message.error(failed?.reason instanceof Error ? failed.reason.message : t("workbench.generationFailed"));
+            failCount ? message.warning("部分结果待确认，原记录已保留，不会自动重新生成。") : message.success(t("imageWorkbench.generated"));
         } finally {
             setRunning(false);
         }
@@ -326,11 +373,57 @@ export default function ImagePage() {
         setDeleteConfirmOpen(false);
     };
 
-    const saveLog = (log: GenerationLog) => {
-        void logStore.setItem(log.id, serializeLog(log)).then(refreshLogs);
+    const saveLog = async (log: GenerationLog, refresh = true) => {
+        await logStore.setItem(log.id, serializeLog(log));
+        if (refresh) await refreshLogs();
     };
 
     const refreshLogs = async () => setLogs(await readStoredLogs());
+
+    useEffect(() => {
+        let cancelled = false;
+        const recover = async () => {
+            const items = await readStoredLogs();
+            for (const log of items) {
+                if (cancelled || log.status !== 'pending' || log.scopeId !== getDocumentBatchScope()) continue;
+                const recovered = await Promise.allSettled((log.taskIds || []).map(async id => {
+                    const existing = log.images.find(image => image.id === id && image.storageKey);
+                    if (existing) return existing;
+                    const result = await recoverWorkflowTask(id, recoveryConfigRef.current);
+                    if (!result?.urls?.[0]) return null;
+                    const stored = await uploadImage(result.urls[0]);
+                    if (!stored.storageKey) throw new Error("图片暂未保存到本地，保留原任务继续恢复");
+                    return { id, dataUrl: stored.url, storageKey: stored.storageKey, durationMs: Date.now() - log.createdAt, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+                }));
+                if (cancelled) return;
+                const current = await readStoredLog(log.id);
+                if (!current || current.status !== 'pending' || current.scopeId !== getDocumentBatchScope()) continue;
+                const images = new Map(current.images.map(image => [image.id, image]));
+                for (const result of recovered) if (result.status === 'fulfilled' && result.value) images.set(result.value.id, result.value);
+                const complete = images.size >= current.imageCount;
+                const rejection = recovered.find((item): item is PromiseRejectedResult => item.status === 'rejected');
+                const recoveryError = rejection?.reason;
+                const failures = recovered.filter(item => item.status === 'rejected' && item.reason instanceof WorkflowTaskFailed).length;
+                const settled = complete || images.size + failures >= current.imageCount;
+                await saveLog({ ...current, images: [...images.values()], successCount: images.size, failCount: failures, durationMs: settled ? Math.max(current.durationMs, Date.now() - current.createdAt) : current.durationMs, status: complete ? 'success' : settled ? 'failed' : 'pending', recoveryError: complete ? undefined : recoveryError instanceof Error ? recoveryError.message : recoveryError ? String(recoveryError) : '结果待确认：不会自动重新生成。请保留原渠道和 Key 后再查询。' });
+            }
+        };
+        let busy = false;
+        const query = async () => { if (busy || cancelled || running) return; busy = true; try { await recover(); } catch { /* Original records remain queryable. */ } finally { busy = false; } };
+        void query();
+        const unsubscribe = subscribeDocumentBatchScope(() => { setResults([]); setPreviewLog(null); void refreshLogs(); void query(); });
+        const timer = window.setInterval(() => void query(), 10_000);
+        return () => { cancelled = true; unsubscribe(); window.clearInterval(timer); };
+    }, [effectiveConfig.channels, running]);
+
+    useEffect(() => {
+        if (!previewLog || running) return;
+        const latest = logs.find(log => log.id === previewLog.id);
+        if (latest && latest !== previewLog) {
+            setPreviewLog(latest);
+            setResults(imageLogResults(latest));
+        }
+    }, [logs, previewLog, running]);
 
     const previewGenerationLog = async (log: GenerationLog) => {
         if (previewLog?.id === log.id) {
@@ -355,7 +448,7 @@ export default function ImagePage() {
         updateConfig("nativeParams", log.config.nativeParams);
         updateConfig("background", log.config.background);
         updateConfig("systemPrompt", log.config.systemPrompt);
-        setResults(log.images.map((image) => ({ id: image.id, status: "success", image })));
+        setResults(imageLogResults(log));
     };
 
     const buildRequestSnapshot = () => {
@@ -378,44 +471,63 @@ export default function ImagePage() {
         }
     };
 
-    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }) => {
+    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }, onSuccess?: (image: GeneratedImage) => Promise<void>, taskId = nanoid()) => {
         const itemStartedAt = performance.now();
         try {
             const requestConfig = singleImageConfig(snapshot.config);
-            const result = snapshot.references.length ? await requestEdit(requestConfig, snapshot.text, snapshot.references) : await requestGeneration(requestConfig, snapshot.text);
+            const options = { taskId };
+            const result = snapshot.references.length ? await requestEdit(requestConfig, snapshot.text, snapshot.references, options) : await requestGeneration(requestConfig, snapshot.text, options);
             const image = result[0];
             if (!image) throw new Error(t("imageWorkbench.missingResult"));
-            const stored = await uploadImage(image.dataUrl);
-            const nextImage: GeneratedImage = { id: image.id, dataUrl: stored.url, ...(stored.storageKey ? { storageKey: stored.storageKey } : {}), durationMs: performance.now() - itemStartedAt, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+            // Persist the provider URL before caching; a cache failure must not lose a paid result.
+            const rawImage: GeneratedImage = { id: taskId, dataUrl: image.dataUrl, durationMs: performance.now() - itemStartedAt, width: 0, height: 0, bytes: 0 };
+            await onSuccess?.(rawImage);
+            const stored = await uploadImage(image.dataUrl).catch(() => ({ url: image.dataUrl, storageKey: undefined, width: 0, height: 0, bytes: 0, mimeType: undefined }));
+            const nextImage: GeneratedImage = { id: taskId, dataUrl: stored.url, ...(stored.storageKey ? { storageKey: stored.storageKey } : {}), durationMs: performance.now() - itemStartedAt, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
             setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage }));
+            await onSuccess?.(nextImage);
             return nextImage;
         } catch (error) {
-            setResults((value) => updateResultAt(value, index, { status: "failed", error: error instanceof Error ? error.message : t("workbench.generationFailed") }));
+            setResults((value) => updateResultAt(value, index, { status: "uncertain", error: "结果待确认：" + (error instanceof Error ? error.message : "请求中断") + "。不会自动重新生成。" }));
             throw error;
         }
     };
 
     const retryResult = async (index: number) => {
+        if (!window.confirm("这会创建新的生成请求。原任务结果尚未确认时，可能重复计费，是否继续？")) return;
         const snapshot = buildRequestSnapshot();
         if (!snapshot) return;
         setPreviewLog(null);
         setResults((value) => updateResultAt(value, index, { status: "pending", error: undefined, image: undefined }));
         const retryStartedAt = performance.now();
+        const retryLogId = nanoid();
+        const retryTaskId = nanoid();
+        const retryLog = buildLog({
+            id: retryLogId,
+            prompt: snapshot.text,
+            model,
+            config: { ...snapshot.config, count: "1" },
+            references: snapshot.references,
+            durationMs: 0,
+            successCount: 0,
+            failCount: 0,
+            status: "pending",
+            images: [],
+        });
+        retryLog.taskIds = [retryTaskId];
+        retryLog.scopeId = getDocumentBatchScope() || undefined;
+        if (!retryLog.scopeId) return;
+        try { await saveLog(retryLog); registerWorkflowTaskTarget(retryTaskId, { targetId: retryLogId, logId: retryLogId, slotId: retryTaskId }); } catch {
+            message.error("任务保存失败，未发送重试请求");
+            return;
+        }
         try {
-            const image = await runGenerationSlot(index, snapshot);
-            saveLog(
-                buildLog({
-                    prompt: snapshot.text,
-                    model,
-                    config: { ...snapshot.config, count: "1" },
-                    references: snapshot.references,
-                    durationMs: performance.now() - retryStartedAt,
-                    successCount: 1,
-                    failCount: 0,
-                    status: "success",
-                    images: [image],
-                }),
-            );
+            const image = await runGenerationSlot(index, snapshot, async partial => {
+                const current = await readStoredLog(retryLogId);
+                if (current?.scopeId === getDocumentBatchScope()) await saveLog({ ...current, images: [partial], successCount: 1 }, false);
+            }, retryTaskId);
+            if (retryLog.scopeId !== getDocumentBatchScope() || !await readStoredLog(retryLogId)) return;
+            await saveLog({ ...retryLog, durationMs: performance.now() - retryStartedAt, successCount: 1, status: "success", images: [image], recoveryError: undefined });
             message.success(t("workbench.retrySuccess"));
         } catch {
             // runGenerationSlot has already marked the result as failed.
@@ -562,11 +674,14 @@ export default function ImagePage() {
                             </div>
                             {running ? <Tag className="m-0 px-2 py-1">{t("workbench.waiting", { time: formatDuration(elapsedMs) })}</Tag> : null}
                         </div>
+                        {previewLog?.recoveryError ? <p role="status" className="mb-3 text-sm">{previewLog.recoveryError}</p> : null}
                         {results.length ? (
                             <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                                 {results.map((result, index) =>
                                     result.status === "success" && result.image ? (
                                         <ResultImageCard key={result.id} image={result.image} index={index} onEdit={addResultToReferences} onDownload={downloadImage} onSaveAsset={saveResultToAssets} />
+                                    ) : result.status === "uncertain" ? (
+                                        <UncertainImageCard key={result.id} error={result.error} onRetry={() => retryResult(index)} />
                                     ) : result.status === "failed" ? (
                                         <FailedImageCard key={result.id} error={result.error || t("workbench.generationFailed")} onRetry={() => retryResult(index)} />
                                     ) : (
@@ -705,6 +820,24 @@ function PendingImageCard() {
     );
 }
 
+export function UncertainImageCard({ error, onRetry }: { error?: string; onRetry: () => void }) {
+    return (
+        <div className="overflow-hidden rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
+            <div role="status" className="flex aspect-square flex-col items-center justify-center gap-3 p-5 text-center text-amber-800 dark:text-amber-200">
+                <span aria-hidden="true" className="relative flex size-10 items-center justify-center">
+                    <span className="absolute inset-0 rounded-full bg-amber-400/20 motion-safe:animate-pulse" />
+                    <History className="relative size-6" />
+                </span>
+                <div className="text-sm font-medium">结果待确认</div>
+                <p className="text-xs leading-5">{error || "正在等待结果确认，不会自动重新生成。"}</p>
+            </div>
+            <div className="flex justify-end border-t border-amber-200 p-3 dark:border-amber-900">
+                <Button size="small" onClick={onRetry}>重新生成</Button>
+            </div>
+        </div>
+    );
+}
+
 function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => void }) {
     const { t } = useTranslation();
     return (
@@ -722,6 +855,19 @@ function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => voi
             </div>
         </div>
     );
+}
+
+export function imageLogElapsedMs(log: Pick<GenerationLog, "status" | "createdAt" | "durationMs">, now: number): number {
+    return log.status === "pending" ? Math.max(0, now - log.createdAt) : log.durationMs;
+}
+
+export function imageLogResults(log: Pick<GenerationLog, "images" | "status" | "taskIds" | "recoveryError">): GenerationResult[] {
+    return [
+        ...log.images.map(image => ({ id: image.id, status: "success" as const, image })),
+        ...(log.status === "pending" ? (log.taskIds || [])
+            .filter(id => !log.images.some(image => image.id === id))
+            .map(id => ({ id, status: "uncertain" as const, error: log.recoveryError || "结果待确认：请保留原配置后继续查询；重新生成可能重复计费。" })) : []),
+    ];
 }
 
 function updateResultAt(results: GenerationResult[], index: number, next: Partial<GenerationResult>) {
@@ -798,6 +944,12 @@ function LogPanel({
 function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: GenerationLog; selected: boolean; active: boolean; onSelectedChange: (checked: boolean) => void; onClick: () => void }) {
     const { t } = useTranslation();
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision);
+    const [now, setNow] = useState(Date.now);
+    useEffect(() => {
+        if (log.status !== "pending") return;
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [log.status]);
     const thumbnails = log.images.filter((image) => image.dataUrl).slice(0, 4);
 
     return (
@@ -827,9 +979,9 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
                 <div className="grid justify-items-end gap-2">
                     <div className="flex gap-1">
                         <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color="blue">
-                            {t("workbench.successCount", { count: log.successCount ?? log.imageCount })}
+                            {log.status === "pending" ? (log.recoveryError ? "待确认" : "等待结果") : t("workbench.successCount", { count: log.successCount ?? log.imageCount })}
                         </Tag>
-                        {log.failCount ? (
+                        {log.status !== "pending" && log.failCount ? (
                             <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color="red">
                                 {t("workbench.failCount", { count: log.failCount })}
                             </Tag>
@@ -837,8 +989,8 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
                     </div>
                     <div className="flex flex-wrap justify-end gap-1">
                         <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none">{t("workbench.itemCount", { count: log.imageCount })}</Tag>
-                        <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color="green">
-                            {formatDuration(log.durationMs)}
+                        <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color={log.status === "pending" ? "gold" : "green"}>
+                            {log.status === "pending" ? `已等待 ${formatDuration(imageLogElapsedMs(log, now))}` : formatDuration(log.durationMs)}
                         </Tag>
                     </div>
                     <div className="flex justify-end">
@@ -857,11 +1009,17 @@ async function readStoredLogs() {
         await logStore.iterate<GenerationLog, void>((value) => {
             values.push(value);
         });
+        const scope = getDocumentBatchScope();
         const logs = await Promise.all(values.map(normalizeLog));
-        return logs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return logs.filter((log) => !log.scopeId || log.scopeId === scope).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     } catch {
         return [];
     }
+}
+
+async function readStoredLog(id: string): Promise<GenerationLog | null> {
+    const value = await logStore.getItem<GenerationLog>(id);
+    return value ? normalizeLog(value) : null;
 }
 
 async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
@@ -895,6 +1053,9 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         quality: log.quality || config.quality || "",
         status: log.status || "success",
         images,
+        scopeId: log.scopeId,
+        taskIds: log.taskIds,
+        recoveryError: log.recoveryError,
     };
 }
 
@@ -938,6 +1099,7 @@ function ReferenceOrderButtons({ index, total, onMove }: { index: number; total:
 }
 
 export function buildLog({
+    id,
     prompt,
     model,
     config,
@@ -948,6 +1110,7 @@ export function buildLog({
     status,
     images,
 }: {
+    id?: string;
     prompt: string;
     model: string;
     config: GenerationLogConfig;
@@ -969,7 +1132,7 @@ export function buildLog({
         systemPrompt: config.systemPrompt,
     };
     return {
-        id: nanoid(),
+        id: id || nanoid(),
         createdAt: Date.now(),
         title: prompt.slice(0, 12) || i18n.t("workbench.untitled"),
         prompt,

@@ -791,7 +791,21 @@ describe('seedance 2.0 video adapter', () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
-  it('does not retry terminal failed task states', async () => {
+  it.each(['completed', 'complete', 'succeeded', 'succeed', 'success', 'done'])('accepts terminal success status %s for Seedance 2.5', async (status) => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      jsonResponse(init?.method === 'POST'
+        ? { id: 'seedance-25-task', status: 'queued' }
+        : { id: 'seedance-25-task', status: status.toUpperCase(), metadata: { video_url: 'https://cdn.example.com/seedance-25.mp4' } })
+    ) as unknown as typeof fetch;
+    const resultPromise = seedance2VideoAdapter.generateVideo(createContext(fetcher), {
+      model: 'doubao-seedance-2-5-260628', prompt: 'terminal success',
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect((await resultPromise).url).toBe('https://cdn.example.com/seedance-25.mp4');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['failed', 'failure', 'error', 'cancelled', 'canceled'])('does not retry terminal %s task states', async (status) => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
         if ((init?.method || 'GET') === 'POST') {
@@ -799,7 +813,7 @@ describe('seedance 2.0 video adapter', () => {
         }
         return jsonResponse({
           id: 'failed-task',
-          status: 'failed',
+          status: status.toUpperCase(),
           error: { message: 'upstream rejected prompt' },
         });
       }

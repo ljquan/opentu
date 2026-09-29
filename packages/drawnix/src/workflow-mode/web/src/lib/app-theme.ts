@@ -47,6 +47,14 @@ export function getAntThemeConfig(dark: boolean): ThemeConfig {
             controlItemBgActiveHover: color.itemSelectedHoverBg,
         },
         components: {
+            Alert: {
+                colorInfoBg: dark ? "rgba(37, 99, 235, 0.18)" : "#eff6ff",
+                colorInfoBorder: dark ? "rgba(96, 165, 250, 0.45)" : "#bfdbfe",
+                colorInfoText: dark ? "#dbeafe" : "#1e3a8a",
+                colorWarningBg: dark ? "rgba(217, 119, 6, 0.18)" : "#fffbeb",
+                colorWarningBorder: dark ? "rgba(251, 191, 36, 0.45)" : "#fde68a",
+                colorWarningText: dark ? "#fef3c7" : "#78350f",
+            },
             Button: {
                 primaryShadow: "none",
             },

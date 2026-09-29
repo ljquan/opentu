@@ -1,3 +1,4 @@
+import { workflowRoot } from "@/integration/workflow-dom";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { settingsPopoverPosition } from "./settings-popover-position";
@@ -73,7 +74,7 @@ function AudioSettingsPortal({
     onConfigChange,
 }: {
     buttonRect: DOMRect;
-    panelRef: RefObject<HTMLDivElement | null>;
+    panelRef: RefObject<HTMLDivElement>;
     placement: CanvasAudioSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
@@ -103,6 +104,6 @@ function AudioSettingsPortal({
         >
             <AudioSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
         </div>,
-        document.body,
+        workflowRoot(),
     );
 }

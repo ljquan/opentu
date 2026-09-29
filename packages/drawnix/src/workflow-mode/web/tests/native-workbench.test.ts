@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { defaultConfig, type AiConfig } from "../src/stores/use-config-store";
-import { buildLog as buildImageLog, normalizeLogConfig as normalizeImageLogConfig } from "../src/pages/image";
-import { buildLog as buildVideoLog, buildVideoConfig, normalizeLog as normalizeVideoLog, serializeLog as serializeVideoLog } from "../src/pages/video";
+import { buildLog as buildImageLog, normalizeLogConfig as normalizeImageLogConfig, imageLogElapsedMs, imageLogResults } from "../src/pages/image";
+import { buildLog as buildVideoLog, buildVideoConfig, normalizeLog as normalizeVideoLog, serializeLog as serializeVideoLog, videoLogResults } from "../src/pages/video";
 import { nativeImageCount, singleImageConfig, getNativeParameterValues } from "../src/integration/native-parameters";
 
 vi.mock("../src/services/file-storage", () => ({ resolveMediaUrl: vi.fn(async (key, fallback) => key ? `blob:restored-${key}` : fallback), deleteStoredMedia: vi.fn(), uploadMediaFile: vi.fn() }));
@@ -19,6 +19,12 @@ const config: AiConfig = {
 };
 
 describe("native workbench snapshots", () => {
+    it("restores the current video result projection from a persisted log after reload", () => {
+        const video = { id: "video", url: "https://example.test/video.mp4", storageKey: "video", durationMs: 100, width: 100, height: 100, bytes: 1, mimeType: "video/mp4" };
+        expect(videoLogResults({ id: "pending", status: "pending", error: "查询中" })).toEqual([{ id: "pending", status: "pending", error: "结果待确认：查询中" }]);
+        expect(videoLogResults({ id: "done", status: "success", video })).toEqual([{ id: "video", status: "success", video }]);
+        expect(videoLogResults({ id: "failed", status: "failed", error: "上游拒绝" })).toEqual([{ id: "failed", status: "failed", error: "上游拒绝" }]);
+    });
     it("uses native image count once while preserving the complete log parameters", () => {
         const count = nativeImageCount(config);
         expect(count).toBe(3);
@@ -61,5 +67,24 @@ describe("native workbench snapshots", () => {
         const snapshot = buildVideoConfig(scripted, videoModel);
         expect(snapshot.vquality).not.toBe("768P");
         expect(snapshot.model).toBe(videoModel);
+    });
+});
+
+
+describe("image history timing and recovery presentation", () => {
+    it("uses wall-clock elapsed time after reload rather than the initial zero duration", () => {
+        const log = { status: "pending" as const, createdAt: 1000, durationMs: 0 };
+        expect(imageLogElapsedMs(log, 6000)).toBe(5000);
+        expect(imageLogElapsedMs(log, 7000)).toBe(6000);
+        expect(imageLogElapsedMs(log, 500)).toBe(0);
+    });
+    it("freezes completed duration regardless of time spent viewing history", () => {
+        expect(imageLogElapsedMs({ status: "success", createdAt: 1000, durationMs: 46000 }, 999999)).toBe(46000);
+    });
+    it("shows interrupted slots as uncertain while retaining completed outputs", () => {
+        const image = { id: "done", dataUrl: "https://example.test/result.png", durationMs: 1200, width: 100, height: 100, bytes: 1 };
+        const results = imageLogResults({ status: "pending", images: [image], taskIds: ["done", "unknown"] });
+        expect(results).toEqual([{ id: "done", status: "success", image }, { id: "unknown", status: "uncertain", error: expect.stringContaining("结果待确认") }]);
+        expect(imageLogResults({ status: "success", images: [image], taskIds: ["done"] })).toEqual([{ id: "done", status: "success", image }]);
     });
 });

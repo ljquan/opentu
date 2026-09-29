@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mjImageAdapter } from '../model-adapters/mj-image-adapter';
+import { getMJImageUrls, mjImageAdapter } from '../model-adapters/mj-image-adapter';
 
 vi.mock('../../utils/config-indexeddb-writer', () => ({
   configIndexedDBWriter: { saveConfig: async () => undefined },
@@ -46,6 +46,43 @@ async function captureSubmission(
 }
 
 describe('Midjourney parameter submission', () => {
+  it.each(['file:///bad.png', '', 123])('uses a validated individual image when the composite URL is invalid: %s', async imageUrl => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ result: 'remote' }))).mockResolvedValueOnce(new Response(JSON.stringify({ status: 'SUCCESS', imageUrl, imageUrls: [{ url: 'https://example.test/good.png' }] })));
+    const pending = mjImageAdapter.generateImage({ baseUrl: 'https://example.test', fetcher }, { model: 'mj-imagine', prompt: 'test' });
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ url: 'https://example.test/good.png' });
+  });
+  it.each([true, false])('returns all four images with composite imageUrl present: %s', async (hasComposite) => {
+    vi.useFakeTimers();
+    const urls = Array.from({ length: 4 }, (_, index) => `https://example.test/mj-${index}.png`);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'mj-multi' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'SUCCESS', ...(hasComposite ? { imageUrl: 'https://example.test/grid.png' } : {}), imageUrls: urls.map(url => ({ url })) })));
+    const pending = mjImageAdapter.generateImage({ baseUrl: 'https://example.test', fetcher }, { model: 'mj-imagine', prompt: 'test' });
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ url: hasComposite ? 'https://example.test/grid.png' : urls[0], urls });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('filters unusable image entries and falls back to a single composite image', () => {
+    expect(getMJImageUrls({ imageUrls: [null, {}, { url: '' }, { url: 'file:///not-an-image' }, { url: 'https://example.test/one.png' }] })).toEqual(['https://example.test/one.png']);
+    expect(getMJImageUrls({ imageUrl: 'https://example.test/grid.png', imageUrls: [{}] })).toEqual(['https://example.test/grid.png']);
+    expect(getMJImageUrls({ imageUrls: [{}] })).toEqual([]);
+  });
+
+  it('reports a completed response with no usable images without polling until timeout', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 'mj-empty' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'SUCCESS', imageUrls: [] })));
+    const pending = mjImageAdapter.generateImage({ baseUrl: 'https://example.test', fetcher }, { model: 'mj-imagine', prompt: 'test' });
+    const assertion = expect(pending).rejects.toThrow('without valid image results');
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('converts every structured MJ parameter into provider prompt flags', async () => {
     const body = await captureSubmission('An architectural drawing', {
       mj_ar: '16:9',

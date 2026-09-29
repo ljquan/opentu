@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
-import { OPEN_PROVIDER_SETTINGS, NATIVE_MODELS_REQUEST } from "../../../../shared/generation-bridge";
+import { useOpenTuRuntime } from "@/integration/opentu-runtime";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
+import { TuziChannelEditor } from "@/components/layout/tuzi-channel-editor";
 import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
@@ -94,11 +95,8 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const updateChannels = (channels: ModelChannel[]) => saveConfig(withChannels(config, channels));
-    const embedded = import.meta.env.VITE_EMBEDDED === "true" && window.parent !== window;
-    const openProvider = (profileId?: string | null) => {
-        if (!embedded) { message.warning("请从 OpenTu 工作流入口管理原生渠道。"); return; }
-        window.parent.postMessage({ type: OPEN_PROVIDER_SETTINGS, profileId }, window.location.origin);
-    };
+    const { onOpenProviderSettings } = useOpenTuRuntime();
+    const embedded = Boolean(onOpenProviderSettings);
 
     const addChannel = () => {
         const channel = createModelChannel({ name: t("config.channels.numberedName", { count: config.channels.length + 1 }) });
@@ -196,26 +194,27 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                                     <div className="text-xs text-stone-500">{t("config.channels.description")}</div>
                                     <div className="flex flex-wrap gap-2">
-                                        {embedded && <Button icon={<RefreshCw className="size-4" />} onClick={() => window.parent.postMessage({ type: NATIVE_MODELS_REQUEST }, window.location.origin)}>同步 OpenTu</Button>}
-                                        <Button type="primary" icon={<Plus className="size-4" />} onClick={() => embedded ? openProvider() : addChannel()}>
-                                            {embedded ? "新增 OpenTu 渠道" : t("config.channels.add")}
-                                        </Button>
+                                        <Button onClick={() => {
+                                            const existing = config.channels.find(c => c.providerKind === 'tuzi-fixed');
+                                            if (existing) { setEditingChannelId(existing.id); return; }
+                                            const channel = createModelChannel({providerKind:'tuzi-fixed',name:'Tuzi 固定渠道',models:[]});
+                                            updateChannels([...config.channels,channel]);setEditingChannelId(channel.id);
+                                        }}>Tuzi 固定渠道</Button>
+                                        {!embedded && <Button type="primary" icon={<Plus className="size-4" />} onClick={addChannel}>{t("config.channels.add")}</Button>}
                                         {embedded && <Button icon={<Plus className="size-4" />} onClick={addChannel}>新增本地渠道</Button>}
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    {config.channels.map((channel) => (
+                                    {config.channels.filter((channel) => !embedded || channel.opentuProfileId === undefined).map((channel) => (
                                         <div key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 px-4 py-3 dark:border-stone-800">
                                             <div className="min-w-0">
                                                 <div className="truncate text-sm font-semibold">{channel.name || t("config.channels.unnamed")}</div>
                                                 <div className="mt-1 truncate text-xs text-stone-500">
-                                                    {channel.opentuProfileId !== undefined ? "OpenTu 托管" : "本地渠道"} · {apiFormatLabel(channel.apiFormat)} · {t("config.channels.modelCount", { count: channel.models.length })} · {channel.baseUrl || (channel.opentuProfileId !== undefined ? "使用 OpenTu 配置" : t("config.channels.missingUrl"))}
+                                                    {channel.providerKind === "tuzi-fixed" ? "Tuzi 固定渠道" : channel.opentuProfileId !== undefined ? "OpenTu 托管" : "本地渠道"} · {apiFormatLabel(channel.apiFormat)} · {t("config.channels.modelCount", { count: channel.models.length })} · {channel.baseUrl || (channel.opentuProfileId !== undefined ? "使用 OpenTu 配置" : t("config.channels.missingUrl"))}
                                                 </div>
                                             </div>
                                             <div className="flex shrink-0 gap-2">
-                                                <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => channel.opentuProfileId !== undefined ? openProvider(channel.opentuProfileId) : setEditingChannelId(channel.id)}>
-                                                    {channel.opentuProfileId !== undefined ? "在 OpenTu 中编辑" : t("common.edit")}
-                                                </Button>
+                                                {channel.opentuProfileId === undefined && <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => setEditingChannelId(channel.id)}>{t("common.edit")}</Button>}
                                                 {channel.opentuProfileId === undefined && <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />}
                                             </div>
                                         </div>
@@ -344,7 +343,8 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                     </Button>
                 </div>
             ) : null}
-            <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} onSave={saveChannel} onClose={() => setEditingChannelId("")} />
+            <ChannelEditorDrawer open={Boolean(editingChannel) && editingChannel?.providerKind !== 'tuzi-fixed'} channel={editingChannel?.providerKind === 'tuzi-fixed' ? null : editingChannel} onSave={saveChannel} onClose={() => setEditingChannelId("")} />
+            <TuziChannelEditor channel={editingChannel?.providerKind === 'tuzi-fixed' ? editingChannel : null} onSave={saveChannel} onClose={() => setEditingChannelId("")} />
         </>
     );
 }

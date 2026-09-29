@@ -1,0 +1,29 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
+import { saveDocumentBatch, getDocumentBatch, deleteDocumentBatch, planBatch, listBatchItems, setBatchActive, claimBatchTicket, projectBatchItem, retryFailedBatchItems, hideBatchResult } from '../src/services/document-batch-repository';
+import type { DocumentBatch, BatchSnapshot } from '../src/types/document-batch';
+const draft = (): DocumentBatch => ({id:'b',scopeId:'a',schemaVersion:1,revision:0,epoch:0,title:'test',rows:[],diagnostics:[],createdAt:1,updatedAt:1});
+const snapshot:BatchSnapshot={rowId:'row',title:'row',prompt:'test',source:'A!2',references:[],model:'m',modelId:'m',profileId:'p',params:{},routeFingerprint:'p:m'};
+beforeEach(()=>vi.stubGlobal('indexedDB',new IDBFactory()));
+async function planned(count=1){const b=await saveDocumentBatch(draft());const run=await planBatch(b,[{snapshot,count}],'cmd');return {b,run,items:await listBatchItems(b.id,b.scopeId)};}
+describe('document batch durable repository',()=>{
+ it('preserves an active scheduler owner when planning additional rows',async()=>{const {b,items}=await planned();await setBatchActive('b','a',true,'owner');await planBatch(b,[{snapshot:{...snapshot,rowId:'another'},count:1}],'another');await expect(setBatchActive('b','a',true,'second')).rejects.toThrow();expect(await claimBatchTicket(items[0],'owner',()=>true)).toBeTruthy();});
+ it('deleting an inactive batch releases work item snapshots and fences stale writes',async()=>{const {b,items}=await planned();await deleteDocumentBatch(b.id,b.scopeId,b.revision);expect(await listBatchItems(b.id,b.scopeId)).toEqual([]);await projectBatchItem(items[0],{state:'succeeded'});expect(await listBatchItems(b.id,b.scopeId)).toEqual([]);await expect(saveDocumentBatch(b)).rejects.toThrow(/删除/);});
+ it('isolates scopes, prevents stale writes and deleted draft resurrection',async()=>{const b=await saveDocumentBatch(draft());expect(await getDocumentBatch('b','other')).toBeUndefined();await expect(saveDocumentBatch(draft())).rejects.toThrow(/其他标签/);await deleteDocumentBatch('b','a',b.revision);await expect(saveDocumentBatch(b)).rejects.toThrow(/删除/);expect(await getDocumentBatch('b','a')).toBeUndefined();});
+ it('deduplicates command and active row plans atomically',async()=>{const {b,run}=await planned();expect(await planBatch(b,[{snapshot,count:1}],'cmd')).toEqual(run);await expect(planBatch(b,[{snapshot,count:1}],'new')).rejects.toThrow(/未完成/);expect(await listBatchItems('b','a')).toHaveLength(1);});
+ it('rolls back an invalid count without partial work items',async()=>{const b=await saveDocumentBatch(draft());await expect(planBatch(b,[{snapshot,count:1.5}],'cmd')).rejects.toThrow(/正整数/);expect(await listBatchItems('b','a')).toHaveLength(0);});
+ it('allows at most one ticket with concurrent contenders',async()=>{const {items}=await planned();await setBatchActive('b','a',true,'owner');const tickets=await Promise.all([claimBatchTicket(items[0],'owner',()=>true),claimBatchTicket(items[0],'owner',()=>true)]);expect(tickets.filter(Boolean)).toHaveLength(1);await expect(deleteDocumentBatch('b','a')).rejects.toThrow(/在途/);});
+ it('counts uncertain capacity and rejects stale scope/owner',async()=>{const {items}=await planned(4);await setBatchActive('b','a',true,'owner');expect(await claimBatchTicket(items[0],'other',()=>true)).toBe(false);expect(await claimBatchTicket(items[0],'owner',()=>false)).toBe(false);for(const i of items.slice(0,3)){expect(await claimBatchTicket(i,'owner',()=>true)).toBeTruthy();await projectBatchItem(i,{state:'uncertain'});}expect(await claimBatchTicket(items[3],'owner',()=>true)).toBe(false);});
+ it('old owner cleanup cannot stop a new owner, explicit pause does',async()=>{const {items}=await planned(2);await setBatchActive('b','a',true,'new');await setBatchActive('b','a',false,'old');expect(await claimBatchTicket(items[0],'new',()=>true)).toBeTruthy();await setBatchActive('b','a',false);expect(await claimBatchTicket(items[1],'new',()=>true)).toBe(false);});
+ it('ignores wrong attempt and terminal regressions, preserves hidden results',async()=>{const {items}=await planned();const i=items[0];await projectBatchItem({...i,attemptId:'wrong'},{state:'succeeded'});expect((await listBatchItems('b','a'))[0].state).toBe('queued');await projectBatchItem(i,{state:'succeeded',results:[{id:'r',url:'https://x/a.png'}]});await hideBatchResult('b','a',i.id,'r');await projectBatchItem(i,{state:'succeeded',results:[{id:'r',url:'https://x/a.png'}]});await projectBatchItem(i,{state:'polling'});const saved=(await listBatchItems('b','a'))[0];expect(saved.state).toBe('succeeded');expect(saved.results[0].hidden).toBe(true);});
+ it('retries failed slots only with frozen snapshot and new identity',async()=>{const {items}=await planned();await projectBatchItem(items[0],{state:'uncertain'});await expect(retryFailedBatchItems('b','a',[items[0].id],'retry')).rejects.toThrow(/不确定/);await projectBatchItem(items[0],{state:'failed'});await retryFailedBatchItems('b','a',[items[0].id],'retry');await retryFailedBatchItems('b','a',[items[0].id],'retry');const all=await listBatchItems('b','a');expect(all).toHaveLength(2);const retried=all.find(i=>i.id!==items[0].id)!;expect(retried.snapshot).toEqual(snapshot);expect(retried.attemptId).not.toBe(items[0].attemptId);expect(retried.state).toBe('queued');});
+});
+
+it('does not let a second scheduler replace an active owner', async () => {
+ const {items}=await planned();
+ await setBatchActive('b','a',true,'first');
+ await expect(setBatchActive('b','a',true,'second')).rejects.toThrow();
+ expect(await claimBatchTicket(items[0],'first',()=>true)).toBeTruthy();
+ await setBatchActive('b','a',false);
+ await expect(setBatchActive('b','a',true,'second')).resolves.toBeUndefined();
+});

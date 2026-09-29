@@ -1,6 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('audio-api-service', () => {
+  it('cancels the polling delay immediately without another query', async () => {
+    const { audioAPIService } = await import('../audio-api-service');
+    const query = vi.spyOn(audioAPIService, 'queryAudioTask').mockResolvedValue({ raw: { task_id: 'remote', status: 'SUBMITTED' } } as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>);
+    const controller = new AbortController();
+    vi.useFakeTimers();
+    try {
+      const pending = audioAPIService.resumePolling('remote', { requestContext: { signal: controller.signal } });
+      const rejection = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await rejection;
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { query.mockRestore(); vi.useRealTimers(); }
+  });
+  it.each([false, true])('does not retry a confirmed audio failure (already failed: %s)', async immediate => {
+    const { audioAPIService } = await import('../audio-api-service');
+    const query = vi.spyOn(audioAPIService, 'queryAudioTask');
+    const response = (status: string) => ({ raw: { task_id: 'remote', status, fail_reason: 'provider rejected' } }) as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>;
+    if (!immediate) query.mockResolvedValueOnce(response('SUBMITTED'));
+    query.mockResolvedValue(response('FAILED'));
+    try {
+      await expect(audioAPIService.resumePolling('remote', { interval: 0, maxAttempts: 1 })).rejects.toMatchObject({ workflowProviderFailure: true });
+      expect(query).toHaveBeenCalledTimes(immediate ? 1 : 2);
+    } finally { query.mockRestore(); }
+  });
   beforeEach(() => {
     vi.resetModules();
   });

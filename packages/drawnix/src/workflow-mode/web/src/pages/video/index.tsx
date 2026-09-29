@@ -1,3 +1,5 @@
+import { registerWorkflowTaskTarget } from "@/services/workflow-task-target";
+import { getDocumentBatchScope, subscribeDocumentBatchScope } from "@/services/document-batch-scope";
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Tooltip, Typography } from "antd";
@@ -15,7 +17,7 @@ import { clampVideoSeconds } from "@/lib/media-size";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, ensureImagePreview, getImagePreviewRevision, previewUrlFor, subscribeImagePreviews, uploadImage } from "@/services/image-storage";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { createVideoGenerationTask, isVideoTaskFailed, videoTaskFailed, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { boolConfig, modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -25,12 +27,14 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import i18n from "@/i18n";
 import { getNativeParameterValues, nativeModel, nativeParameterSummary } from "@/integration/native-parameters";
 import { validateNativeReferences } from "../../../../shared/native-parameters";
+import { taskStorageWriter } from "../../../../../services/media-executor/task-storage-writer";
 
 type GeneratedVideo = {
     id: string;
     url: string;
     storageKey: string;
     durationMs: number;
+    durationIsPartial?: boolean;
     width: number;
     height: number;
     bytes: number;
@@ -45,6 +49,7 @@ type GenerationResult = {
 };
 
 type GenerationLog = {
+    scopeId?: string;
     id: string;
     createdAt: number;
     title: string;
@@ -56,6 +61,7 @@ type GenerationLog = {
     referenceVideos?: ReferenceVideo[];
     referenceAudios?: ReferenceAudio[];
     durationMs: number;
+    durationIsPartial?: boolean;
     size: string;
     resolution: string;
     seconds: string;
@@ -83,7 +89,14 @@ export default function VideoPage() {
     const audioInputRef = useRef<HTMLInputElement>(null);
     const dragDepthRef = useRef(0);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
+    const displayedLogIdRef = useRef<string | null | undefined>(undefined);
+    const submittingLogIdRef = useRef<string | null>(null);
+    const logRefreshRef = useRef(0);
+    // Deliberately session-local: a restored log has no continuous timing window.
+    const generationStartsRef = useRef<Map<string, number>>(new Map());
     const effectiveConfig = useEffectiveConfig();
+    const recoveryConfigRef = useRef(effectiveConfig);
+    recoveryConfigRef.current = effectiveConfig;
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -96,6 +109,7 @@ export default function VideoPage() {
     const [results, setResults] = useState<GenerationResult[]>([]);
     const [logs, setLogs] = useState<GenerationLog[]>([]);
     const [running, setRunning] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
     const [logsOpen, setLogsOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [promptDialogOpen, setPromptDialogOpen] = useState(false);
@@ -118,7 +132,8 @@ export default function VideoPage() {
     const canGenerate = Boolean(prompt.trim());
     const selectedConfig = { ...effectiveConfig, model };
     const nativeEntry = nativeModel(selectedConfig, "video");
-    const referenceLimit = nativeEntry ? (nativeEntry.referenceInputs?.images ? nativeEntry.referenceInputs.images.maxCount ?? Infinity : 0) : 7;
+    const imageInput = nativeEntry?.referenceInputs?.images;
+    const referenceLimit = nativeEntry ? (imageInput ? (!referenceVideos.length ? imageInput.maxCountWithoutVideos ?? imageInput.maxCount : imageInput.maxCount) ?? Infinity : 0) : 7;
 
     useEffect(() => {
         if (!running || !startedAt) return;
@@ -128,7 +143,10 @@ export default function VideoPage() {
 
     useEffect(() => {
         void refreshLogs();
-    }, []);
+        const unsubscribe = subscribeDocumentBatchScope(() => { displayedLogIdRef.current = undefined; setRunning(false); setStartedAt(0); setResults([]); setPreviewLog(null); void refreshLogs(); });
+        const timer = window.setInterval(() => void refreshLogs(), 10_000);
+        return () => { unsubscribe(); window.clearInterval(timer); };
+    }, [effectiveConfig.channels]);
 
     const addReferences = async (files?: FileList | null) => {
         const selectedFiles = Array.from(files || []);
@@ -227,6 +245,7 @@ export default function VideoPage() {
         }
     };
     const generate = async () => {
+        if (submittingLogIdRef.current) return;
         const agentTaskId = agentTaskIdRef.current;
         agentTaskIdRef.current = undefined;
         const snapshot = buildRequestSnapshot();
@@ -235,24 +254,52 @@ export default function VideoPage() {
             return;
         }
         setElapsedMs(0);
+        setSubmitting(true);
         setRunning(true);
         if (agentTaskId) updateAgentTask(agentTaskId, { status: "running", error: undefined });
         setPreviewLog(null);
-        setResults([{ id: nanoid(), status: "pending" }]);
         const batchStartedAt = performance.now();
         setStartedAt(batchStartedAt);
+        const scopeId = getDocumentBatchScope();
+        const taskId = nanoid();
+        const log: GenerationLog = { ...buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, referenceVideos: snapshot.referenceVideos, referenceAudios: snapshot.referenceAudios, durationMs: 0, status: "pending" }), scopeId: scopeId || undefined,
+            task: { id: taskId, provider: "native", model } };
+        displayedLogIdRef.current = log.id;
+        submittingLogIdRef.current = log.id;
+        setResults([{ id: log.id, status: "pending" }]);
         try {
-            const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, { videos: snapshot.referenceVideos, audios: snapshot.referenceAudios });
-            const log = buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, referenceVideos: snapshot.referenceVideos, referenceAudios: snapshot.referenceAudios, durationMs: 0, status: "pending", task });
+            if (!scopeId) throw new Error("账号配置尚未就绪，未发送生成请求");
             await saveLog(log, false);
-            void pollGenerationLog(log, snapshot.config, agentTaskId);
+            registerWorkflowTaskTarget(taskId, { targetId: log.id, logId: log.id });
+        } catch {
+            message.error("任务保存失败，未发送生成请求");
+            submittingLogIdRef.current = null;
+            setSubmitting(false);
+            if (displayedLogIdRef.current === log.id) {
+                setRunning(false);
+                setResults([{ id: log.id, status: "failed", error: "任务保存失败，未发送生成请求" }]);
+            }
+            return;
+        }
+        try {
+            generationStartsRef.current.set(log.id, performance.now());
+            const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, { taskId, videos: snapshot.referenceVideos, audios: snapshot.referenceAudios });
+            if (getDocumentBatchScope() !== scopeId || !await logStore.getItem(log.id)) { generationStartsRef.current.delete(log.id); if (displayedLogIdRef.current === log.id) setRunning(false); return; }
+            await saveLog({ ...log, task }, false);
+            void pollGenerationLog({ ...log, task }, snapshot.config, agentTaskId);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : t("workbench.generationFailed");
-            setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
-            if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
-            await saveLog(buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, referenceVideos: snapshot.referenceVideos, referenceAudios: snapshot.referenceAudios, durationMs: performance.now() - batchStartedAt, status: "failed", error: errorMessage }));
-            message.error(errorMessage);
-            setRunning(false);
+            const failed = (await taskStorageWriter.getTask(taskId))?.status === "failed";
+            const displayedError = failed ? errorMessage : `结果待确认：${errorMessage}`;
+            if (displayedLogIdRef.current === log.id) setResults([{ id: log.id, status: "failed", error: displayedError }]);
+            const timing = videoLogTiming(log, generationStartsRef.current.get(log.id));
+            generationStartsRef.current.delete(log.id);
+            if (getDocumentBatchScope() === scopeId && await logStore.getItem(log.id)) await saveLog({ ...log, ...timing, durationIsPartial: !failed || timing.durationIsPartial, status: failed ? "failed" : "pending", error: displayedError }, false);
+            message.warning(displayedError);
+            if (displayedLogIdRef.current === log.id) setRunning(false);
+        } finally {
+            submittingLogIdRef.current = null;
+            setSubmitting(false);
         }
     };
 
@@ -262,7 +309,7 @@ export default function VideoPage() {
         processedCommandRef.current = videoCommand.nonce;
         clearVideoCommand();
         if (typeof videoCommand.prompt === "string") setPrompt(videoCommand.prompt);
-        if (videoCommand.run && running) {
+        if (videoCommand.run && submittingLogIdRef.current) {
             if (videoCommand.taskId) updateAgentTask(videoCommand.taskId, { status: "failed", error: t("videoWorkbench.busy") });
             return;
         }
@@ -270,7 +317,7 @@ export default function VideoPage() {
             agentTaskIdRef.current = videoCommand.taskId;
             setAutoRunToken((value) => value + 1);
         }
-    }, [videoCommand, clearVideoCommand, running, updateAgentTask]);
+    }, [videoCommand, clearVideoCommand, updateAgentTask]);
 
     useEffect(() => {
         if (!autoRunToken) return;
@@ -373,6 +420,8 @@ export default function VideoPage() {
     };
 
     const createSession = () => {
+        displayedLogIdRef.current = null;
+        setRunning(false);
         setPrompt("");
         setReferences([]);
         setReferenceVideos([]);
@@ -390,7 +439,10 @@ export default function VideoPage() {
             .map((log) => log.video?.storageKey)
             .filter((key): key is string => Boolean(key));
         void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(() => refreshLogs());
-        if (previewLog && selectedLogIds.includes(previewLog.id)) {
+        if (displayedLogIdRef.current && selectedLogIds.includes(displayedLogIdRef.current)) {
+            displayedLogIdRef.current = null;
+            setRunning(false);
+            setStartedAt(0);
             setPreviewLog(null);
             setResults([]);
         }
@@ -404,59 +456,84 @@ export default function VideoPage() {
     };
 
     const refreshLogs = async (resumePending = true) => {
+        const revision = ++logRefreshRef.current;
+        const scopeId = getDocumentBatchScope();
         const nextLogs = await readStoredLogs();
+        if (revision !== logRefreshRef.current || scopeId !== getDocumentBatchScope()) return nextLogs;
         setLogs(nextLogs);
+        if (displayedLogIdRef.current === undefined) displayedLogIdRef.current = nextLogs[0]?.id ?? null;
+        const displayed = nextLogs.find(log => log.id === displayedLogIdRef.current);
+        if (displayed && !activeLogIdsRef.current.has(displayed.id) && submittingLogIdRef.current !== displayed.id) setResults(videoLogResults(displayed));
         if (resumePending) resumePendingLogs(nextLogs);
         return nextLogs;
     };
 
     const resumePendingLogs = (items: GenerationLog[]) => {
         for (const log of items) {
-            if (log.status === "pending" && log.task) void pollGenerationLog(log);
+            if (log.status === "pending" && log.task && submittingLogIdRef.current !== log.id) void pollGenerationLog(log);
         }
     };
 
     const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string) => {
-        if (!log.task || activeLogIdsRef.current.has(log.id)) return;
+        if (!log.task || (log.scopeId && log.scopeId !== getDocumentBatchScope()) || activeLogIdsRef.current.has(log.id)) return;
         activeLogIdsRef.current.add(log.id);
-        setRunning(true);
-        setStartedAt((value) => value || performance.now());
-        setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
-        const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model);
+        if (displayedLogIdRef.current === log.id) {
+            setRunning(true);
+            setStartedAt(generationStartsRef.current.get(log.id) ?? performance.now());
+            setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
+        }
+        const taskConfig = buildVideoConfig({ ...recoveryConfigRef.current, ...log.config }, log.task.model || log.model);
+        let completedTiming: ReturnType<typeof videoLogTiming> | undefined;
         try {
             for (let attempt = 0; attempt < 120; attempt += 1) {
+                if ((log.scopeId && log.scopeId !== getDocumentBatchScope()) || !await logStore.getItem(log.id)) return;
                 const state = await pollVideoGenerationTask(configOverride || taskConfig, log.task);
+                if ((log.scopeId && log.scopeId !== getDocumentBatchScope()) || !await logStore.getItem(log.id)) return;
                 if (state.status === "completed") {
+                    const timing = videoLogTiming(log, generationStartsRef.current.get(log.id));
+                    completedTiming = timing;
                     const stored = await storeGeneratedVideo(state.result);
+                    if ((log.scopeId && log.scopeId !== getDocumentBatchScope()) || !await logStore.getItem(log.id)) return;
                     const nextVideo: GeneratedVideo = {
                         id: nanoid(),
                         url: stored.url,
                         storageKey: stored.storageKey,
-                        durationMs: Date.now() - log.createdAt,
+                        ...timing,
                         width: stored.width || 1280,
                         height: stored.height || 720,
                         bytes: stored.bytes,
                         mimeType: stored.mimeType,
                     };
-                    setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
+                    if (displayedLogIdRef.current === log.id) setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
                     if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
-                    await saveLog({ ...log, status: "success", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
+                    await saveLog({ ...log, ...timing, status: "success", video: nextVideo, error: undefined });
                     message.success(t("videoWorkbench.generated"));
                     return;
                 }
-                if (state.status === "failed") throw new Error(state.error);
+                if (state.status === "failed") throw videoTaskFailed(state.error);
                 if (attempt === 119) throw new Error(t("videoWorkbench.timeout"));
                 await delay(2500);
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : t("workbench.generationFailed");
-            setResults([{ id: log.id, status: "failed", error: errorMessage }]);
-            if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
-            await saveLog({ ...log, status: "failed", durationMs: Date.now() - log.createdAt, error: errorMessage });
-            message.error(errorMessage);
+            if ((log.scopeId && log.scopeId !== getDocumentBatchScope()) || !await logStore.getItem(log.id)) return;
+            const timing = completedTiming ?? videoLogTiming(log, generationStartsRef.current.get(log.id));
+            if (!isVideoTaskFailed(error)) {
+                // A query/network failure does not prove that the provider rejected
+                // the task. Keep the durable task pending so a later refresh can
+                // query the same provider task instead of showing a false failure.
+                if (displayedLogIdRef.current === log.id) setResults([{ id: log.id, status: "pending", error: "结果待确认：" + errorMessage }]);
+                await saveLog({ ...log, ...timing, durationIsPartial: true, status: "pending", error: errorMessage });
+            } else {
+                if (displayedLogIdRef.current === log.id) setResults([{ id: log.id, status: "failed", error: errorMessage }]);
+                if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
+                await saveLog({ ...log, ...timing, status: "failed", error: errorMessage });
+                message.error(errorMessage);
+            }
         } finally {
+            generationStartsRef.current.delete(log.id);
             activeLogIdsRef.current.delete(log.id);
-            if (!activeLogIdsRef.current.size) {
+            if (displayedLogIdRef.current === log.id) {
                 setRunning(false);
                 setStartedAt(0);
             }
@@ -464,6 +541,12 @@ export default function VideoPage() {
     };
 
     const previewGenerationLog = (log: GenerationLog) => {
+        displayedLogIdRef.current = log.id;
+        const started = generationStartsRef.current.get(log.id);
+        const isRunning = activeLogIdsRef.current.has(log.id) || submittingLogIdRef.current === log.id;
+        setRunning(isRunning);
+        setStartedAt(isRunning ? started ?? performance.now() : 0);
+        setElapsedMs(started === undefined ? 0 : performance.now() - started);
         setPreviewLog(log);
         setLogsOpen(false);
         setPrompt(log.prompt);
@@ -478,7 +561,7 @@ export default function VideoPage() {
         if (log.config.videoWatermark) updateConfig("videoWatermark", log.config.videoWatermark);
         if (log.config.videoMode) updateConfig("videoMode", log.config.videoMode);
         updateConfig("nativeParams", log.config.nativeParams);
-        setResults(log.status === "pending" ? [{ id: log.id, status: "pending" }] : log.video ? [{ id: log.video.id, status: "success", video: log.video }] : [{ id: log.id, status: "failed", error: log.error || t("workbench.generationFailed") }]);
+        setResults(videoLogResults(log));
     };
 
     return (
@@ -543,7 +626,7 @@ export default function VideoPage() {
                                     {references.map((item, index) => (
                                         <div key={item.id} className="group relative size-20 shrink-0 overflow-hidden rounded-md border border-stone-200 dark:border-stone-800">
                                             <img src={previewUrlFor(item.storageKey) || item.dataUrl} alt={item.name} className="size-full object-cover" />
-                                            <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{nativeEntry?.referenceInputs?.images?.labels?.[index] || index + 1}</span>
+                                            <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{imageInput?.maxCountWithoutVideos !== undefined && referenceVideos.length ? `参考图 ${index + 1}` : imageInput?.labels?.[index] || index + 1}</span>
                                             <ReferenceOrderButtons index={index} total={references.length} onMove={(offset) => setReferences((value) => moveListItem(value, index, offset))} />
                                             <button type="button" className="absolute right-1 top-1 hidden size-6 items-center justify-center rounded bg-black/60 text-white group-hover:flex" onClick={() => setReferences((value) => value.filter((ref) => ref.id !== item.id))} aria-label={t("videoWorkbench.removeImage")}>
                                                 <Trash2 className="size-3.5" />
@@ -593,7 +676,7 @@ export default function VideoPage() {
                         </div>
 
                         <div className="mt-auto pt-6">
-                            <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
+                            <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} loading={submitting} disabled={!canGenerate || submitting} onClick={() => void generate()}>
                                 {t("workbench.generate")}
                             </Button>
                         </div>
@@ -606,7 +689,7 @@ export default function VideoPage() {
                         </div>
                         {results.length ? (
                             <div className="grid gap-4">
-                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || t("workbench.generationFailed")} onRetry={retryResult} /> : <PendingVideoCard key={result.id} />))}
+                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || t("workbench.generationFailed")} onRetry={retryResult} /> : <PendingVideoCard key={result.id} detail={result.error} />))}
                             </div>
                         ) : (
                             <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed border-stone-300 text-center dark:border-stone-700 lg:min-h-[560px]">
@@ -675,7 +758,7 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
                         {video.width}x{video.height}
                     </span>
                     <span>{formatBytes(video.bytes)}</span>
-                    <span>{formatDuration(video.durationMs)}</span>
+                    <span>{formatVideoTiming(video)}</span>
                 </div>
                 <div className="flex shrink-0 gap-1">
                     <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onSaveAsset(video)}>
@@ -690,13 +773,13 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
     );
 }
 
-function PendingVideoCard() {
+function PendingVideoCard({ detail }: { detail?: string }) {
     const { t } = useTranslation();
     return (
         <div className="relative aspect-video overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
                 <LoaderCircle className="size-6 animate-spin" />
-                <span>{t("workbench.generating")}</span>
+                <span role="status">{detail || t("workbench.generating")}</span>
             </div>
         </div>
     );
@@ -784,11 +867,11 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
                 <Checkbox className="mt-0.5" checked={selected} onClick={(event) => event.stopPropagation()} onChange={(event) => onSelectedChange(event.target.checked)} />
                 <div className="min-w-0">
                     <div className="truncate text-sm font-semibold leading-5">{log.title}</div>
-                    {log.status === "success" && log.video && <span draggable title="拖到参考区" className="mt-2 inline-flex cursor-grab" onDragStart={(event) => {
+                    {log.status === "success" && log.video && <span draggable title="拖到参考区" className="mt-2 inline-flex h-14 w-24 cursor-grab overflow-hidden rounded-md border border-stone-200 bg-black dark:border-stone-700" onDragStart={(event) => {
                         event.stopPropagation();
                         event.dataTransfer.effectAllowed = "copy";
                         event.dataTransfer.setData(HISTORY_VIDEO_DRAG_TYPE, log.id);
-                    }}><VideoIcon className="size-8" /></span>}
+                    }}><video src={`${log.video.url}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" aria-label={`${log.title}视频预览`} /></span>}
                     <div className="mt-2 flex flex-wrap gap-1">
                         {log.parameterSummary ? <span className="break-words text-xs text-stone-500">{log.parameterSummary}</span> : <>
                         <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none">{log.size}</Tag>
@@ -799,10 +882,10 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
                 </div>
                 <div className="grid justify-items-end gap-2">
                     <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color={log.status === "success" ? "blue" : log.status === "pending" ? "processing" : "red"}>
-                        {t(`workbench.${log.status === "success" ? "success" : log.status === "pending" ? "generating" : "failed"}`)}
+                        {log.status === "pending" && (log.error || !log.task) ? "结果待确认" : t(`workbench.${log.status === "success" ? "success" : log.status === "pending" ? "generating" : "failed"}`)}
                     </Tag>
                     <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none" color="green">
-                        {formatDuration(log.durationMs)}
+                        {formatVideoTiming(log)}
                     </Tag>
                 </div>
             </div>
@@ -817,10 +900,49 @@ async function readStoredLogs() {
         await logStore.iterate<GenerationLog, void>((value) => {
             logs.push(value);
         });
-        return (await Promise.all(logs.map(normalizeLog))).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const normalized = (await Promise.all(logs.map(async value => {
+            try { return await normalizeLog(value); }
+            catch { return fallbackStoredLog(value); }
+        }))).filter(log => !log.scopeId || log.scopeId === getDocumentBatchScope());
+        return (await Promise.all(normalized.map(log => hydrateVideoLogFromTask(log).catch(() => log))))
+            .filter(log => !log.scopeId || log.scopeId === getDocumentBatchScope()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     } catch {
         return [];
     }
+}
+
+export async function hydrateVideoLogFromTask(log: GenerationLog): Promise<GenerationLog> {
+    if (log.status !== "pending" || (log.scopeId && log.scopeId !== getDocumentBatchScope())) return log;
+    const scopeId = getDocumentBatchScope();
+    if (!scopeId) return log;
+    const durableTask = (log.task && await taskStorageWriter.getTask(log.task.id)) || await taskStorageWriter.findWorkflowTask(log.id, scopeId);
+    if (!durableTask || durableTask.type !== "video") return log;
+    const owner = durableTask.params.workflow as { scopeId?: string } | undefined;
+    if (owner?.scopeId !== scopeId) return log;
+    const model = String(durableTask.params.model || log.task?.model || log.model);
+    // Keep the durable id: its recovery path enforces the original route/key
+    // and reads a cached result before querying the provider again.
+    const task: VideoGenerationTask = { id: durableTask.id, provider: "native", model };
+    if (durableTask.status === "failed") return { ...log, ...videoLogTiming(log), task, status: "failed", error: durableTask.error?.message || "生成请求失败" };
+    return { ...log, task };
+}
+
+function fallbackStoredLog(log: Partial<GenerationLog>): GenerationLog {
+    const config = normalizeLogConfig(log);
+    return {
+        id: log.id || nanoid(), createdAt: log.createdAt || Date.now(), title: log.title || log.model || i18n.t("workbench.untitled"),
+        prompt: log.prompt || "", time: log.time || new Date().toLocaleString(i18n.resolvedLanguage, { hour12: false }),
+        model: log.model || config.videoModel || "", config, references: log.references || [], referenceVideos: log.referenceVideos, referenceAudios: log.referenceAudios,
+        durationMs: log.durationMs || 0, size: log.size || config.size || "", resolution: log.resolution || config.vquality || "", seconds: log.seconds || config.videoSeconds || "",
+        durationIsPartial: log.durationIsPartial,
+        status: log.status || "success", task: log.task, video: log.video, error: log.error, parameterSummary: log.parameterSummary, scopeId: log.scopeId,
+    };
+}
+
+export function videoLogResults(log: Pick<GenerationLog, "id" | "status" | "video" | "error">): GenerationResult[] {
+    if (log.status === "success" && log.video) return [{ id: log.video.id || log.id, status: "success", video: log.video }];
+    if (log.status === "failed") return [{ id: log.id, status: "failed", error: log.error || "生成失败" }];
+    return [{ id: log.id, status: "pending", error: log.error ? `结果待确认：${log.error}` : undefined }];
 }
 
 export async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
@@ -844,6 +966,7 @@ export async function normalizeLog(log: Partial<GenerationLog>): Promise<Generat
         referenceVideos: await Promise.all((log.referenceVideos || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
         referenceAudios: await Promise.all((log.referenceAudios || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
         durationMs: log.durationMs || 0,
+        durationIsPartial: log.durationIsPartial,
         size: log.size || config.size || "",
         resolution: log.resolution || config.vquality || "",
         seconds: log.seconds || config.videoSeconds || "",
@@ -852,6 +975,7 @@ export async function normalizeLog(log: Partial<GenerationLog>): Promise<Generat
         video,
         error: log.error,
         parameterSummary: log.parameterSummary,
+        scopeId: log.scopeId,
     };
 }
 
@@ -863,6 +987,20 @@ export function serializeLog(log: GenerationLog): GenerationLog {
         referenceAudios: log.referenceAudios?.map((item) => ({ ...item, url: item.storageKey ? "" : item.url })),
         video: log.video?.storageKey ? { ...log.video, url: "" } : log.video,
     };
+}
+
+/** Never substitute the age of a restored log for measured generation time. */
+export function videoLogTiming(log: Pick<GenerationLog, "durationMs" | "durationIsPartial">, startedAt?: number) {
+    return startedAt === undefined
+        ? { durationMs: log.durationIsPartial === undefined ? 0 : log.durationMs, durationIsPartial: true }
+        : { durationMs: Math.max(0, performance.now() - startedAt), durationIsPartial: false };
+}
+
+export function formatVideoTiming(timing: Pick<GenerationLog, "durationMs" | "durationIsPartial">): string {
+    // Legacy totals used the log age, so they cannot be presented as measured time.
+    if (timing.durationIsPartial === undefined) return "耗时未知";
+    if (timing.durationIsPartial) return timing.durationMs > 0 ? `已记录 ${formatDuration(timing.durationMs)}` : "耗时未知";
+    return formatDuration(timing.durationMs);
 }
 
 function moveListItem<T>(items: T[], index: number, offset: number) {

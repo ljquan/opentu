@@ -24,6 +24,8 @@ import {
 } from '../utils/validation-utils';
 import {
   taskStorageWriter,
+  isDocumentBatchTaskScopeCurrent,
+  registerDocumentBatchTaskGuard,
   type SWTask,
 } from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
@@ -51,11 +53,13 @@ import { buildInlineDataPart } from '../utils/gemini-api/message-utils';
 import { unifiedCacheService } from './unified-cache-service';
 import { buildGenerateContentConfig } from './analysis-core';
 import {
+  assertTaskInvocationRouteAvailable,
   createTaskInvocationRouteSnapshotFromTask,
   mergeTaskInvocationRoute,
   resolveLegacyTaskInvocationRouteModel,
   resolveTaskInvocationRouteModel,
 } from './task-invocation-route';
+import type { DocumentBatchTaskMetadata } from '../types/shared/core.types';
 import { callGoogleGenerateContentWithLog } from '../utils/gemini-api/logged-calls';
 import { executeVideoAnalysis } from './video-analysis-service';
 import {
@@ -88,6 +92,7 @@ import {
   isImageRequestRecoveryCandidate,
 } from './image-generation-recovery-service';
 import { isImageSubmissionOutcomeUnknownError } from './provider-routing';
+import { SubmissionPersistenceError } from './submission-persistence';
 
 const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
 const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
@@ -623,6 +628,7 @@ class TaskQueueService {
     const task = this.tasks.get(taskId);
     return (
       !task ||
+      (task?.params.documentBatch && !isDocumentBatchTaskScopeCurrent(task)) ||
       task.status === TaskStatus.CANCELLED ||
       this.blockedTaskIds.has(taskId) ||
       this.recentlyDeletedTaskIds.has(taskId) ||
@@ -854,6 +860,9 @@ class TaskQueueService {
    * This is called automatically after task creation
    */
   private async executeTask(task: Task): Promise<void> {
+    if (task.params.workflow) return;
+    if (task.params.documentBatch &&
+        (!task.params.documentBatch.dispatchTicket || !isDocumentBatchTaskScopeCurrent(task))) return;
     const submissionRequestId =
       task.type === TaskType.IMAGE
         ? getImageSubmissionRequestId(task)
@@ -1192,12 +1201,20 @@ class TaskQueueService {
         onSubmissionAttempt: async (
           invocationRoute?: Task['invocationRoute']
         ) => {
+          if (task.params.documentBatch) {
+            assertTaskInvocationRouteAvailable('image', task, { requireSelectedBindingMatch: true });
+            if (!isCurrentExecutionAttempt()) throw new Error('Batch scope changed before submission');
+          }
           if (submissionRequestId) {
             await this.markImageSubmissionAttempted(
               task.id,
               submissionRequestId,
               invocationRoute
             );
+          }
+          if (task.params.documentBatch) {
+            assertTaskInvocationRouteAvailable('image', task, { requireSelectedBindingMatch: true });
+            if (!isCurrentExecutionAttempt()) throw new Error('Batch scope changed before submission');
           }
           if (
             this.shouldSkipExecutionWriteback(
@@ -1579,6 +1596,20 @@ class TaskQueueService {
       const localTask = this.tasks.get(task.id);
       if (localTask) {
         const now = Date.now();
+        if (error instanceof SubmissionPersistenceError) {
+          const acceptedTask: Task = {
+            ...localTask,
+            remoteId: error.remoteId,
+            status: TaskStatus.PROCESSING,
+            executionPhase: TaskExecutionPhase.POLLING,
+            updatedAt: now,
+            error: { code: error.code, message: error.message },
+          };
+          this.tasks.set(task.id, acceptedTask);
+          this.persistTask(acceptedTask);
+          this.emitEvent('taskUpdated', acceptedTask);
+          return;
+        }
         if (task.type === TaskType.IMAGE && submissionRequestId) {
           if (isImageSubmissionOutcomeUnknownError(error)) {
             shouldNotifyRecoveryAfterExecution =
@@ -1589,7 +1620,7 @@ class TaskQueueService {
             return;
           }
           await this.failImageAttempt(task.id, submissionRequestId, {
-            code: 'EXECUTION_ERROR',
+            code: error.code || 'EXECUTION_ERROR',
             message: error.message || 'Task execution failed',
           });
           return;
@@ -1599,7 +1630,7 @@ class TaskQueueService {
           ...localTask,
           status: TaskStatus.FAILED,
           error: {
-            code: 'EXECUTION_ERROR',
+            code: error.code || 'EXECUTION_ERROR',
             message: error.message || 'Task execution failed',
           },
           updatedAt: now,
@@ -2353,6 +2384,7 @@ class TaskQueueService {
    * @throws Error if validation fails
    */
   createTask(params: GenerationParams, type: TaskType): Task {
+    if (params.documentBatch) throw new Error('Document batch tasks require the deferred task bridge');
     // Validate parameters
     const validation = validateGenerationParams(params, type);
     if (!validation.valid) {
@@ -2425,6 +2457,117 @@ class TaskQueueService {
 
     // console.log(`[TaskQueueService] Created task ${task.id} (${type})`);
     return task;
+  }
+
+  /** Prepare a batch image task without starting execution or making HTTP calls. */
+  async prepareDocumentBatchTask(
+    taskId: string,
+    params: GenerationParams,
+    metadata: DocumentBatchTaskMetadata
+  ): Promise<Task> {
+    if (metadata.dispatchOwner !== 'document-batch') {
+      throw new Error('Invalid document batch dispatch owner');
+    }
+    const validation = validateGenerationParams(params, TaskType.IMAGE);
+    if (!validation.valid) {
+      throw new Error(`Invalid parameters: ${validation.errors.join(', ')}`);
+    }
+    const sanitized = normalizeTaskParamsModelIdentity(
+      normalizeGenerationParamsKnowledgeContext(sanitizeGenerationParams({
+        ...params,
+        autoInsertToCanvas: false,
+        documentBatch: metadata,
+      }))
+    );
+    const taskParams = createImageSubmissionParams(sanitized, taskId);
+    const routeTask = {
+      id: taskId,
+      type: TaskType.IMAGE,
+      status: TaskStatus.PENDING,
+      params: taskParams,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as Task;
+    const route = createTaskInvocationRouteSnapshotFromTask(routeTask);
+    const stored = await taskStorageWriter.prepareDocumentBatchTask(
+      taskId,
+      taskParams as SWTask['params'],
+      metadata,
+      route
+    );
+    const task = stored as unknown as Task;
+    this.tasks.set(task.id, task);
+    this.renewTaskExecutionToken(task.id);
+    this.emitEvent('taskCreated', task);
+    return task;
+  }
+
+  /** Consume a scheduler ticket and then run the existing image executor. */
+  async startPreparedDocumentBatchTask(options: {
+    taskId: string;
+    metadata: DocumentBatchTaskMetadata;
+    claimTicket: () => string | false | Promise<string | false>;
+    scopeGuard: () => boolean;
+  }): Promise<'started' | 'already-started' | 'rejected'> {
+    const { taskId, metadata, claimTicket, scopeGuard } = options;
+    if (!scopeGuard()) return 'rejected';
+    const current = await taskStorageWriter.getTask(taskId);
+    const currentMeta = current?.params.documentBatch as
+      | DocumentBatchTaskMetadata
+      | undefined;
+    if (!current || current.type !== 'image' || !currentMeta ||
+        currentMeta.scopeId !== metadata.scopeId || currentMeta.batchId !== metadata.batchId ||
+        currentMeta.workItemId !== metadata.workItemId || currentMeta.attemptId !== metadata.attemptId ||
+        currentMeta.epoch !== metadata.epoch) return 'rejected';
+    if (current.status === 'processing' || current.status === 'completed') {
+      return 'already-started';
+    }
+    if (current.status !== 'pending') return 'rejected';
+    if (current.syncedFromRemote || !current.invocationRoute?.providerProfileId) return 'rejected';
+    assertTaskInvocationRouteAvailable('image', current as unknown as Task, {
+      requireSelectedBindingMatch: true,
+    });
+    const ticket = await claimTicket();
+    if (!ticket || !scopeGuard()) return 'rejected';
+    const claimed = await taskStorageWriter.claimDocumentBatchTask(
+      taskId,
+      metadata,
+      ticket
+    );
+    if (!claimed || !scopeGuard()) return 'rejected';
+    registerDocumentBatchTaskGuard(taskId, metadata, scopeGuard);
+    const task = this.tasks.get(taskId) || ({
+      id: taskId,
+      type: TaskType.IMAGE,
+      status: TaskStatus.PROCESSING,
+      params: claimed.params as GenerationParams,
+      createdAt: claimed.createdAt,
+      updatedAt: claimed.updatedAt,
+      startedAt: claimed.startedAt,
+      invocationRoute: claimed.invocationRoute,
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+    } as Task);
+    const startedTask: Task = {
+      ...task,
+      status: TaskStatus.PROCESSING,
+      params: claimed.params as GenerationParams,
+      startedAt: claimed.startedAt,
+      updatedAt: claimed.updatedAt,
+      invocationRoute: claimed.invocationRoute || task.invocationRoute,
+      executionPhase: TaskExecutionPhase.SUBMITTING,
+    };
+    this.tasks.set(taskId, startedTask);
+    this.renewTaskExecutionToken(taskId);
+    this.emitEvent('taskUpdated', startedTask);
+    void this.executeTask(startedTask).catch((error) =>
+      console.error('[TaskQueueService] Document batch task execution failed:', error)
+    );
+    return 'started';
+  }
+
+  async getPersistedTask(taskId: string): Promise<Task | null> {
+    const task = await taskStorageWriter.getTask(taskId);
+    return task ? (task as unknown as Task) : null;
   }
 
   /**
@@ -2637,7 +2780,9 @@ class TaskQueueService {
    * @returns Array of all tasks
    */
   getAllTasks(): Task[] {
-    return Array.from(this.tasks.values());
+    return Array.from(this.tasks.values()).filter(
+      (task) => (!task.params.documentBatch || isDocumentBatchTaskScopeCurrent(task)) && !task.params.workflow
+    );
   }
 
   /**
@@ -2794,6 +2939,7 @@ class TaskQueueService {
    */
   retryTask(taskId: string, options: { allowCompleted?: boolean } = {}): void {
     const task = this.tasks.get(taskId);
+    if (task?.params.documentBatch || task?.params.workflow || task?.error?.code === 'SUBMISSION_PERSISTENCE_FAILED') return;
     if (!task) {
       console.warn(`[TaskQueueService] Task ${taskId} not found`);
       return;
@@ -3726,6 +3872,8 @@ class TaskQueueService {
     // 收集终态任务，按 updatedAt 升序（最旧的优先归档）
     const terminalTasks: Task[] = [];
     for (const task of this.tasks.values()) {
+      // Batch history has its own retention policy and result projection.
+      if (task.params.documentBatch) continue;
       if (
         task.status === TaskStatus.COMPLETED ||
         task.status === TaskStatus.FAILED ||

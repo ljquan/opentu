@@ -95,7 +95,7 @@ export function useTaskStorage(): boolean {
 
         if (storedTasks.length > 0) {
           const tasksForMemory = storedTasks
-            .filter((task) => !inPageTaskIds.has(task.id))
+            .filter((task) => !task.params.workflow && !inPageTaskIds.has(task.id))
             .map((task) => {
               if (
                 task.status !== TaskStatus.PROCESSING ||
@@ -154,6 +154,7 @@ export function useTaskStorage(): boolean {
             );
 
             for (const task of processingTasks) {
+              if (task.params.documentBatch || task.params.workflow) continue;
               const isAsyncImageResumable = isResumableAsyncImageTask(task);
               const isPptExplainer = isPptExplainerTask(task);
               const pptExplainerState = isPptExplainer
@@ -283,7 +284,7 @@ export function useTaskStorage(): boolean {
           // 视频任务有 remoteId 说明已提交到服务端，刷新后应始终尝试重新轮询
           const failedRemoteTasks = storedTasks.filter(
             (task) =>
-              task.status === 'failed' &&
+              !task.params.workflow && task.status === 'failed' &&
               task.remoteId &&
               !isPptExplainerTask(task) &&
               (task.type === TaskType.VIDEO ||

@@ -1,9 +1,11 @@
 import { Button, Drawer, Input, Segmented, Select, Space } from "antd";
 import { ListPlus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { automaticChannelCredentials } from "@/integration/opentu-channel-credentials";
+import { readNativeProviderCredentials, type NativeProviderCredentials } from "../../../../host/native-models";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
 
@@ -14,6 +16,10 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const [draft, setDraft] = useState<ModelChannel | null>(channel);
     const [selectOpen, setSelectOpen] = useState(false);
     const [scriptTarget, setScriptTarget] = useState<ScriptTarget | null>(null);
+    const [providers, setProviders] = useState<NativeProviderCredentials[]>([]);
+    const [loadingProviders, setLoadingProviders] = useState(false);
+    const [providerError, setProviderError] = useState("");
+    const credentialsEdited = useRef(false);
     const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
         { label: "OpenAI", value: "openai" },
         { label: "Gemini", value: "gemini" },
@@ -21,17 +27,42 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const capabilityOptions: Array<{ label: string; value: ModelCapability }> = ["image", "video", "text", "audio"].map((value) => ({ label: t(`config.channelEditor.capabilities.${value}`), value: value as ModelCapability }));
 
     useEffect(() => {
-        if (open && channel) setDraft(channel);
+        let active = true;
+        credentialsEdited.current = false;
+        setDraft(open ? channel : null);
+        setProviders([]);
+        setProviderError("");
+        setSelectOpen(false);
+        setScriptTarget(null);
+        if (!open || !channel || channel.opentuProfileId !== undefined) return;
+        setLoadingProviders(true);
+        void readNativeProviderCredentials().then(({ profiles, preferredProfileId }) => {
+            if (!active) return;
+            setProviders(profiles);
+            if (credentialsEdited.current) return;
+            const provider = automaticChannelCredentials(channel, profiles, preferredProfileId);
+            if (provider) setDraft((current) => current ? { ...current, baseUrl: provider.baseUrl, apiKey: provider.apiKey, apiFormat: provider.apiFormat } : current);
+        }).catch(() => {
+            if (active) setProviderError("读取 OpenTu 配置失败，请重新打开编辑器重试，或手动填写。");
+        }).finally(() => {
+            if (active) setLoadingProviders(false);
+        });
+        return () => { active = false; };
     }, [open, channel]);
 
     if (!draft) return null;
 
     const patch = (value: Partial<ModelChannel>) => setDraft((current) => (current ? { ...current, ...value } : current));
+    const patchCredentials = (value: Partial<ModelChannel>) => {
+        credentialsEdited.current = true;
+        patch(value);
+    };
     const setModels = (models: ChannelModel[]) => patch({ models });
+    const selectedProvider = providers.find((provider) => provider.baseUrl === draft.baseUrl && provider.apiKey === draft.apiKey && provider.apiFormat === draft.apiFormat);
 
     const changeApiFormat = (apiFormat: ApiCallFormat) => {
         const baseUrl = !draft.baseUrl.trim() || draft.baseUrl.trim() === defaultBaseUrlForApiFormat(draft.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : draft.baseUrl;
-        patch({ apiFormat, baseUrl });
+        patchCredentials({ apiFormat, baseUrl });
     };
 
     const applySelection = (names: string[]) => {
@@ -73,13 +104,32 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                     <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.protocol")}</span>
                     <Select className="w-full" value={draft.apiFormat} options={apiFormatOptions} onChange={changeApiFormat} />
                 </label>
+                <div className="md:col-span-2">
+                    <label htmlFor="workflow-opentu-provider" className="mb-1 block text-sm font-medium">从 OpenTu 自动填入</label>
+                    <Select
+                        id="workflow-opentu-provider"
+                        aria-describedby="workflow-opentu-provider-help"
+                        className="w-full"
+                        loading={loadingProviders}
+                        value={selectedProvider?.id}
+                        placeholder={providers.length ? "选择已配置的分组" : "暂无可导入的配置"}
+                        options={providers.map((provider) => ({ label: provider.name, value: provider.id }))}
+                        onChange={(id) => {
+                            const provider = providers.find((item) => item.id === id);
+                            if (provider) patchCredentials({ baseUrl: provider.baseUrl, apiKey: provider.apiKey, apiFormat: provider.apiFormat });
+                        }}
+                    />
+                    <div id="workflow-opentu-provider-help" role={providerError ? "alert" : "status"} className="mt-1 text-xs text-stone-500">
+                        {providerError || (selectedProvider ? `已填入 ${selectedProvider.name} 的接口地址和 API Key，保存后生效。` : "仅显示已启用且填有 URL/API Key 的兼容分组；选择后填入，保存后生效。")}
+                    </div>
+                </div>
                 <label className="block md:col-span-2">
                     <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.baseUrl")}</span>
-                    <Input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://api.tu-zi.com" />
+                    <Input value={draft.baseUrl} onChange={(event) => patchCredentials({ baseUrl: event.target.value })} placeholder="https://api.tu-zi.com" />
                 </label>
                 <label className="block md:col-span-2">
                     <span className="mb-1 block text-sm font-medium">API Key</span>
-                    <Input.Password value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder="sk-..." />
+                    <Input.Password value={draft.apiKey} onChange={(event) => patchCredentials({ apiKey: event.target.value })} placeholder="sk-..." />
                 </label>
             </div>
 
