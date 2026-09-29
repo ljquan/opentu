@@ -60,6 +60,7 @@ export type SunoAction = 'music' | 'lyrics';
 export interface AudioClipRecord {
   id?: string;
   clip_id?: string;
+  clipId?: string;
   title?: string;
   status?: string;
   state?: string;
@@ -68,9 +69,13 @@ export interface AudioClipRecord {
   major_model_version?: string;
   duration?: number | null;
   audio_url?: string;
+  audioUrl?: string;
   image_url?: string | null;
+  imageUrl?: string | null;
   image_large_url?: string | null;
+  imageLargeUrl?: string | null;
   batch_index?: number;
+  batchIndex?: number;
   metadata?: Record<string, unknown> & {
     duration?: number | null;
     prompt?: string;
@@ -445,25 +450,63 @@ function normalizeLifecycleStatus(payload: any): string {
 }
 
 function extractAudioClips(payload: any): AudioClipRecord[] {
-  const candidates = [
-    payload?.data,
-    payload?.clips,
-    payload?.data?.clips,
-    payload?.data?.data,
-    payload?.data?.data?.data,
-    payload?.data?.data?.clips,
-    payload?.data?.items,
-    payload?.data?.data?.items,
-    payload?.items,
-  ];
+  const queue: any[] = [payload];
+  const visited = new Set<object>();
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate as AudioClipRecord[];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    if (Array.isArray(current)) {
+      const clips = current.filter(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          (typeof item.audio_url === 'string' ||
+            typeof item.audioUrl === 'string' ||
+            typeof item.clip_id === 'string' ||
+            typeof item.clipId === 'string' ||
+            typeof item.id === 'string' ||
+            typeof item.status === 'string' ||
+            typeof item.state === 'string')
+      );
+      if (clips.length > 0) return clips.map(normalizeAudioClipRecord);
+      queue.push(...current);
+      continue;
+    }
+
+    for (const key of ['clips', 'items', 'results', 'data', 'result', 'task']) {
+      if (current[key] !== undefined) queue.push(current[key]);
+    }
+
+    const urls = [current.audio_urls, current.audioUrls]
+      .filter(Array.isArray)
+      .flat()
+      .filter((url): url is string => typeof url === 'string' && !!url.trim());
+    if (urls.length > 0) {
+      return urls.map((audio_url, batch_index) => ({ audio_url, batch_index }));
     }
   }
 
   return [];
+}
+
+function normalizeAudioClipRecord(clip: AudioClipRecord): AudioClipRecord {
+  return {
+    ...clip,
+    clip_id: clip.clip_id || clip.clipId,
+    audio_url: clip.audio_url || clip.audioUrl,
+    image_url: clip.image_url || clip.imageUrl,
+    image_large_url: clip.image_large_url || clip.imageLargeUrl,
+    batch_index:
+      typeof clip.batch_index === 'number'
+        ? clip.batch_index
+        : typeof clip.batchIndex === 'number'
+        ? clip.batchIndex
+        : undefined,
+  };
 }
 
 function resolveClipIdentifier(clip: AudioClipRecord): string | undefined {
@@ -915,7 +958,7 @@ function normalizeManualAudioTaskResponse(
   const resultUrls = [task.resultUrl, ...(task.resultUrls || [])].filter(
     (url): url is string => Boolean(url)
   );
-  const urls = audioUrls.length > 0 ? audioUrls : resultUrls;
+  const urls = [...new Set(audioUrls.length > 0 ? audioUrls : resultUrls)];
   const status = task.status || (urls.length > 0 ? 'completed' : 'processing');
 
   return {
@@ -1169,11 +1212,8 @@ class AudioAPIService {
     options: AudioPollingOptions = {}
   ): Promise<AudioTaskResponse> {
     const clipMemory = createClipIdentifierMemory();
-    const immediate = normalizeAudioTaskResponse(
-      (await this.queryAudioTask(taskId, options.routeModel)).raw,
-      taskId,
-      clipMemory
-    );
+    const immediate = await this.queryAudioTask(taskId, options.routeModel);
+    rememberClipIdentifiers(immediate.clips, clipMemory);
 
     if (options.onProgress) {
       options.onProgress(immediate.progress || 0, immediate.status);
@@ -1209,11 +1249,14 @@ class AudioAPIService {
 
       try {
         const payload = await this.queryAudioTask(taskId, options.routeModel);
-        const result = normalizeAudioTaskResponse(
-          payload.raw,
-          taskId,
-          clipMemory
-        );
+        // queryAudioTask already applies the selected native or manual
+        // response schema. Re-normalizing its raw payload would discard
+        // custom template paths such as audioUrl/audio_urls.
+        rememberClipIdentifiers(payload.clips, clipMemory);
+        const result = {
+          ...payload,
+          clips: applyRememberedClipIdentifiers(payload.clips, clipMemory),
+        };
         consecutiveErrors = 0;
 
         if (onProgress) {

@@ -716,3 +716,159 @@ describe('audio-api-service', () => {
     expect(extracted.lyricsText).toContain('测试歌词');
   });
 });
+
+describe('audio result recovery regressions', () => {
+  const taskId = 'task-existing-suno';
+  const urls = [
+    'https://cdn.example.com/one.mp3',
+    'https://cdn.example.com/two.mp3',
+  ];
+
+  async function setup(
+    payloads: unknown[],
+    manualHttp?: Record<string, unknown>
+  ) {
+    vi.resetModules();
+    const send = vi.fn();
+    for (const payload of payloads) {
+      send.mockResolvedValueOnce(
+        new Response(JSON.stringify(payload), { status: 200 })
+      );
+    }
+    const provider = {
+      profileId: 'runtime',
+      profileName: 'Runtime',
+      providerType: 'custom',
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'test-key',
+      authType: 'bearer',
+    };
+    vi.doMock('../provider-routing', async () => {
+      const actual = await vi.importActual<object>('../provider-routing');
+      return {
+        ...actual,
+        resolveInvocationPlanFromRoute: () =>
+          manualHttp
+            ? {
+                provider,
+                binding: {
+                  metadata: { manualHttp },
+                  submitPath: '/suno/submit/music',
+                },
+              }
+            : null,
+        providerTransport: { send },
+      };
+    });
+    vi.doMock('../../utils/settings-manager', () => ({
+      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
+      resolveInvocationRoute: () => provider,
+    }));
+    return { ...(await import('../audio-api-service')), send };
+  }
+
+  it.each(['immediate', 'poll', 'submit'] as const)(
+    'retains configured response paths and two unique URLs during %s recovery',
+    async (mode) => {
+      const complete = {
+        output: {
+          phase: 'completed',
+          tracks: urls.map((url) => ({ file: url })),
+        },
+      };
+      const payloads =
+        mode === 'immediate'
+          ? [complete]
+          : mode === 'poll'
+          ? [{ output: { phase: 'processing' } }, complete]
+          : [{ job: taskId }, complete];
+      const { audioAPIService, extractAudioGenerationResult, send } =
+        await setup(payloads, {
+          responsePaths: { taskId: 'job' },
+          pollResponsePaths: {
+            status: 'output.phase',
+            audioUrls: 'output.tracks.*.file',
+          },
+        });
+      const options = { interval: 1, maxAttempts: 1, routeModel: 'suno_music' };
+      const result =
+        mode === 'submit'
+          ? await audioAPIService.generateAudioWithPolling(
+              { model: 'suno_music', prompt: 'test' },
+              options
+            )
+          : await audioAPIService.resumePolling(taskId, options);
+      expect(result.clips.map((clip) => clip.audio_url)).toEqual(urls);
+      expect(extractAudioGenerationResult(result).urls).toEqual(urls);
+      expect(send).toHaveBeenCalledTimes(payloads.length);
+    }
+  );
+
+  it('recovers both camelCase clips in nested result and task wrappers', async () => {
+    const { audioAPIService, extractAudioGenerationResult } = await setup([
+      {
+        data: {
+          result: {
+            task: {
+              clips: urls.map((audioUrl, batchIndex) => ({
+                clipId: `clip-${batchIndex}`,
+                audioUrl,
+                batchIndex,
+                status: 'complete',
+                imageUrl: 'https://cdn.example.com/cover.jpeg',
+              })),
+            },
+          },
+        },
+      },
+    ]);
+    const result = await audioAPIService.resumePolling(taskId, {
+      maxAttempts: 1,
+    });
+    const extracted = extractAudioGenerationResult(result);
+    expect(result.status).toBe('completed');
+    expect(extracted.urls).toEqual(urls);
+    expect(extracted.clipIds).toEqual(['clip-0', 'clip-1']);
+    expect(extracted.imageUrl).toBe('https://cdn.example.com/cover.jpeg');
+  });
+
+  it.each(['audio_urls', 'audioUrls'])(
+    'recovers a completed %s URL list',
+    async (field) => {
+      const { audioAPIService } = await setup([
+        { status: 'SUCCESS', data: { [field]: urls } },
+      ]);
+      const result = await audioAPIService.resumePolling(taskId, {
+        maxAttempts: 1,
+      });
+      expect(result.clips.map((clip) => clip.audio_url)).toEqual(urls);
+    }
+  );
+
+  it('does not finish a successful task without any usable audio URL', async () => {
+    const { audioAPIService, send } = await setup([
+      { status: 'SUCCESS', data: { audio_urls: ['', null] } },
+      { status: 'SUCCESS', data: { audio_urls: ['', null] } },
+    ]);
+    await expect(
+      audioAPIService.resumePolling(taskId, { interval: 1, maxAttempts: 1 })
+    ).rejects.toThrow('Suno 生成超时');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+  it('preserves failure clips even when the provider omits identifiers and URLs', async () => {
+    const { audioAPIService } = await setup([
+      {
+        status: 'IN_PROGRESS',
+        data: [
+          {
+            status: 'failed',
+            metadata: { error_message: 'provider rejected' },
+          },
+        ],
+      },
+    ]);
+    await expect(audioAPIService.resumePolling(taskId)).rejects.toThrow(
+      'provider rejected'
+    );
+  });
+});
