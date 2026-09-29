@@ -28,6 +28,7 @@ import React, {
   lazy,
   Suspense,
 } from 'react';
+import { useTuziAccountOnboarding } from './hooks/useTuziAccountOnboarding';
 import { withGroup } from '@plait/common';
 import { withDraw, BasicShapes, DrawTransforms } from '@plait/draw';
 import { MindThemeColors, withMind } from '@plait/mind';
@@ -739,6 +740,8 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       }
     };
   }, []);
+
+  useTuziAccountOnboarding(setAppState);
 
   // 监听 API 认证错误事件，自动打开设置对话框
   useEffect(() => {

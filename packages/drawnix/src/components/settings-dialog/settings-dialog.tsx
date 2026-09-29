@@ -100,6 +100,8 @@ import { TuziAccountPanel } from './TuziAccountPanel';
 import { isTuziEmbeddedMode } from '../../services/tuzi-embedded-config';
 import {
   requestTuziParentContext,
+  getTuziBridgeContext,
+  getTuziBridgeError,
   TUZI_BRIDGE_EVENT,
 } from '../../services/tuzi-postmessage-bridge';
 import { syncTuziSessionProviders } from '../../services/tuzi-session-provider-sync';
@@ -131,6 +133,7 @@ import {
 } from './provider-toggle-utils';
 import {
   SETTINGS_PROVIDER_NAV_EVENT,
+  TUZI_GROUPS_ADDED_EVENT,
   type ProviderNavigationIntent,
 } from './provider-settings-navigation';
 
@@ -1141,13 +1144,24 @@ export const SettingsDialog = ({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [dialogWidth, setDialogWidth] = useState(0);
   const [tuziMode, setTuziMode] = useState(() => isTuziEmbeddedMode());
+  const [accountBoundary, setAccountBoundary] = useState('');
   useEffect(() => {
-    const syncBridgeMode = () => setTuziMode(isTuziEmbeddedMode());
+    const syncBridgeMode = () => {
+      setTuziMode(isTuziEmbeddedMode());
+      const context = getTuziBridgeContext();
+      const boundary = `${context?.userId || ''}:${context?.status || ''}:${
+        getTuziBridgeError() || ''
+      }`;
+      setAccountBoundary(boundary);
+    };
     window.addEventListener(TUZI_BRIDGE_EVENT, syncBridgeMode);
 
-    if (appState.openSettings) {
-      void requestTuziParentContext({ refresh: true }).finally(syncBridgeMode);
+    if (appState.openSettings || window.parent !== window) {
+      void requestTuziParentContext({ refresh: appState.openSettings }).finally(
+        syncBridgeMode
+      );
     }
+    syncBridgeMode();
 
     return () => window.removeEventListener(TUZI_BRIDGE_EVENT, syncBridgeMode);
   }, [appState.openSettings]);
@@ -1159,6 +1173,7 @@ export const SettingsDialog = ({
     tuziMode ? 'tuzi-account' : 'providers'
   );
   const [tuziGroupPickerRequest, setTuziGroupPickerRequest] = useState(0);
+  const groupPickerReturnTo = useRef<string | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState(
     LEGACY_DEFAULT_PROVIDER_PROFILE_ID
   );
@@ -1571,7 +1586,7 @@ export const SettingsDialog = ({
       })
     );
 
-    if (pendingProviderIntent?.action === 'create') {
+    if (pendingProviderIntent) {
       applyProviderNavigationIntent(pendingProviderIntent, nextProfiles);
     }
   }, [appState.openSettings, tuziMode]);
@@ -1970,6 +1985,7 @@ export const SettingsDialog = ({
     const sourceProfiles = baseProfiles || profilesDraft;
 
     if (intent.action === 'tuzi-groups') {
+      groupPickerReturnTo.current = intent.returnTo;
       setActiveView('tuzi-account');
       setTuziGroupPickerRequest((current) => current + 1);
       return sourceProfiles;
@@ -2694,6 +2710,7 @@ export const SettingsDialog = ({
   };
 
   const closeSettingsDialog = () => {
+    groupPickerReturnTo.current = undefined;
     setAppState((prev) => ({ ...prev, openSettings: false }));
   };
 
@@ -4752,6 +4769,19 @@ export const SettingsDialog = ({
     if (activeView === 'tuzi-account') {
       return (
         <TuziAccountPanel
+          key={accountBoundary}
+          onGroupsAdded={() => {
+            const returnTo = groupPickerReturnTo.current;
+            groupPickerReturnTo.current = undefined;
+            if (returnTo) {
+              closeSettingsDialog();
+              window.dispatchEvent(
+                new CustomEvent(TUZI_GROUPS_ADDED_EVENT, {
+                  detail: { returnTo },
+                })
+              );
+            }
+          }}
           onProvidersChanged={handleTuziProvidersChanged}
           onSetupCompleted={closeSettingsDialog}
           openProviderSelectionRequest={tuziGroupPickerRequest}

@@ -20,15 +20,21 @@ const {
   getProviderGroupSelection: vi.fn(),
 }));
 
+vi.mock('../tuzi-provider-reuse-state', () => ({
+  getPreviouslyReusedGroups: () => [],
+  resetTuziProviderVerification: vi.fn(),
+}));
 vi.mock('../tuzi-embedded-config', () => ({
   isTuziEmbeddedMode: () => true,
 }));
 vi.mock('../tuzi-token-auth', () => ({
   hasTuziSystemToken: () => true,
+  getTuziSystemToken: () => 'test-system',
   getTuziSystemUserId: getSystemUserId,
 }));
 vi.mock('../tuzi-provider-selection', () => ({
   getTuziProviderGroupSelection: getProviderGroupSelection,
+  saveTuziProviderGroupSelection: vi.fn(),
 }));
 vi.mock('../tuzi-session-api', () => ({
   TuziSessionApiError: class TuziSessionApiError extends Error {
@@ -46,6 +52,7 @@ vi.mock('../tuzi-managed-provider-models', () => ({
 }));
 vi.mock('../../utils/settings-manager', () => ({
   providerProfilesSettings: { get: getProfiles },
+  settingsManager: { waitForInitialization: () => Promise.resolve() },
 }));
 
 describe('syncTuziSessionProviders', () => {
@@ -55,6 +62,7 @@ describe('syncTuziSessionProviders', () => {
     getSystemUserId.mockReturnValue('1');
     getProviderGroupSelection.mockReturnValue(['default']);
     getProfiles.mockReturnValue([]);
+    ensureManagedProviders.mockResolvedValue([]);
     synchronizeTuziManagedProviders.mockResolvedValue(undefined);
     discoverChangedTuziProviderModels.mockResolvedValue(undefined);
   });
@@ -73,9 +81,12 @@ describe('syncTuziSessionProviders', () => {
     );
     getProviderGroupSelection.mockReturnValue(null);
     await expect(syncTuziSessionProviders()).resolves.toBe(true);
-    expect(ensureManagedProviders).not.toHaveBeenCalled();
+    expect(ensureManagedProviders).toHaveBeenCalledWith([]);
     expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([]);
-    expect(discoverChangedTuziProviderModels).not.toHaveBeenCalled();
+    expect(discoverChangedTuziProviderModels).toHaveBeenCalledWith(
+      [],
+      expect.any(Map)
+    );
   });
 
   it('deduplicates overlapping startup and focus synchronization', async () => {
@@ -88,6 +99,7 @@ describe('syncTuziSessionProviders', () => {
 
     const startup = syncTuziSessionProviders();
     const focus = syncTuziSessionProviders();
+    await Promise.resolve();
     resolveProviders([]);
 
     await expect(Promise.all([startup, focus])).resolves.toEqual([true, true]);
@@ -104,6 +116,33 @@ describe('syncTuziSessionProviders', () => {
 
     expect(ensureManagedProviders).toHaveBeenNthCalledWith(1, ['default']);
     expect(ensureManagedProviders).toHaveBeenNthCalledWith(2, ['vip']);
+  });
+
+  it('restores models even when an earlier credential-only sync is cached', async () => {
+    await expect(
+      syncTuziSessionProviders({ discoverModels: false })
+    ).resolves.toBe(true);
+    expect(discoverChangedTuziProviderModels).not.toHaveBeenCalled();
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+    expect(discoverChangedTuziProviderModels).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores models after an overlapping credential-only sync finishes', async () => {
+    let resolveProviders!: (providers: unknown[]) => void;
+    ensureManagedProviders.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProviders = resolve;
+      })
+    );
+    const credentials = syncTuziSessionProviders({ discoverModels: false });
+    const restoration = syncTuziSessionProviders();
+    await Promise.resolve();
+    resolveProviders([]);
+    await expect(Promise.all([credentials, restoration])).resolves.toEqual([
+      true,
+      true,
+    ]);
+    expect(discoverChangedTuziProviderModels).toHaveBeenCalledTimes(1);
   });
 
   it('discovers models without reading a group from URL credentials', async () => {
@@ -130,5 +169,53 @@ describe('syncTuziSessionProviders', () => {
     await expect(syncTuziSessionProviders()).resolves.toBe(false);
 
     expect(synchronizeTuziManagedProviders).toHaveBeenCalledWith([]);
+  });
+  it('keeps saved groups on a temporary network failure and retries', async () => {
+    ensureManagedProviders.mockRejectedValueOnce(new Error('Network timeout'));
+    await expect(syncTuziSessionProviders()).resolves.toBe(false);
+    expect(synchronizeTuziManagedProviders).not.toHaveBeenCalled();
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+    expect(ensureManagedProviders).toHaveBeenCalledTimes(2);
+  });
+  it('does not apply an old response after adding a group invalidates the sync', async () => {
+    let resolveProviders!: (providers: unknown[]) => void;
+    ensureManagedProviders.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProviders = resolve;
+      })
+    );
+    const old = syncTuziSessionProviders();
+    await Promise.resolve();
+    getProviderGroupSelection.mockReturnValue(['default', 'image']);
+    resetTuziSessionProviderSyncCache();
+    const fresh = syncTuziSessionProviders();
+    resolveProviders([]);
+    await expect(old).resolves.toBe(false);
+    await expect(fresh).resolves.toBe(true);
+    expect(ensureManagedProviders).toHaveBeenLastCalledWith([
+      'default',
+      'image',
+    ]);
+  });
+  it('discards a provider response from the previous account', async () => {
+    let resolveProviders!: (providers: unknown[]) => void;
+    ensureManagedProviders.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProviders = resolve;
+      })
+    );
+    const pending = syncTuziSessionProviders({ discoverModels: false });
+    await Promise.resolve();
+    getSystemUserId.mockReturnValue('2');
+    resetTuziSessionProviderSyncCache();
+    resolveProviders([
+      {
+        id: 'tuzi-managed-default',
+        group: 'default',
+        apiKey: 'old-account-key',
+      },
+    ]);
+    await expect(pending).resolves.toBe(false);
+    expect(synchronizeTuziManagedProviders).not.toHaveBeenCalled();
   });
 });

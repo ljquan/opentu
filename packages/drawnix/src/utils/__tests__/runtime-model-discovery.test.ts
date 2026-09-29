@@ -67,136 +67,136 @@ describe('runtime-model-discovery', () => {
   });
 
   it.each(['provider-video', 'legacy-default'])(
-    '%s 已配置候选在无系统令牌时只包含实际勾选的模型', async (profileId) => {
-    vi.doMock('../../services/tuzi-embedded-config', () => ({
-      isTuziEmbeddedMode: () => true,
-    }));
-    vi.doMock('../../services/tuzi-token-auth', () => ({
-      hasTuziSystemToken: () => false,
-    }));
-    const profiles = [
-      {
-        id: profileId,
-        name: '视频供应商',
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'test-key',
-        enabled: true,
-        capabilities: {
-          supportsModelsEndpoint: true,
-        },
-      },
-      {
-        id: 'provider-disabled',
-        name: '已禁用供应商',
-        enabled: false,
-      },
-    ];
-    let handleProfileSettingsChange: (() => void) | undefined;
-    vi.doMock('../settings-manager', () => ({
-      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
-      providerCatalogsSettings: {
-        get: () => [
-          {
-            profileId,
-            discoveredAt: Date.now(),
-            discoveredModels: [
-              {
-                id: 'doubao-seedance-1-5-pro_1080p',
-                label: 'Seedance 1.5 Pro 1080p',
-                shortLabel: 'Seedance 1.5 Pro 1080p',
-                type: 'video',
-                vendor: 'DOUBAO',
-              },
-              {
-                id: 'doubao-seedance-2-0-260128',
-                label: 'Seedance 2.0',
-                shortLabel: 'Seedance 2.0',
-                type: 'video',
-                vendor: 'DOUBAO',
-              },
-            ],
-            selectedModelIds: ['doubao-seedance-1-5-pro_1080p'],
+    '%s 已配置候选在无系统令牌时只包含实际勾选的模型',
+    async (profileId) => {
+      vi.doMock('../../services/tuzi-embedded-config', () => ({
+        isTuziEmbeddedMode: () => true,
+      }));
+      vi.doMock('../../services/tuzi-token-auth', () => ({
+        hasTuziSystemToken: () => false,
+      }));
+      const profiles = [
+        {
+          id: profileId,
+          name: '视频供应商',
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'test-key',
+          enabled: true,
+          capabilities: {
+            supportsModelsEndpoint: true,
           },
-          {
-            profileId: 'provider-disabled',
-            discoveredAt: Date.now(),
-            discoveredModels: [
-              {
-                id: 'disabled-video-model',
-                label: 'Disabled video model',
-                shortLabel: 'Disabled video model',
-                type: 'video',
-                vendor: 'OTHER',
-              },
-            ],
-            selectedModelIds: ['disabled-video-model'],
-          },
-        ],
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        update: vi.fn(async () => undefined),
-      },
-      providerProfilesSettings: {
-        get: () => profiles,
-        addListener: (listener: () => void) => {
-          handleProfileSettingsChange = listener;
         },
-        removeListener: vi.fn(),
-      },
-      invocationPresetsSettings: {
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      settingsManager: {
-        getSetting: () => ({}),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      },
-    }));
+        {
+          id: 'provider-disabled',
+          name: '已禁用供应商',
+          enabled: false,
+        },
+      ];
+      let handleProfileSettingsChange: (() => void) | undefined;
+      vi.doMock('../settings-manager', () => ({
+        LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+        providerCatalogsSettings: {
+          get: () => [
+            {
+              profileId,
+              discoveredAt: Date.now(),
+              discoveredModels: [
+                {
+                  id: 'doubao-seedance-1-5-pro_1080p',
+                  label: 'Seedance 1.5 Pro 1080p',
+                  shortLabel: 'Seedance 1.5 Pro 1080p',
+                  type: 'video',
+                  vendor: 'DOUBAO',
+                },
+                {
+                  id: 'doubao-seedance-2-0-260128',
+                  label: 'Seedance 2.0',
+                  shortLabel: 'Seedance 2.0',
+                  type: 'video',
+                  vendor: 'DOUBAO',
+                },
+              ],
+              selectedModelIds: ['doubao-seedance-1-5-pro_1080p'],
+            },
+            {
+              profileId: 'provider-disabled',
+              discoveredAt: Date.now(),
+              discoveredModels: [
+                {
+                  id: 'disabled-video-model',
+                  label: 'Disabled video model',
+                  shortLabel: 'Disabled video model',
+                  type: 'video',
+                  vendor: 'OTHER',
+                },
+              ],
+              selectedModelIds: ['disabled-video-model'],
+            },
+          ],
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          update: vi.fn(async () => undefined),
+        },
+        providerProfilesSettings: {
+          get: () => profiles,
+          addListener: (listener: () => void) => {
+            handleProfileSettingsChange = listener;
+          },
+          removeListener: vi.fn(),
+        },
+        invocationPresetsSettings: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        settingsManager: {
+          getSetting: () => ({}),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      }));
 
-    const {
-      getConfiguredSelectableModels,
-      getProfilePreferredModels,
-      getSelectableModels,
-      runtimeModelDiscovery,
-    } = await import('../runtime-model-discovery');
+      const {
+        getConfiguredSelectableModels,
+        getProfilePreferredModels,
+        getSelectableModels,
+        runtimeModelDiscovery,
+      } = await import('../runtime-model-discovery');
 
-    expect(getSelectableModels('video').map((model) => model.id)).toEqual([
-      'doubao-seedance-1-5-pro_1080p',
-    ]);
-    expect(
-      getProfilePreferredModels(profileId, 'video').map(
-        (model) => model.id
-      )
-    ).toEqual(['doubao-seedance-1-5-pro_1080p']);
-    expect(getSelectableModels('audio')).toEqual([]);
-    expect(
-      getConfiguredSelectableModels('video').map((model) => model.id)
-    ).toEqual(['doubao-seedance-1-5-pro_1080p']);
+      expect(getSelectableModels('video').map((model) => model.id)).toEqual([
+        'doubao-seedance-1-5-pro_1080p',
+      ]);
+      expect(
+        getProfilePreferredModels(profileId, 'video').map((model) => model.id)
+      ).toEqual(['doubao-seedance-1-5-pro_1080p']);
+      expect(getSelectableModels('audio')).toEqual([]);
+      expect(
+        getConfiguredSelectableModels('video').map((model) => model.id)
+      ).toEqual(['doubao-seedance-1-5-pro_1080p']);
 
-    runtimeModelDiscovery.applySelection(profileId, [
-      'doubao-seedance-2-0-260128',
-    ]);
+      runtimeModelDiscovery.applySelection(profileId, [
+        'doubao-seedance-2-0-260128',
+      ]);
 
-    expect(
-      getConfiguredSelectableModels('video').map((model) => [
-        model.sourceProfileId,
-        model.id,
-      ])
-    ).toEqual([[profileId, 'doubao-seedance-2-0-260128']]);
-    expect(getSelectableModels('video').map((model) => model.id)).toEqual([
-      'doubao-seedance-2-0-260128',
-    ]);
+      expect(
+        getConfiguredSelectableModels('video').map((model) => [
+          model.sourceProfileId,
+          model.id,
+        ])
+      ).toEqual([[profileId, 'doubao-seedance-2-0-260128']]);
+      expect(getSelectableModels('video').map((model) => model.id)).toEqual([
+        'doubao-seedance-2-0-260128',
+      ]);
 
-    profiles[0].enabled = false;
-    handleProfileSettingsChange?.();
+      profiles[0].enabled = false;
+      handleProfileSettingsChange?.();
 
-    expect(getConfiguredSelectableModels('video')).toEqual([]);
-    expect(getSelectableModels('video').map((model) => model.id)).toContain(
-      'veo3-fast-frames'
-    );
-    expect(runtimeModelDiscovery.getRevision()).toBeGreaterThan(0);
-  });
+      expect(getConfiguredSelectableModels('video')).toEqual([]);
+      expect(getSelectableModels('video').map((model) => model.id)).toContain(
+        'veo3-fast-frames'
+      );
+      expect(runtimeModelDiscovery.getRevision()).toBeGreaterThan(0);
+    }
+  );
 
   it('主流最新静态模型可被初始选择器解析', async () => {
     const { getStaticModelConfig } = await import(
@@ -743,8 +743,7 @@ describe('runtime-model-discovery', () => {
 
       if (
         url === 'https://api.tu-zi.com/v1/models' ||
-        url ===
-          'http://localhost:3000/__opentu_tuzi_session__/v1/models'
+        url === 'http://localhost:3000/__opentu_tuzi_session__/v1/models'
       ) {
         return {
           ok: true,
@@ -1114,5 +1113,86 @@ describe('runtime-model-discovery', () => {
       type: 'text',
       vendor: 'GPT',
     });
+  });
+});
+
+describe('Tuzi ordinary token discovery authorization', () => {
+  it('blocks model fetches until the existing profile has been verified', async () => {
+    vi.resetModules();
+    vi.unstubAllGlobals();
+    let verified = false;
+    const profile = {
+      id: 'ordinary',
+      name: 'Old name',
+      enabled: true,
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'sk-old',
+    };
+    vi.doMock('../settings-manager', () => ({
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      providerProfilesSettings: {
+        get: () => [profile],
+        addListener: () => {},
+        removeListener: () => {},
+      },
+      providerCatalogsSettings: {
+        get: () => [],
+        addListener: () => {},
+        removeListener: () => {},
+        update: async () => {},
+      },
+      invocationPresetsSettings: {
+        addListener: () => {},
+        removeListener: () => {},
+      },
+      settingsManager: {
+        getSetting: () => ({}),
+        addListener: () => {},
+        removeListener: () => {},
+      },
+    }));
+    vi.doMock('../../services/tuzi-embedded-config', () => ({
+      isTuziEmbeddedMode: () => true,
+    }));
+    vi.doMock('../../services/tuzi-provider-reuse-state', () => ({
+      isCurrentTuziEndpoint: () => true,
+      isVerifiedTuziProvider: () => verified,
+      TUZI_PROVIDER_REUSE_EVENT: 'reuse',
+    }));
+    vi.doMock('../../services/tuzi-postmessage-bridge', () => ({
+      requestTuziParentContext: async () => null,
+      TUZI_BRIDGE_EVENT: 'bridge',
+    }));
+    vi.doMock('../../services/tuzi-token-auth', () => ({
+      hasTuziSystemToken: () => true,
+    }));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ id: 'gpt-image-1' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    vi.stubGlobal('fetch', fetcher);
+    const { runtimeModelDiscovery } = await import(
+      '../runtime-model-discovery'
+    );
+    await expect(
+      runtimeModelDiscovery.discover(
+        'ordinary',
+        profile.baseUrl,
+        profile.apiKey
+      )
+    ).rejects.toThrow('核验');
+    expect(fetcher).not.toHaveBeenCalled();
+    verified = true;
+    await runtimeModelDiscovery.discover(
+      'ordinary',
+      profile.baseUrl,
+      profile.apiKey
+    );
+    expect(fetcher).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

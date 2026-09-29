@@ -1,9 +1,10 @@
 export const SETTINGS_PROVIDER_NAV_EVENT = 'aitu:settings:provider-nav';
+export const TUZI_GROUPS_ADDED_EVENT = 'opentu:tuzi-groups-added';
 
 export type ProviderNavigationIntent =
   | { action: 'select'; profileId: string }
   | { action: 'create' }
-  | { action: 'tuzi-groups' };
+  | { action: 'tuzi-groups'; returnTo?: string };
 
 export function queueProviderSettingsNavigation(
   intent: ProviderNavigationIntent

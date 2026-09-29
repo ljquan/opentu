@@ -77,6 +77,7 @@ vi.mock('../../services/tuzi-provider-selection', () => ({
 
 vi.mock('../settings-dialog/provider-settings-navigation', () => ({
   queueProviderSettingsNavigation: queueNavigationMock,
+  TUZI_GROUPS_ADDED_EVENT: 'opentu:tuzi-groups-added',
 }));
 
 vi.mock('../../utils/settings-manager', () => ({
@@ -199,7 +200,7 @@ describe('ModelDropdown', () => {
       const button = document.querySelector(
         '.model-dropdown__provider-action'
       ) as HTMLButtonElement | null;
-      expect(button?.textContent).toContain('添加分组');
+      expect(button?.textContent).toContain('添加 Tuzi 令牌');
       return button as HTMLButtonElement;
     });
     fireEvent.click(addGroupButton);
@@ -207,8 +208,26 @@ describe('ModelDropdown', () => {
     await waitFor(() =>
       expect(queueNavigationMock).toHaveBeenCalledWith({
         action: 'tuzi-groups',
+        returnTo: expect.any(String),
       })
     );
+    expect(document.querySelector('.model-dropdown__menu')).toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('opentu:tuzi-groups-added', {
+          detail: { returnTo: 'another-dropdown' },
+        })
+      );
+    });
+    expect(document.querySelector('.model-dropdown__menu')).toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('opentu:tuzi-groups-added', {
+          detail: { returnTo: queueNavigationMock.mock.calls[0][0].returnTo },
+        })
+      );
+    });
+    expect(document.querySelector('.model-dropdown__menu')).not.toBeNull();
   });
 
   it('switches the remembered active group when selecting its model', async () => {

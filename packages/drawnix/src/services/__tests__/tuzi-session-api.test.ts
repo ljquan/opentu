@@ -524,3 +524,69 @@ describe('TuziSessionApiClient', () => {
     );
   });
 });
+
+describe('account token inventory transport', () => {
+  const token = {
+    token_id: 1,
+    token_name: '我的令牌',
+    groups: ['default'],
+    usable: true,
+    fingerprint: 'a'.repeat(64),
+  };
+  it('loads metadata and imports only explicitly selected token IDs', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { user_id: 40832, tokens: [token] },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              user_id: 40832,
+              tokens: [{ ...token, api_key: 'sk-selected' }],
+            },
+          })
+        )
+      );
+    const client = new TuziSessionApiClient(config, fetcher);
+    const listed = await client.listAccountTokens();
+    expect(listed[0].api_key).toBeUndefined();
+    await client.importAccountTokens([1]);
+    expect(fetcher.mock.calls[1][0]).toBe(
+      'http://localhost:3100/api/opentu/tokens/import'
+    );
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ ids: [1] });
+  });
+  it('rejects responses for another account before exposing credentials', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { user_id: 2, tokens: [{ ...token, api_key: 'sk-other' }] },
+          })
+        )
+      );
+    await expect(
+      new TuziSessionApiClient(config, fetcher).importAccountTokens([1])
+    ).rejects.toThrow('账户已变化');
+  });
+  it('does not retry a creation request after an ambiguous network failure', async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error('connection closed'));
+    await expect(
+      new TuziSessionApiClient(config, fetcher).createAccountTokens(
+        '我的令牌',
+        ['default']
+      )
+    ).rejects.toThrow('connection closed');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
