@@ -60,6 +60,11 @@ export interface AudioGenerationParams {
 export type SunoAction = 'music' | 'lyrics';
 
 export interface AudioClipRecord {
+  batchIndex?: number;
+  imageLargeUrl?: string | null;
+  imageUrl?: string | null;
+  audioUrl?: string;
+  clipId?: string;
   id?: string;
   clip_id?: string;
   title?: string;
@@ -332,19 +337,22 @@ function resolveClipLifecycleStatus(clips: AudioClipRecord[]): string {
   return '';
 }
 
-function collectNestedDataCandidates(payload: any, maxDepth = 6): any[] {
+function collectNestedDataCandidates(payload: any): any[] {
   const candidates: any[] = [];
-  let current = payload;
-
-  for (let depth = 0; depth < maxDepth; depth += 1) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      break;
-    }
-
+  const queue = [payload];
+  const visited = new Set<object>();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || Array.isArray(current))
+      continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
     candidates.push(current);
-    current = current.data;
+    // Only task envelopes carry task status/lyrics; collections may contain summaries.
+    for (const key of ['data', 'result', 'task']) {
+      if (current[key] !== undefined) queue.push(current[key]);
+    }
   }
-
   return candidates;
 }
 
@@ -413,14 +421,10 @@ function normalizeLifecycleStatus(payload: any): string {
     }
   }
 
-  const statusCandidates = [
-    payload?.data?.data?.status,
-    payload?.data?.status,
-    payload?.status,
-    payload?.data?.data?.state,
-    payload?.data?.state,
-    payload?.state,
-  ]
+  const candidates = collectNestedDataCandidates(payload);
+  const statusCandidates = [...candidates]
+    .reverse()
+    .flatMap((candidate) => [candidate.status, candidate.state])
     .map((candidate) => normalizeStatus(candidate))
     .filter(Boolean);
 
@@ -435,9 +439,7 @@ function normalizeLifecycleStatus(payload: any): string {
   }
 
   const progress = resolveProgressValue(
-    payload?.progress,
-    payload?.data?.progress,
-    payload?.data?.data?.progress
+    ...candidates.map((candidate) => candidate.progress)
   );
   const hasAudioResult = clips.some(
     (clip) =>
@@ -456,25 +458,72 @@ function normalizeLifecycleStatus(payload: any): string {
 }
 
 function extractAudioClips(payload: any): AudioClipRecord[] {
-  const candidates = [
-    payload?.data,
-    payload?.clips,
-    payload?.data?.clips,
-    payload?.data?.data,
-    payload?.data?.data?.data,
-    payload?.data?.data?.clips,
-    payload?.data?.items,
-    payload?.data?.data?.items,
-    payload?.items,
-  ];
+  const queue = [{ value: payload, source: 'data' }];
+  let urlFallback: AudioClipRecord[] = [];
+  const visited = new Set<object>();
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate as AudioClipRecord[];
+  while (queue.length > 0) {
+    const { value: current, source } = queue.shift()!;
+    if (!current || typeof current !== 'object') continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    if (Array.isArray(current)) {
+      const clips = current.filter(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          (typeof item.audio_url === 'string' ||
+            typeof item.audioUrl === 'string' ||
+            typeof item.clip_id === 'string' ||
+            typeof item.clipId === 'string' ||
+            ((source === 'clips' || source === 'data') &&
+              !['clips', 'items', 'results', 'data', 'result', 'task'].some(
+                (key) => item[key] !== undefined
+              ) &&
+              (typeof item.id === 'string' ||
+                typeof item.status === 'string' ||
+                typeof item.state === 'string')))
+      );
+      if (clips.length > 0) return clips.map(normalizeAudioClipRecord);
+      queue.push(...current.map((value) => ({ value, source })));
+      continue;
+    }
+
+    for (const key of ['clips', 'items', 'results', 'data', 'result', 'task']) {
+      if (current[key] !== undefined)
+        queue.push({ value: current[key], source: key });
+    }
+
+    const urls = [current.audio_urls, current.audioUrls]
+      .filter(Array.isArray)
+      .flat()
+      .filter((url): url is string => typeof url === 'string' && !!url.trim());
+    if (urls.length > 0 && urlFallback.length === 0) {
+      urlFallback = urls.map((audio_url, batch_index) => ({
+        audio_url,
+        batch_index,
+      }));
     }
   }
 
-  return [];
+  return urlFallback;
+}
+
+function normalizeAudioClipRecord(clip: AudioClipRecord): AudioClipRecord {
+  return {
+    ...clip,
+    clip_id: clip.clip_id || clip.clipId,
+    audio_url: clip.audio_url || clip.audioUrl,
+    image_url: clip.image_url || clip.imageUrl,
+    image_large_url: clip.image_large_url || clip.imageLargeUrl,
+    batch_index:
+      typeof clip.batch_index === 'number'
+        ? clip.batch_index
+        : typeof clip.batchIndex === 'number'
+        ? clip.batchIndex
+        : undefined,
+  };
 }
 
 function resolveClipIdentifier(clip: AudioClipRecord): string | undefined {
@@ -655,9 +704,7 @@ function normalizeAudioTaskResponse(
     status: normalizeLifecycleStatus(payload),
     progress:
       resolveProgressValue(
-        payload?.progress,
-        payload?.data?.progress,
-        payload?.data?.data?.progress
+        ...collectNestedDataCandidates(payload).map((candidate) => candidate.progress)
       ) ??
       (clips.length > 0 &&
       clips.every((clip) =>
@@ -926,14 +973,17 @@ function normalizeManualAudioTaskResponse(
   const resultUrls = [task.resultUrl, ...(task.resultUrls || [])].filter(
     (url): url is string => Boolean(url)
   );
-  const urls = audioUrls.length > 0 ? audioUrls : resultUrls;
-  const status = task.status || (urls.length > 0 ? 'completed' : 'processing');
+  const urls = [...new Set(audioUrls.length > 0 ? audioUrls : resultUrls)];
+  const native = normalizeAudioTaskResponse(payload, fallbackTaskId);
+  const status = task.status || (urls.length > 0 ? 'completed' : native.status);
 
   return {
-    taskId: task.taskId || fallbackTaskId,
+    taskId: task.taskId || native.taskId,
+    action: native.action,
+    lyrics: native.lyrics,
     status,
-    progress: task.progress,
-    failReason: task.error || '',
+    progress: task.progress ?? native.progress,
+    failReason: task.error || native.failReason,
     clips: urls.map((url, index) => ({
       id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
       clip_id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
@@ -1188,11 +1238,8 @@ class AudioAPIService {
   ): Promise<AudioTaskResponse> {
     const clipMemory = createClipIdentifierMemory();
     await options.assertAvailable?.();
-    const immediate = normalizeAudioTaskResponse(
-      (await this.queryAudioTask(taskId, options.routeModel, options.requestContext)).raw,
-      taskId,
-      clipMemory
-    );
+    const immediate = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
+    rememberClipIdentifiers(immediate.clips, clipMemory);
 
     if (options.onProgress) {
       options.onProgress(immediate.progress || 0, immediate.status);
@@ -1230,11 +1277,11 @@ class AudioAPIService {
       await options.assertAvailable?.();
       try {
         const payload = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
-        const result = normalizeAudioTaskResponse(
-          payload.raw,
-          taskId,
-          clipMemory
-        );
+        rememberClipIdentifiers(payload.clips, clipMemory);
+        const result = {
+          ...payload,
+          clips: applyRememberedClipIdentifiers(payload.clips, clipMemory),
+        };
         consecutiveErrors = 0;
 
         if (onProgress) {

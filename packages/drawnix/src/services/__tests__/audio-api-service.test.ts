@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 describe('audio-api-service', () => {
   it('cancels the polling delay immediately without another query', async () => {
     const { audioAPIService } = await import('../audio-api-service');
-    const query = vi.spyOn(audioAPIService, 'queryAudioTask').mockResolvedValue({ raw: { task_id: 'remote', status: 'SUBMITTED' } } as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>);
+    const query = vi.spyOn(audioAPIService, 'queryAudioTask').mockResolvedValue({ taskId: 'remote', status: 'submitted', clips: [], failReason: '', raw: { task_id: 'remote', status: 'SUBMITTED' } } as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>);
     const controller = new AbortController();
     vi.useFakeTimers();
     try {
@@ -19,7 +19,7 @@ describe('audio-api-service', () => {
   it.each([false, true])('does not retry a confirmed audio failure (already failed: %s)', async immediate => {
     const { audioAPIService } = await import('../audio-api-service');
     const query = vi.spyOn(audioAPIService, 'queryAudioTask');
-    const response = (status: string) => ({ raw: { task_id: 'remote', status, fail_reason: 'provider rejected' } }) as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>;
+    const response = (status: string) => ({ taskId: 'remote', status: status.toLowerCase(), clips: [], failReason: 'provider rejected', raw: { task_id: 'remote', status, fail_reason: 'provider rejected' } }) as Awaited<ReturnType<typeof audioAPIService.queryAudioTask>>;
     if (!immediate) query.mockResolvedValueOnce(response('SUBMITTED'));
     query.mockResolvedValue(response('FAILED'));
     try {
