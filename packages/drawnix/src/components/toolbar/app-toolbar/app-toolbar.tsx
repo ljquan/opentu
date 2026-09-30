@@ -7,7 +7,6 @@ import { ATTACHED_ELEMENT_CLASS_NAME, PlaitBoard } from '@plait/core';
 import { Island } from '../../island';
 import { Popover, PopoverContent, PopoverTrigger } from '../../popover/popover';
 import { useState } from 'react';
-import { Workflow as WorkflowIcon } from 'lucide-react';
 import {
   CleanBoard,
   OpenFile,
@@ -43,7 +42,6 @@ export const AppToolbar: React.FC<AppToolbarProps> = ({
   iconMode = false,
   onOpenBackupRestore,
   onOpenCloudSync,
-  onOpenWorkflowMode,
 }) => {
   const board = useBoard();
   const { t } = useI18n();
@@ -63,22 +61,6 @@ export const AppToolbar: React.FC<AppToolbarProps> = ({
 
   const content = (
     <Stack.Row gap={1}>
-      {onOpenWorkflowMode && (
-        <ToolButton
-          type="icon"
-          visible={true}
-          icon={<WorkflowIcon size={18} />}
-          tooltip={t('menu.workflowMode')}
-          tooltipPlacement={embedded ? 'right' : 'bottom'}
-          aria-label={t('menu.workflowMode')}
-          data-testid="workflow-mode-button"
-          data-track="toolbar_click_workflow_mode"
-          onClick={() => {
-            setAppMenuOpen(false);
-            onOpenWorkflowMode();
-          }}
-        />
-      )}
       <Popover
         key={0}
         sideOffset={12}

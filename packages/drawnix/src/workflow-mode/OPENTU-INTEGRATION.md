@@ -6,7 +6,7 @@
 
 在 OpenTu 根目录安装依赖后运行 `pnpm start`（包含 Service Worker）或 `pnpm start:lan`。普通画布与工作流源码均进入同一个 Vite HMR 模块图，无需另行构建工作流。`pnpm build:web` 输出统一应用。
 
-入口为 `/workflow`，内部页面地址为 `/workflow/canvas`、`/workflow/canvas/:id`、`/workflow/image`、`/workflow/video`、`/workflow/prompts`、`/workflow/assets` 和 `/workflow/config`。部署静态服务器必须将这些页面地址回退到 OpenTu 的 `index.html`；仅复制文件但没有 SPA fallback 的服务器不能保证直接刷新深层路由。
+普通画布不展示工作流入口，仅通过 `/workflow` 直接访问；`/workflower` 不再打开工作流。内部页面地址为 `/workflow/canvas`、`/workflow/canvas/:id`、`/workflow/image`、`/workflow/video`、`/workflow/prompts`、`/workflow/assets` 和 `/workflow/config`。部署静态服务器必须将这些页面地址回退到 OpenTu 的 `index.html`；仅复制文件但没有 SPA fallback 的服务器不能保证直接刷新深层路由。
 
 工作流图标和内置插件从 `/workflow-assets/*` 加载。Vite 开发中直接提供 `web/public`，生产构建自动复制这些资源。不再生成或依赖 `/workflow-app/index.html`。旧目录残留不会参与应用入口，但部署时应使用本次完整构建产物。
 

@@ -152,3 +152,4 @@ The Chinese version contains the complete item-by-item acceptance checklist.
 - Gemini 在质量为自动时，应将表中尺寸识别为对应的 1K / 2K / 4K；显式选择质量时维持原有优先级。视频尺寸设置应保持原有行为。
 
 - 本地渠道四类参数对齐：图片复用 GPT Image（官方/Tuzi）、Gemini、Seedream、MJ、Flux，视频复用 H3、Kling、Seedance、HappyHorse 及通用适配规则；音频复用 Suno，文字参数映射到既有 Responses/Google 协议。参数显示、条件、校验与请求分别验证。未知/脚本模型保持既有逻辑，缺少执行器的 Kling O1/O1 Edit 明确不可用。MJ/Flux/Suno 远程 ID 持久化，切换当前模型后仍查询原渠道。详细测试见根 docs/qa-workflow-runtime.md；真实上游、计费与浏览器画面仍待验收。
+- 工作流入口隐藏：普通画布不再显示工作流按钮；通过 `/workflow` 直接访问，验证内部页面切换、刷新与返回画布。`/workflower` 不再打开工作流模式。

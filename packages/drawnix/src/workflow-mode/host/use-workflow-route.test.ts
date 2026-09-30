@@ -9,6 +9,12 @@ afterEach(() => {
 });
 
 describe('workflow route', () => {
+  it.each(['/workflower', '/workflower/canvas', '/workflow-other'])('does not open at %s', (path) => {
+    window.history.replaceState(null, '', path);
+    const { result } = renderHook(() => useWorkflowRoute());
+    expect(result.current.open).toBe(false);
+  });
+
   it('opens directly at /workflow', () => {
     window.history.replaceState(null, '', '/workflow');
     const { result } = renderHook(() => useWorkflowRoute('board-a'));

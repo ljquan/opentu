@@ -292,3 +292,10 @@ pnpm exec vite build --config apps/web/vite.config.ts --outDir /tmp/opentu4-ocr-
 pnpm exec vitest run --config vitest.config.ts src/services/__tests__/async-image-api-service.test.ts src/services/__tests__/audio-api-service.test.ts src/services/__tests__/mj-image-adapter.test.ts src/services/__tests__/seedance2-adapter.test.ts src/services/__tests__/task-queue-service-image-retry.test.ts src/services/__tests__/document-batch-task-storage.test.ts src/services/__tests__/media-executor.test.ts src/services/video-api-service.test.ts src/workflow-mode/host/native-generation.test.ts
 pnpm exec vitest run --config vitest.config.ts src/services/__tests__/media-executor.test.ts
 ```
+## 工作流入口隐藏
+
+普通画布的工作流按钮已移除，工作流入口与内部路由统一使用 `/workflow`。资源仍使用 `/workflow-assets`，不改变本地数据格式。`/workflower` 不再打开工作流。
+
+实际验证：`vitest run packages/drawnix/src/workflow-mode/host/use-workflow-route.test.ts packages/drawnix/src/workflow-mode/host/WorkflowModeHost.test.tsx` 共 9 项通过，覆盖直接访问、返回画布、历史切换、内部导航和错误路径不打开。`tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 及 `git diff --check` 通过。首次组件测试因依赖未补齐失败，按现有锁文件离线安装后通过；锁文件未改动。
+
+未执行页面自动化、生产构建或部署验证。人工验收：普通画布无工作流按钮，直接打开 `/workflow`，切换内部页面并刷新，再返回普通画布。生产静态服务器需支持 SPA fallback；隐藏入口不构成访问权限控制。
