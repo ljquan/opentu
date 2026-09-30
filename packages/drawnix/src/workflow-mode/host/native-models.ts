@@ -75,10 +75,18 @@ export async function readNativeProviderCredentials(): Promise<{
 }> {
   const settings = await import('../../utils/settings-manager');
   await settings.settingsManager.waitForInitialization();
+  const { isTuziEmbeddedMode } = await import('../../services/tuzi-embedded-config');
+  const { isCurrentTuziEndpoint, isVerifiedTuziProvider } = await import('../../services/tuzi-provider-reuse-state');
+  const { getTuziSystemUserId } = await import('../../services/tuzi-token-auth');
+  const profiles = (settings.providerProfilesSettings.get() || []).filter(profile => {
+    if (!isTuziEmbeddedMode()) return true;
+    if (profile.id.startsWith('tuzi-managed-')) return Boolean(getTuziSystemUserId());
+    return !isCurrentTuziEndpoint(profile.baseUrl) || isVerifiedTuziProvider(profile);
+  });
   const preferredProfileId =
     settings.resolveInvocationRoute('image').profileId;
   return mapNativeProviderCredentials(
-    settings.providerProfilesSettings.get() || [],
+    profiles,
     preferredProfileId
   );
 }
