@@ -30,6 +30,26 @@ vi.mock('../tuzi-embedded-config', () => ({
 }));
 
 describe('synchronizeTuziManagedProviders', () => {
+  it('preserves saved preferences across repeated account syncs while rotating credentials', async () => {
+    const profile = {
+      id: 'tuzi-managed-image', name: '我的供应商',
+      baseUrl: 'https://custom.example.com/v1', apiKey: 'old',
+      enabled: false, imageApiCompatibility: 'auto',
+      preferAsyncImageEndpoint: false, iconUrl: '/custom.png',
+      authType: 'header', providerType: 'custom',
+    };
+    get.mockReturnValue([profile]);
+    const provider = { id: profile.id, group: 'image', displayName: '远程名称',
+      apiKey: 'new', status: 1, rotatedAt: 1 };
+    await synchronizeTuziManagedProviders([provider]);
+    const saved = update.mock.calls[0][0];
+    expect(saved[0]).toMatchObject({ ...profile, apiKey: 'new', pricingGroup: 'image' });
+    get.mockReturnValue(saved);
+    update.mockClear();
+    await synchronizeTuziManagedProviders([provider]);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     update.mockReset().mockResolvedValue(undefined);
     catalogUpdate.mockReset().mockResolvedValue(undefined);
@@ -127,7 +147,7 @@ describe('synchronizeTuziManagedProviders', () => {
       updatedProfiles.find(
         (profile: { id: string }) => profile.id === 'custom-provider'
       ).enabled
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('preserves ordinary keys while clearing managed credentials', async () => {

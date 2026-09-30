@@ -648,7 +648,7 @@ class SettingsManager {
         this.getLegacyDefaultImageApiCompatibilityFallback(baseUrl)
       ),
       preferAsyncImageEndpoint: profile?.preferAsyncImageEndpoint === true,
-      enabled: true,
+      enabled: profile?.enabled !== false,
       capabilities: { ...DEFAULT_PROVIDER_CAPABILITIES },
     };
   }
@@ -910,9 +910,7 @@ class SettingsManager {
           ),
           preferAsyncImageEndpoint: profile.preferAsyncImageEndpoint === true,
           extraHeaders: this.normalizeStringRecord(profile.extraHeaders),
-          enabled:
-            profile.enabled !== false ||
-            (typeof profile.apiKey === 'string' && profile.apiKey.trim() !== ''),
+          enabled: profile.enabled !== false,
           capabilities: this.normalizeCapabilities(profile.capabilities),
           pricingUrl: normalizeNullableString(profile.pricingUrl) || undefined,
           cnyPerUsd:

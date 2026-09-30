@@ -138,23 +138,26 @@ export async function synchronizeTuziManagedProviders(
   const merged = retained.map((profile) => {
     const provider = incoming.get(profile.id);
     if (provider?.source === 'existing') {
-      return profile.apiKey.trim() ? { ...profile, enabled: true } : profile;
+      return profile;
     }
     if (provider) {
-      const nextProfile = { ...profile, ...toProfile(provider, template) };
-      return nextProfile.apiKey.trim()
-        ? { ...nextProfile, enabled: true }
-        : nextProfile;
+      // Account synchronization refreshes credentials, not user preferences.
+      return {
+        ...toProfile(provider, template),
+        ...profile,
+        apiKey: provider.apiKey,
+        pricingGroup: provider.group,
+      };
     }
     if (BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id) && !profile.apiKey?.trim()) {
       return { ...profile, enabled: false };
     }
-    return profile.apiKey.trim() ? { ...profile, enabled: true } : profile;
+    return profile;
   });
   const knownIds = new Set(merged.map((profile) => profile.id));
   providers.forEach((provider) => {
     if (provider.source !== 'existing' && !knownIds.has(provider.id))
-      merged.push({ ...toProfile(provider, template), enabled: true });
+      merged.push(toProfile(provider, template));
   });
   if (!valuesEqual(existing, merged)) {
     await providerProfilesSettings.update(merged);

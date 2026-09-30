@@ -44,6 +44,29 @@ function mockSettingsManagerDeps() {
 }
 
 describe('settings-manager', () => {
+  it('preserves disabled providers with saved keys through initialization and reload', async () => {
+    mockSettingsManagerDeps();
+    localStorage.setItem(DRAWNIX_SETTINGS_KEY, JSON.stringify({
+      gemini: { apiKey: 'legacy-key', baseUrl: 'https://api.tu-zi.com/v1' },
+      providerProfiles: ['legacy-default', 'custom-provider', 'tuzi-managed-image'].map(id => ({
+        id, name: id, baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'saved-key', enabled: false,
+      })),
+    }));
+    let settings = await import('../settings-manager');
+    await settings.settingsManager.waitForInitialization();
+    for (const id of ['legacy-default', 'custom-provider', 'tuzi-managed-image']) {
+      expect(settings.providerProfilesSettings.get().find(p => p.id === id)?.enabled).toBe(false);
+    }
+    vi.resetModules();
+    mockSettingsManagerDeps();
+    settings = await import('../settings-manager');
+    await settings.settingsManager.waitForInitialization();
+    for (const id of ['legacy-default', 'custom-provider', 'tuzi-managed-image']) {
+      expect(settings.providerProfilesSettings.get().find(p => p.id === id)?.enabled).toBe(false);
+    }
+  });
+
   beforeEach(() => {
     vi.resetModules();
 
