@@ -1238,7 +1238,14 @@ class AudioAPIService {
   ): Promise<AudioTaskResponse> {
     const clipMemory = createClipIdentifierMemory();
     await options.assertAvailable?.();
-    const immediate = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
+    const immediatePayload = await this.queryAudioTask(
+      taskId,
+      options.routeModel,
+      options.requestContext
+    );
+    const immediate = Array.isArray(immediatePayload.clips)
+      ? immediatePayload
+      : normalizeAudioTaskResponse(immediatePayload.raw, taskId, clipMemory);
     rememberClipIdentifiers(immediate.clips, clipMemory);
 
     if (options.onProgress) {
@@ -1277,10 +1284,13 @@ class AudioAPIService {
       await options.assertAvailable?.();
       try {
         const payload = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
-        rememberClipIdentifiers(payload.clips, clipMemory);
+        const normalized = Array.isArray(payload.clips)
+          ? payload
+          : normalizeAudioTaskResponse(payload.raw, taskId, clipMemory);
+        rememberClipIdentifiers(normalized.clips, clipMemory);
         const result = {
-          ...payload,
-          clips: applyRememberedClipIdentifiers(payload.clips, clipMemory),
+          ...normalized,
+          clips: applyRememberedClipIdentifiers(normalized.clips, clipMemory),
         };
         consecutiveErrors = 0;
 
