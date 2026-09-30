@@ -6,6 +6,7 @@ import {
   type Task,
 } from '../../types/task.types';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
+import { registerDocumentBatchTaskGuard } from '../media-executor/task-storage-writer';
 import {
   ImageGenerationRecoveryService,
   createImageSubmissionParams,
@@ -117,6 +118,31 @@ describe('image generation recovery service', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('does not query a document batch from an unbound or revoked account scope', async () => {
+    const task = createTask('batch-recovery');
+    task.params.documentBatch = {
+      scopeId: 'account-a', batchId: 'batch', workItemId: 'item',
+      attemptId: 'attempt', epoch: 1, dispatchOwner: 'document-batch', dispatchTicket: 'ticket',
+    };
+    const fetcher = vi.fn(async () => Response.json({ status: 'processing' }));
+    const service = new ImageGenerationRecoveryService({
+      fetcher, resolveInvocationPlan: vi.fn(() => createPlan()), pollIntervalMs: 100, jitterRatio: 0,
+    });
+    const callbacks = { onSucceeded: vi.fn(), onFailed: vi.fn() };
+    expectRejectedStart(service.start(task, callbacks), 'invalid-task');
+    expect(fetcher).not.toHaveBeenCalled();
+    let current = true;
+    const unbind = registerDocumentBatchTaskGuard(task.id, task.params.documentBatch, () => current);
+    try {
+      getStartedHandle(service.start(task, callbacks));
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+      current = false;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(callbacks.onSucceeded).not.toHaveBeenCalled();
+    } finally { unbind(); service.stopAll(); }
   });
 
   it('calls the default browser fetch with the global receiver', async () => {

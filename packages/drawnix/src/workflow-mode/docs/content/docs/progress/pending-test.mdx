@@ -5,12 +5,60 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- 审查修复验收：任务已受理但本地 ID 保存失败时应保留待确认、禁止同任务重发；刷新只查询原渠道，切换账号或 Key 不得向新渠道提交旧任务。空结果不覆盖节点，多图缓存失败不留下本次新增的孤立图片，中文组合输入期间切换内容不应写回旧文字。
+- 文档批量边界：第二个标签页不能抢占活跃调度；含未映射图片的行必须确认诊断后生成。单张远程图片下载超过 60 秒应跳过并记录失败，继续后续下载；PDF 每页超过 50,000 个文本项应保留页面图、提示人工核对。人工验收尚未执行，本地命令及风险见根目录两份工作流/文档批量 QA。
+
+- Concurrent video jobs: after A is submitted, starting B must remain possible while A is still generating. Disable Generate only during submission. Out-of-order completion/failure updates each history record without replacing the selected result, draft, or waiting timer. Six new component tests cover concurrency, completion ordering, blank drafts, failures, restored jobs and duplicate submission prevention. With mocked APIs and IndexedDB under Vitest/JSDOM, the four suites `native-video-concurrency`, `native-workbench`, `native-tuzi-parameters` and `native-video-catalog` pass all 84 tests; the exact command is in `pending-test.zh-CN.mdx`. Diff whitespace checks pass. The later review fix resolves the `PromiseSettledResult.reason` type error; workflow and Drawnix typechecks pass. No build, browser or live provider acceptance was performed. Provider concurrency quotas still apply.
+
+- Seedance 2.5 视频结果解析：完成状态返回 `metadata.url` 或 `metadata.video_url` 时应停止显示“生成中”并回填视频；`complete`、`succeed`、`success`、`done` 及失败/取消状态应正确结束任务。已通过工作流 59 项和 Seedance 适配器 40 项自动化测试，真实渠道与浏览器验收待确认。
+
+- 视频生成耗时：连续请求从提交到收到结果计时，不包含后续媒体下载；中断恢复只显示“已记录”的部分耗时，无可靠计时和旧记录显示“耗时未知”，不再显示由日志年龄计算的虚假总耗时。Node 26.8.1 / Vitest / JSDOM 下执行 `pnpm exec vitest run --config packages/drawnix/src/workflow-mode/web/vitest.config.ts tests/native-video-log-recovery.test.ts -t 'measures a continuous|does not count hours|preserves recorded time|unverified legacy'`，4 项通过，覆盖连续计时、离线两小时、失败恢复、序列化和旧记录。工作台 8 项测试通过；后续审查修复已将中断提交断言改为检查明确的恢复不可用错误类型，并通过回归。未执行浏览器或真实供应商验收；请复核新生成、生成中刷新及截图中的旧记录。
+
+- MJ 多图结果：上游返回 4 个独立图片地址时，首次生成、图片编辑、重试和刷新找回应保留全部 4 张，可用节点数量入口展开、切换主图和预览；已有成功或待处理的其他图片应保留。只返回一张四宫格合图时保持一张，不自动切图。刷新期间只查询原任务，不新增生成请求；只有 `imageUrls`、没有 `imageUrl` 的响应也应成功。已完成本地模拟测试，真实渠道与页面验收待用户确认。
+
+- OpenTu-owned documentation page: open “Documentation” from the canvas top-right toolbar and verify the sections for setup, canvas, image, video, prompts/assets, batch generation, persistence/recovery, shortcuts and FAQ. Verify the left anchor navigation, page scrolling, light/dark themes and internal links. Routing and TypeScript checks pass; browser visual acceptance has not been run.
+
+- Documentation navigation: clicking the canvas top-right documentation icon should switch to `/workflow/docs` in the current workflow, without opening a new tab or showing the application boot loading layer again. Verify returning to the canvas preserves the expected route and content.
+
+- Image/video refresh recovery notice: after refreshing the workflow canvas, image and video placeholders should show “网页已刷新，正在找回生成结果…”. Five minutes after this recovery begins, an unresolved result should show “已等待 5 分钟，仍未取回生成结果，请到日志中查找。页面会继续尝试找回。” while polling continues, no new generation is submitted, completed outputs and confirmed provider failures remain unchanged. Verify image nodes, legacy video task IDs and workflow video tasks separately. The local five-minute boundary tests pass; real provider and browser refresh acceptance is pending.
+
+- Recovery loading animation: image/video placeholders and waiting image slots share a visible rotating loader. It remains beside the log reminder after five minutes and disappears on success or confirmed failure. Verify light/dark themes, canvas zoom and status transitions manually; reduced-motion preferences retain a static icon and text.
+
+- Chinese prompt input: node prompt editors (including the expanded editor) and the config composer hide their placeholders during IME composition, restore them on cancellation/clearing, and leave candidate confirmation keys to the IME. Local JSDOM regression command: `pnpm exec vitest run --config packages/drawnix/src/workflow-mode/web/vitest.config.ts tests/native-prompt-ime.test.tsx`. All four cases failed before the fix and pass after it, covering commit, cancellation, ordinary input, clearing, rerendering and Enter protection. Real IME/browser acceptance is pending; no generation request was made.
+
+## Workflow task recovery
+
+- 文本查询路由不可用：收到 `Invalid URL (GET …/responses/…)` 或 405/501 后，同一任务停止自动 GET，显示静态“无法自动找回”，保留片段和原任务；再次刷新不能重新转圈。普通未找到响应的 404、网络故障和 503 仍允许继续查询。未返回查询标识的文本也不再永久显示生成动画。待人工确认截图中的渠道及已有任务，未调用真实供应商。
+
+- 文本/视频/音频刷新恢复补齐：文本片段先保存再显示，Responses 返回的 ID 用于读取原结果；视频查询网络异常保留动画和待确认，音频旧任务继续查询并正确恢复歌词。请测试文本输出一部分、多文本部分完成、视频/音频仍在生成时刷新，确认原任务和内容保留、结果回填同一位置、没有重复生成。Gemini/原生同步文本或不支持 Responses 查询的渠道只能保留已收到内容，未返回全文不保证找回；真实渠道与页面验收尚未执行。
+
+- 图片刷新恢复：按同一 Request ID/远端 ID 和原 Key 查询；本地渠道取消按原提交时间计算的 15 分钟硬截止，原生图片恢复使用独立查询窗口，到期保留任务供下一轮继续查询。画布暂未查到结果或网络异常时保留动画占位，已完成的多图结果保留，明确上游失败才显示错误。定时扫描不打断慢查询、不重新 POST。请在生成未结束时刷新及离开后重进原画布，确认等待占位仍在、结果自动回填；超过 15 分钟的记录也应继续查询。未读取用户历史数据库，真实渠道与页面验收待执行。
+- GPT Image 与 Tuzi GPT Image 适配器保留 HTTP 拒绝状态；分组无模型的错误刷新后显示真实原因，网络错误保持待确认。未增加 Key 分组预判。
+- 视频日志读取对单条参考素材恢复失败做隔离，其他日志和当前结果仍可见；人工验收需覆盖损坏/失效参考素材后刷新页面。
+- 明确的供应商拒绝会保存原始错误并在刷新后显示；网络中断和暂未完成的远端任务保留查询状态，恢复成功后回填原节点。已通过本地 IndexedDB/Vitest 回归；真实渠道任务和浏览器刷新验收仍待执行。
+- 视频工作台刷新会按工作流目标从 IndexedDB 重新绑定任务，已有远端任务 ID 只执行查询，完成结果和明确失败回填到原日志；尚未取得远端 ID 的提交中任务保留待确认并等待后续刷新，不会重复提交。需人工验证刷新后的结果回填、失败提示及超过 10 分钟的已受理任务。
+
+## Unified application runtime
+
+- MiniMax-H3 two-image input: supports first/last frame images, plus up to nine reference images alongside up to three reference videos. Manual validation of workflow connections, settings summary and provider behavior is pending; no live generation was run.
+- Workflow primary button styling: prevents host global styles from overriding primary button text; verify New Canvas and Generate buttons show white text before hover.
+
+
+- Channel controls: removed Sync OpenTu, Add OpenTu Channel and Edit in OpenTu buttons. Verify local add/edit/delete controls remain available and existing managed channel data is preserved; page acceptance is pending.
+
+- OpenTu credential autofill: local channel editors now read enabled OpenTu groups with a configured URL/API Key, independently of model discovery. Empty default channels prefer the current image route, with a selector for other groups. Verify paired URL/key updates, preservation of existing/manual edits, save and cancel; native model sync remains credential-free. The follow-up automated run passes 77 workflow tests and 98 focused host tests; real provider calls and browser acceptance remain pending.
+
+- Implemented: one dependency installation, dev server and production build; workflow source uses the OpenTu Vite HMR graph and `/workflow/*` browser history. Native model discovery, generation and settings use direct calls, with existing storage keys and formats preserved.
+- Automated: workflow 77/77, focused host 98/98 and canvas regressions 13/13 passed; typechecks, app build, artifact/startup and OpenSpec checks passed. The full host suite retains 2 baseline failures and lint retains 8 baseline errors, with no new errors. Commands and limits are in OpenTu's root `docs/qa-workflow-runtime.md`.
+- Pending manual acceptance: canvas content/viewport on return; history and deep-link refresh; source HMR; theme and portals; existing data and import/export; offline release notes; old plugin URLs, plugin cleanup and cancellation on mode exit.
+- Not performed: browser automation, screenshots, real paid generation and deployment. Cancellation cannot guarantee reversal of provider billing; data on other origins is not automatically accessible. Existing Agent SDK and Skill management TODO items are unchanged.
+
 - OpenTu 全模型参数已接入：本地回归遍历 101 个内置模型，并核对各启用字段的宿主消费者；真实供应商调用仍待使用已开通渠道验收。重点检查各渠道对同名模型的参数差异、Suno 歌词/多片段、视频参考素材 URL、取消后的供应商任务状态和计费。运行时覆盖清单按渠道区分，不能用目录可选或模拟请求成功代替线上结果。
 - 宿主限制：当前默认适配器集合缺少 Kling O1 / O1 Edit 执行器，没有原生 TTS 引擎；未知动态模型缺少参数契约时明确提示。异步图片绑定和 Gemini 图片绑定按其实际请求格式提示不支持的字段。Suno 延续使用已有任务/片段标识，不提供新的供应商音频上传引擎。
 
 - 节点默认模型：在偏好设置清空图片/视频/音频默认模型后，新建对应节点应显示“选择模型”，不能显示旧版模型；设置默认模型后新节点跟随配置，节点手动切换后刷新仍保留。没有配置的能力不应发起生成请求。
 
-- 模型图标：嵌入 `/workflow` 后图片图标请求应使用 `/workflow-app/icons/`，图标缺失时显示通用 CPU 图标而不是破图；复核浅色、深色主题和下拉列表。
+- 模型图标：嵌入 `/workflow` 后图片图标请求应使用 `/workflow-assets/icons/`，图标缺失时显示通用 CPU 图标而不是破图；复核浅色、深色主题和下拉列表。
 
 - 配置模型同步：默认渠道未被当前默认路由选中的图片/视频/文字/音频也应列出；仅有手工绑定、没有发现记录的模型应按绑定能力列出。普通画布修改模型目录后重新进入工作流应补齐新增项。现有适配器不支持的协议仍不能宣称可调用，供应商真实生成尚未验证。
 
@@ -18,13 +66,13 @@ description: Implemented changes that still need manual verification
 
 - 更多模型选择：默认渠道按其对应能力展示 OpenTu 内置模型；启用的独立渠道展示全部已发现模型（含未勾选模型），不混入其他渠道或禁用渠道。验证各节点下拉能切换更多模型、刷新保留选择；目录可选不代表供应商已开通该模型，真实可用性以渠道接口为准。
 
-- /workflow 入口：直接打开和刷新保持工作流模式；从普通画布进入后地址不含 board 参数，返回恢复原画布地址。复核浏览器前进后退、两种模式内容保留。工作流内部页面不与宿主 URL 同步。
+- /workflow 入口：直接打开和刷新保持工作流模式；从普通画布进入后地址不含 board 参数，返回恢复原画布地址。复核浏览器前进后退、两种模式内容保留。工作流内部页面同步为主窗口的 `/workflow/*` 地址。
 
 - OpenTu 原生模型：重新进入时刷新启用渠道的模型及参数元数据，原生渠道不复制密钥；已有脚本和有效节点配置保留。复核图片、参考图编辑、文字、视频、音频和歌词结果仅回填工作流。视频/音频参考输入按实际适配器能力和地址格式验证；文字一次返回，原生生成中的任务刷新后不续跑，部分适配器无法中止供应商轮询或计费。音频保留全部有效片段。不得在日志或截图中展示密钥。
 
 - OpenTu 工作流主题：恢复原版黑白主题样式，新用户默认浅色，手动切换深色后保存选择；导航隐藏左上品牌、版本号和 GitHub 按钮，保留其他功能及首页中央标题。检查模式切换后节点、连线和内容保持原状，并使用已配置模型复核生成流程。
 
-- OpenTu embedded mode: verify image/video generation with configured models, asset upload and download, and browser refresh persistence. Mode switching uses a retained iframe; old workflow data is not migrated. Compatible model credentials are imported only into untouched defaults.
+- OpenTu 单一应用：工作流已移除 iframe 并共用 React/Vite；复核图片/视频生成、上传下载和同源旧数据保留。普通画布和工作流互斥挂载，渠道设置关闭后工作流重新挂载并刷新模型；临时表单状态可能重置。原生渠道不复制密钥。
 
 The current release needs manual verification in these areas:
 
@@ -102,3 +150,5 @@ The Chinese version contains the complete item-by-item acceptance checklist.
 - 所有 4K 预设提交时均不应触发本地总像素或最长边限制；生成和编辑请求、调用脚本应收到所选像素尺寸。
 - 分辨率为自动时保留比例选择，比例为自动时禁用 W/H；手动输入 W/H 后，对齐开关仍应按原有方式工作。
 - Gemini 在质量为自动时，应将表中尺寸识别为对应的 1K / 2K / 4K；显式选择质量时维持原有优先级。视频尺寸设置应保持原有行为。
+
+- 本地渠道四类参数对齐：图片复用 GPT Image（官方/Tuzi）、Gemini、Seedream、MJ、Flux，视频复用 H3、Kling、Seedance、HappyHorse 及通用适配规则；音频复用 Suno，文字参数映射到既有 Responses/Google 协议。参数显示、条件、校验与请求分别验证。未知/脚本模型保持既有逻辑，缺少执行器的 Kling O1/O1 Edit 明确不可用。MJ/Flux/Suno 远程 ID 持久化，切换当前模型后仍查询原渠道。详细测试见根 docs/qa-workflow-runtime.md；真实上游、计费与浏览器画面仍待验收。

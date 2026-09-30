@@ -1,3 +1,4 @@
+import { notifyTaskSubmitted } from '../submission-persistence';
 import {
   buildManualHttpVariables,
   buildManualHttpRequestPayload,
@@ -319,9 +320,7 @@ export const customHttpAudioAdapter: AudioModelAdapter = {
       template.responsePaths
     );
     if (submitted.taskId && request.params?.onSubmitted) {
-      (request.params.onSubmitted as (taskId: string) => void)(
-        submitted.taskId
-      );
+      await notifyTaskSubmitted(submitted.taskId, request.params.onSubmitted as (taskId: string) => void | Promise<void>);
     }
     const result =
       submitted.audioUrl || submitted.resultUrl

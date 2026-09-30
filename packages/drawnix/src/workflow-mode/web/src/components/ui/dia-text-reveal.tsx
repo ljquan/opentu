@@ -135,7 +135,7 @@ export function DiaTextReveal({ text, colors = DEFAULT_COLORS, textColor = "var(
 
     const indexRef = useRef(0);
     const hasPlayedRef = useRef(false);
-    const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const playRef = useRef<() => void>(null!);
     const stopRef = useRef<(() => void) | null>(null);
 

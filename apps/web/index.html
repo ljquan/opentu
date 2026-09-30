@@ -154,7 +154,14 @@
         ]
       }
     </script>
-    <!-- base href 由构建工具处理，静态资源使用相对路径 -->
+    <!-- Workflow deep links resolve relative entry assets from the app root. -->
+    <script id="workflow-resource-base">
+      if (/^\/workflow(?:\/|$)/.test(window.location.pathname)) {
+        var workflowBase = document.createElement('base');
+        workflowBase.href = '/';
+        document.head.appendChild(workflowBase);
+      }
+    </script>
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"

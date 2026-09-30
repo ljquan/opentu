@@ -1,0 +1,18 @@
+:global(.workflow-app-root) .loadingSpinner {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    animation: loading-spin 1s linear infinite;
+}
+
+@keyframes loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :global(.workflow-app-root) .loadingSpinner {
+        animation: none;
+    }
+}

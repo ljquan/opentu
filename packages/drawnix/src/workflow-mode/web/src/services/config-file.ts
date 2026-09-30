@@ -1,7 +1,7 @@
 import { saveAs } from "file-saver";
 
 import i18n from "@/i18n";
-import { useConfigStore, type AiConfig, type WebdavSyncConfig } from "@/stores/use-config-store";
+import { createModelChannel, useConfigStore, type AiConfig, type WebdavSyncConfig } from "@/stores/use-config-store";
 import { usePromptSourceStore, type PromptSourceSchedule } from "@/stores/use-prompt-source-store";
 import type { PromptSource } from "@/services/api/prompt-source-presets";
 
@@ -17,10 +17,22 @@ type AppConfigFile = {
     };
 };
 
+export function sanitizeConfigForExport(config: AiConfig): AiConfig {
+    const fixed = config.channels.filter(c => c.providerKind === 'tuzi-fixed');
+    const secrets = new Set(fixed.flatMap(c => [c.apiKey, ...(c.credentials || []).map(k => k.apiKey)]).filter(Boolean));
+    return {
+        ...config,
+        apiKey: secrets.has(config.apiKey) ? '' : config.apiKey,
+        channels: config.channels.map(c => c.providerKind === 'tuzi-fixed'
+            ? { ...c, apiKey: '', credentials: [], activeCredentialId: undefined } : c),
+    };
+}
+
 export function exportAppConfig() {
     const { config, webdav } = useConfigStore.getState();
     const { sources, schedule } = usePromptSourceStore.getState();
-    const data: AppConfigFile = { app: "infinite-canvas", version: 1, exportedAt: new Date().toISOString(), config, webdav, promptSources: { sources, schedule } };
+    const safeConfig = sanitizeConfigForExport(config);
+    const data: AppConfigFile = { app: "infinite-canvas", version: 1, exportedAt: new Date().toISOString(), config:safeConfig, webdav, promptSources: { sources, schedule } };
     saveAs(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }), "infinite-canvas-config.json");
 }
 
@@ -32,6 +44,6 @@ export async function importAppConfig(file: File) {
         throw new Error(i18n.t("config.invalidFile"));
     }
     if (data.app !== "infinite-canvas" || data.version !== 1 || !data.config || !data.webdav || !data.promptSources) throw new Error(i18n.t("config.invalidFile"));
-    useConfigStore.setState({ config: data.config, webdav: data.webdav });
+    useConfigStore.setState({ config: { ...data.config, channels: (data.config.channels || []).map(c => c.providerKind === "tuzi-fixed" ? createModelChannel(c) : c) }, webdav: data.webdav });
     usePromptSourceStore.setState(data.promptSources);
 }

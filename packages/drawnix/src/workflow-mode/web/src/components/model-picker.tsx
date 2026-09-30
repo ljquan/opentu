@@ -122,6 +122,6 @@ function resolveModelIcon(model: string) {
         : name.includes("deepseek") ? "deepseek.svg"
         : name.includes("glm") ? "glm.svg"
         : "";
-    if (icon) return `${import.meta.env.BASE_URL}icons/${icon}`;
+    if (icon) return `/workflow-assets/icons/${icon}`;
     return "";
 }

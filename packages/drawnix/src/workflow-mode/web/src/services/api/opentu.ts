@@ -1,5 +1,6 @@
+import { executeNative } from "../../../../host/native-runtime";
 import { modelOptionName, resolveModelChannel, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
-import { GENERATE_REQUEST, GENERATE_RESPONSE, GENERATE_CANCEL, type GenerationRequest, type GenerationResult } from "../../../../shared/generation-bridge";
+import type { GenerationRequest, GenerationResult } from "../../../../shared/generation-bridge";
 import { validateNativeReferences } from "../../../../shared/native-parameters";
 import { nativeModel } from "@/integration/native-parameters";
 
@@ -17,40 +18,12 @@ export function isNativeResult(result: GenerationResult | undefined, capability:
     return Array.isArray(result.urls) && result.urls.length > 0 && result.urls.every((url) => typeof url === "string" && /^(https?:|data:|blob:)/i.test(url));
 }
 
-export function requestNative(config: AiConfig, model: string, params: Omit<GenerationRequest, "channelId" | "model">, signal?: AbortSignal): Promise<GenerationResult> {
+export async function requestNative(config: AiConfig, model: string, params: Omit<GenerationRequest, "channelId" | "model">, signal?: AbortSignal, taskId?: string): Promise<GenerationResult> {
     const channel = nativeChannel(config, model, params.capability);
-    if (!channel || window.parent === window) return Promise.reject(new Error("请从 OpenTu 工作流入口打开。"));
-    if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
-    try {
-        validateNativeReferences(nativeModel(config, params.capability, model)?.referenceInputs || {}, params);
-    } catch (error) {
-        return Promise.reject(error);
-    }
-    const requestId = crypto.randomUUID();
-    return new Promise((resolve, reject) => {
-        const cleanup = () => {
-            window.removeEventListener("message", receive);
-            window.removeEventListener("pagehide", abort);
-            signal?.removeEventListener("abort", abort);
-        };
-        const abort = () => {
-            cleanup();
-            window.parent.postMessage({ type: GENERATE_CANCEL, requestId }, window.location.origin);
-            reject(new DOMException("Aborted", "AbortError"));
-        };
-        const receive = (event: MessageEvent) => {
-            if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.type !== GENERATE_RESPONSE || event.data.requestId !== requestId) return;
-            cleanup();
-            if (event.data.error) reject(new Error(String(event.data.error)));
-            else {
-                const result = event.data.payload as GenerationResult | undefined;
-                if (!isNativeResult(result, params.capability)) reject(new Error("OpenTu 未返回有效生成结果。"));
-                else resolve(result);
-            }
-        };
-        window.addEventListener("message", receive);
-        window.addEventListener("pagehide", abort);
-        signal?.addEventListener("abort", abort, { once: true });
-        window.parent.postMessage({ type: GENERATE_REQUEST, requestId, payload: { ...params, channelId: channel.id, model: modelOptionName(model) } }, window.location.origin);
-    });
+    if (!channel) throw new Error("当前模型没有绑定 OpenTu 渠道。");
+    signal?.throwIfAborted();
+    validateNativeReferences(nativeModel(config, params.capability, model)?.referenceInputs || {}, params);
+    const result = await executeNative({ ...params, channelId: channel.id, model: modelOptionName(model) }, signal, taskId);
+    if (!isNativeResult(result, params.capability)) throw new Error("OpenTu 未返回有效生成结果。");
+    return result;
 }

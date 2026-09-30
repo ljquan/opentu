@@ -1,5 +1,6 @@
 import React from "react";
 
+import { APP_VERSION } from "@/constant/env";
 import { emitCanvasEvent, onCanvasEvent } from "@/lib/canvas/canvas-event-bus";
 import type { CanvasPluginApp } from "@/types/canvas-plugin";
 
@@ -32,7 +33,7 @@ export function getPluginRuntime(): PluginRuntime {
             jsx: React.createElement,
             Fragment: React.Fragment,
             injectCSS,
-            version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev",
+            version: APP_VERSION,
             emit: emitCanvasEvent,
             on: onCanvasEvent,
         };

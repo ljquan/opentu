@@ -20,7 +20,7 @@
     flex-shrink: 0;
     font-size: 13px;
   }
-  button {
+  &__header button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -35,11 +35,12 @@
       background: #eef2f3;
     }
   }
-  iframe {
+  .workflow-app-root {
     width: 100%;
     flex: 1;
     min-height: 0;
-    border: 0;
+    overflow: hidden;
+    font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   &__status {
     flex: 1;

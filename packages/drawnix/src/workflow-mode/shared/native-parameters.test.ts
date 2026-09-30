@@ -84,9 +84,9 @@ describe('native parameter validation', () => {
     ).toThrow();
     expect(() =>
       validateNativeReferences(
-        { images: { maxCount: 1 } },
+        { images: { maxCount: 1, labels: ['参考图'] } },
         { images: ['a', 'b'] }
       )
-    ).toThrow();
+    ).toThrow('模型参考素材 参考图 数量无效 (2，最多支持 1 个)');
   });
 });

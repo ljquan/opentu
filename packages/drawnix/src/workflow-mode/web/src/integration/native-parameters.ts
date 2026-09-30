@@ -1,3 +1,4 @@
+import { localModelContract } from "../../../host/local-model-contract";
 import { effectiveNativeParameters, resolveNativeParameters } from "../../../shared/native-parameters";
 import { decodeChannelModel, modelOptionName, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
@@ -7,9 +8,11 @@ type SavedParameters = Record<string, Values>;
 export function nativeModel(config: AiConfig, capability: ModelCapability, model = config.model || config[`${capability}Model`]) {
     const decoded = decodeChannelModel(model);
     const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((entry) => entry.name === model && entry.capability === capability));
-    if (channel?.opentuProfileId === undefined) return undefined;
-    const entry = channel.models.find((item) => item.name === modelOptionName(model) && item.capability === capability);
-    return entry?.script ? undefined : entry;
+    const entry = channel?.models.find((item) => item.name === modelOptionName(model) && item.capability === capability);
+    if (!entry || entry.script) return undefined;
+    if (channel?.opentuProfileId !== undefined) return entry;
+    const contract = localModelContract(entry.name, capability, channel?.apiFormat || "openai", channel?.providerKind === "tuzi-fixed" ? "https://api.tu-zi.com" : channel?.baseUrl);
+    return contract ? { ...entry, ...contract } : undefined;
 }
 
 function readSaved(config: AiConfig): SavedParameters {

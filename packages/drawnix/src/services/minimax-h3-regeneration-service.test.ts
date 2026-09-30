@@ -19,6 +19,7 @@ function createTask(overrides: Partial<Task> = {}): Task {
       model: 'MiniMax-H3',
       size: '768P',
     },
+    invocationRoute: { operation: 'video', modelRef: { profileId: 'opentu-official', modelId: 'MiniMax-H3' }, providerProfileId: 'opentu-official', modelId: 'MiniMax-H3' },
     ...overrides,
   } as Task;
 }

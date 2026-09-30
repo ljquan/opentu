@@ -22,7 +22,7 @@ export function AppTopNav() {
     const connectAgent = useAgentStore((state) => state.connectAgent);
     const togglePanel = useAgentStore((state) => state.togglePanel);
     const panelOpen = useAgentStore((state) => state.panelOpen);
-    const hideHeader = (import.meta.env.VITE_EMBEDDED === "true" && window.parent !== window) || /^\/canvas\/[^/]+/.test(pathname);
+    const hideHeader = true;
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
 

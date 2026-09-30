@@ -536,4 +536,13 @@ describe('MiniMax-H3 video workflow', () => {
       })
     ).toThrow('仅支持将 768P');
   });
+  it('identifies Context IR query errors without retrying or hiding provider detail', async () => {
+    const send = vi.spyOn(providerTransport, 'send')
+      .mockResolvedValueOnce(jsonResponse({ task_id: 'ir-existing' }))
+      .mockResolvedValueOnce(jsonResponse({ error: { message: 'unmarshal response body failed' } }, 500));
+    await expect(enhanceMiniMaxH3Prompt({ prompt: 'original' }, { provider, pollInterval: 0 }))
+      .rejects.toThrow('MiniMax-H3 提示词增强查询失败：unmarshal response body failed');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
 });

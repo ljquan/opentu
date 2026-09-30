@@ -17,6 +17,72 @@ import {
 } from './native-parameters';
 import { buildNativeModelCoverage } from './native-model-coverage';
 
+export interface NativeProviderCredentials {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  apiFormat: 'openai' | 'gemini';
+}
+
+function hasSupportedCredentialEndpoint(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function mapNativeProviderCredentials(
+  profiles: ProviderProfile[],
+  preferredProfileId: string | null
+): { profiles: NativeProviderCredentials[]; preferredProfileId: string | null } {
+  return {
+    profiles: profiles
+      .filter(
+        (profile) =>
+          profile.enabled &&
+          profile.authType === 'bearer' &&
+          profile.providerType !== 'custom' &&
+          !Object.keys(profile.extraHeaders || {}).length &&
+          Boolean(profile.apiKey.trim()) &&
+          hasSupportedCredentialEndpoint(profile.baseUrl)
+      )
+      .map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        baseUrl: profile.baseUrl.trim(),
+        apiKey: profile.apiKey.trim(),
+        apiFormat:
+          profile.providerType === 'gemini-compatible' ? 'gemini' : 'openai',
+      })),
+    preferredProfileId,
+  };
+}
+
+/** Read credentials only for the channel editor; model sync payloads stay secret-free. */
+export async function readNativeProviderCredentials(): Promise<{
+  profiles: NativeProviderCredentials[];
+  preferredProfileId: string | null;
+}> {
+  const settings = await import('../../utils/settings-manager');
+  await settings.settingsManager.waitForInitialization();
+  const preferredProfileId =
+    settings.resolveInvocationRoute('image').profileId;
+  return mapNativeProviderCredentials(
+    settings.providerProfilesSettings.get() || [],
+    preferredProfileId
+  );
+}
+
 export function mapNativeModels(
   profiles: ProviderProfile[],
   catalogs: ProviderCatalog[],

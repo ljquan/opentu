@@ -289,7 +289,7 @@ function ToolbarButton({
     hovered: string | null;
     activeStyle?: CSSProperties;
     hoverStyle: CSSProperties;
-    wrapRef: RefObject<HTMLDivElement | null>;
+    wrapRef: RefObject<HTMLDivElement>;
     onTipX: (x: number) => void;
     onHover: (id: string | null) => void;
     onClick?: (event: ReactMouseEvent<HTMLElement>) => void;

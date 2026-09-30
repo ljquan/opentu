@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultConfig, resolveModelChannel, resolveModelScript, type AiConfig, type ModelCapability } from "../src/stores/use-config-store";
 import { requestGeneration, requestImageQuestion } from "../src/services/api/image";
@@ -32,7 +33,7 @@ describe("native API execution", () => {
         ]);
         vi.mocked(requestNative).mockResolvedValue({ resultKind: "image", urls: ["https://example.test/a.png", "https://example.test/b.png"] });
         const result = await requestGeneration(config, "image");
-        expect(requestNative).toHaveBeenCalledWith(config, "native::model", { capability: "image", prompt: "image", images: [], params: { size: "adaptive", quality: "2K" } }, undefined);
+        expect(requestNative).toHaveBeenCalledWith(config, "native::model", { capability: "image", prompt: "image", images: [], params: { size: "adaptive", quality: "2K" } }, undefined, undefined);
         expect(result).toHaveLength(2);
     });
 
@@ -54,7 +55,7 @@ describe("native API execution", () => {
         expect(requestNative).toHaveBeenCalledWith(config, "native::model", {
             capability: "text", prompt: "Next", images: ["https://example.test/ref.png"], params: { temperature: 0.2 },
             messages: [{ role: "system", content: "Be precise" }, { role: "user", content: "First" }, { role: "assistant", content: "Previous" }, { role: "user", content: "Next" }],
-        }, undefined);
+        }, undefined, undefined);
         expect(onDelta).toHaveBeenCalledWith("Answer");
     });
 
@@ -80,7 +81,7 @@ describe("native API execution", () => {
         config.channels[0].models.unshift({ name: "model", capability: "text", script: "return 'text'", parameters: [] });
         vi.mocked(requestNative).mockResolvedValue({ resultKind: "image", urls: ["https://example.test/image.png"] });
         await requestGeneration(config, "image");
-        expect(requestNative).toHaveBeenCalledWith(config, "native::model", expect.objectContaining({ capability: "image" }), undefined);
+        expect(requestNative).toHaveBeenCalledWith(config, "native::model", expect.objectContaining({ capability: "image" }), undefined, undefined);
         expect(runModelPlugin).not.toHaveBeenCalled();
         expect(resolveModelScript(config, "native::model", "text")).toBe("return 'text'");
         expect(resolveModelScript(config, "native::model", "image")).toBe("");

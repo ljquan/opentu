@@ -1,12 +1,5 @@
 import type { Capability, ModelDefaults } from './model-defaults';
 
-export const NATIVE_MODELS_REQUEST = 'opentu:native-models:request:v1';
-export const NATIVE_MODELS_RESPONSE = 'opentu:native-models:response:v1';
-export const OPEN_PROVIDER_SETTINGS = 'opentu:provider-settings:open:v1';
-export const GENERATE_REQUEST = 'opentu:generate:request:v1';
-export const GENERATE_RESPONSE = 'opentu:generate:response:v1';
-export const GENERATE_CANCEL = 'opentu:generate:cancel:v1';
-
 export interface GenerationRequest {
   capability: Capability;
   channelId: string;
@@ -159,7 +152,7 @@ export function mergeNativeModels<
   };
   for (const capability of ['image', 'video', 'text', 'audio'] as const) {
     const key = `${capability}Model` as const;
-    if (!next[key] || !next.models.includes(next[key]))
+    if (next[key] && !next.models.includes(next[key]))
       next[key] = incoming.defaults[capability];
   }
   return next;

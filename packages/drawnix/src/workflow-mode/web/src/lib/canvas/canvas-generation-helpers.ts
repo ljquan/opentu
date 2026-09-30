@@ -1,13 +1,31 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
-import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { nanoid } from "nanoid";
+import { deleteStoredImages, ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
+import { updateWorkflowRecoveryState, workflowRecoveryMessage } from "@/lib/canvas/workflow-recovery-target";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import type { ReferenceImage } from "@/types/image";
-import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
+import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasNodeImage, type CanvasNodeMetadata } from "@/types/canvas";
+
+export async function storeWorkflowImageResults(urls: string[], slotId: string, options?: { signal?: AbortSignal; isCurrent?: () => boolean }): Promise<CanvasNodeImage[]> {
+    if (!urls.length) throw new Error("未返回图片结果");
+    const results = await Promise.allSettled(urls.map(async (url, index) => {
+        const image = await uploadImage(url, options);
+        return { id: index === 0 ? slotId : nanoid(), status: "success" as const, content: image.url, storageKey: image.storageKey, naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
+    }));
+    const images = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failure || options?.signal?.aborted || options?.isCurrent?.() === false) {
+        // uploadImage allocates fresh keys; only this abandoned attempt's media is removed.
+        await deleteStoredImages(images.flatMap(image => image.storageKey ? [image.storageKey] : []));
+        throw failure?.reason || new DOMException("Aborted", "AbortError");
+    }
+    return images;
+}
 
 export function imageExtension(dataUrl: string) {
     return dataUrl.match(/^data:image[/]([^;]+)/)?.[1] || dataUrl.match(/image[/]([^;]+)/)?.[1] || "png";
@@ -129,8 +147,14 @@ export function hasResumableVideoTask(node: CanvasNodeData) {
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) =>
-        node.metadata?.status === "loading"
+    return nodes.map((node) => {
+        if (node.metadata?.status === "loading" && Object.keys(node.metadata.workflowTasks || {}).length) {
+            return Object.entries(node.metadata.workflowTasks || {}).reduce((current, [slotId, attempt]) => {
+                const slot = attempt.kind === "image" ? current.metadata?.images?.find(item => item.id === slotId) : attempt.kind === "text" ? current.metadata?.texts?.find(item => item.id === slotId) : undefined;
+                return (!slot || slot.status === "loading") ? updateWorkflowRecoveryState(current, slotId, attempt.id, "loading", workflowRecoveryMessage(attempt.kind, Date.now())) : current;
+            }, node);
+        }
+        return node.metadata?.status === "loading"
             ? hasResumableVideoTask(node)
                 ? node
                 : {
@@ -138,13 +162,13 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
                       metadata: {
                           ...node.metadata,
                           status: "error" as const,
-                          errorDetails: i18n.t("canvas.generation.interrupted"),
-                          images: node.metadata.images?.map((image) => (image.status === "loading" ? { ...image, status: "error" as const, errorDetails: i18n.t("canvas.generation.interrupted") } : image)),
-                          texts: node.metadata.texts?.map((text) => (text.status === "loading" ? { ...text, status: "error" as const, errorDetails: i18n.t("canvas.generation.interrupted") } : text)),
+                          errorDetails: "结果待确认：刷新中断了本地等待，不会自动重新提交；重新生成可能重复计费。",
+                          images: node.metadata.images?.map((image) => (image.status === "loading" ? { ...image, status: "error" as const, errorDetails: "结果待确认：刷新中断了本地等待，不会自动重新提交；重新生成可能重复计费。" } : image)),
+                          texts: node.metadata.texts?.map((text) => (text.status === "loading" ? { ...text, status: "error" as const, errorDetails: "结果待确认：刷新中断了本地等待，不会自动重新提交；重新生成可能重复计费。" } : text)),
                       },
                   }
-            : node,
-    );
+            : node;
+    });
 }
 
 export function isGenerationCanceled(error: unknown) {

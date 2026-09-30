@@ -536,26 +536,27 @@ export function getEffectiveVideoDefaultParams(
 export function getEffectiveVideoCompatibleParams(
   modelId: string,
   modelRef?: ModelRef | string | null,
-  params?: Record<string, unknown> | null
+  params?: Record<string, unknown> | null,
+  localBinding?: ProviderModelBinding | null
 ): ParamConfig[] {
   const compatibleParams = getCompatibleParams(modelId);
-  const plan = resolveInvocationPlanFromRoute('video', modelRef || modelId);
+  const binding = localBinding !== undefined ? localBinding : resolveInvocationPlanFromRoute('video', modelRef || modelId)?.binding || null;
   const metadata = getResolvedVideoBindingMetadata(
     modelId,
-    plan?.binding || null,
+    binding,
     params
   );
   const selectedKlingAction = resolveSelectedKlingAction(params);
-  const effectiveConfig = getEffectiveVideoModelConfigForSelection(
+  const effectiveConfig = getEffectiveVideoModelConfig(
     modelId,
-    modelRef,
+    binding,
     params
   );
 
   return compatibleParams
     .filter((param) => {
       if (
-        plan?.binding?.protocol === 'kling.video' &&
+        binding?.protocol === 'kling.video' &&
         selectedKlingAction === 'image2video' &&
         KLING_CAMERA_PARAM_IDS.has(param.id)
       ) {
@@ -566,7 +567,7 @@ export function getEffectiveVideoCompatibleParams(
     })
     .map((param) => {
       if (
-        plan?.binding?.protocol === 'kling.video' &&
+        binding?.protocol === 'kling.video' &&
         metadata?.versionField === param.id &&
         param.valueType === 'enum'
       ) {

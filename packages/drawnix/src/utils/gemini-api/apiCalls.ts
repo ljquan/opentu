@@ -500,6 +500,7 @@ export async function callGoogleGenerateContentRaw(
   config: GeminiConfig,
   messages: GeminiMessage[],
   options: {
+    fetcher?: typeof fetch;
     stream: boolean;
     onChunk?: (content: string) => void;
     signal?: AbortSignal;
@@ -553,6 +554,7 @@ export async function callGoogleGenerateContentRaw(
       query: options.stream ? { alt: 'sse' } : undefined,
       body: JSON.stringify(requestBody),
       signal: timeoutControl.signal,
+      fetcher: options.fetcher,
       controlledResponseBody: true,
       onResponse: options.onResponse,
     });

@@ -1,3 +1,4 @@
+import { workflowRoot } from "@/integration/workflow-dom";
 import { forwardRef, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
@@ -275,7 +276,7 @@ function MentionMenu({ textarea, caretIndex, references, activeIndex, theme, onS
                 </button>
             ))}
         </div>,
-        document.body,
+        workflowRoot(),
     );
 }
 

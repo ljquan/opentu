@@ -45,6 +45,13 @@ const testProvider = {
 };
 
 describe('VideoAPIService MiniMax-H3 submission', () => {
+  it.each([false, true])('marks an explicit failure during resumed polling (already failed: %s)', async immediate => {
+    const query = vi.spyOn(videoAPIService, 'queryVideoStatus');
+    if (!immediate) query.mockResolvedValueOnce({ id: 'remote', status: 'in_progress', seconds: '5' });
+    query.mockResolvedValue({ id: 'remote', status: 'failed', error: { message: 'provider rejected' }, seconds: '5' });
+    await expect(videoAPIService.resumePolling('remote', { interval: 0, maxAttempts: 1 })).rejects.toMatchObject({ message: 'provider rejected', workflowProviderFailure: true });
+    expect(query).toHaveBeenCalledTimes(immediate ? 1 : 2);
+  });
   beforeEach(() => {
     serviceMocks.resolveInvocationPlanFromRoute.mockReturnValue({
       provider: testProvider,
@@ -210,6 +217,17 @@ describe('appendVideoOutputParams', () => {
     });
   });
 
+  it('限制首尾帧和全能参考模式的官方图片数量', () => {
+    expect(() => buildMiniMaxH3VideoRequest({
+      prompt: '超过首尾帧限制',
+      referenceImages: ['1', '2', '3'],
+    })).toThrow('首帧/尾帧图片最多支持 2 张');
+    expect(() => buildMiniMaxH3VideoRequest({
+      prompt: '超过全能参考限制',
+      referenceImages: Array.from({ length: 10 }, (_, index) => `image-${index}`),
+      referenceVideos: ['video-1'],
+    })).toThrow('参考图片最多支持 9 张');
+  });
   it('将 MiniMax-H3 输入视频按官方 reference_video 结构写入请求', () => {
     expect(
       buildMiniMaxH3VideoRequest({

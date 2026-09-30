@@ -13,6 +13,9 @@ export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type ChannelModel = WorkflowChannel["models"][number];
 
 export type ModelChannel = {
+    providerKind?: 'tuzi-fixed';
+    credentials?: Array<{ id: string; label: string; apiKey: string; createdAt: number }>;
+    activeCredentialId?: string;
     opentuProfileId?: string | null;
     id: string;
     name: string;
@@ -203,7 +206,7 @@ export function resolveModelScript(config: AiConfig, value: string, capability?:
 function isAiConfigReady(config: AiConfig, model: string) {
     if (!findChannelModel(config, model)) return false;
     const channel = resolveModelChannel(config, model);
-    if (channel.opentuProfileId !== undefined) return window.parent !== window && Boolean(model.trim());
+    if (channel.opentuProfileId !== undefined) return Boolean(model.trim());
     return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
 }
 
@@ -250,13 +253,13 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
+                const channels = Array.isArray(persistedConfig.channels) && !persistedConfig.channels.length ? [] : normalizeChannels(config);
                 const models = modelOptionsFromChannels(channels);
                 return {
                     ...current,
                     opentuDefaultsInitialized: persistedState.opentuDefaultsInitialized === true,
                     webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
-                    config: {
+                    config: configuredChannelsOnly({
                         ...config,
                         channelMode: "local",
                         apiFormat: normalizeApiFormat(config.apiFormat),
@@ -279,16 +282,39 @@ export const useConfigStore = create<ConfigStore>()(
                         canvasImageCount: config.canvasImageCount || defaultConfig.canvasImageCount,
                         proxyEnabled: Boolean(config.proxyEnabled),
                         proxyUrl: config.proxyUrl || DEFAULT_LOCAL_PROXY_URL,
-                    },
+                    }),
                 };
             },
         },
     ),
 );
 
+/** Workflow selectors use only channels explicitly managed in this application. */
+export function configuredChannelsOnly(config: AiConfig): AiConfig {
+    const channels = config.channels.filter(channel => channel.opentuProfileId === undefined);
+    const resolve = (value: string, capability?: ModelCapability) => {
+        if (!value) return "";
+        const decoded = decodeChannelModel(value);
+        const name = decoded?.model || value;
+        const matches = (model: ChannelModel) => model.name === name && (!capability || model.capability === capability);
+        const exact = channels.find(channel => channel.id === decoded?.channelId && channel.models.some(matches));
+        if (exact) return encodeChannelModel(exact.id, name);
+        // Never silently reroute a missing local channel. Only migrate the old
+        // automatically imported host defaults when a unique local match exists.
+        const wasManaged = config.channels.some(channel => channel.id === decoded?.channelId && channel.opentuProfileId !== undefined) || decoded?.channelId.startsWith("opentu-native-");
+        if (decoded && !wasManaged) return "";
+        const candidates = channels.filter(channel => channel.models.some(matches));
+        return candidates.length === 1 ? encodeChannelModel(candidates[0].id, name) : "";
+    };
+    return { ...config, channels, models: modelOptionsFromChannels(channels),
+        model: resolve(config.model), imageModel: resolve(config.imageModel, "image"),
+        videoModel: resolve(config.videoModel, "video"), textModel: resolve(config.textModel, "text"), audioModel: resolve(config.audioModel, "audio"),
+    };
+}
+
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    return useMemo(() => ({ ...config, channelMode: "local" as const }), [config]);
+    return useMemo(() => configuredChannelsOnly({ ...config, channelMode: "local" as const }), [config]);
 }
 
 /** Normalize a mixed list of raw model names or model objects into deduped ChannelModel entries. */
@@ -308,6 +334,12 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
+    if (channel?.providerKind === 'tuzi-fixed') {
+        const credentials = (channel.credentials || []).filter(c => typeof c.id === 'string' && typeof c.apiKey === 'string');
+        return { id: channel.id || nanoid(), name: channel.name?.trim() || 'Tuzi 固定渠道', providerKind: 'tuzi-fixed', credentials,
+            activeCredentialId: channel.activeCredentialId, baseUrl: OPENAI_BASE_URL, apiFormat: 'openai',
+            apiKey: credentials.find(c => c.id === channel.activeCredentialId)?.apiKey || '', models: normalizeChannelModels(channel.models) };
+    }
     const apiFormat = normalizeApiFormat(channel?.apiFormat);
     return {
         ...(channel?.opentuProfileId !== undefined ? { opentuProfileId: channel.opentuProfileId } : {}),
@@ -433,7 +465,8 @@ export function resolveModelChannel(config: AiConfig, value: string, capability?
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string, capability?: ModelCapability) {
-    const channel = resolveModelChannel(config, value, capability);
+    const found = resolveModelChannel(config, value, capability);
+    const channel = found.providerKind === 'tuzi-fixed' ? createModelChannel(found) : found;
     return {
         ...config,
         model: modelOptionName(value || config.model),

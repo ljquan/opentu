@@ -1,3 +1,4 @@
+import { SubmissionPersistenceError } from './submission-persistence';
 /**
  * Generation API Service
  *
@@ -589,6 +590,7 @@ class GenerationAPIService {
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Image generation error:', error);
+      if (error instanceof SubmissionPersistenceError) throw error;
       if (isImageSubmissionOutcomeUnknownError(error)) {
         throw error;
       }
@@ -617,7 +619,8 @@ class GenerationAPIService {
     taskId: string,
     remoteId: string,
     routeModel?: string | ModelRef | null,
-    requestId?: string
+    requestId?: string,
+    assertAvailable?: () => Promise<void>
   ): Promise<TaskResult> {
     const timeout = TASK_TIMEOUT.IMAGE;
     const abortController = new AbortController();
@@ -635,6 +638,7 @@ class GenerationAPIService {
       assertStoredTaskInvocationRouteAvailable(taskId, 'image');
       const result = await Promise.race([
         asyncImageAPIService.resumePolling(remoteId, {
+          assertAvailable,
           interval: 5000,
           routeModel,
           signal: abortController.signal,
@@ -779,6 +783,7 @@ class GenerationAPIService {
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Video generation error:', error);
+      if (error instanceof SubmissionPersistenceError) throw error;
       const wrappedError = new Error(error.message || '视频生成失败');
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;
@@ -883,6 +888,7 @@ class GenerationAPIService {
       };
     } catch (error: any) {
       console.error('[GenerationAPI] Audio generation error:', error);
+      if (error instanceof SubmissionPersistenceError) throw error;
       const wrappedError = new Error(error.message || '音频生成失败');
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;
@@ -904,7 +910,8 @@ class GenerationAPIService {
   async resumeVideoGeneration(
     taskId: string,
     remoteId: string,
-    routeModel?: string | ModelRef | null
+    routeModel?: string | ModelRef | null,
+    assertAvailable?: () => Promise<void>
   ): Promise<TaskResult> {
     const startTime = Date.now();
     const modelName = resolveAnalyticsModelName(routeModel, 'gemini-video');
@@ -936,6 +943,7 @@ class GenerationAPIService {
       // Resume polling
       const pollingPromise = videoAPIService.resumePolling(remoteId, {
         interval: 5000,
+        assertAvailable,
         routeModel,
         params: taskQueueService.getTask(taskId)?.params.params as
           | Record<string, unknown>
@@ -999,7 +1007,8 @@ class GenerationAPIService {
   async resumeAudioGeneration(
     taskId: string,
     remoteId: string,
-    routeModel?: string | ModelRef | null
+    routeModel?: string | ModelRef | null,
+    assertAvailable?: () => Promise<void>
   ): Promise<TaskResult> {
     const startTime = Date.now();
     const modelName = resolveAnalyticsModelName(
@@ -1027,6 +1036,7 @@ class GenerationAPIService {
 
       const pollingPromise = audioAPIService.resumePolling(remoteId, {
         interval: 5000,
+        assertAvailable,
         routeModel,
         onProgress: (progress) => {
           taskQueueService.updateTaskProgress(taskId, progress);

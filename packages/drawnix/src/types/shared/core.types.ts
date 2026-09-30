@@ -148,9 +148,25 @@ export interface GenerationAssetMetadata {
   characterPrompt?: string;
 }
 
+/** Durable identity used by the document batch scheduler. */
+export interface DocumentBatchTaskMetadata {
+  scopeId: string;
+  batchId: string;
+  workItemId: string;
+  attemptId: string;
+  epoch: number;
+  dispatchOwner: 'document-batch';
+  /** Set by the scheduler once the irreversible submission ticket is consumed. */
+  dispatchTicket?: string;
+}
+
 export interface GenerationParams {
+  /** Durable workflow owner. Generic queue scans must never submit these tasks. */
+  workflow?: { scopeId: string; targetId: string; attemptId: string; routeIdentity?: string };
   /** Text prompt describing the desired content */
   prompt: string;
+  /** Batch scheduler metadata; contains no credentials or secrets. */
+  documentBatch?: DocumentBatchTaskMetadata;
   /** Lightweight canvas sources explicitly mentioned for this request */
   canvasAssociations?: CanvasAssociationRef[];
   /** Lightweight asset-library metadata for generated media */

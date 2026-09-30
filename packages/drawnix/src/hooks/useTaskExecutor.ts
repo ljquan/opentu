@@ -556,9 +556,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       } catch (error: any) {
         if (!isCurrentTaskExecution(taskId, executionToken)) return;
 
-        const errorCode = error.httpStatus
+        const errorCode = error.code || (error.httpStatus
           ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
+          : error.name || 'ERROR');
         const errorMessage = getFriendlyErrorMessage(error);
         const originalErrorInfo =
           error.fullResponse ||
@@ -685,9 +685,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       } catch (error: any) {
         if (!isCurrentTaskExecution(taskId, executionToken)) return;
 
-        const errorCode = error.httpStatus
+        const errorCode = error.code || (error.httpStatus
           ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
+          : error.name || 'ERROR');
         const errorMessage = getFriendlyErrorMessage(error);
         const originalErrorInfo =
           error.fullResponse ||
@@ -782,9 +782,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
         const updatedTask = legacyTaskQueueService.getTask(taskId);
         if (!updatedTask) return;
 
-        const errorCode = error.httpStatus
+        const errorCode = error.code || (error.httpStatus
           ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
+          : error.name || 'ERROR');
         const errorMessage = getFriendlyErrorMessage(error);
         const originalErrorInfo =
           error.fullResponse ||
@@ -811,6 +811,11 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
 
     // Function to execute a single task
     const executeTask = async (task: Task, expectedToken?: symbol) => {
+      // Document batch tasks are started exclusively through the deferred bridge;
+      // generic recovery/queue scans must never consume their pending ticket.
+      if (task.params.documentBatch || task.params.workflow) {
+        return;
+      }
       if (expectedToken) {
         if (
           !legacyTaskQueueService.isTaskExecutionTokenCurrent(
@@ -985,9 +990,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
         if (!updatedTask) return;
 
         // Extract error details - 优先使用 API 返回的详细错误信息
-        const errorCode = error.httpStatus
+        const errorCode = error.code || (error.httpStatus
           ? `HTTP_${error.httpStatus}`
-          : error.name || 'ERROR';
+          : error.name || 'ERROR');
         const errorMessage = getFriendlyErrorMessage(error);
         // 如果有完整响应，使用它；否则使用 API 错误体或错误消息
         const originalErrorInfo =
@@ -1038,6 +1043,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
 
     // 将任务加入执行队列（带并发控制）
     const enqueueTask = (task: Task) => {
+      if (task.params.documentBatch || task.params.workflow) return;
       const token = legacyTaskQueueService.getTaskExecutionToken(task.id);
       if (
         !token ||
@@ -1099,7 +1105,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
           task.status === TaskStatus.PROCESSING
       );
       const recoverableImageRequestTasks = tasks.filter(
-        isImageRequestRecoveryCandidate
+        task => !task.params.documentBatch && !task.params.workflow && isImageRequestRecoveryCandidate(task)
       );
 
       console.warn(
@@ -1107,7 +1113,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       );
 
       pendingTasks.forEach((task) => {
-        enqueueTask(task);
+        if (!task.params.documentBatch && !task.params.workflow) {
+          enqueueTask(task);
+        }
       });
       resumableTasks.forEach((task) => {
         enqueueTask(task);
@@ -1128,7 +1136,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       const tasks = legacyTaskQueueService.getAllTasks();
       const processingTasks = tasks.filter(
         (task) =>
-          task.status === TaskStatus.PROCESSING && !isPptExplainerTask(task)
+          task.status === TaskStatus.PROCESSING && !task.params.documentBatch && !task.params.workflow && !isPptExplainerTask(task)
       );
 
       processingTasks.forEach((task) => {
@@ -1207,6 +1215,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
 
         if (event.type === 'taskCreated' || event.type === 'taskUpdated') {
           const task = event.task;
+          if (task.params.workflow) return;
 
           if (event.type === 'taskCreated') {
             processPendingTasks();
@@ -1239,7 +1248,9 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
 
           // Execute pending tasks
           if (task.status === TaskStatus.PENDING) {
-            enqueueTask(task);
+          if (!task.params.documentBatch && !task.params.workflow) {
+              enqueueTask(task);
+            }
           } else if (
             !executingTasksRef.current.has(task.id) &&
             task.status === TaskStatus.PROCESSING &&

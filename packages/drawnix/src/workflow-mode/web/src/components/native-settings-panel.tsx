@@ -50,7 +50,12 @@ export function NativeSettingsPanel({ config, capability, onChange, theme, class
         {!entry?.parameters?.length && <p className="text-sm" style={{ color: theme.node.muted }}>当前模型未提供可配置参数。</p>}
         {entry?.referenceInputs?.images && <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
             {entry.referenceInputs.images.labels?.join("、") || "参考图片"}
-            {entry.referenceInputs.images.maxCount !== undefined ? ` · 最多 ${entry.referenceInputs.images.maxCount} 张` : ""}
+            {entry.referenceInputs.images.maxCountWithoutVideos !== undefined
+                ? ` · 最多 ${entry.referenceInputs.images.maxCountWithoutVideos} 张${entry.referenceInputs.images.maxCount !== undefined ? `；同时使用参考视频时最多 ${entry.referenceInputs.images.maxCount} 张` : ""}`
+                : entry.referenceInputs.images.maxCount !== undefined ? ` · 最多 ${entry.referenceInputs.images.maxCount} 张` : ""}
+        </div>}
+        {entry?.referenceInputs?.videos && <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
+            参考视频{entry.referenceInputs.videos.maxCount !== undefined ? ` · 最多 ${entry.referenceInputs.videos.maxCount} 个` : ""}
         </div>}
         {error && <p role="alert" className="break-words text-sm leading-5" style={{ color: "#c24145" }}>{error}</p>}
     </div>;

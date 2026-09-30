@@ -324,6 +324,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
   isDataReady = false,
   currentBoardId,
 }) => {
+  const workflowRoute = useWorkflowRoute(currentBoardId);
   const options: PlaitBoardOptions = {
     readonly: false,
     hideScrollbar: false,
@@ -366,6 +367,25 @@ export const Drawnix: React.FC<DrawnixProps> = ({
 
   // 使用 ref 来保存 board 的最新引用,避免 useCallback 依赖问题
   const boardRef = useRef<DrawnixBoard | null>(null);
+  const resumeCanvas = useRef<{ boardId?: string | null; source: string; value: PlaitElement[]; viewport: Viewport; theme: PlaitTheme } | null>(null);
+  const enterWorkflowRoute = workflowRoute.enter;
+  const enterWorkflow = useCallback(() => {
+    const current = boardRef.current;
+    if (current) {
+      resumeCanvas.current = {
+        boardId: currentBoardId,
+        source: JSON.stringify(value),
+        value: current.children,
+        viewport: current.viewport,
+        theme: current.theme,
+      };
+    }
+    enterWorkflowRoute();
+  }, [currentBoardId, value, enterWorkflowRoute]);
+  const resume = useMemo(() => {
+    const snapshot = resumeCanvas.current;
+    return snapshot?.boardId === currentBoardId && snapshot?.source === JSON.stringify(value) ? snapshot : null;
+  }, [currentBoardId, value, workflowRoute.open]);
 
   // 关闭所有抄屉
   const closeAllDrawers = useCallback(() => {
@@ -910,10 +930,19 @@ export const Drawnix: React.FC<DrawnixProps> = ({
               <CacheQuotaProvider onOpenMediaLibrary={handleOpenMediaLibrary}>
                 <ChatDrawerProvider>
                   <DrawnixContext.Provider value={contextValue}>
-                    <DrawnixContent
-                      value={value}
-                      viewport={viewport}
-                      theme={theme}
+                    {workflowRoute.open ? (
+                      <>
+                        <WorkflowModeHost open={!appState.openSettings} onExit={workflowRoute.exit} onOpenProviderSettings={(profileId) => {
+                          queueProviderSettingsNavigation(profileId === undefined ? { action: 'create' } : { action: 'select', profileId: profileId || 'legacy-default' });
+                          setAppState(prev => ({ ...prev, openSettings: true }));
+                        }} />
+                        {appState.openSettings && <div className="drawnix"><Suspense fallback={null}><SettingsDialog container={null} /></Suspense></div>}
+                      </>
+                    ) : <DrawnixContent
+                      value={resume?.value ?? value}
+                      viewport={resume?.viewport ?? viewport}
+                      theme={resume?.theme ?? theme}
+                      onOpenWorkflowMode={enterWorkflow}
                       options={options}
                       plugins={plugins}
                       containerRef={containerRef}
@@ -931,7 +960,10 @@ export const Drawnix: React.FC<DrawnixProps> = ({
                       onViewportChange={onViewportChange}
                       onThemeChange={onThemeChange}
                       onValueChange={onValueChange}
-                      afterInit={afterInit}
+                      afterInit={(initializedBoard) => {
+                        resumeCanvas.current = null;
+                        afterInit?.(initializedBoard);
+                      }}
                       onBoardSwitch={onBoardSwitch}
                       onTabSyncNeeded={onTabSyncNeeded}
                       handleProjectDrawerToggle={handleProjectDrawerToggle}
@@ -962,7 +994,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
                       minimizedToolsBarEnabled={minimizedToolsBarEnabled}
                       enableToolWindows={enableToolWindows}
                       enableGenerationRuntime={enableGenerationRuntime}
-                    />
+                    />}
                   </DrawnixContext.Provider>
                 </ChatDrawerProvider>
               </CacheQuotaProvider>
@@ -976,6 +1008,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
 
 // Internal component that uses ChatDrawer context
 interface DrawnixContentProps {
+  onOpenWorkflowMode: () => void;
   value: PlaitElement[];
   viewport?: Viewport;
   theme?: PlaitTheme;
@@ -1028,6 +1061,7 @@ interface DrawnixContentProps {
 }
 
 const DrawnixContent: React.FC<DrawnixContentProps> = ({
+  onOpenWorkflowMode,
   value,
   viewport,
   theme,
@@ -1079,7 +1113,6 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
   currentBoardId,
 }) => {
   const { setAppState: updateState } = useDrawnix();
-  const workflowRoute = useWorkflowRoute(currentBoardId);
   const { chatDrawerRef } = useChatDrawer();
   const { language } = useI18n();
   const playbackError = useCanvasAudioPlaybackSelector((state) => state.error);
@@ -1766,7 +1799,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             onTaskPanelToggle={handleTaskPanelToggle}
             onOpenBackupRestore={handleOpenBackupRestore}
             onOpenCloudSync={handleOpenCloudSync}
-            onOpenWorkflowMode={workflowRoute.enter}
+            onOpenWorkflowMode={onOpenWorkflowMode}
             onKnowledgeBaseToggle={handleKnowledgeBaseToggle}
             onOpenMediaLibrary={handleOpenMediaLibrary}
             deferredFeaturesEnabled={toolWindowManagerEnabled}
@@ -1778,14 +1811,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
               <CanvasAudioPlayer />
             </Suspense>
           )}
-          <WorkflowModeHost
-            open={workflowRoute.open && !appState.openSettings}
-            onExit={workflowRoute.exit}
-            onOpenProviderSettings={(profileId) => {
-              queueProviderSettingsNavigation(profileId === undefined ? { action: 'create' } : { action: 'select', profileId: profileId || 'legacy-default' });
-              updateState((prev) => ({ ...prev, openSettings: true }));
-            }}
-          />
+
 
           <Suspense fallback={null}>
             <PopupToolbar></PopupToolbar>

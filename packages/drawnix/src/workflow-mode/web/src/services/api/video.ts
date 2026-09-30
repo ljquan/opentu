@@ -1,5 +1,14 @@
+import { readWorkflowTask, runLocalWorkflowTask, recoverWorkflowTask, WorkflowTaskFailed } from "../workflow-local-task";
 import axios from "axios";
+import { isMiniMaxH3Model, normalizeMiniMaxH3VideoResponse, resolveVideoSubmission, extractInlineVideoUrl } from "../../../../../services/video-binding-utils";
+import { prepareMiniMaxH3Submission } from "../../../../../services/minimax-h3-video-workflow";
+import localforage from "localforage";
+import { submitKlingRequest } from "../../../../../services/model-adapters/kling-adapter";
+import { submitSeedanceRequest } from "../../../../../services/model-adapters/seedance-adapter";
+import { submitSeedance2Request } from "../../../../../services/model-adapters/seedance2-adapter";
+import { submitHappyHorseVideo } from "../../../../../services/model-adapters/happyhorse-adapter";
 import { nativeChannel, requestNative } from "./opentu";
+import { prepareNativeTask, runNativeTask } from "../../../../host/native-task-recovery";
 import { getNativeParameterValues, nativeModel } from "@/integration/native-parameters";
 import { nanoid } from "nanoid";
 
@@ -14,15 +23,15 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { validateNativeReferences } from "../../../../shared/native-parameters";
 
-type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
+type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null; metadata?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; taskId?: string };
 type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: ReferenceAudio[] };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "plugin" | "native"; protocol?: "minimax-h3-v2" | "kling-text2video" | "kling-image2video"; model: string; tuziCredential?: {channelId:string;credentialId:string} };
 type GeminiInlineData = { bytesBase64Encoded: string; mimeType: string };
 type GeminiVideoOperation = {
     name?: string;
@@ -34,6 +43,7 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
+const pluginVideoResultStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_task_results" });
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
@@ -66,13 +76,26 @@ export function isVideoTaskFailed(error: unknown) {
     return error instanceof Error && error.name === "VideoTaskFailed";
 }
 
-function videoTaskFailed(message: string) {
+export function videoTaskFailed(message: string) {
     const error = new Error(message);
     error.name = "VideoTaskFailed";
     return error;
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
+    if (options?.taskId && !nativeChannel(config, config.model || config.videoModel, "video")) {
+        await runLocalWorkflowTask(options.taskId, "video", config, config.model || config.videoModel,
+            { prompt, nativeParams: config.nativeParams, images: await Promise.all(references.map(image => imageToDataUrl(image))), videos: options.videos, audios: options.audios },
+            () => createVideoGenerationTask(config, prompt, references, { ...options, taskId: undefined }), () => null);
+        return { id: options.taskId, provider: "native", model: config.model || config.videoModel };
+    }
+    const task = await createVideoGenerationTaskInternal(config,prompt,references,options);
+    const channel = config.channels.find(c => c.providerKind === 'tuzi-fixed' && task.model.startsWith(`${c.id}::`));
+    if (channel?.activeCredentialId) return {...task,tuziCredential:{channelId:channel.id,credentialId:channel.activeCredentialId}};
+    return task;
+}
+
+async function createVideoGenerationTaskInternal(config: AiConfig, prompt: string, references: ReferenceImage[] = [], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel, "video");
     const script = resolveModelScript(config, selectedModel, "video");
@@ -82,28 +105,128 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         validateNativeReferences(nativeModel(config, "video", selectedModel)?.referenceInputs || {}, {
             images: references.map((item) => item.dataUrl), videos: options?.videos?.map((item) => item.url), audios: options?.audios?.map((item) => item.url),
         });
-        const result = await requestNative(config, selectedModel, {
-            capability: "video", prompt, images: await Promise.all(references.map((image) => imageToDataUrl(image))),
+        const taskId = options?.taskId || nanoid();
+        const request = {
+            capability: "video" as const, prompt, images: await Promise.all(references.map((image) => imageToDataUrl(image))),
             videos: await Promise.all((options?.videos || []).map(async (item) => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, "ref.mp4", "invalidReferenceVideo", options)) : item.url)),
             audios: await Promise.all((options?.audios || []).map(async (item) => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, "ref.mp3", "invalidReferenceAudio", options)) : item.url)),
             params,
-        }, options?.signal);
-        const id = nanoid();
-        pluginVideoResults.set(id, { url: result.urls![0], mimeType: "video/mp4" });
-        return { id, provider: "plugin", model: selectedModel };
+        };
+        if (!options?.taskId) {
+            const result = await requestNative(config, selectedModel, request, options?.signal);
+            const media = { url: result.urls![0], mimeType: "video/mp4" };
+            pluginVideoResults.set(taskId, media);
+            await pluginVideoResultStore.setItem(taskId, media);
+            return { id: taskId, provider: "plugin", model: selectedModel };
+        }
+        await prepareNativeTask(taskId, { ...request, channelId: nativeChannel(config, selectedModel, "video")!.id, model: modelOptionName(selectedModel) });
+        void runNativeTask(taskId, options?.signal || new AbortController().signal).catch(() => undefined);
+        return { id: taskId, provider: "native", model: selectedModel };
     }
     assertVideoConfig(requestConfig, requestConfig.model);
     if (requestConfig.apiFormat === "gemini") return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    const contract = nativeModel(config, "video", selectedModel);
+    const params = contract ? getNativeParameterValues(config, selectedModel, "video") : undefined;
+    if (contract && params) {
+        validateNativeReferences(contract.referenceInputs || {}, { images: references.map(item => item.dataUrl || item.url || item.storageKey || ""), videos: options?.videos?.map(item => item.url || item.storageKey || ""), audios: options?.audios?.map(item => item.url || item.storageKey || "") });
+        const context = { baseUrl: requestConfig.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "") + "/v1", apiKey: requestConfig.apiKey, signal: options?.signal, fetcher: (url: RequestInfo | URL, init?: RequestInit) => fetch(withLocalProxy(String(url)), init) };
+        if (contract.adapterId && contract.adapterId !== "gemini-video-adapter") {
+            const images = await Promise.all(references.map(image => imageToDataUrl(image)));
+            const mediaUrls = async (items: (ReferenceVideo | ReferenceAudio)[], audio = false) => Promise.all(items.map(async item => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, audio ? "ref.mp3" : "ref.mp4", audio ? "invalidReferenceAudio" : "invalidReferenceVideo", options)) : item.url));
+            const videos = await mediaUrls(options?.videos || []);
+            const audios = await mediaUrls(options?.audios || [], true);
+            const request = { model: requestConfig.model, prompt, referenceImages: images, size: params.size === undefined ? undefined : String(params.size), duration: params.duration === undefined ? undefined : Number(params.duration), params: { ...params, input_videos: videos, input_video: videos[0], input_audios: audios } };
+            if (contract.adapterId === "kling-video-adapter") {
+                if (params.klingAction2 === "text2video" && images.length) throw new Error("文生视频模式不接受参考图片");
+                const result = await submitKlingRequest(context, request);
+                return { id: result.taskId, provider: "openai", protocol: `kling-${result.action2}`, model: selectedModel };
+            }
+            let created;
+            if (contract.adapterId === "seedance-video-adapter") created = (await submitSeedanceRequest(context, request)).submitResult;
+            else if (contract.adapterId === "seedance-2-video-adapter") created = (await submitSeedance2Request(context, request)).submitted;
+            else if (contract.adapterId === "happyhorse-video-adapter") created = await submitHappyHorseVideo(context, request);
+            else throw new Error("当前视频适配器尚未接入工作流");
+            if (created.status === "failed" || created.status === "error") throw videoTaskFailed(readApiErrorMessage(created.error) || apiText("videoGenerationFailed"));
+            const id = ('task_id' in created && created.task_id) || created.id;
+            if (!id) throw new Error(apiText("noVideoTaskId"));
+            return { id, provider: "openai", model: selectedModel };
+        }
+    }
+    if (contract && params && isMiniMaxH3Model(requestConfig.model)) {
+        validateNativeReferences(contract.referenceInputs || {}, { images: references.map(item => item.dataUrl), videos: options?.videos?.map(item => item.url), audios: options?.audios?.map(item => item.url) });
+        let prepared;
+        try {
+            prepared = await prepareMiniMaxH3Submission({
+                prompt, duration: params.duration as string, size: String(params.size), ratio: params.ratio, params,
+                referenceImages: await Promise.all(references.map((image) => imageToDataUrl(image))),
+                referenceVideos: await Promise.all((options?.videos || []).map(async (item) => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, "ref.mp4", "invalidReferenceVideo", options)) : item.url)),
+            }, {
+                provider: { profileId: "workflow-local", profileName: "Workflow", providerType: "custom", baseUrl: requestConfig.baseUrl, apiKey: requestConfig.apiKey, authType: "bearer" },
+                signal: options?.signal, fetcher: (url, init) => fetch(withLocalProxy(String(url)), init),
+            });
+        } catch (error) {
+            throw Object.assign(new Error(`提示词增强请求失败：${readAxiosError(error, "请求失败")}`), { cause: error });
+        }
+        let response;
+        try {
+            response = await axios.post(minimaxUrl(requestConfig, prepared.path), prepared.body, { headers: aiHeaders(requestConfig, "application/json"), signal: options?.signal });
+        } catch (error) {
+            throw Object.assign(new Error(readAxiosError(error, "MiniMax-H3 视频请求失败")), { cause: error });
+        }
+        const created = normalizeMiniMaxH3VideoResponse(response.data);
+        if (created.status === "failed") throw videoTaskFailed(created.error?.message || apiText("videoGenerationFailed"));
+        if (!created.id) throw new Error(apiText("noVideoTaskId"));
+        return { id: created.id, provider: "openai", protocol: "minimax-h3-v2", model: selectedModel };
+    }
+    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options, params);
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    if (task.provider === "native") {
+        const saved = await readWorkflowTask(task.id);
+        if (!saved) throw new Error("任务不存在或账号已切换");
+        const result = await recoverWorkflowTask(task.id, config).catch(error => {
+            if (error instanceof WorkflowTaskFailed) throw videoTaskFailed(error.message);
+            throw error;
+        });
+        if (!result) {
+            if (saved.params.videoTask || saved.remoteId) return { status: "pending" };
+        }
+        if (!result?.urls?.[0]) throw new Error("结果待确认：保留原渠道配置后继续查询，不会自动重新生成");
+        return { status: "completed", result: { url: result.urls[0], mimeType: "video/mp4" } };
+    }
     if (task.provider === "plugin") {
-        const result = pluginVideoResults.get(task.id);
+        const result = pluginVideoResults.get(task.id) || await pluginVideoResultStore.getItem<VideoGenerationResult>(task.id);
         return result ? { status: "completed", result } : { status: "failed", error: apiText("pluginVideoExpired") };
     }
     const requestConfig = resolveModelRequestConfig(config, task.model, "video");
+    if (task.tuziCredential) {
+        const channel = config.channels.find(c => c.id === task.tuziCredential?.channelId && c.providerKind === 'tuzi-fixed');
+        const credential = channel?.credentials?.find(c => c.id === task.tuziCredential?.credentialId);
+        if (!credential?.apiKey) throw new Error('原任务使用的 Tuzi Key 已移除或修改，无法使用其他 Key 查询');
+        requestConfig.baseUrl = 'https://api.tu-zi.com'; requestConfig.apiFormat = 'openai';requestConfig.apiKey = credential.apiKey;
+    } else if (config.channels.some(c=>c.providerKind==='tuzi-fixed' && task.model.startsWith(`${c.id}::`))) {
+        throw new Error('该 Tuzi 任务缺少原 Key 标识，不能使用当前 Key 猜测恢复');
+    }
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (task.protocol === "kling-text2video" || task.protocol === "kling-image2video") {
+        const action = task.protocol.slice("kling-".length);
+        const { data: payload } = await axios.get(minimaxUrl(requestConfig, `/kling/v1/videos/${action}/${encodeURIComponent(task.id)}`), { headers: aiHeaders(requestConfig), signal: options?.signal });
+        if (payload.code !== undefined && Number(payload.code) !== 0) return { status: "failed", error: payload.message || apiText("videoGenerationFailed") };
+        const result = payload.data;
+        if (result?.task_status === "failed") return { status: "failed", error: result.task_status_msg || apiText("videoGenerationFailed") };
+        const url = result?.task_result?.videos?.[0]?.url;
+        if (result?.task_status === "succeed" && url) return { status: "completed", result: await videoResultFromUrl(url, options) };
+        return { status: "pending" };
+    }
+    if (task.protocol === "minimax-h3-v2") {
+        const response = await axios.get(minimaxUrl(requestConfig, `/v2/query/video_generation/${encodeURIComponent(task.id)}`), { headers: aiHeaders(requestConfig), signal: options?.signal });
+        const video = normalizeMiniMaxH3VideoResponse(response.data, task.id);
+        if (video.status === "failed") return { status: "failed", error: video.error?.message || apiText("videoGenerationFailed") };
+        const url = videoResultUrl(video as VideoResponse);
+        if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
+        return { status: "pending" };
+    }
     if (task.provider === "gemini") return pollGeminiVideoTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
@@ -136,7 +259,12 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
         }),
     );
     const id = nanoid();
+    if (result.url?.startsWith('blob:')) {
+        result.blob = await (await fetch(result.url)).blob();
+        delete result.url;
+    }
     pluginVideoResults.set(id, result);
+    await pluginVideoResultStore.setItem(id, result);
     return { id, provider: "plugin", model };
 }
 
@@ -164,21 +292,31 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     throw new Error(apiText("noPlayableVideo"));
 }
 
-async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
+function minimaxUrl(config: AiConfig, path: string) {
+    return withLocalProxy(`${config.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "")}${path}`);
+}
+
+async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions, params?: Record<string, string | number | boolean>): Promise<VideoGenerationTask> {
     const images = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
     const audios = await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
     const mode = resolveVideoMode(config.videoMode, images.length);
     const body = new FormData();
-    body.append("model", modelOptionName(model));
+    const submission = params ? resolveVideoSubmission(modelOptionName(model), params.duration === undefined ? undefined : String(params.duration), undefined, params) : undefined;
+    body.append("model", submission?.model || modelOptionName(model));
     body.append("prompt", prompt);
-    body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
-    body.append("size", normalizeVideoSize(config.size, config.vquality) || "1280x720");
-    body.append("resolution_name", normalizeVideoResolution(config.vquality));
-    body.append("generate_audio", String(boolConfig(config.videoGenerateAudio, true)));
-    body.append("watermark", String(boolConfig(config.videoWatermark, false)));
-    body.append("mode", mode);
-    if (mode === "frames") {
+    if (!submission) body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
+    else if (submission.duration) body.append(submission.durationField, submission.duration);
+    body.append("size", params?.size !== undefined ? String(params.size) : normalizeVideoSize(config.size, config.vquality) || "1280x720");
+    if (!params) {
+        body.append("resolution_name", normalizeVideoResolution(config.vquality));
+        body.append("generate_audio", String(boolConfig(config.videoGenerateAudio, true)));
+        body.append("watermark", String(boolConfig(config.videoWatermark, false)));
+        body.append("mode", mode);
+    }
+    if (params) {
+        images.forEach(file => body.append("input_reference", file, "ref.png"));
+    } else if (mode === "frames") {
         if (images[0]) body.append("first_frame", images[0], "first.png");
         if (images[1]) body.append("last_frame", images[1], "last.png");
     } else {
@@ -198,14 +336,14 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
-        const url = videoResultUrl(video);
+        const url = extractInlineVideoUrl(video) || videoResultUrl(video);
         if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
-        if (video.status === "completed") {
+        if (["completed", "complete", "succeeded", "succeed", "success", "done"].includes(String(video.status || "").toLowerCase())) {
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
         }
-        if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || apiText("videoGenerationFailed") };
+        if (["failed", "failure", "error", "cancelled", "canceled"].includes(String(video.status || "").toLowerCase())) return { status: "failed", error: readApiErrorMessage(video.error?.message) || apiText("videoGenerationFailed") };
         return { status: "pending" };
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("videoTaskQueryFailed")));
@@ -362,7 +500,7 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
 }
 
 function videoResultUrl(payload: VideoResponse) {
-    return [payload.video_url, payload.result_url, payload.url, payload.content?.video_url, payload.content?.url].find((url) => typeof url === "string" && (isPublicMediaUrl(url) || /\.mp4(\?|#|$)/i.test(url)));
+    return [payload.video_url, payload.result_url, payload.url, payload.content?.video_url, payload.content?.url, payload.metadata?.video_url, payload.metadata?.url].find((url) => typeof url === "string" && (isPublicMediaUrl(url) || /\.mp4(\?|#|$)/i.test(url)));
 }
 
 function readApiErrorMessage(value: unknown): string {

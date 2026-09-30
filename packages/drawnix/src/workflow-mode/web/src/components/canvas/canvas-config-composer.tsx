@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isImeComposing } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
@@ -38,9 +39,12 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
+    const compositionValueRef = useRef(value);
+    const [isComposing, setIsComposing] = useState(false);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const lastEmittedRef = useRef(value);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const candidates = useMemo(() => {
@@ -50,10 +54,10 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
         return inputs.filter((input) => `${resourceLabel(input, inputs)} ${input.title} ${input.type === "group" ? "" : input.text || ""}`.toLowerCase().includes(query));
     }, [inputs, mention]);
 
-    useEffect(() => {
-        if (document.activeElement === editorRef.current) return;
+    const renderValue = (force = false) => {
         const editor = editorRef.current;
-        if (!editor) return;
+        if (!editor || composingRef.current) return;
+        if (!force && document.activeElement === editor && value === lastEmittedRef.current) return;
         editor.textContent = "";
         tokens.forEach((token) => {
             if (token.type === "text") {
@@ -63,17 +67,21 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
             const input = referenceById.get(token.nodeId);
             if (input) editor.append(createReferenceChip(input, inputs, theme, setImagePreview));
         });
-    }, [inputs, referenceById, theme, tokens]);
+        lastEmittedRef.current = value;
+    };
+    useEffect(() => { renderValue(); }, [inputs, referenceById, theme, tokens]);
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
         if (!editor) return;
         const next = serializeEditor(editor);
+        lastEmittedRef.current = next;
         onChange(next);
         syncMention();
     };
 
     const syncMention = () => {
+        if (composingRef.current) return;
         const text = textBeforeCaret();
         const match = /@([^\s@]*)$/.exec(text);
         if (!match || !inputs.length) {
@@ -109,7 +117,8 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
             placeCaretAtEnd(editor);
         }
         closeMention();
-        onChange(serializeEditor(editor));
+        lastEmittedRef.current = serializeEditor(editor);
+        onChange(lastEmittedRef.current);
     };
 
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
@@ -132,7 +141,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
             </div>
             <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
             <div className="relative rounded-xl">
-                {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>{t("canvas.composer.placeholder")}</div> : null}
+                {!isComposing && !value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
                     contentEditable
@@ -144,13 +153,19 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                     }}
                     onCompositionStart={() => {
                         composingRef.current = true;
+                        compositionValueRef.current = value;
+                        setIsComposing(true);
+                        closeMention();
                     }}
                     onCompositionEnd={() => {
                         composingRef.current = false;
-                        syncFromEditor();
+                        setIsComposing(false);
+                        if (value !== compositionValueRef.current) renderValue(true);
+                        else syncFromEditor();
                     }}
                     onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                         event.stopPropagation();
+                        if (composingRef.current || isImeComposing(event)) return;
                         if (mention && candidates.length) {
                             if (event.key === "ArrowDown") {
                                 event.preventDefault();
