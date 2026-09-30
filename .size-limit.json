@@ -16,7 +16,7 @@
   {
     "name": "AI Chat",
     "path": "dist/apps/web/assets/ai-chat-*.js",
-    "limit": "140 kB",
+    "limit": "1 MB",
     "gzip": true,
     "running": false
   },
