@@ -65,7 +65,12 @@ describe('synchronizeTuziManagedProviders', () => {
       { id: 'tuzi-mix', name: 'gemini-mix 分组', enabled: true },
       { id: 'tuzi-codex', name: 'codex 分组', enabled: true },
       { id: 'tuzi-business', name: 'Business', enabled: true },
-      { id: 'custom-provider', name: 'Custom', apiKey: 'keep-me' },
+      {
+        id: 'custom-provider',
+        name: 'Custom',
+        apiKey: 'keep-me',
+        enabled: false,
+      },
       { id: 'tuzi-managed-old', name: 'Old managed', apiKey: 'old' },
       { id: 'tuzi-managed-image', name: 'Old image', apiKey: 'old-image' },
     ]);
@@ -122,7 +127,7 @@ describe('synchronizeTuziManagedProviders', () => {
       updatedProfiles.find(
         (profile: { id: string }) => profile.id === 'custom-provider'
       ).enabled
-    ).not.toBe(false);
+    ).toBe(true);
   });
 
   it('preserves ordinary keys while clearing managed credentials', async () => {

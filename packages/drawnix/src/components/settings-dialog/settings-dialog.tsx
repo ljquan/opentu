@@ -1501,13 +1501,21 @@ export const SettingsDialog = ({
       const currentIsVisible = nextProfiles.some(
         (profile) =>
           profile.id === currentProfileId &&
-          shouldShowProviderProfile(profile.id, hasTuziSystemToken())
+          shouldShowProviderProfile(
+            profile.id,
+            hasTuziSystemToken(),
+            Boolean(profile.apiKey?.trim())
+          )
       );
       if (currentIsVisible) return currentProfileId;
 
       return (
         nextProfiles.find((profile) =>
-          shouldShowProviderProfile(profile.id, hasTuziSystemToken())
+          shouldShowProviderProfile(
+            profile.id,
+            hasTuziSystemToken(),
+            Boolean(profile.apiKey?.trim())
+          )
         )?.id || LEGACY_DEFAULT_PROVIDER_PROFILE_ID
       );
     });
@@ -1601,10 +1609,21 @@ export const SettingsDialog = ({
       selectedProfileId &&
       profilesDraft.length > 0 &&
       (!profilesDraft.some((profile) => profile.id === selectedProfileId) ||
-        !shouldShowProviderProfile(selectedProfileId, showTuziProviders))
+        !shouldShowProviderProfile(
+          selectedProfileId,
+          showTuziProviders,
+          Boolean(
+            profilesDraft.find((profile) => profile.id === selectedProfileId)
+              ?.apiKey?.trim()
+          )
+        ))
     ) {
       const firstVisibleProfile = profilesDraft.find((profile) =>
-        shouldShowProviderProfile(profile.id, showTuziProviders)
+        shouldShowProviderProfile(
+          profile.id,
+          showTuziProviders,
+          Boolean(profile.apiKey?.trim())
+        )
       );
       if (firstVisibleProfile) setSelectedProfileId(firstVisibleProfile.id);
     }
@@ -3024,8 +3043,13 @@ export const SettingsDialog = ({
       : [];
     const customProfiles = profilesDraft.filter(
       (profile) =>
-        shouldShowProviderProfile(profile.id, showTuziProviders) &&
-        !isTuziManagedProviderProfileId(profile.id)
+        shouldShowProviderProfile(
+          profile.id,
+          showTuziProviders,
+          Boolean(profile.apiKey?.trim())
+        ) &&
+        (!isTuziManagedProviderProfileId(profile.id) ||
+          !showTuziProviders)
     );
 
     return (
@@ -3163,7 +3187,11 @@ export const SettingsDialog = ({
   const renderProviderForm = (compactMode = false) => {
     if (
       !selectedProfile ||
-      !shouldShowProviderProfile(selectedProfile.id, showTuziProviders)
+      !shouldShowProviderProfile(
+        selectedProfile.id,
+        showTuziProviders,
+        Boolean(selectedProfile.apiKey?.trim())
+      )
     ) {
       return (
         <div className="settings-dialog__empty-panel">

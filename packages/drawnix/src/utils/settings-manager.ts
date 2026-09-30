@@ -910,7 +910,9 @@ class SettingsManager {
           ),
           preferAsyncImageEndpoint: profile.preferAsyncImageEndpoint === true,
           extraHeaders: this.normalizeStringRecord(profile.extraHeaders),
-          enabled: profile.enabled !== false,
+          enabled:
+            profile.enabled !== false ||
+            (typeof profile.apiKey === 'string' && profile.apiKey.trim() !== ''),
           capabilities: this.normalizeCapabilities(profile.capabilities),
           pricingUrl: normalizeNullableString(profile.pricingUrl) || undefined,
           cnyPerUsd:
