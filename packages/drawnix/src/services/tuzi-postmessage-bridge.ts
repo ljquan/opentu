@@ -1,3 +1,5 @@
+import type { TuziProviderVerification } from './tuzi-provider-reuse-state';
+import { resetTuziProviderVerification } from './tuzi-provider-reuse-state';
 import {
   clearTuziBridgeCredentials,
   setTuziBridgeCredentials,
@@ -35,12 +37,21 @@ export interface TuziBridgeProvider {
 type BridgeMode = 'unknown' | 'tuzi' | 'standalone';
 type MessagePayload = Record<string, unknown>;
 
+// Only created after validating the parent window, origin, protocol and request ID.
+class TuziParentResponseError extends Error {}
+
 let mode: BridgeMode = 'unknown';
 let context: TuziBridgeContext | null = null;
 let parentOrigin: string | null = null;
 let contextRequest: Promise<TuziBridgeContext | null> | null = null;
+let connectionError: string | null = null;
 
 async function clearManagedProvidersForAccountBoundary(): Promise<void> {
+  resetTuziProviderVerification();
+  const { resetTuziSessionProviderSyncCache } = await import(
+    './tuzi-session-provider-sync'
+  );
+  resetTuziSessionProviderSyncCache();
   const { synchronizeTuziManagedProviders } = await import(
     './tuzi-managed-providers'
   );
@@ -79,7 +90,9 @@ function randomRequestId(): string {
 function notify(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
-    new CustomEvent(TUZI_BRIDGE_EVENT, { detail: { mode, context } })
+    new CustomEvent(TUZI_BRIDGE_EVENT, {
+      detail: { mode, context, connectionError },
+    })
   );
 }
 
@@ -180,7 +193,7 @@ function requestParent(
       if (response.type === 'TUZI_OPENTU_ERROR') {
         const errorPayload = response.payload || {};
         reject(
-          new Error(
+          new TuziParentResponseError(
             String(errorPayload.message || errorPayload.code || 'Tuzi 请求失败')
           )
         );
@@ -209,7 +222,7 @@ function requestParent(
 export async function requestTuziParentContext(options?: {
   refresh?: boolean;
 }): Promise<TuziBridgeContext | null> {
-  if (!options?.refresh && mode === 'tuzi') return context;
+  if (!options?.refresh && mode === 'tuzi' && context) return context;
   if (!options?.refresh && mode === 'standalone') return null;
   if (contextRequest) return contextRequest;
 
@@ -232,6 +245,7 @@ export async function requestTuziParentContext(options?: {
       }
       context = nextContext;
       mode = 'tuzi';
+      connectionError = null;
       setTuziBridgeCredentials(
         nextContext.userId,
         nextContext.systemToken || ''
@@ -239,10 +253,19 @@ export async function requestTuziParentContext(options?: {
       notify();
       return nextContext;
     })
-    .catch(() => {
-      mode = 'standalone';
+    .catch((error) => {
       context = null;
-      clearTuziBridgeCredentials();
+      if (mode === 'tuzi' || error instanceof TuziParentResponseError) {
+        // A temporary failure cannot change the identity of a verified host.
+        // Keep bridge credentials active but empty to prevent legacy fallback.
+        mode = 'tuzi';
+        connectionError = '暂时无法连接 Tuzi 账户，请重试';
+        resetTuziProviderVerification();
+        setTuziBridgeCredentials('', '');
+      } else {
+        mode = 'standalone';
+        clearTuziBridgeCredentials();
+      }
       notify();
       return null;
     })
@@ -254,14 +277,16 @@ export async function requestTuziParentContext(options?: {
 
 export async function requestTuziParentAuthentication(): Promise<boolean> {
   if (mode !== 'tuzi' || context?.status !== 'unauthenticated') {
-    return context?.status === 'ready' || context?.status === 'need_system_token';
+    return (
+      context?.status === 'ready' || context?.status === 'need_system_token'
+    );
   }
   try {
     await requestParent(
       'TUZI_AUTH_REQUIRED',
       {},
       'TUZI_AUTH_COMPLETED',
-      TUZI_REQUEST_TIMEOUT_MS * 4,
+      TUZI_REQUEST_TIMEOUT_MS * 4
     );
     const nextContext = await requestTuziParentContext({ refresh: true });
     return (
@@ -277,6 +302,7 @@ export async function createTuziSystemToken(): Promise<TuziBridgeContext> {
   if (mode !== 'tuzi' || context?.status !== 'need_system_token') {
     throw new Error('当前不是可创建系统令牌的 Tuzi 环境');
   }
+  const expectedUserId = context.userId;
   const payload = await requestParent(
     'TUZI_CREATE_SYSTEM_TOKEN',
     {},
@@ -285,7 +311,14 @@ export async function createTuziSystemToken(): Promise<TuziBridgeContext> {
   );
   const nextContext = acceptContext({ ...payload, status: 'ready' });
   if (!nextContext) throw new Error('系统令牌创建响应无效');
+  if (
+    context?.userId !== expectedUserId ||
+    nextContext.userId !== expectedUserId
+  ) {
+    throw new Error('账户已变化，请重新关联');
+  }
   context = nextContext;
+  connectionError = null;
   setTuziBridgeCredentials(nextContext.userId, nextContext.systemToken || '');
   notify();
   return nextContext;
@@ -294,7 +327,9 @@ export async function createTuziSystemToken(): Promise<TuziBridgeContext> {
 export async function ensureTuziProviders(
   groups: readonly string[]
 ): Promise<TuziBridgeProvider[]> {
-  if (mode !== 'tuzi') throw new Error('当前不是 Tuzi 嵌入环境');
+  if (mode !== 'tuzi' || context?.status !== 'ready')
+    throw new Error('请先关联 Tuzi 账户');
+  const expectedContext = context;
   const payload = await requestParent(
     'TUZI_ENSURE_PROVIDERS',
     {
@@ -303,6 +338,13 @@ export async function ensureTuziProviders(
     'TUZI_PROVIDERS_READY',
     TUZI_REQUEST_TIMEOUT_MS
   );
+  if (
+    !context ||
+    context.userId !== expectedContext.userId ||
+    context.systemToken !== expectedContext.systemToken
+  ) {
+    throw new Error('账户已变化，请重新添加分组');
+  }
   if (payload.environment !== 'tuzi-api' || !Array.isArray(payload.providers)) {
     throw new Error('Provider 创建响应无效');
   }
@@ -328,6 +370,30 @@ export async function ensureTuziProviders(
   });
 }
 
+export async function verifyTuziProviders(
+  candidates: { id: string; fingerprint: string }[]
+): Promise<TuziProviderVerification[]> {
+  if (mode !== 'tuzi' || context?.status !== 'ready')
+    throw new Error('请先关联 Tuzi 账户');
+  const expected = context;
+  const payload = await requestParent(
+    'TUZI_VERIFY_PROVIDERS',
+    { candidates },
+    'TUZI_PROVIDERS_VERIFIED',
+    TUZI_REQUEST_TIMEOUT_MS
+  );
+  if (
+    !context ||
+    context.userId !== expected.userId ||
+    context.systemToken !== expected.systemToken ||
+    String(payload.userId) !== expected.userId
+  )
+    throw new Error('账户已变化，请重新核验');
+  if (payload.environment !== 'tuzi-api' || !Array.isArray(payload.providers))
+    throw new Error('令牌核验响应无效');
+  return payload.providers as TuziProviderVerification[];
+}
+
 export function isTuziBridgeConnected(): boolean {
   return mode === 'tuzi';
 }
@@ -340,10 +406,23 @@ export function getTuziBridgeMode(): BridgeMode {
   return mode;
 }
 
+export function getTuziBridgeError(): string | null {
+  return connectionError;
+}
+
+export function getTuziTokenManagementUrl(): string {
+  return new URL(
+    '/console/token',
+    mode === 'tuzi' && parentOrigin ? parentOrigin : 'https://api.tu-zi.com'
+  ).href;
+}
+
 export function resetTuziBridgeForTests(): void {
+  resetTuziProviderVerification();
   mode = 'unknown';
   context = null;
   parentOrigin = null;
   contextRequest = null;
+  connectionError = null;
   clearTuziBridgeCredentials();
 }

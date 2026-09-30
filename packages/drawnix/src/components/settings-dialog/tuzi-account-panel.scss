@@ -637,7 +637,9 @@
     justify-content: flex-end;
     margin-top: 12px;
 
-    button {
+    button,
+    a {
+      text-decoration: none;
       min-height: 34px;
       display: inline-flex;
       align-items: center;

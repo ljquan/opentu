@@ -1,3 +1,10 @@
+import { TuziTokenPicker } from './TuziTokenPicker';
+import {
+  getReusedTuziProviders,
+  getTuziProviderIssues,
+  getTuziActiveProviderId,
+  saveTuziActiveProviderId,
+} from '../../services/tuzi-provider-reuse-state';
 import {
   useCallback,
   useEffect,
@@ -28,7 +35,6 @@ import {
   type TuziLogPage,
   type TuziUsageLog,
   type TuziManagedProvider,
-  type TuziProviderGroup,
 } from '../../services/tuzi-session-api';
 import { synchronizeTuziManagedProviders } from '../../services/tuzi-managed-providers';
 import { discoverAndUseAllTuziProviderModels } from '../../services/tuzi-managed-provider-models';
@@ -41,6 +47,10 @@ import {
   createTuziSystemToken,
   getTuziBridgeContext,
   isTuziBridgeConnected,
+  getTuziBridgeError,
+  getTuziTokenManagementUrl,
+  requestTuziParentContext,
+  requestTuziParentAuthentication,
 } from '../../services/tuzi-postmessage-bridge';
 import {
   clearTuziProviderGroupSelection,
@@ -599,6 +609,7 @@ function localManagedProviders(
       status: profile.enabled === false ? 0 : 1,
       rotatedAt: 0,
     }))
+    .concat(getReusedTuziProviders(providerProfilesSettings.get()))
     .filter(
       (provider) =>
         provider.group.length > 0 &&
@@ -607,12 +618,14 @@ function localManagedProviders(
 }
 
 interface TuziAccountPanelProps {
+  onGroupsAdded?: () => void;
   onProvidersChanged?: () => void;
   onSetupCompleted?: () => void;
   openProviderSelectionRequest?: number;
 }
 
 export function TuziAccountPanel({
+  onGroupsAdded,
   onProvidersChanged,
   onSetupCompleted,
   openProviderSelectionRequest = 0,
@@ -627,9 +640,14 @@ export function TuziAccountPanel({
   );
   const providerSelectionRequired = useRef(
     localManagedProviders(initialStoredSelection).length === 0 &&
-      initialStoredSelection === null
+      !initialStoredSelection?.length
+  );
+  const selectionPurpose = useRef<'setup' | 'add'>(
+    openProviderSelectionRequest > 0 ? 'add' : 'setup'
   );
   const onProvidersChangedRef = useRef(onProvidersChanged);
+  const onGroupsAddedRef = useRef(onGroupsAdded);
+  onGroupsAddedRef.current = onGroupsAdded;
   const onSetupCompletedRef = useRef(onSetupCompleted);
   const [systemToken, setSystemToken] = useState(getTuziSystemToken);
   const [systemUserId, setSystemUserId] = useState(getTuziSystemUserId);
@@ -645,6 +663,10 @@ export function TuziAccountPanel({
   const [providers, setProviders] = useState<TuziManagedProvider[]>(() =>
     localManagedProviders(initialStoredSelection)
   );
+  const [activeProviderId, setActiveProviderId] = useState(
+    getTuziActiveProviderId
+  );
+  const [reusedSetupCompleted, setReusedSetupCompleted] = useState(false);
   const [activeGroup, setActiveGroup] = useState(
     () =>
       resolveTuziActiveProviderGroup(
@@ -654,17 +676,8 @@ export function TuziAccountPanel({
         )
       ) || ''
   );
-  const [availableGroups, setAvailableGroups] = useState<TuziProviderGroup[]>(
-    []
-  );
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [providerSelectionPending, setProviderSelectionPending] =
     useState(false);
-  const [providerSelectionCompleted, setProviderSelectionCompleted] =
-    useState(false);
-  const [providerSelectionLoading, setProviderSelectionLoading] =
-    useState(false);
-  const [providerSelectionFailed, setProviderSelectionFailed] = useState(false);
   const [displayConfig, setDisplayConfig] = useState<TuziDisplayConfig>(
     DEFAULT_DISPLAY_CONFIG
   );
@@ -699,9 +712,7 @@ export function TuziAccountPanel({
       const nextContext = await createTuziSystemToken();
       setSystemUserId(nextContext.userId);
       setSystemToken(nextContext.systemToken || '');
-      setAvailableGroups(nextContext.groups);
-      setSelectedGroups([]);
-      setProviderSelectionCompleted(false);
+
       providerSelectionRequired.current = true;
       refreshProvidersOnNextLoad.current = true;
       resetTuziSessionProviderSyncCache();
@@ -742,12 +753,9 @@ export function TuziAccountPanel({
       setDisplayConfigReady(false);
       setLogs(EMPTY_LOG_PAGE);
     }
-    setAvailableGroups([]);
-    setSelectedGroups([]);
+
     setProviderSelectionPending(false);
-    setProviderSelectionCompleted(false);
-    setProviderSelectionLoading(false);
-    setProviderSelectionFailed(false);
+
     providerSelectionRequired.current = true;
     setLoading(true);
     setProvidersLoading(false);
@@ -778,12 +786,9 @@ export function TuziAccountPanel({
     setTokenDraft('');
     setAccount(null);
     setProviders([]);
-    setAvailableGroups([]);
-    setSelectedGroups([]);
+
     setProviderSelectionPending(false);
-    setProviderSelectionCompleted(false);
-    setProviderSelectionLoading(false);
-    setProviderSelectionFailed(false);
+
     providerSelectionRequired.current = true;
     setProvidersLoading(false);
     modelsRequestVersion.current += 1;
@@ -843,13 +848,16 @@ export function TuziAccountPanel({
       discoverModels = false,
       groups?: readonly string[],
       prepareProviderSelection = false,
-      resetProviderSelection = false
+      resetProviderSelection = false,
+      allowReplacement = false
     ) => {
       const requestVersion = ++accountRequestVersion.current;
       const requestToken = systemToken;
+      const requestUserId = getTuziSystemUserId();
       const isCurrentRequest = () =>
         requestVersion === accountRequestVersion.current &&
-        getTuziSystemToken() === requestToken;
+        getTuziSystemToken() === requestToken &&
+        getTuziSystemUserId() === requestUserId;
       setLoading(true);
       setError(null);
       setDisplayConfigReady(false);
@@ -857,36 +865,41 @@ export function TuziAccountPanel({
         // Reveal the selection step immediately. Account and provider work is
         // the second phase and must not hide this first, actionable screen.
         setProviderSelectionPending(true);
-        setProviderSelectionCompleted(false);
-        setProviderSelectionLoading(true);
-        setProviderSelectionFailed(false);
       }
       let hasCachedAccount = false;
       try {
-        if (prepareProviderSelection) {
-          const nextGroups = await createClient().getProviderGroups();
+        if (
+          isTuziBridgeConnected() ||
+          providerProfilesSettings
+            .get()
+            .some((profile) => profile.id.startsWith('tuzi-token-'))
+        ) {
+          const reused = await createClient().verifyExistingProviders();
           if (!isCurrentRequest()) return;
-          const selectionUserId = getTuziSystemUserId();
-          const persistedSelection = resetProviderSelection
-            ? null
-            : getTuziProviderGroupSelection(selectionUserId);
-          const existingSelection = resetProviderSelection
-            ? []
-            : localManagedProviders().map((provider) => provider.group);
-          const allowedGroups = new Set(nextGroups.map((group) => group.group));
-          setAvailableGroups(nextGroups);
-          const initialSelection =
-            persistedSelection ??
-            (existingSelection.length > 0
-              ? existingSelection
-              : nextGroups.some((group) => group.group === 'default')
-                ? ['default']
-                : []);
-          setSelectedGroups(
-            initialSelection.filter((group) => allowedGroups.has(group))
-          );
-          setProviderSelectionLoading(false);
-          setProviderSelectionFailed(false);
+          if (reused.length) {
+            const existing = getTuziProviderGroupSelection(requestUserId) || [];
+            saveTuziProviderGroupSelection(requestUserId, [
+              ...new Set([
+                ...existing,
+                ...reused.flatMap(
+                  (provider) => provider.groups || [provider.group]
+                ),
+              ]),
+            ]);
+            if (
+              prepareProviderSelection &&
+              selectionPurpose.current === 'setup'
+            ) {
+              prepareProviderSelection = false;
+              providerSelectionRequired.current = false;
+              refreshProvidersOnNextLoad.current = false;
+              setProviderSelectionPending(false);
+
+              setReusedSetupCompleted(true);
+            }
+          }
+        }
+        if (prepareProviderSelection) {
           providerSelectionRequired.current = false;
           refreshProvidersOnNextLoad.current = false;
           return;
@@ -956,8 +969,21 @@ export function TuziAccountPanel({
           nextProviders = await createClient(
             requestToken,
             String(nextAccount.id)
-          ).ensureManagedProviders(groups);
+          ).ensureManagedProviders(groups, allowReplacement);
           if (!isCurrentRequest()) return;
+          if (
+            groups?.some(
+              (group) =>
+                !nextProviders.some(
+                  (provider) =>
+                    (provider.groups || [provider.group]).includes(group) &&
+                    provider.status === 1 &&
+                    provider.apiKey
+                )
+            )
+          ) {
+            throw new Error('部分分组尚未配置成功，请重试');
+          }
           setProviders(nextProviders);
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
           if (!isCurrentRequest()) return;
@@ -1001,8 +1027,6 @@ export function TuziAccountPanel({
         if (prepareProviderSelection) {
           providerSelectionRequired.current = true;
           refreshProvidersOnNextLoad.current = true;
-          setProviderSelectionLoading(false);
-          setProviderSelectionFailed(true);
         }
         if (!hasCachedAccount) {
           setAccount(null);
@@ -1012,15 +1036,12 @@ export function TuziAccountPanel({
         return false;
       } finally {
         if (isCurrentRequest()) {
-          if (prepareProviderSelection) {
-            setProviderSelectionLoading(false);
-          }
           setProvidersLoading(false);
           setLoading(false);
         }
       }
     },
-    [createClient, systemToken]
+    [createClient, systemToken, systemUserId]
   );
 
   const handleManualRefresh = useCallback(() => {
@@ -1049,39 +1070,31 @@ export function TuziAccountPanel({
     systemToken,
   ]);
 
-  const applyProviderSelection = useCallback(async () => {
-    if (providerSelectionCompleted) {
+  const completeTokenSelection = useCallback(
+    (added: TuziManagedProvider[]) => {
+      const userId = getTuziSystemUserId();
+      const groups = [
+        ...new Set([
+          ...(getTuziProviderGroupSelection(userId) || []),
+          ...added.flatMap((provider) => provider.groups || [provider.group]),
+        ]),
+      ];
+      saveTuziProviderGroupSelection(userId, groups);
+      if (added[0]) {
+        saveTuziActiveProviderGroup(userId, added[0].group);
+        saveTuziActiveProviderId(added[0].id);
+        setActiveProviderId(added[0].id);
+        setActiveGroup(added[0].group);
+      }
+      resetTuziSessionProviderSyncCache();
       setProviderSelectionPending(false);
-      setProviderSelectionCompleted(false);
-      onSetupCompletedRef.current?.();
-      return;
-    }
-    if (loading || providerSelectionLoading || providerSelectionFailed) return;
-    const selectionUserId = systemUserId || account?.id;
-    if (!selectionUserId) return;
-    saveTuziProviderGroupSelection(selectionUserId, selectedGroups);
-    const nextActiveGroup = resolveTuziActiveProviderGroup(
-      selectionUserId,
-      selectedGroups
-    );
-    if (nextActiveGroup) {
-      saveTuziActiveProviderGroup(selectionUserId, nextActiveGroup);
-      setActiveGroup(nextActiveGroup);
-    }
-    setProviderSelectionCompleted(false);
-    resetTuziSessionProviderSyncCache();
-    const completed = await load(true, true, selectedGroups);
-    if (completed) setProviderSelectionCompleted(true);
-  }, [
-    account,
-    load,
-    loading,
-    providerSelectionFailed,
-    providerSelectionLoading,
-    providerSelectionCompleted,
-    selectedGroups,
-    systemUserId,
-  ]);
+      onProvidersChangedRef.current?.();
+      if (selectionPurpose.current === 'add') onGroupsAddedRef.current?.();
+      else onSetupCompletedRef.current?.();
+      void load(false);
+    },
+    [load]
+  );
 
   const openProviderSelection = useCallback(() => {
     if (
@@ -1094,6 +1107,7 @@ export function TuziAccountPanel({
     ) {
       return;
     }
+    selectionPurpose.current = 'add';
     void load(false, false, undefined, true, false);
   }, [
     load,
@@ -1143,12 +1157,16 @@ export function TuziAccountPanel({
   }, [account?.id, providers, systemUserId]);
 
   const handleActiveGroupChange = useCallback(
-    (group: string) => {
+    (group: string, profileId?: string) => {
       const selectionUserId = systemUserId || account?.id;
       if (!selectionUserId || !providers.some((item) => item.group === group)) {
         return;
       }
       saveTuziActiveProviderGroup(selectionUserId, group);
+      if (profileId) {
+        saveTuziActiveProviderId(profileId);
+        setActiveProviderId(profileId);
+      }
       setActiveGroup(group);
     },
     [account?.id, providers, systemUserId]
@@ -1161,7 +1179,9 @@ export function TuziAccountPanel({
       try {
         const replacement = await createClient().rotateManagedProvider(group);
         const nextProviders = providers.map((provider) =>
-          provider.group === group ? replacement : provider
+          provider.source !== 'existing' && provider.group === group
+            ? replacement
+            : provider
         );
         setProviders(nextProviders);
         try {
@@ -1191,10 +1211,15 @@ export function TuziAccountPanel({
     if (systemToken) {
       const prepareProviderSelection =
         refreshProvidersOnNextLoad.current || providerSelectionRequired.current;
+      const savedGroups = getTuziProviderGroupSelection(getTuziSystemUserId());
+      const restoreProviders =
+        !prepareProviderSelection &&
+        Boolean(savedGroups?.length) &&
+        localManagedProviders(savedGroups).length === 0;
       void load(
-        false,
-        false,
-        undefined,
+        restoreProviders,
+        restoreProviders,
+        restoreProviders ? savedGroups || undefined : undefined,
         prepareProviderSelection,
         refreshProvidersOnNextLoad.current
       );
@@ -1325,15 +1350,63 @@ export function TuziAccountPanel({
     ? 'Provider 同步中'
     : modelsLoading
     ? '模型同步中'
+    : providerSelectionPending
+    ? '待添加令牌'
     : error
     ? '同步失败'
     : '已同步';
+  const providerIssues = getTuziProviderIssues(providerProfilesSettings.get());
+  const selectedProviderId = providers.some(
+    (provider) => provider.id === activeProviderId
+  )
+    ? activeProviderId
+    : providers.find((provider) => provider.group === activeGroup)?.id;
   const embeddedBridge = isTuziBridgeConnected();
+  const bridgeError = getTuziBridgeError();
+  const bridgeNeedsLogin =
+    embeddedBridge && getTuziBridgeContext()?.status === 'unauthenticated';
   const bridgeNeedsToken =
     embeddedBridge && getTuziBridgeContext()?.status === 'need_system_token';
+  const reconnectAccount = async () => {
+    setLoading(true);
+    try {
+      if (bridgeNeedsLogin) await requestTuziParentAuthentication();
+      await requestTuziParentContext({ refresh: true });
+      setSystemToken(getTuziSystemToken());
+      setSystemUserId(getTuziSystemUserId());
+      setConnectionRevision((value) => value + 1);
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className="tuzi-account-panel">
       <div className="tuzi-account-panel__body">
+        {providerIssues.length > 0 && (
+          <div role="status">
+            {providerIssues.map((issue) => (
+              <p key={issue.id}>
+                {issue.name}：{issue.reason}，请在令牌管理中处理。
+              </p>
+            ))}
+          </div>
+        )}
+        {reusedSetupCompleted && (
+          <div role="status">
+            已关联，已复用{' '}
+            {
+              providers.filter((provider) => provider.source === 'existing')
+                .length
+            }{' '}
+            个已有供应商。
+            <button
+              type="button"
+              onClick={() => onSetupCompletedRef.current?.()}
+            >
+              完成并继续
+            </button>
+          </div>
+        )}
         <aside className="tuzi-account-panel__sidebar">
           <nav className="tuzi-account-panel__nav" aria-label="Tuzi 账户视图">
             <button
@@ -1461,7 +1534,20 @@ export function TuziAccountPanel({
                 </div>
                 {embeddedBridge ? (
                   <div className="tuzi-account-panel__token-actions">
-                    {bridgeNeedsToken ? (
+                    {bridgeError || bridgeNeedsLogin ? (
+                      <>
+                        <span role="alert">
+                          {bridgeError || '请先登录 Tuzi 账户'}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => void reconnectAccount()}
+                        >
+                          {bridgeNeedsLogin ? '登录并关联' : '重新连接'}
+                        </button>
+                      </>
+                    ) : bridgeNeedsToken ? (
                       <button
                         type="button"
                         disabled={loading}
@@ -1470,10 +1556,12 @@ export function TuziAccountPanel({
                         {loading ? (
                           <Loader2 size={16} className="is-spinning" />
                         ) : null}
-                        创建系统令牌
+                        创建并关联
                       </button>
                     ) : (
-                      <span>系统令牌已就绪</span>
+                      <span>
+                        {systemToken ? '系统令牌已就绪' : '等待账户关联'}
+                      </span>
                     )}
                   </div>
                 ) : (
@@ -1524,84 +1612,14 @@ export function TuziAccountPanel({
               </section>
             ) : null}
             {providerSelectionPending ? (
-              <section
-                className="tuzi-account-panel__provider-selection"
-                aria-labelledby="tuzi-provider-selection-title"
-              >
-                <div className="tuzi-account-panel__section-heading">
-                  <div>
-                    <h3 id="tuzi-provider-selection-title">
-                      {providerSelectionCompleted ? '分组已新增' : '选择要新增的分组'}
-                    </h3>
-                    <span>
-                      {providerSelectionCompleted
-                        ? '已创建的分组已添加到 OpenTu 供应商列表。'
-                        : '勾选后将为这些分组创建 API Key，并添加到 OpenTu 的供应商列表中。'}
-                    </span>
-                  </div>
-                  <span>{selectedGroups.length} 个已选</span>
-                </div>
-                {providerSelectionCompleted ? (
-                  <div className="tuzi-account-panel__selection-complete">
-                    <strong>配置已完成</strong>
-                    <span>当前使用分组：{activeGroup || 'default'}</span>
-                  </div>
-                ) : providerSelectionLoading ? (
-                  <div className="tuzi-account-panel__loading">
-                    <Loader2 size={18} className="is-spinning" />
-                    <span>正在读取可用分组</span>
-                  </div>
-                ) : providerSelectionFailed ? null : availableGroups.length ? (
-                  <div className="tuzi-account-panel__provider-options">
-                    {availableGroups.map((group) => (
-                      <label
-                        key={group.group}
-                        className={
-                          selectedGroups.includes(group.group)
-                            ? 'is-selected'
-                            : undefined
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedGroups.includes(group.group)}
-                          onChange={() =>
-                            setSelectedGroups((current) =>
-                              current.includes(group.group)
-                                ? current.filter((item) => item !== group.group)
-                                : [...current, group.group]
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>{group.displayName}</strong>
-                          <small>{group.group}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="tuzi-account-panel__empty">暂无可用分组</div>
-                )}
-                <div className="tuzi-account-panel__provider-selection-actions">
-                  <button
-                    type="button"
-                    disabled={
-                      loading ||
-                      providerSelectionLoading ||
-                      providerSelectionFailed ||
-                      selectedGroups.length === 0 ||
-                      (!account && !systemUserId)
-                    }
-                    onClick={() => void applyProviderSelection()}
-                  >
-                    {loading ? (
-                      <Loader2 size={16} className="is-spinning" />
-                    ) : null}
-                    {providerSelectionCompleted ? '完成' : '创建并继续'}
-                  </button>
-                </div>
-              </section>
+              <TuziTokenPicker
+                key={`${systemUserId}:${connectionRevision}`}
+                onComplete={completeTokenSelection}
+                onCancel={() => {
+                  setProviderSelectionPending(false);
+                  setActiveView('balance');
+                }}
+              />
             ) : null}
             {error ? (
               <div className="tuzi-account-panel__error" role="alert">
@@ -1658,7 +1676,9 @@ export function TuziAccountPanel({
                 </strong>
                 <span>
                   {!systemToken
-                    ? '填写令牌后才能读取账户余额、用量和日志。'
+                    ? embeddedBridge
+                      ? '关联当前 Tuzi 账户后即可添加分组并发送请求。'
+                      : '填写令牌后才能读取账户余额、用量和日志。'
                     : '连接成功后才会显示账户余额和用量。'}
                 </span>
               </div>
@@ -1711,20 +1731,6 @@ export function TuziAccountPanel({
                   <div className="tuzi-account-panel__section-heading">
                     <h3>分组 Key</h3>
                     <div className="tuzi-account-panel__section-actions">
-                      <button
-                        type="button"
-                        className="tuzi-account-panel__add-provider"
-                        disabled={
-                          loading ||
-                          providersLoading ||
-                          modelsLoading ||
-                          rotatingGroup !== null
-                        }
-                        onClick={openProviderSelection}
-                      >
-                        <Plus size={15} aria-hidden="true" />
-                        <span>获取其他分组</span>
-                      </button>
                       <span aria-label={`${providers.length} 个分组 Key`}>
                         {providers.length}
                       </span>
@@ -1736,51 +1742,83 @@ export function TuziAccountPanel({
                         <div
                           key={provider.id}
                           className={
-                            activeGroup === provider.group ? 'is-active' : ''
+                            selectedProviderId === provider.id
+                              ? 'is-active'
+                              : ''
                           }
                         >
                           <div className="tuzi-account-panel__provider-copy">
                             <strong>
                               {provider.displayName || provider.group}
                             </strong>
-                            <span>{provider.group}</span>
+                            <span>
+                              {provider.source === 'existing'
+                                ? `已关联 · 复用已有令牌 · ${
+                                    provider.tokenName || ''
+                                  } · ${(
+                                    provider.groups || [provider.group]
+                                  ).join('、')}`
+                                : provider.group}
+                            </span>
+                            {provider.restrictions?.length ? (
+                              <span>
+                                {provider.restrictions.join(' · ')}
+                                （保留原限制）
+                              </span>
+                            ) : null}
                           </div>
                           <div className="tuzi-account-panel__provider-actions">
                             <label className="tuzi-account-panel__active-provider">
                               <input
                                 type="radio"
                                 name="tuzi-active-provider-group"
-                                checked={activeGroup === provider.group}
+                                checked={selectedProviderId === provider.id}
                                 onChange={() =>
-                                  handleActiveGroupChange(provider.group)
+                                  handleActiveGroupChange(
+                                    provider.group,
+                                    provider.id
+                                  )
                                 }
                               />
                               <span>
-                                {activeGroup === provider.group
+                                {selectedProviderId === provider.id
                                   ? '当前使用'
                                   : '设为当前'}
                               </span>
                             </label>
-                            <HoverTip
-                              content={`换新 ${provider.group} 分组 Key`}
-                              showArrow={false}
-                            >
-                              <button
-                                type="button"
-                                aria-label={`换新 ${provider.group} 分组 Key`}
-                                disabled={rotatingGroup !== null}
-                                onClick={() =>
-                                  void rotateProvider(provider.group)
-                                }
+                            {provider.source === 'existing' ? (
+                              <a
+                                href={getTuziTokenManagementUrl()}
+                                target="_blank"
+                                rel="noopener noreferrer"
                               >
-                                {rotatingGroup === provider.group ? (
-                                  <Loader2 size={16} className="is-spinning" />
-                                ) : (
-                                  <KeyRound size={16} />
-                                )}
-                                <span>换新 Key</span>
-                              </button>
-                            </HoverTip>
+                                管理令牌
+                              </a>
+                            ) : (
+                              <HoverTip
+                                content={`换新 ${provider.group} 分组 Key`}
+                                showArrow={false}
+                              >
+                                <button
+                                  type="button"
+                                  aria-label={`换新 ${provider.group} 分组 Key`}
+                                  disabled={rotatingGroup !== null}
+                                  onClick={() =>
+                                    void rotateProvider(provider.group)
+                                  }
+                                >
+                                  {rotatingGroup === provider.group ? (
+                                    <Loader2
+                                      size={16}
+                                      className="is-spinning"
+                                    />
+                                  ) : (
+                                    <KeyRound size={16} />
+                                  )}
+                                  <span>换新 Key</span>
+                                </button>
+                              </HoverTip>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1793,11 +1831,17 @@ export function TuziAccountPanel({
                   <div className="tuzi-account-panel__provider-selection-actions">
                     <button
                       type="button"
-                      className="is-subtle"
-                      disabled={loading || providersLoading || modelsLoading}
+                      className="tuzi-account-panel__add-provider"
+                      disabled={
+                        loading ||
+                        providersLoading ||
+                        modelsLoading ||
+                        rotatingGroup !== null
+                      }
                       onClick={openProviderSelection}
                     >
-                      创建新的令牌分组
+                      <Plus size={15} aria-hidden="true" />
+                      <span>添加 Tuzi 令牌</span>
                     </button>
                   </div>
                 </section>

@@ -5409,16 +5409,26 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             initialRoute.baseUrl && initialRoute.apiKey
           );
           const routePreparation = await prepareTuziManagedRoute(initialRoute);
-          if (!hasRouteCredentials || routePreparation.managedRoute) {
+          if (
+            !hasRouteCredentials ||
+            routePreparation.context ||
+            routePreparation.managedRoute ||
+            routePreparation.requiresSetup
+          ) {
             if (abortIfSubmittedBoardChanged('tuzi_context')) return;
             hasRouteCredentials =
+              !routePreparation.requiresSetup &&
               hasInvocationRouteCredentials(
                 currentRouteType,
                 effectiveSelectedModelRef || effectiveSelectedModel
               ) &&
               (!routePreparation.managedRoute ||
                 routePreparation.context?.status === 'ready');
-            if (!hasRouteCredentials && routePreparation.context && !override) {
+            if (
+              !hasRouteCredentials &&
+              (routePreparation.context || routePreparation.requiresSetup) &&
+              !override
+            ) {
               const delegated =
                 await submitGenerationWithCredentialGateRef.current({
                   prompt: effectivePrompt,
@@ -5441,6 +5451,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 setIsSubmitting(false);
                 return;
               }
+            }
+            if (routePreparation.requiresSetup) {
+              MessagePlugin.error('请先完成 Tuzi 账户关联和分组配置，再重试');
+              submitLockRef.current = false;
+              setIsSubmitting(false);
+              return;
             }
             if (!hasRouteCredentials && !routePreparation.context) {
               const newApiKey = await promptForApiKey();

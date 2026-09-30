@@ -11,6 +11,7 @@ function tuziV1BaseUrl(): string {
 export async function discoverAndUseAllTuziProviderModels(
   provider: TuziManagedProvider
 ): Promise<number> {
+  if (provider.source === 'existing') return 0;
   try {
     await runtimeModelDiscovery.discover(
       provider.id,
@@ -60,8 +61,10 @@ export async function discoverChangedTuziProviderModels(
 ): Promise<void> {
   const changedProviders = providers.filter(
     (provider) =>
-      previousApiKeys.get(provider.id) !== provider.apiKey ||
-      runtimeModelDiscovery.getState(provider.id).discoveredModels.length === 0
+      provider.source !== 'existing' &&
+      (previousApiKeys.get(provider.id) !== provider.apiKey ||
+        runtimeModelDiscovery.getState(provider.id).discoveredModels.length ===
+          0)
   );
   const results = await Promise.allSettled(
     changedProviders.map(discoverAndUseAllTuziProviderModels)

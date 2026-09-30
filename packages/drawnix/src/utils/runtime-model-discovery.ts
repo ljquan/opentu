@@ -1,4 +1,13 @@
 import {
+  isCurrentTuziEndpoint,
+  isVerifiedTuziProvider,
+  TUZI_PROVIDER_REUSE_EVENT,
+} from '../services/tuzi-provider-reuse-state';
+import {
+  requestTuziParentContext,
+  TUZI_BRIDGE_EVENT,
+} from '../services/tuzi-postmessage-bridge';
+import {
   type ModelConfig,
   type ModelType,
   ModelVendor,
@@ -1280,17 +1289,17 @@ function getProfileById(profileId: string): ProviderProfile | null {
 }
 
 function isProfileEnabled(profileId: string): boolean {
-  if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
-    const profile = getProfileById(profileId);
-    // An explicitly configured API key does not require a Tuzi login token.
-    return profile?.enabled !== false && (
-      !isTuziEmbeddedMode() ||
-      hasTuziSystemToken() ||
-      Boolean(profile?.apiKey?.trim() && profile?.baseUrl?.trim())
-    );
+  const profile = getProfileById(profileId);
+  if (
+    isTuziEmbeddedMode() &&
+    profile &&
+    isCurrentTuziEndpoint(profile.baseUrl)
+  ) {
+    return profile.id.startsWith('tuzi-managed-')
+      ? profile.enabled !== false && hasTuziSystemToken()
+      : isVerifiedTuziProvider(profile);
   }
-
-  return getProfileById(profileId)?.enabled !== false;
+  return profile?.enabled !== false;
 }
 
 function canDiscoverProfileModels(profile: ProviderProfile | null): boolean {
@@ -1472,6 +1481,16 @@ class RuntimeModelDiscoveryStore {
   private revision = 0;
 
   constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener?.(
+        TUZI_PROVIDER_REUSE_EVENT,
+        this.handleProfileSettingsChange
+      );
+      window.addEventListener?.(
+        TUZI_BRIDGE_EVENT,
+        this.handleProfileSettingsChange
+      );
+    }
     this.catalogStates = this.loadCatalogStatesFromSettings();
     this.migrateLegacyCacheIfNeeded();
     this.syncRuntimeModelConfigs();
@@ -1978,6 +1997,23 @@ class RuntimeModelDiscoveryStore {
       throw new Error('缺少 API Key');
     }
 
+    if (isCurrentTuziEndpoint(baseUrl)) {
+      if (
+        typeof window !== 'undefined' &&
+        window.parent &&
+        window.parent !== window
+      )
+        await requestTuziParentContext();
+      if (isTuziEmbeddedMode()) {
+        const profile = getProfileById(profileId);
+        if (
+          !profile ||
+          !isProfileEnabled(profileId) ||
+          profile.apiKey.trim() !== trimmedApiKey
+        )
+          throw new Error('请先关联账户并核验该供应商令牌');
+      }
+    }
     const normalizedBaseUrl = normalizeModelApiBaseUrl(baseUrl);
     const signature = buildDiscoverySignature(normalizedBaseUrl, trimmedApiKey);
     const options = isAbortSignal(optionsOrSignal)

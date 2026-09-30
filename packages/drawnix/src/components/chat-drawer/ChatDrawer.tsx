@@ -55,7 +55,10 @@ import {
 } from './workflow-media-results';
 
 import { analytics } from '../../utils/umami-analytics';
-import { prepareTuziManagedRoute } from '../../services/tuzi-managed-route-gate';
+import {
+  canResumeTuziRequest,
+  prepareTuziManagedRoute,
+} from '../../services/tuzi-managed-route-gate';
 import { resolveDrawerGenerationRoute } from './drawer-generation-route';
 import { HoverTip } from '../shared';
 import './chat-drawer.scss';
@@ -534,7 +537,6 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // 使用 ref 存储 sendMessage 函数，避免 useEffect 依赖 chatHandler 导致重复执行
     const sendMessageRef = useRef(chatHandler.sendMessage);
-    sendMessageRef.current = chatHandler.sendMessage;
 
     // Load initial sessions and active session
     useEffect(() => {
@@ -582,7 +584,11 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // Send pending message when session is ready
     useEffect(() => {
-      if (activeSessionId && pendingMessageRef.current) {
+      if (
+        activeSessionId &&
+        pendingMessageRef.current &&
+        canResumeTuziRequest(pendingTuziUserRef.current)
+      ) {
         const msg = pendingMessageRef.current;
         pendingMessageRef.current = null;
         // Use setTimeout to ensure handler is updated
@@ -597,7 +603,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
       // When settings dialog closes, check if we have a pending message and API key
       if (!appState.openSettings && pendingMessageRef.current) {
         const route = resolveInvocationRoute('text');
-        if (route.apiKey) {
+        if (route.apiKey && canResumeTuziRequest(pendingTuziUserRef.current)) {
           const msg = pendingMessageRef.current;
           pendingMessageRef.current = null;
           // If there's no active session, create one first
@@ -946,6 +952,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
 
     // Store pending message for retry after session creation or API key config
     const pendingMessageRef = React.useRef<Message | null>(null);
+    const pendingTuziUserRef = React.useRef<string | undefined>(undefined);
     const pendingGenerationRef =
       React.useRef<DrawerGenerationSubmitParams | null>(null);
     const isResumingGenerationRef = React.useRef(false);
@@ -966,6 +973,12 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         await settingsManager.waitForInitialization();
         const route = resolveDrawerGenerationRoute(params);
         const preparation = await prepareTuziManagedRoute(route);
+        pendingTuziUserRef.current = preparation.context?.userId;
+        if (preparation.requiresSetup) {
+          pendingGenerationRef.current = params;
+          setAppState((current) => ({ ...current, openSettings: true }));
+          return true;
+        }
         if (!route.apiKey || preparation.managedRoute) {
           pendingGenerationRef.current = params;
           isPreparingGenerationCredentialsRef.current = true;
@@ -1005,6 +1018,7 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
         !generationSubmitterReady ||
         isPreparingGenerationCredentialsRef.current ||
         isResumingGenerationRef.current ||
+        !canResumeTuziRequest(pendingTuziUserRef.current) ||
         !resolveDrawerGenerationRoute(pending).apiKey
       ) {
         return;
@@ -1059,8 +1073,10 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
           // Check if API key is configured
           const route = resolveInvocationRoute('text');
           const preparation = await prepareTuziManagedRoute(route);
+          pendingTuziUserRef.current = preparation.context?.userId;
           const preparedRoute = resolveInvocationRoute('text');
           if (
+            preparation.requiresSetup ||
             !preparedRoute.apiKey ||
             (preparation.managedRoute &&
               preparation.context?.status !== 'ready')
@@ -1091,6 +1107,8 @@ export const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(
       },
       [activeSessionId, chatHandler, setAppState, updateActiveSessionId]
     );
+
+    sendMessageRef.current = handleSendWrapper;
 
     // 发送工作流消息
     const handleSendWorkflowMessage = useCallback(

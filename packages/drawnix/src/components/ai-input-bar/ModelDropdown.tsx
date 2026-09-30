@@ -1,3 +1,7 @@
+import {
+  saveTuziActiveProviderId,
+  getTuziProviderVerification,
+} from '../../services/tuzi-provider-reuse-state';
 /**
  * 模型下拉选择器组件
  *
@@ -15,6 +19,7 @@ import React, {
   useEffect,
   useMemo,
   useSyncExternalStore,
+  useId,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { copyToClipboard } from '../../utils/runtime-helpers';
@@ -72,7 +77,10 @@ import {
   type ProviderProfile,
 } from '../../utils/settings-manager';
 import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
-import { queueProviderSettingsNavigation } from '../settings-dialog/provider-settings-navigation';
+import {
+  queueProviderSettingsNavigation,
+  TUZI_GROUPS_ADDED_EVENT,
+} from '../settings-dialog/provider-settings-navigation';
 import { isTuziEmbeddedMode } from '../../services/tuzi-embedded-config';
 import {
   requestTuziParentContext,
@@ -304,6 +312,15 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const navigationId = useId();
+  useEffect(() => {
+    const resume = (event: Event) => {
+      if ((event as CustomEvent).detail?.returnTo === navigationId)
+        setIsOpen(true);
+    };
+    window.addEventListener(TUZI_GROUPS_ADDED_EVENT, resume);
+    return () => window.removeEventListener(TUZI_GROUPS_ADDED_EVENT, resume);
+  }, [navigationId, setIsOpen]);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [activeVendor, setActiveVendor] = useState<string | null>(null);
@@ -339,7 +356,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     window.addEventListener(TUZI_BRIDGE_EVENT, syncTuziMode);
     if (window.parent !== window) {
       void requestTuziParentContext().then((nextContext) => {
-        if (active) setTuziMode(Boolean(nextContext));
+        if (active) setTuziMode(Boolean(nextContext) || isTuziEmbeddedMode());
       });
     }
     return () => {
@@ -700,7 +717,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     }
     queueProviderSettingsNavigation(
       openTuziGroups
-        ? { action: 'tuzi-groups' }
+        ? { action: 'tuzi-groups', returnTo: navigationId }
         : {
             action: 'select',
             profileId: LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
@@ -708,7 +725,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     );
     setIsOpen(false);
     setAppState((prev) => ({ ...prev, openSettings: true }));
-  }, [setAppState, setIsOpen, tuziMode]);
+  }, [setAppState, setIsOpen, tuziMode, navigationId]);
 
   // 当过滤结果变化时，高亮选中模型或重置到第一项
   useEffect(() => {
@@ -830,10 +847,18 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       const profile = model.sourceProfileId
         ? providerProfileMap.get(model.sourceProfileId)
         : null;
-      if (profile?.id.startsWith('tuzi-managed-') && profile.pricingGroup) {
+      const reusedGroup = profile
+        ? getTuziProviderVerification(profile)?.groups[0]
+        : undefined;
+      if (
+        profile &&
+        (reusedGroup ||
+          (profile.id.startsWith('tuzi-managed-') && profile.pricingGroup))
+      ) {
+        saveTuziActiveProviderId(profile.id);
         saveTuziActiveProviderGroup(
           getTuziSystemUserId(),
-          profile.pricingGroup
+          reusedGroup || profile.pricingGroup || ''
         );
       }
       onSelect(
@@ -1287,7 +1312,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                     aria-label={
                       tuziMode
                         ? language === 'zh'
-                          ? '添加分组'
+                          ? '添加 Tuzi 令牌'
                           : 'Add group'
                         : language === 'zh'
                         ? '新增供应商或打开供应商设置'
@@ -1298,7 +1323,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                     <span>
                       {tuziMode
                         ? language === 'zh'
-                          ? '添加分组'
+                          ? '添加 Tuzi 令牌'
                           : 'Add group'
                         : language === 'zh'
                         ? '新增供应商'

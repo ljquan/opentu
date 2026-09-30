@@ -7,11 +7,18 @@ const mocks = vi.hoisted(() => ({
   synchronizeProviders: vi.fn(),
   resetSyncCache: vi.fn(),
   syncProviders: vi.fn(),
+  isEmbedded: vi.fn(),
+  selectedGroups: vi.fn(),
 }));
 
 vi.mock('../tuzi-postmessage-bridge', () => ({
   requestTuziParentContext: mocks.requestContext,
   requestTuziParentAuthentication: mocks.requestAuthentication,
+  isTuziBridgeConnected: mocks.isEmbedded,
+  getTuziBridgeContext: vi.fn(),
+}));
+vi.mock('../tuzi-provider-selection', () => ({
+  getTuziProviderGroupSelection: mocks.selectedGroups,
 }));
 vi.mock('../tuzi-managed-providers', () => ({
   isTuziManagedProviderProfileId: (profileId: unknown) =>
@@ -26,6 +33,8 @@ vi.mock('../tuzi-session-provider-sync', () => ({
 describe('prepareTuziManagedRoute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isEmbedded.mockReturnValue(false);
+    mocks.selectedGroups.mockReturnValue(['default']);
     mocks.synchronizeProviders.mockResolvedValue(undefined);
     mocks.syncProviders.mockResolvedValue(true);
     mocks.requestAuthentication.mockResolvedValue(true);
@@ -34,7 +43,11 @@ describe('prepareTuziManagedRoute', () => {
   it('does not contact a parent for an ordinary configured provider', async () => {
     await expect(
       prepareTuziManagedRoute({ profileId: 'custom-openai', apiKey: 'sk-key' })
-    ).resolves.toEqual({ context: null, managedRoute: false });
+    ).resolves.toEqual({
+      context: null,
+      managedRoute: false,
+      requiresSetup: false,
+    });
 
     expect(mocks.requestContext).not.toHaveBeenCalled();
   });
@@ -82,7 +95,7 @@ describe('prepareTuziManagedRoute', () => {
         profileId: 'tuzi-managed-vip',
         apiKey: 'stale-key',
       })
-    ).resolves.toEqual({ context, managedRoute: true });
+    ).resolves.toEqual({ context, managedRoute: true, requiresSetup: true });
 
     expect(mocks.requestContext).toHaveBeenCalledWith({ refresh: true });
     expect(mocks.resetSyncCache).toHaveBeenCalledOnce();
@@ -109,5 +122,37 @@ describe('prepareTuziManagedRoute', () => {
       discoverModels: false,
     });
     expect(mocks.synchronizeProviders).not.toHaveBeenCalled();
+  });
+  it('blocks an old manual key when the embedded account has no system token', async () => {
+    mocks.isEmbedded.mockReturnValue(true);
+    mocks.requestContext.mockResolvedValue({
+      status: 'need_system_token',
+      userId: '42',
+      groups: [],
+    });
+    await expect(
+      prepareTuziManagedRoute({ profileId: 'custom-openai', apiKey: 'old-key' })
+    ).resolves.toMatchObject({ requiresSetup: true });
+    expect(mocks.requestContext).toHaveBeenCalledWith({ refresh: true });
+    expect(mocks.syncProviders).not.toHaveBeenCalled();
+  });
+  it('blocks manual credentials after an embedded connection failure', async () => {
+    mocks.isEmbedded.mockReturnValue(true);
+    mocks.requestContext.mockResolvedValue(null);
+    await expect(
+      prepareTuziManagedRoute({ profileId: 'custom-openai', apiKey: 'old-key' })
+    ).resolves.toMatchObject({ requiresSetup: true });
+  });
+  it('requires group setup even if an old manual key exists', async () => {
+    mocks.isEmbedded.mockReturnValue(true);
+    mocks.selectedGroups.mockReturnValue(null);
+    mocks.requestContext.mockResolvedValue({
+      status: 'ready',
+      userId: '42',
+      groups: [],
+    });
+    await expect(
+      prepareTuziManagedRoute({ profileId: 'custom-openai', apiKey: 'old-key' })
+    ).resolves.toMatchObject({ requiresSetup: true });
   });
 });

@@ -1,7 +1,19 @@
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
+import { providerProfilesSettings } from '../utils/settings-manager';
+import {
+  getPreviouslyReusedGroups,
+  recordTuziManagedGroups,
+  isCurrentTuziEndpoint,
+  setTuziProviderVerification,
+  getReusedTuziProviders,
+  type TuziProviderVerification,
+} from './tuzi-provider-reuse-state';
 import type { TuziEmbeddedConfig } from './tuzi-embedded-config';
 import { tuziEmbeddedConfig } from './tuzi-embedded-config';
 import {
   ensureTuziProviders,
+  verifyTuziProviders,
   getTuziBridgeContext,
   isTuziBridgeConnected,
 } from './tuzi-postmessage-bridge';
@@ -77,12 +89,23 @@ export interface TuziUsageSummary {
 }
 
 export interface TuziManagedProvider {
+  source?: 'existing';
+  tokenName?: string;
+  groups?: string[];
+  restrictions?: string[];
   id: string;
   group: string;
   displayName: string;
   apiKey: string;
   status: number;
   rotatedAt: number;
+}
+
+export interface TuziAccountToken extends TuziProviderVerification {
+  token_id: number;
+  token_name: string;
+  fingerprint: string;
+  api_key?: string;
 }
 
 export interface TuziProviderGroup {
@@ -260,18 +283,207 @@ export class TuziSessionApiClient {
     return object?.data;
   }
 
+  private async accountTokens(
+    path: string,
+    body?: unknown
+  ): Promise<TuziAccountToken[]> {
+    const data = asRecord(
+      await this.request(
+        path,
+        undefined,
+        body ? 'POST' : 'GET',
+        body ? JSON.stringify(body) : undefined
+      )
+    );
+    if (
+      getTuziSystemUserId() !== this.systemUserId ||
+      getTuziSystemToken() !== this.systemToken ||
+      String(data?.user_id) !== this.systemUserId
+    ) {
+      throw new Error('账户已变化，请重新打开令牌列表');
+    }
+    if (
+      !Array.isArray(data?.tokens) ||
+      data.tokens.some((item) => {
+        const token = asRecord(item);
+        return (
+          !token ||
+          !Number.isInteger(token.token_id) ||
+          !Array.isArray(token.groups) ||
+          !token.groups.every((g: unknown) => typeof g === 'string') ||
+          typeof token.token_name !== 'string' ||
+          typeof token.usable !== 'boolean' ||
+          typeof token.fingerprint !== 'string' ||
+          (body &&
+            (typeof token.api_key !== 'string' ||
+              !token.api_key ||
+              !token.usable))
+        );
+      })
+    )
+      throw new Error('令牌列表响应无效');
+    return data.tokens as TuziAccountToken[];
+  }
+
+  listAccountTokens(): Promise<TuziAccountToken[]> {
+    return this.accountTokens('/api/opentu/tokens');
+  }
+
+  importAccountTokens(ids: number[]): Promise<TuziAccountToken[]> {
+    return this.accountTokens('/api/opentu/tokens/import', { ids });
+  }
+
+  createAccountTokens(
+    name: string,
+    groups: string[]
+  ): Promise<TuziAccountToken[]> {
+    return this.accountTokens('/api/opentu/tokens', { name, groups });
+  }
+
+  async verifyExistingProviders(): Promise<TuziManagedProvider[]> {
+    const bridgeConnected = isTuziBridgeConnected();
+    const requestUserId = getTuziSystemUserId();
+    const requestToken = getTuziSystemToken();
+    const candidates = providerProfilesSettings
+      .get()
+      .filter(
+        (profile) =>
+          !profile.id.startsWith('tuzi-managed-') &&
+          Boolean(profile.apiKey.trim()) &&
+          isCurrentTuziEndpoint(profile.baseUrl)
+      );
+    const context = getTuziBridgeContext();
+    const results: TuziProviderVerification[] = [];
+    for (let offset = 0; offset < candidates.length; offset += 100) {
+      const batch = candidates.slice(offset, offset + 100);
+      const fingerprints = batch.map((profile) => ({
+        id: profile.id,
+        fingerprint: bytesToHex(
+          sha256(profile.apiKey.trim().replace(/^sk-/, ''))
+        ),
+      }));
+      const data = bridgeConnected
+        ? null
+        : asRecord(
+            await this.request(
+              '/api/opentu/providers/verify',
+              undefined,
+              'POST',
+              JSON.stringify({ candidates: fingerprints })
+            )
+          );
+      if (!bridgeConnected && String(data?.user_id) !== requestUserId)
+        throw new Error('账户已变化，请重新核验');
+      const reply = bridgeConnected
+        ? await verifyTuziProviders(fingerprints)
+        : (data?.providers as TuziProviderVerification[]);
+      if (!Array.isArray(reply)) throw new Error('令牌核验响应无效');
+      if (
+        reply.length !== batch.length ||
+        new Set(reply.map((item) => item.id)).size !== batch.length ||
+        reply.some(
+          (item) =>
+            !batch.some((profile) => profile.id === item.id) ||
+            typeof item.usable !== 'boolean' ||
+            !Array.isArray(item.groups) ||
+            item.groups.some((group) => typeof group !== 'string') ||
+            (item.usable && (!item.token_id || !item.groups.length))
+        )
+      )
+        throw new Error('令牌核验响应无效');
+      results.push(...reply);
+    }
+    const next = getTuziBridgeContext();
+    if (
+      getTuziSystemUserId() !== requestUserId ||
+      getTuziSystemToken() !== requestToken ||
+      (bridgeConnected &&
+        (!context ||
+          next?.userId !== context.userId ||
+          next?.systemToken !== context.systemToken))
+    )
+      throw new Error('账户已变化，请重新核验');
+    const latest = providerProfilesSettings.get();
+    if (
+      candidates.some(
+        (profile) =>
+          !latest.some(
+            (item) =>
+              item.id === profile.id &&
+              item.apiKey === profile.apiKey &&
+              item.baseUrl === profile.baseUrl
+          )
+      )
+    )
+      throw new Error('供应商配置已变化，请重新核验');
+    setTuziProviderVerification(candidates, results);
+    return getReusedTuziProviders(latest);
+  }
+
   async ensureManagedProviders(
-    groups?: readonly string[]
+    groups?: readonly string[],
+    allowReplacement = false
   ): Promise<TuziManagedProvider[]> {
     const selectedGroups = groups
       ? new Set(groups.map((group) => group.trim()).filter(Boolean))
       : null;
-    const body = selectedGroups
-      ? JSON.stringify({ groups: [...selectedGroups] })
-      : undefined;
-    if (isTuziBridgeConnected()) {
-      return ensureTuziProviders(selectedGroups ? [...selectedGroups] : []);
+    const bridgeConnected = isTuziBridgeConnected();
+    const hasImportedTokens = providerProfilesSettings
+      .get()
+      .some((profile) => profile.id.startsWith('tuzi-token-'));
+    const reused =
+      bridgeConnected || hasImportedTokens
+        ? await this.verifyExistingProviders()
+        : [];
+    const covered = new Set(
+      reused.flatMap((provider) => provider.groups || [provider.group])
+    );
+    const previousOrdinaryGroups = getPreviouslyReusedGroups();
+    const locallyManagedGroups = new Set(
+      providerProfilesSettings
+        .get()
+        .filter((profile) => profile.id.startsWith('tuzi-managed-'))
+        .map((profile) => profile.pricingGroup)
+    );
+    const missing = [...(selectedGroups || [])].filter(
+      (group) =>
+        (!covered.has(group) || locallyManagedGroups.has(group)) &&
+        (allowReplacement || !previousOrdinaryGroups.includes(group))
+    );
+    if (bridgeConnected) {
+      const managed = missing.length ? await ensureTuziProviders(missing) : [];
+      recordTuziManagedGroups(managed.map((provider) => provider.group));
+      // The parent bridge returns only providers created in this request. Keep
+      // previously persisted managed providers in the synchronization result;
+      // otherwise synchronizeTuziManagedProviders treats them as stale and
+      // removes them on refresh.
+      const persisted = providerProfilesSettings
+        .get()
+        .filter(
+          (profile) =>
+            profile.id.startsWith('tuzi-managed-') &&
+            Boolean(profile.apiKey?.trim()) &&
+            profile.enabled !== false &&
+            (selectedGroups === null ||
+              selectedGroups.has(profile.pricingGroup || '')) &&
+            !managed.some((provider) => provider.id === profile.id)
+        )
+        .map((profile) => ({
+          id: profile.id,
+          group: (profile.pricingGroup || profile.name).trim(),
+          displayName: profile.name,
+          apiKey: profile.apiKey,
+          status: 1,
+          rotatedAt: 0,
+        }));
+      return [...reused, ...persisted, ...managed];
     }
+    if (hasImportedTokens && !missing.length) return reused;
+    const body = selectedGroups
+      ? JSON.stringify({
+          groups: hasImportedTokens ? missing : [...selectedGroups],
+        })
+      : undefined;
     let data: JsonRecord | null;
     try {
       data = asRecord(
@@ -292,7 +504,7 @@ export class TuziSessionApiClient {
       throw error;
     }
     if (!Array.isArray(data?.providers)) return [];
-    return data.providers.flatMap((item) => {
+    const managed = data.providers.flatMap((item) => {
       const provider = asRecord(item);
       if (
         typeof provider?.id !== 'string' ||
@@ -317,6 +529,7 @@ export class TuziSessionApiClient {
       }
       return [managedProvider];
     });
+    return [...reused, ...managed];
   }
 
   async getProviderGroups(): Promise<TuziProviderGroup[]> {

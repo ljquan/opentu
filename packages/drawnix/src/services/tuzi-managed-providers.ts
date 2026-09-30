@@ -1,3 +1,4 @@
+import { isCurrentTuziEndpoint } from './tuzi-provider-reuse-state';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   TUZI_BUSINESS_PROVIDER_PROFILE_ID,
@@ -136,15 +137,17 @@ export async function synchronizeTuziManagedProviders(
   );
   const merged = retained.map((profile) => {
     const provider = incoming.get(profile.id);
+    if (provider?.source === 'existing') return profile;
     if (provider) return { ...profile, ...toProfile(provider, template) };
-    if (BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id)) {
+    if (BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id) && !profile.apiKey?.trim()) {
       return { ...profile, enabled: false };
     }
     return profile;
   });
   const knownIds = new Set(merged.map((profile) => profile.id));
   providers.forEach((provider) => {
-    if (!knownIds.has(provider.id)) merged.push(toProfile(provider, template));
+    if (provider.source !== 'existing' && !knownIds.has(provider.id))
+      merged.push(toProfile(provider, template));
   });
   if (!valuesEqual(existing, merged)) {
     await providerProfilesSettings.update(merged);
@@ -157,4 +160,31 @@ export async function synchronizeTuziManagedProviders(
   if (!valuesEqual(retainedCatalogs, existingCatalogs)) {
     await providerCatalogsSettings.update(retainedCatalogs);
   }
+}
+
+// Explicit imports add ordinary providers without replacing existing settings or catalogs.
+export async function addTuziTokenProviders(
+  providers: TuziManagedProvider[]
+): Promise<TuziManagedProvider[]> {
+  const existing = providerProfilesSettings.get();
+  const additions: TuziManagedProvider[] = [];
+  for (const provider of providers) {
+    if (
+      existing.some(
+        (profile) =>
+          isCurrentTuziEndpoint(profile.baseUrl) &&
+          profile.apiKey.replace(/^sk-/, '') ===
+            provider.apiKey.replace(/^sk-/, '')
+      )
+    )
+      continue;
+    if (!existing.some((profile) => profile.id === provider.id))
+      additions.push(provider);
+  }
+  if (additions.length)
+    await providerProfilesSettings.update([
+      ...existing,
+      ...additions.map((provider) => toProfile(provider, null)),
+    ]);
+  return additions;
 }

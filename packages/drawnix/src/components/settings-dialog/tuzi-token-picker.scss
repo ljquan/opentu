@@ -1,0 +1,317 @@
+.tuzi-token-picker {
+  --picker-bg: var(--tuzi-panel-surface, #fff);
+  --picker-text: var(--tuzi-panel-text, #202d43);
+  --picker-muted: var(--tuzi-panel-muted, #65738a);
+  --picker-line: var(--tuzi-panel-border, #e1e7f0);
+  --picker-soft: #eff5ff;
+  --picker-blue: #285ed9;
+  color: var(--picker-text);
+  background: var(--picker-bg);
+  border: 1px solid var(--picker-line);
+  border-radius: 14px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 16px 0;
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    font: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--picker-line);
+    padding: 9px 13px;
+    color: inherit;
+    background: var(--picker-bg);
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+  input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--picker-blue);
+  }
+  small {
+    color: var(--picker-muted);
+    font-size: 12px;
+  }
+  &__tabs {
+    display: flex;
+    gap: 6px;
+    padding: 16px 22px 0;
+    flex-wrap: wrap;
+    button {
+      border: 0;
+      color: var(--picker-muted);
+      &[aria-pressed='true'] {
+        color: var(--picker-blue);
+        background: var(--picker-soft);
+        font-weight: 600;
+      }
+    }
+  }
+  &__body {
+    padding: 24px;
+  }
+  &__heading {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 24px;
+    h3 {
+      font-size: 18px;
+      margin: 0;
+    }
+    p {
+      margin: 6px 0 0;
+      color: var(--picker-muted);
+      font-size: 13px;
+    }
+  }
+  &__icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: var(--picker-blue);
+    background: var(--picker-soft);
+    flex-shrink: 0;
+  }
+  &__list {
+    display: grid;
+    gap: 8px;
+  }
+  &__row,
+  &__group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    border: 1px solid var(--picker-line);
+    border-radius: 10px;
+    min-width: 0;
+    cursor: pointer;
+    &.is-selected {
+      border-color: var(--picker-blue);
+      background: var(--picker-soft);
+    }
+    &.is-unavailable {
+      cursor: default;
+      opacity: 0.7;
+    }
+  }
+  &__name {
+    flex: 1;
+    min-width: 0;
+    strong {
+      display: block;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+  }
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 5px;
+  }
+  &__badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border: 1px solid var(--picker-line);
+    border-radius: 5px;
+    color: var(--picker-muted);
+    background: var(--picker-bg);
+    overflow-wrap: anywhere;
+  }
+  &__field {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 24px;
+    > span {
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--picker-line);
+      border-radius: 9px;
+      padding: 12px;
+      background: var(--picker-bg);
+      color: inherit;
+      font: inherit;
+    }
+  }
+  &__label {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  &__label--groups {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  &__other-groups-title {
+    margin: 22px 0 10px;
+    color: var(--picker-text);
+    font-size: 16px;
+    font-weight: 600;
+  }
+  &__group {
+    strong {
+      font-size: 13px;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+    > span {
+      min-width: 0;
+    }
+    small {
+      display: block;
+    }
+    &.is-default {
+      padding: 16px;
+      .tuzi-token-picker__badge {
+        margin-left: auto;
+      }
+    }
+  }
+  &__expand {
+    width: 100%;
+    justify-content: space-between !important;
+    border: 0 !important;
+    color: var(--picker-blue) !important;
+    padding: 15px 0 !important;
+    background: transparent !important;
+  }
+  &__groups {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  &__preview {
+    background: var(--picker-soft);
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 22px;
+    > div {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      min-width: 0;
+      &:first-child {
+        justify-content: space-between;
+        color: var(--picker-muted);
+        font-size: 12px;
+      }
+      strong {
+        flex: 1;
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+      svg {
+        flex-shrink: 0;
+      }
+    }
+  }
+  &__footer {
+    border-top: 1px solid var(--picker-line);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    > div {
+      display: flex;
+      gap: 8px;
+    }
+    .is-primary {
+      background: var(--picker-blue);
+      border-color: var(--picker-blue);
+      color: #fff;
+    }
+  }
+  &__empty {
+    padding: 24px 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--picker-muted);
+  }
+  &__error {
+    margin-top: 16px;
+    color: #b42318;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  @media (max-width: 560px) {
+    &__body {
+      padding: 20px 16px;
+    }
+    &__tabs,
+    &__footer {
+      padding: 14px 16px;
+    }
+    &__groups {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    &__row {
+      padding: 12px 10px;
+      gap: 9px;
+    }
+  }
+  @media (max-width: 360px) {
+    &__heading {
+      align-items: flex-start;
+      gap: 10px;
+      h3 {
+        font-size: 18px;
+      }
+      p {
+        overflow-wrap: anywhere;
+      }
+    }
+    &__groups {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    &__label {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 4px;
+    }
+    &__footer {
+      align-items: stretch;
+      flex-direction: column;
+      > div {
+        width: 100%;
+        button {
+          flex: 1;
+          min-width: 0;
+        }
+      }
+    }
+  }
+}
+[data-theme='dark'] .tuzi-token-picker {
+  --picker-bg: #20242d;
+  --picker-text: #e6edf8;
+  --picker-muted: #a8b4c9;
+  --picker-line: #354156;
+  --picker-soft: #25344f;
+  --picker-blue: #80a5ff;
+}
