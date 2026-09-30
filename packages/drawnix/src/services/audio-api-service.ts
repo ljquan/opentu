@@ -1,3 +1,4 @@
+import { notifyTaskSubmitted } from './submission-persistence';
 /**
  * Audio API Service
  *
@@ -12,6 +13,7 @@ import {
   type ProviderBaseUrlStrategy,
   type ProviderAuthStrategy,
   type ResolvedProviderContext,
+  type ProviderModelBinding,
 } from './provider-routing';
 import {
   resolveInvocationRoute,
@@ -60,7 +62,6 @@ export type SunoAction = 'music' | 'lyrics';
 export interface AudioClipRecord {
   id?: string;
   clip_id?: string;
-  clipId?: string;
   title?: string;
   status?: string;
   state?: string;
@@ -69,13 +70,9 @@ export interface AudioClipRecord {
   major_model_version?: string;
   duration?: number | null;
   audio_url?: string;
-  audioUrl?: string;
   image_url?: string | null;
-  imageUrl?: string | null;
   image_large_url?: string | null;
-  imageLargeUrl?: string | null;
   batch_index?: number;
-  batchIndex?: number;
   metadata?: Record<string, unknown> & {
     duration?: number | null;
     prompt?: string;
@@ -104,7 +101,16 @@ export interface AudioLyricsPayload {
   errorMessage?: string;
 }
 
+export interface AudioRequestContext {
+  providerContext: ResolvedProviderContext;
+  binding: ProviderModelBinding | null;
+  signal?: AbortSignal;
+  fetcher?: typeof fetch;
+}
+
 interface AudioPollingOptions {
+  requestContext?: AudioRequestContext;
+  assertAvailable?: () => Promise<void>;
   interval?: number;
   maxAttempts?: number;
   onProgress?: (progress: number, status?: string) => void;
@@ -326,22 +332,19 @@ function resolveClipLifecycleStatus(clips: AudioClipRecord[]): string {
   return '';
 }
 
-function collectNestedDataCandidates(payload: any): any[] {
+function collectNestedDataCandidates(payload: any, maxDepth = 6): any[] {
   const candidates: any[] = [];
-  const queue = [payload];
-  const visited = new Set<object>();
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || typeof current !== 'object' || Array.isArray(current))
-      continue;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    candidates.push(current);
-    // Only task envelopes carry task status/lyrics; collections may contain summaries.
-    for (const key of ['data', 'result', 'task']) {
-      if (current[key] !== undefined) queue.push(current[key]);
+  let current = payload;
+
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      break;
     }
+
+    candidates.push(current);
+    current = current.data;
   }
+
   return candidates;
 }
 
@@ -410,10 +413,14 @@ function normalizeLifecycleStatus(payload: any): string {
     }
   }
 
-  const candidates = collectNestedDataCandidates(payload);
-  const statusCandidates = [...candidates]
-    .reverse()
-    .flatMap((candidate) => [candidate.status, candidate.state])
+  const statusCandidates = [
+    payload?.data?.data?.status,
+    payload?.data?.status,
+    payload?.status,
+    payload?.data?.data?.state,
+    payload?.data?.state,
+    payload?.state,
+  ]
     .map((candidate) => normalizeStatus(candidate))
     .filter(Boolean);
 
@@ -428,7 +435,9 @@ function normalizeLifecycleStatus(payload: any): string {
   }
 
   const progress = resolveProgressValue(
-    ...candidates.map((candidate) => candidate.progress)
+    payload?.progress,
+    payload?.data?.progress,
+    payload?.data?.data?.progress
   );
   const hasAudioResult = clips.some(
     (clip) =>
@@ -447,72 +456,25 @@ function normalizeLifecycleStatus(payload: any): string {
 }
 
 function extractAudioClips(payload: any): AudioClipRecord[] {
-  const queue = [{ value: payload, source: 'data' }];
-  let urlFallback: AudioClipRecord[] = [];
-  const visited = new Set<object>();
+  const candidates = [
+    payload?.data,
+    payload?.clips,
+    payload?.data?.clips,
+    payload?.data?.data,
+    payload?.data?.data?.data,
+    payload?.data?.data?.clips,
+    payload?.data?.items,
+    payload?.data?.data?.items,
+    payload?.items,
+  ];
 
-  while (queue.length > 0) {
-    const { value: current, source } = queue.shift()!;
-    if (!current || typeof current !== 'object') continue;
-    if (visited.has(current)) continue;
-    visited.add(current);
-
-    if (Array.isArray(current)) {
-      const clips = current.filter(
-        (item) =>
-          item &&
-          typeof item === 'object' &&
-          (typeof item.audio_url === 'string' ||
-            typeof item.audioUrl === 'string' ||
-            typeof item.clip_id === 'string' ||
-            typeof item.clipId === 'string' ||
-            ((source === 'clips' || source === 'data') &&
-              !['clips', 'items', 'results', 'data', 'result', 'task'].some(
-                (key) => item[key] !== undefined
-              ) &&
-              (typeof item.id === 'string' ||
-                typeof item.status === 'string' ||
-                typeof item.state === 'string')))
-      );
-      if (clips.length > 0) return clips.map(normalizeAudioClipRecord);
-      queue.push(...current.map((value) => ({ value, source })));
-      continue;
-    }
-
-    for (const key of ['clips', 'items', 'results', 'data', 'result', 'task']) {
-      if (current[key] !== undefined)
-        queue.push({ value: current[key], source: key });
-    }
-
-    const urls = [current.audio_urls, current.audioUrls]
-      .filter(Array.isArray)
-      .flat()
-      .filter((url): url is string => typeof url === 'string' && !!url.trim());
-    if (urls.length > 0 && urlFallback.length === 0) {
-      urlFallback = urls.map((audio_url, batch_index) => ({
-        audio_url,
-        batch_index,
-      }));
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate as AudioClipRecord[];
     }
   }
 
-  return urlFallback;
-}
-
-function normalizeAudioClipRecord(clip: AudioClipRecord): AudioClipRecord {
-  return {
-    ...clip,
-    clip_id: clip.clip_id || clip.clipId,
-    audio_url: clip.audio_url || clip.audioUrl,
-    image_url: clip.image_url || clip.imageUrl,
-    image_large_url: clip.image_large_url || clip.imageLargeUrl,
-    batch_index:
-      typeof clip.batch_index === 'number'
-        ? clip.batch_index
-        : typeof clip.batchIndex === 'number'
-        ? clip.batchIndex
-        : undefined,
-  };
+  return [];
 }
 
 function resolveClipIdentifier(clip: AudioClipRecord): string | undefined {
@@ -693,9 +655,9 @@ function normalizeAudioTaskResponse(
     status: normalizeLifecycleStatus(payload),
     progress:
       resolveProgressValue(
-        ...collectNestedDataCandidates(payload).map(
-          (candidate) => candidate.progress
-        )
+        payload?.progress,
+        payload?.data?.progress,
+        payload?.data?.data?.progress
       ) ??
       (clips.length > 0 &&
       clips.every((clip) =>
@@ -964,17 +926,14 @@ function normalizeManualAudioTaskResponse(
   const resultUrls = [task.resultUrl, ...(task.resultUrls || [])].filter(
     (url): url is string => Boolean(url)
   );
-  const urls = [...new Set(audioUrls.length > 0 ? audioUrls : resultUrls)];
-  const native = normalizeAudioTaskResponse(payload, fallbackTaskId);
-  const status = task.status || (urls.length > 0 ? 'completed' : native.status);
+  const urls = audioUrls.length > 0 ? audioUrls : resultUrls;
+  const status = task.status || (urls.length > 0 ? 'completed' : 'processing');
 
   return {
-    taskId: task.taskId || native.taskId,
-    action: native.action,
-    lyrics: native.lyrics,
+    taskId: task.taskId || fallbackTaskId,
     status,
-    progress: task.progress ?? native.progress,
-    failReason: task.error || native.failReason,
+    progress: task.progress,
+    failReason: task.error || '',
     clips: urls.map((url, index) => ({
       id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
       clip_id: `${task.taskId || fallbackTaskId || 'manual'}-${index}`,
@@ -988,9 +947,10 @@ function normalizeManualAudioTaskResponse(
 
 class AudioAPIService {
   async submitAudioGeneration(
-    params: AudioGenerationParams
+    params: AudioGenerationParams,
+    requestContext?: AudioRequestContext
   ): Promise<AudioTaskResponse> {
-    const { providerContext, binding } = resolveAudioPlanContext(
+    const { providerContext, binding } = requestContext || resolveAudioPlanContext(
       params.modelRef || params.model
     );
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
@@ -1037,6 +997,8 @@ class AudioAPIService {
     let response: Response;
     try {
       response = await providerTransport.send(providerContext, {
+        signal: requestContext?.signal,
+        fetcher: requestContext?.fetcher,
         path: manualHttpTemplate
           ? (renderTemplate(submitPath, variables) as string)
           : submitPath,
@@ -1109,13 +1071,14 @@ class AudioAPIService {
 
   async queryAudioTask(
     taskId: string,
-    routeModel?: string | ModelRef | null
+    routeModel?: string | ModelRef | null,
+    requestContext?: AudioRequestContext
   ): Promise<AudioTaskResponse> {
     if (!taskId.trim()) {
       throw new Error('Suno 任务 ID 为空，无法查询任务状态');
     }
 
-    const { providerContext, binding } = resolveAudioPlanContext(routeModel);
+    const { providerContext, binding } = requestContext || resolveAudioPlanContext(routeModel);
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
     const manualHttpTemplate = getManualHttpTemplate(binding?.metadata);
 
@@ -1134,6 +1097,8 @@ class AudioAPIService {
     });
 
     const response = await providerTransport.send(providerContext, {
+        signal: requestContext?.signal,
+        fetcher: requestContext?.fetcher,
       path: manualHttpTemplate
         ? (renderTemplate(path, variables) as string)
         : path,
@@ -1174,7 +1139,7 @@ class AudioAPIService {
       onSubmitted,
     } = options;
 
-    const submitResponse = await this.submitAudioGeneration(params);
+    const submitResponse = await this.submitAudioGeneration(params, options.requestContext);
 
     if (!submitResponse.taskId.trim()) {
       throw new Error(
@@ -1185,7 +1150,7 @@ class AudioAPIService {
     }
 
     if (onSubmitted) {
-      onSubmitted(submitResponse.taskId);
+      await notifyTaskSubmitted(submitResponse.taskId, onSubmitted);
     }
 
     if (onProgress) {
@@ -1213,6 +1178,7 @@ class AudioAPIService {
       maxAttempts,
       onProgress,
       routeModel: params.modelRef || params.model,
+      requestContext: options.requestContext,
     });
   }
 
@@ -1221,8 +1187,12 @@ class AudioAPIService {
     options: AudioPollingOptions = {}
   ): Promise<AudioTaskResponse> {
     const clipMemory = createClipIdentifierMemory();
-    const immediate = await this.queryAudioTask(taskId, options.routeModel);
-    rememberClipIdentifiers(immediate.clips, clipMemory);
+    await options.assertAvailable?.();
+    const immediate = normalizeAudioTaskResponse(
+      (await this.queryAudioTask(taskId, options.routeModel, options.requestContext)).raw,
+      taskId,
+      clipMemory
+    );
 
     if (options.onProgress) {
       options.onProgress(immediate.progress || 0, immediate.status);
@@ -1235,7 +1205,7 @@ class AudioAPIService {
     }
 
     if (isTerminalFailure(immediate.status)) {
-      throw new Error(immediate.failReason || 'Suno 生成失败');
+      throw Object.assign(new Error(immediate.failReason || 'Suno 生成失败'), { workflowProviderFailure: true });
     }
 
     return this.pollUntilComplete(taskId, options, clipMemory);
@@ -1253,19 +1223,18 @@ class AudioAPIService {
     const maxConsecutiveErrors = 10;
 
     while (attempts < maxAttempts) {
-      await this.sleep(interval);
+      options.requestContext?.signal?.throwIfAborted();
+      await this.sleep(interval, options.requestContext?.signal);
       attempts += 1;
 
+      await options.assertAvailable?.();
       try {
-        const payload = await this.queryAudioTask(taskId, options.routeModel);
-        // queryAudioTask already applies the selected native or manual
-        // response schema. Re-normalizing its raw payload would discard
-        // custom template paths such as audioUrl/audio_urls.
-        rememberClipIdentifiers(payload.clips, clipMemory);
-        const result = {
-          ...payload,
-          clips: applyRememberedClipIdentifiers(payload.clips, clipMemory),
-        };
+        const payload = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
+        const result = normalizeAudioTaskResponse(
+          payload.raw,
+          taskId,
+          clipMemory
+        );
         consecutiveErrors = 0;
 
         if (onProgress) {
@@ -1279,9 +1248,11 @@ class AudioAPIService {
         }
 
         if (isTerminalFailure(result.status)) {
-          throw new Error(result.failReason || 'Suno 生成失败');
+          throw Object.assign(new Error(result.failReason || 'Suno 生成失败'), { workflowProviderFailure: true });
         }
       } catch (error) {
+        options.requestContext?.signal?.throwIfAborted();
+        if ((error as { workflowProviderFailure?: boolean })?.workflowProviderFailure) throw error;
         consecutiveErrors += 1;
         if (consecutiveErrors >= maxConsecutiveErrors) {
           throw error;
@@ -1291,15 +1262,20 @@ class AudioAPIService {
           interval * Math.pow(1.5, consecutiveErrors),
           60000
         );
-        await this.sleep(backoffInterval - interval);
+        await this.sleep(backoffInterval - interval, options.requestContext?.signal);
       }
     }
 
     throw new Error('Suno 生成超时，请稍后重试');
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) { reject(signal.reason ?? new DOMException('Aborted', 'AbortError')); return; }
+      const abort = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')); };
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
   }
 }
 
