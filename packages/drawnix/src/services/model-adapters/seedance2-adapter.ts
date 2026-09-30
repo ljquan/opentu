@@ -146,7 +146,9 @@ function resolveVideoOptions(
   ratio: string;
   duration: number;
 } {
-  const legacy = parseLegacySize(request.size);
+  const legacy = parseLegacySize(
+    request.size || (isSeedance25ModelId(request.model) ? '480p' : undefined)
+  );
   const resolution =
     getStringParam(request.params, ['resolution']) || legacy.resolution;
   const ratio =
@@ -366,7 +368,9 @@ async function buildContent(
   capabilities: NonNullable<ReturnType<typeof getSeedance2Capabilities>>,
   modelLabel: string
 ): Promise<Seedance2ContentItem[]> {
-  if ((request.referenceImages || []).length > capabilities.maxReferenceImages) {
+  if (
+    (request.referenceImages || []).length > capabilities.maxReferenceImages
+  ) {
     throw new Error(
       `${modelLabel} 参考图片最多支持 ${capabilities.maxReferenceImages} 张`
     );
@@ -533,7 +537,10 @@ async function downloadCompletedVideo(
   }
 }
 
-export async function submitSeedance2Request(context: AdapterContext, request: VideoGenerationRequest) {
+export async function submitSeedance2Request(
+  context: AdapterContext,
+  request: VideoGenerationRequest
+) {
     const model = request.model || '';
     if (!isSeedance2Model(model)) {
       throw new Error(`不支持的 Seedance 2.0 模型：${model}`);
@@ -554,18 +561,44 @@ export async function submitSeedance2Request(context: AdapterContext, request: V
       ? parseOptionalInteger(request.params?.seed, '随机种子', modelLabel)
       : undefined;
     const cameraFixed = capabilities.supportsAdvancedControls
-      ? parseOptionalBoolean(
-          request.params?.camera_fixed,
-          '固定镜头',
-          modelLabel
-        )
+    ? parseOptionalBoolean(request.params?.camera_fixed, '固定镜头', modelLabel)
       : undefined;
+  const is25 = isSeedance25ModelId(model);
+  const extra: Record<string, unknown> = {};
+  if (is25) {
+    const draft = parseBoolean(
+      request.params?.draft,
+      false,
+      '样片模式',
+      modelLabel
+    );
+    const outputFormat = request.params?.output_format || 'mp4';
+    const priority =
+      parseOptionalInteger(request.params?.priority, '优先级', modelLabel) ?? 0;
+    if (outputFormat !== 'mp4' && outputFormat !== 'mov') {
+      throw new Error(`${modelLabel} 输出格式必须为 mp4 或 mov`);
+    }
+    if (priority < 0 || priority > 9)
+      throw new Error(`${modelLabel} 优先级必须为 0-9`);
+    if (draft && resolution !== '480p')
+      throw new Error(`${modelLabel} 样片模式仅支持 480p`);
+    Object.assign(extra, {
+      watermark: parseBoolean(
+        request.params?.watermark,
+        false,
+        '水印',
+        modelLabel
+      ),
+      output_format: outputFormat,
+      draft,
+      priority,
+    });
+  }
     const submitBody = {
       model,
       content: await buildContent(request, capabilities, modelLabel),
-      // Tuzi's current Seedance 2.5 endpoint does not declare resolution in
-      // its request schema. Keep the legacy field for Seedance 2.0 only.
-      ...(!isSeedance25ModelId(model) ? { resolution } : {}),
+    resolution,
+    ...extra,
       ratio,
       duration,
       generate_audio: parseBoolean(
@@ -621,7 +654,8 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
       | ((taskId: string) => void)
       | undefined;
 
-    const { taskId, submitted, model, provider, duration } = await submitSeedance2Request(context, request);
+    const { taskId, submitted, model, provider, duration } =
+      await submitSeedance2Request(context, request);
     await notifyTaskSubmitted(taskId, onSubmitted);
     onProgress?.(5, submitted.status || 'queued');
 
@@ -645,12 +679,23 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
         const normalizedStatus = (status.status || '').toLowerCase();
         onProgress?.(status.progress ?? 0, normalizedStatus);
 
-        if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
+        if (
+          ['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(
+            normalizedStatus
+          )
+        ) {
           businessFailure = true;
           throw new Error(extractErrorMessage(status.error));
         }
         if (
-          ['completed', 'complete', 'succeeded', 'succeed', 'success', 'done'].includes(normalizedStatus)
+          [
+            'completed',
+            'complete',
+            'succeeded',
+            'succeed',
+            'success',
+            'done',
+          ].includes(normalizedStatus)
         ) {
           businessFailure = true;
           const inlineUrl = extractResultUrl(status);

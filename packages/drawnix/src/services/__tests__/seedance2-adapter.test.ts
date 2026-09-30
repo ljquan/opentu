@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { seedance2VideoAdapter } from '../model-adapters/seedance2-adapter';
+import {
+  seedance2VideoAdapter,
+  submitSeedance2Request,
+} from '../model-adapters/seedance2-adapter';
 import type { AdapterContext } from '../model-adapters/types';
 
 const { getCachedBlob, cacheMediaFromBlob } = vi.hoisted(() => ({
@@ -531,8 +534,8 @@ describe('seedance 2.0 video adapter', () => {
       ratio: '1:1',
       duration: 30,
     });
-    expect(submitBody.resolution).toBeUndefined();
-    expect(submitBody).not.toHaveProperty('watermark');
+    expect(submitBody.resolution).toBe('1080p');
+    expect(submitBody.watermark).toBe(true);
     expect(submitBody.seed).toBeUndefined();
     expect(submitBody.camera_fixed).toBeUndefined();
     expect(
@@ -595,7 +598,7 @@ describe('seedance 2.0 video adapter', () => {
       });
       const submitBody = JSON.parse(String(requests[0]?.body));
       expect(submitBody.ratio).toBe(expectedRatio);
-      expect(submitBody.resolution).toBeUndefined();
+      expect(submitBody.resolution).toBe('720p');
     }
   );
 
@@ -1085,21 +1088,41 @@ describe('seedance 2.0 video adapter', () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
-  it.each(['completed', 'complete', 'succeeded', 'succeed', 'success', 'done'])('accepts terminal success status %s for Seedance 2.5', async (status) => {
-    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
-      jsonResponse(init?.method === 'POST'
+  it.each(['completed', 'complete', 'succeeded', 'succeed', 'success', 'done'])(
+    'accepts terminal success status %s for Seedance 2.5',
+    async (status) => {
+      const fetcher = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) =>
+          jsonResponse(
+            init?.method === 'POST'
         ? { id: 'seedance-25-task', status: 'queued' }
-        : { id: 'seedance-25-task', status: status.toUpperCase(), metadata: { video_url: 'https://cdn.example.com/seedance-25.mp4' } })
+              : {
+                  id: 'seedance-25-task',
+                  status: status.toUpperCase(),
+                  metadata: {
+                    video_url: 'https://cdn.example.com/seedance-25.mp4',
+                  },
+                }
+          )
     ) as unknown as typeof fetch;
-    const resultPromise = seedance2VideoAdapter.generateVideo(createContext(fetcher), {
-      model: 'doubao-seedance-2-5-260628', prompt: 'terminal success',
-    });
+      const resultPromise = seedance2VideoAdapter.generateVideo(
+        createContext(fetcher),
+        {
+          model: 'doubao-seedance-2-5-260628',
+          prompt: 'terminal success',
+        }
+      );
     await vi.advanceTimersByTimeAsync(5000);
-    expect((await resultPromise).url).toBe('https://cdn.example.com/seedance-25.mp4');
+      expect((await resultPromise).url).toBe(
+        'https://cdn.example.com/seedance-25.mp4'
+      );
     expect(fetcher).toHaveBeenCalledTimes(2);
-  });
+    }
+  );
 
-  it.each(['failed', 'failure', 'error', 'cancelled', 'canceled'])('does not retry terminal %s task states', async (status) => {
+  it.each(['failed', 'failure', 'error', 'cancelled', 'canceled'])(
+    'does not retry terminal %s task states',
+    async (status) => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
         if ((init?.method || 'GET') === 'POST') {
@@ -1127,7 +1150,8 @@ describe('seedance 2.0 video adapter', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await rejection;
     expect(fetcher).toHaveBeenCalledTimes(2);
-  });
+    }
+  );
 
   it('preserves immediate submission failures without requiring a task ID', async () => {
     const fetcher = vi.fn(async () =>
@@ -1164,4 +1188,78 @@ describe('seedance 2.0 video adapter', () => {
     await rejection;
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+});
+
+describe('Seedance 2.5 verified request parameters', () => {
+  it('submits confirmed defaults including explicit false and zero values', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ id: 'task', status: 'queued' })
+    );
+    await submitSeedance2Request(createContext(fetcher), {
+      model: 'doubao-seedance-2-5-260628',
+      prompt: 'red ball',
+    });
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      resolution: '480p',
+      ratio: '16:9',
+      duration: 4,
+      generate_audio: true,
+      watermark: false,
+      output_format: 'mp4',
+      draft: false,
+      priority: 0,
+    });
+    expect(body).not.toHaveProperty('seed');
+    expect(body).not.toHaveProperty('camera_fixed');
+  });
+
+  it('converts selectable values into provider types', async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ id: 'task', status: 'queued' })
+    );
+    await submitSeedance2Request(createContext(fetcher), {
+      model: 'doubao-seedance-2-5-260628',
+      prompt: 'red ball',
+      size: '480p',
+      params: {
+        generate_audio: 'false',
+        watermark: 'true',
+        output_format: 'mov',
+        draft: 'true',
+        priority: '9',
+      },
+    });
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      generate_audio: false,
+      watermark: true,
+      output_format: 'mov',
+      draft: true,
+      priority: 9,
+    });
+  });
+
+  it.each([
+    [{ resolution: '4k' }, '分辨率'],
+    [{ output_format: 'avi' }, '输出格式'],
+    [{ priority: '10' }, '优先级'],
+    [{ priority: '-1' }, '优先级'],
+    [{ priority: '1.5' }, '整数'],
+    [{ watermark: 'invalid' }, '布尔值'],
+    [{ draft: 'true', resolution: '720p' }, '480p'],
+  ])(
+    'rejects invalid parameters before submission: %j',
+    async (params, error) => {
+      const fetcher = vi.fn();
+      await expect(
+        submitSeedance2Request(createContext(fetcher), {
+          model: 'doubao-seedance-2-5-260628',
+          prompt: 'red ball',
+          params,
+        })
+      ).rejects.toThrow(error);
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -790,8 +790,8 @@ const SEEDANCE_DEFAULT_PARAMS: VideoModelDefaults = {
 };
 
 const SEEDANCE_25_DEFAULT_PARAMS: VideoModelDefaults = {
-  duration: '8',
-  size: '',
+  duration: '4',
+  size: '480p',
   aspectRatio: '16:9',
 };
 
@@ -1690,7 +1690,10 @@ export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
 
 /** Includes models hidden from default pickers, for explicit model contracts. */
 export function getAllBuiltInModelConfigs(): ModelConfig[] {
-  return mergeModels(ALL_MODELS, [...BUILT_IN_TEXT_MODELS, ...HIDDEN_VIDEO_MODELS]);
+  return mergeModels(ALL_MODELS, [
+    ...BUILT_IN_TEXT_MODELS,
+    ...HIDDEN_VIDEO_MODELS,
+  ]);
 }
 
 // ============================================
@@ -2033,9 +2036,7 @@ export const GPT_IMAGE_2_MODEL_IDS = [
 ];
 
 /** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
-export const GPT_IMAGE_25_MODEL_IDS = [
-  'gpt-image-2.5-1k',
-];
+export const GPT_IMAGE_25_MODEL_IDS = ['gpt-image-2.5-1k'];
 
 /** 所有 GPT 图片模型 ID */
 const GPT_IMAGE_MODEL_IDS = [
@@ -2202,6 +2203,66 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     compatibleModels: SEEDANCE_2_MODEL_IDS,
     modelType: 'video',
   },
+  {
+    id: 'watermark',
+    label: '视频水印',
+    description: '视频水印',
+    valueType: 'enum',
+    options: [
+      { value: 'false', label: '关闭' },
+      { value: 'true', label: '开启' },
+    ],
+    defaultValue: 'false',
+    compatibleModels: [SEEDANCE_25_MODEL_ID],
+    modelType: 'video',
+  },
+  {
+    id: 'output_format',
+    label: '输出格式',
+    description: '输出格式',
+    valueType: 'enum',
+    options: [
+      { value: 'mp4', label: 'MP4' },
+      { value: 'mov', label: 'MOV' },
+    ],
+    defaultValue: 'mp4',
+    compatibleModels: [SEEDANCE_25_MODEL_ID],
+    modelType: 'video',
+  },
+  {
+    id: 'draft',
+    label: '样片模式',
+    description: '样片模式',
+    valueType: 'enum',
+    options: [
+      { value: 'false', label: '关闭' },
+      { value: 'true', label: '开启（仅 480p）' },
+    ],
+    defaultValue: 'false',
+    compatibleModels: [SEEDANCE_25_MODEL_ID],
+    modelType: 'video',
+  },
+  {
+    id: 'priority',
+    label: '任务优先级',
+    description: '任务优先级',
+    valueType: 'enum',
+    options: [
+      { value: '0', label: '0' },
+      { value: '1', label: '1' },
+      { value: '2', label: '2' },
+      { value: '3', label: '3' },
+      { value: '4', label: '4' },
+      { value: '5', label: '5' },
+      { value: '6', label: '6' },
+      { value: '7', label: '7' },
+      { value: '8', label: '8' },
+      { value: '9', label: '9' },
+    ],
+    defaultValue: '0',
+    compatibleModels: [SEEDANCE_25_MODEL_ID],
+    modelType: 'video',
+  },
   // Seedance 分辨率参数（480p/720p/1080p）
   {
     id: 'size',
@@ -2223,7 +2284,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     id: 'size',
     label: '视频分辨率',
     shortLabel: '分辨率',
-    description: 'Seedance 2.0 resolution',
+    description: 'Seedance resolution',
     valueType: 'enum',
     options: [
       { value: '1080p', label: '1080p' },
@@ -2231,7 +2292,7 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: '480p', label: '480p' },
     ],
     defaultValue: '720p',
-    compatibleModels: SEEDANCE_20_MODEL_IDS,
+    compatibleModels: SEEDANCE_2_MODEL_IDS,
     modelType: 'video',
   },
   {
@@ -3234,8 +3295,7 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
     // 检查是否在兼容 ID 列表（无标签限制时，空数组表示所有模型都兼容）
     const idMatched =
       param.compatibleModels.some(
-        (compatibleModel) =>
-          compatibleModel.toLowerCase() === normalizedModelId
+        (compatibleModel) => compatibleModel.toLowerCase() === normalizedModelId
       ) ||
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
     return idMatched || tagMatched;
@@ -3246,11 +3306,12 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   }
 
   return compatibleParams.map((param) => {
+    if (param.id === 'size') return { ...param, defaultValue: '480p' };
     if (param.id === 'duration') {
       return {
         ...param,
         options: SEEDANCE_25_DURATION_OPTIONS,
-        defaultValue: '8',
+        defaultValue: '4',
       };
     }
     if (param.id === 'ratio') {

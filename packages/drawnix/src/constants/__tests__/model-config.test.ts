@@ -97,7 +97,9 @@ describe('model-config image size options', () => {
           .find((param) => param.id === 'resolution')
           ?.options?.map((option) => option.value)
       ).toEqual(['auto', '1k', '2k', '4k']);
-      expect(params.find((param) => param.id === 'resolution')?.options).toEqual([
+      expect(
+        params.find((param) => param.id === 'resolution')?.options
+      ).toEqual([
         { value: 'auto', label: '自动' },
         { value: '1k', label: '1K' },
         { value: '2k', label: '2K' },
@@ -114,14 +116,14 @@ describe('model-config image size options', () => {
   it('为 GPT Image 2.5 VIP 提供分辨率与超高清画质档位', () => {
     const params = getCompatibleParams('gpt-image-2.5-vip');
     expect(
-      params.find((param) => param.id === 'resolution')?.options?.map(
-        (option) => option.value
-      )
+      params
+        .find((param) => param.id === 'resolution')
+        ?.options?.map((option) => option.value)
     ).toEqual(['auto', '1k', '2k', '4k']);
     expect(
-      params.find((param) => param.id === 'quality')?.options?.map(
-        (option) => option.value
-      )
+      params
+        .find((param) => param.id === 'quality')
+        ?.options?.map((option) => option.value)
     ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh']);
   });
 
@@ -370,7 +372,16 @@ describe('model-config image size options', () => {
     'doubao-seedance-2-0-mini-260615',
   ])('Seedance 2.0 参数与官方 JSON 契约一致：%s', (modelId) => {
     const params = getCompatibleParams(modelId);
-    expect(params.map((param) => param.id)).not.toContain('watermark');
+    expect(params.map((param) => param.id)).toEqual(
+      expect.arrayContaining([
+        'duration',
+        'size',
+        'ratio',
+        'generate_audio',
+        'seed',
+        'camera_fixed',
+      ])
+    );
     const options = (paramId: string) =>
       params
         .find((param) => param.id === paramId)
@@ -404,7 +415,14 @@ describe('model-config image size options', () => {
 
   it('Seedance 2.5 exposes its own duration and ratio boundaries', () => {
     const params = getCompatibleParams('doubao-seedance-2-5-260628');
-    expect(params.map((param) => param.id)).not.toContain('watermark');
+    expect(params.map((param) => param.id)).toEqual(
+      expect.arrayContaining([
+        'watermark',
+        'output_format',
+        'draft',
+        'priority',
+      ])
+    );
     const options = (paramId: string) =>
       params
         .find((param) => param.id === paramId)
@@ -422,7 +440,13 @@ describe('model-config image size options', () => {
       '21:9',
       'adaptive',
     ]);
-    expect(options('size')).toBeUndefined();
+    expect(options('size')).toEqual(['1080p', '720p', '480p']);
+    expect(params.find((param) => param.id === 'size')?.defaultValue).toBe(
+      '480p'
+    );
+    expect(params.find((param) => param.id === 'duration')?.defaultValue).toBe(
+      '4'
+    );
     expect(params.map((param) => param.id)).not.toEqual(
       expect.arrayContaining(['seed', 'camera_fixed'])
     );
@@ -522,9 +546,7 @@ describe('model-config image size options', () => {
       },
     ]);
 
-    const paramIds = getCompatibleParams('minimax-h3').map(
-      (param) => param.id
-    );
+    const paramIds = getCompatibleParams('minimax-h3').map((param) => param.id);
 
     expect(paramIds).toEqual(
       expect.arrayContaining([

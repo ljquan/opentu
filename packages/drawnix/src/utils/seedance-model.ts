@@ -49,7 +49,7 @@ const SEEDANCE_20_CAPABILITIES: Seedance2Capabilities = {
 const SEEDANCE_25_CAPABILITIES: Seedance2Capabilities = {
   minDuration: 4,
   maxDuration: 30,
-  defaultDuration: 8,
+  defaultDuration: 4,
   ratios: SEEDANCE_25_RATIOS,
   maxReferenceImages: 30,
   maxReferenceVideos: 10,
@@ -109,16 +109,17 @@ export function normalizeSeedanceRatio(value?: string): string | undefined {
 
   if (width >= 100 || height >= 100) {
     const numericRatio = width / height;
-    return SEEDANCE_20_RATIOS.filter(
-      (ratio) => ratio !== 'adaptive'
-    ).reduce((closest, ratio) => {
+    return SEEDANCE_20_RATIOS.filter((ratio) => ratio !== 'adaptive').reduce(
+      (closest, ratio) => {
       const [ratioWidth, ratioHeight] = ratio.split(':').map(Number);
       const [closestWidth, closestHeight] = closest.split(':').map(Number);
       return Math.abs(numericRatio - ratioWidth / ratioHeight) <
         Math.abs(numericRatio - closestWidth / closestHeight)
         ? ratio
         : closest;
-    }, '16:9');
+      },
+      '16:9'
+    );
   }
 
   return `${dimensions[1]}:${dimensions[2]}`;
