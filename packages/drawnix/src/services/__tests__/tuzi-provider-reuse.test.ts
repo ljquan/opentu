@@ -106,6 +106,46 @@ beforeEach(() => {
   state.ensure.mockResolvedValue([]);
 });
 describe('verified ordinary Tuzi providers', () => {
+  it('keeps manual settings and account reads usable with an old parent and missing verification API', async () => {
+    state.verify.mockRejectedValue(new Error('TUZI_PARENT_TIMEOUT'));
+    const original = structuredClone(state.profiles);
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/providers/verify')
+              ? { success: false, message: 'not found' }
+              : { success: true, data: { id: 1, username: 'legacy' } }
+          ),
+          { status: url.includes('/providers/verify') ? 404 : 200 }
+        )
+    );
+    const client = new TuziSessionApiClient(undefined, fetcher as typeof fetch);
+    await expect(client.verifyExistingProviders()).resolves.toEqual([]);
+    expect(state.profiles).toEqual(original);
+    expect(getReusedTuziProviders(state.profiles)).toEqual([]);
+    await expect(client.getAccount()).resolves.toMatchObject({
+      id: 1,
+      username: 'legacy',
+    });
+    expect(state.ensure).not.toHaveBeenCalled();
+  });
+
+  it('does not suppress authentication failures in the legacy fallback', async () => {
+    state.verify.mockRejectedValue(new Error('TUZI_PARENT_TIMEOUT'));
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ success: false, message: 'unauthorized' }),
+          { status: 401 }
+        )
+    );
+    const client = new TuziSessionApiClient(undefined, fetcher as typeof fetch);
+    await expect(client.verifyExistingProviders()).rejects.toMatchObject({
+      code: 'TOKEN_INVALID',
+    });
+  });
+
   it('reuses multiple providers in the same group without changing names, keys or model configuration', async () => {
     const originalProfiles = structuredClone(state.profiles);
     const originalCatalogs = structuredClone(state.catalogs);

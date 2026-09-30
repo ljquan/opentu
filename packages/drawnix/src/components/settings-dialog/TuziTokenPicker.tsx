@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  KeyRound,
-  Loader2,
-  Plus,
-  RefreshCw,
-} from 'lucide-react';
+import { KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import {
@@ -13,7 +8,10 @@ import {
   type TuziManagedProvider,
   type TuziProviderGroup,
 } from '../../services/tuzi-session-api';
-import { addTuziTokenProviders } from '../../services/tuzi-managed-providers';
+import {
+  synchronizeTuziManagedProviders,
+  addTuziTokenProviders,
+} from '../../services/tuzi-managed-providers';
 import { discoverAndUseAllTuziProviderModels } from '../../services/tuzi-managed-provider-models';
 import { isCurrentTuziEndpoint } from '../../services/tuzi-provider-reuse-state';
 import {
@@ -59,10 +57,12 @@ export function TuziTokenPicker({
   onComplete,
   onCancel,
   initialMode = 'import',
+  onUnsupported,
 }: {
   onComplete: (providers: TuziManagedProvider[]) => void;
   onCancel: () => void;
   initialMode?: 'import' | 'create';
+  onUnsupported?: () => void;
 }) {
   const [mode, setMode] = useState(initialMode);
   const [tokens, setTokens] = useState<TuziAccountToken[]>([]);
@@ -73,6 +73,8 @@ export function TuziTokenPicker({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [unsupported, setUnsupported] = useState(false);
+  const managedResponse = useRef<TuziManagedProvider[] | null>(null);
   const [revision, setRevision] = useState(0);
   const mounted = useRef(true);
   const submitting = useRef(false);
@@ -127,8 +129,20 @@ export function TuziTokenPicker({
         }
       })
       .catch((e) => {
-        if (!cancelled && current())
-          setError(e instanceof Error ? e.message : '加载失败，请重试');
+        if (!cancelled && current()) {
+          if (
+            mode === 'import' &&
+            e instanceof Error &&
+            'status' in e &&
+            e.status === 404
+          ) {
+            setUnsupported(true);
+            setMode('create');
+            onUnsupported?.();
+          } else {
+            setError(e instanceof Error ? e.message : '加载失败，请重试');
+          }
+        }
       })
       .finally(() => {
         if (!cancelled && current()) setLoading(false);
@@ -159,6 +173,23 @@ export function TuziTokenPicker({
     let received = false;
     try {
       const client = new TuziSessionApiClient();
+      if (mode === 'create' && unsupported) {
+        const providers =
+          managedResponse.current ||
+          (await client.ensureManagedProviders(selectedGroups));
+        if (!current()) return;
+        managedResponse.current = providers;
+        await synchronizeTuziManagedProviders(providers);
+        if (!current()) return;
+        const selected = providers.filter((p) =>
+          selectedGroups.includes(p.group)
+        );
+        void Promise.allSettled(
+          selected.map(discoverAndUseAllTuziProviderModels)
+        );
+        onComplete(selected);
+        return;
+      }
       const result =
         completedResponse.current ||
         (mode === 'import'
@@ -188,6 +219,12 @@ export function TuziTokenPicker({
       onComplete(providers);
     } catch (e) {
       if (!current()) return;
+      if (e instanceof Error && 'status' in e && e.status === 404) {
+        setUnsupported(true);
+        onUnsupported?.();
+        setError('当前站点使用账户分组，请再次点击创建并添加。');
+        return;
+      }
       const message = e instanceof Error ? e.message : '操作失败';
       setError(
         mode === 'create' && !received
@@ -202,6 +239,7 @@ export function TuziTokenPicker({
   const changeMode = (next: 'import' | 'create') => {
     if (busy || next === mode) return;
     completedResponse.current = null;
+    managedResponse.current = null;
     setMode(next);
     setError('');
     setLoading(true);
@@ -216,7 +254,9 @@ export function TuziTokenPicker({
       <input
         type="checkbox"
         checked={selectedGroups.includes(group.group)}
-        disabled={busy || !!completedResponse.current}
+        disabled={
+          busy || !!completedResponse.current || !!managedResponse.current
+        }
         onChange={() =>
           setSelectedGroups((previous) =>
             previous.includes(group.group)
@@ -236,17 +276,25 @@ export function TuziTokenPicker({
   );
   const count = mode === 'import' ? selectedIds.length : selectedGroups.length;
   const defaultGroup = groups.find((g) => g.group === 'default');
+
   return (
     <section className="tuzi-token-picker" aria-label="添加 Tuzi 令牌">
+      {unsupported && (
+        <p role="status">
+          当前站点不支持导入已有令牌，仍可创建或复用 Tuzi 账户分组。
+        </p>
+      )}
       <div className="tuzi-token-picker__tabs">
-        <button
-          type="button"
-          aria-pressed={mode === 'import'}
-          disabled={busy}
-          onClick={() => changeMode('import')}
-        >
-          添加已有令牌
-        </button>
+        {!unsupported && (
+          <button
+            type="button"
+            aria-pressed={mode === 'import'}
+            disabled={busy}
+            onClick={() => changeMode('import')}
+          >
+            添加已有令牌
+          </button>
+        )}
         <button
           type="button"
           aria-pressed={mode === 'create'}
@@ -254,7 +302,7 @@ export function TuziTokenPicker({
           onClick={() => changeMode('create')}
         >
           <Plus size={15} />
-          创建新令牌
+          {unsupported ? '添加 Tuzi 分组' : '创建新令牌'}
         </button>
       </div>
       <div className="tuzi-token-picker__body">
@@ -265,10 +313,18 @@ export function TuziTokenPicker({
             </span>
           )}
           <div>
-            <h3>{mode === 'import' ? '添加已有令牌' : '创建新令牌'}</h3>
+            <h3>
+              {mode === 'import'
+                ? '添加已有令牌'
+                : unsupported
+                ? '添加 Tuzi 分组'
+                : '创建新令牌'}
+            </h3>
             <p>
               {mode === 'import'
                 ? '来自 Tuzi「令牌管理」 · 保留你设置的名称、分组与限制'
+                : unsupported
+                ? '配置后自动添加到 OpenTu。已有账户分组会继续复用。'
                 : '创建后自动添加到 OpenTu，也会显示在 Tuzi「令牌管理」。'}
             </p>
           </div>
@@ -334,18 +390,24 @@ export function TuziTokenPicker({
           </div>
         ) : (
           <>
-            <label className="tuzi-token-picker__field">
-              <span>令牌名称</span>
-              <input
-                type="text"
-                value={name}
-                maxLength={30}
-                disabled={busy || !!completedResponse.current}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="例如：OpenTu 日常使用"
-              />
-              <small>这个名称也会显示在 Tuzi 的令牌管理中。</small>
-            </label>
+            {!unsupported && (
+              <label className="tuzi-token-picker__field">
+                <span>令牌名称</span>
+                <input
+                  type="text"
+                  value={name}
+                  maxLength={30}
+                  disabled={
+                    busy ||
+                    !!completedResponse.current ||
+                    !!managedResponse.current
+                  }
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例如：OpenTu 日常使用"
+                />
+                <small>这个名称也会显示在 Tuzi 的令牌管理中。</small>
+              </label>
+            )}
             <div className="tuzi-token-picker__label tuzi-token-picker__label--groups">
               所属分组 <small>默认只选择 default</small>
             </div>
@@ -367,19 +429,29 @@ export function TuziTokenPicker({
             )}
             <div className="tuzi-token-picker__preview">
               <div>
-                即将创建 <span>{count} 枚令牌</span>
+                {unsupported ? '即将添加' : '即将创建'}{' '}
+                <span>
+                  {count} {unsupported ? '个账户分组' : '枚令牌'}
+                </span>
               </div>
               {selectedGroups.map((g) => (
                 <div key={g}>
                   <KeyRound size={15} />
                   <strong>
-                    {name.trim() || '未命名令牌'}
+                    {unsupported
+                      ? groups.find((group) => group.group === g)
+                          ?.displayName || g
+                      : name.trim() || '未命名令牌'}
                     {count > 1 ? ` · ${g}` : ''}
                   </strong>
                   <span className="tuzi-token-picker__badge">{g}</span>
                 </div>
               ))}
-              <small>每个分组创建一枚 · 不限额度与次数 · 长期有效</small>
+              <small>
+                {unsupported
+                  ? '已有账户分组继续复用，缺少的分组由 Tuzi 创建。'
+                  : '每个分组创建一枚 · 不限额度与次数 · 长期有效'}
+              </small>
             </div>
           </>
         )}

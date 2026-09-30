@@ -35,10 +35,11 @@ export interface TuziManagedRoutePreparation {
 export async function prepareTuziManagedRoute(
   route: Pick<ResolvedInvocationRoute, 'profileId' | 'apiKey'>
 ): Promise<TuziManagedRoutePreparation> {
-  const managedRoute = isTuziManagedProviderProfileId(route.profileId);
+  const managedRoute =
+    isTuziManagedProviderProfileId(route.profileId) ||
+    route.profileId?.startsWith('tuzi-token-') === true;
   const embedded = isTuziBridgeConnected();
-  const hasParent = typeof window !== 'undefined' && window.parent !== window;
-  if (route.apiKey && !managedRoute && !embedded && !hasParent) {
+  if (route.apiKey && !managedRoute) {
     return { context: null, managedRoute: false, requiresSetup: false };
   }
 

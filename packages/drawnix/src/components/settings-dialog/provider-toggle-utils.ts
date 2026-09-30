@@ -27,11 +27,7 @@ export function shouldShowProviderProfile(
   showTuziProviders: boolean,
   hasApiKey = false
 ): boolean {
-  return (
-    showTuziProviders ||
-    hasApiKey ||
-    !profileId.startsWith('tuzi-managed-')
-  );
+  return showTuziProviders || !profileId.startsWith('tuzi-managed-');
 }
 
 export function canDisableProvider(

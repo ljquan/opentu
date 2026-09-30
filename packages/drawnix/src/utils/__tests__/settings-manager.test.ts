@@ -739,7 +739,7 @@ describe('settings-manager', () => {
     });
   });
 
-  it('uses the remembered bridge-managed group for Tuzi routes', async () => {
+  it('keeps manual credentials independent of account routes in an embed', async () => {
     mockSettingsManagerDeps();
     vi.doMock('../../services/tuzi-embedded-config', () => ({
       isTuziEmbeddedMode: () => true,
@@ -804,8 +804,8 @@ describe('settings-manager', () => {
 
     const { settingsManager } = await import('../settings-manager');
     expect(settingsManager.resolveInvocationRoute('image')).toMatchObject({
-      profileId: 'tuzi-managed-vip',
-      apiKey: 'sk-vip',
+      profileId: 'legacy-default',
+      apiKey: 'old-manual-key',
     });
     expect(settingsManager.hasInvocationRouteCredentials('image')).toBe(true);
     expect(
@@ -813,7 +813,7 @@ describe('settings-manager', () => {
         profileId: 'legacy-default',
         modelId: 'gpt-image-1',
       }).apiKey
-    ).toBe('');
+    ).toBe('old-manual-key');
     const { setTuziProviderVerification, resetTuziProviderVerification } =
       await import('../../services/tuzi-provider-reuse-state');
     setTuziProviderVerification(
@@ -849,7 +849,38 @@ describe('settings-manager', () => {
     ).toBe('old-manual-key');
     resetTuziProviderVerification();
     await settingsManager.updateSetting('providerProfiles', []);
-    expect(settingsManager.resolveInvocationRoute('image').apiKey).toBe('');
+    expect(settingsManager.resolveInvocationRoute('image').apiKey).toBe('old-manual-key');
+  });
+
+  it('repairs manual defaults once and preserves keys and switches across embedded reloads', async () => {
+    mockSettingsManagerDeps();
+    vi.doMock('../../services/tuzi-embedded-config', () => ({
+      isTuziEmbeddedMode: () => false,
+      tuziEmbeddedConfig: { enabled: true, apiBaseUrl: 'https://api.tu-zi.com' },
+    }));
+    localStorage.setItem(DRAWNIX_SETTINGS_KEY, JSON.stringify({
+      providerProfiles: [
+        { id: 'tuzi-origin', name: '原价分组', apiKey: '', enabled: false },
+        { id: 'manual-test', name: '我的手动供应商', baseUrl: 'https://api.tu-zi.com/v1', apiKey: 'manual-test-key', enabled: false },
+        { id: 'tuzi-managed-test', name: '账户供应商', apiKey: 'account-test-key', enabled: false },
+      ],
+    }));
+    let module = await import('../settings-manager');
+    await module.settingsManager.waitForInitialization();
+    expect(module.providerProfilesSettings.get().find(p => p.id === 'manual-test')).toMatchObject({ enabled: true, apiKey: 'manual-test-key' });
+    expect(module.providerProfilesSettings.get().find(p => p.id === 'tuzi-managed-test')?.enabled).toBe(false);
+    expect(module.providerProfilesSettings.get().filter(p => !p.id.startsWith('tuzi-managed-')).every(p => p.enabled)).toBe(true);
+    vi.resetModules();
+    mockSettingsManagerDeps();
+    module = await import('../settings-manager');
+    await module.settingsManager.waitForInitialization();
+    expect(module.providerProfilesSettings.get().find(p => p.id === 'manual-test')).toMatchObject({ enabled: true, apiKey: 'manual-test-key' });
+    await module.providerProfilesSettings.update(module.providerProfilesSettings.get().map(p => p.id === 'manual-test' ? { ...p, enabled: false } : p));
+    vi.resetModules();
+    mockSettingsManagerDeps();
+    module = await import('../settings-manager');
+    await module.settingsManager.waitForInitialization();
+    expect(module.providerProfilesSettings.get().find(p => p.id === 'manual-test')).toMatchObject({ enabled: false, apiKey: 'manual-test-key' });
   });
 
   it('preserves provider catalog manual bindings after reload', async () => {

@@ -180,7 +180,8 @@ function extractDiscoveryErrorMessage(
 async function fetchRemoteModelList(
   baseUrl: string,
   apiKey: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  accountManaged = false
 ): Promise<string> {
   const controller =
     typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -191,7 +192,7 @@ async function fetchRemoteModelList(
   if (signal?.aborted) abortFromCaller();
   signal?.addEventListener('abort', abortFromCaller, { once: true });
   try {
-    const requestUrl = getModelListRequestUrl(baseUrl);
+    const requestUrl = getModelListRequestUrl(baseUrl, accountManaged);
     const response = await fetch(requestUrl, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -221,7 +222,10 @@ async function fetchRemoteModelList(
   }
 }
 
-function getModelListRequestUrl(baseUrl: string): string {
+function getModelListRequestUrl(
+  baseUrl: string,
+  accountManaged: boolean
+): string {
   if (typeof window === 'undefined') {
     return `${baseUrl}/models`;
   }
@@ -234,7 +238,11 @@ function getModelListRequestUrl(baseUrl: string): string {
     ) {
       const path = `${parsed.pathname.replace(/\/+$/, '')}/models`;
       return new URL(
-        `/__opentu_tuzi_session__${path.startsWith('/') ? path : `/${path}`}`,
+        `${
+          accountManaged
+            ? '/__opentu_tuzi_session__'
+            : '/__opentu_tuzi_proxy__/api'
+        }${path.startsWith('/') ? path : `/${path}`}`,
         window.location.origin
       ).toString();
     }
@@ -265,7 +273,8 @@ async function fetchRemoteModelListWithFallback(
   primaryBaseUrl: string,
   apiKey: string,
   fallbackBaseUrls: string[] = [],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  accountManaged = false
 ): Promise<string> {
   const baseUrls = buildModelDiscoveryBaseUrls(
     primaryBaseUrl,
@@ -275,7 +284,12 @@ async function fetchRemoteModelListWithFallback(
 
   for (let index = 0; index < baseUrls.length; index += 1) {
     try {
-      return await fetchRemoteModelList(baseUrls[index], apiKey, signal);
+      return await fetchRemoteModelList(
+        baseUrls[index],
+        apiKey,
+        signal,
+        accountManaged
+      );
     } catch (error) {
       if (error instanceof Error && !/failed to fetch/i.test(error.message)) {
         throw error;
@@ -1297,7 +1311,9 @@ function isProfileEnabled(profileId: string): boolean {
   ) {
     return profile.id.startsWith('tuzi-managed-')
       ? profile.enabled !== false && hasTuziSystemToken()
-      : isVerifiedTuziProvider(profile);
+      : profile.id.startsWith('tuzi-token-')
+      ? isVerifiedTuziProvider(profile)
+      : profile.enabled !== false;
   }
   return profile?.enabled !== false;
 }
@@ -2083,7 +2099,9 @@ class RuntimeModelDiscoveryStore {
       normalizedBaseUrl,
       trimmedApiKey,
       fallbackBaseUrls,
-      options.signal
+      options.signal,
+      profileId.startsWith('tuzi-managed-') ||
+        profileId.startsWith('tuzi-token-')
     );
 
     let parsed: unknown;

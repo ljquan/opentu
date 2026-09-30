@@ -11,6 +11,7 @@ import {
   resetTuziBridgeForTests,
 } from '../tuzi-postmessage-bridge';
 import { getTuziSystemToken } from '../tuzi-token-auth';
+import { synchronizeTuziManagedProviders } from '../tuzi-managed-providers';
 
 vi.mock('../tuzi-session-provider-sync', () => ({
   resetTuziSessionProviderSyncCache: vi.fn(),
@@ -52,6 +53,7 @@ function installParent(
 describe('Tuzi postMessage bridge', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     window.localStorage.clear();
     resetTuziBridgeForTests();
   });
@@ -89,6 +91,56 @@ describe('Tuzi postMessage bridge', () => {
     expect(
       window.localStorage.getItem('opentu.tuzi.systemUserId.v1')
     ).toBeNull();
+  });
+
+  it('preserves managed profiles across reloads but clears them on an account switch', async () => {
+    let userId = '40832';
+    installParent((request) => ({
+      version: 1,
+      type: 'TUZI_OPENTU_CONTEXT',
+      requestId: request.requestId,
+      payload: {
+        environment: 'tuzi-api',
+        status: 'ready',
+        userId,
+        systemToken: 'system-token',
+        groups: [],
+      },
+    }));
+    await requestTuziParentContext();
+    vi.mocked(synchronizeTuziManagedProviders).mockClear();
+    resetTuziBridgeForTests();
+    await requestTuziParentContext();
+    expect(synchronizeTuziManagedProviders).not.toHaveBeenCalled();
+    userId = '50001';
+    resetTuziBridgeForTests();
+    await requestTuziParentContext();
+    expect(synchronizeTuziManagedProviders).toHaveBeenCalledExactlyOnceWith([]);
+  });
+
+  it('bounds unsupported verification on the old parent bridge', async () => {
+    installParent((request) =>
+      request.type === 'TUZI_OPENTU_READY'
+        ? {
+            version: 1,
+            type: 'TUZI_OPENTU_CONTEXT',
+            requestId: request.requestId,
+            payload: {
+              environment: 'tuzi-api',
+              status: 'ready',
+              userId: '40832',
+              systemToken: 'system-token',
+              groups: [],
+            },
+          }
+        : null
+    );
+    await requestTuziParentContext();
+    const pending = expect(verifyTuziProviders([])).rejects.toThrow(
+      'TUZI_PARENT_TIMEOUT'
+    );
+    await vi.advanceTimersByTimeAsync(1500);
+    await pending;
   });
 
   it('keeps a validated parent business error in Tuzi mode even on first contact', async () => {

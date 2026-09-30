@@ -1,10 +1,6 @@
 import { isCurrentTuziEndpoint } from './tuzi-provider-reuse-state';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
-  TUZI_BUSINESS_PROVIDER_PROFILE_ID,
-  TUZI_CODEX_PROVIDER_PROFILE_ID,
-  TUZI_MIX_PROVIDER_PROFILE_ID,
-  TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
   TUZI_PROVIDER_ICON_URL,
   providerCatalogsSettings,
   providerProfilesSettings,
@@ -15,13 +11,6 @@ import type { TuziManagedProvider } from './tuzi-session-api';
 import { normalizeModelApiBaseUrl } from '../utils/provider-base-url';
 
 const MANAGED_PROVIDER_PREFIX = 'tuzi-managed-';
-const BUILT_IN_TUZI_PROVIDER_IDS = new Set([
-  LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
-  TUZI_ORIGINAL_PROVIDER_PROFILE_ID,
-  TUZI_MIX_PROVIDER_PROFILE_ID,
-  TUZI_CODEX_PROVIDER_PROFILE_ID,
-  TUZI_BUSINESS_PROVIDER_PROFILE_ID,
-]);
 const DEFAULT_CAPABILITIES: ProviderProfile['capabilities'] = {
   supportsModelsEndpoint: true,
   supportsText: true,
@@ -138,7 +127,7 @@ export async function synchronizeTuziManagedProviders(
   const merged = retained.map((profile) => {
     const provider = incoming.get(profile.id);
     if (provider?.source === 'existing') {
-      return profile.apiKey.trim() ? { ...profile, enabled: true } : profile;
+      return profile;
     }
     if (provider) {
       const nextProfile = { ...profile, ...toProfile(provider, template) };
@@ -146,10 +135,7 @@ export async function synchronizeTuziManagedProviders(
         ? { ...nextProfile, enabled: true }
         : nextProfile;
     }
-    if (BUILT_IN_TUZI_PROVIDER_IDS.has(profile.id) && !profile.apiKey?.trim()) {
-      return { ...profile, enabled: false };
-    }
-    return profile.apiKey.trim() ? { ...profile, enabled: true } : profile;
+    return profile;
   });
   const knownIds = new Set(merged.map((profile) => profile.id));
   providers.forEach((provider) => {

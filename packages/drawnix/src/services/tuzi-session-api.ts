@@ -7,6 +7,7 @@ import {
   isCurrentTuziEndpoint,
   setTuziProviderVerification,
   getReusedTuziProviders,
+  resetTuziProviderVerification,
   type TuziProviderVerification,
 } from './tuzi-provider-reuse-state';
 import type { TuziEmbeddedConfig } from './tuzi-embedded-config';
@@ -362,9 +363,33 @@ export class TuziSessionApiClient {
           sha256(profile.apiKey.trim().replace(/^sk-/, ''))
         ),
       }));
-      const data = bridgeConnected
-        ? null
-        : asRecord(
+      let reply: TuziProviderVerification[];
+      try {
+        if (bridgeConnected) {
+          try {
+            reply = await verifyTuziProviders(fingerprints);
+          } catch (error) {
+            if (
+              !(error instanceof Error) ||
+              error.message !== 'TUZI_PARENT_TIMEOUT'
+            )
+              throw error;
+            // An older parent ignores the verification message. Ask the API
+            // directly so a slow bridge is not mistaken for missing support.
+            const data = asRecord(
+              await this.request(
+                '/api/opentu/providers/verify',
+                undefined,
+                'POST',
+                JSON.stringify({ candidates: fingerprints })
+              )
+            );
+            if (String(data?.user_id) !== requestUserId)
+              throw new Error('账户已变化，请重新核验');
+            reply = data?.providers as TuziProviderVerification[];
+          }
+        } else {
+          const data = asRecord(
             await this.request(
               '/api/opentu/providers/verify',
               undefined,
@@ -372,11 +397,18 @@ export class TuziSessionApiClient {
               JSON.stringify({ candidates: fingerprints })
             )
           );
-      if (!bridgeConnected && String(data?.user_id) !== requestUserId)
-        throw new Error('账户已变化，请重新核验');
-      const reply = bridgeConnected
-        ? await verifyTuziProviders(fingerprints)
-        : (data?.providers as TuziProviderVerification[]);
+          if (String(data?.user_id) !== requestUserId)
+            throw new Error('账户已变化，请重新核验');
+          reply = data?.providers as TuziProviderVerification[];
+        }
+      } catch (error) {
+        if (!(error instanceof TuziSessionApiError) || error.status !== 404)
+          throw error;
+        // Old servers cannot establish ownership of ordinary credentials.
+        // Keep local settings, but never present them as account-verified.
+        resetTuziProviderVerification();
+        return [];
+      }
       if (!Array.isArray(reply)) throw new Error('令牌核验响应无效');
       if (
         reply.length !== batch.length ||

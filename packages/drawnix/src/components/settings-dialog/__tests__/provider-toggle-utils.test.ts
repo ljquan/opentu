@@ -35,9 +35,9 @@ describe('provider-toggle-utils', () => {
     expect(shouldShowProviderProfile('tuzi-managed-default', false)).toBe(
       false
     );
-    expect(
-      shouldShowProviderProfile('tuzi-managed-custom', false, true)
-    ).toBe(true);
+    expect(shouldShowProviderProfile('tuzi-managed-custom', false, true)).toBe(
+      false
+    );
   });
 
   it('允许关闭 default，只要还有其他启用供应商', () => {

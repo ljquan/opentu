@@ -44,7 +44,10 @@ function hasSupportedCredentialEndpoint(baseUrl: string): boolean {
 export function mapNativeProviderCredentials(
   profiles: ProviderProfile[],
   preferredProfileId: string | null
-): { profiles: NativeProviderCredentials[]; preferredProfileId: string | null } {
+): {
+  profiles: NativeProviderCredentials[];
+  preferredProfileId: string | null;
+} {
   return {
     profiles: profiles
       .filter(
@@ -75,20 +78,29 @@ export async function readNativeProviderCredentials(): Promise<{
 }> {
   const settings = await import('../../utils/settings-manager');
   await settings.settingsManager.waitForInitialization();
-  const { isTuziEmbeddedMode } = await import('../../services/tuzi-embedded-config');
-  const { isCurrentTuziEndpoint, isVerifiedTuziProvider } = await import('../../services/tuzi-provider-reuse-state');
-  const { getTuziSystemUserId } = await import('../../services/tuzi-token-auth');
-  const profiles = (settings.providerProfilesSettings.get() || []).filter(profile => {
-    if (!isTuziEmbeddedMode()) return true;
-    if (profile.id.startsWith('tuzi-managed-')) return Boolean(getTuziSystemUserId());
-    return !isCurrentTuziEndpoint(profile.baseUrl) || isVerifiedTuziProvider(profile);
-  });
-  const preferredProfileId =
-    settings.resolveInvocationRoute('image').profileId;
-  return mapNativeProviderCredentials(
-    profiles,
-    preferredProfileId
+  const { isTuziEmbeddedMode } = await import(
+    '../../services/tuzi-embedded-config'
   );
+  const { isCurrentTuziEndpoint, isVerifiedTuziProvider } = await import(
+    '../../services/tuzi-provider-reuse-state'
+  );
+  const { getTuziSystemUserId } = await import(
+    '../../services/tuzi-token-auth'
+  );
+  const profiles = (settings.providerProfilesSettings.get() || []).filter(
+    (profile) => {
+      if (!isTuziEmbeddedMode()) return true;
+      if (profile.id.startsWith('tuzi-managed-'))
+        return Boolean(getTuziSystemUserId());
+      return (
+        !profile.id.startsWith('tuzi-token-') ||
+        !isCurrentTuziEndpoint(profile.baseUrl) ||
+        isVerifiedTuziProvider(profile)
+      );
+    }
+  );
+  const preferredProfileId = settings.resolveInvocationRoute('image').profileId;
+  return mapNativeProviderCredentials(profiles, preferredProfileId);
 }
 
 export function mapNativeModels(
@@ -112,8 +124,11 @@ export function mapNativeModels(
     let baseUrl = '';
     try {
       const url = new URL(profile?.baseUrl || route?.baseUrl || '');
-      if (['http:', 'https:'].includes(url.protocol)) baseUrl = url.origin + url.pathname;
-    } catch { /* Unconfigured providers have no display address. */ }
+      if (['http:', 'https:'].includes(url.protocol))
+        baseUrl = url.origin + url.pathname;
+    } catch {
+      /* Unconfigured providers have no display address. */
+    }
     const catalog = catalogs.find((item) => item.profileId === source.id);
     const selected = new Set(catalog?.selectedModelIds || []);
     if (source.id === 'legacy-default') {
@@ -166,7 +181,8 @@ export function mapNativeModels(
         opentuProfileId: source.id,
         baseUrl,
         apiKey: '',
-        apiFormat: profile?.providerType === 'gemini-compatible' ? 'gemini' : 'openai',
+        apiFormat:
+          profile?.providerType === 'gemini-compatible' ? 'gemini' : 'openai',
         models: entries,
       });
   }

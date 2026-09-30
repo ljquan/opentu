@@ -99,6 +99,12 @@
   AITU_REWRITE_ENTRY_ASSETS_TO_CDN = "0"
 
 [[redirects]]
+  from = "/__opentu_tuzi_proxy__/api/*"
+  to = "https://api.tu-zi.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/__opentu_tuzi_session__/*"
   to = "https://api.tu-zi.com/:splat"
   status = 200

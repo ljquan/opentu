@@ -121,13 +121,13 @@ describe('synchronizeTuziManagedProviders', () => {
             profile.id
           )
         )
-        .every((profile: { enabled: boolean }) => profile.enabled === false)
+        .every((profile: { enabled: boolean }) => profile.enabled === true)
     ).toBe(true);
     expect(
       updatedProfiles.find(
         (profile: { id: string }) => profile.id === 'custom-provider'
       ).enabled
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('preserves ordinary keys while clearing managed credentials', async () => {
@@ -151,7 +151,7 @@ describe('synchronizeTuziManagedProviders', () => {
             profile.id
           )
         )
-        .every((profile: { enabled: boolean }) => profile.enabled === false)
+        .every((profile: { enabled: boolean }) => profile.enabled === true)
     ).toBe(true);
     expect(
       updatedProfiles.some(

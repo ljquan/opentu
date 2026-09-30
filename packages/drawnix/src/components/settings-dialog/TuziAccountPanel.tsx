@@ -676,6 +676,8 @@ export function TuziAccountPanel({
         )
       ) || ''
   );
+  const [tokenManagementUnsupported, setTokenManagementUnsupported] =
+    useState(false);
   const [providerSelectionPending, setProviderSelectionPending] =
     useState(false);
   const [displayConfig, setDisplayConfig] = useState<TuziDisplayConfig>(
@@ -1615,6 +1617,7 @@ export function TuziAccountPanel({
               <TuziTokenPicker
                 key={`${systemUserId}:${connectionRevision}`}
                 onComplete={completeTokenSelection}
+                onUnsupported={() => setTokenManagementUnsupported(true)}
                 onCancel={() => {
                   setProviderSelectionPending(false);
                   setActiveView('balance');
@@ -1841,7 +1844,11 @@ export function TuziAccountPanel({
                       onClick={openProviderSelection}
                     >
                       <Plus size={15} aria-hidden="true" />
-                      <span>添加 Tuzi 令牌</span>
+                      <span>
+                        {tokenManagementUnsupported
+                          ? '添加 Tuzi 分组'
+                          : '添加 Tuzi 令牌'}
+                      </span>
                     </button>
                   </div>
                 </section>

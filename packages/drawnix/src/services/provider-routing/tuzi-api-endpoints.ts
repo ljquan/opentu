@@ -206,9 +206,17 @@ export async function loadTuziApiEndpointSources(): Promise<
     return tuziApiEndpointSourceCache;
   }
 
-  const response = await fetch(TUZI_API_STATUS_URL, {
-    cache: 'no-store',
-  });
+  const response = await fetch(
+    typeof window !== 'undefined' &&
+      /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.)/.test(
+        window.location.origin
+      )
+      ? '/__opentu_tuzi_proxy__/api/api/status'
+      : TUZI_API_STATUS_URL,
+    {
+      cache: 'no-store',
+    }
+  );
   if (!response.ok) {
     throw new Error(`Failed to load tuzi-api endpoints: ${response.status}`);
   }

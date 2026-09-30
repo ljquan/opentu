@@ -1160,6 +1160,13 @@ export default defineConfig({
     port: DEV_SERVER_PORT,
     host: process.env.OPENTU_HOST || 'localhost',
     proxy: {
+      '/__opentu_tuzi_proxy__/api/': {
+        target: 'https://api.tu-zi.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (requestPath: string) =>
+          requestPath.replace(/^\/__opentu_tuzi_proxy__\/api/, ''),
+      },
       '/__opentu_tuzi_session__/': {
         target: TUZI_SESSION_PROXY_TARGET,
         changeOrigin: true,

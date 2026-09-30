@@ -11,6 +11,8 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  ensure: vi.fn(),
+  sync: vi.fn(),
   groups: vi.fn(),
   create: vi.fn(),
   importTokens: vi.fn(),
@@ -24,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/tuzi-session-api', () => ({
   TuziSessionApiClient: vi.fn(() => ({
     listAccountTokens: mocks.list,
+    ensureManagedProviders: mocks.ensure,
     getProviderGroups: mocks.groups,
     createAccountTokens: mocks.create,
     importAccountTokens: mocks.importTokens,
@@ -32,6 +35,7 @@ vi.mock('../../services/tuzi-session-api', () => ({
 }));
 vi.mock('../../services/tuzi-managed-providers', () => ({
   addTuziTokenProviders: mocks.add,
+  synchronizeTuziManagedProviders: mocks.sync,
 }));
 vi.mock('../../services/tuzi-managed-provider-models', () => ({
   discoverAndUseAllTuziProviderModels: mocks.discover,
@@ -83,6 +87,57 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('Tuzi token selection', () => {
+  it('keeps old API account group creation when token import is unsupported', async () => {
+    mocks.list.mockRejectedValue(
+      Object.assign(new Error('not found'), { status: 404 })
+    );
+    const provider = {
+      id: 'tuzi-managed-default',
+      group: 'default',
+      displayName: 'default',
+      apiKey: 'sk-created',
+      status: 1,
+      rotatedAt: 0,
+    };
+    mocks.ensure.mockResolvedValue([provider]);
+    const complete = setup();
+    await screen.findByRole('status');
+    const group = await screen.findByRole('checkbox', { name: /default/ });
+    expect((group as HTMLInputElement).checked).toBe(true);
+    expect(
+      (screen.getByRole('checkbox', { name: /VIP/ }) as HTMLInputElement)
+        .checked
+    ).toBe(false);
+    expect(screen.queryByRole('button', { name: '添加已有令牌' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '创建并添加' }));
+    await waitFor(() => expect(complete).toHaveBeenCalledWith([provider]));
+    expect(mocks.ensure).toHaveBeenCalledWith(['default']);
+    expect(mocks.sync).toHaveBeenCalledWith([provider]);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it('loads creation groups independently of token inventory', async () => {
+    mocks.list.mockRejectedValue(
+      Object.assign(new Error('not found'), { status: 404 })
+    );
+    render(
+      <TuziTokenPicker
+        initialMode="create"
+        onComplete={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    await screen.findByRole('checkbox', { name: /default/ });
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
+  it('keeps authentication failures visible instead of treating them as missing capabilities', async () => {
+    mocks.list.mockRejectedValue(
+      Object.assign(new Error('登录已过期'), { status: 401 })
+    );
+    setup();
+    expect(await screen.findByText('登录已过期')).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('preselects just one eligible default token and imports exact IDs, preserving same-group choices', async () => {
     const complete = setup();
     const first = await screen.findByRole('checkbox', {

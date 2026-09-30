@@ -10,6 +10,7 @@ export const TUZI_MESSAGE_VERSION = 1;
 export const TUZI_HANDSHAKE_TIMEOUT_MS = 10_000;
 const TUZI_REQUEST_TIMEOUT_MS = 30_000;
 const TUZI_HANDSHAKE_RETRY_MS = 250;
+const MANAGED_OWNER_KEY = 'opentu.tuzi.managed-owner.v1';
 
 export interface TuziBridgeGroup {
   group: string;
@@ -236,12 +237,34 @@ export async function requestTuziParentContext(options?: {
     .then(async (payload) => {
       const nextContext = acceptContext(payload);
       if (!nextContext) throw new Error('TUZI_PARENT_INVALID_CONTEXT');
-      const previousUserId = context?.userId || '';
+      let previousUserId = context?.userId || '';
+      const ownerScope = parentOrigin || '';
+      if (!previousUserId) {
+        try {
+          const owner = JSON.parse(
+            localStorage.getItem(MANAGED_OWNER_KEY) || 'null'
+          );
+          if (owner?.origin === ownerScope) previousUserId = owner.userId;
+        } catch {
+          /* Storage is optional; unknown owners are cleared safely. */
+        }
+      }
       if (
         previousUserId !== nextContext.userId ||
         nextContext.status !== 'ready'
       ) {
         await clearManagedProvidersForAccountBoundary();
+      }
+      try {
+        localStorage.setItem(
+          MANAGED_OWNER_KEY,
+          JSON.stringify({
+            origin: ownerScope,
+            userId: nextContext.userId,
+          })
+        );
+      } catch {
+        /* Do not persist credentials when storage is unavailable. */
       }
       context = nextContext;
       mode = 'tuzi';
@@ -380,7 +403,7 @@ export async function verifyTuziProviders(
     'TUZI_VERIFY_PROVIDERS',
     { candidates },
     'TUZI_PROVIDERS_VERIFIED',
-    TUZI_REQUEST_TIMEOUT_MS
+    1_500
   );
   if (
     !context ||
