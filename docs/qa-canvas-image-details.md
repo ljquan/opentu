@@ -8,6 +8,8 @@
 
 ## 已执行验证
 
+PR 前最终验证：2026-10-05 已显式 fetch 官方 `ljquan/opentu` 的 develop（`0ccbe765`）并 merge 到 `dev/workflow-model-fix`，结果 Already up to date，无冲突。合并后 23 项相关测试通过（9 项详情组件、3 项偏好、7 项详情数据、4 项回填回归）；类型检查、新增模块及 storage-keys 的 ESLint、Web 应用构建、OpenSpec 严格校验、完整任务差异检查通过。QA 与使用/维护说明合并在本文件，不另建 DOC 文件。未执行页面或真实供应商验收。
+
 ```sh
 cd packages/drawnix
 pnpm exec vitest run --config vitest.config.ts \
