@@ -78,6 +78,14 @@
 
 ## 自动化验证
 
+### 2026-10-05 PR 最终验证
+
+- 功能分支 `dev/gpt-image-background-20261005`，功能提交 `2d6f6ff8`。目标 `ljquan/opentu:develop`；显式 `git fetch upstream develop` 后执行 `git merge upstream/develop`，上游为 `0ccbe765`，Already up to date，无冲突。
+- 同步后五文件定向测试 224/225 通过；唯一失败仍是已在未修改 HEAD 中复现的 Seedance 2.5 旧偏好断言。四个核心文件单独运行 191/191 通过；偏好测试按 `-t 'GPT|gpt|图片'` 运行 25/25 通过、9 项非图片用例跳过，覆盖本次受影响的图片行为。
+- 最终 Web TypeScript、生产构建（约 67 秒）、七个代码/测试文件 ESLint 和 `git diff upstream/develop...HEAD --check` 通过。ESLint 0 错误、15 条既有警告；构建保留 Sass、Browserslist、混合导入和大 chunk 警告。
+- QA/DOC 已更新。无配置、依赖、权限、数据库迁移或部署顺序变化，正常前端发布即可；回滚撤销本次功能提交。未执行页面测试、真实 Provider 生成、alpha 通道验收、账单核对、全仓测试/lint 或独立 Service Worker 构建。Image 2.5 是否返回透明仍取决于渠道。
+- 人工验收：Image 2 及其别名仅可选择自动/不透明；Image 2.5 选择透明时最终 prompt 末尾追加“透明图”（已有也追加），请求包含 background=transparent；切换模型后背景偏好按作用域恢复。真实透明像素需在支持渠道下载原图后检查。
+
 ### 2026-10-05 Image 2 背景能力修正
 
 - 后续增量将菜单与 Tuzi 防护统一按 Image 2 模型家族匹配，覆盖运行时后缀型号、固定 1K 和 image-2/image2 别名，排除 2.5；新增 runtime 菜单与最终 binding 测试。模型配置和 Tuzi 适配器两文件定向测试 91/91 通过，Web TypeScript 通过。未做页面或真实渠道验证。
