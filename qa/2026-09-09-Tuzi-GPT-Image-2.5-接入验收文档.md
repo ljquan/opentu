@@ -1,5 +1,15 @@
 # Tuzi GPT Image 2.5 接入验收
 
+## 高级图片参数增量验证
+
+- Image 2.5 五个模型的基础参数下方新增默认关闭的“高级功能”；开启后显示输出格式、压缩质量、内容审核和用户标识及说明，关闭清除参数值。Image 2 与其他模型不显示开关。
+- 标准与 Tuzi 适配器接受 UI 保存的字符串压缩值，JPEG/WebP 保留 0–100 整数；PNG 不发送压缩字段；透明背景与 JPEG 冲突时拒绝构造请求。Tuzi 补齐四个字段，base64 解析保留输出格式。
+- 在 packages/drawnix 执行：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/ai-input-bar/ParametersDropdown.test.tsx src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/constants/__tests__/model-config.test.ts --silent`，129/129 通过。
+- 根目录 `pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 与 `git diff --check` 通过。
+- 原生参数目录全量测试另有两项失败，指向 Seedance 2.5 未映射字段；本次未处理，也未完成基线复验。Tuzi 新增原生参数控件测试通过。
+- 未执行页面测试、真实 Provider 生成或出图文件验收；stream、partial_images 未开放，现有图片解析尚不支持 SSE。未新增依赖、配置或迁移，未提交或推送。
+- 人工验收：打开 GPT Image 参数菜单，确认高级选项默认隐藏；开启开关、选择 WebP 并设置压缩质量，生成后检查文件格式及对应渠道结果。Tuzi 支持情况仍以所选渠道为准。
+
 **更新日期**：2026-10-05
 
 **实现规则**：[Tuzi GPT Image 2.5 接入说明](../docs/TUZI_GPT_IMAGE_25_INTEGRATION.md)

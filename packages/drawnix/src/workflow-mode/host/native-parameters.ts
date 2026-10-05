@@ -109,7 +109,12 @@ const ADAPTER_PARAMETER_IDS: Record<string, string[]> = {
     'quality',
     'resolution',
     'n',
+    'background',
+    'output_format',
+    'output_compression',
     'response_format',
+    'moderation',
+    'user',
   ],
   'seedream-image-adapter': ['size', 'seedream_quality'],
   'flux-image-adapter': ['size'],
@@ -267,8 +272,12 @@ export function describeNativeModel(
   // Tuzi discovery may return a concrete Kling version while OpenTu's
   // contract is declared on the capability model. Resolve that alias before
   // loading parameters so local channels receive the same dedicated fields.
-  const physicalSeedance = normalizedModelId.match(/^doubao-seedance-(1-5-pro|1-0-pro(?:-fast)?|1-0-lite)_(480p|720p|1080p)$/);
-  const seedanceFamily = physicalSeedance ? `seedance-${physicalSeedance[1].replace(/^1-([05])/, '1.$1')}` : undefined;
+  const physicalSeedance = normalizedModelId.match(
+    /^doubao-seedance-(1-5-pro|1-0-pro(?:-fast)?|1-0-lite)_(480p|720p|1080p)$/
+  );
+  const seedanceFamily = physicalSeedance
+    ? `seedance-${physicalSeedance[1].replace(/^1-([05])/, '1.$1')}`
+    : undefined;
   const contractModelId = /^kling-v\d(?:[-.]\d+)?$/.test(normalizedModelId)
     ? 'kling_video'
     : seedanceFamily || modelId;
@@ -282,15 +291,22 @@ export function describeNativeModel(
     ).values(),
   ];
   if (contractModelId !== modelId) {
-    const version = parameters.find(parameter => parameter.id === 'model_name');
+    const version = parameters.find(
+      (parameter) => parameter.id === 'model_name'
+    );
     if (version) {
       version.options = [{ value: modelId, label: modelId }];
       version.defaultValue = modelId;
     }
   }
   if (physicalSeedance) {
-    const size = parameters.find(parameter => parameter.id === 'size');
-    if (size) { size.options = [{ value: physicalSeedance[2], label: physicalSeedance[2] }]; size.defaultValue = physicalSeedance[2]; }
+    const size = parameters.find((parameter) => parameter.id === 'size');
+    if (size) {
+      size.options = [
+        { value: physicalSeedance[2], label: physicalSeedance[2] },
+      ];
+      size.defaultValue = physicalSeedance[2];
+    }
   }
   const referenceInputs: NativeReferenceInputs = {};
   if (
@@ -315,7 +331,8 @@ export function describeNativeModel(
     referenceInputs.images = { mode: 'reference' };
   const builtInVideo =
     capability === 'video' &&
-    (contractModelId !== modelId || VIDEO_MODEL_CONFIGS[modelId] ||
+    (contractModelId !== modelId ||
+      VIDEO_MODEL_CONFIGS[modelId] ||
       getAllBuiltInModelConfigs().some((model) => model.id === modelId));
   if (builtInVideo) {
     const config = getVideoModelConfig(modelId);
@@ -348,7 +365,10 @@ export function describeNativeModel(
         maxCount: 9,
         maxCountWithoutVideos: 2,
       };
-      referenceInputs.videos = { maxCount: 3, formats: ['url', 'data', 'asset'] };
+      referenceInputs.videos = {
+        maxCount: 3,
+        formats: ['url', 'data', 'asset'],
+      };
     }
     if (seedance) {
       referenceInputs.images.maxCount = Math.min(
@@ -411,7 +431,10 @@ export function extendAdapterParameters(
     });
     add(enumeration('response_format', '返回格式', ['url', 'b64_json']));
   }
-  if (adapterId === 'gpt-image-adapter') {
+  if (
+    adapterId === 'gpt-image-adapter' ||
+    adapterId === 'tuzi-gpt-image-adapter'
+  ) {
     add(enumeration('background', '背景', ['auto', 'opaque', 'transparent']));
     add(enumeration('output_format', '输出格式', ['png', 'jpeg', 'webp']));
     add({
@@ -423,7 +446,9 @@ export function extendAdapterParameters(
       integer: true,
     });
     add(enumeration('moderation', '内容审核', ['auto', 'low']));
-    add(enumeration('input_fidelity', '输入保真度', ['high', 'low']));
+    if (adapterId === 'gpt-image-adapter') {
+      add(enumeration('input_fidelity', '输入保真度', ['high', 'low']));
+    }
     add({ id: 'user', label: '用户标识', valueType: 'string' });
   }
   if (adapterId === 'suno-audio-adapter') {

@@ -100,6 +100,7 @@ export interface ParamConfig {
   options?: Array<{ value: string; label: string }>;
   /** 二元枚举的展示控件 */
   control?: 'switch';
+  advanced?: boolean;
   /** 默认值 */
   defaultValue?: string;
   /** 数值最小值（number 类型时使用） */
@@ -2038,13 +2039,21 @@ export const GPT_IMAGE_2_MODEL_IDS = [
 /** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
 export const GPT_IMAGE_25_MODEL_IDS = ['gpt-image-2.5-1k'];
 
+/** GPT Image 2.5 全部模型 ID */
+export const GPT_IMAGE_25_ALL_MODEL_IDS = [
+  ...GPT_IMAGE_25_EXTENDED_MODEL_IDS,
+  ...GPT_IMAGE_25_MODEL_IDS,
+];
+
 export function isGPTImage25ModelId(modelId: string): boolean {
   return /^(?:gpt-?)?image-?2\.5(?:[-.]|$)/i.test(modelId.trim());
 }
 
 export function isGPTImage2ModelId(modelId: string): boolean {
-  return /^(?:gpt-?)?image-?2(?:[-.]|$)/i.test(modelId.trim()) &&
-    !isGPTImage25ModelId(modelId);
+  return (
+    /^(?:gpt-?)?image-?2(?:[-.]|$)/i.test(modelId.trim()) &&
+    !isGPTImage25ModelId(modelId)
+  );
 }
 
 /** 所有 GPT 图片模型 ID */
@@ -2845,6 +2854,52 @@ export const AUDIO_PARAMS: ParamConfig[] = [
  * 'auto' 表示不传尺寸参数，让模型自动决定
  */
 export const IMAGE_PARAMS: ParamConfig[] = [
+  ...(
+    [
+      {
+        id: 'output_format',
+        label: '输出格式',
+        description: 'PNG 无损；JPEG 文件较小、不支持透明；WebP 支持透明。',
+        valueType: 'enum',
+        options: [
+          { value: 'png', label: 'PNG' },
+          { value: 'jpeg', label: 'JPEG' },
+          { value: 'webp', label: 'WebP' },
+        ],
+      },
+      {
+        id: 'output_compression',
+        label: '压缩质量',
+        description: '仅 JPEG / WebP 生效，0–100；数值越高画质越好，文件通常越大。',
+        valueType: 'number',
+        min: 0,
+        max: 100,
+        step: 1,
+        integer: true,
+      },
+      {
+        id: 'moderation',
+        label: '内容审核',
+        description: '自动使用默认审核；低采用较宽松的过滤，仍需遵守平台规则。',
+        valueType: 'enum',
+        options: [
+          { value: 'auto', label: '自动' },
+          { value: 'low', label: '低' },
+        ],
+      },
+      {
+        id: 'user',
+        label: '用户标识',
+        description: '可选，用于识别终端用户和安全审计，不影响画面；请勿填写敏感信息。',
+        valueType: 'string',
+      },
+    ] as Omit<ParamConfig, 'compatibleModels' | 'modelType'>[]
+  ).map((param) => ({
+    ...param,
+    advanced: true,
+    compatibleModels: GPT_IMAGE_25_ALL_MODEL_IDS,
+    modelType: 'image' as const,
+  })),
   // GPT Image 2 模型尺寸
   {
     id: 'size',
@@ -2976,7 +3031,10 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: 'opaque', label: '不透明' },
     ],
     defaultValue: 'auto',
-    compatibleModels: [...GPT_IMAGE_25_EXTENDED_MODEL_IDS, ...GPT_IMAGE_25_MODEL_IDS],
+    compatibleModels: [
+      ...GPT_IMAGE_25_EXTENDED_MODEL_IDS,
+      ...GPT_IMAGE_25_MODEL_IDS,
+    ],
     modelType: 'image',
   },
   {
@@ -3336,8 +3394,14 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
         (compatibleModel) => compatibleModel.toLowerCase() === normalizedModelId
       ) ||
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
-    if (param.id === 'background' && (isGPTImage2ModelId(normalizedModelId) || isGPTImage25ModelId(normalizedModelId))) {
-      const supportsTransparent = param.options?.some((option) => option.value === 'transparent');
+    if (
+      param.id === 'background' &&
+      (isGPTImage2ModelId(normalizedModelId) ||
+        isGPTImage25ModelId(normalizedModelId))
+    ) {
+      const supportsTransparent = param.options?.some(
+        (option) => option.value === 'transparent'
+      );
       return supportsTransparent === isGPTImage25ModelId(normalizedModelId);
     }
     return idMatched || tagMatched;
