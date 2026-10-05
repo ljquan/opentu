@@ -4,10 +4,12 @@
 
 - Image 2.5 五个模型的基础参数下方新增默认关闭的“高级功能”；开启后显示输出格式、压缩质量、内容审核和用户标识及说明，关闭清除参数值。Image 2 与其他模型不显示开关。
 - 标准与 Tuzi 适配器接受 UI 保存的字符串压缩值，JPEG/WebP 保留 0–100 整数；PNG 不发送压缩字段；透明背景与 JPEG 冲突时拒绝构造请求。Tuzi 补齐四个字段，base64 解析保留输出格式。
-- 在 packages/drawnix 执行：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/ai-input-bar/ParametersDropdown.test.tsx src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/constants/__tests__/model-config.test.ts --silent`，129/129 通过。
+- 在 packages/drawnix 执行：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/ai-input-bar/ParametersDropdown.test.tsx src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/constants/__tests__/model-config.test.ts --silent`，136/136 通过。
 - 根目录 `pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 与 `git diff --check` 通过。
-- 原生参数目录全量测试另有两项失败，指向 Seedance 2.5 未映射字段；本次未处理，也未完成基线复验。Tuzi 新增原生参数控件测试通过。
-- 未执行页面测试、真实 Provider 生成或出图文件验收；stream、partial_images 未开放，现有图片解析尚不支持 SSE。未新增依赖、配置或迁移，未提交或推送。
+- 原生参数全量测试 108/110 通过，两个 Seedance 2.5 映射失败在未修改基线 d6820911 上同样复现（107/109 通过）；本次 Tuzi 新增原生参数控件定向测试 1/1 通过。
+- 独立工作树补齐本地 workspace 依赖链接后，`pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 和 `pnpm exec vite build --config apps/web/vite.config.ts` 均通过，保留 Sass、Browserslist、混合导入和大 chunk 警告。
+- 未执行页面测试、真实 Provider 生成或出图文件验收；stream、partial_images 未开放，现有图片解析尚不支持 SSE。未新增依赖、配置或迁移。
+- 分支 dev/image25-advanced-pr-20261005 单独交付本次高级参数增量，以 PR #290 的 dev/gpt-image-background-20261005 为基分支；显式 fetch 后 merge develop 与基分支均 Already up to date。应先合并 #290，再将本 PR 调整到 develop；不合并、不部署，回滚本次功能提交可恢复高级参数变更前的行为。
 - 人工验收：打开 GPT Image 参数菜单，确认高级选项默认隐藏；开启开关、选择 WebP 并设置压缩质量，生成后检查文件格式及对应渠道结果。Tuzi 支持情况仍以所选渠道为准。
 
 **更新日期**：2026-10-05
