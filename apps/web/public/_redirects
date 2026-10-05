@@ -3,7 +3,8 @@
 /flowchart-maker.html       /user-manual/drawing-flowchart.html                301
 /mindmap-maker.html         /user-manual/drawing-mindmap.html                  301
 
-# Tuzi 账户接口同源代理必须位于 SPA 通配规则之前
+# Tuzi API 同源代理必须位于 SPA 通配规则之前
+/__opentu_tuzi_proxy__/api/*       https://api.tu-zi.com/:splat          200!
 /__opentu_tuzi_session__/*              https://api.tu-zi.com/:splat          200!
 
 # SPA 路由支持
