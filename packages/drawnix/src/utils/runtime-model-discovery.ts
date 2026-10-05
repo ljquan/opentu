@@ -196,7 +196,9 @@ async function fetchRemoteModelList(
     const response = await fetch(requestUrl, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        'Cache-Control': 'no-cache',
       },
+      cache: 'no-store',
       ...(controller ? { signal: controller.signal } : {}),
     });
 
