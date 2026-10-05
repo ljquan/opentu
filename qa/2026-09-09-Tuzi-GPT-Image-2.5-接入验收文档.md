@@ -1,6 +1,6 @@
 # Tuzi GPT Image 2.5 接入验收
 
-**更新日期**：2026-09-20
+**更新日期**：2026-10-05
 
 **实现规则**：[Tuzi GPT Image 2.5 接入说明](../docs/TUZI_GPT_IMAGE_25_INTEGRATION.md)
 
@@ -14,6 +14,18 @@
 - Provider 账户已具备对应图片模型渠道和余额。
 
 ## 模型目录验收
+
+### 背景参数回归（2026-10-05）
+
+| 检查项 | 预期结果 |
+| --- | --- |
+| GPT Image 2.5 模型打开参数菜单 | 显示背景“自动 / 透明 / 不透明”，默认自动 |
+| GPT Image 2 模型打开参数菜单 | 只显示背景“自动 / 不透明”，不提交 `transparent` |
+| 切换背景后保存并重新打开参数 | 背景值按模型与 Provider 作用域恢复，独立于尺寸、分辨率和画质 |
+| Tuzi 生成或参考图请求 | 请求包含对应顶层 `background`；缺失或非法值不传递 |
+| 非 GPT 图片模型 | 不显示背景参数 |
+
+自动化验证：`packages/drawnix` 下定向测试覆盖模型参数、偏好保存、Tuzi 请求构造和工作流参数传递；背景相关测试通过。未执行页面交互、真实 Provider 出图、透明 PNG alpha 通道或账单验证。
 
 | 编号 | 操作 | 预期结果 |
 | --- | --- | --- |
@@ -65,6 +77,39 @@
 - 生成失败卡片中的重试操作应复用原模型、比例和尺寸参数。
 
 ## 自动化验证
+
+### 2026-10-05 Image 2 背景能力修正
+
+- 后续增量将菜单与 Tuzi 防护统一按 Image 2 模型家族匹配，覆盖运行时后缀型号、固定 1K 和 image-2/image2 别名，排除 2.5；新增 runtime 菜单与最终 binding 测试。模型配置和 Tuzi 适配器两文件定向测试 91/91 通过，Web TypeScript 通过。未做页面或真实渠道验证。
+
+- 用户实际请求报错明确指出 gpt-image-2 仅接受 auto/opaque。本次菜单去掉 Image 2 的透明选项，普通/VIP/别名旧透明偏好回退自动；Tuzi 适配器对显式字段、params 和最终 binding 模型进行过滤，保留 Image 2.5 现有传参。
+- 三文件定向测试 109/110 通过，唯一失败仍为本页已核实的 Seedance 2.5 既有断言；新增模型菜单、别名、请求字段优先级与旧偏好回退测试均通过。Web TypeScript 通过，DOC 同步。
+- 未进行页面测试或真实生成；本次不自动重试失败任务，不保证 Image 2.5 各渠道透明输出，也不移除旧提示词中的“透明图”。未新增配置、依赖或迁移，未提交或推送。
+
+### 2026-10-05 透明选项追加提示词（本地增量）
+
+- 输入栏提交图片任务时，`background: transparent` 会在最终提示词末尾另起一行追加“透明图”；末尾已有该文本时也追加。自动/不透明选项不改写提示词，原始输入不修改，结构化背景参数继续保留。
+- 沿用本页环境与命令，在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/ai-input-bar/__tests__/workflow-converter.test.ts --silent`：69/69 通过，覆盖生成/参考图、三种背景、批量已有后缀和原有工作流逻辑。
+- Web TypeScript 和差异检查通过。DOC 已同步；此次增量未重新构建，未执行页面测试或真实 Provider 生成，不保证渠道最终返回带 alpha 的图片。无配置、依赖或迁移，未提交、推送或部署。
+
+### 2026-10-05 背景参数修复（本地）
+
+- 环境：macOS、Node 26.8.1、pnpm 10.21.0、Vitest 3.2.4/JSDOM，已安装依赖。
+- 在 `packages/drawnix` 执行下面的五文件命令：203 项中 202 项通过，1 项既有失败。新增背景选项、非 GPT 隔离、三值保存恢复、非法值回退、显式字段优先级、生成/参考图请求与输入栏工作流传递均通过。
+- 原有失败为 Seedance 2.5 旧偏好测试期望空 size，实际恢复 `1080p`。在未修改的 HEAD `0ccbe765` 临时归档中，使用 `--config vite.config.ts` 和 `-t '迁移 Seedance 2.5'` 复现相同断言失败；本次未修改视频逻辑或该断言。
+- Web TypeScript、生产 Vite 构建（约 84 秒）、六个代码/测试文件 ESLint、`git diff --check` 通过。ESLint 保留既有 `ALL_IMAGE_MODEL_IDS` 未使用及工作流测试的七处 `any` 警告；构建保留 Sass、Browserslist、混合导入和大 chunk 警告。
+- Node 26 默认 Web Storage 导致偏好测试 localStorage 不可用，命令级 `--no-experimental-webstorage` 解决；测试还有 JSDOM IndexedDB 缺失/超时日志，因此不证明真实数据库持久化。最初根目录使用 vitest.config.ts 未找到测试，改为下述正确目录后执行。
+- 未执行页面测试、真实 Provider 请求、透明输出 alpha 通道、账单、全仓测试或全仓 lint；构建仅 Web 应用，未单独构建 Service Worker。DOC 已更新。无新增配置、依赖或迁移，未提交、推送或部署；回滚可撤销本次参数声明和 Tuzi 字段传递改动。
+
+```sh
+# 在 packages/drawnix 下执行
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/constants/__tests__/model-config.test.ts src/services/__tests__/ai-generation-preferences-service.test.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/components/ai-input-bar/__tests__/workflow-converter.test.ts --silent
+# 在仓库根目录执行
+pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
+pnpm exec vite build --config apps/web/vite.config.ts
+pnpm exec eslint packages/drawnix/src/constants/model-config.ts packages/drawnix/src/constants/__tests__/model-config.test.ts packages/drawnix/src/services/model-adapters/tuzi-gpt-image-adapter.ts packages/drawnix/src/services/__tests__/tuzi-gpt-image-adapter.test.ts packages/drawnix/src/services/__tests__/ai-generation-preferences-service.test.ts packages/drawnix/src/components/ai-input-bar/__tests__/workflow-converter.test.ts
+git diff --check
+```
 
 ### 2026-09-20 自动比例 K 档 PR 发布验证（最新）
 

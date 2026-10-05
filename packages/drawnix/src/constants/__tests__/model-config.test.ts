@@ -7,10 +7,60 @@ import {
   getStaticModelConfig,
   ModelVendor,
   setRuntimeModelConfigs,
+  isGPTImage2ModelId,
+  isGPTImage25ModelId,
 } from '../model-config';
 import { getVideoModelConfig } from '../video-model-config';
 
 describe('model-config image size options', () => {
+  it.each([
+    'gpt-image-2.5-1k',
+    'gpt-image-2.5', 'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare',
+  ])('%s exposes background controls', (modelId) => {
+    expect(getCompatibleParams(modelId).filter((param) => param.id === 'background'))
+      .toEqual([expect.objectContaining({
+        defaultValue: 'auto',
+        options: [
+          { value: 'auto', label: '自动' },
+          { value: 'transparent', label: '透明' },
+          { value: 'opaque', label: '不透明' },
+        ],
+      })]);
+  });
+
+  it.each(['gpt-image-2', 'gpt-image-2-vip', 'gpt-image2', 'gpt-image2-vip',
+    'gpt-image-2-1k', 'gpt-image-2-pro', 'gpt-image-2-preview', 'image-2', 'image2'])(
+    '%s exposes only supported background values', (modelId) => {
+      setRuntimeModelConfigs([{ id: modelId, label: modelId, type: 'image', vendor: ModelVendor.GPT }]);
+      const backgrounds = getCompatibleParams(modelId).filter((param) => param.id === 'background');
+      expect(backgrounds).toHaveLength(1);
+      expect(backgrounds[0].options?.map((option) => option.value)).toEqual(['auto', 'opaque']);
+    }
+  );
+
+  it.each(['gpt-image-2-pro', 'gpt-image2-fast', 'gpt-image-2-preview'])(
+    '%s treats Image 2 variants as opaque-only', (modelId) => {
+      expect(isGPTImage2ModelId(modelId)).toBe(true);
+      expect(isGPTImage25ModelId(modelId)).toBe(false);
+    }
+  );
+
+  it.each(['gpt-image-2.5-custom', 'image-2.5-vip'])(
+    '%s keeps transparent controls separate from Image 2', (modelId) => {
+      setRuntimeModelConfigs([{ id: modelId, label: modelId, type: 'image', vendor: ModelVendor.GPT }]);
+      expect(isGPTImage2ModelId(modelId)).toBe(false);
+      expect(getCompatibleParams(modelId).find((param) => param.id === 'background')?.options)
+        .toContainEqual({ value: 'transparent', label: '透明' });
+    }
+  );
+
+  it.each(['gemini-3.1-flash-image-preview', 'doubao-seedream-4-5-251128', 'mj-imagine'])(
+    '%s does not expose GPT background controls', (modelId) => {
+      expect(getCompatibleParams(modelId).some((param) => param.id === 'background')).toBe(false);
+    }
+  );
+
   afterEach(() => {
     clearRuntimeModelConfigs();
   });
