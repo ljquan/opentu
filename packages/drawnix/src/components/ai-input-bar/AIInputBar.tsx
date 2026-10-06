@@ -153,6 +153,7 @@ import {
   type WorkflowStepOptions,
 } from './workflow-converter';
 import {
+  clampBoundTaskbarPosition,
   getBoundTaskbarHeight,
   getBoundTaskbarWidth,
 } from './bound-taskbar-layout';
@@ -831,7 +832,7 @@ function resizeAIInputTextarea(
   if (resizeMode === 'long-text') {
     const maxHeight = getAIInputLongTextMaxHeight();
     textarea.style.height = `${maxHeight}px`;
-    textarea.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+    textarea.style.overflowY = 'auto';
     return;
   }
 
@@ -840,7 +841,7 @@ function resizeAIInputTextarea(
   const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
 
   textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  textarea.style.overflowY = 'auto';
 }
 
 function resolveGenerationTypeForModelSelection(
@@ -7746,14 +7747,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       followedBoundImageTarget,
       boundTargetFollowEnabled
     );
-    const hasPositionedBoundImageTarget = Boolean(positionedBoundImageTarget);
     useEffect(() => {
       const container = containerRef.current;
-      if (
-        !hasPositionedBoundImageTarget ||
-        !container ||
-        typeof ResizeObserver === 'undefined'
-      ) {
+      if (!container || typeof ResizeObserver === 'undefined') {
         return;
       }
 
@@ -7773,7 +7769,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           window.cancelAnimationFrame(layoutFrameId);
         }
       };
-    }, [hasPositionedBoundImageTarget]);
+    }, []);
+    const inputViewport = useMemo(() => {
+      const viewport = window.visualViewport;
+      return {
+        left: viewport?.offsetLeft ?? 0,
+        top: viewport?.offsetTop ?? 0,
+        width: viewport?.width ?? window.innerWidth,
+        height: viewport?.height ?? window.innerHeight,
+      };
+      // Viewport events from SelectionWatcher invalidate these measurements.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [boundInputLayoutTick]);
     const boundInputPosition = useMemo(() => {
       if (!positionedBoundImageTarget) return null;
 
@@ -7805,26 +7812,38 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       const viewportMargin = 12;
       const barWidth = getBoundTaskbarWidth(
         containerRef.current?.getBoundingClientRect().width,
-        window.innerWidth
+        inputViewport.width
       );
       const left = Math.min(
-        Math.max(targetCenterX, viewportMargin + barWidth / 2),
-        window.innerWidth - viewportMargin - barWidth / 2
+        Math.max(
+          targetCenterX,
+          inputViewport.left + viewportMargin + barWidth / 2
+        ),
+        inputViewport.left + inputViewport.width - viewportMargin - barWidth / 2
       );
       const estimatedHeight = getBoundTaskbarHeight(
         containerRef.current?.getBoundingClientRect().height,
         shouldKeepExpanded
       );
-      const belowTop = targetBottom + 8;
-      const top =
-        belowTop + estimatedHeight <= window.innerHeight - viewportMargin
-          ? belowTop
-          : Math.max(viewportMargin, targetTop - estimatedHeight - 8);
+      const top = clampBoundTaskbarPosition(
+        targetTop,
+        targetBottom,
+        estimatedHeight,
+        inputViewport.height,
+        viewportMargin,
+        8,
+        inputViewport.top
+      );
 
       return { left, top };
       // ResizeObserver increments the tick to invalidate these DOM measurements.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [boundInputLayoutTick, positionedBoundImageTarget, shouldKeepExpanded]);
+    }, [
+      boundInputLayoutTick,
+      inputViewport,
+      positionedBoundImageTarget,
+      shouldKeepExpanded,
+    ]);
 
     const followControlsTarget =
       followedBoundImageTarget &&
@@ -7996,13 +8015,22 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       </Popup>
     ) : null;
 
-    const boundInputStyle = boundInputPosition
-      ? ({
-          left: `${boundInputPosition.left}px`,
-          top: `${boundInputPosition.top}px`,
-          bottom: 'auto',
-        } as React.CSSProperties)
-      : undefined;
+    const boundInputStyle = {
+      '--ai-input-viewport-width': `${inputViewport.width}px`,
+      '--ai-input-viewport-height': `${inputViewport.height}px`,
+      '--ai-input-viewport-center': `${inputViewport.left + inputViewport.width / 2}px`,
+      '--ai-input-viewport-bottom-offset': `${Math.max(
+        0,
+        window.innerHeight - inputViewport.top - inputViewport.height
+      )}px`,
+      ...(boundInputPosition
+        ? {
+            left: `${boundInputPosition.left}px`,
+            top: `${boundInputPosition.top}px`,
+            bottom: 'auto',
+          }
+        : {}),
+    } as React.CSSProperties;
 
     const selectedContentPreview =
       displayContent.length > 0 ? (
