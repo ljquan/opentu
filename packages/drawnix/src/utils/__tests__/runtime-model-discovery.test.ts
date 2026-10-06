@@ -856,8 +856,12 @@ describe('runtime-model-discovery', () => {
           href: 'http://127.0.0.1:7200/',
         },
       });
-      const fetchMock = vi.fn(async (url: string) => {
+      const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
         expect(url).toBe(`http://127.0.0.1:7200${proxyPath}/v1/models`);
+        expect(options?.cache).toBe('no-store');
+        expect(options?.headers).toMatchObject({
+          'Cache-Control': 'no-cache',
+        });
         return {
           ok: false,
           status: 401,

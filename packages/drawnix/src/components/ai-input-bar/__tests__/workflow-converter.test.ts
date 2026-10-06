@@ -200,6 +200,34 @@ describe('workflow-converter', () => {
         expect(workflow.steps[0].args.referenceImages).toEqual(referenceImages);
       });
 
+      it.each(['auto', 'transparent', 'opaque'])(
+        'passes %s background from the input bar to image task params', (background) => {
+          for (const referenceImages of [[], ['https://example.com/reference.png']]) {
+            const workflow = convertDirectGenerationToWorkflow(createMockParams({
+              generationType: 'image', modelId: 'gpt-image-2.5-sunburst',
+              extraParams: { background, resolution: '2k', quality: 'high' },
+            }), referenceImages);
+            expect(workflow.steps[0].args.params).toMatchObject({
+              background, resolution: '2k', quality: 'high',
+            });
+            expect(workflow.steps[0].args.prompt).toBe(
+              background === 'transparent' ? 'test prompt\n透明图' : 'test prompt'
+            );
+          }
+        }
+      );
+
+      it('appends the transparent suffix even when already present across batch steps', () => {
+        const params = createMockParams({
+          prompt: '一朵荷花\n透明图', count: 3,
+          extraParams: { background: 'transparent' },
+        });
+        for (const step of convertDirectGenerationToWorkflow(params).steps) {
+          expect(step.args.prompt).toBe('一朵荷花\n透明图\n透明图');
+        }
+        expect(params.prompt).toBe('一朵荷花\n透明图');
+      });
+
       it('应该把目标图片绑定字段放在任务参数顶层', () => {
         const params = createMockParams({
           generationType: 'image',

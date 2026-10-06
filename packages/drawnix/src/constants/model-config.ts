@@ -2038,6 +2038,15 @@ export const GPT_IMAGE_2_MODEL_IDS = [
 /** GPT Image 2.5 模型 ID（仅支持官方三种像素尺寸） */
 export const GPT_IMAGE_25_MODEL_IDS = ['gpt-image-2.5-1k'];
 
+export function isGPTImage25ModelId(modelId: string): boolean {
+  return /^(?:gpt-?)?image-?2\.5(?:[-.]|$)/i.test(modelId.trim());
+}
+
+export function isGPTImage2ModelId(modelId: string): boolean {
+  return /^(?:gpt-?)?image-?2(?:[-.]|$)/i.test(modelId.trim()) &&
+    !isGPTImage25ModelId(modelId);
+}
+
 /** 所有 GPT 图片模型 ID */
 const GPT_IMAGE_MODEL_IDS = [
   ...GPT_IMAGE_2_MODEL_IDS,
@@ -2956,6 +2965,35 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     modelType: 'image',
   },
+  {
+    id: 'background',
+    label: '图片背景',
+    shortLabel: '背景',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'transparent', label: '透明' },
+      { value: 'opaque', label: '不透明' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: [...GPT_IMAGE_25_EXTENDED_MODEL_IDS, ...GPT_IMAGE_25_MODEL_IDS],
+    modelType: 'image',
+  },
+  {
+    id: 'background',
+    label: '图片背景',
+    shortLabel: '背景',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'opaque', label: '不透明' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_2_MODEL_IDS.filter(
+      (modelId) => !GPT_IMAGE_25_EXTENDED_MODEL_IDS.includes(modelId)
+    ),
+    modelType: 'image',
+  },
   // Gemini 图片模型尺寸（支持完整尺寸）
   {
     id: 'size',
@@ -3298,6 +3336,10 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
         (compatibleModel) => compatibleModel.toLowerCase() === normalizedModelId
       ) ||
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
+    if (param.id === 'background' && (isGPTImage2ModelId(normalizedModelId) || isGPTImage25ModelId(normalizedModelId))) {
+      const supportsTransparent = param.options?.some((option) => option.value === 'transparent');
+      return supportsTransparent === isGPTImage25ModelId(normalizedModelId);
+    }
     return idMatched || tagMatched;
   });
 

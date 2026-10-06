@@ -13,6 +13,52 @@ vi.mock('../model-adapters/context', () => ({
 }));
 
 describe('tuzi GPT image adapter', () => {
+  it.each(['auto', 'transparent', 'opaque'] as const)(
+    'forwards %s background for generation and reference image requests',
+    (background) => {
+      for (const referenceImages of [undefined, ['data:image/png;base64,source']]) {
+        const request = {
+          model: 'gpt-image-2.5-sunburst', prompt: 'Test', size: 'auto',
+          referenceImages,
+          params: { background, resolution: '2k', quality: 'high' },
+        };
+        expect(buildTuziGPTImageRequestBody(request)).toEqual({
+          model: request.model, prompt: 'Test', size: 'auto', quality: 'high', background,
+          generationConfig: { imageConfig: { imageSize: '2K' } },
+          ...(referenceImages ? { image: referenceImages } : {}),
+        });
+        expect(buildTuziGPTImageRequestBody({ ...request, background, params: {} }).background)
+          .toBe(background);
+      }
+    }
+  );
+
+  it('prefers the explicit background and omits missing or invalid values', () => {
+    const request = { model: 'gpt-image-2.5', prompt: 'Test' };
+    expect(buildTuziGPTImageRequestBody({
+      ...request, background: 'transparent', params: { background: 'opaque' },
+    }).background).toBe('transparent');
+    for (const background of [undefined, '', 'invalid', true]) {
+      expect(buildTuziGPTImageRequestBody({ ...request, params: { background } }))
+        .not.toHaveProperty('background');
+    }
+  });
+
+  it.each(['gpt-image-2', 'gpt-image-2-vip', 'gpt-image2', 'gpt-image2-vip',
+    'gpt-image-2-1k', 'gpt-image-2-pro', 'gpt-image-2-preview', 'image-2', 'image2'])(
+    '%s omits stale transparent values and preserves supported backgrounds', (model) => {
+      for (const background of ['auto', 'opaque', 'transparent'] as const) {
+        for (const fields of [{ background }, { params: { background } }]) {
+          expect(buildTuziGPTImageRequestBody({ model, prompt: 'Test', ...fields }).background)
+            .toBe(background === 'transparent' ? undefined : background);
+        }
+      }
+      expect(buildTuziGPTImageRequestBody({
+        model: 'gpt-image-2.5', prompt: 'Test', background: 'transparent',
+      }, model)).not.toHaveProperty('background');
+    }
+  );
+
   it.each(['gpt-image-2.5', 'gpt-image-2.5-vip', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '%s keeps every 2K ratio within the billing cap without changing quality',
     (model) => {
