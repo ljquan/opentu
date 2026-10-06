@@ -98,7 +98,20 @@ export function PopupImageDetailsButton({
   const [retry, setRetry] = useState(0);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const zh = language === 'zh';
-  const title = zh ? '图片详情' : 'Image details';
+  const kind = image.kind || 'image';
+  const kindLabel = {
+    image: zh ? '图片' : 'Image',
+    video: zh ? '视频' : 'Video',
+    audio: zh ? '音频' : 'Audio',
+    text: zh ? '文本' : 'Text',
+  }[kind];
+  const title = zh ? `${kindLabel}详情` : `${kindLabel} details`;
+  const viewLabel = zh
+    ? `查看${kindLabel}详情`
+    : `View ${kindLabel.toLowerCase()} details`;
+  const closeLabel = zh
+    ? `关闭${kindLabel}详情`
+    : `Close ${kindLabel.toLowerCase()} details`;
   const unrecorded = zh ? '未记录' : 'Not recorded';
   const { id, url, generationTaskId } = image;
 
@@ -110,7 +123,7 @@ export function PopupImageDetailsButton({
     if (!open) return;
     let active = true;
     setLoad({ status: 'loading' });
-    void findCanvasImageTask({ id, url, generationTaskId }).then(
+    void findCanvasImageTask({ id, url, generationTaskId, kind }).then(
       (task) => {
         if (active) setLoad({ status: 'ready', task });
       },
@@ -121,7 +134,7 @@ export function PopupImageDetailsButton({
     return () => {
       active = false;
     };
-  }, [open, id, url, generationTaskId, retry]);
+  }, [open, id, url, generationTaskId, kind, retry]);
 
   const details = getCanvasImageDetails(
     image,
@@ -141,7 +154,24 @@ export function PopupImageDetailsButton({
         ]
       : []),
     [zh ? '模型' : 'Model', details.model],
-    [zh ? '图片尺寸' : 'Image dimensions', details.dimensions],
+    ...(kind === 'image' || kind === 'video'
+      ? [
+          [
+            zh ? `${kindLabel}尺寸` : `${kindLabel} dimensions`,
+            details.dimensions,
+          ],
+        ]
+      : []),
+    ...(kind === 'audio' || kind === 'video'
+      ? [
+          [
+            zh ? '时长' : 'Duration',
+            details.duration !== undefined
+              ? `${details.duration} s`
+              : undefined,
+          ],
+        ]
+      : []),
   ];
 
   return (
@@ -156,8 +186,8 @@ export function PopupImageDetailsButton({
           type="icon"
           visible
           icon={<Info size={16} />}
-          aria-label={zh ? '查看图片详情' : 'View image details'}
-          tooltip={zh ? '查看图片详情' : 'View image details'}
+          aria-label={viewLabel}
+          tooltip={viewLabel}
           selected={open}
           data-track="toolbar_click_image_details"
           onClick={() => setOpen((value) => !value)}
@@ -178,8 +208,8 @@ export function PopupImageDetailsButton({
           <HoverTip
             content={
               zh
-                ? '点击图片自动打开详情'
-                : 'Automatically open details on image click'
+                ? '点击内容自动打开详情'
+                : 'Automatically open details on content click'
             }
             showArrow={false}
           >
@@ -189,8 +219,8 @@ export function PopupImageDetailsButton({
                 role="switch"
                 aria-label={
                   zh
-                    ? '点击图片自动打开详情'
-                    : 'Automatically open details on image click'
+                    ? '点击内容自动打开详情'
+                    : 'Automatically open details on content click'
                 }
                 checked={autoEnabled}
                 onChange={(event) => {
@@ -206,7 +236,7 @@ export function PopupImageDetailsButton({
             type="icon"
             visible
             icon={<X size={16} />}
-            aria-label={zh ? '关闭图片详情' : 'Close image details'}
+            aria-label={closeLabel}
             tooltip={zh ? '关闭' : 'Close'}
             onClick={() => setOpen(false)}
           />
@@ -235,8 +265,8 @@ export function PopupImageDetailsButton({
             {!load.task && (
               <p className="image-details-panel__missing">
                 {zh
-                  ? '未找到该图片的生成记录'
-                  : 'No generation record found for this image'}
+                  ? `未找到该${kindLabel}的生成记录`
+                  : `No generation record found for this ${kindLabel.toLowerCase()}`}
               </p>
             )}
             <dl className="image-details-panel__fields">

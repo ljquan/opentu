@@ -1,5 +1,31 @@
 ## ADDED Requirements
 
+### Requirement: View Generation Details For Video Audio And Text
+
+The system SHALL provide the same generation details action and automatic opening preference for a single selected video, audio or text element. The details panel SHALL identify the content kind and display recorded generation and completion times, model, prompt and generation parameters. Video SHALL display recorded dimensions and duration; audio SHALL display recorded duration; text and audio SHALL NOT display canvas layout dimensions as output dimensions.
+
+#### Scenario: Bound generated content
+
+- **WHEN** the user opens details for video, audio or AI text with a bound generation task ID
+- **THEN** the system SHALL resolve a matching video, audio or chat task respectively
+- **AND** the panel SHALL show that task's recorded metadata and kind-specific fields
+- **AND** mismatched task types SHALL NOT be presented as the selected content's record
+
+#### Scenario: Legacy media or manual text
+
+- **WHEN** a video or audio element has no available bound task
+- **THEN** the system SHALL attempt a matching result URL lookup in memory and persistent history, including archived user-visible records
+- **WHEN** a text element has no bound generation record
+- **THEN** missing generation fields SHALL be labeled unrecorded without inferring a task from text content
+
+#### Scenario: Shared preference and selection
+
+- **WHEN** automatic opening is enabled and the user normally clicks a single supported content element
+- **THEN** details SHALL open for that content
+- **WHEN** automatic opening is disabled
+- **THEN** the manual details action SHALL remain available for every supported kind
+- **AND** multi-selection, dragging, shapes, embedded tools and text editing SHALL NOT trigger automatic details
+
 ### Requirement: Automatically Open Details On Image Click
 
 The system SHALL automatically open image details on an ordinary primary-button click on a single image by default. The details panel header SHALL provide an accessible switch to disable or enable this behavior. The preference SHALL persist locally when storage is available and remain effective for the current session when storage fails.
