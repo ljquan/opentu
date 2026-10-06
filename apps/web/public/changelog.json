@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "1.1.23",
+      "date": "2026-10-06",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "keep AI composer within the visible viewport (#292)",
+          "[新增] GPT Image 参数菜单提供“高级功能”开关，按需显示输出格式、压缩质量、内容审核和用户标识，补齐 Tuzi 参数传递",
+          "[修复] AI 提示词输入框按可视区域自适应尺寸并约束位置，超长画布内容和大量参考素材内部滚动，避免输入框越界或被小地图遮挡。"
+        ],
+        "improvements": [
+          "为 Image 2.5 添加高级参数 (#291)",
+          "补齐视频音频与文本生成详情 (#293)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "keep AI composer within the visible viewport (#292)"
+    },
+    {
       "version": "1.1.22",
       "date": "2026-10-06",
       "changes": {
@@ -965,24 +983,6 @@
       },
       "type": "patch",
       "highlights": "构建修复与稳定性改进"
-    },
-    {
-      "version": "0.9.3",
-      "date": "2026-05-06",
-      "changes": {
-        "features": [
-          "support AI image mask editing"
-        ],
-        "fixes": [
-          "keep send button visible",
-          "resume async image tasks after reload"
-        ],
-        "improvements": [
-          "更新版本号至0.9.2并刷新构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "support AI image mask editing"
     }
   ]
 }

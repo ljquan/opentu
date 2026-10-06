@@ -1,3 +1,19 @@
+## 1.1.23 (2026-10-06)
+
+### 🩹 Fixes
+
+- keep AI composer within the visible viewport (#292) ([9640ba14](https://github.com/ljquan/opentu/commit/9640ba14))
+
+### 🔧 Chores
+
+- 为 Image 2.5 添加高级参数 (#291) ([094fea14](https://github.com/ljquan/opentu/commit/094fea14))
+- 补齐视频音频与文本生成详情 (#293) ([fe712599](https://github.com/ljquan/opentu/commit/fe712599))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- 李泓震 <3029956183@qq.com>
+
 ## Unreleased
 
 ### 🩹 Fixes
