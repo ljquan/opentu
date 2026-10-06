@@ -1,3 +1,14 @@
+## 1.1.22 (2026-10-06)
+
+### 🔧 Chores
+
+- 修复 GPT Image 背景透明参数 (#290) ([5defc210](https://github.com/ljquan/opentu/commit/5defc210))
+- 新增画布图片详情、自动查看开关与侧边展示 (#289) ([80493673](https://github.com/ljquan/opentu/commit/80493673))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.1.21 (2026-09-30)
 
 ### 🩹 Fixes
