@@ -1,6 +1,7 @@
 import { taskQueueService } from '../services/task-queue';
 import { resolveTaskInvocationRouteModel } from '../services/task-invocation-route';
 import { TaskType, type Task } from '../types/task.types';
+import { taskStorageReader } from '../services/task-storage-reader';
 
 export interface CanvasImageDetailsSource {
   id: string;
@@ -9,18 +10,42 @@ export interface CanvasImageDetailsSource {
   height?: number;
   prompt?: string;
   generationTaskId?: string;
+  kind?: 'image' | 'video' | 'audio' | 'text';
+  duration?: number;
 }
 
 export async function findCanvasImageTask(
   image: CanvasImageDetailsSource
 ): Promise<Task | undefined> {
   const taskId = image.generationTaskId?.trim();
+  const type = (
+    {
+      image: TaskType.IMAGE,
+      video: TaskType.VIDEO,
+      audio: TaskType.AUDIO,
+      text: TaskType.CHAT,
+    } as const
+  )[image.kind || 'image'];
   if (taskId) {
     const task = await taskQueueService.getCompleteTask(taskId);
-    if (task?.type === TaskType.IMAGE) return task;
+    if (task?.type === type) return task;
   }
-  return image.url
-    ? taskQueueService.findImageTaskByResultUrl(image.url)
+  if (!image.url || type === TaskType.CHAT) return undefined;
+  const url = image.url;
+  if (type === TaskType.IMAGE)
+    return taskQueueService.findImageTaskByResultUrl(image.url);
+  const matches = (task: Task) =>
+    task.type === type &&
+    (task.result?.url === url || task.result?.urls?.includes(url));
+  const memoryTask = taskQueueService.getAllTasks().find(matches);
+  if (memoryTask) return taskQueueService.getCompleteTask(memoryTask.id);
+  const storedTaskId = await taskStorageReader.findMediaTaskIdByResultUrl(
+    image.url,
+    type,
+    { includeArchived: true, throwOnError: true }
+  );
+  return storedTaskId
+    ? taskQueueService.getCompleteTask(storedTaskId)
     : undefined;
 }
 
@@ -39,6 +64,22 @@ const GENERATION_FIELDS = [
   'outputCompression',
   'batchTotal',
   'count',
+  'duration',
+  'resolution',
+  'fps',
+  'generateAudio',
+  'title',
+  'tags',
+  'instrumental',
+  'mv',
+  'sunoAction',
+  'temperature',
+  'top_p',
+  'topP',
+  'max_tokens',
+  'maxTokens',
+  'presence_penalty',
+  'frequency_penalty',
 ];
 const PRIVATE_FIELD =
   /api.?key|token|secret|password|authorization|credential|headers|cookie|base.?url|endpoint|^(url|maskImage|mask_image|uploadedImages?|referenceImages?|inputReference)$/i;
@@ -73,7 +114,8 @@ function publicParameter(
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value).flatMap(([key, item]) => {
-      if (PRIVATE_FIELD.test(key)) return [];
+      if (PRIVATE_FIELD.test(key) && !['max_tokens', 'maxTokens'].includes(key))
+        return [];
       const safeValue = publicParameter(item, depth + 1);
       return safeValue === undefined ? [] : [[key, safeValue] as const];
     });
@@ -110,7 +152,13 @@ export function getCanvasImageDetails(
     completedAt: task?.completedAt,
     model,
     prompt: task?.params.prompt || image.prompt,
-    dimensions: width && height ? `${width} × ${height} px` : undefined,
+    dimensions:
+      (!image.kind || image.kind === 'image' || image.kind === 'video') &&
+      width &&
+      height
+        ? `${width} × ${height} px`
+        : undefined,
+    duration: image.duration ?? task?.result?.duration,
     parameters: Object.entries(parameters).map(([name, value]) => ({
       name,
       value: typeof value === 'object' ? JSON.stringify(value) : String(value),
