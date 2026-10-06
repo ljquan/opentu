@@ -4,6 +4,17 @@
 
 - [新增] GPT Image 参数菜单提供“高级功能”开关，按需显示输出格式、压缩质量、内容审核和用户标识，补齐 Tuzi 参数传递
 
+## 1.1.22 (2026-10-06)
+
+### 🔧 Chores
+
+- 修复 GPT Image 背景透明参数 (#290) ([5defc210](https://github.com/ljquan/opentu/commit/5defc210))
+- 新增画布图片详情、自动查看开关与侧边展示 (#289) ([80493673](https://github.com/ljquan/opentu/commit/80493673))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.1.21 (2026-09-30)
 
 ### 🩹 Fixes

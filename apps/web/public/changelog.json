@@ -1,6 +1,20 @@
 {
   "versions": [
     {
+      "version": "1.1.22",
+      "date": "2026-10-06",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复 GPT Image 背景透明参数 (#290)",
+          "新增画布图片详情、自动查看开关与侧边展示 (#289)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
       "version": "1.1.21",
       "date": "2026-09-30",
       "changes": {
@@ -969,24 +983,6 @@
       },
       "type": "patch",
       "highlights": "support AI image mask editing"
-    },
-    {
-      "version": "0.9.2",
-      "date": "2026-05-04",
-      "changes": {
-        "features": [
-          "优化长提示词输入框展开体验",
-          "add image generate-again prefill"
-        ],
-        "fixes": [
-          "优化参考图描述和提示词优先级协议",
-          "allow hand panning while drawing",
-          "address regenerate prefill review findings"
-        ],
-        "improvements": []
-      },
-      "type": "minor",
-      "highlights": "优化长提示词输入框展开体验"
     }
   ]
 }
