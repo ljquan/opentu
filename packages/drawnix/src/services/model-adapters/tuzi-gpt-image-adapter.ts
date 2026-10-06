@@ -20,7 +20,10 @@ import {
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
-import { GPT_IMAGE_2_MODEL_IDS } from '../../constants/model-config';
+import {
+  GPT_IMAGE_2_MODEL_IDS,
+  isGPTImage2ModelId,
+} from '../../constants/model-config';
 
 type TuziResponseFormat = 'url' | 'b64_json';
 
@@ -79,6 +82,7 @@ export function buildTuziGPTImageRequestOptions(
   quality?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   count?: number;
   imageSize?: string;
+  background?: ImageGenerationRequest['background'];
   model: string;
   modelRef: ImageGenerationRequest['modelRef'];
 } {
@@ -92,6 +96,9 @@ export function buildTuziGPTImageRequestOptions(
     GPT_IMAGE_2_MODEL_IDS.includes(model.toLowerCase()) &&
     requestedSize?.trim().toLowerCase() === 'auto';
   const resolution = normalizeImageResolutionTier(request.params?.resolution);
+  const background =
+    request.background || getStringParam(request.params, 'background');
+  const isImage2 = isGPTImage2ModelId(model);
 
   return {
     size: useAutomaticRatio ? 'auto' : getResolvedOfficialSize(request, model),
@@ -103,6 +110,12 @@ export function buildTuziGPTImageRequestOptions(
     response_format: getResponseFormat(request),
     quality: resolveOfficialGPTImageQuality(request.params, model),
     count: getRequestedCount(request),
+    background:
+      background === 'auto' ||
+      (background === 'transparent' && !isImage2) ||
+      background === 'opaque'
+        ? background
+        : undefined,
     model,
     modelRef: request.modelRef || null,
   };
@@ -136,6 +149,9 @@ export function buildTuziGPTImageRequestBody(
   }
   if (typeof options.count === 'number') {
     body.n = options.count;
+  }
+  if (options.background) {
+    body.background = options.background;
   }
 
   return body;

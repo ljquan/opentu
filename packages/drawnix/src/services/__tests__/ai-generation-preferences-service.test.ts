@@ -41,6 +41,32 @@ describe('ai-generation-preferences-service', () => {
     }
   );
 
+  it.each(['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+    '%s persists background independently of size and quality', async (modelId) => {
+      const {
+        saveAIImageToolPreferences, loadScopedAIImageToolPreferences,
+        sanitizeImageToolExtraParams,
+      } = await import('../ai-generation-preferences-service');
+      for (const background of ['auto', 'transparent', 'opaque']) {
+        const extraParams = { size: 'auto', resolution: '2k', quality: 'high', background };
+        saveAIImageToolPreferences({
+          currentModel: modelId, currentSelectionKey: `provider::${modelId}`,
+          extraParams, aspectRatio: 'auto',
+        });
+        expect(loadScopedAIImageToolPreferences(modelId, `provider::${modelId}`).extraParams)
+          .toMatchObject({
+            ...extraParams,
+            background: modelId === 'gpt-image-2' && background === 'transparent'
+              ? 'auto' : background,
+          });
+      }
+      expect(sanitizeImageToolExtraParams(modelId, { background: 'invalid' }).background)
+        .toBe('auto');
+      expect(sanitizeImageToolExtraParams('doubao-seedream-4-5-251128', { background: 'transparent' }))
+        .not.toHaveProperty('background');
+    }
+  );
+
   it('兼容旧 text 偏好并恢复为 agent 模式', async () => {
     localStorage.setItem(
       'aitu_ai_input_preferences',
