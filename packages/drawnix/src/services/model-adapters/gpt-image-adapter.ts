@@ -81,7 +81,9 @@ function getNumberFieldOrParam(
 ): number | undefined {
   return typeof fieldValue === 'number' && Number.isFinite(fieldValue)
     ? fieldValue
-    : getNumberParam(params, key);
+    : typeof params?.[key] === 'string' && String(params[key]).trim()
+      ? Number(params[key])
+      : getNumberParam(params, key);
 }
 
 function setAllowedStringParam(
@@ -145,6 +147,9 @@ function applyCommonGPTImageOptions(
     params,
     'background'
   );
+  if (background === 'transparent' && outputFormat === 'jpeg') {
+    throw new Error('透明背景需要 PNG 或 WebP 输出');
+  }
 
   if (size) {
     body.size = size;
@@ -154,6 +159,8 @@ function applyCommonGPTImageOptions(
   }
   if (
     outputCompression !== undefined &&
+    (outputFormat === 'jpeg' || outputFormat === 'webp') &&
+    Number.isInteger(outputCompression) &&
     outputCompression >= 0 &&
     outputCompression <= 100
   ) {

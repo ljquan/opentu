@@ -27,6 +27,9 @@ import {
 
 type TuziResponseFormat = 'url' | 'b64_json';
 
+const TUZI_IMAGE_OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
+const TUZI_IMAGE_MODERATION_VALUES = new Set(['auto', 'low']);
+
 function getStringParam(
   params: Record<string, unknown> | undefined,
   key: string
@@ -43,6 +46,26 @@ function getNumberParam(
   return typeof value === 'number' && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function getStringFieldOrParam(
+  fieldValue: string | undefined,
+  params: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  return fieldValue?.trim() || getStringParam(params, key);
+}
+
+function getNumberFieldOrParam(
+  fieldValue: number | undefined,
+  params: Record<string, unknown> | undefined,
+  key: string
+): number | undefined {
+  return typeof fieldValue === 'number' && Number.isFinite(fieldValue)
+    ? fieldValue
+    : typeof params?.[key] === 'string' && String(params[key]).trim()
+    ? Number(params[key])
+    : getNumberParam(params, key);
 }
 
 function getResolvedOfficialSize(
@@ -83,6 +106,10 @@ export function buildTuziGPTImageRequestOptions(
   count?: number;
   imageSize?: string;
   background?: ImageGenerationRequest['background'];
+  output_format?: 'png' | 'jpeg' | 'webp';
+  output_compression?: number;
+  moderation?: 'auto' | 'low';
+  user?: string;
   model: string;
   modelRef: ImageGenerationRequest['modelRef'];
 } {
@@ -98,7 +125,22 @@ export function buildTuziGPTImageRequestOptions(
   const resolution = normalizeImageResolutionTier(request.params?.resolution);
   const background =
     request.background || getStringParam(request.params, 'background');
+  const outputFormat = getStringFieldOrParam(
+    request.outputFormat,
+    request.params,
+    'output_format'
+  );
+  const outputCompression = getNumberFieldOrParam(
+    request.outputCompression,
+    request.params,
+    'output_compression'
+  );
+  const moderation = getStringParam(request.params, 'moderation');
+  const user = getStringParam(request.params, 'user');
   const isImage2 = isGPTImage2ModelId(model);
+  if (background === 'transparent' && outputFormat === 'jpeg') {
+    throw new Error('透明背景需要 PNG 或 WebP 输出');
+  }
 
   return {
     size: useAutomaticRatio ? 'auto' : getResolvedOfficialSize(request, model),
@@ -116,6 +158,23 @@ export function buildTuziGPTImageRequestOptions(
       background === 'opaque'
         ? background
         : undefined,
+    output_format:
+      outputFormat && TUZI_IMAGE_OUTPUT_FORMATS.has(outputFormat)
+        ? (outputFormat as 'png' | 'jpeg' | 'webp')
+        : undefined,
+    output_compression:
+      outputCompression !== undefined &&
+      (outputFormat === 'jpeg' || outputFormat === 'webp') &&
+      Number.isInteger(outputCompression) &&
+      outputCompression >= 0 &&
+      outputCompression <= 100
+        ? outputCompression
+        : undefined,
+    moderation:
+      moderation && TUZI_IMAGE_MODERATION_VALUES.has(moderation)
+        ? (moderation as 'auto' | 'low')
+        : undefined,
+    user,
     model,
     modelRef: request.modelRef || null,
   };
@@ -152,6 +211,18 @@ export function buildTuziGPTImageRequestBody(
   }
   if (options.background) {
     body.background = options.background;
+  }
+  if (options.output_format) {
+    body.output_format = options.output_format;
+  }
+  if (options.output_compression !== undefined) {
+    body.output_compression = options.output_compression;
+  }
+  if (options.moderation) {
+    body.moderation = options.moderation;
+  }
+  if (options.user) {
+    body.user = options.user;
   }
 
   return body;
@@ -240,16 +311,22 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), { httpStatus: response.status });
+      throw Object.assign(new Error(await readErrorMessage(response)), {
+        httpStatus: response.status,
+      });
     }
 
     const result = await readProviderResponseJson(response);
     const responseFormat = getResponseFormat(request);
+    const outputFormat = buildTuziGPTImageRequestOptions(
+      request,
+      requestModel
+    ).output_format;
 
     return resolveGeneratedImageDimensions(
       parseGPTImageResponse(
         result,
-        responseFormat === 'b64_json' ? 'png' : undefined
+        responseFormat === 'b64_json' ? outputFormat || 'png' : undefined
       ),
       context.signal
     );

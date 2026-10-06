@@ -14,7 +14,13 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Switch } from 'tdesign-react';
-import { Check, ChevronDown, Dices, Settings2 } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Dices,
+  Settings2,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import {
   getCompatibleParams,
@@ -126,15 +132,23 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   // 键盘导航状态：当前高亮的参数组索引和选项索引
   const [highlightedParamIndex, setHighlightedParamIndex] = useState(0);
   const [highlightedOptionIndex, setHighlightedOptionIndex] = useState(0);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // 获取当前模型兼容的所有参数（排除已有专用 UI 的参数）
-  const compatibleParams = useMemo(() => {
+  const allParams = useMemo(() => {
     const params = compatibleParamsProp ?? getCompatibleParams(modelId);
     if (excludeParamIds && excludeParamIds.length > 0) {
       return params.filter((p) => !excludeParamIds.includes(p.id));
     }
     return params;
   }, [compatibleParamsProp, modelId, excludeParamIds]);
+
+  const hasAdvancedParams = allParams.some((param) => param.advanced);
+  const compatibleParams = useMemo(() => {
+    const basic = allParams.filter((param) => !param.advanced);
+    if (!advancedOpen) return basic;
+    return [...basic, ...allParams.filter((param) => param.advanced)];
+  }, [allParams, advancedOpen]);
 
   // 打开时重置高亮索引
   useEffect(() => {
@@ -292,6 +306,30 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
 
   if (compatibleParams.length === 0) return null;
 
+  const advancedToggle = (
+    <div className="parameters-dropdown__advanced-toggle">
+      <div className="parameters-dropdown__advanced-label">
+        <SlidersHorizontal size={14} />
+        <span>{language === 'zh' ? '高级功能' : 'Advanced'}</span>
+      </div>
+      <Switch
+        size="small"
+        value={advancedOpen}
+        aria-label={language === 'zh' ? '高级功能' : 'Advanced'}
+        onChange={(open) => {
+          setAdvancedOpen(open);
+          if (!open) {
+            allParams
+              .filter((param) => param.advanced)
+              .forEach((param) => {
+                onParamChange(param.id, '', { keepOpen: true });
+              });
+          }
+        }}
+      />
+    </div>
+  );
+
   return (
     <KeyboardDropdown
       isOpen={isOpen}
@@ -350,6 +388,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
 
                   <div className="parameters-dropdown__sections">
                     {compatibleParams.map((param, paramIndex) => {
+                      const firstAdvanced =
+                        param.advanced &&
+                        !compatibleParams[paramIndex - 1]?.advanced;
                       const currentValue = selectedParams[param.id];
                       const isParamHighlighted =
                         paramIndex === highlightedParamIndex;
@@ -362,9 +403,15 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                               : ''
                           }`}
                         >
+                          {firstAdvanced && advancedToggle}
                           <div className="parameters-dropdown__section-title">
                             {param.label}
                           </div>
+                          {param.advanced && param.description && (
+                            <div className="parameters-dropdown__section-description">
+                              {param.description}
+                            </div>
+                          )}
                           {param.control === 'switch' ? (
                             <div className="parameters-dropdown__switch-row">
                               <span className="parameters-dropdown__switch-state">
@@ -433,6 +480,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                               }`}
                             >
                               <input
+                                aria-label={param.label}
                                 type={
                                   param.valueType === 'number'
                                     ? 'number'
@@ -440,7 +488,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                                 }
                                 className="parameters-dropdown__field-input"
                                 value={currentValue || ''}
-                                placeholder={param.description || param.label}
+                                placeholder={param.advanced ? param.label : param.description || param.label}
                                 min={
                                   param.valueType === 'number'
                                     ? param.min
@@ -490,6 +538,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                         </div>
                       );
                     })}
+                    {hasAdvancedParams && !advancedOpen && advancedToggle}
                   </div>
                 </div>,
                 document.body

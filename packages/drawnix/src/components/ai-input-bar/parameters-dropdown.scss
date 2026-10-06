@@ -116,6 +116,24 @@ $text-dark: #1f2937;
     overflow-y: auto;
   }
 
+  &__advanced-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-border, #e5e5e5);
+  }
+
+  &__advanced-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text-secondary, #666);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   &__section {
     padding: 8px 0;
 
@@ -136,6 +154,14 @@ $text-dark: #1f2937;
     padding: 0 4px 6px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  &__section-description {
+    padding: 0 4px 8px;
+    color: var(--color-text-secondary, #666);
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   // 选项按钮组（流式布局）

@@ -30,6 +30,10 @@ Sunburst 面向最高生成与编辑精度，Flare 面向高质量、低延迟�
 
 ## 背景参数
 
+Image 2.5 的五个模型在基础参数下方提供“高级功能”开关，默认关闭，Image 2 与其他模型不显示。开启后展示输出格式、压缩质量、内容审核和用户标识及说明；关闭会清除这些高级参数。未设置高级参数时不额外发送默认值。压缩质量只发送给 JPEG/WebP，PNG 忽略该字段；透明背景与 JPEG 冲突时在提交前报错。当前不开放流式与阶段图片控件，因为图片结果解析尚未支持 SSE。
+
+Tuzi generations 请求另支持客户端传递 `output_format`（png/jpeg/webp）、`output_compression`（0–100）、`moderation`（auto/low）和 `user`。工作流原生参数面板提供对应控件；任务显式 `outputFormat`、`outputCompression` 优先于 params 字段，未设置或非法值不发送，压缩值 0 保留。base64 响应按请求的输出格式解析，服务端返回的格式信息优先。是否实际生效取决于 Tuzi 渠道，不保证所有模型支持。不增加 stream、partial_images、mask 或 input_fidelity。
+
 GPT Image 2.5 的参数菜单提供“图片背景”：自动（`auto`，默认）、透明（`transparent`）、不透明（`opaque`）。GPT Image 2 仅提供自动和不透明；其余图片模型不显示此参数。
 
 背景选择按模型与 Provider 作用域保存，独立于尺寸、分辨率和画质。官方与 Tuzi 适配器均传递顶层 `background` 字段，文本生成及带参考图的请求一致。Tuzi 优先读取任务显式 `background`，其次读取 `params.background`；缺失或非法值不传递，界面恢复非法历史值时回退为自动。
