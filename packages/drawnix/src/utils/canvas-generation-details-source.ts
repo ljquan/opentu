@@ -3,6 +3,7 @@ import { PlaitDrawElement } from '@plait/draw';
 import { isVideoElement } from '../plugins/with-video';
 import { isToolElement } from '../plugins/with-tool';
 import { isAudioNodeElement } from '../types/audio-node.types';
+import { isCardElement } from '../types/card.types';
 import type { CanvasImageDetailsSource } from './canvas-image-details';
 
 export function getCanvasGenerationDetailsSource(
@@ -16,8 +17,9 @@ export function getCanvasGenerationDetailsSource(
     : PlaitDrawElement.isDrawElement(element) &&
       PlaitDrawElement.isImage(element)
     ? 'image'
-    : PlaitDrawElement.isDrawElement(element) &&
-      PlaitDrawElement.isText(element)
+    : isCardElement(element) ||
+      (PlaitDrawElement.isDrawElement(element) &&
+        PlaitDrawElement.isText(element))
     ? 'text'
     : undefined;
   if (!kind) return undefined;

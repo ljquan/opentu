@@ -15,6 +15,7 @@ describe('canvas generation details sources', () => {
     [{ type: 'image', isVideo: true, url: '/video.mp4' }, 'video'],
     [{ type: 'audio', audioUrl: '/song.mp3' }, 'audio'],
     [{ type: 'geometry', shape: 'text' }, 'text'],
+    [{ type: 'card', title: 'hi', body: 'Hi there!' }, 'text'],
   ] as const)(
     'recognizes media/text with the original task binding',
     (fields, kind) => {
@@ -36,6 +37,17 @@ describe('canvas generation details sources', () => {
         expect(source?.width).toBeUndefined();
     }
   );
+  it('keeps a manual card as text without inventing generation metadata from its body', () => {
+    const source = getCanvasGenerationDetailsSource({
+      id: 'manual-card',
+      type: 'card',
+      title: 'Note',
+      body: 'Manual text',
+    });
+    expect(source).toMatchObject({ kind: 'text', id: 'manual-card' });
+    expect(source?.generationTaskId).toBeUndefined();
+    expect(source?.prompt).toBeUndefined();
+  });
   it('excludes shapes, embedded tools and no selection', () => {
     expect(getCanvasGenerationDetailsSource()).toBeUndefined();
     expect(
