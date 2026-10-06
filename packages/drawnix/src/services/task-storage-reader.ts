@@ -906,6 +906,18 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
     imageUrl: string,
     options?: { includeArchived?: boolean; limit?: number }
   ): Promise<string | null> {
+    return this.findMediaTaskIdByResultUrl(imageUrl, TaskType.IMAGE, options);
+  }
+
+  async findMediaTaskIdByResultUrl(
+    imageUrl: string,
+    type: TaskType.IMAGE | TaskType.VIDEO | TaskType.AUDIO,
+    options?: {
+      includeArchived?: boolean;
+      limit?: number;
+      throwOnError?: boolean;
+    }
+  ): Promise<string | null> {
     const includeArchived = options?.includeArchived ?? true;
     const limit = options?.limit ?? STORAGE_LIMITS.MAX_RETAINED_TASKS * 10;
     const targetUrl = normalizeComparableImageTaskUrl(imageUrl);
@@ -935,13 +947,18 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
             cursor.continue();
             return;
           }
-          if (task.type !== TaskType.IMAGE) {
+          if (task.type !== type) {
             cursor.continue();
             return;
           }
 
           scannedImageTasks++;
-          if (swImageTaskMatchesUrl(task, targetUrl)) {
+          const matches = type === TaskType.IMAGE
+            ? swImageTaskMatchesUrl(task, targetUrl)
+            : isUserVisibleTaskResult(task.result) && getSWTaskResultUrls(task).some(
+                (url) => normalizeComparableImageTaskUrl(url) === targetUrl
+              );
+          if (matches) {
             resolve(task.id);
             return;
           }
@@ -958,6 +975,7 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
         };
       });
     } catch (error) {
+      if (options?.throwOnError) throw error;
       console.error('[TaskStorageReader] Error finding image task:', error);
       return null;
     }

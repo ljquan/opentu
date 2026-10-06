@@ -52,6 +52,15 @@ async function putTasks(tasks: Task[]): Promise<void> {
 }
 
 describe('taskStorageReader result visibility', () => {
+  it.each([TaskType.VIDEO, TaskType.AUDIO])('finds archived %s results while excluding internal and wrong-type records', async (type) => {
+    const task = createCompletedTask('legacy', type, { createdAt: 1, archived: true });
+    const internal = createCompletedTask('internal', type, { createdAt: 2, resultVisibility: 'internal' });
+    internal.result!.url = task.result!.url;
+    await putTasks([task, internal]);
+    expect(await taskStorageReader.findMediaTaskIdByResultUrl(task.result!.url, type, { includeArchived: true })).toBe('legacy');
+    expect(await taskStorageReader.findMediaTaskIdByResultUrl(task.result!.url, type, { includeArchived: false })).toBeNull();
+    expect(await taskStorageReader.findImageTaskIdByResultUrl(task.result!.url)).toBeNull();
+  });
   beforeEach(() => {
     taskStorageReader.close();
     taskStorageReader.invalidateCache();

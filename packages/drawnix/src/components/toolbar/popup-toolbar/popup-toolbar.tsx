@@ -75,6 +75,7 @@ import { PopupBooleanButton } from './boolean-button';
 import { TextPropertyPanel } from './text-property-panel';
 import { PopupImage3DTransformButton } from './image-3d-transform-button';
 import { PopupImageDetailsButton } from './image-details-button';
+import { getCanvasGenerationDetailsSource } from '../../../utils/canvas-generation-details-source';
 import {
   AIImageIcon,
   AIVideoIcon,
@@ -281,6 +282,8 @@ export const PopupToolbar = () => {
     id: string; url?: string; taskId?: string; sequence: number;
   } | null>(null);
   const imageDetailsSequence = useRef(0);
+  const generationDetailsSource = selectedElements.length === 1
+    ? getCanvasGenerationDetailsSource(selectedElements[0]) : undefined;
 
   // 初始化全局鼠标位置跟踪
   useGlobalMousePosition();
@@ -692,7 +695,7 @@ export const PopupToolbar = () => {
       hasLayerDecomposition,
       hasImageEdit,
       hasRegenerateImage: isImageSelected,
-      hasImageDetails,
+      hasImageDetails: !!generationDetailsSource && !PlaitBoard.hasBeenTextEditing(board),
       hasDownloadable,
       hasMergeable,
       hasVideoMergeable,
@@ -1290,12 +1293,11 @@ export const PopupToolbar = () => {
         !eventTarget?.closest(`.${ATTACHED_ELEMENT_CLASS_NAME}, .popup-toolbar, .ai-input-bar, .ai-input-bar__container`)
       ) {
         const selection = getSelectedElements(board);
-        if (selection.length === 1 && PlaitDrawElement.isDrawElement(selection[0]) &&
-            PlaitDrawElement.isImage(selection[0]) && !isVideoElement(selection[0]) &&
-            !isToolElement(selection[0]) && !PlaitBoard.hasBeenTextEditing(board)) {
+        const source = selection.length === 1 ? getCanvasGenerationDetailsSource(selection[0]) : undefined;
+        if (source && !PlaitBoard.hasBeenTextEditing(board)) {
           setImageDetailsRequest({
-            id: selection[0].id, url: selection[0].url,
-            taskId: selection[0].generationTaskId,
+            id: source.id, url: source.url,
+            taskId: source.generationTaskId,
             sequence: ++imageDetailsSequence.current,
           });
         }
@@ -2687,15 +2689,15 @@ export const PopupToolbar = () => {
                 deleteFragment(board);
               }}
             />
-            {state.hasImageDetails && (
+            {state.hasImageDetails && generationDetailsSource && (
               <PopupImageDetailsButton
-                key={`image-details-${selectedElements[0].id}-${selectedElements[0].url}-${selectedElements[0].generationTaskId}`}
-                image={selectedElements[0]}
+                key={`generation-details-${generationDetailsSource.kind}-${generationDetailsSource.id}-${generationDetailsSource.url}-${generationDetailsSource.generationTaskId}`}
+                image={generationDetailsSource}
                 language={language}
                 selectionRect={selectionRect}
-                autoOpenRequest={imageDetailsRequest?.id === selectedElements[0].id &&
-                  imageDetailsRequest.url === selectedElements[0].url &&
-                  imageDetailsRequest.taskId === selectedElements[0].generationTaskId
+                autoOpenRequest={imageDetailsRequest?.id === generationDetailsSource.id &&
+                  imageDetailsRequest.url === generationDetailsSource.url &&
+                  imageDetailsRequest.taskId === generationDetailsSource.generationTaskId
                   ? imageDetailsRequest.sequence : 0}
               />
             )}

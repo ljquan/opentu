@@ -17,7 +17,11 @@ vi.mock('../../../services/task-queue', () => ({
   taskQueueService: {
     getCompleteTask: vi.fn(),
     findImageTaskByResultUrl: vi.fn(),
+    getAllTasks: vi.fn(() => []),
   },
+}));
+vi.mock('../../../services/task-storage-reader', () => ({
+  taskStorageReader: { findMediaTaskIdByResultUrl: vi.fn() },
 }));
 vi.mock('../../../services/task-invocation-route', () => ({
   resolveTaskInvocationRouteModel: (task: Task) => task.params.model,
@@ -51,6 +55,42 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('image details popover', () => {
+  it.each([
+    ['video', TaskType.VIDEO, '视频'],
+    ['audio', TaskType.AUDIO, '音频'],
+    ['text', TaskType.CHAT, '文本'],
+  ] as const)(
+    'opens %s details and shows its own model and parameters',
+    async (kind, type, label) => {
+      vi.mocked(taskQueueService.getCompleteTask).mockResolvedValue({
+        ...task,
+        type,
+        params: {
+          prompt: `${kind} prompt`,
+          model: `${kind}-model`,
+          duration: 20,
+          temperature: 0.7,
+        },
+      });
+      render(
+        <PopupImageDetailsButton
+          image={{ ...image, kind, generationTaskId: 'task', duration: 20 }}
+          language="zh"
+          autoOpenRequest={1}
+        />
+      );
+      expect(await screen.findByText(`${kind}-model`)).toBeTruthy();
+      expect(screen.getByRole('dialog', { name: `${label}详情` })).toBeTruthy();
+      expect(screen.getByText(`${kind} prompt`)).toBeTruthy();
+      if (kind === 'audio' || kind === 'video')
+        expect(screen.getByText('20 s')).toBeTruthy();
+      if (kind === 'text' || kind === 'audio')
+        expect(screen.queryByText('1024 × 1536 px')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: `关闭${label}详情` }));
+      fireEvent.click(screen.getByRole('button', { name: `查看${label}详情` }));
+      expect(await screen.findByText(`${kind}-model`)).toBeTruthy();
+    }
+  );
   it('positions details to the right of the image with a gap', async () => {
     vi.mocked(taskQueueService.findImageTaskByResultUrl).mockResolvedValue(
       task
@@ -104,7 +144,7 @@ describe('image details popover', () => {
     );
     expect(await screen.findByText('test-image-model')).toBeTruthy();
     expect(
-      screen.getByRole('switch', { name: '点击图片自动打开详情' })
+      screen.getByRole('switch', { name: '点击内容自动打开详情' })
     ).toHaveProperty('checked', true);
     fireEvent.click(screen.getByRole('button', { name: '关闭图片详情' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -132,7 +172,7 @@ describe('image details popover', () => {
     );
     await screen.findByText('test-image-model');
     fireEvent.click(
-      screen.getByRole('switch', { name: '点击图片自动打开详情' })
+      screen.getByRole('switch', { name: '点击内容自动打开详情' })
     );
     expect(screen.getByRole('switch')).toHaveProperty('checked', false);
     rerender(
