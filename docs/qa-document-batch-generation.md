@@ -1,5 +1,13 @@
 # 文档批量生成 QA
 
+## 2026-10-07 PR 最终验证
+
+功能分支 `dev/batch-image-export-import` 已显式合并 `origin/develop`（`647e378d`），结果为 Already up to date，无冲突。本次仅包含画布批量出图改动。
+
+从 `packages/drawnix` 运行 `BATCH_XLSX_TEST_FILE='/Users/lkj/Downloads/批量生图测试.xlsx' pnpm exec vitest run --config vitest.config.ts src/utils/xlsx-embedded-images.test.ts src/utils/xlsx-image-export.test.ts src/utils/__tests__/canvas-insertion-layout.test.ts src/services/canvas-operations/canvas-insertion.test.ts src/utils/__tests__/model-selection.test.ts src/utils/__tests__/download-utils.test.ts`：6 文件、47 项通过，无跳过，包含原文件 9 张图片和画布布局回归。库 TypeScript、Web build-app、分支差异检查通过。此前两次测试命令因工作目录/配置路径不匹配未运行测试，修正后使用上述结果。
+
+QA 沿用本文件，使用说明和维护限制已包含在下方，不另建 DOC。未执行页面交互、真实供应商、Excel/WPS/Numbers 客户端视觉和超大图片压力验收；本地构建保留既有 Sass、动态导入和大 chunk 警告。无新增配置、依赖或迁移；旧在途任务可能仍按原参数自动插入，回滚代码时保留本地任务和图片数据。
+
 ## 批量结果手动插入画布
 
 2026-10-06：新提交的画布批量图片任务设置 `autoInsertToCanvas: false`，生成结果留在工具预览和任务记录中。新增“插入选中图片”操作：按勾选任务行的顺序收集已完成图片，去除重复任务 ID，调用既有画布插入服务；每 5 张划为布局组并随视口换行，保留图片尺寸、提示词和 generationTaskId。无已完成图片或画布未就绪时禁用；插入期间使用同步锁和 loading，切换画布后阻止异步写入。失败沿用画布插入服务的错误提示和事务回滚行为。
