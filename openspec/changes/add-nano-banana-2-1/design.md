@@ -10,7 +10,7 @@ The shared catalog drives canvas and workflow controls. Provider bindings determ
 - Ignore thought parts in image outputs so intermediate thought images cannot become final canvas assets.
 
 ## Risks And Trade-offs
-Tuzi delivered 1K, 2K and 4K in live browser tests. Extreme ratios can differ from the official pixel table, and the 1K 1:8 and 4:1 poster outputs visibly repeat panels. These are upstream output limitations, not HTTP failures. Search grounding remains disabled until separately verified.
+Tuzi delivered 1K, 2K and 4K in live browser tests. Extreme ratios can differ from the official pixel table. Full-gallery inspection found repeated poster panels at 1K in 1:4, 1:8, 3:2, 4:1, 8:1 and 21:9 outputs. These are upstream output limitations, not HTTP failures. Search grounding remains disabled until separately verified.
 
 ## Migration
 Existing provider/model discovery uses the shared catalog metadata. The exact model is corrected to image capability when saved channels are normalized, retaining channel settings. No storage schema migration is required.

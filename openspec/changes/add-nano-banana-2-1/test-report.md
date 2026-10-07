@@ -37,12 +37,13 @@ Fifteen references were rejected before any network request. The 2/14-reference 
 
 - Canvas: model selection, text-to-image and image-to-image through actual UI controls succeeded. Editing sent one reference and returned 1376x768. Initial test setup showed the API Key dialog without submitting a request; selecting the explicitly configured channel after reload resolved setup.
 - Workflow: uploading a reference then immediately clicking Generate reproduced a race: the request had zero references. This earlier attempt is excluded from valid editing results. Import tracking now disables generation until all reference imports finish, with a synchronous submission guard. The repeated UI test sent one reference and returned 1376x768.
+- Standalone PR code also passed a real workflow UI editing request: HTTP 200, one reference, 1376x768. After reload, selecting its persisted history record restored the prompt and images; no broken images were found. An earlier verification attempt was interrupted by Vite reloading documentation edits and is excluded from supplier failure counts.
 - Desktop 1440x900 and mobile 390x844 parameter controls were inspected. The mobile parameter menu stays inside the viewport and Thinking selection updates its summary. This does not substitute for real-device Safari acceptance.
 - Saved text classification is corrected to image after reload and excluded from text selection.
 
 ## Output Limits
 
-The 1K 1:8 and 4:1 outputs visibly repeat poster panels. Extreme-ratio dimensions differ from Google's table. Passing HTTP requests therefore does not mean every output meets poster composition expectations. High-resolution extreme ratios, all ratio/resolution/Thinking combinations, search grounding, distinct-reference reasoning and comparative quality against older models were not evaluated.
+Full-gallery inspection found repeated poster panels in 1K 1:4, 1:8, 3:2, 4:1, 8:1 and 21:9 outputs. Extreme-ratio dimensions differ from Google's table. Passing HTTP requests therefore does not mean every output meets poster composition expectations. High-resolution extreme ratios, all ratio/resolution/Thinking combinations, search grounding, distinct-reference reasoning and comparative quality against older models were not evaluated.
 
 ## Automated Checks
 

@@ -17,4 +17,5 @@
 - Independent Chrome verified model selection and parameter controls. At 390x844, the parameter menu stays within the viewport and changing Thinking updates the selection; desktop checked at 1440x900.
 - Local application: http://127.0.0.1:7202/. Isolated PR branch verification: http://127.0.0.1:7203/.
 - Live results and output-quality limits are recorded in test-report.md; coverage varies one parameter at a time rather than all Cartesian combinations.
+- Standalone PR branch workflow UI editing and persisted-history restoration passed with one reference, HTTP 200 and 1376x768 output.
 - TODO documentation reviewed; existing Agent tasks need no changes. Acceptance items and gateway limitations added to pending-test documentation.
