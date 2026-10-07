@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchTuziModels, parseTuziModels, tuziPricingUrl } from '../src/services/tuzi-model-discovery';
-import { createModelChannel, defaultConfig, resolveModelRequestConfig } from '../src/stores/use-config-store';
+import { createModelChannel, defaultConfig, guessCapability, normalizeChannelModels, resolveModelRequestConfig, selectableModelsByCapability } from '../src/stores/use-config-store';
 import { sanitizeConfigForExport } from '../src/services/config-file';
 import { pollVideoGenerationTask } from '../src/services/api/video';
 import axios from 'axios';
@@ -11,6 +11,21 @@ const channel = () => createModelChannel({ id: 'tuzi', providerKind: 'tuzi-fixed
     models: [{ name: 'video-model', capability: 'video' }] });
 
 describe('Tuzi explicit discovery', () => {
+    it('classifies Nano Banana models as images without relying on provider tags', () => {
+        for (const name of ['gemini-nano-banana-2.1', 'nano-banana-2', 'nano-banana-pro']) {
+            expect(guessCapability(name)).toBe('image');
+            expect(parseTuziModels({ success: true, data: [{ model_name: name, tags: ['文本'], hot_rank: 1 }] }, 'hot')[0].capability).toBe('image');
+        }
+        expect(guessCapability('gemini-3-pro-preview')).toBe('text');
+    });
+    it('repairs saved Nano Banana 2.1 text classification while preserving model settings', () => {
+        const name = 'gemini-nano-banana-2.1';
+        const models = normalizeChannelModels([{ name, capability: 'text', script: 'custom-script' }, { name, capability: 'image' }]);
+        expect(models).toEqual([{ name, capability: 'image', script: 'custom-script' }]);
+        const config = { ...defaultConfig, channels: [createModelChannel({ id: 'tuzi', models })] };
+        expect(selectableModelsByCapability(config, 'image')).toEqual([`tuzi::${name}`]);
+        expect(selectableModelsByCapability(config, 'text')).toEqual([]);
+    });
     it('sorts valid ranks, caps hot at 200 and keeps all mode complete', () => {
         const data = Array.from({ length: 250 }, (_, i) => ({ model_name: `m${250-i}`, hot_rank: 250-i }));
         data.push({ model_name: 'unranked', hot_rank: 0 }, data[0]);

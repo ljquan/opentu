@@ -228,6 +228,32 @@ describe('runtime-model-discovery', () => {
     });
   });
 
+  it('Nano Banana 2.1 保持图片分类并修正已保存的文本类别', async () => {
+    const modelId = 'gemini-nano-banana-2.1';
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ data: [{ id: modelId, category: '文本', supported_endpoint_types: ['google.generateContent'] }] }),
+    })));
+    vi.doMock('../settings-manager', () => ({
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      providerCatalogsSettings: {
+        get: () => [{ profileId: 'provider-banana', discoveredModels: [{ id: modelId, type: 'text', vendor: 'GEMINI' }], selectedModelIds: [modelId] }],
+        addListener: () => {}, removeListener: () => {}, update: async () => {},
+      },
+      providerProfilesSettings: {
+        get: () => [{ id: 'provider-banana', enabled: true, baseUrl: 'https://api.tu-zi.com', apiKey: 'test-key' }],
+        addListener: () => {}, removeListener: () => {},
+      },
+      invocationPresetsSettings: { addListener: () => {}, removeListener: () => {} },
+      settingsManager: { getSetting: () => ({}), addListener: () => {}, removeListener: () => {} },
+    }));
+    const { runtimeModelDiscovery, getConfiguredSelectableModels } = await import('../runtime-model-discovery');
+    expect(getConfiguredSelectableModels('image').map(model => model.id)).toContain(modelId);
+    expect(getConfiguredSelectableModels('text').map(model => model.id)).not.toContain(modelId);
+    const models = await runtimeModelDiscovery.discover('provider-banana', 'https://api.tu-zi.com', 'test-key');
+    expect(models).toEqual([expect.objectContaining({ id: modelId, type: 'image', supportsTools: false })]);
+  });
+
   it('应用模型选择时会返回新增和移除增量', async () => {
     vi.doMock('../settings-manager', () => ({
       LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',

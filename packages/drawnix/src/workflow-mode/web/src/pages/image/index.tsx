@@ -90,6 +90,8 @@ export default function ImagePage() {
     const addAsset = useAssetStore((state) => state.addAsset);
     const [prompt, setPrompt] = useState("");
     const [references, setReferences] = useState<ReferenceImage[]>([]);
+    const [referenceImports, setReferenceImports] = useState(0);
+    const referenceImportsRef = useRef(0);
     const [results, setResults] = useState<GenerationResult[]>([]);
     const [logs, setLogs] = useState<GenerationLog[]>([]);
     const [running, setRunning] = useState(false);
@@ -113,7 +115,7 @@ export default function ImagePage() {
     const progressWriteRef = useRef(Promise.resolve());
 
     const model = effectiveConfig.imageModel || effectiveConfig.model;
-    const canGenerate = Boolean(prompt.trim());
+    const canGenerate = Boolean(prompt.trim()) && referenceImports === 0;
     const selectedConfig = { ...effectiveConfig, model };
 
     useEffect(() => {
@@ -126,39 +128,53 @@ export default function ImagePage() {
         void refreshLogs();
     }, []);
 
+    const importReferences = async (load: () => Promise<ReferenceImage[]>) => {
+        referenceImportsRef.current += 1;
+        setReferenceImports(referenceImportsRef.current);
+        try {
+            const nextReferences = await load();
+            setReferences((value) => [...value, ...nextReferences]);
+            return nextReferences;
+        } finally {
+            referenceImportsRef.current -= 1;
+            setReferenceImports(referenceImportsRef.current);
+        }
+    };
+
     const addReferences = async (files?: FileList | null) => {
         const imageFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
-        const nextReferences = await Promise.all(
+        await importReferences(() => Promise.all(
             imageFiles.map(async (file) => {
                 const image = await uploadImage(file);
                 return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
             }),
-        );
-        setReferences((value) => [...value, ...nextReferences]);
+        ));
     };
 
     const addReferencesFromClipboard = async () => {
         try {
-            const items = await navigator.clipboard.read();
-            const blobs = await Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));
-            if (!blobs.length) {
-                message.error(t("imageWorkbench.clipboardEmpty"));
-                return;
-            }
-            const nextReferences = await Promise.all(
-                blobs.map(async (blob, index) => {
-                    const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
-                }),
-            );
-            setReferences((value) => [...value, ...nextReferences]);
-            message.success(t("imageWorkbench.clipboardAdded", { count: nextReferences.length }));
+            const nextReferences = await importReferences(async () => {
+                const items = await navigator.clipboard.read();
+                const blobs = await Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));
+                if (!blobs.length) {
+                    message.error(t("imageWorkbench.clipboardEmpty"));
+                    return [];
+                }
+                return Promise.all(
+                    blobs.map(async (blob, index) => {
+                        const image = await uploadImage(blob);
+                        return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    }),
+                );
+            });
+            if (nextReferences.length) message.success(t("imageWorkbench.clipboardAdded", { count: nextReferences.length }));
         } catch {
             message.error(t("imageWorkbench.clipboardEmpty"));
         }
     };
 
     const generate = async () => {
+        if (running || referenceImportsRef.current > 0) return;
         const agentTaskId = agentTaskIdRef.current;
         agentTaskIdRef.current = undefined;
         const text = prompt.trim();
@@ -264,7 +280,7 @@ export default function ImagePage() {
         processedCommandRef.current = imageCommand.nonce;
         clearImageCommand();
         if (typeof imageCommand.prompt === "string") setPrompt(imageCommand.prompt);
-        if (imageCommand.run && running) {
+        if (imageCommand.run && (running || referenceImportsRef.current > 0)) {
             if (imageCommand.taskId) updateAgentTask(imageCommand.taskId, { status: "failed", error: t("imageWorkbench.busy") });
             return;
         }
@@ -286,9 +302,11 @@ export default function ImagePage() {
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
         try {
-            const url = await resolveImageUrl(image.storageKey, image.dataUrl);
-            const stored = await uploadImage(url);
-            setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+            await importReferences(async () => {
+                const url = await resolveImageUrl(image.storageKey, image.dataUrl);
+                const stored = await uploadImage(url);
+                return [{ id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }];
+            });
             message.success(t("imageWorkbench.addedReference"));
         } catch {
             message.error("加入参考图失败，无法读取原图，请刷新页面后重试。");
@@ -336,7 +354,7 @@ export default function ImagePage() {
             const index = log?.images.findIndex((item) => item.id === imageId) ?? -1;
             if (!log || index < 0) throw new Error();
             const image = log.images[index];
-            await addResultToReferences({ ...image, dataUrl: image.storageKey ? await resolveImageUrl(image.storageKey) || image.dataUrl : image.dataUrl }, index);
+            await addResultToReferences(image, index);
         } catch { message.error("无法读取历史图片，请重新选择"); }
     };
 
@@ -344,8 +362,10 @@ export default function ImagePage() {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
-            const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+            await importReferences(async () => {
+                const stored = await uploadImage(payload.dataUrl);
+                return [{ id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }];
+            });
         } else {
             message.warning(t("imageWorkbench.unsupportedAsset"));
         }

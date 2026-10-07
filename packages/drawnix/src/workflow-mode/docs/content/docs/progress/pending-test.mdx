@@ -5,6 +5,12 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Nano Banana classification: discovery infers image capability without image tags. Reloading saved `gemini-nano-banana-2.1` entries incorrectly marked text corrects them to image while retaining model settings; text selectors exclude them. Remote text category metadata cannot override this built-in image model. Automated checks and isolated Chrome reload verification passed. Existing Agent TODO items are unchanged.
+
+- Nano Banana 2.1 browser checks: independent Chrome verified model selection and parameter controls at 1440x900. At 390x844, the parameter menu stays inside the viewport and Thinking updates the summary. Actual canvas generation/editing and workflow generation/editing succeeded. Reference imports block generation until complete; the deferred concurrent-upload regression passes. Real mobile devices remain pending acceptance.
+
+- Nano Banana 2.1 live tests: the requested anime-poster prompt returned images for all 14 ratios plus auto, 1K/2K/4K and minimal/medium/high Thinking. At 16:9, 2K returned 2752x1536 and 4K returned 5504x3072. UI editing sent one reference; repeated-image count cases accepted 2/14 and rejected 15 before networking. Extreme ratios differ from the official size table; 1K 1:4, 1:8, 3:2, 4:1, 8:1 and 21:9 visibly repeat poster panels. All parameter combinations and distinct-reference reasoning remain untested. Root `openspec/changes/add-nano-banana-2-1/test-report.md` records the matrix and limits; `design.md` records official sizes and comparisons. Independent PR branch: 204 core and 116 workflow checks pass, along with typecheck and OpenSpec validation. One GPT Image transparent-background test also fails on unmodified develop.
+
 - 普通画布 AI 输入框：超长节点及节点平移到视口外时，跟随输入框应限制在可视区域内；大量参考素材内部滚动，长提示词收缩后仍可输入和滚动，发送按钮保持可见，小地图不应遮挡输入框。8 项定位单测、Chrome 下 1440×900、1194×834、834×1194、390×844、740×360 共 5 项浏览器回归通过，覆盖 80 张选中图片、长文本、缩放/平移及模拟键盘缩小可视区；类型检查和截图核对通过。真实 iPad Safari 横竖屏及软键盘弹出/收起仍待人工验收。本次未调用生成接口。
 
 - 旧版账户分组：令牌导入接口 404 时保留创建/复用账户分组，默认只选 default。手动供应商模型请求走正式 API 代理，账户分组走账户代理，避免正式令牌被本地站误判。单元回归通过；用户真实令牌的返回模型清单待确认。

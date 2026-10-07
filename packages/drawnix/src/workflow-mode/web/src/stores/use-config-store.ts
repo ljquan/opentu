@@ -155,7 +155,7 @@ export function boolConfig(value: string, fallback: boolean) {
     return value ? value === "true" : fallback;
 }
 const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
-const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
+const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "nano-banana", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
 
 /** Best-effort default capability for a freshly fetched model name; user can override in the channel editor. */
 export function guessCapability(name: string): ModelCapability {
@@ -323,7 +323,7 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
     const result: ChannelModel[] = [];
     for (const item of models || []) {
         const name = (typeof item === "string" ? item : item?.name || "").trim();
-        const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
+        const capability = name === "gemini-nano-banana-2.1" ? "image" : typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const identity = `${capability}::${name}`;
         if (!name || seen.has(identity)) continue;
         seen.add(identity);
