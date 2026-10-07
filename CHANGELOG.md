@@ -1,3 +1,13 @@
+## 1.1.24 (2026-10-07)
+
+### 🚀 Features
+
+- 接入 Nano Banana 2.1 图片模型并修复参考图导入竞态 (#295) ([f89e6236](https://github.com/ljquan/opentu/commit/f89e6236))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.1.23 (2026-10-06)
 
 ### 🩹 Fixes
