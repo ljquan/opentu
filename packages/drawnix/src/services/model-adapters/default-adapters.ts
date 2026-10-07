@@ -192,6 +192,14 @@ export const geminiImageAdapter: ImageModelAdapter = {
     const quality =
       resolveImageResolutionTier(request.params) ||
       (isGPTImage2Model(model) ? '1k' : undefined);
+    const thinking = request.params?.thinking;
+    if (
+      model === 'gemini-nano-banana-2.1' &&
+      thinking !== undefined &&
+      thinking !== 'minimal' && thinking !== 'medium' && thinking !== 'high'
+    ) {
+      throw new Error('Nano Banana 2.1 Thinking 必须为 minimal、medium 或 high');
+    }
     const responseFormat = request.params?.response_format as
       | 'url'
       | 'b64_json'
@@ -204,6 +212,9 @@ export const geminiImageAdapter: ImageModelAdapter = {
       image: request.referenceImages,
       omitDefaultResponseFormat: isGptImageModel(model),
       quality,
+      ...(model === 'gemini-nano-banana-2.1'
+        ? { thinking: thinking as 'minimal' | 'medium' | 'high' | undefined }
+        : {}),
       count:
         typeof request.params?.n === 'number' ? request.params.n : undefined,
       model,

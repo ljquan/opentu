@@ -54,6 +54,7 @@ export async function requestLocalModelImage(config: AiConfig, prompt: string, i
             {
                 size: params.size === undefined ? undefined : String(params.size),
                 quality: resolveImageResolutionTier(params),
+                thinking: params.thinking as "minimal" | "medium" | "high" | undefined,
                 image: images.length ? images : undefined,
                 count: Number(params.n || 1),
                 response_format: params.response_format as "url" | "b64_json" | undefined,
@@ -63,7 +64,7 @@ export async function requestLocalModelImage(config: AiConfig, prompt: string, i
             },
             route.model,
             undefined,
-            { baseUrl: context.baseUrl, apiKey: context.apiKey, modelName: route.model, binding: context.binding, protocol: route.apiFormat === "gemini" ? "google.generateContent" : "openai.images.generations" },
+            { baseUrl: context.baseUrl, apiKey: context.apiKey, modelName: route.model, binding: context.binding, protocol: context.binding?.protocol || (route.apiFormat === "gemini" ? "google.generateContent" : "openai.images.generations") },
         );
         return (result.data || []).map((item: { url?: string; b64_json?: string }) => item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : "")).filter(Boolean) as string[];
     }

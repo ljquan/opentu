@@ -98,6 +98,7 @@ export function localModelContract(
         ? {
             images: {
               mode: 'reference' as const,
+              ...(contractModel === 'gemini-nano-banana-2.1' ? { maxCount: 14 } : {}),
               ...(adapter.id === 'flux-image-adapter' ? { maxCount: 8 } : {}),
               ...(binding?.metadata?.image?.maxImageCount
                 ? { maxCount: binding.metadata.image.maxImageCount }
