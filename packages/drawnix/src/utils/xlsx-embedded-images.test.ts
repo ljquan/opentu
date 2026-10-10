@@ -73,6 +73,18 @@ describe('readXlsxEmbeddedImages', () => {
     ).rejects.toThrow('图片资源缺失');
   });
 
+  it('rejects DTD entity declarations before parsing XML', async () => {
+    const files = {
+      'xl/workbook.xml': strToU8(
+        '<!DOCTYPE workbook [<!ENTITY name "Tasks">]><workbook><sheets><sheet name="&name;" id="sheetRel"/></sheets></workbook>'
+      ),
+      'xl/_rels/workbook.xml.rels': strToU8('<Relationships/>'),
+    };
+    await expect(
+      readXlsxEmbeddedImages(new Uint8Array(zipSync(files)).buffer, 'Tasks')
+    ).rejects.toThrow('Excel XML 格式无效');
+  });
+
   it('preserves physical row numbers across blank rows', () => {
     const sheet = XLSX.utils.aoa_to_sheet([
       ['提示词'],

@@ -5,7 +5,8 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@',
   removeNSPrefix: true,
-  processEntities: false,
+  // DTDs are rejected by readXml; decode standard XML escapes in names and paths.
+  processEntities: true,
 });
 
 export interface EmbeddedXlsxImage {

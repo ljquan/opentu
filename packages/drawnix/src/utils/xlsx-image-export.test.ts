@@ -10,85 +10,92 @@ import {
 import { readXlsxEmbeddedImages } from './xlsx-embedded-images';
 
 describe('XLSX embedded image export', () => {
-  it('embeds images in requested row and column while keeping cells readable', async () => {
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([
+  it.each(['data', 'A & B', '表格 <1> "参考图"'])(
+    'embeds images and reimports sheet %s without losing references',
+    async (sheetName) => {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([
+          ['提示词', '参考图', '预览图'],
+          ['first', '', ''],
+        ]),
+        sheetName
+      );
+      const input = XLSX.write(workbook, {
+        type: 'array',
+        bookType: 'xlsx',
+      }) as ArrayBuffer;
+      const output = await embedImagesInXlsx(input, [
+        {
+          row: 1,
+          column: 1,
+          offset: 0,
+          name: 'reference',
+          bytes: new Uint8Array([1, 2]),
+          width: 2,
+          height: 1,
+          contentType: 'image/png',
+        },
+        {
+          row: 1,
+          column: 2,
+          offset: 0,
+          name: 'preview',
+          bytes: new Uint8Array([3, 4]),
+          width: 1,
+          height: 2,
+          contentType: 'image/jpeg',
+        },
+      ]);
+      const zip = await JSZip.loadAsync(output);
+      expect(
+        await zip.file('xl/media/batch-image-1.png')?.async('uint8array')
+      ).toEqual(new Uint8Array([1, 2]));
+      expect(
+        await zip.file('xl/media/batch-image-2.jpg')?.async('uint8array')
+      ).toEqual(new Uint8Array([3, 4]));
+      const drawing = await zip.file('xl/drawings/drawing1.xml')?.async('text');
+      expect(drawing).toContain('<xdr:col>1</xdr:col>');
+      expect(drawing).toContain('<xdr:col>2</xdr:col>');
+      expect(drawing).toContain('<xdr:row>1</xdr:row>');
+      expect(drawing).toContain('cx="1143000" cy="571500"');
+      expect(drawing).toContain('cx="571500" cy="1143000"');
+      const sheetXml = await zip
+        .file('xl/worksheets/sheet1.xml')
+        ?.async('text');
+      const stylesXml = await zip.file('xl/styles.xml')?.async('text');
+      expect(stylesXml).toContain('wrapText="1"');
+      expect(sheetXml).toMatch(/<c[^>]+s="\d+"/);
+      const textOnly = await JSZip.loadAsync(
+        await embedImagesInXlsx(input, [])
+      );
+      expect(await textOnly.file('xl/styles.xml')?.async('text')).toContain(
+        'wrapText="1"'
+      );
+      expect(
+        await textOnly.file('xl/worksheets/sheet1.xml')?.async('text')
+      ).toMatch(/<c[^>]+s="\d+"/);
+      const reopened = XLSX.read(output, { type: 'array' });
+      const references = await readXlsxEmbeddedImages(
+        output,
+        sheetName,
+        new Set([1])
+      );
+      expect(references.get(1)).toEqual([
+        { url: 'data:image/png;base64,AQI=', column: 1 },
+      ]);
+      expect(
+        (await readXlsxEmbeddedImages(output, sheetName)).get(1)
+      ).toHaveLength(2);
+      expect(
+        XLSX.utils.sheet_to_json(reopened.Sheets[sheetName], { header: 1 })
+      ).toEqual([
         ['提示词', '参考图', '预览图'],
         ['first', '', ''],
-      ]),
-      'data'
-    );
-    const input = XLSX.write(workbook, {
-      type: 'array',
-      bookType: 'xlsx',
-    }) as ArrayBuffer;
-    const output = await embedImagesInXlsx(input, [
-      {
-        row: 1,
-        column: 1,
-        offset: 0,
-        name: 'reference',
-        bytes: new Uint8Array([1, 2]),
-        width: 2,
-        height: 1,
-        contentType: 'image/png',
-      },
-      {
-        row: 1,
-        column: 2,
-        offset: 0,
-        name: 'preview',
-        bytes: new Uint8Array([3, 4]),
-        width: 1,
-        height: 2,
-        contentType: 'image/jpeg',
-      },
-    ]);
-    const zip = await JSZip.loadAsync(output);
-    expect(
-      await zip.file('xl/media/batch-image-1.png')?.async('uint8array')
-    ).toEqual(new Uint8Array([1, 2]));
-    expect(
-      await zip.file('xl/media/batch-image-2.jpg')?.async('uint8array')
-    ).toEqual(new Uint8Array([3, 4]));
-    const drawing = await zip.file('xl/drawings/drawing1.xml')?.async('text');
-    expect(drawing).toContain('<xdr:col>1</xdr:col>');
-    expect(drawing).toContain('<xdr:col>2</xdr:col>');
-    expect(drawing).toContain('<xdr:row>1</xdr:row>');
-    expect(drawing).toContain('cx="1143000" cy="571500"');
-    expect(drawing).toContain('cx="571500" cy="1143000"');
-    const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('text');
-    const stylesXml = await zip.file('xl/styles.xml')?.async('text');
-    expect(stylesXml).toContain('wrapText="1"');
-    expect(sheetXml).toMatch(/<c[^>]+s="\d+"/);
-    const textOnly = await JSZip.loadAsync(await embedImagesInXlsx(input, []));
-    expect(await textOnly.file('xl/styles.xml')?.async('text')).toContain(
-      'wrapText="1"'
-    );
-    expect(
-      await textOnly.file('xl/worksheets/sheet1.xml')?.async('text')
-    ).toMatch(/<c[^>]+s="\d+"/);
-    const reopened = XLSX.read(output, { type: 'array' });
-    const references = await readXlsxEmbeddedImages(
-      output,
-      'data',
-      new Set([1])
-    );
-    expect(references.get(1)).toEqual([
-      { url: 'data:image/png;base64,AQI=', column: 1 },
-    ]);
-    expect((await readXlsxEmbeddedImages(output, 'data')).get(1)).toHaveLength(
-      2
-    );
-    expect(
-      XLSX.utils.sheet_to_json(reopened.Sheets.data, { header: 1 })
-    ).toEqual([
-      ['提示词', '参考图', '预览图'],
-      ['first', '', ''],
-    ]);
-  });
+      ]);
+    }
+  );
 
   it('keeps the data URL MIME type when reading inline images', async () => {
     await expect(
