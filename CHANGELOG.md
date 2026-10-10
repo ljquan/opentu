@@ -1,3 +1,14 @@
+## 1.1.25 (2026-10-10)
+
+### 🔧 Chores
+
+- 修复：统一画布目标设置并修正提示词浮层显示 (#296) ([92f60e74](https://github.com/ljquan/opentu/commit/92f60e74))
+- 优化：完善批量出图 Excel 导入导出与手动插入 (#294) ([b0388f40](https://github.com/ljquan/opentu/commit/b0388f40))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.1.24 (2026-10-07)
 
 ### 🚀 Features
