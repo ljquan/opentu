@@ -113,14 +113,14 @@ export function formatBoundTargetPromptSuggestion(
 export type BoundImageTargetMode = 'follow' | 'reference';
 
 /**
- * 图片、视频和文本目标支持在任务栏上切换是否跟随目标位置。
- * 音频暂时保持原有的目标定位行为。
+ * 所有可绑定的生成目标都支持切换任务栏跟随。
  */
 export function supportsBoundTargetFollowControls(
   targetType: BoundGenerationTargetType
 ): boolean {
   return (
-    targetType === 'image' || targetType === 'video' || targetType === 'text'
+    targetType === 'image' || targetType === 'video' || targetType === 'text' ||
+    targetType === 'audio'
   );
 }
 

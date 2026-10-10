@@ -142,6 +142,34 @@ vi.mock('../../services/prompt-storage-service', () => ({
 }));
 
 describe('PromptHistoryPopover', () => {
+  it('点击后在输入区之外显示面板，Escape 关闭', async () => {
+    const { PromptHistoryPopover } = await import('./PromptHistoryPopover');
+    const view = render(
+      <PromptHistoryPopover
+        generationType="image"
+        language="zh"
+        onSelectPrompt={vi.fn()}
+      />
+    );
+    const trigger = screen.getByRole('button', { name: '我的提示词' });
+    await act(async () => {
+      fireEvent.click(trigger);
+    });
+    const panel = document.querySelector(
+      '.prompt-history-popover__panel-wrapper'
+    );
+    expect(panel).not.toBeNull();
+    expect(view.container.contains(panel)).toBe(false);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+    expect(
+      document.querySelector('.prompt-history-popover__panel-wrapper')
+    ).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
   const openPopover = async (container: HTMLElement) => {
     await act(async () => {
       fireEvent.mouseEnter(

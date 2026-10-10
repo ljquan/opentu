@@ -2,6 +2,8 @@
  * PromptHistoryPopover 样式
  */
 
+@import '../../styles/z-index.scss';
+
 .prompt-history-popover {
   position: relative;
   align-self: flex-start;
@@ -65,9 +67,7 @@
 
   // 面板容器
   &__panel-wrapper {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    right: 0;
-    z-index: 1000;
+    z-index: $z-popover;
+    pointer-events: auto;
   }
 }
