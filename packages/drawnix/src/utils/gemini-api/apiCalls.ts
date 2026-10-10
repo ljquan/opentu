@@ -311,7 +311,10 @@ function extractGooglePartContent(part: Record<string, any>): string {
   return '';
 }
 
-function normalizeGoogleResponseContent(response: Record<string, any>): string {
+function normalizeGoogleResponseContent(
+  response: Record<string, any>,
+  excludeThoughts = false
+): string {
   const candidates = Array.isArray(response.candidates)
     ? response.candidates
     : [];
@@ -320,20 +323,22 @@ function normalizeGoogleResponseContent(response: Record<string, any>): string {
   );
 
   return parts
+    .filter((part) => !excludeThoughts || part?.thought !== true)
     .map((part) => extractGooglePartContent(part || {}))
     .filter(Boolean)
     .join('\n');
 }
 
 function normalizeGoogleResponse(
-  response: Record<string, any>
+  response: Record<string, any>,
+  excludeThoughts = false
 ): GeminiResponse {
   return {
     choices: [
       {
         message: {
           role: 'assistant',
-          content: normalizeGoogleResponseContent(response),
+          content: normalizeGoogleResponseContent(response, excludeThoughts),
         },
       },
     ],
@@ -354,13 +359,16 @@ export function normalizeGoogleImageResponse(response: Record<string, any>): {
 
     return parts
       .map((part: Record<string, any>) => {
+        if (part.thought === true) {
+          return null;
+        }
         const inlineData: GoogleInlineData | undefined =
           part.inline_data || part.inlineData;
         if (inlineData?.data) {
           return {
             b64_json: inlineData.data,
             mime_type:
-              inlineData.mime_type || inlineData.mimeType || 'video/mp4',
+              inlineData.mime_type || inlineData.mimeType || 'image/png',
           };
         }
 
@@ -581,7 +589,11 @@ export async function callGoogleGenerateContentRaw(
       const result = await readProviderResponseJson<Record<string, any>>(
         response
       );
-      const normalized = normalizeGoogleResponse(result);
+      const modalities = options.generationConfig?.responseModalities;
+      const normalized = normalizeGoogleResponse(
+        result,
+        Array.isArray(modalities) && modalities.includes('IMAGE')
+      );
       const duration = Date.now() - startTime;
       analytics.trackAPICallSuccess({
         endpoint,

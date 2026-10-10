@@ -1,10 +1,8 @@
 {
-  "version": "1.1.23",
-  "buildTime": "2026-10-06T09:10:07.728Z",
+  "version": "1.1.24",
+  "buildTime": "2026-10-07T08:46:12.407Z",
   "gitCommit": "unknown",
   "changelog": [
-    "keep AI composer within the visible viewport (#292)",
-    "为 Image 2.5 添加高级参数 (#291)",
-    "补齐视频音频与文本生成详情 (#293)"
+    "接入 Nano Banana 2.1 图片模型并修复参考图导入竞态 (#295)"
   ]
 }
