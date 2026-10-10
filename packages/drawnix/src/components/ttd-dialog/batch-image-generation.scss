@@ -53,7 +53,8 @@
     flex-direction: column;
     min-width: 0;
     background: white;
-    border-radius: 12px;
+    border-radius: 8px;
+    min-height: 0;
     padding: 16px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
     border: 1px solid #eee;
@@ -62,9 +63,13 @@
 
   // 工具栏
   .batch-toolbar {
+    .toolbar-tooltip-trigger {
+      display: inline-flex;
+    }
+
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 12px;
     padding-bottom: 12px;
     border-bottom: 1px solid #f0f0f0;
@@ -82,6 +87,25 @@
       flex-wrap: wrap; // 允许内部按钮换行，防止窄屏幕溢出
     }
 
+    .toolbar-left {
+      width: 100%;
+    }
+
+    .toolbar-right {
+      width: 100%;
+      align-items: flex-end;
+    }
+
+    .model-selector-wrapper {
+      flex: 1 1 220px;
+      min-width: 180px;
+      max-width: 360px;
+    }
+
+    .batch-generate-btn {
+      margin-left: auto;
+    }
+
     .toolbar-divider {
       width: 1px;
       height: 20px;
@@ -92,7 +116,7 @@
   }
 
   .batch-generate-btn {
-    background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%) !important;
+    background: var(--td-brand-color, #0052d9) !important;
     border: none !important;
     font-weight: 600 !important;
     padding: 0 20px !important;
@@ -101,9 +125,56 @@
     color: white !important;
 
     &:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3);
+      background: var(--td-brand-color-hover, #366ef4) !important;
     }
+
+    &:disabled {
+      background: var(--td-bg-color-component-disabled, #e7e7e7) !important;
+      color: var(--td-text-color-disabled, #999) !important;
+    }
+  }
+
+  .batch-selection-strip {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px 20px;
+    padding: 8px 0 12px;
+    font-size: 12px;
+    line-height: 20px;
+    color: #666;
+  }
+
+  .batch-selection-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    strong {
+      color: #222;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .batch-selection-dot {
+    width: 3px;
+    height: 3px;
+    margin: 0 6px;
+    background: #aaa;
+    border-radius: 50%;
+  }
+
+  .batch-selection-hint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .batch-selection-warning {
+    color: #a65e00;
   }
 
   .batch-delete-btn {
@@ -123,6 +194,7 @@
   // 表格容器
   .excel-table-container {
     flex: 1;
+    min-height: 0;
     overflow: auto;
     border: 1px solid #eee;
     border-radius: 8px;
@@ -140,6 +212,7 @@
   // 表格
   .excel-table {
     width: 100%;
+    min-width: 920px;
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
@@ -158,7 +231,7 @@
       font-size: 12px;
       color: #888;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0;
       text-align: center;
       position: sticky;
       top: 0;
@@ -175,7 +248,7 @@
       color: #999;
       padding: 8px;
       position: sticky;
-      left: 0;
+      left: 40px;
       z-index: 5;
       font-size: 11px;
     }
@@ -189,6 +262,10 @@
       min-width: 40px;
       text-align: center;
       vertical-align: middle;
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: #fff;
 
       .checkbox-wrapper {
         display: inline-flex;
@@ -219,16 +296,21 @@
       }
     }
 
+    th.col-checkbox {
+      z-index: 15;
+      background: #fafafa;
+    }
+
     td.row-number {
       vertical-align: middle;
     }
     .col-prompt {
-      width: 40%;
+      width: auto;
       min-width: 250px;
     }
     .col-params {
-      width: 190px;
-      min-width: 170px;
+      width: 210px;
+      min-width: 210px;
     }
     .col-images {
       width: 160px;
@@ -1160,6 +1242,7 @@
     }
 
     .excel-table {
+      min-width: 720px;
       th,
       td {
         font-size: 11px;
@@ -1174,6 +1257,7 @@
         min-width: 32px;
         padding: 4px;
         font-size: 10px;
+        left: 32px;
       }
 
       .col-checkbox {
