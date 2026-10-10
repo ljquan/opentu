@@ -7972,13 +7972,17 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             <div className="ai-input-bar__settings-row">
               <span>
                 {language === 'zh'
-                  ? '点击图片后自动居中'
-                  : 'Center image after clicking'}
+                  ? '点击目标后自动居中'
+                  : 'Center target after clicking'}
               </span>
               <Switch
                 size="small"
                 value={centerImageOnClickEnabled}
-                aria-label={language === 'zh' ? '点击图片后自动居中' : 'Center image after clicking'}
+                aria-label={
+                  language === 'zh'
+                    ? '点击目标后自动居中'
+                    : 'Center target after clicking'
+                }
                 onChange={(checked) =>
                   handleCenterImageOnClickChange(checked as boolean)
                 }
