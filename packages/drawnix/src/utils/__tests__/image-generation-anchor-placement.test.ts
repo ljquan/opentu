@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlaitBoard } from '@plait/core';
+import { getRetainedTaskCardRectangles } from '../generation-task-placement';
 import {
   resolveImageGenerationAnchorAvailablePosition,
   resolveImageGenerationBatchAnchorPositions,
@@ -64,6 +65,102 @@ describe('image-generation-anchor-placement', () => {
     );
 
     expect(position).toEqual([100, 120]);
+  });
+
+  it('avoids failed cards beyond the old 360px footprint when generating 1x1 images', () => {
+    const board = createBoard([
+      {
+        id: 'failed-audio',
+        type: 'workzone',
+        workflow: { status: 'failed' },
+        zoom: 1,
+        points: [
+          [480, 200],
+          [840, 440],
+        ],
+      },
+      {
+        id: 'selected-audio',
+        type: 'audio',
+        points: [
+          [100, -90],
+          [300, 150],
+        ],
+      },
+    ]);
+    const positions = resolveImageGenerationBatchAnchorPositions(
+      board,
+      [100, 200],
+      { width: 400, height: 400 },
+      1,
+      {
+        extraOccupiedRects: getRetainedTaskCardRectangles(board),
+      }
+    );
+
+    expect(positions).toEqual([[100, 640]]);
+  });
+
+  it('avoids scaled retained cards across a Frame-adjacent batch', () => {
+    const board = createBoard([
+      {
+        id: 'failed',
+        type: 'workzone',
+        workflow: { status: 'cancelled' },
+        zoom: 0.5,
+        points: [
+          [550, 0],
+          [910, 240],
+        ],
+      },
+      {
+        id: 'frame',
+        type: 'frame',
+        points: [
+          [100, 100],
+          [500, 340],
+        ],
+      },
+    ]);
+    const obstacles = getRetainedTaskCardRectangles(board);
+    const positions = resolveImageGenerationBatchAnchorPositions(
+      board,
+      [100, 100],
+      { width: 320, height: 180 },
+      3,
+      {
+        frameRect: { x: 100, y: 100, width: 400, height: 240 },
+        extraOccupiedRects: obstacles,
+      }
+    );
+    for (const [x, y] of positions) {
+      const overlaps = obstacles.some(
+        (rect) =>
+          x < rect.x + rect.width &&
+          x + 320 > rect.x &&
+          y < rect.y + rect.height &&
+          y + 180 > rect.y
+      );
+      expect(overlaps).toBe(false);
+    }
+  });
+
+  it('puts the fallback below retained cards when all nearby lanes are occupied', () => {
+    const board = createBoard([
+      {
+        id: 'large-failed-card',
+        type: 'workzone',
+        workflow: { status: 'failed' },
+        zoom: 0.05,
+        points: [[-2500, -1500], [-2140, -1260]],
+      },
+    ]);
+    const positions = resolveImageGenerationBatchAnchorPositions(
+      board, [100, 100], { width: 320, height: 180 }, 3,
+      { extraOccupiedRects: getRetainedTaskCardRectangles(board) }
+    );
+    expect(positions.every((position) => position[1] >= 3316)).toBe(true);
+    expect(new Set(positions.map((position) => position.join(','))).size).toBe(3);
   });
 
   it('fans frame-adjacent batches to the right when the nearby lane is free', () => {

@@ -24,6 +24,16 @@ vi.mock('../services/unified-cache-service', () => ({
 }));
 
 describe('RetryImage', () => {
+  it('defers virtual media cache reads offscreen even if the Service Worker is unavailable', async () => {
+    const readCache = vi.mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback);
+    readCache.mockClear().mockResolvedValue(null);
+    const { rerender } = render(<RetryImage src="/__aitu_cache__/image/offscreen.png" alt="offscreen"
+      eager={false} deferCacheRead showSkeleton={false} />);
+    expect(readCache).not.toHaveBeenCalled();
+    rerender(<RetryImage src="/__aitu_cache__/image/offscreen.png" alt="offscreen"
+      eager deferCacheRead={false} showSkeleton={false} />);
+    await waitFor(() => expect(readCache).toHaveBeenCalledOnce());
+  });
   afterEach(() => {
     cleanup();
     vi.useRealTimers();

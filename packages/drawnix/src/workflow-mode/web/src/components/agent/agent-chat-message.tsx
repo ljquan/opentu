@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { useStoredMedia } from '@/hooks/use-stored-media';
 import { App, Button, Image, Modal, Popover } from "antd";
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, ExternalLink, FilePenLine, FileText, FolderOpen, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
 import { Streamdown, type LinkSafetyModalProps } from "streamdown";
@@ -159,7 +160,8 @@ function AgentCanvasMention({ reference, theme }: { reference: AgentCanvasRefere
     const node = useAgentStore((state) => state.canvasContext?.snapshot.nodes.find((item) => item.id === reference.nodeId));
     const endpoint = useAgentStore((state) => state.url);
     const token = useAgentStore((state) => state.token);
-    const previewUrl = resolveAgentMessageAssetUrl(endpoint, token, reference.previewUrl || node?.metadata?.content || "");
+    const source = resolveAgentMessageAssetUrl(endpoint, token, reference.previewUrl || node?.metadata?.content || "");
+    const previewUrl = useStoredMedia(reference.storageKey || (source.startsWith('blob:') ? node?.metadata?.storageKey : undefined), source, reference.kind === 'text' ? 'image' : reference.kind, true);
     const previewText = reference.text || node?.metadata?.content || node?.metadata?.prompt;
     const Icon = canvasReferenceIcon(reference.kind);
     return (

@@ -189,10 +189,15 @@ class Image3DTransformGenerator extends Generator<Image3DElement> {
     element: Image3DElement,
     has3DGeometry: boolean
   ): string {
+    const rectangle = this.getSourceRectangle(element);
+    const needsOriginal = Math.max(rectangle.width, rectangle.height) * this.board.viewport.zoom * (window.devicePixelRatio || 1) > 400;
     return [
       element.id,
       element.url,
       has3DGeometry ? '3d' : 'flat',
+      rectangle.width,
+      rectangle.height,
+      needsOriginal ? 'original' : 'preview',
     ].join('|');
   }
 
@@ -217,8 +222,12 @@ class Image3DTransformGenerator extends Generator<Image3DElement> {
     }
 
     clipPolygon.setAttribute('points', geometry.pointsAttribute);
-    overlayImage.setAttribute('href', element.url);
-    overlayImage.setAttributeNS(XLINK_NS, 'href', element.url);
+    // Keep the cached source resolved by React during viewport-only updates.
+    if (overlayImage.dataset.originalSource !== element.url) {
+      overlayImage.dataset.originalSource = element.url;
+      overlayImage.setAttribute('href', element.url);
+      overlayImage.setAttributeNS(XLINK_NS, 'href', element.url);
+    }
     overlayImage.setAttribute('x', String(geometry.boundingBox.x));
     overlayImage.setAttribute('y', String(geometry.boundingBox.y));
     overlayImage.setAttribute('width', String(geometry.boundingBox.width));
@@ -275,7 +284,7 @@ class Image3DTransformComponent
       value.hasThemeChanged ||
       value.selected;
 
-    if (shouldUpdateImage) {
+    if (shouldUpdateImage || viewportChanged) {
       this.imageGenerator.updateImage(value.element);
       this.updateActiveSection();
       return;

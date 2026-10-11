@@ -88,6 +88,7 @@ export const Board: React.FC<PlaitBoardProps> = ({
     initializeViewportOffset(board);
 
     return () => {
+      listRender.destroy();
       BOARD_TO_CONTEXT.delete(board);
       BOARD_TO_AFTER_CHANGE.delete(board);
       BOARD_TO_ON_CHANGE.delete(board);

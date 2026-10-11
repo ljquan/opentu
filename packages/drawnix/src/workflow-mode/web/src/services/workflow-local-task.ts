@@ -5,6 +5,8 @@ import { resolveModelRequestConfig, resolveModelScript, type AiConfig, type Mode
 import type { GenerationResult } from '../../../shared/generation-bridge';
 import { queryWorkflowImageResult } from './api/image-recovery';
 import { SubmissionPersistenceError } from '../../../../services/submission-persistence';
+import { getImageBlob } from './image-storage';
+import { getMediaBlob } from './file-storage';
 
 export class WorkflowTaskFailed extends Error {
     name = 'WorkflowTaskFailed';
@@ -280,7 +282,31 @@ export async function durableWorkflowValue<T>(value: T): Promise<T> {
     if (typeof value === 'string' && value.startsWith('blob:')) return await blobDataUrl(await (await fetch(value)).blob()) as T;
     if (Array.isArray(value)) return await Promise.all(value.map(durableWorkflowValue)) as T;
     if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-        const entries = await Promise.all(Object.entries(value).map(async ([key, item]) => [key, await durableWorkflowValue(item)]));
+        const objectValue = value as Record<string, unknown>;
+        const mediaFields = ['dataUrl', 'url', 'content'].filter(key => typeof objectValue[key] === 'string' && (!objectValue[key] || String(objectValue[key]).startsWith('blob:')));
+        if (typeof objectValue.storageKey === 'string' && mediaFields.length) {
+            const storageKey = objectValue.storageKey;
+            let stored: Promise<Blob | null> | undefined;
+            const resolved = await Promise.all(mediaFields.map(async key => {
+                const source = String(objectValue[key]);
+                let blob: Blob | null = null;
+                if (source) {
+                    try {
+                        const response = await fetch(source);
+                        if (response.ok) blob = await response.blob();
+                    } catch { /* Expired session URLs fall back to their durable file. */ }
+                }
+                if (!blob) {
+                    stored ||= storageKey.startsWith('image:') ? getImageBlob(storageKey) : getMediaBlob(storageKey);
+                    blob = await stored;
+                }
+                if (!blob) throw new Error('参考媒体不可用，请重新选择');
+                return [key, await blobDataUrl(blob)];
+            }));
+            const entries = await Promise.all(Object.entries(objectValue).filter(([key]) => !mediaFields.includes(key)).map(async ([key, item]) => [key, await durableWorkflowValue(item)]));
+            return Object.fromEntries([...entries, ...resolved]) as T;
+        }
+        const entries = await Promise.all(Object.entries(value as object).map(async ([key, item]) => [key, await durableWorkflowValue(item)]));
         return Object.fromEntries(entries) as T;
     }
     return value;

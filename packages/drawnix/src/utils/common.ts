@@ -24,6 +24,85 @@ const toImageFallbackUrlRefs = new Map<string, number>();
 let toImageFetchPatchDepth = 0;
 let originalToImageFetch: typeof window.fetch | null = null;
 let patchedToImageFetch: typeof window.fetch | null = null;
+const exportImagePins = new WeakMap<HTMLImageElement, {
+  users: number;
+  source: string | null;
+  loading: string | null;
+  exportUrl: string;
+  blobUrl?: string;
+}>();
+
+async function prepareCanvasImagesForExport(
+  board: PlaitBoard,
+  options: ToImageOptions
+): Promise<() => void> {
+  const images = new Set<HTMLImageElement>();
+  for (const element of options.elements || board.children) {
+    if (PlaitElement.hasMounted(element)) {
+      PlaitElement.getElementG(element)
+        .querySelectorAll<HTMLImageElement>('img[data-canvas-original-src]')
+        .forEach((image) => images.add(image));
+    }
+  }
+  const pinned: HTMLImageElement[] = [];
+  const release = () => {
+    for (const image of pinned) {
+      const pin = exportImagePins.get(image);
+      if (!pin || --pin.users > 0) continue;
+      if (image.getAttribute('src') === pin.exportUrl) {
+        if (pin.source === null) image.removeAttribute('src');
+        else image.setAttribute('src', pin.source);
+      }
+      if (pin.loading === null) image.removeAttribute('loading');
+      else image.setAttribute('loading', pin.loading);
+      if (pin.blobUrl) URL.revokeObjectURL(pin.blobUrl);
+      exportImagePins.delete(image);
+    }
+  };
+  try {
+    for (const image of images) {
+      const original = image.dataset.canvasOriginalSrc;
+      if (!original) continue;
+      let pin = exportImagePins.get(image);
+      if (!pin) {
+        const { unifiedCacheService } = await import('../services/unified-cache-service');
+        const blob = await unifiedCacheService
+          .getCachedBlob(original, { allowNetwork: false })
+          .catch(() => null);
+        // Another export may have acquired this image while the cache read was pending.
+        pin = exportImagePins.get(image);
+        if (!pin) {
+          const blobUrl = blob ? URL.createObjectURL(blob) : undefined;
+          pin = {
+            users: 0,
+            source: image.getAttribute('src'),
+            loading: image.getAttribute('loading'),
+            exportUrl: blobUrl || original,
+            blobUrl,
+          };
+          exportImagePins.set(image, pin);
+          image.setAttribute('src', pin.exportUrl);
+          image.setAttribute('loading', 'eager');
+        }
+      }
+      pin.users++;
+      pinned.push(image);
+    }
+    // toImage also copies computed dimensions, so the original must be decoded before cloning.
+    for (const image of pinned) {
+      const pin = exportImagePins.get(image);
+      if (pin) {
+        image.setAttribute('src', pin.exportUrl);
+        // Refuse an incomplete export rather than silently replacing missing originals with transparency.
+        if (typeof image.decode === 'function') await image.decode();
+      }
+    }
+    return release;
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
 
 function getFetchUrl(input: RequestInfo | URL): string | undefined {
   if (typeof input === 'string') {
@@ -246,13 +325,15 @@ export async function safeToImage(
   board: PlaitBoard,
   options: ToImageOptions = {}
 ) {
-  const cleanup = installToImageFetchFallback(
-    getToImageFallbackUrls(board, options)
-  );
+  if (!board) return undefined;
+  const releaseImages = await prepareCanvasImagesForExport(board, options);
+  let cleanup: () => void = noop;
   try {
+    cleanup = installToImageFetchFallback(getToImageFallbackUrls(board, options));
     return await toImage(board, options);
   } finally {
     cleanup();
+    releaseImages();
   }
 }
 

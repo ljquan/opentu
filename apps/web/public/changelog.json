@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.1.26",
+      "date": "2026-10-11",
+      "changes": {
+        "features": [
+          "add canvas resources and API key support QR codes (#299)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "add canvas resources and API key support QR codes (#299)"
+    },
+    {
       "version": "1.1.25",
       "date": "2026-10-10",
       "changes": {
@@ -971,19 +984,6 @@
       },
       "type": "patch",
       "highlights": "修复批量导入图片弹窗显示异常"
-    },
-    {
-      "version": "0.9.6",
-      "date": "2026-05-06",
-      "changes": {
-        "features": [
-          "为绘图工具添加键盘快捷键调整大小功能"
-        ],
-        "fixes": [],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "为绘图工具添加键盘快捷键调整大小功能"
     }
   ]
 }

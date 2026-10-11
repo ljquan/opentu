@@ -1,26 +1,26 @@
 import { Router, createPath, Outlet, useRoutes, type Navigator } from "react-router-dom";
-import { useSyncExternalStore } from "react";
+import { lazy, Suspense, useSyncExternalStore } from "react";
 import { getWorkflowNavigationSnapshot, navigateWorkflow, subscribeWorkflowNavigation } from "../../host/workflow-navigation";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
 import UserLayout from "@/layouts/user-layout";
-import AssetsPage from "@/pages/assets";
-import CanvasPage from "@/pages/canvas";
-import CanvasProjectPage from "@/pages/canvas/project";
-import ConfigPage from "@/pages/config";
-import DocsPage from "@/pages/docs";
-import ImagePage from "@/pages/image";
-import NotFound from "@/pages/not-found";
-import PromptsPage from "@/pages/prompts";
-import VideoPage from "@/pages/video";
-import BatchGenerationPage from "@/pages/batch-generation";
+const AssetsPage = lazy(() => import("@/pages/assets"));
+const CanvasPage = lazy(() => import("@/pages/canvas"));
+const CanvasProjectPage = lazy(() => import("@/pages/canvas/project"));
+const ConfigPage = lazy(() => import("@/pages/config"));
+const DocsPage = lazy(() => import("@/pages/docs"));
+const ImagePage = lazy(() => import("@/pages/image"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const PromptsPage = lazy(() => import("@/pages/prompts"));
+const VideoPage = lazy(() => import("@/pages/video"));
+const BatchGenerationPage = lazy(() => import("@/pages/batch-generation"));
 
 const routes = [
     {
         element: (
             <UserLayout>
                 <AnalyticsTracker />
-                <Outlet />
+                <Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">正在加载…</div>}><Outlet /></Suspense>
             </UserLayout>
         ),
         children: [

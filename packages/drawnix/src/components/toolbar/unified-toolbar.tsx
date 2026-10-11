@@ -14,6 +14,7 @@ import { CreationToolbar } from './creation-toolbar';
 import { UnifiedToolbarProps } from './toolbar.types';
 import { Island } from '../island';
 import { BottomActionsSection } from './bottom-actions-section';
+import { CanvasResourcesButton } from './canvas-resources-button';
 import { useViewportScale } from '../../hooks/useViewportScale';
 import { useDeviceType } from '../../hooks/useDeviceType';
 import { AIImageIcon, AIVideoIcon } from '../icons';
@@ -496,6 +497,7 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
           {/* 移动端收起状态的快捷按钮区域 */}
           {isMobileOrTablet && isMobileCollapsed && (
             <div className="unified-toolbar__collapsed-shortcuts">
+              <CanvasResourcesButton />
               {/* 展开按钮 */}
               <button
                 className="unified-toolbar__collapsed-btn unified-toolbar__collapsed-btn--toggle"
@@ -570,6 +572,7 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
               taskPanelExpanded={taskPanelExpanded}
               onTaskPanelToggle={handleTaskPanelToggle}
               showLocalDataClear={!isMobileOrTablet}
+              showResources={!isMobileOrTablet || !isMobileCollapsed}
             />
           </div>
         </Island>

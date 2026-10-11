@@ -27,23 +27,46 @@ export function getThumbnailDimensions(width: number, height: number, maxEdge = 
     return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-export async function createImageThumbnail(blob: Blob, maxEdge = CANVAS_IMAGE_PREVIEW_MAX_EDGE) {
-    const bitmap = await createImageBitmap(blob);
-    const { width, height } = getThumbnailDimensions(bitmap.width, bitmap.height, maxEdge);
-    if (width === bitmap.width && height === bitmap.height) {
-        bitmap.close();
-        return undefined;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-        bitmap.close();
-        return undefined;
-    }
-    context.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-    return new Promise<Blob | undefined>((resolve) => canvas.toBlob((result) => resolve(result || undefined), "image/webp", 0.86));
+export function createImageThumbnail(blob: Blob, maxEdge = CANVAS_IMAGE_PREVIEW_MAX_EDGE): Promise<Blob | undefined> {
+    return new Promise((resolve, reject) => {
+        let expired = false;
+        let bitmap: ImageBitmap | undefined;
+        let canvas: HTMLCanvasElement | undefined;
+        const cleanup = () => {
+            bitmap?.close();
+            bitmap = undefined;
+            if (canvas) { canvas.width = 0; canvas.height = 0; }
+        };
+        const timer = window.setTimeout(() => {
+            expired = true;
+            cleanup();
+            resolve(undefined);
+        }, 10_000);
+        const render = async () => {
+            try {
+                const decoded = await createImageBitmap(blob);
+                if (expired) { decoded.close(); return undefined; }
+                bitmap = decoded;
+                const { width, height } = getThumbnailDimensions(bitmap.width, bitmap.height, maxEdge);
+                if (width === bitmap.width && height === bitmap.height) return undefined;
+                canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+                const context = canvas.getContext("2d");
+                if (!context) return undefined;
+                context.drawImage(bitmap, 0, 0, width, height);
+                bitmap.close();
+                bitmap = undefined;
+                const outputCanvas = canvas;
+                return await new Promise<Blob | undefined>(done => outputCanvas.toBlob(result => done(result || undefined), "image/webp", 0.86));
+            } finally { cleanup(); }
+        };
+        void render().then(result => {
+            window.clearTimeout(timer);
+            if (!expired) resolve(result);
+        }, error => {
+            window.clearTimeout(timer);
+            if (!expired) reject(error);
+        });
+    });
 }

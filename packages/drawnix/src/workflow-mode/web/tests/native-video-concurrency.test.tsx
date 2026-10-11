@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoPage, { buildLog } from '../src/pages/video';
 import { defaultConfig, useConfigStore } from '../src/stores/use-config-store';
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTaskState } from '../src/services/api/video';
+import { mediaLeaseCache } from '../src/services/media-leases';
 
 vi.mock('../src/services/document-batch-scope', () => ({ getDocumentBatchScope: () => 'owner', subscribeDocumentBatchScope: () => () => {} }));
 vi.mock('../src/services/workflow-task-target', () => ({ registerWorkflowTaskTarget: vi.fn() }));
 vi.mock('../../../services/media-executor/task-storage-writer', () => ({ taskStorageWriter: { getTask: vi.fn(async () => null), findWorkflowTask: vi.fn(async () => null) } }));
 vi.mock('../src/services/api/video', () => ({ createVideoGenerationTask: vi.fn(), pollVideoGenerationTask: vi.fn(), storeGeneratedVideo: vi.fn(), isVideoTaskFailed: (e: Error) => e.name === 'VideoTaskFailed', videoTaskFailed: (text: string) => Object.assign(new Error(text), { name: 'VideoTaskFailed' }) }));
-vi.mock('../src/services/file-storage', () => ({ resolveMediaUrl: vi.fn(async (key, url) => url || key), deleteStoredMedia: vi.fn(), uploadMediaFile: vi.fn() }));
+vi.mock('../src/services/file-storage', () => ({ getMediaBlob: vi.fn(async (key: string) => new File(['video'], key.slice(key.lastIndexOf('/') + 1), { type: 'video/mp4' })), resolveMediaUrl: vi.fn(async (key, url) => url || key), deleteStoredMedia: vi.fn(), uploadMediaFile: vi.fn() }));
 vi.mock('../src/services/image-storage', () => ({ resolveImageUrl: vi.fn(async (_key, url) => url), ensureImagePreview: vi.fn(), subscribeImagePreviews: () => () => {}, getImagePreviewRevision: () => 0, previewUrlFor: vi.fn(), uploadImage: vi.fn() }));
 vi.mock('../src/components/canvas/asset-picker-modal', () => ({ AssetPickerModal: () => null }));
 vi.mock('../src/components/prompts/prompt-select-dialog', () => ({ PromptSelectDialog: () => null }));
@@ -38,6 +39,10 @@ async function complete(prompt: string) {
 }
 beforeEach(async () => {
     vi.clearAllMocks(); pending.clear(); await store.clear();
+    vi.stubGlobal('URL', class extends URL {
+        static createObjectURL = (file: File) => `https://example.test/${file.name}`;
+        static revokeObjectURL = vi.fn();
+    });
     const style = window.getComputedStyle(document.createElement('div'));
     vi.spyOn(window, 'getComputedStyle').mockReturnValue(style);
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
@@ -47,7 +52,7 @@ beforeEach(async () => {
     vi.mocked(pollVideoGenerationTask).mockImplementation(async (_config, task) => new Promise(resolve => pending.set(task.id, resolve)));
     vi.mocked(storeGeneratedVideo).mockImplementation(async result => ({ url: result.url!, storageKey: result.url!, width: 1280, height: 720, bytes: 10, mimeType: 'video/mp4', durationMs: 0 }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); mediaLeaseCache.trim(true); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('video workbench concurrent jobs', () => {
     it('submits B before A completes and keeps B visible when A finishes last', async () => {
@@ -58,9 +63,9 @@ describe('video workbench concurrent jobs', () => {
         expect(createVideoGenerationTask).toHaveBeenCalledTimes(2);
         await complete('B');
         await complete('A');
-        expect(container.querySelector('video[controls]')?.getAttribute('src')).toBe('https://example.test/B.mp4');
+        await waitFor(() => expect(container.querySelector('video[controls]')?.getAttribute('src')).toBe('https://example.test/B.mp4'));
         fireEvent.click(await screen.findByRole('button', { name: /A视频预览/ }));
-        expect(container.querySelector('video[controls]')?.getAttribute('src')).toBe('https://example.test/A.mp4');
+        await waitFor(() => expect(container.querySelector('video[controls]')?.getAttribute('src')).toBe('https://example.test/A.mp4'));
     });
     it('keeps a new draft empty when a background job completes', async () => {
         const { container } = render(<App><VideoPage /></App>);

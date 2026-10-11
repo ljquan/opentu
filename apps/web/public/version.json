@@ -1,9 +1,8 @@
 {
-  "version": "1.1.25",
-  "buildTime": "2026-10-10T10:51:22.458Z",
+  "version": "1.1.26",
+  "buildTime": "2026-10-11T07:45:05.961Z",
   "gitCommit": "unknown",
   "changelog": [
-    "优化：完善批量出图 Excel 导入导出与手动插入 (#294)",
-    "修复：统一画布目标设置并修正提示词浮层显示 (#296)"
+    "add canvas resources and API key support QR codes (#299)"
   ]
 }

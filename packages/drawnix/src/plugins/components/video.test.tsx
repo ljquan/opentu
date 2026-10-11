@@ -28,6 +28,9 @@ vi.mock('../../services/unified-cache-service', () => ({
 
 describe('Video', () => {
   beforeEach(() => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.clearAllMocks();
     mocks.getCachedBlob.mockResolvedValue(null);
     mocks.createObjectURL.mockReturnValue('blob:cached-video');
@@ -42,7 +45,90 @@ describe('Video', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('does not mount a video source until its cover is activated', () => {
+    render(<Video videoItem={{ url: '/original.mp4', poster: '/cover.png' }} />);
+    expect(document.querySelector('video')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    const video = document.querySelector('video')!;
+    expect(video.getAttribute('src')).toBe('/original.mp4');
+    expect(video.getAttribute('preload')).toBe('metadata');
+    fireEvent.loadedData(video);
+    expect(video.play).toHaveBeenCalledOnce();
+  });
+
+  it('releases an offscreen player and can restore it without changing its source', () => {
+    const { rerender } = render(<Video videoItem={{ url: '/original.mp4' }} />);
+    const video = document.querySelector('video')!;
+    rerender(<Video videoItem={{ url: '/original.mp4' }} visible={false} />);
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.getAttribute('src')).toBeNull();
+    expect(document.querySelector('video')).toBeNull();
+    rerender(<Video videoItem={{ url: '/original.mp4' }} visible />);
+    expect(document.querySelector('video')?.getAttribute('src')).toBe('/original.mp4');
+  });
+
+  it('keeps explicitly playing video alive offscreen until playback is paused', () => {
+    const { rerender } = render(<Video videoItem={{ url: '/playing.mp4' }} />);
+    const video = document.querySelector('video')!;
+    fireEvent.play(video);
+    rerender(<Video videoItem={{ url: '/playing.mp4' }} visible={false} />);
+    expect(document.querySelector('video')).toBe(video);
+    expect(video.getAttribute('src')).toBe('/playing.mp4');
+    fireEvent.pause(video);
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('keeps poster activation alive while loading offscreen and releases it after pause', () => {
+    const videoItem = { url: '/loading.mp4', poster: '/cover.png' };
+    const { rerender } = render(<Video videoItem={videoItem} />);
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    const video = document.querySelector('video')!;
+    rerender(<Video videoItem={videoItem} visible={false} />);
+    expect(document.querySelector('video')).toBe(video);
+    fireEvent.loadedMetadata(video);
+    expect(document.querySelector('video')).toBe(video);
+    fireEvent.loadedData(video);
+    expect(video.play).toHaveBeenCalledOnce();
+    fireEvent.play(video);
+    fireEvent.pause(video);
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('releases offscreen activation if playback is rejected or loading fails', async () => {
+    const videoItem = { url: '/blocked.mp4', poster: '/cover.png' };
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new Error('blocked'));
+    const { rerender } = render(<Video videoItem={videoItem} />);
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    rerender(<Video videoItem={videoItem} visible={false} />);
+    fireEvent.loadedData(document.querySelector('video')!);
+    await waitFor(() => expect(document.querySelector('video')).toBeNull());
+    rerender(<Video videoItem={videoItem} visible />);
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    rerender(<Video videoItem={videoItem} visible={false} />);
+    fireEvent.error(document.querySelector('video')!);
+    await waitFor(() => expect(document.querySelector('video')).toBeNull());
+  });
+
+  it('releases the player source when a poster-activated video is unmounted', () => {
+    const { unmount } = render(<Video videoItem={{ url: '/original.mp4', poster: '/cover.png' }} />);
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    const video = document.querySelector('video')!;
+    unmount();
+    expect(video.pause).toHaveBeenCalledOnce();
+    expect(video.getAttribute('src')).toBeNull();
+    expect(video.load).toHaveBeenCalledOnce();
+  });
+
+  it('restores the media source after StrictMode replays effect cleanup', () => {
+    const { unmount } = render(<React.StrictMode><Video videoItem={{ url: '/strict.mp4' }} /></React.StrictMode>);
+    const video = document.querySelector('video')!;
+    expect(video.getAttribute('src')).toBe('/strict.mp4');
+    unmount();
+    expect(video.getAttribute('src')).toBeNull();
   });
 
   it('clears a failed state when the video URL changes', async () => {

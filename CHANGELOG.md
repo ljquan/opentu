@@ -1,3 +1,13 @@
+## 1.1.26 (2026-10-11)
+
+### 🚀 Features
+
+- add canvas resources and API key support QR codes (#299) ([f01d117f](https://github.com/ljquan/opentu/commit/f01d117f))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.1.25 (2026-10-10)
 
 ### 🔧 Chores

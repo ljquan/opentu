@@ -48,7 +48,7 @@ import {
 import { isUserVisibleTaskResult, TaskType } from '../types/task.types';
 import { AssetContext } from './asset-context-instance';
 import { audioPlaylistService } from '../services/audio-playlist-service';
-import { setGlobalAssetMap } from '../stores/asset-map-store';
+import { registerAssetMapLoader, setGlobalAssetMap } from '../stores/asset-map-store';
 import {
   getAssetContentHash,
   getLocalAssetGroupKey,
@@ -458,16 +458,24 @@ export function AssetProvider({ children }: AssetProviderProps) {
    * 组件挂载时初始化服务
    */
   useEffect(() => {
+    let active = true;
+    let ready = false;
+    let requested = false;
+    const unregisterLoader = registerAssetMapLoader(() => {
+      requested = true;
+      if (ready) loadAssetsRef.current?.();
+    });
     const initService = async () => {
       try {
         await assetStorageService.initialize();
         await audioPlaylistService.initialize();
-        // 初始化完成后自动加载资产到 global store，供画布卡片等脱离 Context 的组件使用
-        loadAssetsRef.current?.();
+        ready = true;
+        // Independent Markdown roots request assets only when they contain embeds.
+        if (active && requested) loadAssetsRef.current?.();
       } catch (err) {
         console.error('Failed to initialize asset storage service:', err);
         const error = err as Error;
-        setError(error.message);
+        if (active) setError(error.message);
       }
     };
 
@@ -475,6 +483,8 @@ export function AssetProvider({ children }: AssetProviderProps) {
 
     // Cleanup on unmount
     return () => {
+      active = false;
+      unregisterLoader();
       assetStorageService.cleanup();
     };
   }, []);

@@ -5,5 +5,7 @@ description: Planned follow-up work
 
 # TODO
 
+- Browser resource efficiency: visible media consumers now use leases and project/history restoration defers originals. Complete the legacy raw-URL compatibility pool migration before applying eviction there; verify repeated switching, real startup, cross-version/offline/rollback behavior and asset pagination. Preserve original files, generation recovery and undo history. See `openspec/changes/optimize-browser-startup-memory` and `docs/qa-browser-startup-memory.md` in the repository root.
+
 - Replace the Claude Code CLI adapter with a Claude Agent SDK adapter and improve the tool queue, following the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan).
 - Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.

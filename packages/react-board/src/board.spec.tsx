@@ -1,6 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react';
 import {
   PlaitElement,
+  ListRender,
   clearSelectedElement,
   getSelectedElements,
   initializeViewBox,
@@ -81,6 +82,17 @@ const renderBoard = (
 );
 
 describe('ReactBoard', () => {
+  it('destroys the element renderers on unmount and rebuilds them under StrictMode', () => {
+    const destroy = vi.spyOn(ListRender.prototype, 'destroy');
+    const initialize = vi.spyOn(ListRender.prototype, 'initialize');
+    try {
+      const view = render(<React.StrictMode>{renderBoard([])}</React.StrictMode>);
+      expect(initialize).toHaveBeenCalledTimes(2);
+      expect(destroy).toHaveBeenCalledTimes(1);
+      view.unmount();
+      expect(destroy).toHaveBeenCalledTimes(2);
+    } finally { destroy.mockRestore(); initialize.mockRestore(); }
+  });
   beforeAll(() => {
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
