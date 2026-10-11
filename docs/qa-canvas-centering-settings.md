@@ -1,5 +1,17 @@
 # 画布图片居中与任务栏设置 QA
 
+## 2026-10-10 失败生成卡片的后续落点
+
+2026-10-11 PR 前复验：显式 fetch 并 merge `origin/develop`（`df1715ab`）。仅本 QA 段落发生一处冲突，保留双方记录，代码无冲突；合并后 41 项相关测试、Drawnix/Web TypeScript、Web 应用和 Service Worker 构建、定向 ESLint（0 error、22 条既有 warning）及分支差异检查通过。循环依赖检查仍为下述既有失败。最终相对 develop 仅本次 7 个文件变更。
+
+修复失败或取消的生成卡片被新任务落点逻辑忽略的问题。画布上的失败卡片仍是 `workzone` 元素，原逻辑把全部 `workzone` 排除，导致下一次生成回到原图片或旧元素位置并重叠。现在失败/取消卡片继续计入兜底布局的最底部矩形；进行中任务仍不占用兜底落点，避免连续提交时被临时卡片阻挡。若用户主动选中了元素，仍优先按选区下方或右侧布局。
+
+失败卡片直接从 points/zoom 读取视觉矩形，不再依赖 board.getRectangle；新任务卡片按实际缩放尺寸向下避让。图片按真实锚点尺寸将失败卡片加入占用矩形，批量和 Frame 周边布局也参与检查；附近搜索耗尽时将兜底位置移到占用区域下方。Frame 内部输出位置保持原行为。
+
+验证环境：本地 macOS、当前工作区。执行 `pnpm exec vitest run --config vitest.config.ts src/utils/generation-task-placement.test.ts src/utils/__tests__/canvas-insertion-layout.test.ts src/utils/__tests__/image-generation-anchor-placement.test.ts src/utils/__tests__/image-generation-anchor-submission.test.ts src/plugins/with-workzone.test.ts`（目录 `packages/drawnix`），41 项通过。覆盖 0.5/2 倍和非法缩放、取消/失败及步骤失败、连续卡片避让、board 矩形读取不可用、1:1 图片、Frame 批量和附近搜索耗尽。库/Web TypeScript、Web build、`git diff --check` 通过；定向 ESLint 0 error、22 条既有 warning。循环依赖检查未通过：runtime 2 组、含类型 3 组，均在本次未修改的分层处理/Tuzi/Workflow 模块中。
+
+未执行页面点击、真实供应商或连续失败任务视觉验收。人工验收：保留生成失败卡片，在 50%/100%/200% 缩放下再次提交，任务卡片应排在相交失败卡片下方；1:1 图片及 Frame 周边批量图片不得覆盖失败卡片。无需配置、依赖或迁移。此修复使用既有 QA 文件记录，不新增 DOC。
+
 ## 2026-10-10 音频卡片自动居中修复
 
 用户反馈音频目标开启居中后无效果。实际点击路径为画布 pointerdown/pointerup 判断点击，再延迟两帧读取选区；旧居中函数仅接受图片，音频被提前返回。现改为图片、视频、音频、文本/卡片单目标都可计算居中坐标，复用原视口动画并保持缩放；文案更新为“点击目标后自动居中”，使用同一存储键保留既有偏好。本节替代下方“仍只针对图片”的历史范围说明。
