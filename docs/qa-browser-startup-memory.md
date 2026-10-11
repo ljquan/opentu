@@ -2,6 +2,8 @@
 
 ## PR 前最终验证
 
+交付记录：官方草稿 PR [#300](https://github.com/ljquan/opentu/pull/300)，源 `dev/browser-startup-memory`，目标 `develop`，实现 `ad95668c`、QA `7d64d3d4`。已推送至官方功能分支；origin 为独立仓库，跨仓库创建失败后改用已有官方写权限创建同仓库 PR。未合并、未部署，远程检查与预览不等于生产兼容验收。
+
 提交目标为官方 `ljquan/opentu` 的 `develop`，当前分支 `dev/browser-startup-memory`。已提交实现 `ad95668c` 后显式 fetch/merge，官方仍为 `df1715ab`（1.1.25），无新增冲突。此前同步时两个中英文 pending-test 文档冲突已同时保留双方记录；图片工作台自动合并保留上游参考图导入保护和本地按需媒体读取。下文各批状态与数量为历史记录，本节为最终交付依据。
 
 - 主应用受影响的 13 个测试文件：114 项通过。
