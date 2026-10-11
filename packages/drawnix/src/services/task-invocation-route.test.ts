@@ -71,6 +71,12 @@ describe('task invocation route snapshots', () => {
           },
           video: {
             allowedDurations: ['5', '10'],
+            veoAdvancedParameters: {
+              supportedParameters: ['seed', 'generate_audio'],
+              seedMax: 100,
+              personGenerationOptions: ['allow_adult'],
+              authorization: 'Bearer nested-secret',
+            },
             durationToModelMap: { '5': 'video-five' },
             versionOptionsByAction: { text2video: ['v1', 'v2'] },
           },
@@ -112,6 +118,11 @@ describe('task invocation route snapshots', () => {
       },
       video: {
         allowedDurations: ['5', '10'],
+        veoAdvancedParameters: {
+          supportedParameters: ['seed', 'generate_audio'],
+          seedMax: 100,
+          personGenerationOptions: ['allow_adult'],
+        },
         durationToModelMap: { '5': 'video-five' },
         versionOptionsByAction: { text2video: ['v1', 'v2'] },
       },

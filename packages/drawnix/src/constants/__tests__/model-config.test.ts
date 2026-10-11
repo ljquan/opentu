@@ -5,6 +5,7 @@ import {
   getStaticModelsByType,
   getSizeOptionsForModel,
   getStaticModelConfig,
+  getModelConfig,
   ModelVendor,
   setRuntimeModelConfigs,
   isGPTImage2ModelId,
@@ -136,6 +137,112 @@ describe('model-config image size options', () => {
       'high',
     ]);
   });
+
+  it.each([
+    'gpt-image-2.5-1k',
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])('为 %s 暴露可选的高级输出参数', (modelId) => {
+    const advancedParams = getCompatibleParams(modelId).filter(
+      (param) => param.advanced
+    );
+
+    expect(advancedParams.map((param) => param.id)).toEqual([
+      'output_format',
+      'output_compression',
+      'moderation',
+      'user',
+    ]);
+    expect(
+      advancedParams.every((param) => param.defaultValue === undefined)
+    ).toBe(true);
+    expect(
+      advancedParams.find((param) => param.id === 'output_format')?.options
+    ).toEqual([
+        { value: 'png', label: 'PNG' },
+        { value: 'jpeg', label: 'JPEG' },
+        { value: 'webp', label: 'WebP' },
+    ]);
+    expect(
+      advancedParams.find((param) => param.id === 'output_compression')
+    ).toMatchObject({ valueType: 'number', min: 0, max: 100, integer: true });
+    expect(
+      advancedParams.find((param) => param.id === 'moderation')?.options
+        ?.map((option) => option.value)
+    ).toEqual(['auto', 'low']);
+    expect(
+      advancedParams.find((param) => param.id === 'user')?.valueType
+    ).toBe('string');
+  });
+
+  it.each([
+    'gpt-image-2',
+    'gpt-image-2-vip',
+    'gemini-3.1-flash-image-preview',
+    'doubao-seedream-5-0-260128',
+    'mj-imagine',
+  ])('不向 %s 暴露 GPT 高级输出参数', (modelId) => {
+    const paramIds = getCompatibleParams(modelId).map((param) => param.id);
+    for (const paramId of [
+      'output_format', 'output_compression', 'moderation', 'user',
+    ]) {
+      expect(paramIds).not.toContain(paramId);
+    }
+  });
+
+  it.each([
+    ['nano-banana', 'gemini-2.5-flash-image'],
+    ['nano-banana-2', 'gemini-3.1-flash-image-preview'],
+    ['gemini-3.1-flash-image', 'gemini-3.1-flash-image-preview'],
+    ['gemini-3-pro-image', 'gemini-3-pro-image-preview'],
+  ])('为精确别名 %s 复用 %s 参数并保留模型 ID', (modelId, sourceModelId) => {
+    const sourceParams = getCompatibleParams(sourceModelId);
+    const params = getCompatibleParams(modelId);
+
+    expect(getModelConfig(modelId)).toMatchObject({
+      id: modelId,
+      label: modelId,
+      type: 'image',
+      vendor: ModelVendor.GEMINI,
+    });
+    expect(params).toEqual(sourceParams);
+    expect(getSizeOptionsForModel(modelId)).toEqual(
+      getSizeOptionsForModel(sourceModelId)
+    );
+    expect(
+      getStaticModelsByType('image').some((model) => model.id === modelId)
+    ).toBe(false);
+
+    setRuntimeModelConfigs([
+      {
+        id: modelId,
+        label: 'Provider alias',
+        type: 'image',
+        vendor: ModelVendor.OTHER,
+        sourceProfileId: 'provider',
+        selectionKey: `provider::${modelId}`,
+      },
+    ]);
+    expect(getCompatibleParams(modelId)).toEqual(sourceParams);
+    expect(getModelConfig(modelId)).toMatchObject({
+      id: modelId,
+      sourceProfileId: 'provider',
+      selectionKey: `provider::${modelId}`,
+    });
+  });
+
+  it.each([
+    'nano-banana-20', 'nano-banana-2-custom', 'gemini-3.1-flash-image-custom',
+  ])(
+    '不将未知近似名称 %s 当作已确认别名',
+    (modelId) => {
+      expect(getStaticModelConfig(modelId)).toBeUndefined();
+      expect(getCompatibleParams(modelId)).toEqual([]);
+    }
+  );
+
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '为 %s 暴露分辨率与最高到 xhigh 的画质选项',
@@ -466,12 +573,7 @@ describe('model-config image size options', () => {
   it('Seedance 2.5 exposes its own duration and ratio boundaries', () => {
     const params = getCompatibleParams('doubao-seedance-2-5-260628');
     expect(params.map((param) => param.id)).toEqual(
-      expect.arrayContaining([
-        'watermark',
-        'output_format',
-        'draft',
-        'priority',
-      ])
+      expect.arrayContaining(['watermark', 'output_format'])
     );
     const options = (paramId: string) =>
       params

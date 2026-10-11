@@ -412,7 +412,29 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                               {param.description}
                             </div>
                           )}
-                          {param.control === 'switch' ? (
+                          {param.control === 'switch' && param.defaultValue === undefined ? (
+                            <div className="parameters-dropdown__options parameters-dropdown__options--three-state" role="group" aria-label={param.label}>
+                              {[
+                                { value: '', label: '默认' },
+                                { value: 'false', label: '关闭' },
+                                { value: 'true', label: '开启' },
+                              ].map((option) => {
+                                const isSelected = (currentValue || '') === option.value;
+                                return (
+                                  <button
+                                    key={option.label}
+                                    type="button"
+                                    aria-label={`${param.label}${option.label}`}
+                                    aria-pressed={isSelected}
+                                    className={`parameters-dropdown__option ${isSelected ? 'parameters-dropdown__option--selected' : ''}`}
+                                    onClick={() => handleValueSelect(param.id, option.value)}
+                                  >
+                                    <span className="parameters-dropdown__option-label">{option.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : param.control === 'switch' ? (
                             <div className="parameters-dropdown__switch-row">
                               <span className="parameters-dropdown__switch-state">
                                 {currentValue === 'true' ? '开启' : '关闭'}

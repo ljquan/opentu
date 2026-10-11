@@ -9,6 +9,8 @@ import {
   VIDEO_MODEL_CONFIGS,
 } from '../../constants/video-model-config';
 import { getSeedance2Capabilities } from '../../utils/seedance-model';
+import type { ProviderVideoBindingMetadata } from '../../services/provider-routing/types';
+import { getVeoPersonGenerationOptions } from '../../utils/veo-parameters';
 import type { Capability, WorkflowChannel } from '../shared/model-defaults';
 import type {
   NativeParameter,
@@ -42,11 +44,13 @@ export const PARAMETER_CONSUMERS: Record<Capability, Record<string, string>> = {
     size: 'video adapters: request.size',
     sora_mode: 'video-api-service.appendVideoOutputParams',
     ratio: 'MiniMax/Seedance2/HappyHorse request body',
-    generate_audio: 'Seedance2 submitBody.generate_audio',
+    generate_audio: 'Seedance2 body.generate_audio / Veo metadata.generateAudio',
     api_version: 'video-api-service MiniMax route',
     prompt_enhancement: 'minimax-h3-video-workflow Context IR preflight',
     watermark: 'Seedance2/HappyHorse body.watermark',
-    seed: 'Seedance2/HappyHorse body.seed',
+    output_format: 'Seedance 2.5 body.output_format',
+    seed: 'Seedance2/HappyHorse body.seed / Veo metadata.seed',
+    person_generation: 'Veo metadata.personGeneration',
     camera_fixed: 'Seedance2 body.camera_fixed',
     aspect_ratio: 'seedance-adapter.resolveVideoOptions',
     audio_setting: 'happyhorse-adapter.buildParameters',
@@ -54,7 +58,7 @@ export const PARAMETER_CONSUMERS: Record<Capability, Record<string, string>> = {
     klingAction2: 'kling-adapter action route',
     mode: 'kling-adapter body.mode',
     cfg_scale: 'kling-adapter body.cfg_scale',
-    negative_prompt: 'kling-adapter body.negative_prompt',
+    negative_prompt: 'Kling body.negative_prompt / Veo metadata.negativePrompt',
     camera_control_type: 'kling-adapter.buildCameraControl',
     camera_horizontal: 'kling-adapter.buildCameraControl',
     camera_vertical: 'kling-adapter.buildCameraControl',
@@ -126,6 +130,10 @@ const ADAPTER_PARAMETER_IDS: Record<string, string[]> = {
     'api_version',
     'prompt_enhancement',
     'ratio',
+    'generate_audio',
+    'seed',
+    'person_generation',
+    'negative_prompt',
   ],
   'seedance-video-adapter': ['size', 'duration', 'aspect_ratio'],
   'seedance-2-video-adapter': [
@@ -136,6 +144,7 @@ const ADAPTER_PARAMETER_IDS: Record<string, string[]> = {
     'watermark',
     'seed',
     'camera_fixed',
+    'output_format',
   ],
   'happyhorse-video-adapter': [
     'size',
@@ -205,10 +214,18 @@ export function applyNativeAdapterContract(
   parameters: NativeParameter[],
   capability: Capability,
   adapterId?: string,
-  requestSchema?: string
+  requestSchema?: string,
+  videoMetadata?: ProviderVideoBindingMetadata
 ): NativeParameter[] {
   if (!adapterId) return parameters;
   return parameters.map((parameter) => {
+    if (adapterId === 'gemini-video-adapter' && parameter.id === 'person_generation')
+      return {
+        ...parameter,
+        options: getVeoPersonGenerationOptions(videoMetadata).map((value) => ({ value, label: value })),
+      };
+    if (adapterId === 'gemini-video-adapter' && parameter.id === 'seed' && videoMetadata?.veoAdvancedParameters)
+      return { ...parameter, max: videoMetadata.veoAdvancedParameters.seedMax ?? Number.MAX_SAFE_INTEGER };
     if (
       adapterId === 'gemini-image-adapter' &&
       parameter.id === 'quality' &&

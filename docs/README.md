@@ -28,6 +28,8 @@
 
 ## 关键能力
 
+- [Top 50 媒体模型参数补齐实施方案](../openspec/changes/complete-top50-media-model-parameters/design.md)：限定 21 个图片和 5 个视频模型，含参数映射、渠道依赖、实施阶段及测试计划；已进入本地实施，条件工作包保留待确认状态。
+- [Top 50 媒体模型参数交付](./top50-media-model-parameters.md)：本地参数实现、精确 ID、渠道支持声明和条件工作包；[QA 记录](./qa-top50-media-model-parameters.md)。
 - [文档批量生成](./document-batch-generation.md)：Excel/PDF 导入、批次队列、恢复与使用边界；[QA 记录](./qa-document-batch-generation.md)。
 - [统一缓存设计](./UNIFIED_CACHE_DESIGN.md)：缓存模型、存储和清理策略。
 - [统一缓存实现总结](./UNIFIED_CACHE_IMPLEMENTATION_SUMMARY.md)：落地细节和验证要点。
