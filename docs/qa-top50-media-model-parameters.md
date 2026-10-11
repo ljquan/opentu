@@ -15,7 +15,7 @@
 
 | 检查 | 实际结果 |
 | --- | --- |
-| 22 文件联合回归 | 648 通过、4 个已知基线失败，没有跳过测试 |
+| 合并后 25 文件联合回归 | 792 通过、4 个已知基线失败，没有跳过测试 |
 | 水印撤回和 Seedance 适配器专项复验 | 2 文件、100 项通过，含新增水印控件缺失及旧水印保留断言 |
 | 参数组件复验 | 1 文件、11 项通过 |
 | drawnix TypeScript | 通过 |
@@ -23,11 +23,11 @@
 | 修改文件 ESLint | 2 个基线错误、42 warnings；错误位置未在本次改动中改变 |
 | OpenSpec strict | 通过 |
 | git diff --check | 通过 |
-| 最新上游同步与最终检查 | PR 创建前更新 |
+| 最新上游同步与最终检查 | 已 fetch/merge origin/develop df1715ab；仅 pending-test 文档冲突，保留双方条目；合并后测试/类型/构建/OpenSpec/差异检查通过，基线失败另列 |
 
 上表各次测试有重复，不相加为总数。测试使用 mock transport/fetch/响应，检查实际构造 JSON/FormData，不调用真实供应商。
 
-日志：`/tmp/opentu-no-new-watermark-tests.log`、`/tmp/opentu-no-new-watermark-recheck.log`、`/tmp/opentu-no-new-watermark-controls.log`、`/tmp/opentu-no-new-watermark-types.log`、`/tmp/opentu-no-new-watermark-build.log`、`/tmp/opentu-no-new-watermark-lint.log`。临时目录可能被清理，事实摘要保留在本文。
+合并后日志：`/tmp/opentu-media-final-tests.log`、`/tmp/opentu-media-final-types.log`、`/tmp/opentu-media-final-build.log`、`/tmp/opentu-media-final-lint.log`。撤回专项日志：`/tmp/opentu-no-new-watermark-recheck.log`、`/tmp/opentu-no-new-watermark-controls.log`。合并前 22 文件为 648 通过、4 个基线失败；合并后增加上游 Gemini/Nano Banana 路由回归。临时目录可能被清理，事实摘要保留在本文。
 
 ## 基线失败
 
@@ -71,7 +71,8 @@ NODE_OPTIONS=--no-experimental-webstorage NPM_TOKEN=dummy pnpm --dir packages/dr
   src/workflow-mode/host/native-parameters.test.ts src/workflow-mode/host/native-models.test.ts \
   src/workflow-mode/host/native-models-runtime.test.ts src/workflow-mode/host/native-generation.test.ts \
   src/workflow-mode/shared/native-parameters.test.ts src/utils/__tests__/runtime-model-discovery.test.ts \
-  src/services/__tests__/model-adapter-registry.test.ts
+  src/services/__tests__/model-adapter-registry.test.ts \
+  src/services/__tests__/provider-routing.test.ts src/utils/gemini-api/apiCalls.test.ts src/utils/gemini-api/services.test.ts
 NPM_TOKEN=dummy pnpm exec tsc --noEmit --incremental false -p packages/drawnix/tsconfig.lib.json
 NPM_TOKEN=dummy pnpm exec nx run web:build
 node /Users/lkj/.npm/_npx/abab5bd700860149/node_modules/@fission-ai/openspec/bin/openspec.js validate complete-top50-media-model-parameters --strict

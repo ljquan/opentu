@@ -11,12 +11,12 @@ The system SHALL track the 26 exact model IDs listed in this change without chan
 - **THEN** the system SHALL reuse only confirmed parameter metadata
 - **AND** SHALL preserve `nano-banana-2` in the outbound request and stored ModelRef
 
-#### Scenario: Unconfirmed non-preview Gemini model
+#### Scenario: Non-preview Gemini identity remains unchanged
 
-- **GIVEN** `gemini-3-pro-image` has no confirmed parameter contract
-- **WHEN** it appears in runtime discovery
-- **THEN** the system SHALL report its contract as pending or limited
-- **AND** SHALL NOT silently rewrite it to `gemini-3-pro-image-preview`
+- **WHEN** `gemini-3-pro-image` appears in runtime discovery
+- **THEN** the system SHALL reuse the finite parameter metadata mapping
+- **AND** SHALL NOT rewrite its outbound ID to `gemini-3-pro-image-preview`
+- **AND** delivery documentation SHALL distinguish local metadata from unverified supplier support
 
 ### Requirement: Preserve Fixed 1K Baseline Contracts
 
