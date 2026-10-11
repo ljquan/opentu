@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Top 50 媒体模型参数：验证四个 Gemini 精确别名保持请求 ID，Veo 高级字段经 metadata 提交且音频默认/关闭/开启可恢复，Seedance 2.5 原有水印及输出格式保留、draft/priority 不再提交。新增水印和 Image 2 扩展已取消。模拟请求与组件逻辑结果见仓库 docs/qa-top50-media-model-parameters.md；页面及真实渠道消费仍待人工验收。
+
 - Nano Banana classification: discovery infers image capability without image tags. Reloading saved `gemini-nano-banana-2.1` entries incorrectly marked text corrects them to image while retaining model settings; text selectors exclude them. Remote text category metadata cannot override this built-in image model. Automated checks and isolated Chrome reload verification passed. Existing Agent TODO items are unchanged.
 
 - Nano Banana 2.1 browser checks: independent Chrome verified model selection and parameter controls at 1440x900. At 390x844, the parameter menu stays inside the viewport and Thinking updates the summary. Actual canvas generation/editing and workflow generation/editing succeeded. Reference imports block generation until complete; the deferred concurrent-upload regression passes. Real mobile devices remain pending acceptance.

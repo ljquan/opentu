@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateNative } from './native-generation';
 import { readNativeModels } from './native-models';
 import { resolveAdapterForInvocation } from '../../services/model-adapters';
-import { describeNativeModel } from './native-parameters';
+import { describeNativeModel, applyNativeAdapterContract } from './native-parameters';
 import { getAllBuiltInModelConfigs } from '../../constants/model-config';
 import { fallbackMediaExecutor } from '../../services/media-executor/fallback-executor';
 
@@ -376,6 +376,11 @@ describe('native generation', () => {
       .map((model) => [model.id, model.type] as const)
   )('maps the complete %s contract to its adapter', async (id, capability) => {
     const metadata = describeNativeModel(id, capability);
+    if (id === 'veo3.1') {
+      metadata.parameters = applyNativeAdapterContract(metadata.parameters!, 'video', 'gemini-video-adapter', 'openai.video.form-input-reference', {
+        veoAdvancedParameters: { supportedParameters: ['negative_prompt', 'generate_audio', 'seed', 'person_generation'], seedMax: 100, personGenerationOptions: ['allow_adult'] },
+      });
+    }
     const selected = { name: id, capability, ...metadata };
     vi.mocked(readNativeModels).mockResolvedValue({
       ...catalog,
@@ -404,6 +409,7 @@ describe('native generation', () => {
             : 'test'),
       ])
     ) as Record<string, string | number | boolean>;
+    if (params.output_compression !== undefined) params.output_format = 'jpeg';
     const images = Array(metadata.referenceInputs?.images?.minCount || 0).fill(
       'https://example.test/ref.png'
     );

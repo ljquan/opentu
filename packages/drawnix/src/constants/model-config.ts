@@ -1659,6 +1659,13 @@ export const ALL_MODELS: ModelConfig[] = [
   ...AUDIO_MODELS,
 ];
 
+const IMAGE_PARAMETER_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  'nano-banana': 'gemini-2.5-flash-image',
+  'nano-banana-2': 'gemini-3.1-flash-image-preview',
+  'gemini-3.1-flash-image': 'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image': 'gemini-3-pro-image-preview',
+};
+
 let runtimeModels: ModelConfig[] = [];
 
 function mergeModels(
@@ -1694,11 +1701,26 @@ export function getStaticModelsByType(type: ModelType): ModelConfig[] {
 }
 
 export function getStaticModelConfig(modelId: string): ModelConfig | undefined {
-  return (
+  const exactMatch =
     ALL_MODELS.find((model) => model.id === modelId) ||
     BUILT_IN_TEXT_MODELS.find((model) => model.id === modelId) ||
-    HIDDEN_VIDEO_MODELS.find((model) => model.id === modelId)
-  );
+    HIDDEN_VIDEO_MODELS.find((model) => model.id === modelId);
+  if (exactMatch) return exactMatch;
+
+  const sourceId = IMAGE_PARAMETER_MODEL_ALIASES[modelId.toLowerCase()];
+  const sourceModel = sourceId
+    ? IMAGE_MODELS.find((model) => model.id === sourceId)
+    : undefined;
+  // Reuse parameter metadata while preserving the API ID of discovered aliases.
+  return sourceModel
+    ? {
+        ...sourceModel,
+        id: modelId,
+        label: modelId,
+        shortLabel: modelId,
+        shortCode: undefined,
+      }
+    : undefined;
 }
 
 /** Includes models hidden from default pickers, for explicit model contracts. */
@@ -2098,6 +2120,44 @@ const ALL_IMAGE_MODEL_IDS = IMAGE_MODELS.map((m) => m.id);
  * 根据 video-model-config.ts 中各模型的实际参数配置
  */
 export const VIDEO_PARAMS: ParamConfig[] = [
+  ...([
+    {
+      id: 'negative_prompt',
+      label: '负向提示词',
+      valueType: 'string',
+    },
+    {
+      id: 'generate_audio',
+      label: '生成音频',
+      valueType: 'enum',
+      control: 'switch',
+      options: [{ value: 'true', label: '开启' }, { value: 'false', label: '关闭' }],
+    },
+    {
+      id: 'seed',
+      label: '随机种子',
+      valueType: 'number',
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+      step: 1,
+      integer: true,
+    },
+    {
+      id: 'person_generation',
+      label: '人物生成',
+      valueType: 'enum',
+      options: [
+        { value: 'dont_allow', label: '不允许' },
+        { value: 'allow_adult', label: '仅成年人' },
+        { value: 'allow_all', label: '允许所有' },
+      ],
+    },
+  ] as Omit<ParamConfig, 'compatibleModels' | 'modelType'>[]).map((param) => ({
+    ...param,
+    advanced: true,
+    compatibleModels: ['veo3.1'],
+    modelType: 'video' as const,
+  })),
   // Veo 系列时长参数（只有 8 秒，包括标清和 4K）
   {
     id: 'duration',
@@ -2259,40 +2319,6 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { value: 'mov', label: 'MOV' },
     ],
     defaultValue: 'mp4',
-    compatibleModels: [SEEDANCE_25_MODEL_ID],
-    modelType: 'video',
-  },
-  {
-    id: 'draft',
-    label: '样片模式',
-    description: '样片模式',
-    valueType: 'enum',
-    options: [
-      { value: 'false', label: '关闭' },
-      { value: 'true', label: '开启（仅 480p）' },
-    ],
-    defaultValue: 'false',
-    compatibleModels: [SEEDANCE_25_MODEL_ID],
-    modelType: 'video',
-  },
-  {
-    id: 'priority',
-    label: '任务优先级',
-    description: '任务优先级',
-    valueType: 'enum',
-    options: [
-      { value: '0', label: '0' },
-      { value: '1', label: '1' },
-      { value: '2', label: '2' },
-      { value: '3', label: '3' },
-      { value: '4', label: '4' },
-      { value: '5', label: '5' },
-      { value: '6', label: '6' },
-      { value: '7', label: '7' },
-      { value: '8', label: '8' },
-      { value: '9', label: '9' },
-    ],
-    defaultValue: '0',
     compatibleModels: [SEEDANCE_25_MODEL_ID],
     modelType: 'video',
   },
@@ -3391,6 +3417,8 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   const modelConfig = getModelConfig(modelId);
   if (!modelConfig) return [];
   const normalizedModelId = modelConfig.id.toLowerCase();
+  const parameterModelId =
+    IMAGE_PARAMETER_MODEL_ALIASES[normalizedModelId] || normalizedModelId;
 
   // 构建模型标签集合：显式标签 + 类型 + 厂商 + 基于 ID 的启发式
   const modelTags = new Set<string>();
@@ -3425,7 +3453,7 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
     // 检查是否在兼容 ID 列表（无标签限制时，空数组表示所有模型都兼容）
     const idMatched =
       param.compatibleModels.some(
-        (compatibleModel) => compatibleModel.toLowerCase() === normalizedModelId
+        (compatibleModel) => compatibleModel.toLowerCase() === parameterModelId
       ) ||
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
     if (

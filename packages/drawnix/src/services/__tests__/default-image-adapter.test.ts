@@ -41,6 +41,42 @@ describe('default image adapter compatibility', () => {
     mocks.extractUrlAndFormat.mockReset();
   });
 
+  it.each([
+    'nano-banana',
+    'nano-banana-2',
+    'gemini-3.1-flash-image',
+    'gemini-3-pro-image',
+  ])(
+    'preserves the exact model ID %s when forwarding image options',
+    async (model) => {
+      mocks.generateImage.mockResolvedValue({
+        data: [{ url: 'https://example.com/result.png' }],
+      });
+
+      await geminiImageAdapter.generateImage({
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'test-key',
+        authType: 'bearer',
+      }, {
+        model,
+        modelRef: { profileId: 'provider', modelId: model },
+        prompt: 'Test',
+        size: '16x9',
+        params: model === 'nano-banana' ? {} : { quality: '2k' },
+      });
+
+      expect(mocks.generateImage).toHaveBeenCalledWith(
+        'Test',
+        expect.objectContaining({
+          model,
+          modelRef: { profileId: 'provider', modelId: model },
+          size: '16x9',
+          quality: model === 'nano-banana' ? undefined : '2k',
+        })
+      );
+    }
+  );
+
   it('keeps generic GPT image fallback on the basic compatibility request shape', async () => {
     mocks.generateImage.mockResolvedValue({
       data: [

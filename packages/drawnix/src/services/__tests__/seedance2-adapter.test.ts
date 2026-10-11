@@ -1190,8 +1190,8 @@ describe('seedance 2.0 video adapter', () => {
   });
 });
 
-describe('Seedance 2.5 verified request parameters', () => {
-  it('submits confirmed defaults including explicit false and zero values', async () => {
+describe('Seedance 2.5 request parameters', () => {
+  it('preserves existing watermark and output format defaults', async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ id: 'task', status: 'queued' })
     );
@@ -1207,8 +1207,6 @@ describe('Seedance 2.5 verified request parameters', () => {
       generate_audio: true,
       watermark: false,
       output_format: 'mp4',
-      draft: false,
-      priority: 0,
     });
     expect(body).not.toHaveProperty('seed');
     expect(body).not.toHaveProperty('camera_fixed');
@@ -1226,8 +1224,6 @@ describe('Seedance 2.5 verified request parameters', () => {
         generate_audio: 'false',
         watermark: 'true',
         output_format: 'mov',
-        draft: 'true',
-        priority: '9',
       },
     });
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
@@ -1235,19 +1231,25 @@ describe('Seedance 2.5 verified request parameters', () => {
       generate_audio: false,
       watermark: true,
       output_format: 'mov',
-      draft: true,
-      priority: 9,
     });
+  });
+
+  it('ignores legacy draft and priority preferences', async () => {
+    const fetcher = vi.fn(async () => jsonResponse({ id: 'task' }));
+    await submitSeedance2Request(createContext(fetcher), {
+      model: 'doubao-seedance-2-5-260628', prompt: 'legacy values',
+      params: { draft: true, priority: 9 },
+    });
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body).not.toHaveProperty('draft');
+    expect(body).not.toHaveProperty('priority');
+    expect(body).toMatchObject({ watermark: false, output_format: 'mp4' });
   });
 
   it.each([
     [{ resolution: '4k' }, '分辨率'],
     [{ output_format: 'avi' }, '输出格式'],
-    [{ priority: '10' }, '优先级'],
-    [{ priority: '-1' }, '优先级'],
-    [{ priority: '1.5' }, '整数'],
     [{ watermark: 'invalid' }, '布尔值'],
-    [{ draft: 'true', resolution: '720p' }, '480p'],
   ])(
     'rejects invalid parameters before submission: %j',
     async (params, error) => {
