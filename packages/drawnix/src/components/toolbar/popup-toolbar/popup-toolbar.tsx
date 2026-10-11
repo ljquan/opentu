@@ -76,6 +76,7 @@ import { TextPropertyPanel } from './text-property-panel';
 import { PopupImage3DTransformButton } from './image-3d-transform-button';
 import { PopupImageDetailsButton } from './image-details-button';
 import { getCanvasGenerationDetailsSource } from '../../../utils/canvas-generation-details-source';
+import { getCanvasTargetCenteringOrigination } from '../../../utils/canvas-target-centering';
 import {
   AIImageIcon,
   AIVideoIcon,
@@ -1095,26 +1096,10 @@ export const PopupToolbar = () => {
   }, [board, movingOrDragging, open, refs]);
 
   const centerSelectedElementsInViewport = useCallback(() => {
-    const elements = getSelectedElements(board).filter(
-      (element) => !isWorkZoneElement(element)
-    );
-    if (elements.length !== 1 || !PlaitDrawElement.isImage(elements[0])) {
-      return;
-    }
-
-    const rectangle = getRectangleByElements(board, elements, false);
-    const targetPoint: [number, number] = [
-      rectangle.x + rectangle.width / 2,
-      rectangle.y + rectangle.height / 2,
-    ];
-    const container = PlaitBoard.getBoardContainer(board);
-    const containerRect = container.getBoundingClientRect();
+    const targetOrigination = getCanvasTargetCenteringOrigination(board);
+    if (!targetOrigination) return;
     const zoom = board.viewport.zoom;
     const currentOrigination = getViewportOrigination(board) ?? [0, 0];
-    const targetOrigination: [number, number] = [
-      targetPoint[0] - containerRect.width / (2 * zoom),
-      targetPoint[1] - containerRect.height / (2 * zoom),
-    ];
     const startTime = performance.now();
     const duration = 280;
     const startOrigination: [number, number] = [
@@ -1309,7 +1294,7 @@ export const PopupToolbar = () => {
         event.button === 0 &&
         centerImageOnClickEnabled &&
         !eventTarget?.closest(
-          '.popup-toolbar, .ai-input-bar, .ai-input-bar__container, .ai-input-bar__settings-popup'
+          '.popup-toolbar, .ai-input-bar, .ai-input-bar__container, .ai-input-bar__settings-popup, button, input, textarea, select, [role="slider"], [data-slideshow-media-control]'
         )
       ) {
         pendingFrame = schedulePopupToolbarFrame(() => {

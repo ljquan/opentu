@@ -273,11 +273,11 @@ describe('target-bound-taskbar-state', () => {
     expect(persistBoundTargetFollowEnabled(false, blockedStorage)).toBe(false);
   });
 
-  it('图片、视频和文本目标显示跟随控制', () => {
+  it('所有可绑定目标显示跟随控制', () => {
     expect(supportsBoundTargetFollowControls('image')).toBe(true);
     expect(supportsBoundTargetFollowControls('text')).toBe(true);
     expect(supportsBoundTargetFollowControls('video')).toBe(true);
-    expect(supportsBoundTargetFollowControls('audio')).toBe(false);
+    expect(supportsBoundTargetFollowControls('audio')).toBe(true);
   });
 
   it('关闭永久跟随后移除定位并把支持的目标切换为参考模式', () => {
@@ -301,12 +301,14 @@ describe('target-bound-taskbar-state', () => {
     expect(resolveBoundTargetForPosition(videoTarget, false)).toBeNull();
     expect(resolveBoundTargetForPosition(videoTarget, true)).toBe(videoTarget);
     const audioTarget = { ...target, type: 'audio' as const };
-    expect(resolveBoundTargetForPosition(audioTarget, false)).toBe(audioTarget);
+    expect(resolveBoundTargetForPosition(audioTarget, false)).toBeNull();
+    expect(resolveBoundTargetForPosition(audioTarget, true)).toBe(audioTarget);
     expect(resolveBoundTargetMode('follow', false, 'image')).toBe('reference');
     expect(resolveBoundTargetMode('follow', false, 'video')).toBe('reference');
     expect(resolveBoundTargetMode('follow', false, 'text')).toBe('reference');
     expect(resolveBoundTargetMode('follow', false)).toBe('reference');
-    expect(resolveBoundTargetMode('follow', false, 'audio')).toBe('follow');
+    expect(resolveBoundTargetMode('follow', false, 'audio')).toBe('reference');
+    expect(resolveBoundTargetMode('follow', true, 'audio')).toBe('follow');
     expect(resolveBoundTargetMode('follow', true, 'image')).toBe('follow');
     expect(resolveBoundTargetMode('reference', true, 'image')).toBe(
       'reference'
@@ -570,6 +572,7 @@ describe('target-bound-taskbar-state', () => {
     expect(shouldUseBoundTargetForSubmission('image', 'reference')).toBe(false);
     expect(shouldUseBoundTargetForSubmission('video', 'follow')).toBe(true);
     expect(shouldUseBoundTargetForSubmission('audio', 'follow')).toBe(true);
+    expect(shouldUseBoundTargetForSubmission('audio', 'reference')).toBe(false);
     expect(shouldUseBoundTargetForSubmission('agent', 'follow')).toBe(false);
     expect(shouldUseBoundTargetForSubmission('text', 'follow')).toBe(true);
     expect(shouldUseBoundTargetForSubmission('text', 'reference')).toBe(false);

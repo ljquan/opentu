@@ -1,5 +1,84 @@
 # 文档批量生成 QA
 
+## 2026-10-07 PR 最终验证
+
+功能分支 `dev/batch-image-export-import` 已显式合并 `origin/develop`（`647e378d`），结果为 Already up to date，无冲突。本次仅包含画布批量出图改动。
+
+从 `packages/drawnix` 运行 `BATCH_XLSX_TEST_FILE='/Users/lkj/Downloads/批量生图测试.xlsx' pnpm exec vitest run --config vitest.config.ts src/utils/xlsx-embedded-images.test.ts src/utils/xlsx-image-export.test.ts src/utils/__tests__/canvas-insertion-layout.test.ts src/services/canvas-operations/canvas-insertion.test.ts src/utils/__tests__/model-selection.test.ts src/utils/__tests__/download-utils.test.ts`：6 文件、47 项通过，无跳过，包含原文件 9 张图片和画布布局回归。库 TypeScript、Web build-app、分支差异检查通过。此前两次测试命令因工作目录/配置路径不匹配未运行测试，修正后使用上述结果。
+
+QA 沿用本文件，使用说明和维护限制已包含在下方，不另建 DOC。未执行页面交互、真实供应商、Excel/WPS/Numbers 客户端视觉和超大图片压力验收；本地构建保留既有 Sass、动态导入和大 chunk 警告。无新增配置、依赖或迁移；旧在途任务可能仍按原参数自动插入，回滚代码时保留本地任务和图片数据。
+
+## 批量结果手动插入画布
+
+2026-10-06：新提交的画布批量图片任务设置 `autoInsertToCanvas: false`，生成结果留在工具预览和任务记录中。新增“插入选中图片”操作：按勾选任务行的顺序收集已完成图片，去除重复任务 ID，调用既有画布插入服务；每 5 张划为布局组并随视口换行，保留图片尺寸、提示词和 generationTaskId。无已完成图片或画布未就绪时禁用；插入期间使用同步锁和 loading，切换画布后阻止异步写入。失败沿用画布插入服务的错误提示和事务回滚行为。
+
+范围限制：只改变新提交批量任务参数，不修改其他工具/Workflow，也不改写已经提交的在途任务；在途旧任务仍可能依原参数自动插入。手动操作允许再次插入同一批图片，生成状态和下载结果不受影响。无需配置或迁移，此处同时记录使用说明，不另建 DOC。未执行页面操作、真实生图或 100 张图片压力验收。
+
+实际验证：库 TypeScript、Web build-app、`git diff --check` 通过；画布插入服务 9 项及布局 15 项既有回归通过（24 项），验证加载失败回滚、信息关联及网格布局；组件 ESLint 0 error、13 条既有 warning。既有服务回归不等同于新增按钮页面验收。人工检查：新批量生图完成后画布不新增图片，勾选有结果的行并点击插入后只有所选结果进入画布，无结果时按钮禁用。
+
+## 导出下载并发调整
+
+2026-10-06：按用户要求，导出图片读取由最多 4 个任务行调整为固定最多 8 个任务行（替代下方此前的 4 路记录）。每行内部仍顺序读取图片，保留打包前排序、失败来源记录和超时处理；不影响生图并发。调度回归测试断言 12 个工作项的峰值为 8。
+
+## OCR 审查问题修复
+
+2026-10-06：审查了画布批量出图当前未提交改动。修复混合 URL/内嵌图按参考图列排序、图片导出同步锁、缓存查找禁止联网后再由带超时的唯一请求获取、Safari 兼容 AbortController 超时、有界 4 并发、超长/失败来源分段写入明细页、XLSX 列宽上限及图片网格位置/宽高比例。无 `createImageBitmap` 时按用户确认的 1x1 元数据兼容回退，仍嵌入图片；TDesign 类型声明确认复选框 `onClick` 参数为 `{ e: MouseEvent }`，因此保留 `context.e.shiftKey`，OCR 对这一点的报告为误报。
+
+最终验证：设置 `BATCH_XLSX_TEST_FILE='/Users/lkj/Downloads/批量生图测试.xlsx'` 后运行 XLSX 导入/导出、模型选择和下载工具定向回归，4 文件 23 项通过（包括原文件 9 张图片、混合参考图列顺序、超长来源分段、有界并发、横竖图片比例及标准 XLSX 回读）。库 TypeScript 检查、`web:build-app` 和 `git diff --check` 通过；定向 ESLint 0 error、组件 13 条既有 warning。
+
+失败来源明细包含数据行、图片列、图片序号、来源分段和原因，可按序拼接还原源字符串；主表过长摘要会指向明细页，不中断全部导出。单张大小仍不限制；并发按最多 4 个任务行调度，各行图片顺序处理，打包前统一排序。图片超过一排按 13 列网格排列，缩小缩略图以适应 Excel 行高上限，原图字节保持完整。未执行页面、真实供应商、Safari 实机或 Excel/WPS/Numbers 视觉验收，未重新运行远程 OCR；修复依据本地代码、依赖类型和上述测试核对。无需配置、依赖或迁移，不另建 DOC。
+
+## 图标提示与新版 Excel 模板
+
+2026-10-06：下载模板、导入 Excel、批量导入图片、选择失败行、反选五个图标按钮提供即时悬浮说明及 aria-label；禁用的选择失败行按钮仍可悬浮查看原因。新版模板包含提示词、参数、参考图1-3、数量列，并增加填写说明工作表；导入端仍只读首个任务工作表。新增无媒体时 XLSX 规范化/自动换行处理，模板也使用同一工作簿处理器。定向 XLSX 结构/导入回归、类型检查、组件 ESLint 和 `git diff --check` 验证。
+
+本次验证：XLSX 导入/导出回归 6 项通过、原用户文件条件测试 1 项跳过；类型检查、Web build-app 构建、差异检查通过；组件 ESLint 0 error、13 条既有 warning。未执行页面悬浮、模板实际下载填写回导或 Excel 客户端视觉验收。
+
+## 选中行与全部导出
+
+2026-10-06：画布底部提供“导出选中行”和“导出全部”。未选中行时禁用选中导出；无任务时禁用全部导出，导出中两者均禁用。选中导出按当前表格顺序筛选，图片锚点、行高、列宽和完成提示基于导出子集重新计算，文件名增加 `-selected`。两种范围共用图片嵌入、自动换行和失败来源保留逻辑；空提示词行仍按所选范围保留，不自动去重。
+
+本次库 TypeScript 检查、`xlsx-image-export.test.ts` 4 项既有导出回归和 `git diff --check` 通过。未执行页面点击或 Excel 客户端验收；人工检查选中非连续行后导出只包含勾选行且顺序、图片对应正确，全部导出保留所有行。未新增配置、依赖或迁移，不另建 DOC。
+
+## 画布批量出图导出图片丢失修复
+
+2026-10-06：用户文件 `batch-image-export_20261006_1334.xlsx` 含 15 行任务，但 ZIP 包没有任何媒体/绘图资源。本地参考图被替换为占位符，结果图仅保留本地缓存地址。修复后仍保留当前任务表全部行，通过标准绘图关系把可读取图片嵌入参考图/预览图列，成功图片的单元格留空，不额外写入图片标记文字；读取失败保留原 URL 和失败原因，导出结束显示成功/失败数量。缓存优先读取，远程请求 60 秒超时；用户选择不限制单张图片大小。导入端按参考图列筛选锚点，结果预览不会作为参考图导入。旧文件中已丢失的图片不能仅凭占位符恢复，需从当前任务表重新导出。
+
+回归覆盖 XLSX 重开读取文字、标准媒体/关系/锚点、图片二进制、导出后按参考图列重新导入、Data URL 和远程失败。保留既有行数据和前序优化，不修改 Workflow。
+
+实际校验：设置 `BATCH_XLSX_TEST_FILE` 指向用户原始测试表，从 `packages/drawnix` 运行 `pnpm exec vitest run --config vitest.config.ts src/utils/xlsx-image-export.test.ts src/utils/xlsx-embedded-images.test.ts src/utils/__tests__/model-selection.test.ts src/utils/__tests__/download-utils.test.ts`，4 文件 21 项通过，包含非图片响应拒绝测试。`pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过；上述工具及组件定向 ESLint 为 0 error、组件 13 条既有 warning；`git diff --check` 通过。
+
+最终 `pnpm exec nx run web:build-app` 通过，输出有既有 Sass 弃用、混合动态/静态导入和大 chunk 警告，不代表 Excel 客户端视觉验收。
+
+尚未执行页面下载、Office/Numbers/WPS 视觉或超大图片压力验收。远程 CORS/签名过期、缓存资源丢失可能导致部分图片只保留来源；导出不会触发生图。不限制图片大小会增加内存和文件体积；导入仍沿用既有 50 MiB 文件及 25 MiB 单图片限制，大导出文件可能需要拆分后重新导入。无需新依赖、配置或迁移，此 QA 同时记录使用和维护边界，不另建 DOC。
+
+## 导出单元格自动换行
+
+2026-10-06：导出 XLSX 的单元格全部应用顶部对齐和自动换行；任务行高依照提示词/参数文本长度估算，同时维持图片行的展示高度，长文不再横向溢出或被固定行高裁切。导出 OOXML 测试断言 `wrapText=1` 并覆盖图片锚点同文件；`xlsx-image-export.test.ts` 4 项通过，TypeScript、构建和最终 `git diff --check` 通过。未执行 Excel/WPS/Numbers 页面视觉验收，行高是估算值，超长单元格最多 300pt。
+
+## 画布 Excel 内嵌图片漏导修复
+
+2026-10-06，工作目录 `/Users/lkj/Desktop/working/opentu3`：画布导入原先仅读取单元格文字/图片 URL，遗漏 XLSX 的浮动图片。现在沿工作簿、工作表、绘图关系定位 PNG/JPEG/GIF/WebP 图片，支持 oneCellAnchor/twoCellAnchor，按左上角的实际行号归属任务并按列从左到右排序。中间空行不会改变归属；同一行的图片全部导入为可持久化 Data URL；参考图1/2/3 等列里的文本链接也能读取。原有 Workflow 未修改。
+
+- 用户文件 `批量生图测试.xlsx` 解析回归通过：6 行分别得到 0、1、2、3、1、2 张参考图，共 9 张 PNG。
+- 从 `packages/drawnix` 执行 `BATCH_XLSX_TEST_FILE='/Users/lkj/Downloads/批量生图测试.xlsx' pnpm exec vitest run --config vitest.config.ts src/utils/xlsx-embedded-images.test.ts src/utils/__tests__/model-selection.test.ts src/utils/__tests__/download-utils.test.ts`：3 文件、17 项通过，覆盖相对/包内绝对关系路径、多图排序、双单元格锚点、缺失图片报错、空行物理行号及既有依赖回归。原文件回归需通过该环境变量提供文件，普通测试不依赖用户 Downloads 文件。
+- 库 TypeScript 检查及 `pnpm exec nx run web:build-app` 通过。定向 ESLint 无错误；组件保留 13 条既有 warning。`git diff --check` 通过。
+
+限制：仅当前导入的第一个工作表；图片归属按锚点左上角，跨行浮动图片需人工确认。WPS/Excel 扩展单元格图片及绝对锚点图片不在此支持范围，检测到时明确报错；图片关系缺失或格式不支持时整次导入失败，不写入部分任务。新增读取限制为文件 50 MiB、单 XML 5 MiB、单图片 25 MiB、图片总量 200 MiB。图片仍受现有本地存储容量约束。
+
+未执行页面交互、浏览器预览、真实供应商生成、生产或压力验收。人工验收：重新导入原文件，检查新增 6 行的参考图数量和顺序；此次修复不会自动补回之前已导入的行，确认后可删除旧行，避免重复生成。无需依赖安装、配置变更或数据迁移；QA 记录同时说明维护边界，不另建 DOC。
+
+## 画布批量出图交互优化
+
+2026-10-05：仅优化画布批量出图工具。工具栏按操作层级重新布局，增加选中行、待生成任务、排队/生成中、已完成和失败统计；生成、下载、删除、选择失败行等操作会根据当前数据状态启用或禁用，并在按钮上显示实际数量。表格在窄屏下保留最小可读宽度，选择列和序号列固定；补充表格、复选框和图标按钮的无障碍标签。保留原有任务队列、下载和画布插入逻辑，不涉及 Workflow。
+
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- `pnpm exec vitest run --config vitest.config.ts src/utils/__tests__/model-selection.test.ts src/utils/__tests__/download-utils.test.ts`（工作目录 `packages/drawnix`）：2 个文件、14 项通过。
+- `pnpm nx run web:build-app`：通过。
+- `git diff --check`：通过。
+
+未执行浏览器页面、视觉回归、真实供应商生成或下载验收；上述定向测试覆盖工具依赖的模型选择和下载工具回归，不等同于页面交互验收。人工验收应检查窄屏表格滚动、空提示词禁用生成、选中行数量显示、失败行重试和已完成图片下载。
+
 ## Excel 模板与格式提示
 
 增加下载模板及可变数量参考图填写说明；模板只包含可直接识别的标题/提示词/图片/数量列和一条需替换的示例。真实导入器回读模板验证通过，未产生行诊断。普通 metadata.xml 不再触发特殊图片误报，richData/cellimages 和 XLRICHVALUE 仍保留提示。XLSX 导入与模板定向测试共 13 项通过；工作流 TypeScript 和 diff 检查通过。未执行浏览器下载交互或页面测试。

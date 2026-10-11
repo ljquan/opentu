@@ -1,3 +1,24 @@
+## 1.1.25 (2026-10-10)
+
+### 🔧 Chores
+
+- 修复：统一画布目标设置并修正提示词浮层显示 (#296) ([92f60e74](https://github.com/ljquan/opentu/commit/92f60e74))
+- 优化：完善批量出图 Excel 导入导出与手动插入 (#294) ([b0388f40](https://github.com/ljquan/opentu/commit/b0388f40))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
+## 1.1.24 (2026-10-07)
+
+### 🚀 Features
+
+- 接入 Nano Banana 2.1 图片模型并修复参考图导入竞态 (#295) ([f89e6236](https://github.com/ljquan/opentu/commit/f89e6236))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.1.23 (2026-10-06)
 
 ### 🩹 Fixes
@@ -15,6 +36,10 @@
 - 李泓震 <3029956183@qq.com>
 
 ## Unreleased
+
+- [新增] 接入 Nano Banana 2.1，支持 Tuzi generateContent 路由、1K/2K/4K、14 种比例、Thinking 和最多 14 张参考图。
+- [修复] Nano Banana 2.1 在模型发现及已保存渠道中统一归为图片模型，避免出现在文本模型列表。
+- [修复] 图片工作台导入参考图时暂缓生成，避免上传未完成导致图生图请求遗漏参考图。
 
 ### 🩹 Fixes
 

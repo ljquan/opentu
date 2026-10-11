@@ -1,10 +1,9 @@
 {
-  "version": "1.1.23",
-  "buildTime": "2026-10-06T09:10:07.728Z",
+  "version": "1.1.25",
+  "buildTime": "2026-10-10T10:51:22.458Z",
   "gitCommit": "unknown",
   "changelog": [
-    "keep AI composer within the visible viewport (#292)",
-    "为 Image 2.5 添加高级参数 (#291)",
-    "补齐视频音频与文本生成详情 (#293)"
+    "优化：完善批量出图 Excel 导入导出与手动插入 (#294)",
+    "修复：统一画布目标设置并修正提示词浮层显示 (#296)"
   ]
 }

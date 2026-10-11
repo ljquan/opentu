@@ -402,6 +402,7 @@ function inferImageBindings(
   const isGPTImageCompatibleModel =
     isGptImageModel(model) ||
     (isTuziProfile(profile) && isTuziGPTImageLegacyAlias(model.id));
+  const isNanoBanana21 = model.id === 'gemini-nano-banana-2.1';
 
   if (isMidjourneyModel(model)) {
     bindings.push(
@@ -447,7 +448,10 @@ function inferImageBindings(
     );
   }
 
-  if (profile.providerType === 'gemini-compatible' && isGeminiImageModel) {
+  if (
+    (profile.providerType === 'gemini-compatible' && isGeminiImageModel) ||
+    (isTuziProfile(profile) && isNanoBanana21)
+  ) {
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'google.generateContent',
@@ -456,6 +460,9 @@ function inferImageBindings(
         submitPath: '/v1beta/models/{model}:generateContent',
         baseUrlStrategy: 'trim-v1',
         priority: 480,
+        ...(isNanoBanana21
+          ? { metadata: { image: { maxImageCount: 14 } } }
+          : {}),
         confidence: 'high',
         source: 'template',
       })
@@ -463,8 +470,9 @@ function inferImageBindings(
   }
 
   if (
-    profile.providerType === 'openai-compatible' ||
-    profile.providerType === 'custom'
+    (profile.providerType === 'openai-compatible' ||
+      profile.providerType === 'custom') &&
+    !(isTuziProfile(profile) && isNanoBanana21)
   ) {
     const genericPriority =
       profile.providerType === 'openai-compatible' ? 320 : 160;

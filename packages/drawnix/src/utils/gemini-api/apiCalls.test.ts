@@ -6,6 +6,7 @@ import {
   callApiWithRetry,
   callApiStreamRaw,
   callGoogleGenerateContentRaw,
+  normalizeGoogleImageResponse,
 } from './apiCalls';
 
 const { sendMock, analyticsMock, getCachedBlobMock } = vi.hoisted(() => ({
@@ -73,6 +74,40 @@ describe('callGoogleGenerateContentRaw', () => {
         }
       )
     );
+  });
+
+  it('maps Nano Banana 2.1 references and excludes thought images from final output', async () => {
+    sendMock.mockResolvedValue(Response.json({ candidates: [{ content: { parts: [
+      { thought: true, inlineData: { mimeType: 'image/png', data: 'THOUGHT' } },
+      { fileData: { mimeType: 'image/jpeg', fileUri: 'https://result.example/final.jpg' } },
+      { inlineData: { mimeType: 'image/jpeg', data: 'AAAA' } },
+    ] } }] }));
+    const result = await callGoogleGenerateContentRaw({
+      apiKey: 'test-key', baseUrl: 'https://api.tu-zi.com/v1',
+      modelName: 'gemini-nano-banana-2.1', protocol: 'google.generateContent', authType: 'bearer',
+      binding: {
+        id: 'nb21', profileId: 'tuzi', modelId: 'gemini-nano-banana-2.1', operation: 'image',
+        protocol: 'google.generateContent', requestSchema: 'google.generate-content.image-inline',
+        responseSchema: 'google.generate-content.parts', submitPath: '/v1beta/models/{model}:generateContent',
+        baseUrlStrategy: 'trim-v1', priority: 480, confidence: 'high', source: 'template',
+      },
+    }, [{ role: 'user', content: [
+      { type: 'text', text: 'edit' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } },
+    ] }], { stream: false, generationConfig: {
+      responseModalities: ['IMAGE'], imageConfig: { imageSize: '2K' }, thinkingConfig: { thinkingLevel: 'medium' },
+    } });
+    const [provider, request] = sendMock.mock.calls[0];
+    expect(provider.authType).toBe('bearer');
+    expect(request.path).toBe('/v1beta/models/gemini-nano-banana-2.1:generateContent');
+    expect(request.baseUrlStrategy).toBe('trim-v1');
+    expect(JSON.parse(request.body)).toMatchObject({
+      contents: [{ parts: [{ text: 'edit' }, { inline_data: { mime_type: 'image/jpeg', data: 'AAAA' } }] }],
+      generationConfig: { thinkingConfig: { thinkingLevel: 'medium' } },
+    });
+    expect(result.choices[0].message.content).toBe('https://result.example/final.jpg\ndata:image/jpeg;base64,AAAA');
+    expect(normalizeGoogleImageResponse({ candidates: [{ content: { parts: [
+      { thought: true, inlineData: { data: 'THOUGHT' } }, { inlineData: { data: 'AAAA' } },
+    ] } }] }).data).toEqual([{ b64_json: 'AAAA', mime_type: 'image/png' }]);
   });
 
   it('forwards AbortSignal through non-stream manual HTTP calls', async () => {

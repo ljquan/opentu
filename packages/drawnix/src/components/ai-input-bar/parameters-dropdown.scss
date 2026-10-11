@@ -84,6 +84,13 @@ $text-dark: #1f2937;
     &--flat {
       padding-bottom: 8px;
     }
+
+    @media (max-width: 600px) {
+      left: auto !important;
+      right: 12px;
+      width: min(320px, calc(100vw - 24px));
+      min-width: min(200px, calc(100vw - 24px));
+    }
   }
 
   @keyframes paramDropdownFadeIn {

@@ -388,6 +388,18 @@ export const IMAGE_MODEL_VIP_OPTIONS: ModelConfig[] = [
  */
 export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
   {
+    id: 'gemini-nano-banana-2.1',
+    label: 'gemini-nano-banana-2.1 (nano-banana-2.1)',
+    shortLabel: 'nano-banana-2.1',
+    shortCode: 'nb21',
+    description: 'Gemini Nano Banana 2.1 图片模型（1K/2K/4K）',
+    type: 'image',
+    vendor: ModelVendor.GEMINI,
+    supportsTools: false,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new', 'nano-banana-2.1'],
+  },
+  {
     id: 'gemini-3.1-flash-image-preview',
     label: 'gemini-3.1-flash-image-preview (nano-banana-2)',
     shortLabel: 'nano-banana-2',
@@ -2085,6 +2097,7 @@ const GPT_IMAGE_MODEL_IDS = [
 ];
 const MJ_IMAGE_MODEL_IDS = ['mj-imagine'];
 const GEMINI_31_FLASH_IMAGE_MODEL_IDS = ['gemini-3.1-flash-image-preview'];
+const GEMINI_NANO_BANANA_21_MODEL_ID = 'gemini-nano-banana-2.1';
 
 /** Gemini 图片模型 ID（支持完整尺寸） */
 const GEMINI_IMAGE_MODEL_IDS = IMAGE_MODELS.filter(
@@ -2094,7 +2107,9 @@ const GEMINI_IMAGE_MODEL_IDS = IMAGE_MODELS.filter(
     !MJ_IMAGE_MODEL_IDS.includes(m.id)
 ).map((m) => m.id);
 const GEMINI_IMAGE_MODEL_IDS_EXCLUDING_FLASH31 = GEMINI_IMAGE_MODEL_IDS.filter(
-  (id) => !GEMINI_31_FLASH_IMAGE_MODEL_IDS.includes(id)
+  (id) =>
+    !GEMINI_31_FLASH_IMAGE_MODEL_IDS.includes(id) &&
+    id !== GEMINI_NANO_BANANA_21_MODEL_ID
 );
 
 /** 所有图片模型 ID */
@@ -3102,7 +3117,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: GEMINI_IMAGE_MODEL_IDS_EXCLUDING_FLASH31,
     modelType: 'image',
   },
-  // Gemini 3.1 Flash 图片模型尺寸（支持扩展极端宽高比）
+  // Gemini 3.1 Flash / Nano Banana 2.1 图片模型尺寸（支持扩展极端宽高比）
   {
     id: 'size',
     label: '图片尺寸',
@@ -3127,7 +3142,10 @@ export const IMAGE_PARAMS: ParamConfig[] = [
       { value: '21x9', label: '21:9 超宽' },
     ],
     defaultValue: 'auto',
-    compatibleModels: GEMINI_31_FLASH_IMAGE_MODEL_IDS,
+    compatibleModels: [
+      ...GEMINI_31_FLASH_IMAGE_MODEL_IDS,
+      GEMINI_NANO_BANANA_21_MODEL_ID,
+    ],
     modelType: 'image',
   },
   // Seedream 图片模型尺寸（支持 8 种宽高比，label 显示具体像素）
@@ -3202,7 +3220,23 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: [
       'gemini-3.1-flash-image-preview',
       'gemini-3-pro-image-preview',
+      GEMINI_NANO_BANANA_21_MODEL_ID,
     ],
+    modelType: 'image',
+  },
+  {
+    id: 'thinking',
+    label: 'Thinking',
+    shortLabel: '思考',
+    description: '控制 Nano Banana 2.1 的思考级别',
+    valueType: 'enum',
+    options: [
+      { value: 'minimal', label: '最小' },
+      { value: 'medium', label: '标准' },
+      { value: 'high', label: '高' },
+    ],
+    defaultValue: 'medium',
+    compatibleModels: [GEMINI_NANO_BANANA_21_MODEL_ID],
     modelType: 'image',
   },
   {

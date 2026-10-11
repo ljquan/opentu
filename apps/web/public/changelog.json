@@ -1,6 +1,33 @@
 {
   "versions": [
     {
+      "version": "1.1.25",
+      "date": "2026-10-10",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复：统一画布目标设置并修正提示词浮层显示 (#296)",
+          "优化：完善批量出图 Excel 导入导出与手动插入 (#294)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
+      "version": "1.1.24",
+      "date": "2026-10-07",
+      "changes": {
+        "features": [
+          "接入 Nano Banana 2.1 图片模型并修复参考图导入竞态 (#295)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "接入 Nano Banana 2.1 图片模型并修复参考图导入竞态 (#295)"
+    },
+    {
       "version": "1.1.23",
       "date": "2026-10-06",
       "changes": {
@@ -957,32 +984,6 @@
       },
       "type": "patch",
       "highlights": "为绘图工具添加键盘快捷键调整大小功能"
-    },
-    {
-      "version": "0.9.5",
-      "date": "2026-05-06",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "修复蒙版画笔导出和预览样式问题"
-        ],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "修复蒙版画笔导出和预览样式问题"
-    },
-    {
-      "version": "0.9.4",
-      "date": "2026-05-06",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "Stop idle-prefetch retries from blocking SW updates"
-        ]
-      },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
     }
   ]
 }

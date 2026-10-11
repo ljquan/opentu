@@ -2296,6 +2296,30 @@ describe('provider routing', () => {
     );
   });
 
+  it('routes Nano Banana 2.1 on Tuzi to the exact Google generateContent path', () => {
+    const profile = {
+      id: 'provider-tuzi-nb21',
+      name: 'Tuzi',
+      providerType: 'openai-compatible' as const,
+      baseUrl: 'https://api.tu-zi.com/v1',
+      apiKey: 'key',
+      authType: 'bearer' as const,
+    };
+    const model: ModelConfig = {
+      id: 'gemini-nano-banana-2.1',
+      label: 'Nano Banana 2.1',
+      type: 'image',
+      vendor: ModelVendor.GEMINI,
+    };
+    const bindings = inferBindingsForProviderModel(profile, model);
+    expect(bindings).toHaveLength(1);
+    expect(bindings.find((binding) => binding.protocol === 'google.generateContent')).toMatchObject({
+      protocol: 'google.generateContent',
+      submitPath: '/v1beta/models/{model}:generateContent',
+      baseUrlStrategy: 'trim-v1',
+    });
+  });
+
   it('keeps third-party tuzi gemini image models on generateContent', () => {
     const profile = {
       id: 'provider-c',
