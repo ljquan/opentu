@@ -15,6 +15,13 @@ const swChannelMocks = vi.hoisted(() => ({
   publish: vi.fn(),
   clearAllCache: vi.fn(async () => ({ success: true })),
 }));
+const fidelityMocks = vi.hoisted(() => ({
+  readKeepOriginalImageEnabled: vi.fn(() => false),
+}));
+
+vi.mock('./reference-image-settings', () => ({
+  readKeepOriginalImageEnabled: fidelityMocks.readKeepOriginalImageEnabled,
+}));
 
 vi.mock('./sw-channel/client', () => ({
   swChannelClient: {
@@ -116,6 +123,7 @@ function failMetadataPutOnCall(callNumber: number): void {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
   swChannelMocks.isInitialized.mockReset().mockReturnValue(true);
   swChannelMocks.publish.mockReset();
   swChannelMocks.clearAllCache.mockReset().mockResolvedValue({ success: true });
@@ -123,6 +131,43 @@ afterEach(() => {
 
 afterAll(() => {
   vi.unstubAllGlobals();
+});
+
+describe('UnifiedCacheService reference fidelity', () => {
+  it.each([true, false])('uses the shared keepOriginal=%s preference for large local originals', async (keepOriginal) => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
+    const content = 'texture'.repeat(310_000);
+    const original = new Blob([content], { type: 'image/png' });
+    const compressed = new Blob(['small'], { type: 'image/jpeg' });
+    const url = '/__aitu_cache__/image/fabric.png';
+    vi.spyOn(unifiedCacheService, 'getCacheInfo').mockResolvedValue({ isCached: true, cachedAt: Date.now() });
+    vi.spyOn(unifiedCacheService, 'getCachedBlob').mockResolvedValue(original);
+    const compress = vi.spyOn(unifiedCacheService as unknown as { compressImage: (blob: Blob, quality: number) => Promise<Blob> }, 'compressImage').mockResolvedValue(compressed);
+
+    const image = await unifiedCacheService.getImageForAI(url);
+
+    if (keepOriginal) {
+      expect(image).toEqual({ type: 'base64', value: `data:image/png;base64,${btoa(content)}` });
+      expect(compress).not.toHaveBeenCalled();
+    } else {
+      expect(compress).toHaveBeenCalledWith(original, 0.85);
+      expect(image).toEqual({ type: 'base64', value: 'data:image/jpeg;base64,c21hbGw=' });
+    }
+  });
+
+  it('honors an explicit operation preference even if the shared value differs', async () => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
+    const original = new Blob([new Uint8Array(2 * 1024 * 1024 + 1)], { type: 'image/png' });
+    vi.spyOn(unifiedCacheService, 'getCacheInfo').mockResolvedValue({ isCached: true, cachedAt: Date.now() });
+    vi.spyOn(unifiedCacheService, 'getCachedBlob').mockResolvedValue(original);
+    const compress = vi.spyOn(unifiedCacheService as unknown as { compressImage: (blob: Blob, quality: number) => Promise<Blob> }, 'compressImage');
+
+    const image = await unifiedCacheService.getImageForAI('/__aitu_cache__/image/fabric.png', { keepOriginal: true });
+
+    expect(image.type).toBe('base64');
+    expect(image.value.startsWith('data:image/png;base64,')).toBe(true);
+    expect(compress).not.toHaveBeenCalled();
+  });
 });
 
 describe('UnifiedCacheService insecure LAN fallback', () => {

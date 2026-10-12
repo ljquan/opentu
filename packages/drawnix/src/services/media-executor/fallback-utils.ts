@@ -15,6 +15,7 @@ import {
 } from '@aitu/utils';
 import { getDataURL } from '../../data/blob';
 import { unifiedCacheService } from '../unified-cache-service';
+import { readKeepOriginalImageEnabled } from '../reference-image-settings';
 import { providerTransport } from '../provider-routing/provider-transport';
 import {
   AI_GENERATED_AUDIO_URL_PREFIX,
@@ -34,35 +35,44 @@ import {
 /** 参考图转 base64 时最大体积（1MB），避免请求体过大 */
 export const MAX_REFERENCE_IMAGE_BYTES = 1 * 1024 * 1024;
 
-/** 将 Blob 压缩到 1MB 以内再转 base64（仅图片类型） */
-export async function blobToBase64Under1MB(blob: Blob): Promise<string> {
+/** Convert reference bytes, applying size optimization only when allowed. */
+export async function blobToBase64ForAI(
+  blob: Blob,
+  keepOriginal = readKeepOriginalImageEnabled()
+): Promise<string> {
   let target = blob;
-  if (blob.type.startsWith('image/') && blob.size > MAX_REFERENCE_IMAGE_BYTES) {
+  if (
+    !keepOriginal &&
+    blob.type.startsWith('image/') &&
+    blob.size > MAX_REFERENCE_IMAGE_BYTES
+  ) {
     target = await compressImageBlob(blob, 1);
   }
   return getDataURL(target);
 }
 
-/** 确保图片为 base64 数据（API 要求），且体积控制在 1MB 内 */
+/** Ensure Base64 transport while honoring the reference-image fidelity preference. */
 export async function ensureBase64ForAI(
   imageData: { type: string; value: string },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  keepOriginal = readKeepOriginalImageEnabled()
 ): Promise<string> {
   const value = imageData.value;
   if (value.startsWith('data:')) {
+    if (keepOriginal) return value;
     const base64Part = value.slice(value.indexOf(',') + 1);
     const estimatedBytes = (base64Part.length * 3) / 4;
     if (estimatedBytes <= MAX_REFERENCE_IMAGE_BYTES) return value;
     const res = await fetch(value, { signal });
     const blob = await res.blob();
-    return blobToBase64Under1MB(blob);
+    return blobToBase64ForAI(blob, keepOriginal);
   }
   if (value.startsWith('http://') || value.startsWith('https://')) {
     const res = await fetch(value, { signal, referrerPolicy: 'no-referrer' });
     if (!res.ok)
       throw new Error(`Failed to fetch reference image: ${res.status}`);
     const blob = await res.blob();
-    return blobToBase64Under1MB(blob);
+    return blobToBase64ForAI(blob, keepOriginal);
   }
   return value;
 }
@@ -89,6 +99,7 @@ export async function materializeReferenceImagesSequentially(
   referenceImages: readonly string[],
   options?: MaterializeReferenceImagesOptions
 ): Promise<string[]> {
+  const keepOriginal = readKeepOriginalImageEnabled();
   const materialized: string[] = [];
   for (const url of referenceImages) {
     assertReferenceMaterializationActive(options);
@@ -97,9 +108,15 @@ export async function materializeReferenceImagesSequentially(
       continue;
     }
 
-    const imageData = await unifiedCacheService.getImageForAI(url);
+    const imageData = await unifiedCacheService.getImageForAI(url, {
+      keepOriginal,
+    });
     assertReferenceMaterializationActive(options);
-    const base64 = await ensureBase64ForAI(imageData, options?.signal);
+    const base64 = await ensureBase64ForAI(
+      imageData,
+      options?.signal,
+      keepOriginal
+    );
     assertReferenceMaterializationActive(options);
     materialized.push(base64);
   }

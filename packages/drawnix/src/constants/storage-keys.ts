@@ -37,6 +37,8 @@ export const LS_KEYS = {
   AI_VIDEO_AUTO_INSERT: 'aitu_video_auto_insert_canvas',
   /** 底部 AI 输入栏参数偏好 */
   AI_INPUT_PREFERENCES: 'aitu_ai_input_preferences',
+  /** Skip optional lossy compression for reference images. */
+  AI_KEEP_ORIGINAL_IMAGE_ENABLED: 'aitu_ai_keep_original_image_enabled',
   /** 生成目标任务栏关闭提示累计次数 */
   AI_BOUND_TARGET_DISMISS_HINT_COUNT: 'aitu_ai_bound_target_dismiss_hint_count',
   /** 生成目标任务栏是否跟随目标位置 */
