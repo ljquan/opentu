@@ -13,10 +13,16 @@ import {
 import {
   resetTuziSessionProviderSyncCache,
   syncTuziSessionProviders,
+  getLocalTuziSyncFailure,
 } from './tuzi-session-provider-sync';
 import { getTuziProviderGroupSelection } from './tuzi-provider-selection';
+import { isLocalTuziSession, getTuziSystemUserId } from './tuzi-token-auth';
 
 export function canResumeTuziRequest(expectedUserId?: string): boolean {
+  if (!isTuziBridgeConnected() && isLocalTuziSession()) {
+    return (!expectedUserId || expectedUserId === getTuziSystemUserId()) &&
+      Boolean(getTuziProviderGroupSelection(getTuziSystemUserId())?.length);
+  }
   if (!isTuziBridgeConnected()) return true;
   const current = getTuziBridgeContext();
   return (
@@ -41,6 +47,20 @@ export async function prepareTuziManagedRoute(
   const embedded = isTuziBridgeConnected();
   if (route.apiKey && !managedRoute) {
     return { context: null, managedRoute: false, requiresSetup: false };
+  }
+
+  if (!embedded && isLocalTuziSession()) {
+    const userId = getTuziSystemUserId();
+    const synchronized = await syncTuziSessionProviders({ discoverModels: false });
+    const failure = getLocalTuziSyncFailure();
+    if (!synchronized && failure) throw failure;
+    const groups = getTuziProviderGroupSelection(userId) || [];
+    const ready = synchronized && isLocalTuziSession() && getTuziSystemUserId() === userId && groups.length > 0;
+    return {
+      context: ready ? { environment: 'tuzi-api', status: 'ready', userId, groups: groups.map(group => ({ group, displayName: group })) } : null,
+      managedRoute,
+      requiresSetup: !ready,
+    };
   }
 
   let context = await requestTuziParentContext({

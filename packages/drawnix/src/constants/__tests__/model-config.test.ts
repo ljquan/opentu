@@ -13,6 +13,16 @@ import {
 import { getVideoModelConfig } from '../video-model-config';
 
 describe('model-config image size options', () => {
+  it('exposes Suno v6 versions and defaults to balanced v6', () => {
+    const mv = getCompatibleParams('suno_music').find((param) => param.id === 'mv');
+    expect(mv?.defaultValue).toBe('chirp-v6');
+    expect(mv?.options).toEqual([
+      { value: 'chirp-v6', label: 'v6（默认，均衡）' },
+      { value: 'chirp-v6-wild', label: 'v6 Wild（风格更奔放）' },
+      { value: 'chirp-v6-mini', label: 'v6 Mini（更快）' },
+    ]);
+  });
+
   it('exposes Nano Banana 2.1 supported ratios, tiers and isolated Thinking', () => {
     expect(getStaticModelConfig('gemini-nano-banana-2.1')).toMatchObject({
       shortCode: 'nb21', type: 'image', vendor: ModelVendor.GEMINI,

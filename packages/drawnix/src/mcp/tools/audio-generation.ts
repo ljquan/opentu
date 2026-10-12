@@ -211,7 +211,7 @@ export const audioGenerationTool: MCPTool = {
       mv: {
         type: 'string',
         description:
-          'Suno 版本字段，如 chirp-v5-5、chirp-v5、chirp-v4-5、chirp-v4、chirp-v3-5',
+          'Suno 版本字段：chirp-v6（默认）、chirp-v6-wild 或 chirp-v6-mini',
       },
       continueClipId: {
         type: 'string',

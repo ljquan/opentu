@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   resetTuziSessionProviderSyncCache,
   syncTuziSessionProviders,
+  getLocalTuziSyncFailure,
 } from '../tuzi-session-provider-sync';
 
 const {
@@ -11,6 +12,9 @@ const {
   getProfiles,
   getSystemUserId,
   getProviderGroupSelection,
+  localSession,
+  embeddedMode,
+  getAccount,
 } = vi.hoisted(() => ({
   ensureManagedProviders: vi.fn(),
   synchronizeTuziManagedProviders: vi.fn(),
@@ -18,6 +22,9 @@ const {
   getProfiles: vi.fn(),
   getSystemUserId: vi.fn(),
   getProviderGroupSelection: vi.fn(),
+  localSession: vi.fn(),
+  embeddedMode: vi.fn(),
+  getAccount: vi.fn(),
 }));
 
 vi.mock('../tuzi-provider-reuse-state', () => ({
@@ -25,9 +32,10 @@ vi.mock('../tuzi-provider-reuse-state', () => ({
   resetTuziProviderVerification: vi.fn(),
 }));
 vi.mock('../tuzi-embedded-config', () => ({
-  isTuziEmbeddedMode: () => true,
+  isTuziEmbeddedMode: embeddedMode,
 }));
 vi.mock('../tuzi-token-auth', () => ({
+  isLocalTuziSession: localSession,
   hasTuziSystemToken: () => true,
   getTuziSystemToken: () => 'test-system',
   getTuziSystemUserId: getSystemUserId,
@@ -42,7 +50,7 @@ vi.mock('../tuzi-session-api', () => ({
       super(message);
     }
   },
-  TuziSessionApiClient: vi.fn(() => ({ ensureManagedProviders })),
+  TuziSessionApiClient: vi.fn(() => ({ ensureManagedProviders, getAccount })),
 }));
 vi.mock('../tuzi-managed-providers', () => ({
   synchronizeTuziManagedProviders,
@@ -58,6 +66,9 @@ vi.mock('../../utils/settings-manager', () => ({
 describe('syncTuziSessionProviders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    embeddedMode.mockReturnValue(true);
+    localSession.mockReturnValue(false);
+    getAccount.mockResolvedValue({ id: 1 });
     resetTuziSessionProviderSyncCache();
     getSystemUserId.mockReturnValue('1');
     getProviderGroupSelection.mockReturnValue(['default']);
@@ -65,6 +76,17 @@ describe('syncTuziSessionProviders', () => {
     ensureManagedProviders.mockResolvedValue([]);
     synchronizeTuziManagedProviders.mockResolvedValue(undefined);
     discoverChangedTuziProviderModels.mockResolvedValue(undefined);
+  });
+
+  it('verifies the local account before synchronizing and rejects mismatched identity', async () => {
+    embeddedMode.mockReturnValue(false);
+    localSession.mockReturnValue(true);
+    getAccount.mockResolvedValue({ id: 2 });
+    await expect(syncTuziSessionProviders()).resolves.toBe(false);
+    expect(ensureManagedProviders).not.toHaveBeenCalled();
+    getAccount.mockResolvedValue({ id: 1 });
+    await expect(syncTuziSessionProviders()).resolves.toBe(true);
+    expect(getAccount).toHaveBeenCalledTimes(2);
   });
 
   it("does not reuse another account's managed groups when no choice exists", async () => {
@@ -176,6 +198,41 @@ describe('syncTuziSessionProviders', () => {
     expect(synchronizeTuziManagedProviders).not.toHaveBeenCalled();
     await expect(syncTuziSessionProviders()).resolves.toBe(true);
     expect(ensureManagedProviders).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses verified local providers during a temporary failure and retries the sync', async () => {
+    embeddedMode.mockReturnValue(false);
+    localSession.mockReturnValue(true);
+    const clock = vi.spyOn(Date, 'now');
+    try {
+      clock.mockReturnValue(1_000);
+      await expect(syncTuziSessionProviders()).resolves.toBe(true);
+      clock.mockReturnValue(62_000);
+      ensureManagedProviders.mockRejectedValueOnce(new Error('timeout'));
+      await expect(syncTuziSessionProviders()).resolves.toBe(true);
+      expect(getAccount).toHaveBeenCalledOnce();
+      expect(getLocalTuziSyncFailure()?.message).toBe('timeout');
+      await expect(syncTuziSessionProviders()).resolves.toBe(true);
+      expect(ensureManagedProviders).toHaveBeenCalledTimes(3);
+      expect(getLocalTuziSyncFailure()).toBeUndefined();
+    } finally { clock.mockRestore(); }
+  });
+
+  it('does not allow verified providers after explicit local authentication rejection', async () => {
+    embeddedMode.mockReturnValue(false);
+    localSession.mockReturnValue(true);
+    const clock = vi.spyOn(Date, 'now');
+    try {
+      clock.mockReturnValue(1_000);
+      await syncTuziSessionProviders();
+      clock.mockReturnValue(62_000);
+      const { TuziSessionApiError } = await import('../tuzi-session-api');
+      ensureManagedProviders.mockRejectedValueOnce(new TuziSessionApiError('TOKEN_INVALID', 'invalid'));
+      await expect(syncTuziSessionProviders()).resolves.toBe(false);
+      expect(getLocalTuziSyncFailure()).toBeUndefined();
+      getAccount.mockRejectedValueOnce(new Error('timeout'));
+      await expect(syncTuziSessionProviders()).resolves.toBe(false);
+    } finally { clock.mockRestore(); }
   });
   it('does not apply an old response after adding a group invalidates the sync', async () => {
     let resolveProviders!: (providers: unknown[]) => void;

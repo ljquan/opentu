@@ -60,16 +60,18 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
 }
 
-export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
+export async function hydrateCanvasImages(nodes: CanvasNodeData[], deferOriginals = false) {
     return Promise.all(
         nodes.map(async (node) => {
             const metadata = node.metadata;
             const content = metadata?.content;
+            if (deferOriginals && metadata?.storageKey) return node;
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && metadata?.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, content) } };
             if (node.type !== CanvasNodeType.Image || !metadata || !content) return node;
             const images = await Promise.all(
                 (metadata.images || []).map(async (image) => {
                     if (!image.content) return image;
+                    if (deferOriginals && image.storageKey) return image;
                     void ensureImagePreview(image.storageKey);
                     return { ...image, content: await resolveImageUrl(image.storageKey, image.content) };
                 }),
@@ -84,8 +86,9 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     );
 }
 
-export async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
+export async function hydrateAssistantImages(sessions: CanvasAssistantSession[], deferOriginals = false) {
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
+        if (deferOriginals && item.storageKey) return item;
         if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
         if (item.dataUrl?.startsWith("data:image/")) {
             const image = await uploadImage(item.dataUrl);

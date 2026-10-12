@@ -17,10 +17,10 @@ vi.mock('@/pages/video', () => ({ default: () => <div>Video</div> }));
 afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); });
 
 describe('workflow nested routes', () => {
-    it('updates state on push, replace and popstate without changing the URL', () => {
+    it('updates state on push, replace and popstate without changing the URL', async () => {
         window.history.replaceState({ usr: { project: 'first' } }, '', '/workflow/image');
         render(<WorkflowRouter />);
-        expect(screen.getByText('Images first')).toBeTruthy();
+        expect(await screen.findByText('Images first')).toBeTruthy();
         act(() => navigateWorkflow('/workflow/image', false, { project: 'second' }));
         expect(screen.getByText('Images second')).toBeTruthy();
         act(() => navigateWorkflow('/workflow/image', true, { project: 'third' }));
@@ -31,23 +31,23 @@ describe('workflow nested routes', () => {
         });
         expect(screen.getByText('Images first')).toBeTruthy();
     });
-    it('keeps links, route params and navigation state in shared browser history', () => {
+    it('keeps links, route params and navigation state in shared browser history', async () => {
         window.history.replaceState({ workflowReturnUrl: '/?board=a' }, '', '/workflow');
         render(<WorkflowRouter />);
-        expect(screen.getByRole('link', { name: 'Open project' }).getAttribute('href')).toBe('/workflow/canvas/project-a');
+        expect((await screen.findByRole('link', { name: 'Open project' })).getAttribute('href')).toBe('/workflow/canvas/project-a');
         fireEvent.click(screen.getByRole('link', { name: 'Open project' }));
-        expect(screen.getByText('Project project-a')).toBeTruthy();
+        expect(await screen.findByText('Project project-a')).toBeTruthy();
         expect(window.location.pathname).toBe('/workflow/canvas/project-a');
         fireEvent.click(screen.getByRole('link', { name: 'Images' }));
-        expect(screen.getByText('Images project-a')).toBeTruthy();
+        expect(await screen.findByText('Images project-a')).toBeTruthy();
         expect(window.history.state.workflowReturnUrl).toBe('/?board=a');
     });
-    it('opens deep URLs and follows host navigation and popstate', () => {
+    it('opens deep URLs and follows host navigation and popstate', async () => {
         window.history.replaceState(null, '', '/workflow/canvas/existing');
         render(<WorkflowRouter />);
-        expect(screen.getByText('Project existing')).toBeTruthy();
+        expect(await screen.findByText('Project existing')).toBeTruthy();
         act(() => navigateWorkflow('/workflow/video'));
-        expect(screen.getByText('Video')).toBeTruthy();
+        expect(await screen.findByText('Video')).toBeTruthy();
         act(() => {
             window.history.replaceState(null, '', '/workflow/canvas/existing');
             window.dispatchEvent(new PopStateEvent('popstate'));

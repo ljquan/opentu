@@ -36,6 +36,9 @@ import {
   waitForMediaCacheOperations,
 } from './task-queue/media-cache-epoch';
 import { clearThumbnailCache } from './task-queue/utils/thumbnail-utils';
+import { trimVideoMemoryCache } from './video-memory-cache';
+import { cacheCompletedImage, trimCompletedImages } from './completed-image-cache';
+import { mayRemovePreviousStaticCaches } from './static-cache-retention';
 import { getSafeErrorMessage } from './task-queue/utils/sanitize-utils';
 import {
   shouldBypassAppShellCacheForLazyChunkRecovery,
@@ -431,6 +434,7 @@ const pendingImageRequests = new Map<string, PendingRequestEntry>();
 interface CompletedRequestEntry {
   response: Response;
   timestamp: number;
+  bytes?: number;
 }
 const completedImageRequests = new Map<string, CompletedRequestEntry>();
 // 已完成请求的缓存保留时间（30秒）
@@ -459,11 +463,6 @@ interface VideoCacheEntry {
 // 视频缓存：存储已下载的完整视频Blob，用于快速响应Range请求
 const videoBlobCache = new Map<string, VideoCacheEntry>();
 
-// ==================== 视频 Blob 缓存清理配置 ====================
-// 视频 Blob 缓存 TTL（5 分钟）- 超过此时间的视频 Blob 会被清理
-const VIDEO_BLOB_CACHE_TTL = 5 * 60 * 1000;
-// 视频 Blob 缓存最大数量 - 超过此数量时删除最老的
-const VIDEO_BLOB_CACHE_MAX_SIZE = 10;
 
 // 域名故障标记：记录已知失败的域名
 const failedDomains = new Set<string>();
@@ -2933,7 +2932,16 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
         // console.log('Old caches will be cleaned up after clients are updated');
 
         // 延迟 30 秒后清理旧缓存，给所有客户端足够时间刷新
-        setTimeout(async () => {
+        const cleanPreviousCaches = async () => {
+          try {
+            if (!await mayRemovePreviousStaticCaches(sw.clients)) {
+              setTimeout(cleanPreviousCaches, 30000);
+              return;
+            }
+          } catch {
+            setTimeout(cleanPreviousCaches, 30000);
+            return;
+          }
           // console.log('Cleaning up old version caches now...');
           for (const cacheName of [...oldStaticCaches, ...oldAppCaches]) {
             try {
@@ -2944,7 +2952,8 @@ sw.addEventListener('activate', (event: ExtendableEvent) => {
             }
           }
           // console.log('Old version caches cleanup completed');
-        }, 30000); // 30秒延迟
+        };
+        setTimeout(cleanPreviousCaches, 30000);
       }
 
       // console.log(`Service Worker v${APP_VERSION} activated`);
@@ -4152,7 +4161,30 @@ function markUrlAsFailed(url: string): void {
   failedUrlCache.set(url, Date.now());
 }
 
+async function cleanPreviousCachesOnNavigation(enteringClientId: string) {
+  if (!await mayRemovePreviousStaticCaches(sw.clients, enteringClientId)) return;
+  const state = await readVersionState();
+  const retained = new Set([
+    CACHE_NAME, IMAGE_CACHE_NAME, STATIC_CACHE_NAME,
+    getStaticCacheName(state.committedVersion || APP_VERSION),
+  ]);
+  if (state.pendingVersion) retained.add(getStaticCacheName(state.pendingVersion));
+  for (const name of await caches.keys()) {
+    if (!retained.has(name) &&
+        (name.startsWith('drawnix-static-v') || name.startsWith('drawnix-v'))) {
+      await caches.delete(name);
+    }
+  }
+}
+
 sw.addEventListener('fetch', (event: FetchEvent) => {
+  // Timers disappear when an idle worker is stopped. A fresh navigation retries
+  // cleanup while retaining every cache needed by other open pages.
+  if (event.request.mode === 'navigate' && event.resultingClientId) {
+    event.waitUntil(cleanPreviousCachesOnNavigation(event.resultingClientId).catch(error => {
+      console.warn('Failed to clean previous version caches on navigation:', error);
+    }));
+  }
   const url = new URL(event.request.url);
   const startTime = Date.now();
 
@@ -5311,6 +5343,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
     }
 
     // 检查是否已有缓存的视频Blob（内存缓存）
+    trimVideoMemoryCache(videoBlobCache);
     if (videoBlobCache.has(dedupeKey)) {
       const cacheEntry = videoBlobCache.get(dedupeKey);
       if (cacheEntry) {
@@ -5338,6 +5371,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
             blob: videoBlob,
             timestamp: Date.now(),
           });
+          trimVideoMemoryCache(videoBlobCache);
           // console.log(`Service Worker [Video-${requestId}]: 视频已恢复到内存缓存`);
         }
 
@@ -5383,6 +5417,7 @@ async function handleVideoRequest(request: Request): Promise<Response> {
               blob: videoBlob,
               timestamp: Date.now(),
             });
+            trimVideoMemoryCache(videoBlobCache);
             // 2. 持久化到 Cache API（用于跨会话持久化）
             try {
               const cache = await caches.open(IMAGE_CACHE_NAME);
@@ -5971,39 +6006,13 @@ function withTimeout<T>(
 
 // 清理过期的视频 Blob 缓存
 function cleanupVideoBlobCache(): void {
-  const now = Date.now();
-  const staleKeys: string[] = [];
-
-  // 1. 清理过期的视频（超过 TTL）
-  videoBlobCache.forEach((entry, key) => {
-    if (now - entry.timestamp > VIDEO_BLOB_CACHE_TTL) {
-      staleKeys.push(key);
-    }
-  });
-
-  if (staleKeys.length > 0) {
-    // console.log(`Service Worker: 清理 ${staleKeys.length} 个过期的视频 Blob 缓存`);
-    staleKeys.forEach((key) => videoBlobCache.delete(key));
-  }
-
-  // 2. 如果仍超过最大数量，删除最老的
-  if (videoBlobCache.size > VIDEO_BLOB_CACHE_MAX_SIZE) {
-    const entries = Array.from(videoBlobCache.entries()).sort(
-      (a, b) => a[1].timestamp - b[1].timestamp
-    );
-    const toDeleteCount = videoBlobCache.size - VIDEO_BLOB_CACHE_MAX_SIZE;
-    const toDelete = entries.slice(0, toDeleteCount);
-
-    if (toDelete.length > 0) {
-      // console.log(`Service Worker: 视频缓存超过上限，清理 ${toDelete.length} 个最老的缓存`);
-      toDelete.forEach(([key]) => videoBlobCache.delete(key));
-    }
-  }
+  trimVideoMemoryCache(videoBlobCache);
 }
 
 // 清理过期的 pending 请求和已完成请求缓存
 function cleanupStaleRequests(): void {
   const now = Date.now();
+  trimCompletedImages(completedImageRequests, now);
 
   // 清理过期的 pending 请求
   const stalePendingKeys: string[] = [];
@@ -6193,10 +6202,7 @@ async function handleImageRequest(request: Request): Promise<Response> {
           response.ok &&
           isMediaCacheEpochCurrent(requestCacheEpoch)
         ) {
-          completedImageRequests.set(dedupeKey, {
-            response: response.clone(),
-            timestamp: Date.now(),
-          });
+          cacheCompletedImage(completedImageRequests, dedupeKey, response);
           // console.log(`Service Worker [${requestId}]: 请求成功，存入已完成缓存:`, dedupeKey);
         }
       })

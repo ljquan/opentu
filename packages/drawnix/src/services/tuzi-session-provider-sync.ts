@@ -7,6 +7,7 @@ import {
   getTuziSystemToken,
   getTuziSystemUserId,
   hasTuziSystemToken,
+  isLocalTuziSession,
 } from './tuzi-token-auth';
 import { synchronizeTuziManagedProviders } from './tuzi-managed-providers';
 import { TuziSessionApiClient, TuziSessionApiError } from './tuzi-session-api';
@@ -32,19 +33,33 @@ let lastSuccessfulToken = '';
 let activeSyncDiscoversModels = false;
 let lastSuccessfulDiscoveredModels = false;
 let syncRevision = 0;
+let verifiedLocalUserId = '';
+let verifiedLocalToken = '';
+let localSyncFailure: { userId: string; token: string; error: Error } | undefined;
 const SYNC_CACHE_TTL_MS = 60_000;
+
+export function getLocalTuziSyncFailure(): Error | undefined {
+  return localSyncFailure?.userId === getTuziSystemUserId() &&
+    localSyncFailure.token === getTuziSystemToken() ? localSyncFailure.error : undefined;
+}
 
 export function resetTuziSessionProviderSyncCache(): void {
   syncRevision += 1;
   lastSuccessfulSyncAt = 0;
   lastSuccessfulUserId = '';
   lastSuccessfulToken = '';
+  verifiedLocalUserId = '';
+  verifiedLocalToken = '';
+  localSyncFailure = undefined;
 }
 
 export function syncTuziSessionProviders(options?: {
   discoverModels?: boolean;
 }): Promise<boolean> {
-  if (!isTuziEmbeddedMode() || !hasTuziSystemToken())
+  if (
+    !hasTuziSystemToken() ||
+    (!isTuziEmbeddedMode() && !isLocalTuziSession())
+  )
     return Promise.resolve(false);
   const currentUserId = getTuziSystemUserId();
   const currentToken = getTuziSystemToken();
@@ -96,9 +111,22 @@ export function syncTuziSessionProviders(options?: {
     currentToken === getTuziSystemToken() &&
     hasTuziSystemToken();
   activeSync = (async () => {
+    localSyncFailure = undefined;
     try {
       await settingsManager.waitForInitialization();
       if (!isCurrentAccount()) return false;
+      if (isLocalTuziSession() &&
+          (verifiedLocalUserId !== currentUserId || verifiedLocalToken !== currentToken)) {
+        const account = await new TuziSessionApiClient().getAccount();
+        if (!isCurrentAccount()) return false;
+        if (String(account.id) !== currentUserId) {
+          verifiedLocalUserId = '';
+          verifiedLocalToken = '';
+          return false;
+        }
+        verifiedLocalUserId = currentUserId;
+        verifiedLocalToken = currentToken;
+      }
       const userId = getTuziSystemUserId();
       const selectedGroups: string[] | null | undefined = userId
         ? getTuziProviderGroupSelection(userId)
@@ -147,6 +175,10 @@ export function syncTuziSessionProviders(options?: {
           error.code
         );
       if (shouldClear) {
+        verifiedLocalUserId = '';
+        verifiedLocalToken = '';
+        lastSuccessfulUserId = '';
+        lastSuccessfulToken = '';
         try {
           await synchronizeTuziManagedProviders([]);
         } catch (clearError) {
@@ -157,7 +189,16 @@ export function syncTuziSessionProviders(options?: {
         }
       }
       console.warn('[Tuzi] Failed to synchronize Session providers:', error);
-      return false;
+      if (!shouldClear && isLocalTuziSession()) localSyncFailure = {
+        userId: currentUserId, token: currentToken,
+        error: error instanceof Error ? error : new Error('Tuzi 同步失败，请稍后重试'),
+      };
+      // A transport failure does not invalidate the same verified account and
+      // unchanged providers. Leave the sync uncached so the next call retries.
+      return !shouldClear && isLocalTuziSession() &&
+        verifiedLocalUserId === currentUserId && verifiedLocalToken === currentToken &&
+        lastSuccessfulUserId === currentUserId && lastSuccessfulToken === currentToken &&
+        lastSuccessfulProfileSignature === signature();
     } finally {
       activeSync = null;
       activeSyncUserId = '';

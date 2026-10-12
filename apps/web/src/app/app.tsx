@@ -20,6 +20,8 @@ import {
   requestServiceWorkerIdlePrefetch,
   MessagePlugin,
   hasTuziSystemToken,
+  importLocalTuziCredentials,
+  isLocalTuziSession,
   isTuziEmbeddedMode,
   syncTuziSessionProvidersOnStartup,
 } from '@drawnix/drawnix/runtime';
@@ -31,6 +33,8 @@ import type {
 } from '@plait/core';
 import { ErrorFallbackUI, safeModeReload, goToDebug } from './ErrorBoundary';
 import { collectAndDownloadErrorLog } from '../utils/error-log-exporter';
+
+importLocalTuziCredentials();
 
 const Drawnix = lazy(() =>
   import('@drawnix/drawnix').then((module) => ({
@@ -94,7 +98,7 @@ function updateBootStatus(options: { progress?: number; tip?: string }): void {
 let tuziStartupPromise: Promise<boolean> | null = null;
 
 function shouldWaitForTuziStartup(): boolean {
-  return isTuziEmbeddedMode() && hasTuziSystemToken();
+  return (isTuziEmbeddedMode() || isLocalTuziSession()) && hasTuziSystemToken();
 }
 
 function getTuziStartupPromise(): Promise<boolean> | null {
@@ -314,6 +318,7 @@ export function App() {
   // Initialize workspace and handle migration
   useEffect(() => {
     const initialize = async () => {
+      importLocalTuziCredentials();
       // 检查是否需要显示崩溃恢复对话框
       if (
         crashRecoveryService.shouldShowSafeModePrompt() &&

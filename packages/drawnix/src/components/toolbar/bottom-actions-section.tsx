@@ -11,6 +11,7 @@ import { ToolButton } from '../tool-button';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import type { Task } from '../../types/task.types';
 import { FeedbackButton } from '../feedback-button/feedback-button';
+import { CanvasResourcesButton } from './canvas-resources-button';
 import { FolderIcon, ToolboxIcon, TaskIcon, TrashIcon } from '../icons';
 import './bottom-actions-section.scss';
 
@@ -64,6 +65,7 @@ export interface BottomActionsSectionProps {
   onTaskPanelToggle: () => void;
   /** 是否显示本地数据清理入口（仅桌面端） */
   showLocalDataClear?: boolean;
+  showResources?: boolean;
 }
 
 export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
@@ -74,6 +76,7 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
   taskPanelExpanded,
   onTaskPanelToggle,
   showLocalDataClear = false,
+  showResources = true,
 }) => {
   const { activeTasks, completedTasks, failedTasks } = useTaskQueue();
   const [acknowledgedFailedAt, setAcknowledgedFailedAt] =
@@ -113,6 +116,7 @@ export const BottomActionsSection: React.FC<BottomActionsSectionProps> = ({
 
   return (
     <div className="bottom-actions-section">
+      {showResources && <CanvasResourcesButton />}
       {/* 反馈按钮 */}
       <FeedbackButton />
 

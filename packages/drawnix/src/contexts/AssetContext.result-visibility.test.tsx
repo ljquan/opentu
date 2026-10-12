@@ -1,4 +1,5 @@
 import { render, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssetProvider, useAssets } from './AssetContext';
 import { AssetType, type Asset } from '../types/asset.types';
@@ -50,16 +51,27 @@ vi.mock('../services/task-queue', () => ({
 
 vi.mock('../stores/asset-map-store', () => ({
   setGlobalAssetMap: mocks.setGlobalAssetMap,
+  registerAssetMapLoader: vi.fn(() => () => undefined),
 }));
 
 let renderedAssets: Asset[] = [];
 
 function AssetProbe() {
-  renderedAssets = useAssets().assets;
+  const { assets, loadAssets } = useAssets();
+  renderedAssets = assets;
+  useEffect(() => { void loadAssets(); }, [loadAssets]);
   return null;
 }
 
 describe('AssetContext result visibility', () => {
+  it('initializes storage without scanning assets when there is no consumer', async () => {
+    const view = render(<AssetProvider><span>Canvas</span></AssetProvider>);
+    await waitFor(() => expect(mocks.initializeAudioPlaylist).toHaveBeenCalled());
+    expect(mocks.getAllAssets).not.toHaveBeenCalled();
+    expect(mocks.getAllCachedMedia).not.toHaveBeenCalled();
+    expect(mocks.getAssetTasks).not.toHaveBeenCalled();
+    view.unmount();
+  });
   beforeEach(() => {
     renderedAssets = [];
     mocks.cleanup.mockReset();

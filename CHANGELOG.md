@@ -1,3 +1,25 @@
+## 1.1.27 (2026-10-11)
+
+### 🔧 Chores
+
+- 修复：适配Suno 音乐版本更新v6 (#301) ([9de2aba9](https://github.com/ljquan/opentu/commit/9de2aba9))
+- 优化：优化浏览器资源生命周期与本地账户兼容 (#300) ([5d61a6bb](https://github.com/ljquan/opentu/commit/5d61a6bb))
+- 修复：生成失败卡片与后续任务重叠 (#298) ([8163c24c](https://github.com/ljquan/opentu/commit/8163c24c))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
+## 1.1.26 (2026-10-11)
+
+### 🚀 Features
+
+- add canvas resources and API key support QR codes (#299) ([f01d117f](https://github.com/ljquan/opentu/commit/f01d117f))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.1.25 (2026-10-10)
 
 ### 🔧 Chores

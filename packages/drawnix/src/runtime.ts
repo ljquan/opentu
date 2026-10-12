@@ -27,7 +27,11 @@ export { memoryMonitorService } from './services/memory-monitor-service';
 export { swChannelClient } from './services/sw-channel/client';
 export { unifiedLogService } from './services/unified-log-service';
 export { MessagePlugin } from './utils/message-plugin';
-export { hasTuziSystemToken } from './services/tuzi-token-auth';
+export {
+  hasTuziSystemToken,
+  importLocalTuziCredentials,
+  isLocalTuziSession,
+} from './services/tuzi-token-auth';
 export { isTuziEmbeddedMode } from './services/tuzi-embedded-config';
 export async function syncTuziSessionProvidersOnStartup(): Promise<boolean> {
   const { syncTuziSessionProviders } = await import(

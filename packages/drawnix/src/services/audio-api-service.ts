@@ -735,7 +735,7 @@ function resolveVersionValue(params: AudioGenerationParams): string {
   const requestedVersion =
     params.mv ||
     (typeof params.params?.mv === 'string' ? params.params.mv : undefined) ||
-    'chirp-v3-5';
+    'chirp-v6';
 
   const continueSource =
     typeof params.params?.continueSource === 'string'

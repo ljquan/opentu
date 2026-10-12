@@ -10,7 +10,9 @@ export function isWorkZoneElement(element: any): element is PlaitWorkZone {
   return element && element.type === 'workzone';
 }
 
-export function getWorkZoneRenderScale(element: PlaitWorkZone): number {
+export function getWorkZoneRenderScale(
+  element: Pick<PlaitWorkZone, 'zoom'>
+): number {
   return Number.isFinite(element.zoom) && element.zoom > 0
     ? 1 / element.zoom
     : 1;

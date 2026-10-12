@@ -46,6 +46,7 @@ class WorkspaceService {
   private boardMetadata: Map<string, BoardMetadata> = new Map();
   /** 存储已加载完整数据的画板（含 elements），按需加载 */
   private loadedBoards: Map<string, Board> = new Map();
+  private unsavedBoards: Map<string, object> = new Map();
   /** @deprecated 保留用于向后兼容，实际使用 boardMetadata */
   private boards: Map<string, Board> = new Map();
   private state: WorkspaceState;
@@ -299,6 +300,7 @@ class WorkspaceService {
         this.boards.delete(board.id);
         this.boardMetadata.delete(board.id);
         this.loadedBoards.delete(board.id);
+        this.unsavedBoards.delete(board.id);
         await workspaceStorageService.deleteBoard(board.id);
         this.emit('boardDeleted', board);
       }));
@@ -544,6 +546,7 @@ class WorkspaceService {
     this.boards.delete(id);
     this.boardMetadata.delete(id);
     this.loadedBoards.delete(id);
+    this.unsavedBoards.delete(id);
     await workspaceStorageService.deleteBoard(id);
     this.emit('boardDeleted', board);
   }
@@ -872,20 +875,7 @@ class WorkspaceService {
       this.boards.set(boardId, board);
 
       // LRU 淘汰：最多保留 3 个已加载画板（当前 + 最近 2 个）
-      const MAX_LOADED_BOARDS = 3;
-      if (this.loadedBoards.size > MAX_LOADED_BOARDS) {
-        for (const [id] of this.loadedBoards) {
-          if (id !== boardId && id !== this.state.currentBoardId) {
-            this.loadedBoards.delete(id);
-            // boards Map 保留空 elements 的元数据版本
-            const meta = this.boardMetadata.get(id);
-            if (meta) {
-              this.boards.set(id, { ...meta, elements: [] } as Board);
-            }
-            if (this.loadedBoards.size <= MAX_LOADED_BOARDS) break;
-          }
-        }
-      }
+      this.trimLoadedBoards(boardId);
     }
 
     // Save current board before switching
@@ -919,6 +909,8 @@ class WorkspaceService {
     // Update cache
     this.loadedBoards.set(boardId, board);
     this.boards.set(boardId, board);
+    this.unsavedBoards.delete(boardId);
+    this.trimLoadedBoards(boardId);
     
     // Update metadata
     const { elements, ...metadata } = board;
@@ -937,7 +929,7 @@ class WorkspaceService {
 
   async saveBoard(boardId: string, data: BoardChangeData): Promise<void> {
     // 优先从已加载的画板获取
-    let board = this.loadedBoards.get(boardId) || this.boards.get(boardId);
+    const board = this.loadedBoards.get(boardId) || this.boards.get(boardId);
     if (!board) throw new Error(`Board ${boardId} not found`);
 
     board.elements = data.children;
@@ -957,7 +949,11 @@ class WorkspaceService {
       metadata.updatedAt = board.updatedAt;
     }
 
+    const saveToken = {};
+    this.unsavedBoards.set(boardId, saveToken);
     await workspaceStorageService.saveBoard(board);
+    if (this.unsavedBoards.get(boardId) === saveToken) this.unsavedBoards.delete(boardId);
+    this.trimLoadedBoards(boardId);
     
     // 触发 boardUpdated 事件，让同步引擎感知变更
     // 注意：之前这里没有 emit，导致画布变更不会触发自动同步
@@ -1041,6 +1037,8 @@ class WorkspaceService {
       // 缓存加载的画板
       this.loadedBoards.set(boardId, board);
       this.boards.set(boardId, board);
+
+      this.trimLoadedBoards(boardId);
       
       return !board.elements || board.elements.length === 0;
     } catch (error) {
@@ -1264,6 +1262,16 @@ class WorkspaceService {
     });
   }
 
+  private trimLoadedBoards(protectedId: string) {
+    for (const [id] of this.loadedBoards) {
+      if (this.loadedBoards.size <= 3) break;
+      if (id === protectedId || id === this.state.currentBoardId || this.unsavedBoards.has(id)) continue;
+      this.loadedBoards.delete(id);
+      const metadata = this.boardMetadata.get(id);
+      if (metadata) this.boards.set(id, { ...metadata, elements: [] } as Board);
+    }
+  }
+
   /**
    * 获取所有画板元数据（不含 elements）
    */
@@ -1298,6 +1306,7 @@ class WorkspaceService {
       this.boardMetadata = new Map(boardMetadata.map((b) => [b.id, b]));
       // 清空已加载的画板缓存，下次访问时重新加载
       this.loadedBoards.clear();
+      this.unsavedBoards.clear();
       // 向后兼容
       this.boards = new Map(boardMetadata.map((b) => [b.id, { ...b, elements: [] } as Board]));
       this.state = state;

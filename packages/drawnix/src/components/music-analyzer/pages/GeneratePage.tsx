@@ -103,7 +103,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
   const [knowledgeContextRefs, setKnowledgeContextRefs] = useState<
     KnowledgeContextRef[]
   >([]);
-  const [mv, setMv] = useState('chirp-v5-5');
+  const [mv, setMv] = useState('chirp-v6');
   const [batchCount, setBatchCount] = useState(1);
   const [selectedModel, setSelectedModelState] = useState(
     () =>

@@ -1,4 +1,5 @@
 import { workflowRoot } from "@/integration/workflow-dom";
+import { useStoredMedia } from '@/hooks/use-stored-media';
 import { forwardRef, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent, TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
@@ -281,8 +282,9 @@ function MentionMenu({ textarea, caretIndex, references, activeIndex, theme, onS
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
-    if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+    const source = useStoredMedia(reference.kind === 'image' || reference.kind === 'video' ? reference.storageKey : undefined, reference.previewUrl, reference.kind === 'video' ? 'video' : 'image', true);
+    if (reference.kind === "image" && source) return <img src={source} alt="" className="size-9 rounded-md object-cover" />;
+    if (reference.kind === "video" && source) return <video src={source} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
     const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
     return (
         <span className="grid size-9 shrink-0 place-items-center rounded-md bg-black/10">

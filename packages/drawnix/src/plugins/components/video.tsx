@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import classNames from 'classnames';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
+import { Play } from 'lucide-react';
+import { RetryImage } from '../../components/retry-image';
 
 export interface VideoItem {
   url: string;
@@ -15,15 +17,32 @@ export interface VideoProps {
   isFocus?: boolean;
   isSelected?: boolean;
   readonly?: boolean;
+  visible?: boolean;
 }
 
 export const Video: React.FC<VideoProps> = (props) => {
   // A new source needs a fresh player, including its loading/error state.
   const url = props.videoItem.url?.replace('#video', '') || '';
-  return <VideoPlayer key={url} {...props} url={url} />;
+  const [playingSource, setPlayingSource] = useState<string>();
+  const [activatedSource, setActivatedSource] = useState<string>();
+  return props.visible === false && playingSource !== url && activatedSource !== url ? (
+    <div style={{ width: '100%', height: '100%', background: '#000' }} />
+  ) : (
+    <VideoPlayer key={url} {...props} url={url}
+      onActivated={(active) => setActivatedSource((current) =>
+        active ? url : current === url ? undefined : current)}
+      onPlaybackChange={(playing) => {
+        setPlayingSource((current) => playing ? url : current === url ? undefined : current);
+        if (!playing) setActivatedSource((current) => current === url ? undefined : current);
+      }} />
+  );
 };
 
-const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
+const VideoPlayer: React.FC<VideoProps & {
+  url: string;
+  onActivated: (active: boolean) => void;
+  onPlaybackChange: (playing: boolean) => void;
+}> = (props) => {
   const {
     videoItem,
     url,
@@ -32,6 +51,9 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
     readonly = false,
   } = props;
   const { poster } = videoItem;
+  const [activated, setActivated] = useState(!poster);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playOnLoad = useRef(false);
   const fallbackBlobUrlRef = useRef<string | null>(null);
   const fallbackAttemptedRef = useRef(false);
   const fallbackPendingRef = useRef(false);
@@ -41,7 +63,18 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
   const [playbackUrl, setPlaybackUrl] = useState(url);
 
   useEffect(() => {
+    if (videoRef.current && !videoRef.current.getAttribute('src')) videoRef.current.src = url;
     return () => {
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch {
+          // Continue releasing owned URLs even if the media element is detached.
+        }
+      }
       // Ignore pending cache reads after this source is removed.
       loadAttemptRef.current += 1;
       if (fallbackBlobUrlRef.current) {
@@ -49,7 +82,7 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
         fallbackBlobUrlRef.current = null;
       }
     };
-  }, []);
+  }, [url]);
 
   const handleVideoError = async () => {
     if (fallbackPendingRef.current) return;
@@ -82,6 +115,7 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
     if (attempt === loadAttemptRef.current) {
       setIsLoading(false);
       setVideoError(true);
+      props.onActivated(false);
     }
   };
 
@@ -108,6 +142,30 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
     borderRadius: '4px',
     overflow: 'hidden',
   };
+
+  if (!activated && poster) {
+    return (
+      <button type="button" aria-label="播放视频" data-slideshow-media-control="true"
+        onPointerDown={stopCanvasPropagation} onPointerUp={stopCanvasPropagation}
+        onClick={() => {
+          if (readonly) window.open(url, '_blank');
+          else {
+            playOnLoad.current = true;
+            props.onActivated(true);
+            setActivated(true);
+          }
+        }}
+        style={{ ...containerStyle, display: 'block', padding: 0, border: 0, cursor: 'pointer' }}
+      >
+        <RetryImage src={poster} alt="" showSkeleton={false}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        <Play size={32} aria-hidden="true" style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)', color: '#fff',
+        }} />
+      </button>
+    );
+  }
 
   if (videoError) {
     return (
@@ -171,6 +229,7 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
         </div>
       )}
       <video
+        ref={(video) => { if (video) videoRef.current = video; }}
         data-slideshow-media-control="true"
         src={playbackUrl || undefined}
         poster={poster}
@@ -179,6 +238,7 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
         controls={!readonly}
         muted
         playsInline
+        preload="metadata"
         draggable={false}
         className={classNames('video-origin', {
           'video-origin--focus': isFocus,
@@ -194,7 +254,20 @@ const VideoPlayer: React.FC<VideoProps & { url: string }> = (props) => {
         onLoadedData={() => {
           setIsLoading(false);
           setVideoError(false);
+          if (playOnLoad.current) {
+            playOnLoad.current = false;
+            const attempt = loadAttemptRef.current;
+            void videoRef.current?.play().catch(() => {
+              if (attempt === loadAttemptRef.current) props.onActivated(false);
+            });
+          } else {
+            props.onActivated(false);
+          }
         }}
+        onLoadedMetadata={() => setIsLoading(false)}
+        onPlay={() => props.onPlaybackChange(true)}
+        onPause={() => props.onPlaybackChange(false)}
+        onEnded={() => props.onPlaybackChange(false)}
         onError={handleVideoError}
       />
       {readonly && (

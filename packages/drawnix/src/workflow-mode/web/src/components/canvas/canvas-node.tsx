@@ -4,8 +4,8 @@ import { ChevronRight, Copy, Download, Group, Image as ImageIcon, LoaderCircle, 
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
-import { pickImageSource } from "@/lib/image-thumbnail";
-import { previewUrlFor, subscribeImagePreviews, getImagePreviewRevision } from "@/services/image-storage";
+import { useStoredMedia, useStoredImage } from '@/hooks/use-stored-media';
+import { subscribeImagePreviews, getImagePreviewRevision } from "@/services/image-storage";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -20,6 +20,7 @@ type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
 
 type CanvasNodeProps = {
+    onPlaybackChange?: (nodeId: string, playing: boolean) => void;
     data: CanvasNodeData;
     scale: number;
     isSelected: boolean;
@@ -86,6 +87,7 @@ type NodeContentRendererProps = {
 };
 
 export const CanvasNode = React.memo(function CanvasNode({
+    onPlaybackChange,
     data,
     scale,
     isSelected,
@@ -299,6 +301,10 @@ export const CanvasNode = React.memo(function CanvasNode({
     return (
         <div
             data-node-id={data.id}
+            onPlayCapture={() => onPlaybackChange?.(data.id, true)}
+            onPauseCapture={() => onPlaybackChange?.(data.id, false)}
+            onEndedCapture={() => onPlaybackChange?.(data.id, false)}
+            onErrorCapture={(event) => { if (event.target instanceof HTMLMediaElement) onPlaybackChange?.(data.id, false); }}
             className={`node-element group/node absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
             style={{
                 transform: `translate(${data.position.x}px, ${data.position.y}px)`,
@@ -713,6 +719,7 @@ function EmptyImageContent({ theme }: NodeContentRendererProps) {
 
 function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
     const { t } = useTranslation();
+    const source = useStoredMedia(node.metadata?.storageKey, node.metadata?.content, 'video');
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
@@ -720,11 +727,12 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">{t("canvas.node.emptyVideo")}</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
+    return <video src={source} preload="metadata" controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
     const { t } = useTranslation();
+    const source = useStoredMedia(node.metadata?.storageKey, node.metadata?.content, 'audio');
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: theme.node.placeholder }}>
@@ -738,7 +746,7 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
                 <Music2 className="size-4 shrink-0" />
                 <span className="truncate">{t("canvas.node.audio")}</span>
             </div>
-            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+            <audio src={source} preload="metadata" controls className="w-full" data-canvas-no-zoom />
         </div>
     );
 }
@@ -775,18 +783,7 @@ function ImageContent({
     const primaryImageId = node.metadata?.primaryImageId || images[0]?.id;
     const primaryImage = images.find((image) => image.id === primaryImageId);
     const primaryContent = primaryImage?.content || node.metadata?.content;
-    const primaryPreviewUrl = previewUrlFor(primaryImage?.storageKey || node.metadata?.storageKey);
-    const primarySource = primaryContent
-        ? pickImageSource({
-              previewUrl: primaryPreviewUrl,
-              originalUrl: primaryContent,
-              naturalWidth: primaryImage?.naturalWidth || node.metadata?.naturalWidth,
-              naturalHeight: primaryImage?.naturalHeight || node.metadata?.naturalHeight,
-              renderedWidth: node.width,
-              renderedHeight: node.height,
-              scale,
-          })
-        : undefined;
+    const { source: primarySource, onError: onPrimaryError } = useStoredImage(primaryImage?.storageKey || node.metadata?.storageKey, primaryContent, Math.max(node.width, node.height) * scale * (window.devicePixelRatio || 1) <= 768);
 
     return (
         <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded}>
@@ -799,6 +796,7 @@ function ImageContent({
                 {primaryContent ? (
                     <img
                         src={primarySource}
+                        onError={onPrimaryError}
                         alt={node.title}
                         draggable={false}
                         onDragStart={(event) => event.preventDefault()}
@@ -839,6 +837,7 @@ function ImageContent({
 function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, onDuplicate, onDownload, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; scale: number; onView: () => void; onSetPrimary: () => void; onDuplicate: () => void; onDownload: () => void; onRetry: () => void; onDelete: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
+    const { source, onError } = useStoredImage(image.storageKey, image.content, Math.max(node.width, node.height) * scale * (window.devicePixelRatio || 1) <= 768);
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision);
     const count = node.metadata?.images?.length || 0;
     const columns = Math.min(count, 4);
@@ -849,17 +848,6 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
     const row = Math.floor(slot / columns);
     const x = column * (node.width + 18);
     const y = (row - rows + 1) * (node.height + 18);
-    const source = image.content
-        ? pickImageSource({
-              previewUrl: previewUrlFor(image.storageKey),
-              originalUrl: image.content,
-              naturalWidth: image.naturalWidth,
-              naturalHeight: image.naturalHeight,
-              renderedWidth: node.width,
-              renderedHeight: node.height,
-              scale,
-          })
-        : undefined;
 
     return (
         <div
@@ -886,7 +874,7 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
                 onView();
             }}
         >
-            {image.content ? <img src={source} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
+            {image.content ? <img src={source} onError={onError} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
             {image.content ? (
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/node:pointer-events-auto group-hover/node:opacity-100">
                     <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownload())}>

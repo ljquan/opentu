@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useStoredMedia } from '@/hooks/use-stored-media';
+import { useStoredReferences } from '@/hooks/use-stored-references';
 import { Popover } from "antd";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -32,7 +34,8 @@ export function AgentChatPromptInput({ value, disabled, placeholder, theme, onCh
     const skills = useAgentSkillStore((state) => state.skills);
     const skillsLoading = useAgentSkillStore((state) => state.loading);
     const selectedSkill = useAgentSkillStore((state) => state.selectedSkill);
-    const canvasReferences = useAgentStore((state) => state.canvasReferences);
+    const originalReferences = useAgentStore((state) => state.canvasReferences);
+    const canvasReferences = useStoredReferences(originalReferences);
     const [command, setCommand] = useState<ComposerCommand | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [resourceCandidates, setResourceCandidates] = useState<CanvasResourceReference[]>([]);
@@ -60,7 +63,14 @@ export function AgentChatPromptInput({ value, disabled, placeholder, theme, onCh
 
     useEffect(() => {
         const editor = editorRef.current;
-        if (!editor || document.activeElement === editor && value === lastEmittedRef.current) return;
+        if (!editor || composingRef.current) return;
+        if (document.activeElement === editor && value === lastEmittedRef.current) {
+            editor.querySelectorAll<HTMLElement>('[data-node-id]').forEach(chip => {
+                const reference = canvasReferences.find(item => item.nodeId === chip.dataset.nodeId);
+                if (reference) chip.replaceChildren(...Array.from(createReferenceToken(reference, theme).childNodes));
+            });
+            return;
+        }
         editor.replaceChildren(...tokens.map((token) => {
             if (token.type === "text") return document.createTextNode(token.value);
             return token.type === "skill"
@@ -270,7 +280,8 @@ function AgentCommandMenu({ command, candidates, activeIndex, loading, theme, on
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
+    const source = useStoredMedia(reference.kind === 'image' ? reference.storageKey : undefined, reference.previewUrl, 'image', true);
+    if (reference.kind === "image" && source) return <img src={source} alt="" className="size-9 rounded-md object-cover" />;
     const Icon = canvasReferenceIcon(reference.kind);
     return <span className="grid size-9 shrink-0 place-items-center"><Icon className="size-4" /></span>;
 }

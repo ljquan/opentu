@@ -31,97 +31,104 @@ describe('audio-api-service', () => {
     vi.resetModules();
   });
 
-  it('polls Suno tasks when submit returns the task id as data string', async () => {
-    const taskId = '01f7e7fd-8d57-4305-a3e5-fcc7e2783956';
-    const sendMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ code: 'success', data: taskId }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            task_id: taskId,
-            action: 'MUSIC',
-            status: 'SUCCESS',
-            data: [
-              {
-                id: 'clip-1',
-                clip_id: 'clip-1',
-                title: 'Starry',
-                status: 'complete',
-                batch_index: 0,
-                audio_url: 'https://cdn1.suno.ai/clip-1.mp3',
-              },
-            ],
-          }),
-          {
+  it.each([undefined, 'chirp-v6', 'chirp-v6-wild', 'chirp-v6-mini'])(
+    'polls Suno tasks and submits the selected version %s',
+    async (mv) => {
+      const taskId = '01f7e7fd-8d57-4305-a3e5-fcc7e2783956';
+      const sendMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ code: 'success', data: taskId }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
-          }
+          })
         )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              task_id: taskId,
+              action: 'MUSIC',
+              status: 'SUCCESS',
+              data: [
+                {
+                  id: 'clip-1',
+                  clip_id: 'clip-1',
+                  title: 'Starry',
+                  status: 'complete',
+                  batch_index: 0,
+                  audio_url: 'https://cdn1.suno.ai/clip-1.mp3',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        );
+
+      vi.doMock('../provider-routing', async () => {
+        const actual = await vi.importActual<object>('../provider-routing');
+        return {
+          ...actual,
+          resolveInvocationPlanFromRoute: () => null,
+          providerTransport: {
+            ...(actual as { providerTransport: object }).providerTransport,
+            send: sendMock,
+          },
+        };
+      });
+
+      vi.doMock('../../utils/settings-manager', () => ({
+        providerPricingCacheSettings: { get: () => null, update: vi.fn() },
+        resolveInvocationRoute: () => ({
+          profileId: 'runtime',
+          profileName: 'Runtime',
+          providerType: 'custom',
+          baseUrl: 'https://api.tu-zi.com/v1',
+          apiKey: 'test-key',
+          authType: 'bearer',
+        }),
+      }));
+
+      const { audioAPIService, extractAudioGenerationResult } = await import(
+        '../audio-api-service'
       );
 
-    vi.doMock('../provider-routing', async () => {
-      const actual = await vi.importActual<object>('../provider-routing');
-      return {
-        ...actual,
-        resolveInvocationPlanFromRoute: () => null,
-        providerTransport: {
-          ...(actual as { providerTransport: object }).providerTransport,
-          send: sendMock,
+      const result = await audioAPIService.generateAudioWithPolling(
+        {
+          model: 'suno_music',
+          prompt: 'write a heavy metal song',
+          mv,
         },
-      };
-    });
+        {
+          interval: 1,
+          maxAttempts: 2,
+        }
+      );
 
-    vi.doMock('../../utils/settings-manager', () => ({
-      providerPricingCacheSettings: { get: () => null, update: vi.fn() },
-      resolveInvocationRoute: () => ({
-        profileId: 'runtime',
-        profileName: 'Runtime',
-        providerType: 'custom',
-        baseUrl: 'https://api.tu-zi.com/v1',
-        apiKey: 'test-key',
-        authType: 'bearer',
-      }),
-    }));
-
-    const { audioAPIService, extractAudioGenerationResult } = await import(
-      '../audio-api-service'
-    );
-
-    const result = await audioAPIService.generateAudioWithPolling(
-      {
-        model: 'suno_music',
-        prompt: 'write a heavy metal song',
-      },
-      {
-        interval: 1,
-        maxAttempts: 2,
-      }
-    );
-
-    expect(sendMock).toHaveBeenCalledTimes(2);
-    expect(sendMock.mock.calls[0]?.[1]).toMatchObject({
-      path: '/suno/submit/music',
-      baseUrlStrategy: 'trim-v1',
-      method: 'POST',
-    });
-    expect(sendMock.mock.calls[1]?.[1]).toMatchObject({
-      path: `/suno/fetch/${taskId}`,
-      baseUrlStrategy: 'trim-v1',
-      method: 'GET',
-    });
-    expect(result.taskId).toBe(taskId);
-    expect(result.clips[0]?.audio_url).toBe('https://cdn1.suno.ai/clip-1.mp3');
-    const extracted = extractAudioGenerationResult(result);
-    expect(extracted.providerTaskId).toBe(taskId);
-    expect(extracted.primaryClipId).toBe('clip-1');
-    expect(extracted.clipIds).toEqual(['clip-1']);
-  });
+      expect(sendMock).toHaveBeenCalledTimes(2);
+      expect(sendMock.mock.calls[0]?.[1]).toMatchObject({
+        path: '/suno/submit/music',
+        baseUrlStrategy: 'trim-v1',
+        method: 'POST',
+      });
+      expect(JSON.parse(sendMock.mock.calls[0]?.[1].body)).toMatchObject({
+        mv: mv ?? 'chirp-v6',
+      });
+      expect(sendMock.mock.calls[1]?.[1]).toMatchObject({
+        path: `/suno/fetch/${taskId}`,
+        baseUrlStrategy: 'trim-v1',
+        method: 'GET',
+      });
+      expect(result.taskId).toBe(taskId);
+      expect(result.clips[0]?.audio_url).toBe('https://cdn1.suno.ai/clip-1.mp3');
+      const extracted = extractAudioGenerationResult(result);
+      expect(extracted.providerTaskId).toBe(taskId);
+      expect(extracted.primaryClipId).toBe('clip-1');
+      expect(extracted.clipIds).toEqual(['clip-1']);
+    }
+  );
 
   it('fails early when task id is empty instead of querying an invalid fetch path', async () => {
     const sendMock = vi.fn().mockResolvedValueOnce(

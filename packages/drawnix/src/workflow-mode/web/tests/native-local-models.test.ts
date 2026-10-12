@@ -125,9 +125,9 @@ describe("OpenTu complete local model parameters", () => {
             }),
         );
         vi.stubGlobal("fetch", fetcher);
-        const result = await requestAudioGeneration(configFor("suno_music", "audio", { sunoAction: "music", mv: "chirp-v5", title: "Title", tags: "jazz", instrumental: "true" }), "test");
+        const result = await requestAudioGeneration(configFor("suno_music", "audio", { sunoAction: "music", mv: "chirp-v6", title: "Title", tags: "jazz", instrumental: "true" }), "test");
         expect(fetcher.mock.calls[0][0]).toBe("https://local-provider.example/suno/submit/music");
-        expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ mv: "chirp-v5", title: "Title", tags: "jazz", make_instrumental: true });
+        expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ mv: "chirp-v6", title: "Title", tags: "jazz", make_instrumental: true });
         expect(result).toEqual({ kind: "audio", clips: ["https://result.example/a.mp3", "https://result.example/b.mp3"] });
     });
     it("validates invalid image settings before network calls", async () => {
