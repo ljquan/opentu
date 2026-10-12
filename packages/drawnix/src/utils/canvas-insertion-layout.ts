@@ -151,7 +151,8 @@ export function getViewportAwareCardWidth(
   ratio = 0.5
 ): number {
   const { width } = getViewportCanvasMetrics(board);
-  return Math.max(1, Math.round(width * ratio));
+  // Limit line length on wide canvases and when zoomed out.
+  return Math.max(1, Math.min(720, Math.round(width * ratio)));
 }
 
 function mergeFlowBounds(
