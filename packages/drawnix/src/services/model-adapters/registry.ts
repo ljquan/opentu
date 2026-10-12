@@ -179,6 +179,12 @@ export function resolveAdapterForInvocation(
   );
 
   if (plan) {
+    // Persisted discovery data can still advertise the unverified Flux task path.
+    if (kind === 'image' && plan.binding.modelId === 'flux-3-image' &&
+        isTuziCompatibleBaseUrl(plan.provider.baseUrl)) {
+      const flux3 = findImageAdapterBySchema('tuzi.image.flux-3-generation-json');
+      if (flux3) return flux3;
+    }
     const adapter = resolveAdapterForBinding(plan.binding, kind);
     if (adapter) {
       return adapter;

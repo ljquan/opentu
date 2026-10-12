@@ -1,5 +1,26 @@
 # 浏览器打开体验与内存优化：QA / 维护说明
 
+## 2026-10-11 普通画布图片加载回退
+
+用户反馈刷新后普通画布图片显示占位块，必须点击或等待可见性处理才加载。当前已恢复普通画布图片挂载即加载原始 URL/缓存的行为：不依赖 IntersectionObserver、不使用透明占位图，也不要求选择图片。工作流媒体按需读取、视频播放释放、Service Worker 缓存预算和 Tuzi 设置性能改动均保留。
+
+本次自动验证：Drawnix 图片及相关 5 个测试文件共 43 项通过，Tuzi 同步、路由门控和鉴权 3 个测试文件共 30 项通过，合计 73 项。覆盖普通画布图片自动加载、缓存命中与失败回退、换源、视频封面、RetryImage、资源可见性、公共工具和 Tuzi 暂时失败/明确鉴权拒绝的兼容行为。Drawnix 类型检查和 `git diff --check` 通过。
+
+macOS、现有依赖，自动测试使用模拟缓存、媒体和 Tuzi API，未读取真实账户或发起生成请求。复现命令：
+
+```sh
+cd packages/drawnix
+NODE_OPTIONS=--no-experimental-webstorage npx vitest run --config vitest.config.ts src/plugins/components/image.loading.test.tsx src/plugins/components/video.test.tsx src/components/retry-image.test.tsx src/contexts/AssetContext.result-visibility.test.tsx src/utils/__tests__/common.test.ts
+NODE_OPTIONS=--no-experimental-webstorage npx vitest run --config vitest.config.ts src/services/__tests__/tuzi-session-provider-sync.test.ts src/services/__tests__/tuzi-managed-route-gate.test.ts src/services/__tests__/tuzi-token-auth.test.ts
+cd ../..
+npx tsc -p packages/drawnix/tsconfig.lib.json --noEmit
+git diff --check
+```
+
+未执行浏览器页面测试、完整生产构建、真实内存采样、升级矩阵和生产部署验证。当前环境无 OpenSpec 可执行文件，`npx openspec validate optimize-browser-startup-memory --strict --no-interactive` 无法解析可执行程序，严格校验未完成。恢复自动加载会增加包含大量普通画布图片时的解码内存，这是为保证刷新后自动显示而接受的取舍。
+
+本轮仅本地修改，未提交或推送；维护说明复用本文件，不另建 DOC。没有持久化格式、依赖或配置变更，不需要迁移或清空缓存。人工验收：刷新包含普通图片的旧画布，不点击图片即可自动显示，再验证换图、图片详情和导出。下文为此前性能优化的历史记录，其普通画布视口加载/预览和采样结果不代表回退后的行为与性能。
+
 ## PR 前最终验证
 
 交付记录：官方草稿 PR [#300](https://github.com/ljquan/opentu/pull/300)，源 `dev/browser-startup-memory`，目标 `develop`，实现 `ad95668c`、QA `7d64d3d4`。已推送至官方功能分支；origin 为独立仓库，跨仓库创建失败后改用已有官方写权限创建同仓库 PR。未合并、未部署，远程检查与预览不等于生产兼容验收。

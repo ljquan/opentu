@@ -4,7 +4,6 @@ import { Loading, MessagePlugin } from 'tdesign-react';
 import classNames from 'classnames';
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -32,13 +31,10 @@ import {
   sanitizeImage3DTransform,
 } from '../../utils/image-3d-transform';
 import { RetryImage } from '../../components/retry-image';
-import { useMediaVisibility } from '../../hooks/use-media-visibility';
-import { useCanvasImagePreview } from '../../hooks/use-canvas-image-preview';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
 const EXTERNAL_IMAGE_RETRY_DELAYS = [500, 1500, 3000];
-const EMPTY_CANVAS_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lB5Z6wAAAABJRU5ErkJggg==';
 
 const image3DForeignObjectOverflowRefs = new WeakMap<
   SVGForeignObjectElement,
@@ -172,7 +168,6 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   const svgOverlayRef = useRef<Image3DOverlayRef | null>(null);
   const pptImageGenerationLockRef = useRef(false);
   const [resolvedImageUrl, setResolvedImageUrl] = useState(props.imageItem.url);
-  const [failedPreviewUrl, setFailedPreviewUrl] = useState<string>();
 
   const clearSWRecovery = useCallback(() => {
     cleanupSWRecoveryRef.current?.();
@@ -397,7 +392,10 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     elementData?.audioType === 'music-card' ||
     (typeof elementData?.audioUrl === 'string' &&
       elementData.audioUrl.length > 0);
-  const isVideo = isVideoElement(props.imageItem) || elementData?.isVideo === true || !!elementData?.videoType;
+  const isVideo =
+    isVideoElement(props.imageItem) ||
+    elementData?.isVideo === true ||
+    !!elementData?.videoType;
   const shouldContainFrameImage =
     !isLegacyAudioElement &&
     !isVideo &&
@@ -406,26 +404,6 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     ? sanitizeImage3DTransform(elementData?.transform3d)
     : undefined;
   const hasImage3DTransform = !!image3DTransform;
-  const mediaVisible = useMediaVisibility(
-    rootRef,
-    !!props.isFocus || hasImage3DTransform || isLegacyAudioElement,
-    props.imageItem.url
-  );
-  const preview = useCanvasImagePreview(
-    props.imageItem.url,
-    mediaVisible && !hasImage3DTransform && !isVideo &&
-      Math.max(props.imageItem.width || 0, props.imageItem.height || 0) *
-        (props.board.viewport.zoom || 1) * (window.devicePixelRatio || 1) <= 400
-  );
-  const previewSource = preview.url !== failedPreviewUrl ? preview.url : undefined;
-
-  useEffect(() => {
-    if (!mediaVisible) {
-      clearSWRecovery();
-      clearExternalImageRetry();
-      clearFallbackBlobUrl();
-    }
-  }, [mediaVisible, clearSWRecovery, clearExternalImageRetry, clearFallbackBlobUrl]);
   const image3DRectangle = image3DTransform
     ? getImage3DSourceRectangle(props.element)
     : undefined;
@@ -719,7 +697,6 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
           isFocus={props.isFocus}
           isSelected={(props as any).isSelected}
           readonly={(props as any).readonly}
-          visible={mediaVisible}
         />
       </div>
     );
@@ -781,29 +758,22 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
           : undefined
       }
     >
-        <RetryImage
-          {...imgProps}
-          src={!mediaVisible || preview.pending ? EMPTY_CANVAS_IMAGE : previewSource || props.imageItem.url}
-          data-canvas-original-src={previewSource || !mediaVisible || preview.pending ? props.imageItem.url : undefined}
-          alt=""
-          className={classNames('image-origin', {
-            'image-origin--focus': props.isFocus,
-          })}
-          eager={mediaVisible}
-          showSkeleton={false}
-          preferCachedBlob={mediaVisible && !previewSource && !preview.pending}
-          deferCacheRead={!mediaVisible || preview.pending}
-          maxRetries={previewSource ? 0 : undefined}
-          initialRetryDelay={500}
-          bypassSWAfterRetries={1}
-          onSourceChange={handleResolvedImageUrlChange}
-          style={imgProps.style}
-          onError={(event) => {
-            if (previewSource) setFailedPreviewUrl(previewSource);
-            else void handleImageError(event);
-          }}
-          onLoad={handleImageLoad}
-        />
+      <RetryImage
+        {...imgProps}
+        alt=""
+        className={classNames('image-origin', {
+          'image-origin--focus': props.isFocus,
+        })}
+        eager
+        showSkeleton={false}
+        preferCachedBlob
+        initialRetryDelay={500}
+        bypassSWAfterRetries={1}
+        onSourceChange={handleResolvedImageUrlChange}
+        style={imgProps.style}
+        onError={handleImageError}
+        onLoad={handleImageLoad}
+      />
     </div>
   );
 };

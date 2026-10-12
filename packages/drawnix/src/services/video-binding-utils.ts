@@ -13,6 +13,7 @@ import type {
   ProviderVideoBindingMetadata,
   ResolvedProviderContext,
 } from './provider-routing/types';
+import { getVeoPersonGenerationOptions } from '../utils/veo-parameters';
 
 export {
   areSeedanceAudioDataUrlsWithinLimit,
@@ -566,6 +567,19 @@ export function getEffectiveVideoCompatibleParams(
       return true;
     })
     .map((param) => {
+      if (modelId === 'veo3.1' && param.id === 'seed') {
+        return {
+          ...param,
+          max: binding?.metadata?.video?.veoAdvancedParameters?.seedMax ?? Number.MAX_SAFE_INTEGER,
+        };
+      }
+      if (modelId === 'veo3.1' && param.id === 'person_generation') {
+        return {
+          ...param,
+          options: getVeoPersonGenerationOptions(binding?.metadata?.video)
+            .map((value) => ({ value, label: value })),
+        };
+      }
       if (
         binding?.protocol === 'kling.video' &&
         metadata?.versionField === param.id &&

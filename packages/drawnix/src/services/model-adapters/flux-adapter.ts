@@ -122,6 +122,9 @@ const submitFluxImage = async (
     baseUrl
   );
 
+  if (response.headers.get('content-type')?.includes('text/html')) {
+    throw new Error('Flux 接口返回 HTML 网页，未进入任务 API。Tuzi flux-3-image 请使用 /v1/images/generations');
+  }
   if (!response.ok) {
     const data = await readProviderResponseJson<Record<string, any>>(response).catch(
       () => null

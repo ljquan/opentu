@@ -63,7 +63,8 @@ The system SHALL prioritize rendering the current canvas and its visible content
 
 - **WHEN** a user opens a canvas containing visible and offscreen media
 - **THEN** the system SHALL make canvas interactions available without first loading every original media resource
-- **AND** offscreen media SHALL be loaded only when needed by visibility or an explicit operation
+- **AND** ordinary canvas images SHALL start loading their original source or cached image on mount without requiring visibility callbacks or selection
+- **AND** workflow media SHALL be loaded when needed by visibility or an explicit operation
 - **AND** asset-library scans and unrelated workflow pages SHALL NOT be prerequisites for canvas interaction
 
 #### Scenario: Restore an interrupted generation
@@ -74,11 +75,11 @@ The system SHALL prioritize rendering the current canvas and its visible content
 
 ### Requirement: Preserve Original Media While Reducing Display Cost
 
-The system SHALL use display-appropriate image previews and lightweight video covers where available while preserving the original resources for preview, editing, download, export and generation inputs.
+The system SHALL use display-appropriate workflow image previews and lightweight video covers where available while preserving the original resources for preview, editing, download, export and generation inputs. Ordinary canvas images SHALL retain automatic original-source loading.
 
 #### Scenario: Image size changes with zoom
 
-- **WHEN** a visible image can be rendered clearly using an existing preview
+- **WHEN** a visible workflow image can be rendered clearly using an existing preview
 - **THEN** the system SHALL render that preview without unnecessarily retaining its original decoded resource
 - **WHEN** an explicit operation or display size requires the original
 - **THEN** the system SHALL obtain the original without modifying the stored source or output dimensions

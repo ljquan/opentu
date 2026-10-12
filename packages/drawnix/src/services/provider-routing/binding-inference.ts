@@ -404,6 +404,20 @@ function inferImageBindings(
     (isTuziProfile(profile) && isTuziGPTImageLegacyAlias(model.id));
   const isNanoBanana21 = model.id === 'gemini-nano-banana-2.1';
 
+  if (isTuziProfile(profile) && model.id === 'flux-3-image') {
+    return [buildBinding(profile, model, {
+      protocol: 'openai.images.generations',
+      requestSchema: 'tuzi.image.flux-3-generation-json',
+      responseSchema: 'openai.image.data',
+      submitPath: '/images/generations',
+      baseUrlStrategy: 'ensure-v1',
+      metadata: { image: { action: 'generation', maxImageCount: 10, supportsMask: false } },
+      priority: 630,
+      confidence: 'high',
+      source: 'template',
+    })];
+  }
+
   if (isMidjourneyModel(model)) {
     bindings.push(
       buildBinding(profile, model, {
@@ -817,6 +831,10 @@ function shouldUseDiscoveredEndpointHintForModel(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
 ): boolean {
+  if (isTuziProfile(profile) && model.id === 'flux-3-image') {
+    return hint.protocol === 'openai.images.generations';
+  }
+
   if (hint.protocol === 'openai.images.edits') {
     return (
       isGptImageModel(model) &&

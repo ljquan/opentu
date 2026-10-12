@@ -5,6 +5,10 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Seedream 名称兼容：完整 ID `doubao-seedream-5-0-lite-260128` 和 `seedream-5.0` 在普通画布及工作流显示尺寸与 2K/3K 控件，保存恢复保持原 ID、渠道和画质。`seedream-5.0` 两次真实请求均 HTTP 200，首张返回图尺寸符合 2560x1440 / 4096x2304；具体引擎版本、其他比例/参考图/渠道及页面仍待验收，不开放额外水印或 Pro 字段。
+
+- Top 50 媒体模型参数：验证四个 Gemini 精确别名保持请求 ID，Veo 高级字段经 metadata 提交且音频默认/关闭/开启可恢复，Seedance 2.5 原有水印及输出格式保留、draft/priority 不再提交。新增水印和 Image 2 扩展已取消。模拟请求与组件逻辑结果见仓库 docs/qa-top50-media-model-parameters.md；页面及真实渠道消费仍待人工验收。
+
 - Suno 音乐：默认版本为 `chirp-v6`，版本菜单提供 v6、v6 Wild、v6 Mini。模型仍为 `suno_music`，使用 `/suno/submit/music` 和 `/suno/fetch/{taskId}`；请验证三个版本的生成与结果回填，真实供应商和页面验收尚未执行。
 - Nano Banana classification: discovery infers image capability without image tags. Reloading saved `gemini-nano-banana-2.1` entries incorrectly marked text corrects them to image while retaining model settings; text selectors exclude them. Remote text category metadata cannot override this built-in image model. Automated checks and isolated Chrome reload verification passed. Existing Agent TODO items are unchanged.
 

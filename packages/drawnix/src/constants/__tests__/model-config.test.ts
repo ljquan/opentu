@@ -5,6 +5,7 @@ import {
   getStaticModelsByType,
   getSizeOptionsForModel,
   getStaticModelConfig,
+  getModelConfig,
   ModelVendor,
   setRuntimeModelConfigs,
   isGPTImage2ModelId,
@@ -170,6 +171,143 @@ describe('model-config image size options', () => {
       'high',
     ]);
   });
+
+  it.each([
+    'gpt-image-2.5-1k',
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])('为 %s 暴露可选的高级输出参数', (modelId) => {
+    const advancedParams = getCompatibleParams(modelId).filter(
+      (param) => param.advanced
+    );
+
+    expect(advancedParams.map((param) => param.id)).toEqual([
+      'output_format',
+      'output_compression',
+      'moderation',
+      'user',
+    ]);
+    expect(
+      advancedParams.every((param) => param.defaultValue === undefined)
+    ).toBe(true);
+    expect(
+      advancedParams.find((param) => param.id === 'output_format')?.options
+    ).toEqual([
+        { value: 'png', label: 'PNG' },
+        { value: 'jpeg', label: 'JPEG' },
+        { value: 'webp', label: 'WebP' },
+    ]);
+    expect(
+      advancedParams.find((param) => param.id === 'output_compression')
+    ).toMatchObject({ valueType: 'number', min: 0, max: 100, integer: true });
+    expect(
+      advancedParams.find((param) => param.id === 'moderation')?.options
+        ?.map((option) => option.value)
+    ).toEqual(['auto', 'low']);
+    expect(
+      advancedParams.find((param) => param.id === 'user')?.valueType
+    ).toBe('string');
+  });
+
+  it.each([
+    'gpt-image-2',
+    'gpt-image-2-vip',
+    'gemini-3.1-flash-image-preview',
+    'doubao-seedream-5-0-260128',
+    'mj-imagine',
+  ])('不向 %s 暴露 GPT 高级输出参数', (modelId) => {
+    const paramIds = getCompatibleParams(modelId).map((param) => param.id);
+    for (const paramId of [
+      'output_format', 'output_compression', 'moderation', 'user',
+    ]) {
+      expect(paramIds).not.toContain(paramId);
+    }
+  });
+
+  it.each([
+    ['nano-banana', 'gemini-2.5-flash-image'],
+    ['nano-banana-2', 'gemini-3.1-flash-image-preview'],
+    ['gemini-3.1-flash-image', 'gemini-3.1-flash-image-preview'],
+    ['gemini-3-pro-image', 'gemini-3-pro-image-preview'],
+  ])('为精确别名 %s 复用 %s 参数并保留模型 ID', (modelId, sourceModelId) => {
+    const sourceParams = getCompatibleParams(sourceModelId);
+    const params = getCompatibleParams(modelId);
+
+    expect(getModelConfig(modelId)).toMatchObject({
+      id: modelId,
+      label: modelId,
+      type: 'image',
+      vendor: ModelVendor.GEMINI,
+    });
+    expect(params).toEqual(sourceParams);
+    expect(getSizeOptionsForModel(modelId)).toEqual(
+      getSizeOptionsForModel(sourceModelId)
+    );
+    expect(
+      getStaticModelsByType('image').some((model) => model.id === modelId)
+    ).toBe(false);
+
+    setRuntimeModelConfigs([
+      {
+        id: modelId,
+        label: 'Provider alias',
+        type: 'image',
+        vendor: ModelVendor.OTHER,
+        sourceProfileId: 'provider',
+        selectionKey: `provider::${modelId}`,
+      },
+    ]);
+    expect(getCompatibleParams(modelId)).toEqual(sourceParams);
+    expect(getModelConfig(modelId)).toMatchObject({
+      id: modelId,
+      sourceProfileId: 'provider',
+      selectionKey: `provider::${modelId}`,
+    });
+  });
+
+  it.each([
+    'nano-banana-20', 'nano-banana-2-custom', 'gemini-3.1-flash-image-custom',
+  ])(
+    '不将未知近似名称 %s 当作已确认别名',
+    (modelId) => {
+      expect(getStaticModelConfig(modelId)).toBeUndefined();
+      expect(getCompatibleParams(modelId)).toEqual([]);
+    }
+  );
+
+  it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
+    'gives %s its size and quality contract without rewriting identity', (id) => {
+    const sourceId = 'doubao-seedream-5-0-260128';
+    expect(getStaticModelConfig(id)).toMatchObject({
+      id,
+      type: 'image',
+      vendor: ModelVendor.DOUBAO,
+      shortCode: 'sd5',
+      tags: ['seedream'],
+    });
+    if (id === 'seedream-5.0') {
+      expect(getStaticModelConfig(id)?.description).not.toMatch(/lite/i);
+    }
+    expect(getCompatibleParams(id)).toEqual(getCompatibleParams(sourceId));
+    expect(getCompatibleParams(id).map(param => param.id)).toEqual(['size', 'seedream_quality']);
+    expect(getCompatibleParams(id).find(param => param.id === 'seedream_quality')?.options?.map(option => option.value))
+      .toEqual(['2k', '3k']);
+    expect(getStaticModelsByType('image').some(model => model.id === id)).toBe(false);
+
+    setRuntimeModelConfigs([{
+      id, label: 'Tuzi Seedream', type: 'image', vendor: ModelVendor.DOUBAO,
+      sourceProfileId: 'tuzi', selectionKey: `tuzi::${id}`,
+    }]);
+    expect(getCompatibleParams(id)).toEqual(getCompatibleParams(sourceId));
+    expect(getModelConfig(id)).toMatchObject({ id, sourceProfileId: 'tuzi', selectionKey: `tuzi::${id}` });
+    for (const unknownId of ['doubao-seedream-5-0-lite-260128-custom', 'doubao-seedream-5-0-lite-260129', 'seedream-5.0-custom', 'seedream-5.0-pro']) {
+      expect(getStaticModelConfig(unknownId)).toBeUndefined();
+      expect(getCompatibleParams(unknownId)).toEqual([]);
+    }
+  });
+
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '为 %s 暴露分辨率与最高到 xhigh 的画质选项',
@@ -500,12 +638,7 @@ describe('model-config image size options', () => {
   it('Seedance 2.5 exposes its own duration and ratio boundaries', () => {
     const params = getCompatibleParams('doubao-seedance-2-5-260628');
     expect(params.map((param) => param.id)).toEqual(
-      expect.arrayContaining([
-        'watermark',
-        'output_format',
-        'draft',
-        'priority',
-      ])
+      expect.arrayContaining(['watermark', 'output_format'])
     );
     const options = (paramId: string) =>
       params

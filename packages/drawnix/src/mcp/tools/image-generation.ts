@@ -20,6 +20,8 @@ import {
 } from '../../types/task.types';
 import {
   getDefaultImageModel,
+  FLUX_3_IMAGE_MODEL_ID,
+  FLUX_3_IMAGE_ASPECT_RATIOS,
   IMAGE_PARAMS,
 } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
@@ -55,7 +57,10 @@ export function getCurrentImageModel(): string {
  */
 function getImageSizeOptions(): string[] {
   const sizeParam = IMAGE_PARAMS.find((p) => p.id === 'size');
-  return sizeParam?.options?.map((o) => o.value) || ['1x1', '16x9', '9x16'];
+  return [...new Set([
+    ...(sizeParam?.options?.map((o) => o.value) || ['1x1', '16x9', '9x16']),
+    ...FLUX_3_IMAGE_ASPECT_RATIOS.map((ratio) => ratio.replace(':', 'x')),
+  ])];
 }
 
 /**
@@ -503,7 +508,9 @@ export const imageGenerationTool: MCPTool = {
     // 规范化 size：将不在可用范围内的 size 自动转换为最接近的可用值
     const typedParams: ImageGenerationParams = {
       ...rawParams,
-      size: rawParams.size
+      size: (rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel()) === FLUX_3_IMAGE_MODEL_ID
+        ? rawParams.size
+        : rawParams.size
         ? normalizeToClosestImageSize(rawParams.size, '1x1')
         : rawParams.size,
     };

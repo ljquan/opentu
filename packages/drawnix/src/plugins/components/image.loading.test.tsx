@@ -1,71 +1,100 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Image as CanvasImage } from './image';
+import { unifiedCacheService } from '../../services/unified-cache-service';
 
 vi.mock('../../mcp/tools/image-generation', () => ({ generateImage: vi.fn() }));
 vi.mock('../../services/ppt', () => ({ getImageRegion: vi.fn() }));
 vi.mock('../../services/unified-cache-service', () => ({
-  unifiedCacheService: { getCachedImageBlobWithThumbnailFallback: vi.fn(async () => null), getCachedBlob: vi.fn(async () => null) },
+  unifiedCacheService: {
+    getCachedImageBlobWithThumbnailFallback: vi.fn(),
+    getCachedBlob: vi.fn(async () => null),
+  },
 }));
-
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const props = {
   board: { viewport: { zoom: 1 } },
   imageItem: { url: '/__aitu_cache__/image/a.png', width: 100, height: 100 },
   element: { id: 'a', type: 'image', url: '/__aitu_cache__/image/a.png', points: [[0, 0], [100, 100]] },
+  isFocus: false,
+  isSelected: false,
 } as any;
 
-describe('canvas image loading', () => {
-  it('falls back immediately to the original when an existing preview is corrupt', async () => {
-    vi.stubGlobal('IntersectionObserver', undefined);
-    vi.stubGlobal('URL', class extends URL {
-      static createObjectURL = () => 'blob:invalid-preview';
-      static revokeObjectURL = vi.fn();
+describe('canvas image automatic loading', () => {
+  const readCache = vi.mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback);
+  const observe = vi.fn();
+  const revokeObjectURL = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    readCache.mockReset().mockResolvedValue(null);
+    vi.stubGlobal('IntersectionObserver', class {
+      observe = observe;
+      disconnect = vi.fn();
     });
-    vi.stubGlobal('caches', { open: async (name: string) => ({ match: async () => name === 'drawnix-images'
-      ? new Response('original', { headers: { 'Content-Type': 'image/png' } })
-      : new Response('corrupt preview') }) });
-    render(<CanvasImage {...props} />);
-    await waitFor(() => expect(document.querySelector('img')?.getAttribute('src')).toBe('blob:invalid-preview'));
-    fireEvent.error(document.querySelector('img')!);
-    await waitFor(() => expect(document.querySelector('img')?.getAttribute('src')).toBe(props.imageItem.url));
-  });
-  it('preserves an existing video flag and poster even when its URL has no extension', () => {
-    vi.stubGlobal('IntersectionObserver', undefined);
-    render(<CanvasImage {...props} imageItem={{ url: '/media/opaque-id', width: 100, height: 100 }}
-      element={{ ...props.element, url: '/media/opaque-id', isVideo: true, poster: '/cover.png' }} />);
-    expect(document.querySelector('video')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
-    expect(document.querySelector('video')?.getAttribute('src')).toBe('/media/opaque-id');
-  });
-  it('keeps original source metadata for offscreen exports while deferring cache reads', async () => {
-    vi.stubGlobal('IntersectionObserver', class { observe = vi.fn(); disconnect = vi.fn(); });
-    render(<CanvasImage {...props} />);
-    const image = document.querySelector('img')!;
-    expect(image.getAttribute('src')).toMatch(/^data:image\/png/);
-    expect(image.getAttribute('loading')).toBe('lazy');
-    expect(image.dataset.canvasOriginalSrc).toBe(props.imageItem.url);
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = vi.fn(() => 'blob:cached-image');
+      static revokeObjectURL = revokeObjectURL;
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   });
 
-  it('uses eager loading in view and lazy loading offscreen while preserving the original DOM', async () => {
-    let notify!: IntersectionObserverCallback;
-    vi.stubGlobal('IntersectionObserver', class {
-      constructor(callback: IntersectionObserverCallback) { notify = callback; }
-      observe = vi.fn(); disconnect = vi.fn();
-    });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('loads an unselected image from cache without any visibility callback or click', async () => {
+    readCache.mockResolvedValue(new Blob(['image'], { type: 'image/png' }));
+    const { unmount } = render(<CanvasImage {...props} />);
+    await waitFor(() => expect(document.querySelector('img')?.getAttribute('src')).toBe('blob:cached-image'));
+    expect(readCache).toHaveBeenCalledWith(props.imageItem.url);
+    expect(document.querySelector('img')?.getAttribute('loading')).toBe('eager');
+    expect(observe).not.toHaveBeenCalled();
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:cached-image');
+  });
+
+  it('uses the original signed URL immediately when no cached image exists', async () => {
+    const url = 'https://cdn.example.com/image.png?signature=original';
+    render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }} />);
+    const image = document.querySelector('img')!;
+    expect(image.getAttribute('src')).toBe(url);
+    expect(image.getAttribute('loading')).toBe('eager');
+    await waitFor(() => expect(readCache).toHaveBeenCalledWith(url));
+    expect(image.getAttribute('src')).toBe(url);
+    expect(image.style.opacity).toBe('1');
+  });
+
+  it('keeps the original image available when cache reading fails', async () => {
+    readCache.mockRejectedValue(new Error('cache unavailable'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     render(<CanvasImage {...props} />);
-    act(() => notify([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
-    await waitFor(() => expect(document.querySelector('img')?.getAttribute('loading')).toBe('eager'));
-    expect(document.querySelector('img')?.getAttribute('decoding')).toBe('async');
-    vi.useFakeTimers();
-    act(() => notify([{ isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver));
-    act(() => vi.advanceTimersByTime(2000));
-    expect(document.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png/);
-    expect(document.querySelector('img')?.getAttribute('loading')).toBe('lazy');
-    vi.useRealTimers();
-    act(() => notify([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
-    await waitFor(() => expect(document.querySelector('img')?.getAttribute('loading')).toBe('eager'));
+    await waitFor(() => expect(warning).toHaveBeenCalled());
+    expect(document.querySelector('img')?.getAttribute('src')).toBe(props.imageItem.url);
+    expect(document.querySelector('img')?.getAttribute('loading')).toBe('eager');
+  });
+
+  it('loads a changed source without requiring selection', async () => {
+    const { rerender } = render(<CanvasImage {...props} />);
+    const url = '/__aitu_cache__/image/b.png';
+    rerender(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }} />);
+    expect(document.querySelector('img')?.getAttribute('src')).toBe(url);
+    await waitFor(() => expect(readCache).toHaveBeenCalledWith(url));
+    expect(observe).not.toHaveBeenCalled();
+  });
+
+  it('preserves an opaque video URL and the poster stored on its element', () => {
+    const url = '/media/opaque-id';
+    render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }}
+      element={{ ...props.element, url, isVideo: true, poster: '/cover.png' }} />);
+    expect(document.querySelector('video')).toBeNull();
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('/cover.png');
+    fireEvent.click(screen.getByRole('button', { name: '播放视频' }));
+    expect(document.querySelector('video')?.getAttribute('src')).toBe(url);
   });
 });

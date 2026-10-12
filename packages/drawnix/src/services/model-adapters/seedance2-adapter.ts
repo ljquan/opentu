@@ -566,22 +566,10 @@ export async function submitSeedance2Request(
   const is25 = isSeedance25ModelId(model);
   const extra: Record<string, unknown> = {};
   if (is25) {
-    const draft = parseBoolean(
-      request.params?.draft,
-      false,
-      '样片模式',
-      modelLabel
-    );
     const outputFormat = request.params?.output_format || 'mp4';
-    const priority =
-      parseOptionalInteger(request.params?.priority, '优先级', modelLabel) ?? 0;
     if (outputFormat !== 'mp4' && outputFormat !== 'mov') {
       throw new Error(`${modelLabel} 输出格式必须为 mp4 或 mov`);
     }
-    if (priority < 0 || priority > 9)
-      throw new Error(`${modelLabel} 优先级必须为 0-9`);
-    if (draft && resolution !== '480p')
-      throw new Error(`${modelLabel} 样片模式仅支持 480p`);
     Object.assign(extra, {
       watermark: parseBoolean(
         request.params?.watermark,
@@ -590,8 +578,6 @@ export async function submitSeedance2Request(
         modelLabel
       ),
       output_format: outputFormat,
-      draft,
-      priority,
     });
   }
     const submitBody = {
