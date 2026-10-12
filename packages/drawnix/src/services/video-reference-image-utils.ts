@@ -1,4 +1,5 @@
 import { compressImageBlob, normalizeImageBlobToSize } from '@aitu/utils';
+import { readKeepOriginalImageEnabled } from './reference-image-settings';
 
 const MAX_VIDEO_REFERENCE_IMAGE_BYTES = 1 * 1024 * 1024;
 
@@ -6,6 +7,7 @@ export async function prepareVideoReferenceImageBlob(
   blob: Blob,
   size?: string | null
 ): Promise<Blob> {
+  const keepOriginal = readKeepOriginalImageEnabled();
   if (!blob.type.startsWith('image/')) {
     return blob;
   }
@@ -24,7 +26,7 @@ export async function prepareVideoReferenceImageBlob(
     );
   }
 
-  if (processedBlob.size > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
+  if (!keepOriginal && processedBlob.size > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
     try {
       processedBlob = await compressImageBlob(
         processedBlob,

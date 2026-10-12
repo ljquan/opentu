@@ -24,6 +24,7 @@ import React, {
   useCallback,
   useRef,
   useMemo,
+  useId,
 } from 'react';
 import {
   AtSign,
@@ -293,6 +294,11 @@ import {
   persistCenterImageOnClickEnabled,
   readCenterImageOnClickEnabled,
 } from './canvas-view-settings';
+import {
+  persistKeepOriginalImageEnabled,
+  readKeepOriginalImageEnabled,
+  REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT,
+} from '../../services/reference-image-settings';
 import {
   appendCanvasAssociationRef,
   areCanvasAssociationRefsEqual,
@@ -1975,6 +1981,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     const [centerImageOnClickEnabled, setCenterImageOnClickEnabled] =
       useState(() => readCenterImageOnClickEnabled());
+    const [keepOriginalImageEnabled, setKeepOriginalImageEnabled] =
+      useState(() => readKeepOriginalImageEnabled());
+    const keepOriginalImageHintId = useId();
+    useEffect(() => {
+      const sync = () =>
+        setKeepOriginalImageEnabled(readKeepOriginalImageEnabled());
+      window.addEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
+      return () =>
+        window.removeEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
+    }, []);
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
@@ -4002,6 +4018,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       async (files: File[] | FileList) => {
         const fileList = Array.from(files);
         if (fileList.length === 0) return;
+        const keepOriginal = readKeepOriginalImageEnabled();
 
         const newContent: SelectedContent[] = [];
 
@@ -4061,7 +4078,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
             let processedBlob: Blob = file;
 
-            if (file.size > 10 * 1024 * 1024) {
+            if (!keepOriginal && file.size > 10 * 1024 * 1024) {
               const { compressImageBlob, getCompressionStrategy } =
                 await import('@aitu/utils');
               const strategy = getCompressionStrategy(
@@ -7943,7 +7960,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ],
       [boundTargetFollowCopy]
     );
-    const boundTargetFollowActions = followControlsTarget ? (
+    const boundTargetFollowActions = (
       <Popup
         trigger="click"
         placement="top-right"
@@ -7988,7 +8005,29 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 }
               />
             </div>
-            {boundTargetFollowEnabled ? (
+            <div className="ai-input-bar__settings-row">
+              <span>{language === 'zh' ? '保留原图' : 'Keep original image'}</span>
+              <Switch
+                size="small"
+                value={keepOriginalImageEnabled}
+                aria-label={language === 'zh' ? '保留原图' : 'Keep original image'}
+                aria-describedby={keepOriginalImageHintId}
+                onChange={(checked) =>
+                  setKeepOriginalImageEnabled(
+                    persistKeepOriginalImageEnabled(checked as boolean)
+                  )
+                }
+              />
+            </div>
+            <p
+              id={keepOriginalImageHintId}
+              className="ai-input-bar__settings-hint"
+            >
+              {language === 'zh'
+                ? '开启后图片体积更大，上传和生成可能明显变慢。'
+                : 'Original images are larger and may make uploads and generation much slower.'}
+            </p>
+            {followControlsTarget && boundTargetFollowEnabled ? (
               <div className="ai-input-bar__settings-actions">
                 <button
                   type="button"
@@ -8044,7 +8083,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           <Settings2 size={18} aria-hidden="true" />
         </button>
       </Popup>
-    ) : null;
+    );
 
     const boundInputStyle = {
       '--ai-input-viewport-width': `${inputViewport.width}px`,
