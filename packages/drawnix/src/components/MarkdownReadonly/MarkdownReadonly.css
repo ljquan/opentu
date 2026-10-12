@@ -169,10 +169,10 @@
 }
 
 .markdown-readonly.card-markdown-viewer {
-  padding: 8px 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #333;
+  padding: 14px 16px 16px;
+  font-size: 14px;
+  line-height: 1.72;
+  color: #1f2937;
 }
 
 .markdown-readonly.card-markdown-viewer p,
@@ -204,9 +204,18 @@
 .markdown-readonly.card-markdown-viewer h2,
 .markdown-readonly.card-markdown-viewer h3,
 .markdown-readonly.card-markdown-viewer h4 {
-  margin: 0.45em 0 0.3em;
+  margin: 0.7em 0 0.4em;
   font-weight: 700;
   line-height: 1.28;
+}
+
+.markdown-readonly.card-markdown-viewer strong {
+  color: #111827;
+  font-weight: 700;
+}
+
+.markdown-readonly.card-markdown-viewer p + p {
+  margin-top: 0.7em;
 }
 
 .markdown-readonly.chat-markdown {
