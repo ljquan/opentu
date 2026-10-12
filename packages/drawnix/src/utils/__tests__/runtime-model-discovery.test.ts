@@ -254,6 +254,36 @@ describe('runtime-model-discovery', () => {
     expect(models).toEqual([expect.objectContaining({ id: modelId, type: 'image', supportsTools: false })]);
   });
 
+  it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
+    'refreshes cached %s metadata without changing the selected API identity', async (modelId) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ data: [{ id: modelId, category: 'image', supported_endpoint_types: ['generate'] }] }),
+    })));
+    vi.doMock('../settings-manager', () => ({
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      providerCatalogsSettings: {
+        get: () => [{ profileId: 'provider-seedream', signature: 'https://api.tu-zi.com/v1::e063e9a9', discoveredModels: [{ id: modelId, label: modelId, type: 'image', vendor: 'OTHER' }], selectedModelIds: [modelId] }],
+        addListener: () => {}, removeListener: () => {}, update: async () => {},
+      },
+      providerProfilesSettings: {
+        get: () => [{ id: 'provider-seedream', enabled: true, baseUrl: 'https://api.tu-zi.com', apiKey: 'test-key' }],
+        addListener: () => {}, removeListener: () => {},
+      },
+      invocationPresetsSettings: { addListener: () => {}, removeListener: () => {} },
+      settingsManager: { getSetting: () => ({}), addListener: () => {}, removeListener: () => {} },
+    }));
+    const { runtimeModelDiscovery, getConfiguredSelectableModels } = await import('../runtime-model-discovery');
+    const { getCompatibleParams } = await import('../../constants/model-config');
+    expect(getConfiguredSelectableModels('image')).toEqual([
+      expect.objectContaining({ id: modelId, sourceProfileId: 'provider-seedream', selectionKey: `provider-seedream::${modelId}`, vendor: 'DOUBAO' }),
+    ]);
+    expect(getCompatibleParams(modelId).find(param => param.id === 'seedream_quality')?.options?.map(option => option.value)).toEqual(['2k', '3k']);
+    const models = await runtimeModelDiscovery.discover('provider-seedream', 'https://api.tu-zi.com', 'test-key');
+    expect(models).toEqual([expect.objectContaining({ id: modelId, type: 'image', vendor: 'DOUBAO' })]);
+    expect(getConfiguredSelectableModels('image').map(model => model.id)).toEqual([modelId]);
+  });
+
   it('应用模型选择时会返回新增和移除增量', async () => {
     vi.doMock('../settings-manager', () => ({
       LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',

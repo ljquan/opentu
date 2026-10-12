@@ -5,7 +5,8 @@ import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 import { getImagePreviewRevision, subscribeImagePreviews } from "@/services/image-storage";
-import { assetCoverUrl, useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { useAssetMedia } from '@/hooks/use-asset-media';
 
 export type InsertAssetPayload = { kind: "text"; content: string; title: string } | { kind: "image"; dataUrl: string; title: string; storageKey?: string } | { kind: "video"; url: string; title: string; storageKey?: string; width?: number; height?: number };
 
@@ -29,7 +30,9 @@ const PAGE_SIZE = 8;
 
 const kindOptions = ["all", "text", "image", "video"];
 
-function PickerCard({ title, kind, cover, onClick }: { title: string; kind: string; cover: string; onClick: () => void }) {
+function PickerCard({ asset, onClick }: { asset: Asset; onClick: () => void }) {
+    const { cover, onCoverError } = useAssetMedia(asset, true, false);
+    const { title, kind } = asset;
     const { t } = useTranslation();
     return (
         <button
@@ -38,7 +41,7 @@ function PickerCard({ title, kind, cover, onClick }: { title: string; kind: stri
             onClick={onClick}
         >
             {cover ? (
-                <img src={cover} alt={title} className="aspect-[4/3] w-full object-cover" />
+                <img src={cover} onError={onCoverError} alt={title} className="aspect-[4/3] w-full object-cover" />
             ) : (
                 <div className="flex aspect-[4/3] items-center justify-center bg-stone-100 p-3 text-center text-xs leading-5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">{title}</div>
             )}
@@ -119,7 +122,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
             {visible.length ? (
                 <div className="grid grid-cols-4 gap-3">
                     {visible.map((asset) => (
-                        <PickerCard key={asset.id} title={asset.title} kind={asset.kind} cover={assetCoverUrl(asset)} onClick={() => handleInsert(asset)} />
+                        <PickerCard key={asset.id} asset={asset} onClick={() => handleInsert(asset)} />
                     ))}
                 </div>
             ) : (

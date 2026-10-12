@@ -52,6 +52,8 @@ export interface RetryImageProps
   preferCachedBlob?: boolean;
   /** Reports the URL currently used by the underlying image element. */
   onSourceChange?: (src: string) => void;
+  /** Defer cache reads for offscreen canvas media while keeping its DOM source. */
+  deferCacheRead?: boolean;
 }
 
 /**
@@ -182,6 +184,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       wrapperStyle,
       preferCachedBlob = false,
       onSourceChange,
+      deferCacheRead = false,
       onLoad,
       onError,
       ...imgProps
@@ -297,6 +300,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     // Handle image load error with retry logic
     const handleError = useCallback(
       async (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
+        if (deferCacheRead) return;
         const sourceAtError = normalizedSrc;
         const sourceVersionAtError = sourceVersionRef.current;
         if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
@@ -394,6 +398,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         tryFallbackToBlobUrl,
         adoptBlobUrl,
         isCurrentSource,
+        deferCacheRead,
       ]
     );
 
@@ -414,10 +419,10 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       setImageSrc(normalizedSrc);
 
       let active = true;
-      const shouldReadCachedBlob =
+      const shouldReadCachedBlob = !deferCacheRead && (
         (preferCachedBlob &&
           (isVirtualUrl(normalizedSrc) || isExternalUrl(normalizedSrc))) ||
-        (isVirtualUrl(normalizedSrc) && !isSWAvailable());
+        (isVirtualUrl(normalizedSrc) && !isSWAvailable()));
 
       if (shouldReadCachedBlob) {
         tryFallbackToBlobUrl(normalizedSrc).then((blobUrl) => {
@@ -452,6 +457,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       normalizedSrc,
       preferCachedBlob,
       tryFallbackToBlobUrl,
+      deferCacheRead,
     ]);
 
     // Cleanup on unmount
@@ -482,7 +488,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         src={imageSrc}
         alt={alt}
         loading={shouldEagerLoad ? 'eager' : 'lazy'}
-        decoding={shouldEagerLoad ? 'sync' : 'async'}
+        decoding={imgProps.decoding || 'async'}
         referrerPolicy="no-referrer"
         onLoad={handleLoad}
         onError={handleError}

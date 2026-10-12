@@ -23,6 +23,21 @@ afterEach(() => {
 });
 
 describe('video binding utils', () => {
+  it('shows all Veo advanced controls without a channel declaration', () => {
+    const params = getEffectiveVideoCompatibleParams('veo3.1', 'veo3.1', null);
+    expect(params.map((param) => param.id)).toEqual(expect.arrayContaining([
+      'negative_prompt', 'generate_audio', 'seed', 'person_generation',
+    ]));
+    expect(params.find((param) => param.id === 'person_generation')?.options?.map((option) => option.value))
+      .toEqual(['dont_allow', 'allow_adult', 'allow_all']);
+  });
+  it('preserves Seedance 2.5 output format and watermark without draft or priority', () => {
+    const ids = getEffectiveVideoCompatibleParams('doubao-seedance-2-5-260628', 'doubao-seedance-2-5-260628', null).map(param => param.id);
+    expect(ids).toEqual(expect.arrayContaining(['watermark', 'output_format']));
+    expect(ids).not.toContain('draft');
+    expect(ids).not.toContain('priority');
+  });
+
   it('validates official Seedance media inputs without accepting local video assets', () => {
     expect(isPublicHttpMediaUrl('https://example.com/reference.mp4')).toBe(
       true

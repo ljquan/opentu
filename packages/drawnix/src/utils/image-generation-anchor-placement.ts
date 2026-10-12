@@ -379,5 +379,16 @@ export function resolveImageGenerationAnchorAvailablePosition(
     }
   }
 
-  return [desiredPosition[0], desiredPosition[1] + stepY * (maxSearchRadius + 1)];
+  const fallbackX = desiredPosition[0];
+  let fallbackY = desiredPosition[1] + stepY * (maxSearchRadius + 1);
+  // Exhausted nearby lanes still need to clear retained cards and planned anchors.
+  for (const rect of occupiedRects) {
+    if (
+      fallbackX < rect.x + rect.width + padding &&
+      fallbackX + size.width + padding > rect.x
+    ) {
+      fallbackY = Math.max(fallbackY, rect.y + rect.height + padding);
+    }
+  }
+  return [fallbackX, fallbackY];
 }

@@ -1,3 +1,49 @@
+## 1.1.28 (2026-10-12)
+
+### 🚀 Features
+
+- add dedicated Tuzi Flux 3 image adapter ([1f85b004](https://github.com/ljquan/opentu/commit/1f85b004))
+- 补齐 Gemini 别名和 Veo 参数并清理未支持字段 ([67055056](https://github.com/ljquan/opentu/commit/67055056))
+
+### 🩹 Fixes
+
+- restore automatic image loading ([e3e375d9](https://github.com/ljquan/opentu/commit/e3e375d9))
+- 补齐 Tuzi 模型 ID 的尺寸和画质参数 ([6564ee1c](https://github.com/ljquan/opentu/commit/6564ee1c))
+
+### 🔧 Chores
+
+- test: 同步 Suno v6 夹具并记录 PR 297 冲突复验 ([86a3d69a](https://github.com/ljquan/opentu/commit/86a3d69a))
+- docs(seedream): 更新 PR 增量验证与实测记录 ([c0e88fa9](https://github.com/ljquan/opentu/commit/c0e88fa9))
+- docs(media): 记录 PR 297 交付状态 ([96d56399](https://github.com/ljquan/opentu/commit/96d56399))
+- docs(media): 记录水印撤回及上游合并后的最终验证 ([48eda76f](https://github.com/ljquan/opentu/commit/48eda76f))
+
+### ❤️  Thank You
+
+- 2040725155-star <2040725155@qq.com>
+- Jerry-George-Liang <205779645+Jerry-George-Liang@users.noreply.github.com>
+
+## 1.1.27 (2026-10-11)
+
+### 🔧 Chores
+
+- 修复：适配Suno 音乐版本更新v6 (#301) ([9de2aba9](https://github.com/ljquan/opentu/commit/9de2aba9))
+- 优化：优化浏览器资源生命周期与本地账户兼容 (#300) ([5d61a6bb](https://github.com/ljquan/opentu/commit/5d61a6bb))
+- 修复：生成失败卡片与后续任务重叠 (#298) ([8163c24c](https://github.com/ljquan/opentu/commit/8163c24c))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
+## 1.1.26 (2026-10-11)
+
+### 🚀 Features
+
+- add canvas resources and API key support QR codes (#299) ([f01d117f](https://github.com/ljquan/opentu/commit/f01d117f))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.1.25 (2026-10-10)
 
 ### 🔧 Chores

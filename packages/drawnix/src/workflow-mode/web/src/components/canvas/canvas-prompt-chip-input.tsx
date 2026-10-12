@@ -1,8 +1,10 @@
 import { workflowRoot } from "@/integration/workflow-dom";
+import { useStoredMedia } from '@/hooks/use-stored-media';
+import { useStoredReferences } from '@/hooks/use-stored-references';
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Image } from "antd";
+import { StoredImagePreview, type StoredImagePreviewValue } from '@/components/stored-image-preview';
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import i18n from "@/i18n";
@@ -32,7 +34,10 @@ type Token =
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
 // Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+export function CanvasPromptChipInput({ value, references: originalReferences, onChange, onSubmit, className, style, placeholder }: Props) {
+    const usedReferences = useMemo(() => originalReferences.filter(reference => value.includes(reference.label)), [originalReferences, value]);
+    const resolvedReferences = useStoredReferences(usedReferences);
+    const references = useMemo(() => originalReferences.map(reference => resolvedReferences.find(item => item.id === reference.id) || reference), [originalReferences, resolvedReferences]);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -43,7 +48,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
     const lastEmittedRef = useRef(value);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [imagePreview, setImagePreview] = useState<StoredImagePreviewValue | null>(null);
 
     const activeReferences = useMemo(() => references.filter((item) => item.active), [references]);
     const referenceByLabel = useMemo(() => new Map(activeReferences.map((item) => [item.label, item])), [activeReferences]);
@@ -62,7 +67,16 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
     const renderValue = (force = false) => {
         const editor = editorRef.current;
         if (!editor || composingRef.current) return;
-        if (!force && document.activeElement === editor && value === lastEmittedRef.current) return;
+        if (!force && document.activeElement === editor && value === lastEmittedRef.current) {
+            editor.querySelectorAll<HTMLElement>('[data-ref-label]').forEach(chip => {
+                const reference = referenceByLabel.get(chip.dataset.refLabel || '');
+                if (!reference) return;
+                const updated = createReferenceChip(reference, theme, setImagePreview);
+                chip.replaceChildren(...Array.from(updated.childNodes));
+                chip.onclick = updated.onclick;
+            });
+            return;
+        }
         editor.textContent = "";
         tokens.forEach((token) => {
             if (token.type === "text") {
@@ -203,7 +217,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
             {mention && candidates.length ? (
                 <MentionMenu rect={mention.rect} references={candidates} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} />
             ) : null}
-            {imagePreview ? <Image src={imagePreview} alt={i18n.t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
+            {imagePreview ? <StoredImagePreview image={imagePreview} alt={i18n.t("canvas.composer.imagePreview")} onClose={() => setImagePreview(null)} /> : null}
         </div>
     );
 }
@@ -272,8 +286,9 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
-    if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+    const source = useStoredMedia(reference.kind === 'image' || reference.kind === 'video' ? reference.storageKey : undefined, reference.previewUrl, reference.kind === 'video' ? 'video' : 'image', true);
+    if (reference.kind === "image" && source) return <img src={source} alt="" className="size-9 rounded-md object-cover" />;
+    if (reference.kind === "video" && source) return <video src={source} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
     const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
     return (
         <span className="grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
@@ -282,7 +297,7 @@ function ReferencePreview({ reference }: { reference: CanvasResourceReference })
     );
 }
 
-function createReferenceChip(reference: CanvasResourceReference, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(reference: CanvasResourceReference, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (image: StoredImagePreviewValue) => void) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.refLabel = reference.label;
@@ -293,11 +308,11 @@ function createReferenceChip(reference: CanvasResourceReference, theme: (typeof 
         image.className = "size-6 rounded object-cover";
         wrapper.className = "mx-px inline-flex size-6 items-center justify-center overflow-hidden rounded align-middle";
         wrapper.appendChild(image);
-        wrapper.addEventListener("click", (event) => {
+        wrapper.onclick = (event) => {
             event.preventDefault();
             event.stopPropagation();
-            onImagePreview(reference.previewUrl || "");
-        });
+            onImagePreview({ url: reference.previewUrl || '', storageKey: reference.storageKey });
+        };
     } else {
         wrapper.className = "mx-px inline-flex h-6 max-w-40 items-center justify-center overflow-hidden rounded-md border px-1 text-xs leading-none align-middle";
         Object.assign(wrapper.style, { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text } as CSSProperties);
@@ -311,7 +326,7 @@ function createReferenceChip(reference: CanvasResourceReference, theme: (typeof 
 }
 
 function serializeEditor(editor: HTMLElement) {
-    return serializeNodes(editor.childNodes).replace(/﻿/g, "");
+    return serializeNodes(editor.childNodes).replace(/\uFEFF/g, "");
 }
 
 function serializeNodes(nodes: NodeListOf<ChildNode>) {

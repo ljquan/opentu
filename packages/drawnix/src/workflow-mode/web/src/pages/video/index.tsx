@@ -15,8 +15,10 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { clampVideoSeconds } from "@/lib/media-size";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
-import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
-import { resolveImageUrl, ensureImagePreview, getImagePreviewRevision, previewUrlFor, subscribeImagePreviews, uploadImage } from "@/services/image-storage";
+import { deleteStoredMedia, getMediaBlob, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
+import { resolveImageUrl, ensureImagePreview, getImagePreviewRevision, subscribeImagePreviews, uploadImage } from "@/services/image-storage";
+import { StoredImageThumbnail, StoredVideoThumbnail } from '@/components/stored-media-thumbnail';
+import { useStoredMedia } from '@/hooks/use-stored-media';
 import { createVideoGenerationTask, isVideoTaskFailed, videoTaskFailed, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
@@ -352,8 +354,9 @@ export default function VideoPage() {
         void generate();
     };
 
-    const downloadVideo = (video: GeneratedVideo) => {
-        saveAs(video.url, "video.mp4");
+    const downloadVideo = async (video: GeneratedVideo) => {
+        const original = video.storageKey ? await getMediaBlob(video.storageKey).catch(() => null) : null;
+        saveAs(original || video.url, "video.mp4");
     };
 
     const saveVideoAsset = async (video: GeneratedVideo, title: string, sourcePrompt: string) => {
@@ -625,7 +628,7 @@ export default function VideoPage() {
                                 >
                                     {references.map((item, index) => (
                                         <div key={item.id} className="group relative size-20 shrink-0 overflow-hidden rounded-md border border-stone-200 dark:border-stone-800">
-                                            <img src={previewUrlFor(item.storageKey) || item.dataUrl} alt={item.name} className="size-full object-cover" />
+                                            <StoredImageThumbnail storageKey={item.storageKey} src={item.dataUrl} alt={item.name} className="size-full object-cover" />
                                             <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{imageInput?.maxCountWithoutVideos !== undefined && referenceVideos.length ? `参考图 ${index + 1}` : imageInput?.labels?.[index] || index + 1}</span>
                                             <ReferenceOrderButtons index={index} total={references.length} onMove={(offset) => setReferences((value) => moveListItem(value, index, offset))} />
                                             <button type="button" className="absolute right-1 top-1 hidden size-6 items-center justify-center rounded bg-black/60 text-white group-hover:flex" onClick={() => setReferences((value) => value.filter((ref) => ref.id !== item.id))} aria-label={t("videoWorkbench.removeImage")}>
@@ -749,9 +752,10 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
 
 function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedVideo; onDownload: (video: GeneratedVideo) => void; onSaveAsset: (video: GeneratedVideo) => void }) {
     const { t } = useTranslation();
+    const source = useStoredMedia(video.storageKey, video.url, 'video');
     return (
         <div className="overflow-hidden rounded-lg border border-stone-200 bg-background dark:border-stone-800">
-            <video src={video.url} controls className="aspect-video w-full bg-black object-contain" />
+            <video src={source} preload="metadata" controls className="aspect-video w-full bg-black object-contain" />
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-stone-200 px-3 py-2.5 dark:border-stone-800">
                 <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
                     <span>
@@ -871,7 +875,7 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
                         event.stopPropagation();
                         event.dataTransfer.effectAllowed = "copy";
                         event.dataTransfer.setData(HISTORY_VIDEO_DRAG_TYPE, log.id);
-                    }}><video src={`${log.video.url}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" aria-label={`${log.title}视频预览`} /></span>}
+                    }}><StoredVideoThumbnail storageKey={log.video.storageKey} src={log.video.url} className="size-full object-cover" aria-label={`${log.title}视频预览`} /></span>}
                     <div className="mt-2 flex flex-wrap gap-1">
                         {log.parameterSummary ? <span className="break-words text-xs text-stone-500">{log.parameterSummary}</span> : <>
                         <Tag className="m-0 flex h-6 items-center rounded-md px-1.5 text-xs leading-none">{log.size}</Tag>
@@ -901,7 +905,7 @@ async function readStoredLogs() {
             logs.push(value);
         });
         const normalized = (await Promise.all(logs.map(async value => {
-            try { return await normalizeLog(value); }
+            try { return await normalizeLog(value, true); }
             catch { return fallbackStoredLog(value); }
         }))).filter(log => !log.scopeId || log.scopeId === getDocumentBatchScope());
         return (await Promise.all(normalized.map(log => hydrateVideoLogFromTask(log).catch(() => log))))
@@ -945,10 +949,11 @@ export function videoLogResults(log: Pick<GenerationLog, "id" | "status" | "vide
     return [{ id: log.id, status: "pending", error: log.error ? `结果待确认：${log.error}` : undefined }];
 }
 
-export async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
-    const video = log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video;
+export async function normalizeLog(log: Partial<GenerationLog>, deferOriginals = false): Promise<GenerationLog> {
+    const video = !deferOriginals && log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video;
     const references = await Promise.all(
         (log.references || []).map(async (item) => {
+            if (deferOriginals && item.storageKey) return item;
             void ensureImagePreview(item.storageKey);
             return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
         }),
@@ -963,8 +968,8 @@ export async function normalizeLog(log: Partial<GenerationLog>): Promise<Generat
         model: log.model || config.videoModel || "",
         config,
         references,
-        referenceVideos: await Promise.all((log.referenceVideos || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
-        referenceAudios: await Promise.all((log.referenceAudios || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
+        referenceVideos: deferOriginals ? log.referenceVideos : await Promise.all((log.referenceVideos || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
+        referenceAudios: deferOriginals ? log.referenceAudios : await Promise.all((log.referenceAudios || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) }))),
         durationMs: log.durationMs || 0,
         durationIsPartial: log.durationIsPartial,
         size: log.size || config.size || "",

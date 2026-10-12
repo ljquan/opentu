@@ -1,9 +1,10 @@
 {
-  "version": "1.1.25",
-  "buildTime": "2026-10-10T10:51:22.458Z",
+  "version": "1.1.28",
+  "buildTime": "2026-10-12T07:39:54.890Z",
   "gitCommit": "unknown",
   "changelog": [
-    "优化：完善批量出图 Excel 导入导出与手动插入 (#294)",
-    "修复：统一画布目标设置并修正提示词浮层显示 (#296)"
+    "add dedicated Tuzi Flux 3 image adapter",
+    "补齐 Gemini 别名和 Veo 参数并清理未支持字段",
+    "补齐 Tuzi 模型 ID 的尺寸和画质参数"
   ]
 }

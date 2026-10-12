@@ -1,4 +1,5 @@
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
+import { useStoredMedia } from '@/hooks/use-stored-media';
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
@@ -6,6 +7,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import type { AgentCanvasReference } from "@/stores/use-agent-store";
 
 export function AgentCanvasReferencePreview({ reference, previewUrl, previewText, theme }: { reference: AgentCanvasReference; previewUrl?: string; previewText?: string; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    previewUrl = useStoredMedia(reference.kind === 'text' ? undefined : reference.storageKey, previewUrl, reference.kind === 'text' ? 'image' : reference.kind);
     const { t } = useTranslation();
     const Icon = canvasReferenceIcon(reference.kind);
     return (

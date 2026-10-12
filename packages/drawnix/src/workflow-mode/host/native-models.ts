@@ -332,7 +332,8 @@ export async function readNativeModels(): Promise<ModelDefaults> {
         model.parameters,
         model.capability,
         adapter?.id,
-        model.requestSchema
+        model.requestSchema,
+        context.binding?.metadata?.video
       );
       model.adapterId = adapter?.id;
       if (!adapter)

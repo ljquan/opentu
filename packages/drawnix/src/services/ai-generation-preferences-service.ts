@@ -316,7 +316,8 @@ function saveAIInputImageParams(
 
 function sanitizeVideoToolParams(
   modelId: string,
-  rawParams: unknown
+  rawParams: unknown,
+  selectionKey?: string | null
 ): PersistedParams {
   const persistedParams = asRecord(rawParams);
   if (isSeedance2ModelId(modelId) && persistedParams.size?.includes('@')) {
@@ -328,7 +329,9 @@ function sanitizeVideoToolParams(
   }
   const compatibleParams = getEffectiveVideoCompatibleParams(
     modelId,
-    modelId,
+    selectionKey?.endsWith(`::${modelId}`)
+      ? { profileId: selectionKey.slice(0, -modelId.length - 2), modelId }
+      : modelId,
     persistedParams
   );
 
@@ -420,7 +423,7 @@ function saveAIInputVideoParams(
     ...currentParams,
     ...scopedParams,
     ...selectedParams,
-  });
+  }, selectionKey);
 
   writeStoredValue<Partial<AIInputPreferencesStored>>(
     LS_KEYS.AI_INPUT_PREFERENCES,
@@ -727,7 +730,8 @@ export function loadAIVideoToolPreferences(
   const selectedParams = sanitizeVideoToolParams(
     currentModel,
     loadAIInputVideoParams(currentModel, currentSelectionKey) ||
-      mergeVideoToolParams(stored.extraParams, stored.duration, stored.size)
+      mergeVideoToolParams(stored.extraParams, stored.duration, stored.size),
+    currentSelectionKey
   );
   const splitParams = splitVideoToolParams(currentModel, selectedParams);
 
@@ -755,7 +759,8 @@ export function saveAIVideoToolPreferences(
       preferences.extraParams,
       preferences.duration,
       preferences.size
-    )
+    ),
+    preferences.currentSelectionKey
   );
   const splitParams = splitVideoToolParams(
     preferences.currentModel,
@@ -875,7 +880,8 @@ export function loadScopedAIVideoToolPreferences(
         scoped?.extraParams ?? stored.extraParams,
         scoped?.duration ?? stored.duration,
         scoped?.size ?? stored.size
-      )
+      ),
+    selectionKey
   );
 
   return splitVideoToolParams(normalizedModel, selectedParams);

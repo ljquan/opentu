@@ -40,6 +40,11 @@ const PERSISTABLE_METADATA_SCHEMA: Record<string, MetadataCloneRule> = {
     supportsMask: true,
   },
   video: {
+    veoAdvancedParameters: {
+      supportedParameters: true,
+      seedMax: true,
+      personGenerationOptions: true,
+    },
     allowedDurations: true,
     defaultDuration: true,
     durationMode: true,

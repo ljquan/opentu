@@ -4,7 +4,6 @@ import { Loading, MessagePlugin } from 'tdesign-react';
 import classNames from 'classnames';
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -393,7 +392,10 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     elementData?.audioType === 'music-card' ||
     (typeof elementData?.audioUrl === 'string' &&
       elementData.audioUrl.length > 0);
-  const isVideo = isVideoElement(props.imageItem);
+  const isVideo =
+    isVideoElement(props.imageItem) ||
+    elementData?.isVideo === true ||
+    !!elementData?.videoType;
   const shouldContainFrameImage =
     !isLegacyAudioElement &&
     !isVideo &&
@@ -553,6 +555,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
           !!navigator.serviceWorker?.controller));
 
     if (canRenderResolvedSource) {
+      overlayGroup.image.dataset.originalSource = props.imageItem.url;
       overlayGroup.image.setAttribute('href', resolvedImageUrl);
       overlayGroup.image.setAttributeNS(XLINK_NS, 'href', resolvedImageUrl);
     } else {
@@ -682,18 +685,20 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   // 如果是视频元素，使用视频组件渲染
   if (isVideo) {
     return (
-      <Video
-        videoItem={{
-          url: props.imageItem.url,
-          width: props.imageItem.width,
-          height: props.imageItem.height,
-          videoType: (props.imageItem as any).videoType,
-          poster: (props.imageItem as any).poster,
-        }}
-        isFocus={props.isFocus}
-        isSelected={(props as any).isSelected}
-        readonly={(props as any).readonly}
-      />
+      <div ref={rootRef} style={{ width: '100%', height: '100%' }}>
+        <Video
+          videoItem={{
+            url: props.imageItem.url,
+            width: props.imageItem.width,
+            height: props.imageItem.height,
+            videoType: (props.imageItem as any).videoType,
+            poster: (props.imageItem as any).poster || elementData?.poster,
+          }}
+          isFocus={props.isFocus}
+          isSelected={(props as any).isSelected}
+          readonly={(props as any).readonly}
+        />
+      </div>
     );
   }
 

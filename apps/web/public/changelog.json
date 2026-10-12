@@ -1,6 +1,51 @@
 {
   "versions": [
     {
+      "version": "1.1.28",
+      "date": "2026-10-12",
+      "changes": {
+        "features": [
+          "add dedicated Tuzi Flux 3 image adapter",
+          "补齐 Gemini 别名和 Veo 参数并清理未支持字段"
+        ],
+        "fixes": [
+          "restore automatic image loading",
+          "补齐 Tuzi 模型 ID 的尺寸和画质参数"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "add dedicated Tuzi Flux 3 image adapter"
+    },
+    {
+      "version": "1.1.27",
+      "date": "2026-10-11",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复：适配Suno 音乐版本更新v6 (#301)",
+          "优化：优化浏览器资源生命周期与本地账户兼容 (#300)",
+          "修复：生成失败卡片与后续任务重叠 (#298)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
+      "version": "1.1.26",
+      "date": "2026-10-11",
+      "changes": {
+        "features": [
+          "add canvas resources and API key support QR codes (#299)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "add canvas resources and API key support QR codes (#299)"
+    },
+    {
       "version": "1.1.25",
       "date": "2026-10-10",
       "changes": {
@@ -932,58 +977,6 @@
       },
       "type": "patch",
       "highlights": "供应商设置增加「图片优先使用异步接口」开关"
-    },
-    {
-      "version": "0.9.8",
-      "date": "2026-05-17",
-      "changes": {
-        "features": [
-          "添加批量插入功能"
-        ],
-        "fixes": [
-          "split batch media action copy by target context",
-          "support bulk media insertion and image generation compatibility"
-        ],
-        "improvements": [
-          "Refactor canvas batch insertion to viewport flow layout",
-          "修复对话输入框内层描边并抽出共享壳",
-          "聊天抽屉图片预览收口到列表层",
-          "补充首屏壳层与 chunk 守门经验",
-          "修复素材库配色与多选架构，补充UI规范和架构说明",
-          "修复：蒙版预览缓存不进入素材库",
-          "Bump web app version to 0.9.7"
-        ]
-      },
-      "type": "patch",
-      "highlights": "添加批量插入功能"
-    },
-    {
-      "version": "0.9.7",
-      "date": "2026-05-09",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "修复批量导入图片弹窗显示异常"
-        ],
-        "improvements": [
-          "更新版本号至0.9.6并同步构建时间"
-        ]
-      },
-      "type": "patch",
-      "highlights": "修复批量导入图片弹窗显示异常"
-    },
-    {
-      "version": "0.9.6",
-      "date": "2026-05-06",
-      "changes": {
-        "features": [
-          "为绘图工具添加键盘快捷键调整大小功能"
-        ],
-        "fixes": [],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "为绘图工具添加键盘快捷键调整大小功能"
     }
   ]
 }

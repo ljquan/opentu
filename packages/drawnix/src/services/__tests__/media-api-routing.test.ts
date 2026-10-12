@@ -8,6 +8,25 @@ import {
 } from '../media-api';
 
 describe('media-api provider routing', () => {
+  it('maps Veo controls without a declaration into metadata in the shared submit path', async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body as FormData;
+      expect(body.get('model')).toBe('veo3.1');
+      expect(JSON.parse(String(body.get('metadata')))).toEqual({ generateAudio: false, seed: 0 });
+      return new Response(JSON.stringify({ id: 'veo-task' }));
+    });
+    const id = await submitVideoGeneration({ model: 'veo3.1', prompt: 'test', params: { generate_audio: 'false', seed: '0' } }, {
+      apiKey: 'test', baseUrl: 'https://example.test/v1', fetchImpl,
+      binding: {
+        id: 'veo-binding', profileId: 'test', modelId: 'veo3.1', operation: 'video',
+        protocol: 'openai.async.video', requestSchema: 'openai.video.form-input-reference',
+        responseSchema: 'openai.async.task', submitPath: '/videos',
+        priority: 100, confidence: 'high', source: 'manual',
+      },
+    });
+    expect(id).toBe('veo-task');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
   it('uses header auth and extra headers for sync image generation', async () => {
     const fetchImpl = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {

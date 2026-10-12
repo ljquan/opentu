@@ -2840,14 +2840,11 @@ describe('provider routing', () => {
       lyrics: '/suno/submit/lyrics',
     });
     expect(binding?.metadata?.audio?.versionOptions).toEqual([
-      'chirp-v5-5',
-      'chirp-v5',
-      'chirp-v4-5',
-      'chirp-v4',
-      'chirp-v3-0',
-      'chirp-v3-5',
+      'chirp-v6',
+      'chirp-v6-wild',
+      'chirp-v6-mini',
     ]);
-    expect(binding?.metadata?.audio?.defaultVersion).toBe('chirp-v3-5');
+    expect(binding?.metadata?.audio?.defaultVersion).toBe('chirp-v6');
   });
 
   it('infers Kling capability bindings with action-scoped version metadata', () => {

@@ -15,8 +15,9 @@ import { requestAudioGeneration, storeGeneratedAudioResult } from "@/services/ap
 import { audioResultNodes } from "@/lib/canvas/canvas-audio-results";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { ensureImagePreview, uploadImage } from "@/services/image-storage";
-import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { ensureImagePreview, uploadImage, getImageBlob } from "@/services/image-storage";
+import { uploadMediaFile, getMediaBlob, type UploadedFile } from "@/services/file-storage";
+import { useStoredMedia } from '@/hooks/use-stored-media';
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
@@ -147,6 +148,11 @@ function applyGeneratedVideo(item: CanvasNodeData, video: UploadedFile, extra: C
         position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
         metadata: { ...item.metadata, ...videoMetadata(video), ...extra },
     };
+}
+
+function useResolvedMediaNode(node: CanvasNodeData | null) {
+    const source = useStoredMedia(node?.metadata?.storageKey, node?.metadata?.content, 'image');
+    return node ? { ...node, metadata: { ...node.metadata, content: source } } : null;
 }
 
 export default function CanvasPage() {
@@ -509,8 +515,8 @@ function InfiniteCanvasPage() {
         }
 
         const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
-            const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
+            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes), true);
+            const restoredSessions = await hydrateAssistantImages(project.chatSessions || [], true);
             // This clock belongs to this page restoration, not the original submission or each query.
             recoveryStartedAtRef.current.clear();
             const recoveryStartedAt = Date.now();
@@ -900,9 +906,26 @@ function InfiniteCanvasPage() {
         // `nodes` keeps the container rect re-read on node changes, matching the previous behaviour when the container resizes without a size update.
     }, [nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
 
+    const [playingNodeIds, setPlayingNodeIds] = useState<Set<string>>(() => new Set());
+    useEffect(() => { setPlayingNodeIds(new Set()); }, [projectId]);
+    useEffect(() => {
+        setPlayingNodeIds(previous => {
+            const next = new Set([...previous].filter(id => nodes.some(node => node.id === id)));
+            return next.size === previous.size ? previous : next;
+        });
+    }, [nodes]);
+    const handlePlaybackChange = useCallback((id: string, playing: boolean) => {
+        setPlayingNodeIds(previous => {
+            if (previous.has(id) === playing) return previous;
+            const next = new Set(previous);
+            if (playing) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
     const visibleNodes = useMemo(
-        () => nodes.filter((node) => node.position.x + node.width > viewBounds.left && node.position.x < viewBounds.right && node.position.y + node.height > viewBounds.top && node.position.y < viewBounds.bottom),
-        [nodes, viewBounds],
+        () => nodes.filter((node) => playingNodeIds.has(node.id) || (node.position.x + node.width > viewBounds.left && node.position.x < viewBounds.right && node.position.y + node.height > viewBounds.top && node.position.y < viewBounds.bottom)),
+        [nodes, viewBounds, playingNodeIds],
     );
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
@@ -930,15 +953,16 @@ function InfiniteCanvasPage() {
     const singleSelectedNodeId = selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
     const toolbarNode = (toolbarNodeId ? nodeById.get(toolbarNodeId) || null : null) || (singleSelectedNodeId ? nodeById.get(singleSelectedNodeId) || null : null);
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
-    const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
-    const maskEditNode = maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null;
-    const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
-    const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
+    const cropNode = useResolvedMediaNode(cropNodeId ? nodeById.get(cropNodeId) || null : null);
+    const maskEditNode = useResolvedMediaNode(maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null);
+    const splitNode = useResolvedMediaNode(splitNodeId ? nodeById.get(splitNodeId) || null : null);
+    const upscaleNode = useResolvedMediaNode(upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null);
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
-    const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const angleNode = useResolvedMediaNode(angleNodeId ? nodeById.get(angleNodeId) || null : null);
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
-    const previewContent = previewImageId ? previewNode?.metadata?.images?.find((image) => image.id === previewImageId)?.content : previewNode?.metadata?.content;
+    const previewSlot = previewImageId ? previewNode?.metadata?.images?.find((image) => image.id === previewImageId) : undefined;
+    const previewContent = useStoredMedia(previewSlot?.storageKey || previewNode?.metadata?.storageKey, previewSlot?.content || previewNode?.metadata?.content, 'image');
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const selectedNodes = useMemo(() => nodes.filter((node) => selectedNodeIds.has(node.id)), [nodes, selectedNodeIds]);
     const canGroupSelection = canGroupSelectedNodes(selectedNodeIds, nodes);
@@ -1991,15 +2015,17 @@ function InfiniteCanvasPage() {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
     }, []);
 
-    const downloadNodeImage = useCallback((node: CanvasNodeData) => {
+    const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
-        saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
+        const stored = node.metadata.storageKey ? await (node.type === CanvasNodeType.Image ? getImageBlob(node.metadata.storageKey) : getMediaBlob(node.metadata.storageKey)).catch(() => null) : null;
+        saveAs(stored || node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
     }, []);
 
-    const downloadBatchImage = useCallback((node: CanvasNodeData, imageId: string) => {
+    const downloadBatchImage = useCallback(async (node: CanvasNodeData, imageId: string) => {
         const image = node.metadata?.images?.find((item) => item.id === imageId);
         if (!image?.content) return;
-        saveAs(image.content, `canvas-image-${node.id}-${image.id}.${imageExtension(image.content)}`);
+        const stored = image.storageKey ? await getImageBlob(image.storageKey).catch(() => null) : null;
+        saveAs(stored || image.content, `canvas-image-${node.id}-${image.id}.${imageExtension(image.content)}`);
     }, []);
 
     const captureVideoNodeFrame = useCallback(
@@ -2009,7 +2035,7 @@ function InfiniteCanvasPage() {
             const video = Array.from(containerRef.current!.querySelectorAll<HTMLVideoElement>("video[data-canvas-video]")).find((item) => item.dataset.canvasVideo === nodeId);
             if (node?.type !== CanvasNodeType.Video || !node.metadata?.content || !video) return void message.error(t("canvas.videoFrames.failed"));
             try {
-                const image = await uploadImage(await captureVideoFrame(node.metadata.content, position, video.currentTime));
+                const image = await uploadImage(await captureVideoFrame(video.currentSrc || video.src, position, video.currentTime));
                 const size = fitNodeSize(image.width, image.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                 const id = nanoid();
                 const x = node.position.x + node.width + 96;
@@ -3390,6 +3416,7 @@ function InfiniteCanvasPage() {
                         <CanvasNode
                             key={node.id}
                             data={node}
+                            onPlaybackChange={handlePlaybackChange}
                             scale={viewport.k}
                             isSelected={selectedNodeIds.has(node.id)}
                             isRelated={relatedHighlight.nodeIds.has(node.id)}

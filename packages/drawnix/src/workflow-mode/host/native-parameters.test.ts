@@ -11,9 +11,49 @@ import {
 } from './native-parameters';
 import { buildNativeModelCoverage } from './native-model-coverage';
 import { getVideoModelConfig } from '../../constants/video-model-config';
-import { validateNativeReferences } from '../shared/native-parameters';
+import {
+  resolveNativeParameters,
+  validateNativeReferences,
+} from '../shared/native-parameters';
 
 describe('complete native catalog parameter coverage', () => {
+  it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
+    'enables %s size and quality controls with their final consumer', (modelId) => {
+    const parameters = applyNativeAdapterContract(
+      describeNativeModel(modelId, 'image').parameters!,
+      'image',
+      'seedream-image-adapter'
+    );
+    expect(parameters.find(param => param.id === 'seedream_quality')).toMatchObject({
+      defaultValue: '2k',
+      options: [{ value: '2k', label: '2K' }, { value: '3k', label: '3K' }],
+    });
+    expect(parameters.find(param => param.id === 'seedream_quality')?.disabledReason).toBeUndefined();
+    expect(resolveNativeParameters(parameters, { size: '16x9', seedream_quality: '3k' }))
+      .toMatchObject({ size: '16x9', seedream_quality: '3k' });
+    expect(() => resolveNativeParameters(parameters, { seedream_quality: '1k' })).toThrow();
+    expect(parameters.map(param => param.id)).not.toContain('watermark');
+  });
+  it('enables Veo controls without a metadata declaration and preserves channel limits', () => {
+    const parameters = describeNativeModel('veo3.1', 'video').parameters!;
+    const unknown = applyNativeAdapterContract(parameters, 'video', 'gemini-video-adapter');
+    expect(resolveNativeParameters(unknown, {
+      seed: 0, generate_audio: false, person_generation: 'allow_adult',
+    })).toMatchObject({ seed: 0, generate_audio: false, person_generation: 'allow_adult' });
+    const declared = applyNativeAdapterContract(parameters, 'video', 'gemini-video-adapter', 'openai.video.form-input-reference', {
+      veoAdvancedParameters: { supportedParameters: ['generate_audio', 'seed', 'negative_prompt', 'person_generation'], seedMax: 100, personGenerationOptions: ['allow_adult'] },
+    });
+    expect(resolveNativeParameters(declared, { seed: 0, generate_audio: false, person_generation: 'allow_adult' })).toMatchObject({ seed: 0, generate_audio: false, person_generation: 'allow_adult' });
+    expect(declared.find(parameter => parameter.id === 'seed')?.max).toBe(100);
+  });
+
+  it('keeps Seedance 2.5 consumers for existing fields and removes draft and priority', () => {
+    const parameters = applyNativeAdapterContract(describeNativeModel('doubao-seedance-2-5-260628', 'video').parameters!, 'video', 'seedance-2-video-adapter');
+    expect(resolveNativeParameters(parameters, { watermark: 'true', output_format: 'mov' })).toMatchObject({ watermark: 'true', output_format: 'mov' });
+    expect(parameters.map(param => param.id)).not.toContain('draft');
+    expect(parameters.map(param => param.id)).not.toContain('priority');
+  });
+
   it('exposes Tuzi generation output options without enabling edit fidelity', () => {
     const parameters = extendAdapterParameters([], 'tuzi-gpt-image-adapter');
     for (const id of [

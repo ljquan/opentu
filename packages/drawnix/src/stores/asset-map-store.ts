@@ -10,6 +10,15 @@ type Listener = () => void;
 
 let currentMap: Map<string, Asset> = new Map();
 const listeners = new Set<Listener>();
+let loadAssets: (() => void) | undefined;
+
+export function registerAssetMapLoader(loader: () => void): () => void {
+  loadAssets = loader;
+  if (listeners.size > 0) loader();
+  return () => {
+    if (loadAssets === loader) loadAssets = undefined;
+  };
+}
 
 export function setGlobalAssetMap(map: Map<string, Asset>): void {
   if (map === currentMap) return;
@@ -23,5 +32,8 @@ export function getAssetMapSnapshot(): Map<string, Asset> {
 
 export function subscribeAssetMap(listener: Listener): () => void {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  loadAssets?.();
+  return () => {
+    listeners.delete(listener);
+  };
 }

@@ -258,7 +258,13 @@ describe('gpt-image-adapter', () => {
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       const type = url.endsWith('.webp') ? 'image/webp' : 'image/png';
-      return new Response(new Blob(['ok'], { type }), { status: 200 });
+      const response = new Response('ok', {
+        status: 200,
+        headers: { 'Content-Type': type },
+      });
+      // Node Response and jsdom FormData must share the browser Blob fixture.
+      vi.spyOn(response, 'blob').mockResolvedValue(new Blob(['ok'], { type }));
+      return response;
     });
 
     const body = await buildGPTImageEditFormData(

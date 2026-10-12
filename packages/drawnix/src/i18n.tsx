@@ -11,6 +11,12 @@ export type Language = 'zh' | 'en';
 
 // Define translation keys and their corresponding values
 export interface Translations {
+  'resources.title': string;
+  'resources.close': string;
+  'resources.download': string;
+  'resources.downloadDescription': string;
+  'resources.follow': string;
+  'resources.followDescription': string;
   // Toolbar items
   'toolbar.hand': string;
   'toolbar.selection': string;
@@ -205,6 +211,12 @@ export interface Translations {
 // Translation data
 const translations: Record<Language, Translations> = {
   zh: {
+    'resources.title': 'OpenTu 资源',
+    'resources.close': '关闭 OpenTu 资源',
+    'resources.download': '下载桌面版',
+    'resources.downloadDescription': 'macOS、Windows、Linux 安装包',
+    'resources.follow': '关注 @shuidiyuAI',
+    'resources.followDescription': '查看 OpenTu 更新和发布动态',
     // Toolbar items
     'toolbar.hand': '手形工具 — H',
     'toolbar.selection': '选择 — V',
@@ -396,6 +408,12 @@ const translations: Record<Language, Translations> = {
     'toolbar.resumeSpeech': '继续朗读',
   },
   en: {
+    'resources.title': 'OpenTu Resources',
+    'resources.close': 'Close OpenTu Resources',
+    'resources.download': 'Download Desktop App',
+    'resources.downloadDescription': 'Installers for macOS, Windows and Linux',
+    'resources.follow': 'Follow @shuidiyuAI',
+    'resources.followDescription': 'OpenTu updates and release news',
     // Toolbar items
     'toolbar.hand': 'Hand — H',
     'toolbar.selection': 'Selection — V',

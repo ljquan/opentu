@@ -2,6 +2,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('ai-generation-preferences-service', () => {
+  it('keeps channel-specific video controls scoped while preserving false and zero', async () => {
+    const bindingUtils = await import('../video-binding-utils');
+    const compatible = vi.spyOn(bindingUtils, 'getEffectiveVideoCompatibleParams').mockImplementation((_id, ref) => {
+      const supported = typeof ref === 'object' && ref?.profileId === 'supported';
+      return [
+        { id: 'size', label: 'Size', valueType: 'enum', options: [{ value: '1280x720', label: 'Landscape' }], defaultValue: '1280x720', compatibleModels: ['veo3.1'], modelType: 'video' },
+        { id: 'duration', label: 'Duration', valueType: 'enum', options: [{ value: '8', label: '8' }], defaultValue: '8', compatibleModels: ['veo3.1'], modelType: 'video' },
+        ...(supported ? [
+          { id: 'generate_audio', label: 'Audio', valueType: 'enum' as const, options: [{ value: 'false', label: 'Off' }, { value: 'true', label: 'On' }], compatibleModels: ['veo3.1'], modelType: 'video' as const },
+          { id: 'seed', label: 'Seed', valueType: 'number' as const, compatibleModels: ['veo3.1'], modelType: 'video' as const },
+        ] : []),
+      ];
+    });
+    const { saveAIVideoToolPreferences, loadScopedAIVideoToolPreferences } = await import('../ai-generation-preferences-service');
+    saveAIVideoToolPreferences({ currentModel: 'veo3.1', currentSelectionKey: 'supported::veo3.1', size: '1280x720', duration: '8', extraParams: { generate_audio: 'false', seed: '0' } });
+    expect(loadScopedAIVideoToolPreferences('veo3.1', 'supported::veo3.1').extraParams).toEqual({ generate_audio: 'false', seed: '0' });
+    expect(loadScopedAIVideoToolPreferences('veo3.1', 'unknown::veo3.1').extraParams).toEqual({});
+    compatible.mockRestore();
+  });
   beforeEach(() => {
     vi.resetModules();
     localStorage.clear();
@@ -155,24 +174,28 @@ describe('ai-generation-preferences-service', () => {
     ).toMatchObject({ sunoAction: 'lyrics' });
   });
 
-  it('按模型作用域恢复图片工具偏好', async () => {
+  it.each([
+    ['doubao-seedream-4-5-251128', '4k'],
+    ['doubao-seedream-5-0-lite-260128', '3k'],
+    ['seedream-5.0', '3k'],
+  ])('按 %s 模型作用域恢复图片工具偏好', async (modelId, quality) => {
     const { loadScopedAIImageToolPreferences, saveAIImageToolPreferences } =
       await import('../ai-generation-preferences-service');
 
     saveAIImageToolPreferences({
-      currentModel: 'doubao-seedream-4-5-251128',
-      currentSelectionKey: 'provider-a::doubao-seedream-4-5-251128',
-      extraParams: { seedream_quality: '4k' },
+      currentModel: modelId,
+      currentSelectionKey: `provider-a::${modelId}`,
+      extraParams: { seedream_quality: quality },
       aspectRatio: '16:9',
     });
 
     expect(
       loadScopedAIImageToolPreferences(
-        'doubao-seedream-4-5-251128',
-        'provider-a::doubao-seedream-4-5-251128'
+        modelId,
+        `provider-a::${modelId}`
       )
     ).toMatchObject({
-      extraParams: { size: '16x9', seedream_quality: '4k' },
+      extraParams: { size: '16x9', seedream_quality: quality },
       aspectRatio: '16:9',
     });
   });

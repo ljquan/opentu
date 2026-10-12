@@ -52,7 +52,7 @@ export async function readAssetPackage(file: File) {
             const blob = zip.get(item.path);
             if (!blob) return;
             const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-            await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+            await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob, false) : setMediaBlob(item.storageKey, typedBlob, false));
         }),
     );
     return data.assets;

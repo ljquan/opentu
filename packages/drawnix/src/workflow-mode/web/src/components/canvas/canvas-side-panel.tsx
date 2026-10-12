@@ -12,12 +12,15 @@ import { cn } from "@/lib/utils";
 import { PromptDetailDialog } from "@/pages/prompts/components/prompt-detail-dialog";
 import { fetchSourcePrompts, type Prompt } from "@/services/api/prompts";
 import { uploadMediaFile } from "@/services/file-storage";
-import { previewUrlFor, subscribeImagePreviews, getImagePreviewRevision, uploadImage } from "@/services/image-storage";
+import { subscribeImagePreviews, getImagePreviewRevision, uploadImage } from "@/services/image-storage";
 import { useAssetStore, type Asset, type AssetKind } from "@/stores/use-asset-store";
 import { usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import { CANVAS_SIDE_PANEL_MAX_WIDTH, CANVAS_SIDE_PANEL_MIN_WIDTH, CANVAS_SIDE_PANEL_MOTION_MS, useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
+import { useStoredImage } from '@/hooks/use-stored-media';
+import { useAssetMedia } from '@/hooks/use-asset-media';
+import { useMediaIntersection } from '@/hooks/use-media-intersection';
 
 import type { InsertAssetPayload } from "./asset-picker-modal";
 
@@ -240,7 +243,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                                     <button type="button" onClick={() => (selectMode ? toggleChecked(node.id) : onFocusNode(node.id))} className={cn("flex min-w-0 flex-1 items-center gap-3 py-2 pr-2 text-left", node.type === CanvasNodeType.Group && hasChildren ? "pl-0" : "pl-2")} title={selectMode ? undefined : t("canvas.sidePanel.focusNode")}>
                                         {selectMode ? <CheckMark checked={isChecked} theme={theme} /> : null}
                                         <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md">
-                                            {isImage ? <img src={previewUrlFor(node.metadata?.storageKey) || node.metadata?.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-5 opacity-60" />}
+                                            {isImage ? <NodeImageCover node={node} /> : <Icon className="size-5 opacity-60" />}
                                         </span>
                                         <span className="min-w-0 flex-1 space-y-0.5">
                                             <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || t("canvas.node.untitled")}</span>
@@ -453,12 +456,18 @@ function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: 
 }
 
 function AssetCover({ asset }: { asset: Asset }) {
-    if (asset.kind === "text") return <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2.5 text-[11px] leading-snug opacity-80">{asset.data.content}</div>;
-    if (asset.kind === "video") {
-        if (asset.coverUrl) return <img src={asset.coverUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
-        return <video src={`${asset.data.url}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
-    }
-    return <img src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
+    const { ref, visible } = useMediaIntersection();
+    const { cover, source, onCoverError } = useAssetMedia(visible ? asset : null, true);
+    return <div ref={ref} className="size-full">{asset.kind === 'text'
+        ? <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2.5 text-[11px] leading-snug opacity-80">{asset.data.content}</div>
+        : cover ? <img src={cover} onError={onCoverError} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />
+        : asset.kind === 'video' ? <video src={source ? `${source}#t=0.1` : undefined} muted playsInline preload="metadata" className="size-full object-cover" /> : null}</div>;
+}
+
+function NodeImageCover({ node }: { node: CanvasNodeData }) {
+    const { ref, visible } = useMediaIntersection();
+    const { source, onError } = useStoredImage(visible ? node.metadata?.storageKey : undefined, visible ? node.metadata?.content : undefined);
+    return <div ref={ref} className="size-full"><img src={source} onError={onError} alt={node.title} loading="lazy" decoding="async" className="size-full object-cover" /></div>;
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ import {
   shouldDownloadVideoContent,
 } from './video-binding-utils';
 import { prepareVideoReferenceImageBlob } from './video-reference-image-utils';
+import { appendVeoAdvancedMetadata } from '../utils/veo-parameters';
 import {
   isMiniMaxH3RegenerationRequest,
   prepareMiniMaxH3Submission,
@@ -199,6 +200,7 @@ class VideoAPIService {
     }
 
     appendVideoOutputParams(formData, params.model, params.size, params.params);
+    appendVeoAdvancedMetadata(formData, params.model, params.params, binding?.metadata?.video);
 
     // Handle multiple images - all models use input_reference
     // For veo3.1, multiple images can be passed with same field name (first frame, last frame)
