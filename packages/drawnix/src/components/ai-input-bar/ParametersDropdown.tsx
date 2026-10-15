@@ -1,3 +1,4 @@
+import { SunoFileInput } from '../shared/SunoFileInput';
 /**
  * 参数下拉选择器组件
  *
@@ -174,7 +175,15 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     compatibleParams.forEach((param) => {
       const value = selectedParams[param.id];
       if (value) {
-        if (param.valueType === 'enum') {
+        if (param.control === 'multiselect') {
+          try {
+            const values: unknown = JSON.parse(value);
+            if (Array.isArray(values)) {
+              const labels = param.options?.filter((option) => values.includes(option.value)).map((option) => option.label) || [];
+              if (labels.length) summaryParts.push(labels.join('/'));
+            }
+          } catch { /* Ignore incomplete drafts in the summary. */ }
+        } else if (param.valueType === 'enum') {
           const option = param.options?.find((opt) => opt.value === value);
           if (option) {
             summaryParts.push(
@@ -407,12 +416,42 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                           <div className="parameters-dropdown__section-title">
                             {param.label}
                           </div>
-                          {param.advanced && param.description && (
+                          {param.description && (param.advanced || modelId.startsWith('suno/')) && (
                             <div className="parameters-dropdown__section-description">
                               {param.description}
                             </div>
                           )}
-                          {param.control === 'switch' && param.defaultValue === undefined ? (
+                          {param.control === 'file' ? (
+                            <SunoFileInput label={param.label} value={currentValue} onChange={(value) => handleFieldInput(param.id, value)} />
+                          ) : param.control === 'textarea' ? (
+                            <textarea
+                              className="parameters-dropdown__field-input"
+                              aria-label={param.label}
+                              rows={4}
+                              value={currentValue || ''}
+                              placeholder={param.id === 'audio_urls' ? '每行一个可公开下载的音频 URL' : param.label}
+                              onChange={(event) => handleFieldInput(param.id, event.target.value)}
+                              onMouseDown={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                            />
+                          ) : param.control === 'select' || param.control === 'multiselect' ? (
+                            <select
+                              className="parameters-dropdown__field-input"
+                              aria-label={param.label}
+                              multiple={param.control === 'multiselect'}
+                              value={param.control === 'multiselect' ? (() => {
+                                try { const value = JSON.parse(currentValue || '[]'); return Array.isArray(value) ? value : []; } catch { return []; }
+                              })() : currentValue || ''}
+                              onKeyDown={(event) => event.stopPropagation()}
+                              onChange={(event) => handleFieldInput(param.id,
+                                param.control === 'multiselect'
+                                  ? JSON.stringify(Array.from(event.target.selectedOptions).map((option) => option.value))
+                                  : event.target.value)}
+                            >
+                              {param.control === 'select' && <option value="">{param.options?.length ? '请选择' : '当前渠道暂无已完成资源'}</option>}
+                              {param.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          ) : param.control === 'switch' && param.defaultValue === undefined ? (
                             <div className="parameters-dropdown__options parameters-dropdown__options--three-state" role="group" aria-label={param.label}>
                               {[
                                 { value: '', label: '默认' },

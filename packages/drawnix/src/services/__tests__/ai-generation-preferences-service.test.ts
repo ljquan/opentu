@@ -1,7 +1,45 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.hoisted(() => {
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+    },
+  });
+});
+
 describe('ai-generation-preferences-service', () => {
+  it('restores non-default native actions while keeping file bytes out of localStorage preferences', async () => {
+    const models = await import('../../constants/model-config');
+    const modelSpy = vi.spyOn(models, 'getModelConfig').mockReturnValue({ id: 'suno_act_mp4', type: 'audio' } as ReturnType<typeof models.getModelConfig>);
+    try {
+      const service = await import('../ai-generation-preferences-service');
+      const selectedParams = { sunoNativeAction: 'voice-generate', taskId: 'public', verifyUrl: 'https://cdn.test/verify.wav', voiceName: 'Singer', file: 'data:audio/wav;base64,YQ==', base64Data: 'YQ==' };
+      service.saveAIInputPreferences({ generationType: 'audio', selectedModel: 'suno_act_mp4', selectedCount: 1, selectedSkillId: '', selectedParams });
+      service.saveScopedAIInputModelParams('audio', 'suno_act_mp4', selectedParams, 'p');
+      expect(service.loadAIInputPreferences().selectedParams).toMatchObject({ sunoNativeAction: 'voice-generate', verifyUrl: selectedParams.verifyUrl, voiceName: 'Singer' });
+      expect(service.loadAIInputPreferences().selectedParams.file).toBeUndefined();
+      const scoped = service.loadScopedAIInputModelParams('audio', 'suno_act_mp4', 'p');
+      expect(scoped.file).toBeUndefined(); expect(scoped.base64Data).toBeUndefined();
+    } finally { modelSpy.mockRestore(); }
+  });
+
+  it('restores native Suno resource and format selections without treating arrays as single enum values', async () => {
+    const models = await import('../../constants/model-config');
+    const modelSpy = vi.spyOn(models, 'getModelConfig').mockReturnValue({ id: 'suno/download', type: 'audio' } as ReturnType<typeof models.getModelConfig>);
+    try {
+      const { saveAIInputPreferences, loadAIInputPreferences } = await import('../ai-generation-preferences-service');
+      saveAIInputPreferences({ generationType: 'audio', selectedModel: 'suno/download', selectedCount: 1, selectedSkillId: '',
+        selectedParams: { music_id: 'public-music', formats: '["mp3","wav"]' } });
+      expect(loadAIInputPreferences().selectedParams).toEqual({ music_id: 'public-music', formats: '["mp3","wav"]' });
+    } finally { modelSpy.mockRestore(); }
+  });
   it('keeps channel-specific video controls scoped while preserving false and zero', async () => {
     const bindingUtils = await import('../video-binding-utils');
     const compatible = vi.spyOn(bindingUtils, 'getEffectiveVideoCompatibleParams').mockImplementation((_id, ref) => {

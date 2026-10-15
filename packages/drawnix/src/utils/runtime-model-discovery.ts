@@ -1,3 +1,4 @@
+import { isSunoNativeModel } from '../services/suno-native';
 import {
   isCurrentTuziEndpoint,
   isVerifiedTuziProvider,
@@ -42,6 +43,32 @@ import {
 import { sortModelsByDisplayPriority } from './model-sort';
 import { isTuziEmbeddedMode } from '../services/tuzi-embedded-config';
 import { hasTuziSystemToken } from '../services/tuzi-token-auth';
+import { getSunoV2Action, isSunoV2Model } from '../services/suno-v2';
+import type { ProviderPricingCache } from './model-pricing-types';
+
+function supplementSunoV2Models(profileId: string, models: ModelConfig[]): ModelConfig[] {
+  const caches = settingsManager.getSetting<ProviderPricingCache[]>('providerPricingCache');
+  const endpoints = (Array.isArray(caches) ? caches : []).find(
+    (cache) => cache.profileId === profileId
+  )?.modelEndpoints;
+  const supplemented = models.filter((model) => !model.tags?.includes('pricing-suno-v2'));
+  const seen = new Set(supplemented.map((model) => model.id));
+  for (const [modelId, hints] of Object.entries(endpoints || {})) {
+    const action = getSunoV2Action(modelId);
+    if (!action?.supported || seen.has(modelId)) continue;
+    const hasNativeSubmit = Object.values(hints).some((hint) =>
+      hint.path?.trim() === `/suno/v2/${action.action}` &&
+      (!hint.method || hint.method.toUpperCase() === 'POST')
+    );
+    if (!hasNativeSubmit) continue;
+    const model = adaptRuntimeModel({ id: modelId, category: 'audio' });
+    if (model) supplemented.push(attachRuntimeSource(profileId, {
+      ...model, tags: [...(model.tags || []), 'pricing-suno-v2'],
+    }));
+    seen.add(modelId);
+  }
+  return supplemented;
+}
 
 const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
@@ -661,6 +688,7 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
 }
 
 function inferModelType(model: RemoteModelListItem): ModelType {
+  if (isSunoV2Model(model.id) || isSunoNativeModel(model.id)) return 'audio';
   const categoryType = inferModelTypeFromCategory(model.category);
   if (categoryType) {
     return categoryType;
@@ -1347,6 +1375,9 @@ function attachRuntimeSource(
 }
 
 function refreshPersistedModelConfig(model: ModelConfig): ModelConfig {
+  if (isSunoV2Model(model.id) || isSunoNativeModel(model.id)) {
+    return applySunoAliasPresentation({ ...model, type: 'audio' });
+  }
   const staticConfig = getStaticModelConfig(model.id);
   if (staticConfig) {
     return cloneModelConfig(staticConfig);
@@ -1403,10 +1434,10 @@ function createPinnedRuntimeModel(
 function createStateFromCatalog(
   catalog: ProviderCatalog
 ): RuntimeModelDiscoveryState {
-  const discoveredModels = decorateRuntimeModels(
+  const discoveredModels = supplementSunoV2Models(catalog.profileId, decorateRuntimeModels(
     catalog.profileId,
     Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : []
-  );
+  ));
   const selectedModelIds = normalizeSelectedModelIds(
     discoveredModels,
     Array.isArray(catalog.selectedModelIds) ? catalog.selectedModelIds : []
@@ -1516,6 +1547,7 @@ class RuntimeModelDiscoveryStore {
 
     providerCatalogsSettings.addListener(this.handleCatalogSettingsChange);
     providerProfilesSettings.addListener(this.handleProfileSettingsChange);
+    settingsManager.addListener('providerPricingCache', this.handlePricingSettingsChange);
     invocationPresetsSettings.addListener(this.handlePresetSettingsChange);
     settingsManager.addListener(
       'activePresetId',
@@ -1590,6 +1622,10 @@ class RuntimeModelDiscoveryStore {
   private handlePresetSettingsChange = (): void => {
     this.syncRuntimeModelConfigs();
     this.emit();
+  };
+
+  private handlePricingSettingsChange = (): void => {
+    this.handleCatalogSettingsChange(providerCatalogsSettings.get());
   };
 
   private handleProfileSettingsChange = (): void => {
@@ -2130,12 +2166,13 @@ class RuntimeModelDiscoveryStore {
       adaptedModels.push(attachRuntimeSource(profileId, adapted));
     }
 
-    if (adaptedModels.length === 0) {
+    const supplementedModels = supplementSunoV2Models(profileId, adaptedModels);
+    if (supplementedModels.length === 0) {
       throw new Error('模型列表为空');
     }
 
     const discoveredModels = mergeDiscoveredWithManualModels(
-      adaptedModels,
+      supplementedModels,
       state.discoveredModels
     );
     const manualModelIds = new Set(
@@ -2168,7 +2205,7 @@ class RuntimeModelDiscoveryStore {
       error: null,
     });
 
-    return adaptedModels;
+    return supplementedModels;
   }
 
   setError(

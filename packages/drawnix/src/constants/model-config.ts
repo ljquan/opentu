@@ -11,6 +11,10 @@ import {
   isSeedance25ModelId,
   SEEDANCE_25_MODEL_ID,
 } from '../utils/seedance-model';
+import { isSunoV2Model, isUnavailableSunoModel } from '../services/suno-v2';
+import { isSunoNativeModel } from '../services/suno-native';
+import { getSunoNativeParams } from '../services/suno-native-params';
+import { getSunoV2Params } from '../services/suno-v2-params';
 
 /**
  * 模型类型
@@ -107,7 +111,7 @@ export interface ParamConfig {
   /** 可选值列表（enum 类型时使用） */
   options?: Array<{ value: string; label: string }>;
   /** 二元枚举的展示控件 */
-  control?: 'switch';
+  control?: 'switch' | 'select' | 'multiselect' | 'textarea' | 'file';
   advanced?: boolean;
   /** 默认值 */
   defaultValue?: string;
@@ -3465,6 +3469,9 @@ export function getParamsByModelType(modelType: ModelType): ParamConfig[] {
  * 根据模型 ID 获取兼容的参数列表
  */
 export function getCompatibleParams(modelId: string): ParamConfig[] {
+  if (isSunoNativeModel(modelId)) return getSunoNativeParams(modelId);
+  if (isUnavailableSunoModel(modelId)) return [];
+  if (isSunoV2Model(modelId)) return getSunoV2Params(modelId);
   const modelConfig = getModelConfig(modelId);
   if (!modelConfig) return [];
   const normalizedModelId = modelConfig.id.toLowerCase();

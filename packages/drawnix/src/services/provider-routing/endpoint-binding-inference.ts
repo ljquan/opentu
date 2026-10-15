@@ -1,3 +1,4 @@
+import { SUNO_NATIVE_ACTIONS } from '../suno-native';
 /**
  * 从 pricing API 的 endpoints 数据推断 binding 配置。
  * 纯函数，将 endpoint path 映射到已有的 protocol/requestSchema 体系。
@@ -80,9 +81,30 @@ const PATH_PATTERNS: PathPattern[] = [
       pollPathTemplate: '/kling/v1/videos/{action}/{taskId}',
     }),
   },
+  // Only documented native submission routes establish a native binding.
+  {
+    test: (p, endpoint) => SUNO_NATIVE_ACTIONS.some((action) => !action.legacy && action.path === p && (endpoint.method || 'POST').toUpperCase() === action.method),
+    hint: (p) => {
+      const action = SUNO_NATIVE_ACTIONS.find((item) => item.path === p);
+      return { protocol: 'tuzi.suno.native', requestSchema: 'tuzi.suno.native.submit', responseSchema: 'tuzi.suno.native.task',
+        submitPath: p, pollPathTemplate: action?.pollPath ? `${action.pollPath}?taskId={taskId}` : undefined, baseUrlStrategy: 'trim-v1' };
+    },
+  },
+  // Native v2 actions must be matched before the legacy Suno catch-all.
+  {
+    test: (p, endpoint) => /^\/suno\/v2\/[^/]+$/i.test(p) && isPostEndpoint(endpoint),
+    hint: (p) => ({
+      protocol: 'tuzi.suno.v2',
+      requestSchema: 'tuzi.suno.v2.submit',
+      responseSchema: 'tuzi.suno.v2.task',
+      submitPath: p,
+      pollPathTemplate: '/suno/v2/fetch/{taskId}',
+      baseUrlStrategy: 'trim-v1',
+    }),
+  },
   // Suno audio
   {
-    test: (p) => /\/suno\//i.test(p),
+    test: (p) => /\/suno\//i.test(p) && !/\/suno\/(?:v2|api)\//i.test(p),
     hint: () => ({
       protocol: 'tuzi.suno.music',
       requestSchema: 'tuzi.suno.music.submit',

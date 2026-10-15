@@ -186,6 +186,22 @@ $green-health: #10b981;
     white-space: nowrap;
   }
 
+  &__suno-availability {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 12px;
+    color: $gray-medium;
+    flex-shrink: 0;
+
+    p { margin: 0 0 8px; overflow-wrap: anywhere; }
+    label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  }
+
+  &__item[aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   &__search {
     flex: 1;
     min-width: 0;

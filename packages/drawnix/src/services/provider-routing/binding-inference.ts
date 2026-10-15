@@ -1,3 +1,4 @@
+import { getSunoNativeAction, isSunoNativeModel } from '../suno-native';
 import {
   isAsyncImageModel,
   ModelVendor,
@@ -16,6 +17,7 @@ import {
 } from '../model-adapters/image-request-schemas';
 import { isTuziCompatibleBaseUrl } from './tuzi-api-endpoints';
 import { inferAllBindingHintsFromEndpoints } from './endpoint-binding-inference';
+import { getSunoV2Action, isSunoV2Model } from '../suno-v2';
 import type { ProviderModelBinding, ProviderProfileSnapshot } from './types';
 
 function buildBindingId(
@@ -770,6 +772,33 @@ function inferAudioBindings(
 ): ProviderModelBinding[] {
   const bindings: ProviderModelBinding[] = [];
 
+  if (isSunoNativeModel(model.id)) {
+    if (!isTuziProfile(profile)) return [];
+    const action = getSunoNativeAction(model.id);
+    return [buildBinding(profile, model, {
+      protocol: 'tuzi.suno.native', requestSchema: 'tuzi.suno.native.submit', responseSchema: 'tuzi.suno.native.task',
+      submitPath: action.path, pollPathTemplate: action.pollPath ? action.pollPath.includes('{taskId}') ? action.pollPath : `${action.pollPath}?taskId={taskId}` : undefined, baseUrlStrategy: 'trim-v1',
+      metadata: { audio: { action: action.action } }, priority: 400, confidence: 'high', source: 'template',
+    })];
+  }
+
+  if (isSunoV2Model(model.id)) {
+    const action = getSunoV2Action(model.id);
+    if (action?.supported && isTuziProfile(profile)) {
+      bindings.push(buildBinding(profile, model, {
+        protocol: 'tuzi.suno.v2',
+        requestSchema: 'tuzi.suno.v2.submit',
+        responseSchema: 'tuzi.suno.v2.task',
+        submitPath: `/suno/v2/${action.action}`,
+        pollPathTemplate: '/suno/v2/fetch/{taskId}',
+        baseUrlStrategy: 'trim-v1',
+        metadata: { audio: { action: action.action } },
+        priority: 400, confidence: 'high', source: 'template',
+      }));
+    }
+    return bindings;
+  }
+
   if (
     isSunoModel(model) &&
     (profile.providerType === 'openai-compatible' ||
@@ -831,6 +860,12 @@ function shouldUseDiscoveredEndpointHintForModel(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
 ): boolean {
+  if (isSunoNativeModel(model.id)) return false;
+  if (isSunoV2Model(model.id)) {
+    const action = getSunoV2Action(model.id);
+    return !!action?.supported && hint.protocol === 'tuzi.suno.v2' && hint.submitPath === `/suno/v2/${action.action}`;
+  }
+  if (hint.protocol === 'tuzi.suno.v2' || hint.protocol === 'tuzi.suno.native') return false;
   if (isTuziProfile(profile) && model.id === 'flux-3-image') {
     return hint.protocol === 'openai.images.generations';
   }
@@ -870,6 +905,8 @@ export function inferBindingsForProviderModel(
   endpointHints?: Record<string, PricingEndpointInfo> | null
 ): ProviderModelBinding[] {
   let bindings: ProviderModelBinding[];
+  // Native Suno IDs remain audio even in stale catalogs marked as chat models.
+  if (isSunoNativeModel(model.id) || isSunoV2Model(model.id)) model = { ...model, type: 'audio' };
   switch (model.type) {
     case 'text':
       bindings = inferTextBindings(profile, model);

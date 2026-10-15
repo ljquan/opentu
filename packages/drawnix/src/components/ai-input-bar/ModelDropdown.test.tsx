@@ -154,6 +154,89 @@ describe('ModelDropdown', () => {
     selectionKey: 'tuzi-provider::gpt-image-2',
   };
 
+  const sunoModels: ModelConfig[] = [
+    { id: 'suno_act_unknown', label: 'suno_act_unknown' },
+    { id: 'suno_persona_unknown', label: 'Suno Persona' },
+    { id: 'suno/persona', label: '音色创建' },
+    { id: 'suno_music', label: 'Suno 音乐' },
+  ].map((model) => ({ ...baseModel, ...model, type: 'audio', vendor: ModelVendor.SUNO,
+    shortCode: undefined, selectionKey: `tuzi-provider::${model.id}` }));
+
+  function enableMenuLayout() {
+    // JSDOM has no layout; a nonzero trigger width makes the portal accessible.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 400, bottom: 32, width: 400, height: 32,
+      toJSON: () => ({}),
+    });
+  }
+
+  it('shows native Suno IDs and hides unsupported entries without silently replacing a saved selection', () => {
+    enableMenuLayout();
+    const onSelect = vi.fn();
+    render(<ModelDropdown selectedModel="suno_act_unknown" selectedSelectionKey="tuzi-provider::suno_act_unknown"
+      models={sunoModels} onSelect={onSelect} isOpen />);
+    expect(screen.getByRole('status').textContent).toContain('suno_act_unknown 尚未接入');
+    expect(screen.queryByRole('option', { name: /suno_act_unknown/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Suno Persona/ })).toBeNull();
+    expect(screen.getByText('suno/persona')).toBeTruthy();
+    expect(screen.getByRole('option', { name: /Suno 音乐/ })).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('option', { name: /音色创建/ }));
+    expect(onSelect).toHaveBeenCalledWith('suno/persona', { profileId: 'tuzi-provider', modelId: 'suno/persona' });
+  });
+
+  it('keeps unsupported entries inspectable but disabled for clicks and keyboard selection', () => {
+    enableMenuLayout();
+    const onSelect = vi.fn();
+    render(<ModelDropdown selectedModel="suno/persona" selectedSelectionKey="tuzi-provider::suno/persona"
+      models={sunoModels.filter((model) => model.id !== 'suno_music')} onSelect={onSelect} isOpen />);
+    fireEvent.click(screen.getByRole('checkbox', { name: '显示未接入的 Suno 入口（2）' }));
+    const unsupported = screen.getByRole('option', { name: /suno_act_unknown/ });
+    expect(unsupported.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(unsupported);
+    expect(onSelect).not.toHaveBeenCalled();
+    const search = screen.getByPlaceholderText('搜索模型名 / 展示名 / 供应商');
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('suno/persona', { profileId: 'tuzi-provider', modelId: 'suno/persona' });
+  });
+
+  it('searches supported Suno actions by exact ID and does not reintroduce hidden legacy entries', () => {
+    enableMenuLayout();
+    render(<ModelDropdown selectedModel="suno/persona" selectedSelectionKey="tuzi-provider::suno/persona"
+      models={sunoModels} onSelect={vi.fn()} isOpen />);
+    const search = screen.getByPlaceholderText('搜索模型名 / 展示名 / 供应商');
+    fireEvent.change(search, { target: { value: 'persona' } });
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /suno\/persona/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: '显示未接入的 Suno 入口（2）' }));
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+  });
+
+  it('enables documented native MP4 and Persona entries with complete model IDs', () => {
+    enableMenuLayout(); const onSelect = vi.fn();
+    const models = ['suno_act_mp4', 'suno_persona_create'].map((id) => ({ ...baseModel, id, label: id, type: 'audio' as const, vendor: ModelVendor.SUNO, selectionKey: `tuzi-provider::${id}` }));
+    render(<ModelDropdown selectedModel="suno_act_mp4" models={models} onSelect={onSelect} isOpen />);
+    const mp4 = screen.getByRole('option', { name: /suno_act_mp4/ });
+    expect(mp4.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(mp4);
+    expect(onSelect).toHaveBeenCalledWith('suno_act_mp4', { profileId: 'tuzi-provider', modelId: 'suno_act_mp4' });
+  });
+
+  it('hides the three excluded v2 models and keeps inspected entries disabled', () => {
+    enableMenuLayout(); const onSelect = vi.fn();
+    const ids = ['suno/create-voice', 'suno/add-instrumental', 'suno/add-vocals'];
+    const models = [...ids, 'suno/music'].map((id) => ({ ...baseModel, id, label: id, type: 'audio' as const, vendor: ModelVendor.SUNO, selectionKey: `tuzi-provider::${id}` }));
+    render(<ModelDropdown selectedModel="suno/music" models={models} onSelect={onSelect} isOpen />);
+    for (const id of ids) expect(screen.queryByRole('option', { name: new RegExp(id) })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: '显示未接入的 Suno 入口（3）' }));
+    for (const id of ids) {
+      const option = screen.getByRole('option', { name: new RegExp(id) });
+      expect(option.getAttribute('aria-disabled')).toBe('true'); fireEvent.click(option);
+    }
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('shows the Tuzi add-group action and opens group management', async () => {
     const managedModel: ModelConfig = {
       ...baseModel,

@@ -1,3 +1,4 @@
+import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
 /**
  * 音频生成 MCP 工具
  *
@@ -12,6 +13,7 @@ import {
 } from '../../types/task.types';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
 import { getDefaultAudioModel } from '../../constants/model-config';
+import { getSunoV2Action, isSunoV2Model, isUnavailableSunoModel } from '../../services/suno-v2';
 import {
   audioAPIService,
   extractAudioGenerationResult,
@@ -26,7 +28,7 @@ export interface AudioGenerationParams {
   prompt: string;
   model?: string;
   modelRef?: ModelRef | null;
-  sunoAction?: 'music' | 'lyrics';
+  sunoAction?: string;
   notifyHook?: string;
   title?: string;
   tags?: string;
@@ -106,6 +108,7 @@ async function executeAsync(params: AudioGenerationParams): Promise<MCPResult> {
         primaryClipId: result.primaryClipId,
         clipIds: result.clipIds,
         clips: result.clips,
+        analysisData: result.analysisData,
       },
       type: 'audio',
     };
@@ -166,6 +169,12 @@ export async function generateAudio(
   params: AudioGenerationParams,
   options: MCPExecuteOptions = {}
 ): Promise<MCPResult> {
+  const model = params.modelRef?.modelId || params.model || getCurrentAudioModel();
+  if (isUnavailableSunoModel(model)) return { success: false, error: '该 Suno 动作当前不可用', type: 'error' };
+  if (isSunoNativeModel(model) && params.params?.sunoNativeBody) params = { ...params, prompt: params.prompt?.trim() || getSunoNativeAction(model, params.params).label };
+  if (isSunoV2Model(model) && params.params?.sunoV2Body && typeof params.params.sunoV2Body === 'object') {
+    params = { ...params, prompt: params.prompt?.trim() ? params.prompt : getSunoV2Action(model)?.label || model };
+  }
   const mode = options.mode || 'async';
   if (mode === 'queue') {
     return createQueueTask(params, options, getAudioQueueConfig(params));
@@ -187,6 +196,10 @@ export const audioGenerationTool: MCPTool = {
       model: {
         type: 'string',
         description: '音频能力模型 ID，默认 suno_music',
+      },
+      params: {
+        type: 'object',
+        description: '原生 Suno v2 参数 sunoV2Body 及同渠道公开资源 sunoV2Resources',
       },
       title: {
         type: 'string',

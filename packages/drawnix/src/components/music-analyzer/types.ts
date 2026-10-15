@@ -1,9 +1,11 @@
+import type { NativeSunoResult } from '../../services/suno-native';
 import {
   normalizeMusicAnalysisData,
   type MusicAnalysisData,
 } from '../../services/music-analysis-service';
 import { createModelRef, type ModelRef } from '../../utils/settings-manager';
 import type { MusicBrief } from './music-brief';
+import type { SunoV2Result } from '../../services/suno-v2';
 
 export type { MusicAnalysisData };
 
@@ -70,6 +72,10 @@ export interface MusicAnalysisRecord {
   // 批量生成
   generateTaskIds?: string[];
   generatedClips?: GeneratedClip[];
+  sunoV2Results?: Array<{ taskId: string; result: SunoV2Result }>;
+  sunoNativeResults?: Array<{ taskId: string; result: NativeSunoResult }>;
+  sunoNativeDrafts?: Record<string, Record<string, string>>;
+  sunoV2Drafts?: Record<string, Record<string, unknown>>;
   // 音乐编辑动作
   musicEditAction?: SunoMusicEditAction | null;
   // 续写 / Infill

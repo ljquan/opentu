@@ -1,3 +1,4 @@
+import { isSunoNativeModel } from '../../../services/suno-native';
 import React, {
   useCallback,
   useEffect,
@@ -47,6 +48,8 @@ import {
 } from '../../../services/music-analysis-service';
 import { getDefaultAudioModel } from '../../../constants/model-config';
 import { analytics } from '../../../utils/umami-analytics';
+import { getSunoV2Action } from '../../../services/suno-v2';
+import { WandSparkles } from 'lucide-react';
 
 const DEFAULT_ANALYSIS_MODEL = 'gemini-2.5-pro';
 const STORAGE_KEY_MODEL = 'music-analyzer:model';
@@ -94,6 +97,7 @@ interface CreatePageProps {
   onCreateNew?: () => void;
   onNext?: () => void;
   onLyricsReady?: () => void;
+  onOpenSunoV2?: (record: MusicAnalysisRecord, model: string, modelRef: ModelRef) => void;
 }
 
 export const CreatePage: React.FC<CreatePageProps> = ({
@@ -103,6 +107,7 @@ export const CreatePage: React.FC<CreatePageProps> = ({
   onCreateNew,
   onNext,
   onLyricsReady,
+  onOpenSunoV2,
 }) => {
   const [mode, setMode] = useState<CreationMode>(
     existingRecord?.source === 'upload' ? 'reference' : 'scratch'
@@ -336,6 +341,24 @@ export const CreatePage: React.FC<CreatePageProps> = ({
     [allTextModels]
   );
   const audioModels = useSelectableModels('audio');
+  const directSunoModel = audioModels.find((model) => model.id === 'suno/music')
+    || audioModels.find((model) => getSunoV2Action(model.id)?.supported || isSunoNativeModel(model.id));
+  const openingSunoRef = useRef(false);
+  const openSunoV2 = async () => {
+    if (!directSunoModel || !onOpenSunoV2 || openingSunoRef.current) return;
+    openingSunoRef.current = true;
+    try {
+      const record: MusicAnalysisRecord = existingRecord || {
+        id: generateUUID(), createdAt: Date.now(), source: 'scratch', sourceLabel: creationPrompt.slice(0, 30) || 'Suno v2',
+        creationPrompt, musicBrief, starred: false,
+      };
+      if (!existingRecord) onRecordsChange(await addRecord(record));
+      onOpenSunoV2(record, directSunoModel.id, {
+        profileId: directSunoModel.sourceProfileId || null, modelId: directSunoModel.id,
+      });
+    } catch (error) { setError(error instanceof Error ? error.message : '创建音乐记录失败'); }
+    finally { openingSunoRef.current = false; }
+  };
   const lyricsDraftModels = useMemo(
     () => collectLyricsDraftModels(allTextModels, audioModels),
     [allTextModels, audioModels]
@@ -641,6 +664,9 @@ export const CreatePage: React.FC<CreatePageProps> = ({
     <div className="ma-create-page">
       {/* 模式切换 - 固定在顶部 */}
       <div className="ma-mode-toggle">
+        {onOpenSunoV2 && <button type="button" className="ma-mode-btn" disabled={!directSunoModel} onClick={() => void openSunoV2()}>
+          <WandSparkles size={16} aria-hidden="true" /> Suno 制作
+        </button>}
         <button
           className={`ma-mode-btn ${mode === 'scratch' ? 'active' : ''}`}
           onClick={() => setMode('scratch')}
