@@ -388,6 +388,8 @@ function normalizeNewApiEndpointInfo(
     !label &&
     !description &&
     !scenario &&
+    !endpoint.transport &&
+    typeof endpoint.async !== 'boolean' &&
     !highlights?.length &&
     !parameters?.length &&
     requestTemplate === undefined
@@ -402,6 +404,8 @@ function normalizeNewApiEndpointInfo(
     ...(label ? { label } : {}),
     ...(description ? { description } : {}),
     ...(scenario ? { scenario } : {}),
+    ...(endpoint.transport ? { transport: endpoint.transport } : {}),
+    ...(typeof endpoint.async === 'boolean' ? { async: endpoint.async } : {}),
     ...(highlights?.length ? { highlights } : {}),
     ...(parameters?.length ? { parameters } : {}),
     ...(requestTemplate !== undefined ? { request_template: requestTemplate } : {}),

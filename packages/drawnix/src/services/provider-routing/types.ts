@@ -15,6 +15,8 @@ export type ProviderProtocol =
   | 'openai.async.media'
   | 'openai.async.video'
   | 'tuzi.suno.music'
+  | 'tuzi.suno.v2'
+  | 'tuzi.suno.native'
   | 'google.generateContent'
   | 'mj.imagine'
   | 'flux.task'

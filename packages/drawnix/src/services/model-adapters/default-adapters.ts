@@ -322,8 +322,8 @@ export const sunoAudioAdapter: AudioModelAdapter = {
   label: 'Suno Audio',
   kind: 'audio',
   docsUrl: 'https://tuzi-api.apifox.cn',
-  matchProtocols: ['tuzi.suno.music'],
-  matchRequestSchemas: ['tuzi.suno.music.submit'],
+  matchProtocols: ['tuzi.suno.music', 'tuzi.suno.v2', 'tuzi.suno.native'],
+  matchRequestSchemas: ['tuzi.suno.music.submit', 'tuzi.suno.v2.submit', 'tuzi.suno.native.submit'],
   matchModels: ['suno_music'],
   matchTags: ['suno', 'audio', 'music'],
   supportedModels: audioModelIds,
@@ -349,6 +349,12 @@ export const sunoAudioAdapter: AudioModelAdapter = {
       },
       {
         interval: 5000,
+        requestContext: _context.provider ? {
+          providerContext: _context.provider,
+          binding: _context.binding || null,
+          signal: _context.signal || request.params?.signal as AbortSignal | undefined,
+          fetcher: _context.fetcher,
+        } : undefined,
         onProgress: request.params?.onProgress as
           | ((progress: number, status?: string) => void)
           | undefined,

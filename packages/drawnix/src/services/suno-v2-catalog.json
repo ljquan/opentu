@@ -1,0 +1,1059 @@
+{
+  "verifiedAt": "2026-10-06",
+  "actions": [
+    {
+      "action": "add-instrumental",
+      "model": "suno/add-instrumental",
+      "label": "为人声配乐",
+      "description": "给人声轨配上完整伴奏。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "vocal_gender",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format",
+        "music_id"
+      ]
+    },
+    {
+      "action": "add-stem",
+      "model": "suno/add-stem",
+      "label": "叠加乐器轨",
+      "description": "在现有曲目上再加一条乐器轨。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format",
+        "music_id"
+      ]
+    },
+    {
+      "action": "add-vocals",
+      "model": "suno/add-vocals",
+      "label": "为伴奏配唱",
+      "description": "给纯伴奏加上人声演唱。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "vocal_gender",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format",
+        "music_id"
+      ]
+    },
+    {
+      "action": "adjust-speed",
+      "model": "suno/adjust-speed",
+      "label": "变速处理",
+      "description": "调整播放速度，可选择是否保持音高。",
+      "resultKind": "musics",
+      "required": [
+        "music_id",
+        "title"
+      ],
+      "fields": [
+        "music_id",
+        "keep_pitch",
+        "speed_multiplier",
+        "title"
+      ]
+    },
+    {
+      "action": "aligned-lyrics",
+      "model": "suno/aligned-lyrics",
+      "label": "歌词时间轴",
+      "description": "取歌词逐句的时间轴与整首的波形数据，可用于逐句高亮和绘制音轨图。",
+      "resultKind": "result",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "music_id"
+      ]
+    },
+    {
+      "action": "concat",
+      "model": "suno/concat",
+      "label": "分段拼接",
+      "description": "把续写产生的多段合并为完整曲目。",
+      "resultKind": "musics",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "music_id",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "cover",
+      "model": "suno/cover",
+      "label": "翻唱改编",
+      "description": "保留旋律骨架，换一种风格重新演绎。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "gpt_description_prompt",
+        "music_id",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "duration",
+        "vocal_gender",
+        "persona_id",
+        "model_id",
+        "variety",
+        "max_mode",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "create-model",
+      "model": "suno/create-model",
+      "label": "专属模型训练",
+      "description": "用 6 到 24 段音频训练属于你的风格模型。",
+      "resultKind": "model_id",
+      "required": [
+        "audio_urls",
+        "name"
+      ],
+      "fields": [
+        "audio_urls",
+        "name"
+      ]
+    },
+    {
+      "action": "create-voice",
+      "model": "suno/create-voice",
+      "label": "音色克隆",
+      "description": "用一段音频克隆出可复用的音色。",
+      "resultKind": "persona_id",
+      "required": [
+        "audio_url"
+      ],
+      "fields": [
+        "audio_url"
+      ]
+    },
+    {
+      "action": "download",
+      "model": "suno/download",
+      "label": "多格式导出",
+      "description": "导出 mp3、m4a 或 wav。",
+      "resultKind": "result",
+      "required": [
+        "formats",
+        "music_id"
+      ],
+      "fields": [
+        "music_id",
+        "formats"
+      ]
+    },
+    {
+      "action": "extend",
+      "model": "suno/extend",
+      "label": "歌曲续写",
+      "description": "从指定秒数继续写下去，风格与原曲保持一致。",
+      "resultKind": "musics",
+      "required": [
+        "continue_at",
+        "custom",
+        "music_id"
+      ],
+      "fields": [
+        "extend:custom",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "duration",
+        "auto_lyrics",
+        "vocal_gender",
+        "persona_id",
+        "variety",
+        "max_mode",
+        "audio_format",
+        "music_id",
+        "continue_at"
+      ]
+    },
+    {
+      "action": "gen-midi",
+      "model": "suno/gen-midi",
+      "label": "MIDI 导出",
+      "description": "把曲目转换成 MIDI。",
+      "resultKind": "result",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "music_id"
+      ]
+    },
+    {
+      "action": "inspo",
+      "model": "suno/inspo",
+      "label": "参考音频生成",
+      "description": "以一到四段音频作为风格参考来创作。",
+      "resultKind": "musics",
+      "required": [
+        "audio_urls"
+      ],
+      "fields": [
+        "mv",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "auto_lyrics",
+        "vocal_gender",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format",
+        "inspo:audio_urls"
+      ]
+    },
+    {
+      "action": "lyrics",
+      "model": "suno/lyrics",
+      "label": "歌词创作",
+      "description": "根据主题生成歌词，一次给两份候选。",
+      "resultKind": "lyrics",
+      "required": [
+        "prompt"
+      ],
+      "fields": [
+        "prompt",
+        "lyrics_model"
+      ]
+    },
+    {
+      "action": "mashup",
+      "model": "suno/mashup",
+      "label": "双曲混合",
+      "description": "把两首曲目融合成一首新作。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "instrumental",
+        "mashup_music_id"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "instrumental",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "auto_lyrics",
+        "vocal_gender",
+        "persona_id",
+        "model_id",
+        "variety",
+        "max_mode",
+        "audio_format",
+        "mashup_music_id"
+      ]
+    },
+    {
+      "action": "music",
+      "model": "suno/music",
+      "label": "音乐生成",
+      "description": "用一句话描述，或自己写歌词，生成完整歌曲，一次出两首。",
+      "resultKind": "musics",
+      "required": [
+        "custom",
+        "instrumental"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "instrumental",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "duration",
+        "auto_lyrics",
+        "vocal_gender",
+        "persona_id",
+        "model_id",
+        "variety",
+        "max_mode",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "persona",
+      "model": "suno/persona",
+      "label": "音色提取",
+      "description": "从一首曲目提取音色，供后续创作复用。",
+      "resultKind": "persona_id",
+      "required": [
+        "music_id",
+        "name"
+      ],
+      "fields": [
+        "music_id",
+        "name",
+        "describe",
+        "vocal_start_s",
+        "vocal_end_s",
+        "styles"
+      ]
+    },
+    {
+      "action": "remaster",
+      "model": "suno/remaster",
+      "label": "音质重制",
+      "description": "在保持原曲结构的前提下重新制作。",
+      "resultKind": "musics",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "music_id",
+        "variation_category",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "replace-section",
+      "model": "suno/replace-section",
+      "label": "片段重写",
+      "description": "只重写指定的时间区间，其余部分保持不变。",
+      "resultKind": "musics",
+      "required": [
+        "infill_end_s",
+        "infill_start_s",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "music_id",
+        "infill_start_s",
+        "infill_end_s",
+        "prompt",
+        "infill_lyrics",
+        "title",
+        "tags",
+        "negative_tags",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "sample",
+      "model": "suno/sample",
+      "label": "采样再创作",
+      "description": "截取一段采样，以它为素材生成新曲。",
+      "resultKind": "musics",
+      "required": [
+        "chop_sample_end_s",
+        "chop_sample_start_s",
+        "custom",
+        "instrumental",
+        "music_id"
+      ],
+      "fields": [
+        "mv",
+        "music_id",
+        "chop_sample_start_s",
+        "chop_sample_end_s",
+        "custom",
+        "instrumental",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "auto_lyrics",
+        "vocal_gender",
+        "variety",
+        "max_mode",
+        "model_id",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "sounds",
+      "model": "suno/sounds",
+      "label": "音效生成",
+      "description": "生成单次音效或可循环音效，可指定节拍与调性。",
+      "resultKind": "musics",
+      "required": [
+        "sound"
+      ],
+      "fields": [
+        "mv",
+        "sound",
+        "type",
+        "bpm",
+        "key",
+        "audio_format"
+      ]
+    },
+    {
+      "action": "stems",
+      "model": "suno/stems",
+      "label": "人声分离",
+      "description": "从成曲里分离出主人声，或指定某一条乐器轨。",
+      "resultKind": "musics",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "audio_format",
+        "music_id",
+        "stem_type"
+      ]
+    },
+    {
+      "action": "stems-all",
+      "model": "suno/stems-all",
+      "label": "全轨分离",
+      "description": "一次拆出全部乐器与人声分轨。",
+      "resultKind": "musics",
+      "required": [
+        "music_id"
+      ],
+      "fields": [
+        "audio_format",
+        "music_id"
+      ]
+    },
+    {
+      "action": "upload",
+      "model": "suno/upload",
+      "label": "音频上传",
+      "description": "上传音频以供其他动作引用。",
+      "resultKind": "result",
+      "required": [
+        "audio_url"
+      ],
+      "fields": [
+        "audio_url",
+        "is_async"
+      ]
+    },
+    {
+      "action": "upload-cover",
+      "model": "suno/upload-cover",
+      "label": "上传翻唱",
+      "description": "上传你自己的音频，换一种风格重新演绎。",
+      "resultKind": "musics",
+      "required": [
+        "audio_url",
+        "custom",
+        "instrumental"
+      ],
+      "fields": [
+        "mv",
+        "custom",
+        "instrumental",
+        "gpt_description_prompt",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "duration",
+        "auto_lyrics",
+        "vocal_gender",
+        "persona_id",
+        "model_id",
+        "variety",
+        "max_mode",
+        "audio_format",
+        "audio_url"
+      ]
+    },
+    {
+      "action": "upload-extend",
+      "model": "suno/upload-extend",
+      "label": "上传续写",
+      "description": "上传你自己的音频，从指定位置接着写。",
+      "resultKind": "musics",
+      "required": [
+        "audio_url",
+        "continue_at"
+      ],
+      "fields": [
+        "mv",
+        "prompt",
+        "title",
+        "tags",
+        "negative_tags",
+        "style_weight",
+        "weirdness_constraint",
+        "audio_weight",
+        "duration",
+        "auto_lyrics",
+        "vocal_gender",
+        "persona_id",
+        "model_id",
+        "variety",
+        "max_mode",
+        "audio_format",
+        "audio_url",
+        "continue_at"
+      ]
+    },
+    {
+      "action": "upsample-tags",
+      "model": "suno/upsample-tags",
+      "label": "风格描述扩写",
+      "description": "把几个简短标签扩写成详细的风格描述。",
+      "resultKind": "result",
+      "required": [
+        "tags"
+      ],
+      "fields": [
+        "tags"
+      ]
+    }
+  ],
+  "fields": {
+    "mv": {
+      "type": "string",
+      "label": "模型版本",
+      "description": "三个版本价格相同，按需要的风格选择。",
+      "enum": [
+        "chirp-v6",
+        "chirp-v6-wild",
+        "chirp-v6-mini"
+      ],
+      "default": "chirp-v6",
+      "enumLabels": [
+        "v6（默认，均衡）",
+        "v6 Wild（风格更奔放）",
+        "v6 Mini（更快）"
+      ]
+    },
+    "custom": {
+      "type": "boolean",
+      "label": "自定义模式",
+      "description": "关闭时你只需用一句话描述想要什么；开启时由你提供完整歌词。",
+      "default": false
+    },
+    "gpt_description_prompt": {
+      "type": "string",
+      "label": "灵感描述",
+      "description": "一句话描述想要的歌，例如「轻柔的 lo-fi 钢琴，雨夜」。关闭自定义模式时必填，最长 3000 字。"
+    },
+    "prompt": {
+      "type": "string",
+      "label": "歌词",
+      "description": "完整歌词，最长 5000 字。可以用 [Verse]、[Chorus] 这类标记划分段落。"
+    },
+    "title": {
+      "type": "string",
+      "label": "标题",
+      "description": "曲目标题，最长 80 字。"
+    },
+    "tags": {
+      "type": "string",
+      "label": "风格标签",
+      "description": "想要的曲风，例如「lo-fi 钢琴, 舒缓, 雨声」，最长 1000 字。"
+    },
+    "negative_tags": {
+      "type": "string",
+      "label": "排除风格",
+      "description": "不希望出现的曲风，用来避开某些方向。"
+    },
+    "style_weight": {
+      "type": "number",
+      "label": "风格贴合度",
+      "description": "0 到 1。越高越贴近你写的风格标签，越低留给模型的发挥空间越大。"
+    },
+    "weirdness_constraint": {
+      "type": "number",
+      "label": "创意发散度",
+      "description": "0 到 1。越高越出人意料，越低越接近常规写法。"
+    },
+    "audio_weight": {
+      "type": "number",
+      "label": "参考音频权重",
+      "description": "0 到 1。调节参考音频对成品的影响程度。"
+    },
+    "vocal_gender": {
+      "type": "string",
+      "label": "人声性别",
+      "description": "指定演唱者的嗓音性别。",
+      "enum": [
+        "Male",
+        "Female"
+      ],
+      "enumLabels": [
+        "男声",
+        "女声"
+      ]
+    },
+    "variety": {
+      "type": "string",
+      "label": "风格发散度",
+      "description": "控制成品与指定风格的偏离程度，从完全贴合到大胆发挥。",
+      "enum": [
+        "off",
+        "normal",
+        "high",
+        "extra",
+        "max"
+      ],
+      "enumLabels": [
+        "完全贴合",
+        "均衡",
+        "较为多变",
+        "大胆发挥",
+        "最大发散"
+      ]
+    },
+    "max_mode": {
+      "type": "boolean",
+      "label": "最高质量模式",
+      "description": "投入更多算力让整首歌前后更连贯。仅自定义模式有效，开启后价格翻倍。",
+      "default": false
+    },
+    "model_id": {
+      "type": "string",
+      "label": "自建模型",
+      "description": "用自建模型来生成，填创建模型结果里的 model_id。不能与 persona_id 同时使用。"
+    },
+    "audio_format": {
+      "type": "string",
+      "label": "输出格式",
+      "description": "成品音频的格式，不填默认 mp3。",
+      "enum": [
+        "mp3",
+        "m4a",
+        "wav"
+      ],
+      "enumLabels": [
+        "MP3（通用）",
+        "M4A",
+        "WAV（无损）"
+      ]
+    },
+    "music_id": {
+      "type": "string",
+      "label": "源曲目",
+      "description": "要处理的曲目，填之前生成结果里的 music_id。"
+    },
+    "keep_pitch": {
+      "type": "boolean",
+      "label": "保持音高",
+      "description": "变速时保持原来的音调不变；关闭则音调会随速度升降。",
+      "default": false
+    },
+    "speed_multiplier": {
+      "type": "number",
+      "label": "速度倍率",
+      "description": "播放速度倍数，0.25 到 4 之间。1 为原速。",
+      "default": 1
+    },
+    "duration": {
+      "type": "integer",
+      "label": "时长",
+      "description": "成品时长，单位秒，10 到 360 之间。"
+    },
+    "persona_id": {
+      "type": "string",
+      "label": "指定音色",
+      "description": "用之前创建好的音色来演唱，填音色 ID。仅自定义模式有效。"
+    },
+    "audio_urls": {
+      "type": "array",
+      "label": "音频地址列表",
+      "description": "6 到 24 个公网可直接下载的音频地址。",
+      "minItems": 6,
+      "maxItems": 24,
+      "items": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "type": "string",
+      "label": "名称",
+      "description": "给创建出来的音色或模型起个名字。"
+    },
+    "audio_url": {
+      "type": "string",
+      "label": "音频地址",
+      "description": "公网可直接下载的音频地址，建议 8 分钟以内，支持 MP3 / WAV / M4A。"
+    },
+    "formats": {
+      "type": "array",
+      "label": "导出格式",
+      "description": "要导出的音频格式，可以同时选多个。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extend:custom": {
+      "type": "boolean",
+      "label": "自定义模式",
+      "description": "关闭时你只需用一句话描述想要什么；开启时由你提供完整歌词。",
+      "default": true
+    },
+    "auto_lyrics": {
+      "type": "boolean",
+      "label": "自动润色歌词",
+      "description": "开启后会把你写的歌词改写得更适合演唱，仅自定义模式有效。",
+      "default": false
+    },
+    "continue_at": {
+      "type": "number",
+      "label": "续写起点",
+      "description": "从原曲的第几秒开始往下写，单位秒。"
+    },
+    "inspo:audio_urls": {
+      "type": "array",
+      "label": "音频地址列表",
+      "description": "1 到 4 个公网可直接下载的参考音频地址。",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "string"
+      }
+    },
+    "lyrics_model": {
+      "type": "string",
+      "label": "歌词取向",
+      "description": "选择歌词创作的取向。",
+      "enum": [
+        "classic",
+        "remi"
+      ],
+      "default": "classic",
+      "enumLabels": [
+        "经典",
+        "灵感"
+      ]
+    },
+    "instrumental": {
+      "type": "boolean",
+      "label": "纯伴奏",
+      "description": "开启后只出伴奏，不演唱歌词。",
+      "default": false
+    },
+    "mashup_music_id": {
+      "type": "array",
+      "label": "要混合的曲目",
+      "description": "填两首曲目的 ID，它们会被融合成一首新作。",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "describe": {
+      "type": "string",
+      "label": "说明",
+      "description": "对这个音色的补充说明。"
+    },
+    "vocal_start_s": {
+      "type": "number",
+      "label": "人声起点",
+      "description": "从第几秒开始取这段人声。与人声终点一起填，区间须短于 30 秒。",
+      "minimum": 0
+    },
+    "vocal_end_s": {
+      "type": "number",
+      "label": "人声终点",
+      "description": "取到第几秒结束。须大于人声起点，且区间短于 30 秒。"
+    },
+    "styles": {
+      "type": "string",
+      "label": "适合风格",
+      "description": "这个音色适合演绎的曲风。"
+    },
+    "variation_category": {
+      "type": "string",
+      "label": "变化强度",
+      "description": "控制重制后与原曲的差异程度。",
+      "enum": [
+        "subtle",
+        "normal",
+        "high"
+      ],
+      "enumLabels": [
+        "轻微",
+        "适中",
+        "明显"
+      ]
+    },
+    "infill_start_s": {
+      "type": "number",
+      "label": "重写起点",
+      "description": "要重写的片段从第几秒开始。"
+    },
+    "infill_end_s": {
+      "type": "number",
+      "label": "重写终点",
+      "description": "要重写的片段到第几秒结束。"
+    },
+    "infill_lyrics": {
+      "type": "string",
+      "label": "新歌词",
+      "description": "重写这段要演唱的歌词。"
+    },
+    "chop_sample_start_s": {
+      "type": "number",
+      "label": "采样起点",
+      "description": "从第几秒开始取这段采样。",
+      "default": 0
+    },
+    "chop_sample_end_s": {
+      "type": "number",
+      "label": "采样终点",
+      "description": "取到第几秒结束。",
+      "default": 60
+    },
+    "sound": {
+      "type": "string",
+      "label": "音效描述",
+      "description": "描述想要的音效，例如「一声轻柔的雨滴」。"
+    },
+    "type": {
+      "type": "string",
+      "label": "音效类型",
+      "description": "单次触发的音效，还是可以无缝循环的音效。",
+      "enum": [
+        "one-shot",
+        "loop"
+      ],
+      "default": "one-shot",
+      "enumLabels": [
+        "单次触发",
+        "无缝循环"
+      ]
+    },
+    "bpm": {
+      "type": "string",
+      "label": "节拍",
+      "description": "每分钟拍数，1 到 300 之间。"
+    },
+    "key": {
+      "type": "string",
+      "label": "调性",
+      "description": "音效所在的调。",
+      "enum": [
+        "C",
+        "C#",
+        "Cm",
+        "C#m",
+        "D",
+        "D#",
+        "Dm",
+        "D#m",
+        "F",
+        "F#",
+        "Fm",
+        "F#m",
+        "G",
+        "G#",
+        "Gm",
+        "G#m",
+        "A",
+        "A#",
+        "Am",
+        "A#m",
+        "B",
+        "B#",
+        "Bm",
+        "B#m"
+      ]
+    },
+    "stem_type": {
+      "type": "string",
+      "label": "分轨类型",
+      "description": "要单独分离出哪一条轨，不填默认取主人声。",
+      "enum": [
+        "lead_vocal",
+        "drum_kit",
+        "bass",
+        "backing_vocals",
+        "piano",
+        "electric_guitar",
+        "percussion",
+        "string_section",
+        "synth",
+        "acoustic_guitar",
+        "sound_effects",
+        "synth_pad",
+        "synth_bass",
+        "guitar",
+        "brass_section",
+        "organ",
+        "electronic_drum_kit",
+        "lead_electric_guitar",
+        "synth_keys",
+        "rhythm_electric_guitar",
+        "electric_piano",
+        "upright_bass",
+        "keyboards",
+        "distorted_electric_guitar",
+        "kick",
+        "snare",
+        "risers",
+        "synth_strings",
+        "synth_lead",
+        "woodwinds",
+        "flute",
+        "harp",
+        "tambourine",
+        "trumpet",
+        "arpeggiator",
+        "accordion",
+        "fiddle",
+        "pedal_steel_guitar",
+        "synth_voice",
+        "violin",
+        "digital_piano",
+        "synth_brass",
+        "mandolin",
+        "choir",
+        "banjo",
+        "bells",
+        "clarinet",
+        "tenor_saxophone",
+        "trombone",
+        "shaker",
+        "french_horn",
+        "glockenspiel",
+        "electric_bass",
+        "cello",
+        "timpani",
+        "harmonica",
+        "marimba",
+        "vibraphone",
+        "lap_steel_guitar",
+        "saxophone",
+        "orchestra",
+        "horns",
+        "cymbals",
+        "hand_clap",
+        "oboe",
+        "celesta",
+        "congas",
+        "drone",
+        "alto_saxophone",
+        "double_bass",
+        "ukulele",
+        "harpsichord",
+        "baritone_saxophone",
+        "xylophone",
+        "tuba",
+        "bass_guitar",
+        "whistle",
+        "lead_guitar",
+        "rhodes",
+        "808",
+        "bongos",
+        "bassoon",
+        "cowbell",
+        "viola",
+        "sitar",
+        "steel_drums",
+        "piccolo",
+        "theremin",
+        "bagpipes",
+        "hi_hat",
+        "music_box",
+        "melodica",
+        "tabla",
+        "koto",
+        "djembe",
+        "taiko",
+        "didgeridoo"
+      ],
+      "default": "lead_vocal"
+    },
+    "is_async": {
+      "type": "boolean",
+      "label": "异步处理",
+      "description": "开启后立即返回任务 ID，稍后再查结果；关闭则等待处理完成后直接返回。",
+      "default": false
+    }
+  }
+}

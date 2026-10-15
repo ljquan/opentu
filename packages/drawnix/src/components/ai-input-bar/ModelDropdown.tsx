@@ -1,3 +1,4 @@
+import { isSunoNativeModel } from '../../services/suno-native';
 import {
   saveTuziActiveProviderId,
   getTuziProviderVerification,
@@ -60,6 +61,7 @@ import {
 } from '../shared/ContextMenu';
 import './model-dropdown.scss';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
+import { isSunoV2Model, isUnavailableSunoModel } from '../../services/suno-v2';
 import { ModelBenchmarkBadge } from '../shared/ModelBenchmarkBadge';
 import { HoverTip } from '../shared/hover';
 import { useModelPriceText, useModelMeta } from '../../hooks/use-model-pricing';
@@ -312,6 +314,15 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [showUnavailableSuno, setShowUnavailableSuno] = useState(false);
+  const unavailableSunoCount = useMemo(
+    () => models.filter((model) => isUnavailableSunoModel(model.id)).length,
+    [models]
+  );
+  const visibleModels = useMemo(
+    () => showUnavailableSuno ? models : models.filter((model) => !isUnavailableSunoModel(model.id)),
+    [models, showUnavailableSuno]
+  );
   const navigationId = useId();
   useEffect(() => {
     const resume = (event: Event) => {
@@ -435,8 +446,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
   // 三级分组：供应商 → 厂商分类 → 模型
   const providerGroups = useMemo(
-    () => groupModelsByProvider(models, effectiveProviderProfiles),
-    [models, effectiveProviderProfiles]
+    () => groupModelsByProvider(visibleModels, effectiveProviderProfiles),
+    [visibleModels, effectiveProviderProfiles]
   );
   const providerNameMap = useMemo(
     () =>
@@ -500,7 +511,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     : null;
   const discoveredTypeModels =
     activeDiscovery?.discoveredModels.filter(
-      (model) => !effectiveModelType || model.type === effectiveModelType
+      (model) => (!effectiveModelType || model.type === effectiveModelType) && !isUnavailableSunoModel(model.id)
     ) || [];
   const isLoadingModels = Boolean(
     activeProvider &&
@@ -571,7 +582,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
     const query = searchQuery.trim();
     if (!query) return [];
 
-    return models
+    return visibleModels
       .map((model) => {
         const score = Math.max(
           fuzzyScore(model.id, query),
@@ -592,7 +603,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
             fallbackOrderMap: modelOrderMap,
           })
       );
-  }, [getModelProviderName, models, searchQuery, modelOrderMap]);
+  }, [getModelProviderName, visibleModels, searchQuery, modelOrderMap]);
 
   const filteredModelList = useMemo(
     () => filteredModels.map(({ model }) => model),
@@ -617,7 +628,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
   // 确保键盘高亮项可见；大列表由 virtualizer 负责定位未挂载的模型项。
   useEffect(() => {
-    if (!isOpen || !listRef.current) return;
+    if (!isOpen || !listRef.current || highlightedIndex < 0) return;
     if (shouldVirtualizeModels) {
       modelVirtualizer.scrollToIndex(highlightedIndex, { align: 'auto' });
       return;
@@ -731,9 +742,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   useEffect(() => {
     const selectedKey = selectedSelectionKey || selectedModel;
     const idx = displayedModels.findIndex(
-      (m) => getModelKey(m) === selectedKey
+      (m) => getModelKey(m) === selectedKey && !isUnavailableSunoModel(m.id)
     );
-    setHighlightedIndex(idx >= 0 ? idx : 0);
+    setHighlightedIndex(idx >= 0 ? idx : displayedModels.findIndex((model) => !isUnavailableSunoModel(model.id)));
   }, [displayedModels, selectedModel, selectedSelectionKey, getModelKey]);
 
   useEffect(() => {
@@ -843,6 +854,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   // 选择模型
   const handleSelect = useCallback(
     (model: ModelConfig) => {
+      if (isUnavailableSunoModel(model.id)) {
+        return;
+      }
       closeContextMenu();
       const profile = model.sourceProfileId
         ? providerProfileMap.get(model.sourceProfileId)
@@ -982,21 +996,15 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
         return true;
       }
 
-      if (key === 'ArrowDown') {
-        if (displayedModels.length > 0) {
-          setHighlightedIndex((prev) =>
-            prev < displayedModels.length - 1 ? prev + 1 : 0
-          );
-        }
-        return true;
-      }
-
-      if (key === 'ArrowUp') {
-        if (displayedModels.length > 0) {
-          setHighlightedIndex((prev) =>
-            prev > 0 ? prev - 1 : displayedModels.length - 1
-          );
-        }
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        setHighlightedIndex((prev) => {
+          const start = prev < 0 ? (key === 'ArrowDown' ? -1 : 0) : prev;
+          for (let offset = 1; offset <= displayedModels.length; offset++) {
+            const index = (start + (key === 'ArrowDown' ? offset : -offset) + displayedModels.length) % displayedModels.length;
+            if (!isUnavailableSunoModel(displayedModels[index].id)) return index;
+          }
+          return -1;
+        });
         return true;
       }
 
@@ -1006,7 +1014,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
           handleSelect(targetModel);
           return true;
         }
-        if (variant === 'form' && allowCustomValue && searchQuery.trim()) {
+        if (variant === 'form' && allowCustomValue && searchQuery.trim() && !isUnavailableSunoModel(searchQuery)) {
           // 如果是表单变体且有输入，但没有匹配的模型，则使用输入的内容
           onSelect(searchQuery.trim());
           setIsOpen(false);
@@ -1294,6 +1302,20 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
               <div className="model-dropdown__header">{header}</div>
             ) : null}
 
+            {unavailableSunoCount > 0 && <div className="model-dropdown__suno-availability">
+              {isUnavailableSunoModel(selectedModel) && <p role="status">
+                {language === 'zh'
+                  ? `当前选择 ${selectedModel} 尚未接入，请从列表选择已接入的 Suno 动作。`
+                  : `${selectedModel} is not integrated. Select a supported Suno action below.`}
+              </p>}
+              <label>
+                <input type="checkbox" checked={showUnavailableSuno}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  onChange={(event) => setShowUnavailableSuno(event.target.checked)} />
+                {language === 'zh' ? `显示未接入的 Suno 入口（${unavailableSunoCount}）` : `Show unsupported Suno entries (${unavailableSunoCount})`}
+              </label>
+            </div>}
+
             <VendorTabPanel
               tabs={providerTabs}
               activeTab={activeProviderId}
@@ -1355,6 +1377,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                       const isSelected =
                         modelKey === (selectedSelectionKey || selectedModel);
                       const isHighlighted = index === highlightedIndex;
+                      const showSunoModelId = isSunoV2Model(model.id) || isSunoNativeModel(model.id);
                       return (
                         <div
                           key={modelKey}
@@ -1384,13 +1407,14 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                           }`}
                           onClick={() => handleSelect(model)}
                           onMouseEnter={() => {
-                            setHighlightedIndex(index);
+                            if (!isUnavailableSunoModel(model.id)) setHighlightedIndex(index);
                           }}
                           onContextMenu={(event) =>
                             openContextMenu(event, model.id)
                           }
                           role="option"
                           aria-selected={isSelected}
+                          aria-disabled={isUnavailableSunoModel(model.id)}
                         >
                           <div className="model-dropdown__item-content">
                             <div className="model-dropdown__item-name">
@@ -1404,7 +1428,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                                 #{model.shortCode || model.id}
                               </span>
                               <span className="model-dropdown__item-label">
-                                {model.shortLabel || model.label}
+                                {showSunoModelId ? model.id : model.shortLabel || model.label}
+                                {isUnavailableSunoModel(model.id) ? (language === 'zh' ? '（未接入）' : ' (unsupported)') : ''}
                               </span>
                               {isSearching ? (
                                 <span className="model-dropdown__item-group-tag">
@@ -1423,7 +1448,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                               <ModelBenchmarkBadge modelId={model.id} />
                               <ModelDropdownPriceTag model={model} />
                             </div>
-                            {model.description ? (
+                            {showSunoModelId ? (
+                              <div className="model-dropdown__item-desc">{model.shortLabel || model.label}</div>
+                            ) : model.description ? (
                               <div className="model-dropdown__item-desc">
                                 {model.description}
                               </div>

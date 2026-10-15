@@ -1,3 +1,4 @@
+import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
 /**
  * 场景转换器
  *
@@ -10,6 +11,7 @@
  */
 
 import type { ParsedGenerationParams } from '../../utils/ai-input-parser';
+import { getSunoV2Action, isSunoV2Model, isUnavailableSunoModel } from '../../services/suno-v2';
 import { isSeedance2ModelId } from '../../utils/seedance-model';
 import { isMiniMaxH3Model } from '../../services/video-binding-utils';
 import {
@@ -521,10 +523,12 @@ export function convertDirectGenerationToWorkflow(
         status: 'pending',
       });
     } else if (generationType === 'audio') {
+      if (isUnavailableSunoModel(modelId)) throw new Error('该 Suno 动作当前不可用');
+      const nativeSuno = isSunoV2Model(modelRef?.modelId || modelId) || isSunoNativeModel(modelRef?.modelId || modelId);
       const { replaceElementId, sourcePrompt, ...adapterAudioParams } =
         extraParams || {};
       const sunoAction =
-        typeof adapterAudioParams.sunoAction === 'string'
+        isSunoNativeModel(modelRef?.modelId || modelId) ? getSunoNativeAction(modelRef?.modelId || modelId, adapterAudioParams).action : nativeSuno ? getSunoV2Action(modelRef?.modelId || modelId)?.action : typeof adapterAudioParams.sunoAction === 'string'
           ? adapterAudioParams.sunoAction
           : 'music';
       const isLyricsAction = sunoAction === 'lyrics';
@@ -550,7 +554,7 @@ export function convertDirectGenerationToWorkflow(
       }
 
       // 从 Markdown 卡片内容解析 title/tags/lyrics（仅 music 动作且用户未手动设置时）
-      if (!isLyricsAction && prompt) {
+      if (!nativeSuno && !isLyricsAction && prompt) {
         const parsed = parseSunoFieldsFromMarkdown(prompt);
         if (parsed.title || parsed.tags) {
           audioArgs.prompt = parsed.lyrics;
