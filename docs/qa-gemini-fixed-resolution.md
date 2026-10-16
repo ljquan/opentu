@@ -4,7 +4,8 @@
 
 2026-10-15，工作目录 `opentu-4`，分支 `dev/restore-canvas-image-loading`，
 基线 `3d84bb7c`。记录本地 Gemini 分辨率参数、Tuzi 模型显示名、图片获取和
-缓存恢复改动。本文合并 QA 与维护说明，不另建 DOC；未提交、推送或部署。
+缓存恢复改动。本文合并 QA 与维护说明，不另建 DOC；以下分阶段记录为当时状态，
+最终提交与上游同步状态见文末。
 
 `gemini-3.1-flash-image-preview-4k` 的模型目录配置为 4K，但原请求构造只读取
 `quality`，缺省时不发送 `generationConfig.imageConfig.imageSize`。
@@ -231,5 +232,17 @@ git diff --check
 - 另行授权真实生成后，4K 验收应核对 `generateContent` 的 `imageSize: "4K"` 或
   `/images/generations` 的 `quality: "4k"` 与 `size`，再核对实际像素和服务端识别档位。
 - 无新增依赖、环境变量或数据迁移；用户无需重新设置。既有 1K 结果不能恢复成 4K。
-- 修复仅在本地，未提交、推送或部署。可回退本次代码与 SW 构建恢复旧路径；新增来源
+- 未部署；提交与上游同步状态见文末。可回退本次代码与 SW 构建恢复旧路径；新增来源
   元数据为可选字段，旧代码可忽略。没有额外部署顺序要求。
+
+## PR 提交前复核（2026-10-16）
+
+- 实现提交：`528d01c1`；显式 fetch 并 merge 官方 `upstream/develop`
+  （`3d84bb7c`），已是最新，无合并冲突。
+- 本次重跑 drawnix 关联测试 11 文件、201 项通过，SW 6 文件、42 项通过；
+  drawnix 与 Web TypeScript、`git diff --check` 通过。此前最终构建结果见上文，
+  实现代码未在复核期间变动。既有 Node 存储和环境占位符警告仍存在。
+- 以官方仓库新分支 `dev/gemini-image-result-recovery` 向 `develop` 提交 PR；
+  不覆盖已合并 PR 的同名历史分支，不强推、不改写历史。
+- 未执行页面交互、真实供应商、Windows 浏览器及生产部署验证；本地结果不代表
+  CDN 延迟或上游实际 4K 出图已验收。
