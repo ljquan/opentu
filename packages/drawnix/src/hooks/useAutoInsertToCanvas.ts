@@ -3235,26 +3235,21 @@ export function useAutoInsertToCanvas(
         return;
       }
 
-      const shouldRegenerateCompletedTask =
-        retryTask.status === TaskStatus.COMPLETED &&
-        postProcessingStatus === 'failed';
-
       if (
         retryTask.status === TaskStatus.FAILED ||
-        retryTask.status === TaskStatus.CANCELLED ||
-        shouldRegenerateCompletedTask
+        retryTask.status === TaskStatus.CANCELLED
       ) {
         updateRetryAnchor('retrying');
         releaseTaskInsertion(taskId);
         workflowCompletionService.clearTask(taskId);
-        getTaskQueueService().retryTask(
-          taskId,
-          shouldRegenerateCompletedTask ? { allowCompleted: true } : undefined
-        );
+        getTaskQueueService().retryTask(taskId);
         return;
       }
 
       if (retryTask.status === TaskStatus.COMPLETED) {
+        updateRetryAnchor('inserting', {
+          subtitle: '图片已生成，正在重新加载并插入',
+        });
         releaseTaskInsertion(taskId);
         workflowCompletionService.clearTask(taskId);
         handleTaskCompleted(retryTask);

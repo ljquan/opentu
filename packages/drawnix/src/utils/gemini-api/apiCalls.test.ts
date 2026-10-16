@@ -76,6 +76,23 @@ describe('callGoogleGenerateContentRaw', () => {
     );
   });
 
+  it.each(['2K', '4K'])('serializes %s without dropping the image resolution tier', async (imageSize) => {
+    const modelName = `gemini-3.1-flash-image-preview-${imageSize.toLowerCase()}`;
+    await callGoogleGenerateContentRaw({
+      apiKey: 'test-key', baseUrl: 'https://api.tu-zi.com/v1',
+      modelName, protocol: 'google.generateContent', authType: 'bearer',
+    }, [{ role: 'user', content: [{ type: 'text', text: 'draw' }] }], {
+      stream: false,
+      generationConfig: { responseModalities: ['IMAGE'], imageConfig: { imageSize } },
+    });
+
+    const [, request] = sendMock.mock.calls[0];
+    expect(request.path).toContain(`/models/${modelName}:generateContent`);
+    expect(JSON.parse(request.body).generationConfig).toEqual({
+      responseModalities: ['IMAGE'], imageConfig: { imageSize },
+    });
+  });
+
   it('maps Nano Banana 2.1 references and excludes thought images from final output', async () => {
     sendMock.mockResolvedValue(Response.json({ candidates: [{ content: { parts: [
       { thought: true, inlineData: { mimeType: 'image/png', data: 'THOUGHT' } },

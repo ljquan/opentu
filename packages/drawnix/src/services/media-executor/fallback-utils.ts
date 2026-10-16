@@ -23,6 +23,12 @@ import {
 import type { TaskResultVisibility } from '../../types/task.types';
 import type { CacheWarning } from '../../types/cache-warning.types';
 import {
+  IMAGE_CACHE_TIMEOUT_MS,
+  IMAGE_DOWNLOAD_TIMEOUT_MS,
+  ImageOperationTimeoutError,
+  withImageOperationTimeout,
+} from '../../utils/image-operation-timeout';
+import {
   downloadVideoContentToLocalUrl,
   extractInlineVideoUrl,
   isMiniMaxH3Model,
@@ -301,7 +307,11 @@ function notifyCacheWarning(
   const normalized = text.toLowerCase();
   const resolvedReason =
     reasonCode ||
-    (normalized.includes('opaque') || normalized.includes('cors')
+    (error instanceof ImageOperationTimeoutError
+      ? error.phase === 'cache'
+        ? 'storage_error'
+        : 'network_error'
+      : normalized.includes('opaque') || normalized.includes('cors')
       ? 'cors_opaque'
       : normalized.includes('quota') || normalized.includes('storage')
       ? 'storage_error'
@@ -323,6 +333,9 @@ function notifyCacheWarning(
       reasonCode: resolvedReason,
       message:
         message ||
+        (error instanceof ImageOperationTimeoutError
+          ? error.message
+          : undefined) ||
         '该资源未能缓存到浏览器，原始链接可能会过期，请尽快下载保存。',
       detectedAt: Date.now(),
       expiresHint: '原始链接可能带有效期',
@@ -530,6 +543,16 @@ export async function cacheRemoteUrl(
   options?.signal?.throwIfAborted();
   const normalizedUrl =
     mediaType === 'image' ? normalizeImageDataUrl(remoteUrl) : remoteUrl;
+  const waitForCache = <T>(operation: () => Promise<T>): Promise<T> =>
+    mediaType === 'image'
+      ? withImageOperationTimeout(
+          operation,
+          IMAGE_CACHE_TIMEOUT_MS,
+          '图片缓存处理超时（20秒），可重试插入已有结果',
+          options?.signal,
+          'cache'
+        )
+      : operation();
 
   // 已经是本地路径且不要求固化时，无需缓存。
   if (isVirtualMediaUrl(normalizedUrl) && !options?.materializeContentUrl) {
@@ -589,10 +612,13 @@ export async function cacheRemoteUrl(
         ? `/__aitu_cache__/${mediaType}/${cacheKey}${suffix}.${format}`
         : normalizedUrl;
 
-      if (await unifiedCacheService.isCached(cacheTargetUrl)) {
-        const existingBlob = await unifiedCacheService.getCachedBlob(
-          cacheTargetUrl,
-          { allowNetwork: false }
+      if (
+        await waitForCache(() => unifiedCacheService.isCached(cacheTargetUrl))
+      ) {
+        const existingBlob = await waitForCache(() =>
+          unifiedCacheService.getCachedBlob(cacheTargetUrl, {
+            allowNetwork: false,
+          })
         );
         options?.signal?.throwIfAborted();
         if (existingBlob) {
@@ -611,10 +637,10 @@ export async function cacheRemoteUrl(
 
       if (
         options?.returnLocalCacheUrl &&
-        (await unifiedCacheService.isCached(normalizedUrl))
+        (await waitForCache(() => unifiedCacheService.isCached(normalizedUrl)))
       ) {
-        const cachedBlob = await unifiedCacheService.getCachedBlob(
-          normalizedUrl
+        const cachedBlob = await waitForCache(() =>
+          unifiedCacheService.getCachedBlob(normalizedUrl)
         );
         options?.signal?.throwIfAborted();
         if (cachedBlob && cachedBlob.size > 0) {
@@ -629,23 +655,30 @@ export async function cacheRemoteUrl(
             );
           }
           if (validCachedBlob) {
-            const migratedUrl = await unifiedCacheService.cacheMediaFromBlob(
-              cacheTargetUrl,
-              cachedBlob,
-              mediaType,
-              {
-                taskId,
-                source: cacheSource,
-                ...options?.extraMetadata,
-                ...(options?.resultVisibility
-                  ? { resultVisibility: options.resultVisibility }
-                  : {}),
-              }
+            const migratedUrl = await waitForCache(() =>
+              unifiedCacheService.cacheMediaFromBlob(
+                cacheTargetUrl,
+                cachedBlob,
+                mediaType,
+                {
+                  taskId,
+                  source: cacheSource,
+                  ...options?.extraMetadata,
+                  ...(mediaType === 'image'
+                    ? { sourceUrl: normalizedUrl }
+                    : {}),
+                  ...(options?.resultVisibility
+                    ? { resultVisibility: options.resultVisibility }
+                    : {}),
+                }
+              )
             );
             options?.signal?.throwIfAborted();
             if (
               migratedUrl &&
-              (await unifiedCacheService.isCached(cacheTargetUrl))
+              (await waitForCache(() =>
+                unifiedCacheService.isCached(cacheTargetUrl)
+              ))
             ) {
               return migratedUrl;
             }
@@ -660,12 +693,29 @@ export async function cacheRemoteUrl(
         }
       }
 
-      const response = await fetch(normalizedUrl, {
-        credentials: 'omit',
-        cache: 'no-store',
-        referrerPolicy: 'no-referrer',
-        ...(options?.signal ? { signal: options.signal } : {}),
-      });
+      const download = async (signal?: AbortSignal) => {
+        const response = await fetch(normalizedUrl, {
+          credentials: 'omit',
+          cache: 'no-store',
+          ...(mediaType === 'image' ? { headers: { Accept: 'image/*' } } : {}),
+          referrerPolicy: 'no-referrer',
+          ...(signal ? { signal } : {}),
+        });
+        signal?.throwIfAborted();
+        const blob = response.ok ? await response.blob() : undefined;
+        signal?.throwIfAborted();
+        return { response, blob };
+      };
+      const { response, blob } =
+        mediaType === 'image'
+          ? await withImageOperationTimeout(
+              download,
+              IMAGE_DOWNLOAD_TIMEOUT_MS,
+              '图片下载超时（30秒），已保留原图地址，可重试插入',
+              options?.signal,
+              'download'
+            )
+          : await download(options?.signal);
       options?.signal?.throwIfAborted();
       if (!response.ok) {
         notifyCacheWarning(
@@ -677,9 +727,7 @@ export async function cacheRemoteUrl(
         return normalizedUrl;
       }
 
-      const blob = await response.blob();
-      options?.signal?.throwIfAborted();
-      if (blob.size === 0) {
+      if (!blob || blob.size === 0) {
         notifyCacheWarning(
           options,
           new Error('empty response body'),
@@ -690,24 +738,30 @@ export async function cacheRemoteUrl(
       }
       await assertCacheableMediaBlob(blob, mediaType);
 
-      const cacheUrl = await unifiedCacheService.cacheMediaFromBlob(
-        cacheTargetUrl,
-        blob,
-        mediaType,
-        {
-          taskId,
-          source: cacheSource,
-          ...options?.extraMetadata,
-          ...(options?.resultVisibility
-            ? { resultVisibility: options.resultVisibility }
-            : {}),
-        }
+      const cacheUrl = await waitForCache(() =>
+        unifiedCacheService.cacheMediaFromBlob(
+          cacheTargetUrl,
+          blob,
+          mediaType,
+          {
+            taskId,
+            source: cacheSource,
+            ...options?.extraMetadata,
+            ...(mediaType === 'image' ? { sourceUrl: normalizedUrl } : {}),
+            ...(options?.resultVisibility
+              ? { resultVisibility: options.resultVisibility }
+              : {}),
+          }
+        )
       );
       options?.signal?.throwIfAborted();
       if (!options?.returnLocalCacheUrl) {
         return normalizedUrl;
       }
-      if (cacheUrl && (await unifiedCacheService.isCached(cacheTargetUrl))) {
+      if (
+        cacheUrl &&
+        (await waitForCache(() => unifiedCacheService.isCached(cacheTargetUrl)))
+      ) {
         return cacheUrl;
       }
       notifyCacheWarning(

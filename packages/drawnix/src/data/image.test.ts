@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  IMAGE_CACHE_TIMEOUT_MS,
+  IMAGE_DECODE_TIMEOUT_MS,
+  IMAGE_ELEMENT_LOAD_TIMEOUT_MS,
+} from '../utils/image-operation-timeout';
 import { createBoard, type PlaitBoard } from '@plait/core';
 
 const mocks = vi.hoisted(() => ({
   cacheRemoteUrl: vi.fn(),
   getCachedBlob: vi.fn(),
+  getCacheInfo: vi.fn(),
+  cacheMediaFromBlob: vi.fn(),
   insertImage: vi.fn(),
   isVirtualMediaUrl: vi.fn(),
 }));
@@ -29,6 +36,9 @@ vi.mock('../services/media-executor/fallback-utils', () => ({
 vi.mock('../services/unified-cache-service', () => ({
   unifiedCacheService: {
     getCachedBlob: mocks.getCachedBlob,
+    getCacheInfo: mocks.getCacheInfo,
+    cacheMediaFromBlob: mocks.cacheMediaFromBlob,
+    getCachedImageBlobWithThumbnailFallback: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -58,9 +68,15 @@ vi.mock('../utils/virtual-media-url', () => ({
 }));
 
 describe('insertImageFromUrl', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
     mocks.cacheRemoteUrl.mockReset();
     mocks.getCachedBlob.mockReset();
+    mocks.getCacheInfo.mockReset();
+    mocks.cacheMediaFromBlob.mockReset();
     mocks.insertImage.mockReset();
     mocks.isVirtualMediaUrl.mockReset().mockReturnValue(false);
   });
@@ -142,7 +158,9 @@ describe('insertImageFromUrl', () => {
     const remoteUrl = 'https://cdn.example.com/generated/missing.png';
     const localUrl = '/__aitu_cache__/image/missing.png';
     mocks.cacheRemoteUrl.mockResolvedValue(localUrl);
-    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    mocks.isVirtualMediaUrl.mockImplementation((url: string) =>
+      url.startsWith('/__aitu_cache__/')
+    );
     mocks.getCachedBlob.mockResolvedValue(null);
 
     const { insertImageFromUrl } = await import('./image');
@@ -162,5 +180,253 @@ describe('insertImageFromUrl', () => {
       )
     ).rejects.toThrow('图片缓存不可用');
     expect(mocks.insertImage).not.toHaveBeenCalled();
+  });
+
+  it('缓存图片解码失败时回退到生成接口返回的原始地址', async () => {
+    const localUrl = '/__aitu_cache__/image/gemini-result.png';
+    const sourceUrl = 'https://cdn.example.com/generated/gemini-result.png';
+    mocks.isVirtualMediaUrl.mockImplementation((url: string) =>
+      url.startsWith('/__aitu_cache__/')
+    );
+    mocks.getCachedBlob.mockResolvedValue(
+      new Blob(['truncated'], { type: 'image/png' })
+    );
+    mocks.getCacheInfo.mockResolvedValue({
+      metadata: { sourceUrl },
+    });
+
+    const brokenBlob = new Blob(['truncated'], { type: 'image/png' });
+    const repairedBlob = new Blob(['repaired'], { type: 'image/png' });
+    mocks.getCachedBlob
+      .mockReset()
+      .mockResolvedValueOnce(brokenBlob)
+      .mockResolvedValueOnce(repairedBlob);
+    mocks.cacheMediaFromBlob.mockResolvedValue(localUrl);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        })
+      )
+    );
+
+    const createObjectURL = vi.fn(() =>
+      createObjectURL.mock.calls.length === 1
+        ? 'blob:cached-image'
+        : 'blob:repaired-image'
+    );
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      referrerPolicy = '';
+      crossOrigin: string | null = null;
+      set src(value: string) {
+        queueMicrotask(() => {
+          if (value === 'blob:cached-image') this.onerror?.();
+          else this.onload?.();
+        });
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+
+    try {
+      const { loadImageElementForCanvas } = await import('./image');
+      const image = await loadImageElementForCanvas(localUrl);
+      expect(image).toBeInstanceOf(FakeImage);
+      expect(mocks.getCacheInfo).toHaveBeenCalledWith(localUrl);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(sourceUrl, {
+        credentials: 'omit',
+        cache: 'no-store',
+        headers: { Accept: 'image/*' },
+        referrerPolicy: 'no-referrer',
+        signal: expect.any(AbortSignal),
+      });
+      expect(mocks.cacheMediaFromBlob).toHaveBeenCalledExactlyOnceWith(
+        localUrl,
+        expect.any(Blob),
+        'image',
+        { sourceUrl }
+      );
+      expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);
+      expect(revokeObjectURL).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    [
+      'HTTP 403',
+      new Response(null, { status: 403 }),
+      '原图下载失败（HTTP 403）',
+    ],
+    ['empty body', new Response(null), '原图下载内容为空'],
+    ['invalid image', new Response('invalid'), '原图下载完成，但图片解码失败'],
+  ])('缓存损坏时报告恢复失败：%s', async (_case, response, message) => {
+    const localUrl = '/__aitu_cache__/image/broken.png';
+    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    mocks.getCachedBlob.mockResolvedValue(new Blob(['broken']));
+    mocks.getCacheInfo.mockResolvedValue({
+      metadata: { sourceUrl: 'https://cdn.example.com/original.png' },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:broken',
+      revokeObjectURL,
+    });
+    class BrokenImage {
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal('Image', BrokenImage);
+
+    try {
+      const { loadImageElementForCanvas } = await import('./image');
+      await expect(loadImageElementForCanvas(localUrl)).rejects.toThrow(
+        `图片缓存损坏，恢复失败：${message}`
+      );
+      expect(mocks.cacheMediaFromBlob).not.toHaveBeenCalled();
+      expect(mocks.insertImage).not.toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('stalled image loading times out without inserting, even after a late load event', async () => {
+    const { insertImageFromUrl } = await import('./image');
+    vi.useFakeTimers();
+    const source = 'https://cdn.example.com/pending.png';
+    mocks.cacheRemoteUrl.mockResolvedValue(source);
+    const instances: PendingImage[] = [];
+    class PendingImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      src = '';
+      constructor() {
+        instances.push(this);
+      }
+    }
+    vi.stubGlobal('Image', PendingImage);
+    const promise = insertImageFromUrl(
+      { children: [] } as unknown as PlaitBoard,
+      source,
+      [0, 0],
+      false,
+      { width: 100, height: 100 },
+      true,
+      false,
+      true,
+      true
+    );
+    const rejected = expect(promise).rejects.toThrow('图片加载超时（30秒）');
+    await vi.advanceTimersByTimeAsync(0);
+    const instance = instances[0];
+    const lateLoad = instance.onload;
+    await vi.advanceTimersByTimeAsync(IMAGE_ELEMENT_LOAD_TIMEOUT_MS);
+    await rejected;
+    expect(instance.onload).toBeNull();
+    expect(instance.onerror).toBeNull();
+    expect(instance.src).toBe('');
+    lateLoad?.();
+    await Promise.resolve();
+    expect(mocks.insertImage).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retry backoff shares the load deadline and cannot restart after timeout', async () => {
+    const { loadHTMLImageElementWithRetry } = await import('./image');
+    vi.useFakeTimers();
+    const instances: PendingImage[] = [];
+    const sources: string[] = [];
+    class PendingImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor() {
+        instances.push(this);
+      }
+      set src(value: string) {
+        sources.push(value);
+      }
+    }
+    vi.stubGlobal('Image', PendingImage);
+    const promise = loadHTMLImageElementWithRetry(
+      'https://cdn.example.com/retry.png'
+    );
+    const instance = instances[0];
+    const rejected = expect(promise).rejects.toThrow('图片加载超时');
+    await vi.advanceTimersByTimeAsync(IMAGE_ELEMENT_LOAD_TIMEOUT_MS - 500);
+    instance.onerror?.();
+    await vi.advanceTimersByTimeAsync(500);
+    await rejected;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sources).toEqual(['https://cdn.example.com/retry.png', '']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('missing virtual cache without a Service Worker does not restart an exhausted load', async () => {
+    const { loadHTMLImageElementWithRetry } = await import('./image');
+    vi.useFakeTimers();
+    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    const createImage = vi.fn();
+    vi.stubGlobal('Image', class {
+      src = '';
+      onload = null;
+      onerror = null;
+      constructor() { createImage(); }
+    });
+    const promise = loadHTMLImageElementWithRetry('/__aitu_cache__/image/missing.png');
+    const rejected = expect(promise).rejects.toThrow('图片加载超时');
+    await vi.advanceTimersByTimeAsync(IMAGE_ELEMENT_LOAD_TIMEOUT_MS);
+    await rejected;
+    expect(createImage).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cache reads have a deadline instead of keeping canvas insertion pending', async () => {
+    const { loadImageElementForCanvas } = await import('./image');
+    vi.useFakeTimers();
+    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    mocks.getCachedBlob.mockReturnValue(new Promise(() => undefined));
+    const rejected = expect(
+      loadImageElementForCanvas('/__aitu_cache__/image/pending.png')
+    ).rejects.toThrow('图片缓存读取超时');
+    await vi.advanceTimersByTimeAsync(IMAGE_CACHE_TIMEOUT_MS);
+    await rejected;
+    expect(mocks.insertImage).not.toHaveBeenCalled();
+  });
+
+  it('stalled cached image decoding releases the temporary Blob URL', async () => {
+    const { loadImageElementForCanvas } = await import('./image');
+    vi.useFakeTimers();
+    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    mocks.getCachedBlob.mockResolvedValue(new Blob(['image']));
+    mocks.getCacheInfo.mockResolvedValue({ isCached: true });
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:pending',
+      revokeObjectURL: revoke,
+    });
+    vi.stubGlobal(
+      'Image',
+      class {
+        src = '';
+        onload = null;
+        onerror = null;
+      }
+    );
+    const rejected = expect(
+      loadImageElementForCanvas('/__aitu_cache__/image/decode.png')
+    ).rejects.toThrow('图片解码超时');
+    await vi.advanceTimersByTimeAsync(IMAGE_DECODE_TIMEOUT_MS);
+    await rejected;
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:pending');
   });
 });

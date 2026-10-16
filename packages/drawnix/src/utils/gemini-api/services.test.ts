@@ -4,6 +4,9 @@ import { generateImageDirect, normalizeAspectRatio, sendChatWithGemini } from '.
 const mocks = vi.hoisted(() => ({
   callApiWithRetry: vi.fn(),
   callGoogleGenerateContentRaw: vi.fn(),
+  providerTransportSend: vi.fn(),
+  readProviderResponseJson: vi.fn(),
+  readProviderResponseText: vi.fn(),
 }));
 
 vi.mock('./apiCalls', () => ({
@@ -26,9 +29,9 @@ vi.mock('../settings-manager', () => ({
 }));
 
 vi.mock('../../services/provider-routing', () => ({
-  providerTransport: { send: vi.fn() },
-  readProviderResponseJson: vi.fn(),
-  readProviderResponseText: vi.fn(),
+  providerTransport: { send: (...args: unknown[]) => mocks.providerTransportSend(...args) },
+  readProviderResponseJson: (...args: unknown[]) => mocks.readProviderResponseJson(...args),
+  readProviderResponseText: (...args: unknown[]) => mocks.readProviderResponseText(...args),
   resolveInvocationPlanFromRoute: vi.fn(() => null),
 }));
 
@@ -67,9 +70,20 @@ describe('Nano Banana 2.1 generateContent', () => {
   };
   beforeEach(() => {
     mocks.callGoogleGenerateContentRaw.mockReset();
+    mocks.providerTransportSend.mockReset();
+    mocks.readProviderResponseJson.mockReset();
+    mocks.readProviderResponseText.mockReset();
     mocks.callGoogleGenerateContentRaw.mockResolvedValue({
       choices: [{ message: { content: 'https://example.com/final.jpg' } }],
     });
+    mocks.providerTransportSend.mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ url: 'https://example.com/final.jpg' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    mocks.readProviderResponseJson.mockImplementation((response: Response) => response.json());
+    mocks.readProviderResponseText.mockImplementation((response: Response) => response.text());
   });
 
   it('forwards 14 references, resolution, extreme ratio and Thinking', async () => {
@@ -93,6 +107,115 @@ describe('Nano Banana 2.1 generateContent', () => {
       responseModalities: ['IMAGE'], imageConfig: { imageSize: '1K' },
       thinkingConfig: { thinkingLevel: 'medium' },
     });
+  });
+
+  it.each([
+    ['gemini-3.1-flash-image-preview-2k', '2K'],
+    ['gemini-3.1-flash-image-preview-4k', '4K'],
+    ['gemini-3-pro-image-preview-4k-vip', '4K'],
+  ])('preserves the fixed resolution encoded by %s', async (modelName, imageSize) => {
+    await generateImageDirect(
+      'draw',
+      { size: '1x1' },
+      modelName,
+      undefined,
+      { ...config, modelName }
+    );
+
+    expect(mocks.callGoogleGenerateContentRaw.mock.calls[0][2].generationConfig)
+      .toMatchObject({ imageConfig: { imageSize } });
+  });
+
+  it('prefers an explicit resolution over the model suffix', async () => {
+    await generateImageDirect(
+      'draw',
+      { size: 'auto', quality: '2k' },
+      'gemini-3.1-flash-image-preview-4k',
+      undefined,
+      { ...config, modelName: 'gemini-3.1-flash-image-preview-4k' }
+    );
+
+    expect(mocks.callGoogleGenerateContentRaw.mock.calls[0][2].generationConfig)
+      .toMatchObject({ imageConfig: { imageSize: '2K' } });
+  });
+
+  it.each([
+    ['gemini-3.1-flash-image-preview-2k', '2k'],
+    ['gemini-3.1-flash-image-preview-4k', '4k'],
+    ['gemini-3-pro-image-preview-4k-vip', '4k'],
+  ])('sends fixed %s quality through /images/generations', async (modelName, quality) => {
+    await generateImageDirect(
+      'draw',
+      { size: '1x1' },
+      modelName,
+      undefined,
+      {
+        ...config,
+        modelName,
+        protocol: 'openai.images.generations',
+        providerType: 'openai-compatible',
+        binding: { submitPath: '/images/generations' },
+      }
+    );
+
+    const request = mocks.providerTransportSend.mock.calls[0][1];
+    expect(JSON.parse(request.body)).toMatchObject({
+      model: modelName,
+      quality,
+    });
+    expect(JSON.parse(request.body).size).toBe(
+      quality === '2k' ? '2048x2048' : '4096x4096'
+    );
+  });
+
+  it('maps a selected ratio to the selected Nano quality tier', async () => {
+    await generateImageDirect(
+      'draw',
+      { size: '16x9', quality: '4k' },
+      'gemini-3.1-flash-image-preview',
+      undefined,
+      {
+        ...config,
+        modelName: 'gemini-3.1-flash-image-preview',
+        protocol: 'openai.images.generations',
+        providerType: 'openai-compatible',
+        binding: { submitPath: '/images/generations' },
+      }
+    );
+
+    const request = mocks.providerTransportSend.mock.calls[0][1];
+    expect(JSON.parse(request.body)).toMatchObject({
+      size: '3840x2160',
+      quality: '4k',
+    });
+  });
+
+  it.each(['1k', '2k', '4k'] as const)(
+    'preserves explicit %s with a reference image and fixed aspect ratio',
+    async (quality) => {
+      const modelName = 'gemini-3.1-flash-image-preview';
+      await generateImageDirect('edit', {
+        size: '16x9', quality, image: ['data:image/jpeg;base64,AAAA'],
+      }, modelName, undefined, { ...config, modelName });
+
+      const [, messages, options] = mocks.callGoogleGenerateContentRaw.mock.calls[0];
+      expect(messages[0].content[1]).toEqual({
+        type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' },
+      });
+      expect(options.generationConfig).toEqual({
+        responseModalities: ['IMAGE'],
+        imageConfig: { aspectRatio: '16:9', imageSize: quality.toUpperCase() },
+      });
+    }
+  );
+
+  it('keeps unsuffixed Gemini models at their provider default when quality is unset', async () => {
+    const modelName = 'gemini-3.1-flash-image-preview';
+    await generateImageDirect('draw', { size: 'auto' }, modelName,
+      undefined, { ...config, modelName });
+
+    expect(mocks.callGoogleGenerateContentRaw.mock.calls[0][2].generationConfig)
+      .toEqual({ responseModalities: ['IMAGE'], imageConfig: {} });
   });
 
   it('rejects excess references and unsupported parameters before submission', async () => {

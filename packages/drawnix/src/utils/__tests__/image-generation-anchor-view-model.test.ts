@@ -192,10 +192,62 @@ describe('image-generation-anchor-view-model', () => {
     });
 
     expect(viewModel.phase).toBe('failed');
+    expect(viewModel.failureStage).toBe('post-processing');
+    expect(viewModel.phaseLabel).toBe('已生成，插入失败');
+    expect(viewModel.subtitle).toBe('图片已生成，加载或插入失败，可重试插入已有结果');
+    expect(viewModel.primaryAction.label).toBe('重试插入');
     expect(viewModel.error).toBe('插入失败');
     expect(viewModel.primaryAction.type).toBe('retry');
     expect(viewModel.progressMode).toBe('hidden');
     expect(viewModel.secondaryAction?.type).toBe('dismiss');
+  });
+
+  it('overrides an old generation-failed subtitle for a completed task', () => {
+    const viewModel = buildImageGenerationAnchorViewModel({
+      anchor: createAnchor({ phase: 'failed', subtitle: '生成失败，请重试' }),
+      task: createTask({ status: TaskStatus.COMPLETED }),
+      postProcessingStatus: 'failed',
+    });
+
+    expect(viewModel.phaseLabel).toBe('已生成，插入失败');
+    expect(viewModel.subtitle).not.toContain('生成失败');
+    expect(viewModel.primaryAction.label).toBe('重试插入');
+  });
+
+  it('keeps generation failures distinct from result insertion failures', () => {
+    const viewModel = buildImageGenerationAnchorViewModel({
+      anchor: createAnchor(),
+      task: createTask({ status: TaskStatus.FAILED }),
+      postProcessingStatus: 'failed',
+    });
+
+    expect(viewModel.failureStage).toBe('generation');
+    expect(viewModel.subtitle).toBe('生成失败，可从当前位置重试');
+    expect(viewModel.primaryAction.label).toBe('重试');
+  });
+
+  it('labels a completed batch with failed insertion as already generated', () => {
+    const tasks = ['task-1', 'task-2'].map((id) => {
+      workflowCompletionService.failPostProcessing(id, '图片加载失败');
+      return createTask({
+        id,
+        status: TaskStatus.COMPLETED,
+        result: { url: `https://example.com/${id}.png`, format: 'png', size: 0 },
+      });
+    });
+    const viewModel = buildImageGenerationAnchorViewModel({
+      anchor: createAnchor({ anchorType: 'stack', requestedCount: 2 }),
+      task: tasks[0],
+      tasks,
+      postProcessingStatus: 'failed',
+    });
+
+    expect(viewModel.batchPreview?.statusText).toBe('已生成，插入失败');
+    expect(viewModel.batchPreview?.failedSlotCount).toBe(2);
+    expect(viewModel.batchPreview?.slots.every(
+      (slot) => slot.failureStage === 'post-processing'
+    )).toBe(true);
+    expect(viewModel.primaryAction.label).toBe('重试插入');
   });
 
   it('builds batch preview slots for stack anchors during generation', () => {

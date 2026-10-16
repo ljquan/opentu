@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  IMAGE_CACHE_TIMEOUT_MS,
+  IMAGE_DOWNLOAD_TIMEOUT_MS,
+} from '../../utils/image-operation-timeout';
 
 const cacheMediaFromBlob = vi.fn();
 const cacheLocalMediaByContent = vi.fn();
@@ -269,12 +273,18 @@ describe('pollVideoStatus', () => {
 });
 
 describe('cacheRemoteUrl', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
     cacheMediaFromBlob.mockReset();
     getCachedBlob.mockReset().mockResolvedValue(null);
     cacheLocalMediaByContent.mockReset();
     getCachedImageBlobWithThumbnailFallback.mockReset();
-    isCached.mockClear();
+    isCached
+      .mockReset()
+      .mockImplementation(async (url: string) => cachedUrls.has(url));
     calculateBlobChecksum.mockClear();
     cachedUrls.clear();
     cacheMediaFromBlob.mockImplementation(async (url: string) => {
@@ -320,6 +330,7 @@ describe('cacheRemoteUrl', () => {
   });
 
   it('persists explicit internal visibility in cached image metadata', async () => {
+    const remoteUrl = 'https://cdn.example.com/generated/internal.png';
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       mediaResponse(PNG_SIGNATURE, 'image/png', {
         status: 200,
@@ -329,7 +340,7 @@ describe('cacheRemoteUrl', () => {
 
     const { cacheRemoteUrl } = await import('./fallback-utils');
     const result = await cacheRemoteUrl(
-      'https://cdn.example.com/generated/internal.png',
+      remoteUrl,
       'task-internal-image',
       'image',
       'png',
@@ -344,6 +355,7 @@ describe('cacheRemoteUrl', () => {
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(result, blobLike, 'image', {
       taskId: 'task-internal-image',
       source: 'AI_GENERATED',
+      sourceUrl: remoteUrl,
       resultVisibility: 'internal',
     });
 
@@ -608,6 +620,7 @@ describe('cacheRemoteUrl', () => {
       {
         taskId: 'task-audio-cover',
         source: 'AI_GENERATED',
+        sourceUrl: remoteUrl,
       }
     );
 
@@ -646,6 +659,7 @@ describe('cacheRemoteUrl', () => {
       {
         taskId: 'task-cover',
         source: 'AI_GENERATED',
+        sourceUrl: remoteUrl,
       }
     );
 
@@ -805,6 +819,7 @@ describe('cacheRemoteUrl', () => {
     );
 
     expect(result).toBe('/__aitu_cache__/video/task-valid-video.mp4');
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty('headers');
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       '/__aitu_cache__/video/task-valid-video.mp4',
       blobLike,
@@ -875,6 +890,13 @@ describe('cacheRemoteUrl', () => {
     );
 
     expect(result).toBe('/__aitu_cache__/image/insert-123.png');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(remoteUrl, {
+      credentials: 'omit',
+      cache: 'no-store',
+      headers: { Accept: 'image/*' },
+      referrerPolicy: 'no-referrer',
+      signal: expect.any(AbortSignal),
+    });
     expect(cacheMediaFromBlob).toHaveBeenCalledWith(
       '/__aitu_cache__/image/insert-123.png',
       blobLike,
@@ -882,6 +904,7 @@ describe('cacheRemoteUrl', () => {
       {
         taskId: 'insert-123',
         source: 'AI_GENERATED',
+        sourceUrl: remoteUrl,
       }
     );
 
@@ -965,6 +988,7 @@ describe('cacheRemoteUrl', () => {
       {
         taskId: 'task-cached',
         source: 'AI_GENERATED',
+        sourceUrl: remoteUrl,
       }
     );
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1028,7 +1052,7 @@ describe('cacheRemoteUrl', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://cdn.example.com/generated/signal.png',
-      expect.objectContaining({ signal: controller.signal })
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     vi.unstubAllGlobals();
   });
@@ -1061,6 +1085,7 @@ describe('cacheRemoteUrl', () => {
     controller.abort(stopError);
 
     await expect(cachePromise).rejects.toBe(stopError);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
     expect(cacheMediaFromBlob).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -1097,6 +1122,89 @@ describe('cacheRemoteUrl', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
+
+  it.each(['headers', 'body'] as const)(
+    'bounds stalled response %s and ignores late completion',
+    async (stage) => {
+      const { cacheRemoteUrl } = await import('./fallback-utils');
+      vi.useFakeTimers();
+      let resolveLate!: (value: Response | Blob) => void;
+      const pending = new Promise<Response | Blob>((resolve) => {
+        resolveLate = resolve;
+      });
+      const response = mediaResponse(PNG_SIGNATURE, 'image/png');
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() =>
+          stage === 'headers'
+            ? pending
+            : Promise.resolve({ ok: true, blob: () => pending })
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const warning = vi.fn();
+      const source = 'https://cdn.example.com/stalled.png?signature=keep';
+      const result = cacheRemoteUrl(
+        source,
+        'stalled',
+        'image',
+        'png',
+        undefined,
+        {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          onCacheWarning: warning,
+        }
+      );
+      await vi.advanceTimersByTimeAsync(IMAGE_DOWNLOAD_TIMEOUT_MS);
+      await expect(result).resolves.toBe(source);
+      expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(warning).toHaveBeenCalledWith(
+        expect.objectContaining({ reasonCode: 'network_error' })
+      );
+      resolveLate(stage === 'headers' ? response : await response.blob());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cacheMediaFromBlob).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['read', 'write'] as const)(
+    'bounds stalled cache %s with a storage warning',
+    async (stage) => {
+      const { cacheRemoteUrl } = await import('./fallback-utils');
+      vi.useFakeTimers();
+      const pending = new Promise<never>(() => undefined);
+      if (stage === 'read') isCached.mockReturnValue(pending);
+      else cacheMediaFromBlob.mockReturnValue(pending);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(mediaResponse(PNG_SIGNATURE, 'image/png'))
+      );
+      const warning = vi.fn();
+      const source = 'https://cdn.example.com/storage.png';
+      const result = cacheRemoteUrl(
+        source,
+        'storage',
+        'image',
+        'png',
+        undefined,
+        {
+          forceRemoteCache: true,
+          returnLocalCacheUrl: true,
+          onCacheWarning: warning,
+        }
+      );
+      if (stage === 'write') {
+        // Node's Blob decoding completes on the real event loop. Start the
+        // timeout assertion only once the storage operation has begun.
+        await vi.waitFor(() => expect(cacheMediaFromBlob).toHaveBeenCalledOnce());
+      }
+      await vi.advanceTimersByTimeAsync(IMAGE_CACHE_TIMEOUT_MS);
+      await expect(result).resolves.toBe(source);
+      expect(warning).toHaveBeenCalledWith(
+        expect.objectContaining({ reasonCode: 'storage_error' })
+      );
+    }
+  );
 
   it('keeps remote http urls unchanged as well', async () => {
     const fetchMock = vi.fn<typeof fetch>();

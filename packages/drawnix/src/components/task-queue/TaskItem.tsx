@@ -33,6 +33,7 @@ import {
   isSora2VideoId,
 } from '../../types/character.types';
 import { RetryImage } from '../retry-image';
+import { TaskImagePreview } from './TaskImagePreview';
 import {
   getPptExplainerModelLabel,
   getPptExplainerStageText,
@@ -637,15 +638,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     {/* 已完成状态：显示实际内容 */}
                     {task.type === TaskType.IMAGE && mediaUrl ? (
                       <>
-                        <RetryImage
+                        <TaskImagePreview
                           src={thumbnailUrl || mediaUrl}
-                          alt="Generated"
-                          maxRetries={5}
-                          fallback={
-                            <div className="task-item__preview-placeholder">
-                              <span>图片加载失败</span>
-                            </div>
-                          }
+                          isCached={isCached}
                         />
                         {mediaCount > 1 && (
                           <span className="task-item__multi-badge">
