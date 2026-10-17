@@ -17,6 +17,14 @@ import {
  */
 export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
+export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
+export const FLUX_3_IMAGE_ASPECT_RATIOS = [
+  'auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4',
+  '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21',
+];
+export const FLUX_3_IMAGE_RESOLUTIONS = ['768sq', '1k', '1.5k', '2k', '4k'];
+export const TUZI_FLUX_3_IMAGE_RESOLUTIONS = ['1k', '2k', '4k'];
+
 /**
  * 模型厂商
  */
@@ -537,6 +545,18 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     vendor: ModelVendor.FLUX,
     supportsTools: false,
     imageDefaults: IMAGE_DEFAULT_PARAMS,
+  },
+  {
+    id: FLUX_3_IMAGE_MODEL_ID,
+    label: 'Flux 3 Image',
+    shortLabel: 'Flux 3 Image',
+    shortCode: 'f3i',
+    description: 'Flux 3 图片生成',
+    type: 'image',
+    vendor: ModelVendor.FLUX,
+    supportsTools: false,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
   },
   {
     id: 'bfl-flux-2-max',
@@ -2111,6 +2131,7 @@ const GEMINI_NANO_BANANA_21_MODEL_ID = 'gemini-nano-banana-2.1';
 /** Gemini 图片模型 ID（支持完整尺寸） */
 const GEMINI_IMAGE_MODEL_IDS = IMAGE_MODELS.filter(
   (m) =>
+    m.id !== FLUX_3_IMAGE_MODEL_ID &&
     !GPT_IMAGE_MODEL_IDS.includes(m.id) &&
     !SEEDREAM_IMAGE_MODEL_IDS.includes(m.id) &&
     !MJ_IMAGE_MODEL_IDS.includes(m.id)
@@ -2898,7 +2919,7 @@ export const AUDIO_PARAMS: ParamConfig[] = [
 /**
  * 图片参数配置
  * 根据 API 文档，size 使用宽高比格式（如 16x9），API 会自动转换为对应像素
- * 'auto' 表示不传尺寸参数，让模型自动决定
+ * 'auto' 由适配器按模型契约处理，让服务端决定图片比例
  */
 export const IMAGE_PARAMS: ParamConfig[] = [
   ...(
@@ -2948,6 +2969,30 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     modelType: 'image' as const,
   })),
   // GPT Image 2 模型尺寸
+  {
+    id: 'size',
+    label: '图片比例',
+    shortLabel: '比例',
+    valueType: 'enum',
+    options: FLUX_3_IMAGE_ASPECT_RATIOS.map((ratio) => ({
+      value: ratio.replace(':', 'x'),
+      label: ratio === 'auto' ? '自动' : ratio,
+    })),
+    defaultValue: 'auto',
+    compatibleModels: [FLUX_3_IMAGE_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'resolution',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    description: 'Tuzi 输出档位，实际宽高随比例和上游渠道变化',
+    valueType: 'enum',
+    options: TUZI_FLUX_3_IMAGE_RESOLUTIONS.map((value) => ({ value, label: value.toUpperCase() })),
+    defaultValue: '1k',
+    compatibleModels: [FLUX_3_IMAGE_MODEL_ID],
+    modelType: 'image',
+  },
   {
     id: 'size',
     label: '图片尺寸',

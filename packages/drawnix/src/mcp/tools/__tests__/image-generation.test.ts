@@ -5,10 +5,13 @@ const mocks = vi.hoisted(() => ({
   resolveAdapterForInvocation: vi.fn(),
   getAdapterContextFromSettings: vi.fn(),
   generateImage: vi.fn(),
+  normalizeSize: vi.fn((size: string) => size),
 }));
 
 vi.mock('../../../constants/model-config', () => ({
   getDefaultImageModel: () => 'gpt-image-2',
+  FLUX_3_IMAGE_MODEL_ID: 'flux-3-image',
+  FLUX_3_IMAGE_ASPECT_RATIOS: ['auto', '1:1', '16:9', '7:5', '9:21'],
   IMAGE_PARAMS: [
     {
       id: 'size',
@@ -28,7 +31,7 @@ vi.mock('../../../utils/settings-manager', () => ({
 }));
 
 vi.mock('../../../services/media-api/utils', () => ({
-  normalizeToClosestImageSize: (size: string) => size,
+  normalizeToClosestImageSize: mocks.normalizeSize,
 }));
 
 vi.mock('../../../services/model-adapters', () => ({
@@ -75,6 +78,7 @@ describe('image-generation MCP tool', () => {
     mocks.resolveAdapterForInvocation.mockReset();
     mocks.getAdapterContextFromSettings.mockReset();
     mocks.generateImage.mockReset();
+    mocks.normalizeSize.mockClear();
 
     mocks.getAdapterContextFromSettings.mockReturnValue({
       baseUrl: 'https://api.openai.com/v1',
@@ -82,6 +86,41 @@ describe('image-generation MCP tool', () => {
       authType: 'bearer',
     });
   });
+
+  it.each(['async', 'queue'] as const)(
+    'preserves Flux 3 ratios and resolution in %s mode',
+    async (mode) => {
+      mocks.resolveAdapterForInvocation.mockReturnValue({
+        kind: 'image',
+        generateImage: mocks.generateImage,
+      });
+      mocks.generateImage.mockResolvedValue({ url: 'https://example.com/output.png' });
+      const result = await imageGenerationTool.execute(
+        {
+          prompt: 'A teapot',
+          model: 'gpt-image-2',
+          modelRef: { profileId: 'tuzi', modelId: 'flux-3-image' },
+          size: '7x5',
+          resolution: '2k',
+        },
+        { mode }
+      );
+      expect(mocks.normalizeSize).not.toHaveBeenCalled();
+      if (mode === 'queue') {
+        const queueConfig = mocks.createQueueTask.mock.calls[0]?.[2];
+        expect(queueConfig.buildTaskPayload()).toMatchObject({
+          size: '7x5',
+          params: { resolution: '2k' },
+        });
+      } else {
+        expect(result.success).toBe(true);
+        expect(mocks.generateImage).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ size: '7x5', params: { resolution: '2k' } })
+        );
+      }
+    }
+  );
 
   it('routes async generation through the selected image adapter', async () => {
     mocks.resolveAdapterForInvocation.mockReturnValue({
