@@ -16,6 +16,20 @@ import {
   InsertImagePayload,
 } from '../types/tool-communication.types';
 
+export function getToolTargetOrigin(iframe: HTMLIFrameElement): string | null {
+  try {
+    const url = new URL(iframe.src, window.location.href);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    if (iframe.hasAttribute('sandbox') &&
+      !iframe.getAttribute('sandbox')!.split(/\s+/).includes('allow-same-origin')) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 工具通信服务类
  */
@@ -24,6 +38,7 @@ export class ToolCommunicationService {
   private messageHandlers: Map<ToolMessageType, MessageHandler[]>;
   private pendingMessages: Map<string, PendingMessage>;
   private processedMessageIds: Set<string>;
+  private cleanupInterval: ReturnType<typeof setInterval> | undefined;
 
   // 默认超时时间（毫秒）
   private static readonly DEFAULT_TIMEOUT = 5000;
@@ -57,6 +72,8 @@ export class ToolCommunicationService {
     if (!iframe?.contentWindow) {
       throw new Error(`Tool iframe not found: ${toolId}`);
     }
+    const targetOrigin = getToolTargetOrigin(iframe);
+    if (!targetOrigin) throw new Error('Tool origin is not supported');
 
     const message: ToolMessage<T> = {
       version: '1.0',
@@ -83,11 +100,11 @@ export class ToolCommunicationService {
           timeoutId,
         });
 
-        iframe.contentWindow!.postMessage(message, '*');
+        iframe.contentWindow!.postMessage(message, targetOrigin);
       });
     } else {
       // 不期待回复，直接发送
-      iframe.contentWindow.postMessage(message, '*');
+      iframe.contentWindow.postMessage(message, targetOrigin);
     }
   }
 
@@ -126,7 +143,7 @@ export class ToolCommunicationService {
    */
   private handleMessage = (event: MessageEvent): void => {
     // 1. 验证消息格式
-    if (!this.isValidToolMessage(event.data)) {
+    if (!this.isValidToolMessage(event)) {
       return;
     }
 
@@ -138,6 +155,7 @@ export class ToolCommunicationService {
       return;
     }
     this.processedMessageIds.add(message.messageId);
+    this.cleanupProcessedMessages();
 
     // 3. 如果是回复消息，解析 pending promise
     if (message.replyTo) {
@@ -163,7 +181,7 @@ export class ToolCommunicationService {
    */
   private resolvePendingMessage(message: ToolMessage): void {
     const pending = this.pendingMessages.get(message.replyTo!);
-    if (pending) {
+    if (pending && pending.message.toolId === message.toolId) {
       clearTimeout(pending.timeoutId);
       pending.resolve(message);
       this.pendingMessages.delete(message.replyTo!);
@@ -173,7 +191,8 @@ export class ToolCommunicationService {
   /**
    * 验证消息格式和来源
    */
-  private isValidToolMessage(data: any): boolean {
+  private isValidToolMessage(event: MessageEvent): boolean {
+    const data = event.data;
     if (!data || typeof data !== 'object') {
       return false;
     }
@@ -185,6 +204,15 @@ export class ToolCommunicationService {
     if (!hasAllFields) {
       return false;
     }
+    if (
+      typeof data.toolId !== 'string' ||
+      !/^[A-Za-z0-9_.:-]{1,200}$/.test(data.toolId) ||
+      typeof data.messageId !== 'string' ||
+      data.messageId.length === 0 || data.messageId.length > 200 ||
+      !Number.isFinite(data.timestamp) ||
+      !Object.values(ToolMessageType).includes(data.type) ||
+      (data.replyTo !== undefined && typeof data.replyTo !== 'string')
+    ) return false;
 
     // 检查版本
     if (data.version !== '1.0') {
@@ -199,7 +227,8 @@ export class ToolCommunicationService {
       return false;
     }
 
-    return true;
+    return event.source === iframe.contentWindow &&
+      event.origin === getToolTargetOrigin(iframe);
   }
 
   /**
@@ -213,6 +242,7 @@ export class ToolCommunicationService {
    * 获取工具 iframe
    */
   private getToolIframe(toolId: string): HTMLIFrameElement | null {
+    if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(toolId)) return null;
     // 从 DOM 中查找对应的工具元素
     const selector = `[data-element-id="${toolId}"] iframe`;
     const iframe = document.querySelector(selector) as HTMLIFrameElement;
@@ -235,7 +265,7 @@ export class ToolCommunicationService {
    * 设置清理定时器
    */
   private setupCleanupInterval(): void {
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanupProcessedMessages();
     }, 60000); // 每分钟清理一次
   }
@@ -245,6 +275,8 @@ export class ToolCommunicationService {
    */
   destroy(): void {
     window.removeEventListener('message', this.handleMessage);
+    clearInterval(this.cleanupInterval);
+    this.cleanupInterval = undefined;
 
     // 清理所有 pending 消息
     this.pendingMessages.forEach((pending) => {

@@ -171,7 +171,7 @@ function runRemoteRollback(config, version) {
   if (useSshKey) {
     sshArgs.push('-i', sshKeyPath);
   }
-  sshArgs.push('-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null');
+  sshArgs.push('-o', 'StrictHostKeyChecking=yes');
   sshArgs.push(`${config.DEPLOY_USER}@${config.DEPLOY_HOST}`, remoteCommand);
 
   console.log(`🚀 开始发布版本: ${version}`);
@@ -185,7 +185,9 @@ function runRemoteRollback(config, version) {
         throw new Error('检测到 DEPLOY_SSH_PASSWORD，但本机未安装 sshpass');
       }
 
-      output = executeCommand('sshpass', ['-p', config.DEPLOY_SSH_PASSWORD, 'ssh', ...sshArgs]);
+      output = executeCommand('sshpass', ['-e', 'ssh', ...sshArgs], {
+        env: { ...process.env, SSHPASS: config.DEPLOY_SSH_PASSWORD },
+      });
     } else {
       output = executeCommand('ssh', sshArgs);
     }

@@ -1,6 +1,6 @@
 import React from 'react';
 import classNames from 'classnames';
-import { BookOpen, Heart, Pause, Play } from 'lucide-react';
+import { BookOpen, Heart, LoaderCircle, Pause, Play } from 'lucide-react';
 import { AudioCover } from './AudioCover';
 import { HoverTip } from './hover';
 import type { AudioPlaylistItemRef } from '../../types/audio-playlist.types';
@@ -13,6 +13,7 @@ export interface AudioTrackListItem {
   previewImageUrl?: string;
   isActive?: boolean;
   isPlaying?: boolean;
+  isLoading?: boolean;
   isFavorite?: boolean;
   canFavorite?: boolean;
   assetId?: string;
@@ -88,7 +89,9 @@ export const AudioTrackList: React.FC<AudioTrackListProps> = ({
                   <button
                     type="button"
                     className="audio-track-list__action-btn"
-                    onClick={() => onOpenKnowledgeBase(item.noteId!)}
+                    onClick={() => {
+                      if (item.noteId) onOpenKnowledgeBase(item.noteId);
+                    }}
                     aria-label="打开知识库笔记"
                   >
                     <BookOpen size={14} />
@@ -112,9 +115,21 @@ export const AudioTrackList: React.FC<AudioTrackListProps> = ({
                   type="button"
                   className="audio-track-list__status"
                   onClick={() => onTogglePlayback?.(item)}
-                  aria-label={item.isPlaying ? '暂停播放' : '开始播放'}
+                  aria-label={
+                    item.isLoading
+                      ? '取消加载'
+                      : item.isPlaying
+                        ? '暂停播放'
+                        : '开始播放'
+                  }
                 >
-                  {item.isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                  {item.isLoading ? (
+                    <LoaderCircle className="audio-track-list__loading-icon" size={16} />
+                  ) : item.isPlaying ? (
+                    <Pause size={16} />
+                  ) : (
+                    <Play size={16} />
+                  )}
                 </button>
               ) : null}
             </div>

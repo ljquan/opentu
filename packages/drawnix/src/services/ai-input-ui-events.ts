@@ -32,8 +32,20 @@ export interface AIInputPrefillEventDetail {
   source?: AIInputPrefillSource;
 }
 
+export interface AIInputCreateEventDetail {
+  generationType: GenerationType;
+  prompt: string;
+  images?: AIInputPrefillImage[];
+  model?: string;
+  modelRef?: ModelRef | null;
+  params?: Record<string, string>;
+  count?: number;
+}
+
 export const AI_INPUT_FOCUS_EVENT = 'aitu:ai-input-focus';
 export const AI_INPUT_PREFILL_EVENT = 'aitu:ai-input-prefill';
+export const AI_INPUT_CREATE_EVENT = 'aitu:ai-input-create';
+export const MUSIC_PLAYER_OPEN_EVENT = 'aitu:music-player-open';
 
 export function resolvePptExplainerFrameIds(
   orderedFrameIds: readonly string[],
@@ -75,4 +87,20 @@ export function requestAIInputPrefill(detail: AIInputPrefillEventDetail): void {
   }
 
   window.dispatchEvent(new CustomEvent(AI_INPUT_PREFILL_EVENT, { detail }));
+}
+
+export function requestAIInputCreate(detail: AIInputCreateEventDetail): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(AI_INPUT_CREATE_EVENT, { detail }));
+}
+
+export function requestMusicPlayerOpen(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(new Event(MUSIC_PLAYER_OPEN_EVENT));
 }

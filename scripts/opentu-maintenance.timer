@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OpenTu task maintenance every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=opentu-maintenance.service
+
+[Install]
+WantedBy=timers.target

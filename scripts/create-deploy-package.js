@@ -193,7 +193,8 @@ function executeRemoteDeploy(
         return false;
       }
       usePassword = true;
-      sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+      process.env.SSHPASS = config.DEPLOY_SSH_PASSWORD;
+      sshCommand = `sshpass -e `;
     }
 
     sshCommand += 'ssh';
@@ -217,8 +218,8 @@ function executeRemoteDeploy(
       }
     }
 
-    // 禁用严格主机密钥检查
-    sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+    // Require the operator's configured known_hosts entry before connecting.
+    sshCommand += ` -o StrictHostKeyChecking=yes`;
 
     // 构建远程命令
     const remoteCommand = `bash ${deployScriptPath} --${env} ${tarName}`;
@@ -278,7 +279,8 @@ function uploadToServer(tarPath, tarName, config) {
         return false;
       }
       usePassword = true;
-      scpCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+      process.env.SSHPASS = config.DEPLOY_SSH_PASSWORD;
+      scpCommand = `sshpass -e `;
     }
 
     scpCommand += 'scp';
@@ -301,8 +303,8 @@ function uploadToServer(tarPath, tarName, config) {
       }
     }
 
-    // 禁用严格主机密钥检查（可选，用于自动化场景）
-    scpCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+    // Require the operator's configured known_hosts entry before uploading.
+    scpCommand += ` -o StrictHostKeyChecking=yes`;
 
     // 添加源文件和目标
     const remotePath = `${config.DEPLOY_USER}@${config.DEPLOY_HOST}:${config.DEPLOY_UPLOAD_DIR}`;
@@ -777,7 +779,7 @@ function main() {
   // 解析命令行参数
   const args = process.argv.slice(2);
 
-  console.log(`🚀 Opentu 部署包创建工具`);
+  console.log(`🚀 狐图 FoxVue 部署包创建工具`);
   console.log(`⏰ 时间: ${new Date().toLocaleString()}`);
   console.log(`───────────────────────────────────`);
 

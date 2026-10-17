@@ -1,0 +1,5 @@
+- [x] Implement authentication configuration and schema migration.
+- [x] Connect session identity to generation/admin APIs.
+- [x] Implement account interface and isolated bootstrap.
+- [x] Verify real registration, sign-in, logout, password changes and isolation.
+- [x] Deploy account staging and document outstanding launch gates.

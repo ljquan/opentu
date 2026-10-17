@@ -1,23 +1,17 @@
-FROM node:20 AS builder
+FROM node:22-bookworm-slim AS builder
 
-WORKDIR /builder
+WORKDIR /app
 
 ARG GITHUB_SHA=unknown
 ENV GITHUB_SHA=${GITHUB_SHA}
+COPY . .
+RUN corepack enable && pnpm install --frozen-lockfile
+ENV VITE_OPENTU_MANAGED_GENERATION=true
+ENV VITE_OPENTU_SERVER_CATALOG=true
+RUN pnpm exec nx build web && pnpm verify:startup
 
-COPY . /builder
-
-RUN corepack enable pnpm \
-    && pnpm install --frozen-lockfile \
-    && pnpm build
-
-
-FROM lipanski/docker-static-website:2.4.0
-
-WORKDIR /home/static
-
-COPY --from=builder /builder/dist/apps/web/ /home/static
-
-EXPOSE 80
-
-CMD ["/busybox-httpd", "-f", "-v", "-p", "80", "-c", "httpd.conf"]
+FROM nginx:stable-alpine
+COPY docker/opentu-web/full-app.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist/apps/web/ /usr/share/nginx/html/
+USER 101:101
+EXPOSE 7320

@@ -5,18 +5,18 @@
 @source '../**/*.{js,ts,jsx,tsx}';
 @source '../../packages/**/*.{js,ts,jsx,tsx}';
 
-/* Opentu 品牌全局样式 - 与 TDesign 主题保持一致 */
+/* FoxVue 狐图品牌全局样式 - 与 TDesign 主题保持一致 */
 @theme {
-  /* Tailwind 4.x 颜色定义 - 使用 Opentu 品牌色 */
+  /* Tailwind 4.x 颜色定义 - 使用 FoxVue 狐图品牌色 */
   --color-background: #ffffff;
   --color-foreground: #171717;
   --color-card: #ffffff;
   --color-card-foreground: #171717;
   --color-popover: #ffffff;
   --color-popover-foreground: #171717;
-  --color-primary: #F39C12;  /* Opentu 品牌橙色 */
+  --color-primary: #5B4BC4;  /* FoxVue 品牌靛紫 */
   --color-primary-foreground: #ffffff;
-  --color-secondary: #5A4FCF;  /* Opentu 品牌紫色 */
+  --color-secondary: #167F9B;  /* FoxVue 媒体青蓝 */
   --color-secondary-foreground: #ffffff;
   --color-muted: #f5f5f5;
   --color-muted-foreground: #737373;
@@ -26,19 +26,36 @@
   --color-destructive-foreground: #ffffff;
   --color-border: #e5e5e5;
   --color-input: #e5e5e5;
-  --color-ring: #F39C12;
+  --color-ring: #5B4BC4;
   --radius: 0.5rem;
 }
 
 :root {
+  /* Shared FoxVue surface tokens for the product pages. */
+  --opentu-brand: #5b4bc4;
+  --opentu-brand-hover: #4939a8;
+  --opentu-brand-soft: #f0edff;
+  --opentu-media: #167f9b;
+  --opentu-media-soft: #e7f5f8;
+  --opentu-ink: #1d1d1f;
+  --opentu-muted: #6e6e73;
+  --opentu-subtle: #86868b;
+  --opentu-line: #e5e5e7;
+  --opentu-page: #f5f5f7;
+  --opentu-surface: #ffffff;
+  --opentu-radius-sm: 10px;
+  --opentu-radius-md: 14px;
+  --opentu-shadow-card: 0 8px 24px rgba(29, 29, 31, 0.06);
+  --opentu-shadow-hover: 0 14px 30px rgba(65, 48, 150, 0.12);
+
   /* 品牌色彩变量 - 与 TDesign 主题同步 */
-  --aitu-brand-primary: #F39C12;
-  --aitu-brand-primary-dark: #E67E22;
-  --aitu-brand-primary-darker: #D35400;
-  --aitu-brand-secondary: #5A4FCF;
-  --aitu-brand-secondary-light: #7B68EE;
-  --aitu-accent-create: #E91E63;
-  --aitu-accent-create-light: #F06292;
+  --aitu-brand-primary: #5B4BC4;
+  --aitu-brand-primary-dark: #4939A8;
+  --aitu-brand-primary-darker: #3F3190;
+  --aitu-brand-secondary: #167F9B;
+  --aitu-brand-secondary-light: #2399B8;
+  --aitu-accent-create: #5B4BC4;
+  --aitu-accent-create-light: #7A6BDD;
 
   /* 中性色系 */
   --aitu-neutral-900: #2D3436;
@@ -111,28 +128,38 @@ body {
     margin: 0;
     padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Noto Sans', 'Noto Sans CJK SC', 'Microsoft Yahei', 'Hiragino Sans GB', Arial, sans-serif;
-    color: var(--aitu-neutral-900);
-    background-color: var(--aitu-neutral-100);
+    color: var(--opentu-ink);
+    background-color: var(--opentu-page);
 }
 
 html,
 body {
-    height: 100%;
-    min-height: 100vh;
     width: 100%;
-    overflow: hidden;
-    /* 禁用触摸缩放 - 完全禁止 pinch-zoom */
-    touch-action: none;
-    -ms-touch-action: none;
+    overscroll-behavior-y: auto;
+}
+
+html {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* Keep pinch zoom disabled without blocking vertical scrolling. */
+    touch-action: pan-x pan-y;
+    -ms-touch-action: pan-x pan-y;
+}
+
+body {
+    min-height: 100vh;
+    overflow: visible;
+    touch-action: auto;
+    -ms-touch-action: auto;
 }
 
 #root {
-    height: 100%;
+    min-height: 100vh;
     width: 100%;
-    overflow: hidden;
-    /* 同样完全禁用触摸动作，防止页面缩放 */
-    touch-action: none;
-    -ms-touch-action: none;
+    overflow: visible;
+    touch-action: auto;
+    -ms-touch-action: auto;
 }
 
 /* 品牌色彩应用到常用元素 */
@@ -151,12 +178,12 @@ a {
 
 /* 选中文本的品牌色彩 */
 ::selection {
-  background-color: rgba(243, 156, 18, 0.2);
+  background-color: rgba(91, 75, 196, 0.18);
   color: var(--aitu-neutral-900);
 }
 
 ::-moz-selection {
-  background-color: rgba(243, 156, 18, 0.2);
+  background-color: rgba(91, 75, 196, 0.18);
   color: var(--aitu-neutral-900);
 }
 

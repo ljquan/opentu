@@ -12,6 +12,7 @@ import {
   Shuffle,
   ListOrdered,
   Gauge,
+  LoaderCircle,
 } from 'lucide-react';
 import { useAssets } from '../../../contexts/AssetContext';
 import { useAudioPlaylists } from '../../../contexts/AudioPlaylistContext';
@@ -322,6 +323,7 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
             previewImageUrl: item.previewImageUrl,
             isActive: index === playback.activeQueueIndex,
             isPlaying: index === playback.activeQueueIndex && playback.playing,
+            isLoading: index === playback.activeQueueIndex && playback.loading,
             canFavorite: false,
             noteId,
             playlistItemRef: noteId ? { kind: 'reading' as const, noteId } : undefined,
@@ -343,13 +345,14 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
           previewImageUrl: item.previewImageUrl,
           isActive: index === playback.activeQueueIndex,
           isPlaying: index === playback.activeQueueIndex && playback.playing,
+          isLoading: index === playback.activeQueueIndex && playback.loading,
           isFavorite: assetId ? favoriteAssetIds.has(assetId) : false,
           canFavorite: !!assetId,
           assetId: assetId || undefined,
           playlistItemRef: assetId ? { kind: 'asset' as const, assetId } : undefined,
         };
       }),
-    [assetById, assets, favoriteAssetIds, playback.activeQueueIndex, playback.playing, playback.queue, resolvedQueueDurations]
+    [assetById, assets, favoriteAssetIds, playback.activeQueueIndex, playback.loading, playback.playing, playback.queue, resolvedQueueDurations]
   );
 
   const handlePlayQueueItem = async (itemId: string) => {
@@ -407,8 +410,9 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
         playlistItemRef: { kind: 'reading', noteId: meta.id },
         isActive: activeReadingNoteId === meta.id,
         isPlaying: activeReadingNoteId === meta.id && playback.playing && playback.mediaType === 'reading',
+        isLoading: activeReadingNoteId === meta.id && playback.loading,
       })),
-    [activeReadingNoteId, noteMetas, playback.mediaType, playback.playing]
+    [activeReadingNoteId, noteMetas, playback.loading, playback.mediaType, playback.playing]
   );
   const allAudioListItems = useMemo<AudioTrackListItem[]>(
     () =>
@@ -422,12 +426,13 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
         previewImageUrl: asset.thumbnail,
         isActive: activeAssetId === asset.id,
         isPlaying: activeAssetId === asset.id && playback.playing && playback.mediaType === 'audio',
+        isLoading: activeAssetId === asset.id && playback.loading,
         isFavorite: favoriteAssetIds.has(asset.id),
         canFavorite: true,
         assetId: asset.id,
         playlistItemRef: { kind: 'asset', assetId: asset.id },
       })),
-    [activeAssetId, allAudioAssets, favoriteAssetIds, playback.mediaType, playback.playing, resolvedAudioAssetDurations]
+    [activeAssetId, allAudioAssets, favoriteAssetIds, playback.loading, playback.mediaType, playback.playing, resolvedAudioAssetDurations]
   );
   const playlistListItems = useMemo<AudioTrackListItem[]>(
     () =>
@@ -453,6 +458,7 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
             previewImageUrl: asset.thumbnail,
             isActive: activeAssetId === asset.id,
             isPlaying: activeAssetId === asset.id && playback.playing && playback.mediaType === 'audio',
+            isLoading: activeAssetId === asset.id && playback.loading,
             isFavorite: favoriteAssetIds.has(asset.id),
             canFavorite: true,
             assetId: asset.id,
@@ -482,6 +488,7 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
           playlistItemRef: itemRef,
           isActive: activeReadingNoteId === noteMeta.id,
           isPlaying: activeReadingNoteId === noteMeta.id && playback.playing && playback.mediaType === 'reading',
+          isLoading: activeReadingNoteId === noteMeta.id && playback.loading,
         });
         return items;
       }, []),
@@ -493,6 +500,7 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
       normalizedQuery,
       noteMetaById,
       playback.mediaType,
+      playback.loading,
       playback.playing,
       resolvedAudioAssetDurations,
       selectedPlaylistItems,
@@ -678,15 +686,23 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
                   : (playback.activeTitle || displayAsset?.name || fallbackTrackItem?.title || '未选择音频')}
               </div>
               <div className="music-player-tool__subtitle">
-                {playback.activePlaylistName || (
-                  playback.queueSource === 'playlist'
-                    ? '播放列表'
-                    : isReadingMode
-                      ? '朗读轨道'
-                      : '画布音频'
+                {playback.loading ? (
+                  '正在加载音频'
+                ) : playback.error ? (
+                  <span className="music-player-tool__error-message">{playback.error}</span>
+                ) : (
+                  <>
+                    {playback.activePlaylistName || (
+                      playback.queueSource === 'playlist'
+                        ? '播放列表'
+                        : isReadingMode
+                          ? '朗读轨道'
+                          : '画布音频'
+                    )}
+                    {' · '}
+                    {formatDuration(playback.currentTime)} / {formatDuration(playback.duration)}
+                  </>
                 )}
-                {' · '}
-                {formatDuration(playback.currentTime)} / {formatDuration(playback.duration)}
               </div>
             </div>
             <div className="music-player-tool__now-playing-actions">
@@ -702,14 +718,26 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
                 </button>
               </HoverTip>
               <HoverTip
-                content={playback.playing ? '暂停' : '播放'}
+                content={
+                  playback.loading
+                    ? '取消加载'
+                    : playback.error
+                      ? '重试'
+                      : playback.playing
+                        ? '暂停'
+                        : '播放'
+                }
                 showArrow={false}
               >
                 <button
                   type="button"
                   className="music-player-tool__action-btn music-player-tool__action-btn--primary"
                   onClick={() => {
-                    if (playback.playing) {
+                    if (playback.loading) {
+                      playback.pausePlayback();
+                    } else if (playback.error) {
+                      void playback.retryPlayback();
+                    } else if (playback.playing) {
                       playback.pausePlayback();
                     } else if (isReadingMode) {
                       void playback.resumePlayback();
@@ -726,9 +754,23 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
                       ? !playback.activeReadingSourceId
                       : !playback.activeAudioUrl && !fallbackTrackItem
                   }
-                  aria-label={playback.playing ? '暂停' : '播放'}
+                  aria-label={
+                    playback.loading
+                      ? '取消加载'
+                      : playback.error
+                        ? '重试播放'
+                        : playback.playing
+                          ? '暂停'
+                          : '播放'
+                  }
                 >
-                  {playback.playing ? <Pause size={16} /> : <Play size={16} />}
+                  {playback.loading ? (
+                    <LoaderCircle className="music-player-tool__loading-icon" size={16} />
+                  ) : playback.playing ? (
+                    <Pause size={16} />
+                  ) : (
+                    <Play size={16} />
+                  )}
                 </button>
               </HoverTip>
               <HoverTip content="下一首" showArrow={false}>
@@ -738,7 +780,10 @@ export const MusicPlayerTool: React.FC<MusicPlayerToolProps> = ({
                   onClick={() => void playback.playNext()}
                   disabled={
                     playback.activeQueueIndex < 0 ||
-                    playback.activeQueueIndex >= playback.queue.length - 1
+                    (
+                      playback.activeQueueIndex >= playback.queue.length - 1
+                      && playback.playbackMode === 'sequential'
+                    )
                   }
                   aria-label="下一首"
                 >

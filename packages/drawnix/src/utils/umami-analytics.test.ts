@@ -5,8 +5,6 @@ import { analytics } from './umami-analytics';
 
 const umamiEntryFiles = [
   '../../../../apps/web/index.html',
-  '../../../../apps/web/public/home.html',
-  '../../../../apps/web/public/en/home.html',
 ];
 
 describe('Umami analytics', () => {

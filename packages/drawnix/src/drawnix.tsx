@@ -134,6 +134,7 @@ import {
 import { syncEditedPPTSlideImage } from './utils/frame-insertion-utils';
 import type { MediaLibraryModalProps } from './types/asset.types';
 import { SelectionMode } from './types/asset.types';
+import { MUSIC_PLAYER_OPEN_EVENT } from './services/ai-input-ui-events';
 const PopupToolbar = lazy(() =>
   import('./components/toolbar/popup-toolbar/popup-toolbar').then((module) => ({
     default: module.PopupToolbar,
@@ -438,6 +439,25 @@ export const Drawnix: React.FC<DrawnixProps> = ({
       active = false;
     };
   }, [enableDeferredRuntime]);
+
+  useEffect(() => {
+    const handleOpenMusicPlayer = () => {
+      enableToolWindows(TOOL_WINDOW_GROUPS);
+      void import('./services/tool-launch-service')
+        .then(({ openMusicPlayerTool }) => openMusicPlayerTool())
+        .catch((error) => {
+          console.error('[Drawnix] Failed to open music player:', error);
+          MessagePlugin.error('音乐播放器打开失败，请稍后重试');
+        });
+    };
+
+    window.addEventListener(MUSIC_PLAYER_OPEN_EVENT, handleOpenMusicPlayer);
+    return () =>
+      window.removeEventListener(
+        MUSIC_PLAYER_OPEN_EVENT,
+        handleOpenMusicPlayer
+      );
+  }, [enableToolWindows]);
 
   useEffect(() => {
     if (

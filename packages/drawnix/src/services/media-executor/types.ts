@@ -54,7 +54,7 @@ export interface ImageGenerationParams {
   /** 分辨率档位 */
   resolution?: '1k' | '2k' | '4k';
   /** 官方画质（GPT）或兼容旧值 */
-  quality?: 'auto' | 'low' | 'medium' | 'high' | '1k' | '2k' | '4k';
+  quality?: 'auto' | 'low' | 'standard' | 'medium' | 'high' | '1k' | '2k' | '4k';
   /** 生成数量 (1-10) */
   count?: number;
   /** 额外参数（如 seedream_quality），透传给 adapter */
@@ -182,6 +182,7 @@ export interface ExecutionOptions {
   onSubmissionAttempt?: (
     invocationRoute?: TaskInvocationRouteSnapshot
   ) => void | Promise<void>;
+  onGatewayTaskCreated?: (taskId: string) => void;
   /** 当前执行尝试是否仍可写回任务结果。 */
   isCurrentAttempt?: () => boolean;
   /** 取消信号 */

@@ -26,7 +26,7 @@ import {
   ToolTransforms,
 } from '../components/tool-element/tool.transforms';
 import { PlaitTool } from '../types/toolbox.types';
-import { ToolCommunicationService, ToolCommunicationHelper } from '../services/tool-communication-service';
+import { ToolCommunicationService, ToolCommunicationHelper, getToolTargetOrigin } from '../services/tool-communication-service';
 import { ToolMessageType, GenerateImagePayload, GenerateImageResponse, InsertImagePayload } from '../types/tool-communication.types';
 import { taskQueueService } from '../services/task-queue';
 import { TaskType } from '../types/task.types';
@@ -212,6 +212,9 @@ function setupCommunicationHandlers(
         return;
       }
 
+      const responseOrigin = getToolTargetOrigin(iframe);
+      if (!responseOrigin) return;
+
       // 监听该任务的状态变化
       const subscription = taskQueueService.observeTaskUpdates().subscribe(event => {
         if (event.task.id !== taskId) return;
@@ -229,7 +232,7 @@ function setupCommunicationHandlers(
             },
           };
 
-          iframe.contentWindow?.postMessage(response, '*');
+          iframe.contentWindow?.postMessage(response, responseOrigin);
           // console.log(`[ToolCommunication] Image generation success sent to ${message.toolId}`);
           subscription.unsubscribe();
         }
@@ -241,7 +244,7 @@ function setupCommunicationHandlers(
             error: event.task.error?.message || '图片生成失败',
           };
 
-          iframe.contentWindow?.postMessage(response, '*');
+          iframe.contentWindow?.postMessage(response, responseOrigin);
           // console.log(`[ToolCommunication] Image generation error sent to ${message.toolId}`);
           subscription.unsubscribe();
         }
@@ -262,7 +265,8 @@ function setupCommunicationHandlers(
       ) as HTMLIFrameElement;
 
       if (iframe?.contentWindow) {
-        iframe.contentWindow.postMessage(response, '*');
+        const origin = getToolTargetOrigin(iframe);
+        if (origin) iframe.contentWindow.postMessage(response, origin);
         // console.log(`[ToolCommunication] Image generation error sent to ${message.toolId}`);
       }
     }

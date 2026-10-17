@@ -59,7 +59,7 @@ export interface PptExplainerCreateSpeakerInput {
 export interface PptExplainerTurn {
   speakerId: string;
   text: string;
-  /** Optional provider estimate. OpenTu does not cap or truncate it. */
+  /** Optional provider estimate. FoxVue does not cap or truncate it. */
   estimatedDurationSeconds?: number;
 }
 

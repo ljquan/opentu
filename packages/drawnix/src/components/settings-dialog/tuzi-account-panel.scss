@@ -108,6 +108,26 @@
     }
   }
 
+  &__admin-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 26px;
+    padding: 4px 9px;
+    border: 1px solid #d7d0ee;
+    border-radius: 6px;
+    color: #6554a1;
+    background: #fbfaff;
+    font-size: 12px;
+    font-weight: 650;
+    text-decoration: none;
+
+    &:hover {
+      border-color: #c0b4e1;
+      background: #f5f1ff;
+    }
+  }
+
   &__body {
     min-height: 0;
     flex: 1 1 auto;

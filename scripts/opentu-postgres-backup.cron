@@ -1,0 +1,1 @@
+15 3 * * * root /bin/sh /usr/local/sbin/opentu-postgres-backup >> /var/log/opentu-postgres-backup.log 2>&1

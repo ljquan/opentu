@@ -42,6 +42,45 @@ import {
 } from './task-invocation-route';
 import { getImageSubmissionRequestId } from './image-generation-recovery-service';
 import { isImageSubmissionOutcomeUnknownError } from './provider-routing';
+import { cancelGatewayTask, createGatewayTask, managedImageIdempotencyKey, managedImageTaskBody, waitForGatewayTask } from './generation-task-gateway-api';
+
+const managedGenerationEnabled =
+  typeof import.meta !== 'undefined' &&
+  String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_OPENTU_MANAGED_GENERATION || '').toLowerCase() === 'true';
+const managedTaskIds = new Map<string, string>();
+
+async function generateManagedImage(
+  taskId: string,
+  params: GenerationParams,
+  signal: AbortSignal
+): Promise<TaskResult> {
+  if (params.referenceImages?.length || params.uploadedImages?.length || params.maskImage) {
+    throw new Error('公网图片生成暂不支持参考图或蒙版');
+  }
+  const task = await createGatewayTask(managedImageTaskBody({
+    taskId,
+    prompt: params.prompt,
+    modelId: params.modelRef?.modelId || params.model || DEFAULT_IMAGE_MODEL_ID,
+    size: params.size,
+    quality: params.quality,
+  }), managedImageIdempotencyKey(String(params.submissionRequestId || taskId)));
+  managedTaskIds.set(taskId, task.id);
+  const completed = ['succeeded', 'failed', 'cancelled'].includes(task.status)
+    ? task
+    : await waitForGatewayTask(task.id, signal);
+  if (completed.status !== 'succeeded' || !completed.result) {
+    const error = new Error(completed.error?.message || '图片生成失败');
+    (error as any).code = completed.error?.code || 'GENERATION_FAILED';
+    throw error;
+  }
+  const result = completed.result;
+  const imageItems = Array.isArray(result.images) ? result.images as Array<Record<string, unknown>> : [];
+  const first = imageItems[0] || result;
+  const b64 = typeof first.b64Json === 'string' ? first.b64Json : undefined;
+  const url = typeof first.url === 'string' ? first.url : b64 ? `data:image/png;base64,${b64}` : Array.isArray(result.urls) ? result.urls[0] : undefined;
+  if (!url) throw new Error('服务端未返回图片地址');
+  return { url, urls: Array.isArray(result.urls) ? result.urls.filter((v): v is string => typeof v === 'string') : undefined, format: typeof result.format === 'string' ? result.format : 'png', size: 0, width: typeof first.width === 'number' ? first.width : undefined, height: typeof first.height === 'number' ? first.height : undefined };
+}
 
 type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
 type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
@@ -421,6 +460,9 @@ class GenerationAPIService {
     signal: AbortSignal
   ): Promise<TaskResult> {
     try {
+      if (managedGenerationEnabled) {
+        return await generateManagedImage(taskId, params, signal);
+      }
       const requestedModel = (params as any).model as string | undefined;
       const requestedModelRef = (params as any).modelRef as
         | ModelRef
@@ -664,6 +706,9 @@ class GenerationAPIService {
     params: GenerationParams,
     signal: AbortSignal
   ): Promise<TaskResult> {
+    if (managedGenerationEnabled) {
+      throw new Error('视频生成暂未接入平台服务，请稍后再试');
+    }
     try {
       const requestedModel = (params as any).model as string | undefined;
       const requestedModelRef = (params as any).modelRef as
@@ -748,6 +793,9 @@ class GenerationAPIService {
     params: GenerationParams,
     signal: AbortSignal
   ): Promise<TaskResult> {
+    if (managedGenerationEnabled) {
+      throw new Error('音乐生成暂未接入平台服务，请稍后再试');
+    }
     try {
       const requestedModel = (params as any).model as string | undefined;
       const requestedModelRef = (params as any).modelRef as
@@ -1043,6 +1091,11 @@ class GenerationAPIService {
       controller.abort();
       this.abortControllers.delete(taskId);
       // console.log(`[GenerationAPI] Cancelled request for task ${taskId}`);
+    }
+    const serverTaskId = managedTaskIds.get(taskId);
+    if (serverTaskId) {
+      managedTaskIds.delete(taskId);
+      void cancelGatewayTask(serverTaskId).catch(() => undefined);
     }
   }
 

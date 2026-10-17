@@ -1,7 +1,7 @@
 {
-  "name": "Opentu 开图 - AI 应用平台",
-  "short_name": "Opentu",
-  "description": "Opentu（开图）是一个以画布工作区为核心的 AI 应用平台，把模型调用、素材管理、知识沉淀与任务交付串联在同一个浏览器窗口里。",
+  "name": "狐图 FoxVue - AI 应用平台",
+  "short_name": "狐图",
+  "description": "狐图 FoxVue 是一个以画布工作区为核心的 AI 应用平台，把模型调用、素材管理、知识沉淀与任务交付串联在同一个浏览器窗口里。",
   "start_url": "./",
   "display": "standalone",
   "orientation": "any",
@@ -11,13 +11,13 @@
   "categories": ["productivity", "utilities", "graphics"],
   "icons": [
     {
-      "src": "./icons/android-chrome-192x192.png",
+      "src": "./icons/foxvue-mark-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "./icons/android-chrome-512x512.png",
+      "src": "./icons/foxvue-mark-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -30,12 +30,12 @@
     {
       "name": "新建工作区",
       "short_name": "新建",
-      "description": "创建一个新的 Opentu 工作区",
+      "description": "创建一个新的狐图工作区",
       "url": "./",
       "icons": [
         {
-          "src": "./icons/icon-96x96.png",
-          "sizes": "96x96",
+          "src": "./icons/foxvue-mark-192.png",
+          "sizes": "192x192",
           "type": "image/png"
         }
       ]

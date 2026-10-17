@@ -65,7 +65,8 @@ function buildSSHCommand(config, usePassword) {
   let sshCommand = '';
   
   if (usePassword) {
-    sshCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+    process.env.SSHPASS = config.DEPLOY_SSH_PASSWORD;
+    sshCommand = 'sshpass -e ';
   }
   
   sshCommand += 'ssh';
@@ -87,7 +88,7 @@ function buildSSHCommand(config, usePassword) {
   }
   
   // 添加 SSH 选项
-  sshCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+  sshCommand += ' -o StrictHostKeyChecking=yes';
   
   return sshCommand;
 }
@@ -97,7 +98,8 @@ function buildSCPCommand(config, usePassword) {
   let scpCommand = '';
   
   if (usePassword) {
-    scpCommand = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+    process.env.SSHPASS = config.DEPLOY_SSH_PASSWORD;
+    scpCommand = 'sshpass -e ';
   }
   
   scpCommand += 'scp';
@@ -119,7 +121,7 @@ function buildSCPCommand(config, usePassword) {
   }
   
   // 添加 SSH 选项
-  scpCommand += ` -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+  scpCommand += ' -o StrictHostKeyChecking=yes';
   
   return scpCommand;
 }

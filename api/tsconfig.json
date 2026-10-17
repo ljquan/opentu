@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "types": ["node", "vitest/globals"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./node_modules"]
+}

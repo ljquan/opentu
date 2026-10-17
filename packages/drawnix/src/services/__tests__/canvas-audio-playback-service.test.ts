@@ -1,3 +1,4 @@
+/* @vitest-environment jsdom */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../media-executor/fallback-utils', () => ({
@@ -12,6 +13,10 @@ import {
   EMPTY_AUDIO_WAVEFORM,
 } from '../canvas-audio-playback-service';
 import { ttsSettings } from '../../utils/settings-manager';
+import {
+  buildReadingSubtitleSegments,
+  createReadingPlaybackSource,
+} from '../reading-playback-source';
 
 beforeEach(async () => {
   vi.mocked(cacheRemoteUrl)
@@ -26,7 +31,6 @@ beforeEach(async () => {
     voicesByLanguage: {},
   });
 });
-import { createReadingPlaybackSource } from '../reading-playback-source';
 
 class MockAudioElement extends EventTarget {
   src = '';
@@ -36,16 +40,26 @@ class MockAudioElement extends EventTarget {
   preload = '';
   volume = 1;
   playbackRate = 1;
+  playCalls = 0;
+  pauseCalls = 0;
+  loadCalls = 0;
+  playError?: Error;
 
   play = vi.fn(async (): Promise<void> => {
+    this.playCalls += 1;
+    if (this.playError) {
+      throw this.playError;
+    }
     this.dispatchEvent(new Event('play'));
   });
 
   pause(): void {
+    this.pauseCalls += 1;
     this.dispatchEvent(new Event('pause'));
   }
 
   load(): void {
+    this.loadCalls += 1;
     this.dispatchEvent(new Event('loadedmetadata'));
   }
 
@@ -299,6 +313,181 @@ describe('CanvasAudioPlaybackService', () => {
     expect(service.getState().activeElementId).toBe('audio-node-2');
   });
 
+  it('keeps the latest track when an earlier remote cache request resolves late', async () => {
+    const audio = new MockAudioElement();
+    let resolveFirst: ((url: string) => void) | undefined;
+    const firstResolution = new Promise<string>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(cacheRemoteUrl).mockImplementation((url: string) =>
+      url.includes('audio-1') ? firstResolution : Promise.resolve(url)
+    );
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const first = {
+      elementId: 'audio-node-race-1',
+      audioUrl: 'https://example.com/audio-1.mp3',
+      title: 'First',
+    };
+    const second = {
+      elementId: 'audio-node-race-2',
+      audioUrl: 'https://example.com/audio-2.mp3',
+      title: 'Second',
+    };
+
+    const firstPlayback = service.togglePlayback(first);
+    await Promise.resolve();
+    await service.togglePlayback(second);
+    resolveFirst?.(first.audioUrl);
+    await firstPlayback;
+
+    expect(service.getState()).toMatchObject({
+      activeElementId: second.elementId,
+      activeAudioUrl: second.audioUrl,
+      activeTitle: second.title,
+      playing: true,
+    });
+    expect(audio.src).toBe(second.audioUrl);
+  });
+
+  it('starts remote playback without waiting for background caching', async () => {
+    const audio = new MockAudioElement();
+    let resolveCache: ((url: string) => void) | undefined;
+    vi.mocked(cacheRemoteUrl).mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveCache = resolve;
+        })
+    );
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const source = {
+      elementId: 'audio-node-streaming',
+      audioUrl: 'https://example.com/streaming.mp3',
+      title: 'Streaming',
+    };
+
+    await service.togglePlayback(source);
+
+    expect(audio.src).toBe(source.audioUrl);
+    expect(audio.playCalls).toBe(1);
+    expect(service.getState()).toMatchObject({
+      activeAudioUrl: source.audioUrl,
+      playing: true,
+      loading: false,
+    });
+
+    resolveCache?.(source.audioUrl);
+  });
+
+  it('resumes a paused track without reloading or recaching it', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const source = {
+      elementId: 'audio-node-resume',
+      audioUrl: 'https://example.com/resume.mp3',
+      title: 'Resume',
+    };
+
+    await service.togglePlayback(source);
+    service.pausePlayback();
+    const loadCalls = audio.loadCalls;
+    const cacheCalls = vi.mocked(cacheRemoteUrl).mock.calls.length;
+
+    await service.togglePlayback(source);
+
+    expect(audio.loadCalls).toBe(loadCalls);
+    expect(vi.mocked(cacheRemoteUrl)).toHaveBeenCalledTimes(cacheCalls);
+    expect(service.getState().playing).toBe(true);
+  });
+
+  it('publishes buffering state from native media events', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+
+    await service.togglePlayback({
+      elementId: 'audio-node-buffering',
+      audioUrl: '/fixtures/audio.wav',
+      title: 'Buffering',
+    });
+
+    audio.dispatchEvent(new Event('waiting'));
+    expect(service.getState().loading).toBe(true);
+
+    audio.dispatchEvent(new Event('canplay'));
+    expect(service.getState().loading).toBe(false);
+  });
+
+  it('surfaces playback failures and can retry the active track', async () => {
+    const audio = new MockAudioElement();
+    audio.playError = new Error('Network unavailable');
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const source = {
+      elementId: 'audio-node-retry',
+      audioUrl: 'https://example.com/retry.mp3',
+      title: 'Retry Track',
+    };
+
+    await expect(service.togglePlayback(source)).rejects.toThrow(
+      'Network unavailable'
+    );
+    expect(service.getState()).toMatchObject({
+      playing: false,
+      loading: false,
+      error: 'Network unavailable',
+    });
+
+    audio.playError = undefined;
+    await service.retryPlayback();
+
+    expect(audio.playCalls).toBe(2);
+    expect(service.getState()).toMatchObject({
+      activeAudioUrl: source.audioUrl,
+      playing: true,
+      loading: false,
+      error: undefined,
+    });
+  });
+
+  it('invalidates a pending track when playback is stopped', async () => {
+    const audio = new MockAudioElement();
+    let resolvePending: ((url: string) => void) | undefined;
+    const pendingResolution = new Promise<string>((resolve) => {
+      resolvePending = resolve;
+    });
+    vi.mocked(cacheRemoteUrl).mockImplementation(() => pendingResolution);
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const pendingPlayback = service.togglePlayback({
+      elementId: 'audio-node-stop-race',
+      audioUrl: 'https://example.com/audio-stop-race.mp3',
+      title: 'Pending',
+    });
+
+    await Promise.resolve();
+    service.stopAndClear();
+    resolvePending?.('https://example.com/audio-stop-race.mp3');
+    await pendingPlayback;
+
+    expect(service.getState()).toMatchObject({
+      mediaType: null,
+      playing: false,
+      currentTime: 0,
+      duration: 0,
+    });
+    expect(service.getState().activeAudioUrl).toBeUndefined();
+    expect(audio.src).toBe('');
+  });
+
   it('seeks and clears playback state', async () => {
     const audio = new MockAudioElement();
     audio.duration = 120;
@@ -524,6 +713,9 @@ describe('CanvasAudioPlaybackService', () => {
 
     service.stopAndClear();
     expect(service.getState().volume).toBe(0.35);
+
+    const restoredService = new CanvasAudioPlaybackService();
+    expect(restoredService.getState().volume).toBe(0.35);
   });
 
   it('updates audio playback rate and persists it across service instances', async () => {
@@ -581,6 +773,13 @@ describe('CanvasAudioPlaybackService', () => {
       playing: false,
       currentTime: 180,
     });
+
+    await service.resumePlayback();
+    expect(service.getState()).toMatchObject({
+      activeAudioUrl: queue[1].audioUrl,
+      playing: true,
+      currentTime: 0,
+    });
   });
 
   it('loops back to the first track in list-loop mode when playback ends', async () => {
@@ -608,6 +807,33 @@ describe('CanvasAudioPlaybackService', () => {
     audio.dispatchEvent(new Event('ended'));
     await Promise.resolve();
     await Promise.resolve();
+
+    expect(service.getState()).toMatchObject({
+      activeAudioUrl: queue[0].audioUrl,
+      activeQueueIndex: 0,
+      playing: true,
+    });
+  });
+
+  it('loops manual next navigation in list-loop mode', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+    const queue = [
+      {
+        elementId: 'loop-manual-1',
+        audioUrl: 'https://example.com/loop-manual-1.mp3',
+      },
+      {
+        elementId: 'loop-manual-2',
+        audioUrl: 'https://example.com/loop-manual-2.mp3',
+      },
+    ];
+
+    service.setPlaybackMode('list-loop');
+    await service.togglePlaybackInQueue(queue[1], queue);
+    await service.playNext();
 
     expect(service.getState()).toMatchObject({
       activeAudioUrl: queue[0].audioUrl,
@@ -827,6 +1053,55 @@ describe('CanvasAudioPlaybackService', () => {
     expect(speechSynthesis.paused).toBe(false);
   });
 
+  it('keeps queue indexes aligned across audio and reading tracks', async () => {
+    const audio = new MockAudioElement();
+    const speechSynthesis = new MockSpeechSynthesis();
+    const readingSource = createReadingPlaybackSource({
+      elementId: 'kb-note:mixed',
+      title: 'Mixed Reading',
+      content: '音频与朗读可以在同一个队列里连续切换。',
+      origin: { kind: 'kb-note', id: 'mixed' },
+    });
+    expect(readingSource).not.toBeNull();
+    if (!readingSource) {
+      return;
+    }
+
+    const firstAudio = {
+      elementId: 'mixed-audio-1',
+      audioUrl: 'https://example.com/mixed-1.mp3',
+    };
+    const lastAudio = {
+      elementId: 'mixed-audio-2',
+      audioUrl: 'https://example.com/mixed-2.mp3',
+    };
+    const queue = [firstAudio, readingSource, lastAudio];
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement,
+      {
+        speechSynthesis: speechSynthesis as unknown as SpeechSynthesis,
+        utteranceFactory: (text) => ({ text } as SpeechSynthesisUtterance),
+      }
+    );
+
+    await service.togglePlaybackInQueue(firstAudio, queue);
+    await service.playNext();
+    expect(service.getState()).toMatchObject({
+      mediaType: 'reading',
+      activeReadingSourceId: readingSource?.readingSourceId,
+      activeQueueIndex: 1,
+      playing: true,
+    });
+
+    await service.playNext();
+    expect(service.getState()).toMatchObject({
+      mediaType: 'audio',
+      activeAudioUrl: lastAudio.audioUrl,
+      activeQueueIndex: 2,
+      playing: true,
+    });
+  });
+
   it('restarts reading from the same source in single-loop mode after the last segment', () => {
     const audio = new MockAudioElement();
     const speechSynthesis = new MockSpeechSynthesis();
@@ -906,6 +1181,18 @@ describe('CanvasAudioPlaybackService', () => {
     expect(ttsSettings.get()?.rate).toBe(1.5);
   });
 
+  it('keeps estimated reading duration aligned with high speech rates', () => {
+    const content =
+      '这是一段足够长的中文内容，用于验证高速朗读时字幕时长不会被错误地限制。';
+    const normalDuration =
+      buildReadingSubtitleSegments(content, 1)[0]?.endMs || 0;
+    const fastDuration =
+      buildReadingSubtitleSegments(content, 10)[0]?.endMs || 0;
+
+    expect(normalDuration).toBeGreaterThan(fastDuration);
+    expect(fastDuration).toBeGreaterThanOrEqual(900);
+  });
+
   it('reacts to external tts rate updates while reading is active', async () => {
     const audio = new MockAudioElement();
     const speechSynthesis = new MockSpeechSynthesis();
@@ -939,5 +1226,28 @@ describe('CanvasAudioPlaybackService', () => {
       activeReadingSourceId: readingSource?.readingSourceId,
     });
     expect(speechSynthesis.utterances[0]?.rate).toBe(2);
+  });
+
+  it('disposes media listeners and stops reacting to tts settings', async () => {
+    const audio = new MockAudioElement();
+    const service = new CanvasAudioPlaybackService(
+      () => audio as unknown as HTMLAudioElement
+    );
+
+    await service.togglePlayback({
+      elementId: 'audio-node-dispose',
+      audioUrl: '/fixtures/dispose.wav',
+      title: 'Dispose',
+    });
+    service.dispose();
+
+    audio.dispatchEvent(new Event('play'));
+    await ttsSettings.update({ rate: 2.5 });
+
+    expect(service.getState()).toMatchObject({
+      mediaType: null,
+      playing: false,
+      readingPlaybackRate: 1,
+    });
   });
 });

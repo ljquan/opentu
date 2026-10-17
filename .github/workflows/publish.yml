@@ -10,14 +10,42 @@ permissions:
   packages: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.21.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/check-production-config.test.cjs
+      - run: pnpm exec nx run-many -t typecheck test lint --projects api web --parallel=2
+      - run: pnpm exec vitest run --root packages/drawnix --config vitest.config.ts src/services/tool-communication-service.test.ts src/data/drawnix-data-validation.test.ts src/data/import-dependencies.test.ts --maxWorkers=2
+      - run: pnpm exec vitest run --root packages/drawnix --config vitest.config.ts src/services/generation-task-gateway-api.test.ts src/services/media-executor/managed-gateway.test.ts --maxWorkers=2
+        env:
+          VITE_OPENTU_MANAGED_GENERATION: 'true'
+      - run: pnpm exec nx build web
+        env:
+          VITE_OPENTU_MANAGED_GENERATION: 'true'
+          VITE_OPENTU_SERVER_CATALOG: 'true'
+      - run: node scripts/build-server.cjs
+      - run: pnpm verify:startup
+
   publish:
+    needs: validate
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -42,24 +70,40 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           {
             echo "TAG=${TAG}"
-            echo "IMAGE_TAGS<<EOF"
-            echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/drawnix:latest"
-            echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/drawnix:${TAG}"
+            echo "WEB_IMAGE_TAGS<<EOF"
+            echo "ghcr.io/${OWNER}/foxvue-web:latest"
+            echo "ghcr.io/${OWNER}/foxvue-web:${TAG}"
             if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
-              echo "pubuzhixing/drawnix:${TAG}"
-              echo "pubuzhixing/drawnix:latest"
+              echo "pubuzhixing/foxvue-web:${TAG}"
+              echo "pubuzhixing/foxvue-web:latest"
+            fi
+            echo "EOF"
+            echo "API_IMAGE_TAGS<<EOF"
+            echo "ghcr.io/${OWNER}/foxvue-api:latest"
+            echo "ghcr.io/${OWNER}/foxvue-api:${TAG}"
+            if [[ -n "${DOCKERHUB_USERNAME}" && -n "${DOCKERHUB_TOKEN}" ]]; then
+              echo "pubuzhixing/foxvue-api:${TAG}"
+              echo "pubuzhixing/foxvue-api:latest"
             fi
             echo "EOF"
           } >> "${GITHUB_ENV}"
 
-      - name: Publish images
-        uses: docker/build-push-action@v3
+      - name: Publish web image
+        uses: docker/build-push-action@v6
         with:
-          file: Dockerfile
-          outputs: "type=registry,push=true"
+          context: .
+          file: docker/opentu-web/full-app.Dockerfile
+          push: true
           platforms: linux/amd64, linux/arm64
-          build-args: |
-            GITHUB_SHA=${{ github.sha }}
-          tags: ${{ env.IMAGE_TAGS }}
+          tags: ${{ env.WEB_IMAGE_TAGS }}
+      - name: Publish API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/opentu-api/Dockerfile
+          push: true
+          platforms: linux/amd64, linux/arm64
+          tags: ${{ env.API_IMAGE_TAGS }}

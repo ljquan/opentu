@@ -18,6 +18,21 @@
     "paths": {
       "@drawnix/drawnix": ["packages/drawnix/src/index.ts"],
       "@drawnix/drawnix/runtime": ["packages/drawnix/src/runtime.ts"],
+      "@drawnix/drawnix/ui-events": [
+        "packages/drawnix/src/services/ai-input-ui-events.ts"
+      ],
+      "@drawnix/drawnix/task-queue": [
+        "packages/drawnix/src/services/task-queue/index.ts"
+      ],
+      "@drawnix/drawnix/task-types": [
+        "packages/drawnix/src/task-types.ts"
+      ],
+      "@drawnix/drawnix/sw-task-types": [
+        "packages/drawnix/src/sw-task-types.ts"
+      ],
+      "@drawnix/drawnix/workflow-types": [
+        "packages/drawnix/src/workflow-types.ts"
+      ],
       "@aitu/utils": ["packages/utils/src/index.ts"],
       "tdesign-react": ["packages/drawnix/src/utils/tdesign.ts"],
       "@plait-board/react-board": ["packages/react-board/src/index.ts"],

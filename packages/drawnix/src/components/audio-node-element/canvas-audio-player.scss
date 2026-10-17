@@ -248,6 +248,16 @@
   }
 }
 
+.canvas-audio-player__loading-icon {
+  animation: canvas-audio-player-spin 0.8s linear infinite;
+}
+
+@keyframes canvas-audio-player-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .canvas-audio-player__progress {
   grid-area: progress;
   min-width: 0;

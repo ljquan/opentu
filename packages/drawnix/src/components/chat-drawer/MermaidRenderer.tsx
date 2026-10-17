@@ -106,7 +106,7 @@ export const MermaidRenderer: React.FC<MermaidRendererProps> = ({
         mermaid.initialize({
           startOnLoad: false,
           theme: 'default',
-          securityLevel: 'loose',
+          securityLevel: 'strict',
           fontFamily: 'Inter, SF Pro Display, -apple-system, sans-serif',
         });
 

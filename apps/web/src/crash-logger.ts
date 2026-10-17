@@ -215,6 +215,7 @@ let lastFrameTime = 0;
 const frameCount = 0;
 let currentFps = 60;
 let whitescreenReported = false;
+let whitescreenCandidateTimer: number | null = null;
 let pageWasHidden = false; // 跟踪页面是否曾在后台
 
 // 用户操作轨迹
@@ -618,7 +619,7 @@ export function recordStartupSnapshot(): void {
     timestamp: Date.now(),
     type: 'startup',
     userAgent: navigator.userAgent,
-    url: location.href,
+    url: window.location.href,
     memory: getMemoryInfo(),
     // 启动时不收集 pageStats 和 storage，减少初始化开销
     // 注：storage.estimate() 返回的是浏览器配额，不是实际磁盘空间，意义不大
@@ -670,7 +671,7 @@ export function startPeriodicSnapshots(): void {
         memory,
         pageStats,
         userAgent: navigator.userAgent,
-        url: location.href,
+        url: window.location.href,
       };
 
       sendSnapshotToSW(snapshot);
@@ -716,7 +717,7 @@ export function setupErrorCapture(): void {
       },
       memory: getMemoryInfo(),
       userAgent: navigator.userAgent,
-      url: location.href,
+      url: window.location.href,
       customData: buildErrorDiagnosticContext({
         filename: event.filename,
         lineno: event.lineno,
@@ -758,7 +759,7 @@ export function setupErrorCapture(): void {
       },
       memory: getMemoryInfo(),
       userAgent: navigator.userAgent,
-      url: location.href,
+      url: window.location.href,
       customData: buildErrorDiagnosticContext(),
     };
 
@@ -776,7 +777,7 @@ export function setupErrorCapture(): void {
         type: 'beforeunload',
         memory,
         userAgent: navigator.userAgent,
-        url: location.href,
+        url: window.location.href,
       };
 
       // 同时保存到 localStorage 和发送到 SW
@@ -832,7 +833,7 @@ export function setupHeartbeat(): void {
           fps: currentFps,
         },
         userAgent: navigator.userAgent,
-        url: location.href,
+        url: window.location.href,
         customData: {
           recentActions: userActions.slice(-10),
           recentErrors: consoleErrors.slice(-5),
@@ -897,7 +898,7 @@ export function setupLongTaskMonitoring(): void {
               fps: currentFps,
             },
             userAgent: navigator.userAgent,
-            url: location.href,
+            url: window.location.href,
             customData: {
               taskName: entry.name,
               startTime: entry.startTime,
@@ -964,7 +965,7 @@ export function setupFpsMonitoring(): void {
           fps: currentFps,
         },
         userAgent: navigator.userAgent,
-        url: location.href,
+        url: window.location.href,
       };
 
       sendSnapshotToSW(snapshot);
@@ -1005,39 +1006,59 @@ function checkForWhitescreen(): void {
   // 检查是否有可见内容
   const bodyHasContent = document.body.children.length > 1; // 至少有 root 以外的元素
 
-  // 如果 root 存在但没有子元素，可能是白屏
+  // Lazy route transitions can briefly leave only React comment nodes in root.
+  // Require a sustained empty state before reporting a real white screen.
   if (root && !hasContent) {
-    whitescreenReported = true;
+    if (whitescreenCandidateTimer === null) {
+      whitescreenCandidateTimer = window.setTimeout(() => {
+        whitescreenCandidateTimer = null;
+        const currentRoot = document.getElementById('root');
+        if (!currentRoot || currentRoot.children.length > 0 || whitescreenReported) {
+          return;
+        }
+        whitescreenReported = true;
+        const snapshot: CrashSnapshot = {
+          id: `whitescreen-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'whitescreen',
+          memory: getMemoryInfo(),
+          pageStats: {
+            domNodeCount: document.getElementsByTagName('*').length,
+            canvasCount: 0,
+            imageCount: 0,
+            videoCount: 0,
+            iframeCount: 0,
+            plaitBoardExists: !!document.querySelector(
+              '.plait-board-container'
+            ),
+          },
+          userAgent: navigator.userAgent,
+          url: window.location.href,
+          customData: {
+            rootExists: true,
+            rootChildCount: currentRoot.children.length,
+            bodyChildCount: document.body.children.length,
+          },
+        };
 
-    const snapshot: CrashSnapshot = {
-      id: `whitescreen-${Date.now()}`,
-      timestamp: Date.now(),
-      type: 'whitescreen',
-      memory: getMemoryInfo(),
-      pageStats: {
-        domNodeCount: document.getElementsByTagName('*').length,
-        canvasCount: 0,
-        imageCount: 0,
-        videoCount: 0,
-        iframeCount: 0,
-        plaitBoardExists: hasPlaitBoard,
-      },
-      userAgent: navigator.userAgent,
-      url: location.href,
-      customData: {
-        rootExists: !!root,
-        rootChildCount: root?.children.length || 0,
-        bodyChildCount: document.body.children.length,
-        hasPlaitBoard,
-      },
-    };
+        sendSnapshotToSW(snapshot);
+        console.error('[MemoryLog] 白屏检测: React 未渲染内容');
+      }, 3000);
+    }
+    return;
+  }
 
-    sendSnapshotToSW(snapshot);
-    console.error('[MemoryLog] 白屏检测: React 未渲染内容');
+  if (whitescreenCandidateTimer !== null) {
+    window.clearTimeout(whitescreenCandidateTimer);
+    whitescreenCandidateTimer = null;
   }
 
   // 如果应用已加载但画板不存在（且不是首页等非画板页面）
-  if (hasContent && !hasPlaitBoard && location.pathname === '/') {
+  const isBoardRoute =
+    window.location.pathname === '/' &&
+    Boolean(new URLSearchParams(window.location.search).get('board'));
+
+  if (hasContent && !hasPlaitBoard && isBoardRoute) {
     // 给更多时间，画板可能还在加载
     setTimeout(() => {
       if (
@@ -1053,7 +1074,7 @@ function checkForWhitescreen(): void {
           memory: getMemoryInfo(),
           pageStats: collectPageStats(),
           userAgent: navigator.userAgent,
-          url: location.href,
+          url: window.location.href,
           customData: {
             reason: '画板未加载',
             rootChildCount: root?.children.length || 0,
@@ -1183,12 +1204,12 @@ export function setupUserActionTracking(): void {
 
   // 监听路由变化
   window.addEventListener('popstate', () => {
-    recordUserAction('navigate', location.pathname);
+    recordUserAction('navigate', window.location.pathname);
   });
 
   // 监听 hash 变化
   window.addEventListener('hashchange', () => {
-    recordUserAction('navigate', location.hash);
+    recordUserAction('navigate', window.location.hash);
   });
 }
 
@@ -1288,7 +1309,7 @@ export function setupResourceErrorTracking(): void {
             },
             memory: getMemoryInfo(),
             userAgent: navigator.userAgent,
-            url: location.href,
+            url: window.location.href,
             customData: buildErrorDiagnosticContext({
               resourceUrl: truncateContextValue(
                 url ? sanitizeUrl(url) : undefined
@@ -1411,7 +1432,7 @@ export function recordCustomSnapshot(
     type: 'periodic', // 使用 periodic 类型，便于统一处理
     memory: getMemoryInfo(),
     userAgent: navigator.userAgent,
-    url: location.href,
+    url: window.location.href,
     customData: {
       label,
       ...customData,
@@ -1463,7 +1484,7 @@ function exposeDebugTools(): void {
         memory: getMemoryInfo(),
         pageStats: collectPageStats(),
         userAgent: navigator.userAgent,
-        url: location.href,
+        url: window.location.href,
       };
       sendSnapshotToSW(snapshot);
     },

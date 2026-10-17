@@ -1,0 +1,137 @@
+:root { color: #242c2a; background: #fff; font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; letter-spacing: 0; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.account-page { width: 100%; min-height: 100dvh; display: flex; flex-direction: column; animation: page-in .55s ease both; }
+.account-header { min-height: 80px; padding: 18px max(28px, calc((100% - 1120px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #edf0ef; }
+.account-brand { display: flex; gap: 10px; align-items: center; font-size: 21px; font-weight: 700; white-space: nowrap; }
+.account-brand img { object-fit: contain; }
+.account-brand small { margin-left: 5px; font-size: 15px; color: #65736c; font-weight: 400; }
+.account-header-label { color: #717a75; font-size: 13px; }
+.account-intro { position: relative; overflow: hidden; padding: 30px 24px 28px; text-align: center; background: #f1f6f3; border-bottom: 1px solid #e1eae4; }
+.account-intro::after { content: ""; position: absolute; width: 280px; height: 100%; top: 0; left: -320px; background: linear-gradient(90deg, transparent, #fff9, transparent); transform: skewX(-18deg); animation: intro-sheen 7s ease-in-out infinite; pointer-events: none; }
+.account-eyebrow { display: block; color: #956047; font-size: 10px; font-weight: 650; }
+.account-intro h2 { margin: 10px 0 12px; font-size: 34px; font-weight: 700; line-height: 1.25; animation: title-in .65s .12s ease both; }
+.account-intro h2 span { font-weight: 400; color: #306656; margin-left: 6px; }
+.account-intro p { margin: 0 0 8px; font-size: 16px; line-height: 1.7; }
+.account-intro-note { font-size: 12px; color: #6a7970; line-height: 1.7; }
+.account-content { width: min(400px, calc(100% - 48px)); margin: 30px auto 40px; animation: content-in .55s .1s ease both; }
+.account-content h1 { font-size: 24px; line-height: 1.4; margin: 0 0 6px; }
+.account-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: #eef3f0; border-radius: 8px; margin-bottom: 24px; }
+.account-content .account-modes button { border-color: transparent; background: transparent; font-weight: 600; }
+.account-content .account-modes button[aria-pressed="true"] { background: #fff; border-color: #d1dbd5; color: #245f4d; box-shadow: 0 1px 3px #243f2810; }
+.account-welcome { color: #758079; font-size: 13px; line-height: 1.7; margin: 0 0 24px; }
+.account-content form, .account-content label { display: flex; flex-direction: column; gap: 8px; }
+.account-content form { gap: 18px; animation: form-in .28s ease both; }
+.account-content label { font-size: 13px; font-weight: 600; }
+.account-content input { width: 100%; min-width: 0; padding: 12px 14px; border: 1px solid #d1dbd5; border-radius: 6px; background: #fff; font: inherit; font-size: 16px; height: 48px; color: #242c2a; transition: border-color .15s; }
+.account-content input::placeholder { color: #8b968f; font-size: 14px; font-weight: 400; }
+.account-content input:hover { border-color: #8daca0; }
+.account-content input:focus { outline: 2px solid #24765a; outline-offset: 2px; }
+.account-content button { cursor: pointer; font: inherit; font-size: 14px; border: 1px solid #ccd8d1; border-radius: 6px; background: #fff; min-height: 44px; padding: 10px 14px; color: inherit; transition: background .15s, border-color .15s; }
+.account-content button:hover { background: #f1f6f3; border-color: #94ab9e; }
+.account-content button:focus-visible { outline: 2px solid #24765a; outline-offset: 3px; }
+.account-content button:disabled { cursor: wait; opacity: .6; }
+.account-content .account-primary { min-height: 48px; margin-top: 4px; background: #245f4d; color: #fff; border-color: #245f4d; font-weight: 600; box-shadow: 0 2px 3px #193f5012; }
+.account-content .account-primary:active { transform: translateY(1px); }
+.account-content .account-primary:hover { background: #194936; border-color: #194936; }
+.account-password { position: relative; display: flex; }
+.account-password input { padding-right: 48px; }
+.account-password button { position: absolute; right: 2px; top: 2px; height: 44px; width: 44px; min-height: 44px; border: 0; display: grid; place-items: center; padding: 0; color: #758079; }
+.account-content .account-switch { margin-top: 16px; width: 100%; border-color: transparent; background: transparent; color: #306656; }
+.account-content .account-switch:hover { background: #f1f6f3; }
+.account-error { background: #fff0f0; color: #a52632; padding: 12px; border-left: 3px solid #a52632; font-size: 14px; line-height: 1.6; }
+.account-notice { color: #196b60; font-size: 14px; line-height: 1.6; }
+.account-actions { display: flex; gap: 12px; margin: 24px 0; flex-wrap: wrap; }
+.account-actions button { display: flex; gap: 8px; align-items: center; }
+.account-actions .account-enter { color: #170f27; border-color: #b99aff; background: #b795ff; font-weight: 650; }
+.account-actions .account-enter:hover { color: #170f27; border-color: #d6c0ff; background: #c9adff; }
+.account-content dt { color: #687178; font-size: 13px; margin-top: 20px; }
+.account-content dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.account-id { font-family: monospace; font-size: 13px; }
+.account-content small { color: #687178; }
+.account-footer { margin-top: auto; min-height: 64px; padding: 20px 28px; border-top: 1px solid #edf0ef; display: flex; justify-content: center; gap: 20px; color: #79867e; font-size: 11px; line-height: 1.7; }
+.account-footer span:first-child { color: #445b4d; font-weight: 600; }
+@media (max-width: 480px) {
+  .account-header { min-height: 66px; padding: 14px 20px; }
+  .account-header-label { display: none; }
+  .account-intro { padding: 24px 20px; }
+  .account-intro h2 { font-size: 30px; }
+  .account-intro p { font-size: 14px; }
+  .account-content { margin-top: 26px; width: calc(100% - 40px); }
+  .account-footer { gap: 6px; flex-direction: column; text-align: center; }
+}
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes content-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes form-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes title-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes intro-sheen { 0%, 55% { left: -320px; } 80%, 100% { left: calc(100% + 40px); } }
+@media (prefers-reduced-motion: reduce) {
+  .account-page, .account-content, .account-content form, .account-intro h2 { animation: none; }
+  .account-intro::after { display: none; }
+}
+
+/* Night-sky account theme */
+:root { color: #f7f3ff; background: #100c2b; }
+body { background: #100c2b; }
+.account-page { position: relative; overflow: hidden; background: radial-gradient(circle at 50% -20%, #493b83 0%, #211849 42%, #100c2b 100%); }
+.account-page::before { content: ""; position: absolute; inset: 0; opacity: .5; pointer-events: none; background-image: radial-gradient(circle, #fff 0 1px, transparent 1.5px), radial-gradient(circle, #b8a8ff 0 1px, transparent 1.5px); background-size: 97px 113px, 151px 173px; background-position: 11px 23px, 48px 67px; }
+.account-header { position: relative; z-index: 1; border-bottom-color: #ffffff1c; }
+.account-brand small, .account-header-label { color: #c6b8f2; }
+.account-intro { position: relative; z-index: 1; background: #ffffff0d; border-bottom-color: #ffffff1c; }
+.account-intro::after { background: linear-gradient(90deg, transparent, #cfc4ff26, transparent); }
+.account-eyebrow { color: #e7b8ff; }
+.account-intro h2 span { color: #d5c5ff; }
+.account-intro h2, .account-intro p { color: #f7f3ff; }
+.account-intro-note, .account-welcome { color: #c2b9df; }
+.account-content { position: relative; z-index: 1; }
+.account-content h1, .account-content label, .account-content dd { color: #f7f3ff; }
+.account-content h1 { text-shadow: 0 2px 18px #0006; }
+.account-modes { background: #ffffff12; }
+.account-content .account-modes button { border-color: transparent; background: transparent; }
+.account-content .account-modes button[aria-pressed="true"] { background: #ffffff1c; border-color: #8d7dc2; color: #f7f3ff; box-shadow: 0 1px 8px #0003; }
+.account-content input { border-color: #8d7dc2; background: #181237cc; color: #fff; }
+.account-content input::placeholder { color: #aaa0c8; }
+.account-content input:hover { border-color: #c1a7ff; background: #1e1748; }
+.account-content input:focus { outline-color: #d2a5ff; }
+.account-content button { border-color: #8d7dc2; background: #ffffff0d; color: #f7f3ff; }
+.account-content button:hover { background: #ffffff1d; border-color: #c1a7ff; }
+.account-content button:focus-visible { outline-color: #d2a5ff; }
+.account-content .account-primary { background: #7653c7; border-color: #9875ee; box-shadow: 0 4px 18px #4f2a9d66; }
+.account-content .account-primary:hover { background: #8a64db; border-color: #b99aff; }
+.account-password button { color: #c6b8f2; }
+.account-content .account-switch { color: #d2c2ff; }
+.account-content .account-switch:hover { background: #ffffff12; }
+.account-error { background: #5c2439cc; color: #ffdce6; border-left-color: #ff91b1; }
+.account-notice { color: #b9f4dc; }
+.account-content dt { color: #b8add1; }
+.account-content small { color: #b8add1; }
+.account-footer { position: relative; z-index: 1; border-top-color: #ffffff1c; color: #aaa1c7; }
+.account-footer span:first-child { color: #ded4ff; }
+@media (prefers-reduced-motion: reduce) { .account-page::before { opacity: .35; } }
+
+/* Immersive Studio C account entry. */
+:root { color: #f4f0f7; background: #111218; }
+body { background: #111218; }
+.account-page { background: radial-gradient(ellipse 78% 54% at 54% -12%, #352947 0%, #1b1926 45%, #111218 100%); }
+.account-page::before { opacity: .27; background-image: radial-gradient(circle, #d5c9ff 0 1px, transparent 1.4px), radial-gradient(circle, #ff9c9f 0 1px, transparent 1.4px); }
+.account-header, .account-footer { border-color: #312c39; background: rgba(17, 18, 24, .68); }
+.account-brand small, .account-header-label, .account-intro-note, .account-welcome, .account-content dt, .account-content small, .account-footer { color: #aaa4b5; }
+.account-intro { background: rgba(25, 26, 35, .72); border-color: #312c39; }
+.account-intro::after { background: linear-gradient(90deg, transparent, rgba(155, 140, 255, .12), transparent); }
+.account-eyebrow { color: #b8acff; }.account-intro h2 span { color: #ff9c9f; }
+.account-modes { background: #1d1e28; }.account-content .account-modes button[aria-pressed="true"] { background: rgba(155, 140, 255, .15); border-color: #7568aa; color: #f4f0f7; }
+.account-content input { background: #16171f; border-color: #49404f; }.account-content input:hover { background: #1d1e28; border-color: #7568aa; }.account-content input:focus, .account-content button:focus-visible { outline-color: #9b8cff; }
+.account-content button { background: #1d1e28; border-color: #49404f; }.account-content button:hover { background: #292733; border-color: #7568aa; }
+.account-content .account-primary, .account-actions .account-enter { color: #251315; background: #ff6a70; border-color: #ff6a70; box-shadow: 0 8px 22px rgba(255, 106, 112, .16); }.account-content .account-primary:hover, .account-actions .account-enter:hover { color: #251315; background: #ff7c81; border-color: #ff7c81; }
+.account-content .account-switch { color: #cbc3ff; }.account-content .account-switch:hover { background: rgba(155, 140, 255, .12); }.account-notice { color: #35d2bd; }
+
+/* Account entry should feel like the same product as the studio. */
+.account-brand { color: #f5f2f8; }
+.account-brand img { border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .2); }
+.account-intro { padding-top: 38px; padding-bottom: 34px; }
+.account-intro h2 { letter-spacing: -.02em; }
+.account-content { width: min(430px, calc(100% - 40px)); margin-top: 32px; padding: 24px; border: 1px solid rgba(165, 149, 255, .18); border-radius: 16px; background: rgba(23, 25, 35, .76); box-shadow: 0 22px 58px rgba(0, 0, 0, .22); backdrop-filter: blur(14px); }
+.account-content h1 { font-size: 26px; letter-spacing: -.02em; }
+.account-content .account-modes { margin-bottom: 22px; }
+.account-content .account-primary { min-height: 50px; }
+@media (max-width: 480px) { .account-content { width: calc(100% - 32px); padding: 20px; margin-top: 24px; } .account-intro { padding: 30px 20px 26px; } }

@@ -70,16 +70,18 @@ function setupLazyAssetRecoveryListeners(): void {
 setupLazyAssetRecoveryListeners();
 
 updateBootStatus({
-  tip: '正在加载工作台...',
+  tip: '正在加载狐图 FoxVue...',
   source: 'phase',
   progress: 20,
 });
 
-import('./app/bootstrap').catch((error) => {
+const bootstrap = window.location.pathname === '/account' || window.location.pathname === '/account/'
+  ? import('./account/bootstrap') : import('./app/bootstrap');
+bootstrap.catch((error) => {
   if (tryRecoverDynamicImportError(error)) {
     return;
   }
 
   console.error('[Main] Failed to load app bootstrap:', error);
-  getBootController()?.markError?.('工作台加载失败，请刷新后重试');
+  getBootController()?.markError?.('狐图 FoxVue 加载失败，请刷新后重试');
 });

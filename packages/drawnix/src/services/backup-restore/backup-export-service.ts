@@ -311,7 +311,7 @@ class BackupExportService {
       deletedPromptContents: deletedPromptContents || [],
       promptHistoryOverrides: promptHistoryOverrides || [],
       allTasks,
-    });
+    }) as PromptsData;
   }
 
   private async collectTasksForBackup(): Promise<unknown[]> {

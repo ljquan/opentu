@@ -18,6 +18,7 @@ import {
   useDocumentTitle,
   markTabSyncVersion,
   requestServiceWorkerIdlePrefetch,
+  requestAIInputPrefill,
   MessagePlugin,
 } from '@drawnix/drawnix/runtime';
 import type {
@@ -28,6 +29,16 @@ import type {
 } from '@plait/core';
 import { ErrorFallbackUI, safeModeReload, goToDebug } from './ErrorBoundary';
 import { collectAndDownloadErrorLog } from '../utils/error-log-exporter';
+import { WorkspaceShell } from '../workspace/presentation/WorkspaceShell';
+import { HomePage } from '../home/HomePage';
+import { CreativeCenterPage } from '../creative-center/CreativeCenterPage';
+import {
+  clearCreationCenterDraft,
+  creationPrefillParams,
+  saveCreationCenterDraft,
+  type CreationRequest,
+} from '../creative-center/creation-request';
+import type { MarketplaceModel } from '../home/model-marketplace-catalog';
 
 const Drawnix = lazy(() =>
   import('@drawnix/drawnix').then((module) => ({
@@ -35,12 +46,66 @@ const Drawnix = lazy(() =>
   }))
 );
 
+const MusicStationPage = lazy(() =>
+  import('../music-station/MusicStationPage').then((module) => ({
+    default: module.MusicStationPage,
+  }))
+);
+
+const WorksPage = lazy(() =>
+  import('../library/WorksPage').then((module) => ({
+    default: module.WorksPage,
+  }))
+);
+
+const WorkflowsPage = lazy(() =>
+  import('../library/WorkflowsPage').then((module) => ({
+    default: module.WorkflowsPage,
+  }))
+);
+
+const ProviderAdminPage = lazy(() =>
+  import('../admin/ProviderAdminPage').then((module) => ({
+    default: module.ProviderAdminPage,
+  }))
+);
+
+function RouteLoading() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: 'grid',
+        minHeight: '100dvh',
+        placeItems: 'center',
+        color: '#cfc6e8',
+        background: '#111218',
+        fontSize: 14,
+      }}
+    >
+      正在打开页面...
+    </div>
+  );
+}
+
 // 节流保存 viewport 的间隔（毫秒）
 const VIEWPORT_SAVE_DEBOUNCE = 500;
 
 // URL 参数名
 const BOARD_URL_PARAM = 'board';
 const BOARD_CLOSE_SNAPSHOT_KEY = 'aitu_board_close_snapshot_v1';
+const PENDING_CREATION_KEY = 'foxvue_pending_creation_v1';
+const managedGeneration = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_OPENTU_MANAGED_GENERATION || '').toLowerCase() === 'true';
+
+type PendingCreation = Required<Pick<CreationRequest, 'mode'>> & {
+  boardId: string;
+  prompt: string;
+  modelId: string | null;
+  aspectRatio?: CreationRequest['aspectRatio'];
+  quality?: CreationRequest['quality'];
+  referenceImages?: CreationRequest['referenceImages'];
+};
 
 // Global flag to prevent duplicate initialization in StrictMode
 let appInitialized = false;
@@ -85,6 +150,40 @@ function getBoardIdFromUrl(): string | null {
   return params.get(BOARD_URL_PARAM);
 }
 
+type AppLocation = {
+  pathname: string;
+  search: string;
+  hash: string;
+};
+
+function readAppLocation(): AppLocation {
+  return {
+    pathname: window.location.pathname,
+    search: window.location.search,
+    hash: window.location.hash,
+  };
+}
+
+function isCreativeCenterPath(pathname: string): boolean {
+  return pathname === '/creative-center' || pathname === '/creative-center/';
+}
+
+function isMusicStationPath(pathname: string): boolean {
+  return pathname === '/music-station' || pathname === '/music-station/';
+}
+
+function isWorksPath(pathname: string): boolean {
+  return pathname === '/works' || pathname === '/works/';
+}
+
+function isWorkflowsPath(pathname: string): boolean {
+  return pathname === '/workflows' || pathname === '/workflows/';
+}
+
+function isProviderAdminPath(pathname: string): boolean {
+  return pathname === '/admin/providers' || pathname === '/admin/providers/';
+}
+
 /**
  * 更新 URL 中的画布 ID 参数（不刷新页面）
  * @param boardId 画布 ID
@@ -92,7 +191,7 @@ function getBoardIdFromUrl(): string | null {
  */
 function updateBoardIdInUrl(
   boardId: string | null,
-  replace: boolean = false
+  replace = false
 ): void {
   const url = new URL(window.location.href);
   if (boardId) {
@@ -154,8 +253,53 @@ function clearBoardCloseSnapshot(boardId?: string | null): void {
   }
 }
 
+function getCreationBoardName(prompt?: string): string {
+  const normalized = prompt?.replace(/\s+/g, ' ').trim() || '';
+  if (!normalized) return '新的创作空间';
+  return normalized.length > 24 ? `${normalized.slice(0, 24)}…` : normalized;
+}
+
+function savePendingCreation(pending: PendingCreation): void {
+  try {
+    sessionStorage.setItem(PENDING_CREATION_KEY, JSON.stringify(pending));
+  } catch (error) {
+    console.warn('[App] Failed to save pending creation:', error);
+  }
+}
+
+function loadPendingCreation(boardId: string): PendingCreation | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_CREATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingCreation>;
+    if (
+      parsed.boardId !== boardId ||
+      typeof parsed.prompt !== 'string' ||
+      !parsed.prompt.trim() ||
+      !['image', 'video', 'audio', 'canvas'].includes(parsed.mode || '')
+    ) {
+      return null;
+    }
+    return parsed as PendingCreation;
+  } catch (error) {
+    console.warn('[App] Failed to read pending creation:', error);
+    return null;
+  }
+}
+
+function clearPendingCreation(): void {
+  try {
+    sessionStorage.removeItem(PENDING_CREATION_KEY);
+  } catch (error) {
+    console.warn('[App] Failed to clear pending creation:', error);
+  }
+}
+
 export function App() {
-  const [isLoading, setIsLoading] = useState(true);
+  const [appLocation, setAppLocation] = useState<AppLocation>(readAppLocation);
+  // Ordinary pages do not need IndexedDB/workspace boot before rendering.
+  // Keep the loading state only for a direct canvas URL.
+  const [isLoading, setIsLoading] = useState(() => Boolean(getBoardIdFromUrl()));
   const [isDataReady, setIsDataReady] = useState(false);
   // 使用 ref 跟踪 isDataReady，避免 handleBoardChange 因闭包捕获旧值导致保存被跳过
   // Wrapper 中 BOARD_TO_AFTER_CHANGE 的 effect 只依赖 [board]，不会因为 onChange 变化而更新
@@ -170,7 +314,9 @@ export function App() {
   }>({ children: [] });
   // 当前画板 ID，用于更新页面标题
   const [currentBoardId, setCurrentBoardId] = useState<string | null>(null);
+  const [isStartingWorkspace, setIsStartingWorkspace] = useState(false);
   const currentBoardIdRef = useRef<string | null>(null);
+  const pendingCreationTimerRef = useRef<number | null>(null);
 
   // 存储最新的 viewport，用于页面关闭前保存
   const latestViewportRef = useRef<Viewport | undefined>();
@@ -188,8 +334,35 @@ export function App() {
   // 标记当前标签页是否还有未落盘的本地变更（含元素与 viewport）
   const hasPendingPersistenceRef = useRef<boolean>(false);
 
+  const navigateTo = useCallback((pathname: string) => {
+    const nextUrl = new URL(pathname, window.location.origin);
+    window.history.pushState(
+      { pathname: nextUrl.pathname },
+      '',
+      nextUrl.toString()
+    );
+    setAppLocation(readAppLocation());
+    // pushState intentionally does not emit a navigation event. Notify pages
+    // that derive in-page state from the URL hash (for example the home model
+    // marketplace) after changing routes programmatically.
+    window.dispatchEvent(new Event('popstate'));
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, []);
+
+  useEffect(() => {
+    // 普通页面由路由统一管理滚动位置，避免浏览器恢复到半截内容。
+    const previousRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = previousRestoration;
+    };
+  }, []);
+
   // 使用 useDocumentTitle hook 管理页面标题
-  useDocumentTitle(currentBoardId);
+  useDocumentTitle(
+    currentBoardId,
+    currentBoardId ? undefined : 'AI 创作工作区'
+  );
 
   useEffect(() => {
     currentBoardIdRef.current = currentBoardId;
@@ -263,9 +436,51 @@ export function App() {
     requestServiceWorkerIdlePrefetch(['offline-static-assets']);
   }, [initError, isLoading, showCrashDialog]);
 
+  useEffect(() => {
+    if (showCrashDialog || initError || isLoading || getBoardIdFromUrl()) {
+      return;
+    }
+
+    const preload = () => {
+      void import('../music-station/MusicStationPage').catch((error) => {
+        console.warn('[App] Music station preload skipped:', error);
+      });
+    };
+    const idleCallback = (
+      window as Window & {
+        requestIdleCallback?: (
+          callback: () => void,
+          options?: { timeout: number }
+        ) => number;
+        cancelIdleCallback?: (handle: number) => void;
+      }
+    ).requestIdleCallback;
+
+    if (idleCallback) {
+      const handle = idleCallback(preload, { timeout: 1800 });
+      return () => {
+        (
+          window as Window & { cancelIdleCallback?: (handle: number) => void }
+        ).cancelIdleCallback?.(handle);
+      };
+    }
+
+    const handle = window.setTimeout(preload, 900);
+    return () => window.clearTimeout(handle);
+  }, [initError, isLoading, showCrashDialog]);
+
   // Initialize workspace and handle migration
   useEffect(() => {
     const initialize = async () => {
+      // 根路由是产品首页，只有带 board 参数时才启动完整工作区。
+      if (!getBoardIdFromUrl()) {
+        crashRecoveryService.markLoadingComplete();
+        isDataReadyRef.current = true;
+        setIsDataReady(true);
+        setIsLoading(false);
+        return;
+      }
+
       // 检查是否需要显示崩溃恢复对话框
       if (
         crashRecoveryService.shouldShowSafeModePrompt() &&
@@ -525,7 +740,7 @@ export function App() {
 
   // Handle board switching
   const handleBoardSwitch = useCallback(
-    async (board: Board, skipUrlUpdate: boolean = false) => {
+    async (board: Board, skipUrlUpdate = false) => {
       try {
         // 立即更新 URL 和 sessionStorage，确保刷新页面时能恢复到正确的画板
         // 必须在任何异步操作之前执行，避免刷新时丢失画板选择
@@ -574,7 +789,235 @@ export function App() {
     [updateLatestBoardData]
   );
 
-  // Handle browser back/forward navigation
+  const handleCreateBoard = useCallback(async () => {
+    const workspaceService = WorkspaceService.getInstance();
+    const snapshot = latestBoardDataRef.current;
+    if (snapshot && snapshot.boardId === currentBoardIdRef.current) {
+      await workspaceService.saveCurrentBoard({
+        children: snapshot.children,
+        viewport: snapshot.viewport,
+        theme: snapshot.theme,
+      });
+      hasPendingPersistenceRef.current = false;
+      clearBoardCloseSnapshot(snapshot.boardId);
+    }
+    const board = await workspaceService.createBoard({
+      name: '新创作空间',
+      elements: [],
+    });
+    if (board) {
+      await handleBoardSwitch(board);
+    }
+  }, [handleBoardSwitch]);
+
+  const handleSwitchBoardById = useCallback(
+    async (boardId: string) => {
+      const workspaceService = WorkspaceService.getInstance();
+      const board = await workspaceService.switchBoard(boardId);
+      if (!board) {
+        throw new Error('创作空间不存在');
+      }
+      await handleBoardSwitch(board);
+    },
+    [handleBoardSwitch]
+  );
+
+  const handleRenameBoard = useCallback(
+    async (boardId: string, name: string) => {
+      await WorkspaceService.getInstance().renameBoard(boardId, name);
+    },
+    []
+  );
+
+  const handleStartCreating = useCallback(async (request?: CreationRequest) => {
+    if (isStartingWorkspace) {
+      return;
+    }
+
+    setIsStartingWorkspace(true);
+    try {
+      const workspaceService = WorkspaceService.getInstance();
+      await workspaceService.initialize();
+
+      if (!(await isWorkspaceMigrationCompleted())) {
+        await migrateToWorkspace();
+      }
+
+      const existingNames = new Set(
+        workspaceService
+          .getAllBoards()
+          .map((existingBoard) => existingBoard.name)
+      );
+      const baseBoardName = getCreationBoardName(request?.prompt);
+      let boardName = baseBoardName;
+      let boardIndex = 2;
+      while (existingNames.has(boardName)) {
+        boardName = `${baseBoardName} ${boardIndex}`;
+        boardIndex += 1;
+      }
+
+      const board = await workspaceService.createBoard({
+        name: boardName,
+        elements: [],
+      });
+      if (!board) {
+        throw new Error('无法创建创作空间');
+      }
+
+      const normalizedPrompt = request?.prompt?.trim() || '';
+      if (normalizedPrompt) {
+        savePendingCreation({
+          boardId: board.id,
+          prompt: normalizedPrompt,
+          mode: request?.mode || 'image',
+          modelId: request?.modelId || null,
+          aspectRatio: request?.aspectRatio,
+          quality: request?.quality,
+          referenceImages: request?.referenceImages,
+        });
+      } else {
+        clearPendingCreation();
+      }
+
+      await workspaceService.switchBoard(board.id);
+      workspaceService.persistCurrentBoardId(board.id);
+      const url = new URL('/', window.location.origin);
+      url.searchParams.set(BOARD_URL_PARAM, board.id);
+      window.location.assign(url.toString());
+    } catch (error) {
+      console.error('[App] Failed to enter workspace:', error);
+      MessagePlugin.error({
+        content: '创作工作台暂时无法打开，请稍后重试',
+        duration: 5000,
+        closeBtn: true,
+      });
+      setIsStartingWorkspace(false);
+    }
+  }, [isStartingWorkspace]);
+
+  const prefillPendingCreation = useCallback((boardId: string | null) => {
+    if (!boardId) return;
+    if (pendingCreationTimerRef.current !== null) {
+      window.clearTimeout(pendingCreationTimerRef.current);
+    }
+
+    let attempts = 0;
+    const deliver = () => {
+      const pending = loadPendingCreation(boardId);
+      if (!pending) return;
+      const input = document.querySelector('[data-testid="ai-input-textarea"]');
+      if (!input && attempts < 40) {
+        attempts += 1;
+        pendingCreationTimerRef.current = window.setTimeout(deliver, 100);
+        return;
+      }
+      pendingCreationTimerRef.current = null;
+      if (!input) return;
+      requestAIInputPrefill({
+        generationType:
+          pending.mode === 'video'
+            ? 'video'
+            : pending.mode === 'audio'
+              ? 'audio'
+              : 'image',
+        prompt: pending.prompt,
+        model: pending.modelId || undefined,
+        images: pending.referenceImages,
+        params: creationPrefillParams(pending, managedGeneration),
+        source: 'canvas-toolbar',
+      });
+      clearPendingCreation();
+    };
+
+    pendingCreationTimerRef.current = window.setTimeout(deliver, 100);
+  }, []);
+
+  useEffect(() => () => {
+    if (pendingCreationTimerRef.current !== null) {
+      window.clearTimeout(pendingCreationTimerRef.current);
+    }
+  }, []);
+
+  const handleOpenCreativeCenter = useCallback(async (modelId?: string) => {
+    clearCreationCenterDraft();
+    const url = new URL('/creative-center', window.location.origin);
+    if (modelId) {
+      url.searchParams.set('model', modelId);
+      url.searchParams.set('mode', modelId.includes('suno') || modelId.includes('udio') ? 'audio' : 'image');
+    }
+    navigateTo(`${url.pathname}${url.search}`);
+  }, [navigateTo]);
+
+  const handleOpenCreativeCenterRequest = useCallback(async (request?: CreationRequest) => {
+    if (request && Object.keys(request).length > 0) {
+      saveCreationCenterDraft(request);
+    } else {
+      clearCreationCenterDraft();
+    }
+    navigateTo('/creative-center');
+  }, [navigateTo]);
+
+  const handleGoHome = useCallback(() => {
+    navigateTo('/');
+  }, [navigateTo]);
+
+  const handleOpenMusicStation = useCallback((modelId?: string) => {
+    const url = new URL('/music-station', window.location.origin);
+    if (modelId) url.searchParams.set('model', modelId);
+    navigateTo(`${url.pathname}${url.search}`);
+  }, [navigateTo]);
+
+  const handleOpenModel = useCallback((model: MarketplaceModel) => {
+    if (model.category === 'audio') {
+      handleOpenMusicStation(model.id);
+      return;
+    }
+    void handleOpenCreativeCenter(model.id);
+  }, [handleOpenCreativeCenter, handleOpenMusicStation]);
+
+  const handleOpenWorks = useCallback(() => {
+    navigateTo('/works');
+  }, [navigateTo]);
+
+  const handleOpenWorkflows = useCallback(() => {
+    navigateTo('/workflows');
+  }, [navigateTo]);
+
+  const handleOpenModels = useCallback(() => {
+    navigateTo('/#models');
+  }, [navigateTo]);
+
+  const handleOpenTemplates = useCallback(() => {
+    navigateTo('/#templates');
+  }, [navigateTo]);
+
+  const handleOpenAccount = useCallback((nextPath: string) => {
+    window.location.assign(`/account?next=${encodeURIComponent(nextPath)}`);
+  }, []);
+
+  const handleOpenBoardFromCenter = useCallback(async (boardId: string) => {
+    try {
+      const workspaceService = WorkspaceService.getInstance();
+      await workspaceService.initialize();
+      const board = await workspaceService.switchBoard(boardId);
+      if (!board) {
+        throw new Error('创作空间不存在');
+      }
+      workspaceService.persistCurrentBoardId(board.id);
+      const url = new URL('/', window.location.origin);
+      url.searchParams.set(BOARD_URL_PARAM, board.id);
+      window.location.assign(url.toString());
+    } catch (error) {
+      console.error('[App] Failed to open board from creative center:', error);
+      MessagePlugin.error({
+        content: '画布暂时无法打开，请稍后重试',
+        duration: 5000,
+        closeBtn: true,
+      });
+    }
+  }, []);
+
+  // Keep ordinary pages in sync with browser back/forward navigation.
   useEffect(() => {
     const handlePopState = async () => {
       if (isHandlingPopStateRef.current) {
@@ -584,7 +1027,16 @@ export function App() {
       isHandlingPopStateRef.current = true;
 
       try {
+        setAppLocation(readAppLocation());
         const urlBoardId = getBoardIdFromUrl();
+
+        if (!urlBoardId) {
+          setCurrentBoardId(null);
+          window.requestAnimationFrame(() => {
+            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+          });
+          return;
+        }
 
         // 如果 URL 中的画布 ID 与当前画布不同，则切换
         if (urlBoardId && urlBoardId !== currentBoardId) {
@@ -928,9 +1380,109 @@ export function App() {
     );
   }
 
+  const hasBoard = new URLSearchParams(appLocation.search).has(BOARD_URL_PARAM);
+
+  if (isCreativeCenterPath(appLocation.pathname) && !hasBoard) {
+    const centerParams = new URLSearchParams(appLocation.search);
+    return (
+      <CreativeCenterPage
+        isCreating={isStartingWorkspace}
+        onCreateBoard={handleStartCreating}
+        onOpenBoard={handleOpenBoardFromCenter}
+        onGoHome={handleGoHome}
+        onLogin={() => {
+          window.location.assign('/account?next=/creative-center');
+        }}
+        onOpenWorks={handleOpenWorks}
+        onOpenWorkflows={handleOpenWorkflows}
+        onOpenMusicStation={handleOpenMusicStation}
+        onOpenModels={handleOpenModels}
+        onOpenTemplates={handleOpenTemplates}
+        onOpenAdmin={() => navigateTo('/admin/providers')}
+        selectedModelId={centerParams.get('model')}
+        selectedMode={centerParams.get('mode')}
+      />
+    );
+  }
+
+  if (isMusicStationPath(appLocation.pathname) && !hasBoard) {
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <MusicStationPage
+          onGoHome={handleGoHome}
+          onGoCreativeCenter={handleOpenCreativeCenter}
+          onOpenAccount={() => handleOpenAccount('/music-station')}
+        />
+      </Suspense>
+    );
+  }
+
+  if (isWorksPath(appLocation.pathname) && !hasBoard) {
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <WorksPage
+          onGoHome={handleGoHome}
+          onGoCreativeCenter={handleOpenCreativeCenterRequest}
+          onOpenWorkflows={handleOpenWorkflows}
+          onOpenBoard={handleOpenBoardFromCenter}
+          onOpenAccount={() => handleOpenAccount('/works')}
+        />
+      </Suspense>
+    );
+  }
+
+  if (isWorkflowsPath(appLocation.pathname) && !hasBoard) {
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <WorkflowsPage
+          onGoHome={handleGoHome}
+          onGoCreativeCenter={handleOpenCreativeCenterRequest}
+          onOpenWorks={handleOpenWorks}
+          onOpenAccount={() => handleOpenAccount('/workflows')}
+        />
+      </Suspense>
+    );
+  }
+
+  if (isProviderAdminPath(appLocation.pathname) && !hasBoard) {
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <ProviderAdminPage onGoHome={handleGoHome} onGoCreativeCenter={() => void handleOpenCreativeCenter()} />
+      </Suspense>
+    );
+  }
+
+  if (!hasBoard) {
+      return (
+        <HomePage
+          onStartCreating={handleOpenCreativeCenterRequest}
+          onLogin={() => {
+            window.location.assign('/account');
+          }}
+        onOpenMusicStation={handleOpenMusicStation}
+        onOpenModel={handleOpenModel}
+        onOpenWorks={handleOpenWorks}
+        onOpenWorkflows={handleOpenWorkflows}
+        onOpenAdmin={() => navigateTo('/admin/providers')}
+      />
+    );
+  }
+
+  const currentBoard = WorkspaceService.getInstance().getCurrentBoard();
+
   return (
-    <div style={{ height: '100vh' }}>
-      <Suspense fallback={null}>
+    <WorkspaceShell
+      boardName={currentBoard?.name || '未命名创作空间'}
+      boardId={currentBoardId}
+      elementCount={value.children.length}
+      isReady={isDataReady}
+      onCreateBoard={handleCreateBoard}
+      onSwitchBoard={handleSwitchBoardById}
+      onRenameBoard={handleRenameBoard}
+      onOpenWorkflows={handleOpenWorkflows}
+      onOpenAccount={() => handleOpenAccount(`${window.location.pathname}${window.location.search}`)}
+    >
+      <Suspense fallback={<RouteLoading />}>
         <Drawnix
           value={value.children}
           viewport={value.viewport}
@@ -944,6 +1496,7 @@ export function App() {
           afterInit={(board) => {
             // 保存 board 引用，用于手动触发边界更新
             boardRef.current = board;
+            prefillPendingCreation(getBoardIdFromUrl());
 
             (
               window as unknown as {
@@ -955,15 +1508,15 @@ export function App() {
           }}
         />
       </Suspense>
-    </div>
+    </WorkspaceShell>
   );
 }
 
 const addDebugLog = async (board: PlaitBoard, value: string) => {
   const { PlaitBoard } = await import('@plait/core');
-  const container = PlaitBoard.getBoardContainer(board).closest('.drawnix') as
-    | HTMLElement
-    | null;
+  const container = PlaitBoard.getBoardContainer(board).closest(
+    '.drawnix'
+  ) as HTMLElement | null;
   if (!container) {
     return;
   }
@@ -974,7 +1527,7 @@ const addDebugLog = async (board: PlaitBoard, value: string) => {
     container.append(consoleContainer);
   }
   const div = document.createElement('div');
-  div.innerHTML = value;
+  div.textContent = value;
   consoleContainer.append(div);
 };
 

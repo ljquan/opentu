@@ -71,7 +71,8 @@ function buildSSHAuth(config) {
   if (config.DEPLOY_SSH_PASSWORD) {
     if (checkSshpassInstalled()) {
       usePassword = true;
-      prefix = `sshpass -p "${config.DEPLOY_SSH_PASSWORD}" `;
+      process.env.SSHPASS = config.DEPLOY_SSH_PASSWORD;
+      prefix = 'sshpass -e ';
     }
   }
 
@@ -84,7 +85,7 @@ function buildSSHAuth(config) {
     }
   }
 
-  args.push('-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null');
+  args.push('-o StrictHostKeyChecking=yes');
 
   return { prefix, usePassword, args };
 }

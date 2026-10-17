@@ -22,6 +22,7 @@ import {
   Columns3,
   ListOrdered,
   Gauge,
+  LoaderCircle,
 } from 'lucide-react';
 import { useCanvasAudioPlayback } from '../../hooks/useCanvasAudioPlayback';
 import { useDraggablePosition } from '../../hooks/useDraggablePosition';
@@ -35,6 +36,7 @@ import {
   type PlaybackMode,
 } from '../../services/canvas-audio-playback-service';
 import { MUSIC_PLAYER_TOOL_ID } from '../../tools/tool-ids';
+import { AUDIO_PLAYLIST_ALL_TRACKS_ID } from '../../types/audio-playlist.types';
 import { AudioCover } from '../shared/AudioCover';
 import { HoverTip } from '../shared/hover';
 import { CanvasAudioPlayerVolume } from './CanvasAudioPlayerVolume';
@@ -163,7 +165,10 @@ export const CanvasAudioPlayer: React.FC = () => {
   const canPlayPrevious = playback.activeQueueIndex > 0;
   const canPlayNext =
     playback.activeQueueIndex >= 0 &&
-    playback.activeQueueIndex < playback.queue.length - 1;
+    (
+      playback.activeQueueIndex < playback.queue.length - 1
+      || playback.playbackMode !== 'sequential'
+    );
   const hasQueueInfo =
     playback.queue.length > 1 && playback.activeQueueIndex >= 0;
   const queueInfoLabel = hasQueueInfo
@@ -179,13 +184,14 @@ export const CanvasAudioPlayer: React.FC = () => {
         playback.queue.length
       }`
     : queueLabel;
+  const playbackStatusLabel = playback.error
+    || (playback.loading ? '正在加载音频' : subtitle);
   const mobileSubtitle = queueInfoLabel
     ? `${queueInfoLabel} · ${currentTimeLabel} / ${durationLabel}`
     : `${currentTimeLabel} / ${durationLabel}`;
   const hasReadingPlayback =
-    playback.queueSource === 'reading' &&
-    (!!playback.activeReadingSourceId ||
-      (activeQueueItem !== null && isReadingPlaybackSource(activeQueueItem)));
+    !!playback.activeReadingSourceId ||
+    (activeQueueItem !== null && isReadingPlaybackSource(activeQueueItem));
   const hasActivePlayback = hasReadingPlayback || !!playback.activeAudioUrl;
   const canSeek = playback.mediaType === 'audio';
   const playbackRateMediaType =
@@ -225,8 +231,10 @@ export const CanvasAudioPlayer: React.FC = () => {
 
   const handleToggle = useCallback(async () => {
     try {
-      if (playback.playing) {
+      if (playback.playing || playback.loading) {
         playback.pausePlayback();
+      } else if (playback.error) {
+        await playback.retryPlayback();
       } else {
         await playback.resumePlayback();
       }
@@ -381,7 +389,7 @@ export const CanvasAudioPlayer: React.FC = () => {
           </div>
           <div className="canvas-audio-player__subtitle">
             <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--desktop">
-              {subtitle}
+              {playbackStatusLabel}
             </span>
             <span className="canvas-audio-player__subtitle-text canvas-audio-player__subtitle-text--mobile">
               {mobileSubtitle}
@@ -408,13 +416,38 @@ export const CanvasAudioPlayer: React.FC = () => {
             <SkipBack size={14} />
           </button>
         </HoverTip>
-        <HoverTip content={playback.playing ? '暂停' : '播放'}>
+        <HoverTip
+          content={
+            playback.loading
+              ? '取消加载'
+              : playback.error
+                ? '重试'
+                : playback.playing
+                  ? '暂停'
+                  : '播放'
+          }
+        >
           <button
             type="button"
             className="canvas-audio-player__action canvas-audio-player__action--primary"
             onClick={() => void handleToggle()}
+            aria-label={
+              playback.loading
+                ? '取消加载'
+                : playback.error
+                  ? '重试播放'
+                  : playback.playing
+                    ? '暂停'
+                    : '播放'
+            }
           >
-            {playback.playing ? <Pause size={14} /> : <Play size={14} />}
+            {playback.loading ? (
+              <LoaderCircle className="canvas-audio-player__loading-icon" size={14} />
+            ) : playback.playing ? (
+              <Pause size={14} />
+            ) : (
+              <Play size={14} />
+            )}
           </button>
         </HoverTip>
         <HoverTip content="下一首">
@@ -544,7 +577,15 @@ export const CanvasAudioPlayer: React.FC = () => {
           queueSource={playback.queueSource}
           activePlaylistId={playback.activePlaylistId}
           playing={playback.playing}
+          loading={playback.loading}
           activeReadingSourceId={playback.activeReadingSourceId}
+          onPlayAllTracksItem={(source, queue) => {
+            playback.toggleReadingPlaybackInQueue(source, queue, {
+              queueId: AUDIO_PLAYLIST_ALL_TRACKS_ID,
+              queueName: '全部语音',
+            });
+            setPlaylistOpen(false);
+          }}
           onSelect={(item) => {
             if (isReadingPlaybackSource(item)) {
               playback.toggleReadingPlayback(item);

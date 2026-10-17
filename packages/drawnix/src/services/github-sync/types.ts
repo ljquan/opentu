@@ -884,7 +884,10 @@ export const DEFAULT_SYNC_CONFIG: SyncConfig = {
 export const SYNC_VERSION = 1;
 
 /** Gist 描述 */
-export const GIST_DESCRIPTION = 'Opentu - 数据同步';
+export const GIST_DESCRIPTION = 'FoxVue - 数据同步';
+
+/** 兼容改名前创建的同步 Gist，读取时仍需识别旧描述。 */
+export const LEGACY_GIST_DESCRIPTIONS = ['Opentu - 数据同步'] as const;
 
 /** 文件名常量 */
 export const SYNC_FILES = {

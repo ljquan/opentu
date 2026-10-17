@@ -24,7 +24,7 @@
     "jszip": "3.10.1",
     "katex": "^0.16.27",
     "localforage": "^1.10.0",
-    "mermaid": "10.9.3",
+    "mermaid": "10.9.8",
     "postmessage-duplex": "^1.2.0",
     "pptx-glimpse": "5.3.0",
     "pptxgenjs": "^4.0.1",
@@ -43,6 +43,16 @@
       "types": "./runtime.d.ts",
       "import": "./runtime.mjs",
       "require": "./runtime.js"
+    },
+    "./sw-task-types": {
+      "types": "./sw-task-types.d.ts",
+      "import": "./sw-task-types.mjs",
+      "require": "./sw-task-types.js"
+    },
+    "./workflow-types": {
+      "types": "./workflow-types.d.ts",
+      "import": "./workflow-types.mjs",
+      "require": "./workflow-types.js"
     }
   }
 }

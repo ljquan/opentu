@@ -71,6 +71,7 @@ export function useCanvasAudioPlaybackControls() {
       canvasAudioPlaybackService.toggleReadingPlaybackInQueue(source, queue, options),
     pausePlayback: () => canvasAudioPlaybackService.pausePlayback(),
     resumePlayback: () => canvasAudioPlaybackService.resumePlayback(),
+    retryPlayback: () => canvasAudioPlaybackService.retryPlayback(),
     playPrevious: () => canvasAudioPlaybackService.playPrevious(),
     playNext: () => canvasAudioPlaybackService.playNext(),
     setPlaybackMode: (mode: PlaybackMode) => canvasAudioPlaybackService.setPlaybackMode(mode),

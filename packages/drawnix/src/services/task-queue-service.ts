@@ -81,6 +81,9 @@ import {
   isImageRequestRecoveryCandidate,
 } from './image-generation-recovery-service';
 import { isImageSubmissionOutcomeUnknownError } from './provider-routing';
+import { cancelGatewayTask } from './generation-task-gateway-api';
+
+const managedGenerationEnabled = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_OPENTU_MANAGED_GENERATION || '').toLowerCase() === 'true';
 
 const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
 const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
@@ -839,7 +842,20 @@ class TaskQueueService {
           : task.type === TaskType.CHAT
           ? 'text'
           : 'image';
+      if (managedGenerationEnabled && task.type !== TaskType.IMAGE) {
+        this.updateTaskStatus(task.id, TaskStatus.FAILED, {
+          error: { code: 'OPERATION_NOT_MIGRATED', message: '该生成类型暂未接入平台服务' },
+        });
+        return;
+      }
+      if (managedGenerationEnabled && task.type === TaskType.IMAGE && task.params.knowledgeContextRefs?.length && submissionRequestId) {
+        await this.failImageAttempt(task.id, submissionRequestId, {
+          code: 'CONTEXT_NOT_MIGRATED', message: '知识库引用暂未接入平台图片生成服务',
+        }, { allowLegacyRequestId: true });
+        return;
+      }
       if (
+        !(managedGenerationEnabled && task.type === TaskType.IMAGE) &&
         !hasInvocationRouteCredentials(
           routeType,
           task.params.modelRef || task.params.model
@@ -1120,6 +1136,11 @@ class TaskQueueService {
       const executionOptions = {
         signal,
         isCurrentAttempt: isCurrentExecutionAttempt,
+        onGatewayTaskCreated: (remoteId: string) => {
+          if (isCurrentExecutionAttempt()) {
+            this.updateTaskStatus(task.id, TaskStatus.PROCESSING, { remoteId }, { persist: false });
+          }
+        },
         onSubmissionAttempt: async (
           invocationRoute?: Task['invocationRoute']
         ) => {
@@ -2598,6 +2619,12 @@ class TaskQueueService {
         `[TaskQueueService] Task ${taskId} is not active, cannot cancel`
       );
       return;
+    }
+
+    if (managedGenerationEnabled && task.type === TaskType.IMAGE && task.remoteId) {
+      void cancelGatewayTask(task.remoteId).catch((error) => {
+        console.warn('[TaskQueueService] Server cancellation failed:', error);
+      });
     }
 
     const pptExplainerState = task.params?.pptExplainer as

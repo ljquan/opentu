@@ -28,6 +28,8 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@aitu/utils': path.resolve(__dirname, '../../packages/utils/src/index.ts'),
+        '@drawnix/drawnix/sw-task-types': path.resolve(__dirname, '../../packages/drawnix/src/sw-task-types.ts'),
+        '@drawnix/drawnix/workflow-types': path.resolve(__dirname, '../../packages/drawnix/src/workflow-types.ts'),
       },
     },
     define: {

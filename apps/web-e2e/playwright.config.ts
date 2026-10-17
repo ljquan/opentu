@@ -49,13 +49,22 @@ export default defineConfig({
   },
   
   /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'npx nx serve web',
-    url: 'http://localhost:7200',
-    reuseExistingServer: !process.env.CI,
-    cwd: workspaceRoot,
-    timeout: 120000,
-  },
+  webServer: [
+    {
+      command: 'pnpm start:api',
+      url: 'http://127.0.0.1:3101/api/session-status',
+      reuseExistingServer: !process.env.CI,
+      cwd: workspaceRoot,
+      timeout: 120000,
+    },
+    {
+      command: 'pnpm start:web',
+      url: 'http://localhost:7200',
+      reuseExistingServer: !process.env.CI,
+      cwd: workspaceRoot,
+      timeout: 120000,
+    },
+  ],
   
   projects: [
     // 冒烟测试 - 仅 Chromium，快速运行

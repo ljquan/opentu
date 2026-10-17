@@ -1,7 +1,7 @@
 /**
  * useDocumentTitle Hook
  *
- * 管理页面标题，格式为 "Opentu - 项目名"
+ * 管理页面标题，格式为 "狐图 FoxVue - 项目名"
  * 监听画板名称变化并同步更新页面标题
  */
 
@@ -9,9 +9,9 @@ import { useEffect, useCallback } from 'react';
 import { workspaceService } from '../services/workspace-service';
 
 // 默认标题前缀
-const TITLE_PREFIX = 'Opentu';
+const TITLE_PREFIX = '狐图 FoxVue';
 // 默认标题（无项目时）
-const DEFAULT_TITLE = 'Opentu - AI应用平台';
+const DEFAULT_TITLE = '狐图 FoxVue - AI 应用平台';
 
 /**
  * 设置页面标题

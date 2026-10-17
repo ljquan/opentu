@@ -35,6 +35,8 @@ import {
   readPptExplainerState,
 } from '../services/ppt-explainer/validation';
 
+const managedGenerationEnabled = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_OPENTU_MANAGED_GENERATION || '').toLowerCase() === 'true';
+
 function inferImageFormat(url: string): string {
   const pathname = url.split(/[?#]/, 1)[0] || '';
   const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
@@ -308,9 +310,42 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
         return false;
       }
 
-      if (!isImageRequestRecoveryCandidate(task)) {
+      if (!managedGenerationEnabled && !isImageRequestRecoveryCandidate(task)) {
         imageGenerationRecoveryService.stop(task.id);
         return false;
+      }
+
+      if (managedGenerationEnabled) {
+        const token = claimTaskExecution(task.id);
+        if (!token) return true;
+        const requestId = getImageSubmissionRequestId(task);
+        void generationAPIService.generate(task.id, task.params, TaskType.IMAGE)
+          .then(async (result) => {
+            if (!isActive || !isCurrentTaskExecution(task.id, token)) return;
+            const urls = result.urls?.length ? result.urls : [result.url];
+            const cached = await cacheRemoteUrls(urls, task.id, 'image', inferImageFormat(urls[0]), {
+              forceRemoteCache: true,
+              returnLocalCacheUrl: true,
+              cacheKey: requestId,
+              resultVisibility: task.params.resultVisibility,
+            });
+            if (!isActive || !isCurrentTaskExecution(task.id, token)) return;
+            await legacyTaskQueueService.completeImageAttempt(task.id, requestId, {
+              ...result,
+              url: cached[0],
+              urls: cached,
+            });
+          })
+          .catch(async (error) => {
+            if (isActive && isCurrentTaskExecution(task.id, token)) {
+              await legacyTaskQueueService.failImageAttempt(task.id, requestId, {
+                code: 'EXECUTION_ERROR',
+                message: error instanceof Error ? error.message : '图片生成失败',
+              });
+            }
+          })
+          .finally(() => onTaskFinished(task.id, token));
+        return true;
       }
 
       const requestId = getImageSubmissionRequestId(task);
@@ -771,6 +806,13 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       const submissionStartedAt = task.startedAt || task.createdAt;
       let shouldStartRecoveryAfterExecution = false;
 
+      if (managedGenerationEnabled && task.type !== TaskType.IMAGE) {
+        legacyTaskQueueService.updateTaskStatus(task.id, TaskStatus.FAILED, {
+          error: { code: 'OPERATION_NOT_MIGRATED', message: '该生成类型暂未接入平台服务' },
+        });
+        return;
+      }
+
       if (isImageRequestRecoveryCandidate(task)) {
         startImageRequestRecovery(task);
         return;
@@ -1028,17 +1070,21 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
       // Process resumable tasks (processing with remoteId) — video tasks excluded, handled by FallbackMediaExecutor
       const resumableTasks = tasks.filter(
         (task) =>
+          !managedGenerationEnabled &&
           task.status === TaskStatus.PROCESSING &&
           isResumableAsyncImageTask(task)
       );
       const resumableAudioTasks = tasks.filter(
         (task) =>
+          !managedGenerationEnabled &&
           task.type === TaskType.AUDIO &&
           task.remoteId &&
           task.status === TaskStatus.PROCESSING
       );
-      const recoverableImageRequestTasks = tasks.filter(
-        isImageRequestRecoveryCandidate
+      const recoverableImageRequestTasks = tasks.filter((task) =>
+        managedGenerationEnabled
+          ? task.type === TaskType.IMAGE && task.status === TaskStatus.PROCESSING
+          : isImageRequestRecoveryCandidate(task)
       );
 
       console.warn(

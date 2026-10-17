@@ -15,8 +15,8 @@ import {
   crashRecoveryService,
   swChannelClient,
   safeReload,
+  analytics,
 } from '@drawnix/drawnix/runtime';
-import { analytics } from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
 const isLocalDev =
@@ -31,7 +31,7 @@ const isServiceWorkerExplicitlyDisabled = swQueryParam === '0';
 const hasServiceWorkerSupport =
   typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
 const shouldUseServiceWorker =
-  hasServiceWorkerSupport && !isServiceWorkerExplicitlyDisabled;
+  hasServiceWorkerSupport && !isLocalDev && !isServiceWorkerExplicitlyDisabled;
 
 // ===== 控制台日志捕获（尽早初始化，确保默认 console 被改写） =====
 // 必须在其他业务代码之前执行，否则后续工具（如 rrweb）可能先改写 console 导致捕获失效
@@ -243,7 +243,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-if (hasServiceWorkerSupport && isServiceWorkerExplicitlyDisabled) {
+if (hasServiceWorkerSupport && !shouldUseServiceWorker) {
   cleanupDisabledServiceWorker();
 }
 
@@ -376,9 +376,21 @@ if (shouldUseServiceWorker) {
 
   const swRegistrationPromise =
     window.__OPENTU_SW_REGISTRATION_PROMISE__ ||
-    navigator.serviceWorker.register('./sw.js').catch((error) => {
-      console.warn('[Main] Service worker registration failed:', error);
-      return null;
+    new Promise<ServiceWorkerRegistration | null>((resolve) => {
+      const register = () => {
+        navigator.serviceWorker.register('/sw.js').then(resolve).catch((error) => {
+          console.warn('[Main] Service worker registration failed:', error);
+          resolve(null);
+        });
+      };
+      const idle = (window as Window & {
+        requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      }).requestIdleCallback;
+      if (idle) {
+        idle(register, { timeout: 1800 });
+      } else {
+        window.setTimeout(register, 1200);
+      }
     });
 
   window.__OPENTU_SW_REGISTRATION_PROMISE__ = swRegistrationPromise;

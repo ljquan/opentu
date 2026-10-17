@@ -207,7 +207,7 @@ class LocalExportService {
       const date = new Date();
       const dateStr = date.toISOString().split('T')[0];
       const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '');
-      result.filename = `opentu_sync_${dateStr}_${timeStr}.zip`;
+      result.filename = `foxvue_sync_${dateStr}_${timeStr}.zip`;
       result.size = blob.size;
       result.success = true;
 

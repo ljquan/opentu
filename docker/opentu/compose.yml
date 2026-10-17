@@ -1,0 +1,62 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: docker/opentu-api/Dockerfile
+    image: ${OPENTU_API_IMAGE:-opentu-api:local}
+    container_name: opentu-api-docker
+    network_mode: host
+    env_file:
+      - /etc/opentu/runtime.env
+    environment:
+      PORT: "3201"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    pids_limit: 64
+    cap_drop: [ALL]
+    stop_grace_period: 90s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3201/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+  web:
+    build:
+      context: ../..
+      dockerfile: docker/opentu-web/full-app.Dockerfile
+    image: ${OPENTU_WEB_IMAGE:-opentu-web:local}
+    container_name: opentu-web-docker
+    network_mode: host
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+      - /var/run:uid=101,gid=101,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 32
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:7320/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

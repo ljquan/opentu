@@ -9,6 +9,7 @@ import type { KBNoteMeta } from '../types/knowledge-base.types';
 export function useAllTracksPlaybackSources() {
   const [noteMetas, setNoteMetas] = useState<KBNoteMeta[]>([]);
   const cacheRef = useRef<Map<string, ReadingPlaybackSource>>(new Map());
+  const pendingRef = useRef<Map<string, Promise<ReadingPlaybackSource | null>>>(new Map());
 
   const refresh = useCallback(async () => {
     const metas = await knowledgeBaseService.getAllNoteMetas();
@@ -24,19 +25,29 @@ export function useAllTracksPlaybackSources() {
       const cached = cacheRef.current.get(noteId);
       if (cached) return cached;
 
-      const note = await knowledgeBaseService.getNoteById(noteId);
-      if (!note || !note.content?.trim()) return null;
+      const pending = pendingRef.current.get(noteId);
+      if (pending) return pending;
 
-      const source = createReadingPlaybackSource({
-        elementId: `kb-note:${note.id}`,
-        title: note.title || '知识库笔记',
-        content: [note.title, note.content].filter(Boolean).join('\n\n'),
-        origin: { kind: 'kb-note', id: note.id },
-      });
-      if (source) {
-        cacheRef.current.set(noteId, source);
-      }
-      return source;
+      const request = knowledgeBaseService.getNoteById(noteId)
+        .then((note) => {
+          if (!note || !note.content?.trim()) return null;
+
+          const source = createReadingPlaybackSource({
+            elementId: `kb-note:${note.id}`,
+            title: note.title || '知识库笔记',
+            content: [note.title, note.content].filter(Boolean).join('\n\n'),
+            origin: { kind: 'kb-note', id: note.id },
+          });
+          if (source) {
+            cacheRef.current.set(noteId, source);
+          }
+          return source;
+        })
+        .finally(() => {
+          pendingRef.current.delete(noteId);
+        });
+      pendingRef.current.set(noteId, request);
+      return request;
     },
     []
   );
@@ -51,12 +62,15 @@ export function useAllTracksPlaybackSources() {
         if (first) sources.push(first);
       }
 
-      // 加载其余笔记
-      for (const meta of noteMetas) {
-        if (meta.id === priorityNoteId) continue;
-        const source = await loadReadingSource(meta.id);
+      // 并行读取其余笔记，Promise.all 仍按 noteMetas 顺序返回结果。
+      const remainingSources = await Promise.all(
+        noteMetas
+          .filter((meta) => meta.id !== priorityNoteId)
+          .map((meta) => loadReadingSource(meta.id))
+      );
+      remainingSources.forEach((source) => {
         if (source) sources.push(source);
-      }
+      });
 
       return sources;
     },

@@ -74,6 +74,11 @@ export class ToolGenerator {
         // 重新处理模板变量
         const { url: processedUrl } = processToolUrl(templateUrl);
         const url = new URL(processedUrl, window.location.origin);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          iframe.src = 'about:blank';
+          this.handleLoadError(elementId, ToolErrorType.LOAD_FAILED);
+          return;
+        }
         url.searchParams.set('toolId', elementId);
         
         // 更新 iframe src
@@ -297,7 +302,10 @@ export class ToolGenerator {
     const Component = toolRegistry.resolveInternalComponent(element.component);
     if (!Component) {
       if (container) {
-        container.innerHTML = `<div style="padding: 20px; color: #f5222d;">未找到组件: ${element.component}</div>`;
+        const message = document.createElement('div');
+        message.style.cssText = 'padding: 20px; color: #f5222d;';
+        message.textContent = `未找到组件: ${element.component}`;
+        container.replaceChildren(message);
       }
       return;
     }
@@ -581,6 +589,11 @@ export class ToolGenerator {
 
     // 设置 iframe URL，添加 toolId 参数用于通信
     const url = new URL(processedUrl, window.location.origin);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      iframe.src = 'about:blank';
+      this.handleLoadError(element.id, ToolErrorType.LOAD_FAILED);
+      return iframe;
+    }
     url.searchParams.set('toolId', element.id);
     iframe.src = url.toString();
     

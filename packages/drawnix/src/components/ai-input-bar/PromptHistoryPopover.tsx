@@ -271,8 +271,12 @@ export const PromptHistoryPopover: React.FC<PromptHistoryPopoverProps> = ({
       <div className="prompt-history-popover__actions">
         <HoverTip content={promptPanelTitle} showArrow={false}>
           <button
+            type="button"
             className="prompt-history-popover__trigger"
             data-track="ai_input_click_history"
+            aria-label={promptPanelTitle}
+            aria-expanded={isOpen}
+            onClick={() => setIsOpen((open) => !open)}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >

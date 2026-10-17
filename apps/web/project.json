@@ -5,6 +5,10 @@
   "projectType": "application",
   "tags": [],
   "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": { "command": "vitest run --config apps/web/vite.config.ts --maxWorkers=2" }
+    },
     "build-sw": {
       "executor": "nx:run-commands",
       "options": {
@@ -67,8 +71,7 @@
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "eslint .",
-        "cwd": "apps/web"
+        "command": "eslint apps/web/src --ext .ts,.tsx --no-ignore"
       }
     },
     "typecheck": {

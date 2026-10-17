@@ -25,10 +25,10 @@ if (!fs.existsSync(INDEX_HTML)) {
 
 const html = fs.readFileSync(INDEX_HTML, 'utf8');
 const scriptMatches = Array.from(
-  html.matchAll(/<script[^>]+src="\.\/([^"]+)"[^>]*><\/script>/g)
+  html.matchAll(/<script[^>]+src="(?:\.\/|\/)([^"]+)"[^>]*><\/script>/g)
 ).map((match) => match[1]);
 const styleMatches = Array.from(
-  html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="\.\/([^"]+)"[^>]*>/g)
+  html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="(?:\.\/|\/)([^"]+)"[^>]*>/g)
 ).map((match) => match[1]);
 
 const directAssets = [...scriptMatches, ...styleMatches].filter((asset) =>

@@ -5,6 +5,16 @@
   min-width: 0;
 }
 
+.audio-track-list__loading-icon {
+  animation: audio-track-list-spin 0.8s linear infinite;
+}
+
+@keyframes audio-track-list-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .audio-track-list--queue {
   gap: 10px;
   min-width: 0;

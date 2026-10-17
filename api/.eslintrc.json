@@ -1,0 +1,6 @@
+{
+  "extends": ["../.eslintrc.json"],
+  "ignorePatterns": ["!**/*"],
+  "env": { "node": true },
+  "overrides": [{ "files": ["**/*.test.ts"], "env": { "es2022": true } }]
+}

@@ -1,117 +1,9 @@
 import React from 'react';
-import {
-  DiscAlbum,
-  Film,
-  Images,
-  Music4,
-  Clapperboard,
-  History,
-} from 'lucide-react';
-import { BatchIcon, BookOpenIcon, MessageIcon } from '../components/icons';
+import { History } from 'lucide-react';
+import { BookOpenIcon } from '../components/icons';
 import { ToolCategory, type ToolDefinition } from '../types/toolbox.types';
-import {
-  COMIC_CREATOR_TOOL_ID,
-  MODEL_BENCHMARK_TOOL_ID,
-  MUSIC_PLAYER_TOOL_ID,
-} from './tool-ids';
-
-const DEFAULT_TOOL_PERMISSIONS = [
-  'allow-scripts',
-  'allow-same-origin',
-  'allow-popups',
-  'allow-forms',
-  'allow-top-navigation-by-user-activation',
-] as const;
 
 export const BUILT_IN_TOOL_MANIFESTS: ToolDefinition[] = [
-  {
-    id: COMIC_CREATOR_TOOL_ID,
-    name: '多图生成',
-    description:
-      '适合故事分镜、教程步骤、产品手册、营销图文等多页图片，一键规划提示词、批量出图并导出 ZIP/PPTX/PDF',
-    icon: <Images size={18} strokeWidth={1.75} />,
-    category: ToolCategory.AI_TOOLS,
-    component: COMIC_CREATOR_TOOL_ID,
-    supportsMultipleWindows: true,
-    defaultWindowBehavior: {
-      autoPinOnOpen: true,
-    },
-    defaultWidth: 720,
-    defaultHeight: 760,
-  },
-  {
-    id: 'video-analyzer',
-    name: '爆款视频生成',
-    description: 'AI 分析视频内容，提取镜头、脚本、风格等结构化数据',
-    icon: <Clapperboard size={18} strokeWidth={1.75} />,
-    category: ToolCategory.AI_TOOLS,
-    component: 'video-analyzer',
-    supportsMultipleWindows: true,
-    defaultWindowBehavior: {
-      autoPinOnOpen: true,
-    },
-    defaultWidth: 680,
-    defaultHeight: 700,
-  },
-  {
-    id: 'mv-creator',
-    name: '爆款MV生成',
-    description: '输入创意，AI 生成音乐和分镜视频，一站式 MV 创作',
-    icon: <Film size={18} strokeWidth={1.75} />,
-    category: ToolCategory.AI_TOOLS,
-    component: 'mv-creator',
-    supportsMultipleWindows: true,
-    defaultWindowBehavior: {
-      autoPinOnOpen: true,
-    },
-    defaultWidth: 680,
-    defaultHeight: 700,
-  },
-  {
-    id: 'batch-image',
-    name: '批量出图工具',
-    description: 'Excel式批量AI图片生成，支持批量编辑、图片参考和历史追踪',
-    icon: React.createElement(BatchIcon),
-    category: ToolCategory.AI_TOOLS,
-    component: 'batch-image',
-    defaultWidth: 1200,
-    defaultHeight: 800,
-  },
-  {
-    id: 'music-analyzer',
-    name: '爆款音乐生成',
-    description: '分析音频、改写歌词，并一键送入 Suno 生成音乐',
-    icon: <DiscAlbum size={18} strokeWidth={1.75} />,
-    category: ToolCategory.AI_TOOLS,
-    component: 'music-analyzer',
-    supportsMultipleWindows: true,
-    defaultWindowBehavior: {
-      autoPinOnOpen: true,
-    },
-    defaultWidth: 520,
-    defaultHeight: 700,
-  },
-  {
-    id: 'chat-mj',
-    name: 'Chat-MJ',
-    description: 'ChatGPT Web 聊天界面，支持 Midjourney 绘图代理；外部工具暂不支持知识库上下文',
-    icon: React.createElement(MessageIcon),
-    category: ToolCategory.AI_TOOLS,
-    url: 'https://vercel.ddaiai.com/#/?settings={"key":"${apiKey}","url":"https://api.tu-zi.com"}',
-    defaultWidth: 1000,
-    defaultHeight: 700,
-    permissions: [...DEFAULT_TOOL_PERMISSIONS],
-  },
-  {
-    id: MODEL_BENCHMARK_TOOL_ID,
-    name: '模型测试',
-    description: '批量比较图、文、视频、音频模型的速度与主观效果',
-    icon: '🧪',
-    category: ToolCategory.AI_TOOLS,
-    component: MODEL_BENCHMARK_TOOL_ID,
-    defaultWidth: 1280,
-    defaultHeight: 860,
-  },
   {
     id: 'prompt-history',
     name: '我的提示词',
@@ -123,28 +15,6 @@ export const BUILT_IN_TOOL_MANIFESTS: ToolDefinition[] = [
     defaultHeight: 680,
   },
   {
-    id: 'banana-prompt',
-    name: '香蕉提示词',
-    description: '查看和复制优质 AI 提示词',
-    icon: '🍌',
-    category: ToolCategory.CONTENT_TOOLS,
-    url: 'https://www.aiwind.org',
-    defaultWidth: 800,
-    defaultHeight: 600,
-    permissions: [...DEFAULT_TOOL_PERMISSIONS],
-  },
-  {
-    id: 'pose-library',
-    name: '动作场景库',
-    description: '专业人体姿态参考素材库，提供多角度动作姿势',
-    icon: '🧘',
-    category: ToolCategory.CONTENT_TOOLS,
-    url: 'https://www.posemaniacs.com/zh-Hans/poses',
-    defaultWidth: 900,
-    defaultHeight: 700,
-    permissions: [...DEFAULT_TOOL_PERMISSIONS],
-  },
-  {
     id: 'knowledge-base',
     name: '知识库',
     description: '个人知识管理工具，支持目录分类、标签管理和 Markdown 编辑',
@@ -153,15 +23,5 @@ export const BUILT_IN_TOOL_MANIFESTS: ToolDefinition[] = [
     component: 'knowledge-base',
     defaultWidth: 900,
     defaultHeight: 700,
-  },
-  {
-    id: MUSIC_PLAYER_TOOL_ID,
-    name: '音乐播放器',
-    description: '从素材库选择音频并后台播放，可与画布播放控件联动',
-    icon: <Music4 size={18} strokeWidth={1.75} />,
-    category: ToolCategory.UTILITIES,
-    component: MUSIC_PLAYER_TOOL_ID,
-    defaultWidth: 520,
-    defaultHeight: 640,
   },
 ];

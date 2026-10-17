@@ -11,6 +11,15 @@
           {
             "enforceBuildableLibDependency": true,
             "allow": ["tdesign-react", "tdesign-react/*"],
+            "checkDynamicDependenciesExceptions": [
+              "@drawnix/drawnix/runtime",
+              "@drawnix/drawnix/ui-events",
+              "@drawnix/drawnix/task-types",
+              "@drawnix/drawnix/task-queue",
+              "@drawnix/drawnix/sw-task-types",
+              "@drawnix/drawnix/workflow-types",
+              "@aitu/utils"
+            ],
             "depConstraints": [
               {
                 "sourceTag": "*",

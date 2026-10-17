@@ -12,6 +12,11 @@ apps/web-e2e/test-results
 apps/web-e2e/playwright-report
 test-results
 .pnpm-store
+.docker-release*
+artifacts-*.png
+design-concepts
+design-mocks
+qa
 .DS_Store
 *.log
 .env

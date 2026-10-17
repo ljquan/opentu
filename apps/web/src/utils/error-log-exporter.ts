@@ -44,7 +44,7 @@ export function collectAndDownloadErrorLog(
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `opentu-error-log-${timestamp}.json`;
+    a.download = `foxvue-error-log-${timestamp}.json`;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();

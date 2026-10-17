@@ -85,6 +85,20 @@
   color: #64748b;
 }
 
+.music-player-tool__error-message {
+  color: #b91c1c;
+}
+
+.music-player-tool__loading-icon {
+  animation: music-player-tool-spin 0.8s linear infinite;
+}
+
+@keyframes music-player-tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .music-player-tool__now-playing-actions,
 .music-player-tool__transport {
   display: flex;

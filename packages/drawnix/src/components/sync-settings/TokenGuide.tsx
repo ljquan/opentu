@@ -58,7 +58,7 @@ export function TokenGuide({ visible, onClose }: TokenGuideProps) {
               <h4>填写 Token 信息</h4>
               <ul className="token-guide__list">
                 <li>
-                  <strong>Note:</strong> 保持默认的 <code>Opentu Sync + 日期</code>（以便区分）
+                  <strong>Note:</strong> 保持默认的 <code>FoxVue Sync + 日期</code>（以便区分）
                 </li>
                 <li>
                   <strong>Expiration:</strong> 建议选择 <code>No expiration</code>（永不过期）

@@ -9,6 +9,9 @@ export * from './utils/gemini-api';
 // Export project management (folder/board structure)
 export * from './hooks/useWorkspace';
 export * from './hooks/useDocumentTitle';
+export * from './hooks/useCanvasAudioPlayback';
+export * from './hooks/use-runtime-models';
+export { getDefaultAudioModel } from './constants/model-config';
 export { markTabSyncVersion } from './hooks/useTabSync';
 export * from './services/workspace-service';
 export * from './services/workspace-migration';
@@ -30,6 +33,7 @@ export type { SWChannelEventHandlers } from './services/sw-channel/client';
 // Export model adapters (registry + types)
 export * from './services/model-adapters';
 export * from './services/provider-routing';
+export * from './services/ai-input-ui-events';
 
 // Export initialization services (for main.tsx)
 export { initWebVitals } from './services/web-vitals-service';

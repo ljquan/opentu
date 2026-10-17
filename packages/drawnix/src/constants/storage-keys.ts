@@ -90,6 +90,8 @@ export const LS_KEYS = {
   AUDIO_PLAYER_PLAYBACK_MODE: 'aitu:audio-player-playback-mode',
   /** 音频播放器音频速率 */
   AUDIO_PLAYER_AUDIO_PLAYBACK_RATE: 'aitu:audio-player-audio-playback-rate',
+  /** 音频播放器音量 */
+  AUDIO_PLAYER_VOLUME: 'aitu:audio-player-volume',
 
   // ---- 废弃键（仅用于迁移读取后删除） ----
   /** @deprecated 旧版本本地数据，迁移后删除 */

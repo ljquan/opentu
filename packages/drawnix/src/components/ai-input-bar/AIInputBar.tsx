@@ -224,8 +224,10 @@ import {
 import {
   AI_INPUT_FOCUS_EVENT,
   AI_INPUT_PREFILL_EVENT,
+  AI_INPUT_CREATE_EVENT,
   type AIInputFocusEventDetail,
   type AIInputPrefillEventDetail,
+  type AIInputCreateEventDetail,
 } from '../../services/ai-input-ui-events';
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
 import { isAssetLibraryUrl } from '../../utils/virtual-media-url';
@@ -6365,6 +6367,52 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         registerGenerationSubmitterRef.current(null);
       };
     }, [handleGenerate]);
+
+    useEffect(() => {
+      const handleExternalCreate = (
+        event: Event | CustomEvent<AIInputCreateEventDetail>
+      ) => {
+        const detail = (event as CustomEvent<AIInputCreateEventDetail>).detail;
+        if (!detail?.prompt?.trim()) {
+          return;
+        }
+
+        void handleGenerate({
+          prompt: detail.prompt,
+          content: (detail.images || []).map((image, index) => ({
+            type: 'image' as const,
+            url: image.url,
+            name: image.name || `参考图 ${index + 1}`,
+            width: image.width,
+            height: image.height,
+            maskImage: image.maskImage,
+          })),
+          generationType: detail.generationType,
+          selectedModel: detail.model || selectedModel,
+          selectedModelRef: detail.model
+            ? detail.modelRef ?? null
+            : selectedModelRef,
+          selectedParams: detail.params
+            ? { ...selectedParams, ...detail.params }
+            : selectedParams,
+          selectedCount:
+            typeof detail.count === 'number' && detail.count > 0
+              ? detail.count
+              : selectedCount,
+        });
+      };
+
+      window.addEventListener(AI_INPUT_CREATE_EVENT, handleExternalCreate);
+      return () => {
+        window.removeEventListener(AI_INPUT_CREATE_EVENT, handleExternalCreate);
+      };
+    }, [
+      handleGenerate,
+      selectedCount,
+      selectedModel,
+      selectedModelRef,
+      selectedParams,
+    ]);
 
     // 处理工作流重试（从指定步骤开始）
     // workZoneId: 从 WorkZone 按钮发起重试时传入的 WorkZone 元素 ID

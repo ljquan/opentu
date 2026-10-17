@@ -268,7 +268,7 @@ class TokenService {
     
     // 预填充 Token 配置
     const params = new URLSearchParams({
-      description: `Opentu Sync ${dateStr}`,
+      description: `FoxVue Sync ${dateStr}`,
       scopes: 'gist',
     });
     return `https://github.com/settings/tokens/new?${params.toString()}`;

@@ -195,8 +195,9 @@ function logTokenLabel(log: TuziUsageLog): string {
 
 function logGroupLabel(log: TuziUsageLog): string {
   const tokenName = log.tokenName.trim();
-  const managedPrefix = 'OpenTu Managed / ';
-  if (tokenName.startsWith(managedPrefix)) {
+  const managedPrefixes = ['FoxVue Managed / ', 'OpenTu Managed / '];
+  const managedPrefix = managedPrefixes.find((prefix) => tokenName.startsWith(prefix));
+  if (managedPrefix) {
     return tokenName.slice(managedPrefix.length) || '-';
   }
   return '-';
@@ -617,6 +618,16 @@ export function TuziAccountPanel() {
               >
                 {syncStatusText}
               </span>
+              {canViewAllLogs(account) ? (
+                <a
+                  className="tuzi-account-panel__admin-link"
+                  href="/admin/providers"
+                  target="_self"
+                >
+                  <Settings2 size={13} />
+                  管理供应商
+                </a>
+              ) : null}
             </div>
           </header>
 

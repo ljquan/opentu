@@ -1,7 +1,30 @@
 {
   "buildCommand": "NODE_OPTIONS='--max-old-space-size=4096' pnpm run build:web",
   "outputDirectory": "dist/apps/web",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "functions": {
+    "api/generation/tasks.ts": { "maxDuration": 90 },
+    "api/internal/generation-maintenance.ts": { "maxDuration": 30 }
+  },
+  "crons": [
+    { "path": "/api/internal/generation-maintenance", "schedule": "*/5 * * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "private, no-store" }
+      ]
+    }
+  ],
   "framework": null,
   "rewrites": [
     {
@@ -36,17 +59,17 @@
   "redirects": [
     {
       "source": "/ai-image-generator.html",
-      "destination": "/home.html",
+      "destination": "/",
       "permanent": true
     },
     {
       "source": "/flowchart-maker.html",
-      "destination": "/home.html",
+      "destination": "/",
       "permanent": true
     },
     {
       "source": "/mindmap-maker.html",
-      "destination": "/home.html",
+      "destination": "/",
       "permanent": true
     }
   ]

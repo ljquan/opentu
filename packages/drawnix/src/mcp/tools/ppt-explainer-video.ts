@@ -134,7 +134,7 @@ export const pptExplainerVideoTool: MCPTool = {
       '不得构造模型来源或界面未提供的讲解者字段',
       '不得构造当前 PPT 页面 ID，只能使用 PPT 编辑器提供的选择结果',
       '跳过大纲审核只能由当前页面配置界面的二次确认授权，Agent 参数不能代替用户确认',
-      'OpenTu 不设置固定页数、文件大小、发言时长或总成片时长上限',
+      '狐图 FoxVue 不设置固定页数、文件大小、发言时长或总成片时长上限',
     ],
   },
   execute: async (params: Record<string, unknown>): Promise<MCPResult> => {

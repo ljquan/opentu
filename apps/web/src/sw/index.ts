@@ -2649,6 +2649,8 @@ async function prewarmAllIdlePrefetchGroupsForUpdateReady(): Promise<void> {
   let iteration = 0;
   let orderedGroups: string[] | null = null;
 
+  // Completion, missing manifests, and the timeout guard below all exit this loop.
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (!orderedGroups) {
       const manifest = await getIdlePrefetchManifest();
@@ -4331,6 +4333,12 @@ sw.addEventListener('fetch', (event: FetchEvent) => {
     return; // 静默放行，让浏览器直接处理
   }
 
+  // 认证、会话和业务 API 必须始终走网络，不能被应用壳或静态缓存接管。
+  // 这也避免旧 Service Worker 在发布切换期间返回过期的认证响应。
+  if (url.origin === location.origin && url.pathname.startsWith('/api/')) {
+    return;
+  }
+
   if (url.origin !== location.origin && isAudioRequest(url, event.request)) {
     const startTime = Date.now();
     const rangeHeader = event.request.headers.get('range');
@@ -5916,7 +5924,7 @@ function createOfflinePage(): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>离线 - Opentu</title>
+  <title>离线 - 狐图 FoxVue</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -5949,7 +5957,7 @@ function createOfflinePage(): Response {
 </head>
 <body>
   <h1>📡 无法连接到服务器</h1>
-  <p>Opentu 是一个以画布工作区为底座的 AI 应用平台，当前无法访问时请检查网络或稍后再试。</p>
+  <p>狐图 FoxVue 是一个以画布工作区为底座的 AI 应用平台，当前无法访问时请检查网络或稍后再试。</p>
   <button onclick="location.reload()">重试</button>
 </body>
 </html>`,
@@ -6053,8 +6061,7 @@ function cleanupStaleRequests(): void {
 }
 
 async function handleImageRequest(request: Request): Promise<Response> {
-  try {
-    // 生成唯一的请求ID用于追踪
+  // 生成唯一的请求ID用于追踪
     const requestId = Math.random().toString(36).substring(2, 10);
 
     // console.log(`Service Worker [${requestId}]: Intercepting image request at ${new Date().toISOString()}:`, request.url);
@@ -6247,9 +6254,6 @@ async function handleImageRequest(request: Request): Promise<Response> {
       }
       throw timeoutError;
     }
-  } catch (error) {
-    throw error;
-  }
 }
 
 // 创建超时响应，通知前端使用直接加载方式

@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenTu interrupted-task maintenance
+After=opentu-api.service
+
+[Service]
+Type=oneshot
+User=opentu
+EnvironmentFile=/etc/opentu/runtime.env
+ExecStart=/usr/local/bin/node /srv/opentu/run-maintenance.cjs
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

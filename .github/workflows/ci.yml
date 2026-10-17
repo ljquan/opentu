@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
@@ -46,7 +46,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "base=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
           else
-            echo "base=origin/develop" >> "$GITHUB_OUTPUT"
+            echo "base=$NX_BASE" >> "$GITHUB_OUTPUT"
           fi
       - name: Detect affected web app
         id: affected-web
@@ -57,7 +57,18 @@ jobs:
           else
             echo "affected=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: API and Web regression checks
+        run: npx nx run-many -t typecheck test --projects api web --parallel=2
+      - name: Production configuration validation tests
+        run: node --test scripts/check-production-config.test.cjs
+      - name: Drawing security and dependency regression checks
+        run: pnpm exec vitest run --root packages/drawnix --config vitest.config.ts src/services/tool-communication-service.test.ts src/data/drawnix-data-validation.test.ts src/data/import-dependencies.test.ts --maxWorkers=2
+      - name: Managed canvas generation contract
+        run: pnpm exec vitest run --root packages/drawnix --config vitest.config.ts src/services/generation-task-gateway-api.test.ts src/services/media-executor/managed-gateway.test.ts --maxWorkers=2
+        env:
+          VITE_OPENTU_MANAGED_GENERATION: 'true'
       - run: npx nx affected -t test build --base=${{ steps.affected-base.outputs.base }} --verbose
+      - run: npx nx lint api
       - run: npx nx affected -t lint --exclude=drawnix --base=${{ steps.affected-base.outputs.base }} --verbose
       - name: Verify startup bundle
         if: steps.affected-web.outputs.affected == 'true'
@@ -113,7 +124,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile

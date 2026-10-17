@@ -105,9 +105,7 @@ function buildSshArgs(config, remoteCommand) {
   }
   sshArgs.push(
     '-o',
-    'StrictHostKeyChecking=no',
-    '-o',
-    'UserKnownHostsFile=/dev/null'
+    'StrictHostKeyChecking=yes'
   );
   sshArgs.push(`${config.RELEASE_USER}@${config.RELEASE_HOST}`);
   if (remoteCommand) {
@@ -119,16 +117,23 @@ function buildSshArgs(config, remoteCommand) {
 
 function runRemoteCommand(config, remoteCommand, options = {}) {
   const { sshArgs, usePassword } = buildSshArgs(config, remoteCommand);
+  const passwordEnvironment = usePassword
+    ? { ...process.env, SSHPASS: config.RELEASE_SSH_PASSWORD }
+    : undefined;
 
   if (options.captureOutput) {
     if (usePassword) {
-      return execOutput('sshpass', ['-p', config.RELEASE_SSH_PASSWORD, 'ssh', ...sshArgs]);
+      return execOutput('sshpass', ['-e', 'ssh', ...sshArgs], {
+        env: passwordEnvironment,
+      });
     }
     return execOutput('ssh', sshArgs);
   }
 
   if (usePassword) {
-    spawnChecked('sshpass', ['-p', config.RELEASE_SSH_PASSWORD, 'ssh', ...sshArgs]);
+    spawnChecked('sshpass', ['-e', 'ssh', ...sshArgs], {
+      env: passwordEnvironment,
+    });
     return '';
   }
   spawnChecked('ssh', sshArgs);
@@ -149,15 +154,15 @@ function copyFileToRemote(config, localPath, remotePath) {
   }
   scpArgs.push(
     '-o',
-    'StrictHostKeyChecking=no',
-    '-o',
-    'UserKnownHostsFile=/dev/null',
+    'StrictHostKeyChecking=yes',
     localPath,
     `${config.RELEASE_USER}@${config.RELEASE_HOST}:${remotePath}`
   );
 
   if (usePassword) {
-    spawnChecked('sshpass', ['-p', config.RELEASE_SSH_PASSWORD, 'scp', ...scpArgs]);
+    spawnChecked('sshpass', ['-e', 'scp', ...scpArgs], {
+      env: { ...process.env, SSHPASS: config.RELEASE_SSH_PASSWORD },
+    });
     return;
   }
   spawnChecked('scp', scpArgs);

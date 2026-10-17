@@ -12,46 +12,10 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://opentu.ai/home.html</loc>
-    <xhtml:link
-      rel="alternate"
-      hreflang="zh-CN"
-      href="https://opentu.ai/home.html"
-    />
-    <xhtml:link
-      rel="alternate"
-      hreflang="en"
-      href="https://opentu.ai/en/home.html"
-    />
-    <xhtml:link
-      rel="alternate"
-      hreflang="x-default"
-      href="https://opentu.ai/home.html"
-    />
-    <lastmod>2026-04-28</lastmod>
+    <loc>https://opentu.ai/music-station</loc>
+    <lastmod>2026-09-03</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://opentu.ai/en/home.html</loc>
-    <xhtml:link
-      rel="alternate"
-      hreflang="zh-CN"
-      href="https://opentu.ai/home.html"
-    />
-    <xhtml:link
-      rel="alternate"
-      hreflang="en"
-      href="https://opentu.ai/en/home.html"
-    />
-    <xhtml:link
-      rel="alternate"
-      hreflang="x-default"
-      href="https://opentu.ai/home.html"
-    />
-    <lastmod>2026-04-28</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.75</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://opentu.ai/user-manual/index.html</loc>

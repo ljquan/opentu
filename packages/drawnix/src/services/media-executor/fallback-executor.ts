@@ -86,6 +86,9 @@ import {
 } from '../task-invocation-route';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import { isPptExplainerTask } from '../ppt-explainer/validation';
+import { cancelGatewayTask, createGatewayTask, managedImageIdempotencyKey, managedImageTaskBody, waitForGatewayTask } from '../generation-task-gateway-api';
+
+const managedGenerationEnabled = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_OPENTU_MANAGED_GENERATION || '').toLowerCase() === 'true';
 
 function isCurrentExecutionAttempt(options?: ExecutionOptions): boolean {
   return !options?.signal?.aborted && options?.isCurrentAttempt?.() !== false;
@@ -312,6 +315,9 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     params: ImageGenerationParams,
     options?: ExecutionOptions
   ): Promise<void> {
+    if (managedGenerationEnabled) {
+      return this.generateManagedImage(params, options);
+    }
     const {
       taskId,
       requestId = taskId,
@@ -603,6 +609,72 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     }
   }
 
+  private async generateManagedImage(
+    params: ImageGenerationParams,
+    options?: ExecutionOptions
+  ): Promise<void> {
+    const { taskId, requestId = taskId, prompt } = params;
+    if (params.referenceImages?.length || params.uploadedImages?.length || params.maskImage || (params.count && params.count !== 1) || params.background || params.outputFormat || params.outputCompression || params.resolution) {
+      throw new Error('公网图片生成暂不支持当前参考图或高级参数');
+    }
+    const active = await taskStorageWriter.updateStatus(taskId, 'processing', requestId, createStorageWriteGuard(options));
+    if (!active) return;
+    let serverTaskId: string | undefined;
+    try {
+      assertCurrentExecutionAttempt(options);
+      options?.onProgress?.({ progress: 0, phase: 'submitting' });
+      await options?.onSubmissionAttempt?.();
+      assertCurrentExecutionAttempt(options);
+      const task = await createGatewayTask(managedImageTaskBody({
+        taskId,
+        prompt,
+        modelId: params.modelRef?.modelId || params.model || getDefaultImageModel(),
+        size: params.size,
+        quality: params.quality,
+      }), managedImageIdempotencyKey(requestId));
+      serverTaskId = task.id;
+      if (!isCurrentExecutionAttempt(options)) {
+        await cancelGatewayTask(serverTaskId).catch(() => undefined);
+        assertCurrentExecutionAttempt(options);
+      }
+      const saved = await taskStorageWriter.updateRemoteId(taskId, serverTaskId, undefined, requestId, createStorageWriteGuard(options));
+      if (!saved) throw new Error('图片任务已取消或替代');
+      options?.onGatewayTaskCreated?.(serverTaskId);
+      options?.onProgress?.({ progress: 10, phase: 'polling' });
+      const completed = ['succeeded', 'failed', 'cancelled'].includes(task.status)
+        ? task
+        : await waitForGatewayTask(serverTaskId, options?.signal);
+      assertCurrentExecutionAttempt(options);
+      if (completed.status !== 'succeeded' || !completed.result) {
+        throw new Error(completed.error?.message || '图片生成失败');
+      }
+      const result = completed.result;
+      const images = Array.isArray(result.images) ? result.images as Array<Record<string, unknown>> : [];
+      const urls = images.map((image) => typeof image.url === 'string' ? image.url : typeof image.b64Json === 'string' ? `data:image/png;base64,${image.b64Json}` : '').filter(Boolean);
+      if (!urls.length) throw new Error('服务端未返回图片地址');
+      const cached = await cacheRemoteUrls(urls, taskId, 'image', 'png', {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        cacheKey: requestId,
+        resultVisibility: params.resultVisibility,
+        signal: options?.signal,
+      });
+      assertCurrentExecutionAttempt(options);
+      const completedLocally = await taskStorageWriter.completeTask(taskId, {
+        url: cached[0],
+        urls: cached.length > 1 ? cached : undefined,
+        format: 'png',
+        size: 0,
+      }, requestId, createStorageWriteGuard(options));
+      if (!completedLocally) throw new Error('图片任务已取消或替代');
+    } catch (error) {
+      if (serverTaskId && options?.signal?.aborted) {
+        void cancelGatewayTask(serverTaskId).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
   /**
    * 生成异步图片（使用 /v1/videos 接口）
    * 与 SW 模式保持一致的实现
@@ -795,6 +867,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     params: VideoGenerationParams,
     options?: ExecutionOptions
   ): Promise<void> {
+    if (managedGenerationEnabled) throw new Error('视频生成暂未接入平台服务');
     const {
       taskId,
       prompt,

@@ -1,0 +1,234 @@
+.opentu-home {
+  --home-ink: #f3efff;
+  --home-muted: #bbb3cf;
+  --home-subtle: #a39ab8;
+  --home-line: #39304e;
+  --home-page: #100d1c;
+  --home-surface: #1b162b;
+  --home-blue: #c3acff;
+  --home-blue-soft: #302343;
+  --opentu-brand: #ab89f4;
+  --opentu-brand-hover: #bd9ffc;
+  --opentu-brand-soft: #302343;
+  --opentu-muted: #bbb3cf;
+  --opentu-surface: #1b162b;
+  --opentu-media-soft: #253a38;
+  color-scheme: dark;
+  background: var(--home-page);
+
+  &::before { display: none; }
+  button, a, input, textarea { letter-spacing: 0; }
+  :is(button, a, input, textarea):focus-visible { outline: 2px solid #d2bbff; outline-offset: 3px; }
+  .home-offer { color: #c5b7de; background: #211832; }
+  .home-header { background: #120e20f5; border-color: var(--home-line); backdrop-filter: none; }
+  .home-search { color: var(--home-muted); background: #211b31; border: 1px solid var(--home-line); }
+  .home-search kbd { color: #c5b7de; background: #342947; }
+  .home-brand, .home-credit-button { color: var(--home-ink); }
+  .home-admin-button,
+  .home-marketplace__manage,
+  .model-marketplace-dialog__manage {
+    color: #e8ddff;
+    border-color: #5c4b78;
+    background: #2b223c;
+  }
+  .home-admin-button:hover,
+  .home-marketplace__manage:hover,
+  .model-marketplace-dialog__manage:hover {
+    color: #fff;
+    border-color: #967bc1;
+    background: #3a2c50;
+  }
+  .home-layout { min-width: 0; }
+  .home-sidebar { background: #120e20; }
+  .home-sidebar button { color: var(--home-muted); border-radius: 6px; }
+  .home-sidebar button:hover, .home-sidebar button.is-active { color: #dbcaff; background: #302343; }
+  .home-sidebar .home-sidebar__admin { color: #ddceff; border-color: #4f3d68; background: #261d36; }
+  .home-sidebar .home-sidebar__admin:hover { border-color: #8f73ba; background: #362748; }
+  .home-sidebar__label, .home-account-hint small { color: var(--home-subtle); }
+  .home-main { min-width: 0; max-width: 1440px; padding-top: 0; }
+  .home-sky-intro {
+    position: relative;
+    isolation: isolate;
+    padding: 54px 0 24px;
+    min-height: 420px;
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0 calc(-1 * clamp(22px, 4vw, 58px));
+      z-index: -1;
+      background: url('/brand/foxvue-night-sky.webp') right center / cover no-repeat;
+      mask-image: linear-gradient(#000 72%, transparent);
+      pointer-events: none;
+    }
+  }
+  .home-main__topline { margin-bottom: 26px; }
+  .home-main h1 { font-size: 30px; line-height: 1.35; }
+  .home-eyebrow { color: #d4c3f5; font-size: 15px; margin-bottom: 10px; }
+  .home-status { color: #b5ddcc; }
+  .home-composer { max-width: 850px; background: #1b142be8; border: 1px solid #786290; border-radius: 8px; box-shadow: 0 12px 32px #0003; }
+  .home-composer textarea { color: var(--home-ink); }
+  .home-composer textarea::placeholder { color: #b9abc9; }
+  .home-composer__footer { border-color: #4b3b60; }
+  .home-composer__tools { color: #c2b6d4; }
+  .home-composer__icon { color: #ddc9ff; background: #433055; }
+  .home-model-picker, .home-quick-start button, .home-icon-button { background: #241d35; border-color: #514262; border-radius: 6px; }
+  .home-login-button, .home-create-button { background: #af8af8; color: #160f26; font-weight: 650; box-shadow: none; border-radius: 6px; }
+  .home-quick-start { color: #c5b7de; flex-wrap: wrap; }
+  .home-section { background: transparent; border-radius: 0; box-shadow: none; }
+  .home-template-card, .home-marketplace-card { border-radius: 8px; box-shadow: none; }
+  .home-template-card:hover, .home-marketplace-card:hover { background: #251c37; border-color: #a88ac9; box-shadow: none; }
+  .home-template-card small, .home-section__heading span { color: var(--home-muted); }
+  .home-template-card__image { background: #211b31; }
+  .home-marketplace-card.is-leading { background: #21192f; }
+  .home-marketplace-card__tags span { background: #30293f; color: #d0c5e2; }
+  .home-marketplace-card__recommended { border-color: #5b4374; }
+  .home-marketplace__tabs button:hover { background: #302343; }
+  .home-marketplace__summary { border-color: var(--home-line); }
+  .home-workflow-entry { background: #1c2a2a; border-color: #355752; border-radius: 8px; }
+  .home-workflow-entry:hover { background: #223b37; }
+  .home-workflow-entry__icon { background: #2d4741; color: #8dd8c2; }
+  .home-workflow-entry small { color: #acc4bd; }
+  .home-recent-list { border-color: var(--home-line); }
+  .home-recent-list button { border-color: var(--home-line); }
+  .model-marketplace-dialog, .model-marketplace-dialog__detail { color: var(--home-ink); background: #191424; }
+  .model-marketplace-dialog__categories, .model-marketplace-dialog-card { background: #211b30; color: var(--home-ink); border-color: var(--home-line); }
+  .model-marketplace-dialog-card:hover, .model-marketplace-dialog-card.is-selected { background: #38284c; }
+  .model-marketplace-dialog__header, .model-marketplace-dialog__detail { border-color: var(--home-line); }
+  .model-marketplace-dialog__close, .model-marketplace-detail__tags span, .model-marketplace-detail__note { background: #302343; color: #d6c8e8; }
+  .model-marketplace-dialog__categories button { color: var(--home-muted); }
+  .model-marketplace-dialog__categories button.is-active, .model-marketplace-dialog__categories button:hover { color: #e1d1ff; background: #42295e; }
+  .model-marketplace-dialog__header h2 { color: var(--home-ink); }
+  .model-marketplace-dialog__header p { color: var(--home-muted); }
+  .model-marketplace-detail__action { color: #190f29; background: #b795ff; }
+  .model-marketplace-dialog-card__copy strong, .model-marketplace-dialog__detail h3 { color: var(--home-ink); }
+  .model-marketplace-dialog__detail p, .model-marketplace-dialog-card__copy small { color: var(--home-muted); }
+  @media (max-width: 960px) {
+    .home-sky-intro::before { inset-inline: -22px; }
+    .home-main { padding-inline: 22px; }
+    .home-main__topline { flex-wrap: wrap; }
+  }
+  @media (max-width: 640px) {
+    .home-header { gap: 12px; }
+    .home-search { width: auto; min-width: 0; flex: 1; }
+    .home-header__actions { flex: 0 0 auto; }
+    .home-header__actions .home-admin-button { display: none; }
+    .home-main { padding-inline: 16px; }
+    .home-sky-intro { padding-top: 30px; min-height: 0; }
+    .home-sky-intro::before { inset-inline: -16px; background-position: 65% center; }
+    .home-main h1 { font-size: 24px; }
+    .home-sidebar { background: #171124; }
+    .home-sidebar__mobile-account button { background: #302343; }
+  }
+}
+
+/* Final ordering guard for the shared dark studio shell. */
+.opentu-home .home-offer { min-height: 32px; color: #bdb4d4; background: #201b31; }
+.opentu-home .home-header { min-height: 68px; background: rgba(15, 17, 24, .9); border-bottom-color: rgba(165, 149, 255, .13); }
+.opentu-home .home-search { background: #20222d; border-color: #3a3c4a; }
+.opentu-home .home-search:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .1); }
+.opentu-home .home-sidebar { background: rgba(13, 14, 21, .94); border-right-color: rgba(165, 149, 255, .14); }
+.opentu-home .home-sidebar button:hover, .opentu-home .home-sidebar button.is-active { color: #f5f2f8; background: rgba(165, 149, 255, .14); }
+.opentu-home .home-sky-intro { padding-top: 60px; }
+.opentu-home .home-main__topline h1 { font-size: clamp(30px, 3vw, 42px); letter-spacing: -.02em; }
+.opentu-home .home-composer { border-color: #4a4258; background: rgba(24, 25, 34, .97); box-shadow: 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .12), 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer textarea::placeholder { color: #7e7a8d; }
+.opentu-home .home-template-card, .opentu-home .home-marketplace-card { background: #181a23; border-color: #303342; }
+.opentu-home .home-template-card:hover, .opentu-home .home-marketplace-card:hover { background: #20222d; border-color: #71678c; transform: translateY(-2px); }
+@media (max-width: 640px) { .opentu-home .home-sky-intro { padding-top: 36px; } .opentu-home .home-main__topline h1 { font-size: 28px; } }
+
+/* Keep the home shell aligned with the studio and library surfaces. */
+.opentu-home {
+  --home-page: #0f1118;
+  --home-surface: #171923;
+  --home-line: #303342;
+  --home-ink: #f5f2f8;
+  --home-muted: #aaa6b8;
+  --home-blue: #a595ff;
+  background: #0f1118;
+}
+.opentu-home .home-offer { min-height: 32px; color: #bdb4d4; background: #201b31; }
+.opentu-home .home-header { min-height: 68px; background: rgba(15, 17, 24, .9); border-bottom-color: rgba(165, 149, 255, .13); }
+.opentu-home .home-search { background: #20222d; border-color: #3a3c4a; }
+.opentu-home .home-search:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .1); }
+.opentu-home .home-sidebar { background: rgba(13, 14, 21, .94); border-right-color: rgba(165, 149, 255, .14); }
+.opentu-home .home-sidebar button { color: #aaa6b8; }
+.opentu-home .home-sidebar button:hover, .opentu-home .home-sidebar button.is-active { color: #f5f2f8; background: rgba(165, 149, 255, .14); }
+.opentu-home .home-main { max-width: 1480px; }
+.opentu-home .home-sky-intro { padding-top: 60px; }
+.opentu-home .home-main__topline h1 { font-size: clamp(30px, 3vw, 42px); letter-spacing: -.02em; }
+.opentu-home .home-composer { border-color: #4a4258; background: rgba(24, 25, 34, .97); box-shadow: 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .12), 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer textarea::placeholder { color: #7e7a8d; }
+.opentu-home .home-quick-start button { background: #20222d; border-color: #3a3c4a; }
+.opentu-home .home-quick-start button:hover { background: #2b2d3a; border-color: #71678c; }
+.opentu-home .home-section { border-top-color: rgba(165, 149, 255, .14); }
+.opentu-home .home-section__heading h2 { letter-spacing: -.01em; }
+.opentu-home .home-template-card, .opentu-home .home-marketplace-card { background: #181a23; border-color: #303342; }
+.opentu-home .home-template-card:hover, .opentu-home .home-marketplace-card:hover { background: #20222d; border-color: #71678c; transform: translateY(-2px); }
+@media (max-width: 640px) { .opentu-home .home-sky-intro { padding-top: 36px; } .opentu-home .home-main__topline h1 { font-size: 28px; } }
+
+/* Immersive Studio C: coral commands, violet selection, teal system status. */
+.opentu-home {
+  --home-ink: #f4f0f7;
+  --home-muted: #aaa4b5;
+  --home-subtle: #756f80;
+  --home-line: #312c39;
+  --home-page: #111218;
+  --home-surface: #191a23;
+  --home-blue: #9b8cff;
+  --home-blue-soft: rgba(155, 140, 255, .15);
+  --opentu-brand: #ff6a70;
+  --opentu-brand-hover: #ff7c81;
+  --opentu-brand-soft: rgba(255, 106, 112, .13);
+  --opentu-media: #9b8cff;
+  --opentu-media-soft: rgba(155, 140, 255, .15);
+  --opentu-surface: #191a23;
+  --opentu-muted: #aaa4b5;
+  background: #111218;
+
+  .home-header, .home-sidebar { background: rgba(17, 18, 24, .94); border-color: var(--home-line); }
+  .home-sky-intro::before { opacity: .45; filter: saturate(.55) brightness(.66); }
+  .home-search, .home-model-picker, .home-quick-start button, .home-icon-button { background: #20212b; border-color: #393441; }
+  .home-sidebar button:hover, .home-sidebar button.is-active,
+  .home-marketplace__tabs button:hover { color: #ebe6f1; background: var(--home-blue-soft); }
+  .home-sidebar button.is-active { box-shadow: inset 2px 0 #9b8cff; }
+  .home-composer { background: rgba(25, 26, 35, .97); border-color: #54495b; box-shadow: 0 18px 42px rgba(0, 0, 0, .28); }
+  .home-composer:focus-within { border-color: #9b8cff; box-shadow: 0 0 0 3px rgba(155, 140, 255, .12); }
+  .home-login-button, .home-create-button { color: #251315; background: #ff6a70; }
+  .home-login-button:hover, .home-create-button:hover { background: #ff7c81; }
+  .home-status, .home-workflow-entry__icon { color: #35d2bd; }
+  .home-workflow-entry { background: #182625; border-color: #31514c; }
+  .home-workflow-entry:hover { background: #1d3330; }
+  .home-workflow-entry__icon { background: rgba(53, 210, 189, .13); }
+  .home-template-card:hover, .home-marketplace-card:hover { background: #20212b; border-color: #6b5a75; }
+  .home-marketplace-card.is-leading { background: #1d1d28; border-color: #564160; }
+  .model-marketplace-dialog, .model-marketplace-dialog__detail { background: #16171f; }
+  .model-marketplace-dialog__categories, .model-marketplace-dialog-card { background: #20212b; }
+  .model-marketplace-dialog-card:hover, .model-marketplace-dialog-card.is-selected { background: rgba(155, 140, 255, .15); }
+  .model-marketplace-detail__action { color: #251315; background: #ff6a70; }
+  .model-marketplace-dialog__categories button.is-active,
+  .model-marketplace-dialog__categories button:hover { background: rgba(155, 140, 255, .18); color: #eee9f3; }
+  .home-account-hint { width: 100%; color: var(--home-ink); border-right: 0; border-bottom: 0; border-left: 0; background: transparent; text-align: left; }
+  .home-reference-input { display: none; }
+  .home-mode-picker { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding-left: 9px; border-left: 1px solid var(--home-line); }
+  .home-mode-picker select { max-width: 68px; color: var(--home-muted); border: 0; outline: 0; background: transparent; font: inherit; cursor: pointer; }
+  .home-mode-picker option { color: var(--home-ink); background: #20212b; }
+  .home-search-notice { max-width: 850px; margin: 10px 0 0; color: #d5cbea; font-size: 12px; }
+}
+
+/* Final ordering guard after the legacy theme block. */
+.opentu-home .home-offer { min-height: 32px; color: #bdb4d4; background: #201b31; }
+.opentu-home .home-header { min-height: 68px; background: rgba(15, 17, 24, .9); border-bottom-color: rgba(165, 149, 255, .13); }
+.opentu-home .home-search { background: #20222d; border-color: #3a3c4a; }
+.opentu-home .home-search:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .1); }
+.opentu-home .home-sidebar { background: rgba(13, 14, 21, .94); border-right-color: rgba(165, 149, 255, .14); }
+.opentu-home .home-sidebar button:hover, .opentu-home .home-sidebar button.is-active { color: #f5f2f8; background: rgba(165, 149, 255, .14); }
+.opentu-home .home-sky-intro { padding-top: 60px; }
+.opentu-home .home-main__topline h1 { font-size: clamp(30px, 3vw, 42px); letter-spacing: -.02em; }
+.opentu-home .home-composer { border-color: #4a4258; background: rgba(24, 25, 34, .97); box-shadow: 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer:focus-within { border-color: #a595ff; box-shadow: 0 0 0 3px rgba(165, 149, 255, .12), 0 20px 48px rgba(0, 0, 0, .2); }
+.opentu-home .home-composer textarea::placeholder { color: #7e7a8d; }
+.opentu-home .home-template-card, .opentu-home .home-marketplace-card { background: #181a23; border-color: #303342; }
+.opentu-home .home-template-card:hover, .opentu-home .home-marketplace-card:hover { background: #20222d; border-color: #71678c; transform: translateY(-2px); }
+@media (max-width: 640px) { .opentu-home .home-sky-intro { padding-top: 36px; } .opentu-home .home-main__topline h1 { font-size: 28px; } }

@@ -7,6 +7,7 @@ import { tokenService } from './token-service';
 import {
   GITHUB_API_BASE,
   GIST_DESCRIPTION,
+  LEGACY_GIST_DESCRIPTIONS,
   GistResponse,
   CreateGistRequest,
   UpdateGistRequest,
@@ -45,6 +46,13 @@ class GitHubApiService {
   private gistCache: Map<string, GistCacheEntry> = new Map();
   // 进行中的请求，用于并发去重
   private pendingGistRequests: Map<string, Promise<GistResponse>> = new Map();
+
+  private isSyncGistDescription(description: string | null): boolean {
+    return (
+      description === GIST_DESCRIPTION ||
+      LEGACY_GIST_DESCRIPTIONS.some((legacyDescription) => description === legacyDescription)
+    );
+  }
 
   /**
    * 设置 Gist ID
@@ -189,7 +197,7 @@ class GitHubApiService {
       // 退化：查找包含 manifest.json 的旧 Gist
       const syncGist = gists.find(gist => {
         const hasManifest = SYNC_FILES.MANIFEST in gist.files;
-        const matchDescription = gist.description === GIST_DESCRIPTION;
+        const matchDescription = this.isSyncGistDescription(gist.description);
         return hasManifest || matchDescription;
       });
 
@@ -218,7 +226,7 @@ class GitHubApiService {
       return gists.filter(gist => {
         const hasMasterIndex = SHARD_FILES.MASTER_INDEX in gist.files;
         const hasManifest = SYNC_FILES.MANIFEST in gist.files;
-        const matchDescription = gist.description === GIST_DESCRIPTION;
+        const matchDescription = this.isSyncGistDescription(gist.description);
         return hasMasterIndex || hasManifest || matchDescription;
       });
     } catch (error) {

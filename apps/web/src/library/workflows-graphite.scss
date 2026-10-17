@@ -1,0 +1,72 @@
+.library-page--workflows {
+  --library-ink: #e5f0ed;
+  --library-muted: #a0b4ae;
+  --library-line: #30433f;
+  --library-page: #101918;
+  --library-card: #192623;
+  --library-purple: #79e1c5;
+  --opentu-brand: #79e1c5;
+  --opentu-brand-hover: #9cebd5;
+  color-scheme: dark;
+  * { box-sizing: border-box; letter-spacing: 0; }
+  :is(button, input, textarea):focus-visible { outline: 2px solid #79e1c5; outline-offset: 3px; }
+  .library-sidebar { background: #121e1b; }
+  .library-sidebar nav button { color: #b3c5bf; border-radius: 6px; }
+  .library-sidebar nav button:hover, .library-sidebar nav button.is-active { color: #95f3d8; background: #27463c; }
+  .library-intro { padding-block: 36px 30px; }
+  .library-intro h1 { font-size: 30px; }
+  .library-primary-action { color: #0b2a20; border-radius: 6px; font-weight: 650; }
+  .library-header__actions > button:first-child { color: #9ee9d3; background: #254137; }
+  .library-toolbar { flex-wrap: wrap; }
+  .library-filter-tabs { flex-wrap: wrap; background: #1a2925; border: 1px solid var(--library-line); border-radius: 6px; }
+  .library-filter-tabs button { color: #acc1b8; }
+  .library-filter-tabs button.is-active { background: #305548; color: #b0f6df; box-shadow: none; }
+  .library-search { background: #192623; border-radius: 6px; }
+  .library-flow-card { border-radius: 8px; box-shadow: none; }
+  .library-flow-card__image { height: 112px; opacity: .85; }
+  .library-flow-card__body h2 { color: var(--library-ink); }
+  .library-flow-card__body p { color: var(--library-muted); }
+  .library-flow-card__steps { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-block: 18px; }
+  .library-flow-card__steps span { color: #b6ebdc; background: #213f35; padding: 8px; border: 1px solid #426758; border-radius: 6px; }
+  .library-flow-card__steps span + span::before { content: '\2192'; margin-right: 3px; color: #78c6ac; }
+  .library-flow-card__actions { border-color: var(--library-line); }
+  .library-flow-card__actions button { color: #91e6cc; background: #223d33; border-radius: 6px; }
+  .library-flow-card__draft { background: #233d34; color: #aeefda; }
+  .library-create-flow { background: #192623; border-color: #426758; border-radius: 6px; }
+  .library-create-flow :is(input, textarea) { background: #111c18; color: var(--library-ink); border-color: #426758; }
+  .library-create-flow__actions button { color: #b5d9ca; background: #294239; }
+  .library-create-flow__actions button[type='submit'] { background: #79e1c5; color: #0b2a20; }
+  .library-empty { background: #192623; border-color: var(--library-line); }
+  @media (max-width: 640px) {
+    .library-intro h1 { font-size: 26px; }
+    .library-search { min-width: 0; width: 100%; }
+    .library-filter-tabs { max-width: 100%; }
+  }
+}
+
+/* Immersive Studio C workflow surface. */
+.library-page--workflows {
+  --library-ink: #f4f0f7;
+  --library-muted: #aaa4b5;
+  --library-line: #312c39;
+  --library-page: #111218;
+  --library-card: #191a23;
+  --library-purple: #9b8cff;
+  --opentu-brand: #ff6a70;
+  --opentu-brand-hover: #ff7c81;
+  background: #111218;
+
+  .library-sidebar { background: #111218; border-color: var(--library-line); }
+  .library-sidebar nav button:hover, .library-sidebar nav button.is-active { color: #efeaf4; background: rgba(155, 140, 255, .15); }
+  .library-primary-action, .library-create-flow__actions button[type='submit'] { color: #251315; background: #ff6a70; }
+  .library-primary-action:hover, .library-create-flow__actions button[type='submit']:hover { background: #ff7c81; }
+  .library-header__actions > button:first-child, .library-flow-card__actions button { color: #d5cdfd; background: rgba(155, 140, 255, .14); }
+  .library-filter-tabs { background: #191a23; }
+  .library-filter-tabs button.is-active { color: #f0ecf5; background: rgba(155, 140, 255, .2); }
+  .library-search, .library-create-flow { background: #191a23; border-color: var(--library-line); }
+  .library-flow-card { background: #191a23; border-color: var(--library-line); }
+  .library-flow-card__steps span { color: #d6cfff; background: rgba(155, 140, 255, .12); border-color: rgba(155, 140, 255, .34); }
+  .library-flow-card__steps span + span::before { color: #9b8cff; }
+  .library-flow-card__draft { color: #b9f3e8; background: rgba(53, 210, 189, .13); }
+  .library-create-flow :is(input, textarea) { background: #12131a; border-color: #49404f; }
+}

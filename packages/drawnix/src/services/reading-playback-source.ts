@@ -83,7 +83,9 @@ function splitParagraphIntoSentences(paragraph: string): string[] {
 }
 
 function estimateSegmentDurationMs(text: string, rate: number): number {
-  const normalizedRate = Math.max(0.5, Math.min(rate || 1, 2));
+  // The player exposes up to 10x for long notes. Keep subtitle timing aligned
+  // with the actual speech rate instead of flattening all speeds above 2x.
+  const normalizedRate = Math.max(0.5, Math.min(rate || 1, 10));
   const cjkCount = (text.match(/[\u4e00-\u9fff]/gu) || []).length;
   const latinWordCount = (text.match(/[A-Za-z]+(?:'[A-Za-z]+)*/g) || []).length;
   const digitCount = (text.match(/\d/g) || []).length;

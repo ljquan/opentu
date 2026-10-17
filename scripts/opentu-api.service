@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenTu API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=opentu
+Group=opentu
+WorkingDirectory=/srv/opentu
+EnvironmentFile=/etc/opentu/runtime.env
+ExecStart=/usr/local/bin/node /srv/opentu/api.cjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=384M
+TasksMax=64
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

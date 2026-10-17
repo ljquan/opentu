@@ -1146,7 +1146,10 @@ export const SettingsDialog = ({
   const settingsSections = useMemo(
     () =>
       isTuziEmbeddedMode()
-        ? [TUZI_ACCOUNT_SECTION, ...VIEW_SECTIONS]
+        ? [
+            TUZI_ACCOUNT_SECTION,
+            ...VIEW_SECTIONS.filter((section) => section.value !== 'providers'),
+          ]
         : VIEW_SECTIONS,
     []
   );

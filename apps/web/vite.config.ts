@@ -742,11 +742,13 @@ interface ManualChunkContext {
   getModuleInfo: (id: string) => ManualChunkModuleInfo | null;
 }
 
-function isWebMainEntry(id: string): boolean {
+function isWebStartupEntry(id: string): boolean {
   const normalizedId = normalizePathForChunking(id);
   return (
     normalizedId.endsWith('/apps/web/src/main.tsx') ||
-    normalizedId.endsWith('/src/main.tsx')
+    normalizedId.endsWith('/src/main.tsx') ||
+    normalizedId.endsWith('/apps/web/src/app/bootstrap.tsx') ||
+    normalizedId.endsWith('/apps/web/src/account/bootstrap.tsx')
   );
 }
 
@@ -760,7 +762,7 @@ function isStaticallyReachableFromWebMain(
   }
   visited.add(id);
 
-  if (isWebMainEntry(id)) {
+  if (isWebStartupEntry(id)) {
     return true;
   }
 
@@ -778,8 +780,19 @@ function resolveManualChunk(
   id: string,
   context?: ManualChunkContext
 ): string | undefined {
+  const normalizedId = normalizePathForChunking(id);
+
   if (isStartupRuntimeModule(id)) {
     return 'startup-runtime';
+  }
+
+  // These modules are side-effectful application entrypoints. Keep them in
+  // separate chunks so /account never mounts the workspace root as well.
+  if (normalizedId.endsWith('/apps/web/src/account/bootstrap.tsx')) {
+    return 'account-entry';
+  }
+  if (normalizedId.endsWith('/apps/web/src/app/bootstrap.tsx')) {
+    return 'app-entry';
   }
 
   const group = resolveIdlePrefetchGroup(id);
@@ -788,6 +801,53 @@ function resolveManualChunk(
     context &&
     isStaticallyReachableFromWebMain(id, context.getModuleInfo)
   ) {
+    if (
+      normalizedId.includes('/node_modules/.pnpm/react@') ||
+      normalizedId.includes('/node_modules/react/') ||
+      normalizedId.includes('/node_modules/.pnpm/react-dom@') ||
+      normalizedId.includes('/node_modules/react-dom/') ||
+      normalizedId.includes('/node_modules/.pnpm/scheduler@') ||
+      normalizedId.includes('/node_modules/scheduler/')
+    ) {
+      return 'startup-react';
+    }
+
+    if (
+      normalizedId.includes('/node_modules/.pnpm/@plait+core@') ||
+      normalizedId.includes('/node_modules/@plait/core/')
+    ) {
+      return 'startup-plait-core';
+    }
+
+    if (
+      normalizedId.includes('/node_modules/.pnpm/@plait+') ||
+      normalizedId.includes('/node_modules/@plait/') ||
+      normalizedId.includes('/node_modules/.pnpm/slate@') ||
+      normalizedId.includes('/node_modules/slate/') ||
+      normalizedId.includes('/node_modules/.pnpm/rxjs@') ||
+      normalizedId.includes('/node_modules/rxjs/')
+    ) {
+      return 'startup-board-vendor';
+    }
+
+    if (
+      normalizedId.includes('/node_modules/.pnpm/tdesign-') ||
+      normalizedId.includes('/node_modules/tdesign-')
+    ) {
+      return 'startup-ui-vendor';
+    }
+
+    if (normalizedId.includes('/packages/drawnix/src/')) {
+      return 'startup-drawnix';
+    }
+
+    if (
+      normalizedId.includes('/node_modules/') ||
+      normalizedId.includes('/packages/utils/src/')
+    ) {
+      return 'startup-shared';
+    }
+
     return 'startup-app';
   }
 
@@ -1002,14 +1062,24 @@ function deferEntryAssetsPlugin(): Plugin {
 // 检测是否在 watch 模式下运行（命令行包含 --watch）
 const isWatchMode = process.argv.includes('--watch');
 const isServeMode = process.argv.includes('serve');
-const reactNodeEnv = isWatchMode || isServeMode ? 'development' : 'production';
+const reactNodeEnv =
+  isWatchMode || isServeMode || process.env.NODE_ENV === 'test'
+    ? 'development'
+    : 'production';
 
 export default defineConfig({
   root: __dirname,
   cacheDir: '../../node_modules/.vite/apps/web',
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['./src/test-setup.ts'],
+  },
 
-  // 使用相对路径，静态资源全部走自建服务器，SW 只负责缓存
-  base: process.env.VITE_BASE_URL || './',
+  // The public application is an SPA mounted at the origin root. Absolute
+  // asset URLs keep direct visits and refreshes on nested routes working.
+  base: process.env.VITE_BASE_URL || '/',
 
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
@@ -1035,6 +1105,10 @@ export default defineConfig({
     // dev 代理：让图片提交请求在本地开发环境按同源方式携带 X-Request-Id
     // 只允许固定 Tuzi 节点，保留原 Token、计费和权限域。
     proxy: {
+      '/api': {
+        target: process.env.OPENTU_DEV_API_URL || 'http://127.0.0.1:3101',
+        changeOrigin: false,
+      },
       '/__opentu_tuzi_proxy__/api/': {
         target: 'https://api.tu-zi.com',
         changeOrigin: true,
@@ -1102,6 +1176,41 @@ export default defineConfig({
   resolve: {
     alias: [
       ...diagramEngineAliases,
+      {
+        find: /^@drawnix\/drawnix$/,
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/drawnix/src/index.ts'
+        ),
+      },
+      {
+        find: /^@drawnix\/drawnix\/runtime$/,
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/drawnix/src/runtime.ts'
+        ),
+      },
+      {
+        find: /^@drawnix\/drawnix\/ui-events$/,
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/drawnix/src/services/ai-input-ui-events.ts'
+        ),
+      },
+      {
+        find: /^@drawnix\/drawnix\/task-queue$/,
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/drawnix/src/services/task-queue/index.ts'
+        ),
+      },
+      {
+        find: /^@drawnix\/drawnix\/task-types$/,
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/drawnix/src/task-types.ts'
+        ),
+      },
       {
         find: /^tdesign-react$/,
         replacement: path.resolve(
