@@ -364,10 +364,27 @@ describe('Media Executor Module', () => {
       );
     }, 15000);
 
-    it('passes remote references through Tuzi JSON image requests without browser fetch', async () => {
+    it.each([
+      {
+        label: 'unmasked remote references',
+        referenceImage: 'https://apioss28.sydney-ai.com/img/generated-reference.png',
+        maskImage: undefined,
+      },
+      {
+        label: 'masked local references',
+        referenceImage: '/asset-library/source.png',
+        maskImage: '/__aitu_cache__/image/ai-mask.png',
+      },
+      {
+        label: 'masked inline references',
+        referenceImage: 'data:image/png;base64,' + 'AAAA'.repeat(400_000),
+        maskImage: 'data:image/png;base64,mask',
+      },
+    ])('preserves $label for the Tuzi adapter without reference compression', async ({ referenceImage, maskImage }) => {
       const getImageForAI = vi.fn();
+      const startLLMApiLog = vi.fn(() => 'log-id');
       vi.doMock('../media-executor/llm-api-logger', () => ({
-        startLLMApiLog: vi.fn(() => 'log-id'),
+        startLLMApiLog,
         completeLLMApiLog: vi.fn(),
         failLLMApiLog: vi.fn(),
       }));
@@ -419,21 +436,22 @@ describe('Media Executor Module', () => {
           format: 'png',
         })),
       };
-      const remoteReference =
-        'https://apioss28.sydney-ai.com/img/generated-reference.png';
-
       await executeImageViaAdapter('task-remote-reference', adapter, {
         prompt: 'Edit this',
         model: 'gpt-image-2',
-        referenceImages: [remoteReference],
+        referenceImages: [referenceImage],
         generationMode: 'image_edit',
+        maskImage,
       });
 
       expect(adapter.generateImage).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.objectContaining({ referenceImages: [remoteReference] })
+        expect.objectContaining({ referenceImages: [referenceImage], maskImage })
       );
       expect(getImageForAI).not.toHaveBeenCalled();
+      expect(startLLMApiLog).toHaveBeenCalledWith(expect.objectContaining({
+        endpoint: maskImage ? '/images/edits' : '/images/generations',
+      }));
     }, 15000);
 
     it('uses the local task ID for direct image submissions', async () => {

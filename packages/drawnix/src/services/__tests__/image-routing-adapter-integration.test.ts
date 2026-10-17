@@ -106,7 +106,7 @@ describe('image routing to default registered adapters', () => {
     );
   });
 
-  it.each(['gpt-image2-vip', 'gpt-image2'])(
+  it.each(['gpt-image2-vip', 'gpt-image2', 'image-2.5'])(
     'routes the GPT Image 2 alias %s to the Tuzi adapter',
     (modelId) => {
       const binding = firstImageBinding(tuziProfile, {
@@ -310,6 +310,73 @@ describe('image routing to default registered adapters', () => {
     const adapter = resolveAdapterForInvocation('image', 'gpt-image-2', null);
 
     expect(adapter?.id).toBe('tuzi-gpt-image-adapter');
+  });
+
+  it.each(['/images/generations', '/images/edits'])(
+    'submits a masked Tuzi edit through provider transport despite the %s binding',
+    async (submitPath) => {
+      const binding = imageBindingBySchema(tuziProfile, {
+        id: 'gpt-image-2', label: 'GPT Image 2', type: 'image', vendor: ModelVendor.GPT,
+      }, 'tuzi.image.gpt-edit-json');
+      binding.submitPath = submitPath;
+      const adapter = resolveAdapterForBinding(binding, 'image') as ImageModelAdapter;
+      const controller = new AbortController();
+      const onSubmissionAttempt = vi.fn();
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+        data: [{ url: 'https://example.com/edited.png', width: 1024, height: 1024 }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+      const result = await adapter.generateImage({
+        baseUrl: 'https://api.tu-zi.com/v1', apiKey: 'test-key', authType: 'bearer',
+        operation: 'image', requestId: 'masked-edit-1', signal: controller.signal,
+        binding, fetcher, onSubmissionAttempt,
+      }, {
+        model: 'gpt-image-2', prompt: 'Replace the masked region',
+        generationMode: 'image_edit', referenceImages: [png], maskImage: png,
+      });
+      expect(onSubmissionAttempt).toHaveBeenCalledOnce();
+      expect(fetcher).toHaveBeenCalledOnce();
+      const [url, init] = fetcher.mock.calls[0];
+      expect(url).toBe('https://api.tu-zi.com/v1/images/edits');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe('Bearer test-key');
+      expect(headers.get('X-Request-Id')).toBe('masked-edit-1');
+      expect(headers.has('Content-Type')).toBe(false);
+      expect(init?.signal?.aborted).toBe(false);
+      const form = init?.body as FormData;
+      expect(form).toBeInstanceOf(FormData);
+      expect(form.get('model')).toBe('gpt-image-2');
+      expect(form.getAll('image[]')).toHaveLength(1);
+      expect(form.get('image[]')).toBeInstanceOf(Blob);
+      expect(form.get('mask')).toBeInstanceOf(Blob);
+      expect(result.url).toBe('https://example.com/edited.png');
+    }
+  );
+
+  it('routes the exact Tuzi image-2.5 ID to multipart edits without changing its model ID', async () => {
+    const binding = imageBindingBySchema(tuziProfile, {
+      id: 'image-2.5', label: 'image-2.5', type: 'image', vendor: ModelVendor.GPT,
+    }, 'tuzi.image.gpt-edit-json');
+    const adapter = resolveAdapterForBinding(binding, 'image') as ImageModelAdapter;
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ url: 'https://example.com/edit.png', width: 1024, height: 1024 }],
+    }), { status: 200 }));
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+    await adapter.generateImage({
+      baseUrl: tuziProfile.baseUrl, apiKey: 'test-key', binding, fetcher,
+    }, { model: 'image-2.5', prompt: 'Edit cup', referenceImages: [png], maskImage: png });
+    expect(adapter.id).toBe('tuzi-gpt-image-adapter');
+    expect(fetcher.mock.calls[0]?.[0]).toBe('https://api.tu-zi.com/v1/images/edits');
+    const form = fetcher.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.get('model')).toBe('image-2.5');
+    expect(form.get('mask')).toBeInstanceOf(Blob);
+  });
+
+  it('does not apply the Tuzi image-2.5 alias to another provider', () => {
+    const binding = firstImageBinding(openaiProfile, {
+      id: 'image-2.5', label: 'image-2.5', type: 'image', vendor: ModelVendor.GPT,
+    });
+    expect(binding.requestSchema).toBe('openai.image.basic-json');
   });
 
   it('keeps generic non-GPT OpenAI-compatible image models on the default adapter', () => {

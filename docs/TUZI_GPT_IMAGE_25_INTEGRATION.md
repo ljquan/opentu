@@ -32,7 +32,7 @@ Sunburst 面向最高生成与编辑精度，Flare 面向高质量、低延迟�
 
 Image 2.5 的五个模型在基础参数下方提供“高级功能”开关，默认关闭，Image 2 与其他模型不显示。开启后展示输出格式、压缩质量、内容审核和用户标识及说明；关闭会清除这些高级参数。未设置高级参数时不额外发送默认值。压缩质量只发送给 JPEG/WebP，PNG 忽略该字段；透明背景与 JPEG 冲突时在提交前报错。当前不开放流式与阶段图片控件，因为图片结果解析尚未支持 SSE。
 
-Tuzi generations 请求另支持客户端传递 `output_format`（png/jpeg/webp）、`output_compression`（0–100）、`moderation`（auto/low）和 `user`。工作流原生参数面板提供对应控件；任务显式 `outputFormat`、`outputCompression` 优先于 params 字段，未设置或非法值不发送，压缩值 0 保留。base64 响应按请求的输出格式解析，服务端返回的格式信息优先。是否实际生效取决于 Tuzi 渠道，不保证所有模型支持。不增加 stream、partial_images、mask 或 input_fidelity。
+Tuzi generations 请求另支持客户端传递 `output_format`（png/jpeg/webp）、`output_compression`（0–100）、`moderation`（auto/low）和 `user`。工作流原生参数面板提供对应控件；任务显式 `outputFormat`、`outputCompression` 优先于 params 字段，未设置或非法值不发送，压缩值 0 保留。base64 响应按请求的输出格式解析，服务端返回的格式信息优先。是否实际生效取决于 Tuzi 渠道，不保证所有模型支持。不增加 stream、partial_images；蒙版编辑另使用下述 multipart 协议。
 
 GPT Image 2.5 的参数菜单提供“图片背景”：自动（`auto`，默认）、透明（`transparent`）、不透明（`opaque`）。GPT Image 2 仅提供自动和不透明；其余图片模型不显示此参数。
 
@@ -92,9 +92,15 @@ Image 2 的限制按模型 ID 家族匹配，覆盖 `gpt-image-2-*`、`gpt-image
 Tuzi 的 Image 2 普通、VIP 及上述别名现在也支持自动比例保留所选 K 档：发送 `size: "auto"` 与 `generationConfig.imageConfig.imageSize: "1K" / "2K" / "4K"`，生成和编辑一致。此扩展与 Image 2.5 四个扩展型号共用逻辑；固定 `gpt-image-2-1k`、`gpt-image-2.5-1k` 和官方适配器不变。实际渠道接受、出图尺寸和计费仍需服务端验证。
 
 - 官方 OpenAI Provider 使用 `/v1/images/generations` 和 `/v1/images/edits`。
-- Tuzi Provider 复用现有 `tuzi-gpt-image` JSON 适配器，不新增 Token、数据库或代理层。
+- Tuzi Provider 使用 `tuzi-gpt-image` 适配器：带 `maskImage` 时发送 multipart `/v1/images/edits`，原图字段为 `image[]`、蒙版字段为 `mask`，可传 `input_fidelity`；无蒙版仍使用 JSON `/v1/images/generations`。不新增 Token、数据库或代理层。
 - 运行时模型列表即使把上述模型错误标成文本，OpenTu 仍以静态目录的图片类型为准。
 - 价格继续读取 Provider 返回的数据，OpenTu 不维护重复价格表。
+
+蒙版画笔默认表示要编辑的区域，导出为 PNG 的透明区域；非透明区域表示保留。蒙版按实际原图像素尺寸导出，不使用画布显示尺寸；本地虚拟图片从原始缓存 Blob 读取，读取或解码失败时阻止提交。超限时原图与蒙版同步缩放。旧任务保留历史蒙版，修复后需从画布重新提交。尺寸修复及验证边界见 [蒙版编辑 QA](qa-tuzi-gpt-image-mask-edit.md)。2026-10-13 使用尺寸一致、左侧透明的原图与蒙版直接调用 Tuzi edits，接口返回 HTTP 200，但改变了后方杯子而非左侧杯子。当前客户端请求适配已覆盖，供应商局部编辑效果未通过验收；仍需通过服务端日志区分网关蒙版透传与上游执行问题。
+
+蒙版读取与任务栏是否跟随图片无关，关闭跟随后按参考图生成也会携带蒙版；凭据流程恢复时保留已导出的蒙版。新蒙版笔迹保存所属图片 ID，单独移动、缩放图片时笔迹同步，删除图片时删除所属笔迹，撤销/重做一起恢复。旧笔迹仅在与一张图片唯一重叠时自动关联；已经移开的历史笔迹需要重新对齐或重画。当前仍不支持旋转和 3D 图片蒙版编辑。
+
+选中带蒙版的图片时，输入框缩略图和悬停预览按既有样式配对展示原图与蒙版，便于确认局部编辑区域。预览不修改源图；提交时重新读取最新笔迹。删除笔迹或切换图片会清除旧蒙版预览。
 
 ## Provider 配置
 

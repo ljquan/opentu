@@ -14,6 +14,7 @@ import {
 } from '../workflow-converter';
 import type { ParsedGenerationParams } from '../../../utils/ai-input-parser';
 import type { CanvasAssociationRef } from '../../../types/task.types';
+import { buildBoundTargetGenerationParams } from '../target-bound-taskbar-state';
 import { initializeMCP } from '../../../mcp';
 
 vi.hoisted(() => {
@@ -321,6 +322,22 @@ describe('workflow-converter', () => {
           referenceImages: ['https://example.com/source.png'],
           generationMode: 'image_edit',
           maskImage: '/__aitu_cache__/image/mask.png',
+        });
+      });
+
+      it('绑定图片编辑参数不会将蒙版模式覆盖为普通图生图', () => {
+        const extraParams = buildBoundTargetGenerationParams({
+          elementId: 'cup-image', prompt: '陶瓷杯',
+        }, 1, { url: '/source-resized.png', maskImage: '/mask.png' });
+        const params = createMockParams({
+          modelId: 'image-2.5', generationType: 'image', prompt: '把杯子改为红色',
+          extraParams: extraParams || {},
+        });
+        const workflow = convertDirectGenerationToWorkflow(params, ['/original.png']);
+        expect(workflow.steps[0].args).toMatchObject({
+          model: 'image-2.5', generationMode: 'image_edit',
+          referenceImages: ['/source-resized.png'], maskImage: '/mask.png',
+          replaceElementId: 'cup-image', targetElementId: 'cup-image',
         });
       });
 

@@ -1218,6 +1218,30 @@ export const extractSelectedContent = (board: PlaitBoard): ExtractedContent => {
   };
 };
 
+export async function getImageMaskEditForAI(
+  board: PlaitBoard,
+  imageElementId: string
+): Promise<{
+  url: string;
+  maskImage: string;
+  width?: number;
+  height?: number;
+} | null> {
+  const image = board.children.find((element) => element.id === imageElementId);
+  if (
+    !isMaskBrushEligibleImage(image) ||
+    findMaskBrushesForImage(board, image).length === 0
+  ) {
+    return null;
+  }
+
+  const content = await processSelectedContentForAI(board, [imageElementId]);
+  if (!content.maskImage || content.remainingImages.length !== 1) {
+    throw new Error('蒙版生成失败，请重新选择图片和蒙版后再提交');
+  }
+  return { ...content.remainingImages[0], maskImage: content.maskImage };
+}
+
 /**
  * Process selected elements according to new AI image generation rules
  * This implements the logic for handling graphics elements with overlap detection
@@ -1380,7 +1404,16 @@ export const processSelectedContentForAI = async (
       });
     } catch (error) {
       console.warn('[selection-utils] Failed to export AI mask brush:', error);
+      throw new Error('蒙版生成失败，请重新加载原图后再提交');
     }
+  }
+
+  if (maskImage && maskExportInfo && imagesWithDimensions.length === 1) {
+    imagesWithDimensions[0] = {
+      ...imagesWithDimensions[0],
+      width: maskExportInfo.naturalWidth,
+      height: maskExportInfo.naturalHeight,
+    };
   }
 
   if (
@@ -1402,11 +1435,7 @@ export const processSelectedContentForAI = async (
         height: maskExportInfo.height,
       };
     } else {
-      console.warn(
-        '[selection-utils] Failed to resize AI mask reference image'
-      );
-      maskImage = undefined;
-      maskExportInfo = undefined;
+      throw new Error('蒙版原图缩放失败，请重新加载原图后再提交');
     }
   }
 

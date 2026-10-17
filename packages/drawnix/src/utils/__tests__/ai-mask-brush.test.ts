@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMaskStrokeCommands,
   exportImageMaskFromBrushes,
@@ -11,13 +11,25 @@ import { FreehandShape } from '../../plugins/freehand/type';
 
 const mocks = vi.hoisted(() => ({
   cacheMediaFromBlob: vi.fn(async (url: string) => url),
+  getCachedBlob: vi.fn(),
+  getImageNaturalSize: vi.fn(),
 }));
 
 vi.mock('../../services/unified-cache-service', () => ({
   unifiedCacheService: {
     cacheMediaFromBlob: mocks.cacheMediaFromBlob,
+    getCachedBlob: mocks.getCachedBlob,
   },
 }));
+
+vi.mock('../image-natural-size', () => ({
+  getImageNaturalSize: mocks.getImageNaturalSize,
+}));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 function createMockCanvas(blobSize = 128) {
   const compositeOperations: GlobalCompositeOperation[] = [];
@@ -88,6 +100,71 @@ function maskElement(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ai-mask-brush', () => {
+  it('画布显示 400px 时按原始缓存的 1254px 导出并缩放左侧笔迹', async () => {
+    const blob = new Blob(['source'], { type: 'image/png' });
+    mocks.getCachedBlob.mockResolvedValueOnce(blob);
+    mocks.getImageNaturalSize.mockResolvedValueOnce({ width: 1254, height: 1254 });
+    const createObjectURL = vi.fn(() => 'blob:original-source');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const { canvas } = createMockCanvas();
+    const strokes: Array<{ points: unknown[]; strokeWidth: number }> = [];
+
+    await exportImageMaskFromBrushes({
+      imageElement: imageElement({
+        url: '/__aitu_cache__/image/source.png', width: 400, height: 400,
+        points: [[100, 200], [500, 600]],
+      }),
+      maskElements: [maskElement({ points: [[180, 360]], strokeWidth: 40 })],
+      createCanvas: (width, height) => Object.assign(canvas, { width, height }),
+      onDrawStroke: (command) => strokes.push(command),
+    });
+
+    expect(mocks.getCachedBlob).toHaveBeenCalledWith(
+      '/__aitu_cache__/image/source.png', { allowNetwork: false }
+    );
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(mocks.getImageNaturalSize).toHaveBeenCalledWith('blob:original-source', 0, 0);
+    expect([canvas.width, canvas.height]).toEqual([1254, 1254]);
+    expect(strokes[0].points).toEqual([[250.8, 501.6]]);
+    expect(strokes[0].strokeWidth).toBeCloseTo(125.4);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:original-source');
+  });
+
+  it('远程原图的像素尺寸也优先于画布尺寸', async () => {
+    mocks.getImageNaturalSize.mockResolvedValueOnce({ width: 1254, height: 1254 });
+    const { canvas } = createMockCanvas();
+    await exportImageMaskFromBrushes({
+      imageElement: imageElement({ width: 400, height: 400 }),
+      maskElements: [maskElement()],
+      createCanvas: (width, height) => Object.assign(canvas, { width, height }),
+    });
+    expect(mocks.getImageNaturalSize).toHaveBeenCalledWith('https://example.com/source.png', 0, 0);
+    expect([canvas.width, canvas.height]).toEqual([1254, 1254]);
+  });
+
+  it('原图无法解码时不回退到画布尺寸，且释放临时 URL', async () => {
+    mocks.getCachedBlob.mockResolvedValueOnce(new Blob(['broken']));
+    mocks.getImageNaturalSize.mockResolvedValueOnce({ width: 0, height: 0 });
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:broken', revokeObjectURL });
+    await expect(exportImageMaskFromBrushes({
+      imageElement: imageElement({ url: '/__aitu_cache__/image/broken.png', width: 400, height: 400 }),
+      maskElements: [maskElement()],
+    })).rejects.toThrow('像素尺寸');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:broken');
+    expect(mocks.cacheMediaFromBlob).not.toHaveBeenCalled();
+  });
+
+  it('原图缓存丢失时阻止导出', async () => {
+    mocks.getCachedBlob.mockResolvedValueOnce(null);
+    await expect(exportImageMaskFromBrushes({
+      imageElement: imageElement({ url: '/__aitu_cache__/image/missing.png', width: 400, height: 400 }),
+      maskElements: [maskElement()],
+    })).rejects.toThrow('缓存已失效');
+    expect(mocks.cacheMediaFromBlob).not.toHaveBeenCalled();
+  });
+
   it('按图片自然尺寸缩放蒙版笔迹坐标和线宽', () => {
     const commands = buildMaskStrokeCommands(
       imageElement(),

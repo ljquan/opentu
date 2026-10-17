@@ -46,7 +46,7 @@ import {
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
 import { ImageUploadIcon, MediaLibraryIcon } from '../icons';
 import { useBoard } from '@plait-board/react-board';
-import { SelectedContentPreview } from '../shared/SelectedContentPreview';
+import { BoundImageContentPreview } from './BoundImageContentPreview';
 import { PromptOptimizeButton } from '../shared/PromptOptimizeButton';
 import { KnowledgeNoteContextSelector } from '../shared/KnowledgeNoteContextSelector';
 import {
@@ -72,6 +72,7 @@ import {
   processSelectedContentForAI,
   scrollToPointIfNeeded,
 } from '../../utils/selection-utils';
+import { prepareImageMaskSubmission } from './image-mask-submission';
 import { useTextSelection } from '../../hooks/useTextSelection';
 import {
   useChatDrawerControl,
@@ -5409,6 +5410,18 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               return;
             }
           }
+          // A selected image is still the mask source when taskbar follow is disabled.
+          // Resolve before the credential handoff so the deferred request keeps the mask.
+          const maskSubmission = await prepareImageMaskSubmission(
+            submittedBoard,
+            activeBoundImageTarget || boundImageTarget,
+            effectiveGenerationType,
+            effectiveContent
+          );
+          if (abortIfSubmittedBoardChanged('mask_ready')) return;
+          effectiveContent = maskSubmission.content;
+          const boundImageMaskEdit = maskSubmission.maskEdit;
+
           const currentRouteType =
             effectiveGenerationType === 'video'
               ? 'video'
@@ -5557,7 +5570,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
                   activeBoundImageTarget,
-                  effectiveSelectedCount
+                  effectiveSelectedCount,
+                  boundImageMaskEdit
                 )
               : null;
           const semanticReplacement =
@@ -8083,7 +8097,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     const selectedContentPreview =
       displayContent.length > 0 ? (
-        <SelectedContentPreview
+        <BoundImageContentPreview
+          board={SelectionWatcherBoardRef.current}
+          target={boundImageTarget}
           items={displayContent}
           language={language}
           enableHoverPreview={true}

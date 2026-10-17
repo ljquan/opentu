@@ -15,6 +15,7 @@ import {
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import type {
   ImageGenerationRequest,
   ImageGenerationResult,
@@ -235,11 +236,13 @@ function getBlobExtension(blob: Blob, source: string): string {
   return mimeExtension === 'bin' ? 'png' : mimeExtension;
 }
 
-async function imageInputToBlob(
+export async function imageInputToBlob(
   value: string,
   filenamePrefix: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<{ blob: Blob; filename: string }> {
+  signal?.throwIfAborted();
   const normalized = normalizeImageDataUrl(value, 'image/png');
 
   if (normalized.startsWith('data:')) {
@@ -250,7 +253,24 @@ async function imageInputToBlob(
     };
   }
 
-  const response = await fetcher(normalized);
+  if (isVirtualMediaUrl(normalized)) {
+    const { unifiedCacheService } = await import('../unified-cache-service');
+    const blob = await unifiedCacheService.getCachedBlob(normalized, {
+      allowNetwork: false,
+    });
+    signal?.throwIfAborted();
+    if (!blob) {
+      throw new Error('GPT Image 编辑图片读取失败: 本地图片缓存已失效');
+    }
+    return {
+      blob,
+      filename: `${filenamePrefix}.${getBlobExtension(blob, normalized)}`,
+    };
+  }
+
+  const response = await (signal
+    ? fetcher(normalized, { signal })
+    : fetcher(normalized));
   if (!response.ok) {
     throw new Error(
       `GPT Image 编辑图片读取失败: ${response.status} ${response.statusText}`

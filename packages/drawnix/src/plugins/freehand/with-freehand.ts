@@ -18,6 +18,7 @@ import {
 } from '@plait/draw';
 import { withFreehandErase } from './with-freehand-erase';
 import { withLaserPointer } from './with-laser-pointer';
+import { withImageMaskBinding } from './with-image-mask-binding';
 
 export const withFreehand = (board: PlaitBoard) => {
   const {
@@ -85,5 +86,5 @@ export const withFreehand = (board: PlaitBoard) => {
     { customGeometryTypes: [FREEHAND_TYPE] }
   );
 
-  return withLaserPointer(withFreehandResize(withFreehandErase(withFreehandFragment(withFreehandCreate(board)))));
+  return withImageMaskBinding(withLaserPointer(withFreehandResize(withFreehandErase(withFreehandFragment(withFreehandCreate(board))))));
 };

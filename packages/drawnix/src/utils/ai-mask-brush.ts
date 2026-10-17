@@ -7,6 +7,7 @@ import { getImageNaturalSize as loadImageNaturalSize } from './image-natural-siz
 import { isPlaitVideo } from '../interfaces/video';
 import { sanitizeImage3DTransform } from './image-3d-transform';
 import { unifiedCacheService } from '../services/unified-cache-service';
+import { isVirtualMediaUrl } from './virtual-media-url';
 
 export const MAX_AI_MASK_PIXELS = 16_777_216;
 export const MAX_AI_MASK_BYTES = 4 * 1024 * 1024;
@@ -88,6 +89,7 @@ export function findMaskBrushesForImage(
     if (
       !Freehand.isFreehand(element) ||
       element.shape !== FreehandShape.mask ||
+      (element.aiMaskTargetId && element.aiMaskTargetId !== imageElement.id) ||
       !hasRenderableMaskPoints(element)
     ) {
       return false;
@@ -105,28 +107,31 @@ async function resolveImageNaturalSize(
     return provided;
   }
 
-  const rect = RectangleClient.getRectangleByPoints(imageElement.points);
-  const fallback = getFiniteNaturalSize({
-    width: (imageElement as any).width || rect.width,
-    height: (imageElement as any).height || rect.height,
-  });
-
-  if (
-    imageElement.url &&
-    fallback &&
-    (!(imageElement as any).width || !(imageElement as any).height)
-  ) {
-    return loadImageNaturalSize(
-      imageElement.url,
-      fallback.width,
-      fallback.height
+  // Element width/height describe its canvas size, not the uploaded file's pixels.
+  // Virtual URLs can serve a preview (or an SPA fallback), so decode the original blob.
+  let sourceUrl = imageElement.url;
+  let objectUrl: string | undefined;
+  try {
+    if (isVirtualMediaUrl(sourceUrl)) {
+      const blob = await unifiedCacheService.getCachedBlob(sourceUrl, {
+        allowNetwork: false,
+      });
+      if (!blob) {
+        throw new Error('无法读取蒙版编辑原图，图片缓存已失效');
+      }
+      objectUrl = URL.createObjectURL(blob);
+      sourceUrl = objectUrl;
+    }
+    const size = getFiniteNaturalSize(
+      await loadImageNaturalSize(sourceUrl, 0, 0)
     );
+    if (!size) {
+      throw new Error('无法读取蒙版编辑原图的像素尺寸，请重新加载图片');
+    }
+    return size;
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
-
-  return getFiniteNaturalSize({
-    width: (imageElement as any).width || rect.width,
-    height: (imageElement as any).height || rect.height,
-  });
 }
 
 function createDefaultCanvas(width: number, height: number): HTMLCanvasElement {

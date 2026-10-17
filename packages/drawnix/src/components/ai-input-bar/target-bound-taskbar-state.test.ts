@@ -646,4 +646,14 @@ describe('target-bound-taskbar-state', () => {
       )
     ).toBeNull();
   });
+
+  it('绑定图片带蒙版时保留编辑模式、匹配原图和原位替换参数', () => {
+    expect(buildBoundTargetGenerationParams({
+      elementId: 'image-a', prompt: '旧提示词', generationTaskId: 'old-task',
+    }, 1, { url: '/asset-library/source.png', maskImage: '/__aitu_cache__/mask.png' })).toMatchObject({
+      generationMode: 'image_edit', replaceElementId: 'image-a',
+      targetElementId: 'image-a', sourceTaskId: 'old-task',
+      referenceImages: ['/asset-library/source.png'], maskImage: '/__aitu_cache__/mask.png',
+    });
+  });
 });

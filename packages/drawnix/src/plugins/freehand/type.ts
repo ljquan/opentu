@@ -52,6 +52,8 @@ export interface PressurePoint {
 }
 
 export type Freehand = PlaitCustomGeometry<typeof FREEHAND_TYPE, Point[], FreehandShape> & {
+  /** Image owning this mask stroke; geometry remains in board coordinates. */
+  aiMaskTargetId?: string;
   /** 压力数据（与 points 一一对应） */
   pressures?: number[];
   /** 基准线宽 */

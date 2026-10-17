@@ -13,6 +13,13 @@ export function isTuziGPTImageLegacyAlias(modelId?: string | null): boolean {
   );
 }
 
+export function isTuziGPTImageAlias(modelId?: string | null): boolean {
+  return (
+    isTuziGPTImageLegacyAlias(modelId) ||
+    modelId?.trim().toLowerCase() === 'image-2.5'
+  );
+}
+
 export function normalizeTuziGPTImageModelId(
   modelId?: string | null
 ): string | undefined {

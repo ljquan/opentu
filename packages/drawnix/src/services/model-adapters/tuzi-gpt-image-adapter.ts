@@ -4,6 +4,7 @@ import {
   resolveOfficialGPTImageSize,
 } from './image-size-quality-resolver';
 import {
+  imageInputToBlob,
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
@@ -228,6 +229,70 @@ export function buildTuziGPTImageRequestBody(
   return body;
 }
 
+function getTuziMaskImage(request: ImageGenerationRequest): string | undefined {
+  return (
+    getStringFieldOrParam(request.maskImage, request.params, 'maskImage') ||
+    getStringParam(request.params, 'mask_image')
+  );
+}
+
+export async function buildTuziGPTImageEditFormData(
+  request: ImageGenerationRequest,
+  bindingModelId?: string | null,
+  fetcher?: typeof fetch,
+  signal?: AbortSignal
+): Promise<FormData> {
+  const referenceImages = request.referenceImages || [];
+  const maskImage = getTuziMaskImage(request);
+  if (referenceImages.length === 0) {
+    throw new Error('Tuzi GPT Image 编辑请求缺少参考图片');
+  }
+  if (!maskImage) {
+    throw new Error('Tuzi GPT Image 编辑请求缺少蒙版');
+  }
+
+  // Retain Tuzi size/quality semantics while replacing JSON references with files.
+  const { image: _image, ...fields } = buildTuziGPTImageRequestBody(
+    request,
+    bindingModelId
+  );
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    formData.append(
+      key,
+      typeof value === 'object' ? JSON.stringify(value) : String(value)
+    );
+  }
+
+  const inputFidelity = getStringFieldOrParam(
+    request.inputFidelity,
+    request.params,
+    'input_fidelity'
+  );
+  if (inputFidelity === 'high' || inputFidelity === 'low') {
+    formData.append('input_fidelity', inputFidelity);
+  }
+
+  for (const [index, referenceImage] of referenceImages.entries()) {
+    const { blob, filename } = await imageInputToBlob(
+      referenceImage,
+      `image-${index + 1}`,
+      fetcher,
+      signal
+    );
+    formData.append('image[]', blob, filename);
+  }
+  const { blob, filename } = await imageInputToBlob(
+    maskImage,
+    'mask',
+    fetcher,
+    signal
+  );
+  formData.append('mask', blob, filename);
+  signal?.throwIfAborted();
+  return formData;
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   const rawText = await readProviderResponseText(response).catch(() => '');
   const data = rawText
@@ -267,18 +332,10 @@ async function readErrorMessage(response: Response): Promise<string> {
   }`;
 }
 
-function resolveTuziGPTImagePath(context: {
-  binding?: { submitPath?: string } | null;
-}): string {
-  const submitPath = context.binding?.submitPath?.trim();
-  if (submitPath && /\/images\/generations\/?$/i.test(submitPath)) {
-    return '/images/generations';
-  }
-
-  // Tuzi's simplified GPT Image JSON schema uses the generations endpoint
-  // for both text-to-image and reference-image requests. Old persisted
-  // bindings can still point at the official multipart edits endpoint.
-  return '/images/generations';
+export function getTuziGPTImageRequestPath(
+  request: ImageGenerationRequest
+): string {
+  return getTuziMaskImage(request) ? '/images/edits' : '/images/generations';
 }
 
 export const tuziGPTImageAdapter: ImageModelAdapter = {
@@ -294,16 +351,27 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   async generateImage(context, request) {
     const requestModel =
       context.binding?.modelId || request.modelRef?.modelId || request.model;
-    const sendRequest = (modelId?: string | null) =>
-      sendAdapterRequest(context, {
-        path: resolveTuziGPTImagePath(context),
+    const path = getTuziGPTImageRequestPath(request);
+    const isEditRequest = path === '/images/edits';
+    const sendRequest = async (modelId?: string | null) => {
+      const body = isEditRequest
+        ? await buildTuziGPTImageEditFormData(
+            request,
+            modelId,
+            context.fetcher,
+            context.signal
+          )
+        : JSON.stringify(buildTuziGPTImageRequestBody(request, modelId));
+      return sendAdapterRequest(context, {
+        path,
         baseUrlStrategy: 'ensure-v1',
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(buildTuziGPTImageRequestBody(request, modelId)),
+        headers: isEditRequest
+          ? undefined
+          : { 'Content-Type': 'application/json' },
+        body,
       });
+    };
     let response = await sendRequest(requestModel);
 
     if (await shouldRetryTuziGPTImageAlias(response, requestModel)) {

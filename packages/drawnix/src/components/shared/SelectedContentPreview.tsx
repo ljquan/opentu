@@ -33,12 +33,7 @@ export interface SelectedContentPreviewProps {
 }
 
 interface HoveredContent {
-  type: SelectedContentItem['type'];
-  url?: string;
-  maskImage?: string;
-  width?: number;
-  height?: number;
-  text?: string;
+  index: number;
   x: number;
   y: number;
 }
@@ -99,24 +94,25 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
   onRemove,
   removableStartIndex = 0,
 }) => {
-  const [hoveredContent, setHoveredContent] = useState<HoveredContent | null>(
+  const [hoveredPosition, setHoveredContent] = useState<HoveredContent | null>(
     null
   );
+  const hoveredContent = hoveredPosition && items[hoveredPosition.index]
+    ? {
+        x: hoveredPosition.x,
+        y: hoveredPosition.y,
+        ...items[hoveredPosition.index],
+      } : null;
 
   // Handle content hover for preview
   const handleContentMouseEnter = useCallback(
-    (item: SelectedContentItem, e: React.MouseEvent<HTMLDivElement>) => {
+    (index: number, e: React.MouseEvent<HTMLDivElement>) => {
       if (!enableHoverPreview) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
       const topY = rect.top - 10;
       setHoveredContent({
-        type: item.type,
-        url: item.url,
-        maskImage: item.maskImage,
-        width: item.width,
-        height: item.height,
-        text: item.text,
+        index,
         x: centerX,
         y: topY,
       });
@@ -199,7 +195,7 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
             <div
               key={`${item.type}-${index}`}
               className={`selected-content-preview__item selected-content-preview__item--${item.type}`}
-              onMouseEnter={(e) => handleContentMouseEnter(item, e)}
+              onMouseEnter={(e) => handleContentMouseEnter(index, e)}
               onMouseLeave={handleContentMouseLeave}
             >
               {/* Render based on content type */}

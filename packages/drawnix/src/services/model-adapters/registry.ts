@@ -10,6 +10,7 @@ import {
   type ProviderModelBinding,
 } from '../provider-routing';
 import { isTuziCompatibleBaseUrl } from '../provider-routing/tuzi-api-endpoints';
+import { isTuziGPTImageAlias } from './image-request-schemas';
 
 const adapterRegistry = new Map<string, ModelAdapter>();
 
@@ -150,7 +151,7 @@ function resolveGPTImageAdapterForLegacyRoute(
   modelId?: string | null,
   modelRef?: ModelRef | null
 ): ModelAdapter | undefined {
-  if (!isGPTImageModel(modelId)) {
+  if (!isGPTImageModel(modelId) && !isTuziGPTImageAlias(modelId)) {
     return undefined;
   }
 
@@ -159,7 +160,9 @@ function resolveGPTImageAdapterForLegacyRoute(
     return findImageAdapterBySchema('tuzi.image.gpt-generation-json');
   }
 
-  return findImageAdapterBySchema('openai.image.gpt-generation-json');
+  return isGPTImageModel(modelId)
+    ? findImageAdapterBySchema('openai.image.gpt-generation-json')
+    : undefined;
 }
 
 export function resolveAdapterForInvocation(

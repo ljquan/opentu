@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractImagesFromElementForAI,
   extractTextFromElement,
+  getImageMaskEditForAI,
   getImageTransformPromptContext,
   isGraphicsElement,
   processSelectedContentForAI,
@@ -10,14 +11,35 @@ import { FreehandShape } from '../../plugins/freehand/type';
 
 const mocks = vi.hoisted(() => ({
   cacheMediaFromBlob: vi.fn(async (url: string) => url),
+  getCachedBlob: vi.fn(),
+  getImageNaturalSize: vi.fn(),
 }));
 
 vi.mock('../../services/unified-cache-service', () => ({
   unifiedCacheService: {
     cacheMediaFromBlob: mocks.cacheMediaFromBlob,
+    getCachedBlob: mocks.getCachedBlob,
     getImageForAI: vi.fn(),
   },
 }));
+
+vi.mock('../image-natural-size', () => ({
+  getImageNaturalSize: mocks.getImageNaturalSize,
+}));
+
+beforeEach(() => {
+  mocks.getCachedBlob.mockResolvedValue(new Blob(['source'], { type: 'image/png' }));
+  mocks.getImageNaturalSize.mockResolvedValue({ width: 100, height: 50 });
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:source'),
+    revokeObjectURL: vi.fn(),
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 function createMockMaskCanvas() {
   const context = {
@@ -115,6 +137,87 @@ describe('selection-utils', () => {
   });
 
   describe('extractImagesFromElementForAI', () => {
+    it('绑定蒙版任务保留原图 URL 并使用实际像素尺寸', async () => {
+      mocks.getImageNaturalSize.mockResolvedValueOnce({ width: 1254, height: 1254 });
+      const originalCreateElement = document.createElement.bind(document);
+      const canvas = createMockMaskCanvas();
+      vi.spyOn(document, 'createElement').mockImplementation((tag) =>
+        tag === 'canvas' ? canvas as unknown as HTMLElement : originalCreateElement(tag)
+      );
+      const image = {
+        id: 'cups', type: 'image', url: '/__aitu_cache__/image/cups.png',
+        width: 400, height: 400, points: [[0, 0], [400, 400]],
+      };
+      const mask = {
+        id: 'left-cup', type: 'freehand', shape: FreehandShape.mask,
+        points: [[80, 160]], strokeWidth: 40,
+      };
+      const result = await getImageMaskEditForAI({ children: [image, mask] } as any, image.id);
+      expect(result).toMatchObject({ url: image.url, width: 1254, height: 1254 });
+      expect(result?.maskImage).toBeTruthy();
+      expect([canvas.width, canvas.height]).toEqual([1254, 1254]);
+    });
+
+    it('普通选区读取原图失败时也阻止提交，不能丢弃蒙版后继续生成', async () => {
+      mocks.getImageNaturalSize.mockResolvedValueOnce({ width: 0, height: 0 });
+      const image = {
+        id: 'cups', type: 'image', url: 'https://example.com/cups.png',
+        width: 400, height: 400, points: [[0, 0], [400, 400]],
+      };
+      const mask = {
+        id: 'left-cup', type: 'freehand', shape: FreehandShape.mask,
+        points: [[80, 160]], strokeWidth: 40,
+      };
+      await expect(processSelectedContentForAI({ children: [image, mask] } as any, [image.id]))
+        .rejects.toThrow('蒙版生成失败');
+    });
+
+    it.each([false, true])(
+      '绑定图片提交时从当前画笔导出蒙版（导出失败：%s）',
+      async (failExport) => {
+        const createElement = document.createElement.bind(document);
+        vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+          if (tagName !== 'canvas') return createElement(tagName);
+          const canvas = createMockMaskCanvas();
+          if (failExport) {
+            canvas.toBlob = (callback) => callback(null);
+          }
+          return canvas as unknown as HTMLElement;
+        });
+        const image = {
+          id: 'bound-image', type: 'image', url: '/asset-library/source.png',
+          width: 100, height: 50, angle: 0,
+          points: [[0, 0], [100, 50]],
+        };
+        const mask = {
+          id: 'mask', type: 'freehand', shape: FreehandShape.mask,
+          points: [[10, 10], [40, 20]], strokeWidth: 8,
+        };
+        const board = { children: [image, mask] };
+        try {
+          const result = getImageMaskEditForAI(board as any, image.id);
+          if (failExport) {
+            await expect(result).rejects.toThrow('蒙版生成失败');
+          } else {
+            await expect(result).resolves.toMatchObject({
+              url: image.url, maskImage: expect.stringMatching(/^\/__aitu_cache__\/image\/ai-mask-/),
+              width: 100, height: 50,
+            });
+          }
+        } finally {
+          vi.restoreAllMocks();
+        }
+      }
+    );
+
+    it('没有蒙版的绑定图片保留普通参考图提交方式', async () => {
+      const image = {
+        id: 'bound-image', type: 'image', url: '/asset-library/source.png',
+        width: 100, height: 50, angle: 0, points: [[0, 0], [100, 50]],
+      };
+      await expect(getImageMaskEditForAI({ children: [image] } as any, image.id)).resolves.toBeNull();
+    });
+
     it('单选图片时应该导出相交的蒙版画笔', async () => {
       const createElement = document.createElement.bind(document);
       vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
