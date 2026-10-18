@@ -10,6 +10,8 @@ export interface PricingGroupPrice {
 
 /** tuzi-api /api/pricing 响应中的模型信息 */
 export interface PricingEndpointInfo {
+  transport?: string;
+  async?: boolean;
   docs?: string;
   label?: string;
   method?: string;

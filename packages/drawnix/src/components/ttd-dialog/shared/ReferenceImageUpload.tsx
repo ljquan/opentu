@@ -30,6 +30,7 @@ import {
 } from '../../../types/asset.types';
 import { useAssets } from '../../../contexts/AssetContext';
 import { unifiedCacheService } from '../../../services/unified-cache-service';
+import { readKeepOriginalImageEnabled } from '../../../services/reference-image-settings';
 import './ReferenceImageUpload.scss';
 
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -153,6 +154,7 @@ export const ReferenceImageUpload = forwardRef<
 
   const assetToReferenceImage = useCallback(
     async (asset: Asset): Promise<ReferenceImage> => {
+      const keepOriginal = readKeepOriginalImageEnabled();
       if (asset.type !== AssetType.IMAGE) {
         throw new Error(`Asset is not an image: ${asset.name}`);
       }
@@ -197,7 +199,7 @@ export const ReferenceImageUpload = forwardRef<
         throw new Error(`Asset exceeds 25MB limit: ${asset.name}`);
       }
 
-      if (blob.size > COMPRESSION_THRESHOLD_BYTES) {
+      if (!keepOriginal && blob.size > COMPRESSION_THRESHOLD_BYTES) {
         const { compressImageBlob, getCompressionStrategy } = await import(
           '@aitu/utils'
         );
@@ -290,6 +292,7 @@ export const ReferenceImageUpload = forwardRef<
   // Handle file upload
   const handleFiles = useCallback(
     async (files: FileList | File[], targetSlot?: number) => {
+      const keepOriginal = readKeepOriginalImageEnabled();
       const fileArray = Array.from(files);
       const validFiles = fileArray.filter(validateFile);
 
@@ -324,7 +327,7 @@ export const ReferenceImageUpload = forwardRef<
           let fileToAdd: Blob = file;
 
           // Compress if file is 10-25MB
-          if (file.size > COMPRESSION_THRESHOLD_BYTES) {
+          if (!keepOriginal && file.size > COMPRESSION_THRESHOLD_BYTES) {
             const { compressImageBlob, getCompressionStrategy } = await import(
               '@aitu/utils'
             );

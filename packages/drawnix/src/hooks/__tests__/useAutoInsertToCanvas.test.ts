@@ -3521,22 +3521,31 @@ describe('useAutoInsertToCanvas', () => {
     );
   });
 
-  it('regenerates a completed task when generation anchor retry follows failed post-processing', async () => {
+  it.each([true, false])('retries only insertion after generation succeeded, insertion succeeds: %s', async (success) => {
     const task = createCompletedImageTask({
       id: 'task-post-processing-failed',
-      params: {
-        prompt: '重新生成一张图',
-        size: '1:1',
+      result: {
+        url: 'https://cdn.example.com/existing-result.png',
+        format: 'png',
+        size: 123,
       },
     });
     mocks.board = { children: [] };
-    mocks.taskState.tasks = [task];
     mocks.getPostProcessingStatus.mockReturnValue({
       taskId: task.id,
       status: 'failed',
       type: 'direct_insert',
       error: 'Failed to fetch',
     });
+    mocks.clearTask.mockImplementation(() => {
+      mocks.getPostProcessingStatus.mockReturnValue(undefined);
+    });
+    if (!success) {
+      mocks.quickInsert.mockResolvedValue({
+        success: false,
+        error: '图片加载失败',
+      });
+    }
 
     renderHook(() =>
       useAutoInsertToCanvas({
@@ -3545,6 +3554,9 @@ describe('useAutoInsertToCanvas', () => {
         groupTimeWindow: 10,
       })
     );
+
+    // Add the task after mounting so the explicit retry drives this test.
+    mocks.taskState.tasks = [task];
 
     act(() => {
       window.dispatchEvent(
@@ -3561,16 +3573,44 @@ describe('useAutoInsertToCanvas', () => {
       mocks.board,
       'anchor-post-processing-failed',
       expect.objectContaining({
-        phase: 'queued',
-        subtitle: '正在重新触发，请稍候',
+        phase: 'inserting',
+        subtitle: '图片已生成，正在重新加载并插入',
       })
     );
     expect(mocks.clearTask).toHaveBeenCalledWith(task.id);
-    expect(mocks.retryTask).toHaveBeenCalledWith(task.id, {
-      allowCompleted: true,
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
     });
-    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.retryTask).not.toHaveBeenCalled();
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.quickInsert.mock.calls[0][1]).toBe(task.result?.url);
     expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
+    expect(task.status).toBe(TaskStatus.COMPLETED);
+    if (success) {
+      expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
+    } else {
+      expect(mocks.failPostProcessing).toHaveBeenCalledWith(
+        task.id,
+        expect.stringContaining('图片加载失败')
+      );
+      expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([TaskStatus.FAILED, TaskStatus.CANCELLED])('retains generation retry for %s tasks', (status) => {
+    const task = createCompletedImageTask({ status, result: undefined });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+    renderHook(() => useAutoInsertToCanvas({ enabled: true }));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(IMAGE_GENERATION_ANCHOR_RETRY_EVENT, {
+        detail: { taskId: task.id },
+      }));
+    });
+
+    expect(mocks.retryTask).toHaveBeenCalledExactlyOnceWith(task.id);
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
   });
 
   it('keeps the failed state visible when retry task has been removed', async () => {

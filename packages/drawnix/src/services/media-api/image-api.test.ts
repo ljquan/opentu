@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseImageResponse } from './image-api';
+import { buildImageRequestBody, parseImageResponse } from './image-api';
 import { normalizeToClosestImageSize } from './utils';
 
 describe('parseImageResponse', () => {
@@ -43,4 +43,54 @@ describe('normalizeToClosestImageSize', () => {
     expect(normalizeToClosestImageSize('16:9', '1x1')).toBe('16x9');
     expect(normalizeToClosestImageSize('1024', '1x1')).toBe('1x1');
   });
+});
+
+describe('buildImageRequestBody', () => {
+  it.each(['16x9', '16:9'])('maps aspectRatio %s before legacy conversion', (aspectRatio) => {
+    expect(buildImageRequestBody({
+      model: 'gemini-3.1-flash-image-preview-4k', prompt: 'draw', aspectRatio,
+    })).toMatchObject({ size: '3840x2160', quality: '4k' });
+  });
+
+  it('preserves other providers and unspecified Gemini quality', () => {
+    for (const model of ['other-image-model', 'gemini-3.1-flash-image-preview']) {
+      expect(buildImageRequestBody({ model, prompt: 'draw', size: '16x9' }).size)
+        .toBe('1792x1024');
+    }
+    expect(JSON.parse(JSON.stringify(buildImageRequestBody({
+      model: 'gemini-3.1-flash-image-preview-4k', prompt: 'draw', size: 'auto',
+    })))).toEqual({ model: 'gemini-3.1-flash-image-preview-4k', prompt: 'draw', quality: '4k' });
+  });
+  it.each([
+    ['gemini-3.1-flash-image-preview-2k', '2k'],
+    ['gemini-3.1-flash-image-preview-4k', '4k'],
+    ['gemini-3-pro-image-preview-4k-vip', '4k'],
+  ])('preserves fixed %s quality when params omit quality', (model, quality) => {
+    expect(buildImageRequestBody({
+      model,
+      prompt: 'draw',
+      size: '16x9',
+    })).toMatchObject({ model, prompt: 'draw', size: quality === '2k' ? '2048x1152' : '3840x2160', quality });
+  });
+
+  it('prefers an explicit quality over the model suffix', () => {
+    expect(buildImageRequestBody({
+      model: 'gemini-3.1-flash-image-preview-4k',
+      prompt: 'draw',
+      quality: '2k',
+    }).quality).toBe('2k');
+  });
+
+  it.each([
+    ['2k', '2048x2048'],
+    ['4k', '4096x4096'],
+  ] as const)('maps a square request to the %s tier', (quality, size) => {
+    expect(buildImageRequestBody({
+      model: 'gemini-3.1-flash-image-preview',
+      prompt: 'draw',
+      size: '1x1',
+      quality,
+    })).toMatchObject({ size, quality });
+  });
+
 });

@@ -174,14 +174,14 @@ export function buildSunoLyricsPrompt(params: {
 }
 
 export function isSunoLyricsModel(modelId: string): boolean {
-  return /suno/i.test(modelId);
+  return modelId.startsWith('suno/') ? modelId === 'suno/lyrics' : /suno/i.test(modelId);
 }
 
 export function collectLyricsDraftModels(
   textModels: ModelConfig[],
   audioModels: ModelConfig[]
 ): ModelConfig[] {
-  const sunoLyricsModels = audioModels.filter((item) => /suno/i.test(item.id));
+  const sunoLyricsModels = audioModels.filter((item) => isSunoLyricsModel(item.id));
   const mergedModels: ModelConfig[] = [];
   const seenModelKeys = new Set<string>();
 

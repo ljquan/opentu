@@ -570,6 +570,27 @@ describe('workflow-converter', () => {
     });
 
     describe('音频生成场景', () => {
+      it.each(['suno/create-voice', 'suno/add-instrumental', 'suno/add-vocals'])('rejects excluded v2 model %s before building a workflow', (modelId) => {
+        expect(() => convertDirectGenerationToWorkflow(createMockParams({
+          generationType: 'audio', modelId, prompt: 'test', extraParams: { sunoV2Body: {} },
+        }))).toThrow('不可用');
+      });
+      it('forwards native v2 bodies without legacy Markdown transformation', () => {
+        const sunoV2Body = { custom: true, instrumental: false, prompt: '[Verse]\nHello', duration: 10 };
+        const sunoV2Resources = [{ id: 'm', kind: 'music_id', profileId: 'p' }];
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          generationType: 'audio', modelId: 'suno/music', prompt: '# Song\n标签: pop\n[Verse]\nHello',
+          extraParams: { sunoV2Body, sunoV2Resources },
+        }));
+        expect(workflow.steps[0].args).toMatchObject({
+          sunoAction: 'music', prompt: '# Song\n标签: pop\n[Verse]\nHello', params: { sunoV2Body, sunoV2Resources },
+        });
+        expect(workflow.steps[0].args.title).toBeUndefined();
+      });
+
+      it('rejects unavailable legacy aliases instead of sending a music request', () => {
+        expect(() => convertDirectGenerationToWorkflow(createMockParams({ generationType: 'audio', modelId: 'suno_persona_unknown' }))).toThrow('不可用');
+      });
       it('应该正确转换音频生成请求并保留工作流元数据', () => {
         const params = createMockParams({
           generationType: 'audio',

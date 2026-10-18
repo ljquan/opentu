@@ -18,6 +18,7 @@ import { MediaLibraryModal } from '../../media-library/MediaLibraryModal';
 import { SelectionMode, AssetType, AssetSource } from '../../../types/asset.types';
 import type { Asset } from '../../../types/asset.types';
 import { useAssets } from '../../../contexts/AssetContext';
+import { readKeepOriginalImageEnabled } from '../../../services/reference-image-settings';
 import './MultiImageUpload.scss';
 
 interface MultiImageUploadProps {
@@ -53,6 +54,7 @@ export const MultiImageUpload: React.FC<MultiImageUploadProps> = ({
 
   // Handle file upload for a specific slot
   const handleUpload = useCallback(async (slot: number, file: File) => {
+    const keepOriginal = readKeepOriginalImageEnabled();
     // Validate file type
     if (!file.type.startsWith('image/')) {
       MessagePlugin.error('请上传图片文件');
@@ -68,7 +70,7 @@ export const MultiImageUpload: React.FC<MultiImageUploadProps> = ({
     let fileToProcess = file;
 
     // Compress if file is 10-25MB
-    if (file.size > 10 * 1024 * 1024) {
+    if (!keepOriginal && file.size > 10 * 1024 * 1024) {
       const { compressImageBlob, getCompressionStrategy } = await import('@aitu/utils');
       const strategy = getCompressionStrategy(file.size / (1024 * 1024));
       const msgId = MessagePlugin.loading({

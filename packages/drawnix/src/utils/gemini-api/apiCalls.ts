@@ -183,24 +183,64 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 function parseDataUrl(dataUrl: string): { mimeType: string; data: string } {
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  const match = dataUrl.match(/^data:([^;,]*);base64,([\s\S]+)$/i);
   if (!match) {
     throw new Error('Invalid data URL');
   }
 
   return {
-    mimeType: match[1] || 'image/png',
+    mimeType: match[1],
     data: match[2] || '',
   };
 }
 
+function normalizeGoogleImageData(parsed: {
+  mimeType: string;
+  data: string;
+}): GoogleInlineData {
+  let mimeType = parsed.mimeType.trim().toLowerCase();
+  if (
+    !mimeType ||
+    mimeType === 'application/octet-stream' ||
+    mimeType === 'binary/octet-stream'
+  ) {
+    // Decode only a short prefix; never relabel an unknown response as PNG.
+    const prefix = parsed.data.slice(0, 128).replace(/\s/g, '').slice(0, 64);
+    let header: string;
+    try {
+      header = atob(prefix);
+    } catch {
+      throw new Error('参考图片 Base64 数据无效');
+    }
+    if (header.startsWith('\x89PNG\r\n\x1a\n')) {
+      mimeType = 'image/png';
+    } else if (header.startsWith('\xff\xd8\xff')) {
+      mimeType = 'image/jpeg';
+    } else if (header.startsWith('GIF87a') || header.startsWith('GIF89a')) {
+      mimeType = 'image/gif';
+    } else if (header.startsWith('RIFF') && header.slice(8, 12) === 'WEBP') {
+      mimeType = 'image/webp';
+    } else if (header.slice(4, 8) === 'ftyp') {
+      const brands = [header.slice(8, 12)];
+      for (let offset = 16; offset + 4 <= header.length; offset += 4) {
+        brands.push(header.slice(offset, offset + 4));
+      }
+      if (brands.some((brand) => brand === 'avif' || brand === 'avis')) {
+        mimeType = 'image/avif';
+      }
+    }
+  }
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(
+      `无法识别参考图片格式（MIME: ${parsed.mimeType || '未知'}），请转换为 PNG、JPEG、WebP、GIF 或 AVIF 后重试`
+    );
+  }
+  return { mime_type: mimeType, data: parsed.data };
+}
+
 async function toGoogleInlineData(url: string): Promise<GoogleInlineData> {
   if (url.startsWith('data:')) {
-    const parsed = parseDataUrl(url);
-    return {
-      mime_type: parsed.mimeType,
-      data: parsed.data,
-    };
+    return normalizeGoogleImageData(parseDataUrl(url));
   }
 
   let blob: Blob;
@@ -219,11 +259,7 @@ async function toGoogleInlineData(url: string): Promise<GoogleInlineData> {
   }
 
   const dataUrl = await blobToDataUrl(blob);
-  const parsed = parseDataUrl(dataUrl);
-  return {
-    mime_type: parsed.mimeType,
-    data: parsed.data,
-  };
+  return normalizeGoogleImageData(parseDataUrl(dataUrl));
 }
 
 async function buildGoogleParts(messages: GeminiMessage[]): Promise<{
@@ -238,6 +274,7 @@ async function buildGoogleParts(messages: GeminiMessage[]): Promise<{
     parts: Array<Record<string, unknown>>;
   }> = [];
   const systemTexts: string[] = [];
+  let imageIndex = 0;
 
   for (const message of messages) {
     const parts: Array<Record<string, unknown>> = [];
@@ -246,9 +283,16 @@ async function buildGoogleParts(messages: GeminiMessage[]): Promise<{
       if (part.type === 'text' && part.text) {
         parts.push({ text: part.text });
       } else if (part.type === 'image_url' && part.image_url?.url) {
-        parts.push({
-          inline_data: await toGoogleInlineData(part.image_url.url),
-        });
+        imageIndex += 1;
+        try {
+          parts.push({
+            inline_data: await toGoogleInlineData(part.image_url.url),
+          });
+        } catch (error) {
+          throw new Error(
+            `第 ${imageIndex} 张参考图处理失败：${error instanceof Error ? error.message : String(error)}`
+          );
+        }
       } else if (part.type === 'inline_data' && part.data) {
         parts.push({
           inline_data: { mime_type: part.mimeType, data: part.data },

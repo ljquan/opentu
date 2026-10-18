@@ -16,6 +16,8 @@ export interface HoverCardProps {
   openDelay?: number;
   closeDelay?: number;
   disabled?: boolean;
+  /** Disable focus transfer for previews shown while editing text. */
+  autoFocus?: boolean;
 }
 
 export function HoverCard({
@@ -30,6 +32,7 @@ export function HoverCard({
   openDelay = 40,
   closeDelay = 100,
   disabled = false,
+  autoFocus = true,
 }: HoverCardProps) {
   const [open, setOpen] = useState(false);
   const openTimeoutRef = useRef<number | null>(null);
@@ -126,6 +129,7 @@ export function HoverCard({
     >
       <PopoverTrigger asChild>{child}</PopoverTrigger>
       <PopoverContent
+        initialFocus={autoFocus ? undefined : -1}
         container={container}
         className={contentClassName}
         style={contentStyle}

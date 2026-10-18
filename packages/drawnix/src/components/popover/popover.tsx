@@ -196,8 +196,11 @@ export const PopoverTrigger = React.forwardRef<
 
 export const PopoverContent = React.forwardRef<
   HTMLDivElement,
-  React.HTMLProps<HTMLDivElement> & { container?: HTMLElement | null }
->(function PopoverContent({ container, style, ...props }, propRef) {
+  React.HTMLProps<HTMLDivElement> & {
+    container?: HTMLElement | null;
+    initialFocus?: number;
+  }
+>(function PopoverContent({ container, style, initialFocus, ...props }, propRef) {
   const { context: floatingContext, ...context } = usePopoverContext();
   const ref = useMergeRefs([context.refs.setFloating, propRef]);
 
@@ -205,7 +208,11 @@ export const PopoverContent = React.forwardRef<
 
   return (
     <FloatingPortal root={container}>
-      <FloatingFocusManager context={floatingContext} modal={context.modal}>
+      <FloatingFocusManager
+        context={floatingContext}
+        modal={context.modal}
+        initialFocus={initialFocus}
+      >
         <div
           ref={ref}
           style={{ ...context.floatingStyles, ...style, zIndex: 5000 }}

@@ -131,9 +131,10 @@ describe('tuzi GPT image adapter', () => {
   it('fetches source and mask URLs with the task signal and submits multipart edits', async () => {
     const controller = new AbortController();
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
-      new Response(new Uint8Array([1, 2, 3]), {
-        status: 200, headers: { 'Content-Type': 'image/png' },
-      })
+      ({
+        ok: true,
+        blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+      } as Response)
     );
     mocks.sendAdapterRequest.mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: tinyPngDataUrl.split(',')[1], width: 1024, height: 1024 }],
@@ -190,9 +191,10 @@ describe('tuzi GPT image adapter', () => {
     const controller = new AbortController();
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => {
       controller.abort();
-      return new Response(new Uint8Array([1]), {
-        status: 200, headers: { 'Content-Type': 'image/png' },
-      });
+      return {
+        ok: true,
+        blob: async () => new Blob([new Uint8Array([1])], { type: 'image/png' }),
+      } as Response;
     });
     await expect(tuziGPTImageAdapter.generateImage({
       baseUrl: 'https://api.tu-zi.com/v1', fetcher, signal: controller.signal,

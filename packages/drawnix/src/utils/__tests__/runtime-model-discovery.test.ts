@@ -248,10 +248,22 @@ describe('runtime-model-discovery', () => {
       settingsManager: { getSetting: () => ({}), addListener: () => {}, removeListener: () => {} },
     }));
     const { runtimeModelDiscovery, getConfiguredSelectableModels } = await import('../runtime-model-discovery');
-    expect(getConfiguredSelectableModels('image').map(model => model.id)).toContain(modelId);
+    expect(getConfiguredSelectableModels('image')).toEqual([
+      expect.objectContaining({
+        id: modelId,
+        label: modelId,
+        shortLabel: modelId,
+      }),
+    ]);
     expect(getConfiguredSelectableModels('text').map(model => model.id)).not.toContain(modelId);
     const models = await runtimeModelDiscovery.discover('provider-banana', 'https://api.tu-zi.com', 'test-key');
-    expect(models).toEqual([expect.objectContaining({ id: modelId, type: 'image', supportsTools: false })]);
+    expect(models).toEqual([expect.objectContaining({
+      id: modelId,
+      label: modelId,
+      shortLabel: modelId,
+      type: 'image',
+      supportsTools: false,
+    })]);
   });
 
   it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(

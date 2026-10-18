@@ -45,7 +45,10 @@ import {
   shouldUseOriginFirstPreload,
   shouldUseAppShellStrategy,
 } from './app-shell-routing';
-import { isUsableImageFetchResponse } from './image-fetch-response';
+import {
+  isAppManagedImageDownload,
+  isUsableImageFetchResponse,
+} from './image-fetch-response';
 import {
   fetchOriginalVideoRequest,
   fetchVideoForCache,
@@ -4489,6 +4492,12 @@ sw.addEventListener('fetch', (event: FetchEvent) => {
 
   // 拦截外部图片请求（非同源且为图片格式）
   if (url.origin !== location.origin && isImageRequest(url, event.request)) {
+    // The caller validates and persists these downloads. Let it receive the
+    // original response without another full Blob read, cache write or retry budget.
+    if (isAppManagedImageDownload(event.request)) {
+      return;
+    }
+
     // 检查是否是最近失败的 URL，避免重复请求
     if (isUrlRecentlyFailed(event.request.url)) {
       addDebugLog({

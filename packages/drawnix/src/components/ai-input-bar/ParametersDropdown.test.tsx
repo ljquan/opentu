@@ -5,11 +5,41 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParametersDropdown } from './ParametersDropdown';
 import { getEffectiveVideoCompatibleParams } from '../../services/video-binding-utils';
+import { getSunoV2Params } from '../../services/suno-v2-params';
 
 vi.mock('../shared/hover', () => ({
   HoverTip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 afterEach(cleanup);
+
+describe('Suno v2 parameter controls', () => {
+  it('accepts multiple reference URL lines for training instead of an empty multiselect', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="suno/create-model" selectedParams={{}} onParamChange={onParamChange} />);
+    const urls = 'https://cdn.test/one.mp3\nhttps://cdn.test/two.mp3';
+    fireEvent.change(screen.getByRole('textbox', { name: '音频地址列表' }), { target: { value: urls } });
+    expect(onParamChange).toHaveBeenCalledWith('audio_urls', urls, { keepOpen: true });
+    expect(screen.queryByRole('listbox', { name: '音频地址列表' })).toBeNull();
+  });
+  it.each(['suno/create-voice', 'suno/add-instrumental', 'suno/add-vocals'])('does not expose callable parameters for %s', (modelId) => {
+    render(<ParametersDropdown isOpen modelId={modelId} selectedParams={{}} onParamChange={vi.fn()} />);
+    expect(screen.queryByRole('textbox', { name: '音频地址' })).toBeNull();
+    expect(screen.queryByText('源曲目')).toBeNull();
+    expect(screen.queryByText('模型版本')).toBeNull();
+  });
+  it('selects public resources and multiple export formats', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="suno/download" selectedParams={{ music_id: 'm', formats: '["mp3"]' }}
+      compatibleParams={getSunoV2Params('suno/download', [{ id: 'm', kind: 'music_id', profileId: 'p' }])} onParamChange={onParamChange} />);
+    fireEvent.change(screen.getByRole('combobox', { name: '源曲目' }), { target: { value: 'm' } });
+    expect(onParamChange).toHaveBeenCalledWith('music_id', 'm', { keepOpen: true });
+    const formats = screen.getByRole('listbox', { name: '导出格式' }) as HTMLSelectElement;
+    formats.options[2].selected = true;
+    fireEvent.change(formats);
+    expect(onParamChange).toHaveBeenCalledWith('formats', '["mp3","wav"]', { keepOpen: true });
+    expect(screen.queryByText('动作类型')).toBeNull();
+  });
+});
 
 describe('Seedream API parameters', () => {
   it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(

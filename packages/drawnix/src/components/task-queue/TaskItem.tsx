@@ -1,3 +1,5 @@
+import { SunoNativeResultDetails } from '../shared/SunoNativeResultDetails';
+import type { NativeSunoResult } from '../../services/suno-native';
 /**
  * TaskItem Component
  *
@@ -33,6 +35,7 @@ import {
   isSora2VideoId,
 } from '../../types/character.types';
 import { RetryImage } from '../retry-image';
+import { TaskImagePreview } from './TaskImagePreview';
 import {
   getPptExplainerModelLabel,
   getPptExplainerStageText,
@@ -53,6 +56,8 @@ import './task-progress-overlay.scss';
 import { HoverTip } from '../shared';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import { resolveAudioResultUrls } from '../../services/audio-task-result-utils';
+import { SunoV2ResultDetails } from '../shared/SunoV2ResultDetails';
+import type { SunoV2Result } from '../../services/suno-v2';
 import { getMiniMaxH3RegenerationEligibility } from '../../services/minimax-h3-regeneration-service';
 
 // 布局切换阈值：容器宽度小于此值时使用紧凑布局（info 在图片下方全宽）
@@ -327,6 +332,8 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
     const isAudioTask = task.type === TaskType.AUDIO;
     const isChatTask = task.type === TaskType.CHAT;
     const isLyricsTask = isAudioTask && isLyricsResult(task.result);
+    const sunoNativeResult = isAudioTask ? (task.result?.analysisData as { sunoNative?: NativeSunoResult } | undefined)?.sunoNative : undefined;
+    const sunoV2Result = isAudioTask ? (task.result?.analysisData as { sunoV2?: SunoV2Result } | undefined)?.sunoV2 : undefined;
     const canRegenerateTask = task.type === TaskType.IMAGE;
     const h3Upgrade = getMiniMaxH3RegenerationEligibility(task);
     const isPreviewableTask =
@@ -637,15 +644,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                     {/* 已完成状态：显示实际内容 */}
                     {task.type === TaskType.IMAGE && mediaUrl ? (
                       <>
-                        <RetryImage
+                        <TaskImagePreview
                           src={thumbnailUrl || mediaUrl}
-                          alt="Generated"
-                          maxRetries={5}
-                          fallback={
-                            <div className="task-item__preview-placeholder">
-                              <span>图片加载失败</span>
-                            </div>
-                          }
+                          isCached={isCached}
                         />
                         {mediaCount > 1 && (
                           <span className="task-item__multi-badge">
@@ -909,6 +910,11 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                       </a>
                     ))}
                 </div>
+
+                {isCompleted && sunoNativeResult && <SunoNativeResultDetails result={sunoNativeResult} />}
+                {isCompleted && sunoV2Result && !isLyricsTask && (
+                  <SunoV2ResultDetails result={sunoV2Result} />
+                )}
 
                 {/* Progress bar for video tasks (outside tags) */}
                 {(task.type === TaskType.VIDEO ||

@@ -1,4 +1,28 @@
 .music-analyzer {
+  .ma-v2-fields {
+    border: 0;
+    margin: 16px 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 16px;
+  }
+  .ma-v2-switch {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-content: start;
+    align-items: center;
+    small { grid-column: 1 / -1; }
+  }
+  .ma-v2-results { padding: 16px 0; border-top: 1px solid var(--td-component-stroke); }
+  .ma-v2-results h3 { font-size: 14px; margin: 0 0 12px; }
+  .ma-v2-results pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ma-v2-result { display: grid; gap: 8px; padding: 12px 0; overflow-wrap: anywhere; }
+  .ma-v2-result audio { width: 100%; max-width: 480px; }
+  .ma-v2-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 0; overflow-wrap: anywhere; }
+  .ma-v2-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ma-v2-actions label { display: inline-flex; gap: 6px; }
+  .ma-v2-page button, .ma-v2-results a { display: inline-flex; align-items: center; gap: 6px; }
   .ma-card {
     display: flex;
     flex-direction: column;
@@ -391,6 +415,11 @@
   }
 
   .ma-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
     flex: 1;
     padding: 8px 12px;
     border: none;
@@ -399,6 +428,11 @@
     cursor: pointer;
     font-size: 13px;
     transition: background 0.15s, color 0.15s;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
     &.active {
       background: rgba(243, 156, 18, 0.12);

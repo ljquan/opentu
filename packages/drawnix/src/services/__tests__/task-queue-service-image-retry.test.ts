@@ -562,6 +562,19 @@ describe('task-queue-service image edit retry persistence', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([['upload', 'music_id'], ['create-voice', 'persona_id']])('persists Suno v2 %s resources without trying to cache empty audio', async (action, kind) => {
+    const { taskQueueService, storedTasks, mocks } =
+      await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
+    const sunoV2 = { action, profileId: 'p', resources: [{ id: 'public-resource', kind, profileId: 'p' }],
+      files: [], lyrics: [], data: { [kind]: 'public-resource' } };
+    mocks.generateAudio.mockResolvedValueOnce({ url: '', format: 'json', analysisData: { sunoV2 } } as any);
+    const task = taskQueueService.createTask({ prompt: action, model: `suno/${action}`, autoInsertToCanvas: false }, TaskType.AUDIO);
+    await vi.waitFor(() => expect(taskQueueService.getTask(task.id)?.status).toBe(TaskStatus.COMPLETED));
+    await flushAsyncWork();
+    expect(mocks.cacheRemoteUrl).not.toHaveBeenCalled();
+    expect(storedTasks.get(task.id)?.result).toMatchObject({ url: '', format: 'json', analysisData: { sunoV2 } });
+  });
+
   it('requires a fresh scheduler ticket for a prepared batch and cannot retry it generically', async () => {
     const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([TaskStatus.COMPLETED], {
       customProfiles: [{ id: 'profile-a', enabled: true, apiKey: 'test-key', baseUrl: 'https://api.example.com/v1' }],

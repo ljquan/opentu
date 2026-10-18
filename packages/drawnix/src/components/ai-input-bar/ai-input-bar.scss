@@ -223,6 +223,14 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     font-size: 12px;
   }
 
+  &__settings-hint {
+    margin: 4px 0 0;
+    color: var(--td-text-color-secondary, #666);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
   &__settings-actions {
     display: flex;
     justify-content: flex-end;

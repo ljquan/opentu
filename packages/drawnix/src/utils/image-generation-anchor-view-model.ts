@@ -53,6 +53,8 @@ const BATCH_STATUS_LABELS: Record<ImageGenerationAnchorPhase, string> = {
   failed: '生成失败',
 };
 
+const RESULT_INSERTION_FAILED_LABEL = '已生成，插入失败';
+
 const clampProgress = (value: number | null | undefined): number | null => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return null;
@@ -136,7 +138,8 @@ function buildBatchPreview(
   anchor: PlaitImageGenerationAnchor,
   phase: ImageGenerationAnchorPhase,
   tasks: Task[],
-  fallbackProgress: number | null
+  fallbackProgress: number | null,
+  failureStage?: ImageGenerationAnchorViewModel['failureStage']
 ): ImageGenerationAnchorViewModel['batchPreview'] {
   if (anchor.anchorType !== 'stack') {
     return undefined;
@@ -148,6 +151,10 @@ function buildBatchPreview(
   sortedTasks.forEach((task) => {
     const slotStatus = deriveTaskBatchSlotStatus(task, phase);
     const previewUrls = getTaskResultPreviewUrls(task);
+    const failureDetails =
+      slotStatus === 'failed' && task.status === TaskStatus.COMPLETED
+        ? { failureStage: 'post-processing' as const }
+        : {};
 
     if (previewUrls.length > 0) {
       previewUrls.forEach((previewUrl, index) => {
@@ -155,6 +162,7 @@ function buildBatchPreview(
           id: `${task.id}-${index}`,
           taskId: task.id,
           status: slotStatus,
+          ...failureDetails,
           previewImageUrl: previewUrl,
           error:
             slotStatus === 'failed'
@@ -172,6 +180,7 @@ function buildBatchPreview(
       id: task.id,
       taskId: task.id,
       status: slotStatus,
+      ...failureDetails,
       error:
         slotStatus === 'failed'
           ? task.error?.message ||
@@ -225,6 +234,8 @@ function buildBatchPreview(
       : progress != null &&
         (phase === 'submitted' || phase === 'queued' || phase === 'generating')
       ? getImageTaskProgressStatusText(progress)
+      : failureStage === 'post-processing'
+      ? RESULT_INSERTION_FAILED_LABEL
       : BATCH_STATUS_LABELS[phase];
 
   return {
@@ -347,13 +358,34 @@ export function buildImageGenerationAnchorViewModel(
 ): ImageGenerationAnchorViewModel {
   const { anchor, task, tasks = [], taskDisplayProgress, workflow } = options;
   const phase = deriveImageGenerationAnchorPhase(options);
+  const relatedTasks = tasks.length > 0 ? tasks : task ? [task] : [];
+  const failedAfterGeneration =
+    phase === 'failed' &&
+    !relatedTasks.some(
+      (relatedTask) =>
+        relatedTask.status === TaskStatus.FAILED ||
+        relatedTask.status === TaskStatus.CANCELLED
+    ) &&
+    (relatedTasks.some(
+      (relatedTask) => relatedTask.status === TaskStatus.COMPLETED
+    ) ||
+      workflow?.status === 'completed' ||
+      options.postProcessingStatus === 'failed' ||
+      workflow?.postProcessingStatus === 'failed');
+  const failureStage: ImageGenerationAnchorViewModel['failureStage'] =
+    phase === 'failed'
+      ? failedAfterGeneration
+        ? 'post-processing'
+        : 'generation'
+      : undefined;
   const rectangle = RectangleClient.getRectangleByPoints(anchor.points);
   const fallbackProgress = clampProgress(task?.progress ?? anchor.progress);
   const batchPreview = buildBatchPreview(
     anchor,
     phase,
     tasks,
-    fallbackProgress
+    fallbackProgress,
+    failureStage
   );
   const resolvedProgress =
     task?.type === TaskType.IMAGE &&
@@ -370,7 +402,9 @@ export function buildImageGenerationAnchorViewModel(
       : taskDisplayProgress ?? resolvedProgress
   );
   const subtitle =
-    anchor.subtitle && anchor.phase === phase
+    failedAfterGeneration
+      ? '图片已生成，加载或插入失败，可重试插入已有结果'
+      : anchor.subtitle && anchor.phase === phase
       ? anchor.subtitle
       : PHASE_SUBTITLES[phase];
 
@@ -394,7 +428,10 @@ export function buildImageGenerationAnchorViewModel(
 
   const primaryAction =
     phase === 'failed'
-      ? { type: 'retry' as const, label: '重试' }
+      ? {
+          type: 'retry' as const,
+          label: failedAfterGeneration ? '重试插入' : '重试',
+        }
       : { type: 'details' as const, label: '详情' };
 
   const secondaryAction =
@@ -412,7 +449,10 @@ export function buildImageGenerationAnchorViewModel(
     batchPreview,
     progress,
     progressMode,
-    phaseLabel: PHASE_LABELS[phase],
+    phaseLabel: failedAfterGeneration
+      ? RESULT_INSERTION_FAILED_LABEL
+      : PHASE_LABELS[phase],
+    failureStage,
     tone,
     geometry: {
       position: anchor.points[0],

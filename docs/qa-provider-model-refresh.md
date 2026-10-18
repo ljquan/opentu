@@ -1,5 +1,60 @@
 # Provider Model Refresh QA
 
+## 2026-10-16 Nano Banana 2.1 reference image MIME regression
+
+Scope: the Gemini native `image_url` to `inline_data` conversion, including
+data URLs, virtual cached images and downloaded reference images. Previously,
+valid image bytes with an absent or generic binary MIME reached the gateway as
+`application/octet-stream` and were rejected before any model invocation.
+
+The conversion now identifies PNG, JPEG, GIF, WebP and AVIF from a bounded
+Base64 prefix when MIME is absent, `application/octet-stream` or
+`binary/octet-stream`. It preserves the original Base64, image order and image
+count. Existing declared `image/*` inputs remain supported. Unknown binary
+content and explicitly non-image MIME are rejected before provider submission,
+with the failing image index. Explicit audio/video `inline_data` parts retain
+their existing behavior. Signature recognition is not full image decoding;
+the upstream decoder still validates the complete image.
+
+Validation: macOS, Vitest 3.2.4. From `packages/drawnix`:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  src/utils/gemini-api/apiCalls.test.ts \
+  src/utils/gemini-api/services.test.ts \
+  src/utils/gemini-api/message-utils.test.ts \
+  src/services/__tests__/provider-routing.test.ts \
+  src/services/__tests__/model-adapter-registry.test.ts
+```
+
+- 176 tests passed across five files. All 15 new regressions failed against
+  the original converter and passed after the fix.
+- Coverage includes mixed JPEG/PNG two-image submission with a generic MIME
+  second image, supported binary signatures, absent MIME in data URLs and cached
+  Blobs, binary MIME downloads, and zero submissions for HTML, WAV, invalid
+  Base64 or empty cached data. Existing audio/video serialization tests passed.
+- Drawnix TypeScript checking passed. Targeted ESLint passed with no errors;
+  17 pre-existing `any` warnings remain. Existing IndexedDB mock and Node
+  deprecation warnings remain.
+- `NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run
+  web:build --skip-nx-cache` passed from the repository root, including Web
+  TypeScript checking, production app and Service Worker builds. Existing Sass,
+  CSS target compatibility, Browserslist and bundle-chunk warnings remain.
+- `git diff --check` passed.
+- The existing service at port 7202 belongs to this checkout and returned HTTP
+  200. This is a service check, not browser or generation acceptance.
+
+No page test, real provider request, Windows run or deployment was performed
+for this fix. The original production reference files and request
+payload were not captured. Gateway pre-upstream error logging remains a separate
+backend issue and was not changed. No new dependency, configuration, migration or
+standalone DOC is needed.
+
+After deployment, use the original two references with Nano Banana 2.1. Inspect
+the native `generateContent` request for an `image/*` MIME on each image part,
+and confirm the previous generic-binary MIME rejection no longer occurs. A real
+generation test is billable and has not been performed here.
+
 ## 2026-09-22 Waiting-for-execution regression
 
 The runtime-only catalog exposed a feedback loop in chat generation controls:

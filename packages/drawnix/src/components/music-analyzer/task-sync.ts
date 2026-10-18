@@ -1,6 +1,8 @@
+import type { NativeSunoResult } from '../../services/suno-native';
 import { generateUUID } from '../../utils/runtime-helpers';
 import type { Task } from '../../types/task.types';
 import { TaskType } from '../../types/task.types';
+import type { SunoV2Result } from '../../services/suno-v2';
 import type {
   GeneratedClip,
   LyricsRewriteResult,
@@ -156,6 +158,11 @@ export async function syncMusicAnalyzerTask(task: Task): Promise<{
     const target = records.find((record) => record.id === recordId);
     if (!target || target.pendingLyricsGenTaskId !== task.id) return null;
 
+    const v2 = (task.result?.analysisData as { sunoV2?: SunoV2Result } | undefined)?.sunoV2;
+    if (v2) return updateWorkflowRecord(target, {
+      ...sunoV2RecordPatch(target, task, v2), pendingLyricsGenTaskId: null,
+    }, updateRecord);
+
     const lyricsResult = parseLyricsGenResult(task);
     const nextTitle = lyricsResult?.title || target.title || '';
     const nextStyleTags =
@@ -290,6 +297,28 @@ export function extractClipsFromTask(task: Task): GeneratedClip[] {
 }
 
 /** 同步批量生成任务完成 → 回填 generatedClips */
+function sunoV2RecordPatch(target: MusicAnalysisRecord, task: Task, v2: SunoV2Result): Partial<MusicAnalysisRecord> {
+  const patch: Partial<MusicAnalysisRecord> = {
+    sunoV2Results: [...(target.sunoV2Results || []), { taskId: task.id, result: v2 }],
+  };
+  if (v2.lyrics.length) {
+    let next = target;
+    for (const lyrics of [...v2.lyrics].reverse()) {
+      next = { ...next, ...addLyricsVersionToRecord(next, createLyricsVersion({
+        ...next, title: lyrics.title || target.title,
+        lyricsDraft: lyrics.text,
+        styleTags: mergeMusicBriefStyleTags(lyrics.tags || target.styleTags || [], target.musicBrief),
+      }, 'Suno v2 歌词', task.params.prompt)) };
+    }
+    patch.lyricsVersions = next.lyricsVersions;
+    patch.activeVersionId = next.activeVersionId;
+    patch.lyricsDraft = next.lyricsDraft;
+    patch.title = next.title;
+    patch.styleTags = next.styleTags;
+  }
+  return patch;
+}
+
 export async function syncMusicGenerationTask(
   task: Task,
   recordId: string
@@ -297,6 +326,35 @@ export async function syncMusicGenerationTask(
   records: MusicAnalysisRecord[];
   record: MusicAnalysisRecord;
 } | null> {
+  const native = (task.result?.analysisData as { sunoNative?: NativeSunoResult } | undefined)?.sunoNative;
+  if (task.status === 'completed' && native) {
+    const records = await loadRecords(); const target = records.find((record) => record.id === recordId);
+    if (!target) return null;
+    if (target.sunoNativeResults?.some((item) => item.taskId === task.id)) return { records, record: target };
+    const patch: Partial<MusicAnalysisRecord> = {
+      sunoNativeResults: [...(target.sunoNativeResults || []), { taskId: task.id, result: native }],
+    };
+    if (native.lyrics.length) {
+      let next = target;
+      for (const lyrics of [...native.lyrics].reverse()) {
+        next = { ...next, ...addLyricsVersionToRecord(next, createLyricsVersion({
+          ...next, title: lyrics.title || target.title, lyricsDraft: lyrics.text,
+        }, 'Suno 原生歌词', task.params.prompt)) };
+      }
+      Object.assign(patch, { lyricsVersions: next.lyricsVersions, activeVersionId: next.activeVersionId,
+        lyricsDraft: next.lyricsDraft, title: next.title });
+    }
+    return updateWorkflowRecord(target, patch, updateRecord);
+  }
+  const v2 = (task.result?.analysisData as { sunoV2?: SunoV2Result } | undefined)?.sunoV2;
+  if (task.status === 'completed' && v2) {
+    const records = await loadRecords();
+    const target = records.find((record) => record.id === recordId);
+    if (!target) return null;
+    const previous = target.sunoV2Results || [];
+    if (previous.some((item) => item.taskId === task.id)) return { records, record: target };
+    return updateWorkflowRecord(target, sunoV2RecordPatch(target, task, v2), updateRecord);
+  }
   return syncGeneratedClipsForRecord(task, recordId, {
     loadRecords,
     updateRecord,

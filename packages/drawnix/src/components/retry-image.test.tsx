@@ -8,7 +8,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RetryImage } from './retry-image';
 import { unifiedCacheService } from '../services/unified-cache-service';
 
@@ -24,14 +24,35 @@ vi.mock('../services/unified-cache-service', () => ({
 }));
 
 describe('RetryImage', () => {
+  beforeEach(() => {
+    vi.mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback)
+      .mockReset()
+      .mockResolvedValue(null);
+  });
   it('defers virtual media cache reads offscreen even if the Service Worker is unavailable', async () => {
-    const readCache = vi.mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback);
+    const readCache = vi.mocked(
+      unifiedCacheService.getCachedImageBlobWithThumbnailFallback
+    );
     readCache.mockClear().mockResolvedValue(null);
-    const { rerender } = render(<RetryImage src="/__aitu_cache__/image/offscreen.png" alt="offscreen"
-      eager={false} deferCacheRead showSkeleton={false} />);
+    const { rerender } = render(
+      <RetryImage
+        src="/__aitu_cache__/image/offscreen.png"
+        alt="offscreen"
+        eager={false}
+        deferCacheRead
+        showSkeleton={false}
+      />
+    );
     expect(readCache).not.toHaveBeenCalled();
-    rerender(<RetryImage src="/__aitu_cache__/image/offscreen.png" alt="offscreen"
-      eager deferCacheRead={false} showSkeleton={false} />);
+    rerender(
+      <RetryImage
+        src="/__aitu_cache__/image/offscreen.png"
+        alt="offscreen"
+        eager
+        deferCacheRead={false}
+        showSkeleton={false}
+      />
+    );
     await waitFor(() => expect(readCache).toHaveBeenCalledOnce());
   });
   afterEach(() => {
@@ -279,5 +300,178 @@ describe('RetryImage', () => {
         'blob:canvas-cached-image'
       );
     });
+  });
+
+  it('eager 预览无任何加载事件时结束骨架，回调变动不延长总期限', async () => {
+    vi.useFakeTimers();
+    const failure = vi.fn();
+    const { rerender } = render(
+      <RetryImage
+        src="https://cdn.example.com/pending.png"
+        alt="pending"
+        eager
+        loadTimeoutMs={1000}
+        onLoadFailure={vi.fn()}
+        fallback={<span>预览暂不可用</span>}
+      />
+    );
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    rerender(
+      <RetryImage
+        src="https://cdn.example.com/pending.png"
+        alt="pending"
+        eager
+        loadTimeoutMs={1000}
+        onLoadFailure={failure}
+        fallback={<span>预览暂不可用</span>}
+      />
+    );
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(screen.getByText('预览暂不可用')).toBeTruthy();
+    expect(screen.queryByAltText('pending')).toBeNull();
+    expect(failure).toHaveBeenCalledOnce();
+    expect(failure.mock.calls[0][0].name).toBe('ImageOperationTimeoutError');
+  });
+
+  it('已经显示成功的图片不会被迟到的缓存读取替换', async () => {
+    let resolveBlob!: (value: Blob) => void;
+    vi.mocked(
+      unifiedCacheService.getCachedImageBlobWithThumbnailFallback
+    ).mockReturnValue(
+      new Promise((resolve) => {
+        resolveBlob = resolve;
+      })
+    );
+    const createObjectURL = vi.fn(() => 'blob:late-cache');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    render(
+      <RetryImage
+        src="https://cdn.example.com/loaded.png"
+        alt="loaded"
+        preferCachedBlob
+      />
+    );
+    const image = screen.getByAltText('loaded');
+    fireEvent.load(image);
+    await act(async () => {
+      resolveBlob(new Blob(['cached']));
+    });
+    expect(image.getAttribute('src')).toBe(
+      'https://cdn.example.com/loaded.png'
+    );
+    expect(image.style.opacity).toBe('1');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:late-cache');
+  });
+
+  it('成功后清理已安排的重试，不再覆盖图片', async () => {
+    vi.useFakeTimers();
+    render(
+      <RetryImage
+        src="https://cdn.example.com/retry.png"
+        alt="retry"
+        initialRetryDelay={100}
+      />
+    );
+    const image = screen.getByAltText('retry');
+    await act(async () => {
+      fireEvent.error(image);
+    });
+    fireEvent.load(image);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(image.getAttribute('src')).toBe('https://cdn.example.com/retry.png');
+    expect(image.style.opacity).toBe('1');
+  });
+
+  it('预览超时后忽略迟到的缓存结果并释放 Blob URL', async () => {
+    vi.useFakeTimers();
+    let resolveBlob!: (value: Blob) => void;
+    vi.mocked(
+      unifiedCacheService.getCachedImageBlobWithThumbnailFallback
+    ).mockReturnValue(
+      new Promise((resolve) => {
+        resolveBlob = resolve;
+      })
+    );
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:too-late',
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    render(
+      <RetryImage
+        src="https://cdn.example.com/late.png"
+        alt="late"
+        preferCachedBlob
+        eager
+        loadTimeoutMs={1000}
+        fallback={<span>预览暂不可用</span>}
+      />
+    );
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    await act(async () => {
+      resolveBlob(new Blob(['late']));
+    });
+    expect(screen.getByText('预览暂不可用')).toBeTruthy();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:too-late');
+  });
+
+  it('缓存 Blob 损坏时改读原地址，不反复解码同一个坏 Blob', async () => {
+    vi.useFakeTimers();
+    const source = 'https://cdn.example.com/image.png?signature=keep';
+    const readCache = vi
+      .mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback)
+      .mockResolvedValue(new Blob(['broken']));
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:broken',
+    });
+    render(
+      <RetryImage
+        src={source}
+        alt="cached"
+        preferCachedBlob
+        initialRetryDelay={10}
+      />
+    );
+    await act(async () => undefined);
+    const image = screen.getByAltText('cached');
+    expect(image.getAttribute('src')).toBe('blob:broken');
+    fireEvent.error(image);
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(image.getAttribute('src')).toMatch(
+      /^https:\/\/cdn\.example\.com\/image\.png\?signature=keep#retry=/
+    );
+    fireEvent.load(image);
+    expect(image.style.opacity).toBe('1');
+    expect(readCache).toHaveBeenCalledOnce();
+  });
+
+  it('屏外 lazy 图片不会在浏览器开始请求之前被判超时', async () => {
+    vi.useFakeTimers();
+    const failure = vi.fn();
+    render(
+      <RetryImage
+        src="https://cdn.example.com/offscreen.png"
+        alt="lazy"
+        eager={false}
+        loadTimeoutMs={1000}
+        onLoadFailure={failure}
+      />
+    );
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(failure).not.toHaveBeenCalled();
+    expect(screen.getByAltText('lazy')).toBeTruthy();
   });
 });

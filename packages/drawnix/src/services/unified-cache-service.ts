@@ -22,6 +22,7 @@ import type {
   CacheWarningReasonCode,
 } from '../types/cache-warning.types';
 import type { TaskResultVisibility } from '../types/task.types';
+import { readKeepOriginalImageEnabled } from './reference-image-settings';
 
 // ==================== 常量定义 ====================
 
@@ -147,6 +148,7 @@ export interface CachedMedia {
     resultVisibility?: TaskResultVisibility;
     params?: any;
     cacheWarning?: CacheWarning;
+    sourceUrl?: string;
     [key: string]: any;
   };
 }
@@ -184,6 +186,8 @@ export interface ImageData {
 
 /** getImageForAI 选项 */
 export interface GetImageForAIOptions {
+  /** Override the shared fidelity preference for this conversion. */
+  keepOriginal?: boolean;
   /** 最大年龄（毫秒），超过则使用 base64，默认 24 小时 */
   maxAge?: number;
   /** 最大文件大小（字节），超过则压缩 */
@@ -904,6 +908,7 @@ class UnifiedCacheService {
       maxAge = CACHE_CONSTANTS.DEFAULT_MAX_AGE,
       maxSize = CACHE_CONSTANTS.MAX_IMAGE_SIZE,
       quality = CACHE_CONSTANTS.DEFAULT_QUALITY,
+      keepOriginal = readKeepOriginalImageEnabled(),
     } = options;
 
     try {
@@ -972,7 +977,7 @@ class UnifiedCacheService {
       }
 
       // 7. 如果图片过大，进行压缩
-      if (blob.size > maxSize && blob.type.startsWith('image/')) {
+      if (!keepOriginal && blob.size > maxSize && blob.type.startsWith('image/')) {
         // console.log(`[UnifiedCache] Image too large (${(blob.size / 1024 / 1024).toFixed(2)}MB), compressing...`);
         blob = await this.compressImage(blob, quality);
         // console.log(`[UnifiedCache] Compressed to ${(blob.size / 1024 / 1024).toFixed(2)}MB`);

@@ -37,6 +37,7 @@ export interface ImageGenerationAnchorBatchSlot {
   status: ImageGenerationAnchorBatchSlotStatus;
   previewImageUrl?: string;
   error?: string;
+  failureStage?: 'generation' | 'post-processing';
 }
 
 export interface ImageGenerationAnchorBatchPreview {
@@ -88,6 +89,7 @@ export interface ImageGenerationAnchorViewModel {
   progress: number | null;
   progressMode: 'determinate' | 'indeterminate' | 'hidden';
   phaseLabel: string;
+  failureStage?: 'generation' | 'post-processing';
   tone: 'default' | 'warning' | 'success' | 'danger';
   geometry: ImageGenerationAnchorGeometry;
   transitionMode: ImageGenerationAnchorTransitionMode;

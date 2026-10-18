@@ -29,6 +29,11 @@ import {
 } from '../provider-routing/provider-transport';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import { notifyTaskSubmitted } from '../submission-persistence';
+import {
+  isGeminiImageModel,
+  inferGeminiImageQuality,
+  resolveGeminiImageRequestSize,
+} from '../../utils/gemini-image-size';
 
 // 重新导出工具函数，方便外部使用
 export { isAsyncImageModel, aspectRatioToSize };
@@ -68,14 +73,26 @@ export function buildImageRequestBody(
     body.n = params.n;
   }
 
-  if (params.size) {
-    body.size = aspectRatioToSize(params.size) || params.size;
-  } else if (params.aspectRatio) {
-    body.size = aspectRatioToSize(params.aspectRatio);
+  const quality = params.quality || inferGeminiImageQuality(params.model);
+  const requestedSize = params.size || params.aspectRatio;
+  if (requestedSize) {
+    const resolvedSize = resolveGeminiImageRequestSize(
+      requestedSize,
+      quality === '1k' || quality === '2k' || quality === '4k'
+        ? quality
+        : undefined,
+      params.model
+    );
+    body.size =
+      quality &&
+      isGeminiImageModel(params.model) &&
+      /^\d{1,2}[x:]\d{1,2}$/.test(requestedSize.trim())
+        ? resolvedSize
+        : aspectRatioToSize(resolvedSize);
   }
 
-  if (params.quality) {
-    body.quality = params.quality;
+  if (quality) {
+    body.quality = quality;
   }
 
   // 添加参考图片（已经转换为 base64 或 URL）
