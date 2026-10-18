@@ -308,6 +308,17 @@ $text-dark: #1f2937;
   }
 }
 
+textarea.parameters-dropdown__field-input {
+  height: auto;
+  min-height: 96px;
+  resize: vertical;
+}
+
+select.parameters-dropdown__field-input[multiple] {
+  height: auto;
+  min-height: 96px;
+}
+
 // 暗色主题
 :root[data-theme='dark'] {
   .parameters-dropdown {

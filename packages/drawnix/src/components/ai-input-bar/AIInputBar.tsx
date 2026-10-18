@@ -1,3 +1,5 @@
+import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
+import { getSunoNativeParams, buildSunoNativeInputParams, collectSunoNativeResources } from '../../services/suno-native-params';
 /**
  * AI Input Bar Component
  *
@@ -24,6 +26,7 @@ import React, {
   useCallback,
   useRef,
   useMemo,
+  useId,
 } from 'react';
 import {
   AtSign,
@@ -66,6 +69,9 @@ import {
 import { useI18n } from '../../i18n';
 import { TaskStatus, type KnowledgeContextRef } from '../../types/task.types';
 import { taskQueueService } from '../../services/task-queue';
+import { useSharedTaskState } from '../../hooks/useTaskQueue';
+import { getSunoV2Action, isSunoV2Model, isUnavailableSunoModel } from '../../services/suno-v2';
+import { buildSunoV2InputParams, collectSunoV2Resources, getSunoV2Params, getVisibleSunoV2Params } from '../../services/suno-v2-params';
 import {
   AI_SELECTION_CONTENT_REFRESH_EVENT,
   extractTextFromElement,
@@ -298,6 +304,11 @@ import {
   persistCenterImageOnClickEnabled,
   readCenterImageOnClickEnabled,
 } from './canvas-view-settings';
+import {
+  persistKeepOriginalImageEnabled,
+  readKeepOriginalImageEnabled,
+  REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT,
+} from '../../services/reference-image-settings';
 import {
   appendCanvasAssociationRef,
   areCanvasAssociationRefsEqual,
@@ -1980,6 +1991,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     const [centerImageOnClickEnabled, setCenterImageOnClickEnabled] =
       useState(() => readCenterImageOnClickEnabled());
+    const [keepOriginalImageEnabled, setKeepOriginalImageEnabled] =
+      useState(() => readKeepOriginalImageEnabled());
+    const keepOriginalImageHintId = useId();
+    useEffect(() => {
+      const sync = () =>
+        setKeepOriginalImageEnabled(readKeepOriginalImageEnabled());
+      window.addEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
+      return () =>
+        window.removeEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
+    }, []);
     const [boundTargetError, setBoundTargetError] = useState<string | null>(
       null
     );
@@ -2761,9 +2782,21 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       };
     }, [generationType, selectedSkillId]);
 
+    const { tasks: parameterTasks } = useSharedTaskState();
+    const sunoParameterProfileId = generationType === 'audio' && (isSunoV2Model(selectedModel) || isSunoNativeModel(selectedModel))
+      ? resolveInvocationPlanFromRoute('audio', selectedModelRef || selectedModel)?.provider.profileId || '' : '';
+    const sunoParameterResources = useMemo(
+      () => collectSunoV2Resources(parameterTasks, sunoParameterProfileId),
+      [parameterTasks, sunoParameterProfileId]
+    );
+
     // 预计算当前模型的可用参数，避免子组件内部 stale 计算
     const compatibleParams = useMemo(() => {
       if (generationType === 'agent') return [];
+      if (generationType === 'audio' && isSunoNativeModel(selectedModel)) return getSunoNativeParams(selectedModel, selectedParams, collectSunoNativeResources(parameterTasks, sunoParameterProfileId));
+      if (generationType === 'audio' && isSunoV2Model(selectedModel)) {
+        return isUnavailableSunoModel(selectedModel) ? [] : getSunoV2Params(selectedModel, sunoParameterResources);
+      }
       if (generationType === 'video') {
         return getEffectiveVideoCompatibleParams(
           selectedModel,
@@ -2792,7 +2825,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       }
 
       return params;
-    }, [generationType, selectedModel, selectedModelRef, selectedParams]);
+    }, [generationType, selectedModel, selectedModelRef, selectedParams, sunoParameterResources, parameterTasks, sunoParameterProfileId]);
 
     // 点击外部关闭输入框的展开状态
     useEffect(() => {
@@ -4007,6 +4040,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       async (files: File[] | FileList) => {
         const fileList = Array.from(files);
         if (fileList.length === 0) return;
+        const keepOriginal = readKeepOriginalImageEnabled();
 
         const newContent: SelectedContent[] = [];
 
@@ -4066,7 +4100,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
             let processedBlob: Blob = file;
 
-            if (file.size > 10 * 1024 * 1024) {
+            if (!keepOriginal && file.size > 10 * 1024 * 1024) {
               const { compressImageBlob, getCompressionStrategy } =
                 await import('@aitu/utils');
               const strategy = getCompressionStrategy(
@@ -4819,9 +4853,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           baseParams.ratio = legacyRatio;
         }
       }
+      let restoredParams = compatibleParams;
+      if (isSunoNativeModel(selectedModel)) {
+        try { restoredParams = getSunoNativeParams(selectedModel, baseParams, collectSunoNativeResources(parameterTasks, sunoParameterProfileId)); }
+        catch { /* Restore the default action if a saved action was removed. */ }
+      }
       const nextParams: Record<string, string> = {};
 
-      const sizeParam = compatibleParams.find((p) => p.id === 'size');
+      const sizeParam = restoredParams.find((p) => p.id === 'size');
       const prevSize = baseParams.size;
       const prevSizeIsValid =
         !prevSize ||
@@ -4834,12 +4873,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             : sizeParam.defaultValue || getDefaultSizeForModel(selectedModel);
       }
 
-      compatibleParams.forEach((p) => {
+      restoredParams.forEach((p) => {
         if (p.id === 'size') return;
         const prevVal = baseParams[p.id];
         const prevValIsValid =
           !prevVal ||
           p.valueType !== 'enum' ||
+          p.control === 'multiselect' ||
           !p.options ||
           p.options.some((option) => option.value === prevVal);
         if (prevVal && prevValIsValid) {
@@ -4892,7 +4932,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         // 更新参数对象
         setSelectedParams((prev) => {
-          const next = { ...prev };
+          const next = isSunoNativeModel(selectedModel) && paramId === 'sunoNativeAction'
+            ? { callBackUrl: prev.callBackUrl || '' } as Record<string, string> : { ...prev };
           if (value === undefined || value === '') {
             delete next[paramId];
           } else {
@@ -5187,6 +5228,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         if (
           !trimmedPrompt &&
+          !(effectiveGenerationType === 'audio' && (isSunoV2Model(effectiveSelectedModel) || isSunoNativeModel(effectiveSelectedModel))) &&
           baseEffectiveContent.length === 0 &&
           submittedCanvasAssociations.length === 0
         ) {
@@ -5194,6 +5236,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         }
         if (submitLockRef.current || isSubmitting) {
           return; // 仅防止快速重复点击
+        }
+        if (effectiveGenerationType === 'audio' && isUnavailableSunoModel(effectiveSelectedModel)) {
+          MessagePlugin.error('该 Suno 动作当前未接入，请选择已开放的 Suno v2 模型');
+          return;
         }
         submitLockRef.current = true;
         setIsInspirationSendGuideActive(false);
@@ -5553,6 +5599,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 : undefined,
           });
           const promptForHistory = effectivePrompt;
+          if (effectiveGenerationType === 'audio' && isSunoNativeModel(effectiveSelectedModel)) {
+            const plan = resolveInvocationPlanFromRoute('audio', effectiveSelectedModelRef || effectiveSelectedModel);
+            if (!plan || plan.binding.protocol !== 'tuzi.suno.native') throw new Error('当前渠道未配置 Suno 原生接口');
+            parsedParams.extraParams = buildSunoNativeInputParams(effectiveSelectedModel, effectiveSelectedParams, parsedParams.prompt,
+              plan.provider.profileId, collectSunoNativeResources(taskQueueService.getAllTasks()));
+            parsedParams.prompt = effectivePrompt || getSunoNativeAction(effectiveSelectedModel, parsedParams.extraParams).label;
+          }
+          if (effectiveGenerationType === 'audio' && isSunoV2Model(effectiveSelectedModel)) {
+            const plan = resolveInvocationPlanFromRoute('audio', effectiveSelectedModelRef || effectiveSelectedModel);
+            if (!plan || plan.binding.protocol !== 'tuzi.suno.v2') throw new Error('当前渠道未配置 Suno v2 动作');
+            parsedParams.extraParams = buildSunoV2InputParams(
+              effectiveSelectedModel, effectiveSelectedParams, parsedParams.prompt,
+              plan.provider.profileId,
+              collectSunoV2Resources(taskQueueService.getAllTasks(), plan.provider.profileId)
+            );
+            parsedParams.prompt = effectivePrompt || getSunoV2Action(effectiveSelectedModel)?.label || effectiveSelectedModel;
+          }
           let imageBoundTargetGenerationParams =
             activeBoundImageTarget?.type === 'image'
               ? buildBoundTargetGenerationParams(
@@ -6725,6 +6788,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           });
         } catch (error) {
           console.error('Failed to create generation task:', error);
+          if (effectiveGenerationType === 'audio') {
+            MessagePlugin.error(error instanceof Error ? error.message : '创建音频任务失败');
+          }
           trackSubmitStatus('failed', {
             submitMode: 'setup',
             submit_mode: 'setup',
@@ -7716,8 +7782,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const isPptExplainerSkillSelected =
       generationType === 'agent' && usesStrictPptModels;
     const canGenerate =
+      !(generationType === 'audio' && isUnavailableSunoModel(selectedModel)) &&
       !canvasAssociationTrigger &&
       (isPptExplainerSkillSelected ||
+        (generationType === 'audio' && (isSunoV2Model(selectedModel) || isSunoNativeModel(selectedModel))) ||
         prompt.trim().length > 0 ||
         generationContent.length > 0 ||
         canvasAssociationRefs.length > 0);
@@ -7961,7 +8029,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       ],
       [boundTargetFollowCopy]
     );
-    const boundTargetFollowActions = followControlsTarget ? (
+    const boundTargetFollowActions = (
       <Popup
         trigger="click"
         placement="top-right"
@@ -8006,7 +8074,29 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 }
               />
             </div>
-            {boundTargetFollowEnabled ? (
+            <div className="ai-input-bar__settings-row">
+              <span>{language === 'zh' ? '保留原图' : 'Keep original image'}</span>
+              <Switch
+                size="small"
+                value={keepOriginalImageEnabled}
+                aria-label={language === 'zh' ? '保留原图' : 'Keep original image'}
+                aria-describedby={keepOriginalImageHintId}
+                onChange={(checked) =>
+                  setKeepOriginalImageEnabled(
+                    persistKeepOriginalImageEnabled(checked as boolean)
+                  )
+                }
+              />
+            </div>
+            <p
+              id={keepOriginalImageHintId}
+              className="ai-input-bar__settings-hint"
+            >
+              {language === 'zh'
+                ? '开启后图片体积更大，上传和生成可能明显变慢。'
+                : 'Original images are larger and may make uploads and generation much slower.'}
+            </p>
+            {followControlsTarget && boundTargetFollowEnabled ? (
               <div className="ai-input-bar__settings-actions">
                 <button
                   type="button"
@@ -8062,7 +8152,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           <Settings2 size={18} aria-hidden="true" />
         </button>
       </Popup>
-    ) : null;
+    );
 
     const boundInputStyle = {
       '--ai-input-viewport-width': `${inputViewport.width}px`,
@@ -8456,12 +8546,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                   )}
 
                 {/* Parameters dropdown selector - Hidden for Agent mode */}
+                {generationType === 'audio' && isUnavailableSunoModel(selectedModel) && (
+                  <span role="status">该 Suno 动作暂不可用</span>
+                )}
                 {generationType !== 'agent' && compatibleParams.length > 0 && (
                   <ParametersDropdown
                     key={selectedModel} // 强制在模型切换时重新挂载以刷新可配置参数
                     selectedParams={selectedParams}
                     onParamChange={handleParamSelect}
-                    compatibleParams={compatibleParams}
+                    compatibleParams={generationType === 'audio' && isSunoV2Model(selectedModel)
+                      ? getVisibleSunoV2Params(selectedModel, compatibleParams, selectedParams) : compatibleParams}
                     modelId={selectedModel}
                     language={language}
                     isOpen={paramsDropdownOpen}

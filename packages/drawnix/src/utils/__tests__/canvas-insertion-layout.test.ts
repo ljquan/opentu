@@ -264,4 +264,10 @@ describe('canvas-insertion-layout', () => {
 
     expect(getViewportAwareCardWidth(board)).toBe(300);
   });
+
+  it('caps markdown card width on wide canvases for readable line length', () => {
+    const board = createBoard([], [], { width: 2400, height: 1200 }, 1);
+
+    expect(getViewportAwareCardWidth(board)).toBe(720);
+  });
 });

@@ -11,6 +11,7 @@ import {
 import { useAssets } from '../../../contexts/AssetContext';
 import { HoverCard } from '../../shared';
 import { Z_INDEX } from '../../../constants/z-index';
+import { readKeepOriginalImageEnabled } from '../../../services/reference-image-settings';
 
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const COMPRESSION_THRESHOLD_BYTES = 10 * 1024 * 1024;
@@ -51,6 +52,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const handleImageUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
+    const keepOriginal = readKeepOriginalImageEnabled();
     const files = event.target.files;
     if (files) {
       const fileArray = Array.from(files);
@@ -79,7 +81,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           let fileToAdd: Blob = file;
 
           // Compress if file is 10-25MB
-          if (file.size > COMPRESSION_THRESHOLD_BYTES) {
+          if (!keepOriginal && file.size > COMPRESSION_THRESHOLD_BYTES) {
             const { compressImageBlob, getCompressionStrategy } = await import('@aitu/utils');
             const strategy = getCompressionStrategy(file.size / (1024 * 1024));
             const msgId = MessagePlugin.loading({
@@ -201,6 +203,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   };
 
   const assetToImageFile = async (asset: Asset): Promise<ImageFile> => {
+    const keepOriginal = readKeepOriginalImageEnabled();
     if (asset.size && asset.size > MAX_IMAGE_SIZE_BYTES) {
       throw new Error(`Asset exceeds 25MB limit: ${asset.name}`);
     }
@@ -212,7 +215,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       throw new Error(`Asset exceeds 25MB limit: ${asset.name}`);
     }
 
-    if (blob.size > COMPRESSION_THRESHOLD_BYTES) {
+    if (!keepOriginal && blob.size > COMPRESSION_THRESHOLD_BYTES) {
       const { compressImageBlob, getCompressionStrategy } = await import('@aitu/utils');
       const strategy = getCompressionStrategy(blob.size / (1024 * 1024));
       blob = await compressImageBlob(blob, strategy.targetSizeMB);

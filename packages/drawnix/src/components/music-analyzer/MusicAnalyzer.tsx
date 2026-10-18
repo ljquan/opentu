@@ -12,6 +12,7 @@ import {
   syncMusicGenerationTask,
 } from './task-sync';
 import type { Task } from '../../types/task.types';
+import { writeStoredModelSelection } from './utils';
 import {
   WorkflowNavBar,
   useWorkflowNavigation,
@@ -137,6 +138,11 @@ const MusicAnalyzer: React.FC = () => {
           onCreateNew={handleRestart}
           onNext={currentRecord ? () => setPage('lyrics') : undefined}
           onLyricsReady={() => setPage('lyrics')}
+          onOpenSunoV2={(record, model, modelRef) => {
+            writeStoredModelSelection('music-analyzer:audio-model', model, modelRef);
+            selectRecord(record);
+            setPage('generate');
+          }}
         />
       )}
       {page === 'lyrics' && currentRecord && (

@@ -44,6 +44,13 @@ describe('model-pricing-service', () => {
     );
   }
 
+  it('preserves native Suno transport metadata even without a path', async () => {
+    const cache = await fetchCache({ success: true, data: [{ model_name: 'suno/music', quota_type: 1,
+      model_price: 0.08, enable_groups: ['default'], endpoints: { 'suno-v2': { transport: 'task', async: true } } }],
+    }, 'default', 1);
+    expect(cache.modelEndpoints?.['suno/music']?.['suno-v2']).toEqual({ transport: 'task', async: true });
+  });
+
   it('对 Tuzi 价格接口使用每日缓存', () => {
     expect(getPricingCacheTtlMs('https://api.tu-zi.com/api/pricing')).toBe(
       TUZI_PRICING_CACHE_TTL_MS

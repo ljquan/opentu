@@ -1,0 +1,820 @@
+{
+  "verifiedAt": "2026-10-06",
+  "actions": [
+    {
+      "action": "add-instrumental",
+      "model": "suno/add-instrumental",
+      "path": "/suno/v2/add-instrumental",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "add-instrumental",
+          "model": "suno/add-instrumental",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "add-stem",
+      "model": "suno/add-stem",
+      "path": "/suno/v2/add-stem",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "add-stem",
+          "model": "suno/add-stem",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "add-vocals",
+      "model": "suno/add-vocals",
+      "path": "/suno/v2/add-vocals",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "add-vocals",
+          "model": "suno/add-vocals",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "adjust-speed",
+      "model": "suno/adjust-speed",
+      "path": "/suno/v2/adjust-speed",
+      "request": {
+        "keep_pitch": true,
+        "music_id": "MUSIC_ID",
+        "speed_multiplier": 1.25,
+        "title": "Tin Roof Rain"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "adjust-speed",
+          "model": "suno/adjust-speed",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "aligned-lyrics",
+      "model": "suno/aligned-lyrics",
+      "path": "/suno/v2/aligned-lyrics",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "aligned-lyrics",
+          "model": "suno/aligned-lyrics",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "result": {
+            "status": "complete",
+            "alignment": [
+              {
+                "word": "[Verse 1]\n雨打在铁皮屋顶上",
+                "start_s": 12.3,
+                "end_s": 15.8
+              }
+            ],
+            "waveform_data": [
+              0.12,
+              0.34,
+              "..."
+            ]
+          }
+        }
+      }
+    },
+    {
+      "action": "concat",
+      "model": "suno/concat",
+      "path": "/suno/v2/concat",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "concat",
+          "model": "suno/concat",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "cover",
+      "model": "suno/cover",
+      "path": "/suno/v2/cover",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "music_id": "MUSIC_ID",
+        "gpt_description_prompt": "轻柔的 lo-fi 钢琴，雨落在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "cover",
+          "model": "suno/cover",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "create-model",
+      "model": "suno/create-model",
+      "path": "/suno/v2/create-model",
+      "request": {
+        "audio_urls": [
+          "https://example.com/audio-1.mp3",
+          "https://example.com/audio-2.mp3",
+          "https://example.com/audio-3.mp3",
+          "https://example.com/audio-4.mp3",
+          "https://example.com/audio-5.mp3",
+          "https://example.com/audio-6.mp3"
+        ],
+        "name": "我的音色"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "create-model",
+          "model": "suno/create-model",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "model_id": "7d9a2b44-..."
+        }
+      }
+    },
+    {
+      "action": "create-voice",
+      "model": "suno/create-voice",
+      "path": "/suno/v2/create-voice",
+      "request": {
+        "audio_url": "https://example.com/audio.mp3"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "create-voice",
+          "model": "suno/create-voice",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "persona_id": "c2f0e6a1-..."
+        }
+      }
+    },
+    {
+      "action": "download",
+      "model": "suno/download",
+      "path": "/suno/v2/download",
+      "request": {
+        "formats": [
+          "mp3",
+          "wav"
+        ],
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "download",
+          "model": "suno/download",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "result": {
+            "music_id": "89b20862-...",
+            "files": [
+              {
+                "format": "mp3",
+                "file_url": "https://..."
+              },
+              {
+                "format": "wav",
+                "file_url": "https://..."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "action": "extend",
+      "model": "suno/extend",
+      "path": "/suno/v2/extend",
+      "request": {
+        "continue_at": 120,
+        "custom": false,
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "extend",
+          "model": "suno/extend",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "gen-midi",
+      "model": "suno/gen-midi",
+      "path": "/suno/v2/gen-midi",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "gen-midi",
+          "model": "suno/gen-midi",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "result": {
+            "state": "complete",
+            "instruments": [
+              "..."
+            ]
+          }
+        }
+      }
+    },
+    {
+      "action": "inspo",
+      "model": "suno/inspo",
+      "path": "/suno/v2/inspo",
+      "request": {
+        "mv": "chirp-v6",
+        "audio_urls": [
+          "https://example.com/a.mp3",
+          "https://example.com/b.mp3"
+        ]
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "inspo",
+          "model": "suno/inspo",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "lyrics",
+      "model": "suno/lyrics",
+      "path": "/suno/v2/lyrics",
+      "request": {
+        "prompt": "[Verse 1]\n雨打在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "lyrics",
+          "model": "suno/lyrics",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "lyrics": [
+            {
+              "title": "Tin Roof Rain",
+              "text": "[Verse 1]\n...",
+              "tags": "lo-fi, mellow"
+            },
+            {
+              "title": "...",
+              "text": "...",
+              "tags": "..."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "mashup",
+      "model": "suno/mashup",
+      "path": "/suno/v2/mashup",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "instrumental": false,
+        "mashup_music_id": [
+          "MUSIC_ID_1",
+          "MUSIC_ID_2"
+        ],
+        "gpt_description_prompt": "轻柔的 lo-fi 钢琴，雨落在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "mashup",
+          "model": "suno/mashup",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "music",
+      "model": "suno/music",
+      "path": "/suno/v2/music",
+      "request": {
+        "mv": "chirp-v6",
+        "custom": false,
+        "instrumental": false,
+        "gpt_description_prompt": "轻柔的 lo-fi 钢琴，雨落在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "music",
+          "model": "suno/music",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "persona",
+      "model": "suno/persona",
+      "path": "/suno/v2/persona",
+      "request": {
+        "music_id": "MUSIC_ID",
+        "name": "我的音色"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "persona",
+          "model": "suno/persona",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "persona_id": "c2f0e6a1-..."
+        }
+      }
+    },
+    {
+      "action": "remaster",
+      "model": "suno/remaster",
+      "path": "/suno/v2/remaster",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "remaster",
+          "model": "suno/remaster",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "replace-section",
+      "model": "suno/replace-section",
+      "path": "/suno/v2/replace-section",
+      "request": {
+        "mv": "chirp-v6",
+        "infill_end_s": 45,
+        "infill_start_s": 30,
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "replace-section",
+          "model": "suno/replace-section",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "sample",
+      "model": "suno/sample",
+      "path": "/suno/v2/sample",
+      "request": {
+        "mv": "chirp-v6",
+        "chop_sample_end_s": 30,
+        "chop_sample_start_s": 0,
+        "custom": false,
+        "instrumental": false,
+        "music_id": "MUSIC_ID",
+        "gpt_description_prompt": "轻柔的 lo-fi 钢琴，雨落在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "sample",
+          "model": "suno/sample",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "sounds",
+      "model": "suno/sounds",
+      "path": "/suno/v2/sounds",
+      "request": {
+        "mv": "chirp-v6",
+        "sound": "一声轻柔的雨滴",
+        "type": "one-shot"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "sounds",
+          "model": "suno/sounds",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "stems",
+      "model": "suno/stems",
+      "path": "/suno/v2/stems",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "stems",
+          "model": "suno/stems",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "stems-all",
+      "model": "suno/stems-all",
+      "path": "/suno/v2/stems-all",
+      "request": {
+        "music_id": "MUSIC_ID"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "stems-all",
+          "model": "suno/stems-all",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "upload",
+      "model": "suno/upload",
+      "path": "/suno/v2/upload",
+      "request": {
+        "audio_url": "https://example.com/audio.mp3"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "upload",
+          "model": "suno/upload",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "result": {
+            "music_id": "89b20862-..."
+          }
+        }
+      }
+    },
+    {
+      "action": "upload-cover",
+      "model": "suno/upload-cover",
+      "path": "/suno/v2/upload-cover",
+      "request": {
+        "mv": "chirp-v6",
+        "audio_url": "https://example.com/audio.mp3",
+        "custom": false,
+        "instrumental": false,
+        "gpt_description_prompt": "轻柔的 lo-fi 钢琴，雨落在铁皮屋顶上"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "upload-cover",
+          "model": "suno/upload-cover",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "upload-extend",
+      "model": "suno/upload-extend",
+      "path": "/suno/v2/upload-extend",
+      "request": {
+        "mv": "chirp-v6",
+        "audio_url": "https://example.com/audio.mp3",
+        "continue_at": 120
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "upload-extend",
+          "model": "suno/upload-extend",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "submit_time": 1757800000000,
+          "finish_time": 1757800120000,
+          "musics": [
+            {
+              "music_id": "89b20862-...",
+              "title": "Rain on Tin Roof",
+              "tags": "lo-fi piano",
+              "audio_url": "https://...",
+              "image_url": "https://...",
+              "duration": 187.56
+            }
+          ]
+        }
+      }
+    },
+    {
+      "action": "upsample-tags",
+      "model": "suno/upsample-tags",
+      "path": "/suno/v2/upsample-tags",
+      "request": {
+        "tags": "lo-fi 钢琴, 舒缓"
+      },
+      "response": {
+        "code": "success",
+        "data": {
+          "task_id": "provider-task",
+          "action": "upsample-tags",
+          "model": "suno/upsample-tags",
+          "status": "SUCCESS",
+          "progress": "100%",
+          "result": {
+            "upsampled_tags": "lo-fi piano, mellow, warm tape saturation, ..."
+          }
+        }
+      }
+    }
+  ]
+}

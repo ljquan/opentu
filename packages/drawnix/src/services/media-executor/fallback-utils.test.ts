@@ -12,6 +12,10 @@ const getCachedImageBlobWithThumbnailFallback = vi.fn();
 const cachedUrls = new Set<string>();
 const isCached = vi.fn(async (url: string) => cachedUrls.has(url));
 const calculateBlobChecksum = vi.fn(async () => 'a'.repeat(64));
+const fidelityMocks = vi.hoisted(() => ({
+  readKeepOriginalImageEnabled: vi.fn(() => false),
+  compressImageBlob: vi.fn(),
+}));
 const providerSend = vi.fn();
 const blobLike = expect.objectContaining({
   size: expect.any(Number),
@@ -50,8 +54,13 @@ vi.mock('@aitu/utils', async () => {
   return {
     ...actual,
     calculateBlobChecksum,
+    compressImageBlob: fidelityMocks.compressImageBlob,
   };
 });
+
+vi.mock('../reference-image-settings', () => ({
+  readKeepOriginalImageEnabled: fidelityMocks.readKeepOriginalImageEnabled,
+}));
 
 vi.mock('../unified-cache-service', () => ({
   unifiedCacheService: {
@@ -71,6 +80,7 @@ vi.mock('../provider-routing/provider-transport', () => ({
 describe('materializeReferenceImagesSequentially', () => {
   beforeEach(() => {
     getImageForAI.mockReset();
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
   });
 
   it('materializes local references one at a time while preserving order and remote URLs', async () => {
@@ -103,8 +113,8 @@ describe('materializeReferenceImagesSequentially', () => {
 
     expect(maxActiveReads).toBe(1);
     expect(getImageForAI).toHaveBeenCalledTimes(2);
-    expect(getImageForAI).toHaveBeenNthCalledWith(1, first);
-    expect(getImageForAI).toHaveBeenNthCalledWith(2, second);
+    expect(getImageForAI).toHaveBeenNthCalledWith(1, first, { keepOriginal: false });
+    expect(getImageForAI).toHaveBeenNthCalledWith(2, second, { keepOriginal: false });
     expect(result).toEqual([
       'data:image/png;base64,RklSU1Q=',
       remote,
@@ -128,6 +138,73 @@ describe('materializeReferenceImagesSequentially', () => {
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(getImageForAI).toHaveBeenCalledOnce();
+  });
+
+  it('captures fidelity for the whole request even if it changes during cache reads', async () => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(true);
+    getImageForAI.mockImplementation(async () => {
+      fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
+      return { type: 'base64', value: 'data:image/png;base64,RklSU1Q=' };
+    });
+    const { materializeReferenceImagesSequentially } = await import('./fallback-utils');
+
+    await materializeReferenceImagesSequentially(['first', 'second']);
+
+    expect(getImageForAI).toHaveBeenNthCalledWith(1, 'first', { keepOriginal: true });
+    expect(getImageForAI).toHaveBeenNthCalledWith(2, 'second', { keepOriginal: true });
+  });
+});
+
+describe('reference image transport fidelity', () => {
+  beforeEach(() => {
+    fidelityMocks.compressImageBlob.mockReset();
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
+  });
+
+  it('returns a large data URL byte-for-byte without fetching when enabled', async () => {
+    const value = `data:image/png;base64,${'YWJj'.repeat(400_000)}`;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const { ensureBase64ForAI } = await import('./fallback-utils');
+      expect(await ensureBase64ForAI({ type: 'base64', value }, undefined, true)).toBe(value);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('preserves a fetched original PNG and MIME while default mode compresses it', async () => {
+    const content = 'texture'.repeat(160_000);
+    const original = new Blob([content], { type: 'image/png' });
+    const compressed = new Blob(['compressed'], { type: 'image/jpeg' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      blob: async () => original,
+    } as Response);
+    fidelityMocks.compressImageBlob.mockResolvedValue(compressed);
+    try {
+      const { ensureBase64ForAI } = await import('./fallback-utils');
+      const image = { type: 'url', value: 'https://example.com/fabric.png' };
+      const preserved = await ensureBase64ForAI(image, undefined, true);
+      expect(preserved).toBe(`data:image/png;base64,${btoa(content)}`);
+      expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+
+      expect(await ensureBase64ForAI(image)).toBe('data:image/jpeg;base64,Y29tcHJlc3NlZA==');
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(original, 1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('retains fetch failure behavior in original mode', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response);
+    try {
+      const { ensureBase64ForAI } = await import('./fallback-utils');
+      await expect(ensureBase64ForAI({ type: 'url', value: 'https://example.com/missing.png' }, undefined, true)).rejects.toThrow('404');
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

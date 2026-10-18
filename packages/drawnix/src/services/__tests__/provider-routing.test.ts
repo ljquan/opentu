@@ -110,6 +110,34 @@ function spyOnResponseBodyCancel(response: Response) {
 }
 
 describe('provider routing', () => {
+  it('keeps native v2 and legacy Suno bindings separate despite stale chat metadata', () => {
+    const profile: ProviderProfileSnapshot = {
+      id: 'tuzi', name: 'Tuzi', providerType: 'openai-compatible',
+      baseUrl: 'https://api.tu-zi.com/v1', apiKey: 'test', authType: 'bearer',
+    };
+    const model: ModelConfig = { id: 'suno/music', label: 'Music', type: 'text', vendor: ModelVendor.SUNO };
+    const bindings = inferBindingsForProviderModel(profile, model, {
+      chat: { method: 'POST', path: '/v1/chat/completions' },
+      native: { method: 'POST', path: '/suno/v2/music', transport: 'task', async: true },
+      otherAction: { method: 'POST', path: '/suno/v2/cover' },
+    });
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({
+      operation: 'audio', protocol: 'tuzi.suno.v2',
+      submitPath: '/suno/v2/music', pollPathTemplate: '/suno/v2/fetch/{taskId}',
+    });
+    expect(inferBindingsForProviderModel(profile, { ...model, id: 'suno_music', type: 'audio' })[0])
+      .toMatchObject({ protocol: 'tuzi.suno.music', submitPath: '/suno/submit/music' });
+    for (const id of ['suno/create-voice', 'suno/add-instrumental', 'suno/add-vocals']) {
+      expect(inferBindingsForProviderModel(profile, { ...model, id, type: 'text' }, {
+        native: { path: `/suno/v2/${id.slice(5)}`, method: 'POST' },
+        chat: { path: '/v1/chat/completions', method: 'POST' },
+      })).toEqual([]);
+    }
+    expect(inferBindingsForProviderModel(profile, { ...model, id: 'suno/not-a-real-action' })).toEqual([]);
+    expect(inferBindingsForProviderModel({ ...profile, baseUrl: 'https://api.openai.com/v1' }, model)).toEqual([]);
+  });
+
   it('uses the configured Tuzi URL on opentu.ai without generating a proxy path', async () => {
     vi.stubGlobal('location', { hostname: 'opentu.ai' });
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({}));

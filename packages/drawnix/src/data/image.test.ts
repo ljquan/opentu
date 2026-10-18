@@ -247,10 +247,13 @@ describe('insertImageFromUrl', () => {
       });
       expect(mocks.cacheMediaFromBlob).toHaveBeenCalledExactlyOnceWith(
         localUrl,
-        expect.any(Blob),
+        expect.objectContaining({ type: 'image/png', size: 4 }),
         'image',
         { sourceUrl }
       );
+      expect(
+        new Uint8Array(await mocks.cacheMediaFromBlob.mock.calls[0][1].arrayBuffer())
+      ).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
       expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);
       expect(revokeObjectURL).toHaveBeenCalledTimes(3);
     } finally {

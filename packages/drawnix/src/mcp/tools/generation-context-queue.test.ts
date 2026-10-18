@@ -263,6 +263,33 @@ describe('generation queue context passthrough', () => {
     });
   });
 
+  it('passes native v2 arrays and booleans to the audio task without requiring unrelated prompt text', async () => {
+    const { generateAudio } = await import('./audio-generation');
+    const params = { sunoV2Body: { music_id: 'm', formats: ['mp3', 'wav'] }, sunoV2Resources: [{ id: 'm', kind: 'music_id', profileId: 'p' }] };
+    const result = await generateAudio({ prompt: '', model: 'suno/download', params }, { mode: 'queue' });
+    expect(result.success).toBe(true);
+    expect(createdTasks[0]).toMatchObject({ type: TaskType.AUDIO, params: { model: 'suno/download', params } });
+    expect(createdTasks[0].params.prompt).toBe('多格式导出');
+  });
+
+  it('does not queue unavailable Suno aliases', async () => {
+    const { generateAudio } = await import('./audio-generation');
+    expect((await generateAudio({ prompt: 'test', model: 'suno_persona_unknown' }, { mode: 'queue' })).success).toBe(false);
+    expect(createdTasks).toHaveLength(0);
+  });
+
+  it.each(['suno/create-voice', 'suno/add-instrumental', 'suno/add-vocals'])('does not queue excluded v2 model %s', async (model) => {
+    const { generateAudio } = await import('./audio-generation');
+    expect((await generateAudio({ prompt: '', model, params: { sunoV2Body: {} } }, { mode: 'queue' })).success).toBe(false);
+    expect(createdTasks).toHaveLength(0);
+  });
+
+  it('does not replace a missing native music prompt with an action label without an explicit body', async () => {
+    const { generateAudio } = await import('./audio-generation');
+    expect((await generateAudio({ prompt: '', model: 'suno/music' }, { mode: 'queue' })).success).toBe(false);
+    expect(createdTasks).toHaveLength(0);
+  });
+
   it('keeps lightweight canvas refs on text queue tasks', async () => {
     const { generateText } = await import('./text-generation');
 

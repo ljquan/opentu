@@ -1,3 +1,5 @@
+import { SunoNativePage } from './SunoNativePage';
+import { isSunoNativeModel } from '../../../services/suno-native';
 import React, {
   useCallback,
   useEffect,
@@ -25,6 +27,8 @@ import {
 } from '../../../constants/model-config';
 import { readStoredModelSelection, writeStoredModelSelection } from '../utils';
 import { analytics } from '../../../utils/umami-analytics';
+import { isSunoV2Model } from '../../../services/suno-v2';
+import { SunoV2Page } from './SunoV2Page';
 
 const STORAGE_KEY_AUDIO_MODEL = 'music-analyzer:audio-model';
 
@@ -158,6 +162,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
 
   useEffect(() => {
     clearTimeout(saveTimerRef.current);
+    if (isSunoV2Model(selectedModel) || isSunoNativeModel(selectedModel)) return;
     saveTimerRef.current = setTimeout(async () => {
       const styleTags = toStyleTags(tags);
       const continueAt = toOptionalNumber(continueAtInput);
@@ -195,6 +200,7 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     instrumental,
     tags,
     title,
+    selectedModel,
   ]);
 
   const audioModels = useSelectableModels('audio');
@@ -417,6 +423,17 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({
     tags,
     title,
   ]);
+
+  if (isSunoNativeModel(selectedModel)) return <SunoNativePage key={`${record.id}:${selectedModel}:${selectedModelRef?.profileId || ''}`}
+    record={record} model={selectedModel} modelRef={selectedModelRef} models={sunoModels} onSelectModel={setSelectedModel}
+    onRecordUpdate={onRecordUpdate} onRecordsChange={onRecordsChange} />;
+
+  if (isSunoV2Model(selectedModel)) {
+    return <SunoV2Page key={`${record.id}:${selectedModel}:${selectedModelRef?.profileId || ''}`}
+      record={record} model={selectedModel} modelRef={selectedModelRef}
+      models={sunoModels} onSelectModel={setSelectedModel}
+      onRecordUpdate={onRecordUpdate} onRecordsChange={onRecordsChange} />;
+  }
 
   return (
     <div className="va-page">

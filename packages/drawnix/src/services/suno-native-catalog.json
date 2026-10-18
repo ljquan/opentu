@@ -1,0 +1,2066 @@
+{
+  "verifiedAt": "2026-10-13",
+  "actions": [
+    {
+      "action": "generate",
+      "label": "音乐生成",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "customMode",
+          "instrumental",
+          "callBackUrl",
+          "model"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "A description of the desired audio content. Optional.\n- Custom mode (`customMode=true`): When provided, the prompt is used strictly as lyrics and sung in the generated track. If `lyrics` is also provided, `lyrics` takes priority. Character limits by model:\n  - **V4 (Discontinued)**: Maximum 3000 characters\n  - **V4_5, V4_5PLUS, V4_5ALL, V5_5, V5 (Discontinued)**: Maximum 5000 characters\n- Non-custom mode (`customMode=false`): When provided, the prompt serves as the core idea. Lyrics are generated automatically based on it and do not strictly match the input. Maximum 3000 characters.\n`prompt` is not required. In non-custom mode, provide at least one of `imageUrls`, `videoUrls`, `audioUrls`, `style`, or `lyrics`. In custom mode, provide at least one of `style`, `lyrics`, or `negativeTags`. Generation is rejected if all related inputs are empty.",
+            "example": "A calm and relaxing piano track with soft melodies"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional.\n- **V6, V6_MINI, V6_WILD**: Maximum 5000 characters.\n- When `customMode=true`, `lyrics` is used as lyrics first; if `lyrics` is not provided, `prompt` is used as lyrics.\n- When `customMode=false`, `lyrics` is used as a lyrics attachment and can be used together with the audio description in `prompt`.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "imageUrls": {
+            "type": "array",
+            "description": "Image references. Only effective when `customMode=false`.\n- Optional\n- Up to 5 images; each image must not exceed 10 MB\n- Supported formats: `jpeg`, `png`, `webp`, and `bmp`\n- In non-custom mode, total attachments must not exceed 10: `style` + `lyrics` + `imageUrls` + `videoUrls` + `audioUrls`",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "example": [
+              "https://example.com/reference-image.png"
+            ]
+          },
+          "videoUrls": {
+            "type": "array",
+            "description": "Video references. Only effective when `customMode=false`.\n- Optional\n- Up to 1 video file; each file must not exceed 100 MB, duration must not exceed 241 seconds, with no minimum duration\n- Supported formats: mp4, mov, and webm",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1,
+            "example": [
+              "https://example.com/reference-video.mp4"
+            ]
+          },
+          "audioUrls": {
+            "type": "array",
+            "description": "Audio references. Only effective when `customMode=false`.\n- Optional\n- Audio duration must be between 6 seconds and 30 minutes; each audio file must not exceed 500 MB",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "https://example.com/reference-audio.mp3"
+            ]
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style specification for the generated audio.\n- Character limits by model:\n  - **V4 (Discontinued)**: Maximum 200 characters\n  - **V4_5 and V4_5PLUS (Discontinued)**: Maximum 1000 characters\n  - **V4_5ALL (Discontinued)**: Maximum 1000 characters\n  - **V5_5 and V5 (Discontinued)**: Maximum 1000 characters\n  - **V6, V6_MINI, and V6_WILD**: Maximum 1000 characters\n- Common examples: Jazz, Classical, Electronic, Pop, Rock, Hip-hop, etc.\n- In custom mode, provide at least one of `style`, `lyrics`, or `negativeTags`. In non-custom mode, provide at least one of `imageUrls`, `videoUrls`, `audioUrls`, `style`, or `lyrics`.",
+            "example": "Classical"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title for the generated music track. Optional.\n- Only available when `customMode` is `true`. Not supported when `customMode` is `false`.\n- Maximum 80 characters.\n- Displayed in player interfaces and filenames.",
+            "maxLength": 80,
+            "example": "Peaceful Piano Meditation"
+          },
+          "customMode": {
+            "type": "boolean",
+            "description": "Determines whether advanced parameter customization is enabled.\n- If `true`: Allows detailed control\n- If `false`: Simplified mode",
+            "example": true
+          },
+          "instrumental": {
+            "type": "boolean",
+            "description": "Determines whether the audio should be instrumental (no lyrics).\n- In Custom Mode (`customMode: true`):\n  - If `true`: generate instrumental music (no vocals)\n  - If `false`: use `lyrics` as lyrics (fall back to `prompt` if `lyrics` is not provided)\n- In Non-custom Mode (`customMode: false`):\n  - If `true`: generate instrumental music (no vocals)\n  - If `false`: `lyrics` can be used as a lyrics attachment together with the audio description in `prompt`",
+            "example": true
+          },
+          "model": {
+            "type": "string",
+            "description": "The AI model version to use for generation. Required for all requests. Default: `V6`. Available options:\n- **`V6_WILD`**: Pushes creative boundaries for bolder, more distinctive musical expression.\n- **`V6_MINI`**: Lightweight and fast, balancing quality and speed for effortless creation.\n- **`V6`**: Greater musical expression with more natural vocals and richer details. Recommended default.\n- **`V5_5` (Discontinued)**: Custom models tailored to your unique taste.\n- **`V5` (Discontinued)**: Superior musical expression, faster generation.\n- **`V4_5PLUS` (Discontinued)**: V4.5+ delivers richer sound, new ways to create, max 8 min.\n- **`V4_5` (Discontinued)**: V4.5 enables smarter prompts, faster generations, max 8 min.\n- **`V4_5ALL` (Discontinued)**: V4.5ALL enables smarter prompts, faster generations, max 8 min.\n- **`V4` (Discontinued)**: V4 improves vocal quality, max 4 min.\nDiscontinued values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when music generation is complete. The callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete). Note: In some cases, `text` and `first` stages may be skipped, directly returning `complete`.\n- For detailed callback format and implementation guide, see [Music Generation Callbacks](https://docs.sunoapi.org/suno-api/generate-music-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles or traits to exclude from the generated audio. Optional.\n- Only available when `customMode` is `true`. Do not pass this field when `customMode` is `false`.\n- For V6, V6_MINI, and V6_WILD: maximum 1000 characters.\n- In custom mode, provide at least one of `style`, `lyrics`, or `negativeTags`.",
+            "maxLength": 1000,
+            "example": "Heavy Metal, Upbeat Drums"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Vocal gender preference. Optional.\n- Only available when `customMode` is `true`. Do not pass this field when `customMode` is `false`.\n- Use `m` for male and `f` for female.\n- In practice, this only increases probability and cannot guarantee male/female voice instructions are followed.",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Only available when Custom Mode (`customMode: true`) is enabled. Strength of adherence to the specified style. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Only available when Custom Mode (`customMode: true`) is enabled. Controls experimental/creative deviation. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Only available when Custom Mode (`customMode: true`) is enabled. Relative weight of audio features. Optional. Range 0–1, up to 2 decimal places.\n- `audioWeight` is not supported when there are no vocals",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Only available when Custom Mode (`customMode: true`) is enabled. Controls the diversity and stylistic variation of generated results. Optional. Range 0–4, integer, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID or Voice ID to apply to the generated music. Optional. Use this to apply a specific persona style to your music generation.\n\nTo generate a Persona ID, use the [Generate Persona](https://docs.sunoapi.org/suno-api/generate-persona) endpoint to create a personalized music Persona based on generated music.\n\nTo generate a Voice ID, use the [Generate Voice](https://docs.sunoapi.org/suno-api/suno-voice-generate) endpoint. When using a Voice-generated ID, you must set `personaModel: voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model. Optional `style_persona` or `voice_persona`. Only available for `V5` (Discontinued), `V5_5` (Discontinued), `V6`, `V6_MINI`, and `V6_WILD`.\n- `style_persona` (default): Use this for Persona IDs generated by the Generate Persona endpoint.\n- `voice_persona`: Required when `personaId` is a `voiceId` generated by Suno Voice.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Audio duration in seconds. Optional.\n- Only available when `customMode` is `true`. Do not pass this field when `customMode` is `false`.\n- Range: 10–360 seconds. Default: 20.\n- Only valid when the model is `V5_5` (Discontinued), `V6`, `V6_MINI`, or `V6_WILD`.",
+            "minimum": 10,
+            "maximum": 360,
+            "default": 20,
+            "example": 20
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-music"
+    },
+    {
+      "action": "sounds",
+      "label": "声音生成",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/sounds",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "model"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Prompt text for sound generation. Maximum 500 characters.",
+            "maxLength": 500,
+            "example": "A soft rain ambience with distant thunder and gentle wind"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "soundLoop": {
+            "type": "boolean",
+            "description": "Whether to enable loop playback for the generated sound.",
+            "default": false,
+            "example": false
+          },
+          "soundTempo": {
+            "type": "integer",
+            "description": "BPM (beats per minute). If omitted, Auto is used.",
+            "minimum": 1,
+            "maximum": 300,
+            "nullable": true,
+            "example": 120
+          },
+          "soundKey": {
+            "type": "string",
+            "description": "Pitch key of generated sound. Default is `Any`.",
+            "default": "Any",
+            "enum": [
+              "Any",
+              "Cm",
+              "C#m",
+              "Dm",
+              "D#m",
+              "Em",
+              "Fm",
+              "F#m",
+              "Gm",
+              "G#m",
+              "Am",
+              "A#m",
+              "Bm",
+              "C",
+              "C#",
+              "D",
+              "D#",
+              "E",
+              "F",
+              "F#",
+              "G",
+              "G#",
+              "A",
+              "A#",
+              "B"
+            ],
+            "example": "Any"
+          },
+          "grabLyrics": {
+            "type": "boolean",
+            "description": "Whether to fetch lyric subtitle data after task completion.",
+            "example": false
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Callback URL for asynchronous task completion notifications.",
+            "example": "https://api.example.com/callback"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-sounds"
+    },
+    {
+      "action": "extend",
+      "label": "续写",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/extend",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "audioId",
+          "callBackUrl",
+          "model"
+        ],
+        "properties": {
+          "instrumental": {
+            "type": "boolean",
+            "description": "Whether the extended music should be instrumental (without vocals). Optional. If `true`, neither `prompt` nor `vocalGender` may be provided.",
+            "default": false,
+            "example": false
+          },
+          "audioId": {
+            "type": "string",
+            "description": "Audio ID of the track to extend. Required. With a source audio ID, generation can proceed; `lyrics` (or `prompt`), `title`, and `style` are optional.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Unique identifier of the original music generation task that produced the source audio. Optional. Can be a taskId returned from Generate Music (`/api/v1/generate`) or a previous Extend Music (`/api/v1/generate/extend`) request.",
+            "example": "5c79****be8e"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics content. Optional. Used as lyrics when `lyrics` is not provided. If `lyrics` is also provided, `lyrics` takes priority and this field is not used as lyrics.\n- **V4 (Deprecated)**: Maximum 3000 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 5000 characters\n- **V6, V6_WILD, V6_MINI**: Maximum 5000 characters",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Takes priority over `prompt` as lyrics. If omitted, `prompt` is used as lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style, e.g. Jazz, Classical, or Electronic. Optional. For V6, V6_WILD, and V6_MINI: maximum 1000 characters.\n- **V4 (Deprecated)**: Maximum 200 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 1000 characters",
+            "example": "Classical"
+          },
+          "title": {
+            "type": "string",
+            "description": "Music title. Optional. Maximum 100 characters.",
+            "maxLength": 100,
+            "example": "Peaceful Piano Extended"
+          },
+          "continueAt": {
+            "type": "number",
+            "description": "The time point (in seconds) from which to start extending the music. Optional.\n- Value range: greater than 0 and less than the total duration of the source audio.\n- Specifies the position in the original track where the extension should begin.",
+            "example": 60
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID to apply to the generated music. Optional. You can use either:\n\n- A Persona ID generated by the [Generate Persona](https://docs.api.box/suno-api/generate-persona) endpoint. Use `personaModel: style_persona` or omit `personaModel` to use the default.\n- A `voiceId` generated by the [Suno Voice](https://docs.api.box/suno-api/suno-voice-generate) workflow. When using a voice-generated ID, you must set `personaModel: voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model type to apply when using `personaId`. Optional.\n- `style_persona` (default): Use this for Persona IDs generated by the Generate Persona endpoint.\n- `voice_persona`: Required when `personaId` is a `voiceId` generated by Suno Voice. This option is only available with V5 (Deprecated), V5_5 (Deprecated), V6, V6_WILD, and V6_MINI models.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles to exclude from generation",
+            "example": "Relaxing Piano"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when music extension is complete.\n- For detailed callback format and implementation guide, see [Music Extension Callbacks](https://docs.api.box/suno-api/extend-music-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender. Optional. Allowed values: `m` (male), `f` (female). Must not be provided when `instrumental` is `true`.",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/extend-music"
+    },
+    {
+      "action": "upload-cover",
+      "label": "上传翻唱",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/upload-cover",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "uploadUrl",
+          "callBackUrl",
+          "model"
+        ],
+        "properties": {
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL of the source audio file to cover. Required. With a source audio URL, generation can proceed; `lyrics` (or `prompt`), `title`, and `style` are optional.\n\n**Upload Audio Duration Limits:** Maximum upload duration is **8 minutes**",
+            "example": "https://storage.example.com/upload"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics content. Optional. Used as lyrics when `lyrics` is not provided. If `lyrics` is also provided, `lyrics` takes priority and this field is not used as lyrics.\n- **V4 (Deprecated)**: Maximum 3000 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 5000 characters\n- **V6, V6_WILD, V6_MINI**: Maximum 5000 characters",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Takes priority over `prompt` as lyrics. If omitted, `prompt` is used as lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style, e.g. Jazz, Classical, or Electronic. Optional. For V6, V6_WILD, and V6_MINI: maximum 1000 characters.\n- **V4 (Deprecated)**: Maximum 200 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 1000 characters",
+            "example": "Classical"
+          },
+          "title": {
+            "type": "string",
+            "description": "Music title. Optional. Maximum 80 characters.",
+            "maxLength": 80,
+            "example": "Peaceful Piano Meditation"
+          },
+          "instrumental": {
+            "type": "boolean",
+            "description": "Determines if the audio should be instrumental (no lyrics). Optional. Defaults to `false`.",
+            "example": true
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID to apply to the generated music. Optional. You can use either:\n\n- A Persona ID generated by the [Generate Persona](https://docs.api.box/suno-api/generate-persona) endpoint. Use `personaModel: style_persona` or omit `personaModel` to use the default.\n- A `voiceId` generated by the [Suno Voice](https://docs.api.box/suno-api/suno-voice-generate) workflow. When using a voice-generated ID, you must set `personaModel: voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model type to apply when using `personaId`. Optional.\n- `style_persona` (default): Use this for Persona IDs generated by the Generate Persona endpoint.\n- `voice_persona`: Required when `personaId` is a `voiceId` generated by Suno Voice. This option is only available with V5 (Deprecated), V5_5 (Deprecated), V6, V6_WILD, and V6_MINI models.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles or traits to exclude from the generated audio.  \n- Optional. Use to avoid specific styles.  \n  Example: \"Heavy Metal, Upbeat Drums\"",
+            "example": "Heavy Metal, Upbeat Drums"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when upload and cover audio is complete. The callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete). Note: In some cases, `text` and `first` stages may be skipped, directly returning `complete`.\n- For detailed callback format and implementation guide, see [Upload and Cover Audio Callbacks](https://docs.api.box/suno-api/upload-and-cover-audio-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender. Optional. Allowed values: `m` (male), `f` (female).",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration in seconds. Optional. Range 10–360. Only valid when the model is `V5_5` (Deprecated), `V6`, `V6_WILD`, or `V6_MINI`.",
+            "minimum": 10,
+            "maximum": 360,
+            "example": 20
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/upload-and-cover-audio"
+    },
+    {
+      "action": "upload-extend",
+      "label": "上传续写",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/upload-extend",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "uploadUrl",
+          "callBackUrl",
+          "model"
+        ],
+        "properties": {
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL of the source audio file to extend. Required. With a source audio URL, generation can proceed; `lyrics` (or `prompt`), `title`, and `style` are optional. Ensure the uploaded audio does not exceed 8 minutes in length.",
+            "example": "https://storage.example.com/upload"
+          },
+          "instrumental": {
+            "type": "boolean",
+            "description": "Determines whether the audio should be instrumental (without lyrics). Optional. Defaults to `false`.",
+            "default": false,
+            "example": false
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics content. Optional. Used as lyrics when `lyrics` is not provided. If `lyrics` is also provided, `lyrics` takes priority and this field is not used as lyrics.\n- **V4 (Deprecated)**: Maximum 3000 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 5000 characters\n- **V6, V6_WILD, V6_MINI**: Maximum 5000 characters",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Takes priority over `prompt` as lyrics. If omitted, `prompt` is used as lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style, e.g. Jazz, Classical, or Electronic. Optional. For V6, V6_WILD, and V6_MINI: maximum 1000 characters.\n- **V4 (Deprecated)**: Maximum 200 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 1000 characters",
+            "example": "Classical"
+          },
+          "title": {
+            "type": "string",
+            "description": "Music title. Optional. Maximum 100 characters.",
+            "maxLength": 100,
+            "example": "Peaceful Piano Extended"
+          },
+          "continueAt": {
+            "type": "number",
+            "description": "The time point (in seconds) from which to start extending the music. Optional.\n- Value range: greater than 0 and less than the total duration of the uploaded audio.\n- Specifies the position in the original track where the extension should begin.",
+            "example": 60
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID to apply to the generated music. Optional. You can use either:\n\n- A Persona ID generated by the [Generate Persona](https://docs.api.box/suno-api/generate-persona) endpoint. Use `personaModel: style_persona` or omit `personaModel` to use the default.\n- A `voiceId` generated by the [Suno Voice](https://docs.api.box/suno-api/suno-voice-generate) workflow. When using a voice-generated ID, you must set `personaModel: voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model type to apply when using `personaId`. Optional.\n- `style_persona` (default): Use this for Persona IDs generated by the Generate Persona endpoint.\n- `voice_persona`: Required when `personaId` is a `voiceId` generated by Suno Voice. This option is only available with V5 (Deprecated), V5_5 (Deprecated), V6, V6_WILD, and V6_MINI models.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles to exclude from generation",
+            "example": "Relaxing Piano"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when upload and extend audio is complete. The callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete). Note: In some cases, `text` and `first` stages may be skipped, directly returning `complete`.\n- For detailed callback format and implementation guide, see [Upload and Extend Audio Callbacks](https://docs.api.box/suno-api/upload-and-extend-audio-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender. Optional. Allowed values: `m` (male), `f` (female). Not required when `instrumental` is `true`.",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/upload-and-extend-audio"
+    },
+    {
+      "action": "add-instrumental",
+      "label": "添加伴奏",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/add-instrumental",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "uploadUrl",
+          "title",
+          "negativeTags",
+          "tags",
+          "callBackUrl"
+        ],
+        "properties": {
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL of the uploaded music file to add instrumental to.  \n- Required.  \n- Must be a valid audio file URL accessible by the system.  \n- The uploaded audio should be in a supported format (MP3, WAV, etc.).",
+            "example": "https://example.com/music.mp3"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the music track.  \n- Required.  \n- This will be used as the title for the generated instrumental track.",
+            "example": "Relaxing Piano"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles or traits to exclude from the generated instrumental.  \n- Required.  \n- Use to avoid specific styles or instruments in the instrumental version.  \n  Example: \"Heavy Metal, Aggressive Drums\"",
+            "example": "Heavy Metal, Aggressive Drums"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Music style and characteristics for the instrumental.  \n- Required.  \n- Describe the desired style, mood, and instruments for the instrumental track.  \n  Example: \"Relaxing Piano, Ambient, Peaceful\"",
+            "example": "Relaxing Piano, Ambient, Peaceful"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics content. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Lyrics for the generated track.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when instrumental generation is complete. The callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete). Note: In some cases, `text` and `first` stages may be skipped, directly returning `complete`.\n- For detailed callback format and implementation guide, see [Add Instrumental Callbacks](https://docs.api.box/suno-api/add-instrumental-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender for any vocal elements. Optional. Allowed values: 'm' (male), 'f' (female).",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.61
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.72
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/add-instrumental"
+    },
+    {
+      "action": "add-vocals",
+      "label": "添加人声",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/add-vocals",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "uploadUrl",
+          "callBackUrl",
+          "title",
+          "negativeTags",
+          "style"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics content. Optional. Used as lyrics when `lyrics` is not provided. If `lyrics` is also provided, `lyrics` takes priority. For V6, V6_MINI, and V6_WILD: maximum 5000 characters.",
+            "example": "A calm and relaxing piano track with soothing vocals"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Takes priority over `prompt` as lyrics. If omitted, `prompt` is used as lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the music track.  \n- Required.  \n- This will be used as the title for the generated vocal track.",
+            "example": "Relaxing Piano with Vocals"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Music styles or vocal traits to exclude from the generated track.  \n- Required.  \n- Use to avoid specific vocal styles or characteristics.  \n  Example: \"Heavy Metal, Aggressive Vocals\"",
+            "example": "Heavy Metal, Aggressive Vocals"
+          },
+          "style": {
+            "type": "string",
+            "description": "The music and vocal style.  \n- Required.  \n- Examples: \"Jazz\", \"Classical\", \"Electronic\", \"Pop\".  \n- Describes the overall genre and vocal approach.",
+            "example": "Jazz"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender. Optional. Allowed values: 'm' (male), 'f' (female).",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.61
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.72
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range: 0-1. Two decimal places recommended.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL of the uploaded audio file to add vocals to.  \n- Required.  \n- Must be a valid audio file URL accessible by the system.  \n- The uploaded audio should be in a supported format (MP3, WAV, etc.).",
+            "example": "https://example.com/instrumental.mp3"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive task completion notifications when vocal generation is complete. The callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete). Note: In some cases, `text` and `first` stages may be skipped, directly returning `complete`.\n- For detailed callback format and implementation guide, see [Add Vocals Callbacks](https://docs.api.box/suno-api/add-vocals-callbacks)\n- Alternatively, you can use the Get Music Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/add-vocals"
+    },
+    {
+      "action": "mashup",
+      "label": "双曲混合",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/mashup",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "uploadUrlList",
+          "callBackUrl",
+          "model"
+        ],
+        "properties": {
+          "uploadUrlList": {
+            "type": "array",
+            "description": "Array of audio file URLs to mashup. Required. Pass 2 audio URLs (the upstream uses only the first 2). Each URL must be publicly accessible.",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "example": [
+              "https://example.com/audio1.mp3",
+              "https://example.com/audio2.mp3"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics content. Optional. Used as lyrics when `lyrics` is not provided. If `lyrics` is also provided, `lyrics` takes priority and this field is not used as lyrics.\n- **V4 (Deprecated)**: Maximum 3000 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 5000 characters\n- **V6, V6_WILD, V6_MINI**: Maximum 5000 characters",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the generated audio. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Takes priority over `prompt` as lyrics. If omitted, `prompt` is used as lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style, e.g. Jazz, Classical, or Electronic. Optional. For V6, V6_WILD, and V6_MINI: maximum 1000 characters.\n- **V4 (Deprecated)**: Maximum 200 characters\n- **V4_5, V4_5PLUS, V4_5ALL, V5, V5_5 (Deprecated)**: Maximum 1000 characters",
+            "example": "Jazz"
+          },
+          "title": {
+            "type": "string",
+            "description": "Music title. Optional. Maximum 80 characters.",
+            "maxLength": 80,
+            "example": "Relaxing Piano"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive music generation task completion updates. Required for all music generation requests.\n\n- System will POST task status and results to this URL when generation completes\n- Callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete)\n- Note: Some cases may skip `text` and `first` stages and return `complete` directly\n- Your callback endpoint should accept POST requests with JSON payload containing task results and audio URLs\n- For detailed callback format and implementation guide, see [Music Generation Callbacks](https://docs.kie.ai/suno-api/generate-music-callbacks)\n- Alternatively, use the Get Music Details endpoint to poll task status",
+            "example": "https://example.com/callback"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Vocal gender preference for the singing voice. Optional. Use `m` for male and `f` for female. In practice, this only increases probability and cannot guarantee male/female voice instructions are followed.",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID or Voice ID to apply to the generated music. Optional. When using a Voice-generated ID, set `personaModel` to `voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model type. Optional. `style_persona` (default) for Generate Persona IDs; `voice_persona` when `personaId` is a Suno Voice `voiceId`. Default `style_persona`.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration in seconds. Optional. Range 10–360. Only valid when the model is `V5_5` (Deprecated), `V6`, `V6_WILD`, or `V6_MINI`.",
+            "minimum": 10,
+            "maximum": 360,
+            "example": 20
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-mashup"
+    },
+    {
+      "action": "replace-section",
+      "label": "局部替换",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/generate/replace-section",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "tags",
+          "title",
+          "infillStartS",
+          "infillEndS",
+          "fullLyrics"
+        ],
+        "oneOf": [
+          {
+            "title": "Replace section using existing audio",
+            "required": [
+              "taskId",
+              "audioId"
+            ],
+            "properties": {
+              "taskId": {
+                "type": "string",
+                "description": "Original task ID (parent task), used to identify the source music for section replacement.",
+                "example": "2fac****9f72"
+              },
+              "audioId": {
+                "type": "string",
+                "description": "Unique identifier of the audio track to replace. This ID is returned in the callback data after music generation completes.",
+                "example": "e231****-****-****-****-****8cadc7dc"
+              }
+            }
+          },
+          {
+            "title": "Replace section using uploaded custom audio",
+            "required": [
+              "uploadUrl",
+              "model"
+            ],
+            "properties": {
+              "uploadUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the custom audio uploaded by the user.",
+                "example": "https://example.com/audio.mp3"
+              },
+              "model": {
+                "type": "string",
+                "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+                "enum": [
+                  "V6",
+                  "V6_WILD",
+                  "V6_MINI",
+                  "V5_5",
+                  "V5",
+                  "V4_5PLUS",
+                  "V4_5ALL",
+                  "V4_5",
+                  "V4"
+                ],
+                "example": "V6",
+                "default": "V6"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Lyrics for the replaced segment. Required. If `lyrics` is also provided, `lyrics` takes priority for the replaced segment.",
+            "example": "A calm and relaxing piano track."
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics content. Optional. For V6, V6_MINI, and V6_WILD: maximum 5000 characters. Lyrics for the replaced segment only. Distinct from `fullLyrics`, which is the complete song lyrics.",
+            "example": "[Verse] Night city lights shining bright"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Music style tags, such as jazz, electronic, etc.",
+            "example": "Jazz"
+          },
+          "title": {
+            "type": "string",
+            "description": "Music title",
+            "example": "Relaxing Piano"
+          },
+          "negativeTags": {
+            "type": "string",
+            "description": "Excluded music styles, used to avoid specific style elements in the replacement segment",
+            "example": "Rock"
+          },
+          "infillStartS": {
+            "type": "number",
+            "description": "Start time point for replacement (seconds), 2 decimal places. Must be less than infillEndS. The time interval (infillEndS - infillStartS) must be at least 10 seconds.",
+            "minimum": 0,
+            "example": 10.5
+          },
+          "infillEndS": {
+            "type": "number",
+            "description": "End time point for replacement (seconds), 2 decimal places. Must be greater than infillStartS. The time interval (infillEndS - infillStartS) must be at least 10 seconds.",
+            "minimum": 0,
+            "example": 20.75
+          },
+          "fullLyrics": {
+            "type": "string",
+            "description": "Complete lyrics of the whole song after modification, combining both modified and unmodified lyrics. Distinct from `lyrics` (and `prompt`), which apply only to the replaced segment. This field is the full lyrics text used for the entire song after the section replacement.",
+            "example": "[Verse 1]\nOriginal lyrics here\n[Chorus]\nModified lyrics for this section\n[Verse 2]\nMore original lyrics"
+          },
+          "vocalGender": {
+            "type": "string",
+            "description": "Preferred vocal gender. Optional. Allowed values: `m` (male), `f` (female).",
+            "enum": [
+              "m",
+              "f"
+            ],
+            "example": "m"
+          },
+          "styleWeight": {
+            "type": "number",
+            "description": "Style adherence weight. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "weirdnessConstraint": {
+            "type": "number",
+            "description": "Creativity/novelty constraint. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "audioWeight": {
+            "type": "number",
+            "description": "Relative weight of audio consistency versus other controls. Optional. Range 0–1, up to 2 decimal places.",
+            "minimum": 0,
+            "maximum": 1,
+            "multipleOf": 0.01,
+            "example": 0.65
+          },
+          "variety": {
+            "type": "number",
+            "description": "Controls the diversity and stylistic variation of generated results. Optional. Integer from 0–4, default 1.\n\n- **`0`**: off (exact style) — fully off, strictly the same style\n- **`1`**: normal (balanced variety) — default, balances stability and diversity\n- **`2`**: high (distinct styles) — produces results with clearly different styles\n- **`3`**: extra (bold exploration) — higher variation, encourages bold exploration of different styles\n- **`4`**: max (unreasonably varied) — maximum diversity; results may differ in style very significantly",
+            "minimum": 0,
+            "maximum": 4,
+            "multipleOf": 1,
+            "default": 1,
+            "example": 1
+          },
+          "personaId": {
+            "type": "string",
+            "description": "Persona ID or Voice ID to apply to the generated music. Optional. When using a Voice-generated ID, set `personaModel` to `voice_persona`.",
+            "example": "persona_123"
+          },
+          "personaModel": {
+            "type": "string",
+            "description": "Persona model type. Optional. `style_persona` (default) for Generate Persona IDs; `voice_persona` when `personaId` is a Suno Voice `voiceId`. Default `style_persona`.",
+            "enum": [
+              "style_persona",
+              "voice_persona"
+            ],
+            "default": "style_persona",
+            "example": "style_persona"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Callback URL for task completion. The system will send a POST request to this URL when replacement is complete, containing task status and results.\n\n- Your callback endpoint should be able to accept POST requests containing JSON payloads with replacement results\n- For detailed callback format and implementation guide, see [Replace Music Section Callbacks](/suno-api/replace-section-callbacks)\n- Alternatively, you can use the get music details interface to poll task status",
+            "example": "https://example.com/callback"
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Original task ID (parent task), used to identify the source music for section replacement.",
+            "example": "2fac****9f72"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "Unique identifier of the audio track to replace. This ID is returned in the callback data after music generation completes.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the custom audio uploaded by the user.",
+            "example": "https://example.com/audio.mp3"
+          },
+          "model": {
+            "type": "string",
+            "description": "AI model version. Default: `V6`.\n- **`V6`**: Current standard model and recommended default.\n- **`V6_WILD`**: Current model for more experimental and creative results.\n- **`V6_MINI`**: Current lightweight model.\n- **Deprecated**: `V5_5`, `V5`, `V4_5PLUS`, `V4_5ALL`, `V4_5`, and `V4`. These values remain listed only for backward compatibility; use a V6-series model for new integrations.",
+            "enum": [
+              "V6",
+              "V6_WILD",
+              "V6_MINI",
+              "V5_5",
+              "V5",
+              "V4_5PLUS",
+              "V4_5ALL",
+              "V4_5",
+              "V4"
+            ],
+            "example": "V6",
+            "default": "V6"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/replace-section"
+    },
+    {
+      "action": "lyrics",
+      "label": "歌词生成",
+      "resultKind": "lyrics",
+      "path": "/suno/api/v1/lyrics",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "callBackUrl"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Detailed description of the desired lyrics content.  \n- Be specific about themes, moods, styles, and song structure you want.  \n- The more detailed your prompt, the more closely the generated lyrics will match your vision.  \n- The maximum characters limit is 200 characters.",
+            "example": "A song about peaceful night in the city"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive lyrics generation results when complete.  \n- Required.  \n- Unlike music generation, lyrics callback has only one stage: `complete` (generation finished).\n- For detailed callback format and implementation guide, see [Lyrics Generation Callbacks](https://docs.api.box/suno-api/generate-lyrics-callbacks)\n- Alternatively, you can use the Get Lyrics Generation Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/lyrics/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-lyrics"
+    },
+    {
+      "action": "wav",
+      "label": "WAV 导出",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/wav/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "audioId",
+          "callBackUrl"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID of the music generation task. ",
+            "example": "5c79****be8e"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "The audio ID of the specific track to convert.  \n- Providing the specific `audioId` ensures the exact track is converted, especially when a task has multiple tracks.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive WAV conversion completion notification.  \n- Required.  \n- The callback includes a single download URL for the converted WAV file.\n- For detailed callback format and implementation guide, see [WAV Format Conversion Callbacks](https://docs.api.box/suno-api/convert-to-wav-format-callbacks)\n- Alternatively, you can use the Get WAV Conversion Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/wav/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/convert-to-wav-format"
+    },
+    {
+      "action": "stems",
+      "label": "人声与乐器分轨",
+      "resultKind": "audio",
+      "path": "/suno/api/v1/vocal-removal/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "callBackUrl"
+        ],
+        "oneOf": [
+          {
+            "title": "Separate using existing audio",
+            "required": [
+              "taskId",
+              "audioId"
+            ],
+            "properties": {
+              "taskId": {
+                "type": "string",
+                "description": "Unique identifier of the music generation task. Should be the taskId returned by the \"Generate Music\" or \"Extend Music\" endpoint.",
+                "example": "5c79****be8e"
+              },
+              "audioId": {
+                "type": "string",
+                "description": "Unique identifier of the specific audio track to process. This ID is returned in the callback data after music generation completes. Required when using existing audio.",
+                "example": "e231****-****-****-****-****8cadc7dc"
+              }
+            }
+          },
+          {
+            "title": "Separate using user-uploaded audio",
+            "required": [
+              "audioUrl"
+            ],
+            "properties": {
+              "audioUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "URL of the audio file uploaded by the user. The maximum file size is 20MB. Cannot be used together with audioId.",
+                "example": "https://example.com/my-audio.mp3"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "audioId": {
+            "type": "string",
+            "description": "Unique identifier of the specific audio track to process. This ID is returned in the callback data after music generation completes. Required when using existing audio.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "type": {
+            "type": "string",
+            "description": "Separation type. Options:\n- `separate_vocal`: Separate vocals and accompaniment, generating vocal and instrumental tracks\n- `split_stem`: Separate various instrument sounds, generating multiple instrument tracks\n- `split_stem_advanced`: Advanced multi-stem separation with specific instrument selection, generating more refined instrument tracks",
+            "enum": [
+              "separate_vocal",
+              "split_stem",
+              "split_stem_advanced"
+            ],
+            "default": "separate_vocal",
+            "example": "separate_vocal"
+          },
+          "stemName": {
+            "type": "string",
+            "description": "Only used when type is split_stem_advanced. Specifies the name of the specific track/instrument to separate.",
+            "enum": [
+              "Lead Vocal",
+              "Drum Kit",
+              "Kick",
+              "Snare",
+              "Risers",
+              "Bass",
+              "Backing Vocals",
+              "Piano",
+              "Electric Guitar",
+              "Percussion",
+              "String Section",
+              "Synth",
+              "Acoustic Guitar",
+              "Sound Effects",
+              "Synth Pad",
+              "Synth Bass",
+              "Guitar",
+              "Brass Section",
+              "Organ",
+              "Electronic Drum Kit",
+              "Lead Electric Guitar",
+              "Synth Keys",
+              "Rhythm Electric Guitar",
+              "Electric Piano",
+              "Upright Bass",
+              "Keyboards",
+              "Distorted Electric Guitar",
+              "Synth Strings",
+              "Synth Lead",
+              "Woodwinds",
+              "Rhythm Acoustic Guitar",
+              "Flute",
+              "Harp",
+              "Tambourine",
+              "Trumpet",
+              "Arpeggiator",
+              "Accordion",
+              "Fiddle",
+              "Pedal Steel Guitar",
+              "Synth Voice",
+              "Violin",
+              "Digital Piano",
+              "Synth Brass",
+              "Mandolin",
+              "Choir",
+              "Banjo",
+              "Bells",
+              "Clarinet",
+              "Tenor Saxophone",
+              "Trombone",
+              "Shaker",
+              "French Horn",
+              "Glockenspiel",
+              "Electric Bass",
+              "Cello",
+              "Timpani",
+              "Harmonica",
+              "Marimba",
+              "Vibraphone",
+              "Lap Steel Guitar",
+              "Saxophone",
+              "Orchestra",
+              "Horns",
+              "Cymbals",
+              "Hand Clap",
+              "Oboe",
+              "Celesta",
+              "Congas",
+              "Drone",
+              "Alto Saxophone",
+              "Double Bass",
+              "Ukulele",
+              "Harpsichord",
+              "Baritone Saxophone",
+              "Xylophone",
+              "Tuba",
+              "Bass Guitar",
+              "Whistle",
+              "Lead Guitar",
+              "Rhodes",
+              "808",
+              "Bongos",
+              "Bassoon",
+              "Cowbell",
+              "Viola",
+              "Sitar",
+              "Steel Drums",
+              "Piccolo",
+              "Theremin",
+              "Bagpipes",
+              "Hi-Hat",
+              "Music Box",
+              "Melodica",
+              "Tabla",
+              "Koto",
+              "Djembe",
+              "Taiko",
+              "Didgeridoo"
+            ]
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL for receiving vocal separation task completion updates. Required for all vocal separation requests.",
+            "example": "https://api.example.com/callback"
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Unique identifier of the music generation task. Should be the taskId returned by the \"Generate Music\" or \"Extend Music\" endpoint.",
+            "example": "5c79****be8e"
+          },
+          "audioUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the audio file uploaded by the user. The maximum file size is 20MB. Cannot be used together with audioId.",
+            "example": "https://example.com/my-audio.mp3"
+          }
+        },
+        "x-apidog-orders": [
+          "audioId",
+          "type",
+          "stemName",
+          "callBackUrl"
+        ]
+      },
+      "pollPath": "/suno/api/v1/vocal-removal/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/separate-vocals-from-music"
+    },
+    {
+      "action": "midi",
+      "label": "MIDI 导出",
+      "resultKind": "midi",
+      "path": "/suno/api/v1/midi/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "callBackUrl"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Task ID from a completed vocal separation. This should be the taskId returned from the Vocal & Instrument Stem Separation endpoint.",
+            "example": "5c79****be8e"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive MIDI generation task completion updates. Required for all MIDI generation requests.\n\n- System will POST task status and MIDI note data to this URL when generation completes\n- Callback includes detailed note information for each detected instrument with pitch, timing, and velocity\n- Your callback endpoint should accept POST requests with JSON payload containing MIDI data\n- For detailed callback format and implementation guide, see [MIDI Generation Callbacks](https://docs.api.box/suno-api/generate-midi-callbacks)\n- Alternatively, use the Get MIDI Generation Details endpoint to poll task status",
+            "example": "https://example.callback"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "Optional. Specifies which separated audio track to generate MIDI from. This audioId can be obtained from the `originData` array in the Get Vocal Separation Details endpoint response. Each item in `originData` contains an `id` field that can be used here. If not provided, MIDI will be generated from all separated tracks.",
+            "example": "8ca376e7-******-08aaf2c6dd27"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/midi/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-midi"
+    },
+    {
+      "action": "mp4",
+      "label": "MP4 音乐视频",
+      "resultKind": "video",
+      "path": "/suno/api/v1/mp4/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "audioId",
+          "callBackUrl"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID of the music generation task.  \n- Required. This identifies the task containing the audio to be converted to video.  \n- Both `taskId` and `audioId` are needed to identify the exact track.",
+            "example": "taskId_774b9aa0422f"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "The ID of the specific track to convert to video.  \n- Required. This identifies which specific track within the task to convert.  \n- Both `taskId` and `audioId` are needed to identify the exact track.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The URL to receive video generation completion notification.  \n- Required.  \n- The callback will include a single downloadable URL for the generated MP4 video.\n- For detailed callback format and implementation guide, see [Music Video Generation Callbacks](https://docs.api.box/suno-api/create-music-video-callbacks)\n- Alternatively, you can use the Get Music Video Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          },
+          "author": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "The artist or creator name to display on the video.  \n- Optional.  \n- Will be shown prominently in the video, typically at the beginning.  \n- Maximum 50 characters.",
+            "example": "Suno Artist"
+          },
+          "domainName": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "The website or brand to display as watermark.  \n- Optional.  \n- Will appear as a subtle watermark at the bottom of the video.  \n- Maximum 50 characters.",
+            "example": "music.example.com"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/mp4/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/create-music-video"
+    },
+    {
+      "action": "cover-image",
+      "label": "封面生成",
+      "resultKind": "image",
+      "path": "/suno/api/v1/suno/cover/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "callBackUrl"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Original music task ID, should be the taskId returned by the music generation interface.",
+            "example": "73d6128b3523a0079df10da9471017c8"
+          },
+          "callBackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL address for receiving Cover generation task completion updates. This parameter is required for all Cover generation requests.\n\n- The system will send POST requests to this URL when Cover generation is complete, including task status and results\n- Your callback endpoint should be able to accept JSON payloads containing cover image URLs\n- For detailed callback format and implementation guide, see [Cover Generation Callbacks](https://docs.api.box/suno-api/cover-suno-callbacks)\n- Alternatively, you can use the Get Cover Details interface to poll task status",
+            "example": "https://api.example.com/callback"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/suno/cover/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/cover-suno"
+    },
+    {
+      "action": "style",
+      "label": "风格扩写",
+      "resultKind": "text",
+      "path": "/suno/api/v1/style/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Style description. Please describe in concise and clear language the music style you expect to generate. Example: 'Pop, Mysterious'",
+            "example": "Pop, Mysterious"
+          }
+        }
+      },
+      "pollPath": "/suno/api/v1/generate/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/boost-music-style"
+    },
+    {
+      "action": "persona",
+      "label": "创建 Persona",
+      "resultKind": "persona",
+      "path": "/suno/api/v1/generate/generate-persona",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "audioId",
+          "name",
+          "description"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Unique identifier of the original music generation task. This can be a taskId returned from any of the following endpoints:\n- Generate Music (/api/v1/generate)\n- Extend Music (/api/v1/generate/extend)",
+            "example": "5c79****be8e"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "Audio ID of the music track to create Persona for. This ID can be obtained from the music generation response.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the Persona. A descriptive name that captures the essence of the musical style or character.",
+            "example": "Electronic Pop Singer"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the Persona's musical characteristics, style, and personality. Be specific about genre, mood, instrumentation, and vocal qualities.",
+            "example": "A modern electronic music style pop singer, skilled in dynamic rhythms and synthesizer tones"
+          },
+          "vocalStart": {
+            "type": "number",
+            "description": "Specifies the start time (seconds) of the analysis segment. Used to extract musical characteristics. Optional. Default: 0.0.",
+            "minimum": 0,
+            "default": 0,
+            "example": 0
+          },
+          "vocalEnd": {
+            "type": "number",
+            "description": "Specifies the end time (seconds) of the analysis segment. Used to extract musical characteristics. Optional. Default: 30.0. Must be greater than vocalStart.",
+            "minimum": 0,
+            "default": 30,
+            "example": 30
+          },
+          "style": {
+            "type": "string",
+            "description": "Music style label. Optional. Used to identify the Persona's music style type.",
+            "example": "Electronic Pop"
+          }
+        }
+      },
+      "docsUrl": "https://docs.sunoapi.org/suno-api/generate-persona"
+    },
+    {
+      "action": "timestamped-lyrics",
+      "label": "歌词时间轴",
+      "resultKind": "timeline",
+      "path": "/suno/api/v1/generate/get-timestamped-lyrics",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "audioId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID of the music generation task. Required to identify which generation task contains the lyrics.",
+            "example": "5c79****be8e"
+          },
+          "audioId": {
+            "type": "string",
+            "description": "The specific audio ID to retrieve lyrics for.  \n- Required to identify the exact track.  \n- This parameter is required to identify which audio track to get lyrics from.",
+            "example": "e231****-****-****-****-****8cadc7dc"
+          }
+        }
+      },
+      "docsUrl": "https://docs.sunoapi.org/suno-api/get-timestamped-lyrics"
+    },
+    {
+      "action": "voice-validate",
+      "label": "生成音色验证文案",
+      "resultKind": "text",
+      "path": "/suno/api/v1/voice/validate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "voiceUrl": {
+            "description": "The original recording URL uploaded by the user [Required]",
+            "type": "string"
+          },
+          "vocalStartS": {
+            "description": "Start time (in seconds) for extracting the vocal segment [Required]",
+            "type": "integer"
+          },
+          "vocalEndS": {
+            "description": "End time (in seconds) for extracting the vocal segment, must be greater than vocalStartS [Required]",
+            "type": "integer"
+          },
+          "language": {
+            "description": "Verify the language of the short phrase. Supported languages ​​include: English (en), Chinese (zh), Spanish (es), French (fr), Portuguese (pt), German (de), Japanese (ja), Korean (ko), Hindi (hi), and Russian (ru).",
+            "type": "string"
+          },
+          "callBackUrl": {
+            "description": "Callback URL used to receive validation phrase generation results. The system sends a POST request when the phrase is ready (`status: wait_validating`) or when the task fails. The URL must be publicly accessible and return HTTP 200 within 15 seconds. For the payload format, see [Validation Phrase Callbacks](https://docs.sunoapi.org/suno-api/suno-voice-validate-callbacks).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voiceUrl",
+          "vocalStartS",
+          "vocalEndS"
+        ]
+      },
+      "pollPath": "/suno/api/v1/voice/validate-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/suno-voice-validate"
+    },
+    {
+      "action": "voice-generate",
+      "label": "提交验证录音创建音色",
+      "resultKind": "voice",
+      "path": "/suno/api/v1/voice/generate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "description": "Task ID",
+            "type": "string"
+          },
+          "verifyUrl": {
+            "description": "Audio URL for the user's recording of the validation phrase returned by the server; singing is recommended for best results [Required]",
+            "type": "string"
+          },
+          "voiceName": {
+            "description": "Voice name",
+            "type": "string"
+          },
+          "description": {
+            "description": "Voice description",
+            "type": "string"
+          },
+          "style": {
+            "description": "Voice style",
+            "type": "string"
+          },
+          "singerSkillLevel": {
+            "type": "string",
+            "description": "Singer skill level. Supported: beginner, intermediate, advanced, professional",
+            "default": "beginner",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced",
+              "professional"
+            ],
+            "x-apidog-enum": [
+              {
+                "value": "beginner",
+                "name": "",
+                "description": ""
+              },
+              {
+                "value": "intermediate",
+                "name": "",
+                "description": ""
+              },
+              {
+                "value": "advanced",
+                "name": "",
+                "description": ""
+              },
+              {
+                "value": "professional",
+                "name": "",
+                "description": ""
+              }
+            ]
+          },
+          "callBackUrl": {
+            "description": "Callback URL used to receive custom voice generation results. When the task succeeds, the callback includes the generated `voiceId`; when it fails, it includes `errorCode` and `errorMessage`. The URL must be publicly accessible and return HTTP 200 within 15 seconds. For the payload format, see [Custom Voice Generation Callbacks](https://docs.sunoapi.org/suno-api/suno-voice-generate-callbacks).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "verifyUrl"
+        ]
+      },
+      "pollPath": "/suno/api/v1/voice/record-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/suno-voice-generate"
+    },
+    {
+      "action": "voice-regenerate",
+      "label": "重新生成验证文案",
+      "resultKind": "text",
+      "path": "/suno/api/v1/voice/regenerate",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "description": "Task ID",
+            "type": "string"
+          },
+          "calBackUrl": {
+            "type": "string",
+            "description": "Callback URL used to receive regenerated validation phrase results. Note that this endpoint uses the field name `calBackUrl`. The system sends a POST request when the new phrase is ready (`status: wait_validating`) or when the task fails. The URL must be publicly accessible and return HTTP 200 within 15 seconds. For the payload format, see [Regenerated Validation Phrase Callbacks](https://docs.sunoapi.org/suno-api/suno-voice-regenerate-callbacks)."
+          }
+        },
+        "required": [
+          "taskId",
+          "calBackUrl"
+        ]
+      },
+      "pollPath": "/suno/api/v1/voice/validate-info",
+      "docsUrl": "https://docs.sunoapi.org/suno-api/suno-voice-regenerate"
+    },
+    {
+      "action": "voice-check",
+      "label": "检查音色可用性",
+      "resultKind": "availability",
+      "path": "/suno/api/v1/voice/check-voice",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "description": "Task ID that needs to be checked",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      },
+      "docsUrl": "https://docs.sunoapi.org/suno-api/suno-voice-check-voice"
+    },
+    {
+      "action": "upload-url",
+      "label": "URL 上传",
+      "resultKind": "upload",
+      "path": "/suno/api/file-url-upload",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "fileUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "File download URL, must be a valid HTTP or HTTPS address",
+            "example": "https://example.com/images/sample.jpg"
+          },
+          "uploadPath": {
+            "type": "string",
+            "description": "File upload path, without leading or trailing slashes",
+            "example": "images/downloaded"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "File name (optional), including file extension. If not provided, a random filename will be generated. If the same filename already exists, the old file will be overwritten, but changes may not be immediately visible due to caching",
+            "example": "sample-image.jpg"
+          }
+        },
+        "required": [
+          "fileUrl",
+          "uploadPath"
+        ]
+      },
+      "docsUrl": "https://docs.sunoapi.org/file-upload-api/upload-file-url"
+    },
+    {
+      "action": "upload-base64",
+      "label": "Base64 上传",
+      "resultKind": "upload",
+      "path": "/suno/api/file-base64-upload",
+      "method": "POST",
+      "mime": "application/json",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "base64Data": {
+            "type": "string",
+            "description": "Base64 encoded file data. Supports pure Base64 strings or data URL format",
+            "example": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+          },
+          "uploadPath": {
+            "type": "string",
+            "description": "File upload path, without leading or trailing slashes",
+            "example": "images/base64"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "File name (optional), including file extension. If not provided, a random filename will be generated. If the same filename already exists, the old file will be overwritten, but changes may not be immediately visible due to caching",
+            "example": "my-image.png"
+          }
+        },
+        "required": [
+          "base64Data",
+          "uploadPath"
+        ]
+      },
+      "docsUrl": "https://docs.sunoapi.org/file-upload-api/upload-file-base-64"
+    },
+    {
+      "action": "upload-stream",
+      "label": "文件上传",
+      "resultKind": "upload",
+      "path": "/suno/api/file-stream-upload",
+      "method": "POST",
+      "mime": "multipart/form-data",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "File to upload (binary data)"
+          },
+          "uploadPath": {
+            "type": "string",
+            "description": "File upload path, without leading or trailing slashes",
+            "example": "images/user-uploads"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "File name (optional), including file extension. If not provided, the original filename will be used. If the same filename already exists, the old file will be overwritten, but changes may not be immediately visible due to caching",
+            "example": "my-image.jpg"
+          }
+        },
+        "required": [
+          "file",
+          "uploadPath"
+        ]
+      },
+      "docsUrl": "https://docs.sunoapi.org/file-upload-api/upload-file-stream"
+    },
+    {
+      "action": "credits",
+      "label": "查询上游剩余额度",
+      "resultKind": "credits",
+      "path": "/suno/api/v1/generate/credit",
+      "method": "GET",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "docsUrl": "https://docs.sunoapi.org/suno-api/get-remaining-credits"
+    }
+  ]
+}

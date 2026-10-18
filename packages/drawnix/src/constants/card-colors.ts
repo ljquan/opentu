@@ -52,15 +52,15 @@ export function getTitleColor(fillColor: string): string {
 }
 
 /**
- * 根据主色生成正文区颜色（浅色调，20% 透明度）
+ * 根据主色生成正文区颜色（浅色调，7% 透明度）
  */
 export function getBodyColor(fillColor: string): string {
-  // 将十六进制颜色转为 rgba，透明度 0.12
+  // 将十六进制颜色转为 rgba，保持标题色关联但降低正文底色干扰
   const hex = fillColor.replace('#', '');
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, 0.12)`;
+  return `rgba(${r}, ${g}, ${b}, 0.07)`;
 }
 
 /**

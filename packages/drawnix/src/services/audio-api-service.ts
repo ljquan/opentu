@@ -1,3 +1,4 @@
+import { isSunoNativeModel, getSunoNativeAction, buildSunoNativeBody, nativeSunoRequestBody, normalizeSunoNativeResponse, extractSunoNativeResult } from './suno-native';
 import { notifyTaskSubmitted } from './submission-persistence';
 /**
  * Audio API Service
@@ -25,6 +26,11 @@ import type {
 } from './model-adapters/types';
 import { getForcedSunoParams } from '../utils/suno-model-aliases';
 import {
+  assertSunoV2Action, buildSunoV2Body, extractSunoV2Result,
+  getSunoV2Action, isSunoV2Model, isUnavailableSunoModel, normalizeSunoV2Response,
+} from './suno-v2';
+import type { AudioGenerationParams, AudioTaskResponse, AudioClipRecord, AudioLyricsPayload } from './audio-api-types';
+import {
   startLLMApiLog,
   completeLLMApiLog,
   failLLMApiLog,
@@ -38,73 +44,7 @@ import {
   renderTemplate,
 } from './provider-routing/manual-http-template';
 
-export interface AudioGenerationParams {
-  model: string;
-  modelRef?: ModelRef | null;
-  prompt: string;
-  title?: string;
-  tags?: string;
-  instrumental?: boolean;
-  mv?: string;
-  sunoAction?: string;
-  notifyHook?: string;
-  continueClipId?: string;
-  continueTaskId?: string;
-  continueAt?: number;
-  infillStartS?: number;
-  infillEndS?: number;
-  params?: Record<string, unknown>;
-  taskId?: string;
-}
-
 export type SunoAction = 'music' | 'lyrics';
-
-export interface AudioClipRecord {
-  batchIndex?: number;
-  imageLargeUrl?: string | null;
-  imageUrl?: string | null;
-  audioUrl?: string;
-  clipId?: string;
-  id?: string;
-  clip_id?: string;
-  title?: string;
-  status?: string;
-  state?: string;
-  mv?: string;
-  model_name?: string;
-  major_model_version?: string;
-  duration?: number | null;
-  audio_url?: string;
-  image_url?: string | null;
-  image_large_url?: string | null;
-  batch_index?: number;
-  metadata?: Record<string, unknown> & {
-    duration?: number | null;
-    prompt?: string;
-    tags?: string;
-    error_message?: string | null;
-  };
-  [key: string]: unknown;
-}
-
-export interface AudioTaskResponse {
-  taskId: string;
-  action?: string;
-  status: string;
-  progress?: number;
-  failReason?: string;
-  clips: AudioClipRecord[];
-  lyrics?: AudioLyricsPayload | null;
-  raw: unknown;
-}
-
-export interface AudioLyricsPayload {
-  text?: string;
-  title?: string;
-  tags?: string[];
-  status?: string;
-  errorMessage?: string;
-}
 
 export interface AudioRequestContext {
   providerContext: ResolvedProviderContext;
@@ -114,6 +54,7 @@ export interface AudioRequestContext {
 }
 
 interface AudioPollingOptions {
+  params?: Record<string, unknown>;
   requestContext?: AudioRequestContext;
   assertAvailable?: () => Promise<void>;
   interval?: number;
@@ -882,6 +823,10 @@ function resolveSubmitPath(
 export function extractAudioGenerationResult(
   response: AudioTaskResponse
 ): AudioGenerationResult {
+  const native = extractSunoNativeResult(response);
+  if (native) return native;
+  const v2 = extractSunoV2Result(response);
+  if (v2) return v2;
   const action = normalizeSunoAction(response.action);
   const lyrics = response.lyrics;
   if (action === 'lyrics' || lyrics?.text || lyrics?.title) {
@@ -937,6 +882,9 @@ export function extractAudioGenerationResult(
 }
 
 function hasResolvedTaskResult(response: AudioTaskResponse): boolean {
+  if (response.sunoV2 || response.sunoNative) {
+    return response.status === 'completed';
+  }
   if (response.clips.length > 0) {
     return response.clips.some(
       (clip) =>
@@ -1000,18 +948,40 @@ class AudioAPIService {
     params: AudioGenerationParams,
     requestContext?: AudioRequestContext
   ): Promise<AudioTaskResponse> {
+    if (isUnavailableSunoModel(params.modelRef?.modelId || params.model)) throw new Error('该 Suno 动作当前不可用');
     const { providerContext, binding } = requestContext || resolveAudioPlanContext(
       params.modelRef || params.model
     );
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
-    const manualHttpTemplate = getManualHttpTemplate(binding?.metadata);
+    const manualHttpTemplate = isSunoV2Model(params.modelRef?.modelId || params.model)
+      ? null : getManualHttpTemplate(binding?.metadata);
 
     if (!providerContext.apiKey) {
       throw new Error('API Key 未配置，请先配置 API Key');
     }
 
-    const action = resolveRequestedAction(params);
-    const submitPath = resolveSubmitPath(params, binding);
+    const model = params.modelRef?.modelId || params.model;
+    if (isSunoNativeModel(model)) {
+      if (binding?.protocol !== 'tuzi.suno.native') throw new Error('Suno 原生动作不能使用其他协议绑定');
+      const action = getSunoNativeAction(model, params.params);
+      const body = buildSunoNativeBody(params, providerContext.profileId);
+      const response = await providerTransport.send(providerContext, {
+        method: action.method as 'POST' | 'GET', path: action.path, baseUrlStrategy: 'trim-v1',
+        headers: action.mime === 'multipart/form-data' ? {} : { 'Content-Type': 'application/json' },
+        body: nativeSunoRequestBody(action, body), signal: requestContext?.signal, fetcher: requestContext?.fetcher,
+      });
+      const payload = await response.json();
+      if (!response.ok) throw Object.assign(new Error(String(payload.msg || payload.message || payload.error || `Suno HTTP ${response.status}`)), { workflowProviderFailure: true });
+      return normalizeSunoNativeResponse(payload, action, providerContext.profileId, '', true);
+    }
+    if (binding?.protocol === 'tuzi.suno.native') throw new Error('当前模型不能使用 Suno 原生绑定');
+    const v2 = isSunoV2Model(model) ? assertSunoV2Action(model) : null;
+    if (v2 && binding?.protocol !== 'tuzi.suno.v2') {
+      throw new Error('Suno v2 不能使用 legacy 或 Chat Completions 绑定');
+    }
+    if (!v2 && binding?.protocol === 'tuzi.suno.v2') throw new Error('legacy Suno 不能使用 v2 绑定');
+    const action = v2?.action || resolveRequestedAction(params);
+    const submitPath = v2 ? `/suno/v2/${v2.action}` : resolveSubmitPath(params, binding);
     const variables = buildManualHttpVariables({
       model: params.model,
       modelRef: params.modelRef || null,
@@ -1031,7 +1001,7 @@ class AudioAPIService {
     const manualPayload = manualHttpTemplate
       ? await buildManualHttpRequestPayload(manualHttpTemplate, variables)
       : null;
-    const body = manualHttpTemplate
+    const body = v2 ? JSON.stringify(buildSunoV2Body(params, providerContext.profileId)) : manualHttpTemplate
       ? manualPayload?.body
       : buildSubmitBody(params);
     const startTime = Date.now();
@@ -1099,7 +1069,7 @@ class AudioAPIService {
     }
 
     const payload = await response.json();
-    const result = manualHttpTemplate
+    const result = v2 ? normalizeSunoV2Response(payload, '', providerContext.profileId, v2.action) : manualHttpTemplate
       ? normalizeManualAudioTaskResponse(payload, '', binding)
       : normalizeAudioTaskResponse(payload);
     const duration = Date.now() - startTime;
@@ -1122,7 +1092,8 @@ class AudioAPIService {
   async queryAudioTask(
     taskId: string,
     routeModel?: string | ModelRef | null,
-    requestContext?: AudioRequestContext
+    requestContext?: AudioRequestContext,
+    params?: Record<string, unknown>
   ): Promise<AudioTaskResponse> {
     if (!taskId.trim()) {
       throw new Error('Suno 任务 ID 为空，无法查询任务状态');
@@ -1130,13 +1101,31 @@ class AudioAPIService {
 
     const { providerContext, binding } = requestContext || resolveAudioPlanContext(routeModel);
     const baseUrlStrategy = inferAudioBaseUrlStrategy(providerContext, binding);
-    const manualHttpTemplate = getManualHttpTemplate(binding?.metadata);
+    const manualHttpTemplate = binding?.protocol === 'tuzi.suno.v2'
+      ? null : getManualHttpTemplate(binding?.metadata);
 
     if (!providerContext.apiKey) {
       throw new Error('API Key 未配置');
     }
 
-    const path = binding?.pollPathTemplate
+    const model = typeof routeModel === 'string' ? routeModel : routeModel?.modelId || binding?.modelId;
+    if (isSunoNativeModel(model)) {
+      if (binding?.protocol !== 'tuzi.suno.native') throw new Error('Suno 原生查询不能使用其他协议绑定');
+      const action = getSunoNativeAction(model!, params);
+      const path = action.pollPath
+        ? action.pollPath.includes('{taskId}') ? action.pollPath.replace('{taskId}', encodeURIComponent(taskId)) : `${action.pollPath}?taskId=${encodeURIComponent(taskId)}`
+        : action.action === 'upload-url' ? `/suno/fetch/${encodeURIComponent(taskId)}` : '';
+      if (!path) throw new Error('同步 Suno 动作没有轮询接口');
+      const response = await providerTransport.send(providerContext, { method: 'GET', path, baseUrlStrategy: 'trim-v1', signal: requestContext?.signal, fetcher: requestContext?.fetcher });
+      const payload = await response.json();
+      if (!response.ok) throw Object.assign(new Error(String(payload.msg || payload.message || payload.error || `Suno HTTP ${response.status}`)), { workflowProviderFailure: true });
+      return normalizeSunoNativeResponse(payload, action, providerContext.profileId, taskId);
+    }
+    if (binding?.protocol === 'tuzi.suno.native') throw new Error('当前模型不能使用 Suno 原生查询');
+    const v2 = isSunoV2Model(model) || binding?.protocol === 'tuzi.suno.v2';
+    if (v2 && binding?.protocol !== 'tuzi.suno.v2') throw new Error('Suno v2 查询不能使用 legacy 绑定');
+    if (!isSunoV2Model(model) && binding?.protocol === 'tuzi.suno.v2') throw new Error('legacy Suno 查询不能使用 v2 绑定');
+    const path = v2 ? `/suno/v2/fetch/${encodeURIComponent(taskId)}` : binding?.pollPathTemplate
       ? replaceTaskIdTemplate(binding.pollPathTemplate, taskId)
       : `/suno/fetch/${taskId}`;
     const variables = buildManualHttpVariables({
@@ -1173,7 +1162,7 @@ class AudioAPIService {
     }
 
     const payload = await response.json();
-    return manualHttpTemplate
+    return v2 ? normalizeSunoV2Response(payload, taskId, providerContext.profileId, getSunoV2Action(model)?.action) : manualHttpTemplate
       ? normalizeManualAudioTaskResponse(payload, taskId, binding, true)
       : normalizeAudioTaskResponse(payload, taskId);
   }
@@ -1191,6 +1180,12 @@ class AudioAPIService {
 
     const submitResponse = await this.submitAudioGeneration(params, options.requestContext);
 
+    if (submitResponse.sunoNative && submitResponse.status === 'failed') throw Object.assign(new Error(submitResponse.failReason), { workflowProviderFailure: true });
+    if (submitResponse.sunoNative && submitResponse.status === 'completed') {
+      if (submitResponse.taskId && onSubmitted) await notifyTaskSubmitted(submitResponse.taskId, onSubmitted);
+      onProgress?.(100, 'completed');
+      return submitResponse;
+    }
     if (!submitResponse.taskId.trim()) {
       throw new Error(
         `${
@@ -1208,12 +1203,12 @@ class AudioAPIService {
     }
 
     if (isTerminalFailure(submitResponse.status)) {
-      throw new Error(
+      throw Object.assign(new Error(
         submitResponse.failReason ||
           (resolveRequestedAction(params) === 'lyrics'
             ? '歌词生成失败'
             : '音乐生成失败')
-      );
+      ), { workflowProviderFailure: true });
     }
 
     if (
@@ -1229,6 +1224,7 @@ class AudioAPIService {
       onProgress,
       routeModel: params.modelRef || params.model,
       requestContext: options.requestContext,
+      params: params.params,
     });
   }
 
@@ -1241,7 +1237,8 @@ class AudioAPIService {
     const immediatePayload = await this.queryAudioTask(
       taskId,
       options.routeModel,
-      options.requestContext
+      options.requestContext,
+      options.params
     );
     const immediate = Array.isArray(immediatePayload.clips)
       ? immediatePayload
@@ -1283,7 +1280,7 @@ class AudioAPIService {
 
       await options.assertAvailable?.();
       try {
-        const payload = await this.queryAudioTask(taskId, options.routeModel, options.requestContext);
+        const payload = await this.queryAudioTask(taskId, options.routeModel, options.requestContext, options.params);
         const normalized = Array.isArray(payload.clips)
           ? payload
           : normalizeAudioTaskResponse(payload.raw, taskId, clipMemory);
@@ -1337,3 +1334,5 @@ class AudioAPIService {
 }
 
 export const audioAPIService = new AudioAPIService();
+
+export type { AudioGenerationParams, AudioTaskResponse, AudioClipRecord, AudioLyricsPayload } from './audio-api-types';

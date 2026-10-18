@@ -1,4 +1,6 @@
+import { isSunoNativeModel, getSunoNativeAction } from '../services/suno-native';
 import { ModelVendor, type ModelConfig } from '../constants/model-config';
+import { getSunoV2Action } from '../services/suno-v2';
 
 export type SunoAliasAvailability = 'supported' | 'advanced';
 
@@ -141,6 +143,18 @@ export function getSunoModelAlias(
   modelId?: string | null
 ): SunoModelAliasDefinition | null {
   const normalized = normalizeModelId(modelId);
+  if (isSunoNativeModel(normalized)) {
+    const action = getSunoNativeAction(normalized);
+    return { modelId: normalized, entryModelId: normalized, label: `Suno ${action.label}`, shortLabel: action.label, description: `Suno ${action.label}`, tags: [...SHARED_SUNO_TAGS, 'suno-native'], availability: 'supported' };
+  }
+  const v2 = getSunoV2Action(normalized);
+  if (v2) return {
+    modelId: v2.model, entryModelId: v2.model,
+    label: `Suno ${v2.label}`, shortLabel: v2.label,
+    description: `Suno v2 ${v2.label}`,
+    tags: [...SHARED_SUNO_TAGS, 'suno-v2'],
+    availability: v2.supported ? 'supported' : 'advanced',
+  };
   return SUNO_MODEL_ALIASES[normalized] || null;
 }
 

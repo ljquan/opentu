@@ -1,3 +1,5 @@
+import { isSunoNativeModel } from './suno-native';
+import { getSunoNativeParams } from './suno-native-params';
 import {
   DEFAULT_TEXT_MODEL,
   getCompatibleParams,
@@ -202,7 +204,10 @@ function sanitizeSelectedParams(
   rawParams: unknown,
   options?: { excludeParamIds?: string[]; keepDefaultSize?: boolean }
 ): PersistedParams {
-  const compatibleParams = getCompatibleParams(modelId);
+  let compatibleParams = getCompatibleParams(modelId);
+  if (isSunoNativeModel(modelId)) {
+    try { compatibleParams = getSunoNativeParams(modelId, asRecord(rawParams)); } catch { /* Discard removed actions. */ }
+  }
   const excludeParamIds = new Set(options?.excludeParamIds || []);
   const persistedParams = normalizeGPTImage25ResolutionParams(
     modelId,
@@ -227,11 +232,13 @@ function sanitizeSelectedParams(
   }
 
   compatibleParams.forEach((param) => {
-    if (excludeParamIds.has(param.id) || param.id === 'size') return;
+    if (excludeParamIds.has(param.id) || param.id === 'size' || param.control === 'file') return;
 
     const persistedValue = persistedParams[param.id];
     const isValidPersistedValue =
-      param.valueType === 'enum'
+      param.control === 'select' || param.control === 'multiselect'
+        ? typeof persistedValue === 'string' && persistedValue !== ''
+        : param.valueType === 'enum'
         ? param.options?.some((option) => option.value === persistedValue)
         : typeof persistedValue === 'string' && persistedValue !== '';
 
@@ -608,6 +615,12 @@ export function loadAIInputPreferences(): AIInputPreferences {
   };
 }
 
+function withoutNativeFileData(model: string, params: PersistedParams): PersistedParams {
+  if (!isSunoNativeModel(model)) return params;
+  const { file: _file, base64Data: _base64Data, ...rest } = params;
+  return rest;
+}
+
 export function saveAIInputPreferences(preferences: AIInputPreferences): void {
   const stored =
     readStoredValue<Partial<AIInputPreferencesStored>>(
@@ -618,7 +631,7 @@ export function saveAIInputPreferences(preferences: AIInputPreferences): void {
     ...preferences,
     modeVersion: 2,
     selectedParams:
-      preferences.generationType === 'agent' ? {} : preferences.selectedParams,
+      preferences.generationType === 'agent' ? {} : withoutNativeFileData(preferences.selectedModel, preferences.selectedParams),
     selectedCount:
       preferences.generationType === 'agent' ||
       preferences.generationType === 'text'
@@ -826,7 +839,7 @@ export function saveScopedAIInputModelParams(
         ...(stored.scopedPreferences || {}),
         [generationType]: {
           ...(stored.scopedPreferences?.[generationType] || {}),
-          [preferenceKey]: asRecord(selectedParams),
+          [preferenceKey]: withoutNativeFileData(modelId, asRecord(selectedParams)),
         },
       },
     }

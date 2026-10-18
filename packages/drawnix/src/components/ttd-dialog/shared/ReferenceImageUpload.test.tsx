@@ -30,6 +30,21 @@ const messageMocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
 }));
+const fidelityMocks = vi.hoisted(() => ({
+  readKeepOriginalImageEnabled: vi.fn(() => false),
+  compressImageBlob: vi.fn(),
+  getCompressionStrategy: vi.fn(() => ({ targetSizeMB: 5 })),
+}));
+
+vi.mock('../../../services/reference-image-settings', () => ({
+  readKeepOriginalImageEnabled: fidelityMocks.readKeepOriginalImageEnabled,
+}));
+
+vi.mock('@aitu/utils', async () => ({
+  ...(await vi.importActual<typeof import('@aitu/utils')>('@aitu/utils')),
+  compressImageBlob: fidelityMocks.compressImageBlob,
+  getCompressionStrategy: fidelityMocks.getCompressionStrategy,
+}));
 
 vi.mock('../../../services/unified-cache-service', () => ({
   unifiedCacheService: cacheMocks,
@@ -130,6 +145,8 @@ vi.mock('../../media-library/MediaLibraryModal', () => ({
 describe('ReferenceImageUpload media library selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(false);
+    fidelityMocks.compressImageBlob.mockResolvedValue(new Blob(['small'], { type: 'image/jpeg' }));
     assetMocks.addAsset.mockResolvedValue(undefined);
     selectedAsset = generatedAsset;
     selectedAssets = [generatedAsset];
@@ -139,6 +156,66 @@ describe('ReferenceImageUpload media library selection', () => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false])('applies keepOriginal=%s to a local image over 10MiB', async (keepOriginal) => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
+    const content = 'a'.repeat(10 * 1024 * 1024 + 1);
+    const file = new File([content], 'fabric.png', { type: 'image/png' });
+    const onImagesChange = vi.fn();
+    render(<DialogDropHarness onImagesChange={onImagesChange} />);
+
+    fireEvent.drop(screen.getByTestId('dialog-drop-target'), {
+      dataTransfer: { files: [file], types: ['Files'] },
+    });
+
+    await waitFor(() => expect(onImagesChange).toHaveBeenCalledOnce());
+    const image = onImagesChange.mock.calls[0][0][0];
+    if (keepOriginal) {
+      expect(assetMocks.addAsset.mock.calls[0][0]).toBe(file);
+      expect(image.url).toBe(`data:image/png;base64,${btoa(content)}`);
+      expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+    } else {
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(file, 5);
+      expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
+    }
+  });
+
+  it.each([true, false])('applies keepOriginal=%s to a cached library image over 10MiB', async (keepOriginal) => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
+    const content = 'b'.repeat(10 * 1024 * 1024 + 1);
+    const original = new Blob([content], { type: 'image/png' });
+    cacheMocks.getCachedBlob.mockResolvedValue(original);
+    const onImagesChange = vi.fn();
+    render(<ReferenceImageUpload images={[]} onImagesChange={onImagesChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }));
+    fireEvent.click(screen.getByRole('button', { name: '使用测试素材' }));
+
+    await waitFor(() => expect(onImagesChange).toHaveBeenCalledOnce());
+    const image = onImagesChange.mock.calls[0][0][0];
+    if (keepOriginal) {
+      expect(image.url).toBe(`data:image/png;base64,${btoa(content)}`);
+      expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+    } else {
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(original, 5);
+      expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
+    }
+  });
+
+  it('still rejects files over 25MiB when keeping originals', () => {
+    fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(true);
+    const onImagesChange = vi.fn();
+    const file = new File([new Uint8Array(25 * 1024 * 1024 + 1)], 'too-large.png', { type: 'image/png' });
+    render(<DialogDropHarness onImagesChange={onImagesChange} />);
+
+    fireEvent.drop(screen.getByTestId('dialog-drop-target'), {
+      dataTransfer: { files: [file], types: ['Files'] },
+    });
+
+    expect(onImagesChange).not.toHaveBeenCalled();
+    expect(assetMocks.addAsset).not.toHaveBeenCalled();
+    expect(messageMocks.error).toHaveBeenCalled();
   });
 
   it('imports a nested dialog drop exactly once through the existing file pipeline', async () => {
