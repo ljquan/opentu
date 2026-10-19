@@ -1658,17 +1658,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
-    // Configured model lists stay referentially stable until discovery,
-    // credentials, or bindings change, so route planning stays off hot renders.
-    const executablePptImageModels = useMemo(
-      () => filterExecutablePptModels('image', configuredImageModels),
-      [configuredImageModels]
-    );
-    const executablePptVideoModels = useMemo(
-      () => filterExecutablePptModels('video', configuredVideoModels),
-      [configuredVideoModels]
-    );
-
     const chatDrawerControl = useChatDrawerControl();
     const workflowControl = useWorkflowControl();
     const { setActiveSelections: setActiveHealthSelections } =
@@ -2072,7 +2061,23 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       SkillMediaType[]
     >([]);
     const usesStrictPptModels =
-      selectedSkillId === 'generate_ppt_explainer_video';
+      selectedSkillId === 'generate_ppt_explainer_video' &&
+      (generationType === 'agent' || pptExplainerDialogOpen);
+    // PPT route validation is only needed while its skill or dialog is in use.
+    const executablePptImageModels = useMemo(
+      () =>
+        usesStrictPptModels
+          ? filterExecutablePptModels('image', configuredImageModels)
+          : configuredImageModels,
+      [configuredImageModels, usesStrictPptModels]
+    );
+    const executablePptVideoModels = useMemo(
+      () =>
+        usesStrictPptModels
+          ? filterExecutablePptModels('video', configuredVideoModels)
+          : configuredVideoModels,
+      [configuredVideoModels, usesStrictPptModels]
+    );
     const visibleImageModels = useMemo(() => {
       if (generationType !== 'image') {
         return imageModels;

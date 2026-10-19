@@ -1,5 +1,65 @@
 # Provider Model Refresh QA
 
+## 2026-10-19 On-Demand PPT Model Validation
+
+The reported startup gap concerns the bottom AI input bar, not a generated
+image. Only `AIInputBar.tsx` runtime logic changes: the existing image/video
+route checks now run when the PPT explainer skill is active in Agent mode,
+or its dialog is open. Remembering a PPT skill while using ordinary image,
+video, audio or text mode no longer enables strict PPT filtering. Other Agent
+skills also skip these checks. Leaving PPT stops validation, including on later
+catalog updates. In PPT, unchanged model lists reuse the existing memoized
+result; changed configuration reruns the existing availability filter.
+
+No shared routing service, model classification, invocation request, generation
+placeholder, layout, loading delay, dependency, persistent data or configuration
+is changed. This removes unnecessary PPT routing work from ordinary startup;
+it does not claim to remove module loading time or optimize the existing cost
+of entering PPT. No global cache or batch routing snapshot is introduced.
+
+Validation: macOS, Node 26.8.1, Vitest 3.2.4. The new regression harness extracts
+the actual component declarations and filter using the TypeScript parser, then
+executes them with real React `useMemo`/`renderHook` and a stub routing resolver.
+It does not mount the full application. Eight assertions failed before the fix;
+the final twelve tests cover ordinary modes, remembered PPT selection, entry,
+an open dialog, exit, memoization, changed availability and a 199-model catalog
+which performs zero PPT route checks in ordinary startup.
+
+Executed from `packages/drawnix`:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/ai-input-bar/AIInputBar.ppt-models.test.tsx \
+  src/components/ai-input-bar/PptExplainerDialog.test.tsx \
+  src/components/startup/DeferredAIInputBar.test.tsx \
+  src/services/__tests__/settings-repository.test.ts \
+  src/hooks/__tests__/use-runtime-models.test.ts \
+  src/services/ppt-explainer/validation.test.ts \
+  src/services/ai-input-ui-events.test.ts \
+  src/components/ai-input-bar/ModelDropdown.test.tsx \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/utils/__tests__/model-sort.test.ts
+```
+
+Result: all 119 tests across ten files passed. From the repository root,
+`NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run
+drawnix:typecheck` passed, and `NODE_OPTIONS=--no-experimental-webstorage
+NX_DAEMON=false pnpm exec nx run web:build --skip-nx-cache` passed, including
+Web type checking, the application bundle and the Service Worker build.
+ESLint reports zero errors and eighteen existing warnings in AIInputBar; a
+same-rule/message comparison with HEAD found no added diagnostics. The new test
+file has zero errors and warnings. `git diff --check` passed. Existing mocked
+IndexedDB, missing sourcemap, npm environment, Browserslist, Sass, mixed-import
+and bundle-size warnings remain.
+
+No browser/page test, refresh, generation, billable provider call, Windows run,
+commit, push, PR or deployment was performed for this change. The existing 7201
+service is retained. Manual acceptance: load ordinary image mode and verify the
+input bar does not wait for PPT route checks; select the PPT skill or open its
+dialog to validate available models, then switch back to ordinary mode. Actual
+cold-start elapsed time has not been measured after the repair. QA and behavior
+notes are recorded here; no separate DOC is needed for this local gating fix.
+
 ## 2026-10-19 Review Follow-up: Classification and Request Deadline
 
 Scope: fix the four confirmed review findings only. Model ordering, row
