@@ -64,7 +64,7 @@ Image 2 的限制按模型 ID 家族匹配，覆盖 `gpt-image-2-*`、`gpt-image
 
 `gpt-image-2.5-vip` 同样使用下述比例和分辨率映射，并支持至 `xhigh` 的五档画质。请求保留 VIP 模型名。
 
-根据后端映射约定，`gpt-image-2.5` 使用 Sunburst/Flare 的参数能力。请求仍发送 `model: gpt-image-2.5`，具体上游型号由后端选择。明确比例时 `resolution` 在客户端转换为 `size`；Tuzi 自动比例时改用下述独立 `imageSize` 字段保留所选档位。
+根据后端映射约定，`gpt-image-2.5` 使用 Sunburst/Flare 的参数能力。请求仍发送 `model: gpt-image-2.5`，具体上游型号由后端选择。Tuzi 请求对明确选择的 1K/2K/4K 档位发送顶层 `resolution: "1K" / "2K" / "4K"`；比例与档位转换为像素 `size`。选择自动比例时，从提示词提取比例，没有有效比例时默认 1:1。
 
 普通 `gpt-image-2.5`、VIP、Sunburst 和 Flare 显示“自动 / 1K / 2K / 4K”，内部值对应 `auto / 1k / 2k / 4k`，默认自动。旧任务的 `billing-1k` 保留兼容解析，但不再显示在菜单中。该调整不改变 `gpt-image-2` 和固定 1k 型号。
 
@@ -77,7 +77,9 @@ Image 2 的限制按模型 ID 家族匹配，覆盖 `gpt-image-2-*`、`gpt-image
 | 2K (`2k`) | `1920x1920` | `2560x1440` | `1440x2560` |
 | 4K (`4k`) | `2880x2880` | `3840x2160` | `2160x3840` |
 
-自动比例独立于分辨率选择：Tuzi 适配器发送 `size: "auto"`，并把所选 1K/2K/4K 通过 `generationConfig.imageConfig.imageSize` 传递为 `1K/2K/4K`，`quality` 仍表示画质。分辨率也为 auto 时不发送 imageSize。此规则适用于普通、VIP、Sunburst、Flare 的生成和编辑，不改变 Image 2 或固定 1K 型号；官方适配器不发送此 Tuzi 扩展字段。自动比例不限制返回图片的宽高，实际输出和最终账单以服务端为准；字段参与计费不代表已验证上游的尺寸控制效果。
+Tuzi Image 2.5 普通、VIP、Sunburst、Flare 选择自动比例时，在提示词中识别上述十种支持比例及等价比例（例如 `32:18` 对应 `16:9`），兼容英文/中文冒号及两侧空格。多个有效比例取最后一个，缺失、非法或不支持的比例不参与匹配，没有有效匹配时固定为 1:1。所选 K 档位沿用上表换算为实际像素 `size`；分辨率自动或未指定时沿用 1K 尺寸。手动选择比例时以手动参数为准，提示词和参考图均不改写，不读取参考图尺寸。
+
+2026-10-19 的自动比例规则适用于 JSON 生成、参考图及 multipart 蒙版编辑。例如提示词含 `16:9` + 4K + 高清时发送 `size: "3840x2160"`、`resolution: "4K"`、`quality: "high"`，保留自动比例原有的 `generationConfig.imageConfig.imageSize: "4K"` 兼容字段；提示词无比例时 `size: "2880x2880"`。固定 1K 型号、Image 2 和官方适配器行为不变。此增量只保证客户端请求尺寸明确，未验证线上部署版本、渠道透传、实际输出尺寸或计费，无配置、依赖和迁移变化。
 
 明确比例继续按所选 K 档计算 size。2K 根据用户提供的计费表达式限制为总像素大于 1,048,576 且不超过 3,686,400，不改写 `quality`。其余 2K 比例为：2:3 = 1536x2304、3:4 = 1632x2176、4:5 = 1664x2080、21:9 = 2912x1248，反向比例交换宽高。所有明确比例尺寸保持精确比例且宽高为 16 的倍数，其他供应商规则未实测。
 
@@ -89,7 +91,7 @@ Image 2 的限制按模型 ID 家族匹配，覆盖 `gpt-image-2-*`、`gpt-image
 
 `gpt-image-2`、`gpt-image-2-vip` 及 `gpt-image2`、`gpt-image2-vip` 别名的 2K 比例映射使用上述相同的计费安全尺寸表，生成与编辑请求一致。明确比例的 1K、4K 和合法显式像素尺寸行为不变，`gpt-image-2-1k` 不使用此覆盖逻辑。此调整位于共享尺寸解析器，因此官方与 Tuzi 适配器都会使用新映射；它依据所提供的 Tuzi 计费表达式，不代表其他供应商计费规则。`quality` 仍表示画质，未改写为 K 档位。
 
-Tuzi 的 Image 2 普通、VIP 及上述别名现在也支持自动比例保留所选 K 档：发送 `size: "auto"` 与 `generationConfig.imageConfig.imageSize: "1K" / "2K" / "4K"`，生成和编辑一致。此扩展与 Image 2.5 四个扩展型号共用逻辑；固定 `gpt-image-2-1k`、`gpt-image-2.5-1k` 和官方适配器不变。实际渠道接受、出图尺寸和计费仍需服务端验证。
+Tuzi 的 Image 2 普通、VIP 及上述别名支持自动比例保留所选 K 档：发送 `size: "auto"` 与 `generationConfig.imageConfig.imageSize: "1K" / "2K" / "4K"`，生成和编辑一致。Image 2.5 四个扩展型号使用上文的提示词比例到像素尺寸规则，此处 Image 2 行为不变；固定 `gpt-image-2-1k`、`gpt-image-2.5-1k` 和官方适配器不变。实际渠道接受、出图尺寸和计费仍需服务端验证。
 
 - 官方 OpenAI Provider 使用 `/v1/images/generations` 和 `/v1/images/edits`。
 - Tuzi Provider 使用 `tuzi-gpt-image` 适配器：带 `maskImage` 时发送 multipart `/v1/images/edits`，原图字段为 `image[]`、蒙版字段为 `mask`，可传 `input_fidelity`；无蒙版仍使用 JSON `/v1/images/generations`。不新增 Token、数据库或代理层。

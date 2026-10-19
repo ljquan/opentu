@@ -77,7 +77,8 @@ describe('tuzi GPT image adapter', () => {
     });
     expect(form.get('model')).toBe('gpt-image-2.5-sunburst');
     expect(form.get('prompt')).toBe('Replace the masked region');
-    expect(form.get('size')).toBe('auto');
+    expect(form.get('size')).toBe('1920x1920');
+    expect(form.get('resolution')).toBe('2K');
     expect(JSON.parse(String(form.get('generationConfig')))).toEqual({
       imageConfig: { imageSize: '2K' },
     });
@@ -286,9 +287,10 @@ describe('tuzi GPT image adapter', () => {
         expect(buildTuziGPTImageRequestBody(request)).toEqual({
           model: request.model,
           prompt: 'Test',
-          size: 'auto',
+          size: '1920x1920',
           quality: 'high',
           background,
+          resolution: '2K',
           generationConfig: { imageConfig: { imageSize: '2K' } },
           ...(referenceImages ? { image: referenceImages } : {}),
         });
@@ -381,6 +383,7 @@ describe('tuzi GPT image adapter', () => {
           model,
           prompt: 'Test',
           size,
+          resolution: '2K',
           quality: 'medium',
         });
         const [width, height] = size.split('x').map(Number);
@@ -573,6 +576,7 @@ describe('tuzi GPT image adapter', () => {
         model: 'gpt-image-2.5-vip',
         prompt: 'Draw a clean product photo',
         size: sizes[resolution as keyof typeof sizes],
+        resolution: resolution.toUpperCase(),
         quality: 'high',
       });
     }
@@ -604,9 +608,14 @@ describe('tuzi GPT image adapter', () => {
         ).toEqual({
           model,
           prompt: 'Draw a clean product photo',
-          size: 'auto',
+          size: model.startsWith('gpt-image-2.5')
+            ? { '1k': '1024x1024', '2k': '1920x1920', '4k': '2880x2880', auto: '1024x1024' }[resolution]
+            : 'auto',
           quality: 'medium',
           ...(referenceImages ? { image: referenceImages } : {}),
+          ...(model.startsWith('gpt-image-2.5') && resolution !== 'auto'
+            ? { resolution: resolution.toUpperCase() }
+            : {}),
           ...(resolution === 'auto'
             ? {}
             : {
@@ -633,10 +642,97 @@ describe('tuzi GPT image adapter', () => {
     ).toEqual({
       model: 'gpt-image-2.5',
       prompt: 'Test',
-      size: 'auto',
+      size: '2880x2880',
       quality: 'high',
+      resolution: '4K',
       generationConfig: { imageConfig: { imageSize: '4K' } },
     });
+  });
+
+  it.each([
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])('resolves %s auto size from the prompt and keeps manual ratio precedence', (model) => {
+    for (const [resolution, landscape, portrait, square] of [
+      ['1k', '1360x768', '880x1184', '1024x1024'],
+      ['2k', '2560x1440', '1632x2176', '1920x1920'],
+      ['4k', '3840x2160', '2480x3312', '2880x2880'],
+    ]) {
+      for (const [prompt, expected] of [
+        ['A poster 16:9', landscape],
+        ['A poster 3：4', portrait],
+        ['A poster', square],
+      ]) {
+        const request = { model, prompt, size: 'auto', params: { resolution, quality: 'high' } };
+        const body = buildTuziGPTImageRequestBody(request);
+        expect(body).toMatchObject({ model, prompt, size: expected, quality: 'high' });
+        expect(buildTuziGPTImageRequestBody({ ...request, size: '1x1' }).size).toBe(square);
+        expect(buildTuziGPTImageRequestBody({
+          ...request, size: '1x1', params: { ...request.params, size: 'auto' },
+        }).size).toBe(expected);
+      }
+    }
+  });
+
+  it.each([
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])(
+    'sends %s concrete size and resolution through JSON generation and multipart edits',
+    async (model) => {
+      mocks.sendAdapterRequest.mockImplementation(async () => new Response(
+        JSON.stringify({
+          data: [{ url: 'https://example.com/result.png', width: 1024, height: 1024 }],
+        }),
+        { status: 200 }
+      ));
+      for (const resolution of ['2k', '4K']) {
+        for (const maskImage of [undefined, tinyPngDataUrl]) {
+          await tuziGPTImageAdapter.generateImage(
+            { baseUrl: 'https://api.tu-zi.com/v1' },
+            {
+              model,
+              prompt: 'Test 16:9',
+              size: 'auto',
+              referenceImages: [tinyPngDataUrl],
+              maskImage,
+              params: { resolution, quality: 'high' },
+            }
+          );
+          const sent = mocks.sendAdapterRequest.mock.calls.at(-1)?.[1];
+          expect(sent.path).toBe(maskImage ? '/images/edits' : '/images/generations');
+          const body = maskImage
+            ? Object.fromEntries((sent.body as FormData).entries())
+            : JSON.parse(sent.body);
+          expect(body).toMatchObject({
+            model,
+            size: resolution.toLowerCase() === '2k' ? '2560x1440' : '3840x2160',
+            resolution: resolution.toUpperCase(),
+            quality: 'high',
+          });
+        }
+      }
+    }
+  );
+
+  it.each([
+    'gpt-image-2.5',
+    'gpt-image-2.5-vip',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+  ])('omits an unspecified or invalid resolution for %s', (model) => {
+    for (const resolution of [undefined, 'auto', 'billing-1k', '8k', '']) {
+      const body = buildTuziGPTImageRequestBody({
+        model, prompt: 'Test', size: 'auto', params: { resolution },
+      });
+      expect(body).not.toHaveProperty('resolution');
+      expect(body).not.toHaveProperty('generationConfig');
+      expect(body.size).toBe('1024x1024');
+    }
   });
 
   it.each(['gpt-image-2-1k', 'gpt-image-2.5-1k'])(
@@ -670,6 +766,7 @@ describe('tuzi GPT image adapter', () => {
       model: modelId,
       prompt: 'Draw a clean product photo',
       size: '3840x2160',
+      resolution: '4K',
       quality: 'max',
     });
   });

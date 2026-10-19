@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeGPTImage25ResolutionParams,
+  resolveGPTImagePromptAspectRatio,
   resolveOfficialGPTImageEditSize,
   resolveOfficialGPTImageQuality,
   resolveOfficialGPTImageSize,
@@ -9,6 +10,30 @@ import {
 const GPT_IMAGE_25_MODEL_IDS = [
   'gpt-image-2.5-1k',
 ];
+
+describe('GPT Image prompt aspect ratio', () => {
+  it.each([
+    ['16:9', '16x9'],
+    ['A poster in 9:16 format', '9x16'],
+    ['比例16：9的海报', '16x9'],
+    ['宽高比 3 : 4', '3x4'],
+    ['32:18', '16x9'],
+    ['21:9', '21x9'],
+    ['16:9，最后改为4:5', '4x5'],
+    ['A product photo', '1x1'],
+    ['0:9, -16:9, 16:0, 1.5:1, 16:9:16, 12:30:00', '1x1'],
+    ['5:3', '1x1'],
+    ['99999999999999999999:9', '1x1'],
+  ])('resolves %s as %s', (prompt, expected) => {
+    expect(resolveGPTImagePromptAspectRatio(prompt)).toBe(expected);
+  });
+
+  it.each(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])(
+    'preserves supported ratio %s', (ratio) => {
+      expect(resolveGPTImagePromptAspectRatio(`Image ${ratio}`)).toBe(ratio.replace(':', 'x'));
+    }
+  );
+});
 
 describe('GPT Image 2.5 size and quality resolution', () => {
   it.each(['gpt-image-2', 'gpt-image-2-vip', 'gpt-image2', 'gpt-image2-vip'])(
