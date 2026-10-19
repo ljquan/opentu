@@ -1,5 +1,93 @@
 # Provider Model Refresh QA
 
+## 2026-10-19 PR Integration Verification
+
+Integration branch: `dev/provider-models-canvas-readiness`, targeting
+`ljquan/opentu:develop`. After committing the fixes, an explicit
+`git fetch origin develop` and `git merge --no-edit origin/develop` completed
+against `26d88768fb09f216092be854bf5204bdccfa71f8`. Git reported
+`Already up to date`; there were no manual merge conflicts.
+
+The final regression run passed 445 Drawnix tests in 37 files and 10 Web tests
+in two files, 455 total. This includes the model marketplace, raw capability
+tags, cached catalog restoration, NEW family ordering, Gemini parameters,
+preview/cache recovery, tab synchronization, image handoff and on-demand PPT
+model validation. Run the Drawnix suite from `packages/drawnix`:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/ai-input-bar/AIInputBar.ppt-models.test.tsx \
+  src/components/ai-input-bar/ModelDropdown.test.tsx \
+  src/components/ai-input-bar/PptExplainerDialog.test.tsx \
+  src/components/ai-input-bar/model-dropdown-styles.test.ts \
+  src/components/image-generation-anchor/ImageGenerationAnchorContent.test.tsx \
+  src/components/retry-image.test.tsx \
+  src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  src/components/startup/DeferredAIInputBar.test.tsx \
+  src/components/task-queue/TaskImagePreview.test.tsx \
+  src/constants/__tests__/model-config.test.ts \
+  src/data/image.test.ts \
+  src/hooks/__tests__/use-runtime-models.test.ts \
+  src/hooks/__tests__/useAutoInsertToCanvas.test.ts \
+  src/hooks/__tests__/useImageGenerationAnchorSync.test.ts \
+  src/hooks/__tests__/useTabSync.test.tsx \
+  src/plugins/components/image.loading.test.tsx \
+  src/services/__tests__/settings-repository.test.ts \
+  src/services/__tests__/tuzi-managed-provider-models.test.ts \
+  src/services/__tests__/workspace-cache.test.ts \
+  src/services/ai-input-ui-events.test.ts \
+  src/services/canvas-operations/canvas-insertion.test.ts \
+  src/services/ppt-explainer/validation.test.ts \
+  src/services/provider-model-catalog.test.ts \
+  src/utils/__tests__/canvas-media-preview.test.ts \
+  src/utils/__tests__/image-generation-anchor-insertion.test.ts \
+  src/utils/__tests__/image-generation-anchor-readiness.test.ts \
+  src/utils/__tests__/image-generation-anchor-state.test.ts \
+  src/utils/__tests__/image-generation-anchor-task.test.ts \
+  src/utils/__tests__/image-generation-anchor-view-model.test.ts \
+  src/utils/__tests__/model-grouping.test.ts \
+  src/utils/__tests__/model-pricing-service.test.ts \
+  src/utils/__tests__/model-sort.test.ts \
+  src/utils/__tests__/runtime-model-classification.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/utils/__tests__/settings-manager.test.ts \
+  src/utils/__tests__/suno-v2-discovery.test.ts \
+  src/utils/image-operation-timeout.test.ts
+```
+
+From the repository root:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  apps/web/src/app/app-sync.spec.ts apps/web/src/app/pending-persistence.spec.ts --environment node
+NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run drawnix:typecheck
+NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run web:build --skip-nx-cache
+git diff --check origin/develop...HEAD
+```
+
+Drawnix/Web type checks, production app and Service Worker builds, and diff
+checks passed. Existing npm environment, mock IndexedDB/crypto, sourcemap,
+Browserslist, Sass, mixed-import and large-bundle warnings remain.
+
+Targeted ESLint across all 57 changed TypeScript/test files reports 14 errors
+and 124 warnings. Each diagnostic was compared by rule/message against
+`origin/develop`; none is new. The repository-wide cycle commands fail with
+two runtime cycles and three cycles including type imports. Re-running the
+actual checker against an in-memory upstream source overlay confirmed the
+same counts and identical cyclic edges in both modes. These are baseline
+failures, not passing lint/cycle gates. Added-line credential-pattern scanning
+reported no possible secrets; this is not an exhaustive security audit.
+
+Existing QA/handoff documents are updated instead of creating new root QA/DOC
+files. There is no dependency, environment variable or storage migration.
+No new browser interaction, real provider generation, billable request,
+Windows validation, production deployment or measured cold-start benchmark
+was performed for this PR. Earlier read-only page observations and the user's
+reports are distinguished from post-fix acceptance in the sections below.
+The running localhost:7201 checkout and its uncommitted files are preserved;
+integration and publishing are performed only in the separate PR worktree.
+
+
 ## 2026-10-19 On-Demand PPT Model Validation
 
 The reported startup gap concerns the bottom AI input bar, not a generated
