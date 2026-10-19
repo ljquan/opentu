@@ -251,9 +251,13 @@ describe('insertImageFromUrl', () => {
         'image',
         { sourceUrl }
       );
-      expect(
-        new Uint8Array(await mocks.cacheMediaFromBlob.mock.calls[0][1].arrayBuffer())
-      ).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      const cachedBytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(mocks.cacheMediaFromBlob.mock.calls[0][1]);
+      });
+      expect(new Uint8Array(cachedBytes)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
       expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);
       expect(revokeObjectURL).toHaveBeenCalledTimes(3);
     } finally {
@@ -329,7 +333,7 @@ describe('insertImageFromUrl', () => {
       true,
       true
     );
-    const rejected = expect(promise).rejects.toThrow('图片加载超时（30秒）');
+    const rejected = expect(promise).rejects.toThrow('图片加载超时（5分钟）');
     await vi.advanceTimersByTimeAsync(0);
     const instance = instances[0];
     const lateLoad = instance.onload;

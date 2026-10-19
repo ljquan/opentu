@@ -646,6 +646,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                       <>
                         <TaskImagePreview
                           src={thumbnailUrl || mediaUrl}
+                          originalSrc={mediaUrl}
                           isCached={isCached}
                         />
                         {mediaCount > 1 && (

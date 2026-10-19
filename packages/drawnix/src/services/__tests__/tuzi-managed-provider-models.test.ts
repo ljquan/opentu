@@ -4,17 +4,24 @@ import {
   discoverChangedTuziProviderModels,
 } from '../tuzi-managed-provider-models';
 
-const { discover, applySelection, setError, getState, setPersistedSelection } =
+const { discover, applySelection, setError, getState, setPersistedSelection, getProfiles } =
   vi.hoisted(() => ({
     discover: vi.fn(),
     applySelection: vi.fn(),
     setError: vi.fn(),
     getState: vi.fn(),
     setPersistedSelection: vi.fn(),
+    getProfiles: vi.fn(),
   }));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
   runtimeModelDiscovery: { discover, applySelection, setError, getState },
+}));
+vi.mock('../provider-model-catalog', () => ({
+  discoverProviderModels: discover,
+}));
+vi.mock('../../utils/settings-manager', () => ({
+  providerProfilesSettings: { get: getProfiles },
 }));
 vi.mock('../tuzi-embedded-config', () => ({
   tuziEmbeddedConfig: { apiBaseUrl: 'http://localhost:3100' },
@@ -36,6 +43,10 @@ describe('Tuzi managed provider model synchronization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     discover.mockResolvedValue([{ id: 'model-a' }, { id: 'model-b' }]);
+    getProfiles.mockReturnValue([
+      { id: provider.id, baseUrl: 'http://localhost:3100/v1', apiKey: 'sk-old', pricingGroup: 'default' },
+      { id: 'tuzi-managed-vip', baseUrl: 'http://localhost:3100/v1', apiKey: 'sk-new', pricingGroup: 'vip' },
+    ]);
     getState.mockReturnValue({
       models: [
         { id: 'text-model', type: 'text', vendor: 'OTHER' },
@@ -54,9 +65,7 @@ describe('Tuzi managed provider model synchronization', () => {
     );
 
     expect(discover).toHaveBeenCalledWith(
-      provider.id,
-      'http://localhost:3100/v1',
-      'sk-new',
+      expect.objectContaining({ id: provider.id, apiKey: 'sk-new', pricingGroup: 'default' }),
       [],
       { selectAll: true }
     );
@@ -74,9 +83,7 @@ describe('Tuzi managed provider model synchronization', () => {
 
     expect(discover).toHaveBeenCalledTimes(1);
     expect(discover).toHaveBeenCalledWith(
-      provider.id,
-      expect.any(String),
-      provider.apiKey,
+      expect.objectContaining({ id: provider.id, apiKey: provider.apiKey }),
       [],
       { selectAll: true }
     );
@@ -115,5 +122,11 @@ describe('Tuzi managed provider model synchronization', () => {
     await discoverChangedTuziProviderModels([provider], new Map());
 
     expect(setPersistedSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to models when the profile has not been saved', async () => {
+    getProfiles.mockReturnValue([]);
+    await expect(discoverAndUseAllTuziProviderModels(provider)).rejects.toThrow('尚未保存');
+    expect(discover).not.toHaveBeenCalled();
   });
 });

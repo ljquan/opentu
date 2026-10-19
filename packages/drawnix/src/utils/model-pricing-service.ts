@@ -19,6 +19,7 @@ type PricingListener = () => void;
 type FetchAndCacheOptions = {
   force?: boolean;
   promoteToAutoRefresh?: boolean;
+  requestUrl?: string;
 };
 
 type ResolvedProviderPricingConfig = {
@@ -39,6 +40,7 @@ const DEFAULT_GROUP_NAME = 'default';
 export const DEFAULT_TUZI_CNY_PER_USD = 0.7;
 export const MODEL_PRICING_CACHE_TTL_MS = 5 * 60 * 1000;
 export const TUZI_PRICING_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MODEL_PRICING_REQUEST_TIMEOUT_MS = 15_000;
 
 function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
@@ -65,6 +67,19 @@ export function derivePricingUrl(baseUrl: string): string {
     return `${origin}/api/pricing`;
   } catch {
     return '';
+  }
+}
+
+export function getPricingRequestUrl(pricingUrl: string): string {
+  if (typeof window === 'undefined') return pricingUrl;
+  try {
+    const url = new URL(pricingUrl);
+    if (url.origin === window.location.origin) return pricingUrl;
+    if (url.origin !== `https://${TUZI_API_HOST}`) return pricingUrl;
+    const prefix = '/__opentu_tuzi_session__';
+    return new URL(`${prefix}${url.pathname}${url.search}`, window.location.origin).toString();
+  } catch {
+    return pricingUrl;
   }
 }
 
@@ -666,16 +681,29 @@ class ModelPricingService {
       return inflight;
     }
 
-    const promise = (async () => {
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        const error = new Error('模型广场请求超时，请稍后重试');
+        reject(error);
+        controller.abort(error);
+      }, MODEL_PRICING_REQUEST_TIMEOUT_MS);
+    });
+    const request = (async () => {
       const headers: Record<string, string> = { Accept: 'application/json' };
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
-      const response = await fetch(normalizedPricingUrl, { headers });
+      const response = await fetch(options.requestUrl || normalizedPricingUrl, {
+        headers,
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new Error(`Pricing API error: ${response.status}`);
       }
       const json = (await response.json()) as PricingApiResponse;
+      controller.signal.throwIfAborted();
       if (!isSupportedPricingResponse(json)) {
         throw new Error('Invalid pricing API response');
       }
@@ -686,6 +714,10 @@ class ModelPricingService {
       });
       return json;
     })();
+    // Bound the full response even if a transport ignores cancellation.
+    const promise = Promise.race([request, timeout]).finally(() =>
+      clearTimeout(timeoutId)
+    );
 
     this.inflightRequestMap.set(requestKey, promise);
 
@@ -718,10 +750,17 @@ class ModelPricingService {
 
     const prices: Record<string, ModelPrice> = {};
     const modelEndpoints: Record<string, Record<string, PricingEndpointInfo>> = {};
+    const modelCatalog: NonNullable<ProviderPricingCache['modelCatalog']> = {};
     for (const model of json.data.model_info) {
       const groupPrices = model.price_info?.[effectiveGroup];
       const gp: PricingGroupPrice | undefined = groupPrices?.['default'];
       if (!gp) continue;
+      modelCatalog[model.model_name] = {
+        category: model.category,
+        tags: model.tags,
+        owned_by: model.owned_by,
+        supported_endpoint_types: Object.keys(model.endpoints || {}),
+      };
       const firstDocs = Object.values(model.endpoints || {}).find((ep) => ep.docs)?.docs;
       prices[model.model_name] = {
         ...computeModelPrice(gp, groupRatio, cnyPerUsd),
@@ -741,6 +780,7 @@ class ModelPricingService {
       groups,
       prices,
       modelEndpoints,
+      modelCatalog,
     };
   }
 
@@ -762,6 +802,8 @@ class ModelPricingService {
 
     const prices: Record<string, ModelPrice> = {};
     const modelEndpoints: Record<string, Record<string, PricingEndpointInfo>> = {};
+    const modelCatalog: NonNullable<ProviderPricingCache['modelCatalog']> = {};
+    const vendors = new Map((json.vendors || []).map((vendor) => [vendor.id, vendor.name]));
     for (const model of json.data) {
       if (!model.model_name) continue;
       const effectiveGroup = resolveNewApiModelEffectiveGroup(
@@ -779,6 +821,14 @@ class ModelPricingService {
         model,
         json.supported_endpoint
       );
+      modelCatalog[model.model_name] = {
+        category: model.category,
+        tags: model.tags,
+        owned_by: model.owned_by || model.owner_by ||
+          (model.vendor_id !== undefined ? vendors.get(model.vendor_id) : undefined),
+        supported_endpoint_types: model.supported_endpoint_types?.map(String) ||
+          Object.keys(endpoints || {}),
+      };
       const firstDocs = endpoints
         ? Object.values(endpoints).find((ep) => ep.docs)?.docs
         : undefined;
@@ -805,6 +855,7 @@ class ModelPricingService {
       groups,
       prices,
       modelEndpoints,
+      modelCatalog,
     };
   }
 
@@ -869,7 +920,10 @@ class ModelPricingService {
     const json = await this.fetchPricingResponse(
       normalizedPricingUrl,
       apiKey,
-      options
+      {
+        ...options,
+        requestUrl: getPricingRequestUrl(normalizedPricingUrl),
+      }
     );
     const autoRefreshSourceSignature =
       options.promoteToAutoRefresh ||

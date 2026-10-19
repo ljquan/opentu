@@ -2358,7 +2358,7 @@ const restored =
 **三层配置**:
 1. **`DEFAULT_*_MODEL_ID`**（`model-config.ts`）：代码级默认模型 ID，影响无用户设置时的兜底值
 2. **`DEFAULT_SETTINGS`**（`settings-manager.ts`）：设置面板"默认方案"的预设值，新用户首次看到的默认模型，文本模型优先复用 `getDefaultTextModel()`，避免默认值双写漂移
-3. **`BUILT_IN_MODEL_RECOMMENDATION_SCORES`**（`model-config.ts`）：模型在选择器内的排序权重，分数越高排越前
+3. **选择器内排序**：文本、音频、视频继续使用 `BUILT_IN_MODEL_RECOMMENDATION_SCORES`（`model-config.ts`）；图片使用 `model-sort.ts` 的 `NEW` 同版本变体优先、少量推荐列表、系列和数字版本规则，不再受旧推荐分控制。显式 `sortOrder` 仍优先。详见 [图片排序 QA](./qa-provider-model-refresh.md#2026-10-19-image-model-ordering-trial)。
 
 **厂商 Tab 排序**: 由 `DISCOVERY_VENDOR_ORDER`（`ModelVendorBrand.tsx`）控制，与模型数组顺序无关。
 

@@ -4,16 +4,24 @@ import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import {
   bindImageTaskToCanvasInsertion,
   createCanvasMediaDimensionResolver,
+  getCachedImageInsertionUrls,
   type CanvasMediaTaskLookup,
 } from '../canvas-media-preview';
 
 const mocks = vi.hoisted(() => ({
   setNode: vi.fn(),
+  isCached: vi.fn(),
 }));
 
 vi.mock('@plait/core', () => ({
   Transforms: {
     setNode: mocks.setNode,
+  },
+}));
+
+vi.mock('../../services/unified-cache-service', () => ({
+  unifiedCacheService: {
+    isCached: mocks.isCached,
   },
 }));
 
@@ -58,6 +66,7 @@ function createLookup(overrides: Partial<CanvasMediaTaskLookup> = {}) {
 describe('canvas media preview dimensions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isCached.mockResolvedValue(true);
   });
 
   it('uses the bound in-memory task after its image URL is cached locally', async () => {
@@ -223,6 +232,57 @@ describe('canvas media preview dimensions', () => {
       videoResolver({ type: 'video', url: 'https://example.com/video.mp4' })
     ).resolves.toBeNull();
     expect(failedLookup.getTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('canvas image insertion cache synchronization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.isCached.mockResolvedValue(true);
+  });
+
+  it('returns committed local URLs only after every inserted image is cached', async () => {
+    const board = {
+      children: [
+        { id: 'image-1', type: 'image', url: '/__aitu_cache__/image/one.png' },
+        { id: 'image-2', type: 'image', url: '/__aitu_cache__/image/two.png' },
+      ],
+    } as unknown as PlaitBoard;
+    const result = {
+      success: true,
+      data: {
+        insertedCount: 2,
+        items: [
+          { type: 'image', elementId: 'image-1', point: [0, 0], size: { width: 10, height: 10 } },
+          { type: 'image', elementId: 'image-2', point: [20, 0], size: { width: 10, height: 10 } },
+        ],
+      },
+    };
+
+    await expect(getCachedImageInsertionUrls(board, result)).resolves.toEqual([
+      '/__aitu_cache__/image/one.png',
+      '/__aitu_cache__/image/two.png',
+    ]);
+  });
+
+  it('keeps the task on its original result when an inserted URL is not cached', async () => {
+    mocks.isCached.mockResolvedValue(false);
+    const board = {
+      children: [
+        { id: 'image-1', type: 'image', url: 'https://cdn.example.com/one.png' },
+      ],
+    } as unknown as PlaitBoard;
+    const result = {
+      success: true,
+      data: {
+        insertedCount: 1,
+        items: [
+          { type: 'image', elementId: 'image-1', point: [0, 0], size: { width: 10, height: 10 } },
+        ],
+      },
+    };
+
+    await expect(getCachedImageInsertionUrls(board, result)).resolves.toBeNull();
   });
 });
 

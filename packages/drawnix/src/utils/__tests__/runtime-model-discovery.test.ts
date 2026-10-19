@@ -266,6 +266,82 @@ describe('runtime-model-discovery', () => {
     })]);
   });
 
+  it('使用模型广场目录时不请求 models 接口并移除未配置模型', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('models endpoint must not be requested');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.doMock('../settings-manager', () => ({
+      LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
+      providerCatalogsSettings: {
+        get: () => [
+          {
+            profileId: 'tuzi-token-default',
+            discoveredModels: [
+              { id: 'gpt-image-2.5-exact', type: 'image', vendor: 'GPT' },
+            ],
+            selectedModelIds: ['gpt-image-2.5-exact'],
+          },
+        ],
+        addListener: () => {},
+        removeListener: () => {},
+        update: async () => {},
+      },
+      providerProfilesSettings: {
+        get: () => [
+          {
+            id: 'tuzi-token-default',
+            enabled: true,
+            baseUrl: 'https://api.tu-zi.com/v1',
+            apiKey: 'test-key',
+          },
+        ],
+        addListener: () => {},
+        removeListener: () => {},
+      },
+      invocationPresetsSettings: {
+        addListener: () => {},
+        removeListener: () => {},
+      },
+      settingsManager: {
+        getSetting: () => ({}),
+        addListener: () => {},
+        removeListener: () => {},
+      },
+    }));
+
+    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    const models = await runtimeModelDiscovery.discover(
+      'tuzi-token-default',
+      'https://api.tu-zi.com/v1',
+      'test-key',
+      [],
+      {
+        authoritativeModels: [
+          {
+            id: 'gpt-image-2.5',
+            description: '模型广场已配置',
+            supported_endpoint_types: ['image-generation'],
+          },
+        ],
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(models.map((model) => model.id)).toEqual(['gpt-image-2.5']);
+    expect(
+      runtimeModelDiscovery
+        .getState('tuzi-token-default')
+        .discoveredModels.map((model) => model.id)
+    ).toEqual(['gpt-image-2.5']);
+    expect(runtimeModelDiscovery.getPinnedSelectableModel(
+      'image', 'gpt-image-2.5-exact',
+      { profileId: 'tuzi-token-default', modelId: 'gpt-image-2.5-exact' }
+    )).toBeNull();
+    expect(runtimeModelDiscovery.getCatalogs(['tuzi-token-default'])[0].discoverySource)
+      .toBe('marketplace');
+  });
+
   it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
     'refreshes cached %s metadata without changing the selected API identity', async (modelId) => {
     vi.stubGlobal('fetch', vi.fn(async () => ({

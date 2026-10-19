@@ -38,7 +38,10 @@ import {
   getImageTaskResultDimensions,
   resolveImageTaskInsertionDimensions,
 } from '../../utils/task-utils';
-import { bindImageTaskToCanvasInsertion } from '../../utils/canvas-media-preview';
+import {
+  bindImageTaskToCanvasInsertion,
+  getCachedImageInsertionUrls,
+} from '../../utils/canvas-media-preview';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import {
   buildTaskDownloadItems,
@@ -628,6 +631,20 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           throw new Error(insertionResult.error || '图片插入失败');
         }
         bindImageTaskToCanvasInsertion(board, insertionResult, task.id);
+        const cachedUrls = await getCachedImageInsertionUrls(
+          board,
+          insertionResult
+        );
+        if (cachedUrls?.length === urls.length) {
+          taskQueueService.updateTaskStatus(task.id, task.status, {
+            result: {
+              ...taskResult,
+              url: cachedUrls[0],
+              urls: cachedUrls.length > 1 ? cachedUrls : undefined,
+              cacheWarning: undefined,
+            },
+          });
+        }
         MessagePlugin.success(
           urls.length > 1 ? '多图已插入到白板' : '图片已插入到白板'
         );

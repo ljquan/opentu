@@ -6,6 +6,10 @@ import {
   normalizeModelApiBaseUrl,
   runtimeModelDiscovery,
 } from '../../utils/runtime-model-discovery';
+import {
+  discoverProviderModels,
+  usesTuziMarketplace,
+} from '../../services/provider-model-catalog';
 
 export function getCredentialChangedProfiles(
   profiles: ProviderProfile[],
@@ -38,11 +42,13 @@ export async function refreshChangedProviderModels(
         return null;
       }
       try {
-        const models = await runtimeModelDiscovery.discover(
-          profile.id,
-          profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL,
-          profile.apiKey.trim()
-        );
+        const models = usesTuziMarketplace(profile)
+          ? await discoverProviderModels(profile)
+          : await runtimeModelDiscovery.discover(
+              profile.id,
+              profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL,
+              profile.apiKey.trim()
+            );
         runtimeModelDiscovery.applySelection(
           profile.id,
           models.map((model) => model.id)

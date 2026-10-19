@@ -508,6 +508,8 @@ $green-health: #10b981;
   }
 
   &__item-desc {
+    // Long descriptions must not determine the popup's intrinsic width.
+    contain: inline-size;
     font-size: 11px;
     color: $gray-medium;
     margin-top: 2px;

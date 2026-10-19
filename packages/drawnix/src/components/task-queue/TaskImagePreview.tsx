@@ -9,22 +9,28 @@ export const TASK_IMAGE_PREVIEW_TIMEOUT_MS = 45_000;
 
 export function TaskImagePreview({
   src,
+  originalSrc = src,
   isCached,
 }: {
   src: string;
+  originalSrc?: string;
   isCached: boolean;
 }) {
   const [attempt, setAttempt] = useState(0);
+  const previewSrc = attempt > 0 ? originalSrc : src;
 
   return (
     <RetryImage
       key={`${src}:${isCached}:${attempt}`}
-      src={src}
+      src={previewSrc}
       alt="Generated"
       eager
       // Keep virtual thumbnail requests small. Remote results can reuse a
       // locally cached Blob even when their original signed URL has expired.
-      preferCachedBlob={!isVirtualMediaUrl(src)}
+      preferCachedBlob={
+        !isVirtualMediaUrl(previewSrc) && attempt === 0 && isCached
+      }
+      skipCacheFallback={attempt > 0 && !isVirtualMediaUrl(previewSrc)}
       loadTimeoutMs={TASK_IMAGE_PREVIEW_TIMEOUT_MS}
       maxRetries={5}
       fallback={

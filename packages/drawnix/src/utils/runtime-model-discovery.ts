@@ -76,14 +76,17 @@ const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
 export interface RemoteModelListItem {
   id: string;
+  description?: string;
   object?: string;
   created?: number;
   owned_by?: string;
   category?: string;
+  tags?: string;
   supported_endpoint_types?: string[];
 }
 
 export interface RuntimeModelDiscoveryState {
+  discoverySource?: ProviderCatalog['discoverySource'];
   profileId: string;
   status: 'idle' | 'loading' | 'ready' | 'error';
   sourceBaseUrl: string;
@@ -125,6 +128,7 @@ export interface ManualRuntimeModelInput {
 export interface RuntimeModelDiscoveryOptions {
   selectAll?: boolean;
   signal?: AbortSignal;
+  authoritativeModels?: readonly RemoteModelListItem[];
 }
 
 function isAbortSignal(value: unknown): value is AbortSignal {
@@ -362,6 +366,48 @@ function inferModelTypeFromCategory(category?: unknown): ModelType | null {
     typeof category === 'string' ? category.trim().toLowerCase() : '';
   if (!normalized) return null;
 
+  // Capability tags may describe media input; only explicit generation beats text.
+  const generationCategories: [ModelType, readonly InferencePattern[]][] = [
+    ['video', [
+      '视频生成', '生成视频', '文生视频', '图生视频', 'video_generation',
+      'video-generation', 'text-to-video', 'image-to-video', 't2v', 'i2v',
+    ]],
+    ['image', [
+      '生图', '绘图', '图像生成', '图片生成', '生成图像', '生成图片',
+      'image_generation', 'image-generation', 'text-to-image', 'image-to-image', 't2i', 'i2i',
+    ]],
+    ['audio', [
+      '音频生成', '音乐生成', '语音合成', 'text-to-speech',
+      'audio_generation', 'audio-generation', 'music-generation',
+    ]],
+  ];
+  for (const [type, patterns] of generationCategories) {
+    if (matchesAnyPattern(normalized, patterns)) return type;
+  }
+
+  if (
+    matchesAnyPattern(normalized, [
+      '文本',
+      '文字',
+      '对话',
+      '聊天',
+      '语言',
+      '研究',
+      '推理',
+      '代码',
+      'text',
+      'chat',
+      'llm',
+      'language',
+      'research',
+      'reasoning',
+      'coder',
+      'code',
+    ])
+  ) {
+    return 'text';
+  }
+
   if (
     matchesAnyPattern(normalized, [
       '视频',
@@ -417,29 +463,36 @@ function inferModelTypeFromCategory(category?: unknown): ModelType | null {
     return 'audio';
   }
 
-  if (
-    matchesAnyPattern(normalized, [
-      '文本',
-      '文字',
-      '对话',
-      '聊天',
-      '语言',
-      '研究',
-      '推理',
-      '代码',
-      'text',
-      'chat',
-      'llm',
-      'language',
-      'research',
-      'reasoning',
-      'coder',
-      'code',
-    ])
-  ) {
-    return 'text';
-  }
+  return null;
+}
 
+function inferDeclaredModelType(model: RemoteModelListItem): ModelType | null {
+  const categoryType = inferModelTypeFromCategory(model.category);
+  if (categoryType) return categoryType;
+  if (typeof model.tags !== 'string' || !model.tags.trim()) return null;
+
+  // Marketplace tags are exact labels, not substrings or output categories.
+  const tags = new Set(
+    model.tags.toLowerCase().split(/[,，;；|]/).map((tag) => tag.trim())
+  );
+  const has = (...labels: string[]) => labels.some((label) => tags.has(label));
+  if (has('生图', 'image-generation', 'image_generation', 'text-to-image')) return 'image';
+  if (has(
+    '文生视频', '图生视频', '视频生成', 'video-generation', 'text-to-video', 'image-to-video'
+  )) return 'video';
+  if (has(
+    '音乐生成', '音频生成', '语音合成', 'audio-generation', 'text-to-speech'
+  )) return 'audio';
+  if (has(
+    '文本', '推理', '代码', '研究', '图像理解', 'text', 'chat', 'reasoning', 'code'
+  )) return 'text';
+  if (has('视频', 'video')) return 'video';
+  if (has('音频', '音乐', '语音', 'audio', 'music', 'speech')) return 'audio';
+  // Input-only labels do not grant generation output; unrelated labels declare no type.
+  if (has(
+    '图像', '图片', 'image', 'images', '多模态', 'multimodal',
+    'image-understanding', 'image_understanding', '非生图'
+  )) return 'text';
   return null;
 }
 
@@ -690,7 +743,7 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
 
 function inferModelType(model: RemoteModelListItem): ModelType {
   if (isSunoV2Model(model.id) || isSunoNativeModel(model.id)) return 'audio';
-  const categoryType = inferModelTypeFromCategory(model.category);
+  const categoryType = inferDeclaredModelType(model);
   if (categoryType) {
     return categoryType;
   }
@@ -1248,7 +1301,7 @@ function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
     ) {
       return clonedConfig;
     }
-    const categoryType = inferModelTypeFromCategory(model.category);
+    const categoryType = inferDeclaredModelType(model);
     if (!categoryType || categoryType === staticConfig.type) {
       return clonedConfig;
     }
@@ -1408,18 +1461,33 @@ function refreshPersistedModelConfig(
 
 function decorateRuntimeModels(
   profileId: string,
-  models: ModelConfig[]
+  models: ModelConfig[],
+  useMarketplaceMetadata = false
 ): ModelConfig[] {
   const profile = getProfileById(profileId);
   const useRemoteDisplayName =
     isTuziCompatibleBaseUrl(profile?.baseUrl) ||
     profileId.startsWith('tuzi-managed-') ||
     profileId.startsWith('tuzi-token-');
+  const pricingCaches = useMarketplaceMetadata
+    ? settingsManager.getSetting<ProviderPricingCache[]>('providerPricingCache')
+    : [];
+  const marketplaceMetadata = (Array.isArray(pricingCaches) ? pricingCaches : [])
+    .find((cache) => cache.profileId === profileId)?.modelCatalog;
   return models.map((model) => {
     if ((model.tags || []).includes('manual')) {
       return attachRuntimeSource(profileId, model);
     }
-    const refreshed = refreshPersistedModelConfig(model, useRemoteDisplayName);
+    const metadata = marketplaceMetadata?.[model.id];
+    const categoryType = metadata
+      ? inferDeclaredModelType({ id: model.id, ...metadata })
+      : null;
+    const corrected = categoryType
+      ? adaptRuntimeModel({ id: model.id, ...metadata })
+      : null;
+    const refreshed = corrected
+      ? { ...corrected, description: model.description }
+      : refreshPersistedModelConfig(model, useRemoteDisplayName);
     return attachRuntimeSource(profileId, useRemoteDisplayName
       ? { ...refreshed, label: model.id, shortLabel: model.id }
       : refreshed);
@@ -1456,7 +1524,8 @@ function createStateFromCatalog(
 ): RuntimeModelDiscoveryState {
   const discoveredModels = supplementSunoV2Models(catalog.profileId, decorateRuntimeModels(
     catalog.profileId,
-    Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : []
+    Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : [],
+    catalog.discoverySource === 'marketplace'
   ));
   const selectedModelIds = normalizeSelectedModelIds(
     discoveredModels,
@@ -1466,6 +1535,7 @@ function createStateFromCatalog(
 
   return {
     profileId: catalog.profileId,
+    discoverySource: catalog.discoverySource,
     status: catalog.error
       ? 'error'
       : discoveredModels.length > 0
@@ -1489,6 +1559,7 @@ function createStateFromCatalog(
 function toCatalog(state: RuntimeModelDiscoveryState): ProviderCatalog {
   return {
     profileId: state.profileId,
+    discoverySource: state.discoverySource,
     discoveredAt: state.discoveredAt,
     discoveredModels: state.discoveredModels,
     selectedModelIds: state.selectedModelIds,
@@ -1851,6 +1922,10 @@ class RuntimeModelDiscoveryStore {
         return null;
       }
 
+      if (state?.discoverySource === 'marketplace') {
+        return null;
+      }
+
       return createPinnedRuntimeModel(profileId, modelId, type);
     }
 
@@ -2108,6 +2183,15 @@ class RuntimeModelDiscoveryStore {
 
     const discoveryKey = `${profileId}::${signature}::selectAll=${
       options.selectAll === true ? '1' : '0'
+    }::catalog=${
+      options.authoritativeModels
+        ? hashString(
+            options.authoritativeModels
+              .map((model) => model.id)
+              .sort()
+              .join('\n')
+          )
+        : 'models-endpoint'
     }`;
     const existingDiscovery = this.inFlightDiscoveries.get(discoveryKey);
     if (existingDiscovery) {
@@ -2154,25 +2238,31 @@ class RuntimeModelDiscoveryStore {
       false
     );
 
-    const rawText = await fetchRemoteModelListWithFallback(
-      normalizedBaseUrl,
-      trimmedApiKey,
-      fallbackBaseUrls,
-      options.signal,
-      profileId.startsWith('tuzi-managed-') ||
-        profileId.startsWith('tuzi-token-')
-    );
+    let data: readonly unknown[];
+    if (options.authoritativeModels) {
+      data = options.authoritativeModels;
+    } else {
+      const rawText = await fetchRemoteModelListWithFallback(
+        normalizedBaseUrl,
+        trimmedApiKey,
+        fallbackBaseUrls,
+        options.signal,
+        profileId.startsWith('tuzi-managed-') ||
+          profileId.startsWith('tuzi-token-')
+      );
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      throw new Error('模型列表接口未返回有效 JSON');
-    }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        throw new Error('模型列表接口未返回有效 JSON');
+      }
 
-    const data = (parsed as { data?: unknown }).data;
-    if (!Array.isArray(data)) {
-      throw new Error('模型列表接口缺少 data 数组');
+      const parsedData = (parsed as { data?: unknown }).data;
+      if (!Array.isArray(parsedData)) {
+        throw new Error('模型列表接口缺少 data 数组');
+      }
+      data = parsedData;
     }
 
     const adaptedModels: ModelConfig[] = [];
@@ -2187,6 +2277,9 @@ class RuntimeModelDiscoveryStore {
       if (useRemoteDisplayName) {
         adapted.label = remoteModel.id;
         adapted.shortLabel = remoteModel.id;
+      }
+      if (remoteModel.description?.trim()) {
+        adapted.description = remoteModel.description.trim();
       }
       seen.add(adapted.id);
       adaptedModels.push(attachRuntimeSource(profileId, adapted));
@@ -2221,6 +2314,7 @@ class RuntimeModelDiscoveryStore {
     this.setCatalogState(profileId, {
       profileId,
       status: 'ready',
+      discoverySource: options.authoritativeModels ? 'marketplace' : 'models-endpoint',
       sourceBaseUrl: normalizedBaseUrl,
       signature,
       discoveredAt: Date.now(),

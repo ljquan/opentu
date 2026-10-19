@@ -75,6 +75,74 @@ describe('RetryImage', () => {
     );
   });
 
+  it('exhausted retries can recover through the canvas fallback without leaving the image hidden', () => {
+    const loaded = vi.fn();
+    const sourceChanged = vi.fn();
+    render(
+      <RetryImage
+        src="/__aitu_cache__/image/recovery.png"
+        alt="recoverable"
+        maxRetries={0}
+        skipCacheFallback
+        showSkeleton={false}
+        onSourceChange={sourceChanged}
+        onError={(event) => {
+          event.currentTarget.style.visibility = 'hidden';
+          event.currentTarget.src = 'blob:canvas-recovery';
+        }}
+        onLoad={(event) => {
+          event.currentTarget.style.visibility = '';
+          loaded();
+        }}
+      />
+    );
+    const image = screen.getByAltText('recoverable');
+    fireEvent.error(image);
+    expect(image.style.visibility).toBe('hidden');
+    fireEvent.load(image);
+    expect(image.style.visibility).toBe('');
+    expect(sourceChanged).toHaveBeenLastCalledWith('blob:canvas-recovery');
+    expect(loaded).toHaveBeenCalledOnce();
+    fireEvent.load(image);
+    expect(loaded).toHaveBeenCalledOnce();
+  });
+
+  it('still ignores late load events from the failed source when no fallback was adopted', () => {
+    const loaded = vi.fn();
+    render(
+      <RetryImage
+        src="https://example.com/failed.png"
+        alt="failed"
+        maxRetries={0}
+        skipCacheFallback
+        showSkeleton={false}
+        onLoad={loaded}
+      />
+    );
+    const image = screen.getByAltText('failed');
+    fireEvent.error(image);
+    fireEvent.load(image);
+    expect(loaded).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a timed-out request as a successful late recovery', async () => {
+    vi.useFakeTimers();
+    const loaded = vi.fn();
+    render(
+      <RetryImage
+        src="https://example.com/timeout.png"
+        alt="timeout"
+        eager
+        skipCacheFallback
+        loadTimeoutMs={10}
+        onLoad={loaded}
+      />
+    );
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    fireEvent.load(screen.getByAltText('timeout'));
+    expect(loaded).not.toHaveBeenCalled();
+  });
+
   it('开启 skeleton 时图片加载完成后再淡入', () => {
     render(<RetryImage src="https://example.com/preview.png" alt="结果预览" />);
 

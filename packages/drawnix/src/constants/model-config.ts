@@ -3527,6 +3527,21 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
     return idMatched || tagMatched;
   });
 
+  if (
+    modelConfig.type === 'image' &&
+    modelConfig.vendor === ModelVendor.GEMINI &&
+    !compatibleParams.some((param) => param.id === 'size')
+  ) {
+    const geminiSizeParam = IMAGE_PARAMS.find(
+      (param) =>
+        param.id === 'size' &&
+        param.compatibleModels.some((id) =>
+          GEMINI_IMAGE_MODEL_IDS_EXCLUDING_FLASH31.includes(id)
+        )
+    );
+    if (geminiSizeParam) compatibleParams.push(geminiSizeParam);
+  }
+
   if (!isSeedance25ModelId(modelId)) {
     return compatibleParams;
   }
