@@ -32,6 +32,7 @@ const tree = ts.createSourceFile(
 );
 const names = new Set([
   'usesStrictPptModels',
+  'executablePptModels',
   'executablePptImageModels',
   'executablePptVideoModels',
 ]);
@@ -89,12 +90,13 @@ function createHarness() {
           },
         }
   );
+  const createResolver = vi.fn(() => resolvePlan);
   const exports = {} as { useModels: (inputs: Inputs) => ModelLists };
   runInNewContext(compiled, {
     exports,
     useMemo,
     getModelRefFromConfig: () => null,
-    resolveInvocationPlanFromRoute: resolvePlan,
+    createSettingsInvocationPlanResolver: createResolver,
   });
   const inputs: Inputs = {
     generationType: 'image',
@@ -106,10 +108,18 @@ function createHarness() {
     ],
     configuredVideoModels: [model('video-1', 'video')],
   };
-  return { inputs, resolvePlan, useModels: exports.useModels };
+  return { inputs, resolvePlan, createResolver, useModels: exports.useModels };
 }
 
 describe('AIInputBar on-demand PPT model validation', () => {
+  it('passes ordinary catalogs through without constructing a routing snapshot', () => {
+    const h = createHarness();
+    const { result } = renderHook(() => h.useModels(h.inputs));
+    expect(result.current.images).toBe(h.inputs.configuredImageModels);
+    expect(result.current.videos).toBe(h.inputs.configuredVideoModels);
+    expect(h.createResolver).not.toHaveBeenCalled();
+  });
+
   it.each(['image', 'video', 'audio', 'text', 'agent'])(
     'does not validate PPT routes on ordinary %s startup',
     (generationType) => {
@@ -161,6 +171,7 @@ describe('AIInputBar on-demand PPT model validation', () => {
     expect(h.resolvePlan).toHaveBeenCalledTimes(3);
     expect(result.current.images.map((item) => item.id)).toEqual(['image-1']);
     expect(result.current.videos.map((item) => item.id)).toEqual(['video-1']);
+    expect(h.createResolver).toHaveBeenCalledTimes(1);
   });
 
   it('validates an open PPT dialog even if the generation mode changes', () => {
@@ -187,13 +198,16 @@ describe('AIInputBar on-demand PPT model validation', () => {
       { initialProps: pptInputs }
     );
     h.resolvePlan.mockClear();
+    h.createResolver.mockClear();
     rerender({ ...pptInputs });
     expect(h.resolvePlan).not.toHaveBeenCalled();
+    expect(h.createResolver).not.toHaveBeenCalled();
     rerender({
       ...pptInputs,
       configuredImageModels: [model('image-2', 'image')],
     });
-    expect(h.resolvePlan).toHaveBeenCalledTimes(1);
+    expect(h.resolvePlan).toHaveBeenCalledTimes(2);
+    expect(h.createResolver).toHaveBeenCalledTimes(1);
     expect(result.current.images.map((item) => item.id)).toEqual(['image-2']);
   });
 

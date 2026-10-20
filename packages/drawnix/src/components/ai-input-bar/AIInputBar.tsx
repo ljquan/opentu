@@ -179,6 +179,7 @@ import {
 import { knowledgeBaseService } from '../../services/knowledge-base-service';
 import { externalSkillService } from '../../services/external-skill-service';
 import {
+  createSettingsInvocationPlanResolver,
   getTextBindingMaxImageCount,
   resolveInvocationPlanFromRoute,
   supportsTextBindingImageInput,
@@ -748,11 +749,12 @@ interface GenerationRequestOverride {
 
 function filterExecutablePptModels(
   type: 'image' | 'video',
-  models: ModelConfig[]
+  models: ModelConfig[],
+  resolvePlan: ReturnType<typeof createSettingsInvocationPlanResolver>
 ): ModelConfig[] {
   return models.filter((model) => {
     const modelRef = getModelRefFromConfig(model);
-    const plan = resolveInvocationPlanFromRoute(type, modelRef || model.id);
+    const plan = resolvePlan(type, modelRef || model.id);
     return Boolean(
       plan?.provider.baseUrl.trim() && plan.provider.apiKey.trim()
     );
@@ -2063,21 +2065,27 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const usesStrictPptModels =
       selectedSkillId === 'generate_ppt_explainer_video' &&
       (generationType === 'agent' || pptExplainerDialogOpen);
-    // PPT route validation is only needed while its skill or dialog is in use.
-    const executablePptImageModels = useMemo(
-      () =>
-        usesStrictPptModels
-          ? filterExecutablePptModels('image', configuredImageModels)
-          : configuredImageModels,
-      [configuredImageModels, usesStrictPptModels]
-    );
-    const executablePptVideoModels = useMemo(
-      () =>
-        usesStrictPptModels
-          ? filterExecutablePptModels('video', configuredVideoModels)
-          : configuredVideoModels,
-      [configuredVideoModels, usesStrictPptModels]
-    );
+    // Build one routing snapshot only while the PPT skill or dialog is in use.
+    const executablePptModels = useMemo(() => {
+      if (!usesStrictPptModels) {
+        return { image: configuredImageModels, video: configuredVideoModels };
+      }
+      const resolvePlan = createSettingsInvocationPlanResolver();
+      return {
+        image: filterExecutablePptModels(
+          'image',
+          configuredImageModels,
+          resolvePlan
+        ),
+        video: filterExecutablePptModels(
+          'video',
+          configuredVideoModels,
+          resolvePlan
+        ),
+      };
+    }, [usesStrictPptModels, configuredImageModels, configuredVideoModels]);
+    const executablePptImageModels = executablePptModels.image;
+    const executablePptVideoModels = executablePptModels.video;
     const visibleImageModels = useMemo(() => {
       if (generationType !== 'image') {
         return imageModels;

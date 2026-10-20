@@ -1,5 +1,67 @@
 # Provider Model Refresh QA
 
+## 2026-10-20 PR #311 Routing Performance Integration
+
+The existing open PR #311 already contains on-demand PPT route validation.
+This integration keeps that implementation's complete activation condition
+(Agent PPT skill or its open dialog), ordinary-mode catalog identity, and
+unavailable-model filtering. PPT image/video validation now shares one
+synchronous resolver; provider/catalog/binding snapshots are rebuilt after
+configuration changes. Generation keeps fresh one-off planning. The snapshot
+is never global or retained across asynchronous work.
+
+The optimization branch was committed first, then `upstream/develop` and the
+PR head were explicitly fetched. Target `develop` remains
+`26d88768fb09f216092be854bf5204bdccfa71f8`; merging it into the PR head reported
+`Already up to date`. Merging the optimization branch conflicted in
+`AIInputBar.tsx` and this QA file. Both implementations' intended behavior and
+all existing PR #311 model/media/synchronization changes were retained.
+The component harness now covers a single resolver shared by both media lists,
+no resolver in ordinary modes, unchanged-render memoization, and a fresh batch
+on configuration changes. No duplicate PR, force-push or PR merge is needed.
+
+Final validation on macOS, Node 26.8.1, pnpm 10.21.0 and Vitest 3.2.4:
+
+- Drawnix: 41 test files, 596 tests passed. Run the 37-file Drawnix command in
+  the 2026-10-19 integration section below, additionally including:
+  `src/services/__tests__/settings-routing-performance.test.ts`,
+  `src/services/__tests__/provider-routing.test.ts`,
+  `src/services/__tests__/model-adapter-registry.test.ts`, and
+  `src/services/ppt-explainer/provider-contract.test.ts`.
+- Web: both existing sync/persistence files passed, 10 tests. Combined final
+  regression: 606 tests passed. The updated PPT component harness has 13 tests.
+- `pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json` passed.
+- `NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run
+  web:build --skip-nx-cache` passed, including Web typechecking, app and Service
+  Worker production builds.
+- Targeted ESLint over the four added/updated source/test files passed with
+  zero errors. The input bar's 18 warnings match the previous PR head exactly
+  by rule/message; the other three files have none. Existing broader PR lint
+  and cycle findings are recorded below and were not repaired by this change.
+- The 300-model equivalence test read the catalog once and profiles twice per
+  batch. Its final concurrent regression run measured 8505.8 ms for individual
+  planning versus 19.5 ms for the batch. A focused run measured 4692.3 ms versus
+  17.4 ms. Timings depend on concurrent workload; route equality and bounded
+  reads are deterministic assertions, not production frame-time claims.
+- The initial worktree run lacked package-level dependency links. After
+  restoring ignored links to installed dependencies (workspace links target
+  this worktree), the full regression, types and build passed. No manifest or
+  lockfile changed.
+- `git diff --check` and added-line credential-pattern checks passed. No
+  browser interaction, real provider request, Windows run or deployment was
+  repeated during conflict integration. The local authenticated iframe
+  observations below predate this integrated source and do not accept the
+  final populated-canvas performance.
+
+The previous PR #311 CI run (39261399320) already failed before this update:
+57 test files failed, including crypto/ArrayBuffer test-environment errors,
+`bun:test` browser externalization and a URL-scheme harness failure. Local
+scoped success is distinct from whole-repository CI success; the updated head
+must receive its own remote checks. Existing bundle/Sass/Browserslist warnings
+remain. This is an internal CPU optimization with no new dependency,
+configuration, migration, layout or gesture change. Existing QA is updated;
+no additional standalone DOC is required.
+
 ## 2026-10-19 PR Integration Verification
 
 Integration branch: `dev/provider-models-canvas-readiness`, targeting
@@ -99,11 +161,11 @@ skills also skip these checks. Leaving PPT stops validation, including on later
 catalog updates. In PPT, unchanged model lists reuse the existing memoized
 result; changed configuration reruns the existing availability filter.
 
-No shared routing service, model classification, invocation request, generation
-placeholder, layout, loading delay, dependency, persistent data or configuration
-is changed. This removes unnecessary PPT routing work from ordinary startup;
-it does not claim to remove module loading time or optimize the existing cost
-of entering PPT. No global cache or batch routing snapshot is introduced.
+This section records the initial on-demand implementation. The 2026-10-20
+integration additionally introduces a synchronous batch routing snapshot for
+PPT entry; see the latest integration record. Model classification, invocation
+requests, placeholders, layout, loading delays, dependencies and persistent data
+remain outside that optimization. No global routing cache is introduced.
 
 Validation: macOS, Node 26.8.1, Vitest 3.2.4. The new regression harness extracts
 the actual component declarations and filter using the TypeScript parser, then
@@ -430,6 +492,109 @@ is needed. Custom
 Tuzi-compatible deployments must provide their configured pricing endpoint.
 This section records both behavior and QA; the existing model-category lessons
 document was updated instead of adding a standalone DOC.
+
+## 2026-10-19 Input-bar model routing performance
+
+Scope: reduce synchronous model filtering work without changing controls,
+model selection, provider protocols, generation requests or media loading.
+The ordinary input bar no longer computes executable PPT image/video lists
+until the PPT explainer skill is active in Agent mode or its dialog is open. Both lists then use one synchronous
+batch resolver with shared provider, catalog and binding snapshots.
+
+`createSettingsInvocationPlanResolver()` is batch-scoped. Do not retain it
+across asynchronous work or settings changes. Actual generation continues to
+use the existing one-off resolver, which reads fresh settings. Legacy direct
+models retain their existing fallback. Returned plans isolate headers and
+nested binding metadata so one result cannot mutate another result's state.
+No dependency, browser API requirement, storage migration, environment variable
+or deployment-order change is introduced; no separate DOC is needed.
+
+Validation: macOS, Node 26.8.1, pnpm 10.21.0, Vitest 3.2.4. From the repository root:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  --config packages/drawnix/vite.config.ts \
+  packages/drawnix/src/services/__tests__/settings-routing-performance.test.ts \
+  packages/drawnix/src/services/__tests__/settings-repository.test.ts \
+  packages/drawnix/src/services/__tests__/provider-routing.test.ts \
+  packages/drawnix/src/services/__tests__/model-adapter-registry.test.ts \
+  packages/drawnix/src/hooks/__tests__/use-runtime-models.test.ts \
+  packages/drawnix/src/utils/__tests__/settings-manager.test.ts \
+  packages/drawnix/src/services/ppt-explainer/provider-contract.test.ts
+pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json
+NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false \
+  pnpm exec nx run web:build --skip-nx-cache
+```
+
+- 7 files, 168 tests passed, including 5 new batch regressions. Coverage includes
+  image/video route equivalence across 300 models, constant catalog reads,
+  manual and ambiguous inherited bindings, provider isolation, disabled
+  providers, missing credentials, explicit/missing binding IDs, schema
+  preferences, legacy models, output isolation and fresh credentials next batch.
+- The 300-model synthetic comparison used 200 image and 100 video models.
+  Individual resolution took 5537.5 ms; batch resolution took 18.9 ms in the
+  final run. All plans were strictly equal. The batch read the full catalog
+  once and profiles twice, independent of the number of models. Timing is
+  informational; deterministic assertions enforce the bounded reads.
+- Drawnix TypeScript and the production Web/Service Worker build passed.
+- Targeted ESLint passed with no errors. The input bar's 18 existing warnings
+  were also reproduced against HEAD; the repository and new test have none.
+- `git diff --check` passed. Existing IndexedDB/crypto test-environment warnings,
+  npm configuration, Sass/CSS target, Browserslist and bundle warnings remain.
+
+These are local code and synthetic performance results, not production frame
+time or end-to-end speed measurements. No page test, real provider request,
+Windows run, deployment or new memory/media policy was performed for this
+optimization. The earlier production diagnosis is not post-change acceptance.
+After deployment, repeat image selection and continuous pan/zoom on the same
+populated authenticated Tuzi iframe, and check PPT model availability after
+changing provider credentials. Existing media rendering costs remain outside
+this optimization. Reload to load the new bundle; clearing user data is not
+required.
+
+### Local Authenticated Iframe Entry Validation
+
+Follow-up on 2026-10-19: the local Tuzi frontend at
+`http://127.0.0.1:5174/console/chat/2` embeds this checkout's optimized app at
+`http://127.0.0.1:7214/`. The child explicitly trusts the parent origin.
+The supplied system credential was verified against `/api/user/self` and
+remains in the temporary parent process and the iframe bridge's memory.
+No credential is included in the entry URL or repository files.
+
+The temporary test configuration lives outside the repository. It supplies
+the real parent frontend with verified account metadata and proxies only
+allowlisted account/catalog reads to the fixed Tuzi origin. Its local
+`providers/ensure` adapter returns already-existing managed providers; it does
+not forward provider creation or mutation requests upstream. This adapter is
+a local test boundary, not acceptance of production Session authentication
+or production managed-provider writes. The newer `/api/opentu/tokens` route
+returned 404 on the current deployment; existing provider credentials were
+read from the existing account token APIs without creating replacements.
+
+Observed results:
+
+- The iframe bridge reported `tuzi` mode, `ready` status, the verified account
+  identity, and 13 real account groups. The account panel showed connected and
+  synchronized state.
+- The app's existing provider synchronization pipeline loaded all 13 group
+  catalogs successfully: 2,782 provider/model entries, including models shared
+  by multiple groups. Every catalog reported `ready` with no discovery error.
+- The provider settings UI showed the real `test` group's 790 models: 147
+  image, 148 video, 87 audio and 408 text models.
+- Remote token count and token IDs were unchanged before and after setup.
+- Local proxy checks passed for authenticated account reads, rejection of
+  missing/cross-origin callers, unknown-group rejection, and blocking the
+  system-token creation route. Both temporary scripts passed `node --check`.
+- Reloading the complete parent entry restored the ready account bridge.
+  Reloading only the child iframe can instead change `document.referrer` to
+  the child origin, which conflicts with the configured parent origin. A local
+  `Referrer-Policy` header did not resolve that browser behavior and was removed.
+  Refresh the complete parent entry after a child-only reload or a development
+  reload that loses authentication. Production bridge code was not changed.
+- No generation, token creation/rotation, production deployment or populated
+  canvas performance acceptance was performed. The local board remains a
+  separate browser-origin data store; representative pan/zoom/image-selection
+  performance still requires the same populated board as the production trace.
 
 ## 2026-10-16 Nano Banana 2.1 reference image MIME regression
 
