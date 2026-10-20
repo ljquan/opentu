@@ -68,7 +68,7 @@ class CharacterAPIService {
       formData.append('character_timestamps', params.characterTimestamps);
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/videos`, {
+    const response = await fetchWithTuziClientChannel(`${this.baseUrl}/v1/videos`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -103,7 +103,7 @@ class CharacterAPIService {
       throw new Error('API Key 未配置');
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/videos/${characterId}`, {
+    const response = await fetchWithTuziClientChannel(`${this.baseUrl}/v1/videos/${characterId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -301,3 +301,4 @@ class CharacterAPIService {
 
 // Export singleton instance
 export const characterAPIService = new CharacterAPIService();
+import { fetchWithTuziClientChannel } from './tuzi-client-attribution';

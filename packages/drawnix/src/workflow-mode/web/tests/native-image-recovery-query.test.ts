@@ -14,7 +14,7 @@ describe('workflow image recovery uses the canvas query contract', () => {
         vi.mocked(axios.get).mockRejectedValueOnce(new Error('Network Error')).mockResolvedValueOnce({ data: { status: 'succeeded', data: [{ url: 'https://example.test/result.png' }] } });
         expect(await queryWorkflowImageResult('https://api.tu-zi.com', 'fictional-key', 'attempt')).toMatchObject({ status: 'succeeded' });
         expect(axios.get).toHaveBeenCalledTimes(2);
-        expect(axios.get).toHaveBeenLastCalledWith('https://bus.tu-zi.com/v1/images/generations/result?request_id=attempt', expect.objectContaining({ headers: { authorization: 'Bearer fictional-key', 'x-request-id': 'attempt' } }));
+        expect(axios.get).toHaveBeenLastCalledWith('https://bus.tu-zi.com/v1/images/generations/result?request_id=attempt&ch=2', expect.objectContaining({ headers: { authorization: 'Bearer fictional-key', 'x-request-id': 'attempt' } }));
     });
     it.each([401, 403, 400])('preserves HTTP %s query errors without retrying another node', async status => {
         const error = Object.assign(new Error('denied'), { response: { status } });

@@ -17,7 +17,7 @@ import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/media-size";
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { boolConfig, buildApiUrl, fetchModelWithLocalProxy, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -129,7 +129,7 @@ async function createVideoGenerationTaskInternal(config: AiConfig, prompt: strin
     const params = contract ? getNativeParameterValues(config, selectedModel, "video") : undefined;
     if (contract && params) {
         validateNativeReferences(contract.referenceInputs || {}, { images: references.map(item => item.dataUrl || item.url || item.storageKey || ""), videos: options?.videos?.map(item => item.url || item.storageKey || ""), audios: options?.audios?.map(item => item.url || item.storageKey || "") });
-        const context = { baseUrl: requestConfig.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "") + "/v1", apiKey: requestConfig.apiKey, signal: options?.signal, fetcher: (url: RequestInfo | URL, init?: RequestInit) => fetch(withLocalProxy(String(url)), init) };
+        const context = { baseUrl: requestConfig.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "") + "/v1", apiKey: requestConfig.apiKey, signal: options?.signal, fetcher: fetchModelWithLocalProxy };
         if (contract.adapterId && contract.adapterId !== "gemini-video-adapter") {
             const images = await Promise.all(references.map(image => imageToDataUrl(image)));
             const mediaUrls = async (items: (ReferenceVideo | ReferenceAudio)[], audio = false) => Promise.all(items.map(async item => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, audio ? "ref.mp3" : "ref.mp4", audio ? "invalidReferenceAudio" : "invalidReferenceVideo", options)) : item.url));
@@ -162,7 +162,7 @@ async function createVideoGenerationTaskInternal(config: AiConfig, prompt: strin
                 referenceVideos: await Promise.all((options?.videos || []).map(async (item) => item.url.startsWith("blob:") || (!item.url && item.storageKey) ? readFileAsDataUrl(await referenceMediaToFile(item, "ref.mp4", "invalidReferenceVideo", options)) : item.url)),
             }, {
                 provider: { profileId: "workflow-local", profileName: "Workflow", providerType: "custom", baseUrl: requestConfig.baseUrl, apiKey: requestConfig.apiKey, authType: "bearer" },
-                signal: options?.signal, fetcher: (url, init) => fetch(withLocalProxy(String(url)), init),
+                signal: options?.signal, fetcher: fetchModelWithLocalProxy,
             });
         } catch (error) {
             throw Object.assign(new Error(`提示词增强请求失败：${readAxiosError(error, "请求失败")}`), { cause: error });
@@ -293,7 +293,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 }
 
 function minimaxUrl(config: AiConfig, path: string) {
-    return withLocalProxy(`${config.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "")}${path}`);
+    return withLocalProxy(`${config.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "")}${path}`, true);
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions, params?: Record<string, string | number | boolean>): Promise<VideoGenerationTask> {
@@ -420,11 +420,11 @@ function geminiVideoBaseUrl(config: Pick<AiConfig, "baseUrl">) {
 }
 
 function geminiVideoUrl(config: Pick<AiConfig, "baseUrl">, model: string, action: string) {
-    return withLocalProxy(`${geminiVideoBaseUrl(config)}/models/${encodeURIComponent(modelOptionName(model).replace(/^models\//, ""))}:${action}`);
+    return withLocalProxy(`${geminiVideoBaseUrl(config)}/models/${encodeURIComponent(modelOptionName(model).replace(/^models\//, ""))}:${action}`, true);
 }
 
 function geminiOperationUrl(config: Pick<AiConfig, "baseUrl">, name: string) {
-    return withLocalProxy(`${geminiVideoBaseUrl(config)}/${name.replace(/^\//, "")}`);
+    return withLocalProxy(`${geminiVideoBaseUrl(config)}/${name.replace(/^\//, "")}`, true);
 }
 
 function geminiVideoHeaders(config: Pick<AiConfig, "apiKey">) {

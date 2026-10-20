@@ -1,3 +1,4 @@
+import { withTuziClientChannel } from '../tuzi-client-attribution';
 import type {
   PreparedProviderTransportRequest,
   ProviderBaseUrlStrategy,
@@ -670,9 +671,9 @@ export class ProviderTransport {
     )
       ? context
       : { ...context, apiKey: '', extraHeaders: undefined };
-    const url = `${requestUrl}${buildQueryString(
+    const url = withTuziClientChannel(`${requestUrl}${buildQueryString(
       applyAuthQuery(credentialContext, request.query || {})
-    )}`;
+    )}`);
     const mergedHeaders = mergeHeaders(
       credentialContext.extraHeaders,
       request.headers

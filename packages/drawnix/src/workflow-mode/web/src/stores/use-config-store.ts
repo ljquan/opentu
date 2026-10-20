@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { fetchWithRewrittenUrl, withTuziClientChannel } from '../../../../services/tuzi-client-attribution';
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
@@ -518,7 +519,7 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
-    return withLocalProxy(`${apiBaseUrl}${path}`);
+    return withLocalProxy(`${apiBaseUrl}${path}`, true);
 }
 
 export function normalizeLocalProxyUrl(value: string) {
@@ -528,10 +529,22 @@ export function normalizeLocalProxyUrl(value: string) {
 }
 
 /** Prefix an outgoing request with the local forwarding proxy so the browser is not blocked by CORS. */
-export function withLocalProxy(url: string) {
+export function withLocalProxy(url: string, clientChannel = false) {
     const { proxyEnabled, proxyUrl } = useConfigStore.getState().config;
-    if (!proxyEnabled || !/^https?:\/\//i.test(url)) return url;
     const base = normalizeLocalProxyUrl(proxyUrl);
+    if (proxyEnabled && base && url.startsWith(`${base}/`)) {
+        const target = url.slice(base.length + 1);
+        return `${base}/${clientChannel ? withTuziClientChannel(target) : target}`;
+    }
+    if (clientChannel) url = withTuziClientChannel(url);
+    if (!proxyEnabled || !/^https?:\/\//i.test(url)) return url;
     if (!base || url.startsWith(`${base}/`)) return url;
     return `${base}/${url}`;
 }
+
+/** Preserve Request payloads while attributing the target before proxying. */
+export const fetchModelWithLocalProxy: typeof fetch = (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const target = withLocalProxy(url, true);
+    return fetchWithRewrittenUrl(input, target, init);
+};

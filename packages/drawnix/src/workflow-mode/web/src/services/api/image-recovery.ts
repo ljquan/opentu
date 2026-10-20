@@ -16,7 +16,7 @@ export async function queryWorkflowImageResult(baseUrl: string, apiKey: string, 
             });
             const headers: Record<string, string> = {};
             new Headers(prepared.init.headers).forEach((value, name) => { headers[name] = value; });
-            const response = await axios.get(withLocalProxy(prepared.url), { headers, timeout: 20_000 });
+            const response = await axios.get(withLocalProxy(prepared.url, true), { headers, timeout: 20_000 });
             const payload = response.data;
             if (payload && ['succeeded', 'failed', 'processing_or_not_found'].includes(payload.status)) return payload;
             lastError = new Error('结果查询返回无效响应，结果待确认');

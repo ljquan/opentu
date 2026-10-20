@@ -296,7 +296,7 @@ export async function llmFetch(
   });
 
   try {
-    const response = await fetch(input, init);
+    const response = await fetchWithTuziClientChannel(input, init);
     const duration = Date.now() - startTime;
 
     if (response.ok) {
@@ -373,3 +373,4 @@ function truncateResponseBody(text: string): string {
   if (text.length <= MAX_RESPONSE_BODY_LENGTH) return text;
   return `${text.substring(0, MAX_RESPONSE_BODY_LENGTH)}\n... [response truncated for log storage]`;
 }
+import { fetchWithTuziClientChannel } from '../tuzi-client-attribution';

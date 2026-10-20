@@ -5,7 +5,7 @@ import { generateImageDirect } from "../../../../../utils/gemini-api/services";
 import { resolveImageResolutionTier } from "../../../../../services/model-adapters/image-size-quality-resolver";
 import { audioAPIService, extractAudioGenerationResult } from "../../../../../services/audio-api-service";
 import { nativeModel, getNativeParameterValues } from "@/integration/native-parameters";
-import { resolveModelRequestConfig, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { fetchModelWithLocalProxy, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { validateNativeReferences } from "../../../../shared/native-parameters";
 import type { ModelCapability } from "@/stores/use-config-store";
 import { taskStorageWriter } from "../../../../../services/media-executor/task-storage-writer";
@@ -16,7 +16,7 @@ export function localModelContext(config: AiConfig, capability: ModelCapability,
     const model = config.model || config[`${capability}Model`];
     const route = resolveModelRequestConfig(config, model, capability);
     if (!route.baseUrl.trim() || !route.apiKey.trim()) throw new Error("请先配置当前渠道的 URL 和 API Key");
-    return { baseUrl: route.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "") + "/v1", apiKey: route.apiKey, signal, fetcher: (url: RequestInfo | URL, init?: RequestInit) => fetch(withLocalProxy(String(url)), init) };
+    return { baseUrl: route.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "") + "/v1", apiKey: route.apiKey, signal, fetcher: fetchModelWithLocalProxy };
 }
 
 export async function requestLocalModelImage(config: AiConfig, prompt: string, images: string[], options?: { signal?: AbortSignal; requestId?: string }) {
