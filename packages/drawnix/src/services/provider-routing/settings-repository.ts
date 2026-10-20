@@ -35,7 +35,10 @@ import type {
   ProviderModelBinding,
   ProviderProfileSnapshot,
 } from './types';
-import type { ProviderCatalogManualBinding } from '../../utils/settings-types';
+import type {
+  ProviderCatalog,
+  ProviderCatalogManualBinding,
+} from '../../utils/settings-types';
 
 export interface SettingsInvocationPlannerOptions {
   includeLegacyProfile?: boolean;
@@ -254,11 +257,10 @@ function groupBindingsByModel(
 function inheritUniqueCustomHttpBinding(
   bindings: ProviderModelBinding[],
   modelRef: NormalizedModelRef,
-  operation: ModelType
+  operation: ModelType,
+  catalogs: ProviderCatalog[]
 ): ProviderModelBinding | null {
-  const catalog = providerCatalogsSettings
-    .get()
-    .find((item) => item.profileId === modelRef.profileId);
+  const catalog = catalogs.find((item) => item.profileId === modelRef.profileId);
   const isSelectedModel =
     catalog?.selectedModelIds.includes(modelRef.modelId) &&
     catalog.discoveredModels.some(
@@ -332,8 +334,20 @@ export function listSettingsModelBindings(
   options: SettingsInvocationPlannerOptions = {}
 ): ProviderModelBinding[] {
   const profiles = listSettingsProviderProfiles(options);
+  return buildSettingsModelBindings(
+    profiles,
+    providerCatalogsSettings.get(),
+    options
+  );
+}
+
+function buildSettingsModelBindings(
+  profiles: ProviderProfileSnapshot[],
+  catalogs: ProviderCatalog[],
+  options: SettingsInvocationPlannerOptions
+): ProviderModelBinding[] {
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
-  const catalogBindings = providerCatalogsSettings.get().flatMap((catalog) => {
+  const catalogBindings = catalogs.flatMap((catalog) => {
     const profile = profileById.get(catalog.profileId);
     if (!profile) {
       return [];
@@ -374,16 +388,15 @@ export function listSettingsModelBindings(
 export function createSettingsInvocationPlannerRepositories(
   options: SettingsInvocationPlannerOptions = {}
 ): InvocationPlannerRepositories {
-  const bindings = listSettingsModelBindings(options);
+  const profiles = listSettingsProviderProfiles(options);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const catalogs = providerCatalogsSettings.get();
+  const bindings = buildSettingsModelBindings(profiles, catalogs, options);
   const groupedBindings = groupBindingsByModel(bindings);
 
   return {
     getProviderProfile(profileId: string) {
-      return (
-        listSettingsProviderProfiles(options).find(
-          (profile) => profile.id === profileId
-        ) || null
-      );
+      return profileById.get(profileId) || null;
     },
     getModelBindings(modelRef: NormalizedModelRef, operation: ModelType) {
       const directBindings =
@@ -397,7 +410,8 @@ export function createSettingsInvocationPlannerRepositories(
       const inheritedBinding = inheritUniqueCustomHttpBinding(
         bindings,
         modelRef,
-        operation
+        operation,
+        catalogs
       );
       return inheritedBinding
         ? [inheritedBinding, ...directBindings]
@@ -418,6 +432,65 @@ export function resolveInvocationPlanFromRoute(
   operation: ModelType,
   requestedModel?: string | ModelRef | null,
   options: SettingsInvocationPlannerOptions = {}
+): InvocationPlan | null {
+  return resolveInvocationPlanWithPlanner(
+    operation,
+    requestedModel,
+    options,
+    planInvocationFromSettings
+  );
+}
+
+/** Reuse only within a synchronous batch; create a new resolver after settings change. */
+export function createSettingsInvocationPlanResolver(
+  options: SettingsInvocationPlannerOptions = {}
+): (
+  operation: ModelType,
+  requestedModel?: string | ModelRef | null
+) => InvocationPlan | null {
+  const planner = new InvocationPlanner(
+    createSettingsInvocationPlannerRepositories(options)
+  );
+
+  return (operation, requestedModel) => {
+    const plan = resolveInvocationPlanWithPlanner(
+      operation,
+      requestedModel,
+      options,
+      (request, resolvedOptions) =>
+        resolvedOptions === options
+          ? planner.plan(request)
+          : planInvocationFromSettings(request, resolvedOptions)
+    );
+    // Keep returned bindings and nested metadata independent between models.
+    if (!plan) return null;
+    return {
+      ...plan,
+      provider: {
+        ...plan.provider,
+        ...(plan.provider.extraHeaders
+          ? { extraHeaders: { ...plan.provider.extraHeaders } }
+          : {}),
+      },
+      modelRef: { ...plan.modelRef },
+      binding: {
+        ...plan.binding,
+        ...(plan.binding.metadata
+          ? { metadata: JSON.parse(JSON.stringify(plan.binding.metadata)) }
+          : {}),
+      },
+    };
+  };
+}
+
+function resolveInvocationPlanWithPlanner(
+  operation: ModelType,
+  requestedModel: string | ModelRef | null | undefined,
+  options: SettingsInvocationPlannerOptions,
+  planInvocation: (
+    request: InvocationPlanRequest,
+    options: SettingsInvocationPlannerOptions
+  ) => InvocationPlan
 ): InvocationPlan | null {
   const route = resolveInvocationRoute(operation, requestedModel);
   let modelRef = createModelRef(route.profileId, route.modelId);
@@ -452,7 +525,7 @@ export function resolveInvocationPlanFromRoute(
   }
 
   try {
-    return planInvocationFromSettings(
+    return planInvocation(
       {
         operation,
         modelRef,

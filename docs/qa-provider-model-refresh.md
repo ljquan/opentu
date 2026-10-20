@@ -1,5 +1,108 @@
 # Provider Model Refresh QA
 
+## 2026-10-19 Input-bar model routing performance
+
+Scope: reduce synchronous model filtering work without changing controls,
+model selection, provider protocols, generation requests or media loading.
+The ordinary input bar no longer computes executable PPT image/video lists
+until the PPT explainer skill is selected. Both lists then use one synchronous
+batch resolver with shared provider, catalog and binding snapshots.
+
+`createSettingsInvocationPlanResolver()` is batch-scoped. Do not retain it
+across asynchronous work or settings changes. Actual generation continues to
+use the existing one-off resolver, which reads fresh settings. Legacy direct
+models retain their existing fallback. Returned plans isolate headers and
+nested binding metadata so one result cannot mutate another result's state.
+No dependency, browser API requirement, storage migration, environment variable
+or deployment-order change is introduced; no separate DOC is needed.
+
+Validation: macOS, Node 26.8.1, pnpm 10.21.0, Vitest 3.2.4. From the repository root:
+
+```bash
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  --config packages/drawnix/vite.config.ts \
+  packages/drawnix/src/services/__tests__/settings-routing-performance.test.ts \
+  packages/drawnix/src/services/__tests__/settings-repository.test.ts \
+  packages/drawnix/src/services/__tests__/provider-routing.test.ts \
+  packages/drawnix/src/services/__tests__/model-adapter-registry.test.ts \
+  packages/drawnix/src/hooks/__tests__/use-runtime-models.test.ts \
+  packages/drawnix/src/utils/__tests__/settings-manager.test.ts \
+  packages/drawnix/src/services/ppt-explainer/provider-contract.test.ts
+pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json
+NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false \
+  pnpm exec nx run web:build --skip-nx-cache
+```
+
+- 7 files, 168 tests passed, including 5 new batch regressions. Coverage includes
+  image/video route equivalence across 300 models, constant catalog reads,
+  manual and ambiguous inherited bindings, provider isolation, disabled
+  providers, missing credentials, explicit/missing binding IDs, schema
+  preferences, legacy models, output isolation and fresh credentials next batch.
+- The 300-model synthetic comparison used 200 image and 100 video models.
+  Individual resolution took 5537.5 ms; batch resolution took 18.9 ms in the
+  final run. All plans were strictly equal. The batch read the full catalog
+  once and profiles twice, independent of the number of models. Timing is
+  informational; deterministic assertions enforce the bounded reads.
+- Drawnix TypeScript and the production Web/Service Worker build passed.
+- Targeted ESLint passed with no errors. The input bar's 18 existing warnings
+  were also reproduced against HEAD; the repository and new test have none.
+- `git diff --check` passed. Existing IndexedDB/crypto test-environment warnings,
+  npm configuration, Sass/CSS target, Browserslist and bundle warnings remain.
+
+These are local code and synthetic performance results, not production frame
+time or end-to-end speed measurements. No page test, real provider request,
+Windows run, deployment or new memory/media policy was performed for this
+optimization. The earlier production diagnosis is not post-change acceptance.
+After deployment, repeat image selection and continuous pan/zoom on the same
+populated authenticated Tuzi iframe, and check PPT model availability after
+changing provider credentials. Existing media rendering costs remain outside
+this optimization. Reload to load the new bundle; clearing user data is not
+required.
+
+### Local Authenticated Iframe Entry Validation
+
+Follow-up on 2026-10-19: the local Tuzi frontend at
+`http://127.0.0.1:5174/console/chat/2` embeds this checkout's optimized app at
+`http://127.0.0.1:7214/`. The child explicitly trusts the parent origin.
+The supplied system credential was verified against `/api/user/self` and
+remains in the temporary parent process and the iframe bridge's memory.
+No credential is included in the entry URL or repository files.
+
+The temporary test configuration lives outside the repository. It supplies
+the real parent frontend with verified account metadata and proxies only
+allowlisted account/catalog reads to the fixed Tuzi origin. Its local
+`providers/ensure` adapter returns already-existing managed providers; it does
+not forward provider creation or mutation requests upstream. This adapter is
+a local test boundary, not acceptance of production Session authentication
+or production managed-provider writes. The newer `/api/opentu/tokens` route
+returned 404 on the current deployment; existing provider credentials were
+read from the existing account token APIs without creating replacements.
+
+Observed results:
+
+- The iframe bridge reported `tuzi` mode, `ready` status, the verified account
+  identity, and 13 real account groups. The account panel showed connected and
+  synchronized state.
+- The app's existing provider synchronization pipeline loaded all 13 group
+  catalogs successfully: 2,782 provider/model entries, including models shared
+  by multiple groups. Every catalog reported `ready` with no discovery error.
+- The provider settings UI showed the real `test` group's 790 models: 147
+  image, 148 video, 87 audio and 408 text models.
+- Remote token count and token IDs were unchanged before and after setup.
+- Local proxy checks passed for authenticated account reads, rejection of
+  missing/cross-origin callers, unknown-group rejection, and blocking the
+  system-token creation route. Both temporary scripts passed `node --check`.
+- Reloading the complete parent entry restored the ready account bridge.
+  Reloading only the child iframe can instead change `document.referrer` to
+  the child origin, which conflicts with the configured parent origin. A local
+  `Referrer-Policy` header did not resolve that browser behavior and was removed.
+  Refresh the complete parent entry after a child-only reload or a development
+  reload that loses authentication. Production bridge code was not changed.
+- No generation, token creation/rotation, production deployment or populated
+  canvas performance acceptance was performed. The local board remains a
+  separate browser-origin data store; representative pan/zoom/image-selection
+  performance still requires the same populated board as the production trace.
+
 ## 2026-10-16 Nano Banana 2.1 reference image MIME regression
 
 Scope: the Gemini native `image_url` to `inline_data` conversion, including
