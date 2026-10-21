@@ -52,7 +52,7 @@ import {
   normalizeModelApiBaseUrl,
   runtimeModelDiscovery,
 } from '../../utils/runtime-model-discovery';
-import { compareModelsByDisplayPriority } from '../../utils/model-sort';
+import { createModelDisplayComparator } from '../../utils/model-sort';
 import {
   createModelRef,
   createRouteConfig,
@@ -115,6 +115,7 @@ import {
   getProviderEndpointAnalytics,
 } from '../../utils/umami-analytics';
 import { modelBenchmarkService } from '../../services/model-benchmark-service';
+import { discoverProviderModels } from '../../services/provider-model-catalog';
 import { HoverTip } from '../shared/hover';
 import { createProviderProfileDraft } from './provider-profile-draft';
 import {
@@ -1205,6 +1206,7 @@ export const SettingsDialog = ({
   const [showWorkZoneCard, setShowWorkZoneCard] = useState(true);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [discoveryDialogOpen, setDiscoveryDialogOpen] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [customModelId, setCustomModelId] = useState('');
   const [customModelType, setCustomModelType] = useState<ModelType>('image');
   const [customModelLabel, setCustomModelLabel] = useState('');
@@ -2315,6 +2317,7 @@ export const SettingsDialog = ({
   };
 
   const handleFetchModels = async () => {
+    if (isFetchingModels) return;
     if (!selectedProfile) {
       MessagePlugin.warning('请先选择供应商配置');
       return;
@@ -2337,6 +2340,7 @@ export const SettingsDialog = ({
       return;
     }
 
+    setIsFetchingModels(true);
     try {
       analytics.trackUIInteraction({
         area: 'settings',
@@ -2345,13 +2349,16 @@ export const SettingsDialog = ({
         source: 'settings_dialog',
         metadata: { profileId: selectedProfile.id },
       });
-      await runtimeModelDiscovery.discover(
-        selectedProfile.id,
-        normalizedBaseUrl,
-        trimmedApiKey,
+      await discoverProviderModels(
+        {
+          ...selectedProfile,
+          baseUrl: normalizedBaseUrl,
+          apiKey: trimmedApiKey,
+        },
         isSelectedTuziProfile
           ? tuziApiEndpointOptions.map((endpoint) => endpoint.url)
-          : []
+          : [],
+        { forceMarketplaceRefresh: true }
       );
       analytics.trackUIInteraction({
         area: 'settings',
@@ -2378,6 +2385,8 @@ export const SettingsDialog = ({
         content: message,
         duration: 3600,
       });
+    } finally {
+      setIsFetchingModels(false);
     }
   };
 
@@ -3753,10 +3762,10 @@ export const SettingsDialog = ({
                   }}
                   onClick={handleFetchModels}
                   disabled={
-                    !canManageModels || runtimeState.status === 'loading'
+                    !canManageModels || isFetchingModels || runtimeState.status === 'loading'
                   }
                 >
-                  {runtimeState.status === 'loading' ? (
+                  {isFetchingModels || runtimeState.status === 'loading' ? (
                     <>
                       <Loader2
                         size={15}
@@ -3845,6 +3854,7 @@ export const SettingsDialog = ({
     const isDefaultProvider =
       selectedProfile?.id === LEGACY_DEFAULT_PROVIDER_PROFILE_ID;
     const displayModels = dedupeModelsByTypeAndId(runtimeState.models);
+    const compareModels = createModelDisplayComparator(displayModels);
     const vendorPriorityMap = new Map(
       DISCOVERY_VENDOR_ORDER.map((vendor, index) => [vendor, index])
     );
@@ -3867,7 +3877,7 @@ export const SettingsDialog = ({
             return leftPriority - rightPriority;
           }
 
-          return compareModelsByDisplayPriority(left, right);
+          return compareModels(left, right);
         }),
     })).filter((group) => group.models.length > 0);
     const showSearchToolbar = canManageModels || displayModels.length > 0;

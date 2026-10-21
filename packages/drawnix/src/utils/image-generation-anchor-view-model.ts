@@ -261,6 +261,7 @@ export interface BuildImageGenerationAnchorViewModelOptions {
   postProcessingStatus?: WorkflowMessageData['postProcessingStatus'];
   isInserting?: boolean;
   hasInserted?: boolean;
+  canvasReady?: boolean;
   taskDisplayProgress?: number | null;
 }
 
@@ -317,6 +318,9 @@ export function deriveImageGenerationAnchorPhase(
   }
 
   if (hasInserted || workflow?.postProcessingStatus === 'completed') {
+    if (options.canvasReady === false) {
+      return 'inserting';
+    }
     return 'completed';
   }
 
@@ -350,7 +354,9 @@ export function deriveImageGenerationAnchorPhase(
     return 'submitted';
   }
 
-  return anchor.phase;
+  return anchor.phase === 'completed' && options.canvasReady === false
+    ? 'inserting'
+    : anchor.phase;
 }
 
 export function buildImageGenerationAnchorViewModel(

@@ -55,6 +55,8 @@ export interface RetryImageProps
   wrapperStyle?: React.CSSProperties;
   /** Prefer a Blob URL from Cache Storage before loading the original URL. */
   preferCachedBlob?: boolean;
+  /** Skip Cache Storage fallback when retrying a known-bad cached image. */
+  skipCacheFallback?: boolean;
   /** Reports the URL currently used by the underlying image element. */
   onSourceChange?: (src: string) => void;
   /** Defer cache reads for offscreen canvas media while keeping its DOM source. */
@@ -190,6 +192,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       wrapperClassName,
       wrapperStyle,
       preferCachedBlob = false,
+      skipCacheFallback = false,
       onSourceChange,
       deferCacheRead = false,
       loadTimeoutMs,
@@ -215,6 +218,10 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const settledRef = useRef(false);
+    const externalRecoveryRef = useRef<{
+      element: HTMLImageElement;
+      failedSrc: string | null;
+    } | null>(null);
     const cacheFallbackTriedRef = useRef(false);
     const failureCallbackRef = useRef(onLoadFailure);
     failureCallbackRef.current = onLoadFailure;
@@ -315,7 +322,21 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     // Handle image load success
     const handleLoad = useCallback(
       (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
-        if (!isCurrentSource(normalizedSrc) || settledRef.current) return;
+        if (!isCurrentSource(normalizedSrc)) return;
+        if (settledRef.current) {
+          const recovery = externalRecoveryRef.current;
+          const recoveredSrc = event.currentTarget.getAttribute('src');
+          // Canvas may adopt a fresh fallback URL from its onError handler.
+          // Only that new attempt may recover a failed, already-settled image.
+          if (
+            !recovery ||
+            recovery.element !== event.currentTarget ||
+            !recoveredSrc ||
+            recovery.failedSrc === recoveredSrc
+          ) return;
+          setImageSrc(recoveredSrc);
+        }
+        externalRecoveryRef.current = null;
         settledRef.current = true;
         // Invalidate pending cache reads and retry callbacks after success.
         sourceVersionRef.current += 1;
@@ -347,6 +368,10 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
           sourceVersionRef.current += 1;
           setIsLoading(false);
           setHasError(true);
+          externalRecoveryRef.current = {
+            element: event.currentTarget,
+            failedSrc: event.currentTarget.getAttribute('src'),
+          };
           onError?.(event);
           onLoadFailure?.(new Error('Failed to load inline data image'));
           return;
@@ -366,6 +391,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
 
           // 优先读取 Cache Storage，避免虚拟路径或远程签名 URL 失效后白板空白。
           if (
+            !skipCacheFallback &&
             (isVirtualUrl(sourceAtError) || isExternalUrl(sourceAtError)) &&
             !cacheFallbackTriedRef.current
           ) {
@@ -419,6 +445,10 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
           sourceVersionRef.current += 1;
           setIsLoading(false);
           setHasError(true);
+          externalRecoveryRef.current = {
+            element: event.currentTarget,
+            failedSrc: event.currentTarget.getAttribute('src'),
+          };
           onError?.(event);
           const error = new Error(
             `Failed to load image after ${maxRetries} retries`
@@ -439,6 +469,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         adoptBlobUrl,
         isCurrentSource,
         deferCacheRead,
+        skipCacheFallback,
       ]
     );
 
@@ -448,7 +479,8 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       sourceVersionRef.current += 1;
       const sourceVersion = sourceVersionRef.current;
       settledRef.current = false;
-      cacheFallbackTriedRef.current = false;
+      externalRecoveryRef.current = null;
+      cacheFallbackTriedRef.current = skipCacheFallback;
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;
@@ -464,6 +496,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       let active = true;
       const shouldReadCachedBlob =
         !deferCacheRead &&
+        !skipCacheFallback &&
         ((preferCachedBlob &&
           (isVirtualUrl(normalizedSrc) || isExternalUrl(normalizedSrc))) ||
           (isVirtualUrl(normalizedSrc) && !isSWAvailable()));
@@ -501,6 +534,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       preferCachedBlob,
       tryFallbackToBlobUrl,
       deferCacheRead,
+      skipCacheFallback,
       clearLoadTimeout,
     ]);
 

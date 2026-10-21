@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderProfile } from '../../../utils/settings-manager';
+import {
+  getCredentialChangedProfiles,
+  refreshChangedProviderModels,
+} from '../provider-model-refresh';
 
 const discovery = vi.hoisted(() => ({
   discover: vi.fn(),
@@ -7,17 +11,13 @@ const discovery = vi.hoisted(() => ({
   setError: vi.fn(),
 }));
 vi.mock('../../../utils/settings-manager', () => ({
+  LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
   TUZI_PROVIDER_DEFAULT_BASE_URL: 'https://api.example.com/v1',
 }));
 vi.mock('../../../utils/runtime-model-discovery', () => ({
   runtimeModelDiscovery: discovery,
   normalizeModelApiBaseUrl: (url: string) => url.trim().replace(/\/$/, ''),
 }));
-import {
-  getCredentialChangedProfiles,
-  refreshChangedProviderModels,
-} from '../provider-model-refresh';
-
 const profile = (overrides: Partial<ProviderProfile> = {}): ProviderProfile =>
   ({
     id: 'default',

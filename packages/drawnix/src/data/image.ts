@@ -65,7 +65,7 @@ export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
     normalizedURL,
     crossOrigin,
     IMAGE_ELEMENT_LOAD_TIMEOUT_MS,
-    '图片加载超时（30秒）'
+    '图片加载超时（5分钟）'
   );
 };
 
@@ -264,7 +264,7 @@ const loadHTMLImageElementWithRetryDirect = (
           settleReject(
             signal.reason instanceof Error
               ? signal.reason
-              : new ImageOperationTimeoutError('图片加载超时（30秒）')
+              : new ImageOperationTimeoutError('图片加载超时（5分钟）')
           );
         };
 
@@ -336,7 +336,7 @@ const loadHTMLImageElementWithRetryDirect = (
         tryLoad();
       }),
     IMAGE_ELEMENT_LOAD_TIMEOUT_MS,
-    '图片加载超时（30秒）'
+    '图片加载超时（5分钟）'
   );
 };
 

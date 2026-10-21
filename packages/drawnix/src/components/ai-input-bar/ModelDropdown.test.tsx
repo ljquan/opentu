@@ -21,6 +21,8 @@ const {
   requestContextMock,
   queueNavigationMock,
   saveActiveGroupMock,
+  useModelPriceMock,
+  useModelPriceTextMock,
 } = vi.hoisted(() => ({
   discoverMock: vi.fn(),
   applySelectionMock: vi.fn(),
@@ -30,6 +32,8 @@ const {
   requestContextMock: vi.fn(),
   queueNavigationMock: vi.fn(),
   saveActiveGroupMock: vi.fn(),
+  useModelPriceMock: vi.fn(),
+  useModelPriceTextMock: vi.fn(),
 }));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
@@ -99,7 +103,8 @@ vi.mock('../../utils/settings-manager', () => ({
 
 vi.mock('../../hooks/use-model-pricing', () => ({
   useFormattedModelPrice: () => '',
-  useModelPriceText: () => ({ summary: '', detail: '' }),
+  useModelPrice: useModelPriceMock,
+  useModelPriceText: useModelPriceTextMock,
   useModelMeta: () => null,
 }));
 
@@ -119,6 +124,10 @@ vi.mock('../shared/ModelBenchmarkBadge', () => ({
 
 describe('ModelDropdown', () => {
   beforeEach(() => {
+    useModelPriceMock.mockClear();
+    useModelPriceTextMock.mockClear();
+    useModelPriceMock.mockReturnValue(null);
+    useModelPriceTextMock.mockReturnValue({ summary: '', detail: '' });
     isTuziEmbeddedModeMock.mockReturnValue(false);
     requestContextMock.mockResolvedValue(null);
     discoverMock.mockResolvedValue([]);
@@ -169,6 +178,67 @@ describe('ModelDropdown', () => {
       toJSON: () => ({}),
     });
   }
+
+  it('hides token input/output prices without hiding the model', () => {
+    enableMenuLayout();
+    useModelPriceMock.mockReturnValue({ billingType: 'token' });
+    const summary = '输入 ¥3.50 · 补全 ¥7.00 / 1M Tokens';
+    useModelPriceTextMock.mockReturnValue({ summary, detail: summary });
+    const onSelect = vi.fn();
+    render(<ModelDropdown selectedModel={baseModel.id} models={[baseModel]}
+      onSelect={onSelect} isOpen />);
+    expect(screen.queryByText(summary)).toBeNull();
+    const option = screen.getByRole('option', { name: /GPT Image 2/ });
+    fireEvent.click(option);
+    expect(onSelect).toHaveBeenCalledWith(baseModel.id, {
+      profileId: 'tuzi-provider', modelId: baseModel.id,
+    });
+  });
+
+  it.each([
+    ['flat', '¥0.03/次'],
+    ['per-second', '¥0.50/秒'],
+    ['tiered', '720p ¥0.50/秒'],
+  ])('hides %s prices in the model list', (billingType, summary) => {
+    enableMenuLayout();
+    useModelPriceMock.mockReturnValue({ billingType });
+    useModelPriceTextMock.mockReturnValue({ summary, detail: summary });
+    render(<ModelDropdown selectedModel={baseModel.id} models={[baseModel]}
+      onSelect={vi.fn()} isOpen />);
+    expect(screen.queryByText(summary)).toBeNull();
+    expect(useModelPriceMock).not.toHaveBeenCalled();
+    expect(useModelPriceTextMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the built-in introduction instead of marketplace promotions', () => {
+    enableMenuLayout();
+    const description = '量大可以享有专享折扣（低至 0.01 元/张），1 万张/日额度。';
+    const model = { ...baseModel, description };
+    render(<ModelDropdown selectedModel={model.id} models={[model]}
+      onSelect={vi.fn()} isOpen />);
+    expect(screen.queryByText(description)).toBeNull();
+    expect(screen.getByText(/OpenAI GPT Image 2 图片生成模型/)).toBeTruthy();
+  });
+
+  it('uses a neutral introduction when a dynamic model only has promotional text', () => {
+    enableMenuLayout();
+    const description = '量大可以享有专享折扣（低至 0.01 元/张），1 万张/日额度。';
+    const model = { ...baseModel, id: 'custom-image', description };
+    render(<ModelDropdown selectedModel={model.id} models={[model]}
+      onSelect={vi.fn()} isOpen />);
+    expect(screen.queryByText(description)).toBeNull();
+    expect(screen.getByText('OpenAI 图片模型')).toBeTruthy();
+  });
+
+  it('keeps a short capability introduction without raw emphasis or later pricing paragraphs', () => {
+    enableMenuLayout();
+    const model = { ...baseModel, id: 'custom-image',
+      description: '**Custom Image** 支持图像生成和编辑。\n\n价格 ¥0.03/次，专享折扣。' };
+    render(<ModelDropdown selectedModel={model.id} models={[model]}
+      onSelect={vi.fn()} isOpen />);
+    expect(screen.getByText('Custom Image 支持图像生成和编辑。')).toBeTruthy();
+    expect(screen.queryByText(/专享折扣/)).toBeNull();
+  });
 
   it('shows native Suno IDs and hides unsupported entries without silently replacing a saved selection', () => {
     enableMenuLayout();

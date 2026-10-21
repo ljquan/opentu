@@ -899,11 +899,23 @@ class WorkspaceService {
    * Reload board from storage (invalidate cache)
    * Used when board data is updated externally (e.g. sync)
    */
-  async reloadBoard(boardId: string): Promise<Board> {
+  async reloadBoard(boardId: string): Promise<Board>;
+  async reloadBoard(
+    boardId: string,
+    canApply: () => boolean
+  ): Promise<Board | null>;
+  async reloadBoard(
+    boardId: string,
+    canApply?: () => boolean
+  ): Promise<Board | null> {
     await this.ensureInitialized();
+    if (canApply && !canApply()) return null;
     
     // Force load from storage
     const board = await workspaceStorageService.loadBoard(boardId);
+    // A local edit or board switch during the read must not be overwritten,
+    // even in the in-memory cache or through boardSwitched listeners.
+    if (canApply && !canApply()) return null;
     if (!board) throw new Error(`Board ${boardId} not found in storage`);
     
     // Update cache

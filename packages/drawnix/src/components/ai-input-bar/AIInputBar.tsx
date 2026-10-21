@@ -179,6 +179,7 @@ import {
 import { knowledgeBaseService } from '../../services/knowledge-base-service';
 import { externalSkillService } from '../../services/external-skill-service';
 import {
+  createSettingsInvocationPlanResolver,
   getTextBindingMaxImageCount,
   resolveInvocationPlanFromRoute,
   supportsTextBindingImageInput,
@@ -294,6 +295,7 @@ import {
   resolveTaskbarDraftAfterSubmission,
   shouldBindGenerationTarget,
   shouldReleaseBoundTargetPromptDismissal,
+  shouldUseBoundTargetAsReference,
   shouldUseBoundTargetForSubmission,
   supportsBoundTargetFollowControls,
   storeBoundTargetTaskbarDraft,
@@ -748,11 +750,12 @@ interface GenerationRequestOverride {
 
 function filterExecutablePptModels(
   type: 'image' | 'video',
-  models: ModelConfig[]
+  models: ModelConfig[],
+  resolvePlan: ReturnType<typeof createSettingsInvocationPlanResolver>
 ): ModelConfig[] {
   return models.filter((model) => {
     const modelRef = getModelRefFromConfig(model);
-    const plan = resolveInvocationPlanFromRoute(type, modelRef || model.id);
+    const plan = resolvePlan(type, modelRef || model.id);
     return Boolean(
       plan?.provider.baseUrl.trim() && plan.provider.apiKey.trim()
     );
@@ -1658,17 +1661,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const configuredVideoModels = useConfiguredSelectableModels('video');
     const audioModels = useSelectableModels('audio');
     const textModels = useSelectableModels('text');
-    // Configured model lists stay referentially stable until discovery,
-    // credentials, or bindings change, so route planning stays off hot renders.
-    const executablePptImageModels = useMemo(
-      () => filterExecutablePptModels('image', configuredImageModels),
-      [configuredImageModels]
-    );
-    const executablePptVideoModels = useMemo(
-      () => filterExecutablePptModels('video', configuredVideoModels),
-      [configuredVideoModels]
-    );
-
     const chatDrawerControl = useChatDrawerControl();
     const workflowControl = useWorkflowControl();
     const { setActiveSelections: setActiveHealthSelections } =
@@ -2072,7 +2064,29 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       SkillMediaType[]
     >([]);
     const usesStrictPptModels =
-      selectedSkillId === 'generate_ppt_explainer_video';
+      selectedSkillId === 'generate_ppt_explainer_video' &&
+      (generationType === 'agent' || pptExplainerDialogOpen);
+    // Build one routing snapshot only while the PPT skill or dialog is in use.
+    const executablePptModels = useMemo(() => {
+      if (!usesStrictPptModels) {
+        return { image: configuredImageModels, video: configuredVideoModels };
+      }
+      const resolvePlan = createSettingsInvocationPlanResolver();
+      return {
+        image: filterExecutablePptModels(
+          'image',
+          configuredImageModels,
+          resolvePlan
+        ),
+        video: filterExecutablePptModels(
+          'video',
+          configuredVideoModels,
+          resolvePlan
+        ),
+      };
+    }, [usesStrictPptModels, configuredImageModels, configuredVideoModels]);
+    const executablePptImageModels = executablePptModels.image;
+    const executablePptVideoModels = executablePptModels.video;
     const visibleImageModels = useMemo(() => {
       if (generationType !== 'image') {
         return imageModels;
@@ -4287,8 +4301,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           suppression.nextSuppressedElementId;
         if (
           target &&
-          targetSupportsFollowControls &&
-          (suppression.suppressTarget || target.referenceOnly)
+          shouldUseBoundTargetAsReference(
+            generationType,
+            target.type,
+            suppression.suppressTarget,
+            target.referenceOnly
+          )
         ) {
           const referenceTarget =
             suppression.suppressTarget &&
@@ -4353,7 +4371,6 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         lastBoundImageTargetKeyRef.current = targetKey;
         setBoundTargetError(null);
-        setGenerationType(target.type);
         if (activeDraftElementIdRef.current !== target.elementId) {
           saveActiveTaskbarDraft();
           dismissedPromptElementIdRef.current = null;
@@ -4401,6 +4418,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         currentBoardId,
         resetBoundTaskbarDraftsForBoard,
         saveActiveTaskbarDraft,
+        generationType,
         updatePromptSuggestion,
       ]
     );

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Image as CanvasImage } from './image';
 import { unifiedCacheService } from '../../services/unified-cache-service';
+import { isCanvasImageReady } from '../../services/canvas-image-readiness';
 
 vi.mock('../../mcp/tools/image-generation', () => ({ generateImage: vi.fn() }));
 vi.mock('../../services/ppt', () => ({ getImageRegion: vi.fn() }));
@@ -86,6 +87,30 @@ describe('canvas image automatic loading', () => {
     expect(document.querySelector('img')?.getAttribute('src')).toBe(url);
     await waitFor(() => expect(readCache).toHaveBeenCalledWith(url));
     expect(observe).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges the actual canvas load, invalidates changed sources and cleans up on unmount', async () => {
+    const { rerender, unmount } = render(<CanvasImage {...props} />);
+    const image = screen.getByRole('presentation');
+    await waitFor(() => expect(readCache).toHaveBeenCalled());
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(false);
+    fireEvent.load(image);
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(true);
+
+    const url = '/__aitu_cache__/image/changed.png';
+    rerender(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }} />);
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(false);
+    expect(isCanvasImageReady(props.board, 'a', url)).toBe(false);
+    fireEvent.load(image);
+    expect(isCanvasImageReady(props.board, 'a', url)).toBe(true);
+    unmount();
+    expect(isCanvasImageReady(props.board, 'a', url)).toBe(false);
+  });
+
+  it('does not acknowledge a failed canvas image', async () => {
+    render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url: 'data:image/png;base64,bad' }} />);
+    fireEvent.error(screen.getByRole('presentation'));
+    expect(isCanvasImageReady(props.board, 'a', 'data:image/png;base64,bad')).toBe(false);
   });
 
   it('preserves an opaque video URL and the poster stored on its element', () => {

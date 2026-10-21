@@ -6,6 +6,7 @@ type SortableModelConfig = ModelConfig & {
 
 type ModelSortOptions = {
   fallbackOrderMap?: ReadonlyMap<string, number>;
+  newImageFamilies?: ReadonlySet<string>;
 };
 
 type VersionVector = number[];
@@ -19,6 +20,82 @@ const MODEL_NAME_IGNORED_TOKENS = new Set([
   'preview',
   'pro',
 ]);
+
+const RECOMMENDED_IMAGE_IDS: readonly string[] = [
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
+];
+
+function getImageModelOrder(model: ModelConfig) {
+  const tokens = model.id.toLowerCase().match(/[a-z]+|\d+(?:\.\d+)*/g) || [];
+  const isVersion = (token: string, index: number) =>
+    /^\d/.test(token) && !/^\d{6,}$/.test(token) && tokens[index + 1] !== 'k';
+  const start = tokens.findIndex(isVersion);
+  const version: VersionVector = [];
+  let end = start;
+  if (start >= 0) {
+    while (end < tokens.length && isVersion(tokens[end], end)) {
+      version.push(...tokens[end].split('.').map(Number));
+      end += 1;
+    }
+  }
+  while (version.length > 1 && version[version.length - 1] === 0) version.pop();
+  const familyTokens = start < 0 ? tokens : tokens.slice(0, start);
+  let family = familyTokens
+    .filter((token) => !MODEL_NAME_IGNORED_TOKENS.has(token) && token !== 'v')
+    .join('-');
+  // GPT-4o Image is a legacy family, not version 4 of GPT Image.
+  if (/^gpt-\d+[a-z]-image/.test(model.id.toLowerCase()))
+    family = 'gpt-image-legacy';
+  const suffix = start < 0 ? [] : tokens.slice(end);
+  const isVariant =
+    Boolean(model.isVip) ||
+    suffix.some(
+      (token) =>
+        token !== 'image' &&
+        token !== 'images' &&
+        token !== 'preview' &&
+        !/^\d{6,}$/.test(token)
+    );
+  return { family: family || model.id.toLowerCase(), version, isVariant };
+}
+
+function getImageFamilyKey(model: ModelConfig): string {
+  const { family, version } = getImageModelOrder(model);
+  return JSON.stringify([
+    model.sourceProfileId || '',
+    model.vendor,
+    family,
+    version,
+  ]);
+}
+
+function hasImageNewPriority(
+  model: ModelConfig,
+  options: ModelSortOptions
+): boolean {
+  return (
+    model.type === 'image' &&
+    (hasNewTag(model) ||
+      Boolean(options.newImageFamilies?.has(getImageFamilyKey(model))))
+  );
+}
+
+export function createModelDisplayComparator(
+  models: readonly ModelConfig[],
+  options: ModelSortOptions = {}
+): (left: ModelConfig, right: ModelConfig) => number {
+  const newImageFamilies = new Set(
+    models
+      .filter((model) => model.type === 'image' && hasNewTag(model))
+      .map(getImageFamilyKey)
+  );
+  return (left, right) =>
+    compareModelsByDisplayPriority(left, right, {
+      ...options,
+      newImageFamilies,
+    });
+}
 
 function getModelSortKey(model: ModelConfig): string {
   return model.selectionKey || model.id;
@@ -34,6 +111,10 @@ function hasNewTag(model: ModelConfig): boolean {
 }
 
 function getRecommendedScore(model: ModelConfig): number | null {
+  if (model.type === 'image') {
+    const index = RECOMMENDED_IMAGE_IDS.indexOf(model.id);
+    return index >= 0 ? RECOMMENDED_IMAGE_IDS.length - index : null;
+  }
   return Number.isFinite(model.recommendedScore)
     ? Number(model.recommendedScore)
     : null;
@@ -99,6 +180,7 @@ function compareVersionVectorsDesc(
 }
 
 function getBestVersionVector(model: ModelConfig): VersionVector {
+  if (model.type === 'image') return getImageModelOrder(model).version;
   const source = [model.id, model.label, model.shortLabel, model.shortCode]
     .filter(Boolean)
     .join(' ');
@@ -114,6 +196,7 @@ function getBestVersionVector(model: ModelConfig): VersionVector {
 }
 
 function getModelNameOrderKey(model: ModelConfig): string {
+  if (model.type === 'image') return getImageModelOrder(model).family;
   const source = [model.shortLabel, model.label, model.id]
     .filter(Boolean)
     .join(' ')
@@ -146,6 +229,7 @@ function getModelNameOrderKey(model: ModelConfig): string {
 }
 
 function getQualityWeight(model: ModelConfig): number {
+  if (model.type === 'image') return 0;
   const source = [
     model.id,
     model.label,
@@ -165,6 +249,7 @@ function getQualityWeight(model: ModelConfig): number {
 }
 
 function getTierWeight(model: ModelConfig): number {
+  if (model.type === 'image') return 0;
   const source = [
     model.id,
     model.label,
@@ -197,6 +282,11 @@ export function compareModelsByDisplayPriority(
     }
   }
 
+  const newImageDiff =
+    Number(hasImageNewPriority(right, options)) -
+    Number(hasImageNewPriority(left, options));
+  if (newImageDiff !== 0) return newImageDiff;
+
   const leftRecommendedScore = getRecommendedScore(left);
   const rightRecommendedScore = getRecommendedScore(right);
   if (leftRecommendedScore !== null || rightRecommendedScore !== null) {
@@ -207,8 +297,8 @@ export function compareModelsByDisplayPriority(
     }
   }
 
-  const leftIsNew = hasNewTag(left);
-  const rightIsNew = hasNewTag(right);
+  const leftIsNew = left.type !== 'image' && hasNewTag(left);
+  const rightIsNew = right.type !== 'image' && hasNewTag(right);
   if (leftIsNew !== rightIsNew) {
     return leftIsNew ? -1 : 1;
   }
@@ -228,6 +318,12 @@ export function compareModelsByDisplayPriority(
     return versionDiff;
   }
 
+  const leftVariant =
+    left.type === 'image' && getImageModelOrder(left).isVariant;
+  const rightVariant =
+    right.type === 'image' && getImageModelOrder(right).isVariant;
+  if (leftVariant !== rightVariant) return leftVariant ? 1 : -1;
+
   const tierDiff = getTierWeight(right) - getTierWeight(left);
   if (tierDiff !== 0) {
     return tierDiff;
@@ -238,9 +334,18 @@ export function compareModelsByDisplayPriority(
     return qualityDiff;
   }
 
-  if (left.isVip !== right.isVip) {
-    return left.isVip ? -1 : 1;
+  const leftVip = left.type !== 'image' && Boolean(left.isVip);
+  const rightVip = right.type !== 'image' && Boolean(right.isVip);
+  if (leftVip !== rightVip) {
+    return leftVip ? -1 : 1;
   }
+
+  const imageNameDiff = (left.type === 'image' ? left.id : '').localeCompare(
+    right.type === 'image' ? right.id : '',
+    'zh-Hans-CN',
+    { numeric: true }
+  );
+  if (imageNameDiff !== 0) return imageNameDiff;
 
   const fallbackOrderMap = options.fallbackOrderMap;
   if (fallbackOrderMap) {
@@ -264,7 +369,5 @@ export function sortModelsByDisplayPriority(
   models: ModelConfig[],
   options: ModelSortOptions = {}
 ): ModelConfig[] {
-  return [...models].sort((left, right) =>
-    compareModelsByDisplayPriority(left, right, options)
-  );
+  return [...models].sort(createModelDisplayComparator(models, options));
 }

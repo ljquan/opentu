@@ -1,22 +1,20 @@
 import { runtimeModelDiscovery } from '../utils/runtime-model-discovery';
 import { setPersistedModelSelection } from '../utils/ai-model-selection-storage';
-import { tuziEmbeddedConfig } from './tuzi-embedded-config';
 import type { TuziManagedProvider } from './tuzi-session-api';
-import { normalizeModelApiBaseUrl } from '../utils/provider-base-url';
-
-function tuziV1BaseUrl(): string {
-  return normalizeModelApiBaseUrl(tuziEmbeddedConfig.apiBaseUrl || '');
-}
+import { providerProfilesSettings } from '../utils/settings-manager';
+import { discoverProviderModels } from './provider-model-catalog';
 
 export async function discoverAndUseAllTuziProviderModels(
   provider: TuziManagedProvider
 ): Promise<number> {
   if (provider.source === 'existing') return 0;
   try {
-    await runtimeModelDiscovery.discover(
-      provider.id,
-      tuziV1BaseUrl(),
-      provider.apiKey,
+    const profile = providerProfilesSettings
+      .get()
+      .find((item) => item.id === provider.id);
+    if (!profile) throw new Error('供应商配置尚未保存，请重新同步模型');
+    await discoverProviderModels(
+      { ...profile, apiKey: provider.apiKey, pricingGroup: provider.group },
       [],
       { selectAll: true }
     );

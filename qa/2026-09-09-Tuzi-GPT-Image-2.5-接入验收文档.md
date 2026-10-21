@@ -1,5 +1,17 @@
 # Tuzi GPT Image 2.5 接入验收
 
+## 2026-10-19 自动比例按提示词固定像素尺寸验证
+
+- 范围：Tuzi Image 2.5 普通、VIP、Sunburst、Flare 自动比例改为从提示词提取受支持的 `n:n` 比例，并按所选 K 档位计算像素 `size`；没有有效比例时固定 1:1。手动比例优先，发送顶层 `resolution`，保留画质和自动比例下的 `generationConfig`。JSON 生图、参考图和 multipart 蒙版编辑共用此规则。
+- 环境与前置条件：macOS、Node 26、Vitest 3.2.4/JSDOM，使用已有本地依赖和模拟响应，不需要真实 API Key。
+- 基础验证 4 文件 177/177 通过。同步上游后，在 `packages/drawnix` 执行最终回归：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/services/__tests__/tuzi-gpt-image-adapter.test.ts src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts src/services/__tests__/gpt-image-adapter.test.ts src/services/__tests__/image-routing-adapter-integration.test.ts src/mcp/tools/__tests__/image-generation.test.ts src/components/ai-input-bar/__tests__/workflow-converter.test.ts --silent`，6 文件 259/259 通过，补充覆盖 MCP 工具和输入栏工作流参数传递。
+- 覆盖：十种菜单比例、中英文冒号与空格、等价比例、最后有效比例优先、缺失/非法/不支持的比例回退方形、四型号 1K/2K/4K 尺寸、手动比例优先和 params.size 优先、JSON/multipart 的 16:9 像素请求、2K 像素计费上限、绑定模型、固定 1K、Image 2、官方适配器和路由回归。模拟响应含 1024x1024 尺寸，仅用于请求测试，不证明供应商执行档位。
+- 根目录 Web TypeScript `pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 通过；四个改动 TypeScript 文件的 ESLint 0 错误，尺寸解析测试保留 1 条原有非空断言警告。
+- Web 生产构建 `pnpm exec vite build --config apps/web/vite.config.ts` 通过（55.56 秒），保留 Sass 弃用、CSS `:export`、Browserslist、混合导入和大 chunk 警告。`git diff origin/develop...HEAD --check` 通过。未单独构建 Service Worker。
+- 未执行页面测试、真实 Provider 请求、线上请求载荷、原始图片尺寸或账单验证。npm 配置有未设置 `NPM_TOKEN` 警告，测试有依赖 sourcemap/Browserslist 警告，JSDOM 环境缺少 IndexedDB，本次测试使用 `--silent`。字段是否转发并生效仍取决于线上后端版本及所选渠道，不能将本地测试视为供应商问题已修复。
+- DOC 已同步。交付分支 `dev/image25-auto-prompt-size`，功能提交 `16b4393f`；使用系统 Git 显式 fetch `origin develop` 后 merge `origin/develop`（`26d88768`），结果 Already up to date，无冲突。Homebrew Git 首次直连超时，未改全局 Git 或代理配置。无依赖、配置、权限或迁移变化，正常前端发布后生效；回滚本次功能与文档提交即可恢复旧请求，本次交付不包含合并或部署。
+- 后续人工验收：Image 2.5 选择自动比例 + 4K，提示词写 `16:9` 时 `size: "3840x2160"`，无比例时 `size: "2880x2880"`；2K 分别为 `2560x1440`、`1920x1920`。手动选择 1:1 时提示词的 16:9 不覆盖手动比例；再核对服务端渠道请求及原始返回图片尺寸。
+
 ## 高级图片参数增量验证
 
 - Image 2.5 五个模型的基础参数下方新增默认关闭的“高级功能”；开启后显示输出格式、压缩质量、内容审核和用户标识及说明，关闭清除参数值。Image 2 与其他模型不显示开关。

@@ -40,6 +40,7 @@ import {
   IMAGE_MODELS,
   ModelVendor,
   getModelConfig,
+  getStaticModelConfig,
   type ModelConfig,
   type ModelType,
 } from '../../constants/model-config';
@@ -63,15 +64,13 @@ import './model-dropdown.scss';
 import { ModelHealthBadge } from '../shared/ModelHealthBadge';
 import { isSunoV2Model, isUnavailableSunoModel } from '../../services/suno-v2';
 import { ModelBenchmarkBadge } from '../shared/ModelBenchmarkBadge';
-import { HoverTip } from '../shared/hover';
-import { useModelPriceText, useModelMeta } from '../../hooks/use-model-pricing';
 import { modelPricingService } from '../../utils/model-pricing-service';
 import { KeyboardDropdown, type DropdownPlacement } from './KeyboardDropdown';
 import {
   groupModelsByProvider,
   DEFAULT_PROVIDER_ID,
 } from '../../utils/model-grouping';
-import { compareModelsByDisplayPriority } from '../../utils/model-sort';
+import { createModelDisplayComparator } from '../../utils/model-sort';
 import {
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID,
   createModelRef,
@@ -159,28 +158,15 @@ function normalizeSearchText(value?: string | null): string {
     .trim();
 }
 
-const ModelDropdownPriceTag: React.FC<{ model: ModelConfig }> = React.memo(
-  ({ model }) => {
-    const { summary, detail } = useModelPriceText(
-      model.sourceProfileId,
-      model.id
-    );
-    if (!summary) return null;
-    return (
-      <HoverTip content={detail} placement="top" disabled={detail === summary}>
-        <span className="model-dropdown__item-price">{summary}</span>
-      </HoverTip>
-    );
+function getModelSummary(model: ModelConfig): string {
+  const description = getStaticModelConfig(model.id)?.description || model.description || '';
+  const intro = description.split(/\n+/)[0].replace(/\*\*|__|`/g, '').trim();
+  if (!intro || /折扣|额度|价格|计费|收费|扣费|低至|优惠|充值|[¥￥]|\/(?:张|次|秒)|\b(?:pricing|discount|quota|tokens?|billing)\b/i.test(intro)) {
+    const typeLabel = { image: '图片模型', video: '视频模型', audio: '音频模型', text: '文本模型' }[model.type];
+    return `${getDiscoveryVendorLabel(model.vendor)} ${typeLabel}`;
   }
-);
-
-const ModelDropdownDescFallback: React.FC<{ model: ModelConfig }> = React.memo(
-  ({ model }) => {
-    const meta = useModelMeta(model.sourceProfileId, model.id);
-    if (!meta?.description) return null;
-    return <div className="model-dropdown__item-desc">{meta.description}</div>;
-  }
-);
+  return intro.length > 100 ? `${intro.slice(0, 100)}...` : intro;
+}
 
 function fuzzyScore(value: string, query: string): number {
   const rawValue = value.toLowerCase().trim();
@@ -581,6 +567,9 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const filteredModels = useMemo(() => {
     const query = searchQuery.trim();
     if (!query) return [];
+    const compareModels = createModelDisplayComparator(visibleModels, {
+      fallbackOrderMap: modelOrderMap,
+    });
 
     return visibleModels
       .map((model) => {
@@ -597,11 +586,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
       })
       .filter(({ score }) => score > 0)
       .sort(
-        (a, b) =>
-          b.score - a.score ||
-          compareModelsByDisplayPriority(a.model, b.model, {
-            fallbackOrderMap: modelOrderMap,
-          })
+        (a, b) => b.score - a.score || compareModels(a.model, b.model)
       );
   }, [getModelProviderName, visibleModels, searchQuery, modelOrderMap]);
 
@@ -1446,16 +1431,13 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
                                 profileId={model.sourceProfileId || null}
                               />
                               <ModelBenchmarkBadge modelId={model.id} />
-                              <ModelDropdownPriceTag model={model} />
                             </div>
                             {showSunoModelId ? (
                               <div className="model-dropdown__item-desc">{model.shortLabel || model.label}</div>
-                            ) : model.description ? (
-                              <div className="model-dropdown__item-desc">
-                                {model.description}
-                              </div>
                             ) : (
-                              <ModelDropdownDescFallback model={model} />
+                              <div className="model-dropdown__item-desc">
+                                {getModelSummary(model)}
+                              </div>
                             )}
                           </div>
                           {isSelected && (

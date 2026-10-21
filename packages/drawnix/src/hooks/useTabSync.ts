@@ -6,9 +6,11 @@ const POLL_INTERVAL = 500; // 500ms 轮询间隔（比 Excalidraw 的 50ms 更�
 // 生成当前标签页的唯一ID
 const TAB_ID = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+export type TabSyncHandler = () => boolean | void | Promise<boolean | void>;
+
 interface UseTabSyncOptions {
-  /** 当其他标签页修改数据后触发的回调 */
-  onSyncNeeded: () => void;
+  /** Return false when busy so the next poll retries this version. */
+  onSyncNeeded: TabSyncHandler;
   /** 是否启用 */
   enabled?: boolean;
   /** 当前画板 ID（用于过滤同步事件） */
@@ -57,7 +59,9 @@ export function useTabSync({ onSyncNeeded, enabled = true, currentBoardId }: Use
   useEffect(() => {
     if (!enabled) return;
 
-    const checkSync = () => {
+    let active = true;
+    let syncing = false;
+    const checkSync = async () => {
       const stored = localStorage.getItem(TAB_SYNC_KEY);
       if (!stored) return;
 
@@ -69,10 +73,24 @@ export function useTabSync({ onSyncNeeded, enabled = true, currentBoardId }: Use
           // 只有当变更画板 ID 与当前画板 ID 相同时才触发同步
           const shouldSync = currentBoardId && data.boardId && data.boardId === currentBoardId;
 
-          localVersionRef.current = data.version;
-
           if (shouldSync) {
-            onSyncNeeded();
+            if (syncing) return;
+            syncing = true;
+            try {
+              const applied = await onSyncNeeded();
+              if (active && applied !== false) {
+                localVersionRef.current = Math.max(
+                  localVersionRef.current,
+                  data.version
+                );
+              }
+            } catch (error) {
+              console.warn('[TabSync] Failed to apply board update:', error);
+            } finally {
+              syncing = false;
+            }
+          } else {
+            localVersionRef.current = data.version;
           }
         } else if (data.version > localVersionRef.current && data.tabId === TAB_ID) {
           // 是自己触发的更新，只更新版本号，不触发同步
@@ -90,18 +108,19 @@ export function useTabSync({ onSyncNeeded, enabled = true, currentBoardId }: Use
     intervalRef.current = setInterval(() => {
       // 标签页不可见时不检测
       if (document.hidden) return;
-      checkSync();
+      void checkSync();
     }, POLL_INTERVAL);
 
     // 标签页变为可见时立即检测，避免轮询间隔内用旧数据覆盖新数据
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        checkSync();
+        void checkSync();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      active = false;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

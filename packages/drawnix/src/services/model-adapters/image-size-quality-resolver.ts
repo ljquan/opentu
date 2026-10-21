@@ -170,6 +170,28 @@ function gcd(a: number, b: number): number {
   return b === 0 ? a : gcd(b, a % b);
 }
 
+export function resolveGPTImagePromptAspectRatio(
+  prompt: string
+): GPTImageAspectRatioKey {
+  let ratio: GPTImageAspectRatioKey = '1x1';
+  const matches = prompt.matchAll(
+    /(?:^|[^\d.:：+\-/])([1-9]\d*)[ \t]*[:：][ \t]*([1-9]\d*)(?![\d.:：/])/g
+  );
+  for (const match of matches) {
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) continue;
+    for (const key of KNOWN_GPT_IMAGE_RATIOS) {
+      const [ratioWidth, ratioHeight] = key.split('x').map(Number);
+      if (width / height === ratioWidth / ratioHeight) {
+        ratio = key;
+        break;
+      }
+    }
+  }
+  return ratio;
+}
+
 function isPixelSize(value: string): boolean {
   const parsed = parsePixelSize(value);
   return !!parsed && (parsed.width > 32 || parsed.height > 32);

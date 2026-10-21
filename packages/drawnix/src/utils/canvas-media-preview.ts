@@ -3,6 +3,7 @@ import type { MediaItem } from '../components/shared/media-preview/types';
 import type { CanvasInsertionResultData } from '../services/canvas-operations';
 import type { MCPResult } from '../mcp/types';
 import type { Task } from '../types/task.types';
+import { unifiedCacheService } from '../services/unified-cache-service';
 import { getImageTaskResultDimensions } from './task-utils';
 import { isAssetLibraryUrl } from './virtual-media-url';
 
@@ -130,4 +131,35 @@ export function bindImageTaskToCanvasInsertion(
   }
 
   return boundElementIds.size;
+}
+
+export async function getCachedImageInsertionUrls(
+  board: PlaitBoard,
+  insertionResult: MCPResult
+): Promise<string[] | null> {
+  if (!insertionResult.success) return null;
+
+  const data = insertionResult.data as CanvasInsertionResultData | undefined;
+  const imageItems = data?.items?.filter((item) => item.type === 'image');
+  if (!imageItems?.length) return null;
+
+  const urls: string[] = [];
+  for (const item of imageItems) {
+    const elementId = item.elementId?.trim();
+    if (!elementId) return null;
+
+    const element = board.children.find(
+      (candidate: { id?: string }) => candidate.id === elementId
+    ) as
+      | { url?: unknown; image?: { url?: unknown } }
+      | undefined;
+    const url = element?.url ?? element?.image?.url;
+    if (typeof url !== 'string' || !url.trim()) return null;
+    urls.push(url);
+  }
+
+  const cached = await Promise.all(
+    urls.map((url) => unifiedCacheService.isCached(url))
+  );
+  return cached.every(Boolean) ? urls : null;
 }

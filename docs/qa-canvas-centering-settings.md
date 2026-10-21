@@ -1,5 +1,23 @@
 # 画布图片居中与任务栏设置 QA
 
+## 2026-10-20 点击画布目标保留已选模式
+
+PR 前最终复验：修复已提交到 `dev/fix-canvas-target-mode-20261020`，随后显式 fetch 并 merge `upstream/develop`（`26d88768`），结果为已是最新，无冲突。同步后 3 个文件共 78 项回归测试、Drawnix/Web TypeScript、Web 应用构建和差异检查通过；定向 ESLint 为 0 error、18 条未修改代码处的 warning，构建仍有 Sass 弃用和大 chunk 等警告。应用构建输出到独立临时目录，未影响运行中的 7200 开发服务；本轮未执行页面交互或真实供应商验证。
+
+修复已选择 Agent 后点击图片被自动切换到图片生成的问题。画布选择回调不再设置生成模式；图片、视频、文本、音频目标与当前模式不同时进入仅作参考分支，保留用户选择的模式。同类型目标仍使用原有跟随行为，并尊重“本次/始终只作参考”设置。跨类型目标不生成原位替换参数，素材能否用于实际请求仍取决于所选模型能力。
+
+代码路径已追踪至 SelectionWatcher 的选择及视口刷新回调、任务栏草稿保存/恢复和提交目标判断。未绑定输入框在进入参考分支时保存当前草稿，不加载目标的独立草稿；从已绑定目标退出时沿用已有的草稿保存与恢复规则。
+
+验证环境：本地 macOS，Node.js 26.8.1、pnpm 10.21.0，基于 `26d88768`（1.1.29）的工作区。实际验证：
+
+- 在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/ai-input-bar/target-bound-taskbar-state.test.ts src/components/ai-input-bar/image-mask-submission.test.ts src/components/ai-input-bar/canvas-association-resolver.test.ts --silent`，3 个文件共 78 项通过。覆盖 Agent 选择四类目标、图片/视频及文本/音频跨类型选择、同类型跟随、仅作参考偏好，以及草稿、遮罩和画布引用回归。
+- 仓库根目录执行 `pnpm exec tsc --project packages/drawnix/tsconfig.lib.json --noEmit`，通过。
+- 对本次 3 个源码/测试文件执行 ESLint，0 error、18 条位于组件未修改代码的 warning。
+- 仓库根目录执行 `pnpm exec vite build --config apps/web/vite.config.ts --outDir /tmp/opentu-mode-build.l7salY`，Web 应用构建通过，输出至独立临时目录；存在 Sass 弃用和大 chunk 等警告。本次未构建 Service Worker。
+- `git diff --check` 通过。
+
+未执行浏览器/页面点击、预览站部署、真实供应商请求或 Windows 验证。人工验收：先选择 Agent 并输入提示词，依次点击画布图片、视频、音频和文本，模式应始终显示 Agent；在图片模式点击视频、视频模式点击图片时也应保留原模式；主动选择其他模式仍应生效。本修复无需配置、依赖或数据迁移，使用与维护边界记录在现有 QA，不另建 DOC。
+
 ## 2026-10-10 失败生成卡片的后续落点
 
 2026-10-11 PR 前复验：显式 fetch 并 merge `origin/develop`（`df1715ab`）。仅本 QA 段落发生一处冲突，保留双方记录，代码无冲突；合并后 41 项相关测试、Drawnix/Web TypeScript、Web 应用和 Service Worker 构建、定向 ESLint（0 error、22 条既有 warning）及分支差异检查通过。循环依赖检查仍为下述既有失败。最终相对 develop 仅本次 7 个文件变更。

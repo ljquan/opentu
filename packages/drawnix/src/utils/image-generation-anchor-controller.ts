@@ -18,6 +18,7 @@ export interface ImageGenerationAnchorControllerOptions {
   postProcessingStatus?: WorkflowMessageData['postProcessingStatus'];
   isInserting?: boolean;
   hasInserted?: boolean;
+  canvasReady?: boolean;
   taskDisplayProgress?: number | null;
 }
 
@@ -39,6 +40,7 @@ export function getImageGenerationAnchorControllerResult(
     postProcessingStatus,
     isInserting,
     hasInserted,
+    canvasReady,
   } = options;
 
   const phase = deriveImageGenerationAnchorPhase({
@@ -49,6 +51,7 @@ export function getImageGenerationAnchorControllerResult(
     postProcessingStatus,
     isInserting,
     hasInserted,
+    canvasReady,
   });
 
   const viewModel = buildImageGenerationAnchorViewModel({
@@ -60,6 +63,7 @@ export function getImageGenerationAnchorControllerResult(
     postProcessingStatus,
     isInserting,
     hasInserted,
+    canvasReady,
   });
 
   return {

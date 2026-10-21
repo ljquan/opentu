@@ -28,6 +28,53 @@ beforeEach(() => {
 });
 
 describe('workspace full-board retention', () => {
+    it('a stale guarded reload cannot replace a new insertion or clear its pending save', async () => {
+        let accept = true;
+        let resolveRead!: (value: Board) => void;
+        let resolveSave!: () => void;
+        storage.loadBoard.mockReturnValueOnce(new Promise<Board>(resolve => { resolveRead = resolve; }));
+        storage.saveBoard.mockReturnValueOnce(new Promise<void>(resolve => { resolveSave = resolve; }));
+        const events = vi.fn();
+        const subscription = workspaceService.observeEvents().subscribe(events);
+        const reload = workspaceService.reloadBoard('current', () => accept);
+        await Promise.resolve();
+        const data = { children: [{ id: 'new-image' }], viewport: {}, theme: {} } as unknown as BoardChangeData;
+        const saving = workspaceService.saveBoard('current', data);
+        accept = false;
+        resolveRead(board('current'));
+        expect(await reload).toBeNull();
+        expect(workspaceService.getCurrentBoard()?.elements).toEqual(data.children);
+        expect(runtime.unsavedBoards.has('current')).toBe(true);
+        expect(events).not.toHaveBeenCalled();
+        subscription.unsubscribe();
+        resolveSave();
+        await saving;
+    });
+
+    it('does not start a storage read for an already obsolete guarded request', async () => {
+        expect(await workspaceService.reloadBoard('current', () => false)).toBeNull();
+        expect(storage.loadBoard).not.toHaveBeenCalled();
+    });
+
+    it('still applies current guarded reloads and emits the existing refresh events', async () => {
+        const events = vi.fn();
+        const subscription = workspaceService.observeEvents().subscribe(events);
+        expect((await workspaceService.reloadBoard('current', () => true))?.elements).toHaveLength(1);
+        expect(events.mock.calls.map(([event]) => event.type)).toEqual(['boardUpdated', 'boardSwitched']);
+        subscription.unsubscribe();
+    });
+
+    it('discards a guarded read if the user switches boards while it is pending', async () => {
+        let resolveRead!: (value: Board) => void;
+        storage.loadBoard.mockReturnValueOnce(new Promise<Board>(resolve => { resolveRead = resolve; }));
+        const reload = workspaceService.reloadBoard('current', () => runtime.state.currentBoardId === 'current');
+        await Promise.resolve();
+        runtime.state.currentBoardId = 'a';
+        resolveRead(board('current'));
+        expect(await reload).toBeNull();
+        expect(runtime.loadedBoards.has('current')).toBe(false);
+    });
+
     it('reloads and empty checks share a bounded cache while retaining the current board', async () => {
         await workspaceService.reloadBoard('current');
         await workspaceService.reloadBoard('a');

@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -15,6 +16,7 @@ import {
 } from '../../types/image-generation-anchor.types';
 import { workflowCompletionService } from '../../services/workflow-completion-service';
 import { ImageGenerationAnchorContent } from './ImageGenerationAnchorContent';
+import { registerCanvasImage } from '../../services/canvas-image-readiness';
 
 const mocks = vi.hoisted(() => ({
   tasks: [] as Task[],
@@ -88,6 +90,51 @@ describe('ImageGenerationAnchorContent result recovery', () => {
   afterEach(() => {
     cleanup();
     workflowCompletionService.clear();
+  });
+
+  it('keeps the developing animation until the actual canvas result has loaded', () => {
+    mocks.tasks[0].insertedToCanvas = true;
+    const anchor = {
+      ...createAnchor(), phase: 'inserting' as const, error: undefined,
+      resultElementId: 'image-1',
+    };
+    const board = {
+      children: [anchor, {
+        id: 'image-1', type: 'image', url: '/__aitu_cache__/image/result.png',
+        generationTaskId: 'task-1',
+      }],
+    } as unknown as PlaitBoard;
+    render(<ImageGenerationAnchorContent board={board} element={anchor} selected={false} />);
+    expect(screen.getByText('正在显现')).toBeTruthy();
+
+    act(() => {
+      registerCanvasImage(board, 'image-1', '/__aitu_cache__/image/result.png').setReady(true);
+    });
+    expect(screen.queryByText('正在显现')).toBeNull();
+    expect(document.querySelector('.image-generation-anchor--phase-completed')).not.toBeNull();
+  });
+
+  it('does not miss a cached image load between rendering and subscribing', () => {
+    mocks.tasks[0].insertedToCanvas = true;
+    const anchor = {
+      ...createAnchor(),
+      phase: 'inserting' as const,
+      resultElementId: 'image-1',
+    };
+    const url = '/__aitu_cache__/image/result.png';
+    const board = {
+      children: [{ id: 'image-1', type: 'image', url }],
+    } as unknown as PlaitBoard;
+    function CachedResult() {
+      React.useLayoutEffect(() => {
+        const image = registerCanvasImage(board, 'image-1', url);
+        image.setReady(true);
+        return () => image.dispose();
+      }, []);
+      return <ImageGenerationAnchorContent board={board} element={anchor} selected={false} />;
+    }
+    render(<CachedResult />);
+    expect(screen.queryByText('正在显现')).toBeNull();
   });
 
   it('shows successful generation and retries insertion without regenerating', async () => {

@@ -25,6 +25,8 @@ export interface PricingEndpointInfo {
 
 export interface PricingModelInfo {
   model_name: string;
+  category?: string;
+  owned_by?: string;
   description?: string;
   tags: string;
   /** 嵌套结构: group_name → sub_group → price */
@@ -60,6 +62,10 @@ export interface TuziPricingApiResponse {
 /** new-api /api/pricing 响应中的模型信息 */
 export interface NewApiPricingModelInfo {
   model_name: string;
+  category?: string;
+  owned_by?: string;
+  owner_by?: string;
+  vendor_id?: number;
   description?: string;
   tags?: string;
   quota_type: number;
@@ -105,6 +111,7 @@ export interface NewApiPricingApiResponse {
   group_info?: Record<string, NewApiPricingGroupInfo | string | number>;
   group_model_pricing?: Record<string, NewApiGroupModelPricing>;
   supported_endpoint?: Record<string, PricingEndpointInfo | string>;
+  vendors?: Array<{ id: number; name: string }>;
 }
 
 export type PricingApiResponse = TuziPricingApiResponse | NewApiPricingApiResponse;
@@ -143,4 +150,10 @@ export interface ProviderPricingCache {
   prices: Record<string, ModelPrice>;
   /** key = modelId, value = endpoint name → endpoint info */
   modelEndpoints?: Record<string, Record<string, PricingEndpointInfo>>;
+  modelCatalog?: Record<string, {
+    category?: string;
+    tags?: string;
+    owned_by?: string;
+    supported_endpoint_types?: string[];
+  }>;
 }

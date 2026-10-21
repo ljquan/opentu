@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaitBoard } from '@plait/core';
 import { useImageGenerationAnchorSync } from '../useImageGenerationAnchorSync';
+import { registerCanvasImage } from '../../services/canvas-image-readiness';
 import {
   TaskExecutionPhase,
   TaskStatus,
@@ -211,6 +212,8 @@ function createImageElement(
   return {
     id: 'image-1',
     type: 'image',
+    url: '/__aitu_cache__/image/task-1.png',
+    generationTaskId: 'task-1',
     points: [
       [200, 300],
       [690, 578],
@@ -368,7 +371,8 @@ describe('useImageGenerationAnchorSync', () => {
     vi.useFakeTimers();
 
     const board = createBoard(
-      createAnchor({ taskIds: ['task-1'], phase: 'inserting' })
+      createAnchor({ taskIds: ['task-1'], phase: 'inserting' }),
+      [createImageElement()]
     );
     taskState.tasks = [
       createTask({
@@ -385,6 +389,11 @@ describe('useImageGenerationAnchorSync', () => {
 
     renderHook(() => useImageGenerationAnchorSync({ board, enabled: true }));
 
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('inserting');
+    act(() => {
+      registerCanvasImage(board, 'image-1', '/__aitu_cache__/image/task-1.png').setReady(true);
+    });
+
     let anchors = (
       board as unknown as { children: PlaitImageGenerationAnchor[] }
     ).children;
@@ -397,7 +406,58 @@ describe('useImageGenerationAnchorSync', () => {
 
     anchors = (board as unknown as { children: PlaitImageGenerationAnchor[] })
       .children;
-    expect(anchors).toHaveLength(0);
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0].id).toBe('image-1');
+  });
+
+  it('keeps the placeholder visible while an inserted canvas image is still loading', () => {
+    vi.useFakeTimers();
+    const board = createBoard(
+      createAnchor({ taskIds: ['task-1'], phase: 'inserting' }),
+      [createImageElement()]
+    );
+    taskState.tasks = [createTask({ status: TaskStatus.COMPLETED, insertedToCanvas: true })];
+    completionState.byTaskId.set('task-1', {
+      taskId: 'task-1', status: 'completed', type: 'direct_insert',
+      firstElementId: 'image-1',
+    });
+
+    renderHook(() => useImageGenerationAnchorSync({ board }));
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    act(() => { vi.advanceTimersByTime(70_000); });
+
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('inserting');
+    expect(board.children).toHaveLength(2);
+    expect(dispatchSpy.mock.calls.filter(([event]) => event.type === IMAGE_GENERATION_ANCHOR_RETRY_EVENT)).toHaveLength(0);
+    dispatchSpy.mockRestore();
+  });
+
+  it('cancels placeholder removal when the result source changes before handoff settles', () => {
+    vi.useFakeTimers();
+    const image = createImageElement();
+    const board = createBoard(
+      createAnchor({ taskIds: ['task-1'], resultElementId: 'image-1' }),
+      [image]
+    );
+    taskState.tasks = [createTask({ status: TaskStatus.COMPLETED, insertedToCanvas: true })];
+    const firstRender = registerCanvasImage(board, 'image-1', image.url as string);
+    firstRender.setReady(true);
+    renderHook(() => useImageGenerationAnchorSync({ board }));
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('completed');
+
+    const nextUrl = '/__aitu_cache__/image/replacement.png';
+    image.url = nextUrl;
+    let nextRender: ReturnType<typeof registerCanvasImage>;
+    act(() => {
+      nextRender = registerCanvasImage(board, 'image-1', nextUrl);
+      firstRender.dispose();
+      vi.advanceTimersByTime(2000);
+    });
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('inserting');
+    act(() => { nextRender.setReady(true); });
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('completed');
+    act(() => { vi.advanceTimersByTime(1600); });
+    expect(board.children.map((element) => element.id)).toEqual(['image-1']);
   });
 
   it('reconciles on task and completion events after mount', () => {
@@ -442,6 +502,7 @@ describe('useImageGenerationAnchorSync', () => {
 
     act(() => {
       emitCompletion('task-1');
+      registerCanvasImage(board, 'image-1', '/__aitu_cache__/image/task-1.png').setReady(true);
     });
 
     [anchor] = (
@@ -554,6 +615,11 @@ describe('useImageGenerationAnchorSync', () => {
 
     act(() => {
       vi.advanceTimersByTime(50_000);
+    });
+
+    expect(boardState.children[0]?.phase).toBe('inserting');
+    act(() => {
+      registerCanvasImage(board, 'image-1', '/__aitu_cache__/image/task-1.png').setReady(true);
     });
 
     const retryEvents = dispatchSpy.mock.calls.filter(
