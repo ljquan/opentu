@@ -26,6 +26,7 @@ import {
   resolveTaskbarDraftAfterSubmission,
   shouldBindGenerationTarget,
   shouldReleaseBoundTargetPromptDismissal,
+  shouldUseBoundTargetAsReference,
   shouldUseBoundTargetForSubmission,
   supportsBoundTargetFollowControls,
   storeBoundTargetTaskbarDraft,
@@ -576,6 +577,53 @@ describe('target-bound-taskbar-state', () => {
     expect(shouldUseBoundTargetForSubmission('agent', 'follow')).toBe(false);
     expect(shouldUseBoundTargetForSubmission('text', 'follow')).toBe(true);
     expect(shouldUseBoundTargetForSubmission('text', 'reference')).toBe(false);
+  });
+
+  it.each([
+    ['agent', 'image'],
+    ['agent', 'video'],
+    ['agent', 'audio'],
+    ['agent', 'text'],
+    ['video', 'image'],
+    ['image', 'video'],
+    ['text', 'audio'],
+    ['audio', 'text'],
+  ] as const)(
+    '%s 模式选中 %s 时只作参考，不生成原位替换参数',
+    (generationType, targetType) => {
+      const useAsReference = shouldUseBoundTargetAsReference(
+        generationType,
+        targetType,
+        false,
+        false
+      );
+      const mode = useAsReference ? 'reference' : 'follow';
+      const target = { elementId: 'selected-target', prompt: '原生成提示词' };
+      const replacementTarget = shouldUseBoundTargetForSubmission(generationType, mode)
+        ? target
+        : null;
+
+      expect(useAsReference).toBe(true);
+      expect(buildBoundTargetGenerationParams(replacementTarget)).toBeNull();
+    }
+  );
+
+  it.each(['image', 'video', 'audio', 'text'] as const)(
+    '%s 模式选中同类目标时保留跟随行为',
+    (targetType) => {
+      expect(
+        shouldUseBoundTargetAsReference(targetType, targetType, false, false)
+      ).toBe(false);
+    }
+  );
+
+  it('模式相同时仍尊重本次和始终只作参考设置', () => {
+    expect(
+      shouldUseBoundTargetAsReference('image', 'image', false, true)
+    ).toBe(true);
+    expect(
+      shouldUseBoundTargetAsReference('image', 'image', true, false)
+    ).toBe(true);
   });
 
   it('仅作参考时不生成覆盖参数，跟随时保持原参数', () => {

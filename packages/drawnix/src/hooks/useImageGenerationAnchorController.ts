@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { PlaitBoard } from '@plait/core';
 import { taskQueueService } from '../services/task-queue';
 import { workflowCompletionService } from '../services/workflow-completion-service';
 import {
   getImageGenerationAnchorControllerResult,
-  type ImageGenerationAnchorControllerOptions as UseImageGenerationAnchorControllerOptions,
+  type ImageGenerationAnchorControllerOptions,
   type ImageGenerationAnchorControllerResult,
 } from '../utils/image-generation-anchor-controller';
 import {
@@ -14,13 +15,34 @@ import {
 import { TaskStatus } from '../types/task.types';
 import { useImageTaskProgress } from './useImageTaskProgress';
 import { hasResolvedImageGenerationBatchCount } from '../utils/image-generation-anchor-batch';
+import { areImageGenerationResultsReady } from '../utils/image-generation-anchor-readiness';
+import { subscribeCanvasImageReadiness } from '../services/canvas-image-readiness';
+
+interface UseImageGenerationAnchorControllerOptions
+  extends ImageGenerationAnchorControllerOptions {
+  board: PlaitBoard;
+}
 
 export function useImageGenerationAnchorController(
   options: UseImageGenerationAnchorControllerOptions
 ): ImageGenerationAnchorControllerResult {
-  const { anchor, task: providedTask } = options;
+  const { anchor, board, task: providedTask } = options;
   const [taskRevision, setTaskRevision] = useState(0);
   const taskIdsKey = anchor.taskIds.join('|');
+
+  useEffect(() => {
+    const updateRevision = () => setTaskRevision((value) => value + 1);
+    const unsubscribe = subscribeCanvasImageReadiness(board, updateRevision);
+    const subscription = workflowCompletionService
+      .observeCompletionEvents()
+      .subscribe(updateRevision);
+    // Cached images can load between render and passive-effect subscription.
+    updateRevision();
+    return () => {
+      unsubscribe();
+      subscription.unsubscribe();
+    };
+  }, [board]);
 
   useEffect(() => {
     if (providedTask) {
@@ -136,10 +158,13 @@ export function useImageGenerationAnchorController(
         tasks: relatedTasks,
         postProcessingStatus: derivedPostProcessingStatus,
         hasInserted: derivedHasInserted,
+        canvasReady: areImageGenerationResultsReady(board, anchor, relatedTasks),
         taskDisplayProgress: displayProgress,
       }),
     [
       derivedHasInserted,
+      board,
+      anchor,
       derivedPostProcessingStatus,
       displayProgress,
       options,

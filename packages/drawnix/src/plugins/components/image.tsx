@@ -31,6 +31,7 @@ import {
   sanitizeImage3DTransform,
 } from '../../utils/image-3d-transform';
 import { RetryImage } from '../../components/retry-image';
+import { registerCanvasImage } from '../../services/canvas-image-readiness';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -158,6 +159,23 @@ const isVideoElement = (imageItem: any): boolean => {
 };
 
 export const Image: React.FC<ImageProps> = (props: ImageProps) => {
+  const canvasImageRenderRef = useRef<ReturnType<
+    typeof registerCanvasImage
+  > | null>(null);
+  useLayoutEffect(() => {
+    const render = registerCanvasImage(
+      props.board,
+      props.element.id,
+      props.imageItem.url
+    );
+    canvasImageRenderRef.current = render;
+    return () => {
+      render.dispose();
+      if (canvasImageRenderRef.current === render) {
+        canvasImageRenderRef.current = null;
+      }
+    };
+  }, [props.board, props.element.id, props.imageItem.url]);
   const currentImageUrlRef = useRef(props.imageItem.url);
   const cleanupSWRecoveryRef = useRef<(() => void) | null>(null);
   const fallbackBlobUrlRef = useRef<string | null>(null);
@@ -304,6 +322,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   const handleImageError = useCallback(
     async (event: any) => {
       const imageElement = event.currentTarget as HTMLImageElement;
+      canvasImageRenderRef.current?.setReady(false);
       imageElement.style.visibility = 'hidden';
       if (
         isVirtualMediaUrl(props.imageItem.url) &&
@@ -369,6 +388,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         props.element,
         props.imageItem.url
       );
+      canvasImageRenderRef.current?.setReady(true);
     },
     [
       clearExternalImageRetry,

@@ -48,6 +48,45 @@ describe('model-config image size options', () => {
       expect(getCompatibleParams(id).some(param => param.id === 'thinking')).toBe(false);
     }
   });
+
+  it.each([
+    'gemini-2.0-flash-preview-image-generation',
+    'gemini-3.1-flash-lite-image',
+    'nano-banana-2-2k',
+    'nano-banana-2-4k',
+    'nano-banana-pro-4k',
+    'nano-banana-pro-4k-vip',
+  ])('%s exposes Gemini image ratios when discovered at runtime', (modelId) => {
+    setRuntimeModelConfigs([
+      {
+        id: modelId,
+        label: modelId,
+        type: 'image',
+        vendor: ModelVendor.GEMINI,
+        tags: ['runtime'],
+      },
+    ]);
+
+    expect(getSizeOptionsForModel(modelId).map((option) => option.value)).toEqual([
+      'auto', '1x1', '16x9', '9x16', '3x2', '2x3', '4x3', '3x4', '5x4',
+      '4x5', '21x9',
+    ]);
+  });
+
+  it('does not add Gemini image ratios to non-Gemini runtime image models', () => {
+    setRuntimeModelConfigs([
+      {
+        id: 'custom-image-model',
+        label: 'custom-image-model',
+        type: 'image',
+        vendor: ModelVendor.OTHER,
+        tags: ['runtime'],
+      },
+    ]);
+
+    expect(getSizeOptionsForModel('custom-image-model')).toEqual([]);
+  });
+
   it.each([
     'gpt-image-2.5-1k',
     'gpt-image-2.5', 'gpt-image-2.5-vip',

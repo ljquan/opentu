@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildPricingSourceSignature,
   derivePricingUrl,
+  getPricingRequestUrl,
   formatModelPrice,
   getPricingCacheTtlMs,
   isPricingCacheEligibleForWarmup,
@@ -19,7 +20,9 @@ import type {
 
 describe('model-pricing-service', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   async function fetchCache(
@@ -43,6 +46,69 @@ describe('model-pricing-service', () => {
       { force: true }
     );
   }
+
+  it('times out a stalled shared request and allows a fresh retry', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValue({ ok: true, json: async () => ({ success: true, data: [] }) });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(providerPricingCacheSettings, 'update').mockResolvedValue();
+    const args = [
+      'timeout-fetch', 'https://example.com/timeout-fetch/api/pricing',
+      'test-key', 'default', 1,
+    ] as const;
+    const first = modelPricingService.fetchAndCache(...args, { force: true });
+    const second = modelPricingService.fetchAndCache(...args, { force: true });
+    const rejected = Promise.all([
+      expect(first).rejects.toThrow('模型广场请求超时'),
+      expect(second).rejects.toThrow('模型广场请求超时'),
+    ]);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    await expect(modelPricingService.fetchAndCache(...args, { force: true })).resolves.toMatchObject({ prices: {} });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds JSON reads and prevents late timed-out responses from replacing fresh cache', async () => {
+    vi.useFakeTimers();
+    let finishBody!: (value: PricingApiResponse) => void;
+    const fresh: PricingApiResponse = {
+      success: true,
+      data: [{ model_name: 'fresh-model', quota_type: 1 }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => new Promise((resolve) => { finishBody = resolve; }) })
+      .mockResolvedValue({ ok: true, json: async () => fresh });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(providerPricingCacheSettings, 'update').mockResolvedValue();
+    const url = 'https://example.com/timeout-body/api/pricing';
+    const loading = modelPricingService.fetchAndCache('timeout-body', url, 'test-key', 'default', 1, { force: true });
+    const rejected = expect(loading).rejects.toThrow('模型广场请求超时');
+    await vi.advanceTimersByTimeAsync(15_000);
+    await rejected;
+    const retry = await modelPricingService.fetchAndCache('timeout-body', url, 'test-key', 'default', 1, { force: true });
+    expect(retry.prices['fresh-model']).toBeDefined();
+
+    finishBody({ success: true, data: [] });
+    await Promise.resolve();
+    const shared = await modelPricingService.fetchAndCache('timeout-body-other', url, 'test-key', 'default', 1);
+    expect(shared.prices['fresh-model']).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves HTTP errors and clears the timeout after failure', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    await expect(modelPricingService.fetchAndCache(
+      'pricing-http-error', 'https://example.com/http-error/api/pricing',
+      'test-key', 'default', 1, { force: true }
+    )).rejects.toThrow('Pricing API error: 503');
+    expect(vi.getTimerCount()).toBe(0);
+  });
 
   it('preserves native Suno transport metadata even without a path', async () => {
     const cache = await fetchCache({ success: true, data: [{ model_name: 'suno/music', quota_type: 1,
@@ -73,6 +139,72 @@ describe('model-pricing-service', () => {
     expect(derivePricingUrl('https://api.tu-zi.com/v1')).toBe(
       'https://api.tu-zi.com/api/pricing'
     );
+  });
+
+  it('uses the existing same-origin proxy for main Tuzi marketplace requests', () => {
+    vi.stubGlobal('window', { location: { origin: 'http://localhost:7201' } });
+    expect(getPricingRequestUrl('https://api.tu-zi.com/api/pricing?group=default'))
+      .toBe('http://localhost:7201/__opentu_tuzi_session__/api/pricing?group=default');
+    expect(getPricingRequestUrl('https://api.tu-zi.com/api/pricing'))
+      .toBe('http://localhost:7201/__opentu_tuzi_session__/api/pricing');
+    expect(getPricingRequestUrl('https://business.tu-zi.com/api/pricing'))
+      .toBe('https://business.tu-zi.com/api/pricing');
+  });
+
+  it('preserves group-filtered marketplace metadata for discovery', async () => {
+    const cache = await fetchCache({
+      success: true,
+      group_ratio: { default: 1, vip: 1 },
+      vendors: [{ id: 3, name: 'Gemini' }],
+      data: [
+        {
+          model_name: 'configured-renderer', tags: '生图', vendor_id: 3,
+          quota_type: 1, enable_groups: ['default'],
+          supported_endpoint_types: ['google.generateContent'],
+        },
+        {
+          model_name: 'vip-only', tags: '生图', quota_type: 1,
+          enable_groups: ['vip'],
+        },
+      ],
+    }, 'default', 0.7);
+
+    expect(Object.keys(cache.prices)).toEqual(['configured-renderer']);
+    expect(cache.modelCatalog).toEqual({
+      'configured-renderer': {
+        category: undefined, tags: '生图', owned_by: 'Gemini',
+        supported_endpoint_types: ['google.generateContent'],
+      },
+    });
+  });
+
+  it('keeps actual categories separate from marketplace capability tags in both formats', async () => {
+    const newApi = await fetchCache({
+      success: true,
+      data: [
+        { model_name: 'gpt-6-astra', quota_type: 1, tags: '文本,图像,推理' },
+        { model_name: 'categorized-image', quota_type: 1, category: 'image', tags: '文本' },
+      ],
+    }, 'default', 1);
+    expect(newApi.modelCatalog?.['gpt-6-astra']).toMatchObject({ tags: '文本,图像,推理' });
+    expect(newApi.modelCatalog?.['gpt-6-astra']?.category).toBeUndefined();
+    expect(newApi.modelCatalog?.['categorized-image']).toMatchObject({ category: 'image', tags: '文本' });
+
+    const legacy = await fetchCache({
+      success: true,
+      data: {
+        group_info: { default: { GroupRatio: 1, DisplayName: 'Default' } },
+        model_info: [{
+          model_name: 'legacy-vision', tags: '图像', enable_groups: ['default'],
+          price_info: { default: { default: {
+            quota_type: 1, model_ratio: 1, model_completion_ratio: 1,
+            model_price: 1, model_cache_ratio: 1, model_create_cache_ratio: 1,
+          } } },
+        }],
+      },
+    }, 'default', 1);
+    expect(legacy.modelCatalog?.['legacy-vision']?.tags).toBe('图像');
+    expect(legacy.modelCatalog?.['legacy-vision']?.category).toBeUndefined();
   });
 
   it('仅允许手动成功或旧版已缓存签名参与自动更新', () => {

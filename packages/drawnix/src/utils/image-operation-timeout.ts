@@ -1,7 +1,7 @@
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 30_000;
 export const IMAGE_CACHE_TIMEOUT_MS = 20_000;
 export const IMAGE_DECODE_TIMEOUT_MS = 15_000;
-export const IMAGE_ELEMENT_LOAD_TIMEOUT_MS = 30_000;
+export const IMAGE_ELEMENT_LOAD_TIMEOUT_MS = 300_000;
 
 export class ImageOperationTimeoutError extends Error {
   constructor(

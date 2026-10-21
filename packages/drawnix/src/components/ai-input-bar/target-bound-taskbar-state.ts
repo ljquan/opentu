@@ -124,6 +124,19 @@ export function supportsBoundTargetFollowControls(
   );
 }
 
+export function shouldUseBoundTargetAsReference(
+  generationType: string,
+  targetType: BoundGenerationTargetType,
+  suppressed: boolean,
+  referenceOnly: boolean
+): boolean {
+  // Canvas selection adds context; the generation mode remains the user's choice.
+  return (
+    supportsBoundTargetFollowControls(targetType) &&
+    (suppressed || referenceOnly || generationType !== targetType)
+  );
+}
+
 export function createBoundImageTargetStateKey(
   target: {
     elementId: string;

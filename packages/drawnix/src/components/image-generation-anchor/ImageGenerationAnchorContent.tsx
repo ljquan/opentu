@@ -52,7 +52,10 @@ const STACK_SLOT_STATUS_LABELS = {
 export const ImageGenerationAnchorContent: React.FC<
   ImageGenerationAnchorContentProps
 > = ({ board, element, selected }) => {
-  const { viewModel } = useImageGenerationAnchorController({ anchor: element });
+  const { viewModel } = useImageGenerationAnchorController({
+    board,
+    anchor: element,
+  });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const relatedTasks = useMemo(
     () => getTasksForImageGenerationAnchor(element, taskQueueService.getAllTasks()),
