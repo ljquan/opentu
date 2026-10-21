@@ -2,7 +2,7 @@
 
 ## 范围与环境
 
-本地分支 `dev/consolidate-canvas-remove-workflow-mode`，从当前 HEAD 建立，未提交、推送或部署。环境为 macOS、Node.js 26.8.1、pnpm 10.21.0、Vitest 3.2.4/JSDOM。使用合成旧数据与模拟服务；没有读取用户实际浏览器数据库，没有真实生成请求。
+分支 `dev/consolidate-canvas-remove-workflow-mode`，目标分支 `develop`。用户于 2026-10-21 授权解决冲突并提交 PR；最终同步与验证见文末。本文件此前各阶段的结果按当时范围记录。环境为 macOS、Node.js 26.8.1、pnpm 10.21.0、Vitest 3.2.4/JSDOM。使用合成旧数据与模拟服务；没有读取用户实际浏览器数据库，没有真实生成请求，未部署。
 
 删除独立模式目录和构建入口；复用主画布任务、输入、提示词、素材与批量工具，新增图片快捷设置、手动拆图、本地放大、视角回填及旧数据兼容。使用和维护说明见 [整合说明](./canvas-consolidation.md)。
 
@@ -162,6 +162,18 @@
 - Node 26.8.1、pnpm 10.21.0，Vitest 使用 `NODE_OPTIONS=--no-experimental-webstorage`。相关 14 文件 299 项通过，包含选中/蒙版、来源准备、主输入栏、方向布局、自动插入、占位交接与提示词保留回归。drawnix/Web TypeScript、Web Vite 生产构建、`git diff --check` 通过。
 - ESLint 共 13 个原有错误、48 条原有警告；selection-utils 源码与测试分别用 HEAD 源码 stdin 对照，同规则诊断没有新增；主输入栏保留原有 18 条警告，联动测试零错误/警告。日志 `/tmp/opentu-two-reference-lines-{regression,types,web-types,build,lint}.log`，静态检查对照另存同前缀 JSON 文件。
 - 7202 入口 HTTP 200。未执行浏览器页面、Windows 或真实供应商请求。人工验收：选中两张共用地址的画布图片后重新发送，检查新占位有两条来源线，完成后的结果仍保留两条。旧任务已经丢失的来源身份不自动补回；截图中 `Unknown parameter: 'resolution'` 的生成失败属于另一问题，本次没有修改供应商参数。
+
+## PR 前最终同步与验证（2026-10-21）
+
+- 本地功能提交 `f1dbfc60` 后显式执行 `git fetch origin`，再执行 `git merge origin/develop`。上游目标为 `7b3aa15e`（1.2.0），返回 Already up to date，本轮没有冲突；不重置、不变基、不强制推送。此前功能开发前的同步记录见本文历史章节。
+- 提交前功能回归为 37 文件 606 项通过。同步后，应用构建与测试并行时共享 workflow 引擎首次导入超过既有 5 秒限制（605 通过、1 超时）；构建结束后以相同命令、相同 2 workers、无额外重试参数完整重跑，37 文件 606 项全部通过。没有更改产品逻辑或测试超时规避失败。
+- 最终共享工具库 25 文件 473 项、SW 7 文件 43 项通过，合计 69 文件 1,122 项通过。此为受影响功能 + utils/SW 回归，不代表当前核心库全量通过；前面记录的全量基线失败仍保留。
+- 最终命令：drawnix 使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts <37 个文件> --maxWorkers=2`，文件清单 `/tmp/opentu-pr-test-paths.txt`；utils 使用相同 Node 参数执行 `pnpm test --maxWorkers=2`；SW 在根目录使用 `pnpm exec vitest run --root apps/web src/sw --maxWorkers=2`。本机存在只读 XLSX 样本时为 drawnix 测试设置 `BATCH_XLSX_TEST_FILE`。
+- drawnix `tsconfig.lib.json`、Web `tsconfig.app.json`、utils `tsconfig.json` 的 `tsc --noEmit` 全部通过。最初误用 utils 不存在的 `tsconfig.lib.json` 返回 TS5058，改用该包实际配置后通过。应用和 SW 分别通过 `node ../../node_modules/vite/bin/vite.js build` 与 `build -c vite.sw.config.ts`；`node scripts/validate-startup-bundle.js` 通过。
+- 对 54 个受影响 drawnix TypeScript/TSX 文件运行 ESLint，并对有诊断的旧文件使用 `git show origin/develop:<file>` 经同路径 stdin 核对。清理本次测试里一个多余 `any` 后，最终 19 错误、184 警告均为上游已有诊断，未新增。未将现有仓库 lint 描述为全绿。
+- 删除检查确认源码目录、生产工作流资源目录和 JS/CSS 专属模式标记均不存在；共享 workflow 引擎与上下文仍保留。最终差异空白检查通过，新增行私钥/常见令牌模式扫描未命中。构建未变更跟踪版本或生成产物。
+- 日志 `/tmp/opentu-pr-before-sync-tests.log`、`/tmp/opentu-pr-final-tests{,-serial}.log`、`/tmp/opentu-pr-final-{utils-tests,sw-tests,types,web-types,utils-types,build,sw-build,startup}.log`；lint 当前结果与上游对照见 `/tmp/opentu-pr-final-lint.json` 和 `/tmp/opentu-pr-lint-comparison.json`（清理前记录的唯一新增 any 警告已消除）。
+- QA/DOC 沿用并更新本文件和 `canvas-consolidation.md`。OpenSpec CLI strict 未执行；未执行页面、Windows、真实旧数据库、真实供应商或压力测试。删除独立模式是有意的兼容变化，旧数据只读保留，导入需用户在原站点备份后操作；回滚代码不会撤销用户已导入的新画布。截图的 resolution 参数错误仍不在本次修复范围。PR 仅供审查，未合并、未部署。
 
 ## 历史有结果但画布停在“正在显现”
 

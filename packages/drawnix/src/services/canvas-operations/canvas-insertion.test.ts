@@ -178,7 +178,7 @@ describe('canvas insertion service metadata binding', () => {
     const board = createBoard();
     mocks.insertImageFromUrl.mockImplementation(
       async (target: PlaitBoard, url: string) => {
-        target.children.push({ id: 'resized', type: 'image', url } as any);
+        target.children.push({ id: 'resized', type: 'image', url });
         return 'resized';
       }
     );
