@@ -4,6 +4,9 @@ import axios from "axios";
 import { buildApiUrl, defaultConfig, fetchModelWithLocalProxy, useConfigStore, withLocalProxy } from "../src/stores/use-config-store";
 import { runModelPlugin } from "../src/services/api/model-plugin";
 
+vi.mock("@/i18n", () => ({ default: { t: (key: string) => key } }));
+vi.mock("@/stores/use-config-store", () => import("../src/stores/use-config-store"));
+
 const proxy = "http://127.0.0.1:8899";
 const config = { ...defaultConfig, baseUrl: "https://api.tu-zi.com", apiKey: "test-key", proxyEnabled: true, proxyUrl: proxy };
 
