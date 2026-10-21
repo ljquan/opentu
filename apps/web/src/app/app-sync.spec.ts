@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import * as ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
@@ -33,7 +34,16 @@ function deferred<T>() {
 
 // Exercise the actual callbacks without mounting startup, storage or network UI.
 // WorkspaceService's cache/notification guard is tested separately with real code.
-const source = readFileSync(new URL('./app.tsx', import.meta.url), 'utf8');
+const appSourceUrl = new URL('./app.tsx', import.meta.url);
+const appSourcePath =
+  appSourceUrl.protocol === 'file:'
+    ? appSourceUrl
+    : [
+        resolve(process.cwd(), 'apps/web/src/app/app.tsx'),
+        resolve(process.cwd(), 'src/app/app.tsx'),
+      ].find(existsSync);
+if (!appSourcePath) throw new Error('App source path discovery failed');
+const source = readFileSync(appSourcePath, 'utf8');
 const tree = ts.createSourceFile(
   'app.tsx',
   source,
