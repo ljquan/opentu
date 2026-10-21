@@ -2,6 +2,18 @@
 
 - [新增] Tuzi 请求渠道归因，配套后台按正式网页、测试网页和未归因来源分析调用与消费。
 
+## 1.2.0 (2026-10-21)
+
+### 🩹 Fixes
+
+- 点击画布素材时保留用户选择的生成模式 (#313) ([049e01ed](https://github.com/ljquan/opentu/commit/049e01ed))
+- 按提示词比例固定 Image 2.5 的 2K/4K 请求尺寸 (#312) ([da61b3ce](https://github.com/ljquan/opentu/commit/da61b3ce))
+- 修复 Tuzi 模型目录与画布显示并优化 PPT 路由校验 (#311) ([9f4e2b9c](https://github.com/ljquan/opentu/commit/9f4e2b9c))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.1.29 (2026-10-18)
 
 ### 🚀 Features

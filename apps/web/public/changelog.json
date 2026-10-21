@@ -1,6 +1,21 @@
 {
   "versions": [
     {
+      "version": "1.2.0",
+      "date": "2026-10-21",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "点击画布素材时保留用户选择的生成模式 (#313)",
+          "按提示词比例固定 Image 2.5 的 2K/4K 请求尺寸 (#312)",
+          "修复 Tuzi 模型目录与画布显示并优化 PPT 路由校验 (#311)"
+        ],
+        "improvements": []
+      },
+      "type": "minor",
+      "highlights": "点击画布素材时保留用户选择的生成模式 (#313)"
+    },
+    {
       "version": "1.1.29",
       "date": "2026-10-18",
       "changes": {
@@ -960,26 +975,6 @@
       },
       "type": "patch",
       "highlights": "新增 omni-flash 视频模型支持"
-    },
-    {
-      "version": "0.9.10",
-      "date": "2026-05-21",
-      "changes": {
-        "features": [
-          "画布图片选中状态锁定优化",
-          "sync media library batch select functionality across AIInputBar and EnhancedChatInput"
-        ],
-        "fixes": [
-          "修复异步图片接口开关路由",
-          "移除图片接口默认 response_format"
-        ],
-        "improvements": [
-          "文档：补充模型分类优先级经验",
-          "调整运行时模型分类优先级并补充 category 回归测试"
-        ]
-      },
-      "type": "patch",
-      "highlights": "画布图片选中状态锁定优化"
     }
   ]
 }
