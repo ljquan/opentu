@@ -1,9 +1,18 @@
 import { isTuziRequestRecoveryBaseUrl } from './provider-routing/tuzi-api-endpoints';
 
-/** Client-reported analytics only. Desktop channel IDs are not enabled. */
+declare const __OPENTU_DESKTOP_CHANNEL_PROOF__: string;
+
+/** Client-reported analytics only; never identity or billing authority. */
 export function readTuziClientChannel(
   origin = typeof window === 'undefined' ? '' : window.location.origin
-): 0 | 1 | 2 {
+): 0 | 1 | 2 | 3 {
+  if (import.meta.env.VITE_OPENTU_DESKTOP === 'true') {
+    const proof =
+      typeof __OPENTU_DESKTOP_CHANNEL_PROOF__ === 'string'
+        ? __OPENTU_DESKTOP_CHANNEL_PROOF__
+        : '';
+    return proof === 'opentu-desktop-client-channel:3' ? 3 : 0;
+  }
   try {
     const url = new URL(origin);
     if (url.origin === 'https://opentu.ai') return 1;
@@ -59,7 +68,7 @@ export function withTuziClientChannel(
               return true;
             }
           });
-  parts.push(`ch=${ch === 1 || ch === 2 ? ch : 0}`);
+  parts.push(`ch=${ch === 1 || ch === 2 || ch === 3 ? ch : 0}`);
   return `${path}?${parts.join('&')}${hash}`;
 }
 

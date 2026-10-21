@@ -9,4 +9,5 @@
 - [x] Complete isolated real MySQL 5.7/8.0 and PostgreSQL 9.6/15 migration acceptance.
 - [x] Complete local Chrome HTTP integration and real analysis API/UI checks with a recording upstream; fix Request HTTP/1.1 upload compatibility.
 - [x] Complete real-provider text acceptance with test credentials and deploy backend before frontend.
+- [x] Apply the approved single desktop channel 3 contract; default Tuzi analysis to all registered OpenTu products (1/2/3), with no desktop testing product.
 - [ ] Complete real asynchronous provider terminal-state, cross-day and refund/adjustment acceptance before production rollout.

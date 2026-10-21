@@ -9,9 +9,35 @@ import {
   fetchWithTuziClientChannel,
 } from '../tuzi-client-attribution';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe('per-request channel attribution', () => {
+  it.each([
+    ['opentu-desktop-client-channel:3', 3],
+    ['opentu-desktop-client-channel:4', 0],
+    ['other:3', 0],
+    ['', 0],
+  ])('uses the single desktop channel with proof %s', (proof, expected) => {
+    vi.stubEnv('VITE_OPENTU_DESKTOP', 'true');
+    vi.stubGlobal('__OPENTU_DESKTOP_CHANNEL_PROOF__', proof);
+    for (const origin of [
+      'tauri://localhost',
+      'http://tauri.localhost',
+      'http://localhost:7201',
+      'https://opentu.ai',
+    ]) {
+      expect(readTuziClientChannel(origin)).toBe(expected);
+      expect(
+        withTuziClientChannel(
+          'https://api.tu-zi.com/v1/responses?ch=2&%63h=4&sig=a%2Fb',
+          readTuziClientChannel(origin)
+        )
+      ).toBe('https://api.tu-zi.com/v1/responses?sig=a%2Fb&ch=' + expected);
+    }
+  });
   it.each([
     ['https://opentu.ai', 1],
     ['https://pr.opentu.ai', 2],
@@ -22,7 +48,7 @@ describe('per-request channel attribution', () => {
     ['http://opentu.ai', 0],
     ['file://', 0],
     ['tauri://localhost', 0],
-  ])('maps %s to %s without enabling desktop channels', (origin, ch) => {
+  ])('maps %s to %s for web clients', (origin, ch) => {
     expect(readTuziClientChannel(origin)).toBe(ch);
   });
   it('replaces duplicate and encoded channel parameters while retaining every other query byte', () => {

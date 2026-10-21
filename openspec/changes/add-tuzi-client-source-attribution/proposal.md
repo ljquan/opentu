@@ -4,7 +4,7 @@
 Tuzi needs analytics for each request's OpenTu runtime, including ordinary imported keys. Credential issuance metadata cannot represent that runtime when keys are reused.
 
 ## What Changes
-- Add a single query `ch`: production web 1, test/localhost web 2, otherwise 0; desktop IDs remain reserved.
+- Add a single query `ch`: production web 1, test/localhost web 2, validated desktop release 3, otherwise 0; no desktop test channel. The user explicitly enabled the single desktop channel on 2026-10-21.
 - Attribute only exact trusted/configured Tuzi API origins at the final request boundary, including shared transport, independent media/text, plugins and local proxies.
 - Preserve credentials, headers, model bodies, other query bytes, abort behavior and signed asset downloads.
 - Tuzi captures/removes ch after authentication and freezes it in async billing snapshots; analytics exclude pre-activation history permanently.

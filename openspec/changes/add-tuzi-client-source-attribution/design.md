@@ -1,7 +1,7 @@
 # Design: v2.2 request channel
 
 ## Protocol and identity
-`ch` is client-reported analytics, not authenticated provenance. Exact page origins map to 1 (`https://opentu.ai`) and 2 (`https://pr.opentu.ai`, HTTP(S) loopback). Unknown/native origins map to 0; desktop 3/4 are disabled. Ordinary and managed keys follow the same request rule. Credential issuance/reuse is unchanged.
+`ch` is client-reported analytics, not authenticated provenance. Exact page origins map to 1 (`https://opentu.ai`) and 2 (`https://pr.opentu.ai`, HTTP(S) loopback). Validated desktop builds report 3 via the shared build proof before origin mapping. There is no desktop test channel; missing/invalid proofs remain 0. Unknown web origins map to 0. Ordinary and managed keys follow the same request rule. Credential issuance/reuse is unchanged.
 
 ## Final request boundary
 The shared helper accepts only HTTP(S), no URL credentials, and an exact trusted/currently configured Tuzi API origin. It removes all decoded `ch` keys and appends one current value, preserving other query bytes and the fragment. Fetch wrappers clone a Request only when its URL changes and preserve body, headers and abort behavior.
@@ -18,3 +18,6 @@ Existing large tables require an explicit audited schema command, never startup 
 
 ## Limits
 ch is forgeable. Disabled consumption/error logging yields incomplete analytics. Browser/live provider and real MySQL/PostgreSQL migration acceptance remain required before production rollout.
+
+## OpenTu product scope (2026-10-21)
+Tuzi defaults to all OpenTu channels (1/2/3) and offers one enabled desktop option. All summary, channel, model and trend queries exclude unregistered/unattributed traffic. Explicit ch=0 remains a compatibility query. Desktop packaging lives in the separate tuziapi/opentu repository; this web PR supplies the shared renderer contract and does not publish a desktop artifact.
