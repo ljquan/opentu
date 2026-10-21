@@ -29,6 +29,7 @@ import { insertCardsToCanvas } from '../../utils/insert-cards';
 import type { MCPResult } from '../../mcp/types';
 import type { DataURL } from '../../types';
 import { parseSizeToPixels } from '../../utils/size-ratio';
+import { readLocalImageOperation } from '../../utils/local-image-operation';
 import {
   getSelectedInsertionFrame,
   insertMediaIntoSelectedFrame,
@@ -172,6 +173,9 @@ function buildGenerationMetadataPatch(
   if (generationAnchorId) {
     patch.generationAnchorId = generationAnchorId;
   }
+
+  const localOperation = readLocalImageOperation(metadata?.localImageOperation);
+  if (localOperation) patch.localImageOperation = localOperation;
 
   return patch;
 }

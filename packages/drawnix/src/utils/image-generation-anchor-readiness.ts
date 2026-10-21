@@ -23,7 +23,7 @@ export function areImageGenerationResultsReady(
     resultIds.add(anchor.resultElementId);
   }
 
-  const images = board.children.filter(
+  const candidates = board.children.filter(
     (element) =>
       element.type === 'image' &&
       typeof element.url === 'string' &&
@@ -31,6 +31,22 @@ export function areImageGenerationResultsReady(
         taskIds.has(element.generationTaskId) ||
         element.generationAnchorId === anchor.id)
   );
+
+  // A history result can be inserted more than once. Old copies (including
+  // copies bound to another anchor) must not block this handoff.
+  const images = candidates.filter((image) => {
+    if (image.generationAnchorId === anchor.id || resultIds.has(image.id)) {
+      return true;
+    }
+    if (image.generationAnchorId) return false;
+    const hasSpecificResult = candidates.some(
+      (candidate) =>
+        candidate.generationTaskId === image.generationTaskId &&
+        (candidate.generationAnchorId === anchor.id ||
+          resultIds.has(candidate.id))
+    );
+    return !hasSpecificResult;
+  });
 
   if (images.length === 0) {
     return false;

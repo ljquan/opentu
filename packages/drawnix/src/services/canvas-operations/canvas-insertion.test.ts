@@ -174,6 +174,43 @@ describe('canvas insertion service metadata binding', () => {
     vi.unstubAllGlobals();
   });
 
+  it('persists only supported local resize fields on the inserted image', async () => {
+    const board = createBoard();
+    mocks.insertImageFromUrl.mockImplementation(
+      async (target: PlaitBoard, url: string) => {
+        target.children.push({ id: 'resized', type: 'image', url } as any);
+        return 'resized';
+      }
+    );
+    const record = {
+      type: 'resize',
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      outputWidth: 3840,
+      outputHeight: 2160,
+      algorithm: 'nearest',
+      createdAt: 1700000000000,
+      sourcePrompt: 'A lake',
+    };
+    const result = await executeCanvasInsertion({
+      board,
+      startPoint: [0, 0],
+      items: [
+        {
+          type: 'image',
+          content: '/resized.png',
+          metadata: {
+            localImageOperation: { ...record, apiKey: 'do-not-copy' },
+          },
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(board.children[0].localImageOperation).toEqual(record);
+    expect(board.children[0].generationTaskId).toBeUndefined();
+    expect(JSON.stringify(board.children)).not.toContain('do-not-copy');
+  });
+
   it('binds concurrent image metadata by the returned element ID', async () => {
     const board = createBoard();
     const first = deferred<string>();

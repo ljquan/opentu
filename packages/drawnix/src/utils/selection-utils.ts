@@ -155,6 +155,7 @@ export interface ProcessedContent {
     name?: string;
     width?: number;
     height?: number;
+    sourceElementId?: string;
   }[];
   remainingText: string;
   graphicsImage?: string;
@@ -1344,6 +1345,7 @@ export const processSelectedContentForAI = async (
     name?: string;
     width?: number;
     height?: number;
+    sourceElementId?: string;
   }[] = [];
   const remainingTexts: string[] = remainingElements
     .map((element) => getImageTransformPromptContext(element))
@@ -1360,7 +1362,16 @@ export const processSelectedContentForAI = async (
     // Extract images
     const elementImages = await extractImagesFromElementForAI(board, element);
     if (elementImages.length > 0) {
-      remainingImages.push(...elementImages);
+      remainingImages.push(
+        ...elementImages.map((image) => ({
+          ...image,
+          // Distinct canvas copies may share cached pixels. Keep their identity
+          // at extraction time instead of recovering it later from the URL.
+          ...(element.type === 'image' && element.url === image.url
+            ? { sourceElementId: element.id }
+            : {}),
+        }))
+      );
       // console.log('Found images from element:', elementImages.length);
     }
   }

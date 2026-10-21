@@ -432,6 +432,24 @@ describe('useImageGenerationAnchorSync', () => {
     dispatchSpy.mockRestore();
   });
 
+  it('finishes this handoff without waiting for old history copies bound to the same task', () => {
+    vi.useFakeTimers();
+    const anchor = createAnchor({ taskIds: ['task-1'], phase: 'inserting', resultElementId: 'image-1' });
+    const current = createImageElement({ generationAnchorId: anchor.id });
+    const old = createImageElement({ id: 'old-history-copy', generationAnchorId: 'old-anchor' });
+    const board = createBoard(anchor, [current, old]);
+    taskState.tasks = [createTask({ status: TaskStatus.COMPLETED, insertedToCanvas: true })];
+    completionState.byTaskId.set('task-1', {
+      taskId: 'task-1', status: 'completed', type: 'direct_insert', firstElementId: 'image-1',
+    });
+    renderHook(() => useImageGenerationAnchorSync({ board }));
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('inserting');
+    act(() => { registerCanvasImage(board, 'image-1', String(current.url)).setReady(true); });
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('completed');
+    act(() => { vi.advanceTimersByTime(1600); });
+    expect(board.children.map((item) => item.id)).toEqual(['image-1', 'old-history-copy']);
+  });
+
   it('cancels placeholder removal when the result source changes before handoff settles', () => {
     vi.useFakeTimers();
     const image = createImageElement();

@@ -58,6 +58,28 @@ describe('RetryImage', () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('completes an already decoded browser-cache image once and preserves its forwarded ref', async () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(100);
+    const loaded = vi.fn();
+    const ref = React.createRef<HTMLImageElement>();
+    render(<RetryImage ref={ref} src="data:image/png;base64,cached" alt="already loaded" onLoadSuccess={loaded} />);
+    await waitFor(() => expect(loaded).toHaveBeenCalledTimes(1));
+    expect(ref.current).toBe(screen.getByAltText('already loaded'));
+    expect(ref.current?.style.opacity).toBe('1');
+    fireEvent.load(ref.current as HTMLImageElement);
+    expect(loaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat a broken completed request as a decoded image', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(0);
+    const loaded = vi.fn();
+    render(<RetryImage src="data:image/png;base64,bad" alt="bad cache" onLoadSuccess={loaded} />);
+    expect(loaded).not.toHaveBeenCalled();
   });
 
   it('关闭 skeleton 时加载中的图片保持可见', () => {

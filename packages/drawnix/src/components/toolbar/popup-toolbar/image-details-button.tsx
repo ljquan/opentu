@@ -122,6 +122,12 @@ export function PopupImageDetailsButton({
   useEffect(() => {
     if (!open) return;
     let active = true;
+    if (image.localOperation) {
+      setLoad({ status: 'ready' });
+      return () => {
+        active = false;
+      };
+    }
     setLoad({ status: 'loading' });
     void findCanvasImageTask({ id, url, generationTaskId, kind }).then(
       (task) => {
@@ -134,7 +140,7 @@ export function PopupImageDetailsButton({
     return () => {
       active = false;
     };
-  }, [open, id, url, generationTaskId, kind, retry]);
+  }, [open, id, url, generationTaskId, kind, retry, image.localOperation]);
 
   const details = getCanvasImageDetails(
     image,
@@ -142,7 +148,13 @@ export function PopupImageDetailsButton({
   );
   const rows = [
     [
-      zh ? '生成时间' : 'Generation time',
+      image.localOperation
+        ? zh
+          ? '处理时间'
+          : 'Processing time'
+        : zh
+        ? '生成时间'
+        : 'Generation time',
       formatTime(details.createdAt, language),
     ],
     ...(details.completedAt
@@ -153,7 +165,20 @@ export function PopupImageDetailsButton({
           ],
         ]
       : []),
-    [zh ? '模型' : 'Model', details.model],
+    [
+      image.localOperation
+        ? zh
+          ? '处理方式'
+          : 'Operation'
+        : zh
+        ? '模型'
+        : 'Model',
+      image.localOperation
+        ? zh
+          ? '本地放大（非 AI）'
+          : 'Local resize (non-AI)'
+        : details.model,
+    ],
     ...(kind === 'image' || kind === 'video'
       ? [
           [
@@ -262,7 +287,7 @@ export function PopupImageDetailsButton({
         )}
         {load.status === 'ready' && (
           <>
-            {!load.task && (
+            {!load.task && !details.localOperation && (
               <p className="image-details-panel__missing">
                 {zh
                   ? `未找到该${kindLabel}的生成记录`
@@ -278,14 +303,70 @@ export function PopupImageDetailsButton({
               ))}
             </dl>
             <section>
-              <h4>{zh ? '提示词' : 'Prompt'}</h4>
+              <h4>
+                {details.localOperation
+                  ? zh
+                    ? '处理说明'
+                    : 'Processing'
+                  : zh
+                  ? '提示词'
+                  : 'Prompt'}
+              </h4>
               <p className="image-details-panel__prompt">
-                {details.prompt || unrecorded}
+                {details.localOperation
+                  ? zh
+                    ? '通过本地像素插值放大，不调用 AI，也不会增加图像细节。'
+                    : 'Resized locally using interpolation. No AI generation or added image detail.'
+                  : details.prompt || unrecorded}
               </p>
             </section>
             <section>
-              <h4>{zh ? '模型参数' : 'Model parameters'}</h4>
-              {details.parameters.length ? (
+              <h4>
+                {details.localOperation
+                  ? zh
+                    ? '放大参数'
+                    : 'Resize details'
+                  : zh
+                  ? '模型参数'
+                  : 'Model parameters'}
+              </h4>
+              {details.localOperation ? (
+                <dl className="image-details-panel__fields">
+                  <dt>{zh ? '原图尺寸' : 'Source dimensions'}</dt>
+                  <dd>
+                    {details.localOperation.sourceWidth} ×{' '}
+                    {details.localOperation.sourceHeight} px
+                  </dd>
+                  <dt>{zh ? '插值方式' : 'Interpolation'}</dt>
+                  <dd>
+                    {
+                      {
+                        high: zh ? '高质量' : 'High quality',
+                        bilinear: zh ? '平滑' : 'Bilinear',
+                        nearest: zh
+                          ? '最近邻（像素画）'
+                          : 'Nearest neighbor (pixel art)',
+                      }[details.localOperation.algorithm]
+                    }
+                  </dd>
+                  <dt>{zh ? '放大倍数（长边）' : 'Scale (long edge)'}</dt>
+                  <dd>
+                    {Number(
+                      (
+                        Math.max(
+                          details.localOperation.outputWidth,
+                          details.localOperation.outputHeight
+                        ) /
+                        Math.max(
+                          details.localOperation.sourceWidth,
+                          details.localOperation.sourceHeight
+                        )
+                      ).toFixed(2)
+                    )}
+                    ×
+                  </dd>
+                </dl>
+              ) : details.parameters.length ? (
                 <dl className="image-details-panel__fields">
                   {details.parameters.map(({ name, value }) => (
                     <React.Fragment key={name}>
@@ -298,6 +379,14 @@ export function PopupImageDetailsButton({
                 <p>{unrecorded}</p>
               )}
             </section>
+            {details.localOperation?.sourcePrompt && (
+              <section>
+                <h4>{zh ? '原图提示词' : 'Source prompt'}</h4>
+                <p className="image-details-panel__prompt">
+                  {details.localOperation.sourcePrompt}
+                </p>
+              </section>
+            )}
           </>
         )}
       </PopoverContent>

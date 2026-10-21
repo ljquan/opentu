@@ -3,6 +3,14 @@ import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { getDefaultPromptsByGenerationType } from '../../constants/prompts';
+import {
+  addSelectedElement,
+  createTestingBoard,
+  getSelectedElements,
+  PlaitBoard,
+  withOptions,
+  withSelection,
+} from '@plait/core';
 
 const mockPromptListPanel = vi.fn();
 const mockOpenTool = vi.hoisted(() => vi.fn());
@@ -71,6 +79,7 @@ vi.mock('../shared', () => ({
   PromptListPanel: ({
     title,
     items,
+    onSelect,
     onTitleClick,
   }: {
     title: string;
@@ -80,6 +89,7 @@ vi.mock('../shared', () => ({
       previewExamples?: Array<{ src: string; alt: string }>;
     }>;
     onTitleClick?: () => void;
+    onSelect: (item: { id: string; content: string }) => void;
   }) => {
     mockPromptListPanel({ title, items, onTitleClick });
     return (
@@ -88,7 +98,7 @@ vi.mock('../shared', () => ({
           {title}
         </button>
         {items.map((item) => (
-          <div key={item.id}>{item.content}</div>
+          <button key={item.id} type="button" onClick={() => onSelect(item)}>{item.content}</button>
         ))}
       </div>
     );
@@ -142,6 +152,30 @@ vi.mock('../../services/prompt-storage-service', () => ({
 }));
 
 describe('PromptHistoryPopover', () => {
+  it('keeps canvas reference selection when clicking the portalled history panel', async () => {
+    const { PromptHistoryPopover } = await import('./PromptHistoryPopover');
+    const onSelectPrompt = vi.fn();
+    const view = render(<PromptHistoryPopover generationType="image" onSelectPrompt={onSelectPrompt} language="zh" />);
+    await openPopover(view.container);
+    const item = screen.getByRole('button', { name: '本地图片历史' });
+    const image = { id: 'reference', type: 'image', points: [[0, 0], [100, 100]] };
+    const board = createTestingBoard([withOptions, withSelection], [image]);
+    board.selection = { anchor: [0, 0], focus: [0, 0] };
+    addSelectedElement(board, image);
+    const container = document.createElement('div');
+    const getContainer = vi.spyOn(PlaitBoard, 'getBoardContainer').mockReturnValue(container);
+    try {
+      const event = new Event('pointerup', { bubbles: true });
+      item.dispatchEvent(event);
+      board.globalPointerUp(event as PointerEvent);
+      fireEvent.click(item);
+      expect(onSelectPrompt).toHaveBeenCalledWith(expect.objectContaining({ content: '本地图片历史', modelType: 'image' }));
+      expect(board.selection).not.toBeNull();
+      expect(getSelectedElements(board)).toEqual([image]);
+    } finally {
+      getContainer.mockRestore();
+    }
+  });
   it('点击后在输入区之外显示面板，Escape 关闭', async () => {
     const { PromptHistoryPopover } = await import('./PromptHistoryPopover');
     const view = render(

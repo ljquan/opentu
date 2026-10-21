@@ -1,5 +1,7 @@
 # Opentu 开发文档
 
+- [主画布整合与工作流模式退役](./canvas-consolidation.md)：能力承接、旧数据恢复及删除边界；[QA](./qa-canvas-consolidation.md)。
+
 本目录只保留当前仍有维护价值的开发文档。产品介绍、安装和常用命令见 [项目 README](../README.md)。
 
 ## 必读入口

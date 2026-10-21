@@ -1,9 +1,0 @@
-{
-  "title": "商务合作",
-  "root": true,
-  "defaultOpen": true,
-  "pages": [
-    "license",
-    "business"
-  ]
-}

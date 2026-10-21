@@ -219,6 +219,8 @@ import { workflowCompletionService } from '../../services/workflow-completion-se
 import { ImageGenerationAnchorTransforms } from '../../plugins/with-image-generation-anchor';
 import { buildImageGenerationAnchorCreateOptions } from '../../utils/image-generation-anchor-submission';
 import { resolveImageGenerationBatchAnchorPositions } from '../../utils/image-generation-anchor-placement';
+import { resolveImageLineagePositions } from '../../utils/image-generation-lineage-placement';
+import { prepareImageGenerationReferences } from '../../services/canvas-operations/image-generation-references';
 import {
   buildImageGenerationAnchorPresentationPatch,
   type ImageGenerationAnchorPresentationState,
@@ -439,16 +441,20 @@ function linkWorkflowCanvasAssociationsToTaskTarget(
   if (!context || !targetElementId.trim()) return 0;
 
   try {
-    const lines = createCanvasAssociationLines(board, {
+    const batchTargets = board.children.filter((element) =>
+      element.type === 'generation-anchor' && element.workflowId === workflow.id
+    ).map((element) => element.id);
+    const targetIds = batchTargets.includes(targetElementId) ? batchTargets : [targetElementId];
+    const lines = targetIds.flatMap((resultElementId) => createCanvasAssociationLines(board, {
       ...context,
-      resultElementId: targetElementId,
+      resultElementId,
       workflowId: workflow.id,
-    });
+    }));
     const expectedLineCount = new Set(
       context.sourceElementIds.filter(
         (sourceElementId) => sourceElementId !== targetElementId
       )
-    ).size;
+    ).size * targetIds.length;
     if (lines.length < expectedLineCount) {
       console.warn(
         `[AIInputBar] Canvas association task links incomplete for workflow ${workflow.id}: expected ${expectedLineCount}, created ${lines.length}`
@@ -734,6 +740,7 @@ interface SelectedContent {
   name: string; // 显示名称
   width?: number; // 图片/视频宽度
   height?: number; // 图片/视频高度
+  sourceElementId?: string; // 本次引用的画布图片身份，不依赖后续选中状态
 }
 
 interface GenerationRequestOverride {
@@ -1151,6 +1158,7 @@ function selectedContentFromBoundTarget(
   return {
     type: target.type as 'image' | 'video' | 'audio',
     url: target.url,
+    sourceElementId: target.elementId,
     name:
       language === 'zh'
         ? referenceOnly
@@ -1460,6 +1468,7 @@ const SelectionWatcher: React.FC<{
 
             content.push({
               url: imgUrl,
+              sourceElementId: img.sourceElementId,
               maskImage: !isVideo ? processedContent.maskImage : undefined,
               name:
                 img.name ||
@@ -3816,33 +3825,29 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [applyCanvasAssociationPromptOverwrite, confirmOverwriteInputIfNeeded]
     );
 
-    // 处理历史提示词选择：将提示词回填到输入框并切换生成类型
+    // 我的提示词只追加正文，保留已准备好的参考内容和生成配置。
     const handleSelectHistoryPrompt = useCallback(
-      (info: { content: string; modelType?: PromptType }) => {
-        void confirmOverwriteInputIfNeeded().then((confirmed) => {
-          if (!confirmed) return;
-          applyCanvasAssociationPromptOverwrite(info.content);
-          setIsInspirationSendGuideActive(false);
-
-          // 根据 modelType 自动切换生成类型
-          if (info.modelType) {
-            if (info.modelType === 'image') {
-              setGenerationType('image');
-            } else if (info.modelType === 'video') {
-              setGenerationType('video');
-            } else if (info.modelType === 'audio') {
-              setGenerationType('audio');
-            } else if (info.modelType === 'text') {
-              setGenerationType('text');
-            } else if (info.modelType === 'agent') {
-              setGenerationType('agent');
-            }
-          }
-
-          inputRef.current?.focus();
-        });
+      (info: { content: string }) => {
+        const content = info.content.trim();
+        if (!content) return;
+        const currentPrompt = promptRef.current;
+        const separator = currentPrompt && !/\s$/.test(currentPrompt) ? '\n' : '';
+        const nextPrompt = `${currentPrompt}${separator}${content}`;
+        dismissPromptSuggestion();
+        pendingCanvasAssociationEditRef.current = null;
+        updateCanvasAssociationTrigger(null);
+        promptRef.current = nextPrompt;
+        setPrompt(nextPrompt);
+        saveActiveTaskbarDraft();
+        setIsInspirationSendGuideActive(false);
+        focusInput();
       },
-      [applyCanvasAssociationPromptOverwrite, confirmOverwriteInputIfNeeded]
+      [
+        dismissPromptSuggestion,
+        focusInput,
+        saveActiveTaskbarDraft,
+        updateCanvasAssociationTrigger,
+      ]
     );
 
     // 处理添加 Skill：打开知识库并定位到 Skill 目录，自动新建笔记
@@ -5648,7 +5653,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             parsedParams.prompt = effectivePrompt || getSunoV2Action(effectiveSelectedModel)?.label || effectiveSelectedModel;
           }
           let imageBoundTargetGenerationParams =
-            activeBoundImageTarget?.type === 'image'
+            activeBoundImageTarget?.type === 'image' && activeBoundImageTarget.semanticReplacement
               ? buildBoundTargetGenerationParams(
                   activeBoundImageTarget,
                   effectiveSelectedCount,
@@ -5723,6 +5728,26 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
           // 收集所有参考媒体（图片 + 图形 + 视频）
           const referenceImages = [...selection.images, ...selection.graphics];
+          let imageSourceIds: string[] = [];
+          if (parsedParams.generationType === 'image' && !replacementBoundImageTarget) {
+            if (!submittedBoard || !submittedDraftBoardId) throw new Error('画布尚未就绪，请稍后发送');
+            const referenceSources = await prepareImageGenerationReferences({
+              board: submittedBoard,
+              boardId: submittedDraftBoardId,
+              images: [...imageItems, ...graphicsItems].map((item) => ({
+                url: item.url || '',
+                name: item.name,
+                sourceElementId: item.sourceElementId,
+              })),
+              associations: resolvedCanvasAssociations,
+              emptyPosition: [submittedBoard.viewport?.origination?.[0] || 0, submittedBoard.viewport?.origination?.[1] || 0],
+              boardGuard: () => isSubmittedBoardCurrent(submittedBoard, submittedDraftBoardId, SelectionWatcherBoardRef.current, activeTaskbarBoardIdRef.current),
+            });
+            if (abortIfSubmittedBoardChanged('reference_sources_ready')) return;
+            resolvedCanvasAssociations = referenceSources.references;
+            imageSourceIds = referenceSources.imageSourceIds;
+            parsedParams.canvasAssociations = resolvedCanvasAssociations;
+          }
 
           if (
             parsedParams.generationType === 'video' &&
@@ -6051,40 +6076,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 ReturnType<typeof ImageGenerationAnchorTransforms.insertAnchor>
               > = [];
               const workflowBatchId = `wf_batch_${workflow.id}`;
-              const plannedAnchorPositions = !anchorTargetFrameId
-                ? resolveImageGenerationBatchAnchorPositions(
-                    board,
-                    [expectedInsertLeftX, expectedInsertY],
-                    buildImageGenerationAnchorCreateOptions({
-                      workflowId: workflow.id,
-                      expectedInsertPosition: [
-                        expectedInsertLeftX,
-                        expectedInsertY,
-                      ],
-                      requestedSize: parsedParams.size,
-                      requestedCount: 1,
-                      zoom,
-                      prompt: parsedParams.prompt,
-                      targetElementId: replacementBoundImageTarget?.elementId,
-                      sourceTaskId:
-                        replacementBoundImageTarget?.generationTaskId,
-                      title: workflowMessageData.name || '图片生成',
-                      ...buildImageGenerationAnchorPresentationPatch(
-                        'submitted'
-                      ),
-                    }).size ?? {
-                      width: 320,
-                      height: 180,
-                    },
+              const anchorSize = buildImageGenerationAnchorCreateOptions({
+                workflowId: workflow.id,
+                expectedInsertPosition: [expectedInsertLeftX, expectedInsertY],
+                requestedSize: parsedParams.size,
+                requestedCount: 1,
+                zoom,
+              }).size ?? { width: 400, height: 400 };
+              // Results fit a 400px width / 600px height envelope. Reserve it
+              // while auto aspect ratio is unknown, without stretching the card.
+              const reservedInsertSize = { width: Math.max(400, anchorSize.width), height: Math.max(600, anchorSize.height) };
+              const plannedAnchorPositions = anchorTargetFrameId
+                ? null
+                : !targetFrameId && !replacementBoundImageTarget
+                ? resolveImageLineagePositions(
+                    board, imageSourceIds, reservedInsertSize, requestedCount,
+                    [viewportCenterX - 200, viewportCenterY]
+                  )
+                : resolveImageGenerationBatchAnchorPositions(
+                    board, [expectedInsertLeftX, expectedInsertY], anchorSize,
                     requestedCount,
                     {
-                      frameRect: shouldCreateIndependentBatchAnchors
-                        ? targetFrameRect
-                        : undefined,
+                      frameRect: shouldCreateIndependentBatchAnchors ? targetFrameRect : undefined,
                       extraOccupiedRects: getRetainedTaskCardRectangles(board),
                     }
-                  )
-                : null;
+                  );
 
               for (let index = 0; index < requestedCount; index += 1) {
                 let anchorCreateOptions =
@@ -6103,6 +6119,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                       ? targetFrameDimensions
                       : undefined,
                     requestedSize: parsedParams.size,
+                    reservedInsertSize: !targetFrameId && !replacementBoundImageTarget ? reservedInsertSize : undefined,
                     requestedCount: shouldCreateIndependentBatchAnchors
                       ? 1
                       : requestedCount,

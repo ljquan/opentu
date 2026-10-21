@@ -55,6 +55,57 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('image details popover', () => {
+  it.each(['zh', 'en'] as const)(
+    'shows saved local resize details in %s without querying generation history',
+    async (language) => {
+      render(
+        <PopupImageDetailsButton
+          language={language}
+          autoOpenRequest={1}
+          image={{
+            ...image,
+            width: 3840,
+            height: 2160,
+            localOperation: {
+              type: 'resize',
+              sourceWidth: 1920,
+              sourceHeight: 1080,
+              outputWidth: 3840,
+              outputHeight: 2160,
+              algorithm: 'nearest',
+              createdAt: 1700000000000,
+              sourcePrompt: 'A mountain lake',
+            },
+          }}
+        />
+      );
+      expect(
+        await screen.findByText(
+          language === 'zh' ? '本地放大（非 AI）' : 'Local resize (non-AI)'
+        )
+      ).toBeTruthy();
+      expect(screen.getByText('3840 × 2160 px')).toBeTruthy();
+      expect(screen.getByText('1920 × 1080 px')).toBeTruthy();
+      expect(screen.getByText('2×')).toBeTruthy();
+      expect(screen.getByText('A mountain lake')).toBeTruthy();
+      expect(
+        screen.getByText(
+          language === 'zh'
+            ? '最近邻（像素画）'
+            : 'Nearest neighbor (pixel art)'
+        )
+      ).toBeTruthy();
+      expect(
+        screen.queryByText(
+          language === 'zh'
+            ? '未找到该图片的生成记录'
+            : 'No generation record found for this image'
+        )
+      ).toBeNull();
+      expect(taskQueueService.findImageTaskByResultUrl).not.toHaveBeenCalled();
+      expect(taskQueueService.getCompleteTask).not.toHaveBeenCalled();
+    }
+  );
   it.each([
     ['video', TaskType.VIDEO, '视频'],
     ['audio', TaskType.AUDIO, '音频'],

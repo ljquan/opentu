@@ -35,7 +35,6 @@ import { useDrawnix } from '../../../hooks/use-drawnix';
 import { useI18n } from '../../../i18n';
 import Menu from '../../menu/menu';
 import { useContext, useState, useCallback } from 'react';
-import { Workflow as WorkflowIcon } from 'lucide-react';
 import { MenuContentPropsContext } from '../../menu/common';
 import { EVENT } from '../../../constants';
 import { queueProviderSettingsNavigation } from '../../settings-dialog/provider-settings-navigation';
@@ -216,26 +215,6 @@ export const CloudSync = ({
   );
 };
 CloudSync.displayName = 'CloudSync';
-
-export const WorkflowModeMenuItem = ({
-  onOpenWorkflowMode,
-}: {
-  onOpenWorkflowMode: () => void;
-}) => {
-  const { t } = useI18n();
-  return (
-    <MenuItem
-      icon={<WorkflowIcon size={18} />}
-      data-testid="workflow-mode-button"
-      data-track="toolbar_click_menu_workflow_mode"
-      onSelect={onOpenWorkflowMode}
-      aria-label={t('menu.workflowMode')}
-    >
-      {t('menu.workflowMode')}
-    </MenuItem>
-  );
-};
-WorkflowModeMenuItem.displayName = 'WorkflowModeMenuItem';
 
 export const DebugPanel = () => {
   const { t } = useI18n();

@@ -46,7 +46,6 @@ export interface UnifiedToolbarProps {
    */
   onOpenCloudSync?: () => void;
   /** 工作流模式打开回调 */
-  onOpenWorkflowMode?: () => void;
   /**
    * (可选) 知识库开关回调
    */

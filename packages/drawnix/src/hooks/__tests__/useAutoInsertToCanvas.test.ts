@@ -1370,7 +1370,7 @@ describe('useAutoInsertToCanvas', () => {
     );
   });
 
-  it('skips association lines for later batch results, missing refs, and another active board', () => {
+  it('links later image batch results but skips missing refs and another active board', () => {
     const task = createCompletedImageTask({
       id: 'task-skipped-association',
       insertedToCanvas: true,
@@ -1395,7 +1395,11 @@ describe('useAutoInsertToCanvas', () => {
     act(() => {
       emitCompletionEvent(task.id, { firstElementId: 'result-later' });
     });
-    expect(mocks.retargetCanvasAssociationLines).not.toHaveBeenCalled();
+    expect(mocks.retargetCanvasAssociationLines).toHaveBeenCalledWith(
+      mocks.board,
+      expect.objectContaining({ sourceElementIds: ['source-1'], resultElementId: 'result-later' })
+    );
+    mocks.retargetCanvasAssociationLines.mockClear();
 
     task.params.batchIndex = 1;
     mocks.currentBoardId = 'board-2';
@@ -1597,6 +1601,7 @@ describe('useAutoInsertToCanvas', () => {
           boardId: 'board-1',
           sourceElementIds: ['source-1'],
           resultElementId,
+          previousResultElementId: resultElementId,
           workflowId: undefined,
           taskId: task.id,
         }

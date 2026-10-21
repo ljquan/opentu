@@ -156,7 +156,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
     onTaskPanelToggle,
     onOpenBackupRestore,
     onOpenCloudSync,
-    onOpenWorkflowMode,
     onOpenMediaLibrary,
     deferredFeaturesEnabled = false,
     minimizedToolsBarEnabled = false,
@@ -543,7 +542,6 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = React.memo(
               iconMode={isIconMode || isMobileOrTablet}
               onOpenBackupRestore={onOpenBackupRestore}
               onOpenCloudSync={onOpenCloudSync}
-              onOpenWorkflowMode={onOpenWorkflowMode}
             />
           </div>
 

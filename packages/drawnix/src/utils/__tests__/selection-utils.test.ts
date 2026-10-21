@@ -8,6 +8,7 @@ import {
   processSelectedContentForAI,
 } from '../selection-utils';
 import { FreehandShape } from '../../plugins/freehand/type';
+import { createBoard, RectangleClient } from '@plait/core';
 
 const mocks = vi.hoisted(() => ({
   cacheMediaFromBlob: vi.fn(async (url: string) => url),
@@ -72,6 +73,28 @@ function createMockMaskCanvas() {
 }
 
 describe('selection-utils', () => {
+  it('保留同地址图片各自的画布身份，并按画布位置排序', async () => {
+    const image = {
+      id: 'top',
+      type: 'image',
+      url: '/__aitu_cache__/image/shared.png',
+      width: 100,
+      height: 100,
+      points: [[0, 0], [100, 100]],
+    };
+    const second = { ...image, id: 'bottom', points: [[0, 200], [100, 300]] };
+    const board = createBoard([image, second]);
+    board.getRectangle = (element) =>
+      RectangleClient.getRectangleByPoints(element.points || []);
+    const result = await processSelectedContentForAI(board, ['bottom', 'top']);
+    expect(result.remainingImages.map((item) => item.sourceElementId)).toEqual([
+      'top', 'bottom',
+    ]);
+    expect(result.remainingImages.map((item) => item.url)).toEqual([
+      image.url, image.url,
+    ]);
+  });
+
   describe('isGraphicsElement', () => {
     it('蒙版画笔不作为普通图形合成', () => {
       const board = { children: [] };

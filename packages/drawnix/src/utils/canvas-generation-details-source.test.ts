@@ -10,6 +10,43 @@ vi.mock('../plugins/with-tool', () => ({
 }));
 
 describe('canvas generation details sources', () => {
+  it('reads persisted resize pixels instead of the display size and rejects invalid records', () => {
+    const localImageOperation = {
+      type: 'resize',
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      outputWidth: 3840,
+      outputHeight: 2160,
+      algorithm: 'high',
+      createdAt: 1700000000000,
+    };
+    const image = {
+      id: 'local',
+      type: 'image',
+      url: '/local.png',
+      width: 400,
+      height: 225,
+      localImageOperation,
+    };
+    const restored = JSON.parse(JSON.stringify(image));
+    expect(getCanvasGenerationDetailsSource(restored)).toMatchObject({
+      width: 3840,
+      height: 2160,
+      localOperation: localImageOperation,
+    });
+    expect(
+      getCanvasGenerationDetailsSource({
+        ...image,
+        localImageOperation: { ...localImageOperation, outputWidth: -1 },
+      })?.localOperation
+    ).toBeUndefined();
+    expect(
+      getCanvasGenerationDetailsSource({
+        ...image,
+        localImageOperation: { ...localImageOperation, algorithm: 'unknown' },
+      })?.localOperation
+    ).toBeUndefined();
+  });
   it.each([
     [{ type: 'image', url: '/image.png' }, 'image'],
     [{ type: 'image', isVideo: true, url: '/video.mp4' }, 'video'],

@@ -21,7 +21,7 @@ import type { CanvasAssociationRef } from '../types/shared/core.types';
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
 
 const ASSOCIATION_STROKE_COLOR = '#000000';
-const ASSOCIATION_STROKE_WIDTH = 2;
+const ASSOCIATION_STROKE_WIDTH = 3;
 const ASSOCIATION_LINE_SHAPE = ArrowLineShape.curve;
 const SYSTEM_ELEMENT_TYPES = new Set(['generation-anchor', 'workzone']);
 const MAX_DEFERRED_ASSOCIATION_LINKS = 256;

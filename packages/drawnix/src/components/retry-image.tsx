@@ -228,6 +228,15 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     const currentSourceRef = useRef(normalizedSrc);
     const mountedRef = useRef(true);
     const sourceVersionRef = useRef(0);
+    const imageElementRef = useRef<HTMLImageElement | null>(null);
+    const setImageElementRef = useCallback(
+      (element: HTMLImageElement | null) => {
+        imageElementRef.current = element;
+        if (typeof ref === 'function') ref(element);
+        else if (ref) ref.current = element;
+      },
+      [ref]
+    );
     currentSourceRef.current = normalizedSrc;
 
     const clearLoadTimeout = useCallback(() => {
@@ -333,7 +342,8 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
             recovery.element !== event.currentTarget ||
             !recoveredSrc ||
             recovery.failedSrc === recoveredSrc
-          ) return;
+          )
+            return;
           setImageSrc(recoveredSrc);
         }
         externalRecoveryRef.current = null;
@@ -538,6 +548,27 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       clearLoadTimeout,
     ]);
 
+    // Browser-cached images can finish before the component subscribes/reset
+    // effects settle. A decoded image must still acknowledge the canvas load.
+    useEffect(() => {
+      const image = imageElementRef.current;
+      if (
+        !settledRef.current &&
+        image?.complete &&
+        image.naturalWidth > 0 &&
+        image.getAttribute('src') === imageSrc &&
+        (imageSrc === normalizedSrc || imageSrc === blobUrlRef.current)
+      ) {
+        image.dispatchEvent(new Event('load'));
+      }
+    }, [
+      imageSrc,
+      normalizedSrc,
+      preferCachedBlob,
+      deferCacheRead,
+      skipCacheFallback,
+    ]);
+
     // One deadline for the entire eager preview, including retry delays and
     // cache reads. Lazy/offscreen images keep the existing loading behavior.
     useEffect(() => {
@@ -608,7 +639,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     const imageElement = (
       <img
         {...imgProps}
-        ref={ref}
+        ref={setImageElementRef}
         src={imageSrc}
         alt={alt}
         loading={shouldEagerLoad ? 'eager' : 'lazy'}

@@ -1,3 +1,4 @@
+import type { LocalImageOperationDetails } from './local-image-operation';
 import { taskQueueService } from '../services/task-queue';
 import { resolveTaskInvocationRouteModel } from '../services/task-invocation-route';
 import { TaskType, type Task } from '../types/task.types';
@@ -12,6 +13,7 @@ export interface CanvasImageDetailsSource {
   generationTaskId?: string;
   kind?: 'image' | 'video' | 'audio' | 'text';
   duration?: number;
+  localOperation?: LocalImageOperationDetails;
 }
 
 export async function findCanvasImageTask(
@@ -128,6 +130,7 @@ export function getCanvasImageDetails(
   image: CanvasImageDetailsSource,
   task?: Task
 ) {
+  if (image.localOperation) task = undefined;
   // Only generation settings are projected; never serialize the full task or route.
   const parameters: Record<string, ParameterValue> = {};
   if (task) {
@@ -145,13 +148,17 @@ export function getCanvasImageDetails(
     typeof routeModel === 'string'
       ? routeModel
       : routeModel?.modelId || task?.params.model;
-  const width = image.width || task?.result?.width;
-  const height = image.height || task?.result?.height;
+  const width =
+    image.localOperation?.outputWidth || image.width || task?.result?.width;
+  const height =
+    image.localOperation?.outputHeight || image.height || task?.result?.height;
   return {
-    createdAt: task?.createdAt,
+    createdAt: task?.createdAt || image.localOperation?.createdAt,
     completedAt: task?.completedAt,
     model,
-    prompt: task?.params.prompt || image.prompt,
+    prompt:
+      task?.params.prompt || (image.localOperation ? undefined : image.prompt),
+    localOperation: image.localOperation,
     dimensions:
       (!image.kind || image.kind === 'image' || image.kind === 'video') &&
       width &&

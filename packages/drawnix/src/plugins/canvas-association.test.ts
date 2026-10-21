@@ -272,7 +272,7 @@ describe('canvas association', () => {
     const line = board.children.find(isCanvasAssociationLine);
 
     expect(line?.strokeColor).toBe('#000000');
-    expect(line?.strokeWidth).toBe(2);
+    expect(line?.strokeWidth).toBe(3);
     expect(line?.shape).toBe(ArrowLineShape.curve);
     expect(board.history.undos).toHaveLength(0);
   });
@@ -295,7 +295,7 @@ describe('canvas association', () => {
     });
     const loadedChildren = persistedBoard.children.map((element) =>
       element.id === persistedLine.id
-        ? { ...element, strokeColor: '#8b8b8b', strokeWidth: 1 }
+        ? { ...element, strokeColor: '#000000', strokeWidth: 2 }
         : element
     );
     const board = createHistoryBoard([
@@ -309,7 +309,7 @@ describe('canvas association', () => {
     const line = board.children.find(isCanvasAssociationLine);
 
     expect(line?.strokeColor).toBe('#000000');
-    expect(line?.strokeWidth).toBe(2);
+    expect(line?.strokeWidth).toBe(3);
     expect(board.history.undos).toHaveLength(0);
   });
 
@@ -381,7 +381,7 @@ describe('canvas association', () => {
     expect(isCanvasAssociationLine(line)).toBe(true);
     expect(line.locked).toBe(true);
     expect(line.strokeColor).toBe('#000000');
-    expect(line.strokeWidth).toBe(2);
+    expect(line.strokeWidth).toBe(3);
     expect(line.shape).toBe(ArrowLineShape.curve);
     expect(line.source.boundId).toBeUndefined();
     expect(line.target.boundId).toBeUndefined();
@@ -478,7 +478,7 @@ describe('canvas association', () => {
     ).toBe(false);
     expect(
       persistedLines.every(
-        (line) => line.strokeColor === '#000000' && line.strokeWidth === 2
+        (line) => line.strokeColor === '#000000' && line.strokeWidth === 3
       )
     ).toBe(true);
   });

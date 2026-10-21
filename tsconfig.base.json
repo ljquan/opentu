@@ -22,7 +22,6 @@
       "tdesign-react": ["packages/drawnix/src/utils/tdesign.ts"],
       "@plait-board/react-board": ["packages/react-board/src/index.ts"],
       "@plait-board/react-text": ["packages/react-text/src/index.ts"],
-      "@/*": ["packages/drawnix/src/workflow-mode/web/src/*"]
     }
   },
   "exclude": ["node_modules", "tmp"]

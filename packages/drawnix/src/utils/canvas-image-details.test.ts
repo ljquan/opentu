@@ -36,6 +36,32 @@ const task: Task = {
 beforeEach(() => vi.resetAllMocks());
 
 describe('canvas image generation details', () => {
+  it('keeps local operation time and pixels independent of an unrelated generation task', () => {
+    const details = getCanvasImageDetails(
+      {
+        ...image,
+        width: 400,
+        height: 400,
+        localOperation: {
+          type: 'resize',
+          sourceWidth: 1920,
+          sourceHeight: 1920,
+          outputWidth: 3840,
+          outputHeight: 3840,
+          algorithm: 'high',
+          createdAt: 1800000000000,
+        },
+      },
+      task
+    );
+    expect(details).toMatchObject({
+      createdAt: 1800000000000,
+      dimensions: '3840 × 3840 px',
+      parameters: [],
+    });
+    expect(details.model).toBeUndefined();
+    expect(details.prompt).toBeUndefined();
+  });
   it('reports a failed legacy media lookup instead of treating it as no record', async () => {
     vi.mocked(taskQueueService.getAllTasks).mockReturnValue([]);
     vi.mocked(taskStorageReader.findMediaTaskIdByResultUrl).mockRejectedValue(

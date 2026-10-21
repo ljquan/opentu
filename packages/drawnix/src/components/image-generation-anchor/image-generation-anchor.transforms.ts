@@ -65,6 +65,7 @@ export const ImageGenerationAnchorTransforms = {
       batchTotal: options.batchTotal,
       expectedInsertPosition:
         options.expectedInsertPosition ?? options.position,
+      reservedInsertSize: options.reservedInsertSize,
       targetFrameId: options.targetFrameId,
       targetFrameDimensions: options.targetFrameDimensions,
       frameAffinityId: options.frameAffinityId,

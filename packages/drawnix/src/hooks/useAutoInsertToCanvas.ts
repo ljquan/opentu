@@ -397,7 +397,9 @@ function linkCanvasAssociationsToResult(
   task: Task,
   resultElementId: string
 ): void {
-  if (!isCanonicalCanvasAssociationTask(task)) return;
+  const batchIndex = task.params?.batchIndex;
+  if (typeof batchIndex === 'number' && (!Number.isInteger(batchIndex) || batchIndex < 1)) return;
+  if (task.type !== TaskType.IMAGE && !isCanonicalCanvasAssociationTask(task)) return;
   if (!canInsertTaskCanvasAssociationsOnCurrentBoard(task, board)) return;
 
   const associations = getTaskCanvasAssociations(task);
@@ -420,6 +422,7 @@ function linkCanvasAssociationsToResult(
     if (sourceElementIds.length === 0) return;
 
     const temporaryTargetElementId =
+      getTaskAnchorId(task) ||
       findImageGenerationAnchorForTask(board, task)?.id ||
       findWorkZoneForTask(board, task.id)?.id;
 
@@ -431,6 +434,8 @@ function linkCanvasAssociationsToResult(
       taskId: task.id,
       ...(temporaryTargetElementId
         ? { previousResultElementId: temporaryTargetElementId }
+        : task.type === TaskType.IMAGE
+        ? { previousResultElementId: resultElementId }
         : {}),
     });
   } catch (error) {

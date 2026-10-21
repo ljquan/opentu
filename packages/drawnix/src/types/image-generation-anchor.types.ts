@@ -64,6 +64,8 @@ export interface ImageGenerationAnchorSubmissionContext {
   workflowId: string;
   taskIds?: string[];
   expectedInsertPosition?: Point;
+  /** Space reserved for the result while its actual aspect ratio is unknown. */
+  reservedInsertSize?: { width: number; height: number };
   prompt?: string;
   resultElementId?: string;
   targetElementId?: string;
@@ -118,6 +120,7 @@ export interface ImageGenerationAnchorCreateOptions
 
 export interface PlaitImageGenerationAnchor extends PlaitElement {
   type: 'generation-anchor';
+  reservedInsertSize?: { width: number; height: number };
   points: [Point, Point];
   angle: number;
   anchorType: ImageGenerationAnchorType;

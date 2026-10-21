@@ -113,6 +113,13 @@ describe('canvas image automatic loading', () => {
     expect(isCanvasImageReady(props.board, 'a', 'data:image/png;base64,bad')).toBe(false);
   });
 
+  it('acknowledges an image already decoded by the browser without waiting for another load event', async () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(1920);
+    render(<CanvasImage {...props} />);
+    await waitFor(() => expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(true));
+  });
+
   it('preserves an opaque video URL and the poster stored on its element', () => {
     const url = '/media/opaque-id';
     render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }}

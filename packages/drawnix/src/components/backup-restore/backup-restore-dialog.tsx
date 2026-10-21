@@ -6,7 +6,7 @@
  */
 
 import { Dialog, DialogContent } from '../dialog/dialog';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { Checkbox, MessagePlugin, Progress } from 'tdesign-react';
 import { UploadIcon } from 'tdesign-icons-react';
 import { useConfirmDialog } from '../dialog/ConfirmDialog';
@@ -22,6 +22,8 @@ import { workspaceService } from '../../services/workspace-service';
 import { safeReload } from '../../utils/active-tasks';
 import './backup-restore-dialog.scss';
 
+const LegacyCanvasRecovery = lazy(() => import('./legacy-canvas-recovery').then(module => ({ default: module.LegacyCanvasRecovery })));
+
 export interface BackupRestoreDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,7 +37,7 @@ export interface BackupRestoreDialogProps {
   onBeforeImport?: () => Promise<void>;
 }
 
-type TabType = 'backup' | 'restore';
+type TabType = 'backup' | 'restore' | 'legacy';
 
 export const BackupRestoreDialog = ({
   open,
@@ -58,7 +60,7 @@ export const BackupRestoreDialog = ({
     return Number.isNaN(parsed) ? null : parsed;
   };
 
-  const [activeTab, setActiveTab] = useState<TabType>('backup');
+  const [activeTab, setActiveTab] = useState<TabType>(() => (/^\/workflow(?:\/|$)/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('legacyData') === '1') ? 'legacy' : 'backup');
   const [backupOptions, setBackupOptions] = useState<BackupOptions>({
     includePrompts: true,
     includeProjects: true,
@@ -345,8 +347,8 @@ export const BackupRestoreDialog = ({
             className={`backup-restore-dialog__tab ${
               activeTab === 'backup' ? 'backup-restore-dialog__tab--active' : ''
             }`}
-            onClick={() => setActiveTab('backup')}
             disabled={isProcessing}
+            onClick={() => setActiveTab('backup')}
           >
             备份
           </button>
@@ -356,14 +358,16 @@ export const BackupRestoreDialog = ({
                 ? 'backup-restore-dialog__tab--active'
                 : ''
             }`}
-            onClick={() => setActiveTab('restore')}
             disabled={isProcessing}
+            onClick={() => setActiveTab('restore')}
           >
             恢复
           </button>
+          <button type="button" disabled={isProcessing} className={`backup-restore-dialog__tab ${activeTab === 'legacy' ? 'backup-restore-dialog__tab--active' : ''}`} onClick={() => setActiveTab('legacy')}>旧工作流数据</button>
         </div>
 
         {/* 备份面板 */}
+        {activeTab === 'legacy' && <Suspense fallback={<p role="status">正在加载旧数据工具…</p>}><LegacyCanvasRecovery onBusyChange={setIsProcessing} /></Suspense>}
         {activeTab === 'backup' && (
           <div className="backup-restore-dialog__panel">
             <div className="backup-restore-dialog__body">
