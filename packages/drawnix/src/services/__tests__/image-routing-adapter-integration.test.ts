@@ -205,7 +205,7 @@ describe('image routing to default registered adapters', () => {
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0]?.[0]).toBe(
-      'https://api.tu-zi.com/v1/images/generations'
+      'https://api.tu-zi.com/v1/images/generations?ch=2'
     );
     expect(result.url).toBe('https://example.com/generated.png');
   });
@@ -257,7 +257,7 @@ describe('image routing to default registered adapters', () => {
     );
 
     expect(fetcher.mock.calls[0]?.[0]).toBe(
-      'https://api.tu-zi.com/v1/images/generations'
+      'https://api.tu-zi.com/v1/images/generations?ch=2'
     );
   });
 
@@ -337,7 +337,7 @@ describe('image routing to default registered adapters', () => {
       expect(onSubmissionAttempt).toHaveBeenCalledOnce();
       expect(fetcher).toHaveBeenCalledOnce();
       const [url, init] = fetcher.mock.calls[0];
-      expect(url).toBe('https://api.tu-zi.com/v1/images/edits');
+      expect(url).toBe('https://api.tu-zi.com/v1/images/edits?ch=2');
       const headers = new Headers(init?.headers);
       expect(headers.get('Authorization')).toBe('Bearer test-key');
       expect(headers.get('X-Request-Id')).toBe('masked-edit-1');
@@ -366,7 +366,7 @@ describe('image routing to default registered adapters', () => {
       baseUrl: tuziProfile.baseUrl, apiKey: 'test-key', binding, fetcher,
     }, { model: 'image-2.5', prompt: 'Edit cup', referenceImages: [png], maskImage: png });
     expect(adapter.id).toBe('tuzi-gpt-image-adapter');
-    expect(fetcher.mock.calls[0]?.[0]).toBe('https://api.tu-zi.com/v1/images/edits');
+    expect(fetcher.mock.calls[0]?.[0]).toBe('https://api.tu-zi.com/v1/images/edits?ch=2');
     const form = fetcher.mock.calls[0]?.[1]?.body as FormData;
     expect(form.get('model')).toBe('image-2.5');
     expect(form.get('mask')).toBeInstanceOf(Blob);

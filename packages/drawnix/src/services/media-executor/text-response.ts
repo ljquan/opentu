@@ -1,4 +1,5 @@
 import type { GeminiMessage } from '../../utils/gemini-api/types';
+import { fetchWithTuziClientChannel, withTuziClientChannel } from '../tuzi-client-attribution';
 
 export function textCompletionPath(baseUrl: string, submitPath?: string, multimodal = false): string {
   if (submitPath && !['/chat/completions', '/v1/chat/completions', '/responses', '/v1/responses'].includes(submitPath)) return submitPath;
@@ -30,6 +31,7 @@ export function textRequestBody(path: string, body: { model: string; messages: G
 
 // Only the local OpenTu host is known to provide this same-origin proxy.
 export const fetchTextCompletion: typeof fetch = (input, init) => {
+  if (typeof input === 'string') input = withTuziClientChannel(input);
   if (typeof input === 'string' && typeof window !== 'undefined' &&
       ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) {
     const url = new URL(input, window.location.origin);
@@ -37,7 +39,7 @@ export const fetchTextCompletion: typeof fetch = (input, init) => {
       return fetch(`/__opentu_tuzi_session__${url.pathname}${url.search}`, init);
     }
   }
-  return fetch(input, init);
+  return fetchWithTuziClientChannel(input, init);
 };
 
 export function extractCompletionText(payload: unknown): string {

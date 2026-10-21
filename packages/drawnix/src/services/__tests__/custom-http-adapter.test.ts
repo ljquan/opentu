@@ -346,7 +346,7 @@ describe('custom-http-adapter', () => {
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith(
-      'https://bus.tu-zi.com/v1/images/generations',
+      'https://bus.tu-zi.com/v1/images/generations?ch=2',
       expect.objectContaining({ method: 'POST' })
     );
   });

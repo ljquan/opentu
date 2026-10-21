@@ -175,6 +175,16 @@
 - 日志 `/tmp/opentu-pr-before-sync-tests.log`、`/tmp/opentu-pr-final-tests{,-serial}.log`、`/tmp/opentu-pr-final-{utils-tests,sw-tests,types,web-types,utils-types,build,sw-build,startup}.log`；lint 当前结果与上游对照见 `/tmp/opentu-pr-final-lint.json` 和 `/tmp/opentu-pr-lint-comparison.json`（清理前记录的唯一新增 any 警告已消除）。
 - QA/DOC 沿用并更新本文件和 `canvas-consolidation.md`。OpenSpec CLI strict 未执行；未执行页面、Windows、真实旧数据库、真实供应商或压力测试。删除独立模式是有意的兼容变化，旧数据只读保留，导入需用户在原站点备份后操作；回滚代码不会撤销用户已导入的新画布。截图的 resolution 参数错误仍不在本次修复范围。PR 仅供审查，未合并、未部署。
 
+## #315 / #316 冲突处理（2026-10-21）
+
+- 用户最终明确只要求处理两个 PR 的冲突，由上级合并；未合并 #315 或 #316，未部署。将 #315 分支 `codex/opentu-client-channel-v22` 的 `e340a6d6` 合入 #316 功能分支，保留合并历史，目标 PR 仍为 `develop`。
+- 10 个冲突分别为 CHANGELOG 内容冲突，以及旧模式的 6 个业务代码、2 个内部文档、1 个恢复测试的修改/删除冲突。合并两条 Unreleased 记录，沿用已批准的工作流退役决定删除 9 个旧模式文件；同时移除 #315 新增、不会自动报冲突的 `native-client-channel.test.ts`，避免复活旧目录。
+- #315 在模式外的 11 个共享源码/测试文件与原分支逐字节比较一致，保留渠道判定、请求注入、Request 重写、取消信号、恢复和传输语义；没有在冲突处理中重写其实现。旧模式专属实现及测试不继续运行。
+- 联动回归 43 文件 838 项通过，涵盖上一轮 606 项功能回归及渠道/传输相关 232 项；utils 25 文件 473 项、SW 7 文件 43 项通过，合计 75 文件 1,354 项通过。drawnix/Web TypeScript、应用/SW 构建、源目录与构建资源删除、启动 bundle 和差异检查通过；无页面、真实供应商或收费请求。
+- 对渠道相关 6 个源码/测试文件执行 ESLint，保留 #315 原有 6 个错误、7 条警告；对有诊断的文件用 #315 源码按同路径 stdin 对照，无新增诊断。此前本 PR 已核实的旧 lint 问题仍保留，不声称 lint 全绿。
+- 日志与文件清单位于 `/tmp/opentu-pr315-316-{test-paths.txt,tests.log,utils-tests.log,sw-tests.log,types.log,web-types.log,build.log,sw-build.log,lint.json,lint-comparison.json}`。两个 PR 原远程 CI 和 Netlify 失败未在本次扩大修复，后续状态以新提交检查为准。
+- 审查与合并建议：#316 已包含 #315 的提交，当前相对 develop 的差异会显示渠道归因的依赖改动。上级先对 #315 使用 Create a merge commit，再合并 #316，可保留本次冲突处理的共同祖先；如对 #315 使用 Squash/Rebase，提交身份会变化，需要在 #315 合并后再次同步 develop，不能保证无需再处理修改/删除冲突。
+
 ## 历史有结果但画布停在“正在显现”
 
 - 沿自动插入、生成占位 readiness、画布 Image/RetryImage 与缓存读取路径排查，修复两种可复现的等待问题：同一历史任务旧副本阻止当前结果交接；浏览器图片已经解码，但组件未收到新的 load 事件而未确认就绪。
