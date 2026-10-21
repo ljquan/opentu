@@ -202,7 +202,7 @@ describe('image generation recovery service', () => {
 
     const [url, init] = fetcher.mock.calls[0] || [];
     expect(String(url)).toBe(
-      'https://bus.tu-zi.com/v1/images/generations/result?request_id=submission-1'
+      'https://bus.tu-zi.com/v1/images/generations/result?request_id=submission-1&ch=2'
     );
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
@@ -218,7 +218,7 @@ describe('image generation recovery service', () => {
   });
 
   it('queries a main Tuzi task directly after page recovery', async () => {
-    vi.stubGlobal('location', { hostname: 'opentu.ai' });
+    vi.stubGlobal('location', new URL('https://opentu.ai'));
     const plan = createPlan();
     plan.provider.baseUrl = 'https://api.tu-zi.com/v1';
     const fetcher = vi.fn(async () =>
@@ -246,7 +246,7 @@ describe('image generation recovery service', () => {
 
     const [url, init] = fetcher.mock.calls[0] || [];
     expect(String(url)).toBe(
-      'https://api.tu-zi.com/v1/images/generations/result?request_id=submission-main'
+      'https://api.tu-zi.com/v1/images/generations/result?request_id=submission-main&ch=1'
     );
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
