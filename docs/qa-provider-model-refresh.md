@@ -1,5 +1,23 @@
 # Provider Model Refresh QA
 
+## 2026-10-22：PR 最终集成验证
+
+功能分支 `dev/fix-selected-previews-and-model-discovery`，目标 `origin/develop`。本次 PR 统一交付选中图片预览恢复、较新兼容默认模型与公开价格目录认证修复。原有独立 `src/data/image.test.ts` 修改不纳入 PR。
+
+先运行基础回归并提交任务改动，再显式 `git fetch origin develop` 和 `git merge origin/develop`。最新上游仍为 `68f2ca1beb0e8751f275f3ea1022ca53c88797a1`（v1.2.1），合并返回 `Already up to date`，没有新增冲突。此前已自动合并的 RetryImage 上游浏览器缓存完成确认与本地迟到事件保护均保留。
+
+最终验证使用 macOS、Node v26.8.1、pnpm 10.21.0，单独保存无关测试修改后执行，避免依赖未提交内容：
+
+- 使用下节同步验证的 Vitest 命令，去掉不属于 PR 的 `src/data/image.test.ts`：14 个文件、222 项全部通过，提交前及上游合并后各运行一次。包括双图独立加载、超时/失败重试、缓存延迟就绪、迟到事件、换源/卸载、已解码缓存、蒙版、供应商鉴权边界、错误脱敏与不缓存失败、一次性默认模型升级及自定义配置保留。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，39.17 秒；既有 Sass、Browserslist、混合导入、大 chunk 与 `.npmrc` 占位提示仍存在。
+- 对 PR 的 10 个 TS/TSX 文件执行完整 ESLint：1 error、23 warnings。唯一错误是 `retry-image.tsx` 原有 `@aitu/utils` 导入触发 `@nx/enforce-module-boundaries`；使用 `git show origin/develop:packages/drawnix/src/components/retry-image.tsx | pnpm exec eslint --stdin --stdin-filename packages/drawnix/src/components/retry-image.tsx` 在未修改的上游源码复现相同错误。仅命令级关闭此规则后，同一批文件为 0 errors、23 warnings，仓库规则未变更。
+- `git diff --check origin/develop...HEAD` 及最终工作区差异检查通过，没有未解决冲突。
+
+继续使用已有三份 QA 与两份维护说明，不新建重复 DOC。本次 PR 准备阶段未重复页面测试、未运行完整仓库测试/Windows 验证、未调用真实生成接口或部署；此前缩略图真实页面回归及用户确认模型获取恢复的证据分别见对应日期记录。此前 Seedance 偏好测试的基线失败不在本次 222 项范围内，不声称全仓库测试或完整 lint 通过。
+
+无需新增依赖、环境变量或服务部署顺序。刷新应用后可手工验收双图缩略图、失败重试和模型获取；默认值仅对匹配的 Tuzi 旧兼容配置执行一次升级，自定义模型及其他供应商保留。回滚可撤回本次代码提交；如需恢复旧模型，在设置中手动选择，回滚代码不会自动撤销已保存的模型选择或迁移标记。PR 提交不包含合并或生产部署授权。
+
 ## 2026-10-22：同步远程 develop 并保留本地修复
 
 目录 `/Users/lkj/Desktop/working/opentu1`，分支 `develop`。显式获取 `origin/develop` 后，从 `7b3aa15e` 快进到 `68f2ca1b`（v1.2.1）；本地 HEAD 与本次获取的远程提交完全一致。直接连接 GitHub 超时后，使用命令级 HTTP/1.1 与本机代理完成获取，没有修改全局 Git 配置。
