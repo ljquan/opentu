@@ -1,5 +1,80 @@
 # Provider Model Refresh QA
 
+## 2026-10-22：同步远程 develop 并保留本地修复
+
+目录 `/Users/lkj/Desktop/working/opentu1`，分支 `develop`。显式获取 `origin/develop` 后，从 `7b3aa15e` 快进到 `68f2ca1b`（v1.2.1）；本地 HEAD 与本次获取的远程提交完全一致。直接连接 GitHub 超时后，使用命令级 HTTP/1.1 与本机代理完成获取，没有修改全局 Git 配置。
+
+同步前备份了全部 18 个本地修改/新增文件、二进制差异与 SHA-256 清单，并创建独立 stash；快进后使用 `stash apply` 恢复，保留本次及此前已有 stash。16 个文件与同步前备份逐字节一致，`retry-image.tsx` 及其测试自动合并了上游浏览器已解码缓存图片的完成确认与本地 Blob 迟到事件保护、有限缓存重读逻辑，没有未解决的冲突。选中图片预览、兼容默认模型、公开价格目录认证修复以及原有 `data/image.test.ts` 的 FileReader 修改均保留。随后仅在本 QA 文件补充同步记录。
+
+macOS、Node v26.8.1，使用现有依赖执行：
+
+```sh
+cd packages/drawnix
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/retry-image.test.tsx \
+  src/components/shared/SelectedContentPreview.test.tsx \
+  src/components/ai-input-bar/BoundImageContentPreview.test.tsx \
+  src/components/chat-drawer/__tests__/EnhancedChatInput.test.tsx \
+  src/services/unified-cache-service.test.ts \
+  src/utils/image-operation-timeout.test.ts \
+  src/utils/__tests__/model-pricing-service.test.ts \
+  src/services/provider-model-catalog.test.ts \
+  src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/services/__tests__/settings-repository.test.ts \
+  src/utils/__tests__/settings-manager.test.ts \
+  src/constants/__tests__/model-config.test.ts \
+  src/plugins/components/image.loading.test.tsx \
+  src/data/image.test.ts --silent
+```
+
+- 15 个文件、234 项测试全部通过，包括双方新增的 RetryImage 用例及画布图片加载回归。
+- 根目录 `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 根目录 `pnpm exec vite build --config apps/web/vite.config.ts`：通过，33.82 秒；保留既有 Sass、混合导入、大 chunk、Browserslist 及 `.npmrc` 环境占位提示。该命令不调用版本写入脚本。
+- `git diff --check`：通过；`git diff --name-only --diff-filter=U`：无输出。
+
+本次没有新增功能或运行配置，因此更新既有 QA，不新建 DOC。没有执行完整仓库测试、页面验收、真实供应商或收费生成，也未部署；此前记录的其他基线测试问题不在本次验证范围内。本地修改保持未提交、未暂存，没有推送或创建 PR；没有启动或重启服务。手工验收可在后续启动页面后检查双图选择预览及“获取模型”，本次结论仅覆盖上述本地自动化检查。
+
+## 2026-10-21：主站公开价格目录认证修复
+
+目录 `/Users/lkj/Desktop/working/opentu1`，分支 `develop`，基线 `7b3aa15e`。环境：macOS、Node 26.8.1、pnpm 10.21.0、Vitest 3.2.4。此前缩略图及兼容默认模型改动继续保留。
+
+### 问题与修复
+
+Tuzi 获取模型先读取模型广场价格目录。只读接口核验发现主站 `/api/pricing` 不带认证时返回 `success=true` 和 660 条模型记录；带生成 Key 时返回 HTTP 200、`success=false`、`Unauthorized, invalid access token`；同一个测试 Key 读取 `/v1/models` 正常，返回 731 条记录。此前结构校验将该认证错误误报为 `Invalid pricing API response`。
+
+本次只修改价格服务与对应测试：
+
+- 精确匹配 `https://api.tu-zi.com/api/pricing`，包括查询参数和现有同源代理读取；该公开请求不发送生成 Key 或浏览器 Cookie。
+- 主站公开响应按实际不含认证的请求复用并发读取，避免多个分组 Key 重复读取同一公开目录。
+- Business、自定义供应商、相似域名及其他路径继续使用原有认证。模型和生成接口没有修改。
+- HTTP 200 的 `success=false` 在结构校验前拒绝，读取 `message` 或 `error.message`，隐藏回显的当前 Key；失败不写入价格缓存。空或非法响应保留格式错误，不暴露空值运行时异常。
+
+### 自动化验证
+
+从 `packages/drawnix` 执行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/utils/__tests__/model-pricing-service.test.ts \
+  src/services/provider-model-catalog.test.ts \
+  src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/services/__tests__/settings-repository.test.ts \
+  src/utils/__tests__/settings-manager.test.ts \
+  src/constants/__tests__/model-config.test.ts --silent
+```
+
+7 个文件、151 项全部通过。新增用例在旧实现中先复现 5 个失败，再确认修复后通过；包括匿名公开读取、其他认证边界、错误正文脱敏、拒绝错误缓存和非法响应。既有嵌套/扁平价格结构、分组价格、元数据、并发请求、超时和模型发现回归通过。
+
+根目录执行 `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、针对价格服务及测试的 ESLint、`pnpm exec vite build --config apps/web/vite.config.ts`、`git diff --check`：全部通过。相关文件 ESLint 0 errors、0 warnings。构建耗时 53.61 秒，仍有既有 Sass、Browserslist、混合导入、大 chunk 等提示。未重跑完整仓库测试；其他任务已记录的基线失败不因此消失。
+
+### 页面结果与边界
+
+用户授权在 7201 进行页面验收，随后亲自确认“可以了”。助手停止进一步页面操作，没有重复触发模型获取。最终页面可用性以用户本次确认作为证据，不声称助手独立完成了完整 UI 验收。
+
+没有发起图片、视频、音频或文本生成，不涉及收费测试、密钥重置、配置迁移或生产部署。公开目录中的价格是参考目录信息，不等同用户个性化账单；目录可见不代表所有模型均获令牌授权。服务保持在 7201。本次未提交、推送或创建 PR；维护说明更新到既有端点设置文档。
+
 ## 2026-10-20 PR #311 Routing Performance Integration
 
 The existing open PR #311 already contains on-demand PPT route validation.

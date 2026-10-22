@@ -1938,7 +1938,7 @@ export const AUDIO_MODEL_SELECT_OPTIONS = AUDIO_MODELS.map((model) => ({
 /**
  * 默认图片模型 ID
  */
-export const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
+export const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2.5-sunburst';
 
 /**
  * 获取默认图片模型 ID（优先使用环境变量）
@@ -1954,10 +1954,10 @@ export function getDefaultImageModel(): string {
 /**
  * 默认视频模型 ID
  */
-export const DEFAULT_VIDEO_MODEL_ID = 'seedance-1.5-pro';
+export const DEFAULT_VIDEO_MODEL_ID = SEEDANCE_25_MODEL_ID;
 
 /**
- * 获取默认视频模型 ID（目前固定为 veo3）
+ * 获取默认视频模型 ID
  */
 export function getDefaultVideoModel(): string {
   return DEFAULT_VIDEO_MODEL_ID;
@@ -1972,7 +1972,7 @@ export const DEFAULT_VIDEO_MODEL = DEFAULT_VIDEO_MODEL_ID;
 /**
  * 默认文本模型 ID
  */
-export const DEFAULT_TEXT_MODEL_ID = 'gpt-5.5';
+export const DEFAULT_TEXT_MODEL_ID = 'gpt-6-sol';
 
 /**
  * 获取默认文本模型 ID

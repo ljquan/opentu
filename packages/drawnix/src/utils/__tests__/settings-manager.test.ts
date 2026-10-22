@@ -378,10 +378,10 @@ describe('settings-manager', () => {
     const { settingsManager } = await import('../settings-manager');
     const settings = settingsManager.getSettings();
 
-    expect(settings.gemini.imageModelName).toBe('gpt-image-2');
+    expect(settings.gemini.imageModelName).toBe('gpt-image-2.5-sunburst');
     expect(settings.invocationPresets[0]?.image.defaultModelRef).toMatchObject({
       profileId: 'legacy-default',
-      modelId: 'gpt-image-2',
+      modelId: 'gpt-image-2.5-sunburst',
     });
     expect(settings.migrations).toMatchObject({
       legacyDefaultImageModelV1: true,
@@ -408,6 +408,80 @@ describe('settings-manager', () => {
     expect(reloadedSettings.migrations).toMatchObject({
       legacyDefaultImageModelV1: true,
     });
+  });
+
+  it('uses newer compatible defaults for fresh settings and matching model types', async () => {
+    mockSettingsManagerDeps();
+    const { settingsManager } = await import('../settings-manager');
+    const { getStaticModelConfig } = await import('../../constants/model-config');
+    const expected = {
+      image: 'gpt-image-2.5-sunburst',
+      video: 'doubao-seedance-2-5-260628',
+      text: 'gpt-6-sol',
+      audio: 'suno_music',
+    } as const;
+    expect(settingsManager.getSettings().gemini).toMatchObject({
+      imageModelName: expected.image, videoModelName: expected.video,
+      textModelName: expected.text, audioModelName: expected.audio,
+    });
+    for (const [type, id] of Object.entries(expected)) {
+      expect(getStaticModelConfig(id)?.type).toBe(type);
+    }
+  });
+
+  it('upgrades old Tuzi compatibility defaults once and keeps custom presets', async () => {
+    mockSettingsManagerDeps();
+    const route = (modelId: string) => ({
+      defaultModelRef: { profileId: 'legacy-default', modelId },
+    });
+    localStorage.setItem(DRAWNIX_SETTINGS_KEY, JSON.stringify({
+      gemini: {
+        baseUrl: 'https://api.tu-zi.com/v1',
+        imageModelName: 'gpt-image-2', videoModelName: 'seedance-1.5-pro',
+        textModelName: 'gpt-5.5', chatModel: 'gpt-5.5',
+      },
+      migrations: { legacyDefaultImageModelV1: true },
+      invocationPresets: [{
+        id: 'custom-preset', name: '保留我的方案',
+        image: route('gpt-image-2'), video: route('seedance-1.5-pro'),
+        text: route('gpt-5.5'), audio: route('suno_music'),
+      }],
+    }));
+    const { settingsManager } = await import('../settings-manager');
+    const settings = settingsManager.getSettings();
+    expect(settings.gemini).toMatchObject({
+      imageModelName: 'gpt-image-2.5-sunburst', videoModelName: 'doubao-seedance-2-5-260628',
+      textModelName: 'gpt-6-sol', chatModel: 'gpt-6-sol',
+    });
+    const defaultPreset = settings.invocationPresets.find((preset) => preset.id === 'default');
+    expect(defaultPreset?.video.defaultModelRef?.modelId).toBe('doubao-seedance-2-5-260628');
+    expect(defaultPreset?.text.defaultModelRef?.modelId).toBe('gpt-6-sol');
+    expect(settings.invocationPresets.find((preset) => preset.id === 'custom-preset')?.video.defaultModelRef?.modelId)
+      .toBe('seedance-1.5-pro');
+    expect(settings.migrations.compatibilityDefaultModelsV2).toBe(true);
+
+    await settingsManager.updateSettings({ gemini: {
+      ...settings.gemini, imageModelName: 'gpt-image-2', videoModelName: 'seedance-1.5-pro',
+      textModelName: 'gpt-5.5', chatModel: 'gpt-5.5',
+    } });
+    vi.resetModules();
+    mockSettingsManagerDeps();
+    const reloaded = (await import('../settings-manager')).settingsManager.getSettings();
+    expect(reloaded.gemini).toMatchObject({
+      imageModelName: 'gpt-image-2', videoModelName: 'seedance-1.5-pro',
+      textModelName: 'gpt-5.5', chatModel: 'gpt-5.5',
+    });
+  });
+
+  it.each([
+    ['https://api.tu-zi.com/v1', 'custom-image', 'veo3.1', 'custom-text'],
+    ['https://gateway.example.com/v1', 'gpt-image-2', 'seedance-1.5-pro', 'gpt-5.5'],
+  ])('preserves explicit models for %s', async (baseUrl, imageModelName, videoModelName, textModelName) => {
+    mockSettingsManagerDeps();
+    const gemini = { baseUrl, imageModelName, videoModelName, textModelName };
+    localStorage.setItem(DRAWNIX_SETTINGS_KEY, JSON.stringify({ gemini }));
+    const { settingsManager } = await import('../settings-manager');
+    expect(settingsManager.getSettings().gemini).toMatchObject(gemini);
   });
 
   it('does not migrate legacy default compatibility when the default baseUrl is not Tuzi', async () => {

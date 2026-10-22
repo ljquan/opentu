@@ -111,6 +111,15 @@ function isTuziPricingUrl(pricingUrl: string): boolean {
   }
 }
 
+function isPublicTuziPricingUrl(pricingUrl: string): boolean {
+  try {
+    const url = new URL(pricingUrl);
+    return url.origin === `https://${TUZI_API_HOST}` && url.pathname === '/api/pricing';
+  } catch {
+    return false;
+  }
+}
+
 export function getPricingCacheTtlMs(pricingUrl: string): number {
   return isTuziPricingUrl(pricingUrl)
     ? TUZI_PRICING_CACHE_TTL_MS
@@ -181,8 +190,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isTuziPricingResponse(json: PricingApiResponse): json is TuziPricingApiResponse {
+function isTuziPricingResponse(json: unknown): json is TuziPricingApiResponse {
   return (
+    isPlainRecord(json) &&
     isPlainRecord(json.data) &&
     isPlainRecord(json.data.group_info) &&
     Array.isArray(json.data.model_info)
@@ -190,20 +200,19 @@ function isTuziPricingResponse(json: PricingApiResponse): json is TuziPricingApi
 }
 
 function isNewApiPricingResponse(
-  json: PricingApiResponse
+  json: unknown
 ): json is NewApiPricingApiResponse {
-  const candidate = json as Partial<NewApiPricingApiResponse>;
   return (
+    isPlainRecord(json) &&
     Array.isArray(json.data) &&
-    (!candidate.group_ratio || isPlainRecord(candidate.group_ratio)) &&
-    (!candidate.usable_group || isPlainRecord(candidate.usable_group)) &&
-    (!candidate.group_info || isPlainRecord(candidate.group_info)) &&
-    (!candidate.group_model_pricing ||
-      isPlainRecord(candidate.group_model_pricing))
+    (!json.group_ratio || isPlainRecord(json.group_ratio)) &&
+    (!json.usable_group || isPlainRecord(json.usable_group)) &&
+    (!json.group_info || isPlainRecord(json.group_info)) &&
+    (!json.group_model_pricing || isPlainRecord(json.group_model_pricing))
   );
 }
 
-function isSupportedPricingResponse(json: PricingApiResponse): boolean {
+function isSupportedPricingResponse(json: unknown): json is PricingApiResponse {
   return isTuziPricingResponse(json) || isNewApiPricingResponse(json);
 }
 
@@ -663,7 +672,11 @@ class ModelPricingService {
     options: FetchAndCacheOptions = {}
   ): Promise<PricingApiResponse> {
     const normalizedPricingUrl = normalizePricingUrl(pricingUrl);
-    const requestKey = this.buildSharedCacheKey(normalizedPricingUrl, apiKey);
+    // This public directory rejects generation keys as invalid site tokens.
+    // Match its logical upstream URL, even when fetched via the local proxy.
+    const publicPricing = isPublicTuziPricingUrl(normalizedPricingUrl);
+    const requestApiKey = publicPricing ? '' : apiKey;
+    const requestKey = this.buildSharedCacheKey(normalizedPricingUrl, requestApiKey);
     const ttlMs = getPricingCacheTtlMs(normalizedPricingUrl);
     const now = Date.now();
 
@@ -692,18 +705,29 @@ class ModelPricingService {
     });
     const request = (async () => {
       const headers: Record<string, string> = { Accept: 'application/json' };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
+      if (requestApiKey) {
+        headers['Authorization'] = `Bearer ${requestApiKey}`;
       }
       const response = await fetch(options.requestUrl || normalizedPricingUrl, {
         headers,
+        credentials: publicPricing ? 'omit' : undefined,
         signal: controller.signal,
       });
       if (!response.ok) {
         throw new Error(`Pricing API error: ${response.status}`);
       }
-      const json = (await response.json()) as PricingApiResponse;
+      const json: unknown = await response.json();
       controller.signal.throwIfAborted();
+      if (isPlainRecord(json) && json.success === false) {
+        const detail = typeof json.error === 'string'
+          ? json.error
+          : isPlainRecord(json.error) ? json.error.message : undefined;
+        const rawMessage = typeof json.message === 'string' && json.message.trim()
+          ? json.message : typeof detail === 'string' ? detail : '';
+        const message = (apiKey ? rawMessage.split(apiKey).join('[已隐藏]') : rawMessage)
+          .replace(/\s+/g, ' ').trim().slice(0, 300);
+        throw new Error(message ? `价格接口请求失败：${message}` : '价格接口请求失败，请稍后重试');
+      }
       if (!isSupportedPricingResponse(json)) {
         throw new Error('Invalid pricing API response');
       }
