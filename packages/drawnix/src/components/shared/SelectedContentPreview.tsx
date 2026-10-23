@@ -11,7 +11,7 @@
 
 import React, { useState, useCallback } from 'react';
 import ReactDOM from 'react-dom';
-import { Video, Play, Type, X } from 'lucide-react';
+import { Image as ImageIcon, RotateCcw, Video, Play, Type, X } from 'lucide-react';
 import type { SelectedContentItem } from '../../types/chat.types';
 import { HoverTip } from './hover';
 import { RetryImage } from '../retry-image';
@@ -38,12 +38,73 @@ interface HoveredContent {
   y: number;
 }
 
+function PreviewImage({ src, alt, language, allowRetry }: {
+  src: string;
+  alt: string;
+  language: string;
+  allowRetry: boolean;
+}) {
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const retryLabel = language === 'zh'
+    ? `图片预览加载失败，点击重试：${alt}`
+    : `Image preview failed. Retry: ${alt}`;
+
+  return <>
+    <RetryImage
+      key={attempt}
+      src={src}
+      alt={alt}
+      eager
+      showSkeleton={false}
+      preferCachedBlob
+      loadTimeoutMs={20_000}
+      style={{ visibility: loaded ? 'visible' : 'hidden' }}
+      onLoadSuccess={() => setLoaded(true)}
+      onLoadFailure={() => setFailed(true)}
+      fallback={allowRetry ? (
+        <button
+          type="button"
+          className="selected-content-preview__retry"
+          aria-label={retryLabel}
+          title={retryLabel}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setLoaded(false);
+            setFailed(false);
+            setAttempt((value) => value + 1);
+          }}
+        >
+          <RotateCcw size={16} aria-hidden="true" />
+        </button>
+      ) : (
+        <span
+          role="img"
+          aria-label={language === 'zh' ? '图片预览失败，请在缩略图上重试' : 'Image preview failed. Retry from the thumbnail'}
+          className="selected-content-preview__unavailable"
+        >
+          <ImageIcon size={16} aria-hidden="true" />
+        </span>
+      )}
+    />
+    {!loaded && !failed && <span
+      className="selected-content-preview__loading"
+      role="status"
+      aria-label={language === 'zh' ? `正在加载图片：${alt}` : `Loading image: ${alt}`}
+    ><ImageIcon size={16} aria-hidden="true" /></span>}
+  </>;
+}
+
 function renderImageWithMask(
   item: Pick<
     SelectedContentItem,
     'url' | 'maskImage' | 'name' | 'width' | 'height'
   >,
-  className: string
+  className: string,
+  language: string,
+  allowRetry = true
 ) {
   if (!item.url) {
     return null;
@@ -51,11 +112,12 @@ function renderImageWithMask(
 
   if (!item.maskImage) {
     return (
-      <RetryImage
+      <PreviewImage
+        key={item.url}
         src={item.url}
         alt={item.name}
-        showSkeleton={false}
-        preferCachedBlob
+        language={language}
+        allowRetry={allowRetry}
       />
     );
   }
@@ -68,18 +130,20 @@ function renderImageWithMask(
 
   return (
     <div className={`${className}__media-pair`} style={mediaPairStyle}>
-      <RetryImage
+      <PreviewImage
+        key={item.url}
         src={item.url}
         alt={item.name}
-        showSkeleton={false}
-        preferCachedBlob
+        language={language}
+        allowRetry={allowRetry}
       />
       <div className={`${className}__mask-thumb`}>
-        <RetryImage
+        <PreviewImage
+          key={item.maskImage}
           src={item.maskImage}
           alt={`${item.name} mask`}
-          showSkeleton={false}
-          preferCachedBlob
+          language={language}
+          allowRetry={allowRetry}
         />
       </div>
     </div>
@@ -152,7 +216,9 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
                   height: hoveredContent.height,
                   name: 'Preview',
                 },
-                'selected-content-preview'
+                'selected-content-preview',
+                language,
+                false
               )}
 
             {/* Video preview */}
@@ -224,7 +290,7 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
                 </>
               ) : (
                 // Image or graphics preview
-                renderImageWithMask(item, 'selected-content-preview')
+                renderImageWithMask(item, 'selected-content-preview', language)
               )}
 
               {item.type === 'image' && item.maskImage && (

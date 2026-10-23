@@ -543,9 +543,92 @@ describe('RetryImage', () => {
     expect(image.getAttribute('src')).toMatch(
       /^https:\/\/cdn\.example\.com\/image\.png\?signature=keep#retry=/
     );
+    fireEvent.error(image);
+    await act(() => vi.advanceTimersByTimeAsync(20));
     fireEvent.load(image);
     expect(image.style.opacity).toBe('1');
     expect(readCache).toHaveBeenCalledOnce();
+  });
+
+  it('首次缓存未命中后，后续重试能读取稍后就绪的图片', async () => {
+    vi.useFakeTimers();
+    const readCache = vi.mocked(
+      unifiedCacheService.getCachedImageBlobWithThumbnailFallback
+    );
+    readCache.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+      .mockResolvedValue(new Blob(['ready']));
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: () => 'blob:ready-later',
+    });
+    const loaded = vi.fn();
+    render(<RetryImage src="/asset-library/delayed.png" alt="delayed"
+      preferCachedBlob initialRetryDelay={10} maxRetries={2}
+      onLoadSuccess={loaded} />);
+    await act(async () => undefined);
+    const image = screen.getByAltText('delayed');
+    await act(async () => { fireEvent.error(image); });
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    await act(async () => { fireEvent.error(image); });
+    expect(image.getAttribute('src')).toBe('blob:ready-later');
+    fireEvent.load(image);
+    expect(loaded).toHaveBeenCalledOnce();
+    expect(readCache).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['error', 'load'] as const)(
+    '采用缓存 Blob 后，原地址迟到的 %s 事件不能破坏新请求',
+    async (eventType) => {
+      vi.useFakeTimers();
+      const source = '/__aitu_cache__/image/late-original.png';
+      let resolveBlob!: (blob: Blob) => void;
+      vi.mocked(unifiedCacheService.getCachedImageBlobWithThumbnailFallback)
+        .mockReturnValue(new Promise((resolve) => { resolveBlob = resolve; }));
+      const createObjectURL = vi.fn(() => 'blob:fresh-attempt');
+      const revokeObjectURL = vi.fn();
+      Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+      Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+      const loaded = vi.fn();
+      render(<RetryImage src={source} alt="late-original" preferCachedBlob
+        initialRetryDelay={10} onLoadSuccess={loaded} />);
+      const image = screen.getByAltText('late-original');
+      await act(async () => {
+        resolveBlob(new Blob(['valid cached image']));
+        // The cache promise can settle before React commits the new src.
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        expect(createObjectURL).toHaveBeenCalledOnce();
+        expect(image.getAttribute('src')).toBe(source);
+        fireEvent[eventType](image);
+      });
+      expect(image.getAttribute('src')).toBe('blob:fresh-attempt');
+      expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:fresh-attempt');
+      expect(loaded).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(image.getAttribute('src')).toBe('blob:fresh-attempt');
+      fireEvent.load(image);
+      expect(loaded).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('缓存持续缺失时仍在重试次数耗尽后停止', async () => {
+    vi.useFakeTimers();
+    const failure = vi.fn();
+    render(<RetryImage src="/asset-library/missing.png" alt="missing"
+      preferCachedBlob initialRetryDelay={10} maxRetries={2}
+      onLoadFailure={failure} fallback={<span>加载失败</span>} />);
+    await act(async () => undefined);
+    const image = screen.getByAltText('missing');
+    for (const delay of [10, 20]) {
+      await act(async () => { fireEvent.error(image); });
+      await act(() => vi.advanceTimersByTimeAsync(delay));
+    }
+    await act(async () => { fireEvent.error(image); });
+    expect(screen.getByText('加载失败')).toBeTruthy();
+    expect(failure).toHaveBeenCalledOnce();
+    expect(unifiedCacheService.getCachedImageBlobWithThumbnailFallback)
+      .toHaveBeenCalledTimes(3);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(failure).toHaveBeenCalledOnce();
   });
 
   it('屏外 lazy 图片不会在浏览器开始请求之前被判超时', async () => {

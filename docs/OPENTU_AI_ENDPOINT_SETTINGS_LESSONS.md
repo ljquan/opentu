@@ -42,3 +42,21 @@ OpenTu AI 网页版的文本模型和生图模型会走不同供应商端点。�
 - 底部 AI 输入栏保持模型、参数和提交职责，不承载端点管理控件。
 - `pnpm nx run web:typecheck` 通过。
 - `git diff --check` 通过。
+
+## 2026-10-21：兼容默认模型更新
+
+供应商页“兼容默认模型”与实际兼容配置使用同一组默认值：图片 `gpt-image-2.5-sunburst`，视频 `doubao-seedance-2-5-260628`，文本 `gpt-6-sol`。音频继续使用 `suno_music`，版本通过参数 `mv` 决定，现有默认参数为 `chirp-v6`。
+
+默认值统一来自 `constants/model-config.ts` 的 getter，避免设置管理器另写旧视频模型。`VITE_DEFAULT_IMAGE_MODEL` 的显式覆盖规则继续有效。
+
+Tuzi 兼容配置首次读取时，对旧默认值执行一次升级：图片 `gpt-image-2` / `gpt-image-2-vip`、视频 `seedance-1.5-pro`、文本或旧聊天字段 `gpt-5.5` 分别更新到上述值，并写入 `migrations.compatibilityDefaultModelsV2`。既有默认预设继续通过兼容配置同步，其他自定义预设及其他服务地址保留。升级后手动改回旧模型会保持用户选择，不在后续加载时反复覆盖。
+
+模型 ID 来自项目现有接入配置；此更新不保证任何 API Key 的授权、价格或供应商执行成功，也不发起收费验证。实际测试、基线失败和上游同步结果见 [兼容默认模型 QA](qa-compatible-default-models.md)。
+
+## 2026-10-21：获取模型时的公开价格目录认证
+
+主站 `https://api.tu-zi.com/api/pricing` 是公开模型广场目录。获取模型和价格时，该地址不附带生成 API Key 或浏览器 Cookie；否则站点会将生成 Key 按访问令牌校验，返回 `Unauthorized, invalid access token`。现有本地同源代理只改变传输地址，公开请求的判断仍使用原始主站地址。
+
+认证省略仅针对上述 HTTPS 主站和精确路径；Business、自定义供应商以及其他路径保留原有认证。模型请求和生成请求继续使用各自的 Key。公开价格按参考目录使用，个性化折扣和最终计费仍由服务端确定。
+
+价格接口返回 `success=false` 时，先显示脱敏后的失败原因，再进入有效响应处理；失败不写入目录缓存。无需更换 Key、重新配置供应商或清理画板数据。测试与用户验收结果见 [Provider Model Refresh QA](qa-provider-model-refresh.md)。

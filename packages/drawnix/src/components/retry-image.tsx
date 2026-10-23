@@ -255,6 +255,14 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       []
     );
 
+    // A cache read can adopt a Blob before React commits its src. Events from
+    // the original request must not revoke or settle that newer attempt.
+    const isCurrentBlobAttempt = useCallback(
+      (attemptedSrc: string | null) =>
+        !blobUrlRef.current || blobUrlRef.current === attemptedSrc,
+      []
+    );
+
     useEffect(() => {
       mountedRef.current = true;
       return () => {
@@ -332,6 +340,11 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
     const handleLoad = useCallback(
       (event: React.SyntheticEvent<HTMLImageElement, Event>) => {
         if (!isCurrentSource(normalizedSrc)) return;
+        if (
+          !isCurrentBlobAttempt(
+            event.currentTarget.currentSrc || event.currentTarget.getAttribute('src')
+          )
+        ) return;
         if (settledRef.current) {
           const recovery = externalRecoveryRef.current;
           const recoveredSrc = event.currentTarget.getAttribute('src');
@@ -360,7 +373,14 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         onLoad?.(event);
         onLoadSuccess?.();
       },
-      [clearLoadTimeout, isCurrentSource, normalizedSrc, onLoad, onLoadSuccess]
+      [
+        clearLoadTimeout,
+        isCurrentSource,
+        isCurrentBlobAttempt,
+        normalizedSrc,
+        onLoad,
+        onLoadSuccess,
+      ]
     );
 
     // Handle image load error with retry logic
@@ -369,7 +389,12 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         if (deferCacheRead || settledRef.current) return;
         const sourceAtError = normalizedSrc;
         const sourceVersionAtError = sourceVersionRef.current;
-        if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+        const failedSrc =
+          event.currentTarget.currentSrc || event.currentTarget.getAttribute('src');
+        if (
+          !isCurrentSource(sourceAtError, sourceVersionAtError) ||
+          !isCurrentBlobAttempt(failedSrc)
+        ) {
           return;
         }
 
@@ -414,9 +439,17 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
               setRetryCount(nextRetryCount);
               return;
             }
+            if (!blobUrl && isCurrentSource(sourceAtError, sourceVersionAtError)) {
+              // Cache misses may recover on a later bounded retry. A Blob
+              // that was found but failed to decode must not be read again.
+              cacheFallbackTriedRef.current = false;
+            }
           }
 
-          if (!isCurrentSource(sourceAtError, sourceVersionAtError)) {
+          if (
+            !isCurrentSource(sourceAtError, sourceVersionAtError) ||
+            !isCurrentBlobAttempt(failedSrc)
+          ) {
             return;
           }
 
@@ -478,6 +511,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         tryFallbackToBlobUrl,
         adoptBlobUrl,
         isCurrentSource,
+        isCurrentBlobAttempt,
         deferCacheRead,
         skipCacheFallback,
       ]
@@ -522,6 +556,8 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
           }
           if (blobUrl) {
             adoptBlobUrl(normalizedSrc, blobUrl, sourceVersion);
+          } else {
+            cacheFallbackTriedRef.current = false;
           }
         });
       } else {

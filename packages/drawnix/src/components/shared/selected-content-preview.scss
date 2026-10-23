@@ -16,6 +16,39 @@ $text-dark: #1F2937;
   gap: 8px;
   align-items: center;
 
+  &__loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $gray-medium;
+    pointer-events: none;
+  }
+
+  &__retry,
+  &__unavailable {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    color: var(--text-color, $text-dark);
+    background: var(--color-surface-mid, $gray-light);
+  }
+
+  &__retry {
+    cursor: pointer;
+    &:focus-visible {
+      outline: 2px solid $orange-primary;
+      outline-offset: -2px;
+    }
+  }
+
   &__item {
     position: relative;
     width: 36px;
@@ -83,6 +116,7 @@ $text-dark: #1F2937;
   }
 
   &__mask-thumb {
+    position: relative;
     border-left: 1px solid rgba(0, 0, 0, 0.12);
     background: #fff;
     display: flex;
@@ -232,6 +266,8 @@ $text-dark: #1F2937;
     overflow: hidden;
     background: var(--island-bg-color, #fff);
     padding: 4px;
+    min-width: 36px;
+    min-height: 36px;
     animation: selectedContentFadeIn 0.15s ease;
 
     img {
