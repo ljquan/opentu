@@ -2,7 +2,7 @@
 
 ## 2026-10-23：已选中但整行预览未显示
 
-目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，起点 `b8e36274`。环境 macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。以下是 PR 创建后的本地补充修复，尚未提交、推送或部署。
+目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，起点 `b8e36274`。环境 macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。本节记录 PR #317 的补充修复；最终提交前的上游同步与验证结果见下文。未进行生产部署。
 
 ### 根因与修复范围
 
@@ -40,6 +40,14 @@ NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.c
 ![双图框选后底部正常显示两张缩略图](assets/selected-content-preview/selection-publication-7201-20261023.png)
 
 本次未执行完整仓库测试、Windows/Safari/Firefox、真实供应商生成、线上验证或部署。原有 `data/image.test.ts` 修改与备份哈希一致，未修改。复用本 QA 和既有维护说明，不新建重复 DOC。手工验收：在 7201 框选两张图后移动鼠标到输入栏，再滚动或缩放，底部应继续显示两张缩略图；取消选择后应清空，快速换图不应显示上一选区。回滚仅需撤销本次选择监听器改动，不需清理画板、配置或缓存。
+
+### 2026-10-23 PR 更新前最终验证
+
+用户授权更新 PR 后，先将无关 `src/data/image.test.ts` 修改单独保存；12 项新增回归通过后提交修复为 `e749cb8e`，再显式获取 `origin/develop` 和 PR 分支并合并上游。目标仍为 `68f2ca1b`（v1.2.1），`git merge origin/develop` 返回 `Already up to date`，没有新增冲突。PR 继续使用 #317，不另建重复 PR。
+
+上游同步后合并运行上述 11 个文件和 `qa-provider-model-refresh.md` 中 PR 最终集成验证的 14 个文件，去重为 21 个文件，317 项全部通过。验证时没有依赖无关未提交修改。Drawnix TypeScript 检查通过；Vite 生产构建通过，57.71 秒；本次两个改动 TS/TSX 文件 ESLint 0 errors、18 条原有 warnings；完整 PR 差异检查通过。此前图片组件的完整 lint 模块边界基线错误仍按原 QA 记录，不声称完整仓库 lint 通过。本次 PR 更新阶段未重复页面交互，以前述最终代码的五轮本地页面回归作为证据。
+
+读取此前提交 `b8e36274` 的远程 CI 日志，`drawnix:test` 有 11 个测试文件失败，日志包含工作区存储初始化和多处断言失败；此前 Web typecheck、build-app、build-sw 成功。未完成这批远程失败逐项基线归因，不将它们全部归为已知无关失败，也未通过跳过测试或更改 CI 规避。Netlify 此前只提供 Deploy Preview failed，没有具体根因；本次推送将触发新检查，最终以新提交的远程检查为准。
 
 ## 2026-10-21：图片加载与缓存 Blob 恢复
 
