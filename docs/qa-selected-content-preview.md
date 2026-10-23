@@ -1,5 +1,48 @@
 # 选中内容缩略图加载恢复 QA
 
+## 2026-10-23：已选中但整行预览未显示
+
+目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，起点 `b8e36274`。环境 macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。以下是 PR 创建后的本地补充修复，尚未提交、推送或部署。
+
+### 根因与修复范围
+
+当前 7201 原画板复现：两张海报有画布选框，但 `.selected-content-preview__item` 数量为 0，尚未进入图片加载组件。选择监听器把异步内容提取与鼠标移动、wheel、keyup、resize 的位置刷新共用 `selectionRunIdRef`；位置刷新推进编号后，正在处理的选中内容被当成旧结果丢弃，位置刷新本身又不发布选中内容。
+
+仅修改 `AIInputBar.tsx` 的 SelectionWatcher：选择内容保持自己的版本，绑定目标/位置刷新使用独立版本；最新选择继续发布内容，旧位置结果不得覆盖新结果。单图提示词变化沿用完整选择刷新，避免只更新绑定信息却取消尚未发布的图片内容。取消选中、切换画板及卸载继续使旧异步结果失效。没有改变图片解码、生成接口、选择规则、模型或持久化数据。
+
+### 自动化验证
+
+新增 `AIInputBar.selection.test.tsx`，沿用项目已有的 TypeScript AST 声明测试方式，运行实际 SelectionWatcher 与真实 React effects、document 事件订阅，不导入生图运行时。先在旧实现复现 5 项失败：内容提取中发生 pointermove、wheel、keyup、resize，以及绑定目标查询未完成时发生移动，均未发布双图内容。修复后新增 12 项测试全部通过，另覆盖真实 pointerup 延迟、同一选择的多次位置更新、取消选择、画板切换、卸载及提示词更新时的旧结果隔离。
+
+从 `packages/drawnix` 执行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/ai-input-bar/AIInputBar.selection.test.tsx \
+  src/components/ai-input-bar/AIInputBar.prompt-history.test.tsx \
+  src/components/ai-input-bar/AIInputBar.image-lineage.test.ts \
+  src/components/ai-input-bar/target-bound-taskbar-state.test.ts \
+  src/components/ai-input-bar/canvas-association-picking.test.ts \
+  src/components/ai-input-bar/__tests__/bound-taskbar-layout.test.ts \
+  src/components/retry-image.test.tsx \
+  src/components/shared/SelectedContentPreview.test.tsx \
+  src/components/ai-input-bar/BoundImageContentPreview.test.tsx \
+  src/components/chat-drawer/__tests__/EnhancedChatInput.test.tsx \
+  src/utils/__tests__/selection-utils.test.ts --silent
+```
+
+最终 11 个文件、136 项全部通过。根目录 Drawnix TypeScript 检查、Vite 生产构建及 `git diff --check` 通过，最终构建 35.55 秒；相关两个文件 ESLint 0 errors、18 warnings，未修改的 HEAD 源码也为 18 warnings。既有 Sass、Browserslist、混合导入、大 chunk、sourcemap 与 `.npmrc` 占位提示保留，没有扩大整理范围。
+
+### 经授权的原页面回归
+
+沿用此前同一选图问题的页面排查授权，通过浏览器扩展连接当前 Chrome 的 7201 画板；CLI 自动连接未发现 CDP 实例，没有重启用户 Chrome。最终代码热更新后连续 5 轮“取消选择 → 框选原来的两张海报”，每轮主输入与聊天输入的四个预览实例均存在，`complete=true`、`naturalWidth>0`、`visibility=visible`，失败重试按钮为 0；两张原图宽度分别为 3392 和 1696。检查只选择既有图片，没有发送生成、修改/删除原图或提交表单。画布跟随布局改变了可见区域，未额外调整缩放。
+
+![双图框选后底部正常显示两张缩略图](assets/selected-content-preview/selection-publication-7201-20261023.png)
+
+本次未执行完整仓库测试、Windows/Safari/Firefox、真实供应商生成、线上验证或部署。原有 `data/image.test.ts` 修改与备份哈希一致，未修改。复用本 QA 和既有维护说明，不新建重复 DOC。手工验收：在 7201 框选两张图后移动鼠标到输入栏，再滚动或缩放，底部应继续显示两张缩略图；取消选择后应清空，快速换图不应显示上一选区。回滚仅需撤销本次选择监听器改动，不需清理画板、配置或缓存。
+
+## 2026-10-21：图片加载与缓存 Blob 恢复
+
 日期：2026-10-21。目录：`/Users/lkj/Desktop/working/opentu1`，分支 `develop`，基线 `7b3aa15e`。环境：macOS、Node 26.8.1、pnpm 10.21.0、Vitest 3.2.4、Vite 6.4.1。
 
 ## 范围与实现
