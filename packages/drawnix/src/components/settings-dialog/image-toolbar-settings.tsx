@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessagePlugin } from 'tdesign-react';
+import { Checkbox, MessagePlugin } from 'tdesign-react';
 import {
   IMAGE_TOOLBAR_OPTIONS,
   readImageToolbarPreferences,
@@ -33,39 +33,37 @@ export function ImageToolbarSettings() {
         {IMAGE_TOOLBAR_OPTIONS.map((tool) => {
           const checked = !imageToolbarPreferences.hidden.includes(tool.id);
           return (
-            <label key={tool.id}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={(event) =>
-                  updateImageToolbarPreferences({
-                    ...imageToolbarPreferences,
-                    hidden: event.target.checked
-                      ? imageToolbarPreferences.hidden.filter(
-                          (id) => id !== tool.id
-                        )
-                      : [...imageToolbarPreferences.hidden, tool.id],
-                  })
-                }
-              />
+            <Checkbox
+              key={tool.id}
+              checked={checked}
+              onChange={(checked) =>
+                updateImageToolbarPreferences({
+                  ...imageToolbarPreferences,
+                  hidden: checked
+                    ? imageToolbarPreferences.hidden.filter(
+                        (id) => id !== tool.id
+                      )
+                    : [...imageToolbarPreferences.hidden, tool.id],
+                })
+              }
+            >
               {tool.label}
-            </label>
+            </Checkbox>
           );
         })}
       </div>
-      <label className="settings-dialog__image-label-toggle">
-        <input
-          type="checkbox"
-          checked={imageToolbarPreferences.labels}
-          onChange={(event) =>
-            updateImageToolbarPreferences({
-              ...imageToolbarPreferences,
-              labels: event.target.checked,
-            })
-          }
-        />
+      <Checkbox
+        className="settings-dialog__image-label-toggle"
+        checked={imageToolbarPreferences.labels}
+        onChange={(checked) =>
+          updateImageToolbarPreferences({
+            ...imageToolbarPreferences,
+            labels: checked,
+          })
+        }
+      >
         显示工具文字
-      </label>
+      </Checkbox>
     </div>
   );
 }
