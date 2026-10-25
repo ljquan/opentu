@@ -85,3 +85,4 @@ node ../../node_modules/vitest/vitest.mjs run
 - 增加 Web Vitest 配置，将已有 10 个文件的 `54` 个用例接入 Nx/CI。独立运行通过，覆盖画板同步/待写持久化、SW 图片/视频响应、缓存保留、缩略图清理屏障；其中 App 原有占位用例不作为页面功能验证证据。utils 修改涉及的 `25/25` 用例通过。
 - 生产构建后执行 `node scripts/validate-startup-bundle.js` 和 `node node_modules/size-limit/bin.js` 均退出 `0`：入口无分块循环、全部大小预算通过。包体检查使用工具自带的 headless 运行器，不等同于产品页面验收。
 - 本地不运行页面点击或视觉回归；远程主检查中的冒烟和视觉测试仍需最新提交的实际结果。Windows、真实供应商和生产部署未验证，Netlify 管理权限的外部阻塞保持独立。
+- Web 测试接入后的最终复核：相同 `nx affected -t test build --base=origin/develop --verbose` 退出 `0`，6 个项目、10 个任务成功，4 个任务命中缓存；包含新增 `web:test` 的 `54/54`。最终 lint 和构建后的启动/包体检查再次通过。显式 fetch/merge 后 develop 仍为 `68f2ca1b`，无冲突。
