@@ -100,3 +100,11 @@ node ../../node_modules/vitest/vitest.mjs run
 - `40159908375`（`0254b209`）中图片上传 `20/20` 通过、合计 `1124ms`，报告上传也成功。Drawnix 唯一失败为预览测试的 angle 分支：canvas 已挂载，但绘图 effect 尚未设置 width 属性，立即断言得到 null。其他 `3727` 个用例通过。
 - 将原有 width/height 与 drawImage 断言放入 waitFor，等待绘图完成；保留全部预期尺寸、已解码像素来源、无 src 重载和无副作用检查，不增加超时、不修改产品组件。
 - Node 20 目标文件 `13/13` 通过，耗时 `300ms`；目标 ESLint、`git diff --check` 通过。此轮仅测试和 QA 变更。
+
+### Linux 视觉基线与定位器
+
+- `40160544100`（`de65312e`）远程完整测试/构建、lint、启动、冒烟、包体和报告上传均成功；视觉为 `8` 通过、`32` 失败。失败仅有缺失 Linux 基线，以及 `.ai-input-bar` 同时匹配画布/聊天输入框导致的严格定位错误。
+- 将 responsive/visual 两个测试文件的画布输入栏统一定位到已有 `data-testid="ai-input-bar"`，保留可见性、尺寸、交互和截图断言，不改变应用 DOM。
+- 新增 `41` 张 `*-visual-linux.png`，来源为该运行的 `visual-diff-report`（artifact `12586781773`）：34 张为缺失基线时产生的截图，7 张响应式截图为相同视口、已执行原 prepareForScreenshot 后的失败附件。文件均与报告原图 SHA256 一致，没有绘制、裁剪或修饰图片。
+- 环境为 GitHub Ubuntu `24.04`、Playwright `1.57.0`、Chromium `143.0.7499.4`（build `v1200`）。检查了全部 41 张截图的布局与状态，并参考现有 Mac 基线；首访资源提示面板属于现行组件的默认状态。已有 Mac 基线和全部差异阈值保留。
+- 这是首次建立 Linux 基线，不构成与历史 Linux 版本的视觉一致性证明，必须通过下一次独立 CI 的比较结果验证稳定性。本地仅检查报告图片、PNG 完整性、目标 ESLint 和 Playwright 测试收集（40 个用例），未启动本地产品页面。

@@ -417,6 +417,8 @@ Web 的 lint 检查应用、SW 和自行维护的调试页源码；`public/sw.js
 
 `nx test web` 通过独立 Vitest 配置执行已有的应用同步、持久化和 SW 逻辑测试，不启动浏览器页面；这些用例也随 `nx affected -t test build` 在 CI 执行。
 
+视觉快照按运行系统保存：`*-visual-darwin.png` 与 `*-visual-linux.png` 分别维护。新增平台基线需记录 CI 运行、浏览器/系统版本及图片来源，核对真实页面状态后再加入，并以独立运行验证重复性；不得通过增加差异阈值或自动覆盖已有基线消除失败。画布输入栏使用 `data-testid="ai-input-bar"`，避免与聊天区复用的样式类混淆。
+
 ### 单元测试
 ```typescript
 // ✅ 推荐的测试结构

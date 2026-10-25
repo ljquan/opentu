@@ -67,7 +67,7 @@ test.describe('响应式布局测试', () => {
       // 验证工具栏可见
       await expect(page.locator('.unified-toolbar')).toBeVisible();
       // 验证AI输入栏可见
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       // 验证视图导航可见
       await expect(page.locator('.view-navigation')).toBeVisible();
       
@@ -85,7 +85,7 @@ test.describe('响应式布局测试', () => {
       await prepareForScreenshot(page);
       
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.desktopMedium.name}.png`, {
         fullPage: false,
@@ -104,7 +104,7 @@ test.describe('响应式布局测试', () => {
       
       // 验证工具栏使用图标模式
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.tabletLandscape.name}.png`, {
         fullPage: false,
@@ -119,7 +119,7 @@ test.describe('响应式布局测试', () => {
       await prepareForScreenshot(page);
       
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.tabletPortrait.name}.png`, {
         fullPage: false,
@@ -138,7 +138,7 @@ test.describe('响应式布局测试', () => {
       
       // 验证组件可见且不遮挡
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.mobileLandscape.name}.png`, {
         fullPage: false,
@@ -153,7 +153,7 @@ test.describe('响应式布局测试', () => {
       await prepareForScreenshot(page);
       
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.mobilePortrait.name}.png`, {
         fullPage: false,
@@ -168,7 +168,7 @@ test.describe('响应式布局测试', () => {
       await prepareForScreenshot(page);
       
       await expect(page.locator('.unified-toolbar')).toBeVisible();
-      await expect(page.locator('.ai-input-bar')).toBeVisible();
+      await expect(page.getByTestId('ai-input-bar')).toBeVisible();
       
       await expect(page).toHaveScreenshot(`responsive-${VIEWPORTS.mobileSmall.name}.png`, {
         fullPage: false,
@@ -214,7 +214,7 @@ test.describe('组件响应式测试', () => {
       await page.goto('/');
       await waitForPageReady(page);
       
-      const inputBar = page.locator('.ai-input-bar');
+      const inputBar = page.getByTestId('ai-input-bar');
       await expect(inputBar).toBeVisible();
       
       // 验证输入栏不与工具栏重叠
