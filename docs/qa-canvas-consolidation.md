@@ -1,5 +1,16 @@
 # 主画布整合与工作流模式删除 QA
 
+## 2026-10-25：PR #317 最终集成验证
+
+- 交付范围：在原选图预览/模型获取修复基础上，补充编辑器解码像素预览、拆分与缩放整合、缩放倍数、视角数值约束/回填/原提示词复用、单张参考去重、灰色平滑关联线。下方较早章节记录各轮本地修改和验收事实，本节为最终集成状态。
+- 分支与同步：功能分支 `dev/fix-selected-previews-and-model-discovery`，目标 `origin/develop`。基础回归 17 文件、222 项通过后先提交本地任务改动 `8c8fc387`，再显式 fetch/merge `origin/develop`（`68f2ca1b`，Already up to date）。为解决已确认的 PR 重叠，在本地合入 #318 头 `3ca800b5`；不在 GitHub 合并或关闭 #318。原先无关的 `packages/drawnix/src/data/image.test.ts` 修改保留在工作区，不纳入本 PR。
+- 冲突处理：勾选框 SCSS 采用 #318 的 TDesign 控件/标签布局，保留本地编辑入口收敛；关联线测试同时要求本地灰色 1.5 px 外观和 #318 的可选择/删除/撤销行为。补齐画线与点击命中的几何一致性，普通元素仍委托原命中函数。已有历史线加载时统一解锁和归一化样式，不改变来源元数据版本。
+- 最终测试：在 `packages/drawnix` 使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，运行编辑器、AIInputBar 工具草稿/回填图片/选区/来源身份、目标状态、联想状态/拾取/解析、图片工具弹窗/详情/入口、工具栏设置、关联线/平滑线、缩放/拆分插入/参考图准备/统一插入和图片工具辅助函数共 20 个文件，339/339 项通过。新增实际曲线出线段及陡峭分支点击命中验证，删除回归使用实际插件命中处理。
+- 静态与构建：Drawnix 和 Web TypeScript 均通过；生产 Vite 构建通过（50.12 秒）。32 份变更 TS/TSX 文件 ESLint 为 4 个错误和 53 项警告，全部与 `b532337f` 源码逐项对照，无新增诊断；4 个错误是 ImageEditorCore 的两处 prefer-const，以及 popup-toolbar 的原有 Nx 模块边界/location 规则。未为提交夹带无关修复。`git diff --check`、冲突标记及暂存差异检查通过。
+- 页面证据：本轮提交未增加页面测试；此前已授权的 7201 验收确认解码预览恢复、平滑线显示、视角回填保持一张参考图和原提示词候选，截图保留在 `docs/assets/`。本次合入后的删线交互未做浏览器验收，使用插件级删除/撤销/端点回归；空格复用只做自动逻辑验证。没有真实供应商调用。
+- 限制与注意：未执行全仓库测试、Windows、Safari/Firefox、线上、大图压力、独立 SVG/PNG 导出验收。构建仍有原有 Sass、Browserslist、混合导入与 chunk 体积提示；远程 CI 与本地验证分别报告，不将原 PR 的失败状态当成本轮新结果。无新增依赖、环境变量或数据迁移。回滚可撤销本轮提交；旧版本可能重新锁定关系线，已生成/缩放的用户图片不自动删除。
+- 证据日志：`/tmp/opentu1-submit-pr-{basic-tests,final-tests,final-types,app-types,final-build}.log`、`/tmp/opentu1-submit-pr-lint.json`、`/tmp/opentu1-submit-pr-lint-comparison.json`。QA/DOC 复用现有文档，不新增根目录文件。
+
 ## 2026-10-25：视角回填后输入栏被清空
 
 - 根因：视角弹窗通过 Portal 挂载在画布容器内，点击“填入”的 `pointerup` 被当成真实画布点击。50ms 延迟选区回调触发原图片草稿恢复，覆盖刚回填的视角指令，造成成功提示与空输入栏同时出现。

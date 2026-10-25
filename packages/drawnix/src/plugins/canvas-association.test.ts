@@ -1,5 +1,6 @@
 import {
   createTestingBoard,
+  fakeNodeWeakMap,
   IS_BOARD_ALIVE,
   PlaitHistoryBoard,
   RectangleClient,
@@ -9,6 +10,7 @@ import {
 } from '@plait/core';
 import { describe, expect, it } from 'vitest';
 import { ArrowLineShape } from '@plait/draw';
+import { withLockedElement } from './with-locked-element';
 import {
   canInsertCanvasAssociationsOnBoard,
   createCanvasAssociationLines,
@@ -259,6 +261,7 @@ describe('canvas association', () => {
       element.id === persistedLine.id
         ? {
             ...element,
+            locked: true,
             shape: ArrowLineShape.straight,
             strokeColor: '#8b8b8b',
             strokeWidth: 1,
@@ -274,6 +277,7 @@ describe('canvas association', () => {
     expect(line?.strokeColor).toBe('#9ca3af');
     expect(line?.strokeWidth).toBe(1.5);
     expect(line?.shape).toBe(ArrowLineShape.curve);
+    expect(line?.locked).toBe(false);
     expect(board.history.undos).toHaveLength(0);
   });
 
@@ -295,7 +299,7 @@ describe('canvas association', () => {
     });
     const loadedChildren = persistedBoard.children.map((element) =>
       element.id === persistedLine.id
-        ? { ...element, strokeColor: '#000000', strokeWidth: 2 }
+        ? { ...element, locked: true, strokeColor: '#000000', strokeWidth: 2 }
         : element
     );
     const board = createHistoryBoard([
@@ -310,6 +314,7 @@ describe('canvas association', () => {
 
     expect(line?.strokeColor).toBe('#9ca3af');
     expect(line?.strokeWidth).toBe(1.5);
+    expect(line?.locked).toBe(false);
     expect(board.history.undos).toHaveLength(0);
   });
 
@@ -379,7 +384,7 @@ describe('canvas association', () => {
 
     expect(board.children).toContain(line);
     expect(isCanvasAssociationLine(line)).toBe(true);
-    expect(line.locked).toBe(true);
+    expect(line.locked).toBe(false);
     expect(line.strokeColor).toBe('#9ca3af');
     expect(line.strokeWidth).toBe(1.5);
     expect(line.shape).toBe(ArrowLineShape.curve);
@@ -393,6 +398,72 @@ describe('canvas association', () => {
       taskId: 'task-1',
     });
   });
+
+  it.each([false, true])(
+    'allows hit testing and deleting a link without deleting its endpoints (persisted locked=%s)',
+    async (persistedLocked) => {
+      const persistedBoard = createBoard([
+        createElement('source-1', [
+          [0, 0],
+          [100, 100],
+        ]),
+        createElement('result-1', [
+          [300, 200],
+          [400, 300],
+        ]),
+      ]);
+      const [createdLine] = createCanvasAssociationLines(persistedBoard, {
+        boardId: 'board-1',
+        sourceElementIds: ['source-1'],
+        resultElementId: 'result-1',
+      });
+      const board = createHistoryBoard(
+        persistedBoard.children.map((element) =>
+          element.id === createdLine.id
+            ? { ...element, locked: persistedLocked }
+            : element
+        ) as TestingElement[]
+      );
+      withLockedElement(board);
+      fakeNodeWeakMap(board);
+
+      const line = board.children.find(isCanvasAssociationLine);
+      if (!line) throw new Error('Expected an association line');
+      expect(board.isHit(line, [200, 150])).toBe(true);
+      expect(board.isHit(line, [200, 220])).toBe(false);
+      expect(board.history.undos).toHaveLength(0);
+
+      board.deleteFragment([line]);
+      await flushBoardChanges();
+      expect(board.children.map((element) => element.id)).toEqual([
+        'source-1',
+        'result-1',
+      ]);
+      expect(board.children).toEqual(persistedBoard.children.slice(0, 2));
+
+      board.undo();
+      await flushBoardChanges();
+      expect(board.children.find(isCanvasAssociationLine)?.id).toBe(
+        createdLine.id
+      );
+      expect(board.children.find(isCanvasAssociationLine)?.locked).toBe(false);
+
+      board.redo();
+      await flushBoardChanges();
+      Transforms.setNode(
+        board,
+        {
+          points: [
+            [0, 100],
+            [100, 200],
+          ],
+        },
+        [0]
+      );
+      await flushBoardChanges();
+      expect(board.children.filter(isCanvasAssociationLine)).toHaveLength(0);
+    }
+  );
 
   it('is idempotent for duplicate sources and completion retries', () => {
     const board = createBoard([

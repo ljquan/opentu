@@ -164,11 +164,49 @@ describe('managed association line drawing', () => {
       [100, 40],
       [300, 40],
     ]);
+    expect(line.locked).toBe(false);
+    expect(board.isHit(line, [200, 40])).toBe(true);
+    expect(board.isHit(line, [200, 80])).toBe(false);
     expect(
       board.drawElement({ element: source } as Parameters<
         typeof board.drawElement
       >[0])
     ).toBe(ArrowLineComponent);
     expect(originalDraw).toHaveBeenCalledOnce();
+  });
+
+  it('hits the displayed branch and steep curve instead of the old hand-drawn path', () => {
+    const board = createTestingBoard(
+      [withCanvasAssociation],
+      [
+        {
+          id: 'source',
+          type: 'image',
+          points: [
+            [0, 0],
+            [100, 100],
+          ],
+        },
+        {
+          id: 'result',
+          type: 'image',
+          points: [
+            [500, 490],
+            [600, 590],
+          ],
+        },
+      ]
+    );
+    board.getRectangle = (element) =>
+      RectangleClient.getRectangleByPoints(element.points);
+    const [line] = createCanvasAssociationLines(board, {
+      boardId: 'board',
+      sourceElementIds: ['source'],
+      resultElementId: 'result',
+    });
+    expect(board.isHit(line, [122, 50])).toBe(true);
+    // t = 0.25 on the curve M106,50 L138,50 C258,50 342,540 462,540.
+    expect(board.isHit(line, [222.375, 126.5625])).toBe(true);
+    expect(board.isHit(line, [222.375, 190])).toBe(false);
   });
 });

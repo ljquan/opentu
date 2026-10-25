@@ -21,6 +21,7 @@ import {
   ASSOCIATION_STROKE_COLOR,
   ASSOCIATION_STROKE_WIDTH,
   CanvasAssociationLineComponent,
+  isHitCanvasAssociationLine,
 } from './canvas-association-line';
 
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
@@ -53,7 +54,7 @@ export interface CanvasAssociationMetadata {
 
 export interface PlaitCanvasAssociationLine extends PlaitArrowLine {
   canvasAssociation: CanvasAssociationMetadata;
-  locked: true;
+  locked: false;
 }
 
 export interface CreateCanvasAssociationLinesOptions {
@@ -614,7 +615,8 @@ export function createCanvasAssociationLines(
         strokeWidth: ASSOCIATION_STROKE_WIDTH,
       }
     ) as PlaitCanvasAssociationLine;
-    line.locked = true;
+    // Keep managed links selectable so the normal canvas delete action works.
+    line.locked = false;
     line.canvasAssociation = {
       version: CANVAS_ASSOCIATION_VERSION,
       boardId,
@@ -808,7 +810,7 @@ export function reconcileCanvasAssociationLines(
     }
 
     const restoreManagedState =
-      element.locked !== true ||
+      element.locked !== false ||
       Boolean(element.source.boundId || element.source.connection) ||
       Boolean(element.target.boundId || element.target.connection);
     const restoreManagedStyle =
@@ -836,7 +838,7 @@ export function reconcileCanvasAssociationLines(
       points: update.points,
     };
     if (update.restoreManagedState) {
-      patch.locked = true;
+      patch.locked = false;
       patch.source = { marker: ArrowLineMarkerType.none };
       patch.target = { marker: ArrowLineMarkerType.none };
     }
@@ -915,7 +917,7 @@ function reconcileAffectedCanvasAssociationLines(
       continue;
     }
     const restoreManagedState =
-      line.locked !== true ||
+      line.locked !== false ||
       Boolean(line.source.boundId || line.source.connection) ||
       Boolean(line.target.boundId || line.target.connection);
     const restoreManagedStyle =
@@ -943,7 +945,7 @@ function reconcileAffectedCanvasAssociationLines(
       points: update.points,
     };
     if (update.restoreManagedState) {
-      patch.locked = true;
+      patch.locked = false;
       patch.source = { marker: ArrowLineMarkerType.none };
       patch.target = { marker: ArrowLineMarkerType.none };
     }
@@ -968,7 +970,11 @@ function reconcileAffectedCanvasAssociationLines(
 }
 
 export const withCanvasAssociation: PlaitPlugin = (board) => {
-  const { afterChange, drawElement } = board;
+  const { afterChange, drawElement, isHit } = board;
+  board.isHit = (element, point, ...rest) =>
+    isCanvasAssociationLine(element)
+      ? isHitCanvasAssociationLine(board, element, point)
+      : isHit(element, point, ...rest);
   board.drawElement = (context) =>
     isCanvasAssociationLine(context.element)
       ? CanvasAssociationLineComponent
