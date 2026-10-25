@@ -108,3 +108,4 @@ node ../../node_modules/vitest/vitest.mjs run
 - 新增 `41` 张 `*-visual-linux.png`，来源为该运行的 `visual-diff-report`（artifact `12586781773`）：34 张为缺失基线时产生的截图，7 张响应式截图为相同视口、已执行原 prepareForScreenshot 后的失败附件。文件均与报告原图 SHA256 一致，没有绘制、裁剪或修饰图片。
 - 环境为 GitHub Ubuntu `24.04`、Playwright `1.57.0`、Chromium `143.0.7499.4`（build `v1200`）。检查了全部 41 张截图的布局与状态，并参考现有 Mac 基线；首访资源提示面板属于现行组件的默认状态。已有 Mac 基线和全部差异阈值保留。
 - 这是首次建立 Linux 基线，不构成与历史 Linux 版本的视觉一致性证明，必须通过下一次独立 CI 的比较结果验证稳定性。本地仅检查报告图片、PNG 完整性、目标 ESLint 和 Playwright 测试收集（40 个用例），未启动本地产品页面。
+- CI 主任务固定 `ubuntu-24.04`，与截图来源一致；原日志提示 ubuntu-latest 正在迁移到 26，避免同一套基线随浮动镜像变化。后续升级镜像时应共同核对基线；检查步骤和阈值不变。
