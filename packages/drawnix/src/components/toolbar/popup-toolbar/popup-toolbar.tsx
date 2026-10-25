@@ -1,6 +1,9 @@
+import { resizeCanvasImage } from '../../../services/canvas-operations/resize-canvas-image';
 import Stack from '../../stack';
 import { ImageToolbarContents } from './image-toolbar-contents';
 import type { ImageToolMode } from './canvas-image-tools-dialog';
+import { getCanvasBoardBinding, type CanvasBoardBinding } from '../../../services/canvas-operations/canvas-board-ref';
+import { insertSplitImages } from '../../../services/canvas-operations/insert-split-images';
 import { FontColorIcon, PropertySettingsIcon } from '../../icons';
 import {
   ATTACHED_ELEMENT_CLASS_NAME,
@@ -101,10 +104,8 @@ import {
   Scaling,
   RefreshCw,
   PaintBucket,
-  Scissors,
   Orbit,
   Ungroup,
-  ImageUpscale,
 } from 'lucide-react';
 import { useDrawnix, DialogType } from '../../../hooks/use-drawnix';
 import { useI18n } from '../../../i18n';
@@ -247,6 +248,7 @@ export const PopupToolbar = () => {
 
   // 图片编辑器状态
   const [showImageEditor, setShowImageEditor] = useState(false);
+  const [editingImageBinding, setEditingImageBinding] = useState<CanvasBoardBinding | null>(null);
   const [imageToolMode, setImageToolMode] = useState<ImageToolMode | null>(null);
   const imageToolSelectionKey = selectedElements.map(element => element.id).join(',');
   useEffect(() => { setImageToolMode(null); }, [imageToolSelectionKey]);
@@ -1944,11 +1946,11 @@ export const PopupToolbar = () => {
                 }}
               />
             )}
-            {state.hasImageEdit && (['split', 'resize', 'angle'] as const).map((mode) => (
+            {state.hasImageEdit && (['angle'] as const).map((mode) => (
               <ToolButton key={`local-image-${mode}`} className={`local-image-${mode}`} type="icon" visible
-                icon={mode === 'split' ? <Scissors size={16} /> : mode === 'resize' ? <ImageUpscale size={16} /> : <Orbit size={16} />}
-                aria-label={{ split: '手动拆图', resize: '本地放大', angle: 'AI 视角编辑' }[mode]}
-                tooltip={{ split: '手动拆图', resize: '本地放大', angle: 'AI 视角编辑' }[mode]}
+                icon={<Orbit size={16} />}
+                aria-label="AI 视角编辑"
+                tooltip="AI 视角编辑"
                 onClick={() => setImageToolMode(mode)} />
             ))}
             {state.hasImageEdit && (
@@ -1969,6 +1971,7 @@ export const PopupToolbar = () => {
                   ) {
                     setEditingImageUrl(imageElement.url);
                     setEditingImageElement(imageElement);
+                    setEditingImageBinding(getCanvasBoardBinding());
                     setShowImageEditor(true);
                   }
                 }}
@@ -2747,10 +2750,19 @@ export const PopupToolbar = () => {
             visible={showImageEditor}
             imageUrl={editingImageUrl}
             showOverwrite={!!editingImageElement}
+            onResize={async (options, onStage, signal) => {
+              if (!editingImageBinding || !editingImageElement) throw new Error('画布已切换，请重新选择图片。');
+              return resizeCanvasImage(editingImageBinding, editingImageElement, options, onStage, signal);
+            }}
+            onSplit={async (images) => {
+              if (!editingImageBinding || !editingImageElement) throw new Error('画布已切换，请重新选择图片。');
+              await insertSplitImages(editingImageBinding, editingImageElement, images);
+            }}
             onClose={() => {
               setShowImageEditor(false);
               setEditingImageUrl('');
               setEditingImageElement(null);
+              setEditingImageBinding(null);
             }}
             onOverwrite={async (editedImageUrl: string) => {
               if (editingImageElement) {

@@ -17,6 +17,10 @@ import {
   type PlaitArrowLine,
 } from '@plait/draw';
 import type { CanvasAssociationRef } from '../types/shared/core.types';
+import {
+  CanvasAssociationLineComponent,
+  isHitCanvasAssociationLine,
+} from './canvas-association-line';
 
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
 
@@ -965,7 +969,15 @@ function reconcileAffectedCanvasAssociationLines(
 }
 
 export const withCanvasAssociation: PlaitPlugin = (board) => {
-  const { afterChange } = board;
+  const { afterChange, drawElement, isHit } = board;
+  board.isHit = (element, point, ...rest) =>
+    isCanvasAssociationLine(element)
+      ? isHitCanvasAssociationLine(board, element, point)
+      : isHit(element, point, ...rest);
+  board.drawElement = (context) =>
+    isCanvasAssociationLine(context.element)
+      ? CanvasAssociationLineComponent
+      : drawElement(context);
   let applyingOperationDepth = 0;
   let reconciling = false;
   let appliedOperationShouldSave = false;

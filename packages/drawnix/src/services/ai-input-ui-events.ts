@@ -13,6 +13,7 @@ export interface AIInputFocusEventDetail {
 export interface AIInputPrefillImage {
   url: string;
   name: string;
+  sourceElementId?: string;
   width?: number;
   height?: number;
   maskImage?: string;

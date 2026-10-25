@@ -24,11 +24,17 @@ afterEach(() => {
 });
 
 describe('ImageToolbarSettings', () => {
+  it('offers one editing entry after merging manual split into the editor', () => {
+    render(<ImageToolbarSettings />);
+    expect(screen.getByRole('checkbox', { name: '编辑图片' })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: '手动拆图' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: '本地放大' })).toBeNull();
+  });
   it('persists fixed tools and label visibility through the shared preference event', () => {
     const eventSpy = vi.spyOn(window, 'dispatchEvent');
     render(<ImageToolbarSettings />);
 
-    const resize = screen.getByRole('checkbox', { name: '本地放大' });
+    const resize = screen.getByRole('checkbox', { name: '编辑图片' });
     fireEvent.click(resize);
     const labels = screen.getByLabelText('显示工具文字');
     fireEvent.click(labels);
@@ -36,7 +42,7 @@ describe('ImageToolbarSettings', () => {
     const saved = JSON.parse(
       localStorage.getItem(IMAGE_TOOLBAR_PREFERENCES_KEY) || '{}'
     );
-    expect(saved.hidden).toContain('local-image-resize');
+    expect(saved.hidden).toContain('image-edit');
     expect(saved.labels).toBe(true);
     expect(eventSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: IMAGE_TOOLBAR_PREFERENCES_EVENT })
@@ -68,7 +74,7 @@ describe('ImageToolbarSettings', () => {
     });
     render(<ImageToolbarSettings />);
     const checkbox = screen.getByRole('checkbox', {
-      name: '本地放大',
+      name: '编辑图片',
     }) as HTMLInputElement;
     fireEvent.click(checkbox);
     expect(checkbox.checked).toBe(true);
@@ -86,23 +92,23 @@ describe('ImageToolbarSettings', () => {
         <ImageToolbarContents enabled container={document.body}>
           <ToolButton
             type="icon"
-            className="local-image-resize"
+            className="image-edit"
             visible
-            aria-label="本地放大"
+            aria-label="编辑图片"
             onClick={action}
           />
         </ImageToolbarContents>
       </>
     );
-    expect(screen.getByRole('button', { name: '本地放大' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '编辑图片' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '更多图片工具' })).toBeNull();
-    fireEvent.click(screen.getByRole('checkbox', { name: '本地放大' }));
-    expect(screen.queryByRole('button', { name: '本地放大' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: '编辑图片' }));
+    expect(screen.queryByRole('button', { name: '编辑图片' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '更多图片工具' }));
-    fireEvent.click(await screen.findByRole('button', { name: '本地放大' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑图片' }));
     expect(action).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('checkbox', { name: '本地放大' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '编辑图片' }));
     expect(screen.queryByRole('button', { name: '更多图片工具' })).toBeNull();
-    expect(screen.getByRole('button', { name: '本地放大' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '编辑图片' })).toBeTruthy();
   });
 });

@@ -143,6 +143,7 @@
     text-align: center;
   }
   p.canvas-image-tools__preview-error,
+  span.canvas-image-tools__error,
   p.canvas-image-tools__error {
     color: var(--aitu-ui-danger, #be123c);
     font-size: 12px;

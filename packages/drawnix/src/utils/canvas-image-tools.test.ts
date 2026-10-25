@@ -19,6 +19,19 @@ describe('consolidated image tools', () => {
     expect(() => imageResizeDimensions(0, 800, 2400)).toThrow();
     expect(() => imageResizeDimensions(800, 800, Infinity)).toThrow();
   });
+
+  it('reduces landscape, portrait and narrow images without zero dimensions', () => {
+    expect(imageResizeDimensions(4000, 3000, 2000)).toEqual({
+      width: 2000,
+      height: 1500,
+    });
+    expect(imageResizeDimensions(3000, 4000, 2000)).toEqual({
+      width: 1500,
+      height: 2000,
+    });
+    expect(imageResizeDimensions(4000, 1, 1)).toEqual({ width: 1, height: 1 });
+    expect(() => imageResizeDimensions(4000, 3000, -10)).toThrow();
+  });
   it('uses distinct pixel cuts without missing edge pixels', () => {
     expect(imageSplitCuts('75,25,25', 101)).toEqual([0, 25, 76, 101]);
     expect(imageSplitCuts('1,2,50,99', 2)).toEqual([0, 1, 2]);

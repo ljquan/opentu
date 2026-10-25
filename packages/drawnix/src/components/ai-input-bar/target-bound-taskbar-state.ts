@@ -29,6 +29,14 @@ export function readBoundTargetGenerationPrompt(
       return value.trim();
     }
   }
+  if (targetType === 'image') {
+    const operation = record?.localImageOperation as
+      | { sourcePrompt?: unknown }
+      | undefined;
+    if (typeof operation?.sourcePrompt === 'string') {
+      return operation.sourcePrompt.trim();
+    }
+  }
   return '';
 }
 
