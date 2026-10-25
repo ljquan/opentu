@@ -70,6 +70,7 @@ function harness(initialSelection = [first, second]) {
   const selectionChanged = vi.fn();
   const targetChanged = vi.fn();
   const viewportChanged = vi.fn();
+  const canvasPointer = vi.fn();
   const exports = {} as {
     Watcher: React.ComponentType<Record<string, unknown>>;
   };
@@ -117,6 +118,7 @@ function harness(initialSelection = [first, second]) {
     onSelectionChange: selectionChanged,
     onBoundImageTargetChange: targetChanged,
     onBoundInputViewportChange: viewportChanged,
+    onCanvasPointer: canvasPointer,
   };
   const view = render(<exports.Watcher {...props} />);
   return {
@@ -126,6 +128,7 @@ function harness(initialSelection = [first, second]) {
     selectionChanged,
     targetChanged,
     viewportChanged,
+    canvasPointer,
     select: (elements: typeof selected) => {
       selected = elements;
     },
@@ -191,7 +194,8 @@ describe('AIInputBar canvas selection publication', () => {
       document.body.dispatchEvent(new Event('pointerup', { bubbles: true }));
       await vi.advanceTimersByTimeAsync(50);
     });
-    expect(h.targetChanged).toHaveBeenLastCalledWith(target, true);
+    expect(h.canvasPointer).toHaveBeenCalledOnce();
+    expect(h.targetChanged).toHaveBeenLastCalledWith(target);
   });
   it.each(['pointermove', 'wheel', 'keyup', 'resize'])(
     'publishes both selected images when %s occurs during extraction',

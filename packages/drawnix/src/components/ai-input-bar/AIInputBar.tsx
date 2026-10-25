@@ -1243,10 +1243,8 @@ const SelectionWatcher: React.FC<{
     board: PlaitBoard,
     elements: PlaitElement[]
   ) => boolean;
-  onBoundImageTargetChange?: (
-    target: BoundImageTarget | null,
-    fromCanvasPointer?: boolean
-  ) => void;
+  onBoundImageTargetChange?: (target: BoundImageTarget | null) => void;
+  onCanvasPointer?: () => void;
   onBoundInputViewportChange?: () => void;
   /** 用于存储 board 引用的 ref，供父组件使用 */
   externalBoardRef?: React.MutableRefObject<any>;
@@ -1268,6 +1266,7 @@ const SelectionWatcher: React.FC<{
     canvasAssociationPickingToken,
     onCanvasAssociationSelection,
     onBoundImageTargetChange,
+    onCanvasPointer,
     onBoundInputViewportChange,
     externalBoardRef,
     onCanvasEmptyChange,
@@ -1364,6 +1363,8 @@ const SelectionWatcher: React.FC<{
 
     const onBoundImageTargetChangeRef = useRef(onBoundImageTargetChange);
     onBoundImageTargetChangeRef.current = onBoundImageTargetChange;
+    const onCanvasPointerRef = useRef(onCanvasPointer);
+    onCanvasPointerRef.current = onCanvasPointer;
 
     const onBoundInputViewportChangeRef = useRef(onBoundInputViewportChange);
     onBoundInputViewportChangeRef.current = onBoundInputViewportChange;
@@ -1378,8 +1379,7 @@ const SelectionWatcher: React.FC<{
 
     useEffect(() => {
       const handleSelectionChange = async (
-        canvasAssociationPickElements?: PlaitElement[],
-        fromCanvasPointer = false
+        canvasAssociationPickElements?: PlaitElement[]
       ) => {
         const currentBoard = boardRef.current;
         if (!currentBoard) return;
@@ -1440,11 +1440,7 @@ const SelectionWatcher: React.FC<{
           return;
         }
         if (boundTargetRunId === boundTargetRunIdRef.current) {
-          if (fromCanvasPointer) {
-            onBoundImageTargetChangeRef.current?.(boundImageTarget, true);
-          } else {
-            onBoundImageTargetChangeRef.current?.(boundImageTarget);
-          }
+          onBoundImageTargetChangeRef.current?.(boundImageTarget);
         }
 
         // 检测是否选中了单个 Frame，通知父组件
@@ -1562,6 +1558,9 @@ const SelectionWatcher: React.FC<{
         if (pickingAtPointer && !isCanvasPointer) {
           return;
         }
+        if (isCanvasPointer && !pickingAtPointer) {
+          onCanvasPointerRef.current?.();
+        }
         const pointer = {
           clientX: event.clientX,
           clientY: event.clientY,
@@ -1590,7 +1589,7 @@ const SelectionWatcher: React.FC<{
             isCanvasPointer && pickingAtPointer && activeBoard
               ? getCanvasAssociationPickElements(activeBoard, pointer)
               : undefined;
-          void handleSelectionChange(pickElements, isCanvasPointer);
+          void handleSelectionChange(pickElements);
         }, 50);
       };
       const handleSelectionRefresh = () => {
@@ -4358,13 +4357,20 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       [selectedModel]
     );
 
+    const handleCanvasPointer = useCallback(() => {
+      if (!canvasToolbarPrefillElementIdRef.current) return;
+      canvasToolbarPrefillElementIdRef.current = null;
+      lastBoundImageTargetKeyRef.current = null;
+      dismissedPromptElementIdRef.current = null;
+      dismissedPromptGenerationTaskIdRef.current = null;
+    }, []);
+
     const handleBoundImageTargetChange = useCallback(
-      (target: BoundImageTarget | null, fromCanvasPointer = false) => {
+      (target: BoundImageTarget | null) => {
         resetBoundTaskbarDraftsForBoard(currentBoardId ?? null);
         if (canvasToolbarPrefillElementIdRef.current) {
           if (
-            target?.elementId === canvasToolbarPrefillElementIdRef.current &&
-            !fromCanvasPointer
+            target?.elementId === canvasToolbarPrefillElementIdRef.current
           ) {
             // Viewport/async refreshes must not discard freshly filled input.
             boundImageTargetRef.current = target;
@@ -8385,6 +8391,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             canvasAssociationPickingToken={canvasAssociationTrigger}
             onCanvasAssociationSelection={handleCanvasAssociationSelection}
             onBoundImageTargetChange={handleBoundImageTargetChange}
+            onCanvasPointer={handleCanvasPointer}
             onBoundInputViewportChange={handleBoundInputViewportChange}
             externalBoardRef={SelectionWatcherBoardRef}
             onCanvasEmptyChange={setIsCanvasEmpty}

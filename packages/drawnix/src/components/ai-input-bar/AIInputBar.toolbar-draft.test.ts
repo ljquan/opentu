@@ -19,6 +19,7 @@ const names = [
   'handleAIInputPrefill',
   'handleBoundImageTargetChange',
   'detachTaskbarDraft',
+  'handleCanvasPointer',
 ];
 const declarations = new Map<string, string>();
 function visit(node: ts.Node) {
@@ -37,7 +38,8 @@ if (declarations.size !== names.length)
 const compiled = ts.transpileModule(
   `${[...declarations.values()].join('\n')}
 exports.prefill = handleAIInputPrefill;
-exports.select = handleBoundImageTargetChange;`,
+exports.select = handleBoundImageTargetChange;
+exports.clickCanvas = handleCanvasPointer;`,
   {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -108,7 +110,8 @@ function harness(initialPrompt = '', approved = true) {
   };
   const callbacks = {} as {
     prefill: (event: unknown) => Promise<void>;
-    select: (next: typeof target | null, fromPointer?: boolean) => void;
+    select: (next: typeof target | null) => void;
+    clickCanvas: () => void;
   };
   runInNewContext(compiled, {
     ...taskbar,
@@ -212,7 +215,8 @@ describe('toolbar prefill and source prompt drafts', () => {
     expect(h.activeDraftElementIdRef.current).toBeNull();
     h.select(target);
     expect(h.promptRef.current).toBe('视角编辑新指令');
-    h.select(target, true);
+    h.clickCanvas();
+    h.select(target);
     expect(h.promptRef.current).toBe('');
     expect(h.suggestion.current).toBe(target.prompt);
     expect(h.boundTargetDraftsRef.current.has(target.elementId)).toBe(false);
@@ -231,16 +235,19 @@ describe('toolbar prefill and source prompt drafts', () => {
   it('preserves a manually edited source draft instead of replacing it with the angle prompt', async () => {
     const h = harness('用户手写草稿');
     await h.prefill();
-    h.select(target, true);
+    h.clickCanvas();
+    h.select(target);
     expect(h.promptRef.current).toBe('用户手写草稿');
     expect(h.suggestion.current).toBeNull();
   });
   it('keeps toolbar input when deselecting and shows the original suggestion after reselecting', async () => {
     const h = harness();
     await h.prefill();
-    h.select(null, true);
+    h.clickCanvas();
+    h.select(null);
     expect(h.promptRef.current).toBe('视角编辑新指令');
-    h.select(target, true);
+    h.clickCanvas();
+    h.select(target);
     expect(h.promptRef.current).toBe('');
     expect(h.suggestion.current).toBe(target.prompt);
   });
