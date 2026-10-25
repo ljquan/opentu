@@ -407,6 +407,16 @@ const formReducer = (state: FormState, action: FormAction): FormState => {
 
 ## 测试规范
 
+### CI lint 与共享入口维护
+
+Web 的 lint 检查应用、SW 和自行维护的调试页源码；`public/sw.js` 是构建产物，`jszip.min.js` 和 `postmessage-duplex.js` 是第三方分发文件，不作为项目源码检查。各包的 `node_modules` 也必须保持排除，避免 `!**/*` 重新纳入依赖目录。修改这些文件的生成来源或依赖版本时，仍需执行测试与构建。
+
+`apps/web/public/sw-debug/shared` 是主应用和调试页共用的独立 Nx 库 `backup-core`，其浏览器原生 JS 和声明文件维持单一来源。主应用使用 `@aitu/backup-core`、`@aitu/backup-core/part-manager`；未经打包的调试页保留两个明确允许的相对 ESM 路径，线上 URL 不变。`nx build backup-core` 将同一份 JS 和声明复制到 `dist/backup-core`，无需额外依赖或数据迁移。
+
+编辑器的 `@drawnix/drawnix` 入口继续延迟加载；启动使用的 `@drawnix/drawnix/runtime`、SW 的纯核心类型/枚举入口和 `@aitu/utils/security` 可提前加载。Web lint 仅对这三个入口配置混合加载例外，其他入口仍受延迟加载边界检查。新增导出时应检查运行时副作用，并运行 `pnpm verify:startup` 和 `pnpm size` 验证首屏及包体。别名需同步 TypeScript、SW Vite 和相关 Vitest 配置，避免类型检查通过但运行时无法解析。
+
+`nx test web` 通过独立 Vitest 配置执行已有的应用同步、持久化和 SW 逻辑测试，不启动浏览器页面；这些用例也随 `nx affected -t test build` 在 CI 执行。
+
 ### 单元测试
 ```typescript
 // ✅ 推荐的测试结构

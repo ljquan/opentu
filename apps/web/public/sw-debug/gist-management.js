@@ -3042,7 +3042,7 @@ async function handleExportSyncLogs() {
 }
 
 async function handleClearSyncLogs() {
-  if (!confirm('确定要清空所有同步日志吗？此操作不可恢复。')) {
+  if (!window.confirm('确定要清空所有同步日志吗？此操作不可恢复。')) {
     return;
   }
 

@@ -7,7 +7,7 @@ import type { BackupManifest, ExportResult } from './types';
 import {
   PART_SIZE_THRESHOLD,
   SharedBackupPartManager,
-} from '../../../../../apps/web/public/sw-debug/shared/backup-part-manager-core.js';
+} from '@aitu/backup-core/part-manager';
 
 export { PART_SIZE_THRESHOLD };
 

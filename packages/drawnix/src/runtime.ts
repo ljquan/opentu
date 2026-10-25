@@ -17,6 +17,7 @@ export { useDocumentTitle } from './hooks/useDocumentTitle';
 export { markTabSyncVersion } from './hooks/useTabSync';
 
 export { initWebVitals } from './services/web-vitals-service';
+export { analytics } from './utils/umami-analytics';
 export { initPageReport } from './services/page-report-service';
 export { initPreventPinchZoom } from './services/prevent-pinch-zoom-service';
 export { runDatabaseCleanup } from './services/db-cleanup-service';

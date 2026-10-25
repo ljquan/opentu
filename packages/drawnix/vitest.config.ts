@@ -11,6 +11,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@aitu/backup-core/part-manager': path.resolve(__dirname, '../../apps/web/public/sw-debug/shared/backup-part-manager-core.js'),
+      '@aitu/backup-core': path.resolve(__dirname, '../../apps/web/public/sw-debug/shared/backup-core.js'),
       '@plait-board/react-board': path.resolve(__dirname, '../react-board/src/index.ts'),
       '@': path.resolve(__dirname, './src'),
       react: path.resolve(__dirname, '../../node_modules/react'),

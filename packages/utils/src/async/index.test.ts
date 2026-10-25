@@ -9,17 +9,17 @@ describe('isPromiseLike', () => {
 
   it('should return true for objects with then/catch/finally methods', () => {
     const promiseLike = {
-      then: () => {},
-      catch: () => {},
-      finally: () => {},
+      then: vi.fn(),
+      catch: vi.fn(),
+      finally: vi.fn(),
     };
     expect(isPromiseLike(promiseLike)).toBe(true);
   });
 
   it('should return false for non-promise objects', () => {
     expect(isPromiseLike({})).toBe(false);
-    expect(isPromiseLike({ then: () => {} })).toBe(false);
-    expect(isPromiseLike({ then: () => {}, catch: () => {} })).toBe(false);
+    expect(isPromiseLike({ then: vi.fn() })).toBe(false);
+    expect(isPromiseLike({ then: vi.fn(), catch: vi.fn() })).toBe(false);
   });
 
   it('should return false for primitives', () => {

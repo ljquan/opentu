@@ -15,7 +15,7 @@ import type { SWTask, GeminiConfig, VideoAPIConfig, ChatParams } from './types';
 import { getSafeErrorMessage } from './utils/sanitize-utils';
 
 // Import Workflow type from the main package's workflow-engine types
-import type { Workflow } from '../../../../../packages/drawnix/src/services/workflow-engine/types';
+import type { Workflow } from '@drawnix/drawnix/workflow-types';
 
 /**
  * Inline ChatWorkflow type (previously imported from deleted chat-workflow/types.ts)

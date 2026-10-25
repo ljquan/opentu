@@ -1148,6 +1148,14 @@ export default defineConfig({
     alias: [
       ...diagramEngineAliases,
       {
+        find: /^@aitu\/backup-core\/part-manager$/,
+        replacement: path.resolve(__dirname, 'public/sw-debug/shared/backup-part-manager-core.js'),
+      },
+      {
+        find: /^@aitu\/backup-core$/,
+        replacement: path.resolve(__dirname, 'public/sw-debug/shared/backup-core.js'),
+      },
+      {
         find: /^tdesign-react$/,
         replacement: path.resolve(
           __dirname,

@@ -30,7 +30,7 @@ export {
   importKnowledgeBaseData,
   BACKUP_SIGNATURE,
   BACKUP_VERSION,
-} from '../../../../../apps/web/public/sw-debug/shared/backup-core.js';
+} from '@aitu/backup-core';
 
 export function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`;

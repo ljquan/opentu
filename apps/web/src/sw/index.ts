@@ -2655,7 +2655,7 @@ async function prewarmAllIdlePrefetchGroupsForUpdateReady(): Promise<void> {
   let iteration = 0;
   let orderedGroups: string[] | null = null;
 
-  while (true) {
+  for (;;) {
     if (!orderedGroups) {
       const manifest = await getIdlePrefetchManifest();
       if (!manifest) {
@@ -6056,199 +6056,195 @@ function cleanupStaleRequests(): void {
 }
 
 async function handleImageRequest(request: Request): Promise<Response> {
-  try {
-    // 生成唯一的请求ID用于追踪
-    const requestId = Math.random().toString(36).substring(2, 10);
+  // 生成唯一的请求ID用于追踪
+  const requestId = Math.random().toString(36).substring(2, 10);
 
-    // console.log(`Service Worker [${requestId}]: Intercepting image request at ${new Date().toISOString()}:`, request.url);
+  // console.log(`Service Worker [${requestId}]: Intercepting image request at ${new Date().toISOString()}:`, request.url);
 
-    // 创建原始URL（不带缓存破坏参数）用于缓存键和去重键
-    const originalUrl = new URL(request.url);
+  // 创建原始URL（不带缓存破坏参数）用于缓存键和去重键
+  const originalUrl = new URL(request.url);
 
-    // 参数优先级：bypass_sw > _retry > thumbnail
-    // 检测是否要求绕过缓存检查（最高优先级）
-    const bypassCache =
-      originalUrl.searchParams.has('bypass_sw') ||
-      originalUrl.searchParams.has('direct_fetch');
+  // 参数优先级：bypass_sw > _retry > thumbnail
+  // 检测是否要求绕过缓存检查（最高优先级）
+  const bypassCache =
+    originalUrl.searchParams.has('bypass_sw') ||
+    originalUrl.searchParams.has('direct_fetch');
 
-    // 检测是否为强制重试请求（次高优先级）
-    const isRetryRequest = originalUrl.searchParams.has('_retry');
+  // 检测是否为强制重试请求（次高优先级）
+  const isRetryRequest = originalUrl.searchParams.has('_retry');
 
-    // 检测是否为预览图请求（最低优先级，只有在没有 bypass_sw 和 _retry 时才处理）
-    // bypass_sw 和 _retry 的存在表示用户明确要求获取原图或重新请求
-    const isThumbnailRequest =
-      originalUrl.searchParams.has('thumbnail') &&
-      !bypassCache &&
-      !isRetryRequest;
+  // 检测是否为预览图请求（最低优先级，只有在没有 bypass_sw 和 _retry 时才处理）
+  // bypass_sw 和 _retry 的存在表示用户明确要求获取原图或重新请求
+  const isThumbnailRequest =
+    originalUrl.searchParams.has('thumbnail') &&
+    !bypassCache &&
+    !isRetryRequest;
 
-    // 在删除参数之前先获取预览图尺寸
-    const thumbnailSize = isThumbnailRequest
-      ? originalUrl.searchParams.get('thumbnail') || 'small'
-      : 'small';
+  // 在删除参数之前先获取预览图尺寸
+  const thumbnailSize = isThumbnailRequest
+    ? originalUrl.searchParams.get('thumbnail') || 'small'
+    : 'small';
 
-    const normalizedCacheUrl = buildNormalizedCacheUrl(originalUrl);
-    const originalRequest = new Request(normalizedCacheUrl.toString(), {
-      method: request.method,
-      headers: request.headers,
-      mode: request.mode,
-      credentials: request.credentials,
-    });
-    const dedupeKey = normalizedCacheUrl.toString();
+  const normalizedCacheUrl = buildNormalizedCacheUrl(originalUrl);
+  const originalRequest = new Request(normalizedCacheUrl.toString(), {
+    method: request.method,
+    headers: request.headers,
+    mode: request.mode,
+    credentials: request.credentials,
+  });
+  const dedupeKey = normalizedCacheUrl.toString();
 
-    // 如果是预览图请求（没有 bypass_sw 和 _retry），在移除参数后查找预览图
-    if (isThumbnailRequest) {
-      const { findThumbnailWithFallback, createThumbnailResponse } =
-        await import('./task-queue/utils/thumbnail-utils');
+  // 如果是预览图请求（没有 bypass_sw 和 _retry），在移除参数后查找预览图
+  if (isThumbnailRequest) {
+    const { findThumbnailWithFallback, createThumbnailResponse } =
+      await import('./task-queue/utils/thumbnail-utils');
 
-      // 尝试使用 dedupeKey 和 originalRequest.url 作为备用 key
-      const result = await findThumbnailWithFallback(
-        dedupeKey,
-        thumbnailSize as 'small' | 'large',
-        [request.url, originalRequest.url] // 备用 key：兼容历史签名 URL 与 canonical key
-      );
-
-      if (result) {
-        const blob = await result.response.blob();
-        return createThumbnailResponse(blob);
-      }
-
-      // 如果都没找到，回退到原图（继续正常流程）
-    }
-
-    // 首先检查是否有最近完成的相同请求（内存缓存）
-    const completedEntry = completedImageRequests.get(dedupeKey);
-    if (completedEntry) {
-      const elapsed = Date.now() - completedEntry.timestamp;
-      if (elapsed < COMPLETED_REQUEST_CACHE_TTL) {
-        // console.log(`Service Worker [${requestId}]: 命中已完成请求缓存 (${elapsed}ms ago):`, dedupeKey);
-        return completedEntry.response.clone();
-      } else {
-        // 缓存过期，清理
-        completedImageRequests.delete(dedupeKey);
-      }
-    }
-
-    // 检查是否有相同的请求正在进行
-    if (pendingImageRequests.has(dedupeKey)) {
-      const existingEntry = pendingImageRequests.get(dedupeKey);
-      if (existingEntry) {
-        // 检查请求是否已过期（卡住了）
-        const elapsed = Date.now() - existingEntry.timestamp;
-        if (elapsed > STALE_REQUEST_THRESHOLD) {
-          console.warn(
-            `Service Worker [${requestId}]: 发现过期的 pending 请求 (${elapsed}ms)，清理并重新发起:`,
-            dedupeKey
-          );
-          pendingImageRequests.delete(dedupeKey);
-          // 继续执行下面的新请求逻辑
-        } else {
-          existingEntry.count = (existingEntry.count || 1) + 1;
-          // const waitTime = Date.now() - existingEntry.timestamp;
-
-          // console.log(`Service Worker [${requestId}]: 发现重复请求 (等待${waitTime}ms)，返回已有Promise:`, dedupeKey);
-          // console.log(`Service Worker [${requestId}]: 重复请求计数: ${existingEntry.count}`, dedupeKey);
-
-          // 为重复请求添加标记，便于追踪
-          existingEntry.duplicateRequestIds =
-            existingEntry.duplicateRequestIds || [];
-          existingEntry.duplicateRequestIds.push(requestId);
-
-          // Response body 只能被消费一次，重复请求需要返回克隆
-          try {
-            const response = await withTimeout(
-              existingEntry.promise,
-              IMAGE_REQUEST_TIMEOUT,
-              'Image request timeout'
-            );
-            return response && response.clone ? response.clone() : response;
-          } catch (timeoutError: any) {
-            if (timeoutError.message === 'Image request timeout') {
-              console.warn(
-                `Service Worker [${requestId}]: 重复请求等待超时，清理并返回超时响应让前端直接加载`
-              );
-              // 超时后主动清理该条目，避免后续请求继续等待
-              pendingImageRequests.delete(dedupeKey);
-              return createTimeoutResponse(request.url, requestId);
-            }
-            throw timeoutError;
-          }
-        }
-      }
-    }
-
-    // 定期清理过期请求（每次新请求时检查）
-    cleanupStaleRequests();
-
-    // 创建请求处理Promise并存储到去重字典
-    const requestCacheEpoch = getMediaCacheEpoch();
-    const requestPromise = handleImageRequestInternal(
-      originalRequest,
-      request.url,
+    // 尝试使用 dedupeKey 和 originalRequest.url 作为备用 key
+    const result = await findThumbnailWithFallback(
       dedupeKey,
-      requestId,
-      bypassCache,
-      isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined,
-      requestCacheEpoch
+      thumbnailSize as 'small' | 'large',
+      [request.url, originalRequest.url] // 备用 key：兼容历史签名 URL 与 canonical key
     );
 
-    // 将Promise存储到去重字典中，包含时间戳和计数
-    pendingImageRequests.set(dedupeKey, {
-      promise: requestPromise,
-      timestamp: Date.now(),
-      count: 1,
-      originalRequestId: requestId,
-      duplicateRequestIds: [],
+    if (result) {
+      const blob = await result.response.blob();
+      return createThumbnailResponse(blob);
+    }
+
+    // 如果都没找到，回退到原图（继续正常流程）
+  }
+
+  // 首先检查是否有最近完成的相同请求（内存缓存）
+  const completedEntry = completedImageRequests.get(dedupeKey);
+  if (completedEntry) {
+    const elapsed = Date.now() - completedEntry.timestamp;
+    if (elapsed < COMPLETED_REQUEST_CACHE_TTL) {
+      // console.log(`Service Worker [${requestId}]: 命中已完成请求缓存 (${elapsed}ms ago):`, dedupeKey);
+      return completedEntry.response.clone();
+    } else {
+      // 缓存过期，清理
+      completedImageRequests.delete(dedupeKey);
+    }
+  }
+
+  // 检查是否有相同的请求正在进行
+  if (pendingImageRequests.has(dedupeKey)) {
+    const existingEntry = pendingImageRequests.get(dedupeKey);
+    if (existingEntry) {
+      // 检查请求是否已过期（卡住了）
+      const elapsed = Date.now() - existingEntry.timestamp;
+      if (elapsed > STALE_REQUEST_THRESHOLD) {
+        console.warn(
+          `Service Worker [${requestId}]: 发现过期的 pending 请求 (${elapsed}ms)，清理并重新发起:`,
+          dedupeKey
+        );
+        pendingImageRequests.delete(dedupeKey);
+        // 继续执行下面的新请求逻辑
+      } else {
+        existingEntry.count = (existingEntry.count || 1) + 1;
+        // const waitTime = Date.now() - existingEntry.timestamp;
+
+        // console.log(`Service Worker [${requestId}]: 发现重复请求 (等待${waitTime}ms)，返回已有Promise:`, dedupeKey);
+        // console.log(`Service Worker [${requestId}]: 重复请求计数: ${existingEntry.count}`, dedupeKey);
+
+        // 为重复请求添加标记，便于追踪
+        existingEntry.duplicateRequestIds =
+          existingEntry.duplicateRequestIds || [];
+        existingEntry.duplicateRequestIds.push(requestId);
+
+        // Response body 只能被消费一次，重复请求需要返回克隆
+        try {
+          const response = await withTimeout(
+            existingEntry.promise,
+            IMAGE_REQUEST_TIMEOUT,
+            'Image request timeout'
+          );
+          return response && response.clone ? response.clone() : response;
+        } catch (timeoutError: any) {
+          if (timeoutError.message === 'Image request timeout') {
+            console.warn(
+              `Service Worker [${requestId}]: 重复请求等待超时，清理并返回超时响应让前端直接加载`
+            );
+            // 超时后主动清理该条目，避免后续请求继续等待
+            pendingImageRequests.delete(dedupeKey);
+            return createTimeoutResponse(request.url, requestId);
+          }
+          throw timeoutError;
+        }
+      }
+    }
+  }
+
+  // 定期清理过期请求（每次新请求时检查）
+  cleanupStaleRequests();
+
+  // 创建请求处理Promise并存储到去重字典
+  const requestCacheEpoch = getMediaCacheEpoch();
+  const requestPromise = handleImageRequestInternal(
+    originalRequest,
+    request.url,
+    dedupeKey,
+    requestId,
+    bypassCache,
+    isThumbnailRequest ? (thumbnailSize as 'small' | 'large') : undefined,
+    requestCacheEpoch
+  );
+
+  // 将Promise存储到去重字典中，包含时间戳和计数
+  pendingImageRequests.set(dedupeKey, {
+    promise: requestPromise,
+    timestamp: Date.now(),
+    count: 1,
+    originalRequestId: requestId,
+    duplicateRequestIds: [],
+  });
+
+  // console.log(`Service Worker [${requestId}]: 创建新的请求处理Promise:`, dedupeKey);
+
+  // 请求完成后从 pending 字典中移除，并存入 completed 缓存
+  requestPromise
+    .then((response) => {
+      // 请求成功，将响应存入已完成缓存
+      if (
+        response &&
+        response.ok &&
+        isMediaCacheEpochCurrent(requestCacheEpoch)
+      ) {
+        cacheCompletedImage(completedImageRequests, dedupeKey, response);
+        // console.log(`Service Worker [${requestId}]: 请求成功，存入已完成缓存:`, dedupeKey);
+      }
+    })
+    .catch(() => {
+      // 请求失败，不缓存
+    })
+    .finally(() => {
+      const entry = pendingImageRequests.get(dedupeKey);
+      if (entry?.promise === requestPromise) {
+        // const totalTime = Date.now() - entry.timestamp;
+        // const allRequestIds = [entry.originalRequestId, ...entry.duplicateRequestIds || []];
+        // console.log(`Service Worker [${requestId}]: 请求完成 (耗时${totalTime}ms，总计数: ${entry.count}，涉及请求IDs: [${allRequestIds.join(', ')}]):`, dedupeKey);
+        pendingImageRequests.delete(dedupeKey);
+      }
     });
 
-    // console.log(`Service Worker [${requestId}]: 创建新的请求处理Promise:`, dedupeKey);
-
-    // 请求完成后从 pending 字典中移除，并存入 completed 缓存
-    requestPromise
-      .then((response) => {
-        // 请求成功，将响应存入已完成缓存
-        if (
-          response &&
-          response.ok &&
-          isMediaCacheEpochCurrent(requestCacheEpoch)
-        ) {
-          cacheCompletedImage(completedImageRequests, dedupeKey, response);
-          // console.log(`Service Worker [${requestId}]: 请求成功，存入已完成缓存:`, dedupeKey);
-        }
-      })
-      .catch(() => {
-        // 请求失败，不缓存
-      })
-      .finally(() => {
-        const entry = pendingImageRequests.get(dedupeKey);
-        if (entry?.promise === requestPromise) {
-          // const totalTime = Date.now() - entry.timestamp;
-          // const allRequestIds = [entry.originalRequestId, ...entry.duplicateRequestIds || []];
-          // console.log(`Service Worker [${requestId}]: 请求完成 (耗时${totalTime}ms，总计数: ${entry.count}，涉及请求IDs: [${allRequestIds.join(', ')}]):`, dedupeKey);
-          pendingImageRequests.delete(dedupeKey);
-        }
-      });
-
-    // 添加超时机制
-    try {
-      return await withTimeout(
-        requestPromise,
-        IMAGE_REQUEST_TIMEOUT,
-        'Image request timeout'
+  // 添加超时机制
+  try {
+    return await withTimeout(
+      requestPromise,
+      IMAGE_REQUEST_TIMEOUT,
+      'Image request timeout'
+    );
+  } catch (timeoutError: any) {
+    if (timeoutError.message === 'Image request timeout') {
+      console.warn(
+        `Service Worker [${requestId}]: 图片请求超时(${IMAGE_REQUEST_TIMEOUT}ms)，清理并返回超时响应让前端直接加载:`,
+        request.url
       );
-    } catch (timeoutError: any) {
-      if (timeoutError.message === 'Image request timeout') {
-        console.warn(
-          `Service Worker [${requestId}]: 图片请求超时(${IMAGE_REQUEST_TIMEOUT}ms)，清理并返回超时响应让前端直接加载:`,
-          request.url
-        );
-        // 超时后主动清理该条目
-        pendingImageRequests.delete(dedupeKey);
-        return createTimeoutResponse(request.url, requestId);
-      }
-      throw timeoutError;
+      // 超时后主动清理该条目
+      pendingImageRequests.delete(dedupeKey);
+      return createTimeoutResponse(request.url, requestId);
     }
-  } catch (error) {
-    throw error;
+    throw timeoutError;
   }
 }
 

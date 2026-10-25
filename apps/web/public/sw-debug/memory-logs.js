@@ -401,7 +401,7 @@ export function handleExportCrashLogs() {
   const exportData = {
     exportTime: new Date().toISOString(),
     userAgent: navigator.userAgent,
-    url: location.href,
+    url: window.location.href,
     memorySnapshots: state.crashLogs,
   };
   

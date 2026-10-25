@@ -6,7 +6,7 @@
 
 远程 CI 在 `drawnix:test` 报告 54 个用例失败，以及 `ai-analyze` 套件因 mock 缺少导出无法加载。用 Node 20 在隔离的 `origin/develop`（`68f2ca1b`）快照和 PR 提交 `3ca800b5` 对比运行，54 个失败用例名称与远程逐项一致，两边结果相同。
 
-本次修复测试数据、mock、存储隔离及运行环境，不改生产模型配置、输入解析逻辑、生成接口、加密实现或部署配置，不增加依赖，不调用真实供应商。没有删除或新增跳过失败用例，没有放宽全局超时或屏蔽未处理异常。
+第一阶段修复测试数据、mock、存储隔离及运行环境，不改生产模型配置、输入解析逻辑、生成接口、加密实现或部署配置。后续用户授权继续修复完整 GitHub CI，新增的 lint、入口和共享库配置变动见文末。两阶段均不增加依赖、不调用真实供应商，没有删除或新增跳过失败用例，没有放宽全局超时或屏蔽未处理异常。
 
 ## 实现与验收
 
@@ -40,7 +40,7 @@ node ../../node_modules/vitest/vitest.mjs run
 
 全量运行中同时发现并修复 KV mock 的未处理异常及首例模块加载超时；没有把 JSON 报告的“断言通过”误报为进程成功。最终结果以默认 reporter 的退出码 `0` 为准。
 
-## 仍未解决的 CI 与部署问题
+## 第一阶段发现的后续 CI 与部署问题
 
 - 执行 `nx affected -t lint --exclude=drawnix --base=origin/develop --verbose`，`web-e2e:lint` 无错误，`web:lint` 仍失败：713 errors / 915 warnings。范围含生成的 `public/sw.js`、第三方压缩脚本、静态调试页的环境配置和既有应用/SW 源码、Nx 模块边界问题。本次没有修改这些文件或关闭规则，不能报告完整 CI 已通过。
 - Netlify 项目的部署记录为 `skipped: true`，没有运行构建；持续跳过的后台原因仍需所属团队管理员检查。测试修复不能恢复 Netlify 构建开关或授予项目权限。
@@ -67,3 +67,21 @@ node ../../node_modules/vitest/vitest.mjs run
 - Node 20 目标路由测试 `7/7` 通过；对应 ESLint、Prettier 通过。
 - Node 20 在 `packages/drawnix` 执行 `node ../../node_modules/vitest/vitest.mjs run --maxWorkers=2`：330 个文件通过、1 个原有跳过文件；3728 个用例通过、0 失败、2 个原有跳过；退出码 `0`，耗时 81.17 秒。相较此前增加的两个用例来自比较分组。
 - 此次仅改测试和本 QA，生产构建输入未变。完整远程 CI、Web lint 和 Netlify 部署状态仍需分别核实，不据此宣布通过。
+
+### 2026-10-25 完整 CI lint 修复
+
+- 远程 `40157239312`（`e04bd459`）的测试/构建步骤及包体检查成功，后续 lint 失败；路由比较的远程超时已消除。该运行未执行后续启动、冒烟和视觉步骤，不代表主检查通过。
+- Web lint 排除生成的 SW 和两个第三方分发脚本，保留应用、SW 与自维护调试源码检查。调试脚本声明浏览器 ES2020 环境及只读 JSZip；全局调用显式使用 window/globalThis，存储不可用的 catch 保留解释。
+- 将现有共享备份目录声明为独立 Nx 库，消除 drawnix 反向依赖 web 的项目环。两份 JS 及两份声明与 develop 字节相同；库构建产物也与源文件字节相同，调试页相对模块 URL 不变。
+- Web 改用纯类型/枚举和 security 窄入口，analytics 从启动 runtime 导出，保留编辑器及视频处理的延迟加载。模块边界规则保留，只为明确可提前加载的 runtime、核心类型/枚举、security 三个入口配置混合加载例外；调试页仅允许两个必要的相对 ESM 模块路径。
+- SW 去掉仅重新抛出同一异常的外层 try/catch，保留内部超时、缓存与失败处理；预热循环改用等价的 for (;;) 写法。应用只移除两个可推导的 boolean 类型注解。
+- TypeScript 别名变更使共享库也进入 affected 检查，发现 react-board/react-text 的 lint 将各自 node_modules 纳入；显式排除依赖目录。utils 两个测试文件用 vi.fn() 替换空函数，保留原断言。
+- Web TypeScript 通过，备份与知识库目标测试 `8/8` 通过；直接 Web ESLint 为 `0 errors / 171 warnings`。
+- 项目要求的运行时与含类型循环检查仍失败。与隔离 develop 快照比较，两份完整诊断分别逐字一致：运行时为 2 个既有环；未扩大修复无关业务环。基线的 tsconfig 尾逗号仅在隔离快照移除后运行检查；当前 tsconfig 亦使用有效 JSON。
+- DOC：在 `CODING_STANDARDS.md` 记录 lint 范围、共享库构建、入口例外及别名维护。无依赖、环境变量、协议、存储格式或部署顺序变化。
+- 完整 Node 20 `nx affected -t test build --base=origin/develop --verbose`：退出码 `0`，6 个项目、9 个任务成功，2 个任务命中缓存；包含 Drawnix `3728` 通过、`2` 原有跳过、组件库测试和应用/SW 构建。目标 Drawnix ESLint 通过，保留 4 个既有 any 警告。
+- 与 CI 相同的 `nx affected -t lint --exclude=drawnix --base=origin/develop --verbose`：6 个项目成功，退出码 `0`，保留既有警告；没有关闭规则或新增全项目排除。
+- 并行构建曾触发 10MiB 图片测试的字符串构造/编码超时；改用同样大小、同样字节的 Uint8Array 和 Node Buffer 生成预期值，保留真实 File/Blob、FileReader 路径和完整 base64 比较，没有缩小素材、跳过断言或增加超时。
+- 增加 Web Vitest 配置，将已有 10 个文件的 `54` 个用例接入 Nx/CI。独立运行通过，覆盖画板同步/待写持久化、SW 图片/视频响应、缓存保留、缩略图清理屏障；其中 App 原有占位用例不作为页面功能验证证据。utils 修改涉及的 `25/25` 用例通过。
+- 生产构建后执行 `node scripts/validate-startup-bundle.js` 和 `node node_modules/size-limit/bin.js` 均退出 `0`：入口无分块循环、全部大小预算通过。包体检查使用工具自带的 headless 运行器，不等同于产品页面验收。
+- 本地不运行页面点击或视觉回归；远程主检查中的冒烟和视觉测试仍需最新提交的实际结果。Windows、真实供应商和生产部署未验证，Netlify 管理权限的外部阻塞保持独立。

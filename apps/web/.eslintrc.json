@@ -1,6 +1,11 @@
 {
   "extends": ["plugin:@nx/react", "../../.eslintrc.json"],
-  "ignorePatterns": ["!**/*"],
+  "ignorePatterns": [
+    "!**/*",
+    "public/sw.js",
+    "public/sw-debug/jszip.min.js",
+    "public/sw-debug/postmessage-duplex.js"
+  ],
   "overrides": [
     {
       "files": ["*.ts", "*.tsx", "*.js", "*.jsx"],
@@ -8,11 +13,47 @@
     },
     {
       "files": ["*.ts", "*.tsx"],
-      "rules": {}
+      "rules": {
+        "@nx/enforce-module-boundaries": [
+          "error",
+          {
+            "enforceBuildableLibDependency": true,
+            "allow": ["tdesign-react", "tdesign-react/*"],
+            "checkDynamicDependenciesExceptions": [
+              "@drawnix/drawnix/runtime",
+              "@drawnix/drawnix/types/shared/core.types",
+              "@aitu/utils/security"
+            ],
+            "depConstraints": [
+              { "sourceTag": "*", "onlyDependOnLibsWithTags": ["*"] }
+            ]
+          }
+        ]
+      }
     },
     {
       "files": ["*.js", "*.jsx"],
       "rules": {}
+    },
+    {
+      "files": ["public/sw-debug/**/*.js"],
+      "env": { "browser": true, "es2020": true },
+      "globals": { "JSZip": "readonly" },
+      "rules": {
+        "@nx/enforce-module-boundaries": [
+          "error",
+          {
+            "enforceBuildableLibDependency": true,
+            "allow": [
+              "./shared/backup-core.js",
+              "./shared/backup-part-manager-core.js"
+            ],
+            "depConstraints": [
+              { "sourceTag": "*", "onlyDependOnLibsWithTags": ["*"] }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
