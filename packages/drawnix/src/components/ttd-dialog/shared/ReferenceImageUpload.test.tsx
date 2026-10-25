@@ -177,7 +177,9 @@ describe('ReferenceImageUpload media library selection', () => {
       expect(image.url).toBe(`data:image/png;base64,${Buffer.from(content).toString('base64')}`);
       expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
     } else {
-      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(file, 5);
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledOnce();
+      expect(fidelityMocks.compressImageBlob.mock.calls[0][0]).toBe(file);
+      expect(fidelityMocks.compressImageBlob.mock.calls[0][1]).toBe(5);
       expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
     }
   });
@@ -199,7 +201,9 @@ describe('ReferenceImageUpload media library selection', () => {
       expect(image.url).toBe(`data:image/png;base64,${Buffer.from(content).toString('base64')}`);
       expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
     } else {
-      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(original, 5);
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledOnce();
+      expect(fidelityMocks.compressImageBlob.mock.calls[0][0]).toBe(original);
+      expect(fidelityMocks.compressImageBlob.mock.calls[0][1]).toBe(5);
       expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
     }
   });

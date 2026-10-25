@@ -86,3 +86,10 @@ node ../../node_modules/vitest/vitest.mjs run
 - 生产构建后执行 `node scripts/validate-startup-bundle.js` 和 `node node_modules/size-limit/bin.js` 均退出 `0`：入口无分块循环、全部大小预算通过。包体检查使用工具自带的 headless 运行器，不等同于产品页面验收。
 - 本地不运行页面点击或视觉回归；远程主检查中的冒烟和视觉测试仍需最新提交的实际结果。Windows、真实供应商和生产部署未验证，Netlify 管理权限的外部阻塞保持独立。
 - Web 测试接入后的最终复核：相同 `nx affected -t test build --base=origin/develop --verbose` 退出 `0`，6 个项目、10 个任务成功，4 个任务命中缓存；包含新增 `web:test` 的 `54/54`。最终 lint 和构建后的启动/包体检查再次通过。显式 fetch/merge 后 develop 仍为 `68f2ca1b`，无冲突。
+
+### 远程大 Blob 断言超时修复
+
+- `40158526195`（`e2767192`）中 Web `54/54`、路由分组比较与构建通过；Drawnix 为 `3727` 通过、`1` 失败、`2` 原有跳过。唯一测试失败为本地图片压缩分支 `5039ms` 超过 `5000ms`；缓存图片压缩分支也耗时 `4521ms`。独立的构建报告上传遇到 GitHub `CreateArtifact ETIMEDOUT`，不是产品构建错误。
+- 计时对比确认，主要耗时来自 `toHaveBeenCalledWith` 对 10MiB File/Blob 参数的匹配。改为严格检查原对象身份、参数 `5` 和恰好调用一次；不再要求通用参数匹配器遍历大对象。保留真实 File/Blob、原图完整 base64、压缩后数据、边界大小和异步交互路径，未放宽超时。
+- 目标测试 `20/20` 通过；本地两个压缩分支约 `108ms`、`16ms`，原参数匹配分别约 `927ms`、`821ms`。保留原有部分 mock，没有用替代实现绕开产品路径。
+- 本轮仅修改测试断言及 QA，生产构建输入不变；没有忽略构建报告上传错误，最新远程主检查仍需实际结果确认。
