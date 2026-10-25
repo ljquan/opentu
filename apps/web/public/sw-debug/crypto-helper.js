@@ -161,8 +161,8 @@ function getDeviceKey() {
   const features = [
     navigator.userAgent,
     navigator.language,
-    window.screen.width.toString(),
-    window.screen.height.toString(),
+    screen.width.toString(),
+    screen.height.toString(),
     new Date().getTimezoneOffset().toString(),
   ];
   return features.join('|');

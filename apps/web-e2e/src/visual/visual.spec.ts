@@ -22,7 +22,7 @@ test.describe('@visual 视觉回归', () => {
     await expect(toolbar).toHaveScreenshot('unified-toolbar.png', { maxDiffPixelRatio: 0.08 });
     
     // 2. AI 输入栏截图（必须通过，使用更宽松阈值因为有动态内容）
-    const aiInputBar = page.getByTestId('ai-input-bar');
+    const aiInputBar = page.locator('.ai-input-bar').first();
     await expect(aiInputBar).toBeVisible();
     await expect(aiInputBar).toHaveScreenshot('ai-input-bar.png', { maxDiffPixelRatio: 0.10 });
     

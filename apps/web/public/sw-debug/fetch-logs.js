@@ -569,7 +569,7 @@ export function batchDeleteLogs() {
     return;
   }
   
-  if (!window.confirm(`确定要删除选中的 ${state.selectedLogIds.size} 条日志吗？`)) {
+  if (!confirm(`确定要删除选中的 ${state.selectedLogIds.size} 条日志吗？`)) {
     return;
   }
   

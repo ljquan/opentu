@@ -8,7 +8,7 @@
  * PostMessage 日志记录完全由调试模式控制，不会对未开启调试模式的应用性能产生影响。
  */
 
-import { sanitizeObject as sanitizeObjectFromUtils } from '@aitu/utils/security';
+import { sanitizeObject as sanitizeObjectFromUtils } from '@aitu/utils';
 
 // 调试模式开关（默认关闭，避免影响性能）
 let debugModeEnabled = false;

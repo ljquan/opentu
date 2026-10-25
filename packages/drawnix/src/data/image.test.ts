@@ -67,18 +67,6 @@ vi.mock('../utils/virtual-media-url', () => ({
   isVirtualMediaUrl: mocks.isVirtualMediaUrl,
 }));
 
-async function readBlobBytes(blob: Blob): Promise<ArrayBuffer> {
-  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
-
-  // jsdom Blob lacks arrayBuffer in some Node versions; preserve byte checks.
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(blob);
-  });
-}
-
 describe('insertImageFromUrl', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -263,7 +251,7 @@ describe('insertImageFromUrl', () => {
         'image',
         { sourceUrl }
       );
-      const cachedBytes = await readBlobBytes(mocks.cacheMediaFromBlob.mock.calls[0][1]);
+      const cachedBytes = await mocks.cacheMediaFromBlob.mock.calls[0][1].arrayBuffer();
       expect(new Uint8Array(cachedBytes)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
       expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);
       expect(revokeObjectURL).toHaveBeenCalledTimes(3);

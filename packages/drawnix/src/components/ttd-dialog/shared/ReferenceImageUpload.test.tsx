@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { Buffer } from 'node:buffer';
 import {
   act,
   cleanup,
@@ -161,7 +160,7 @@ describe('ReferenceImageUpload media library selection', () => {
 
   it.each([true, false])('applies keepOriginal=%s to a local image over 10MiB', async (keepOriginal) => {
     fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
-    const content = new Uint8Array(10 * 1024 * 1024 + 1).fill(97);
+    const content = 'a'.repeat(10 * 1024 * 1024 + 1);
     const file = new File([content], 'fabric.png', { type: 'image/png' });
     const onImagesChange = vi.fn();
     render(<DialogDropHarness onImagesChange={onImagesChange} />);
@@ -174,19 +173,17 @@ describe('ReferenceImageUpload media library selection', () => {
     const image = onImagesChange.mock.calls[0][0][0];
     if (keepOriginal) {
       expect(assetMocks.addAsset.mock.calls[0][0]).toBe(file);
-      expect(image.url).toBe(`data:image/png;base64,${Buffer.from(content).toString('base64')}`);
+      expect(image.url).toBe(`data:image/png;base64,${btoa(content)}`);
       expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
     } else {
-      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledOnce();
-      expect(fidelityMocks.compressImageBlob.mock.calls[0][0]).toBe(file);
-      expect(fidelityMocks.compressImageBlob.mock.calls[0][1]).toBe(5);
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(file, 5);
       expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
     }
   });
 
   it.each([true, false])('applies keepOriginal=%s to a cached library image over 10MiB', async (keepOriginal) => {
     fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
-    const content = new Uint8Array(10 * 1024 * 1024 + 1).fill(98);
+    const content = 'b'.repeat(10 * 1024 * 1024 + 1);
     const original = new Blob([content], { type: 'image/png' });
     cacheMocks.getCachedBlob.mockResolvedValue(original);
     const onImagesChange = vi.fn();
@@ -198,12 +195,10 @@ describe('ReferenceImageUpload media library selection', () => {
     await waitFor(() => expect(onImagesChange).toHaveBeenCalledOnce());
     const image = onImagesChange.mock.calls[0][0][0];
     if (keepOriginal) {
-      expect(image.url).toBe(`data:image/png;base64,${Buffer.from(content).toString('base64')}`);
+      expect(image.url).toBe(`data:image/png;base64,${btoa(content)}`);
       expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
     } else {
-      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledOnce();
-      expect(fidelityMocks.compressImageBlob.mock.calls[0][0]).toBe(original);
-      expect(fidelityMocks.compressImageBlob.mock.calls[0][1]).toBe(5);
+      expect(fidelityMocks.compressImageBlob).toHaveBeenCalledWith(original, 5);
       expect(image.url).toBe('data:image/jpeg;base64,c21hbGw=');
     }
   });

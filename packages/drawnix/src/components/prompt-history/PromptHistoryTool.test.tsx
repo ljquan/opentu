@@ -33,7 +33,7 @@ vi.mock('../../services/prompt-history-service', async () => {
   };
 });
 
-vi.mock('../../utils/message-plugin', () => ({
+vi.mock('tdesign-react', () => ({
   MessagePlugin: mockMessage,
 }));
 

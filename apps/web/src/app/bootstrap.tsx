@@ -15,8 +15,8 @@ import {
   crashRecoveryService,
   swChannelClient,
   safeReload,
-  analytics,
 } from '@drawnix/drawnix/runtime';
+import { analytics } from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
 function isLocalDevelopmentHost(hostname: string): boolean {

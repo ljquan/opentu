@@ -1305,7 +1305,7 @@ async function init() {
 
   if (!swReady) {
     // SW not ready - offer analysis mode as alternative
-    const useAnalysisMode = window.confirm(
+    const useAnalysisMode = confirm(
       'Service Worker 未注册或未激活\n\n您可以：\n1. 点击"取消"后访问主应用，然后刷新此页面\n2. 点击"确定"进入分析模式，导入用户日志进行分析'
     );
 

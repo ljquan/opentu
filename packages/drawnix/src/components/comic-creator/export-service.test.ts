@@ -1,5 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBlobResponse } from '../../test-utils/blob-response';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComicRecord } from './types';
 import {
   buildComicExportFiles,
@@ -153,23 +152,17 @@ const record: ComicRecord = {
 
 function mockFetchImages() {
   const calls: string[] = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      calls.push(String(input));
-      return createBlobResponse(new Blob(['image'], { type: 'image/png' }), {
-        status: 200,
-        headers: { 'content-type': 'image/png' },
-      });
-    })
-  );
+  global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return new Response(new Blob(['image'], { type: 'image/png' }), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    });
+  }) as unknown as typeof fetch;
   return calls;
 }
 
 describe('comic export service pure helpers', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
   beforeEach(() => {
     mockState.downloads.length = 0;
     mockState.zipInstances.length = 0;
@@ -401,19 +394,16 @@ describe('comic export service pure helpers', () => {
   it('exports PDF as image-only pages without prefetching all images', async () => {
     const activeFetchCounts: number[] = [];
     let activeFetches = 0;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        activeFetches += 1;
-        activeFetchCounts.push(activeFetches);
-        await Promise.resolve();
-        activeFetches -= 1;
-        return createBlobResponse(new Blob(['image'], { type: 'image/jpeg' }), {
-          status: 200,
-          headers: { 'content-type': 'image/jpeg' },
-        });
-      })
-    );
+    global.fetch = vi.fn(async () => {
+      activeFetches += 1;
+      activeFetchCounts.push(activeFetches);
+      await Promise.resolve();
+      activeFetches -= 1;
+      return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    }) as unknown as typeof fetch;
 
     await exportComicAsPdf(record, {
       imageSources: [

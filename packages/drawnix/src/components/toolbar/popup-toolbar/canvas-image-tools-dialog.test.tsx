@@ -104,12 +104,9 @@ describe('main canvas image tool interactions', () => {
         name: '原图与操作预览',
       });
       expect(preview.tagName).toBe('CANVAS');
-      // The canvas mounts before the effect draws the decoded pixels.
-      await waitFor(() => {
-        expect(preview.getAttribute('width')).toBe('498');
-        expect(preview.getAttribute('height')).toBe('280');
-        expect(mocks.drawPreview).toHaveBeenCalledWith(decoded, 0, 0, 498, 280);
-      });
+      expect(preview.getAttribute('width')).toBe('498');
+      expect(preview.getAttribute('height')).toBe('280');
+      expect(mocks.drawPreview).toHaveBeenCalledWith(decoded, 0, 0, 498, 280);
       expect(preview.hasAttribute('src')).toBe(false);
       expect(mocks.load).toHaveBeenCalledExactlyOnceWith(cachedElement.url);
       expect(mocks.insert).not.toHaveBeenCalled();

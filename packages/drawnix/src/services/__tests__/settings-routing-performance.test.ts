@@ -135,50 +135,41 @@ describe('settings routing batch performance', () => {
       .mockImplementation(() => structuredClone(settings.catalogs));
   });
 
-  it.each([0, 100, 200])(
-    'matches routes starting at %i while reading a 300-model catalog only once per batch',
-    (start) => {
-      const models = Array.from({ length: 300 }, (_, index) =>
-        makeModel(index, index < 200 ? 'image' : 'video')
-      );
-      settings.catalogs = [makeCatalog('provider-a', models)];
-      const started = performance.now();
-      // Compare every model across three independent cases. The unbatched
-      // reference is deliberately expensive; each case retains the full catalog
-      // and resolves a full 300-model batch without one 30s wall-clock benchmark.
-      const expected = models.slice(start, start + 100).map((model) =>
-        resolveInvocationPlanFromRoute(model.type, {
-          profileId: 'provider-a',
-          modelId: model.id,
-        })
-      );
-      const individualMs = performance.now() - started;
-      settings.readCatalogs.mockClear();
-      settings.readProfiles.mockClear();
+  it('matches individual routing while reading a 300-model catalog only once per batch', () => {
+    const models = Array.from({ length: 300 }, (_, index) =>
+      makeModel(index, index < 200 ? 'image' : 'video')
+    );
+    settings.catalogs = [makeCatalog('provider-a', models)];
+    const started = performance.now();
+    const expected = models.map((model) =>
+      resolveInvocationPlanFromRoute(model.type, {
+        profileId: 'provider-a',
+        modelId: model.id,
+      })
+    );
+    const individualMs = performance.now() - started;
+    settings.readCatalogs.mockClear();
+    settings.readProfiles.mockClear();
 
-      const batchStarted = performance.now();
-      const resolve = createSettingsInvocationPlanResolver();
-      const actual = models.map((model) =>
-        resolve(model.type, { profileId: 'provider-a', modelId: model.id })
-      );
-      const batchMs = performance.now() - batchStarted;
+    const batchStarted = performance.now();
+    const resolve = createSettingsInvocationPlanResolver();
+    const actual = models.map((model) =>
+      resolve(model.type, { profileId: 'provider-a', modelId: model.id })
+    );
+    const batchMs = performance.now() - batchStarted;
 
-      expect(actual.slice(start, start + 100)).toStrictEqual(expected);
-      expect(
-        actual.every((plan) => plan?.provider.apiKey === 'fixture-key')
-      ).toBe(true);
-      expect(settings.readCatalogs).toHaveBeenCalledTimes(1);
-      expect(settings.readProfiles).toHaveBeenCalledTimes(2);
-      console.info(
-        `[routing benchmark] 300-model catalog, reference ${start}-${
-          start + 99
-        }: individual=${individualMs.toFixed(1)}ms batch=${batchMs.toFixed(
-          1
-        )}ms`
-      );
-    },
-    30000
-  );
+    expect(actual).toStrictEqual(expected);
+    expect(
+      actual.every((plan) => plan?.provider.apiKey === 'fixture-key')
+    ).toBe(true);
+    expect(settings.readCatalogs).toHaveBeenCalledTimes(1);
+    expect(settings.readProfiles).toHaveBeenCalledTimes(2);
+    console.info(
+      `[routing benchmark] 300 models: individual=${individualMs.toFixed(
+        1
+      )}ms batch=${batchMs.toFixed(1)}ms`
+    );
+  }, 30000);
 
   it('preserves provider isolation, disabled providers, missing credentials and manual bindings', () => {
     const models = [makeModel(0), makeModel(1)];

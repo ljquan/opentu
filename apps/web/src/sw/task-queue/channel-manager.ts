@@ -1082,7 +1082,7 @@ export class SWChannelManager {
 
   private async handleUpgradeForce(): Promise<{ success: boolean }> {
     try {
-      const sw = globalThis as unknown as ServiceWorkerGlobalScope;
+      const sw = self as unknown as ServiceWorkerGlobalScope;
       sw.skipWaiting();
       // 广播 SW 已更新
       this.sendSWUpdated(getSwRuntimeBridge().getAppVersion?.() || 'unknown');

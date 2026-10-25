@@ -239,7 +239,7 @@ export function exportLogs() {
   const exportData = {
     exportTime: new Date().toISOString(),
     userAgent: navigator.userAgent,
-    url: window.location.href,
+    url: location.href,
     exportOptions: options,
     // Basic info at the top level for easy access
     ...basicInfo,

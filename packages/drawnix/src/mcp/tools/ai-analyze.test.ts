@@ -22,19 +22,13 @@ vi.mock('../../services/agent/media-model-routing', () => ({
   ) => ({ ...args }),
 }));
 
-vi.mock('../../utils/settings-manager', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../utils/settings-manager')>()),
+vi.mock('../../utils/settings-manager', () => ({
   geminiSettings: {
     get: vi.fn(() => ({})),
   },
-  providerPricingCacheSettings: {
-    get: vi.fn(() => []),
-    set: vi.fn(),
-  },
 }));
 
-vi.mock('../../constants/model-config', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../constants/model-config')>()),
+vi.mock('../../constants/model-config', () => ({
   getDefaultAudioModel: () => 'default-audio',
   getDefaultImageModel: () => 'default-image',
   getDefaultVideoModel: () => 'default-video',

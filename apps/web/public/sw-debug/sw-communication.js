@@ -307,9 +307,7 @@ function setupDuplexEventHandlers() {
 export function enableDebug() {
   try {
     sessionStorage.setItem('sw-debug-enabled', 'true');
-  } catch {
-    // Storage can be unavailable; still update the in-memory debug mode.
-  }
+  } catch {}
   enableDebugMode();
 }
 
@@ -319,9 +317,7 @@ export function enableDebug() {
 export function disableDebug() {
   try {
     sessionStorage.setItem('sw-debug-enabled', 'false');
-  } catch {
-    // Storage can be unavailable; still update the in-memory debug mode.
-  }
+  } catch {}
   disableDebugMode();
 }
 

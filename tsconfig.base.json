@@ -19,20 +19,9 @@
       "@drawnix/drawnix": ["packages/drawnix/src/index.ts"],
       "@drawnix/drawnix/runtime": ["packages/drawnix/src/runtime.ts"],
       "@aitu/utils": ["packages/utils/src/index.ts"],
-      "@aitu/utils/security": ["packages/utils/src/security/index.ts"],
-      "@aitu/backup-core": ["apps/web/public/sw-debug/shared/backup-core"],
-      "@aitu/backup-core/part-manager": [
-        "apps/web/public/sw-debug/shared/backup-part-manager-core"
-      ],
-      "@drawnix/drawnix/types/shared/core.types": [
-        "packages/drawnix/src/types/shared/core.types.ts"
-      ],
-      "@drawnix/drawnix/workflow-types": [
-        "packages/drawnix/src/services/workflow-engine/types.ts"
-      ],
       "tdesign-react": ["packages/drawnix/src/utils/tdesign.ts"],
       "@plait-board/react-board": ["packages/react-board/src/index.ts"],
-      "@plait-board/react-text": ["packages/react-text/src/index.ts"]
+      "@plait-board/react-text": ["packages/react-text/src/index.ts"],
     }
   },
   "exclude": ["node_modules", "tmp"]

@@ -16,19 +16,6 @@ import type {
   WorkflowStepStatus,
 } from '../workflow-engine/types';
 
-// These module/constructor tests do not execute providers. Mock the barrel
-// imported by the engine so re-exports do not initialize the whole editor.
-vi.mock('../media-executor', async () => ({
-  ...(await import('../media-executor/factory')),
-  taskStorageWriter: {},
-}));
-
-vi.mock('../media-generation', async () => ({
-  generateImage: vi.fn(),
-  generateVideo: vi.fn(),
-  TaskStatus: (await import('../../types/task.types')).TaskStatus,
-}));
-
 describe('WorkflowEngine Module', () => {
   describe('Workflow Types', () => {
     it('should define correct WorkflowStep structure', () => {
@@ -217,9 +204,9 @@ describe('WorkflowEngine Module', () => {
           getExecutor: async () => ({
             name: 'Mock',
             isAvailable: async () => true,
-            generateImage: vi.fn().mockResolvedValue(undefined),
-            generateVideo: vi.fn().mockResolvedValue(undefined),
-            aiAnalyze: vi.fn().mockResolvedValue(undefined),
+            generateImage: async () => {},
+            generateVideo: async () => {},
+            aiAnalyze: async () => {},
             generateText: async () => ({ content: 'test' }),
           }),
         },
@@ -228,11 +215,11 @@ describe('WorkflowEngine Module', () => {
       vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
         workflowStorageWriter: {
           isAvailable: async () => true,
-          createWorkflow: vi.fn().mockResolvedValue(undefined),
-          updateWorkflowStatus: vi.fn().mockResolvedValue(undefined),
-          updateStepStatus: vi.fn().mockResolvedValue(undefined),
-          completeWorkflow: vi.fn().mockResolvedValue(undefined),
-          failWorkflow: vi.fn().mockResolvedValue(undefined),
+          createWorkflow: async () => {},
+          updateWorkflowStatus: async () => {},
+          updateStepStatus: async () => {},
+          completeWorkflow: async () => {},
+          failWorkflow: async () => {},
         },
       }));
 
@@ -255,9 +242,9 @@ describe('WorkflowEngine Module', () => {
           getExecutor: async () => ({
             name: 'Mock',
             isAvailable: async () => true,
-            generateImage: vi.fn().mockResolvedValue(undefined),
-            generateVideo: vi.fn().mockResolvedValue(undefined),
-            aiAnalyze: vi.fn().mockResolvedValue(undefined),
+            generateImage: async () => {},
+            generateVideo: async () => {},
+            aiAnalyze: async () => {},
             generateText: async () => ({ content: 'test' }),
           }),
         },
@@ -266,11 +253,11 @@ describe('WorkflowEngine Module', () => {
       vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
         workflowStorageWriter: {
           isAvailable: async () => true,
-          createWorkflow: vi.fn().mockResolvedValue(undefined),
-          updateWorkflowStatus: vi.fn().mockResolvedValue(undefined),
-          updateStepStatus: vi.fn().mockResolvedValue(undefined),
-          completeWorkflow: vi.fn().mockResolvedValue(undefined),
-          failWorkflow: vi.fn().mockResolvedValue(undefined),
+          createWorkflow: async () => {},
+          updateWorkflowStatus: async () => {},
+          updateStepStatus: async () => {},
+          completeWorkflow: async () => {},
+          failWorkflow: async () => {},
         },
       }));
 
@@ -297,9 +284,9 @@ describe('WorkflowEngine Module', () => {
           getExecutor: async () => ({
             name: 'Mock',
             isAvailable: async () => true,
-            generateImage: vi.fn().mockResolvedValue(undefined),
-            generateVideo: vi.fn().mockResolvedValue(undefined),
-            aiAnalyze: vi.fn().mockResolvedValue(undefined),
+            generateImage: async () => {},
+            generateVideo: async () => {},
+            aiAnalyze: async () => {},
             generateText: async () => ({ content: 'test' }),
           }),
         },
@@ -308,11 +295,11 @@ describe('WorkflowEngine Module', () => {
       vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
         workflowStorageWriter: {
           isAvailable: async () => true,
-          createWorkflow: vi.fn().mockResolvedValue(undefined),
-          updateWorkflowStatus: vi.fn().mockResolvedValue(undefined),
-          updateStepStatus: vi.fn().mockResolvedValue(undefined),
-          completeWorkflow: vi.fn().mockResolvedValue(undefined),
-          failWorkflow: vi.fn().mockResolvedValue(undefined),
+          createWorkflow: async () => {},
+          updateWorkflowStatus: async () => {},
+          updateStepStatus: async () => {},
+          completeWorkflow: async () => {},
+          failWorkflow: async () => {},
         },
       }));
 
@@ -324,7 +311,7 @@ describe('WorkflowEngine Module', () => {
       }));
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
-      const engine = new WorkflowEngine({ onEvent: vi.fn() });
+      const engine = new WorkflowEngine({ onEvent: () => {} });
 
       expect(typeof engine.submitWorkflow).toBe('function');
     });
@@ -335,9 +322,9 @@ describe('WorkflowEngine Module', () => {
           getExecutor: async () => ({
             name: 'Mock',
             isAvailable: async () => true,
-            generateImage: vi.fn().mockResolvedValue(undefined),
-            generateVideo: vi.fn().mockResolvedValue(undefined),
-            aiAnalyze: vi.fn().mockResolvedValue(undefined),
+            generateImage: async () => {},
+            generateVideo: async () => {},
+            aiAnalyze: async () => {},
             generateText: async () => ({ content: 'test' }),
           }),
         },
@@ -346,11 +333,11 @@ describe('WorkflowEngine Module', () => {
       vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
         workflowStorageWriter: {
           isAvailable: async () => true,
-          createWorkflow: vi.fn().mockResolvedValue(undefined),
-          updateWorkflowStatus: vi.fn().mockResolvedValue(undefined),
-          updateStepStatus: vi.fn().mockResolvedValue(undefined),
-          completeWorkflow: vi.fn().mockResolvedValue(undefined),
-          failWorkflow: vi.fn().mockResolvedValue(undefined),
+          createWorkflow: async () => {},
+          updateWorkflowStatus: async () => {},
+          updateStepStatus: async () => {},
+          completeWorkflow: async () => {},
+          failWorkflow: async () => {},
         },
       }));
 
@@ -362,7 +349,7 @@ describe('WorkflowEngine Module', () => {
       }));
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
-      const engine = new WorkflowEngine({ onEvent: vi.fn() });
+      const engine = new WorkflowEngine({ onEvent: () => {} });
 
       expect(typeof engine.getWorkflow).toBe('function');
     });
@@ -373,9 +360,9 @@ describe('WorkflowEngine Module', () => {
           getExecutor: async () => ({
             name: 'Mock',
             isAvailable: async () => true,
-            generateImage: vi.fn().mockResolvedValue(undefined),
-            generateVideo: vi.fn().mockResolvedValue(undefined),
-            aiAnalyze: vi.fn().mockResolvedValue(undefined),
+            generateImage: async () => {},
+            generateVideo: async () => {},
+            aiAnalyze: async () => {},
             generateText: async () => ({ content: 'test' }),
           }),
         },
@@ -384,11 +371,11 @@ describe('WorkflowEngine Module', () => {
       vi.doMock('../workflow-engine/workflow-storage-writer', () => ({
         workflowStorageWriter: {
           isAvailable: async () => true,
-          createWorkflow: vi.fn().mockResolvedValue(undefined),
-          updateWorkflowStatus: vi.fn().mockResolvedValue(undefined),
-          updateStepStatus: vi.fn().mockResolvedValue(undefined),
-          completeWorkflow: vi.fn().mockResolvedValue(undefined),
-          failWorkflow: vi.fn().mockResolvedValue(undefined),
+          createWorkflow: async () => {},
+          updateWorkflowStatus: async () => {},
+          updateStepStatus: async () => {},
+          completeWorkflow: async () => {},
+          failWorkflow: async () => {},
         },
       }));
 
@@ -400,7 +387,7 @@ describe('WorkflowEngine Module', () => {
       }));
 
       const { WorkflowEngine } = await import('../workflow-engine/engine');
-      const engine = new WorkflowEngine({ onEvent: vi.fn() });
+      const engine = new WorkflowEngine({ onEvent: () => {} });
 
       const result = engine.getWorkflow('non-existent-id');
       expect(result).toBeUndefined();

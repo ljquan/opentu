@@ -27,9 +27,7 @@ export default defineConfig(({ mode }) => {
     publicDir: false, // 禁用 publicDir，避免将 public 目录下的文件复制到 outDir (也是 public)
     resolve: {
       alias: {
-        '@aitu/utils/security': path.resolve(__dirname, '../../packages/utils/src/security/index.ts'),
         '@aitu/utils': path.resolve(__dirname, '../../packages/utils/src/index.ts'),
-        '@drawnix/drawnix/types/shared/core.types': path.resolve(__dirname, '../../packages/drawnix/src/types/shared/core.types.ts'),
       },
     },
     define: {

@@ -9,7 +9,6 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TuziDisplayConfig } from '../../services/tuzi-session-api';
-import { TuziAccountPanel } from './TuziAccountPanel';
 
 const {
   listAccountTokens,
@@ -230,6 +229,8 @@ describe('TuziAccountPanel', () => {
   });
 
   it('clears local account credentials and managed providers on logout', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
     fireEvent.click(await screen.findByRole('button', { name: '清除' }));
 
@@ -249,6 +250,8 @@ describe('TuziAccountPanel', () => {
   }, 10_000);
 
   it('shows balance and key rotation in the balance view without loading hidden summaries', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
 
     expect(await screen.findByText('可用额度')).not.toBeNull();
@@ -293,6 +296,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('renders account data before a slow display-config request completes', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     let resolveDisplayConfig: (config: TuziDisplayConfig) => void = () =>
       undefined;
     getDisplayConfig.mockReturnValueOnce(
@@ -338,6 +342,7 @@ describe('TuziAccountPanel', () => {
       'opentu.tuzi.provider-groups.v1',
       JSON.stringify({ '1': ['default'] })
     );
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
 
@@ -347,6 +352,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('force-refreshes account, managed groups, and models without loading logs', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     let resolveDiscovery: (count: number) => void = () => undefined;
     discoverAndUseAllTuziProviderModels.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -387,6 +393,7 @@ describe('TuziAccountPanel', () => {
     getAccount.mockRejectedValueOnce(
       new TuziSessionApiError('TOKEN_INVALID', '令牌无效', 401)
     );
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
 
@@ -402,6 +409,7 @@ describe('TuziAccountPanel', () => {
     getAccount.mockRejectedValueOnce(
       new TuziSessionApiError('REQUEST_FAILED', 'Failed to fetch')
     );
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
 
@@ -412,6 +420,8 @@ describe('TuziAccountPanel', () => {
   });
 
   it('starts a fresh connection flow when the saved token is unchanged', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
     await screen.findByText('可用额度');
 
@@ -430,6 +440,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('keeps a failed inventory request distinct from an empty token list', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     listAccountTokens.mockRejectedValueOnce(new Error('读取令牌超时'));
     render(<TuziAccountPanel />);
     fireEvent.click(
@@ -446,6 +457,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('refreshes the account after token replacement and explicit import', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     const changed = vi.fn();
     render(<TuziAccountPanel onProvidersChanged={changed} />);
     await screen.findByText('可用额度');
@@ -476,6 +488,8 @@ describe('TuziAccountPanel', () => {
   });
 
   it('rotates provider keys from the balance view', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
 
     fireEvent.click(
@@ -493,6 +507,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('imports a selected token without dropping the current group or finishing setup again', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     const onSetupCompleted = vi.fn(),
       onGroupsAdded = vi.fn();
     window.localStorage.setItem(
@@ -538,6 +553,7 @@ describe('TuziAccountPanel', () => {
         enabled: true,
       },
     ]);
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
 
@@ -554,6 +570,8 @@ describe('TuziAccountPanel', () => {
   });
 
   it('shows logs in the logs view with pagination', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
 
     fireEvent.click(await screen.findByRole('button', { name: '日志' }));
@@ -671,6 +689,8 @@ describe('TuziAccountPanel', () => {
   });
 
   it('provides a column settings menu in the logs view', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
+
     render(<TuziAccountPanel />);
 
     fireEvent.click(await screen.findByRole('button', { name: '日志' }));
@@ -724,6 +744,7 @@ describe('TuziAccountPanel', () => {
       usedQuota: 10,
       requestCount: 1,
     });
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
 
     render(<TuziAccountPanel />);
     fireEvent.click(await screen.findByRole('button', { name: '日志' }));
@@ -743,16 +764,16 @@ describe('TuziAccountPanel', () => {
     expect((channelCheckbox as HTMLInputElement).checked).toBe(true);
   });
   it('keeps token creation inside the managed group flow', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     render(<TuziAccountPanel />);
-    expect(
-      screen.queryByRole('link', { name: '管理/创建 API 令牌' })
-    ).toBeNull();
+    expect(screen.queryByRole('link', { name: '管理/创建 API 令牌' })).toBeNull();
     expect(ensureManagedProviders).not.toHaveBeenCalled();
     expect(
       await screen.findByRole('button', { name: '添加 Tuzi 令牌' })
     ).toBeTruthy();
   });
   it('does not persist a new selection when creation fails', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     window.localStorage.setItem(
       'opentu.tuzi.provider-groups.v1',
       JSON.stringify({ '40832': ['default'] })
@@ -776,6 +797,7 @@ describe('TuziAccountPanel', () => {
   });
 
   it('associates existing same-group providers without creation and keeps ordinary token controls separate', async () => {
+    const { TuziAccountPanel } = await import('./TuziAccountPanel');
     const bridge = await import('../../services/tuzi-postmessage-bridge');
     const reuse = await import('../../services/tuzi-provider-reuse-state');
     const connected = vi

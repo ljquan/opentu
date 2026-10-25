@@ -54,10 +54,6 @@ export default defineConfig({
   },
 
   resolve: {
-    alias: {
-      '@aitu/backup-core/part-manager': path.resolve(__dirname, '../../apps/web/public/sw-debug/shared/backup-part-manager-core.js'),
-      '@aitu/backup-core': path.resolve(__dirname, '../../apps/web/public/sw-debug/shared/backup-core.js'),
-    },
     dedupe: ['react', 'react-dom'],
   },
 

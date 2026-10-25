@@ -144,7 +144,7 @@ function getBoardIdFromUrl(): string | null {
  */
 function updateBoardIdInUrl(
   boardId: string | null,
-  replace = false
+  replace: boolean = false
 ): void {
   const url = new URL(window.location.href);
   if (url.pathname === '/workflow' || url.pathname.startsWith('/workflow/')) return;
@@ -600,7 +600,7 @@ export function App() {
 
   // Handle board switching
   const handleBoardSwitch = useCallback(
-    async (board: Board, skipUrlUpdate = false) => {
+    async (board: Board, skipUrlUpdate: boolean = false) => {
       try {
         // 立即更新 URL 和 sessionStorage，确保刷新页面时能恢复到正确的画板
         // 必须在任何异步操作之前执行，避免刷新时丢失画板选择

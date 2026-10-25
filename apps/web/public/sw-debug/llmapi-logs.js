@@ -82,7 +82,7 @@ export function goToLLMApiPage(page) {
  * Clear LLM API logs (uses duplex RPC)
  */
 export async function handleClearLLMApiLogs() {
-  if (!window.confirm('确定要清空所有 LLM API 日志吗？')) return;
+  if (!confirm('确定要清空所有 LLM API 日志吗？')) return;
   
   try {
     await clearLLMApiLogsInSW();
@@ -185,7 +185,7 @@ export async function batchDeleteLLMApiLogs() {
     return;
   }
   
-  if (!window.confirm(`确定要删除选中的 ${state.selectedLLMApiIds.size} 条日志吗？`)) {
+  if (!confirm(`确定要删除选中的 ${state.selectedLLMApiIds.size} 条日志吗？`)) {
     return;
   }
   
@@ -994,7 +994,7 @@ export async function handleExportLLMApiLogs() {
         // Handle both absolute and relative URLs
         let fetchUrl = item.url;
         if (fetchUrl.startsWith('/')) {
-          fetchUrl = window.location.origin + fetchUrl;
+          fetchUrl = location.origin + fetchUrl;
         }
         
         const response = await fetch(fetchUrl);

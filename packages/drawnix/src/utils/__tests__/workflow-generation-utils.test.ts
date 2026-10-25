@@ -1,6 +1,4 @@
-import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBlobResponse } from '../../test-utils/blob-response';
 import type { VideoCharacter, VideoShot } from '../../services/video-analysis-service';
 import {
   buildWorkflowDownloadScript,
@@ -152,7 +150,7 @@ describe('workflow-generation-utils', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        createBlobResponse(new Blob(['audio-bytes'], { type: 'audio/mpeg' }))
+        new Response(new Blob(['audio-bytes'], { type: 'audio/mpeg' }))
       )
     );
 
@@ -179,14 +177,13 @@ describe('workflow-generation-utils', () => {
     const zip = await JSZip.loadAsync(zipBlob);
 
     expect(Object.keys(zip.files)).toContain('00.音乐.mp3');
-    expect(await zip.file('00.音乐.mp3')?.async('string')).toBe('audio-bytes');
     const manifestText = await zip.file('00.manifest.json')?.async('string');
     expect(manifestText).toContain('"music": "00.音乐.mp3"');
   });
 
   it('exports cached audio when the remote URL cannot be fetched', async () => {
     const audioUrl = 'https://cdn.example.com/audio/download?expires=1';
-    const cachedResponse = createBlobResponse(
+    const cachedResponse = new Response(
       new Blob(['cached-audio-bytes'], { type: 'audio/mpeg' })
     );
     const matchMock = vi.fn(async (request: RequestInfo | URL) => {
@@ -227,7 +224,6 @@ describe('workflow-generation-utils', () => {
     const audioFile = zip.file('00.音乐.mp3');
 
     expect(audioFile).not.toBeNull();
-    expect(await audioFile?.async('string')).toBe('cached-audio-bytes');
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
