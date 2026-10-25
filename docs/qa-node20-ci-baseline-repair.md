@@ -36,7 +36,7 @@ node ../../node_modules/vitest/vitest.mjs run
 - Drawnix TypeScript：`pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过。
 - 改动代码目标 ESLint：通过；保留视频配置测试和账户组件测试中的既有非空断言/any 警告。
 - 新 helper 及本次重新排版文件的 Prettier、`git diff --check`：通过。其余历史长文件仅局部修改，不批量格式化。
-- Nx 构建中的 utils、react-text、react-board、Drawnix、Web 类型检查、应用与 SW 构建均完成；生产构建仍有大包体、静态/动态混合导入等警告。
+- Node 20 执行 `nx affected -t build --base=origin/develop --verbose`：退出码 `0`，2 个受影响项目及 3 个依赖任务成功，部分未变化依赖命中缓存。utils、react-text、react-board、Drawnix、Web 类型检查、应用与 SW 构建均完成；生产构建仍有大包体、静态/动态混合导入等警告。
 
 全量运行中同时发现并修复 KV mock 的未处理异常及首例模块加载超时；没有把 JSON 报告的“断言通过”误报为进程成功。最终结果以默认 reporter 的退出码 `0` 为准。
 
