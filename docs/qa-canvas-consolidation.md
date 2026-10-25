@@ -1,5 +1,41 @@
 # 主画布整合与工作流模式删除 QA
 
+## 2026-10-25：视角回填后输入栏被清空
+
+- 根因：视角弹窗通过 Portal 挂载在画布容器内，点击“填入”的 `pointerup` 被当成真实画布点击。50ms 延迟选区回调触发原图片草稿恢复，覆盖刚回填的视角指令，造成成功提示与空输入栏同时出现。
+- 修复：实际画布点击判定排除 `.Dialog-overlay`、`[role="dialog"]` 和 `.ai-input-bar`，沿用原有附属元素排除逻辑。保持上节临时视角草稿、原提示词复用及单张参考图合并规则。
+- 同路径兼容：当前截图中的 6624×4960 图片来自本地缩放，原提示词仅存于 `localImageOperation.sourcePrompt`。图片缺少自身生成提示词时增加此来源兜底；自身 `generationPrompt`、`aiPrompt`、`prompt` 优先，非图片目标不读取该字段。没有新增存储结构或迁移，仍沿用既有目标绑定元数据回填生命周期。
+- 回归：先用真实选区监听器新增弹窗/输入栏点击用例，修改前 2 项失败、13 项通过；修正后，选区监听、工具草稿、参考合并、目标状态和视角弹窗共 5 文件、90 项通过。本地缩放提示词测试覆盖来源读取、自身优先、非图片和无效来源值。命令沿用上节 5 个测试文件，日志 `/tmp/opentu1-prefill-pointer-{red,tests,types,lint,build}.log`。Drawnix TypeScript、4 份相关文件 ESLint（0 错误，AIInputBar 18 项已有警告）、生产 Vite 构建和 `git diff --check` 通过。
+- 页面验收：沿用用户已批准的 7201 查看、选图、打开视角编辑和确认回填范围。两轮按 -31° / 36° / 4.8 回填后，文案均保留；点击输入栏后仍保留，参考缩略图一张。再次点击原图可见“按空格或回车复用提示词：生成一张好看的风景图片”。空格处理器仅做自动逻辑验证，本次未在页面按空格。页面最终停在已回填视角文案的状态；未点击发送/重试、未调用生成接口，未移动或删除图片。
+- 证据：下方保存回填和原提示词候选两种状态。此前只检查缩略图数量的验收不足以覆盖本问题；以上结果替代相关未执行页面验证状态。未做 Windows、其他浏览器或线上验证。复用既有 QA/DOC，不提交、推送或更新 PR。
+
+![视角回填后输入栏文案保持可见](assets/angle-prefill/filled-input-7201-20261025.png)
+
+![点击原图片恢复原提示词复用提示](assets/angle-prefill/original-prompt-suggestion-7201-20261025.png)
+
+## 2026-10-25：恢复原图片提示词复用逻辑
+
+- 用户要求：点击原图片继续显示原生成提示词的复用提示，按空格才填入；视角工具指令不能覆盖原图片的草稿，重复参考图修复继续保留。
+- 根因及边界：视角回填复用了当前图片的草稿所有权，回填后再次选择会读取视角文案，抑制原提示词建议。此前页面验收只检查了缩略图数量，未覆盖这一兼容行为，本节补充该验证范围。
+- 修复：来源匹配的画布工具回填先保存原图片草稿，再解除草稿绑定；回填写入临时输入。选区监听区分实际画布点击和视口刷新，同一图片的鼠标移动/缩放刷新保留回填内容，实际点击则回到原图片草稿及原提示词建议。取消覆盖时不改变归属，原有手写草稿保留。不更改原图片生成元数据、不新增持久化格式，不改空格复用处理器或发送逻辑。
+- 自动验证：macOS、Node v26.8.1、pnpm 10.21.0，在 `packages/drawnix` 执行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 `src/components/ai-input-bar/AIInputBar.toolbar-draft.test.ts`、`AIInputBar.prefill-images.test.ts`、`AIInputBar.selection.test.tsx`、`target-bound-taskbar-state.test.ts`（后三项同目录）及 `src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx`，5 文件、87 项通过。新用例联合执行真实回填、解除绑定和目标切换回调，覆盖原提示词建议、空格复用判断、用户手写草稿、视口刷新、取消选择/重选、取消覆盖。先前单图引用去重测试通过。
+- 页面验收状态已由上方“视角回填后输入栏被清空”章节更新：回填保留及原图候选提示均完成页面验证，空格复用仅完成自动逻辑验证。不调用生成接口。
+- 静态与构建：Drawnix TypeScript、3 份变更 TS 文件的 ESLint、生产 Vite 构建、`git diff --check` 通过。AIInputBar 的 18 项已有 Lint 警告与本次修改前逐项一致，新测试无新增警告。日志为 `/tmp/opentu1-original-prompt-{tests,types,lint,build}.log`。旧会话中已经写入的错误图片草稿属于内存状态；刷新后重新打开画板进行验收，不按文案内容猜测或删除用户草稿。
+- 复用既有 QA/DOC，无依赖、配置、迁移变化；保留其他本地修改，未提交、推送或更新 PR。未验证 Windows、其他浏览器、线上及真实供应商。
+
+## 2026-10-25：视角编辑重复参考图
+
+- 问题路径：单张图片选择后通过绑定参考图进入输入栏，视角确认又将原图回填到上传列表；原有普通选区抑制未覆盖绑定图片，显示和生成列表直接拼接造成重复。
+- 修复：视角回填增加可选 `sourceElementId`，输入栏保留该来源。普通选区、绑定预览、生成参考三个合并入口识别同一来源 ID、规范化 URL 和相同蒙版，仅保留回填的一份。保留上传索引顺序，不合并不同画布对象或不同图片/蒙版版本；语义替换背景路径保持独立。覆盖确认和发送行为不变。
+- 环境：macOS、Node v26.8.1、pnpm 10.21.0，目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`。保留之前本地修改，本次不提交、不推送、不调用生成接口。
+- 自动测试：在 `packages/drawnix` 使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 `src/components/ai-input-bar/AIInputBar.prefill-images.test.ts`、`src/components/ai-input-bar/AIInputBar.selection.test.tsx`、`src/components/ai-input-bar/AIInputBar.image-lineage.test.ts`、`src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx`、`src/services/canvas-operations/image-generation-references.test.ts`，5 文件、51 项通过。新用例执行实际回填映射和列表合并声明，覆盖选图后回填、异步选区/重选、重试 URL、不同对象共用 URL、图片与蒙版差异、多参考图顺序、语义替换背景、取消选择和删除回填项后的选中引用；弹窗测试验证来源 ID 出口。
+- 静态与构建：Drawnix TypeScript、针对 5 份 TS 文件的 ESLint、生产 Vite 构建通过。ESLint 0 错误；AIInputBar 的 18 项警告与本次修改前逐项对照完全一致，无新增诊断。构建保留原有 Sass、Browserslist、混合导入与 chunk 体积提示。日志为 `/tmp/opentu1-angle-duplicate-{tests,types,lint,build}.log`。
+- 页面验收：用户明确授权后，在 7201 原有 Chrome 画板选中截图中的 6624×4960 原图，打开 AI 视角编辑，按 -31° / 36° / 4.8 确认回填。输入栏仅显示一张“视角参考图”，提示词正确；再次打开编辑并确认覆盖后仍为一张。最后页面保持选中原图与一张回填缩略图，见下方截图（最终界面参数为 0° / 9° / 4.8）。未点击发送、重试，未调用生成接口，未移动或删除图片。
+- 验收边界：未做 Windows、其他浏览器、真实供应商或线上验证。自动测试验证的是引用合并和来源传递；不同目标之间草稿切换及持久化不属于本次页面验收范围。
+
+![视角回填后仅保留一张参考图](assets/angle-prefill/single-reference-7201-20261025.png)
+- QA/DOC：复用现有文件，无新增依赖、配置、持久化格式或迁移。
+
 ## 范围与环境
 
 分支 `dev/consolidate-canvas-remove-workflow-mode`，目标分支 `develop`。用户于 2026-10-21 授权解决冲突并提交 PR；最终同步与验证见文末。本文件此前各阶段的结果按当时范围记录。环境为 macOS、Node.js 26.8.1、pnpm 10.21.0、Vitest 3.2.4/JSDOM。使用合成旧数据与模拟服务；没有读取用户实际浏览器数据库，没有真实生成请求，未部署。
@@ -192,3 +228,123 @@
 - 基于 HEAD 和当前 readiness 函数做同输入对照：当前结果已加载、旧副本未加载时，HEAD 返回 false，修复后 true；当前结果未加载时仍 false。组件和 hook 回归覆盖缓存已解码无 load 事件、损坏图片不能误报、旧副本不阻止占位完成与移除、本次多图完整性。
 - 6 文件 109 项测试通过，包含自动插入、占位内容/同步、图片重试和实际画布图片确认。drawnix/Web TypeScript、Web 主应用构建和 `git diff --check` 通过。ESLint 为 retry-image 原有 1 个 Nx 模块边界错误和 1 条无用 Fragment 警告，已用 HEAD 源码 stdin 运行相同规则核对，本次没有新 lint 问题。日志为 `/tmp/opentu-canvas-display-{tests,types,build,lint,lint-baseline}.log`。
 - 本次未执行真实页面、用户浏览器数据库、供应商请求或网络计时，未证明截图现场必然由上述条件触发。修复可消除这些前端状态等待；原图下载、缓存缺失/损坏等其他环境问题仍可能导致等待。更新既有 DOC/QA，不新增文档。开发服务保持 7202。
+
+
+## 2026-10-24：来源关联线基础样式优化
+
+- 用户确认先调整基础线型。目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，HEAD `b532337f`，macOS、Node v26.8.1、pnpm 10.21.0。实施前备份全部 28 个已有修改/新增文件；保留缩放、拆分、编辑器预览、复选框和其他本地改动。
+- 现有系统来源线继续使用同一 `arrow-line`、两个持久端点和版本 1 的来源元数据，统一颜色改为 `#9ca3af`、宽度 1.5。插件仅为合法来源关联线注册 `CanvasAssociationLineComponent`，沿用 Plait 元素与生成器生命周期，只替换该实例的图形绘制为原生 SVG 平滑路径；普通箭头和手绘线继续走原渲染器。
+- 路径保留侧边连接语义：横向分离时水平出入，即使纵向偏移较大；上下连接时沿竖直方向出入。端点与图片保留最多 6 个画布单位间隙，再沿出线方向伸出最多 32 单位，之后使用水平/竖直切向的三次曲线，末端有对应短直线。空间足够的同源同侧分支共享出线段；短间距缩短留白和引线，避免向后折返。圆头圆角、`non-scaling-stroke` 保持约 1.5 屏幕像素，已存画板通过现有无 Undo 历史的规范化应用新样式。
+- 实际验证：首轮关联数据与新路径/渲染测试 2 文件 41 项通过；最终追加缩放/拆分插入、参考来源提取、结果布局与实际编辑器集成回归，8 文件 85 项全部通过。包含双分支共同出线段、左右/上下方向、大纵向偏移、短间距、非法端点、SVG 属性、不修改节点、仅替换关联线渲染，以及既有拖动同步、删除清理、重新指向、Undo/Redo 和无关节点不重复测量。
+
+```sh
+# 从 packages/drawnix 执行
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/plugins/canvas-association.test.ts \
+  src/plugins/canvas-association-line.test.ts \
+  src/services/canvas-operations/resize-canvas-image.test.ts \
+  src/services/canvas-operations/insert-split-images.test.ts \
+  src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx \
+  src/components/ai-input-bar/AIInputBar.image-lineage.test.ts \
+  src/services/canvas-operations/image-generation-references.test.ts \
+  src/utils/__tests__/image-generation-lineage-placement.test.ts --silent
+```
+
+- Drawnix TypeScript、相关 4 个 TS 文件 ESLint（零错误/警告）、Vite 主应用生产构建（34.44 秒）和差异检查通过。构建既有 Sass、Browserslist、导入分块和大 chunk 等提示保留。本次没有重跑全仓库测试或扩大修复其他 lint 基线问题。
+- 经用户明确授权在原 7201 页面验收。确认两个输入草稿为空后刷新页面，使已挂载的旧插件实例加载新渲染器；读取现场 4 条 SVG 路径，颜色和宽度正确，两条同源线共享相同的起始直线，竖向相邻结果的连接仍为竖直路径，原图片布局保留。截图如下。未移动、删除或新增图片，未调用生成接口；刷新应用了系统线条样式规范化。页面仅查看，移动/删除/Undo 行为通过既有自动化回归验证，不声称现场执行了这些操作。
+- 基础版只调整默认线型、出入方向和分叉引线，不新增失败状态虚线、悬停高亮、跨图避障或自动重排；大量交叉仍需调整布局。未执行 Windows/Safari/Firefox、超大量连线压力或独立 SVG/PNG 导出验收，导出端对屏幕固定线宽的缩放效果仍需后续实际文件验收。无新增依赖、环境变量或来源数据结构迁移；回滚可撤回本次渲染与统一样式常量，来源关系保留。复用既有 QA/DOC，未提交、推送、更新 PR 或部署。
+
+![7201 来源连线基础样式](assets/canvas-association/smooth-lines-7201-20261024.png)
+
+## 2026-10-24：像素缩放支持缩小
+
+- 用户确认将“放大”改为“缩放”，目标长边小于原图时缩小、大于原图时放大，保持比例、创建新图并保留原图。实施前再次备份全部 25 个已有修改/新增文件，保留编辑器整合、预览恢复、复选框样式及无关图片测试改动。
+- 仅调整编辑器/处理函数的尺寸校验及相关提示，沿用现有 `imageResizeDimensions` 的正数检查、比例计算、整数像素取整和最小 1 像素边界。目标输出与原图完全相同时拒绝处理；零、负数、非有限值继续拒绝。继续使用完整原图和三种既有插值，不改变编码格式、画布显示尺寸、插入/来源关联/取消保护或并发规则。
+- 详情面板统一显示“本地缩放（非 AI）”“缩放参数”“缩放倍数（长边）”；现有 `type: resize` 和元数据格式保持兼容，历史放大记录与新增缩小记录都能读取，缩小结果可显示 0.5×，不再被称为放大。
+- 最终自动化：沿用下一节 13 文件回归命令，146 项全部通过。新增或更新测试覆盖 4000×3000 → 2000×1500、竖图比例、极窄图最小像素、编辑器较小目标提交、三种插值下的较小输出/元数据与原图保留、相同尺寸拦截，以及详情中的小于 1 倍数。此前放大、失败重试、取消、来源关联、结果选择、裁剪/拆分/滤镜和工具偏好回归通过。
+- Drawnix TypeScript、Vite 主应用生产构建（44.14 秒）及差异检查通过。本次 9 个 TS/TSX 文件 ESLint 为核心编辑器原有的 2 errors、1 warning；使用本次实施前备份经同路径 stdin 对照，无新增规则诊断。其余相关文件零诊断；未修改 lint 配置，既有打包、Sass、Browserslist、sourcemap、IndexedDB 与 `.npmrc` 提示保留。
+- 本次没有执行实际图片缩小写入、收费生成、全仓库测试、Windows、线上验证或部署；读取当前页面时用户正在设置页，未关闭其设置或更改偏好，也未重复交互验收。实际输出像素与保留原图由组件/业务测试验证，页面手工验收可使用备份图片输入较小长边后确认。仍需留意极大原图的浏览器内存与编码限制；输出为原有 PNG，不保证文件大小随像素数严格同比下降。
+- 无新依赖、环境变量或数据迁移，无需清理缓存；更新本 QA 和现有使用说明，不新建重复文档。本次改动保留本地，未提交、推送或更新 PR。
+
+### 倍数快捷选择补充
+
+- 缩放面板增加 0.25×、0.5×、1×（原尺寸）、2×、4× 选择，按原图长边换算并取整到至少 1 像素；继续使用原有目标长边与比例预览，无新增写入或处理路径。手动像素匹配预设时同步显示倍数，否则显示“自定义（手动输入长边）”；切换工具保留参数，处理期间倍数选择禁用，1× 沿用相同尺寸拦截。
+- 本次在 `packages/drawnix` 执行既有 Vitest 命令并指定 `src/components/image-editor/ImageEditor.test.tsx` 和 `src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx`：2 文件、32 项全部通过，包含四档有效倍数、手动像素双向同步、工具切换、原尺寸拦截、奇数尺寸取整与处理中禁用的新增覆盖。Drawnix TypeScript、两个修改 TSX 的 ESLint 和差异检查通过；仅改面板与对应测试，未重跑生产构建、完整仓库测试或页面交互，未生成/修改真实图片，未提交或推送。更新既有 QA/使用说明，无新增依赖或数据迁移。
+
+
+## 2026-10-24：本地放大并入图片编辑器
+
+- 范围：主画布图片工具栏及其设置移除独立“本地放大”，统一从“编辑图片 → 放大”进入；四个编辑页签显示在同一面板。无批量插入/放大回调的其他编辑器调用方不显示对应页签。保留当前所有尚未提交的拆分、图片预览恢复和其他本地修改。
+- 实现：`ImageResizePanel` 提供目标长边、插值方式、原图/输出像素对照及两阶段处理状态，使用编辑器已解码原图进行预览，不重复读取虚拟地址。画布放大移至 `resize-canvas-image.ts`，沿用原始像素插值、统一插入、处理记录、来源关联和最终结果选择生命周期；原图保留，未调用 AI。旧单独弹窗只保留 AI 视角编辑。
+- 交互与保护：裁剪、滤镜和放大各自保留参数，放大处理使用完整原图；处理期间禁止重复提交、切换工具和关闭（含遮罩）。插入失败显示原因并保留参数，可直接重试。画板切换、原图删除/替换及卸载取消会阻止后续编码/插入或关联；统一插入服务仍负责等待期间的画板保护。成功后提示输出像素并选中当前含处理记录的新节点，保留延迟选择/不可变节点替换兼容。
+- 环境：macOS、Node v26.8.1、pnpm 10.21.0；HEAD `b532337f`，分支 `dev/fix-selected-previews-and-model-discovery`。最终定向回归 13 文件、139 项全部通过。旧放大回归迁到实际编辑器和共享处理函数，保留两阶段进度、重复点击、保存失败、画板切换以及实际 Plait 选择插件的两种时序验证；新增页签可用性、参数/其他编辑状态保留、无效尺寸、失败重试、关闭/卸载取消、原图替换/删除和编码失败覆盖。
+
+```sh
+# 从 packages/drawnix 执行
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/image-editor/ImageEditor.test.tsx \
+  src/services/canvas-operations/resize-canvas-image.test.ts \
+  src/services/canvas-operations/insert-split-images.test.ts \
+  src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx \
+  src/components/settings-dialog/image-toolbar-settings.test.tsx \
+  src/components/toolbar/popup-toolbar/image-toolbar-contents.test.tsx \
+  src/utils/canvas-image-tools.test.ts \
+  src/utils/canvas-image-details.test.ts \
+  src/utils/canvas-generation-details-source.test.ts \
+  src/components/toolbar/popup-toolbar/image-details-button.test.tsx \
+  src/services/canvas-operations/canvas-insertion.test.ts \
+  src/components/retry-image.test.tsx \
+  src/components/ai-input-bar/AIInputBar.selection.test.tsx --silent
+```
+
+- Drawnix/Web TypeScript、Vite 主应用生产构建和差异检查通过，构建 50.63 秒。针对 12 个 TS/TSX 文件执行 ESLint，最终为 4 个原有错误、35 条原有警告，分别位于核心编辑器和 popup-toolbar；以实施前完整备份源码通过同路径 stdin 比较规则和消息，无新增诊断。其余本次文件零诊断，不修改规则规避错误。保留既有 Sass、Browserslist、混合导入、大 chunk、IndexedDB/sourcemap 与 `.npmrc` 提示。
+- 页面查看沿用用户已授权的 7201 编辑器排查/验收范围：工具栏无独立本地放大按钮，打开编辑图片后四个页签并列可见；点击“放大”显示同一原图、目标长边、三种插值和原图/输出像素。截图中原图为 6624×4960，默认目标 13248，输出 13248×9920。只打开、切换查看和关闭，没有点击放大确认、写入画板或调用生成。真实插入、错误与进度由组件/业务测试验证，不以页面只读验收替代实际生成结果验证。
+- 无新增依赖、环境变量、数据迁移或部署顺序；旧独立按钮的偏好键保留在已有设置数据中但不再生成入口，不需清缓存。大图本地编码仍受浏览器内存和 Canvas 能力限制，未做压力测试、全仓库测试、Windows 或线上验证。本次不提交、不推送或更新 PR；复用既有 QA/DOC，不新增重复文档。手工验收可在用户自己的备份图片上进入放大、确认，检查新图像素、原图保留、来源线及详情中的本地放大记录。
+
+![本地放大已移入编辑器](assets/image-editor/resize-tab-7201-20261024.png)
+
+## 2026-10-24：图片编辑器裁剪原图与滤镜预览恢复
+
+- 环境与基线：目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，HEAD `b532337f`，macOS、Node v26.8.1、pnpm 10.21.0。本次起点包含尚未提交的“拆分并入编辑器”等 16 个修改/新增文件；实施前完整备份并记录哈希，保留这些改动，仅增补预览恢复及对应测试、维护记录。未提交、推送或更新 PR。
+- 页面复现：用户明确授权在 7201 检查和验收，只打开、查看、关闭编辑器。截图对应图片的裁剪 `<img>` 直接读取 `/__aitu_cache__/image/...png`，`complete=true` 但 `naturalWidth=0`；统一原图读取已成功得到 2176×1632 像素。裁剪、滤镜预览及 CSS 背景仍重新请求原始虚拟地址，未使用缓存解码结果；加载器产生的临时 Blob 地址也会在解码后释放，不能拿该 `src` 再创建图片节点。
+- 修复：新增 `DecodedImagePreview`，裁剪底图/选区、滤镜主图/预设及原图对比直接绘制已解码源，不重发虚拟路径请求、不复用已释放 URL。加载状态与当前源绑定，换源及卸载后的迟到结果丢弃；读图失败显式显示错误，未读到原图时保存禁用。修正原有 `none scale(...)` 无效变换组合并防止滤镜预览被 flex 压缩，保证适配比例有效。预览长边最多 2048、预设最多 96 像素，卸载清空缓冲区；裁剪、保存和拆分继续使用完整原始图像，不改变持久化地址或原图像素。
+- 最终组件与逻辑回归：在 `packages/drawnix` 执行以下命令，8 文件、85 项全部通过，其中编辑器 14 项。新增覆盖已释放 URL 的解码源绘制、裁剪选区、滤镜预设、裁剪前后对比、加载与失败提示、换源/卸载迟到结果、预览尺寸上限/释放以及原始像素输出；既有拆分、失败恢复、工具切换、工具栏、选区监听与图片重试回归通过。
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/image-editor/ImageEditor.test.tsx \
+  src/services/canvas-operations/insert-split-images.test.ts \
+  src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx \
+  src/components/settings-dialog/image-toolbar-settings.test.tsx \
+  src/utils/canvas-image-tools.test.ts \
+  src/components/retry-image.test.tsx \
+  src/components/ai-input-bar/AIInputBar.selection.test.tsx \
+  src/utils/image-operation-timeout.test.ts --silent
+```
+
+- 根目录 Drawnix TypeScript 检查与 Vite 主应用生产构建通过，构建 40.42 秒；`git diff --check` 通过。本次四个 TS/TSX 文件完整 ESLint 为 2 errors、1 warning，均位于核心编辑器；使用实施前备份源码经相同路径 stdin 验证相同的两个 `prefer-const` 和一个历史 effect 依赖诊断，未引入新 lint 诊断，未修改仓库规则。既有 Sass、Browserslist、混合导入、大 chunk、sourcemap 和 `.npmrc` 提示保留。
+- 最终页面验收：在原 7201 画板进入图片编辑器，裁剪显示原图与选区；切换滤镜后主预览和 9 个预设缩略图显示正常，变换为有效的 `scale(0.488358)`；拆分预览 Canvas 宽为 560，切回裁剪仍正常。关闭后重新选择同一图片并打开，裁剪仍恢复。最终裁剪 Canvas 为 2048×1536，对应原始 2176×1632。没有保存裁剪、应用滤镜、插入分片、替换/删除图片或调用生成接口。最终截图见下。
+- 边界：未执行全仓库测试、Windows/Safari/Firefox、线上部署或超大图压力测试；页面未实际写入编辑结果，保存原始像素与批量插入依赖组件/逻辑测试。没有新增依赖、环境变量或数据迁移；无需清理缓存和画板。继续更新既有 QA/DOC，不新建重复文档。回滚可撤回本次解码预览改动，既有本地拆分功能保持原样。
+
+![7201 图片编辑器原图恢复](assets/image-editor/cached-source-preview-7201-20261024.png)
+
+## 手动拆图并入图片编辑器
+
+- 范围：主画布选中单张图片后只保留“编辑图片”入口，在同一窗口切换裁剪、拆分和滤镜；删除旧拆图弹窗模式及工具栏配置项。批量输出继续保留原图和来源关联，不调用生成 API，不新增依赖、配置或数据迁移。
+- 环境：macOS，Node 26.8.1、pnpm 10.21.0；沿用现有依赖。Vitest 使用 `NODE_OPTIONS=--no-experimental-webstorage`，在 `packages/drawnix` 执行 `pnpm exec vitest run --config vitest.config.ts`，指定 `src/components/image-editor/ImageEditor.test.tsx`、`src/services/canvas-operations/insert-split-images.test.ts`、`src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx`、`src/utils/canvas-image-tools.test.ts`、`src/components/toolbar/popup-toolbar/image-toolbar-contents.test.tsx`、`src/components/settings-dialog/image-toolbar-settings.test.tsx`、`src/services/canvas-operations/canvas-insertion.test.ts`、`src/data/image.test.ts`。8 文件、63 项通过。
+- 成功与兼容：验证原有单图裁剪保存、默认四块和自定义三块的原始像素边界、缓存图片解码像素预览、切换工具后保留编辑状态、无批量插入能力的其他编辑器调用方不显示拆分。放大、视角回填、工具栏偏好和画布插入原有回归通过。
+- 异常与边界：验证无效分割线禁用确认、读图和编码失败不插入、插入失败保留窗口并可重试、处理中禁止重复提交和切换工具、打开编辑器后原图被替换或画布切换时拒绝插入，等待期间由统一插入服务的画布保护阻止跨画布写入。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、`pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 通过；在 `apps/web` 执行 `node ../../node_modules/vite/bin/vite.js build` 通过。构建保留 Sass 弃用与 chunk 体积提示。初次使用 `pnpm exec vite build` 未正确定位入口，改用上述显式命令后通过。
+- ESLint：新增文件零错误和警告；ImageEditorCore、popup-toolbar 合计 4 个原有错误，与 HEAD 源码用相同规则对照，没有新增诊断。`git diff --check` 通过。日志和对照记录为 `/tmp/opentu-merge-image-tools-{tests-final,types,build}.log`、`/tmp/opentu-merge-image-tools-lint{,-comparison}.json`、`/tmp/opentu-merge-image-tools-new-lint.json`。
+- 未执行浏览器页面测试、Windows 验证、真实供应商调用和大图压力测试。人工验收：刷新本地 7201 页面，选中单图，只看到统一编辑入口；进入后选择“拆分”，查看默认四块，清空横向并将纵向填写为 `25,75` 后应显示三张，确认后原图保留且出现三张新图片。已有裁剪或滤镜修改不会应用到拆分结果，切回原工具时修改保留。
+
+
+## 2026-10-24：AI 视角编辑输入约束
+
+- 范围：沿用当前提示词构造的数值约束，不增加未经模型契约确认的角度上限。水平/俯仰角度要求非空有限数值，允许负数和小数；相对拍摄距离要求有限且大于 0。输入框显示方向和距离规则，使用 `required`、距离下界提示及字段级无障碍错误关联；正数下界不含 0，由自定义校验补充原生 `min=0`。`step=any` 保留任意有效小数。
+- 行为：无效字段立即提示并禁用“填入生成输入栏”，提交函数保留兜底校验；空角度保持空白，不转成 0。无效距离失焦时恢复本次弹窗上一次有效距离（初始为 4.8）。只生成提示词并回填原图，不发送生成请求。
+- 环境：macOS、Node v26.8.1、pnpm 10.21.0，目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`；保留之前的本地未提交改动。
+- 自动验证：在 `packages/drawnix` 使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/components/toolbar/popup-toolbar/canvas-image-tools-dialog.test.tsx src/utils/canvas-image-tools.test.ts --silent`，2 文件、26 项通过。新增覆盖负距离、零、空距离、失焦恢复上次有效值、空角度禁用提交、修正后回填、负角度及 0.05 小数距离的原生有效性；原有预览、画布切换保护、缩放及回填回归通过。
+- 静态/构建验证：`pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、两份变更 TS 文件的 ESLint、`pnpm exec vite build --config apps/web/vite.config.ts` 和 `git diff --check` 均通过。构建保留现有 Sass、Browserslist、混合导入和 chunk 体积提示，未做无关修复。
+- 未执行本次浏览器页面验收、Windows/其他浏览器和真实供应商调用；此前连线页面验收授权不扩展到本弹窗。手工验收：打开 AI 视角编辑，距离填写 -5.5 或 0 时应立即提示并禁用回填，移开焦点应恢复上次有效距离；清空角度后按钮禁用，改回有效数值后恢复。
+- 无新增依赖、配置、数据迁移；更新既有 QA/DOC，不新增重复文件。不提交、推送或更新 PR。

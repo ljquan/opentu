@@ -175,7 +175,7 @@ export function PopupImageDetailsButton({
         : 'Model',
       image.localOperation
         ? zh
-          ? '本地放大（非 AI）'
+          ? '本地缩放（非 AI）'
           : 'Local resize (non-AI)'
         : details.model,
     ],
@@ -315,7 +315,7 @@ export function PopupImageDetailsButton({
               <p className="image-details-panel__prompt">
                 {details.localOperation
                   ? zh
-                    ? '通过本地像素插值放大，不调用 AI，也不会增加图像细节。'
+                    ? '通过本地像素插值缩放，不调用 AI，也不会增加图像细节。'
                     : 'Resized locally using interpolation. No AI generation or added image detail.'
                   : details.prompt || unrecorded}
               </p>
@@ -324,7 +324,7 @@ export function PopupImageDetailsButton({
               <h4>
                 {details.localOperation
                   ? zh
-                    ? '放大参数'
+                    ? '缩放参数'
                     : 'Resize details'
                   : zh
                   ? '模型参数'
@@ -349,7 +349,7 @@ export function PopupImageDetailsButton({
                       }[details.localOperation.algorithm]
                     }
                   </dd>
-                  <dt>{zh ? '放大倍数（长边）' : 'Scale (long edge)'}</dt>
+                  <dt>{zh ? '缩放倍数（长边）' : 'Scale (long edge)'}</dt>
                   <dd>
                     {Number(
                       (

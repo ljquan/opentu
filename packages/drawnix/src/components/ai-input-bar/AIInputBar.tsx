@@ -608,6 +608,27 @@ function normalizeAIInputImageUrl(url: string): string {
   }
 }
 
+// Match canvas identity as well as pixels: distinct elements may share a URL.
+function isUploadedCanvasReference(
+  content: SelectedContent,
+  uploaded: SelectedContent[]
+): boolean {
+  const url = content.url;
+  return (
+    content.type === 'image' &&
+    !!content.sourceElementId &&
+    typeof url === 'string' &&
+    uploaded.some(
+      (item) =>
+        item.type === 'image' &&
+        item.sourceElementId === content.sourceElementId &&
+        typeof item.url === 'string' &&
+        normalizeAIInputImageUrl(item.url) === normalizeAIInputImageUrl(url) &&
+        item.maskImage === content.maskImage
+    )
+  );
+}
+
 function buildPromptLineageMeta(
   workflow: WorkflowDefinition,
   step: Pick<WorkflowDefinition['steps'][number], 'mcp' | 'args'>
@@ -1222,7 +1243,10 @@ const SelectionWatcher: React.FC<{
     board: PlaitBoard,
     elements: PlaitElement[]
   ) => boolean;
-  onBoundImageTargetChange?: (target: BoundImageTarget | null) => void;
+  onBoundImageTargetChange?: (
+    target: BoundImageTarget | null,
+    fromCanvasPointer?: boolean
+  ) => void;
   onBoundInputViewportChange?: () => void;
   /** 用于存储 board 引用的 ref，供父组件使用 */
   externalBoardRef?: React.MutableRefObject<any>;
@@ -1354,7 +1378,8 @@ const SelectionWatcher: React.FC<{
 
     useEffect(() => {
       const handleSelectionChange = async (
-        canvasAssociationPickElements?: PlaitElement[]
+        canvasAssociationPickElements?: PlaitElement[],
+        fromCanvasPointer = false
       ) => {
         const currentBoard = boardRef.current;
         if (!currentBoard) return;
@@ -1415,7 +1440,11 @@ const SelectionWatcher: React.FC<{
           return;
         }
         if (boundTargetRunId === boundTargetRunIdRef.current) {
-          onBoundImageTargetChangeRef.current?.(boundImageTarget);
+          if (fromCanvasPointer) {
+            onBoundImageTargetChangeRef.current?.(boundImageTarget, true);
+          } else {
+            onBoundImageTargetChangeRef.current?.(boundImageTarget);
+          }
         }
 
         // 检测是否选中了单个 Frame，通知父组件
@@ -1525,7 +1554,9 @@ const SelectionWatcher: React.FC<{
         const isCanvasPointer = Boolean(
           pointerTarget &&
             boardContainer?.contains(pointerTarget) &&
-            !pointerTarget.closest(`.${ATTACHED_ELEMENT_CLASS_NAME}`)
+            !pointerTarget.closest(
+              `.${ATTACHED_ELEMENT_CLASS_NAME}, .Dialog-overlay, [role="dialog"], .ai-input-bar`
+            )
         );
 
         if (pickingAtPointer && !isCanvasPointer) {
@@ -1559,7 +1590,7 @@ const SelectionWatcher: React.FC<{
             isCanvasPointer && pickingAtPointer && activeBoard
               ? getCanvasAssociationPickElements(activeBoard, pointer)
               : undefined;
-          void handleSelectionChange(pickElements);
+          void handleSelectionChange(pickElements, isCanvasPointer);
         }, 50);
       };
       const handleSelectionRefresh = () => {
@@ -2300,6 +2331,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       canvasAssociationTrigger
     );
     const suppressSelectionContentUrlsRef = useRef<Set<string>>(new Set());
+    const canvasToolbarPrefillElementIdRef = useRef<string | null>(null);
     const applyCanvasAssociationRefs = useCallback(
       (references: readonly CanvasAssociationRef[]) => {
         const snapshot = snapshotCanvasAssociationRefs(references);
@@ -2447,6 +2479,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         activeDraftBaselineRef.current = null;
         lastBoundImageTargetKeyRef.current = null;
         suppressedBoundImageElementIdRef.current = null;
+        canvasToolbarPrefillElementIdRef.current = null;
         dismissedPromptElementIdRef.current = null;
         dismissedPromptGenerationTaskIdRef.current = null;
         lastPrunedBoardChildrenRef.current = null;
@@ -2531,7 +2564,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     // 合并画布选中内容和用户上传内容
     const allContent = useMemo(() => {
-      return [...uploadedContent, ...selectedContent];
+      return [
+        ...uploadedContent,
+        ...selectedContent.filter(
+          (item) => !isUploadedCanvasReference(item, uploadedContent)
+        ),
+      ];
     }, [uploadedContent, selectedContent]);
     const effectiveBoundTargetMode = resolveBoundTargetMode(
       boundImageTargetMode,
@@ -2564,14 +2602,27 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const displayContent = useMemo(
       () =>
         boundTargetContent
-          ? [...uploadedContent, boundTargetContent]
+          ? [
+              ...uploadedContent,
+              ...(isUploadedCanvasReference(boundTargetContent, uploadedContent)
+                ? []
+                : [boundTargetContent]),
+            ]
           : allContent,
       [allContent, boundTargetContent, uploadedContent]
     );
     const generationContent = useMemo(
       () =>
         boundTargetGenerationContent
-          ? [boundTargetGenerationContent, ...uploadedContent]
+          ? [
+              ...(isUploadedCanvasReference(
+                boundTargetGenerationContent,
+                uploadedContent
+              )
+                ? []
+                : [boundTargetGenerationContent]),
+              ...uploadedContent,
+            ]
           : allContent,
       [allContent, boundTargetGenerationContent, uploadedContent]
     );
@@ -3738,10 +3789,24 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           width: image.width,
           height: image.height,
           maskImage: image.maskImage,
+          sourceElementId: image.sourceElementId,
         }));
         const nextKnowledgeContextRefs = normalizeKnowledgeContextRefs(
           detail.knowledgeContextRefs
         );
+        if (
+          detail.source === 'canvas-toolbar' &&
+          boundImageTargetRef.current?.type === 'image' &&
+          nextUploadedContent.some(
+            (item) => item.sourceElementId === boundImageTargetRef.current?.elementId
+          )
+        ) {
+          // Tool instructions belong to the new generation, not the source
+          // image's draft. Preserve that draft before replacing the input.
+          detachTaskbarDraft(true);
+          canvasToolbarPrefillElementIdRef.current =
+            boundImageTargetRef.current.elementId;
+        }
         applyCanvasAssociationPromptOverwrite(nextPrompt);
         uploadedContentRef.current = nextUploadedContent;
         knowledgeContextRefsRef.current = nextKnowledgeContextRefs;
@@ -3778,6 +3843,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       audioModels,
       applyCanvasAssociationPromptOverwrite,
       confirmOverwriteInputIfNeeded,
+      detachTaskbarDraft,
       focusInput,
       imageModels,
       language,
@@ -4293,8 +4359,24 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
 
     const handleBoundImageTargetChange = useCallback(
-      (target: BoundImageTarget | null) => {
+      (target: BoundImageTarget | null, fromCanvasPointer = false) => {
         resetBoundTaskbarDraftsForBoard(currentBoardId ?? null);
+        if (canvasToolbarPrefillElementIdRef.current) {
+          if (
+            target?.elementId === canvasToolbarPrefillElementIdRef.current &&
+            !fromCanvasPointer
+          ) {
+            // Viewport/async refreshes must not discard freshly filled input.
+            boundImageTargetRef.current = target;
+            setBoundImageTarget(target);
+            setBoundInputLayoutTick((tick) => tick + 1);
+            return;
+          }
+          canvasToolbarPrefillElementIdRef.current = null;
+          lastBoundImageTargetKeyRef.current = null;
+          dismissedPromptElementIdRef.current = null;
+          dismissedPromptGenerationTaskIdRef.current = null;
+        }
         const targetSupportsFollowControls = Boolean(
           target && supportsBoundTargetFollowControls(target.type)
         );

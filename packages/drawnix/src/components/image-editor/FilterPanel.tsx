@@ -5,12 +5,13 @@
 import React from 'react';
 import { Slider } from 'tdesign-react';
 import { FilterType, FilterParams, FilterPreset } from './types';
+import { DecodedImagePreview } from './DecodedImagePreview';
 
 interface FilterPanelProps {
   filterType: FilterType;
   filterParams: FilterParams;
   presets: FilterPreset[];
-  imageUrl: string;
+  image: HTMLImageElement | null;
   onPresetSelect: (type: FilterType) => void;
   onParamChange: (param: keyof FilterParams, value: number) => void;
 }
@@ -19,7 +20,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
   filterType,
   filterParams,
   presets,
-  imageUrl,
+  image,
   onPresetSelect,
   onParamChange,
 }) => {
@@ -41,10 +42,21 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
               <div
                 className="filter-panel__preset-preview"
                 style={{
-                  backgroundImage: `url(${imageUrl})`,
                   filter: preset.filter,
                 }}
-              />
+              >
+                {image && (
+                  <DecodedImagePreview
+                    image={image}
+                    maxSize={96}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                    }}
+                  />
+                )}
+              </div>
               <span className="filter-panel__preset-label">{preset.label}</span>
             </button>
           ))}

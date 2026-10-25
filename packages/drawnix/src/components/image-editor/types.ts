@@ -80,6 +80,14 @@ export interface ImageEditorState {
 export type SaveAction = 'overwrite' | 'insert' | 'download';
 
 /** 图片编辑器 Props */
+export type ResizeImageHandler = (
+  options: import('../../services/canvas-operations/resize-canvas-image').ImageResizeOptions,
+  onStage: (
+    stage: import('../../services/canvas-operations/resize-canvas-image').ImageResizeStage
+  ) => void,
+  signal: AbortSignal
+) => Promise<{ width: number; height: number }>;
+
 export interface ImageEditorProps {
   /** 是否显示 */
   visible: boolean;
@@ -93,6 +101,9 @@ export interface ImageEditorProps {
   onOverwrite?: (editedImageUrl: string) => void;
   /** 插入到画布回调 */
   onInsert?: (editedImageUrl: string) => void;
+  /** 将拆分结果作为多张新图片插入画布 */
+  onSplit?: (images: string[]) => Promise<void>;
+  onResize?: ResizeImageHandler;
   /** 元素 ID（用于更新画布中的图片） */
   elementId?: string;
   /** 是否显示覆盖选项（仅当编辑画布上已有图片时显示） */

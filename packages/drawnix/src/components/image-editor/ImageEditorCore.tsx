@@ -5,6 +5,8 @@
 
 import React, {
   useState,
+  useMemo,
+  useId,
   useRef,
   useCallback,
   useEffect,
@@ -26,6 +28,8 @@ import {
   Undo2,
   Redo2,
   Eye,
+  Scissors,
+  ImageUpscale,
 } from 'lucide-react';
 import { MessagePlugin } from '../../utils/message-plugin';
 import {
@@ -37,11 +41,25 @@ import {
   DEFAULT_FILTER_PARAMS,
   ASPECT_RATIO_PRESETS,
   FILTER_PRESETS,
+  type ResizeImageHandler,
 } from './types';
 import { CropPanel } from './CropPanel';
 import { FilterPanel } from './FilterPanel';
+import { ImageResizePanel } from './ImageResizePanel';
+import { DecodedImagePreview } from './DecodedImagePreview';
 import './ImageEditorCore.scss';
 import { HoverTip } from '../shared/hover';
+import { loadImageElementForCanvas } from '../../data/image';
+import {
+  imageSplitCuts,
+  splitImageRegions,
+  imageResizeDimensions,
+} from '../../utils/canvas-image-tools';
+import type { DataURL } from '../../types';
+import type {
+  ImageResizeOptions,
+  ImageResizeStage,
+} from '../../services/canvas-operations/resize-canvas-image';
 
 // Tooltip z-index 需要高于模态框
 const TOOLTIP_Z_INDEX = 10010;
@@ -177,6 +195,9 @@ export interface ImageEditorCoreProps {
   onOverwrite?: (editedImageUrl: string) => void;
   /** 插入到画布回调 */
   onInsert?: (editedImageUrl: string) => void;
+  onSplit?: (images: string[]) => Promise<void>;
+  onResize?: ResizeImageHandler;
+  onBusyChange?: (busy: boolean) => void;
   /** 关闭回调（可选，有则显示关闭按钮） */
   onClose?: () => void;
   /** 保存回调（可选，有则显示保存按钮） */
@@ -220,6 +241,9 @@ export const ImageEditorCore = forwardRef<
       showOverwrite = false,
       onOverwrite,
       onInsert,
+      onSplit,
+      onResize,
+      onBusyChange,
       onClose,
       onSave,
       className,
@@ -227,7 +251,27 @@ export const ImageEditorCore = forwardRef<
     ref
   ) => {
     // 编辑模式
-    const [mode, setMode] = useState<EditMode>('crop');
+    const [mode, setMode] = useState<EditMode | 'split' | 'resize'>('crop');
+    const [resizeTarget, setResizeTarget] = useState(2048);
+    const [resizeAlgorithm, setResizeAlgorithm] =
+      useState<ImageResizeOptions['algorithm']>('high');
+    const [resizeStage, setResizeStage] = useState<ImageResizeStage | null>(
+      null
+    );
+    const [resizeError, setResizeError] = useState('');
+    const resizeController = useRef<AbortController | null>(null);
+    const [horizontalCuts, setHorizontalCuts] = useState('50');
+    const [verticalCuts, setVerticalCuts] = useState('50');
+    const [splitError, setSplitError] = useState('');
+    const [splitting, setSplitting] = useState(false);
+    const processing = splitting || resizeStage !== null;
+    useEffect(() => {
+      onBusyChange?.(processing);
+    }, [processing, onBusyChange]);
+    const splitLock = useRef(false);
+    const splitPreviewRef = useRef<HTMLCanvasElement>(null);
+    const splitHelpId = useId();
+    const splitErrorId = useId();
 
     // 裁剪状态
     const [cropArea, setCropArea] = useState<CropArea | null>(null);
@@ -283,6 +327,13 @@ export const ImageEditorCore = forwardRef<
 
     // refs
     const imageRef = useRef<HTMLImageElement | null>(null);
+    const [loadedImage, setLoadedImage] = useState<{
+      source: string;
+      image: HTMLImageElement;
+    } | null>(null);
+    const [imageLoadError, setImageLoadError] = useState('');
+    const previewImage =
+      loadedImage?.source === imageUrl ? loadedImage.image : null;
     const previewRef = useRef<HTMLDivElement>(null);
     const prevImageUrlRef = useRef<string | null>(null);
 
@@ -306,6 +357,9 @@ export const ImageEditorCore = forwardRef<
         setImageSize({ width: 0, height: 0 }); // 重置图片尺寸，防止用旧尺寸初始化裁剪区域
         setPanOffset({ x: 0, y: 0 });
         setMode('crop');
+        setHorizontalCuts('50');
+        setVerticalCuts('50');
+        setSplitError('');
         // 重置历史记录
         const initialState: ImageEditState = {
           cropArea: null,
@@ -325,23 +379,171 @@ export const ImageEditorCore = forwardRef<
 
     // 加载图片
     useEffect(() => {
+      let active = true;
+      imageRef.current = null;
+      setLoadedImage(null);
+      setImageLoadError('');
+      setResizeError('');
+      setResizeStage(null);
       if (!imageUrl) return;
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        imageRef.current = img;
-        setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
-      };
-      img.onerror = () => {
-        MessagePlugin.error('图片加载失败');
-      };
-      img.src = imageUrl;
+      void loadImageElementForCanvas(imageUrl as DataURL)
+        .then((img) => {
+          if (!active) return;
+          imageRef.current = img;
+          setLoadedImage({ source: imageUrl, image: img });
+          setResizeTarget(
+            Math.max(
+              2048,
+              Math.max(
+                img.naturalWidth || img.width,
+                img.naturalHeight || img.height
+              ) * 2
+            )
+          );
+          setResizeAlgorithm('high');
+          setResizeError('');
+          setImageSize({
+            width: img.naturalWidth || img.width,
+            height: img.naturalHeight || img.height,
+          });
+        })
+        .catch(() => {
+          if (active) {
+            setImageLoadError('图片加载失败，请确认原图仍可访问。');
+            MessagePlugin.error('图片加载失败');
+          }
+        });
 
       return () => {
+        active = false;
         imageRef.current = null;
+        resizeController.current?.abort();
+        resizeController.current = null;
       };
     }, [imageUrl]);
+
+    const resizePreview = useMemo(() => {
+      if (!previewImage) return { output: null, error: '' };
+      try {
+        const width = previewImage.naturalWidth || previewImage.width;
+        const height = previewImage.naturalHeight || previewImage.height;
+        const output = imageResizeDimensions(width, height, resizeTarget);
+        if (output.width === width && output.height === height)
+          throw new Error('目标尺寸与原图一致，请调整目标长边');
+        return { output, error: '' };
+      } catch (error) {
+        return {
+          output: null,
+          error: error instanceof Error ? error.message : '参数无效',
+        };
+      }
+    }, [previewImage, resizeTarget]);
+
+    const handleResize = async () => {
+      if (
+        !onResize ||
+        !previewImage ||
+        resizePreview.error ||
+        resizeController.current
+      )
+        return;
+      const controller = new AbortController();
+      resizeController.current = controller;
+      setResizeError('');
+      setResizeStage('resizing');
+      try {
+        const output = await onResize(
+          {
+            image: previewImage,
+            target: resizeTarget,
+            algorithm: resizeAlgorithm,
+          },
+          (stage) => {
+            if (!controller.signal.aborted) setResizeStage(stage);
+          },
+          controller.signal
+        );
+        if (!controller.signal.aborted) {
+          MessagePlugin.success(
+            `缩放完成：${output.width} × ${output.height} 像素，已加入画布，原图保留。`,
+            4000
+          );
+          onClose?.();
+        }
+      } catch (error) {
+        if (!controller.signal.aborted)
+          setResizeError(
+            error instanceof Error ? error.message : '图片处理失败'
+          );
+      } finally {
+        if (resizeController.current === controller)
+          resizeController.current = null;
+        if (!controller.signal.aborted) setResizeStage(null);
+      }
+    };
+
+    const splitPreview = useMemo(() => {
+      if (!imageSize.width || !imageSize.height) return null;
+      try {
+        const x = imageSplitCuts(verticalCuts, imageSize.width);
+        const y = imageSplitCuts(horizontalCuts, imageSize.height);
+        return { x, y, count: (x.length - 1) * (y.length - 1), error: '' };
+      } catch (error) {
+        return {
+          x: [],
+          y: [],
+          count: 0,
+          error: error instanceof Error ? error.message : '分割线无效',
+        };
+      }
+    }, [imageSize, horizontalCuts, verticalCuts]);
+
+    useEffect(() => {
+      const canvas = splitPreviewRef.current;
+      const image = imageRef.current;
+      if (mode !== 'split' || !canvas || !image) return;
+      try {
+        const scale = Math.min(
+          1,
+          560 / imageSize.width,
+          560 / imageSize.height
+        );
+        canvas.width = Math.max(1, Math.round(imageSize.width * scale));
+        canvas.height = Math.max(1, Math.round(imageSize.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('浏览器无法创建图片预览');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      } catch (error) {
+        setSplitError(error instanceof Error ? error.message : '图片预览失败');
+      }
+    }, [mode, imageSize, imageUrl]);
+
+    const handleSplit = async () => {
+      if (
+        !onSplit ||
+        !imageRef.current ||
+        !splitPreview ||
+        splitPreview.error ||
+        splitLock.current
+      )
+        return;
+      splitLock.current = true;
+      setSplitting(true);
+      setSplitError('');
+      try {
+        await onSplit(
+          splitImageRegions(imageRef.current, splitPreview.x, splitPreview.y)
+        );
+        onClose?.();
+      } catch (error) {
+        setSplitError(
+          error instanceof Error ? error.message : '拆图失败，请重试'
+        );
+      } finally {
+        splitLock.current = false;
+        setSplitting(false);
+      }
+    };
 
     // 初始化历史记录（仅首次加载时）
     useEffect(() => {
@@ -473,7 +675,7 @@ export const ImageEditorCore = forwardRef<
       if (flipV) {
         transforms.push('scaleY(-1)');
       }
-      return transforms.length > 0 ? transforms.join(' ') : 'none';
+      return transforms.join(' ');
     }, [rotation, flipH, flipV]);
 
     // 获取当前编辑状态
@@ -583,7 +785,24 @@ export const ImageEditorCore = forwardRef<
 
     // 重置所有编辑
     const handleReset = useCallback(() => {
+      if (splitLock.current || resizeController.current) return;
+      setHorizontalCuts('50');
+      setVerticalCuts('50');
+      setSplitError('');
       setCropArea(null);
+      const sourceImage = imageRef.current;
+      if (sourceImage)
+        setResizeTarget(
+          Math.max(
+            2048,
+            Math.max(
+              sourceImage.naturalWidth || sourceImage.width,
+              sourceImage.naturalHeight || sourceImage.height
+            ) * 2
+          )
+        );
+      setResizeAlgorithm('high');
+      setResizeError('');
       setConfirmedCropArea(null);
       setAspectRatio(null);
       setFilterType('none');
@@ -831,6 +1050,7 @@ export const ImageEditorCore = forwardRef<
     // 键盘快捷键监听
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
+        if (mode === 'split' || mode === 'resize') return;
         // 避免在输入框中触发
         if (
           e.target instanceof HTMLInputElement ||
@@ -911,7 +1131,8 @@ export const ImageEditorCore = forwardRef<
 
     // 处理模式切换
     const handleModeChange = useCallback(
-      (newMode: EditMode) => {
+      (newMode: EditMode | 'split' | 'resize') => {
+        if (splitLock.current || resizeController.current) return;
         if (newMode === 'crop' && confirmedCropArea && !cropArea) {
           // 切换到裁剪模式时，如果有已确认的裁剪区域，将它设置为当前的裁剪区域
           setCropArea({ ...confirmedCropArea });
@@ -985,7 +1206,7 @@ export const ImageEditorCore = forwardRef<
     // 暴露给父组件的方法
     useImperativeHandle(ref, () => ({
       reset: handleReset,
-      save: handleSave,
+      save: mode === 'resize' ? handleResize : handleSave,
       hasChanges,
       getState: getCurrentState,
       setState: applyState,
@@ -1012,7 +1233,7 @@ export const ImageEditorCore = forwardRef<
                   !canUndo ? 'disabled' : ''
                 }`}
                 onClick={handleUndo}
-                disabled={!canUndo}
+                disabled={!canUndo || mode === 'split' || mode === 'resize'}
               >
                 <Undo2 size={18} />
               </button>
@@ -1029,7 +1250,7 @@ export const ImageEditorCore = forwardRef<
                   !canRedo ? 'disabled' : ''
                 }`}
                 onClick={handleRedo}
-                disabled={!canRedo}
+                disabled={!canRedo || mode === 'split' || mode === 'resize'}
               >
                 <Redo2 size={18} />
               </button>
@@ -1049,6 +1270,7 @@ export const ImageEditorCore = forwardRef<
                 onMouseDown={() => setIsComparing(true)}
                 onMouseUp={() => setIsComparing(false)}
                 onMouseLeave={() => setIsComparing(false)}
+                disabled={mode === 'split' || mode === 'resize'}
               >
                 <Eye size={18} />
               </button>
@@ -1063,6 +1285,7 @@ export const ImageEditorCore = forwardRef<
                 type="button"
                 className="image-editor-core__btn"
                 onClick={handleReset}
+                disabled={processing}
               >
                 <RotateCcw size={18} />
               </button>
@@ -1077,15 +1300,23 @@ export const ImageEditorCore = forwardRef<
                 <button
                   type="button"
                   className="image-editor-core__btn"
+                  aria-label="关闭图片编辑器"
+                  disabled={processing}
                   onClick={onClose}
                 >
                   <X size={18} />
                 </button>
               </HoverTip>
             )}
-            {(onSave || onOverwrite || onInsert) && (
+            {(onSave || onOverwrite || onInsert || onSplit || onResize) && (
               <HoverTip
-                content="保存"
+                content={
+                  mode === 'resize'
+                    ? '缩放并插入画布'
+                    : mode === 'split'
+                    ? '拆分并插入画布'
+                    : '保存'
+                }
                 theme="light"
                 placement="bottom"
                 zIndex={TOOLTIP_Z_INDEX}
@@ -1093,7 +1324,27 @@ export const ImageEditorCore = forwardRef<
                 <button
                   type="button"
                   className="image-editor-core__btn image-editor-core__btn--primary"
-                  onClick={handleSave}
+                  aria-label={
+                    mode === 'resize'
+                      ? '缩放并插入画布'
+                      : mode === 'split'
+                      ? '拆分并插入画布'
+                      : '保存图片'
+                  }
+                  disabled={
+                    !previewImage ||
+                    processing ||
+                    (mode === 'resize' && !!resizePreview.error) ||
+                    (mode === 'split' &&
+                      (splitting || !splitPreview || !!splitPreview.error))
+                  }
+                  onClick={
+                    mode === 'resize'
+                      ? handleResize
+                      : mode === 'split'
+                      ? handleSplit
+                      : handleSave
+                  }
                 >
                   <Check size={18} />
                 </button>
@@ -1114,20 +1365,52 @@ export const ImageEditorCore = forwardRef<
                   mode === 'crop' ? 'active' : ''
                 }`}
                 onClick={() => handleModeChange('crop')}
+                aria-pressed={mode === 'crop'}
+                disabled={processing}
               >
                 <Crop size={16} />
                 <span>裁剪</span>
               </button>
+              {onSplit && (
+                <button
+                  type="button"
+                  className={`image-editor-core__mode-tab ${
+                    mode === 'split' ? 'active' : ''
+                  }`}
+                  aria-pressed={mode === 'split'}
+                  disabled={processing}
+                  onClick={() => handleModeChange('split')}
+                >
+                  <Scissors size={16} aria-hidden="true" />
+                  <span>拆分</span>
+                </button>
+              )}
               <button
                 type="button"
                 className={`image-editor-core__mode-tab ${
                   mode === 'filter' ? 'active' : ''
                 }`}
                 onClick={() => handleModeChange('filter')}
+                aria-pressed={mode === 'filter'}
+                disabled={processing}
               >
                 <Sliders size={16} />
                 <span>滤镜</span>
               </button>
+              {onResize && (
+                <button
+                  type="button"
+                  className={`image-editor-core__mode-tab ${
+                    mode === 'resize' ? 'active' : ''
+                  }`}
+                  aria-pressed={mode === 'resize'}
+                  disabled={processing}
+                  onClick={() => handleModeChange('resize')}
+                >
+                  <ImageUpscale size={16} aria-hidden="true" />
+                  <span>缩放</span>
+                </button>
+              )}
             </div>
 
             {/* 工具面板内容 */}
@@ -1148,12 +1431,71 @@ export const ImageEditorCore = forwardRef<
                   onAutoTrimWhitespace={handleAutoTrimWhitespace}
                   isDetectingWhitespace={isDetectingWhitespace}
                 />
+              ) : mode === 'resize' ? (
+                <ImageResizePanel
+                  width={imageSize.width}
+                  height={imageSize.height}
+                  target={resizeTarget}
+                  algorithm={resizeAlgorithm}
+                  output={resizePreview.output}
+                  error={resizeError || resizePreview.error}
+                  stage={resizeStage}
+                  onTargetChange={(value) => {
+                    setResizeTarget(value);
+                    setResizeError('');
+                  }}
+                  onAlgorithmChange={setResizeAlgorithm}
+                />
+              ) : mode === 'split' ? (
+                <div className="image-editor-core__split-panel">
+                  <p id={splitHelpId}>
+                    按原图百分比设置分割线，多条用逗号分隔；留空表示该方向不拆分。裁剪、滤镜等编辑不参与拆分。
+                  </p>
+                  {(['horizontal', 'vertical'] as const).map((direction) => (
+                    <label key={direction}>
+                      {direction === 'horizontal'
+                        ? '横向分割线（%）'
+                        : '纵向分割线（%）'}
+                      <input
+                        value={
+                          direction === 'horizontal'
+                            ? horizontalCuts
+                            : verticalCuts
+                        }
+                        disabled={processing}
+                        aria-describedby={`${splitHelpId} ${splitErrorId}`}
+                        aria-invalid={!!splitPreview?.error}
+                        onChange={(event) => {
+                          setSplitError('');
+                          (direction === 'horizontal'
+                            ? setHorizontalCuts
+                            : setVerticalCuts)(event.target.value);
+                        }}
+                      />
+                    </label>
+                  ))}
+                  <p role="status">
+                    {splitting
+                      ? '正在拆分并插入画布…'
+                      : splitPreview && !splitPreview.error
+                      ? `将生成 ${splitPreview.count} 张图片，原图保留。`
+                      : '请设置有效的分割线。'}
+                  </p>
+                  <p
+                    id={splitErrorId}
+                    role={
+                      splitError || splitPreview?.error ? 'alert' : undefined
+                    }
+                  >
+                    {splitPreview?.error || splitError}
+                  </p>
+                </div>
               ) : (
                 <FilterPanel
                   filterType={filterType}
                   filterParams={filterParams}
                   presets={FILTER_PRESETS}
-                  imageUrl={imageUrl}
+                  image={previewImage}
                   onPresetSelect={handleFilterPresetSelect}
                   onParamChange={handleFilterParamChange}
                 />
@@ -1177,7 +1519,68 @@ export const ImageEditorCore = forwardRef<
                 transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
               }}
             >
-              {isComparing ? (
+              {!previewImage ? (
+                <p role={imageLoadError ? 'alert' : 'status'}>
+                  {imageLoadError || '正在加载图片…'}
+                </p>
+              ) : mode === 'split' ? (
+                <div
+                  className="image-editor-core__split-preview"
+                  style={{
+                    width: imageSize.width * displayScale * zoom,
+                    height: imageSize.height * displayScale * zoom,
+                  }}
+                >
+                  <canvas
+                    ref={splitPreviewRef}
+                    role="img"
+                    aria-label="原图与分割线预览"
+                  />
+                  {splitPreview && !splitPreview.error && (
+                    <div
+                      className="image-editor-core__split-lines"
+                      aria-hidden="true"
+                    >
+                      {splitPreview.x.slice(1, -1).map((x) => (
+                        <span
+                          key={`x${x}`}
+                          style={{
+                            left: `${(x / imageSize.width) * 100}%`,
+                            top: 0,
+                            bottom: 0,
+                            borderLeft: '2px solid currentColor',
+                          }}
+                        />
+                      ))}
+                      {splitPreview.y.slice(1, -1).map((y) => (
+                        <span
+                          key={`y${y}`}
+                          style={{
+                            top: `${(y / imageSize.height) * 100}%`,
+                            left: 0,
+                            right: 0,
+                            borderTop: '2px solid currentColor',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : mode === 'resize' ? (
+                <div
+                  className="image-editor-core__resize-preview"
+                  style={{
+                    width: imageSize.width * displayScale * zoom,
+                    height: imageSize.height * displayScale * zoom,
+                  }}
+                >
+                  <DecodedImagePreview
+                    image={previewImage}
+                    label="缩放原图预览"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                </div>
+              ) : isComparing ? (
                 // 对比模式：显示原图（保持与当前视图相同的尺寸和位置）
                 confirmedCropArea ? (
                   // 有裁剪区域时，使用 clip-path 显示相同裁剪位置的原图（不带滤镜）
@@ -1209,7 +1612,10 @@ export const ImageEditorCore = forwardRef<
                           clipPath: `inset(${clipTop}% ${clipRight}% ${clipBottom}% ${clipLeft}%)`,
                         }}
                       >
-                        <img src={imageUrl} alt="Original" draggable={false} />
+                        <DecodedImagePreview
+                          image={previewImage}
+                          label="Original"
+                        />
                       </div>
                     );
                   })()
@@ -1223,13 +1629,16 @@ export const ImageEditorCore = forwardRef<
                       })`.trim(),
                     }}
                   >
-                    <img src={imageUrl} alt="Original" draggable={false} />
+                    <DecodedImagePreview
+                      image={previewImage}
+                      label="Original"
+                    />
                   </div>
                 )
               ) : mode === 'crop' ? (
                 <CropCanvas
                   key={imageUrl}
-                  imageUrl={imageUrl}
+                  image={previewImage}
                   imageSize={imageSize}
                   cropArea={cropArea}
                   aspectRatio={aspectRatio}
@@ -1273,7 +1682,10 @@ export const ImageEditorCore = forwardRef<
                         clipPath: `inset(${clipTop}% ${clipRight}% ${clipBottom}% ${clipLeft}%)`,
                       }}
                     >
-                      <img src={imageUrl} alt="Preview" draggable={false} />
+                      <DecodedImagePreview
+                        image={previewImage}
+                        label="Preview"
+                      />
                     </div>
                   );
                 })()
@@ -1287,7 +1699,7 @@ export const ImageEditorCore = forwardRef<
                     })`.trim(),
                   }}
                 >
-                  <img src={imageUrl} alt="Preview" draggable={false} />
+                  <DecodedImagePreview image={previewImage} label="Preview" />
                 </div>
               )}
             </div>
@@ -1426,7 +1838,7 @@ ImageEditorCore.displayName = 'ImageEditorCore';
  * 裁剪画布组件
  */
 interface CropCanvasProps {
-  imageUrl: string;
+  image: HTMLImageElement;
   imageSize: { width: number; height: number };
   cropArea: CropArea | null;
   aspectRatio: number | null;
@@ -1440,7 +1852,7 @@ interface CropCanvasProps {
 }
 
 const CropCanvas: React.FC<CropCanvasProps> = ({
-  imageUrl,
+  image,
   imageSize,
   cropArea,
   aspectRatio,
@@ -1771,11 +2183,10 @@ const CropCanvas: React.FC<CropCanvasProps> = ({
           ...transformStyle,
         }}
       >
-        <img
-          src={imageUrl}
-          alt="Crop"
-          draggable={false}
-          style={{ filter: filterCSS || 'none' }}
+        <DecodedImagePreview
+          image={image}
+          label="Crop"
+          style={{ width: '100%', height: '100%', filter: filterCSS || 'none' }}
         />
 
         {/* 裁剪遮罩 */}
@@ -1793,17 +2204,19 @@ const CropCanvas: React.FC<CropCanvasProps> = ({
               onMouseDown={(e) => handleMouseDown(e, 'move')}
             >
               {/* 裁剪框内的图片 */}
-              <div
-                className="crop-canvas__crop-image"
-                style={{
-                  backgroundImage: `url(${imageUrl})`,
-                  backgroundPosition: `-${
-                    cropArea.x * displayScale * zoom
-                  }px -${cropArea.y * displayScale * zoom}px`,
-                  backgroundSize: `${displayWidth}px ${displayHeight}px`,
-                  filter: filterCSS || 'none',
-                }}
-              />
+              <div className="crop-canvas__crop-image">
+                <DecodedImagePreview
+                  image={image}
+                  style={{
+                    position: 'absolute',
+                    left: -cropArea.x * displayScale * zoom,
+                    top: -cropArea.y * displayScale * zoom,
+                    width: displayWidth,
+                    height: displayHeight,
+                    filter: filterCSS || 'none',
+                  }}
+                />
+              </div>
 
               {/* 网格线 */}
               <div className="crop-canvas__grid">

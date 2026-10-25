@@ -17,11 +17,14 @@ import {
   type PlaitArrowLine,
 } from '@plait/draw';
 import type { CanvasAssociationRef } from '../types/shared/core.types';
+import {
+  ASSOCIATION_STROKE_COLOR,
+  ASSOCIATION_STROKE_WIDTH,
+  CanvasAssociationLineComponent,
+} from './canvas-association-line';
 
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
 
-const ASSOCIATION_STROKE_COLOR = '#000000';
-const ASSOCIATION_STROKE_WIDTH = 3;
 const ASSOCIATION_LINE_SHAPE = ArrowLineShape.curve;
 const SYSTEM_ELEMENT_TYPES = new Set(['generation-anchor', 'workzone']);
 const MAX_DEFERRED_ASSOCIATION_LINKS = 256;
@@ -965,7 +968,11 @@ function reconcileAffectedCanvasAssociationLines(
 }
 
 export const withCanvasAssociation: PlaitPlugin = (board) => {
-  const { afterChange } = board;
+  const { afterChange, drawElement } = board;
+  board.drawElement = (context) =>
+    isCanvasAssociationLine(context.element)
+      ? CanvasAssociationLineComponent
+      : drawElement(context);
   let applyingOperationDepth = 0;
   let reconciling = false;
   let appliedOperationShouldSave = false;

@@ -88,3 +88,25 @@ export function drawImageRegion(
   );
   return canvas.toDataURL('image/png');
 }
+
+export function splitImageRegions(
+  image: HTMLImageElement,
+  x: number[],
+  y: number[]
+): string[] {
+  const pieces: string[] = [];
+  for (let row = 0; row < y.length - 1; row++) {
+    for (let col = 0; col < x.length - 1; col++) {
+      pieces.push(
+        drawImageRegion(
+          image,
+          x[col],
+          y[row],
+          x[col + 1] - x[col],
+          y[row + 1] - y[row]
+        )
+      );
+    }
+  }
+  return pieces;
+}

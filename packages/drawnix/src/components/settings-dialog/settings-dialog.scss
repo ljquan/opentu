@@ -1722,10 +1722,9 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px 12px;
 
-    label {
+    .t-checkbox {
       display: flex;
       align-items: center;
-      gap: 8px;
       min-width: 0;
       color: var(--sd-text);
       font-size: 12px;
@@ -1733,22 +1732,23 @@
       cursor: pointer;
     }
 
-    input {
-      accent-color: var(--sd-accent);
+    .t-checkbox__label {
+      color: inherit;
+      font: inherit;
     }
   }
 
   &__image-label-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
     width: fit-content;
     color: var(--sd-text);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    input {
-      accent-color: var(--sd-accent);
+    .t-checkbox__label {
+      color: inherit;
+      font: inherit;
     }
   }
 

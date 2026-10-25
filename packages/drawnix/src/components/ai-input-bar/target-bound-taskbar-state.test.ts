@@ -55,6 +55,13 @@ function createFollowStorage(initialValue?: string) {
 }
 
 describe('target-bound-taskbar-state', () => {
+  it('本地缩放图片复用来源提示词，同时优先保留自身的生成提示词', () => {
+    const localImageOperation = { type: 'resize', sourcePrompt: '  原图风景提示词  ' };
+    expect(readBoundTargetGenerationPrompt({ localImageOperation }, 'image')).toBe('原图风景提示词');
+    expect(readBoundTargetGenerationPrompt({ localImageOperation, generationPrompt: '新生成提示词' }, 'image')).toBe('新生成提示词');
+    expect(readBoundTargetGenerationPrompt({ localImageOperation }, 'video')).toBe('');
+    expect(readBoundTargetGenerationPrompt({ localImageOperation: { sourcePrompt: 123 } }, 'image')).toBe('');
+  });
   it('跨媒体目标只读取明确的生成提示词元数据', () => {
     expect(
       readBoundTargetGenerationPrompt(

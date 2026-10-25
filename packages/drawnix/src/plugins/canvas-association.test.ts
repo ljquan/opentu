@@ -239,7 +239,7 @@ describe('canvas association', () => {
     expect(board.history.undos).toHaveLength(0);
   });
 
-  it('migrates persisted association lines to the managed black curve style without undo history', () => {
+  it('migrates persisted association lines to the managed muted curve style without undo history', () => {
     const persistedBoard = createBoard([
       createElement('source-1', [
         [0, 0],
@@ -271,8 +271,8 @@ describe('canvas association', () => {
     );
     const line = board.children.find(isCanvasAssociationLine);
 
-    expect(line?.strokeColor).toBe('#000000');
-    expect(line?.strokeWidth).toBe(3);
+    expect(line?.strokeColor).toBe('#9ca3af');
+    expect(line?.strokeWidth).toBe(1.5);
     expect(line?.shape).toBe(ArrowLineShape.curve);
     expect(board.history.undos).toHaveLength(0);
   });
@@ -308,8 +308,8 @@ describe('canvas association', () => {
     board.children = loadedChildren;
     const line = board.children.find(isCanvasAssociationLine);
 
-    expect(line?.strokeColor).toBe('#000000');
-    expect(line?.strokeWidth).toBe(3);
+    expect(line?.strokeColor).toBe('#9ca3af');
+    expect(line?.strokeWidth).toBe(1.5);
     expect(board.history.undos).toHaveLength(0);
   });
 
@@ -380,8 +380,8 @@ describe('canvas association', () => {
     expect(board.children).toContain(line);
     expect(isCanvasAssociationLine(line)).toBe(true);
     expect(line.locked).toBe(true);
-    expect(line.strokeColor).toBe('#000000');
-    expect(line.strokeWidth).toBe(3);
+    expect(line.strokeColor).toBe('#9ca3af');
+    expect(line.strokeWidth).toBe(1.5);
     expect(line.shape).toBe(ArrowLineShape.curve);
     expect(line.source.boundId).toBeUndefined();
     expect(line.target.boundId).toBeUndefined();
@@ -478,7 +478,7 @@ describe('canvas association', () => {
     ).toBe(false);
     expect(
       persistedLines.every(
-        (line) => line.strokeColor === '#000000' && line.strokeWidth === 3
+        (line) => line.strokeColor === '#9ca3af' && line.strokeWidth === 1.5
       )
     ).toBe(true);
   });

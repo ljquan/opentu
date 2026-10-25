@@ -155,6 +155,44 @@ async function moveViewport(event: string) {
 }
 
 describe('AIInputBar canvas selection publication', () => {
+  it.each(['Dialog-overlay', 'ai-input-bar'])(
+    'does not treat a click inside %s as a click on the canvas image',
+    async (className) => {
+      const h = harness([first]);
+      await flush();
+      const target = { elementId: first.id };
+      h.resolveTarget.mockResolvedValue(target);
+      const panel = document.createElement('div');
+      panel.className = className;
+      const button = document.createElement('button');
+      panel.appendChild(button);
+      document.body.appendChild(panel);
+      h.targetChanged.mockClear();
+      try {
+        await act(async () => {
+          button.dispatchEvent(new Event('pointerup', { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(h.targetChanged).toHaveBeenLastCalledWith(target);
+      } finally {
+        panel.remove();
+      }
+    }
+  );
+  it('distinguishes a canvas click from a viewport refresh for restoring source prompts', async () => {
+    const h = harness([first]);
+    await flush();
+    const target = { elementId: first.id };
+    h.resolveTarget.mockResolvedValue(target);
+    h.targetChanged.mockClear();
+    await moveViewport('pointermove');
+    expect(h.targetChanged).toHaveBeenLastCalledWith(target);
+    await act(async () => {
+      document.body.dispatchEvent(new Event('pointerup', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(h.targetChanged).toHaveBeenLastCalledWith(target, true);
+  });
   it.each(['pointermove', 'wheel', 'keyup', 'resize'])(
     'publishes both selected images when %s occurs during extraction',
     async (event) => {
