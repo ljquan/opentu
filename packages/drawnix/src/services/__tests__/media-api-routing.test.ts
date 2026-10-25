@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createBlobResponse } from '../../test-utils/blob-response';
 import {
   generateImageAsync,
   generateImageSync,
@@ -108,12 +109,12 @@ describe('media-api provider routing', () => {
     const fetchImpl = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input) === 'data:image/png;base64,abc123') {
-          return new Response(new Blob(['ref'], { type: 'image/png' }), {
+          return createBlobResponse(new Blob(['ref'], { type: 'image/png' }), {
             status: 200,
           });
         }
         if (String(input) === 'data:image/png;base64,mask123') {
-          return new Response(new Blob(['mask'], { type: 'image/png' }), {
+          return createBlobResponse(new Blob(['mask'], { type: 'image/png' }), {
             status: 200,
           });
         }

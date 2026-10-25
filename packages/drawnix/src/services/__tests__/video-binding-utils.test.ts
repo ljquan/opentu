@@ -293,16 +293,13 @@ describe('video binding utils', () => {
     expect(durationParam?.defaultValue).toBe('8');
   });
 
-  it('keeps sora frontend durations on web mode when selected', () => {
+  it('keeps the current sora web duration while api durations remain separate', () => {
     const config = getEffectiveVideoModelConfig('sora-2', null, {
       sora_mode: 'web',
     });
 
     expect(config.defaultDuration).toBe('10');
-    expect(config.durationOptions.map((option) => option.value)).toEqual([
-      '10',
-      '15',
-    ]);
+    expect(config.durationOptions.map((option) => option.value)).toEqual(['10']);
 
     const submission = resolveVideoSubmission('sora-2', undefined, null, {
       sora_mode: 'web',
@@ -488,8 +485,10 @@ describe('video binding utils', () => {
       resolveVideoSubmission(model25.id, '3', binding25 || null)
     ).toThrow('视频时长 3s 不受支持');
     expect(
-      getEffectiveVideoModelConfig(model25.id, binding25 || null).sizeOptions
-    ).toEqual([]);
+      getEffectiveVideoModelConfig(model25.id, binding25 || null).sizeOptions.map(
+        (option) => option.value
+      )
+    ).toEqual(['1080p', '720p', '480p']);
   });
 
   it('keeps Seedance 1.x on the legacy task protocol', () => {

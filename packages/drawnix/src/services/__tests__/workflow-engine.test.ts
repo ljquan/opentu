@@ -16,6 +16,19 @@ import type {
   WorkflowStepStatus,
 } from '../workflow-engine/types';
 
+// These module/constructor tests do not execute providers. Mock the barrel
+// imported by the engine so re-exports do not initialize the whole editor.
+vi.mock('../media-executor', async () => ({
+  ...(await import('../media-executor/factory')),
+  taskStorageWriter: {},
+}));
+
+vi.mock('../media-generation', async () => ({
+  generateImage: vi.fn(),
+  generateVideo: vi.fn(),
+  TaskStatus: (await import('../../types/task.types')).TaskStatus,
+}));
+
 describe('WorkflowEngine Module', () => {
   describe('Workflow Types', () => {
     it('should define correct WorkflowStep structure', () => {

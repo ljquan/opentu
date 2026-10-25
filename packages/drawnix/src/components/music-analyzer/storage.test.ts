@@ -23,6 +23,8 @@ vi.hoisted(() => {
 
 vi.mock('../../services/kv-storage-service', () => ({
   kvStorageService: {
+    // Unrelated benchmark initialization must not open persistent storage.
+    isAvailable: () => false,
     get: getMock,
     set: setMock,
   },
