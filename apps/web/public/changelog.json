@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.3",
+      "date": "2026-10-26",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "修复pr修改未生效，图片缓存与工具体验，补齐参考线开关和新功能提示 (#320)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "修复pr修改未生效，图片缓存与工具体验，补齐参考线开关和新功能提示 (#320)"
+    },
+    {
       "version": "1.2.2",
       "date": "2026-10-25",
       "changes": {
@@ -951,30 +964,6 @@
       },
       "type": "patch",
       "highlights": "完善图片请求 ID 找回与失败重试体验"
-    },
-    {
-      "version": "1.0.1",
-      "date": "2026-06-11",
-      "changes": {
-        "features": [
-          "reply to workflow image results"
-        ],
-        "fixes": [
-          "支持无分界线拼图智能拆图"
-        ],
-        "improvements": [
-          "同步 1.0.0 前端版本元数据",
-          "修复 PR190 合并阻塞问题",
-          "修复 CI pnpm 缺失导致构建失败",
-          "Disable CDN entry asset rewrites",
-          "修复 PR185 硬边界拆图误判风险",
-          "修复 PR188 文本内容数组归一化",
-          "修复多图生成 JSON 解析和默认模型迁移",
-          "修复首帧生图窗口复用状态"
-        ]
-      },
-      "type": "patch",
-      "highlights": "reply to workflow image results"
     }
   ]
 }
