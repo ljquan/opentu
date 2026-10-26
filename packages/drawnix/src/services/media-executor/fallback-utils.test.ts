@@ -464,12 +464,7 @@ describe('cacheRemoteUrl', () => {
     expect(result).toMatch(/^\/__aitu_cache__\/image\/content-.*\.jpg$/);
     const blob = cacheMediaFromBlob.mock.calls[0][1] as Blob;
     expect(blob.type).toBe('image/jpeg');
-    const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsArrayBuffer(blob);
-    });
+    const bytes = await blob.arrayBuffer();
     expect(new Uint8Array(bytes)).toEqual(JPEG_SIGNATURE);
     expect(warning).not.toHaveBeenCalled();
   });
