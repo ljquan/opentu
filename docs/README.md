@@ -30,6 +30,8 @@
 
 ## 关键能力
 
+- [图片预发布修复与 QA](./qa-prerelease-fixes-20261026.md)：Seedream 字节缓存、缩放/拆分避让、工具栏文字和原图像素；含真实接口与页面复测。
+- [新功能红点提示与 QA](./qa-feature-discovery.md)：菜单和画布显示入口的独立已读状态、刷新恢复和维护方式。
 - [Top 50 媒体模型参数补齐实施方案](../openspec/changes/complete-top50-media-model-parameters/design.md)：限定 21 个图片和 5 个视频模型，含参数映射、渠道依赖、实施阶段及测试计划；已进入本地实施，条件工作包保留待确认状态。
 - [Top 50 媒体模型参数交付](./top50-media-model-parameters.md)：本地参数实现、精确 ID、渠道支持声明和条件工作包；[QA 记录](./qa-top50-media-model-parameters.md)。
 - [文档批量生成](./document-batch-generation.md)：Excel/PDF 导入、批次队列、恢复与使用边界；[QA 记录](./qa-document-batch-generation.md)。

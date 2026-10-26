@@ -64,6 +64,18 @@ export function ImageToolbarSettings() {
       >
         显示工具文字
       </Checkbox>
+      <Checkbox
+        className="settings-dialog__image-label-toggle"
+        checked={imageToolbarPreferences.referenceLines}
+        onChange={(checked) =>
+          updateImageToolbarPreferences({
+            ...imageToolbarPreferences,
+            referenceLines: checked,
+          })
+        }
+      >
+        显示参考图连线
+      </Checkbox>
     </div>
   );
 }

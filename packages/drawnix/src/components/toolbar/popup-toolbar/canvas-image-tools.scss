@@ -337,3 +337,30 @@
     gap: 8px;
   }
 }
+
+.drawnix .image-toolbar-contents--labels {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 48px);
+  overflow-x: auto;
+  > * {
+    flex-shrink: 0;
+  }
+}
+
+.drawnix .image-toolbar-labeled-tool.tool-icon_type_button {
+  width: max-content;
+  min-width: max-content;
+  height: var(--lg-button-size);
+  padding-inline: 8px;
+  gap: 4px;
+  flex-shrink: 0;
+  .tool-icon__icon {
+    flex-shrink: 0;
+  }
+  .tool-icon__label {
+    margin: 0;
+    white-space: nowrap;
+  }
+}

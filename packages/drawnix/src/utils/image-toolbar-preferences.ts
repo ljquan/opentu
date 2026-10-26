@@ -15,23 +15,28 @@ export const IMAGE_TOOLBAR_OPTIONS = [
   { id: 'trash', label: '删除' },
 ] as const;
 
-export type ImageToolbarPreferences = { hidden: string[]; labels: boolean };
+export type ImageToolbarPreferences = {
+  hidden: string[];
+  labels: boolean;
+  referenceLines: boolean;
+};
 
 export function readImageToolbarPreferences(
-  storage: Pick<Storage, 'getItem'> = localStorage
+  storage?: Pick<Storage, 'getItem'>
 ): ImageToolbarPreferences {
   try {
     const data = JSON.parse(
-      storage.getItem(IMAGE_TOOLBAR_PREFERENCES_KEY) || '{}'
+      (storage ?? localStorage).getItem(IMAGE_TOOLBAR_PREFERENCES_KEY) || '{}'
     );
     return {
       hidden: Array.isArray(data?.hidden)
         ? data.hidden.filter((value: unknown) => typeof value === 'string')
         : [],
       labels: data?.labels === true,
+      referenceLines: data?.referenceLines === true,
     };
   } catch {
-    return { hidden: [], labels: false };
+    return { hidden: [], labels: false, referenceLines: false };
   }
 }
 

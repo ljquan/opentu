@@ -28,6 +28,7 @@ export async function insertSplitImages(
   if (!isCurrentBoard()) throw new Error('画布或原图已变更，请重新选择图片。');
   const result = await executeCanvasInsertion({
     board: binding.board,
+    referenceElementIds: [source.id],
     items: images.map((content) => ({
       type: 'image' as const,
       content,

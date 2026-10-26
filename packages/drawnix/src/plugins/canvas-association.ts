@@ -17,6 +17,7 @@ import {
   type PlaitArrowLine,
 } from '@plait/draw';
 import type { CanvasAssociationRef } from '../types/shared/core.types';
+import { readImageToolbarPreferences } from '../utils/image-toolbar-preferences';
 import {
   ASSOCIATION_STROKE_COLOR,
   ASSOCIATION_STROKE_WIDTH,
@@ -970,11 +971,16 @@ function reconcileAffectedCanvasAssociationLines(
 }
 
 export const withCanvasAssociation: PlaitPlugin = (board) => {
-  const { afterChange, drawElement, isHit } = board;
+  const { afterChange, drawElement, isHit, isRectangleHit } = board;
   board.isHit = (element, point, ...rest) =>
     isCanvasAssociationLine(element)
       ? isHitCanvasAssociationLine(board, element, point)
       : isHit(element, point, ...rest);
+  board.isRectangleHit = (element, selection) =>
+    isCanvasAssociationLine(element) &&
+    !readImageToolbarPreferences().referenceLines
+      ? false
+      : isRectangleHit(element, selection);
   board.drawElement = (context) =>
     isCanvasAssociationLine(context.element)
       ? CanvasAssociationLineComponent

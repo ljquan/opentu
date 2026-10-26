@@ -77,6 +77,7 @@ export async function resizeCanvasImage(
   assertCurrent();
   const result = await executeCanvasInsertion({
     board,
+    referenceElementIds: [source.id],
     items: [
       {
         type: 'image',

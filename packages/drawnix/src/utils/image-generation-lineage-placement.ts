@@ -104,9 +104,10 @@ export function getIndependentImagePosition(
 export function placeImageColumn(
   board: PlaitBoard,
   origin: Point,
-  sizes: readonly { width: number; height: number }[]
+  sizes: readonly { width: number; height: number }[],
+  additionalObstacles: readonly Rect[] = []
 ): Point[] {
-  const obstacles = occupied(board);
+  const obstacles = occupied(board).concat(additionalObstacles);
   let y = origin[1];
   return sizes.map((size) => {
     const x = origin[0];

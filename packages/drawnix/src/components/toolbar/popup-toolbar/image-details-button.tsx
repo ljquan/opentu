@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
+import { ATTACHED_ELEMENT_CLASS_NAME, type PlaitBoard } from '@plait/core';
 import { Info, RefreshCw, X } from 'lucide-react';
 import { ToolButton } from '../../tool-button';
 import { HoverTip } from '../../shared/hover';
@@ -10,6 +10,7 @@ import {
   type CanvasImageDetailsSource,
 } from '../../../utils/canvas-image-details';
 import type { Task } from '../../../types/task.types';
+import { resolveCanvasImageDetailsDimensions } from '../../../utils/canvas-image-details-dimensions';
 import {
   readImageDetailsOnClickEnabled,
   persistImageDetailsOnClickEnabled,
@@ -83,11 +84,13 @@ export function PopupImageDetailsButton({
   language,
   autoOpenRequest = 0,
   selectionRect,
+  board,
 }: {
   image: CanvasImageDetailsSource;
   language: 'zh' | 'en';
   autoOpenRequest?: number;
   selectionRect?: ImageScreenRect;
+  board?: PlaitBoard;
 }) {
   const [autoEnabled, setAutoEnabled] = useState(
     readImageDetailsOnClickEnabled
@@ -97,6 +100,7 @@ export function PopupImageDetailsButton({
   );
   const [retry, setRetry] = useState(0);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
+  const [decodedImage, setDecodedImage] = useState<CanvasImageDetailsSource>();
   const zh = language === 'zh';
   const kind = image.kind || 'image';
   const kindLabel = {
@@ -142,8 +146,46 @@ export function PopupImageDetailsButton({
     };
   }, [open, id, url, generationTaskId, kind, retry, image.localOperation]);
 
+  useEffect(() => {
+    if (
+      !open ||
+      kind !== 'image' ||
+      image.localOperation ||
+      (image.width && image.height)
+    )
+      return;
+    let active = true;
+    void resolveCanvasImageDetailsDimensions(
+      { id, url, kind },
+      board,
+      () => active
+    ).then(
+      (resolved) => {
+        if (active) setDecodedImage(resolved);
+      },
+      (error) => {
+        console.debug('[ImageDetails] Original dimensions unavailable:', error);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [
+    open,
+    id,
+    url,
+    kind,
+    image.width,
+    image.height,
+    image.localOperation,
+    board,
+    retry,
+  ]);
+
   const details = getCanvasImageDetails(
-    image,
+    decodedImage?.id === id && decodedImage.url === url
+      ? { ...image, width: decodedImage.width, height: decodedImage.height }
+      : image,
     load.status === 'ready' ? load.task : undefined
   );
   const rows = [

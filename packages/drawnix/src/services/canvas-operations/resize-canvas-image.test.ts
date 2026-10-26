@@ -64,6 +64,7 @@ describe('editor local resize guards', () => {
       );
       expect(output).toEqual({ width: 50, height: 40 });
       const request = mocks.insert.mock.calls[0][0];
+      expect(request.referenceElementIds).toEqual([source.id]);
       expect(request.items[0].metadata.localImageOperation).toMatchObject({
         type: 'resize',
         sourceWidth: 100,

@@ -53,7 +53,7 @@ describe.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
     const request = mocks.sendAdapterRequest.mock.calls[0][1];
     expect(request.path).toBe('/images/generations');
     expect(JSON.parse(request.body)).toEqual({
-      model: id, prompt: 'test', response_format: 'url', size,
+      model: id, prompt: 'test', response_format: 'b64_json', size,
       image: 'https://example.test/reference.png',
     });
   });

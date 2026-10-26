@@ -13,6 +13,11 @@ import { TaskStatus, TaskType, type Task } from '../../../types/task.types';
 import { PopupImageDetailsButton } from './image-details-button';
 import { persistImageDetailsOnClickEnabled } from './image-details-settings';
 
+const dimensionMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
+vi.mock('../../../utils/canvas-image-details-dimensions', () => ({
+  resolveCanvasImageDetailsDimensions: dimensionMocks.resolve,
+}));
+
 vi.mock('../../../services/task-queue', () => ({
   taskQueueService: {
     getCompleteTask: vi.fn(),
@@ -50,11 +55,35 @@ const task: Task = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  dimensionMocks.resolve.mockImplementation(async (source) => source);
   persistImageDetailsOnClickEnabled(true);
 });
 afterEach(cleanup);
 
 describe('image details popover', () => {
+  it('shows decoded Gemini pixels when the task has no recorded result dimensions', async () => {
+    vi.mocked(taskQueueService.getCompleteTask).mockResolvedValue({
+      ...task,
+      params: { ...task.params, model: 'gemini-image', size: '2048x1152' },
+    });
+    dimensionMocks.resolve.mockResolvedValue({
+      id: 'gemini',
+      url: '/gemini.png',
+      width: 2752,
+      height: 1536,
+    });
+    render(
+      <PopupImageDetailsButton
+        language="zh"
+        autoOpenRequest={1}
+        image={{ id: 'gemini', url: '/gemini.png', generationTaskId: 'task' }}
+      />
+    );
+    expect(await screen.findByText('2752 × 1536 px')).toBeTruthy();
+    expect(screen.queryByText('2048 × 1152 px')).toBeNull();
+    expect(await screen.findByText('gemini-image')).toBeTruthy();
+  });
+
   it('shows downscaled output and a scale below one without calling it enlargement', async () => {
     render(
       <PopupImageDetailsButton

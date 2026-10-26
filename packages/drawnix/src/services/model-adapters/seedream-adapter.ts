@@ -135,7 +135,8 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     const body: Record<string, unknown> = {
       model,
       prompt: request.prompt,
-      response_format: 'url',
+      // Inline bytes can be persisted without fetching a signed, non-CORS URL.
+      response_format: 'b64_json',
     };
 
     if (size) {
@@ -185,7 +186,7 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     if (result?.data && Array.isArray(result.data) && result.data.length > 0) {
       const urls = result.data
         .map((item: any) => {
-          const rawValue = item.url || item.b64_json;
+          const rawValue = item.b64_json || item.url;
           if (typeof rawValue === 'string') {
             return normalizeImageDataUrl(rawValue);
           }

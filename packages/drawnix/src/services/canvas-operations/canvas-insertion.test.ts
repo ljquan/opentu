@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlaitBoard } from '@plait/core';
+import { RectangleClient, type PlaitBoard } from '@plait/core';
 
 const mocks = vi.hoisted(() => ({
   insertImageFromUrl: vi.fn(),
@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   parseMarkdownToCards: vi.fn(),
   insertText: vi.fn(),
   insertImage: vi.fn(),
+  loadImage: vi.fn(),
+  buildImage: vi.fn(),
   canvasBoard: null as PlaitBoard | null,
 }));
 
@@ -38,7 +40,12 @@ vi.mock('@plait/draw', () => ({
 vi.mock('../../data/image', () => ({
   insertImageFromUrl: mocks.insertImageFromUrl,
   insertImageNodeAtPoint: mocks.insertImageNodeAtPoint,
-  loadImageElementForCanvas: vi.fn(),
+  loadImageElementForCanvas: mocks.loadImage,
+  buildImage: mocks.buildImage,
+}));
+
+vi.mock('../../plugins/canvas-association', () => ({
+  isCanvasAssociationLine: () => false,
 }));
 
 vi.mock('../../data/video', () => ({
@@ -172,6 +179,162 @@ describe('canvas insertion service metadata binding', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('places local outputs around images and active task cards without moving existing content', async () => {
+    const board = createBoard();
+    board.getRectangle = (element) =>
+      RectangleClient.getRectangleByPoints(element.points);
+    board.children = [
+      {
+        id: 'source',
+        type: 'image',
+        points: [
+          [0, 0],
+          [400, 224],
+        ],
+      },
+      {
+        id: 'vase',
+        type: 'image',
+        points: [
+          [0, 264],
+          [330, 850],
+        ],
+      },
+      {
+        id: 'right-image',
+        type: 'image',
+        points: [
+          [520, 0],
+          [720, 300],
+        ],
+      },
+      {
+        id: 'pending',
+        type: 'generation-anchor',
+        points: [
+          [520, 340],
+          [688, 412],
+        ],
+        reservedInsertSize: { width: 400, height: 500 },
+      },
+      {
+        id: 'active-task',
+        type: 'workzone',
+        points: [
+          [520, 880],
+          [920, 1080],
+        ],
+        zoom: 1,
+        workflow: { status: 'running' },
+      },
+    ];
+    const originals = structuredClone(board.children);
+    mocks.insertImageFromUrl.mockImplementation(
+      async (target, url, point, _drop, dimensions) => {
+        const id = `output-${target.children.length}`;
+        target.children.push({
+          id,
+          type: 'image',
+          url,
+          points: [
+            point,
+            [point[0] + dimensions.width, point[1] + dimensions.height],
+          ],
+        });
+        return id;
+      }
+    );
+    const { buildImage, loadImage } = mocks;
+    loadImage.mockResolvedValue({ naturalWidth: 1376, naturalHeight: 768 });
+    buildImage.mockReturnValue({
+      url: 'local.png',
+      width: 400,
+      height: (400 * 768) / 1376,
+    });
+    const input = [
+      { type: 'image' as const, content: 'local.png', waitForImageLoad: true },
+    ];
+    for (let count = 0; count < 2; count++) {
+      const result = await executeCanvasInsertion({
+        board,
+        referenceElementIds: ['source'],
+        items: input,
+      });
+      expect(result.success).toBe(true);
+    }
+    expect(input[0]).not.toHaveProperty('dimensions');
+    expect(board.children.slice(0, originals.length)).toEqual(originals);
+    const outputs = board.children.slice(originals.length);
+    const rectangles = outputs.map((element) => {
+      const rect = board.getRectangle(element);
+      if (!rect) throw new Error('Expected output rectangle');
+      return rect;
+    });
+    expect(rectangles[0].x).toBe(520);
+    expect(rectangles[0].y).toBeGreaterThanOrEqual(1120);
+    expect(rectangles[0].height).toBeCloseTo((400 * 768) / 1376);
+    expect(rectangles[1].y).toBeGreaterThanOrEqual(
+      rectangles[0].y + rectangles[0].height + 40
+    );
+    expect(mocks.insertImageFromUrl.mock.calls.at(-1)?.[7]).toBe(true);
+  });
+
+  it('reserves different split aspect ratios in one non-overlapping source column', async () => {
+    const board = createBoard();
+    board.getRectangle = (element) =>
+      RectangleClient.getRectangleByPoints(element.points);
+    board.children = [
+      {
+        id: 'source',
+        type: 'image',
+        points: [
+          [10, 20],
+          [410, 244],
+        ],
+      },
+    ];
+    const sizes = [
+      { width: 180, height: 400 },
+      { width: 360, height: 400 },
+      { width: 180, height: 400 },
+    ];
+    mocks.insertImageFromUrl.mockImplementation(
+      async (target, url, point, _drop, dimensions) => {
+        const id = `split-${target.children.length}`;
+        target.children.push({
+          id,
+          type: 'image',
+          url,
+          points: [
+            point,
+            [point[0] + dimensions.width, point[1] + dimensions.height],
+          ],
+        });
+        return id;
+      }
+    );
+    const result = await executeCanvasInsertion({
+      board,
+      referenceElementIds: ['source'],
+      items: sizes.map((dimensions, index) => ({
+        type: 'image',
+        content: `part-${index}.png`,
+        dimensions,
+      })),
+    });
+    expect(result.success).toBe(true);
+    const outputs = board.children.slice(1);
+    expect(outputs.map((element) => element.points[0][0])).toEqual([
+      530, 530, 530,
+    ]);
+    expect(outputs.map((element) => element.points[0][1])).toEqual([
+      20, 460, 900,
+    ]);
+    expect(
+      outputs.map((element) => board.getRectangle(element)?.width)
+    ).toEqual([180, 360, 180]);
   });
 
   it('persists only supported local resize fields on the inserted image', async () => {

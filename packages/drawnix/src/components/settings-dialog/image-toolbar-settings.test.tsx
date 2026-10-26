@@ -61,28 +61,60 @@ describe('ImageToolbarSettings', () => {
     expect(
       (screen.getByLabelText('显示工具文字') as HTMLInputElement).checked
     ).toBe(true);
+    expect(
+      (screen.getByLabelText('显示参考图连线') as HTMLInputElement).checked
+    ).toBe(false);
   });
 
-  it('keeps the saved state and reports an error if storage rejects the change', () => {
-    const notify = vi
-      .spyOn(MessagePlugin, 'error')
-      .mockResolvedValue(undefined as never);
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const dispatch = vi.spyOn(window, 'dispatchEvent');
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-      throw new Error('quota');
-    });
-    render(<ImageToolbarSettings />);
-    const checkbox = screen.getByRole('checkbox', {
-      name: '编辑图片',
+  it('persists reference line visibility across reopening and other toolbar changes', () => {
+    const view = render(<ImageToolbarSettings />);
+    const lines = screen.getByRole('checkbox', {
+      name: '显示参考图连线',
     }) as HTMLInputElement;
-    fireEvent.click(checkbox);
-    expect(checkbox.checked).toBe(true);
-    expect(notify).toHaveBeenCalledWith('图片工具栏配置保存失败，请重试');
-    expect(dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: IMAGE_TOOLBAR_PREFERENCES_EVENT })
-    );
+    expect(lines.checked).toBe(false);
+    fireEvent.click(lines);
+    fireEvent.click(screen.getByLabelText('显示工具文字'));
+    fireEvent.click(screen.getByLabelText('下载'));
+    expect(
+      JSON.parse(localStorage.getItem(IMAGE_TOOLBAR_PREFERENCES_KEY) || '{}')
+    ).toEqual({ hidden: ['download'], labels: true, referenceLines: true });
+
+    view.unmount();
+    render(<ImageToolbarSettings />);
+    const restored = screen.getByLabelText(
+      '显示参考图连线'
+    ) as HTMLInputElement;
+    expect(restored.checked).toBe(true);
+    fireEvent.click(restored);
+    expect(restored.checked).toBe(false);
+    expect(
+      JSON.parse(localStorage.getItem(IMAGE_TOOLBAR_PREFERENCES_KEY) || '{}')
+    ).toEqual({ hidden: ['download'], labels: true, referenceLines: false });
   });
+
+  it.each(['编辑图片', '显示参考图连线'])(
+    'keeps %s saved and reports an error if storage rejects the change',
+    (name) => {
+      const notify = vi
+        .spyOn(MessagePlugin, 'error')
+        .mockResolvedValue(undefined as never);
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const dispatch = vi.spyOn(window, 'dispatchEvent');
+      vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new Error('quota');
+      });
+      render(<ImageToolbarSettings />);
+      const checkbox = screen.getByRole('checkbox', {
+        name,
+      }) as HTMLInputElement;
+      fireEvent.click(checkbox);
+      expect(checkbox.checked).toBe(name === '编辑图片');
+      expect(notify).toHaveBeenCalledWith('图片工具栏配置保存失败，请重试');
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: IMAGE_TOOLBAR_PREFERENCES_EVENT })
+      );
+    }
+  );
 
   it('updates an already mounted toolbar and keeps unpinned actions reachable', async () => {
     const action = vi.fn();
@@ -101,6 +133,10 @@ describe('ImageToolbarSettings', () => {
       </>
     );
     expect(screen.getByRole('button', { name: '编辑图片' })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('显示工具文字'));
+    expect(screen.getByRole('button', { name: '编辑图片' }).textContent).toBe(
+      '编辑图片'
+    );
     expect(screen.queryByRole('button', { name: '更多图片工具' })).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: '编辑图片' }));
     expect(screen.queryByRole('button', { name: '编辑图片' })).toBeNull();
