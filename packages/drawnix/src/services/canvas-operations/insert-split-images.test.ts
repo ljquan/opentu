@@ -34,6 +34,7 @@ describe('editor split insertion', () => {
     expect(mocks.insert).toHaveBeenCalledWith(
       expect.objectContaining({
         board,
+        referenceElementIds: [source.id],
         items: [
           { type: 'image', content: 'a.png', waitForImageLoad: true },
           { type: 'image', content: 'b.png', waitForImageLoad: true },

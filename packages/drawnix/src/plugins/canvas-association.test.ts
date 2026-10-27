@@ -8,9 +8,10 @@ import {
   withHistory,
   type PlaitElement,
 } from '@plait/core';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ArrowLineShape } from '@plait/draw';
 import { withLockedElement } from './with-locked-element';
+import { IMAGE_TOOLBAR_PREFERENCES_KEY } from '../utils/image-toolbar-preferences';
 import {
   canInsertCanvasAssociationsOnBoard,
   createCanvasAssociationLines,
@@ -24,6 +25,15 @@ import {
   retargetCanvasAssociationLines,
   withCanvasAssociation,
 } from './canvas-association';
+
+beforeEach(() => {
+  localStorage.setItem(
+    IMAGE_TOOLBAR_PREFERENCES_KEY,
+    JSON.stringify({ referenceLines: true })
+  );
+});
+
+afterEach(() => localStorage.removeItem(IMAGE_TOOLBAR_PREFERENCES_KEY));
 
 interface TestingElement extends PlaitElement {
   points: [[number, number], [number, number]];

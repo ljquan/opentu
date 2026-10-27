@@ -34,6 +34,13 @@ export function getCanvasGenerationDetailsSource(
     kind === 'image'
       ? readLocalImageOperation(element.localImageOperation)
       : undefined;
+  const naturalSize =
+    kind === 'image' &&
+    element.imageNaturalSize?.url === element.url &&
+    readNumber(element.imageNaturalSize?.width) &&
+    readNumber(element.imageNaturalSize?.height)
+      ? element.imageNaturalSize
+      : undefined;
   return {
     id: element.id,
     kind,
@@ -50,11 +57,13 @@ export function getCanvasGenerationDetailsSource(
     localOperation: validLocalOperation,
     width:
       validLocalOperation?.outputWidth ??
+      naturalSize?.width ??
       (kind === 'image' || kind === 'video'
         ? readNumber(element.width)
         : undefined),
     height:
       validLocalOperation?.outputHeight ??
+      naturalSize?.height ??
       (kind === 'image' || kind === 'video'
         ? readNumber(element.height)
         : undefined),

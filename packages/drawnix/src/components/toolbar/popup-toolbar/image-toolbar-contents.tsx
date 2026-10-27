@@ -49,7 +49,7 @@ export function ImageToolbarContents({
   );
   const isHidden = (tool: ConfigurableTool) =>
     preferences.hidden.includes(tool.props.className);
-  return (
+  const contents = (
     <>
       {entries.map((child) => {
         if (
@@ -61,7 +61,12 @@ export function ImageToolbarContents({
         const tool = child as ConfigurableTool;
         return isHidden(tool)
           ? null
-          : cloneElement(tool, { showAriaLabel: preferences.labels });
+          : cloneElement(tool, {
+              showAriaLabel: preferences.labels,
+              className: preferences.labels
+                ? `${tool.props.className} image-toolbar-labeled-tool`
+                : tool.props.className,
+            });
       })}
       {tools.some(isHidden) && (
         <Popover>
@@ -80,13 +85,21 @@ export function ImageToolbarContents({
           >
             <div className="image-toolbar-options">
               <strong>更多工具</strong>
-              {tools
-                .filter(isHidden)
-                .map((tool) => cloneElement(tool, { showAriaLabel: true }))}
+              {tools.filter(isHidden).map((tool) =>
+                cloneElement(tool, {
+                  showAriaLabel: true,
+                  className: `${tool.props.className} image-toolbar-labeled-tool`,
+                })
+              )}
             </div>
           </PopoverContent>
         </Popover>
       )}
     </>
+  );
+  return preferences.labels ? (
+    <div className="image-toolbar-contents--labels">{contents}</div>
+  ) : (
+    contents
   );
 }

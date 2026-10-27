@@ -439,6 +439,36 @@ describe('cacheRemoteUrl', () => {
     vi.unstubAllGlobals();
   });
 
+  it('persists inline JPEG bytes unchanged without fetching a signed external URL', async () => {
+    const inlineUrl = 'data:image/jpeg;base64,/9j/2Q==';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(mediaResponse(JPEG_SIGNATURE, 'image/jpeg'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const warning = vi.fn();
+    const result = await cacheRemoteUrl(
+      inlineUrl,
+      'seedream-inline',
+      'image',
+      'jpg',
+      undefined,
+      {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        onCacheWarning: warning,
+      }
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(inlineUrl);
+    expect(result).toMatch(/^\/__aitu_cache__\/image\/content-.*\.jpg$/);
+    const blob = cacheMediaFromBlob.mock.calls[0][1] as Blob;
+    expect(blob.type).toBe('image/jpeg');
+    const bytes = await blob.arrayBuffer();
+    expect(new Uint8Array(bytes)).toEqual(JPEG_SIGNATURE);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
   it('reuses the same cached file for identical base64 payloads across tasks', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
       mediaResponse(PNG_SIGNATURE, 'image/png', {

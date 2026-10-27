@@ -1,0 +1,18 @@
+.new-feature-dot {
+  display: inline-block;
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  vertical-align: middle;
+  pointer-events: none;
+
+  &--corner {
+    position: absolute;
+    top: 3px;
+    right: 2px;
+    margin: 0;
+  }
+}

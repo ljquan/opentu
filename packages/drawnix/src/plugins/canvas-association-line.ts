@@ -10,6 +10,10 @@ import {
   type PlaitArrowLine,
 } from '@plait/draw';
 import type { PlaitCanvasAssociationLine } from './canvas-association';
+import {
+  IMAGE_TOOLBAR_PREFERENCES_EVENT,
+  readImageToolbarPreferences,
+} from '../utils/image-toolbar-preferences';
 
 export const ASSOCIATION_STROKE_COLOR = '#9ca3af';
 export const ASSOCIATION_STROKE_WIDTH = 1.5;
@@ -86,6 +90,7 @@ export function isHitCanvasAssociationLine(
   element: PlaitCanvasAssociationLine,
   point: Point
 ): boolean {
+  if (!readImageToolbarPreferences().referenceLines) return false;
   const geometry = getCanvasAssociationGeometry(
     element.points,
     isHorizontalAssociation(board, element)
@@ -131,8 +136,30 @@ export function drawCanvasAssociationLine(
 
 /** Reuse Plait's element lifecycle, replacing only the managed line's drawing. */
 export class CanvasAssociationLineComponent extends ArrowLineComponent {
+  private syncVisibility = () => {
+    const visible = readImageToolbarPreferences().referenceLines;
+    this.getElementG().style.display = visible ? '' : 'none';
+    if (!visible) this.activeGenerator.destroy();
+  };
+
+  initialize(): void {
+    super.initialize();
+    this.syncVisibility();
+    window.addEventListener(
+      IMAGE_TOOLBAR_PREFERENCES_EVENT,
+      this.syncVisibility
+    );
+    window.addEventListener('storage', this.syncVisibility);
+  }
+
   initializeGenerator(): void {
     super.initializeGenerator();
+    const canDrawActive = this.activeGenerator.canDraw.bind(
+      this.activeGenerator
+    );
+    this.activeGenerator.canDraw = (element, data) =>
+      readImageToolbarPreferences().referenceLines &&
+      canDrawActive(element, data);
     this.shapeGenerator.draw = (element) => {
       return drawCanvasAssociationLine(
         element,
@@ -142,5 +169,14 @@ export class CanvasAssociationLineComponent extends ArrowLineComponent {
         )
       );
     };
+  }
+
+  destroy(): void {
+    window.removeEventListener(
+      IMAGE_TOOLBAR_PREFERENCES_EVENT,
+      this.syncVisibility
+    );
+    window.removeEventListener('storage', this.syncVisibility);
+    super.destroy();
   }
 }
