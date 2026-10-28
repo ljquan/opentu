@@ -1,7 +1,14 @@
 @mixin board-background-color {
+    .board-dot-background {
+        display: none;
+    }
     &.theme-colorful .board-host-svg,
     &.theme-default .board-host-svg {
-        background-color: #ffffff;
+        background-color: #fcfbf8;
+    }
+    &.theme-colorful .board-dot-background,
+    &.theme-default .board-dot-background {
+        display: block;
     }
     &.theme-soft .board-host-svg {
         background-color: #f5f5f5;
