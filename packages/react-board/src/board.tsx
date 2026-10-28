@@ -18,7 +18,7 @@ import {
   PlaitBoard,
   KEY_TO_ELEMENT_MAP,
 } from '@plait/core';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useId } from 'react';
 import React from 'react';
 import classNames from 'classnames';
 import useBoardPluginEvent from './hooks/use-plugin-event';
@@ -41,6 +41,8 @@ export const Board: React.FC<PlaitBoardProps> = ({
   afterInit,
 }) => {
   const hostRef = useRef<SVGSVGElement>(null);
+  const backgroundRef = useRef<SVGRectElement>(null);
+  const backgroundPatternId = `board-dots-${useId().replace(/:/g, '')}`;
   const elementLowerHostRef = useRef<SVGGElement>(null);
   const elementHostRef = useRef<SVGGElement>(null);
   const elementUpperHostRef = useRef<SVGGElement>(null);
@@ -100,6 +102,23 @@ export const Board: React.FC<PlaitBoardProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const host = hostRef.current;
+    const background = backgroundRef.current;
+    if (!host || !background) return;
+    const syncBackground = () => {
+      const values = host.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+      if (!values || values.length !== 4 || !values.every(Number.isFinite)) return;
+      for (const [index, attribute] of ['x', 'y', 'width', 'height'].entries()) {
+        background.setAttribute(attribute, String(values[index]));
+      }
+    };
+    syncBackground();
+    const observer = new MutationObserver(syncBackground);
+    observer.observe(host, { attributes: true, attributeFilter: ['viewBox'] });
+    return () => observer.disconnect();
+  }, []);
+
   useBoardPluginEvent(board, viewportContainerRef, hostRef);
   useBoardEvent(board, viewportContainerRef);
 
@@ -134,6 +153,12 @@ export const Board: React.FC<PlaitBoardProps> = ({
           style={{ position: 'relative' }}
           className="board-host-svg"
         >
+          <defs>
+            <pattern id={backgroundPatternId} patternUnits="userSpaceOnUse" width="28" height="28">
+              <circle cx="14" cy="14" r="1" fill="#d4d0c8" />
+            </pattern>
+          </defs>
+          <rect ref={backgroundRef} className="board-dot-background" fill={`url(#${backgroundPatternId})`} pointerEvents="none" />
           <g className="element-lower-host" ref={elementLowerHostRef}></g>
           <g className="element-host" ref={elementHostRef}></g>
           <g className="element-upper-host" ref={elementUpperHostRef}></g>
