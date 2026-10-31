@@ -1,8 +1,22 @@
 # Provider Model Refresh QA
 
+## 2026-10-31：提交 PR 前的最终验证
+
+功能分支 `dev/restore-api-key-model-discovery`，目标 `ljquan/opentu:develop`。本次只包含按当前 API Key 认证获取模型的代码、回归测试与两份既有说明，共 8 个文件。实现提交为 `fba37c0e`。
+
+基础测试 7 个文件、83 项通过后提交实现，随后显式 `git fetch origin develop` 和 `git merge --no-edit origin/develop`。最新上游为 `5ef5e7da9dcd73771c174b39cbabc190c1daba69`，返回 `Already up to date`，无合并冲突。Git 默认地址连接超时后，使用命令级官方 GitHub 地址解析和 HTTP/1.1 完成获取，未修改全局 Git 或网络配置。
+
+最终环境仍为 macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。同步上游后重新执行下节的 14 文件回归命令：265 项全部通过；Drawnix TypeScript 检查通过；6 个相关 TS/测试文件 ESLint 为 0 errors、0 warnings。额外执行 `NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run web:build --skip-nx-cache`，Web 类型检查、生产应用和 Service Worker 构建全部通过。`git diff --check origin/develop...HEAD` 通过，无未解决冲突。
+
+OCR delegation 的 2 个生产代码文件均已审查，0 个跳过，覆盖率 100%；另人工核对 4 个测试文件和 2 份文档，未发现阻止提交的问题。QA 与维护说明沿用现有文件，不新增独立 DOC。
+
+已知基线检查问题：`pnpm check:cycles` 和 `pnpm check:cycles:types` 均在读取 `tsconfig.base.json` 时因第 25 行前的尾逗号触发 `JSON.parse` 错误，未进入依赖扫描。已用未修改的 `origin/develop:tsconfig.base.json` 复现相同位置错误；本 PR 未改动该配置或检查脚本，因此不宣称循环依赖检查通过。已有 Sass、Browserslist、混合导入、包大小、Node 废弃与 `.npmrc` 占位提示保留。
+
+本节记录提交 PR 前的本地验证；未执行完整仓库测试、页面交互、Windows、真实供应商或收费生成，未部署。加载新版本后，在每个供应商点击一次“获取模型”并确认选择，用权限不同的 Key 核对列表差异，用无效 Key 核对失败提示；无需清空数据。新依赖、环境变量、迁移和部署顺序均无，回滚代码不会自动恢复已保存的模型选择。
+
 ## 2026-10-27：恢复按当前 API Key 认证获取模型
 
-本节描述当前行为，替代历史记录中“Tuzi 使用模型广场作为模型列表来源”的做法。本次仅本地修改，目录 `/Users/lkj/Documents/ChatGPT/opentu-2`，分支 `develop`，未提交、推送或部署。
+本节记录 10 月 27 日首次修复与验证，替代更早“Tuzi 使用模型广场作为模型列表来源”的做法。当日仅本地修改，目录 `/Users/lkj/Documents/ChatGPT/opentu-2`，分支 `develop`，未提交、推送或部署。
 
 ### 最终行为与兼容边界
 
