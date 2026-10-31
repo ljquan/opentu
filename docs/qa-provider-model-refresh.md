@@ -1,5 +1,73 @@
 # Provider Model Refresh QA
 
+## 2026-10-31：提交 PR 前的最终验证
+
+功能分支 `dev/restore-api-key-model-discovery`，目标 `ljquan/opentu:develop`。本次只包含按当前 API Key 认证获取模型的代码、回归测试与两份既有说明，共 8 个文件。实现提交为 `fba37c0e`。
+
+基础测试 7 个文件、83 项通过后提交实现，随后显式 `git fetch origin develop` 和 `git merge --no-edit origin/develop`。最新上游为 `5ef5e7da9dcd73771c174b39cbabc190c1daba69`，返回 `Already up to date`，无合并冲突。Git 默认地址连接超时后，使用命令级官方 GitHub 地址解析和 HTTP/1.1 完成获取，未修改全局 Git 或网络配置。
+
+最终环境仍为 macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。同步上游后重新执行下节的 14 文件回归命令：265 项全部通过；Drawnix TypeScript 检查通过；6 个相关 TS/测试文件 ESLint 为 0 errors、0 warnings。额外执行 `NODE_OPTIONS=--no-experimental-webstorage NX_DAEMON=false pnpm exec nx run web:build --skip-nx-cache`，Web 类型检查、生产应用和 Service Worker 构建全部通过。`git diff --check origin/develop...HEAD` 通过，无未解决冲突。
+
+OCR delegation 的 2 个生产代码文件均已审查，0 个跳过，覆盖率 100%；另人工核对 4 个测试文件和 2 份文档，未发现阻止提交的问题。QA 与维护说明沿用现有文件，不新增独立 DOC。
+
+已知基线检查问题：`pnpm check:cycles` 和 `pnpm check:cycles:types` 均在读取 `tsconfig.base.json` 时因第 25 行前的尾逗号触发 `JSON.parse` 错误，未进入依赖扫描。已用未修改的 `origin/develop:tsconfig.base.json` 复现相同位置错误；本 PR 未改动该配置或检查脚本，因此不宣称循环依赖检查通过。已有 Sass、Browserslist、混合导入、包大小、Node 废弃与 `.npmrc` 占位提示保留。
+
+本节记录提交 PR 前的本地验证；未执行完整仓库测试、页面交互、Windows、真实供应商或收费生成，未部署。加载新版本后，在每个供应商点击一次“获取模型”并确认选择，用权限不同的 Key 核对列表差异，用无效 Key 核对失败提示；无需清空数据。新依赖、环境变量、迁移和部署顺序均无，回滚代码不会自动恢复已保存的模型选择。
+
+## 2026-10-27：恢复按当前 API Key 认证获取模型
+
+本节记录 10 月 27 日首次修复与验证，替代更早“Tuzi 使用模型广场作为模型列表来源”的做法。当日仅本地修改，目录 `/Users/lkj/Documents/ChatGPT/opentu-2`，分支 `develop`，未提交、推送或部署。
+
+### 最终行为与兼容边界
+
+- 设置中的“获取模型”、保存新 Key/地址后的刷新、Tuzi 托管供应商同步均请求当前供应商的 `/v1/models`，使用当前 Key 的 Bearer 认证，并保留现有同源代理、候选地址、超时和取消逻辑。
+- 自动发现的模型 ID 仅来自认证响应。价格目录只按同名 ID 补充说明、分类、标签、厂商和接口信息；认证响应已有字段优先。价格请求失败、缺少配置或返回空目录不阻断认证模型发现。
+- 无效 Key、认证接口失败或空模型列表继续报错，不使用公开目录补足列表。更换 Key 后以新响应替换自动目录，移除旧选择；用户手工添加的模型和绑定继续保留。
+- 取消依据价格缓存额外添加 Suno 模型的逻辑；恢复缓存时移除带 `pricing-suno-v2` 标记的旧自动补充项，手工项保留。已成功获取的认证目录不会因历史模型选择重新插入未返回的 ID。
+- 新目录标记为 `models-endpoint`，重载时保留发现结果中的分类和能力配置，价格刷新不能覆盖这些结果或扩充列表。旧 `marketplace` 目录仍兼容读取；更新后需在各供应商点击一次“获取模型”并确认选择，以当前 Key 重新获取，无需清空用户数据。
+- 价格读取与生成接口的认证规则不变，无新增依赖、环境变量、数据库迁移或部署顺序。认证接口返回但不在模型广场中的模型仍可展示；列表返回不等于实际生成已验证，调用能力与权限最终由上游服务执行。
+
+### 实际验证
+
+环境：macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4。使用现有依赖和模拟 HTTP 响应，未读取真实密钥。
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run \
+  --config packages/drawnix/vite.config.ts \
+  packages/drawnix/src/services/provider-model-catalog.test.ts \
+  packages/drawnix/src/utils/__tests__/runtime-model-discovery.test.ts \
+  packages/drawnix/src/utils/__tests__/runtime-model-classification.test.ts \
+  packages/drawnix/src/utils/__tests__/suno-v2-discovery.test.ts \
+  packages/drawnix/src/utils/__tests__/model-pricing-service.test.ts \
+  packages/drawnix/src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  packages/drawnix/src/services/__tests__/tuzi-managed-provider-models.test.ts \
+  packages/drawnix/src/services/__tests__/settings-repository.test.ts \
+  packages/drawnix/src/utils/__tests__/settings-manager.test.ts \
+  packages/drawnix/src/hooks/__tests__/use-runtime-models.test.ts \
+  packages/drawnix/src/services/__tests__/provider-routing.test.ts \
+  packages/drawnix/src/services/__tests__/tuzi-session-provider-sync.test.ts \
+  packages/drawnix/src/services/__tests__/tuzi-managed-providers.test.ts \
+  packages/drawnix/src/components/ai-input-bar/ModelDropdown.test.tsx
+pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json
+pnpm exec eslint \
+  packages/drawnix/src/services/provider-model-catalog.ts \
+  packages/drawnix/src/services/provider-model-catalog.test.ts \
+  packages/drawnix/src/utils/runtime-model-discovery.ts \
+  packages/drawnix/src/utils/__tests__/runtime-model-discovery.test.ts \
+  packages/drawnix/src/utils/__tests__/runtime-model-classification.test.ts \
+  packages/drawnix/src/utils/__tests__/suno-v2-discovery.test.ts
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vite build --config apps/web/vite.config.ts
+git diff --check
+```
+
+- 14 个测试文件、265 项全部通过。供应商目录测试使用真实发现服务并模拟网络与价格服务，覆盖当前 Key 认证头、两种 Key 的独立结果、旧选项移除、公开目录越权项排除、认证目录独有模型保留、无效 Key、空响应、价格失败/缺失/空目录、认证元数据优先和非 Tuzi 供应商兼容。
+- 分类、Suno、凭据保存刷新、托管分组、会话同步、运行时模型 hook、模型选择组件和请求路由回归通过，含认证目录反复加载后仍保持分类的回归。
+- Drawnix TypeScript 检查通过；6 个相关 TS/测试文件 ESLint 为 0 errors、0 warnings。
+- Web 生产构建通过，40.21 秒；使用直接 Vite 命令，未执行版本号写入脚本。已有 Sass、Browserslist、混合导入、大 chunk 和 `.npmrc` 占位提示仍存在。测试中的模拟网络错误、IndexedDB/crypto 环境提示不影响通过结果。
+- 最终差异检查通过。维护说明更新到已有 `MODEL_CATEGORY_PRIORITY_LESSONS.md`，不新增独立 DOC。
+
+未执行完整仓库测试、页面交互、Windows 验证、真实供应商请求或收费生成，未部署。非技术验收：加载新版本后，分别用两个模型权限不同的 Key 获取并确认模型，检查列表随权限变化；无效 Key 应显示错误；相同权限 Key 可以返回相同列表。只切换价格分组不应扩大认证接口返回的模型范围。
+
 ## 2026-10-22：PR 最终集成验证
 
 功能分支 `dev/fix-selected-previews-and-model-discovery`，目标 `origin/develop`。本次 PR 统一交付选中图片预览恢复、较新兼容默认模型与公开价格目录认证修复。原有独立 `src/data/image.test.ts` 修改不纳入 PR。
