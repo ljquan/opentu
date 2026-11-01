@@ -51,8 +51,6 @@ describe('marketplace output classification', () => {
 
   it('does not treat multimodal text tags as image output or lose explicit generation tags', async () => {
     mockSettings();
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
     const { runtimeModelDiscovery } = await import(
       '../runtime-model-discovery'
     );
@@ -99,13 +97,16 @@ describe('marketplace output classification', () => {
       { id: 'legacy-video-category', category: '视频', type: 'video' },
       { id: 'legacy-audio-category', category: '音频', type: 'audio' },
     ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      data: cases.map(({ id }) => ({ id })),
+    })));
     const models = await runtimeModelDiscovery.discover(
       profileId,
       'https://api.tu-zi.com/v1',
       'test-key',
       [],
       {
-        authoritativeModels: cases.map(({ id, category, endpoints }) => ({
+        modelMetadata: cases.map(({ id, category, endpoints }) => ({
           id,
           category,
           supported_endpoint_types: endpoints,
@@ -119,7 +120,7 @@ describe('marketplace output classification', () => {
         id
       ).toMatchObject({ type });
     }
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
     expect(
       runtimeModelDiscovery.getPinnedSelectableModel('image', 'gpt-6-astra', {
         profileId,
@@ -231,13 +232,16 @@ describe('marketplace output classification', () => {
       },
       { id: 'gpt-5.1', tags: '图像,推理', type: 'text' },
     ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      data: cases.map(({ id }) => ({ id })),
+    })));
     const models = await runtimeModelDiscovery.discover(
       profileId,
       'https://api.tu-zi.com/v1',
       'test-key',
       [],
       {
-        authoritativeModels: cases.map(({ id, tags }) => ({
+        modelMetadata: cases.map(({ id, tags }) => ({
           id,
           tags,
           supported_endpoint_types: ['openai'],
@@ -310,29 +314,39 @@ describe('marketplace output classification', () => {
       { id: 'new-image-generator', tags: 'NEW', type: 'image', supported_endpoint_types: ['image-generation'] },
       { id: 'image-input-only', tags: '图片,多模态', type: 'text' },
     ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      data: cases.map(({ id }) => ({ id })),
+    })));
     const models = await runtimeModelDiscovery.discover(
       profileId, 'https://api.tu-zi.com/v1', 'test-key', [],
-      { authoritativeModels: cases }
+      { modelMetadata: cases }
     );
     for (const { id, type } of cases) {
       expect(models.find((model) => model.id === id), id).toMatchObject({ type });
     }
   });
 
-  it.each(['text', 'video'] as const)(
-    'keeps an already corrected static model classified as %s across repeated catalog restores',
-    async (type) => {
+  it.each([
+    { type: 'text', source: 'marketplace' },
+    { type: 'video', source: 'marketplace' },
+    { type: 'text', source: 'models-endpoint' },
+    { type: 'video', source: 'models-endpoint' },
+  ] as const)(
+    'preserves $source classification as $type across repeated catalog restores',
+    async ({ type, source }) => {
       const id = 'doubao-seedream-4-0-250828';
       const catalogs: Partial<ProviderCatalog>[] = [{
         profileId,
-        discoverySource: 'marketplace',
+        discoverySource: source,
         selectedModelIds: [id],
         discoveredModels: [{
           id, label: id, shortLabel: id, type, vendor: 'DOUBAO',
           tags: ['runtime'], description: 'Marketplace model',
         } as ProviderCatalog['discoveredModels'][number]],
       }];
-      const caches = [{ profileId, modelCatalog: { [id]: { category: type } } }];
+      const caches = [{ profileId, modelCatalog: {
+        [id]: { category: source === 'models-endpoint' ? 'image' : type },
+      } }];
       mockSettings(catalogs, caches);
       vi.stubGlobal('fetch', vi.fn());
 
