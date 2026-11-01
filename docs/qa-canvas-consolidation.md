@@ -1,5 +1,15 @@
 # 主画布整合与工作流模式删除 QA
 
+## 2026-11-01：批量操作、日期筛选及图片交付 PR 最终验证
+
+- 范围：提交本轮参考图自动入画布开关、多图横排/竖排、当前/历史任务日期筛选、批量参考图选中行/范围填充、导入行数控件、素材库缩略图统一和图片插入/显示恢复。使用说明沿用本文件对应记录、`canvas-consolidation.md`、`qa-document-batch-generation.md`、`qa-task-queue-date-filter.md` 和任务队列手册；未新增重复 DOC。
+- Git：从 `develop` 的 `5ef5e7da` 建立 `dev/canvas-batch-import-and-task-filters`，先提交本地改动 `6862fe7f`，显式 `git fetch origin develop` 后合并 `origin/develop` 的 `21f3f787`，合并提交 `36f2d1fa`。没有文本冲突，保留上游 #321 画布点阵背景、#322 模型列表认证修复及 1.2.4 版本。原始 54 个修改/新增文件、补丁和清单位于 `/tmp/opentu5-pr-20261101`，没有重置、改写历史或强制推送。
+- 环境：macOS，Node v26.8.1，pnpm 10.21.0，Vitest/JSDOM。合并前 22 文件 286 项通过；合并后 26 文件 331 项通过，含上游模型目录及分类/发现回归。额外 `TZ=America/Los_Angeles` 日期用例 6 项通过，包含夏令时结束日全天边界；此项与默认时区执行分别记录，不当作 337 个不同用例。
+- 类型/构建：Drawnix/Web 的 `tsc --noEmit` 通过。Web 主应用构建通过（40.99 秒），Service Worker 独立构建通过（1.32 秒）；构建输出仅放 `/tmp/opentu5-pr-20261101/{web-build,sw-build}`，未运行会改版本的发布脚本。执行项目原有启动 bundle 校验脚本，仅将读入目录指向本次临时构建产物，资源预算、入口依赖和 chunk cycle 校验通过。
+- 静态检查：45 个相关 TS/TSX 文件 ESLint 共 7 errors、110 warnings；13 个有诊断的文件全部使用最新 `origin/develop` 同路径源码 stdin 对照，无新增诊断，不声称 lint 全绿。`pnpm check:cycles` 在读取 `tsconfig.base.json` 时因尾随逗号被 `JSON.parse` 拒绝；该脚本和配置相对上游无差异，用上游原始配置复现同一错误，尚未执行到源码循环扫描。此既有问题不夹带修复。
+- OpenSpec：通过 `pnpm dlx @fission-ai/openspec@0.23.0 validate unify-image-reference-lineage --strict`；差异检查通过。日志和本次完整测试清单位于 `/tmp/opentu5-pr-20261101/{test-paths.txt,tests-final.log,timezone-final.log,types-final.log,web-types-final.log,build-final.log,sw-build-final.log,startup-final.log,lint-final.json,lint-final-baseline.json,cycles-final.log,cycles-upstream.log,openspec-final.log}`。
+- 未覆盖与注意事项：本次 PR 同步没有新增页面点击、视觉/E2E、跨浏览器或真实供应商/收费请求。10 月 31 日曾获用户授权对 7205 原页面只读查看，确认三张结果可见；这不是本次合并后的页面验收。UI 改动没有新增验收截图。无新增依赖、服务接口、环境变量、数据库版本或迁移；新增偏好保留原默认值（参考图自动加入开启、横排关闭）。缩略图回退不恢复丢失原图分辨率，插入和显示各有独立 60 秒期限，不代表生成从提交起 60 秒完成。回滚可撤回本 PR，保留浏览器任务与图片数据，不需清缓存。PR 创建不包含合并或部署。
+
 ## 2026-10-28：同次多图横排/竖排设置
 
 - 效果与范围：“任务栏设置”新增“多图横向排列”，默认关闭保留竖排。开启后，主输入栏一次普通生图的多张占位及结果从左到右排成一行，不按视口换行；整排向下避让已有图片、预留占位和失败卡片。有参考图时从来源右侧开始，无画布来源时从独立创作区开始。只影响新任务，单图、已有/进行中批次、画框专用布局及显式语义替换保持原行为。
