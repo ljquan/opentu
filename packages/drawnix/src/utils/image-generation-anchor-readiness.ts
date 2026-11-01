@@ -1,14 +1,18 @@
 import type { PlaitBoard } from '@plait/core';
-import { isCanvasImageReady } from '../services/canvas-image-readiness';
+import {
+  getCanvasImageError,
+  isCanvasImageReady,
+  retryCanvasImage,
+} from '../services/canvas-image-readiness';
 import { workflowCompletionService } from '../services/workflow-completion-service';
 import type { PlaitImageGenerationAnchor } from '../types/image-generation-anchor.types';
 import type { Task } from '../types/task.types';
 
-export function areImageGenerationResultsReady(
+function getImageGenerationResultImages(
   board: PlaitBoard,
   anchor: PlaitImageGenerationAnchor,
   tasks: Task[]
-): boolean {
+) {
   const taskIds = new Set(tasks.map((task) => task.id));
   const resultIds = new Set(
     tasks
@@ -48,6 +52,39 @@ export function areImageGenerationResultsReady(
     return !hasSpecificResult;
   });
 
+  return images;
+}
+
+export function getImageGenerationResultLoadError(
+  board: PlaitBoard,
+  anchor: PlaitImageGenerationAnchor,
+  tasks: Task[]
+): string | undefined {
+  for (const image of getImageGenerationResultImages(board, anchor, tasks)) {
+    const error = getCanvasImageError(board, image.id, image.url);
+    if (error) return error;
+  }
+  return undefined;
+}
+
+export function retryImageGenerationResultLoads(
+  board: PlaitBoard,
+  anchor: PlaitImageGenerationAnchor,
+  tasks: Task[]
+): boolean {
+  let retried = false;
+  for (const image of getImageGenerationResultImages(board, anchor, tasks)) {
+    if (retryCanvasImage(board, image.id, image.url)) retried = true;
+  }
+  return retried;
+}
+
+export function areImageGenerationResultsReady(
+  board: PlaitBoard,
+  anchor: PlaitImageGenerationAnchor,
+  tasks: Task[]
+): boolean {
+  const images = getImageGenerationResultImages(board, anchor, tasks);
   if (images.length === 0) {
     return false;
   }

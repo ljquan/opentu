@@ -196,4 +196,31 @@ describe('ImageGenerationAnchorContent result recovery', () => {
       expect(mocks.retryTask).toHaveBeenCalledExactlyOnceWith('task-1')
     );
   });
+
+  it('retries a failed mounted result without regenerating or inserting a duplicate', async () => {
+    mocks.tasks[0].insertedToCanvas = true;
+    const anchor = { ...createAnchor(), resultElementId: 'image-1' };
+    const url = '/__aitu_cache__/image/result.png';
+    const board = { children: [anchor, { id: 'image-1', type: 'image', url, generationTaskId: 'task-1' }] } as unknown as PlaitBoard;
+    const reload = vi.fn();
+    const image = registerCanvasImage(board, 'image-1', url, reload);
+    image.setError('图片加载超时，可重试加载已有结果');
+    const retryInsertion = vi.fn();
+    window.addEventListener(IMAGE_GENERATION_ANCHOR_RETRY_EVENT, retryInsertion);
+    try {
+      render(<ImageGenerationAnchorContent board={board} element={anchor} selected={false} />);
+      expect(screen.getByText('已生成，加载失败')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: '重试加载' }));
+      await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+      expect(mocks.retryTask).not.toHaveBeenCalled();
+      expect(retryInsertion).not.toHaveBeenCalled();
+      expect(board.children).toHaveLength(2);
+      expect(screen.getByText('正在显现')).toBeTruthy();
+      act(() => image.setReady(true));
+      expect(screen.queryByText('正在显现')).toBeNull();
+      expect(screen.queryByText('图片加载超时，可重试加载已有结果')).toBeNull();
+    } finally {
+      window.removeEventListener(IMAGE_GENERATION_ANCHOR_RETRY_EVENT, retryInsertion);
+    }
+  });
 });

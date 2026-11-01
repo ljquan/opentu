@@ -5,7 +5,7 @@ import {
   isCanvasImageReady,
   subscribeCanvasImageReadiness,
 } from '../../services/canvas-image-readiness';
-import { areImageGenerationResultsReady } from '../image-generation-anchor-readiness';
+import { areImageGenerationResultsReady, getImageGenerationResultLoadError, retryImageGenerationResultLoads } from '../image-generation-anchor-readiness';
 import type { PlaitImageGenerationAnchor } from '../../types/image-generation-anchor.types';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 
@@ -32,6 +32,27 @@ function image(id: string, taskId: string) {
 const anchor = { id: 'anchor-1' } as PlaitImageGenerationAnchor;
 
 describe('canvas result readiness', () => {
+  it('reports and retries only failed current results, preserving loaded images and unrelated copies', () => {
+    const current = { ...image('current', 'task-1'), generationAnchorId: anchor.id };
+    const loaded = { ...image('loaded', 'task-1'), generationAnchorId: anchor.id };
+    const old = image('old', 'task-1');
+    const board = { children: [current, loaded, old] } as unknown as PlaitBoard;
+    let retries = 0;
+    const render = registerCanvasImage(board, current.id, current.url, () => retries++);
+    const loadedRender = registerCanvasImage(board, loaded.id, loaded.url, () => retries++);
+    loadedRender.setReady(true);
+    registerCanvasImage(board, old.id, old.url).setError('old error');
+    const tasks = [task('task-1')];
+    expect(getImageGenerationResultLoadError(board, anchor, tasks)).toBeUndefined();
+    render.setError('图片加载超时');
+    expect(getImageGenerationResultLoadError(board, anchor, tasks)).toBe('图片加载超时');
+    expect(retryImageGenerationResultLoads(board, anchor, tasks)).toBe(true);
+    expect(retries).toBe(1);
+    expect(getImageGenerationResultLoadError(board, anchor, tasks)).toBeUndefined();
+    expect(areImageGenerationResultsReady(board, anchor, tasks)).toBe(false);
+    render.setReady(true);
+    expect(areImageGenerationResultsReady(board, anchor, tasks)).toBe(true);
+  });
   it('does not wait for old copies of the same history task when this anchor has its own result', () => {
     const current = {
       ...image('current', 'task-1'),
@@ -124,6 +145,7 @@ describe('canvas result readiness', () => {
     expect(isCanvasImageReady(otherBoard, 'a', 'old.png')).toBe(false);
     const newRender = registerCanvasImage(board, 'a', 'new.png');
     oldRender.setReady(true);
+    oldRender.setError('stale error');
     oldRender.dispose();
     expect(isCanvasImageReady(board, 'a', 'old.png')).toBe(false);
     expect(isCanvasImageReady(board, 'a', 'new.png')).toBe(false);

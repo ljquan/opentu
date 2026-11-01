@@ -432,6 +432,25 @@ describe('useImageGenerationAnchorSync', () => {
     dispatchSpy.mockRestore();
   });
 
+  it('shows canvas load failures and completes after the existing result recovers', () => {
+    vi.useFakeTimers();
+    const board = createBoard(createAnchor({ taskIds: ['task-1'], phase: 'inserting' }), [createImageElement()]);
+    taskState.tasks = [createTask({ status: TaskStatus.COMPLETED, insertedToCanvas: true })];
+    const image = registerCanvasImage(board, 'image-1', '/__aitu_cache__/image/task-1.png');
+    renderHook(() => useImageGenerationAnchorSync({ board }));
+    act(() => image.setError('图片加载超时，可重试加载已有结果'));
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('failed');
+    expect((board.children[0] as PlaitImageGenerationAnchor).error).toContain('加载超时');
+    act(() => { vi.advanceTimersByTime(1600); });
+    expect(board.children).toHaveLength(2);
+    act(() => image.setReady(true));
+    expect((board.children[0] as PlaitImageGenerationAnchor).phase).toBe('completed');
+    expect((board.children[0] as PlaitImageGenerationAnchor).error).toBeUndefined();
+    act(() => { vi.advanceTimersByTime(1600); });
+    expect(board.children).toHaveLength(1);
+    expect(board.children[0].id).toBe('image-1');
+  });
+
   it('finishes this handoff without waiting for old history copies bound to the same task', () => {
     vi.useFakeTimers();
     const anchor = createAnchor({ taskIds: ['task-1'], phase: 'inserting', resultElementId: 'image-1' });

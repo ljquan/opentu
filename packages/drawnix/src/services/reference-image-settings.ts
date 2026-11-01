@@ -4,6 +4,7 @@ export const REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT =
   'aitu:reference-image-settings-change';
 
 let sessionEnabled: boolean | undefined;
+let sessionAutoInsertEnabled: boolean | undefined;
 
 function browserStorage(): Storage | null {
   try {
@@ -37,6 +38,41 @@ export function persistKeepOriginalImageEnabled(enabled: boolean): boolean {
   } catch {
     // Retain the user's choice for this session if storage is unavailable.
   }
+  notifySettingsChange();
+  return enabled;
+}
+
+export function readAutoInsertReferenceImagesEnabled(
+  storage?: Pick<Storage, 'getItem'> | null
+): boolean {
+  if (storage === undefined) {
+    if (sessionAutoInsertEnabled !== undefined) return sessionAutoInsertEnabled;
+    storage = browserStorage();
+  }
+  try {
+    return storage?.getItem(LS_KEYS.AI_REFERENCE_IMAGE_AUTO_INSERT) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function persistAutoInsertReferenceImagesEnabled(
+  enabled: boolean
+): boolean {
+  sessionAutoInsertEnabled = enabled;
+  try {
+    browserStorage()?.setItem(
+      LS_KEYS.AI_REFERENCE_IMAGE_AUTO_INSERT,
+      String(enabled)
+    );
+  } catch {
+    // Retain the user's choice for this session if storage is unavailable.
+  }
+  notifySettingsChange();
+  return enabled;
+}
+
+function notifySettingsChange(): void {
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(
@@ -46,5 +82,4 @@ export function persistKeepOriginalImageEnabled(enabled: boolean): boolean {
       // Keep the current page state when CustomEvent is unavailable.
     }
   }
-  return enabled;
 }

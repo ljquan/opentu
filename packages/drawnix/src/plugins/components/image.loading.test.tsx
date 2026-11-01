@@ -1,9 +1,9 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Image as CanvasImage } from './image';
 import { unifiedCacheService } from '../../services/unified-cache-service';
-import { isCanvasImageReady } from '../../services/canvas-image-readiness';
+import { getCanvasImageError, isCanvasImageReady, retryCanvasImage } from '../../services/canvas-image-readiness';
 
 vi.mock('../../mcp/tools/image-generation', () => ({ generateImage: vi.fn() }));
 vi.mock('../../services/ppt', () => ({ getImageRegion: vi.fn() }));
@@ -47,6 +47,7 @@ describe('canvas image automatic loading', () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('loads an unselected image from cache without any visibility callback or click', async () => {
@@ -111,6 +112,58 @@ describe('canvas image automatic loading', () => {
     render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url: 'data:image/png;base64,bad' }} />);
     fireEvent.error(screen.getByRole('presentation'));
     expect(isCanvasImageReady(props.board, 'a', 'data:image/png;base64,bad')).toBe(false);
+  });
+
+  it('ends a hung generated image load and reloads the same canvas result on retry', async () => {
+    vi.useFakeTimers();
+    const element = { ...props.element, generationTaskId: 'task-1' };
+    const { unmount } = render(<CanvasImage {...props} element={element} />);
+    const image = screen.getByRole('presentation');
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(false);
+    expect(getCanvasImageError(props.board, 'a', props.imageItem.url)).toContain('加载超时');
+    act(() => { expect(retryCanvasImage(props.board, 'a', props.imageItem.url)).toBe(true); });
+    const retriedImage = screen.getByRole('presentation');
+    expect(retriedImage).not.toBe(image);
+    expect(retriedImage.getAttribute('src')).toBe(props.imageItem.url);
+    expect(getCanvasImageError(props.board, 'a', props.imageItem.url)).toBeUndefined();
+    fireEvent.load(retriedImage);
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(true);
+    unmount();
+    await act(async () => undefined);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('recovers when the original generated image finishes after its loading deadline', async () => {
+    vi.useFakeTimers();
+    render(<CanvasImage {...props} element={{ ...props.element, generationTaskId: 'task-1' }} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(getCanvasImageError(props.board, 'a', props.imageItem.url)).toBeTruthy();
+    fireEvent.load(screen.getByRole('presentation'));
+    expect(isCanvasImageReady(props.board, 'a', props.imageItem.url)).toBe(true);
+    expect(getCanvasImageError(props.board, 'a', props.imageItem.url)).toBeUndefined();
+  });
+
+  it('reports a failed generated image immediately rather than waiting for the deadline', () => {
+    const url = 'data:image/png;base64,bad';
+    render(<CanvasImage {...props} imageItem={{ ...props.imageItem, url }} element={{ ...props.element, generationTaskId: 'task-1' }} />);
+    fireEvent.error(screen.getByRole('presentation'));
+    expect(getCanvasImageError(props.board, 'a', url)).toContain('加载失败');
+  });
+
+  it('does not let the old source deadline fail a replacement image', async () => {
+    vi.useFakeTimers();
+    const element = { ...props.element, generationTaskId: 'task-1' };
+    const { rerender } = render(<CanvasImage {...props} element={element} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    const url = '/__aitu_cache__/image/replacement.png';
+    rerender(<CanvasImage {...props} element={{ ...element, url }} imageItem={{ ...props.imageItem, url }} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(getCanvasImageError(props.board, 'a', url)).toBeUndefined();
+    fireEvent.load(screen.getByRole('presentation'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(isCanvasImageReady(props.board, 'a', url)).toBe(true);
+    expect(getCanvasImageError(props.board, 'a', url)).toBeUndefined();
   });
 
   it('acknowledges an image already decoded by the browser without waiting for another load event', async () => {

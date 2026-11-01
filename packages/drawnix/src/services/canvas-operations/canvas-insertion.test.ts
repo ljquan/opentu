@@ -512,7 +512,7 @@ describe('canvas insertion service metadata binding', () => {
       false,
       true,
       true,
-      undefined,
+      expect.any(Function),
       true
     );
     expect(mocks.insertImageFromUrl).toHaveBeenNthCalledWith(
@@ -526,7 +526,7 @@ describe('canvas insertion service metadata binding', () => {
       false,
       true,
       true,
-      undefined,
+      expect.any(Function),
       true
     );
     expect((result.data as any).items.map((item: any) => item.size)).toEqual([
@@ -572,6 +572,48 @@ describe('canvas insertion service metadata binding', () => {
       error: '插入失败: second image failed',
     });
     expect(board.children).toEqual([]);
+  });
+
+  it('ends a hung generated insertion after 60 seconds and prevents its late result from committing', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    let finishLoad!: () => void;
+    mocks.insertImageFromUrl.mockImplementationOnce(async (stagingBoard: PlaitBoard) => {
+      await new Promise<void>((resolve) => { finishLoad = resolve; });
+      stagingBoard.children.push({ id: 'late-image', type: 'image', url: 'late.png' } as PlaitBoard['children'][number]);
+      return 'late-image';
+    });
+    const pending = executeCanvasInsertion({
+      board,
+      startPoint: [100, 100],
+      items: ['late.png', 'second.png'].map((content) => ({
+        type: 'image' as const, content, dimensions: { width: 400, height: 400 }, waitForImageLoad: true,
+      })),
+    });
+    let outcome: Awaited<typeof pending> | undefined;
+    void pending.then((value) => { outcome = value; });
+    await vi.advanceTimersByTimeAsync(60_000);
+    try {
+      expect(outcome?.success).toBe(false);
+      expect(outcome?.error).toContain('插入超时');
+      expect(board.children).toHaveLength(0);
+      mocks.insertImageFromUrl.mockImplementationOnce(async (targetBoard: PlaitBoard) => {
+        targetBoard.children.push({ id: 'retried-image', type: 'image', url: 'late.png' } as PlaitBoard['children'][number]);
+        return 'retried-image';
+      });
+      const retried = await executeCanvasInsertion({
+        board,
+        startPoint: [100, 100],
+        items: [{ type: 'image', content: 'late.png', dimensions: { width: 400, height: 400 }, waitForImageLoad: true }],
+      });
+      expect(retried.success).toBe(true);
+    } finally {
+      finishLoad();
+      await pending;
+      await vi.advanceTimersByTimeAsync(0);
+      vi.useRealTimers();
+    }
+    expect(board.children.map((element) => element.id)).toEqual(['retried-image']);
   });
 
   it('stages multiple videos with the DOM-free insertion option', async () => {

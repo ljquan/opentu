@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Loading } from 'tdesign-react';
 import { Task } from '../../types/task.types';
 import { taskStorageReader } from '../../services/task-storage-reader';
+import type { TaskQueueFilters } from '../../utils/task-queue-filters';
 import { TaskItem } from './TaskItem';
 
 const PAGE_SIZE = 30;
@@ -17,12 +18,14 @@ export interface ArchivedTaskListProps {
   onPreviewOpen?: (taskId: string) => void;
   onDownload?: (taskId: string) => void;
   className?: string;
+  filters?: TaskQueueFilters;
 }
 
 export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
   onPreviewOpen,
   onDownload,
   className,
+  filters,
 }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,48 +33,85 @@ export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
   const [hasMore, setHasMore] = useState(false);
   const offsetRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const requestVersionRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const [error, setError] = useState(false);
+  const [reload, setReload] = useState(0);
+  const { searchText, createdAtFrom, createdAtTo } = filters || {};
+  const hasFilters = Boolean(
+    searchText?.trim() ||
+      createdAtFrom !== undefined ||
+      createdAtTo !== undefined
+  );
 
-  const loadTasks = useCallback(async (offset: number) => {
-    try {
-      const result = await taskStorageReader.getArchivedTasks(offset, PAGE_SIZE);
-      return result;
-    } catch {
-      return { tasks: [], hasMore: false };
-    }
-  }, []);
+  const loadTasks = useCallback(
+    (offset: number) =>
+      taskStorageReader.getArchivedTasks(offset, PAGE_SIZE, {
+        searchText,
+        createdAtFrom,
+        createdAtTo,
+      }),
+    [searchText, createdAtFrom, createdAtTo]
+  );
 
   // 初始加载
   useEffect(() => {
-    let cancelled = false;
+    const version = ++requestVersionRef.current;
     setLoading(true);
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
+    setError(false);
+    setTasks([]);
     offsetRef.current = 0;
+    if (containerRef.current) containerRef.current.scrollTop = 0;
 
-    loadTasks(0).then((result) => {
-      if (cancelled) return;
-      setTasks(result.tasks);
-      setHasMore(result.hasMore);
-      offsetRef.current = result.tasks.length;
-      setLoading(false);
-    });
+    loadTasks(0)
+      .then((result) => {
+        if (requestVersionRef.current !== version) return;
+        setTasks(result.tasks);
+        setHasMore(result.hasMore);
+        offsetRef.current = result.tasks.length;
+      })
+      .catch(() => {
+        if (requestVersionRef.current === version) setError(true);
+      })
+      .finally(() => {
+        if (requestVersionRef.current !== version) return;
+        setLoading(false);
+      });
 
-    return () => { cancelled = true; };
-  }, [loadTasks]);
+    return () => {
+      requestVersionRef.current = version + 1;
+    };
+  }, [loadTasks, reload]);
 
   // 加载更多
   const handleLoadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
+    if (loading || loadingMoreRef.current || !hasMore) return;
+    const version = requestVersionRef.current;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
-    const result = await loadTasks(offsetRef.current);
-    setTasks((prev) => [...prev, ...result.tasks]);
-    setHasMore(result.hasMore);
-    offsetRef.current += result.tasks.length;
-    setLoadingMore(false);
-  }, [loadingMore, hasMore, loadTasks]);
+    setError(false);
+    try {
+      const result = await loadTasks(offsetRef.current);
+      if (requestVersionRef.current !== version) return;
+      setTasks((prev) => [...prev, ...result.tasks]);
+      setHasMore(result.hasMore);
+      offsetRef.current += result.tasks.length;
+    } catch {
+      if (requestVersionRef.current === version) setError(true);
+    } finally {
+      if (requestVersionRef.current === version) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [loading, hasMore, loadTasks]);
 
   // 滚动到底部自动加载
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || error) return;
 
     const onScroll = () => {
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
@@ -81,7 +121,7 @@ export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
 
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [handleLoadMore]);
+  }, [handleLoadMore, error]);
 
   if (loading) {
     return (
@@ -96,7 +136,18 @@ export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
     return (
       <div className="task-queue-panel__empty">
         <div className="task-queue-panel__empty-icon">📦</div>
-        <div className="task-queue-panel__empty-text">暂无历史任务</div>
+        <div className="task-queue-panel__empty-text" role="status">
+          {error
+            ? '历史任务加载失败，请重试'
+            : hasFilters
+            ? '没有符合筛选条件的历史任务'
+            : '暂无历史任务'}
+        </div>
+        {error && (
+          <Button size="small" onClick={() => setReload((value) => value + 1)}>
+            重新加载
+          </Button>
+        )}
       </div>
     );
   }
@@ -104,6 +155,8 @@ export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
   return (
     <div
       ref={containerRef}
+      role="region"
+      aria-label="历史任务列表"
       className={className}
       style={{ overflow: 'auto', height: '100%' }}
     >
@@ -111,12 +164,15 @@ export const ArchivedTaskList: React.FC<ArchivedTaskListProps> = ({
         <TaskItem
           key={task.id}
           task={task}
-          onPreviewOpen={onPreviewOpen ? () => onPreviewOpen(task.id) : undefined}
+          onPreviewOpen={
+            onPreviewOpen ? () => onPreviewOpen(task.id) : undefined
+          }
           onDownload={onDownload}
         />
       ))}
       {hasMore && (
         <div style={{ padding: '12px', textAlign: 'center' }}>
+          {error && <div role="alert">加载失败，请重试</div>}
           {loadingMore ? (
             <Loading size="small" />
           ) : (
