@@ -1,3 +1,13 @@
+## 1.2.5 (2026-11-02)
+
+### 🚀 Features
+
+- 完善批量导入、历史筛选及生图结果交付 (#323) ([e8aff018](https://github.com/ljquan/opentu/commit/e8aff018))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.2.4 (2026-11-01)
 
 ### 🚀 Features

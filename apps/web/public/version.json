@@ -1,8 +1,8 @@
 {
-  "version": "1.2.4",
-  "buildTime": "2026-11-01T05:27:49.780Z",
+  "version": "1.2.5",
+  "buildTime": "2026-11-02T08:01:35.642Z",
   "gitCommit": "unknown",
   "changelog": [
-    "恢复按当前 API Key 认证获取模型 (#322)"
+    "完善批量导入、历史筛选及生图结果交付 (#323)"
   ]
 }

@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.5",
+      "date": "2026-11-02",
+      "changes": {
+        "features": [
+          "完善批量导入、历史筛选及生图结果交付 (#323)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "完善批量导入、历史筛选及生图结果交付 (#323)"
+    },
+    {
       "version": "1.2.4",
       "date": "2026-11-01",
       "changes": {
@@ -956,12 +969,6 @@
       },
       "type": "patch",
       "highlights": "完善图片请求 ID 找回与失败重试体验"
-    },
-    {
-      "version": "1.0.3",
-      "date": "2026-07-18",
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
     }
   ]
 }
