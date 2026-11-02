@@ -20,6 +20,7 @@ import {
 import { RetryImage } from '../retry-image';
 import { getImageTaskProgressStatusText } from '../../utils/image-task-progress';
 import { buildImageGenerationAnchorPresentationPatch } from '../../utils/image-generation-anchor-state';
+import { retryImageGenerationResultLoads } from '../../utils/image-generation-anchor-readiness';
 import {
   getTasksForImageGenerationAnchor,
   selectPrimaryImageGenerationAnchorTask,
@@ -186,6 +187,16 @@ export const ImageGenerationAnchorContent: React.FC<
       }
 
       if (actionType === 'retry') {
+        if (retryImageGenerationResultLoads(board, element, relatedTasks)) {
+          ImageGenerationAnchorTransforms.updateAnchor(
+            board,
+            element.id,
+            buildImageGenerationAnchorPresentationPatch('inserting', {
+              subtitle: '正在重新加载已有图片',
+            })
+          );
+          return;
+        }
         const retryableTask =
           relatedTasks.find(
             (task) =>

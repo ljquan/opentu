@@ -24,6 +24,10 @@ import { BaseStorageReader } from './base-storage-reader';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { STORAGE_LIMITS } from '../constants/TASK_CONSTANTS';
 import type { CacheWarning } from '../types/cache-warning.types';
+import {
+  matchesTaskQueueFilters,
+  type TaskQueueFilters,
+} from '../utils/task-queue-filters';
 
 import { APP_DB_NAME, APP_DB_STORES, getAppDB } from './app-database';
 
@@ -804,9 +808,26 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
    */
   async getArchivedTasks(
     offset = 0,
-    limit = 50
+    limit = 50,
+    filters: TaskQueueFilters = {}
   ): Promise<{ tasks: Task[]; hasMore: boolean }> {
     try {
+      const { createdAtFrom, createdAtTo } = filters;
+      if (
+        createdAtFrom !== undefined &&
+        createdAtTo !== undefined &&
+        createdAtFrom >= createdAtTo
+      ) {
+        return { tasks: [], hasMore: false };
+      }
+      const dateRange =
+        createdAtFrom !== undefined && createdAtTo !== undefined
+          ? IDBKeyRange.bound(createdAtFrom, createdAtTo, false, true)
+          : createdAtFrom !== undefined
+          ? IDBKeyRange.lowerBound(createdAtFrom)
+          : createdAtTo !== undefined
+          ? IDBKeyRange.upperBound(createdAtTo, true)
+          : null;
       const db = await this.getDB();
       if (!db.objectStoreNames.contains(TASKS_STORE)) {
         return { tasks: [], hasMore: false };
@@ -818,12 +839,12 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
         const index = store.index('createdAt');
         const results: Task[] = [];
         let skipped = 0;
-        const cursorReq = index.openCursor(null, 'prev');
+        const cursorReq = index.openCursor(dateRange, 'prev');
 
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
-          if (!cursor || results.length >= limit) {
-            resolve({ tasks: results, hasMore: !!cursor });
+          if (!cursor) {
+            resolve({ tasks: results, hasMore: false });
             return;
           }
           const task = cursor.value as SWTask;
@@ -832,13 +853,20 @@ class TaskStorageReader extends BaseStorageReader<TaskCache> {
             return;
           }
           const convertedTask = convertSWTaskToTask(task);
-          if (!isUserVisibleTask(convertedTask)) {
+          if (
+            !isUserVisibleTask(convertedTask) ||
+            !matchesTaskQueueFilters(convertedTask, filters)
+          ) {
             cursor.continue();
             return;
           }
           if (skipped < offset) {
             skipped++;
             cursor.continue();
+            return;
+          }
+          if (results.length >= limit) {
+            resolve({ tasks: results, hasMore: true });
             return;
           }
           results.push(convertedTask);

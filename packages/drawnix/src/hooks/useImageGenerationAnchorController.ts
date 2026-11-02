@@ -15,7 +15,10 @@ import {
 import { TaskStatus } from '../types/task.types';
 import { useImageTaskProgress } from './useImageTaskProgress';
 import { hasResolvedImageGenerationBatchCount } from '../utils/image-generation-anchor-batch';
-import { areImageGenerationResultsReady } from '../utils/image-generation-anchor-readiness';
+import {
+  areImageGenerationResultsReady,
+  getImageGenerationResultLoadError,
+} from '../utils/image-generation-anchor-readiness';
 import { subscribeCanvasImageReadiness } from '../services/canvas-image-readiness';
 
 interface UseImageGenerationAnchorControllerOptions
@@ -159,6 +162,7 @@ export function useImageGenerationAnchorController(
         postProcessingStatus: derivedPostProcessingStatus,
         hasInserted: derivedHasInserted,
         canvasReady: areImageGenerationResultsReady(board, anchor, relatedTasks),
+        canvasError: getImageGenerationResultLoadError(board, anchor, relatedTasks),
         taskDisplayProgress: displayProgress,
       }),
     [

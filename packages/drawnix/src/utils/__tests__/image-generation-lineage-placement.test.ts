@@ -156,4 +156,75 @@ describe('image lineage placement', () => {
       resolveImageLineagePositions(board([]), [], size, 1, [123, 456] as Point)
     ).toEqual([[123, 456]]);
   });
+
+  it.each([2, 5, 10])('places all %s results in one row without wrapping', (count) => {
+    const positions = resolveImageLineagePositions(board([]), [], size, count, [100, 200], 'row');
+    expect(positions).toEqual(
+      Array.from({ length: count }, (_, index) => [100 + index * 440, 200])
+    );
+  });
+
+  it('starts a horizontal batch to the right of all actual references', () => {
+    const current = board([image('a', 0, 0), image('b', 100, 500)]);
+    expect(resolveImageLineagePositions(current, ['a', 'b'], size, 3, [0, 0], 'row')).toEqual([
+      [620, 250], [1060, 250], [1500, 250],
+    ]);
+  });
+
+  it('moves the entire row below an obstacle that only intersects a later slot', () => {
+    const current = board([image('source', 0, 0), image('blocker', 1000, 0)]);
+    expect(resolveImageLineagePositions(current, ['source'], size, 3, [0, 0], 'row')).toEqual([
+      [520, 440], [960, 440], [1400, 440],
+    ]);
+  });
+
+  it('clears every reserved slot of a previous batch and keeps later requests in their own row', () => {
+    const current = board([image('source', 0, 0)]);
+    const reserved = { width: 400, height: 600 };
+    const first = resolveImageLineagePositions(current, ['source'], reserved, 3, [0, 0], 'row');
+    for (const [index, point] of first.entries()) {
+      const anchor = {
+        ...image(`pending-${index}`, ...point, 168, 72),
+        type: 'generation-anchor',
+        reservedInsertSize: reserved,
+      };
+      Transforms.insertNode(current, anchor, [current.children.length]);
+      createCanvasAssociationLines(current, {
+        boardId: 'board', sourceElementIds: ['source'], resultElementId: anchor.id,
+      });
+    }
+    const second = resolveImageLineagePositions(current, ['source'], reserved, 3, [0, 0], 'row');
+    expect(second.map((point) => point[0])).toEqual([520, 960, 1400]);
+    expect(second.every((point) => point[1] === second[0][1])).toBe(true);
+    expect(second[0][1]).toBeGreaterThanOrEqual(first[0][1] + 640);
+    expect(current.children.filter((element) => element.type === 'generation-anchor').map((element) => element.points[0])).toEqual(first);
+  });
+
+  it('clears retained failed cards without splitting a horizontal batch', () => {
+    const current = board([
+      image('source', 0, 0),
+      {
+        id: 'failed', type: 'workzone', workflow: { status: 'failed' }, zoom: 0.5,
+        points: [[1000, 0], [1360, 240]],
+      },
+    ]);
+    const positions = resolveImageLineagePositions(current, ['source'], size, 3, [0, 0], 'row');
+    expect(positions).toEqual([[520, 520], [960, 520], [1400, 520]]);
+  });
+
+  it('can switch back to a column without moving existing results', () => {
+    const current = board([]);
+    const first = resolveImageLineagePositions(current, [], size, 3, [100, 200], 'row');
+    first.forEach((point, index) => Transforms.insertNode(current, image(`result-${index}`, ...point), [current.children.length]));
+    const second = resolveImageLineagePositions(current, [], size, 3, [0, 0], 'column');
+    expect(second).toEqual([[100, 720], [100, 1160], [100, 1600]]);
+    expect(current.children.map((element) => element.points[0])).toEqual(first);
+  });
+
+  it('keeps single-image positions unchanged with either setting', () => {
+    const current = board([image('source', 100, 200, 200, 600)]);
+    expect(resolveImageLineagePositions(current, ['source'], size, 1, [0, 0], 'row')).toEqual(
+      resolveImageLineagePositions(current, ['source'], size, 1, [0, 0], 'column')
+    );
+  });
 });

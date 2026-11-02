@@ -262,12 +262,14 @@ export interface BuildImageGenerationAnchorViewModelOptions {
   isInserting?: boolean;
   hasInserted?: boolean;
   canvasReady?: boolean;
+  canvasError?: string;
   taskDisplayProgress?: number | null;
 }
 
 export function deriveImageGenerationAnchorPhase(
   options: BuildImageGenerationAnchorViewModelOptions
 ): ImageGenerationAnchorPhase {
+  if (options.canvasError) return 'failed';
   const {
     anchor,
     task,
@@ -367,17 +369,18 @@ export function buildImageGenerationAnchorViewModel(
   const relatedTasks = tasks.length > 0 ? tasks : task ? [task] : [];
   const failedAfterGeneration =
     phase === 'failed' &&
-    !relatedTasks.some(
-      (relatedTask) =>
-        relatedTask.status === TaskStatus.FAILED ||
-        relatedTask.status === TaskStatus.CANCELLED
-    ) &&
-    (relatedTasks.some(
-      (relatedTask) => relatedTask.status === TaskStatus.COMPLETED
-    ) ||
-      workflow?.status === 'completed' ||
-      options.postProcessingStatus === 'failed' ||
-      workflow?.postProcessingStatus === 'failed');
+    (Boolean(options.canvasError) ||
+      (!relatedTasks.some(
+        (relatedTask) =>
+          relatedTask.status === TaskStatus.FAILED ||
+          relatedTask.status === TaskStatus.CANCELLED
+      ) &&
+        (relatedTasks.some(
+          (relatedTask) => relatedTask.status === TaskStatus.COMPLETED
+        ) ||
+          workflow?.status === 'completed' ||
+          options.postProcessingStatus === 'failed' ||
+          workflow?.postProcessingStatus === 'failed')));
   const failureStage: ImageGenerationAnchorViewModel['failureStage'] =
     phase === 'failed'
       ? failedAfterGeneration
@@ -408,7 +411,9 @@ export function buildImageGenerationAnchorViewModel(
       : taskDisplayProgress ?? resolvedProgress
   );
   const subtitle =
-    failedAfterGeneration
+    options.canvasError
+      ? '图片已生成，画布加载失败，可直接重试加载已有结果'
+      : failedAfterGeneration
       ? '图片已生成，加载或插入失败，可重试插入已有结果'
       : anchor.subtitle && anchor.phase === phase
       ? anchor.subtitle
@@ -436,7 +441,11 @@ export function buildImageGenerationAnchorViewModel(
     phase === 'failed'
       ? {
           type: 'retry' as const,
-          label: failedAfterGeneration ? '重试插入' : '重试',
+          label: options.canvasError
+            ? '重试加载'
+            : failedAfterGeneration
+            ? '重试插入'
+            : '重试',
         }
       : { type: 'details' as const, label: '详情' };
 
@@ -455,7 +464,9 @@ export function buildImageGenerationAnchorViewModel(
     batchPreview,
     progress,
     progressMode,
-    phaseLabel: failedAfterGeneration
+    phaseLabel: options.canvasError
+      ? '已生成，加载失败'
+      : failedAfterGeneration
       ? RESULT_INSERTION_FAILED_LABEL
       : PHASE_LABELS[phase],
     failureStage,
@@ -468,7 +479,9 @@ export function buildImageGenerationAnchorViewModel(
     transitionMode: anchor.transitionMode,
     primaryAction,
     secondaryAction,
-    error: anchor.error || workflow?.error,
+    error: phase === 'completed'
+      ? undefined
+      : options.canvasError || anchor.error || workflow?.error,
     isTerminal: phase === 'completed' || phase === 'failed',
   };
 }

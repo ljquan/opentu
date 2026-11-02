@@ -63,6 +63,9 @@ import {
   getWorkZoneVisualRectangle,
   isWorkZoneElement,
 } from '../../plugins/workzone-transforms';
+import { withImageOperationTimeout } from '../../utils/image-operation-timeout';
+
+const IMAGE_INSERTION_TIMEOUT_MS = 60_000;
 
 export {
   setCanvasBoard,
@@ -692,6 +695,33 @@ function commitStagedCanvasInsertion(
  * 执行画布插入
  */
 export async function executeCanvasInsertion(
+  params: CanvasInsertionParams
+): Promise<MCPResult> {
+  if (!params.items?.some((item) => item.type === 'image')) {
+    return executeCanvasInsertionInternal(params);
+  }
+
+  try {
+    return await withImageOperationTimeout(
+      (signal) => executeCanvasInsertionInternal({
+        ...params,
+        // Staging, frame insertion and the final commit all use this guard.
+        // A timed-out operation may finish its I/O but cannot write a result.
+        boardGuard: () => !signal.aborted && (!params.boardGuard || params.boardGuard()),
+      }),
+      IMAGE_INSERTION_TIMEOUT_MS,
+      '画布插入超时，可重试插入已有结果'
+    );
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '画布插入失败',
+      type: 'error',
+    };
+  }
+}
+
+async function executeCanvasInsertionInternal(
   params: CanvasInsertionParams
 ): Promise<MCPResult> {
   const board = params.board || readCanvasBoard();

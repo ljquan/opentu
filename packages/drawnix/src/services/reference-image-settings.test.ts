@@ -103,3 +103,66 @@ describe('reference image fidelity settings', () => {
     vi.stubGlobal('CustomEvent', customEvent);
   });
 });
+
+describe('reference image canvas insertion settings', () => {
+  it('preserves automatic insertion by default and restores an explicit disabled choice', async () => {
+    const { readAutoInsertReferenceImagesEnabled: read } = await settings();
+    expect(read(null)).toBe(true);
+    expect(read({ getItem: () => null })).toBe(true);
+    expect(read({ getItem: () => 'invalid' })).toBe(true);
+    expect(read({ getItem: () => 'true' })).toBe(true);
+    expect(read({ getItem: () => 'false' })).toBe(false);
+  });
+
+  it('persists independently of image fidelity, notifies consumers and restores after reload', async () => {
+    const values = new Map<string, string>();
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+    const api = await settings();
+    const observed: boolean[] = [];
+    const listener = () => observed.push(api.readAutoInsertReferenceImagesEnabled());
+    window.addEventListener(api.REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, listener);
+    try {
+      api.persistAutoInsertReferenceImagesEnabled(false);
+      api.persistKeepOriginalImageEnabled(true);
+      expect(api.readKeepOriginalImageEnabled()).toBe(true);
+      expect(api.readAutoInsertReferenceImagesEnabled()).toBe(false);
+      expect(values.get(LS_KEYS.AI_REFERENCE_IMAGE_AUTO_INSERT)).toBe('false');
+      expect(observed).toEqual([false, false]);
+      vi.resetModules();
+      const reloaded = await settings();
+      expect(reloaded.readAutoInsertReferenceImagesEnabled()).toBe(false);
+      reloaded.persistAutoInsertReferenceImagesEnabled(true);
+      expect(values.get(LS_KEYS.AI_REFERENCE_IMAGE_AUTO_INSERT)).toBe('true');
+    } finally {
+      window.removeEventListener(api.REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, listener);
+    }
+  });
+
+  it.each(['access', 'quota'])('keeps and announces the session choice when storage fails: %s', async (failure) => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      ...(failure === 'access'
+        ? { get: () => { throw new Error('security'); } }
+        : { value: { getItem: () => null, setItem: () => { throw new Error('quota'); } } }),
+    });
+    const api = await settings();
+    expect(api.readAutoInsertReferenceImagesEnabled()).toBe(true);
+    const observed: boolean[] = [];
+    const listener = () => observed.push(api.readAutoInsertReferenceImagesEnabled());
+    window.addEventListener(api.REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, listener);
+    try {
+      api.persistAutoInsertReferenceImagesEnabled(false);
+      api.persistAutoInsertReferenceImagesEnabled(true);
+      expect(observed).toEqual([false, true]);
+      expect(api.readAutoInsertReferenceImagesEnabled()).toBe(true);
+    } finally {
+      window.removeEventListener(api.REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, listener);
+    }
+  });
+});

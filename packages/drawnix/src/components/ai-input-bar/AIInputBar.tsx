@@ -307,11 +307,16 @@ import {
   type BoundImageTargetMode,
 } from './target-bound-taskbar-state';
 import {
+  CANVAS_VIEW_SETTINGS_CHANGE_EVENT,
   persistCenterImageOnClickEnabled,
+  persistHorizontalImageBatchEnabled,
   readCenterImageOnClickEnabled,
+  readHorizontalImageBatchEnabled,
 } from './canvas-view-settings';
 import {
+  persistAutoInsertReferenceImagesEnabled,
   persistKeepOriginalImageEnabled,
+  readAutoInsertReferenceImagesEnabled,
   readKeepOriginalImageEnabled,
   REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT,
 } from '../../services/reference-image-settings';
@@ -2023,12 +2028,31 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     const [centerImageOnClickEnabled, setCenterImageOnClickEnabled] =
       useState(() => readCenterImageOnClickEnabled());
+    const [horizontalImageBatchEnabled, setHorizontalImageBatchEnabled] =
+      useState(() => readHorizontalImageBatchEnabled());
+    const horizontalImageBatchHintId = useId();
+    useEffect(() => {
+      const sync = () => {
+        setCenterImageOnClickEnabled(readCenterImageOnClickEnabled());
+        setHorizontalImageBatchEnabled(readHorizontalImageBatchEnabled());
+      };
+      window.addEventListener(CANVAS_VIEW_SETTINGS_CHANGE_EVENT, sync);
+      return () =>
+        window.removeEventListener(CANVAS_VIEW_SETTINGS_CHANGE_EVENT, sync);
+    }, []);
     const [keepOriginalImageEnabled, setKeepOriginalImageEnabled] =
       useState(() => readKeepOriginalImageEnabled());
+    const [autoInsertReferenceImagesEnabled, setAutoInsertReferenceImagesEnabled] =
+      useState(() => readAutoInsertReferenceImagesEnabled());
     const keepOriginalImageHintId = useId();
+    const autoInsertReferenceImagesHintId = useId();
     useEffect(() => {
-      const sync = () =>
+      const sync = () => {
         setKeepOriginalImageEnabled(readKeepOriginalImageEnabled());
+        setAutoInsertReferenceImagesEnabled(
+          readAutoInsertReferenceImagesEnabled()
+        );
+      };
       window.addEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
       return () =>
         window.removeEventListener(REFERENCE_IMAGE_SETTINGS_CHANGE_EVENT, sync);
@@ -5828,6 +5852,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 sourceElementId: item.sourceElementId,
               })),
               associations: resolvedCanvasAssociations,
+              insertMissingReferences: readAutoInsertReferenceImagesEnabled(),
               emptyPosition: [submittedBoard.viewport?.origination?.[0] || 0, submittedBoard.viewport?.origination?.[1] || 0],
               boardGuard: () => isSubmittedBoardCurrent(submittedBoard, submittedDraftBoardId, SelectionWatcherBoardRef.current, activeTaskbarBoardIdRef.current),
             });
@@ -6179,7 +6204,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 : !targetFrameId && !replacementBoundImageTarget
                 ? resolveImageLineagePositions(
                     board, imageSourceIds, reservedInsertSize, requestedCount,
-                    [viewportCenterX - 200, viewportCenterY]
+                    [viewportCenterX - 200, viewportCenterY],
+                    readHorizontalImageBatchEnabled() ? 'row' : 'column'
                   )
                 : resolveImageGenerationBatchAnchorPositions(
                     board, [expectedInsertLeftX, expectedInsertY], anchorSize,
@@ -8212,6 +8238,32 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               />
             </div>
             <div className="ai-input-bar__settings-row">
+              <span>
+                {language === 'zh' ? '多图横向排列' : 'Arrange batch in a row'}
+              </span>
+              <Switch
+                size="small"
+                value={horizontalImageBatchEnabled}
+                aria-label={
+                  language === 'zh' ? '多图横向排列' : 'Arrange batch in a row'
+                }
+                aria-describedby={horizontalImageBatchHintId}
+                onChange={(checked) =>
+                  setHorizontalImageBatchEnabled(
+                    persistHorizontalImageBatchEnabled(checked as boolean)
+                  )
+                }
+              />
+            </div>
+            <p
+              id={horizontalImageBatchHintId}
+              className="ai-input-bar__settings-hint"
+            >
+              {language === 'zh'
+                ? '普通生图一次多张时生效：开启横排，关闭竖排。只影响新任务。'
+                : 'For new multi-image requests: on for a row, off for a column.'}
+            </p>
+            <div className="ai-input-bar__settings-row">
               <span>{language === 'zh' ? '保留原图' : 'Keep original image'}</span>
               <Switch
                 size="small"
@@ -8232,6 +8284,36 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               {language === 'zh'
                 ? '开启后图片体积更大，上传和生成可能明显变慢。'
                 : 'Original images are larger and may make uploads and generation much slower.'}
+            </p>
+            <div className="ai-input-bar__settings-row">
+              <span>
+                {language === 'zh'
+                  ? '参考图自动加入画布'
+                  : 'Add reference images to canvas'}
+              </span>
+              <Switch
+                size="small"
+                value={autoInsertReferenceImagesEnabled}
+                aria-label={
+                  language === 'zh'
+                    ? '参考图自动加入画布'
+                    : 'Add reference images to canvas'
+                }
+                aria-describedby={autoInsertReferenceImagesHintId}
+                onChange={(checked) =>
+                  setAutoInsertReferenceImagesEnabled(
+                    persistAutoInsertReferenceImagesEnabled(checked as boolean)
+                  )
+                }
+              />
+            </div>
+            <p
+              id={autoInsertReferenceImagesHintId}
+              className="ai-input-bar__settings-hint"
+            >
+              {language === 'zh'
+                ? '发送生图时生效。关闭后，未在画布上的图片仅作生成参考，不加入画布。'
+                : 'Applies when sending image requests. When off, images outside the canvas are used only as references.'}
             </p>
             {followControlsTarget && boundTargetFollowEnabled ? (
               <div className="ai-input-bar__settings-actions">

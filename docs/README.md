@@ -30,6 +30,7 @@
 
 ## 关键能力
 
+- [任务队列日期筛选 QA](./qa-task-queue-date-filter.md)：当前与历史任务的日期/关键词组合查询、归档分页、时区及异步切换回归；用法见 [任务队列手册](./user-manual/content/advanced/task-queue.mdx)。
 - [图片预发布修复与 QA](./qa-prerelease-fixes-20261026.md)：Seedream 字节缓存、缩放/拆分避让、工具栏文字和原图像素；含真实接口与页面复测。
 - [新功能红点提示与 QA](./qa-feature-discovery.md)：菜单和画布显示入口的独立已读状态、刷新恢复和维护方式。
 - [Top 50 媒体模型参数补齐实施方案](../openspec/changes/complete-top50-media-model-parameters/design.md)：限定 21 个图片和 5 个视频模型，含参数映射、渠道依赖、实施阶段及测试计划；已进入本地实施，条件工作包保留待确认状态。

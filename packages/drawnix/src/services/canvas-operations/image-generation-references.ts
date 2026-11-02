@@ -47,6 +47,7 @@ export async function prepareImageGenerationReferences(options: {
   associations: readonly CanvasAssociationRef[];
   emptyPosition: Point;
   boardGuard: () => boolean;
+  insertMissingReferences?: boolean;
 }): Promise<{ references: CanvasAssociationRef[]; imageSourceIds: string[] }> {
   const { board, boardId, images, associations, boardGuard, emptyPosition } =
     options;
@@ -95,6 +96,8 @@ export async function prepareImageGenerationReferences(options: {
       throw new Error('参考图已从画布删除，请重新选择');
     let sourceElement = source;
     if (!sourceElement) {
+      // Off-canvas images remain in the request; only canvas sources are optional.
+      if (options.insertMissingReferences === false) continue;
       const cachedUrl = await cacheRemoteUrl(
         image.url,
         `reference-${key}`,

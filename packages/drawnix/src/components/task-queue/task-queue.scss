@@ -73,18 +73,29 @@
   }
 
   &__filters {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
-    flex-wrap: nowrap;
+    gap: 10px 12px;
     width: 100%;
+    container: task-filters / inline-size;
+
+    &--archived {
+      grid-template-columns: minmax(0, 1fr);
+
+      .task-queue-panel__search-row {
+        grid-column: 1;
+      }
+    }
   }
 
   &__type-filters {
+    grid-column: 1;
+    grid-row: 1;
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 3px;
+    padding: 0;
     background: var(--td-bg-color-secondarycontainer, #f3f3f3);
     border-radius: 10px;
     flex-shrink: 0;
@@ -123,11 +134,115 @@
   }
 
   &__search-row {
+    grid-column: 2;
+    grid-row: 1;
     display: flex;
     align-items: center;
     gap: 8px;
     flex: 1;
     min-width: 0;
+  }
+
+  &__search-filters {
+    display: contents;
+  }
+
+  &__date-filter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+
+  }
+
+  &__date-caption {
+    flex-shrink: 0;
+    font-weight: 500;
+  }
+
+  &__date-range {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    max-width: 380px;
+    min-width: 0;
+    height: 32px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--td-component-border, #dcdcdc);
+    border-radius: 8px;
+    background: var(--td-bg-color-container, #fff);
+
+    &:hover {
+      border-color: #f39c12;
+    }
+
+    &:focus-within {
+      border-color: #f39c12;
+      box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.12);
+    }
+
+    label {
+      flex: 1;
+      min-width: 0;
+    }
+
+    input {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      height: 30px;
+      padding: 0 4px;
+      border: 0;
+      border-radius: 4px;
+      color: var(--td-text-color-primary);
+      background: transparent;
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+
+      &:focus {
+        outline: none;
+      }
+
+      &::-webkit-calendar-picker-indicator {
+        margin: 0;
+        padding: 2px;
+        opacity: 0.55;
+        cursor: pointer;
+      }
+    }
+  }
+
+  &__date-separator {
+    padding: 0 6px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__date-clear.t-button {
+    flex-shrink: 0;
+    padding: 0 4px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+
+    &:hover {
+      color: #f39c12;
+    }
+  }
+
+  &__search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   &__filter-actions {
@@ -145,7 +260,7 @@
       border-radius: 8px;
       height: 32px;
       background: var(--td-bg-color-container, #fff) !important;
-      border: 1.5px solid #dcdcdc !important; // 强化边框
+      border: 1px solid var(--td-component-border, #dcdcdc) !important;
       transition: all 0.25s ease;
       
       &:hover {
@@ -772,7 +887,6 @@
     }
 
     &__filters {
-      flex-direction: row;
       align-items: center;
       gap: 8px;
     }
@@ -851,12 +965,12 @@
     }
 
     &__type-filters {
-      padding: 2px;
+      padding: 0;
       border-radius: 8px;
 
       .t-button {
-        height: 30px !important;
-        min-width: 30px !important;
+        height: 32px !important;
+        min-width: 32px !important;
       }
     }
 
@@ -865,8 +979,8 @@
       min-width: 80px !important;
       
       .t-input {
-        min-height: 28px !important;
-        height: 28px !important;
+        min-height: 32px !important;
+        height: 32px !important;
         font-size: 13px !important;
         border-width: 1px !important;
       }
@@ -878,8 +992,8 @@
 
     &__filter-actions {
       .t-button {
-        min-height: 28px !important;
-        height: 28px !important;
+        min-height: 32px !important;
+        height: 32px !important;
         padding: 0 10px !important;
         font-size: 12px !important;
       }
@@ -1185,6 +1299,39 @@
     padding: 12px;
     color: var(--td-text-color-placeholder, #bbb);
     font-size: 12px;
+  }
+}
+
+// Respond to the drawer's resized width, independently of the browser viewport.
+@container task-filters (max-width: 480px) {
+  .task-queue-panel__type-filters {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .task-queue-panel__search-row {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .task-queue-panel__date-filter {
+    grid-row: 3;
+  }
+
+  .task-queue-panel__filters--archived {
+    .task-queue-panel__search-row {
+      grid-row: 1;
+    }
+
+    .task-queue-panel__date-filter {
+      grid-row: 2;
+    }
+  }
+}
+
+@container task-filters (max-width: 360px) {
+  .task-queue-panel__date-caption {
+    display: none;
   }
 }
 

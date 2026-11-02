@@ -10,6 +10,7 @@ import React, {
   useCallback,
   useRef,
   useMemo,
+  useId,
 } from 'react';
 import { copyToClipboard } from '../../utils/runtime-helpers';
 import { useDrawnix } from '../../hooks/use-drawnix';
@@ -85,6 +86,8 @@ import {
   sanitizeImageToolExtraParams,
 } from '../../services/ai-generation-preferences-service';
 import { buildMJPromptSuffix } from '../../utils/mj-params';
+import { BatchLibraryThumbnail } from './BatchLibraryThumbnail';
+import { BatchImportRowInput } from './BatchImportRowInput';
 
 // 本地缓存 key
 const BATCH_IMAGE_CACHE_KEY = LS_KEYS_TO_MIGRATE.BATCH_IMAGE_CACHE;
@@ -536,7 +539,14 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
   const [imagesPerRow, setImagesPerRow] = useState<number>(1);
   const [showBatchImportModal, setShowBatchImportModal] = useState(false);
   const [pendingImportFiles, setPendingImportFiles] = useState<File[]>([]);
+  const [pendingImportRowIds, setPendingImportRowIds] = useState<number[] | null>(
+    null
+  );
   const [importStartRow, setImportStartRow] = useState<number>(1); // 从第几行开始插入（1-based）
+  const [importFillRowCount, setImportFillRowCount] = useState<number | null>(
+    null
+  );
+  const importRangeId = useId();
   const normalizedImagesPerRow = Math.min(
     5,
     Math.max(1, Math.floor(Number.isFinite(imagesPerRow) ? imagesPerRow : 1))
@@ -545,7 +555,23 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     pendingImportFiles.length > 0
       ? Math.ceil(pendingImportFiles.length / normalizedImagesPerRow)
       : 0;
-  const maxImportStartRow = Math.max(1, tasks.length + pendingImportRowCount);
+  const maxImportStartRow = Math.max(1, tasks.length + 1);
+  const maxImportFillRowCount = pendingImportRowIds
+    ? pendingImportRowIds.length
+    : Math.max(100, tasks.length, pendingImportRowCount);
+  const normalizedImportFillRowCount = Math.min(
+    maxImportFillRowCount,
+    Math.max(
+      1,
+      Math.floor(
+        importFillRowCount !== null && Number.isFinite(importFillRowCount)
+          ? importFillRowCount
+          : pendingImportRowIds?.length ?? pendingImportRowCount
+      )
+    )
+  );
+  const importCapacity = normalizedImportFillRowCount * normalizedImagesPerRow;
+  const exceedsImportCapacity = pendingImportFiles.length > importCapacity;
 
   // 创建预览图片的 Blob URL（防止渲染时重复创建导致内存泄漏）
   const previewUrls = useMemo(() => {
@@ -1529,9 +1555,16 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
       }
 
       setPendingImportFiles(imageFiles);
+      setImportFillRowCount(null);
+      // Capture row identities in table order; never spill into unchecked rows.
+      setPendingImportRowIds(
+        selectedRows.size > 0
+          ? tasks.filter((_, index) => selectedRows.has(index)).map((row) => row.id)
+          : null
+      );
       // 默认从当前选中行或第1行开始
       const defaultStartRow = activeCell ? activeCell.row + 1 : 1;
-      setImportStartRow(Math.min(defaultStartRow, tasks.length));
+      setImportStartRow(Math.max(1, Math.min(defaultStartRow, tasks.length)));
       setShowBatchImportModal(true);
 
       // 清空 input
@@ -1539,17 +1572,25 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
         batchImportInputRef.current.value = '';
       }
     },
-    [language, activeCell, tasks.length]
+    [language, activeCell, tasks, selectedRows]
   );
 
   // 执行批量导入
   const executeBatchImport = useCallback(async () => {
     if (pendingImportFiles.length === 0) return;
+    if (exceedsImportCapacity) {
+      MessagePlugin.warning(
+        language === 'zh'
+          ? '图片数量超过填充范围容量，请增加填充行数或每行图片数'
+          : 'Too many images for this range. Increase the row count or images per row.'
+      );
+      return;
+    }
     const endTrack = trackMemory(`批量导入(${pendingImportFiles.length}张)`);
 
     const perRow = normalizedImagesPerRow;
     const totalImages = pendingImportFiles.length;
-    const rowsNeeded = Math.ceil(totalImages / perRow);
+    const rowsNeeded = normalizedImportFillRowCount;
     const startIndex = importStartRow - 1; // 转为 0-based index
 
     // 读取所有图片为 DataURL，同时添加到素材库
@@ -1577,26 +1618,23 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     // 分配图片到行
     setTasks((prev) => {
       const newTasks = [...prev];
-      let imageIndex = 0;
       let newRowsCreated = 0;
 
       for (let i = 0; i < rowsNeeded; i++) {
-        const targetRowIndex = startIndex + i;
-        const rowImages: string[] = [];
+        const targetRowIndex = pendingImportRowIds
+          ? newTasks.findIndex((row) => row.id === pendingImportRowIds[i])
+          : startIndex + i;
+        // Reuse image groups in order when the requested range is longer.
+        const groupStart = (i % Math.ceil(totalImages / perRow)) * perRow;
+        const rowImages = imageDataUrls.slice(groupStart, groupStart + perRow);
 
-        // 收集本行的图片
-        for (let j = 0; j < perRow && imageIndex < totalImages; j++) {
-          rowImages.push(imageDataUrls[imageIndex]);
-          imageIndex++;
-        }
-
-        if (targetRowIndex < newTasks.length) {
+        if (targetRowIndex >= 0 && targetRowIndex < newTasks.length) {
           // 插入到已有行：追加图片到现有行
           newTasks[targetRowIndex] = {
             ...newTasks[targetRowIndex],
             images: [...newTasks[targetRowIndex].images, ...rowImages],
           };
-        } else {
+        } else if (!pendingImportRowIds) {
           // 超出现有行：创建新行
           newTasks.push({
             id: taskIdCounter + newRowsCreated,
@@ -1614,24 +1652,35 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     });
 
     // 更新 ID 计数器（仅当创建了新行时）
-    const existingRowsUsed = Math.min(rowsNeeded, tasks.length - startIndex);
+    const existingRowsUsed = Math.max(
+      0,
+      Math.min(rowsNeeded, tasks.length - startIndex)
+    );
     const newRowsCreated = Math.max(0, rowsNeeded - existingRowsUsed);
-    if (newRowsCreated > 0) {
+    if (!pendingImportRowIds && newRowsCreated > 0) {
       setTaskIdCounter((prev) => prev + newRowsCreated);
     }
 
     // 清理状态
     setPendingImportFiles([]);
+    setPendingImportRowIds(null);
+    setImportFillRowCount(null);
     setShowBatchImportModal(false);
     endTrack();
 
-    const message =
-      language === 'zh'
-        ? `已导入 ${totalImages} 张图片，从第 ${importStartRow} 行开始`
-        : `Imported ${totalImages} images starting from row ${importStartRow}`;
+    const message = pendingImportRowIds
+      ? language === 'zh'
+        ? `已导入 ${totalImages} 张图片，仅填充 ${rowsNeeded} 个选中行`
+        : `Imported ${totalImages} images into ${rowsNeeded} selected rows only`
+      : language === 'zh'
+        ? `已导入 ${totalImages} 张图片，填充第 ${importStartRow}～${importStartRow + rowsNeeded - 1} 行`
+        : `Imported ${totalImages} images into rows ${importStartRow}–${importStartRow + rowsNeeded - 1}`;
     MessagePlugin.success(message);
   }, [
     pendingImportFiles,
+    pendingImportRowIds,
+    exceedsImportCapacity,
+    normalizedImportFillRowCount,
     normalizedImagesPerRow,
     importStartRow,
     taskIdCounter,
@@ -1644,6 +1693,8 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
   // 取消批量导入
   const cancelBatchImport = useCallback(() => {
     setPendingImportFiles([]);
+    setPendingImportRowIds(null);
+    setImportFillRowCount(null);
     setShowBatchImportModal(false);
   }, []);
 
@@ -3745,8 +3796,8 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
             <HoverTip
               content={
                 language === 'zh'
-                  ? '从本地选择多张图片，按设置批量分配到任务行'
-                  : 'Choose multiple local images and assign them to task rows'
+                  ? '从本地选择多张图片；有勾选时只填充勾选行，否则从指定行开始'
+                  : 'Choose local images: fill checked rows only, or start from a specified row when none are checked'
               }
               theme="light"
               delay={0}
@@ -4330,7 +4381,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
                       }
                       data-track="batch_library_image_click"
                     >
-                      <img src={asset.url} alt={asset.name} draggable={false} />
+                      <BatchLibraryThumbnail asset={asset} />
                     </div>
                   </HoverTip>
                 ))
@@ -4351,71 +4402,135 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
               <h3>
                 {language === 'zh' ? '批量导入图片' : 'Batch Import Images'}
               </h3>
-              <button className="close-btn" onClick={cancelBatchImport}>
+              <button
+                className="close-btn"
+                type="button"
+                aria-label={language === 'zh' ? '关闭导入弹窗' : 'Close import dialog'}
+                onClick={cancelBatchImport}
+              >
                 ×
               </button>
             </div>
             <div className="modal-body">
-              <p className="import-info">
-                {language === 'zh'
-                  ? `已选择 ${pendingImportFiles.length} 张图片`
-                  : `${pendingImportFiles.length} images selected`}
-              </p>
+              <div className="import-info">
+                <span className="import-info-count">
+                  {pendingImportFiles.length}
+                </span>
+                <span>
+                  {language === 'zh' ? '张图片待导入' : 'images ready to import'}
+                </span>
+                <span className="import-info-divider" aria-hidden="true">
+                  ·
+                </span>
+                <span>
+                  {language === 'zh'
+                    ? `预计填充 ${normalizedImportFillRowCount} 行`
+                    : `${normalizedImportFillRowCount} rows targeted`}
+                </span>
+              </div>
 
-              <div className="import-settings-row">
-                <div className="import-setting-item">
-                  <label>
-                    {language === 'zh' ? '从第几行开始：' : 'Start from row:'}
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={maxImportStartRow}
-                    value={importStartRow}
-                    onChange={(e) => {
-                      const parsed = parseInt(e.target.value, 10);
-                      const val = Math.min(
-                        maxImportStartRow,
-                        Math.max(1, Number.isFinite(parsed) ? parsed : 1)
-                      );
-                      setImportStartRow(val);
-                    }}
-                    className="start-row-input"
-                  />
+              <div className="import-settings-card">
+                <div className="import-settings-heading">
+                  <strong>{language === 'zh' ? '导入范围' : 'Import range'}</strong>
+                  <span>
+                    {pendingImportRowIds
+                      ? language === 'zh'
+                        ? '按表格顺序填充'
+                        : 'Selected rows in table order'
+                      : language === 'zh'
+                      ? '按连续行填充'
+                      : 'Fill consecutive rows'}
+                  </span>
                 </div>
+                <div className="import-settings-row">
+                  {pendingImportRowIds ? (
+                    <div className="import-setting-item import-setting-item--target">
+                      <span className="import-setting-label">
+                        {language === 'zh' ? '填充目标' : 'Target'}
+                      </span>
+                      <span className="import-target-chip">
+                        {language === 'zh'
+                          ? `已勾选 ${pendingImportRowIds.length} 行，仅填充勾选行`
+                          : `${pendingImportRowIds.length} checked rows only`}
+                      </span>
+                    </div>
+                  ) : (
+                    <BatchImportRowInput
+                      id={`${importRangeId}-start`}
+                      label={language === 'zh' ? '起始行' : 'Start row'}
+                      unit={language === 'zh' ? '行' : 'row'}
+                      value={importStartRow}
+                      max={maxImportStartRow}
+                      onChange={setImportStartRow}
+                      decreaseLabel={language === 'zh' ? '减少起始行' : 'Decrease start row'}
+                      increaseLabel={language === 'zh' ? '增加起始行' : 'Increase start row'}
+                      describedBy={`${importRangeId}-summary`}
+                    />
+                  )}
+                  <BatchImportRowInput
+                    id={`${importRangeId}-count`}
+                    label={language === 'zh' ? '填充行数' : 'Rows to fill'}
+                    unit={language === 'zh' ? '行' : 'rows'}
+                    value={normalizedImportFillRowCount}
+                    max={maxImportFillRowCount}
+                    onChange={setImportFillRowCount}
+                    decreaseLabel={language === 'zh' ? '减少填充行数' : 'Decrease rows to fill'}
+                    increaseLabel={language === 'zh' ? '增加填充行数' : 'Increase rows to fill'}
+                    describedBy={`${importRangeId}-summary`}
+                  />
 
-                <div className="import-setting-item">
-                  <label>
-                    {language === 'zh' ? '每行图片数：' : 'Images per row:'}
-                  </label>
-                  <div className="per-row-options">
-                    {[1, 2, 3, 4, 5].map((num) => (
-                      <button
-                        type="button"
-                        key={num}
-                        className={`per-row-btn ${
-                          normalizedImagesPerRow === num ? 'active' : ''
-                        }`}
-                        onClick={() => setImagesPerRow(num)}
-                        aria-pressed={normalizedImagesPerRow === num}
-                        aria-label={
-                          language === 'zh'
-                            ? `每行 ${num} 张图片`
-                            : `${num} image${num > 1 ? 's' : ''} per row`
-                        }
-                      >
-                        {num}
-                      </button>
-                    ))}
+                  <div className="import-setting-item import-setting-item--wide">
+                    <span id={`${importRangeId}-per-row`} className="import-setting-label">
+                      {language === 'zh' ? '每行图片数' : 'Images per row'}
+                    </span>
+                    <div
+                      className="per-row-options"
+                      role="group"
+                      aria-labelledby={`${importRangeId}-per-row`}
+                    >
+                      {[1, 2, 3, 4, 5].map((num) => (
+                        <button
+                          type="button"
+                          key={num}
+                          className={`per-row-btn ${
+                            normalizedImagesPerRow === num ? 'active' : ''
+                          }`}
+                          onClick={() => setImagesPerRow(num)}
+                          aria-pressed={normalizedImagesPerRow === num}
+                          aria-label={
+                            language === 'zh'
+                              ? `每行 ${num} 张图片`
+                              : `${num} image${num > 1 ? 's' : ''} per row`
+                          }
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <p className="import-preview">
-                {language === 'zh'
-                  ? `从第 ${importStartRow} 行开始，填充 ${pendingImportRowCount} 行，每行 ${normalizedImagesPerRow} 张图片`
-                  : `Starting from row ${importStartRow}, filling ${pendingImportRowCount} rows with ${normalizedImagesPerRow} image(s) each`}
-              </p>
+              <div
+                id={`${importRangeId}-summary`}
+                className="import-preview import-preview--summary"
+                role="status"
+              >
+                {pendingImportRowIds
+                  ? language === 'zh'
+                    ? `填充前 ${normalizedImportFillRowCount} 个勾选行，未勾选行不变；图片不足时按顺序循环使用。`
+                    : `Fill the first ${normalizedImportFillRowCount} checked rows only. Image groups repeat when needed.`
+                  : language === 'zh'
+                  ? `填充第 ${importStartRow}～${importStartRow + normalizedImportFillRowCount - 1} 行，共 ${normalizedImportFillRowCount} 行；图片不足时按顺序循环使用。`
+                  : `Fill rows ${importStartRow}–${importStartRow + normalizedImportFillRowCount - 1} (${normalizedImportFillRowCount} rows). Image groups repeat when needed.`}
+              </div>
+              {exceedsImportCapacity && (
+                <p className="import-preview" role="alert">
+                  {language === 'zh'
+                    ? '图片数量超过填充范围容量，请增加填充行数或每行图片数；勾选模式最多填充已勾选的行。'
+                    : 'Too many images. Increase the row count or images per row. Checked-row mode cannot extend beyond the selected rows.'}
+                </p>
+              )}
 
               {/* 图片预览（使用预创建的 Blob URL 避免内存泄漏） */}
               <div className="import-preview-grid">
@@ -4447,11 +4562,14 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
                 theme="default"
                 variant="outline"
                 onClick={executeBatchImport}
+                disabled={exceedsImportCapacity}
                 data-track="batch_import_modal_confirm_click"
                 data-track-params={JSON.stringify({
                   imageCount: pendingImportFiles.length,
                   imagesPerRow: normalizedImagesPerRow,
                   startRow: importStartRow,
+                  selectedRowCount: pendingImportRowIds?.length,
+                  fillRowCount: normalizedImportFillRowCount,
                 })}
               >
                 {language === 'zh' ? '确认导入' : 'Import'}

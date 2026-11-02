@@ -39,6 +39,8 @@ export const LS_KEYS = {
   AI_INPUT_PREFERENCES: 'aitu_ai_input_preferences',
   /** Skip optional lossy compression for reference images. */
   AI_KEEP_ORIGINAL_IMAGE_ENABLED: 'aitu_ai_keep_original_image_enabled',
+  /** 发送生图时是否将画布中缺少的参考图加入画布 */
+  AI_REFERENCE_IMAGE_AUTO_INSERT: 'aitu_ai_reference_image_auto_insert',
   /** 生成目标任务栏关闭提示累计次数 */
   AI_BOUND_TARGET_DISMISS_HINT_COUNT: 'aitu_ai_bound_target_dismiss_hint_count',
   /** 生成目标任务栏是否跟随目标位置 */
@@ -47,6 +49,8 @@ export const LS_KEYS = {
   AI_CANVAS_ASSOCIATION_ENABLED: 'aitu_ai_canvas_association_enabled',
   /** 点击图片后是否自动将画布居中到图片 */
   AI_CENTER_IMAGE_ON_CLICK_ENABLED: 'aitu_ai_center_image_on_click_enabled',
+  /** 同一次普通生图的多张结果是否横向排列 */
+  AI_HORIZONTAL_IMAGE_BATCH_ENABLED: 'aitu_ai_horizontal_image_batch_enabled',
   AI_IMAGE_DETAILS_ON_CLICK_ENABLED: 'aitu_ai_image_details_on_click_enabled',
   /** 提示词优化文本模型选择 */
   PROMPT_OPTIMIZE_TEXT_MODEL: 'aitu_prompt_optimize_text_model',
