@@ -13,6 +13,8 @@ import { snapshotCanvasAssociationRefs } from './canvas-association-state';
 import { buildBoundTargetGenerationParams } from './target-bound-taskbar-state';
 import { processSelectedContentForAI } from '../../utils/selection-utils';
 import { prepareImageGenerationReferences, type GenerationReferenceImage } from '../../services/canvas-operations/image-generation-references';
+import { resolveImageLineagePositions } from '../../utils/image-generation-lineage-placement';
+import { resolveImageAnchorInsertionPoint } from '../../utils/image-generation-anchor-insertion';
 
 // Reuse the existing AST harness convention to check actual submission wiring
 // without starting providers, MCP initialization, or a real paid generation.
@@ -32,6 +34,9 @@ const names = new Set([
 const functions: string[] = [];
 let replacementDeclaration = '';
 let selectionLoop = '';
+let referencePreparation = '';
+let requestReferences = '';
+let plannedPositions = '';
 function visit(node: ts.Node) {
   if (ts.isForOfStatement(node) && node.expression.getText(tree) === 'processedContent.remainingImages') selectionLoop = node.getText(tree);
   if (ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text))
@@ -42,10 +47,16 @@ function visit(node: ts.Node) {
     node.name.text === 'imageBoundTargetGenerationParams'
   )
     replacementDeclaration = `let ${node.getText(tree)};`;
+  if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'referenceSources')
+    referencePreparation = `const ${node.getText(tree)};`;
+  if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'referenceImages' && node.initializer?.getText(tree) === '[...selection.images, ...selection.graphics]')
+    requestReferences = `const ${node.getText(tree)};`;
+  if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'plannedAnchorPositions')
+    plannedPositions = `const ${node.getText(tree)};`;
   ts.forEachChild(node, visit);
 }
 visit(tree);
-if (functions.length !== names.size || !replacementDeclaration || !selectionLoop)
+if (functions.length !== names.size || !replacementDeclaration || !selectionLoop || !referencePreparation || !requestReferences || !plannedPositions)
   throw new Error('Image submission declarations not found');
 const compiled = ts.transpileModule(
   `
@@ -59,6 +70,30 @@ exports.selected = function(processedContent, selectedElements) {
 exports.params = function(activeBoundImageTarget, effectiveSelectedCount, boundImageMaskEdit) {
   ${replacementDeclaration}
   return imageBoundTargetGenerationParams;
+};
+exports.prepare = async function(submittedBoard, imageItems, enabled) {
+  const submittedDraftBoardId = 'board';
+  const graphicsItems = [];
+  const resolvedCanvasAssociations = [];
+  const SelectionWatcherBoardRef = { current: submittedBoard };
+  const activeTaskbarBoardIdRef = { current: submittedDraftBoardId };
+  const readAutoInsertReferenceImagesEnabled = () => enabled;
+  const isSubmittedBoardCurrent = () => true;
+  const selection = { images: imageItems.map(item => item.url), graphics: [] };
+  ${requestReferences}
+  ${referencePreparation}
+  return { ...referenceSources, referenceImages };
+};
+exports.plan = function(board, imageSourceIds, enabled, requestedCount) {
+  const anchorTargetFrameId = undefined;
+  const targetFrameId = undefined;
+  const replacementBoundImageTarget = null;
+  const reservedInsertSize = { width: 400, height: 600 };
+  const viewportCenterX = 200;
+  const viewportCenterY = 0;
+  const readHorizontalImageBatchEnabled = () => enabled;
+  ${plannedPositions}
+  return plannedAnchorPositions;
 };`,
   {
     compilerOptions: {
@@ -69,6 +104,8 @@ exports.params = function(activeBoundImageTarget, effectiveSelectedCount, boundI
 ).outputText;
 
 const callbacks = {} as {
+  plan: (board: ReturnType<typeof createBoard>, sources: string[], enabled: boolean, count: number) => [number, number][];
+  prepare: (board: ReturnType<typeof createBoard>, images: GenerationReferenceImage[], enabled: boolean) => Promise<{ imageSourceIds: string[]; referenceImages: string[] }>;
   selected: (processed: Awaited<ReturnType<typeof processSelectedContentForAI>>, elements: ReturnType<typeof createBoard>['children']) => GenerationReferenceImage[];
   params: (
     target: Record<string, unknown>,
@@ -87,11 +124,67 @@ runInNewContext(compiled, {
   createCanvasAssociationLines,
   snapshotCanvasAssociationRefs,
   buildBoundTargetGenerationParams,
+  prepareImageGenerationReferences,
+  resolveImageLineagePositions,
   isVideoUrl: () => false,
   console,
 });
 
 describe('main image generation lineage wiring', () => {
+  it.each([true, false])('passes the current batch layout into actual placeholder planning: horizontal=%s', (enabled) => {
+    const current = createBoard([]);
+    const positions = callbacks.plan(current, [], enabled, 5);
+    expect(positions).toEqual(Array.from({ length: 5 }, (_, index) =>
+      enabled ? [index * 440, 0] : [0, index * 640]
+    ));
+  });
+
+  it('keeps horizontal result slots and source lines when tasks finish in reverse order', () => {
+    const current = createBoard([{
+      id: 'source', type: 'image', points: [[0, 0], [400, 400]],
+    }]);
+    current.getRectangle = (element) => RectangleClient.getRectangleByPoints(element.points || []);
+    const positions = callbacks.plan(current, ['source'], true, 3);
+    const anchors = positions.map((position, index) => ({
+      id: `anchor-${index}`, type: 'generation-anchor', workflowId: 'workflow',
+      points: [position, [position[0] + 168, position[1] + 72]] as [[number, number], [number, number]],
+      expectedInsertPosition: position,
+      reservedInsertSize: { width: 400, height: 600 },
+    }));
+    anchors.forEach((anchor) => Transforms.insertNode(current, anchor, [current.children.length]));
+    const workflow = { id: 'workflow', metadata: { canvasAssociations: [{
+      referenceId: 'ref', boardId: 'board', elementId: 'source', kind: 'image', label: '来源',
+    }] } };
+    callbacks.link(current, workflow, anchors[0].id, 'board');
+    // A later request can use a different layout without changing existing slots.
+    callbacks.plan(current, ['source'], false, 3);
+    for (const index of [2, 1, 0]) {
+      const anchor = anchors[index];
+      const point = resolveImageAnchorInsertionPoint({ anchor });
+      expect(point).toEqual(positions[index]);
+      if (!point) throw new Error('Missing planned position');
+      Transforms.insertNode(current, {
+        id: `result-${index}`, type: 'image',
+        points: [point, [point[0] + 400, point[1] + 600]],
+      }, [current.children.length]);
+      retargetCanvasAssociationLines(current, {
+        boardId: 'board', sourceElementIds: ['source'], resultElementId: `result-${index}`,
+        workflowId: 'workflow', previousResultElementId: anchor.id,
+      });
+    }
+    expect(current.children.filter((element) => element.id.startsWith('result-')).map((element) => element.points[0])).toEqual([...positions].reverse());
+    expect(current.children.filter(isCanvasAssociationLine).map((line) => line.canvasAssociation.resultElementId).sort()).toEqual(['result-0', 'result-1', 'result-2']);
+  });
+
+  it('uses the current insertion preference without dropping off-canvas request images', async () => {
+    const current = createBoard([]);
+    const url = 'data:image/png;base64,bG9jYWw=';
+    const prepared = await callbacks.prepare(current, [{ url }], false);
+    expect(current.children).toEqual([]);
+    expect(prepared.imageSourceIds).toEqual([]);
+    expect(prepared.referenceImages).toEqual([url]);
+  });
+
   it('keeps both source IDs from real selection extraction through submission and placeholder lines when URLs match', async () => {
     const image = { id: 'top', type: 'image', url: '/__aitu_cache__/image/shared.png', width: 100, height: 100, points: [[0, 0], [100, 100]] };
     const other = { ...image, id: 'bottom', points: [[0, 200], [100, 300]] };

@@ -23,7 +23,10 @@ import {
 } from '../utils/image-generation-anchor-task';
 import { parseSizeToPixels } from '../utils/size-ratio';
 import { hasResolvedImageGenerationBatchCount } from '../utils/image-generation-anchor-batch';
-import { areImageGenerationResultsReady } from '../utils/image-generation-anchor-readiness';
+import {
+  areImageGenerationResultsReady,
+  getImageGenerationResultLoadError,
+} from '../utils/image-generation-anchor-readiness';
 import { subscribeCanvasImageReadiness } from '../services/canvas-image-readiness';
 
 export interface UseImageGenerationAnchorSyncOptions {
@@ -412,6 +415,7 @@ export function useImageGenerationAnchorSync({
           anchor.phase === 'inserting' && postProcessingStatus === 'processing',
         hasInserted,
         canvasReady: areImageGenerationResultsReady(board, anchor, relatedTasks),
+        canvasError: getImageGenerationResultLoadError(board, anchor, relatedTasks),
       });
       const { viewModel, nextPatch } = controllerResult;
 

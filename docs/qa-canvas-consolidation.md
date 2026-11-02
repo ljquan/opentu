@@ -1,5 +1,60 @@
 # 主画布整合与工作流模式删除 QA
 
+## 2026-11-01：批量操作、日期筛选及图片交付 PR 最终验证
+
+- 范围：提交本轮参考图自动入画布开关、多图横排/竖排、当前/历史任务日期筛选、批量参考图选中行/范围填充、导入行数控件、素材库缩略图统一和图片插入/显示恢复。使用说明沿用本文件对应记录、`canvas-consolidation.md`、`qa-document-batch-generation.md`、`qa-task-queue-date-filter.md` 和任务队列手册；未新增重复 DOC。
+- Git：从 `develop` 的 `5ef5e7da` 建立 `dev/canvas-batch-import-and-task-filters`，先提交本地改动 `6862fe7f`，显式 `git fetch origin develop` 后合并 `origin/develop` 的 `21f3f787`，合并提交 `36f2d1fa`。没有文本冲突，保留上游 #321 画布点阵背景、#322 模型列表认证修复及 1.2.4 版本。原始 54 个修改/新增文件、补丁和清单位于 `/tmp/opentu5-pr-20261101`，没有重置、改写历史或强制推送。
+- 环境：macOS，Node v26.8.1，pnpm 10.21.0，Vitest/JSDOM。合并前 22 文件 286 项通过；合并后 26 文件 331 项通过，含上游模型目录及分类/发现回归。额外 `TZ=America/Los_Angeles` 日期用例 6 项通过，包含夏令时结束日全天边界；此项与默认时区执行分别记录，不当作 337 个不同用例。
+- 类型/构建：Drawnix/Web 的 `tsc --noEmit` 通过。Web 主应用构建通过（40.99 秒），Service Worker 独立构建通过（1.32 秒）；构建输出仅放 `/tmp/opentu5-pr-20261101/{web-build,sw-build}`，未运行会改版本的发布脚本。执行项目原有启动 bundle 校验脚本，仅将读入目录指向本次临时构建产物，资源预算、入口依赖和 chunk cycle 校验通过。
+- 静态检查：45 个相关 TS/TSX 文件 ESLint 共 7 errors、110 warnings；13 个有诊断的文件全部使用最新 `origin/develop` 同路径源码 stdin 对照，无新增诊断，不声称 lint 全绿。`pnpm check:cycles` 在读取 `tsconfig.base.json` 时因尾随逗号被 `JSON.parse` 拒绝；该脚本和配置相对上游无差异，用上游原始配置复现同一错误，尚未执行到源码循环扫描。此既有问题不夹带修复。
+- OpenSpec：通过 `pnpm dlx @fission-ai/openspec@0.23.0 validate unify-image-reference-lineage --strict`；差异检查通过。日志和本次完整测试清单位于 `/tmp/opentu5-pr-20261101/{test-paths.txt,tests-final.log,timezone-final.log,types-final.log,web-types-final.log,build-final.log,sw-build-final.log,startup-final.log,lint-final.json,lint-final-baseline.json,cycles-final.log,cycles-upstream.log,openspec-final.log}`。
+- 未覆盖与注意事项：本次 PR 同步没有新增页面点击、视觉/E2E、跨浏览器或真实供应商/收费请求。10 月 31 日曾获用户授权对 7205 原页面只读查看，确认三张结果可见；这不是本次合并后的页面验收。UI 改动没有新增验收截图。无新增依赖、服务接口、环境变量、数据库版本或迁移；新增偏好保留原默认值（参考图自动加入开启、横排关闭）。缩略图回退不恢复丢失原图分辨率，插入和显示各有独立 60 秒期限，不代表生成从提交起 60 秒完成。回滚可撤回本 PR，保留浏览器任务与图片数据，不需清缓存。PR 创建不包含合并或部署。
+
+## 2026-10-28：同次多图横排/竖排设置
+
+- 效果与范围：“任务栏设置”新增“多图横向排列”，默认关闭保留竖排。开启后，主输入栏一次普通生图的多张占位及结果从左到右排成一行，不按视口换行；整排向下避让已有图片、预留占位和失败卡片。有参考图时从来源右侧开始，无画布来源时从独立创作区开始。只影响新任务，单图、已有/进行中批次、画框专用布局及显式语义替换保持原行为。
+- 实现与维护：复用 `canvas-view-settings.ts` 和现有 Switch/变更事件，新增 `aitu_ai_horizontal_image_batch_enabled`，存储异常时保留会话选择。发送入口规划占位时读取偏好，结果与重试使用各自占位位置；行整体使用预留尺寸避让，保留来源关联。无新依赖、服务接口、环境变量或数据迁移。
+- 环境：`opentu5`、`develop`，HEAD `5ef5e7da`，macOS、Node v26.8.1、pnpm 10.21.0。保留 2026-10-27 参考图开关的全部本地修改，本轮未提交、推送或创建 PR。
+- 自动测试：以下命令 8 文件、75 项全部通过。新增覆盖 2/5/10 张横排不换行、画布多来源、仅后方槽位被挡时整排避让、失败卡片、并发预留、切回竖排不移动既有内容、单图兼容、偏好保存/重载/存储失败，以及实际提交入口开关传递。横排占位联合实际插入点解析和来源线重定向，验证逆序完成与后来切换偏好不影响已预留位置；此前参考图开关回归通过。
+
+```sh
+# 在 packages/drawnix 执行
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/components/ai-input-bar/canvas-view-settings.test.ts \
+  src/utils/__tests__/image-generation-lineage-placement.test.ts \
+  src/components/ai-input-bar/AIInputBar.image-lineage.test.ts \
+  src/utils/__tests__/image-generation-anchor-placement.test.ts \
+  src/utils/__tests__/image-generation-anchor-submission.test.ts \
+  src/utils/__tests__/image-generation-anchor-insertion.test.ts \
+  src/services/canvas-operations/image-generation-references.test.ts \
+  src/services/reference-image-settings.test.ts --silent
+```
+
+- 静态/构建：Drawnix/Web TypeScript 检查通过。7 个本轮修改的 TS/TSX 文件 ESLint 为 0 error、18 warning，AIInputBar 的警告与 HEAD 同路径 stdin 基线比较一致，无新增诊断。Web 主应用构建通过（39.46 秒），输出 `/tmp/opentu5-batch-layout-build-20261028`，日志 `/tmp/opentu5-batch-layout-build.log`；保留 Sass、Browserslist、大 chunk 等已有提示，测试有 Node 弃用和第三方 sourcemap 提示。OpenSpec `validate unify-image-reference-lineage --strict` 和 `git diff --check` 通过。
+- QA/DOC：更新现有说明、QA 和来源布局规范，不新增重复文档。未执行浏览器页面/视觉、真实供应商、Service Worker 独立构建、全仓库和跨浏览器/Windows 验证。横排较宽时需平移画布查看。人工验收：在任务栏设置打开开关，选择一次 5 张并发送，应看到 5 个占位横排且结果留在对应位置；刷新后开关仍开启。关闭后发起新一批应竖排，前一批保持不动。回滚代码不重排已生成内容。
+
+## 2026-10-27：参考图自动加入画布开关
+
+- 范围：底部输入栏右侧“任务栏设置”新增“参考图自动加入画布”，默认开启以保留原行为。关闭时，上传、粘贴或素材库选择且不在画布中的图片继续作为生成参考，只跳过画布来源的缓存、解码和插入；已有来源继续复用和连线。全部来源都在画布外时使用独立创作落点，混合引用时按已有画布来源布局。不会删除之前加入的图片，也不控制生成结果插入。
+- 实现与维护：复用参考图设置服务、变更事件和 TDesign Switch，新增本地键 `aitu_ai_reference_image_auto_insert`；存储拒绝访问或写入时保留当前会话选择。主发送入口传递当前偏好，参考图准备服务默认沿用自动插入；来源删除、失效关联和跨画板保护继续生效。无新依赖、环境变量或数据迁移；DOC 复用 `canvas-consolidation.md`，同步已有来源规范。
+- 环境：`/Users/lkj/Desktop/working/opentu5`，`develop`，基线 `5ef5e7da`，macOS、Node v26.8.1、pnpm 10.21.0。本轮仅本地修改和测试，未提交、推送或创建 PR。
+- 实际自动验证：以下两条 Vitest 命令合计 6 文件、71 项全部通过。覆盖默认开启、关闭、重新开启、已有来源去重/混合引用、实际发送入口仍保留图片请求参数、存储恢复与异常降级、原有来源连线、回填参考、删除/画板切换失败路径及有/无画布来源的布局回归。
+
+```sh
+# 在 packages/drawnix 执行
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/services/reference-image-settings.test.ts \
+  src/services/canvas-operations/image-generation-references.test.ts \
+  src/components/ai-input-bar/AIInputBar.image-lineage.test.ts \
+  src/components/ai-input-bar/canvas-association-resolver.test.ts \
+  src/components/ai-input-bar/AIInputBar.prefill-images.test.ts --silent
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts \
+  src/utils/__tests__/image-generation-lineage-placement.test.ts --silent
+```
+
+- 静态与构建：根目录执行 `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、`pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit` 均通过。7 个修改的 TS/TSX 文件 ESLint 为 0 error、18 warning，均来自 AIInputBar；用 `git show HEAD:...` 对原文件执行同路径 stdin 检查，规则/消息/级别完全一致，无新增诊断。`pnpm exec vite build --config apps/web/vite.config.ts --outDir /tmp/opentu5-reference-insertion-build-20261027` 通过（36.15 秒），构建保留既有 Sass、Browserslist、大 chunk 等提示；依赖和测试有 `.npmrc` 占位变量、Node 弃用及第三方 sourcemap 提示。已有缓存的 OpenSpec 1.14.1 执行 `validate unify-image-reference-lineage --strict` 通过，`git diff --check` 通过。
+- 未执行页面点击/视觉验收、真实供应商调用、全仓库测试、Service Worker 独立构建及其他浏览器/Windows 验证。请求参数由实际入口代码与逻辑测试验证，未做付费生成。人工验收：在任务栏设置关闭开关，上传图片并发送，画布应只新增生成结果；刷新后开关仍关闭。重新开启后发送，应补入参考图并显示来源线；已有画布图片应始终复用。回滚代码不自动删除已插入图片或清除本地偏好。
+
 ## 2026-10-25：#318、#319 与 #317 发布合并
 
 - #318 和 #319 已按顺序合入 develop，本次将 develop 合回 #317 解决重复实现的冲突；以下早期分支说明保留为历史记录。
@@ -252,6 +307,26 @@
 - 审查与合并建议：#316 已包含 #315 的提交，当前相对 develop 的差异会显示渠道归因的依赖改动。上级先对 #315 使用 Create a merge commit，再合并 #316，可保留本次冲突处理的共同祖先；如对 #315 使用 Squash/Rebase，提交身份会变化，需要在 #315 合并后再次同步 develop，不能保证无需再处理修改/删除冲突。
 
 ## 历史有结果但画布停在“正在显现”
+
+### 2026-10-31：插入前缓存回退、整体期限与页面只读核对
+
+- 新增复现：原图缓存缺失但任务预览仍有缩略图，插入前 `loadImageElementForCanvas` 未读取预览回退。没有 Service Worker 时会直接失败；有 Service Worker 时仍使用虚拟原图地址，而非已有可读的预览。本轮新增两种环境回归，均先复现失败后修复。原图优先，原图缺失时才按现有缓存服务获取缩略图并实际解码验证；不把缩略图尺寸当成原图分辨率。
+- 插入整体期限：包含图片的一次 `executeCanvasInsertion` 操作最多等待 60 秒，覆盖缓存、读取尺寸、暂存和提交。超时返回可恢复的插入失败，自动插入原有 catch 释放任务占用，保留生成结果。超时信号同时进入既有 boardGuard，阻止旧操作迟到后提交；回归覆盖超时后重试成功、旧操作随后完成也不重复写入，以及原有批量原子提交、画板切换和非图片路径。
+- 定向回归 9 文件 162 项通过，包含本轮 data/image 与 canvas-insertion 的 27 项，以及上一轮占位/渲染/自动插入的 135 项。修正原有缓存修复测试的 Blob 字节读取方式，使用 jsdom 支持的 FileReader，保留字节内容断言。日志：`/tmp/opentu5-insertion-recovery-full-tests-20261031.log`；新增用例修改前的失败记录为 `/tmp/opentu5-insertion-recovery-before-20261031.log`。
+- 用户明确授权后，对 Chrome 现有 `http://localhost:7205/?board=3453c639-6ac2-4519-806e-9c6ec241054b` 做只读诊断，没有刷新、点击生成/重试/删除或修改浏览器数据。读取当前 DOM 与画布截图，确认截图下方原先等待的三个位置已显示三张结果；检查的画布图片 `complete=true` 且有实际 naturalWidth/naturalHeight，活动加载占位已消失。当前仍有三张失败卡片，文本为供应商拒绝或请求/服务错误，未自动重试。这个当前状态核对不能证明先前现场必然由缩略图缺失触发，也没有重新调用供应商。
+- 本轮只修改 data/image、canvas-insertion 及对应测试，更新既有 DOC/QA；保留之前所有本地改动。无依赖、存储格式或迁移变化，无提交或推送。
+- 最终检查：Drawnix/Web `tsc --noEmit`、Web Vite 生产构建及 `git diff --check` 通过。相关 4 文件 ESLint 保留原有 4 个错误、25 条警告；对有诊断的文件用 HEAD 同路径 stdin 对照，移除本轮新增测试的 any 后无新增诊断。日志为 `/tmp/opentu5-insertion-recovery-{types,web-types,build}-20261031.log` 与 `/tmp/opentu5-insertion-recovery-lint{,-baseline,-final}-20261031.json`，构建产物仅在 `/tmp/opentu5-insertion-recovery-build-20261031`。
+
+### 2026-10-31：画布加载失败反馈与原节点重载
+
+- 问题范围：用户反馈任务历史预览可见，但画布一直等待且看不到图片。代码确认已插入图片的渲染没有总加载期限，失败只记录为未就绪，占位无法区分等待与最终失败。本次修复这一可复现的状态缺口；没有读取用户浏览器数据库或证明现场具体网络/缓存故障。
+- 实现：带生成任务关联的画布图片单次加载期限为 60 秒，最终失败或超时通过当前画板、元素 ID、原始地址绑定的 readiness 通知占位。界面显示“已生成，加载失败”和“重试加载”；重试只重建该节点中的图片加载组件，不重建画布节点、不请求生图、不重复插入。原请求迟到的实际成功可恢复并按原有 1.6 秒过渡移除占位。多图只重载失败图片；旧副本、旧来源、其他画板隔离继续生效。普通任务预览默认忽略超时迟到成功的行为保留。
+- 环境与结果：`/Users/lkj/Desktop/working/opentu5`，macOS，Node v26.8.1，pnpm 10.21.0，`develop`。最终定向回归 7 文件 135 项通过，覆盖挂起请求、最终失败、重载原节点、迟到成功、换源与卸载清理、占位失败/恢复/移除、已有生成错误保留、旧副本隔离、多图完整性，以及自动插入原有 59 项回归。
+- 命令（从 `packages/drawnix`）：`NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/plugins/components/image.loading.test.tsx src/components/retry-image.test.tsx src/utils/__tests__/image-generation-anchor-readiness.test.ts src/hooks/__tests__/useImageGenerationAnchorSync.test.ts src/components/image-generation-anchor/ImageGenerationAnchorContent.test.tsx src/utils/__tests__/image-generation-anchor-view-model.test.ts src/hooks/__tests__/useAutoInsertToCanvas.test.ts --silent`。日志：`/tmp/opentu5-canvas-pending-tests-20261031.log`。
+- 最终检查：Drawnix/Web 的 `tsc --noEmit`、Web 主应用 Vite 构建及 `git diff --check` 通过。13 个相关源码/测试文件执行 ESLint，另检查新增的 view-model 测试；保留原有 1 个 Nx 模块边界错误和 25 条警告，对有诊断的 4 个文件使用 HEAD 同路径 stdin 对照，没有新增诊断。最终变动文件再次检查无新增问题。类型、构建及 lint 日志位于 `/tmp/opentu5-canvas-pending-{types,web-types,build}-20261031.log` 和 `/tmp/opentu5-canvas-pending-lint{,-baseline,-final}-20261031.json`；构建输出仅在 `/tmp/opentu5-canvas-load-recovery-build-20261031`。
+- 边界：未进行页面测试、真实供应商或收费请求；没有修改用户任务结果及缓存数据。原始图片地址失效、缓存缺失/损坏或网络不可达仍可能导致加载失败；本次提供明确失败状态与复用已有结果的恢复入口，不保证恢复已丢失的图片内容。服务继续使用 7205。更新现有 DOC/QA，无依赖、存储格式或迁移变化，无提交或推送。
+
+### 既有修复记录
 
 - 沿自动插入、生成占位 readiness、画布 Image/RetryImage 与缓存读取路径排查，修复两种可复现的等待问题：同一历史任务旧副本阻止当前结果交接；浏览器图片已经解码，但组件未收到新的 load 事件而未确认就绪。
 - readiness 优先使用当前 anchor 绑定和明确结果 ID，忽略同任务其他旧副本；无明确绑定时保留兼容回退。本次多图结果仍全部检查，不以任务历史缩略图代替画布加载成功。RetryImage 检查当前 DOM 图片 complete 且 naturalWidth 大于 0 后确认加载，保留原 ref 与成功只回调一次、换图隔离和失败重试行为。

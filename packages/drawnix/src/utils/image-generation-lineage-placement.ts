@@ -135,10 +135,14 @@ export function resolveImageLineagePositions(
   sourceIds: readonly string[],
   size: { width: number; height: number },
   count: number,
-  emptyPosition: Point
+  emptyPosition: Point,
+  layout: 'row' | 'column' = 'column'
 ): Point[] {
   const bounds = getImageReferenceBounds(board, sourceIds);
-  const totalHeight = count * size.height + Math.max(0, count - 1) * SLOT_GAP;
+  const horizontal = layout === 'row' && count > 1;
+  const totalHeight = horizontal
+    ? size.height
+    : count * size.height + Math.max(0, count - 1) * SLOT_GAP;
   const origin: Point = bounds
     ? [
         bounds.x + bounds.width + IMAGE_LINEAGE_GAP,
@@ -160,6 +164,19 @@ export function resolveImageLineagePositions(
       if (rect && Math.abs(rect.x - origin[0]) < 1)
         origin[1] = Math.max(origin[1], rect.y + rect.height + SLOT_GAP);
     }
+  }
+  if (horizontal) {
+    // Reserve the entire row so collision avoidance never splits a batch.
+    const [start] = placeImageColumn(board, origin, [
+      {
+        width: count * size.width + (count - 1) * SLOT_GAP,
+        height: size.height,
+      },
+    ]);
+    return Array.from({ length: count }, (_, index) => [
+      start[0] + index * (size.width + SLOT_GAP),
+      start[1],
+    ]);
   }
   return placeImageColumn(
     board,

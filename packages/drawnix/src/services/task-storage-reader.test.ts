@@ -1,4 +1,4 @@
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_DB_STORES, closeAppDB, getAppDB } from './app-database';
 import { taskStorageReader } from './task-storage-reader';
@@ -198,5 +198,169 @@ describe('taskStorageReader result visibility', () => {
     expect(promptHistory.items.map((task) => task.id)).toEqual([
       'legacy-failed-no-result',
     ]);
+  });
+});
+
+describe('taskStorageReader archived filters', () => {
+  beforeEach(() => {
+    taskStorageReader.close();
+    taskStorageReader.invalidateCache();
+    closeAppDB();
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+  });
+
+  afterEach(() => {
+    taskStorageReader.close();
+    taskStorageReader.invalidateCache();
+    closeAppDB();
+    vi.unstubAllGlobals();
+  });
+
+  const archived = (id: string, createdAt: number) =>
+    createCompletedTask(id, TaskType.IMAGE, { createdAt, archived: true });
+
+  it('finds old dates directly even with more than 100 newer archived tasks', async () => {
+    await putTasks([
+      archived('old-1', 10),
+      archived('old-2', 20),
+      ...Array.from({ length: 130 }, (_, index) =>
+        archived(`recent-${index}`, 1000 + index)
+      ),
+    ]);
+
+    const result = await taskStorageReader.getArchivedTasks(0, 30, {
+      createdAtFrom: 0,
+      createdAtTo: 100,
+    });
+
+    expect(result.tasks.map((task) => task.id)).toEqual(['old-2', 'old-1']);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('includes the lower date boundary and excludes the upper boundary', async () => {
+    await putTasks([
+      archived('before', 99),
+      archived('start', 100),
+      archived('last-in-range', 199),
+      archived('next-day', 200),
+    ]);
+
+    const result = await taskStorageReader.getArchivedTasks(0, 30, {
+      createdAtFrom: 100,
+      createdAtTo: 200,
+    });
+
+    expect(result.tasks.map((task) => task.id)).toEqual([
+      'last-in-range',
+      'start',
+    ]);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it.each([
+    [{ createdAtFrom: 100 }, ['newest', 'start']],
+    [{ createdAtTo: 100 }, ['oldest']],
+  ])('supports an open date range %o', async (filters, ids) => {
+    await putTasks([
+      archived('oldest', 99),
+      archived('start', 100),
+      archived('newest', 200),
+    ]);
+
+    const result = await taskStorageReader.getArchivedTasks(0, 30, filters);
+    expect(result.tasks.map((task) => task.id)).toEqual(ids);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('paginates matching records rather than raw cursor rows', async () => {
+    await putTasks([
+      archived('match-1', 1),
+      archived('noise-2', 2),
+      archived('match-3', 3),
+      archived('noise-4', 4),
+      archived('match-5', 5),
+      archived('noise-6', 6),
+    ]);
+    const filters = { searchText: ' MATCH ' };
+
+    const first = await taskStorageReader.getArchivedTasks(0, 2, filters);
+    expect(first.tasks.map((task) => task.id)).toEqual(['match-5', 'match-3']);
+    expect(first.hasMore).toBe(true);
+    const second = await taskStorageReader.getArchivedTasks(2, 2, filters);
+    expect(second.tasks.map((task) => task.id)).toEqual(['match-1']);
+    expect(second.hasMore).toBe(false);
+    expect(await taskStorageReader.getArchivedTasks(3, 2, filters)).toEqual({
+      tasks: [],
+      hasMore: false,
+    });
+  });
+
+  it('does not report more matches when only non-matching or hidden records remain', async () => {
+    await putTasks([
+      archived('match-4', 4),
+      archived('match-3', 3),
+      archived('unmatched', 2),
+      createCompletedTask('match-internal', TaskType.IMAGE, {
+        createdAt: 1,
+        archived: true,
+        resultVisibility: 'internal',
+      }),
+      createCompletedTask('match-active', TaskType.IMAGE, { createdAt: 0 }),
+    ]);
+
+    const result = await taskStorageReader.getArchivedTasks(0, 2, {
+      searchText: 'prompt-match',
+    });
+    expect(result.tasks.map((task) => task.id)).toEqual(['match-4', 'match-3']);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('combines date and keyword filters before applying the page offset', async () => {
+    await putTasks([
+      archived('target-old', 50),
+      archived('target-start', 100),
+      archived('noise', 150),
+      archived('target-end', 199),
+      archived('target-new', 200),
+    ]);
+    const result = await taskStorageReader.getArchivedTasks(1, 1, {
+      createdAtFrom: 100,
+      createdAtTo: 200,
+      searchText: 'target',
+    });
+
+    expect(result.tasks.map((task) => task.id)).toEqual(['target-start']);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('keeps unfiltered calls compatible and excludes hidden or non-archived tasks', async () => {
+    await putTasks([
+      archived('oldest', 10),
+      archived('newest', 20),
+      createCompletedTask('active', TaskType.IMAGE, { createdAt: 30 }),
+      createCompletedTask('internal', TaskType.IMAGE, {
+        createdAt: 40,
+        archived: true,
+        resultVisibility: 'internal',
+      }),
+    ]);
+
+    const result = await taskStorageReader.getArchivedTasks();
+    expect(result.tasks.map((task) => task.id)).toEqual(['newest', 'oldest']);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it.each([
+    { searchText: 'missing' },
+    { createdAtFrom: 1000, createdAtTo: 2000 },
+    { createdAtFrom: 20, createdAtTo: 10 },
+    { createdAtFrom: 10, createdAtTo: 10 },
+  ])('returns no records for an unmatched or empty range %o', async (filters) => {
+    await putTasks([archived('example', 10)]);
+    expect(await taskStorageReader.getArchivedTasks(0, 30, filters)).toEqual({
+      tasks: [],
+      hasMore: false,
+    });
   });
 });

@@ -7,10 +7,9 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { copyToClipboard } from '../../utils/runtime-helpers';
-import { Button, Tabs, MessagePlugin, Input, Checkbox } from 'tdesign-react';
+import { Button, Tabs, MessagePlugin, Checkbox } from 'tdesign-react';
 import {
   DeleteIcon,
-  SearchIcon,
   UserIcon,
   RefreshIcon,
   PauseCircleIcon,
@@ -22,6 +21,12 @@ import {
 import { Music4 } from 'lucide-react';
 import { VirtualTaskList } from './VirtualTaskList';
 import { ArchivedTaskList } from './ArchivedTaskList';
+import { TaskQueueSearchFilters } from './TaskQueueSearchFilters';
+import {
+  buildTaskQueueFilters,
+  matchesTaskQueueFilters,
+  type TaskDateRange,
+} from '../../utils/task-queue-filters';
 import { useTaskQueue } from '../../hooks/useTaskQueue';
 import { Task, TaskType, TaskStatus } from '../../types/task.types';
 import { unifiedCacheService } from '../../services/unified-cache-service';
@@ -154,6 +159,11 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     'completed'
   );
   const [searchText, setSearchText] = useState<string>('');
+  const [dateRange, setDateRange] = useState<TaskDateRange>([]);
+  const taskFilters = useMemo(
+    () => buildTaskQueueFilters(searchText, dateRange),
+    [searchText, dateRange]
+  );
   const [typeFilter, setTypeFilter] = useState<
     'all' | 'image' | 'video' | 'audio' | 'text' | 'character'
   >('all');
@@ -190,7 +200,8 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
   const [syncProgress, setSyncProgress] = useState(0);
 
   // Check if showing characters view
-  const isCharacterView = typeFilter === 'character';
+  const isCharacterView =
+    typeFilter === 'character' && activeTab !== 'archived';
 
   // Initialize media cache status on component mount
   useEffect(() => {
@@ -264,29 +275,9 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
       );
     }
 
-    // Apply search filter
-    if (searchText.trim()) {
-      const searchLower = searchText.toLowerCase().trim();
-      tasksToFilter = tasksToFilter.filter(
-        (task) =>
-          task.params.prompt.toLowerCase().includes(searchLower) ||
-          String(task.result?.title || '')
-            .toLowerCase()
-            .includes(searchLower) ||
-          String(task.result?.lyricsTitle || '')
-            .toLowerCase()
-            .includes(searchLower) ||
-          String(task.result?.lyricsText || '')
-            .toLowerCase()
-            .includes(searchLower) ||
-          String(task.result?.chatResponse || '')
-            .toLowerCase()
-            .includes(searchLower) ||
-          (task.result?.lyricsTags || []).some((tag) =>
-            String(tag).toLowerCase().includes(searchLower)
-          )
-      );
-    }
+    tasksToFilter = tasksToFilter.filter((task) =>
+      matchesTaskQueueFilters(task, taskFilters)
+    );
 
     // Sort by time - newest first (reverse chronological)
     return [...tasksToFilter].sort((a, b) => b.createdAt - a.createdAt);
@@ -298,7 +289,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     failedTasks,
     cancelledTasks,
     typeFilter,
-    searchText,
+    taskFilters,
   ]);
 
   // Handle clear action
@@ -1106,9 +1097,13 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
         <TabPanel value="archived" label={archivedTabLabel} />
       </Tabs>
 
-      {activeTab !== 'archived' && (
-        <div className="task-queue-panel__filters">
-          {/* Simplified Type Filters */}
+      <div
+        className={`task-queue-panel__filters${
+          activeTab === 'archived' ? ' task-queue-panel__filters--archived' : ''
+        }`}
+      >
+        {/* Simplified Type Filters */}
+        {activeTab !== 'archived' && (
           <div className="task-queue-panel__type-filters">
             <HoverTip content={`全部 (${typeCounts.all})`}>
               <Button
@@ -1201,57 +1196,54 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               </Button>
             </HoverTip>
           </div>
+        )}
 
-          {/* Search row integrated in the same line */}
-          <div className="task-queue-panel__search-row">
-            <Input
-              value={searchText}
-              onChange={(value) => setSearchText(value)}
-              placeholder="搜索..."
-              clearable
-              prefixIcon={<SearchIcon />}
-              size="small"
-              className="task-queue-panel__search-input"
-            />
-
-            <div className="task-queue-panel__filter-actions">
-              <HoverTip content={selectionMode ? '退出多选' : '批量操作'}>
-                <Button
-                  size="small"
-                  variant={selectionMode ? 'base' : 'outline'}
-                  theme={selectionMode ? 'primary' : 'default'}
-                  icon={<CheckDoubleIcon />}
-                  data-track="task_click_toggle_selection"
-                  onClick={handleToggleSelectionMode}
-                >
-                  {selectionMode ? '退出' : '多选'}
-                </Button>
-              </HoverTip>
-
-              {failedTasks.length > 0 && !selectionMode && (
-                <HoverTip content="清除失败">
+        <TaskQueueSearchFilters
+          searchText={searchText}
+          onSearchTextChange={setSearchText}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          actions={
+            activeTab !== 'archived' ? (
+              <div className="task-queue-panel__filter-actions">
+                <HoverTip content={selectionMode ? '退出多选' : '批量操作'}>
                   <Button
                     size="small"
-                    variant="text"
-                    theme="default"
-                    icon={
-                      <DeleteIcon
-                        style={{ color: 'var(--td-text-color-placeholder)' }}
-                      />
-                    }
-                    data-track="task_click_clear_failed"
-                    onClick={() => handleClear('failed')}
-                    className="task-queue-panel__clear-btn"
-                  />
+                    variant={selectionMode ? 'base' : 'outline'}
+                    theme={selectionMode ? 'primary' : 'default'}
+                    icon={<CheckDoubleIcon />}
+                    data-track="task_click_toggle_selection"
+                    onClick={handleToggleSelectionMode}
+                  >
+                    {selectionMode ? '退出' : '多选'}
+                  </Button>
                 </HoverTip>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+
+                {failedTasks.length > 0 && !selectionMode && (
+                  <HoverTip content="清除失败">
+                    <Button
+                      size="small"
+                      variant="text"
+                      theme="default"
+                      icon={
+                        <DeleteIcon
+                          style={{ color: 'var(--td-text-color-placeholder)' }}
+                        />
+                      }
+                      data-track="task_click_clear_failed"
+                      onClick={() => handleClear('failed')}
+                      className="task-queue-panel__clear-btn"
+                    />
+                  </HoverTip>
+                )}
+              </div>
+            ) : undefined
+          }
+        />
+      </div>
 
       {/* Batch action bar - shown when in selection mode */}
-      {selectionMode && !isCharacterView && (
+      {selectionMode && !isCharacterView && activeTab !== 'archived' && (
         <div className="task-queue-panel__batch-actions">
           <div className="task-queue-panel__batch-select">
             <Checkbox
@@ -1356,6 +1348,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
         ) : activeTab === 'archived' ? (
           /* Archived Task List View */
           <ArchivedTaskList
+            filters={taskFilters}
             onPreviewOpen={handlePreviewOpen}
             onDownload={handleDownload}
             className="task-queue-panel__list"
@@ -1395,7 +1388,9 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                 <div className="task-queue-panel__empty">
                   <div className="task-queue-panel__empty-icon">📋</div>
                   <div className="task-queue-panel__empty-text">
-                    {activeTab === 'all'
+                    {searchText.trim() || dateRange[0] || dateRange[1]
+                      ? '没有符合筛选条件的任务'
+                      : activeTab === 'all'
                       ? '暂无任务'
                       : `暂无${
                           activeTab === 'active'

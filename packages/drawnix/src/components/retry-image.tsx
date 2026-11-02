@@ -63,6 +63,8 @@ export interface RetryImageProps
   deferCacheRead?: boolean;
   /** Total loading budget, including retries. Opt in only for eager previews. */
   loadTimeoutMs?: number;
+  /** Allow an actual canvas image to finish after its loading deadline. */
+  recoverAfterTimeout?: boolean;
 }
 
 /**
@@ -196,6 +198,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       onSourceChange,
       deferCacheRead = false,
       loadTimeoutMs,
+      recoverAfterTimeout = false,
       onLoad,
       onError,
       ...imgProps
@@ -633,6 +636,14 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
         }
         setIsLoading(false);
         setHasError(true);
+        // The native request may still complete after the deadline. Accept
+        // that real load so a slow result can recover without another request.
+        if (recoverAfterTimeout && imageElementRef.current) {
+          externalRecoveryRef.current = {
+            element: imageElementRef.current,
+            failedSrc: null,
+          };
+        }
         failureCallbackRef.current?.(
           new ImageOperationTimeoutError('图片预览加载超时，可重试加载已有结果')
         );
@@ -645,6 +656,7 @@ export const RetryImage = forwardRef<HTMLImageElement, RetryImageProps>(
       isCurrentSource,
       isLoading,
       loadTimeoutMs,
+      recoverAfterTimeout,
       normalizedSrc,
       preferCachedBlob,
       shouldEagerLoad,

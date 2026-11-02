@@ -19,6 +19,7 @@ export interface ImageGenerationAnchorControllerOptions {
   isInserting?: boolean;
   hasInserted?: boolean;
   canvasReady?: boolean;
+  canvasError?: string;
   taskDisplayProgress?: number | null;
 }
 
@@ -41,6 +42,7 @@ export function getImageGenerationAnchorControllerResult(
     isInserting,
     hasInserted,
     canvasReady,
+    canvasError,
   } = options;
 
   const phase = deriveImageGenerationAnchorPhase({
@@ -52,6 +54,7 @@ export function getImageGenerationAnchorControllerResult(
     isInserting,
     hasInserted,
     canvasReady,
+    canvasError,
   });
 
   const viewModel = buildImageGenerationAnchorViewModel({
@@ -64,6 +67,7 @@ export function getImageGenerationAnchorControllerResult(
     isInserting,
     hasInserted,
     canvasReady,
+    canvasError,
   });
 
   return {

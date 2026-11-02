@@ -31,36 +31,34 @@ export async function discoverProviderModels(
   const baseUrl = normalizeModelApiBaseUrl(
     profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL
   );
-  let authoritativeModels: RuntimeModelDiscoveryOptions['authoritativeModels'];
+  let modelMetadata: RuntimeModelDiscoveryOptions['modelMetadata'];
 
   if (usesTuziMarketplace(profile)) {
     const { modelPricingService, resolveProviderPricingConfig } = await import(
       '../utils/model-pricing-service'
     );
     const pricingConfig = resolveProviderPricingConfig(profile);
-    if (!pricingConfig) {
-      throw new Error('未配置 Tuzi API 模型广场地址');
-    }
-    const catalog = await modelPricingService.fetchAndCache(
-      profile.id,
-      pricingConfig.pricingUrl,
-      profile.apiKey.trim(),
-      pricingConfig.pricingGroup,
-      pricingConfig.cnyPerUsd,
-      { force: options.forceMarketplaceRefresh }
-    );
-    authoritativeModels = Object.entries(catalog.prices).map(
-      ([id, price]) => ({
-        id,
-        description: price.description,
-        ...catalog.modelCatalog?.[id],
-        supported_endpoint_types:
-          catalog.modelCatalog?.[id]?.supported_endpoint_types ||
-          Object.keys(catalog.modelEndpoints?.[id] || {}),
-      })
-    );
-    if (authoritativeModels.length === 0) {
-      throw new Error('Tuzi API 模型广场暂无该分组可用模型');
+    try {
+      if (pricingConfig) {
+        const catalog = await modelPricingService.fetchAndCache(
+          profile.id,
+          pricingConfig.pricingUrl,
+          profile.apiKey.trim(),
+          pricingConfig.pricingGroup,
+          pricingConfig.cnyPerUsd,
+          { force: options.forceMarketplaceRefresh }
+        );
+        modelMetadata = Object.entries(catalog.prices).map(([id, price]) => ({
+          id,
+          description: price.description,
+          ...catalog.modelCatalog?.[id],
+          supported_endpoint_types:
+            catalog.modelCatalog?.[id]?.supported_endpoint_types ||
+            Object.keys(catalog.modelEndpoints?.[id] || {}),
+        }));
+      }
+    } catch {
+      // Pricing is optional metadata; availability comes from the authenticated request.
     }
   }
 
@@ -72,7 +70,7 @@ export async function discoverProviderModels(
     {
       selectAll: options.selectAll,
       signal: options.signal,
-      authoritativeModels,
+      modelMetadata,
     }
   );
 }

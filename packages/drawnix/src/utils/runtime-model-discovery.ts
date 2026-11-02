@@ -44,32 +44,8 @@ import {
 import { sortModelsByDisplayPriority } from './model-sort';
 import { isTuziEmbeddedMode } from '../services/tuzi-embedded-config';
 import { hasTuziSystemToken } from '../services/tuzi-token-auth';
-import { getSunoV2Action, isSunoV2Model } from '../services/suno-v2';
+import { isSunoV2Model } from '../services/suno-v2';
 import type { ProviderPricingCache } from './model-pricing-types';
-
-function supplementSunoV2Models(profileId: string, models: ModelConfig[]): ModelConfig[] {
-  const caches = settingsManager.getSetting<ProviderPricingCache[]>('providerPricingCache');
-  const endpoints = (Array.isArray(caches) ? caches : []).find(
-    (cache) => cache.profileId === profileId
-  )?.modelEndpoints;
-  const supplemented = models.filter((model) => !model.tags?.includes('pricing-suno-v2'));
-  const seen = new Set(supplemented.map((model) => model.id));
-  for (const [modelId, hints] of Object.entries(endpoints || {})) {
-    const action = getSunoV2Action(modelId);
-    if (!action?.supported || seen.has(modelId)) continue;
-    const hasNativeSubmit = Object.values(hints).some((hint) =>
-      hint.path?.trim() === `/suno/v2/${action.action}` &&
-      (!hint.method || hint.method.toUpperCase() === 'POST')
-    );
-    if (!hasNativeSubmit) continue;
-    const model = adaptRuntimeModel({ id: modelId, category: 'audio' });
-    if (model) supplemented.push(attachRuntimeSource(profileId, {
-      ...model, tags: [...(model.tags || []), 'pricing-suno-v2'],
-    }));
-    seen.add(modelId);
-  }
-  return supplemented;
-}
 
 const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
@@ -128,7 +104,8 @@ export interface ManualRuntimeModelInput {
 export interface RuntimeModelDiscoveryOptions {
   selectAll?: boolean;
   signal?: AbortSignal;
-  authoritativeModels?: readonly RemoteModelListItem[];
+  /** Supplements returned model IDs without adding models to the authenticated list. */
+  modelMetadata?: readonly RemoteModelListItem[];
 }
 
 function isAbortSignal(value: unknown): value is AbortSignal {
@@ -1462,20 +1439,23 @@ function refreshPersistedModelConfig(
 function decorateRuntimeModels(
   profileId: string,
   models: ModelConfig[],
-  useMarketplaceMetadata = false
+  discoverySource?: ProviderCatalog['discoverySource']
 ): ModelConfig[] {
   const profile = getProfileById(profileId);
   const useRemoteDisplayName =
     isTuziCompatibleBaseUrl(profile?.baseUrl) ||
     profileId.startsWith('tuzi-managed-') ||
     profileId.startsWith('tuzi-token-');
-  const pricingCaches = useMarketplaceMetadata
+  const pricingCaches = discoverySource === 'marketplace'
     ? settingsManager.getSetting<ProviderPricingCache[]>('providerPricingCache')
     : [];
   const marketplaceMetadata = (Array.isArray(pricingCaches) ? pricingCaches : [])
     .find((cache) => cache.profileId === profileId)?.modelCatalog;
   return models.map((model) => {
-    if ((model.tags || []).includes('manual')) {
+    if (
+      (model.tags || []).includes('manual') ||
+      discoverySource === 'models-endpoint'
+    ) {
       return attachRuntimeSource(profileId, model);
     }
     const metadata = marketplaceMetadata?.[model.id];
@@ -1522,11 +1502,15 @@ function createPinnedRuntimeModel(
 function createStateFromCatalog(
   catalog: ProviderCatalog
 ): RuntimeModelDiscoveryState {
-  const discoveredModels = supplementSunoV2Models(catalog.profileId, decorateRuntimeModels(
+  const discoveredModels = decorateRuntimeModels(
     catalog.profileId,
-    Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : [],
-    catalog.discoverySource === 'marketplace'
-  ));
+    Array.isArray(catalog.discoveredModels)
+      ? catalog.discoveredModels.filter((model) =>
+          !model.tags?.includes('pricing-suno-v2') || model.tags.includes('manual')
+        )
+      : [],
+    catalog.discoverySource
+  );
   const selectedModelIds = normalizeSelectedModelIds(
     discoveredModels,
     Array.isArray(catalog.selectedModelIds) ? catalog.selectedModelIds : []
@@ -1922,7 +1906,7 @@ class RuntimeModelDiscoveryStore {
         return null;
       }
 
-      if (state?.discoverySource === 'marketplace') {
+      if (state?.discoverySource) {
         return null;
       }
 
@@ -2184,9 +2168,9 @@ class RuntimeModelDiscoveryStore {
     const discoveryKey = `${profileId}::${signature}::selectAll=${
       options.selectAll === true ? '1' : '0'
     }::catalog=${
-      options.authoritativeModels
+      options.modelMetadata
         ? hashString(
-            options.authoritativeModels
+            options.modelMetadata
               .map((model) => model.id)
               .sort()
               .join('\n')
@@ -2238,38 +2222,38 @@ class RuntimeModelDiscoveryStore {
       false
     );
 
-    let data: readonly unknown[];
-    if (options.authoritativeModels) {
-      data = options.authoritativeModels;
-    } else {
-      const rawText = await fetchRemoteModelListWithFallback(
-        normalizedBaseUrl,
-        trimmedApiKey,
-        fallbackBaseUrls,
-        options.signal,
-        profileId.startsWith('tuzi-managed-') ||
-          profileId.startsWith('tuzi-token-')
-      );
+    const rawText = await fetchRemoteModelListWithFallback(
+      normalizedBaseUrl,
+      trimmedApiKey,
+      fallbackBaseUrls,
+      options.signal,
+      profileId.startsWith('tuzi-managed-') ||
+        profileId.startsWith('tuzi-token-')
+    );
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawText);
-      } catch {
-        throw new Error('模型列表接口未返回有效 JSON');
-      }
-
-      const parsedData = (parsed as { data?: unknown }).data;
-      if (!Array.isArray(parsedData)) {
-        throw new Error('模型列表接口缺少 data 数组');
-      }
-      data = parsedData;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      throw new Error('模型列表接口未返回有效 JSON');
     }
+
+    const data = (parsed as { data?: unknown }).data;
+    if (!Array.isArray(data)) {
+      throw new Error('模型列表接口缺少 data 数组');
+    }
+    const metadataById = new Map(
+      options.modelMetadata?.map((model) => [model.id, model])
+    );
 
     const adaptedModels: ModelConfig[] = [];
     const seen = new Set<string>();
     const useRemoteDisplayName = isTuziCompatibleBaseUrl(normalizedBaseUrl);
     for (const item of data) {
-      const remoteModel = item as RemoteModelListItem;
+      const remoteModel = {
+        ...metadataById.get(item?.id),
+        ...item,
+      } as RemoteModelListItem;
       const adapted = adaptRuntimeModel(remoteModel);
       if (!adapted || seen.has(adapted.id)) {
         continue;
@@ -2285,13 +2269,12 @@ class RuntimeModelDiscoveryStore {
       adaptedModels.push(attachRuntimeSource(profileId, adapted));
     }
 
-    const supplementedModels = supplementSunoV2Models(profileId, adaptedModels);
-    if (supplementedModels.length === 0) {
+    if (adaptedModels.length === 0) {
       throw new Error('模型列表为空');
     }
 
     const discoveredModels = mergeDiscoveredWithManualModels(
-      supplementedModels,
+      adaptedModels,
       state.discoveredModels
     );
     const manualModelIds = new Set(
@@ -2314,7 +2297,7 @@ class RuntimeModelDiscoveryStore {
     this.setCatalogState(profileId, {
       profileId,
       status: 'ready',
-      discoverySource: options.authoritativeModels ? 'marketplace' : 'models-endpoint',
+      discoverySource: 'models-endpoint',
       sourceBaseUrl: normalizedBaseUrl,
       signature,
       discoveredAt: Date.now(),
@@ -2325,7 +2308,7 @@ class RuntimeModelDiscoveryStore {
       error: null,
     });
 
-    return supplementedModels;
+    return adaptedModels;
   }
 
   setError(

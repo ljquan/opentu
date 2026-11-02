@@ -426,6 +426,17 @@ export async function loadImageElementForCanvas(
         throw cachedError;
       }
     }
+    // Task previews and the actual canvas renderer can still display an
+    // existing thumbnail when the original has been evicted. Use that same
+    // readable source for insertion validation instead of waiting on the SW.
+    const previewBlob = await withImageOperationTimeout(
+      () => unifiedCacheService.getCachedImageBlobWithThumbnailFallback(imageUrl),
+      IMAGE_CACHE_TIMEOUT_MS,
+      '图片预览缓存读取超时（20秒），可重试插入已有结果'
+    );
+    if (previewBlob && previewBlob.size > 0) {
+      return loadHTMLImageElementFromBlob(previewBlob);
+    }
     if (!canUseServiceWorker) {
       throw new Error('图片缓存不可用，请重新生成或上传');
     }

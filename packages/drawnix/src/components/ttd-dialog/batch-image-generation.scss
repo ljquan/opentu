@@ -754,6 +754,21 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
+        -webkit-user-drag: none;
+      }
+
+      .lazy-image__error {
+        gap: 2px;
+      }
+
+      .lazy-image__error-icon {
+        font-size: 16px;
+      }
+
+      .lazy-image__error-text,
+      .lazy-image__error-retry {
+        font-size: 10px;
+        line-height: 1.2;
       }
     }
   }
@@ -1028,22 +1043,77 @@
   }
 
   .import-info {
-    margin: 0 0 16px;
-    color: #555;
-    font-size: 14px;
-    line-height: 22px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 14px;
+    color: #666;
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .import-info-count {
+    display: inline-flex;
+    min-width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #fff4df;
+    color: #b96a00;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .import-info-divider {
+    color: #c6c6c6;
+  }
+
+  .import-settings-card {
+    margin-bottom: 14px;
+    padding: 14px;
+    border: 1px solid #f0e5d2;
+    border-radius: 9px;
+    background: #fffdfa;
+  }
+
+  .import-settings-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+
+    strong {
+      color: #333;
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    span {
+      color: #9a8b78;
+      font-size: 12px;
+      line-height: 18px;
+    }
   }
 
   .import-settings-row {
     display: grid;
-    grid-template-columns: minmax(160px, 1fr) minmax(220px, 1.4fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
     align-items: end;
-    margin-bottom: 16px;
+    margin-bottom: 0;
   }
 
   .import-setting-item {
     min-width: 0;
+
+    &--wide {
+      grid-column: 1 / -1;
+    }
 
     label {
       display: block;
@@ -1052,6 +1122,96 @@
       font-size: 13px;
       line-height: 20px;
       font-weight: 500;
+    }
+
+    &--target {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .import-setting-label {
+    display: block;
+    margin-bottom: 8px;
+    color: #444;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 500;
+  }
+
+  .import-target-chip {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 1px solid #f2d7a8;
+    border-radius: 6px;
+    background: #fff7e8;
+    color: #945b0a;
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .import-number-input {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    overflow: hidden;
+    border: 1px solid #dcdcdc;
+    border-radius: 6px;
+    background: #fff;
+
+    &:focus-within {
+      border-color: #f39c12;
+      box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.14);
+    }
+
+    .start-row-input {
+      flex: 1;
+      min-width: 0;
+      width: 0;
+      height: 100%;
+      padding: 0 4px 0 8px;
+      border: 0;
+      border-radius: 0;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      appearance: textfield;
+
+      &::-webkit-inner-spin-button,
+      &::-webkit-outer-spin-button {
+        margin: 0;
+        appearance: none;
+      }
+
+      &:focus {
+        box-shadow: none;
+      }
+    }
+
+    > span {
+      padding-right: 12px;
+      color: #999;
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    > button {
+      align-self: stretch;
+      flex: 0 0 36px;
+      padding: 0;
+      border: 0;
+      background: #fafafa;
+      color: #555;
+      font: inherit;
+      font-size: 18px;
+      cursor: pointer;
+
+      &:first-child { border-right: 1px solid #eee; }
+      &:last-child { border-left: 1px solid #eee; }
+      &:hover:not(:disabled) { background: #fff4df; color: #945b0a; }
+      &:disabled { color: #ccc; cursor: default; }
+      &:focus-visible { outline: 2px solid #f39c12; outline-offset: -3px; }
     }
   }
 
@@ -1127,6 +1287,10 @@
     font-size: 13px;
     line-height: 20px;
     overflow-wrap: anywhere;
+
+    &--summary {
+      margin-bottom: 12px;
+    }
   }
 
   .import-preview-grid {

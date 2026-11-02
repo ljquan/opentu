@@ -7,3 +7,5 @@
 - [x] 1.6 更新现有使用说明、QA 和最终风险边界。
 
 验证记录见 `docs/qa-canvas-consolidation.md`。OpenSpec CLI 未安装，已校对新规格结构，未声称严格 CLI 验证通过。
+
+2026-11-01 PR 最终验证补充：参考图入画布偏好和横排设置的规格增量已通过 `pnpm dlx @fission-ai/openspec@0.23.0 validate unify-image-reference-lineage --strict`。功能分支已显式合并 `origin/develop@21f3f787`，无文本冲突；最终本地测试与已知基线问题见上述 QA 的“2026-11-01”条目。本记录更新早期未运行 CLI 的验证状态，不表示 PR 已合并或部署。

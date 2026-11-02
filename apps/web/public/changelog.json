@@ -1,6 +1,34 @@
 {
   "versions": [
     {
+      "version": "1.2.5",
+      "date": "2026-11-02",
+      "changes": {
+        "features": [
+          "完善批量导入、历史筛选及生图结果交付 (#323)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "完善批量导入、历史筛选及生图结果交付 (#323)"
+    },
+    {
+      "version": "1.2.4",
+      "date": "2026-11-01",
+      "changes": {
+        "features": [
+          "add warm white dot background (#321)"
+        ],
+        "fixes": [
+          "恢复按当前 API Key 认证获取模型 (#322)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "add warm white dot background (#321)"
+    },
+    {
       "version": "1.2.3",
       "date": "2026-10-26",
       "changes": {
@@ -936,29 +964,6 @@
         ],
         "improvements": [
           "发布v1.0.3并完成多项优化修复",
-          "修复 tuzi-api 端点路由兜底"
-        ]
-      },
-      "type": "patch",
-      "highlights": "完善图片请求 ID 找回与失败重试体验"
-    },
-    {
-      "version": "1.0.3",
-      "date": "2026-07-18",
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
-    },
-    {
-      "version": "1.0.2",
-      "date": "2026-07-18",
-      "changes": {
-        "features": [
-          "完善图片请求 ID 找回与失败重试体验"
-        ],
-        "fixes": [
-          "preserve remote media cache URL contract"
-        ],
-        "improvements": [
           "修复 tuzi-api 端点路由兜底"
         ]
       },

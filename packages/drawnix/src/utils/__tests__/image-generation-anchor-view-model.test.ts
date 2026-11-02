@@ -77,6 +77,24 @@ function createWorkflow(
 }
 
 describe('image-generation-anchor-view-model', () => {
+  it('distinguishes a canvas loading failure from a failed generation and clears errors only after success', () => {
+    const anchor = createAnchor({ error: '图片加载超时' });
+    const task = createTask({ status: TaskStatus.COMPLETED, insertedToCanvas: true });
+    const failed = buildImageGenerationAnchorViewModel({ anchor, task, hasInserted: true, canvasError: '图片加载超时' });
+    expect(failed.phase).toBe('failed');
+    expect(failed.phaseLabel).toBe('已生成，加载失败');
+    expect(failed.primaryAction.label).toBe('重试加载');
+    const recovered = buildImageGenerationAnchorViewModel({ anchor, task, hasInserted: true, canvasReady: true });
+    expect(recovered.phase).toBe('completed');
+    expect(recovered.error).toBeUndefined();
+    const generationFailure = buildImageGenerationAnchorViewModel({
+      anchor: createAnchor({ error: '供应商生成失败' }),
+      task: createTask({ status: TaskStatus.FAILED }),
+      canvasReady: true,
+    });
+    expect(generationFailure.phase).toBe('failed');
+    expect(generationFailure.error).toBe('供应商生成失败');
+  });
   afterEach(() => {
     vi.useRealTimers();
     workflowCompletionService.clear();

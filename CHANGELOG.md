@@ -1,3 +1,28 @@
+## 1.2.5 (2026-11-02)
+
+### 🚀 Features
+
+- 完善批量导入、历史筛选及生图结果交付 (#323) ([e8aff018](https://github.com/ljquan/opentu/commit/e8aff018))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
+## 1.2.4 (2026-11-01)
+
+### 🚀 Features
+
+- add warm white dot background (#321) ([8f370209](https://github.com/ljquan/opentu/commit/8f370209))
+
+### 🩹 Fixes
+
+- 恢复按当前 API Key 认证获取模型 (#322) ([bfc81186](https://github.com/ljquan/opentu/commit/bfc81186))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.3 (2026-10-26)
 
 ### 🩹 Fixes

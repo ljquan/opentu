@@ -9,6 +9,7 @@ import { createBoard, type PlaitBoard } from '@plait/core';
 const mocks = vi.hoisted(() => ({
   cacheRemoteUrl: vi.fn(),
   getCachedBlob: vi.fn(),
+  getCachedImageBlobWithThumbnailFallback: vi.fn(),
   getCacheInfo: vi.fn(),
   cacheMediaFromBlob: vi.fn(),
   insertImage: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock('../services/unified-cache-service', () => ({
     getCachedBlob: mocks.getCachedBlob,
     getCacheInfo: mocks.getCacheInfo,
     cacheMediaFromBlob: mocks.cacheMediaFromBlob,
-    getCachedImageBlobWithThumbnailFallback: vi.fn().mockResolvedValue(null),
+    getCachedImageBlobWithThumbnailFallback: mocks.getCachedImageBlobWithThumbnailFallback,
   },
 }));
 
@@ -75,6 +76,7 @@ describe('insertImageFromUrl', () => {
   beforeEach(() => {
     mocks.cacheRemoteUrl.mockReset();
     mocks.getCachedBlob.mockReset();
+    mocks.getCachedImageBlobWithThumbnailFallback.mockReset().mockResolvedValue(null);
     mocks.getCacheInfo.mockReset();
     mocks.cacheMediaFromBlob.mockReset();
     mocks.insertImage.mockReset();
@@ -182,6 +184,32 @@ describe('insertImageFromUrl', () => {
     expect(mocks.insertImage).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('原图缺失但预览可用时，使用同一缩略图读取插入尺寸（SW=%s）', async (controlled) => {
+    const url = '/__aitu_cache__/image/thumbnail-only.png';
+    mocks.isVirtualMediaUrl.mockReturnValue(true);
+    mocks.getCachedBlob.mockResolvedValue(null);
+    mocks.getCachedImageBlobWithThumbnailFallback.mockResolvedValue(new Blob(['thumbnail'], { type: 'image/png' }));
+    vi.stubGlobal('navigator', { serviceWorker: { controller: controlled ? {} : null } });
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:thumbnail', revokeObjectURL: vi.fn() });
+    const sources: string[] = [];
+    vi.stubGlobal('Image', class {
+      width = 400;
+      height = 600;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        sources.push(value);
+        if (value) queueMicrotask(() => this.onload?.());
+      }
+    });
+    const { loadImageElementForCanvas } = await import('./image');
+    const image = await loadImageElementForCanvas(url);
+    expect(image.width).toBe(400);
+    expect(image.height).toBe(600);
+    expect(sources.filter(Boolean)).toEqual(['blob:thumbnail']);
+    expect(mocks.getCachedImageBlobWithThumbnailFallback).toHaveBeenCalledWith(url);
+  });
+
   it('缓存图片解码失败时回退到生成接口返回的原始地址', async () => {
     const localUrl = '/__aitu_cache__/image/gemini-result.png';
     const sourceUrl = 'https://cdn.example.com/generated/gemini-result.png';
@@ -251,6 +279,7 @@ describe('insertImageFromUrl', () => {
         'image',
         { sourceUrl }
       );
+      // The native Response mock returns a Node Blob, not a jsdom Blob.
       const cachedBytes = await mocks.cacheMediaFromBlob.mock.calls[0][1].arrayBuffer();
       expect(new Uint8Array(cachedBytes)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
       expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);

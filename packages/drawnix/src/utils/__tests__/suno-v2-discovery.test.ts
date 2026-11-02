@@ -46,7 +46,7 @@ describe('Suno v2 discovery', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('supplements only matching native submission endpoints and preserves selection', async () => {
+  it('does not add pricing-only actions during refresh or catalog restoration', async () => {
     const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
     pricing.caches = [{ profileId: 'p', modelEndpoints: {
       'suno/cover': { native: { path: '/suno/v2/cover', method: 'POST' } },
@@ -62,12 +62,12 @@ describe('Suno v2 discovery', () => {
     } }];
     pricing.changed?.();
     expect(runtimeModelDiscovery.getDiscoveredModels('p').map((model) => model.id).sort())
-      .toEqual(['suno/cover', 'suno/music', 'suno_music']);
+      .toEqual(['suno/music', 'suno_music']);
     expect(runtimeModelDiscovery.getSelectedModelIds('p')).toEqual(['suno/music', 'suno_music']);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ id: 'suno_music' }] })));
     await runtimeModelDiscovery.discover('p', 'https://api.tu-zi.com', 'test', [], { selectAll: true });
     expect(runtimeModelDiscovery.getConfiguredSelectableModels('audio').map((model) => model.id).sort())
-      .toEqual(['suno/cover', 'suno_music']);
+      .toEqual(['suno_music']);
     expect(fetch).toHaveBeenCalledTimes(1);
     pricing.caches = [];
     pricing.changed?.();

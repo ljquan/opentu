@@ -82,6 +82,63 @@ describe('generation reference preparation', () => {
     expect(mocks.cache).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves off-canvas references out of the canvas when auto-insertion is disabled', async () => {
+    const current = board();
+    const images = [{ url: 'data:image/png;base64,bG9jYWw=' }];
+    const result = await prepareImageGenerationReferences({
+      ...options(current),
+      images,
+      insertMissingReferences: false,
+    });
+    expect(current.children).toEqual([]);
+    expect(result).toEqual({ references: [], imageSourceIds: [] });
+    expect(images).toEqual([{ url: 'data:image/png;base64,bG9jYWw=' }]);
+    expect(mocks.cache).not.toHaveBeenCalled();
+    expect(mocks.load).not.toHaveBeenCalled();
+  });
+
+  it('keeps existing source identities and associations in a mixed request with auto-insertion disabled', async () => {
+    const original = source();
+    const current = board([original]);
+    const association = {
+      referenceId: 'selected-source',
+      boardId: 'board-1',
+      elementId: original.id,
+      kind: 'image' as const,
+      label: '已有参考图',
+    };
+    const result = await prepareImageGenerationReferences({
+      ...options(current),
+      images: [
+        { url: '/upload.png' },
+        { url: original.url, sourceElementId: original.id },
+        { url: original.url },
+      ],
+      associations: [association],
+      insertMissingReferences: false,
+    });
+    expect(current.children).toEqual([original]);
+    expect(result).toEqual({
+      references: [association],
+      imageSourceIds: [original.id],
+    });
+    expect(mocks.cache).not.toHaveBeenCalled();
+    expect(mocks.load).not.toHaveBeenCalled();
+  });
+
+  it('materializes references after auto-insertion is turned back on, then reuses them when off', async () => {
+    const current = board();
+    const input = { ...options(current), images: [{ url: '/upload.png' }] };
+    await prepareImageGenerationReferences({ ...input, insertMissingReferences: false });
+    expect(current.children).toHaveLength(0);
+    const enabled = await prepareImageGenerationReferences({ ...input, insertMissingReferences: true });
+    expect(current.children).toHaveLength(1);
+    const disabled = await prepareImageGenerationReferences({ ...input, insertMissingReferences: false });
+    expect(disabled.imageSourceIds).toEqual(enabled.imageSourceIds);
+    expect(current.children).toHaveLength(1);
+    expect(mocks.cache).toHaveBeenCalledTimes(1);
+  });
+
   it('combines existing and new references and deduplicates a repeated uploaded URL', async () => {
     const original = source();
     const current = board([original]);
@@ -142,13 +199,38 @@ describe('generation reference preparation', () => {
     expect(current.children).toEqual([]);
   });
 
-  it('rejects an unavailable selected source rather than recreating it from an old URL', async () => {
+  it.each([true, false])('rejects an unavailable selected source with auto-insertion %s', async (insertMissingReferences) => {
     await expect(
       prepareImageGenerationReferences({
         ...options(),
         images: [{ url: '/a.png', sourceElementId: 'deleted' }],
+        insertMissingReferences,
       })
     ).rejects.toThrow('参考图已从画布删除');
+    expect(mocks.cache).not.toHaveBeenCalled();
+  });
+
+  it('still rejects board changes and stale associations with auto-insertion disabled', async () => {
+    const current = board();
+    await expect(
+      prepareImageGenerationReferences({
+        ...options(current),
+        images: [{ url: '/upload.png' }],
+        insertMissingReferences: false,
+        boardGuard: () => false,
+      })
+    ).rejects.toThrow('画板已切换');
+    await expect(
+      prepareImageGenerationReferences({
+        ...options(current),
+        insertMissingReferences: false,
+        associations: [{
+          referenceId: 'stale', boardId: 'board-1', elementId: 'deleted',
+          kind: 'image', label: '已删除',
+        }],
+      })
+    ).rejects.toThrow('引用来源已变化');
+    expect(current.children).toEqual([]);
     expect(mocks.cache).not.toHaveBeenCalled();
   });
 
