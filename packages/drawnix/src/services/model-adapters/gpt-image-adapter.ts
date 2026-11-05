@@ -1,3 +1,4 @@
+import { readImageApiError, createImageApiError } from '../../utils/image-error-details';
 import {
   base64ToBlob,
   getFileExtension,
@@ -13,7 +14,7 @@ import {
   shouldRetryTuziGPTImageAlias,
 } from './image-request-schemas';
 import { sendAdapterRequest } from './context';
-import { readProviderResponseJson } from '../provider-routing';
+import { readProviderResponseJson, readProviderResponseText } from '../provider-routing';
 import { registerModelAdapter } from './registry';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import type {
@@ -542,21 +543,6 @@ export async function resolveGeneratedImageDimensions(
   return dimensions ? { ...result, ...dimensions } : result;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
-  const data = await readProviderResponseJson<Record<string, any>>(
-    response
-  ).catch(() => null);
-  if (typeof data?.error === 'string') {
-    return data.error;
-  }
-  if (typeof data?.error?.message === 'string') {
-    return data.error.message;
-  }
-  if (typeof data?.message === 'string') {
-    return data.message;
-  }
-  return `GPT Image request failed: ${response.status}`;
-}
 
 export const gptImageAdapter: ImageModelAdapter = {
   id: 'gpt-image-adapter',
@@ -630,14 +616,14 @@ export const gptImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), { httpStatus: response.status });
+      throw await readImageApiError(response, 'GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText);
     }
 
-    const result = await readProviderResponseJson(response);
-    return resolveGeneratedImageDimensions(
-      parseGPTImageResponse(result, outputFormat),
-      context.signal
-    );
+    const result = await readProviderResponseJson<Record<string, any>>(response);
+    if (result.error || result.status === 'failed') {
+      throw createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' });
+    }
+    return resolveGeneratedImageDimensions(parseGPTImageResponse(result, outputFormat), context.signal);
   },
 };
 

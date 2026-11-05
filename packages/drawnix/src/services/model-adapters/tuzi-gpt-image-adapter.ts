@@ -1,3 +1,4 @@
+import { readImageApiError, createImageApiError } from '../../utils/image-error-details';
 import {
   normalizeImageResolutionTier,
   resolveGPTImagePromptAspectRatio,
@@ -312,44 +313,6 @@ export async function buildTuziGPTImageEditFormData(
   return formData;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
-  const rawText = await readProviderResponseText(response).catch(() => '');
-  const data = rawText
-    ? (() => {
-        try {
-          return JSON.parse(rawText);
-        } catch {
-          return null;
-        }
-      })()
-    : null;
-  if (typeof data?.error === 'string') {
-    return data.error;
-  }
-  if (typeof data?.error?.message === 'string') {
-    return data.error.message;
-  }
-  if (typeof data?.message === 'string') {
-    return data.message;
-  }
-
-  const plainText = rawText.trim();
-  if (plainText && !/^<!doctype|^<html/i.test(plainText)) {
-    return plainText.slice(0, 300);
-  }
-
-  let endpoint = '';
-  try {
-    const url = new URL(response.url);
-    endpoint = `${url.hostname}${url.pathname}`;
-  } catch {
-    endpoint = (response.url || '').split(/[?#]/, 1)[0];
-  }
-
-  return `Tuzi GPT Image request failed: ${response.status}${
-    endpoint ? ` (${endpoint})` : ''
-  }`;
-}
 
 export function getTuziGPTImageRequestPath(
   request: ImageGenerationRequest
@@ -398,12 +361,13 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), {
-        httpStatus: response.status,
-      });
+      throw await readImageApiError(response, 'Tuzi GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText);
     }
 
-    const result = await readProviderResponseJson(response);
+    const result = await readProviderResponseJson<Record<string, any>>(response);
+    if (result.error || result.status === 'failed') {
+      throw createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' });
+    }
     const responseFormat = getResponseFormat(request);
     const outputFormat = buildTuziGPTImageRequestOptions(
       request,

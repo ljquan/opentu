@@ -299,6 +299,7 @@ export function DrawnixDeferredRuntime({
                   ...step,
                   status: 'failed' as const,
                   error: task.error?.message || '任务执行失败',
+                  errorDetails: {...task.error!, details: {...task.error?.details, modelId: task.error?.details?.modelId || task.invocationRoute?.modelId || task.params.model, remoteId: task.error?.details?.remoteId || task.remoteId}},
                 };
               case TaskStatus.CANCELLED:
                 return {
@@ -356,6 +357,7 @@ export function DrawnixDeferredRuntime({
           status?: string;
           result?: unknown;
           error?: string;
+          errorDetails?: import('../../types/shared/core.types').TaskError;
           duration?: number;
           steps?: Array<{
             id: string;
@@ -389,6 +391,7 @@ export function DrawnixDeferredRuntime({
                     step.status) as typeof step.status,
                   result: workflowEvent.result ?? step.result,
                   error: workflowEvent.error ?? step.error,
+                  errorDetails: workflowEvent.status === 'failed' ? workflowEvent.errorDetails : undefined,
                   duration: workflowEvent.duration ?? step.duration,
                 };
               }
@@ -551,6 +554,7 @@ export function DrawnixDeferredRuntime({
                   ...step,
                   status: newStatus as typeof step.status,
                   error: newError,
+                  errorDetails: newStatus === 'failed' ? { ...task.error!, details: {...task.error?.details, modelId: task.error?.details?.modelId || task.invocationRoute?.modelId || task.params.model, remoteId: task.error?.details?.remoteId || task.remoteId} } : undefined,
                   result: newResult,
                 };
               }

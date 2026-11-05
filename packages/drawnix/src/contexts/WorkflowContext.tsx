@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * Workflow Context
  * 
@@ -21,7 +22,8 @@ interface WorkflowContextValue {
     status: WorkflowStep['status'],
     result?: unknown,
     error?: string,
-    duration?: number
+    duration?: number,
+    errorDetails?: TaskError
   ) => void;
   /** 添加新步骤 */
   addSteps: (steps: WorkflowStep[]) => void;

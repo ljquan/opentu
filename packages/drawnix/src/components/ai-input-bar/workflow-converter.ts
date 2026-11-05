@@ -1,3 +1,4 @@
+import type { TaskError } from '../../types/shared/core.types';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
 /**
  * 场景转换器
@@ -1448,7 +1449,8 @@ export function updateStepStatus(
   status: WorkflowStep['status'],
   result?: unknown,
   error?: string,
-  duration?: number
+  duration?: number,
+    errorDetails?: TaskError
 ): WorkflowDefinition {
   return {
     ...workflow,
@@ -1460,6 +1462,7 @@ export function updateStepStatus(
             // Preserve existing result (e.g. taskId) when new result is undefined
             result: result !== undefined ? result : step.result,
             error,
+            errorDetails: status === 'failed' ? errorDetails : undefined,
             duration,
           }
         : step

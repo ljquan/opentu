@@ -744,6 +744,7 @@ export class SWCapabilitiesHandler {
           status: s.status,
         })),
         error: result.error,
+        errorDetails: result.errorDetails,
       };
     } catch (error: any) {
       return {

@@ -18,13 +18,52 @@ export function getWorkZoneRenderScale(
     : 1;
 }
 
-export function getWorkZoneVisualRectangle(element: PlaitWorkZone) {
+const renderedWorkZoneSizes = new WeakMap<
+  PlaitBoard,
+  Map<string, { width: number; height: number }>
+>();
+
+export function setWorkZoneRenderedSize(
+  board: PlaitBoard,
+  id: string,
+  size: { width: number; height: number }
+): boolean {
+  if (
+    !Number.isFinite(size.width) ||
+    !Number.isFinite(size.height) ||
+    size.width <= 0 ||
+    size.height <= 0
+  )
+    return false;
+  let sizes = renderedWorkZoneSizes.get(board);
+  if (!sizes) {
+    sizes = new Map();
+    renderedWorkZoneSizes.set(board, sizes);
+  }
+  const previous = sizes.get(id);
+  if (previous?.width === size.width && previous?.height === size.height)
+    return false;
+  sizes.set(id, size);
+  return true;
+}
+
+export function clearWorkZoneRenderedSize(board: PlaitBoard, id: string): void {
+  renderedWorkZoneSizes.get(board)?.delete(id);
+}
+
+export function getWorkZoneVisualRectangle(
+  element: PlaitWorkZone,
+  board?: PlaitBoard
+) {
   const rect = RectangleClient.getRectangleByPoints(element.points);
   const scale = getWorkZoneRenderScale(element);
+  const size = board
+    ? renderedWorkZoneSizes.get(board)?.get(element.id)
+    : undefined;
   return {
     ...rect,
-    width: rect.width * scale,
-    height: rect.height * scale,
+    width: Math.max(rect.width, size?.width || 0) * scale,
+    height: Math.max(rect.height, size?.height || 0) * scale,
   };
 }
 
@@ -95,10 +134,7 @@ export const WorkZoneTransforms = {
     });
   },
 
-  getWorkZoneById(
-    board: PlaitBoard,
-    elementId: string
-  ): PlaitWorkZone | null {
+  getWorkZoneById(board: PlaitBoard, elementId: string): PlaitWorkZone | null {
     const element = board.children.find((el: any) => el.id === elementId);
     return element && isWorkZoneElement(element) ? element : null;
   },

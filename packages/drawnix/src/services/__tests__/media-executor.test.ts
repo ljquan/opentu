@@ -1787,6 +1787,11 @@ describe('Media Executor Module', () => {
         error: {
           code: 'INVOCATION_ROUTE_UNAVAILABLE',
           message: 'Provider route unavailable',
+          details: expect.objectContaining({
+            modelId: 'removed-model',
+            originalError: 'Provider route unavailable',
+            timestamp: expect.any(Number),
+          }),
         },
       });
       expect((executor as any).pollingTasks.size).toBe(0);

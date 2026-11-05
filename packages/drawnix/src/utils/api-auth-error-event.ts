@@ -105,6 +105,8 @@ function collectErrorSignals(error: unknown): ErrorSignalSnapshot {
     typeof candidate.error === 'string' ? candidate.error : undefined,
     (candidate.error as Record<string, unknown> | undefined)?.message,
     (candidate.error as Record<string, unknown> | undefined)?.code,
+    (candidate.diagnostics as Record<string, unknown> | undefined)?.apiErrorCode,
+    (candidate.details as Record<string, unknown> | undefined)?.apiErrorCode,
   ];
 
   for (const value of directTexts) {

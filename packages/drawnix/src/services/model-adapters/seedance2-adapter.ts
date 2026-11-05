@@ -1,3 +1,9 @@
+import { createGenerationApiError } from '../../utils/generation-error-details';
+import {
+  readVideoSubmissionRequestId,
+  readVideoTaskRequestId,
+  withVideoRequestId,
+} from '../../utils/video-request-id';
 import { notifyTaskSubmitted } from '../submission-persistence';
 import type {
   AdapterContext,
@@ -467,19 +473,28 @@ async function buildContent(
 
 async function readJsonResponse(
   response: Response,
-  action: string
+  action: string,
+  isSubmission = false
 ): Promise<Seedance2TaskResponse> {
   const body = (await response
     .json()
     .catch(() => null)) as Seedance2TaskResponse | null;
   if (!response.ok) {
-    throw new Seedance2HttpError(
-      body?.error
-        ? extractErrorMessage(body.error)
-        : body?.message?.trim()
-        ? body.message
-        : `${action}失败：HTTP ${response.status}`,
-      response.status
+    throw withVideoRequestId(
+      Object.assign(
+        new Seedance2HttpError(
+          body?.error
+            ? extractErrorMessage(body.error)
+            : body?.message?.trim()
+            ? body.message
+            : `${action}失败：HTTP ${response.status}`,
+          response.status
+        ),
+        { diagnostics: createGenerationApiError(body, response, action).diagnostics }
+      ),
+      isSubmission
+        ? readVideoSubmissionRequestId(response, body)
+        : readVideoTaskRequestId(body)
     );
   }
   return body || {};
@@ -606,16 +621,23 @@ export async function submitSeedance2Request(
       signal: context.signal,
       fetcher: context.fetcher,
     });
-    const submitted = await readJsonResponse(submitResponse, '视频提交');
+    const submitted = await readJsonResponse(submitResponse, '视频提交', true);
+    const apiRequestId = readVideoSubmissionRequestId(submitResponse, submitted);
     if (submitted.status?.toLowerCase() === 'failed') {
-      throw new Error(extractErrorMessage(submitted.error));
+      throw withVideoRequestId(
+        createGenerationApiError(submitted, submitResponse, '视频提交失败', {
+          modelId: model,
+          remoteId: submitted.task_id || submitted.id,
+        }),
+        apiRequestId
+      );
     }
     const taskId = submitted.task_id || submitted.id;
     if (!taskId) {
-      throw new Error('Seedance 2.0 API 未返回任务 ID');
+      throw withVideoRequestId(new Error('Seedance 2.0 API 未返回任务 ID'), apiRequestId);
     }
 
-    return { taskId, submitted, model, provider, duration };
+    return { taskId, submitted, model, provider, duration, apiRequestId };
 }
 
 export const seedance2VideoAdapter: VideoModelAdapter = {
@@ -637,12 +659,12 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
       | ((progress: number, status?: string) => void)
       | undefined;
     const onSubmitted = request.params?.onSubmitted as
-      | ((taskId: string) => void)
+      | ((taskId: string, apiRequestId?: string) => void | Promise<void>)
       | undefined;
 
-    const { taskId, submitted, model, provider, duration } =
+    const { taskId, submitted, model, provider, duration, apiRequestId } =
       await submitSeedance2Request(context, request);
-    await notifyTaskSubmitted(taskId, onSubmitted);
+    await notifyTaskSubmitted(taskId, (id) => onSubmitted?.(id, apiRequestId));
     onProgress?.(5, submitted.status || 'queued');
 
     let consecutiveErrors = 0;
@@ -671,7 +693,13 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
           )
         ) {
           businessFailure = true;
-          throw new Error(extractErrorMessage(status.error));
+          throw withVideoRequestId(
+            createGenerationApiError(status, pollResponse, '视频生成失败', {
+              modelId: model,
+              remoteId: taskId,
+            }),
+            apiRequestId || readVideoTaskRequestId(status)
+          );
         }
         if (
           [
@@ -713,6 +741,9 @@ export const seedance2VideoAdapter: VideoModelAdapter = {
           };
         }
       } catch (error) {
+        if (error instanceof Error) {
+          withVideoRequestId(error, apiRequestId);
+        }
         if (businessFailure) {
           throw error;
         }

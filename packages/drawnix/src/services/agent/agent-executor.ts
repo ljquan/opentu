@@ -1,3 +1,4 @@
+import { toGenerationTaskError } from '../../utils/generation-error-details';
 /**
  * Agent 执行器
  *
@@ -541,6 +542,7 @@ class AgentExecutor {
       return {
         success: false,
         error: error.message || 'Agent 执行失败',
+        errorDetails: toGenerationTaskError(error, 'AGENT_FAILED', model),
         model,
       };
     }

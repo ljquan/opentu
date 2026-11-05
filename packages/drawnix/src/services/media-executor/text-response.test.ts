@@ -205,4 +205,27 @@ describe('Tuzi text compatibility', () => {
       ]).message
     ).toBe('HTTP 401 Bearer [redacted]; key=[redacted]');
   });
+  it('keeps business-error diagnostics through redaction', () => {
+    let failure: unknown;
+    try {
+      extractCompletionText({
+        request_id: 'gateway-id',
+        task_id: 'remote-text-task',
+        error: {
+          code: 'permission_denied',
+          message: 'Denied private-value (request id: provider-id)',
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(safeTextError(failure, ['private-value'])).toMatchObject({
+      message: 'Denied [redacted] (request id: provider-id)',
+      diagnostics: {
+        requestId: 'provider-id',
+        apiErrorCode: 'permission_denied',
+        remoteId: 'remote-text-task',
+      },
+    });
+  });
 });

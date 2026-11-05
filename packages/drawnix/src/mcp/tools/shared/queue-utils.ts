@@ -9,6 +9,7 @@ import { taskQueueService } from '../../../services/task-queue';
 import type { MCPExecuteOptions, MCPResult, MCPTaskResult } from '../../types';
 import type { TaskType } from '../../../types/task.types';
 import type { GenerationParams } from '../../../types/shared/core.types';
+import { toGenerationTaskError } from '../../../utils/generation-error-details';
 
 // ============================================================================
 // 类型定义
@@ -76,7 +77,12 @@ export function wrapApiError(error: any, fallbackMessage: string): MCPResult {
   if (error.apiErrorBody) {
     errorMessage = `${errorMessage} - ${JSON.stringify(error.apiErrorBody)}`;
   }
-  return { success: false, error: errorMessage, type: 'error' };
+  return {
+    success: false,
+    error: errorMessage,
+    errorDetails: toGenerationTaskError(error, 'API_ERROR'),
+    type: 'error',
+  };
 }
 
 /** 将 referenceImages URL 列表转换为 uploadedImages 格式 */

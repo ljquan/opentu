@@ -1,3 +1,4 @@
+import type { TaskError } from '../../types/shared/core.types';
 /**
  * AI 分析服务
  *
@@ -38,6 +39,7 @@ export interface AIAnalyzeResult {
   generatedSteps?: WorkflowStepInfo[];
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** AI 响应文本 */
   response?: string;
 }
@@ -155,6 +157,7 @@ export async function analyzeWithAI(
       return {
         success: false,
         error: result.error || 'AI 分析失败',
+        errorDetails: result.errorDetails,
         generatedSteps,
       };
     }

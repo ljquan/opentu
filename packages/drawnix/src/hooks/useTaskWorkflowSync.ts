@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * useTaskWorkflowSync Hook
  *
@@ -28,7 +29,8 @@ interface WorkflowControl {
     status: WorkflowStep['status'],
     result?: unknown,
     error?: string,
-    duration?: number
+    duration?: number,
+    errorDetails?: TaskError
   ) => void;
   resumeWorkflow: () => void;
   restoreWorkflow?: (workflow: WorkflowDefinition) => void;
@@ -58,7 +60,7 @@ function areAllWorkflowStepsCompleted(workflow: WorkflowDefinition): boolean {
  * Map task status to step status
  */
 function mapTaskToStepStatus(task: Task): {
-  status: WorkflowStep['status']; result?: unknown; error?: string;
+  status: WorkflowStep['status']; result?: unknown; error?: string; errorDetails?: TaskError;
 } | null {
   if (task.status === TaskStatus.PROCESSING) {
     return { status: 'running', result: { taskId: task.id } };
@@ -72,7 +74,7 @@ function mapTaskToStepStatus(task: Task): {
     const errorMsg = typeof task.error === 'string'
       ? task.error
       : task.error?.message || 'Task failed';
-    return { status: 'failed', error: errorMsg };
+    return { status: 'failed', error: errorMsg, errorDetails: {...task.error!, details: {...task.error?.details, apiRequestId: task.apiRequestId || task.error?.details?.apiRequestId, modelId: task.error?.details?.modelId || task.invocationRoute?.modelId || task.params.model, remoteId: task.error?.details?.remoteId || task.remoteId}} };
   }
   return null;
 }
@@ -83,7 +85,7 @@ function mapTaskToStepStatus(task: Task): {
  */
 function processViaContext(
   task: Task,
-  mapped: { status: WorkflowStep['status']; result?: unknown; error?: string },
+  mapped: { status: WorkflowStep['status']; result?: unknown; error?: string; errorDetails?: TaskError },
   workflowControl: WorkflowControl,
   updateWorkflowMessageRef: React.MutableRefObject<(data: WorkflowMessageData) => void>,
   boardRef: React.MutableRefObject<PlaitBoard | null>,
@@ -102,7 +104,9 @@ function processViaContext(
     step.id,
     mapped.status,
     mapped.result,
-    mapped.error
+    mapped.error,
+    undefined,
+    mapped.errorDetails
   );
 
   const updatedWorkflow = workflowControl.getWorkflow();
@@ -131,7 +135,7 @@ function processViaContext(
  */
 function processViaWorkZone(
   task: Task,
-  mapped: { status: WorkflowStep['status']; result?: unknown; error?: string },
+  mapped: { status: WorkflowStep['status']; result?: unknown; error?: string; errorDetails?: TaskError },
   workflowControl: WorkflowControl,
   updateWorkflowMessageRef: React.MutableRefObject<(data: WorkflowMessageData) => void>,
   boardRef: React.MutableRefObject<PlaitBoard | null>,
@@ -158,6 +162,7 @@ function processViaWorkZone(
       return {
         ...step,
         status: mapped.status,
+        errorDetails: mapped.status === 'failed' ? mapped.errorDetails : undefined,
         ...(mapped.result !== undefined && { result: mapped.result }),
         ...(mapped.error !== undefined && { error: mapped.error }),
       };
@@ -191,6 +196,7 @@ function processViaWorkZone(
           status: s.status,
           result: s.result,
           error: s.error,
+          errorDetails: s.errorDetails,
           duration: s.duration,
           options: s.options,
         })),

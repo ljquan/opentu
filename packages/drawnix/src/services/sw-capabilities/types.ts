@@ -1,3 +1,4 @@
+import type { TaskError } from '../../types/shared/core.types';
 /**
  * Types for SW Capabilities
  */
@@ -49,6 +50,7 @@ export interface CapabilityResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  errorDetails?: TaskError;
   type?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
   /** Task ID (for queued operations) */
   taskId?: string;

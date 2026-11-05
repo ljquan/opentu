@@ -10,6 +10,7 @@ import {
 } from '@plait/core';
 import { ImageGenerationAnchorComponent } from '../components/image-generation-anchor/image-generation-anchor.component';
 import { ImageGenerationAnchorTransforms } from '../components/image-generation-anchor/image-generation-anchor.transforms';
+import { getImageGenerationAnchorRenderedRectangle } from '../utils/image-generation-anchor-bounds';
 import {
   isImageGenerationAnchorElement,
 } from '../types/image-generation-anchor.types';
@@ -50,7 +51,7 @@ export const withImageGenerationAnchor: PlaitPlugin = (board: PlaitBoard) => {
 
   board.getRectangle = (element: PlaitElement) => {
     if (isImageGenerationAnchorElement(element)) {
-      return RectangleClient.getRectangleByPoints(element.points);
+      return getImageGenerationAnchorRenderedRectangle(board, element);
     }
 
     return getRectangle(element);
@@ -58,7 +59,7 @@ export const withImageGenerationAnchor: PlaitPlugin = (board: PlaitBoard) => {
 
   board.isHit = (element: PlaitElement, point: Point, isStrict?: boolean) => {
     if (isImageGenerationAnchorElement(element)) {
-      const rect = RectangleClient.getRectangleByPoints(element.points);
+      const rect = getImageGenerationAnchorRenderedRectangle(board, element);
       return (
         point[0] >= rect.x &&
         point[0] <= rect.x + rect.width &&
@@ -72,7 +73,7 @@ export const withImageGenerationAnchor: PlaitPlugin = (board: PlaitBoard) => {
 
   board.isRectangleHit = (element: PlaitElement, selection: Selection) => {
     if (isImageGenerationAnchorElement(element)) {
-      const rect = RectangleClient.getRectangleByPoints(element.points);
+      const rect = getImageGenerationAnchorRenderedRectangle(board, element);
       const selectionRect = RectangleClient.getRectangleByPoints([
         selection.anchor,
         selection.focus,
