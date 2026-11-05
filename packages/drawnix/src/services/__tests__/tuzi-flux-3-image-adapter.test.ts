@@ -203,7 +203,7 @@ describe('Tuzi Flux 3 response contract', () => {
     const data = {
       data: [
         { url: 'https://example.test/out.png', width: 1024, height: 1024 },
-        { b64_json: 'aGVsbG8=' },
+        { b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=' },
       ],
     };
     mocks.send.mockResolvedValue(
@@ -224,7 +224,7 @@ describe('Tuzi Flux 3 response contract', () => {
       url: data.data[0].url,
       width: 1024,
       height: 1024,
-      urls: [data.data[0].url, 'data:image/png;base64,aGVsbG8='],
+      urls: [data.data[0].url, 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='],
     });
   });
   it.each([
@@ -249,14 +249,14 @@ describe('Tuzi Flux 3 response contract', () => {
         {},
         { url: 42 },
         { url: 'https://example.test/out.jpg', b64_json: true, width: 1024, height: 1024 },
-        { b64_json: 'aGVsbG8=' },
+        { b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=' },
       ],
     };
     mocks.send.mockResolvedValue(Response.json(data));
     const result = await tuziFlux3ImageAdapter.generateImage(context, request);
     expect(result.urls).toEqual([
       'https://example.test/out.jpg',
-      'data:image/jpeg;base64,aGVsbG8=',
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
     ]);
     expect(result.raw).toEqual(data);
   });

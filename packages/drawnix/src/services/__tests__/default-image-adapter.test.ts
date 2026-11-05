@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { geminiImageAdapter } from '../model-adapters/default-adapters';
 
 const mocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
@@ -32,9 +33,34 @@ vi.mock('../unified-cache-service', () => ({
   unifiedCacheService: {},
 }));
 
-import { geminiImageAdapter } from '../model-adapters/default-adapters';
-
 describe('default image adapter compatibility', () => {
+  it('forwards an explicit GPT Image 2.6 size in basic compatibility mode', async () => {
+    const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    mocks.generateImage.mockResolvedValue({ data: [{ b64_json: gif, width: 1, height: 1 }] });
+    await geminiImageAdapter.generateImage({ baseUrl: 'https://gateway.example.com/v1' }, {
+      model: 'gpt-image-2.6-1k', prompt: '静态图', size: '4096x4096',
+      params: { size: '1536x1024', quality: 'high', resolution: '4k' },
+    });
+    expect(mocks.generateImage).toHaveBeenCalledWith('静态图', expect.objectContaining({
+      model: 'gpt-image-2.6-1k', size: '1536x1024', quality: undefined,
+      count: 1, response_format: 'b64_json',
+    }));
+  });
+
+  it('keeps GPT Image 2.6 GIF bytes and batch URLs consistent in basic compatibility mode', async () => {
+    const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    mocks.generateImage.mockResolvedValue({ data: [{ b64_json: gif, width: 1, height: 1 }] });
+    const result = await geminiImageAdapter.generateImage({ baseUrl: 'https://gateway.example.com/v1' }, {
+      model: 'gpt-image-2.6-1k', prompt: '生成 GIF 图', size: '16x9',
+      params: { quality: '4k', resolution: '4k', response_format: 'url' },
+    });
+    expect(mocks.generateImage).toHaveBeenCalledWith('生成 GIF 图', expect.objectContaining({
+      model: 'gpt-image-2.6-1k', size: '16x9', quality: undefined,
+      count: 1, response_format: 'b64_json',
+    }));
+    expect(result).toMatchObject({url: `data:image/gif;base64,${gif}`,
+      urls: [`data:image/gif;base64,${gif}`], format: 'gif'});
+  });
   afterEach(() => {
     mocks.generateImage.mockReset();
     mocks.generateWithPolling.mockReset();

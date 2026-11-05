@@ -7,6 +7,7 @@ import {
 } from './image-size-quality-resolver';
 import {
   imageInputToBlob,
+  formatGPTImageError,
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
@@ -22,6 +23,7 @@ import {
   readProviderResponseText,
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { normalizeGPTImage26Request } from './gpt-image-26-request';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
@@ -123,6 +125,7 @@ export function buildTuziGPTImageRequestOptions(
     request.modelRef?.modelId?.trim() ||
     request.model?.trim() ||
     TUZI_GPT_IMAGE_MODEL_ID;
+  request = normalizeGPTImage26Request(request, model);
   const requestedSize = getStringParam(request.params, 'size') || request.size;
   const useAutomaticRatio =
     GPT_IMAGE_2_MODEL_IDS.includes(model.toLowerCase()) &&
@@ -262,6 +265,10 @@ export async function buildTuziGPTImageEditFormData(
   fetcher?: typeof fetch,
   signal?: AbortSignal
 ): Promise<FormData> {
+  request = normalizeGPTImage26Request(
+    request,
+    bindingModelId?.trim() || request.modelRef?.modelId?.trim() || request.model
+  );
   const referenceImages = request.referenceImages || [];
   const maskImage = getTuziMaskImage(request);
   if (referenceImages.length === 0) {
@@ -361,12 +368,12 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw await readImageApiError(response, 'Tuzi GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText);
+      throw formatGPTImageError(await readImageApiError(response, 'Tuzi GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText));
     }
 
     const result = await readProviderResponseJson<Record<string, any>>(response);
     if (result.error || result.status === 'failed') {
-      throw createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' });
+      throw formatGPTImageError(createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' }));
     }
     const responseFormat = getResponseFormat(request);
     const outputFormat = buildTuziGPTImageRequestOptions(
