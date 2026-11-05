@@ -1,8 +1,9 @@
 {
-  "version": "1.2.5",
-  "buildTime": "2026-11-02T08:01:35.642Z",
+  "version": "1.2.6",
+  "buildTime": "2026-11-05T08:15:51.458Z",
   "gitCommit": "unknown",
   "changelog": [
-    "完善批量导入、历史筛选及生图结果交付 (#323)"
+    "完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325)",
+    "完善生成错误详情与一键复制，修正视频 Request ID 来源 (#324)"
   ]
 }

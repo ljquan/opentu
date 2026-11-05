@@ -1,3 +1,15 @@
+## 1.2.6 (2026-11-05)
+
+### 🚀 Features
+
+- 完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325) ([25c62552](https://github.com/ljquan/opentu/commit/25c62552))
+- 完善生成错误详情与一键复制，修正视频 Request ID 来源 (#324) ([e3f44544](https://github.com/ljquan/opentu/commit/e3f44544))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- yk1125 <1160314789@qq.com>
+
 ## Unreleased
 
 - 接入 Tuzi `gpt-image-2.6-1k`，隔离尺寸和输出参数，保留实际返回的图片尺寸及 GIF 动画。
