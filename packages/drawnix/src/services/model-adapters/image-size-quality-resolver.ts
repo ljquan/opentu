@@ -4,6 +4,7 @@ import {
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
 } from '../../constants/model-config';
+import { resolveGPTImage26Size } from './gpt-image-26-request';
 
 export type ImageResolutionTier = '1k' | '2k' | '4k';
 export type OfficialGPTImageQuality =
@@ -353,7 +354,7 @@ export function resolveOfficialGPTImageSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
-  if (isGPTImage26ModelId(modelId)) return 'auto';
+  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size);
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
   const useExtendedSizing =
     typeof modelId === 'string' &&
@@ -428,7 +429,7 @@ export function resolveOfficialGPTImageEditSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
-  if (isGPTImage26ModelId(modelId)) return 'auto';
+  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size);
   if (isGPTImage2Model(modelId) || isGPTImage25Model(modelId)) {
     return resolveOfficialGPTImageSize(modelId, size, params);
   }

@@ -23,6 +23,14 @@ export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
 export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
+export const GPT_IMAGE_26_SIZE_OPTIONS = [
+  { value: 'auto', label: '自动（原始尺寸）' },
+  { value: '1024x1024', label: '1:1 方形' },
+  { value: '1024x1536', label: '2:3 竖版' },
+  { value: '1536x1024', label: '3:2 横版' },
+  { value: '16x9', label: '16:9 横屏' },
+  { value: '9x16', label: '9:16 竖屏' },
+];
 
 export function isGPTImage26ModelId(modelId?: string | null): boolean {
   return modelId?.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID;
@@ -3041,9 +3049,9 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     id: 'size',
     label: '图片尺寸',
     shortLabel: '尺寸',
-    description: '保留上游实际尺寸；画面比例和 GIF 动效请在提示词中描述。',
+    description: '选择请求比例，实际像素以返回图片为准；GIF 建议使用自动尺寸，并在提示词中描述动效。',
     valueType: 'enum',
-    options: [{ value: 'auto', label: '自动（原始尺寸）' }],
+    options: GPT_IMAGE_26_SIZE_OPTIONS,
     defaultValue: 'auto',
     compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
     modelType: 'image',

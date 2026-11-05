@@ -14,6 +14,13 @@ The system SHALL recognize `gpt-image-2.6-1k` independently from GPT Image 2, GP
 - **THEN** the request SHALL use the selected provider's existing compatible adapter
 - **AND** the model ID SHALL remain `gpt-image-2.6-1k` without an implicit 2.5 alias substitution
 
+#### Scenario: Preserve a verified explicit image size
+- **WHEN** the user selects automatic sizing, 1:1, 2:3, 3:2, 16:9, or 9:16 for `gpt-image-2.6-1k`
+- **THEN** generation and editing adapters SHALL preserve the corresponding verified request value (`auto`, `1024x1024`, `1024x1536`, `1536x1024`, `16x9`, or `9x16`)
+- **AND** explicit supported sizes SHALL NOT be overwritten with `auto`
+- **AND** unsupported inherited dimensions SHALL fall back to `auto` without forwarding unverified resolution or quality tiers
+- **AND** the UI SHALL describe these choices as requested ratios while preserving actual returned pixels and GIF media
+
 ### Requirement: Preserve Returned Image Media
 The system SHALL preserve actual returned dimensions and verified PNG/JPEG/WebP, GIF, and SVG media formats through image-result handling, original-media caching, image preview, and original-file download.
 

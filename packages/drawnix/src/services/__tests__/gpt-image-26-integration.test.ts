@@ -15,8 +15,13 @@ import {
 } from '../model-adapters/gpt-image-adapter';
 import {
   buildTuziGPTImageRequestBody,
+  buildTuziGPTImageEditFormData,
   tuziGPTImageAdapter,
 } from '../model-adapters/tuzi-gpt-image-adapter';
+import {
+  resolveOfficialGPTImageSize,
+  resolveOfficialGPTImageEditSize,
+} from '../model-adapters/image-size-quality-resolver';
 import { inferBindingsForProviderModel } from '../provider-routing';
 import type { ImageGenerationRequest } from '../model-adapters/types';
 import { normalizeGPTImage26Request } from '../model-adapters/gpt-image-26-request';
@@ -35,7 +40,7 @@ const staleRequest: ImageGenerationRequest = {
   outputCompression: 40,
   inputFidelity: 'high',
   params: {
-    size: '16x9',
+    size: '4096x4096',
     resolution: '4k',
     quality: 'max',
     n: 4,
@@ -76,7 +81,14 @@ describe('GPT Image 2.6 1K integration', () => {
       expect.objectContaining({
         id: 'size',
         defaultValue: 'auto',
-        options: [{ value: 'auto', label: '自动（原始尺寸）' }],
+        options: [
+          { value: 'auto', label: '自动（原始尺寸）' },
+          { value: '1024x1024', label: '1:1 方形' },
+          { value: '1024x1536', label: '2:3 竖版' },
+          { value: '1536x1024', label: '3:2 横版' },
+          { value: '16x9', label: '16:9 横屏' },
+          { value: '9x16', label: '9:16 竖屏' },
+        ],
       }),
     ]);
     expect(isGPTImage26ModelId(` ${model.toUpperCase()} `)).toBe(true);
@@ -105,6 +117,63 @@ describe('GPT Image 2.6 1K integration', () => {
       });
     }
   );
+
+  it.each([
+    ['auto', 'auto'],
+    ['1024x1024', '1024x1024'],
+    ['1024x1536', '1024x1536'],
+    ['1536x1024', '1536x1024'],
+    ['16:9', '16x9'],
+    ['9:16', '9x16'],
+    ['1:1', '1024x1024'],
+    ['2x3', '1024x1536'],
+    [' 1536X1024 ', '1536x1024'],
+    ['4096x4096', 'auto'],
+  ])('preserves verified size %s across GPT and Tuzi generation routes', (size, expected) => {
+    const request = {
+      ...staleRequest,
+      size: '4096x4096',
+      params: { ...staleRequest.params, size },
+    };
+    for (const build of [buildGPTImageGenerationBody, buildTuziGPTImageRequestBody]) {
+      expect(build(request)).toEqual({
+        model,
+        prompt: request.prompt,
+        size: expected,
+        n: 1,
+        response_format: 'b64_json',
+      });
+    }
+    expect(resolveOfficialGPTImageSize(model, size, { resolution: '4k' })).toBe(expected);
+    expect(resolveOfficialGPTImageEditSize(model, size, { resolution: '4k' })).toBe(expected);
+  });
+
+  it('uses the selected top-level size when no size parameter is provided', () => {
+    const request = { model, prompt: '静态图', size: '1536x1024' };
+    expect(buildGPTImageGenerationBody(request).size).toBe('1536x1024');
+    expect(buildTuziGPTImageRequestBody(request).size).toBe('1536x1024');
+  });
+
+  it('keeps explicit dimensions in both multipart edit paths without restoring stale output parameters', async () => {
+    const request = {
+      ...staleRequest,
+      referenceImages: [`data:image/gif;base64,${gif}`],
+      maskImage: `data:image/gif;base64,${gif}`,
+      params: { ...staleRequest.params, size: '1024x1536' },
+    };
+    const forms = [
+      await buildGPTImageEditFormData(request),
+      await buildTuziGPTImageEditFormData(request, model),
+    ];
+    for (const form of forms) {
+      expect(form.get('model')).toBe(model);
+      expect(form.get('size')).toBe('1024x1536');
+      expect(form.has('image[]')).toBe(true);
+      expect(form.has('mask')).toBe(true);
+      expect(form.has('quality')).toBe(false);
+      expect(form.has('output_format')).toBe(false);
+    }
+  });
 
   it('normalizes against the binding model and keeps references for Tuzi edits', () => {
     expect(
