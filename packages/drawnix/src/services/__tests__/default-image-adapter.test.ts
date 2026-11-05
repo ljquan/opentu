@@ -35,6 +35,20 @@ vi.mock('../unified-cache-service', () => ({
 import { geminiImageAdapter } from '../model-adapters/default-adapters';
 
 describe('default image adapter compatibility', () => {
+  it('keeps GPT Image 2.6 GIF bytes and batch URLs consistent in basic compatibility mode', async () => {
+    const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    mocks.generateImage.mockResolvedValue({ data: [{ b64_json: gif, width: 1, height: 1 }] });
+    const result = await geminiImageAdapter.generateImage({ baseUrl: 'https://gateway.example.com/v1' }, {
+      model: 'gpt-image-2.6-1k', prompt: '生成 GIF 图', size: '16x9',
+      params: { quality: '4k', resolution: '4k', response_format: 'url' },
+    });
+    expect(mocks.generateImage).toHaveBeenCalledWith('生成 GIF 图', expect.objectContaining({
+      model: 'gpt-image-2.6-1k', size: 'auto', quality: undefined,
+      count: 1, response_format: 'b64_json',
+    }));
+    expect(result).toMatchObject({url: `data:image/gif;base64,${gif}`,
+      urls: [`data:image/gif;base64,${gif}`], format: 'gif'});
+  });
   afterEach(() => {
     mocks.generateImage.mockReset();
     mocks.generateWithPolling.mockReset();

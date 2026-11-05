@@ -6,6 +6,7 @@ import {
   buildAssetDownloadItem,
   buildTaskDownloadItems,
   smartDownload,
+  downloadMediaFile,
 } from '../download-utils';
 
 const {
@@ -101,6 +102,28 @@ function createTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('download-utils', () => {
+  it.each([['gif', 'image/gif'], ['svg', 'image/svg+xml']])(
+    'downloads original cached %s bytes and corrects a stale PNG extension', async (extension, mime) => {
+      const original = new Blob(['original-media'], { type: mime });
+      getCachedBlobMock.mockResolvedValue(original);
+      const fetcher = vi.fn();
+      vi.stubGlobal('fetch', fetcher);
+      await expect(downloadMediaFile(`/__aitu_cache__/image/original.${extension}`, 'result', 'png', 'image'))
+        .resolves.toMatchObject({ downloadedCount: 1, failedCount: 0 });
+      expect(downloadFromBlobMock).toHaveBeenCalledWith(original, `result.${extension}`);
+      expect(downloadFileMock).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
+
+  it('reports a missing local original instead of downloading the app HTML', async () => {
+    getCachedBlobMock.mockResolvedValue(null);
+    await expect(downloadMediaFile('/__aitu_cache__/image/missing.gif', 'result', 'gif'))
+      .rejects.toThrow('本地媒体缓存不可用');
+    expect(downloadFileMock).not.toHaveBeenCalled();
+    expect(downloadFromBlobMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     downloadFileMock.mockReset();
     openInNewTabMock.mockReset();

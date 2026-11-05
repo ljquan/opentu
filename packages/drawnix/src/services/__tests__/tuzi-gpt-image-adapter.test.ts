@@ -990,7 +990,7 @@ describe('tuzi GPT image adapter', () => {
     mocks.sendAdapterRequest.mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [{ b64_json: 'ZmFrZQ==', width: 2736, height: 1536 }],
+          data: [{ b64_json: tinyPngDataUrl.split(',')[1], width: 2736, height: 1536 }],
         }),
         { status: 200 }
       )

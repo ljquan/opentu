@@ -22,6 +22,11 @@ import { getSunoV2Params } from '../services/suno-v2-params';
 export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
+export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
+
+export function isGPTImage26ModelId(modelId?: string | null): boolean {
+  return modelId?.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID;
+}
 export const FLUX_3_IMAGE_ASPECT_RATIOS = [
   'auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4',
   '1:1', '4:5', '3:4', '5:7', '2:3', '9:16', '1:2', '9:21',
@@ -475,6 +480,17 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     label: 'gpt-image-2',
     shortCode: 'gpt2',
     description: 'OpenAI GPT Image 2 图片生成模型',
+    type: 'image',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
+    id: GPT_IMAGE_26_1K_MODEL_ID,
+    label: GPT_IMAGE_26_1K_MODEL_ID,
+    shortCode: 'gpt261k',
+    description: 'Tuzi 图像生成渠道；提示词写“生成 GIF 图”可生成动图。保留实际输出尺寸，1k 不代表固定 1024×1024。',
     type: 'image',
     vendor: ModelVendor.GPT,
     supportsTools: true,
@@ -2118,7 +2134,7 @@ export function isGPTImage25ModelId(modelId: string): boolean {
 
 export function isGPTImage2ModelId(modelId: string): boolean {
   return (
-    /^(?:gpt-?)?image-?2(?:[-.]|$)/i.test(modelId.trim()) &&
+    /^(?:gpt-?)?image-?2(?:-|$)/i.test(modelId.trim()) &&
     !isGPTImage25ModelId(modelId)
   );
 }
@@ -2127,6 +2143,7 @@ export function isGPTImage2ModelId(modelId: string): boolean {
 const GPT_IMAGE_MODEL_IDS = [
   ...GPT_IMAGE_2_MODEL_IDS,
   ...GPT_IMAGE_25_MODEL_IDS,
+  GPT_IMAGE_26_1K_MODEL_ID,
 ];
 const MJ_IMAGE_MODEL_IDS = ['mj-imagine'];
 const GEMINI_31_FLASH_IMAGE_MODEL_IDS = ['gemini-3.1-flash-image-preview'];
@@ -3020,6 +3037,17 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: GPT_IMAGE_2_MODEL_IDS,
     modelType: 'image',
   },
+  {
+    id: 'size',
+    label: '图片尺寸',
+    shortLabel: '尺寸',
+    description: '保留上游实际尺寸；画面比例和 GIF 动效请在提示词中描述。',
+    valueType: 'enum',
+    options: [{ value: 'auto', label: '自动（原始尺寸）' }],
+    defaultValue: 'auto',
+    compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
+    modelType: 'image',
+  },
   // GPT Image 2.5 官方像素尺寸
   {
     id: 'size',
@@ -3086,6 +3114,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
       (modelId) =>
+        modelId !== GPT_IMAGE_26_1K_MODEL_ID &&
         modelId !== 'gpt-image-2.5' &&
         modelId !== 'gpt-image-2.5-vip' &&
         modelId !== 'gpt-image-2.5-sunburst' &&

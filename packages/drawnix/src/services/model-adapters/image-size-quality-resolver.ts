@@ -1,4 +1,5 @@
 import {
+  isGPTImage26ModelId,
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
@@ -318,6 +319,7 @@ export function resolveOfficialGPTImageQuality(
   params?: Record<string, unknown>,
   modelId?: string
 ): OfficialGPTImageQuality | undefined {
+  if (isGPTImage26ModelId(modelId)) return undefined;
   const quality = normalizeOfficialGPTImageQuality(params?.quality);
   if (quality !== 'xhigh' && quality !== 'max') {
     return quality;
@@ -351,6 +353,7 @@ export function resolveOfficialGPTImageSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
+  if (isGPTImage26ModelId(modelId)) return 'auto';
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
   const useExtendedSizing =
     typeof modelId === 'string' &&
@@ -425,6 +428,7 @@ export function resolveOfficialGPTImageEditSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
+  if (isGPTImage26ModelId(modelId)) return 'auto';
   if (isGPTImage2Model(modelId) || isGPTImage25Model(modelId)) {
     return resolveOfficialGPTImageSize(modelId, size, params);
   }

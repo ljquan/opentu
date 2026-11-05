@@ -6,6 +6,7 @@ import {
 } from './image-size-quality-resolver';
 import {
   imageInputToBlob,
+  formatGPTImageErrorMessage,
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
@@ -21,6 +22,7 @@ import {
   readProviderResponseText,
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { normalizeGPTImage26Request } from './gpt-image-26-request';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
@@ -122,6 +124,7 @@ export function buildTuziGPTImageRequestOptions(
     request.modelRef?.modelId?.trim() ||
     request.model?.trim() ||
     TUZI_GPT_IMAGE_MODEL_ID;
+  request = normalizeGPTImage26Request(request, model);
   const requestedSize = getStringParam(request.params, 'size') || request.size;
   const useAutomaticRatio =
     GPT_IMAGE_2_MODEL_IDS.includes(model.toLowerCase()) &&
@@ -261,6 +264,10 @@ export async function buildTuziGPTImageEditFormData(
   fetcher?: typeof fetch,
   signal?: AbortSignal
 ): Promise<FormData> {
+  request = normalizeGPTImage26Request(
+    request,
+    bindingModelId?.trim() || request.modelRef?.modelId?.trim() || request.model
+  );
   const referenceImages = request.referenceImages || [];
   const maskImage = getTuziMaskImage(request);
   if (referenceImages.length === 0) {
@@ -324,13 +331,13 @@ async function readErrorMessage(response: Response): Promise<string> {
       })()
     : null;
   if (typeof data?.error === 'string') {
-    return data.error;
+    return formatGPTImageErrorMessage(data.error);
   }
   if (typeof data?.error?.message === 'string') {
-    return data.error.message;
+    return formatGPTImageErrorMessage(data.error.message);
   }
   if (typeof data?.message === 'string') {
-    return data.message;
+    return formatGPTImageErrorMessage(data.message);
   }
 
   const plainText = rawText.trim();

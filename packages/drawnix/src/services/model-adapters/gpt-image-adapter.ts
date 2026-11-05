@@ -1,6 +1,7 @@
 import {
   base64ToBlob,
   getFileExtension,
+  inferImageMimeTypeFromBase64,
   normalizeImageDataUrl,
 } from '@aitu/utils';
 import {
@@ -15,6 +16,7 @@ import {
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import { normalizeGPTImage26Request } from './gpt-image-26-request';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import type {
   ImageGenerationRequest,
@@ -197,6 +199,7 @@ function applyCommonGPTImageOptions(
 export function buildGPTImageGenerationBody(
   request: ImageGenerationRequest
 ): Record<string, unknown> {
+  request = normalizeGPTImage26Request(request);
   if (!request.model) {
     throw new Error('GPT Image 请求缺少模型 ID');
   }
@@ -288,6 +291,7 @@ export async function buildGPTImageEditFormData(
   request: ImageGenerationRequest,
   fetcher?: typeof fetch
 ): Promise<FormData> {
+  request = normalizeGPTImage26Request(request);
   if (!request.model) {
     throw new Error('GPT Image 编辑请求缺少模型 ID');
   }
@@ -396,8 +400,23 @@ function normalizeImageValue(
     return undefined;
   }
 
-  const mimeType = fallbackFormat ? `image/${fallbackFormat}` : 'image/png';
-  return normalizeImageDataUrl(value, mimeType);
+  const mimeType =
+    fallbackFormat === 'svg'
+      ? 'image/svg+xml'
+      : fallbackFormat ? `image/${fallbackFormat}` : 'image/png';
+  const normalized = normalizeImageDataUrl(value, mimeType);
+  const encodedImage = normalized.match(/^data:image\/[^;,]+;base64,([\s\S]+)$/i);
+  if (encodedImage) {
+    // Trust the returned bytes over a stale requested format (especially GIF).
+    const actualMime = inferImageMimeTypeFromBase64(encodedImage[1]);
+    return actualMime
+      ? `data:${actualMime};base64,${encodedImage[1]}`
+      : undefined;
+  }
+  // Provider sandbox links and explanatory text are not downloadable images.
+  return /^(?:https?:\/\/|blob:|\/(?!\/)|data:image\/svg\+xml(?:;[^,]*)?,)/i.test(normalized)
+    ? normalized
+    : undefined;
 }
 
 function normalizeImageDimension(value: unknown): number | undefined {
@@ -459,10 +478,10 @@ export function parseGPTImageResponse(
 
   if (Array.isArray(data?.data)) {
     const images = data.data.flatMap((item) => {
-      const url = normalizeImageValue(
-        item.b64_json || item.url,
-        formatHint || 'png'
-      );
+      if (!item || typeof item !== 'object') return [];
+      const url =
+        normalizeImageValue(item.b64_json, formatHint || 'png') ||
+        normalizeImageValue(item.url, formatHint || 'png');
       return url
         ? [{ url, dimensions: readImageDimensions(item) || responseDimensions }]
         : [];
@@ -542,18 +561,24 @@ export async function resolveGeneratedImageDimensions(
   return dimensions ? { ...result, ...dimensions } : result;
 }
 
+export function formatGPTImageErrorMessage(message: string): string {
+  return /sandbox:\/(?:mnt\/)?/i.test(message)
+    ? `上游仅返回了无法访问的内部文件链接，未提供可下载的图片。请更换输出格式或联系渠道方。${message}`
+    : message;
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   const data = await readProviderResponseJson<Record<string, any>>(
     response
   ).catch(() => null);
   if (typeof data?.error === 'string') {
-    return data.error;
+    return formatGPTImageErrorMessage(data.error);
   }
   if (typeof data?.error?.message === 'string') {
-    return data.error.message;
+    return formatGPTImageErrorMessage(data.error.message);
   }
   if (typeof data?.message === 'string') {
-    return data.message;
+    return formatGPTImageErrorMessage(data.message);
   }
   return `GPT Image request failed: ${response.status}`;
 }
