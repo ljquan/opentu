@@ -32,6 +32,7 @@ import { normalizeKnowledgeContextRefs } from '../../services/generation-context
 import { taskQueueService } from '../../services/task-queue';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import { generateTaskId } from '../../utils/task-utils';
+import { toGenerationTaskError } from '../../utils/generation-error-details';
 
 function getAnalysisPrompt(
   context: AgentExecutionContext,
@@ -278,7 +279,9 @@ export const aiAnalyzeTool: MCPTool = {
               lastStep.id,
               lastStep.status,
               toolResult.data,
-              toolResult.error
+              toolResult.error,
+              undefined,
+              toolResult.errorDetails
             );
           }
         },
@@ -287,8 +290,16 @@ export const aiAnalyzeTool: MCPTool = {
       const duration = Date.now() - startTime;
 
       if (!result.success) {
+        const errorDetails =
+          result.errorDetails ||
+          toGenerationTaskError(
+            new Error(result.error || 'AI 分析失败'),
+            'AI_ANALYZE_ERROR',
+            result.model || selectedModel
+          );
         taskQueueService.updateTaskStatus(task.id, TaskStatus.FAILED, {
           error: {
+            ...errorDetails,
             code: 'AI_ANALYZE_ERROR',
             message: result.error || 'AI 分析失败',
           },
@@ -296,6 +307,7 @@ export const aiAnalyzeTool: MCPTool = {
         return {
           success: false,
           error: result.error || 'AI 分析失败',
+          errorDetails,
           type: 'error',
           data: {
             duration,
@@ -330,8 +342,14 @@ export const aiAnalyzeTool: MCPTool = {
       };
     } catch (error: any) {
       console.error('[AIAnalyzeTool] Analysis failed:', error);
+      const errorDetails = toGenerationTaskError(
+        error,
+        'AI_ANALYZE_ERROR',
+        selectedModel
+      );
       taskQueueService.updateTaskStatus(task.id, TaskStatus.FAILED, {
         error: {
+          ...errorDetails,
           code: 'AI_ANALYZE_ERROR',
           message: error.message || 'AI 分析失败',
         },
@@ -340,6 +358,7 @@ export const aiAnalyzeTool: MCPTool = {
       return {
         success: false,
         error: error.message || 'AI 分析失败',
+        errorDetails,
         type: 'error',
         data: {
           duration: Date.now() - startTime,

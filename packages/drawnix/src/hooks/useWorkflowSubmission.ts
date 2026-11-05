@@ -364,7 +364,8 @@ export function useWorkflowSubmission(
             event.status as any,
             event.result,
             event.error,
-            event.duration
+            event.duration,
+            event.errorDetails
           );
 
           // Sync to ChatDrawer and WorkZone

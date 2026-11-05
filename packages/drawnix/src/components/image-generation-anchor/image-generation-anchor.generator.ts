@@ -10,6 +10,7 @@ export class ImageGenerationAnchorGenerator {
   private foreignObject: SVGForeignObjectElement | null = null;
   private htmlContainer: HTMLElement | null = null;
   private reactRoot: Root | null = null;
+  onSizeChange?: (size: { width: number; height: number }) => void;
 
   processDrawing(
     element: PlaitImageGenerationAnchor,
@@ -95,6 +96,7 @@ export class ImageGenerationAnchorGenerator {
         board: this.board,
         element,
         selected,
+        onSizeChange: this.onSizeChange,
       })
     );
   }

@@ -1,3 +1,4 @@
+import { readGenerationApiError } from '../generation-error-details';
 /**
  * Gemini API 调用函数
  *
@@ -433,21 +434,6 @@ export function normalizeGoogleImageResponse(response: Record<string, any>): {
   };
 }
 
-async function readGoogleError(response: Response): Promise<string> {
-  const text = await readProviderResponseText(response);
-  try {
-    const payload = JSON.parse(text);
-    return (
-      payload?.error?.message ||
-      payload?.error?.status ||
-      payload?.message ||
-      response.statusText
-    );
-  } catch {
-    return text || response.statusText;
-  }
-}
-
 async function callManualHttpTextRaw(
   config: GeminiConfig,
   messages: GeminiMessage[],
@@ -523,11 +509,7 @@ async function callManualHttpTextRaw(
   });
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => response.statusText);
-    const error = new Error(`HTTP ${response.status}: ${errorText}`);
-    (error as any).apiErrorBody = errorText;
-    (error as any).httpStatus = response.status;
-    throw error;
+    throw await readGenerationApiError(response, '请求失败', {modelId: model});
   }
 
   const text = await response.text();
@@ -613,7 +595,8 @@ export async function callGoogleGenerateContentRaw(
 
     if (!response.ok) {
       const duration = Date.now() - startTime;
-      const errorMessage = await readGoogleError(response);
+      const error = await readGenerationApiError(response, '请求失败', {modelId: model}, readProviderResponseText);
+      const errorMessage = error.message;
       analytics.trackAPICallFailure({
         endpoint,
         model,
@@ -623,8 +606,7 @@ export async function callGoogleGenerateContentRaw(
         stream: options.stream,
         ...buildAPIAnalyticsContext(config),
       });
-      const error = new Error(`HTTP ${response.status}: ${errorMessage}`);
-      (error as any).httpStatus = response.status;
+      error.message = `HTTP ${response.status}: ${errorMessage}`;
       markAPIFailureTracked(error);
       throw error;
     }
@@ -814,26 +796,8 @@ export async function callApiRaw(
 
     if (!response.ok) {
       const duration = Date.now() - startTime;
-      // 尝试读取响应体中的错误信息
-      let errorBody = '';
-      let errorMessage = response.statusText;
-      try {
-        const errorJson = await response.json();
-        if (errorJson.error) {
-          errorMessage =
-            errorJson.error.message ||
-            errorJson.error.code ||
-            response.statusText;
-          errorBody = JSON.stringify(errorJson.error);
-        }
-      } catch (e) {
-        // 如果无法解析 JSON，尝试读取文本
-        try {
-          errorBody = await response.text();
-        } catch (e2) {
-          // 忽略读取错误
-        }
-      }
+      const error = await readGenerationApiError(response, '请求失败', {modelId: model});
+      const errorMessage = error.message;
       analytics.trackAPICallFailure({
         endpoint,
         model,
@@ -843,9 +807,7 @@ export async function callApiRaw(
         stream: false,
         ...buildAPIAnalyticsContext(config),
       });
-      const error = new Error(`HTTP ${response.status}: ${errorMessage}`);
-      (error as any).apiErrorBody = errorBody;
-      (error as any).httpStatus = response.status;
+      error.message = `HTTP ${response.status}: ${errorMessage}`;
       markAPIFailureTracked(error);
       throw error;
     }
@@ -964,26 +926,8 @@ async function callApiStreamDirect(
 
     if (!response.ok) {
       const duration = Date.now() - startTime;
-      // 尝试读取响应体中的错误信息
-      let errorBody = '';
-      let errorMessage = response.statusText;
-      try {
-        const errorJson = await response.json();
-        if (errorJson.error) {
-          errorMessage =
-            errorJson.error.message ||
-            errorJson.error.code ||
-            response.statusText;
-          errorBody = JSON.stringify(errorJson.error);
-        }
-      } catch (e) {
-        // 如果无法解析 JSON，尝试读取文本
-        try {
-          errorBody = await response.text();
-        } catch (e2) {
-          // 忽略读取错误
-        }
-      }
+      const error = await readGenerationApiError(response, '请求失败', {modelId: model});
+      const errorMessage = error.message;
       analytics.trackAPICallFailure({
         endpoint,
         model,
@@ -993,9 +937,7 @@ async function callApiStreamDirect(
         stream: true,
         ...buildAPIAnalyticsContext(config),
       });
-      const error = new Error(`HTTP ${response.status}: ${errorMessage}`);
-      (error as any).apiErrorBody = errorBody;
-      (error as any).httpStatus = response.status;
+      error.message = `HTTP ${response.status}: ${errorMessage}`;
       markAPIFailureTracked(error);
       throw error;
     }
@@ -1175,26 +1117,8 @@ export async function callVideoApiStreamRaw(
 
     if (!response.ok) {
       const duration = Date.now() - startTime;
-      // 尝试读取响应体中的错误信息
-      let errorBody = '';
-      let errorMessage = response.statusText;
-      try {
-        const errorJson = await response.json();
-        if (errorJson.error) {
-          errorMessage =
-            errorJson.error.message ||
-            errorJson.error.code ||
-            response.statusText;
-          errorBody = JSON.stringify(errorJson.error);
-        }
-      } catch (e) {
-        // 如果无法解析 JSON，尝试读取文本
-        try {
-          errorBody = await response.text();
-        } catch (e2) {
-          // 忽略读取错误
-        }
-      }
+      const error = await readGenerationApiError(response, '请求失败', {modelId: model});
+      const errorMessage = error.message;
       analytics.trackAPICallFailure({
         endpoint,
         model,
@@ -1204,9 +1128,7 @@ export async function callVideoApiStreamRaw(
         stream: true,
         ...buildAPIAnalyticsContext(config),
       });
-      const error = new Error(`HTTP ${response.status}: ${errorMessage}`);
-      (error as any).apiErrorBody = errorBody;
-      (error as any).httpStatus = response.status;
+      error.message = `HTTP ${response.status}: ${errorMessage}`;
       markAPIFailureTracked(error);
       throw error;
     }

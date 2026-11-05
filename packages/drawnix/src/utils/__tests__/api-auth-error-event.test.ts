@@ -78,3 +78,48 @@ describe('api-auth-error-event', () => {
     expect(isAuthError(error)).toBe(false);
   });
 });
+
+describe('structured diagnostic compatibility', () => {
+  it.each([
+    ['unauthenticated', 'missing'],
+    ['invalid credentials', 'invalid'],
+    ['permission_denied', null],
+    ['insufficient_user_quota', null],
+  ])(
+    'classifies %s identically in old and new API errors',
+    async (code, expected) => {
+      const body = { error: { message: 'Access denied', code } };
+      const legacy = Object.assign(new Error(body.error.message), {
+        apiErrorBody: JSON.stringify(body.error),
+        httpStatus: 401,
+      });
+      const { createGenerationApiError, toGenerationTaskError } = await import(
+        '../generation-error-details'
+      );
+      const current = createGenerationApiError(
+        body,
+        new Response(null, { status: 401 }),
+        'Failed'
+      );
+      expect(classifyApiCredentialError(legacy)).toBe(expected);
+      expect(classifyApiCredentialError(current)).toBe(expected);
+      expect(
+        classifyApiCredentialError(toGenerationTaskError(current, 'API_ERROR'))
+      ).toBe(expected);
+    }
+  );
+
+  it.each([401, 403])(
+    'does not treat HTTP %s or unrelated metadata as credential evidence',
+    (httpStatus) => {
+      const error = Object.assign(new Error('Access denied'), {
+        httpStatus,
+        diagnostics: {
+          requestId: 'unauthenticated',
+          modelId: 'invalid credentials',
+        },
+      });
+      expect(classifyApiCredentialError(error)).toBeNull();
+    }
+  );
+});

@@ -7,6 +7,10 @@
 
 import type { VideoAPIConfig, GeminiConfig } from './types';
 import {
+  readVideoTaskRequestId,
+  withVideoRequestId,
+} from '../../utils/video-request-id';
+import {
   calculateBlobChecksum,
   compressImageBlob,
   getFileExtension,
@@ -174,6 +178,7 @@ export async function pollVideoStatus(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     assertPollingActive();
     let data: any;
+    let apiRequestId: string | undefined;
     try {
       const statusPath = resolveVideoPollPathForModel(
         videoId,
@@ -218,6 +223,7 @@ export async function pollVideoStatus(
       }
 
       const rawData = await response.json();
+      apiRequestId = readVideoTaskRequestId(rawData);
       data = isMiniMaxH3
         ? normalizeMiniMaxH3VideoResponse(rawData, videoId)
         : rawData;
@@ -288,7 +294,7 @@ export async function pollVideoStatus(
       if (errCode) {
         (error as any).code = errCode;
       }
-      throw error;
+      throw withVideoRequestId(error, apiRequestId);
     }
 
     // 等待下一次轮询

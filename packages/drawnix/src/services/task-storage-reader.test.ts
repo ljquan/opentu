@@ -75,6 +75,20 @@ describe('taskStorageReader result visibility', () => {
     vi.unstubAllGlobals();
   });
 
+  it('restores the original video submission ID from storage', async () => {
+    const task = createCompletedTask('video-request-id', TaskType.VIDEO, {
+      createdAt: 1,
+    });
+    task.apiRequestId = 'site-submit-id';
+    task.remoteId = 'remote-video';
+    await putTasks([task]);
+    taskStorageReader.close();
+    expect(await taskStorageReader.getTask(task.id)).toMatchObject({
+      apiRequestId: 'site-submit-id',
+      remoteId: 'remote-video',
+    });
+  });
+
   it('keeps internal completed media out of asset and prompt projections', async () => {
     await putTasks([
       createCompletedTask('legacy-image', TaskType.IMAGE, {

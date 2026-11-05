@@ -5,6 +5,8 @@
  * 保持 LLM 日志、任务存储、认证错误检测等基础设施。
  */
 
+import { toImageTaskError } from '../../utils/image-error-details';
+
 import type { ModelRef } from '../../utils/settings-manager';
 import type {
   GenerationParams,
@@ -343,10 +345,7 @@ export async function executeImageViaAdapter(
     }
     await taskStorageWriter.failTask(
       taskId,
-      {
-        code: error.code || 'IMAGE_GENERATION_ERROR',
-        message: errorMessage,
-      },
+      toImageTaskError(error, error.code || 'IMAGE_GENERATION_ERROR', params.model),
       submissionRequestId,
       createStorageWriteGuard(options)
     );
@@ -439,7 +438,7 @@ export async function executeVideoViaAdapter(
               phase: safeProgress <= 10 ? 'submitting' : 'polling',
             });
           },
-          onSubmitted: async (videoId: string) => {
+          onSubmitted: async (videoId: string, apiRequestId?: string) => {
             if (
               options?.signal?.aborted ||
               options?.isCurrentAttempt?.() === false
@@ -454,7 +453,7 @@ export async function executeVideoViaAdapter(
                 params.modelRef || params.model
               ),
               undefined,
-              createStorageWriteGuard(options)
+              { ...createStorageWriteGuard(options), apiRequestId }
             );
           },
         },
@@ -529,10 +528,7 @@ export async function executeVideoViaAdapter(
     failLLMApiLog(logId, { duration, errorMessage });
     await taskStorageWriter.failTask(
       taskId,
-      {
-        code: error.code || 'VIDEO_GENERATION_ERROR',
-        message: errorMessage,
-      },
+      toImageTaskError(error, error.code || 'VIDEO_GENERATION_ERROR', params.model),
       undefined,
       createStorageWriteGuard(options)
     );

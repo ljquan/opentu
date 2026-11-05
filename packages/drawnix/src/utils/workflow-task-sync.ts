@@ -98,6 +98,7 @@ export function applyTaskUpdateToWorkflowMessage(
           status: 'running' as const,
           result: ensureTaskIdInStepResult(step.result, task.id),
           error: undefined,
+          errorDetails: undefined,
         };
       }
 
@@ -107,6 +108,7 @@ export function applyTaskUpdateToWorkflowMessage(
           status: 'completed' as const,
           result: getCompletedStepResult(step.result, task),
           error: undefined,
+          errorDetails: undefined,
         };
 
       case TaskStatus.FAILED:
@@ -115,6 +117,7 @@ export function applyTaskUpdateToWorkflowMessage(
           status: 'failed' as const,
           result: ensureTaskIdInStepResult(step.result, task.id),
           error: getTaskErrorMessage(task),
+          errorDetails: {...task.error!, details: {...task.error?.details, apiRequestId: task.apiRequestId || task.error?.details?.apiRequestId, modelId: task.error?.details?.modelId || task.invocationRoute?.modelId || task.params.model, remoteId: task.error?.details?.remoteId || task.remoteId}},
         };
 
       case TaskStatus.CANCELLED:
@@ -123,6 +126,7 @@ export function applyTaskUpdateToWorkflowMessage(
           status: 'skipped' as const,
           result: ensureTaskIdInStepResult(step.result, task.id),
           error: getTaskErrorMessage(task),
+          errorDetails: {...task.error!, details: {...task.error?.details, apiRequestId: task.apiRequestId || task.error?.details?.apiRequestId, modelId: task.error?.details?.modelId || task.invocationRoute?.modelId || task.params.model, remoteId: task.error?.details?.remoteId || task.remoteId}},
         };
 
       default:

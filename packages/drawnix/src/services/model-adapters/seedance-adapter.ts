@@ -1,3 +1,4 @@
+import { createGenerationApiError, extractGenerationErrorDiagnostics } from '../../utils/generation-error-details';
 import { notifyTaskSubmitted } from '../submission-persistence';
 import type {
   AdapterContext,
@@ -168,6 +169,7 @@ async function readSeedanceError(
   const error = new Error(withRequestId);
   Object.assign(error, {
     httpStatus: response.status,
+    diagnostics: createGenerationApiError(rawText, response, message).diagnostics,
     upstreamCode: parsed?.code,
     requestId: requestId || undefined,
   });
@@ -350,7 +352,7 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
 
     // 提交时已失败
     if (submitResult.status === 'failed') {
-      throw new Error(extractErrorMessage(submitResult.error));
+      throw Object.assign(new Error(extractErrorMessage(submitResult.error)), {diagnostics: {...extractGenerationErrorDiagnostics(submitResult), remoteId: taskId, modelId: request.model}});
     }
 
     onProgress?.(10, 'processing');
@@ -398,7 +400,7 @@ export const seedanceVideoAdapter: VideoModelAdapter = {
 
         if (status.status === 'failed') {
           isBusinessFailure = true;
-          throw new Error(extractErrorMessage(status.error));
+          throw Object.assign(new Error(extractErrorMessage(status.error)), {diagnostics: {...extractGenerationErrorDiagnostics(status), remoteId: taskId, modelId: request.model}});
         }
       } catch (err: any) {
         if (context.signal?.aborted) {

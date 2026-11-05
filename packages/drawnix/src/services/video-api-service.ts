@@ -1,3 +1,4 @@
+import { createGenerationApiError, extractGenerationErrorDiagnostics } from '../utils/generation-error-details';
 import { notifyTaskSubmitted } from './submission-persistence';
 /**
  * Video API Service
@@ -365,6 +366,7 @@ class VideoAPIService {
       );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
+      Object.assign(error, {diagnostics: createGenerationApiError(errorText, response, error.message).diagnostics});
       throw error;
     }
 
@@ -442,6 +444,7 @@ class VideoAPIService {
       );
       (error as any).apiErrorBody = errorText;
       (error as any).httpStatus = response.status;
+      Object.assign(error, {diagnostics: createGenerationApiError(errorText, response, error.message).diagnostics});
       throw error;
     }
 
@@ -495,7 +498,7 @@ class VideoAPIService {
             JSON.stringify(submitResponse.error);
         }
       }
-      throw new Error(errorMessage);
+      throw Object.assign(new Error(errorMessage), {diagnostics: {...extractGenerationErrorDiagnostics(submitResponse), modelId: params.model, remoteId: submitResponse.id}});
     }
 
     // Continue with polling
@@ -563,7 +566,7 @@ class VideoAPIService {
             JSON.stringify(immediateStatus.error);
         }
       }
-      throw Object.assign(new Error(errorMessage), { workflowProviderFailure: true });
+      throw Object.assign(new Error(errorMessage), { workflowProviderFailure: true, diagnostics: {...extractGenerationErrorDiagnostics(immediateStatus), remoteId: videoId} });
     }
 
     // Continue polling if still in progress
@@ -638,7 +641,7 @@ class VideoAPIService {
           }
           // Mark as business failure so it won't be retried
           isBusinessFailure = true;
-          throw Object.assign(new Error(errorMessage), { workflowProviderFailure: true });
+          throw Object.assign(new Error(errorMessage), { workflowProviderFailure: true, diagnostics: {...extractGenerationErrorDiagnostics(status), remoteId: videoId} });
         }
       } catch (err: any) {
         // 业务失败（API 返回 status: failed）不应重试，直接抛出

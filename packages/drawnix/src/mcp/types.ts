@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * MCP (Model Context Protocol) 类型定义
  *
@@ -5,13 +6,13 @@
  */
 
 // 从公共配置导入模型相关定义
-export type { ModelType, ModelConfig } from '../constants/model-config';
 import type { ModelRef } from '../utils/settings-manager';
 import type { GeminiMessagePart } from '../utils/gemini-api/types';
 import type {
   CanvasAssociationRef,
   KnowledgeContextRef,
 } from '../types/task.types';
+export type { ModelType, ModelConfig } from '../constants/model-config';
 
 /**
  * JSON Schema 类型定义
@@ -65,7 +66,8 @@ export interface MCPExecuteCallbacks {
     status: WorkflowStepInfo['status'],
     result?: unknown,
     error?: string,
-    duration?: number
+    duration?: number,
+    errorDetails?: TaskError
   ) => void;
 }
 
@@ -159,6 +161,7 @@ export interface MCPResult {
   data?: unknown;
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** 结果类型标识 */
   type?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
 }
@@ -211,6 +214,7 @@ export interface AgentResult {
   toolResults?: MCPResult[];
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** 使用的模型 */
   model?: string;
 }

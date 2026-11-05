@@ -98,6 +98,7 @@ export interface SWTask {
   };
   progress?: number;
   remoteId?: string;
+  apiRequestId?: string;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: string;
   imageRecovery?: ImageRecoveryInfo;
@@ -754,7 +755,9 @@ class TaskStorageWriter {
       taskId,
       (task) => {
         task.status = 'failed';
-        task.error = error;
+        task.error = task.type === 'video' && task.apiRequestId && error
+          ? { ...error, details: { ...error.details, apiRequestId: task.apiRequestId } }
+          : error;
         const now = Date.now();
         task.completedAt = now;
         task.updatedAt = now;
@@ -777,11 +780,16 @@ class TaskStorageWriter {
     remoteId: string,
     invocationRoute?: TaskInvocationRouteSnapshot,
     expectedRequestId?: string,
-    options: { shouldUpdate?: () => boolean } = {}
+    options: { shouldUpdate?: () => boolean; apiRequestId?: string } = {}
   ): Promise<boolean> {
     return this.updateTask(
       taskId,
       (task) => {
+        if (task.type === 'video') {
+          // A different remote task must not inherit an earlier submission ID.
+          task.apiRequestId = options.apiRequestId ||
+            (task.remoteId === remoteId ? task.apiRequestId : undefined);
+        }
         task.remoteId = remoteId;
         if (invocationRoute) {
           task.invocationRoute = invocationRoute;

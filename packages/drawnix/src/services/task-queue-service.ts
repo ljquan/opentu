@@ -8,6 +8,8 @@
  * via taskStorageWriter to ensure data persistence.
  */
 
+import { toImageTaskError } from '../utils/image-error-details';
+
 import { Subject, Observable } from 'rxjs';
 import {
   Task,
@@ -542,6 +544,7 @@ class TaskQueueService {
       error: task.error as any,
       progress: task.progress,
       remoteId: task.remoteId,
+      apiRequestId: task.apiRequestId,
       invocationRoute: task.invocationRoute,
       imageRecovery: task.imageRecovery,
       executionPhase: task.executionPhase,
@@ -1532,6 +1535,7 @@ class TaskQueueService {
               progress: updatedTask.progress,
               // Preserve submission metadata written directly by the executor.
               remoteId: updatedTask.remoteId ?? localTask.remoteId,
+              apiRequestId: updatedTask.apiRequestId,
               invocationRoute:
                 updatedTask.invocationRoute ?? localTask.invocationRoute,
               updatedAt: Date.now(),
@@ -1568,6 +1572,7 @@ class TaskQueueService {
           ...localTask,
           status: result.task.status as TaskStatus,
           remoteId: result.task.remoteId ?? localTask.remoteId,
+          apiRequestId: result.task.apiRequestId,
           invocationRoute:
             result.task.invocationRoute ?? localTask.invocationRoute,
           result: result.task.result,
@@ -1620,20 +1625,14 @@ class TaskQueueService {
               );
             return;
           }
-          await this.failImageAttempt(task.id, submissionRequestId, {
-            code: error.code || 'EXECUTION_ERROR',
-            message: error.message || 'Task execution failed',
-          });
+          await this.failImageAttempt(task.id, submissionRequestId, toImageTaskError(error, error.code || 'EXECUTION_ERROR', task.params.model));
           return;
         }
 
         const failedTask: Task = {
           ...localTask,
           status: TaskStatus.FAILED,
-          error: {
-            code: error.code || 'EXECUTION_ERROR',
-            message: error.message || 'Task execution failed',
-          },
+          error: toImageTaskError(error, error.code || 'EXECUTION_ERROR', task.params.model),
           updatedAt: now,
           completedAt: now,
           progress: undefined,
@@ -3110,6 +3109,7 @@ class TaskQueueService {
       startedAt: now, // Set new start time
       completedAt: undefined, // Clear completion time
       remoteId: pptExplainerState ? pptExplainerRemoteId : undefined,
+      apiRequestId: pptExplainerRemoteId ? task.apiRequestId : undefined,
       executionPhase: pptExplainerRemoteId
         ? TaskExecutionPhase.POLLING
         : TaskExecutionPhase.SUBMITTING,
@@ -3338,6 +3338,7 @@ class TaskQueueService {
       error: storageTask.error as Task['error'],
       progress: storageTask.progress,
       remoteId: storageTask.remoteId,
+      apiRequestId: storageTask.apiRequestId,
       invocationRoute: storageTask.invocationRoute,
       executionPhase: storageTask.executionPhase as Task['executionPhase'],
     };

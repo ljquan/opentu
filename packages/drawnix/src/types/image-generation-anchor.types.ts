@@ -99,6 +99,12 @@ export interface ImageGenerationAnchorViewModel {
   secondaryAction?: ImageGenerationAnchorAction;
   error?: string;
   isTerminal: boolean;
+  failureDetails?: {
+    requestId?: string;
+    modelId?: string;
+    remoteId?: string;
+    error: string;
+  };
 }
 
 export interface ImageGenerationAnchorCreateOptions
