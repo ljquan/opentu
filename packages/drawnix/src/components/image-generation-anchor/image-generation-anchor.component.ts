@@ -3,7 +3,6 @@ import {
   OnContextChanged,
   PlaitBoard,
   PlaitPluginElementContext,
-  RectangleClient,
 } from '@plait/core';
 import {
   ActiveGenerator,
@@ -12,6 +11,11 @@ import {
 } from '@plait/common';
 import type { PlaitImageGenerationAnchor } from '../../types/image-generation-anchor.types';
 import { ImageGenerationAnchorGenerator } from './image-generation-anchor.generator';
+import {
+  getImageGenerationAnchorRenderedRectangle,
+  setImageGenerationAnchorRenderedSize,
+  clearImageGenerationAnchorRenderedSize,
+} from '../../utils/image-generation-anchor-bounds';
 
 export class ImageGenerationAnchorComponent
   extends CommonElementFlavour<PlaitImageGenerationAnchor, PlaitBoard>
@@ -20,11 +24,12 @@ export class ImageGenerationAnchorComponent
   private anchorGenerator!: ImageGenerationAnchorGenerator;
   private activeGenerator!: ActiveGenerator<PlaitImageGenerationAnchor>;
   private renderedG?: SVGGElement;
+  private destroyed = false;
 
   initializeGenerator(): void {
     this.activeGenerator = createActiveGenerator(this.board, {
       getRectangle: (element: PlaitImageGenerationAnchor) => {
-        return RectangleClient.getRectangleByPoints(element.points);
+        return getImageGenerationAnchorRenderedRectangle(this.board, element);
       },
       getStrokeWidth: () => ACTIVE_STROKE_WIDTH,
       getStrokeOpacity: () => 0.9,
@@ -32,6 +37,18 @@ export class ImageGenerationAnchorComponent
     });
 
     this.anchorGenerator = new ImageGenerationAnchorGenerator(this.board);
+    this.anchorGenerator.onSizeChange = (size) => {
+      if (
+        this.destroyed ||
+        !setImageGenerationAnchorRenderedSize(this.board, this.element.id, size)
+      )
+        return;
+      this.activeGenerator.processDrawing(
+        this.element,
+        PlaitBoard.getActiveHost(this.board),
+        { selected: this.selected }
+      );
+    };
   }
 
   initialize(): void {
@@ -63,7 +80,11 @@ export class ImageGenerationAnchorComponent
 
     if (value.element !== previous.element || value.hasThemeChanged) {
       if (this.renderedG) {
-        this.anchorGenerator.updateDrawing(this.element, this.renderedG, this.selected);
+        this.anchorGenerator.updateDrawing(
+          this.element,
+          this.renderedG,
+          this.selected
+        );
       }
 
       this.activeGenerator.processDrawing(
@@ -81,7 +102,11 @@ export class ImageGenerationAnchorComponent
       const needUpdate = value.selected !== previous.selected;
 
       if (needUpdate && this.renderedG) {
-        this.anchorGenerator.updateDrawing(this.element, this.renderedG, this.selected);
+        this.anchorGenerator.updateDrawing(
+          this.element,
+          this.renderedG,
+          this.selected
+        );
       }
 
       if (needUpdate || value.selected) {
@@ -95,6 +120,8 @@ export class ImageGenerationAnchorComponent
   }
 
   destroy(): void {
+    this.destroyed = true;
+    clearImageGenerationAnchorRenderedSize(this.board, this.element.id);
     super.destroy();
 
     if (this.activeGenerator) {

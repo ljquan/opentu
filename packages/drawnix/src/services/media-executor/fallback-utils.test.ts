@@ -223,6 +223,28 @@ describe('pollVideoStatus', () => {
     providerSend.mockReset();
   });
 
+  it.each([undefined, 'site-original'])(
+    'keeps only an explicit original submission ID on polling failure: %s',
+    async (originalRequestId) => {
+      providerSend.mockResolvedValue(
+        new Response(JSON.stringify({
+          status: 'failed',
+          original_request_id: originalRequestId,
+          request_id: 'poll-body-id',
+          error: { code: 'task_failed', message: 'Rejected (request id: upstream-id)' },
+        }), { headers: { 'x-oneapi-request-id': 'poll-header-id' } })
+      );
+      const { pollVideoStatus } = await import('./fallback-utils');
+      const error = await pollVideoStatus('remote-video', {
+        apiKey: 'test-key', baseUrl: 'https://example.com',
+      }, vi.fn()).catch((error) => error);
+      expect(error.diagnostics?.apiRequestId).toBe(originalRequestId);
+      expect(error.message).toBe('Rejected (request id: upstream-id)');
+      expect(error.code).toBe('task_failed');
+      expect(providerSend).toHaveBeenCalledOnce();
+    }
+  );
+
   it('stops polling after the execution attempt is replaced', async () => {
     vi.useFakeTimers();
     try {

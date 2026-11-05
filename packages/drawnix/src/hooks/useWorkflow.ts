@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * useWorkflow Hook
  * 
@@ -44,7 +45,8 @@ export interface UseWorkflowReturn {
     status: WorkflowStep['status'], 
     result?: unknown, 
     error?: string,
-    duration?: number
+    duration?: number,
+    errorDetails?: TaskError
   ) => void;
   /** 添加新步骤（Agent 流程动态添加） */
   addSteps: (steps: WorkflowStep[]) => void;
@@ -134,7 +136,8 @@ export function useWorkflow(): UseWorkflowReturn {
     status: WorkflowStep['status'],
     result?: unknown,
     error?: string,
-    duration?: number
+    duration?: number,
+    errorDetails?: TaskError
   ) => {
     if (abortedRef.current) return;
 
@@ -149,7 +152,8 @@ export function useWorkflow(): UseWorkflowReturn {
       status,
       result,
       error,
-      duration
+      duration,
+      errorDetails
     );
     workflowRef.current = updatedWorkflow;
 

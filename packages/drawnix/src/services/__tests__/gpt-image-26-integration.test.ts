@@ -332,9 +332,10 @@ describe('GPT Image 2.6 1K integration', () => {
             error: {
               message: '[下载 SVG](sandbox:/mnt/data/result.svg)',
               code: 'bad_request',
+              request_id: 'upstream-svg-request',
             },
           }),
-          { status: 400 }
+          { status: 400, headers: { 'x-request-id': 'gateway-hop' } }
         )
       );
       await expect(
@@ -344,7 +345,13 @@ describe('GPT Image 2.6 1K integration', () => {
         )
       ).rejects.toMatchObject({
         httpStatus: 400,
-        message: expect.stringContaining('sandbox:'),
+        message: expect.stringContaining('上游仅返回了无法访问的内部文件链接'),
+        diagnostics: {
+          requestId: 'upstream-svg-request',
+          apiErrorCode: 'bad_request',
+          httpStatus: 400,
+          modelId: model,
+        },
       });
       expect(fetcher).toHaveBeenCalledOnce();
     }

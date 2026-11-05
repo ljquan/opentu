@@ -1,3 +1,5 @@
+import { toGenerationTaskError } from '../../utils/generation-error-details';
+import { getWorkflowFailureDetails } from '../../utils/workflow-error-details';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   seedance2VideoAdapter,
@@ -396,7 +398,7 @@ describe('seedance 2.0 video adapter', () => {
       format: 'mp4',
       duration: 12,
     });
-    expect(onSubmitted).toHaveBeenCalledWith('seedance-2-task');
+    expect(onSubmitted).toHaveBeenCalledWith('seedance-2-task', undefined);
     expect(onProgress).toHaveBeenNthCalledWith(1, 5, 'queued');
     expect(onProgress).toHaveBeenLastCalledWith(100, 'completed');
     expect(requests[0]?.url).toBe('https://video.example.com/v1/videos');
@@ -1171,7 +1173,9 @@ describe('seedance 2.0 video adapter', () => {
     const fetcher = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) =>
         (init?.method || 'GET') === 'POST'
-          ? jsonResponse({ id: 'bad-task', status: 'queued' })
+          ? new Response(JSON.stringify({ id: 'bad-task', status: 'queued' }), {
+              headers: { 'x-oneapi-request-id': 'site-submit' },
+            })
           : jsonResponse({ error: { message: 'forbidden' } }, 403)
     ) as unknown as typeof fetch;
 
@@ -1182,7 +1186,10 @@ describe('seedance 2.0 video adapter', () => {
         prompt: 'forbidden poll',
       }
     );
-    const rejection = expect(resultPromise).rejects.toThrow('forbidden');
+    const rejection = expect(resultPromise).rejects.toMatchObject({
+      message: 'forbidden',
+      diagnostics: { apiRequestId: 'site-submit', httpStatus: 403 },
+    });
 
     await vi.advanceTimersByTimeAsync(5000);
     await rejection;
@@ -1264,4 +1271,120 @@ describe('Seedance 2.5 request parameters', () => {
       expect(fetcher).not.toHaveBeenCalled();
     }
   );
+});
+
+
+describe('Seedance API-site submission IDs', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    { submitHeader: 'site-submit', taskBody: {}, expected: 'site-submit' },
+    { submitHeader: undefined, taskBody: {}, expected: undefined },
+    {
+      submitHeader: undefined,
+      taskBody: { original_request_id: 'site-original' },
+      expected: 'site-original',
+    },
+  ])(
+    'keeps the original API-site ID instead of a polling/upstream ID: $expected',
+    async ({ submitHeader, taskBody, expected }) => {
+      const onSubmitted = vi.fn();
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ id: 'remote-video', status: 'queued' }),
+            {
+              headers: submitHeader
+                ? { 'x-oneapi-request-id': submitHeader }
+                : {},
+            }
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              id: 'remote-video',
+              status: 'failed',
+              ...taskBody,
+              error: {
+                code: 'task_failed',
+                message: 'Rejected Request id: upstream-only',
+              },
+            }),
+            {
+              headers: {
+                'x-oneapi-request-id': 'poll-only',
+                'x-request-id': 'gateway-only',
+              },
+            }
+          )
+        );
+      const result = seedance2VideoAdapter
+        .generateVideo(createContext(fetcher), {
+          model: 'doubao-seedance-2-5-260628',
+          prompt: 'test',
+          duration: 4,
+          params: { onSubmitted },
+        })
+        .catch((error) => error);
+      await vi.advanceTimersByTimeAsync(5000);
+      const error = await result;
+      expect(error).toBeInstanceOf(Error);
+      expect(onSubmitted).toHaveBeenCalledWith('remote-video', submitHeader);
+      const saved = JSON.parse(
+        JSON.stringify(toGenerationTaskError(error, 'VIDEO_FAILED'))
+      );
+      expect(saved.details.apiRequestId).toBe(expected);
+      const details = getWorkflowFailureDetails(
+        {
+          id: 'workflow',
+          name: 'Video',
+          generationType: 'video',
+          prompt: '',
+          count: 1,
+          steps: [
+            {
+              id: 'video',
+              mcp: 'generate_video',
+              description: 'Video',
+              status: 'failed',
+              error: error.message,
+              errorDetails: saved,
+            },
+          ],
+        },
+        []
+      );
+      expect(details).toMatchObject({
+        requestId: expected,
+        remoteId: 'remote-video',
+        error: '[HTTP 200 · task_failed] Rejected',
+      });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('captures the API-site ID of a rejected submission without polling', async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { message: 'Denied (request id: upstream-id)' },
+        }),
+        { status: 403, headers: { 'x-oneapi-request-id': 'site-rejection' } }
+      )
+    );
+    const error = await seedance2VideoAdapter
+      .generateVideo(createContext(fetcher), {
+        model: 'doubao-seedance-2-5-260628',
+        prompt: 'test',
+        duration: 4,
+      })
+      .catch((error) => error);
+    expect(
+      toGenerationTaskError(error, 'VIDEO_FAILED').details.apiRequestId
+    ).toBe('site-rejection');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 });

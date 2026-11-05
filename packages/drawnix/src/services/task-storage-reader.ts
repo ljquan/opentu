@@ -92,6 +92,7 @@ interface SWTask {
   };
   progress?: number;
   remoteId?: string;
+  apiRequestId?: string;
   invocationRoute?: TaskInvocationRouteSnapshot;
   executionPhase?: string;
   imageRecovery?: ImageRecoveryInfo;
@@ -223,6 +224,7 @@ function convertSWTaskToTask(swTask: SWTask): Task {
     error: swTask.error,
     progress: swTask.progress,
     remoteId: swTask.remoteId,
+    apiRequestId: swTask.apiRequestId,
     invocationRoute: swTask.invocationRoute,
     executionPhase: swTask.executionPhase as Task['executionPhase'],
     imageRecovery: swTask.imageRecovery,

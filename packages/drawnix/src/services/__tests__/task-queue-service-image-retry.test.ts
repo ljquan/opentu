@@ -2179,6 +2179,33 @@ describe('task-queue-service image edit retry persistence', () => {
     subscription.unsubscribe();
   });
 
+  it('clears the previous API submission ID when retrying an ordinary video', async () => {
+    const { taskQueueService } = await setupTaskQueueServiceHarness([
+      TaskStatus.COMPLETED,
+    ]);
+    const task: Task = {
+      id: 'video-id-retry',
+      type: TaskType.VIDEO,
+      status: TaskStatus.FAILED,
+      remoteId: 'old-remote',
+      apiRequestId: 'old-site-id',
+      params: { prompt: 'test', model: 'video-model' },
+      createdAt: 1,
+      updatedAt: 1,
+      error: {
+        code: 'task_failed',
+        message: 'Rejected',
+        details: { apiRequestId: 'old-site-id' },
+      },
+    };
+    taskQueueService.trackExternalTask(clone(task));
+    taskQueueService.retryTask(task.id);
+    const retried = taskQueueService.getTask(task.id);
+    expect(retried?.apiRequestId).toBeUndefined();
+    expect(retried?.remoteId).toBeUndefined();
+    expect(retried?.error).toBeUndefined();
+  });
+
   it('persists invocation route for externally tracked video tasks', async () => {
     const { taskQueueService, storedTasks } =
       await setupTaskQueueServiceHarness([TaskStatus.COMPLETED]);
@@ -2187,6 +2214,7 @@ describe('task-queue-service image edit retry persistence', () => {
       type: TaskType.VIDEO,
       status: TaskStatus.PROCESSING,
       remoteId: 'remote-video-1',
+      apiRequestId: 'site-submit-id',
       executionPhase: TaskExecutionPhase.POLLING,
       params: {
         prompt: 'Resume original provider',
@@ -2205,6 +2233,7 @@ describe('task-queue-service image edit retry persistence', () => {
 
     const stored = storedTasks.get(task.id);
     expect(stored?.remoteId).toBe('remote-video-1');
+    expect(stored?.apiRequestId).toBe('site-submit-id');
     expect(stored?.executionPhase).toBe('polling');
     expect(stored?.params.modelRef).toEqual({
       profileId: 'happyhorse-profile',
@@ -2528,6 +2557,7 @@ describe('task-queue-service image edit retry persistence', () => {
       type: TaskType.VIDEO,
       status: TaskStatus.FAILED,
       remoteId: 'remote-retry',
+      apiRequestId: 'site-submit-id',
       executionPhase: TaskExecutionPhase.POLLING,
       params: {
         prompt: 'PPT explainer remote retry',
@@ -2555,6 +2585,7 @@ describe('task-queue-service image edit retry persistence', () => {
     expect(taskQueueService.getTask(task.id)).toMatchObject({
       status: TaskStatus.PROCESSING,
       remoteId: 'remote-retry',
+      apiRequestId: 'site-submit-id',
       executionPhase: TaskExecutionPhase.POLLING,
       params: {
         pptExplainer: {
@@ -2575,6 +2606,7 @@ describe('task-queue-service image edit retry persistence', () => {
       type: TaskType.VIDEO,
       status: TaskStatus.FAILED,
       remoteId: 'remote-terminal',
+      apiRequestId: 'site-submit-id',
       executionPhase: TaskExecutionPhase.POLLING,
       params: {
         prompt: 'PPT explainer remote terminal retry',
@@ -2617,6 +2649,7 @@ describe('task-queue-service image edit retry persistence', () => {
       },
     });
     expect(retried?.remoteId).toBeUndefined();
+    expect(retried?.apiRequestId).toBeUndefined();
     expect(
       (retried?.params.pptExplainer as { remoteId?: string }).remoteId
     ).toBeUndefined();

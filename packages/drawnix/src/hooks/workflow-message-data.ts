@@ -32,6 +32,7 @@ export function toWorkflowMessageData(
       args: step.args,
       result: step.result,
       error: step.error,
+      errorDetails: step.errorDetails,
       duration: step.duration,
       options: step.options,
     })),

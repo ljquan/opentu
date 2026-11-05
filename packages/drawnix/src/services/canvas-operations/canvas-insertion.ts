@@ -879,7 +879,7 @@ async function executeCanvasInsertionInternal(
         : startPoint;
       const taskRectangles = board.children
         .filter(isWorkZoneElement)
-        .map(getWorkZoneVisualRectangle)
+        .map(element => getWorkZoneVisualRectangle(element, board))
         .filter(
           (rect) =>
             [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&

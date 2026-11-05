@@ -1,4 +1,5 @@
 import { RectangleClient } from '@plait/core';
+import { getImageFailureDetails } from './image-error-details';
 import type { WorkflowMessageData } from '../types/chat.types';
 import { workflowCompletionService } from '../services/workflow-completion-service';
 import {
@@ -482,6 +483,7 @@ export function buildImageGenerationAnchorViewModel(
     error: phase === 'completed'
       ? undefined
       : options.canvasError || anchor.error || workflow?.error,
+    failureDetails: getImageFailureDetails(task, options.canvasError || anchor.error || workflow?.error),
     isTerminal: phase === 'completed' || phase === 'failed',
   };
 }

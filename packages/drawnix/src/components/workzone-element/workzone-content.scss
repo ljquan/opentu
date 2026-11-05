@@ -407,3 +407,13 @@
     transform: scale(0.97);
   }
 }
+
+// Failed cards grow with diagnostics; header and actions must never be squeezed.
+.workzone-content--failed {
+  height: auto;
+  min-height: 100%;
+  > * { flex-shrink: 0; }
+  .workzone-content__steps { flex: none; max-height: 104px; }
+  .workzone-content__error { align-items: stretch; text-align: left; padding: 10px; }
+  .workzone-content__retry-btn { align-self: flex-end; }
+}

@@ -6,6 +6,8 @@ import { notifyTaskSubmitted } from './submission-persistence';
  * 提交任务后通过轮询查询结果，返回图片下载链接。
  */
 
+import { readImageApiError, createImageApiError } from '../utils/image-error-details';
+
 import {
   resolveInvocationRoute,
   type ModelRef,
@@ -196,16 +198,13 @@ class AsyncImageAPIService {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      const error = new Error(
-        `图片任务提交失败: ${response.status} - ${errorText}`
-      );
-      (error as any).apiErrorBody = errorText;
-      (error as any).httpStatus = response.status;
-      throw error;
+      throw await readImageApiError(response, '图片任务提交失败', { modelId: params.model });
     }
-
-    return response.json();
+    const data = await response.json();
+    if (data.status === 'failed') {
+      throw createImageApiError(data, response, '图片生成失败', { modelId: params.model, remoteId: data.id });
+    }
+    return data;
   }
 
   async query(
@@ -229,16 +228,15 @@ class AsyncImageAPIService {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      const error = new Error(
-        `图片任务查询失败: ${response.status} - ${errorText}`
-      );
-      (error as any).apiErrorBody = errorText;
-      (error as any).httpStatus = response.status;
+      throw await readImageApiError(response, '图片任务查询失败', { remoteId: id });
+    }
+    const data = await response.json();
+    if (data.status === 'failed') {
+      const error = createImageApiError(data, response, '图片生成失败', { remoteId: id });
+      Object.assign(error, { isTaskFailed: true });
       throw error;
     }
-
-    return response.json();
+    return data;
   }
 
   async generateWithPolling(

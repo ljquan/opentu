@@ -1,3 +1,4 @@
+import { readImageApiError, createImageApiError } from '../../utils/image-error-details';
 import {
   base64ToBlob,
   getFileExtension,
@@ -14,7 +15,7 @@ import {
   shouldRetryTuziGPTImageAlias,
 } from './image-request-schemas';
 import { sendAdapterRequest } from './context';
-import { readProviderResponseJson } from '../provider-routing';
+import { readProviderResponseJson, readProviderResponseText } from '../provider-routing';
 import { registerModelAdapter } from './registry';
 import { normalizeGPTImage26Request } from './gpt-image-26-request';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
@@ -561,26 +562,11 @@ export async function resolveGeneratedImageDimensions(
   return dimensions ? { ...result, ...dimensions } : result;
 }
 
-export function formatGPTImageErrorMessage(message: string): string {
-  return /sandbox:\/(?:mnt\/)?/i.test(message)
-    ? `上游仅返回了无法访问的内部文件链接，未提供可下载的图片。请更换输出格式或联系渠道方。${message}`
-    : message;
-}
-
-async function readErrorMessage(response: Response): Promise<string> {
-  const data = await readProviderResponseJson<Record<string, any>>(
-    response
-  ).catch(() => null);
-  if (typeof data?.error === 'string') {
-    return formatGPTImageErrorMessage(data.error);
+export function formatGPTImageError<T extends Error>(error: T): T {
+  if (/sandbox:\/(?:mnt\/)?/i.test(error.message)) {
+    error.message = `上游仅返回了无法访问的内部文件链接，未提供可下载的图片。请更换输出格式或联系渠道方。${error.message}`;
   }
-  if (typeof data?.error?.message === 'string') {
-    return formatGPTImageErrorMessage(data.error.message);
-  }
-  if (typeof data?.message === 'string') {
-    return formatGPTImageErrorMessage(data.message);
-  }
-  return `GPT Image request failed: ${response.status}`;
+  return error;
 }
 
 export const gptImageAdapter: ImageModelAdapter = {
@@ -655,14 +641,14 @@ export const gptImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), { httpStatus: response.status });
+      throw formatGPTImageError(await readImageApiError(response, 'GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText));
     }
 
-    const result = await readProviderResponseJson(response);
-    return resolveGeneratedImageDimensions(
-      parseGPTImageResponse(result, outputFormat),
-      context.signal
-    );
+    const result = await readProviderResponseJson<Record<string, any>>(response);
+    if (result.error || result.status === 'failed') {
+      throw formatGPTImageError(createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' }));
+    }
+    return resolveGeneratedImageDimensions(parseGPTImageResponse(result, outputFormat), context.signal);
   },
 };
 

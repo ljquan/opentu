@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * Workflow Submission Service
  *
@@ -56,6 +57,7 @@ export interface WorkflowStep {
   status: WorkflowStepStatus;
   result?: unknown;
   error?: string;
+  errorDetails?: TaskError;
   duration?: number;
   options?: WorkflowStepOptions;
 }
@@ -69,6 +71,7 @@ export interface WorkflowDefinition {
   updatedAt: number;
   completedAt?: number;
   error?: string;
+  errorDetails?: TaskError;
   context?: {
     userInput?: string;
     model?: string;
@@ -101,6 +104,7 @@ export interface WorkflowStepEvent {
   status: WorkflowStepStatus;
   result?: unknown;
   error?: string;
+  errorDetails?: TaskError;
   duration?: number;
 }
 
@@ -373,6 +377,7 @@ class WorkflowSubmissionService {
         status: step.status,
         result: step.result,
         error: step.error,
+      errorDetails: step.errorDetails,
         duration: step.duration,
         options: step.options,
       })),
@@ -404,6 +409,7 @@ class WorkflowSubmissionService {
             return {
               success: result.success,
               error: result.error,
+              errorDetails: result.errorDetails,
             };
           } catch (error: any) {
             return {
@@ -565,6 +571,7 @@ class WorkflowSubmissionService {
                 success: result.success,
                 result: result.data,
                 error: result.error,
+                errorDetails: result.errorDetails,
               };
             } catch (error: any) {
               return {
@@ -593,6 +600,7 @@ class WorkflowSubmissionService {
             | 'skipped',
           result: step.result,
           error: step.error,
+      errorDetails: step.errorDetails,
           duration: step.duration,
           options: step.options,
         })),
@@ -640,6 +648,7 @@ class WorkflowSubmissionService {
           status: event.status,
           result: event.result,
           error: event.error,
+          errorDetails: event.errorDetails,
           duration: event.duration,
         });
         // 同步更新本地缓存
@@ -650,6 +659,7 @@ class WorkflowSubmissionService {
             step.status = event.status;
             step.result = event.result;
             step.error = event.error;
+            step.errorDetails = event.errorDetails;
             step.duration = event.duration;
           }
           workflow.updatedAt = Date.now();
@@ -672,6 +682,7 @@ class WorkflowSubmissionService {
           type: 'failed',
           workflowId: event.workflowId,
           error: event.error,
+
         });
         // 更新本地缓存
         const failedWorkflow = this.workflows.get(event.workflowId);

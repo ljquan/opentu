@@ -1,3 +1,4 @@
+import type { TaskError } from '../../types/shared/core.types';
 /**
  * Workflow Engine Types
  *
@@ -55,6 +56,7 @@ export interface WorkflowStep {
   result?: unknown;
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** 执行时长（毫秒） */
   duration?: number;
   /** 依赖的步骤 ID 列表 */
@@ -108,6 +110,7 @@ export interface Workflow {
   completedAt?: number;
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** 上下文信息 */
   context?: WorkflowContext;
 }
@@ -129,6 +132,7 @@ export interface WorkflowStepEvent {
   status: WorkflowStepStatus;
   result?: unknown;
   error?: string;
+  errorDetails?: TaskError;
   duration?: number;
 }
 
@@ -165,6 +169,7 @@ export interface MainThreadToolResult {
   success: boolean;
   result?: unknown;
   error?: string;
+  errorDetails?: TaskError;
 }
 
 // ============================================================================

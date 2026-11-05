@@ -4,6 +4,8 @@
  * 统一的图片生成接口，SW 和主线程共用
  */
 
+import { readImageApiError, createImageApiError } from '../../utils/image-error-details';
+
 import type {
   ImageApiConfig,
   ImageGenerationParams,
@@ -18,7 +20,6 @@ import {
   getExtensionFromUrl,
   sizeToAspectRatio,
   aspectRatioToSize,
-  parseErrorMessage,
   sleep,
   buildProviderContextFromApiConfig,
 } from './utils';
@@ -193,15 +194,13 @@ export async function generateImageSync(
   );
 
   if (!response.ok) {
-    const errorText = await readProviderResponseText(response);
-    throw new Error(
-      `Image generation failed: ${response.status} - ${errorText}`
-    );
+    throw await readImageApiError(response, '图片生成失败', { modelId: model }, readProviderResponseText);
   }
 
-  const data = await readProviderResponseJson<Record<string, unknown>>(
-    response
-  );
+  const data = await readProviderResponseJson<Record<string, unknown>>(response);
+  if (data.error || data.status === 'failed') {
+    throw createImageApiError(data, response, '图片生成失败', { modelId: model });
+  }
   return parseImageResponse(data);
 }
 
@@ -285,25 +284,14 @@ export async function generateImageAsync(
     controlledResponseBody: true,
   });
   if (!submitResponse.ok) {
-    const errorText = await readProviderResponseText(submitResponse);
-    console.error(
-      `[ImageAPI] ❌ 提交失败: ${submitResponse.status} - ${errorText.substring(
-        0,
-        200
-      )}`
-    );
-    throw new Error(
-      `Async image submit failed: ${submitResponse.status} - ${errorText}`
-    );
+    throw await readImageApiError(submitResponse, '图片任务提交失败', { modelId: params.model }, readProviderResponseText);
   }
 
   const submitData = await readProviderResponseJson<AsyncTaskSubmitResponse>(
     submitResponse
   );
   if (submitData.status === 'failed') {
-    const msg = parseErrorMessage(submitData.error) || '图片生成失败';
-    console.error(`[ImageAPI] ❌ 任务失败: ${msg}`);
-    throw new Error(msg);
+    throw createImageApiError(submitData, submitResponse, '图片生成失败', { modelId: params.model, remoteId: submitData.id });
   }
 
   const taskRemoteId = submitData.id;
@@ -335,15 +323,7 @@ export async function generateImageAsync(
     });
 
     if (!queryResponse.ok) {
-      const errorText = await readProviderResponseText(queryResponse);
-      console.warn(
-        `[ImageAPI] ⚠️ 轮询失败: attempt=${attempt + 1}, status=${
-          queryResponse.status
-        }`
-      );
-      throw new Error(
-        `Async image query failed: ${queryResponse.status} - ${errorText}`
-      );
+      throw await readImageApiError(queryResponse, '图片任务查询失败', { modelId: params.model, remoteId: taskRemoteId }, readProviderResponseText);
     }
 
     const statusData = await readProviderResponseJson<Record<string, any>>(
@@ -365,9 +345,7 @@ export async function generateImageAsync(
     }
 
     if (statusData.status === 'failed') {
-      const msg = parseErrorMessage(statusData.error) || '图片生成失败';
-      console.error(`[ImageAPI] ❌ 异步图片生成失败: ${msg}`);
-      throw new Error(msg);
+      throw createImageApiError(statusData, queryResponse, '图片生成失败', { modelId: params.model, remoteId: taskRemoteId });
     }
   }
 
@@ -411,10 +389,7 @@ export async function resumeAsyncImagePolling(
     });
 
     if (!queryResponse.ok) {
-      const errorText = await readProviderResponseText(queryResponse);
-      throw new Error(
-        `Async image query failed: ${queryResponse.status} - ${errorText}`
-      );
+      throw await readImageApiError(queryResponse, '图片任务查询失败', { modelId: config.defaultModel, remoteId }, readProviderResponseText);
     }
 
     const statusData = await readProviderResponseJson<Record<string, any>>(
@@ -435,7 +410,7 @@ export async function resumeAsyncImagePolling(
     }
 
     if (statusData.status === 'failed') {
-      throw new Error(parseErrorMessage(statusData.error) || '图片生成失败');
+      throw createImageApiError(statusData, queryResponse, '图片生成失败', { modelId: config.defaultModel, remoteId });
     }
 
     await sleep(interval, signal);

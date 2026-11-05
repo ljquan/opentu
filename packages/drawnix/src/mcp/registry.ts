@@ -5,6 +5,7 @@
  */
 
 import type { MCPTool, MCPResult, ToolCall, MCPExecuteOptions } from './types';
+import { toGenerationTaskError } from '../utils/generation-error-details';
 
 /**
  * MCP 工具注册中心
@@ -118,6 +119,7 @@ class MCPRegistry {
       return {
         success: false,
         error: error.message || 'Tool execution failed',
+        errorDetails: toGenerationTaskError(error, 'TOOL_EXECUTION_ERROR'),
         type: 'error',
       };
     }

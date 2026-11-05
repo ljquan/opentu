@@ -1,3 +1,12 @@
+import {
+  createGenerationApiError,
+  readGenerationApiError,
+} from '../../utils/generation-error-details';
+import {
+  readVideoSubmissionRequestId,
+  readVideoTaskRequestId,
+  withVideoRequestId,
+} from '../../utils/video-request-id';
 /**
  * 视频生成 API
  *
@@ -181,7 +190,8 @@ function buildVideoSubmissionHttpError(
 export async function submitVideoGeneration(
   params: VideoGenerationParams,
   config: VideoApiConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestId?: (apiRequestId: string | undefined) => void
 ): Promise<string> {
   const fetchFn = config.fetchImpl || fetch;
   const baseUrl = normalizeApiBase(config.baseUrl);
@@ -207,7 +217,12 @@ export async function submitVideoGeneration(
   }
 
   appendVideoOutputParams(formData, model, params.size, params.params);
-  appendVeoAdvancedMetadata(formData, model, params.params, config.binding?.metadata?.video);
+  appendVeoAdvancedMetadata(
+    formData,
+    model,
+    params.params,
+    config.binding?.metadata?.video
+  );
 
   // 处理参考图片（体积控制在 1MB 内，与图片生成一致）
   if (
@@ -254,36 +269,53 @@ export async function submitVideoGeneration(
 
   const response = await providerTransport.send(providerContext, {
     path: submitPath,
-    baseUrlStrategy: isMiniMaxH3
-      ? 'trim-v1'
-      : config.binding?.baseUrlStrategy,
+    baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : config.binding?.baseUrlStrategy,
     method: 'POST',
     headers: isMiniMaxH3 ? { 'Content-Type': 'application/json' } : undefined,
-    body: isMiniMaxH3
-      ? JSON.stringify(miniMaxSubmission!.body)
-      : formData,
+    body: isMiniMaxH3 ? JSON.stringify(miniMaxSubmission!.body) : formData,
     signal,
     fetcher: fetchFn,
   });
 
   if (!response.ok) {
     const errorText = await readResponseTextPreview(response);
-    throw buildVideoSubmissionHttpError(response.status, errorText);
+    throw withVideoRequestId(
+      Object.assign(buildVideoSubmissionHttpError(response.status, errorText), {
+        diagnostics: createGenerationApiError(errorText, response, '视频提交失败', {
+          modelId: model,
+        }).diagnostics,
+        httpStatus: response.status,
+      }),
+      readVideoSubmissionRequestId(response, errorText)
+    );
   }
 
   const rawData = await response.json();
   const data = isMiniMaxH3 ? normalizeMiniMaxH3VideoResponse(rawData) : rawData;
+  const apiRequestId = readVideoSubmissionRequestId(response, rawData);
 
   if (data.status === 'failed') {
-    throw new VideoGenerationFailedError(
-      parseErrorMessage(data.error) || '视频生成失败'
+    throw withVideoRequestId(
+      Object.assign(
+        new VideoGenerationFailedError(
+          parseErrorMessage(data.error) || '视频生成失败'
+        ),
+        {
+          diagnostics: createGenerationApiError(rawData, response, '视频生成失败', {
+            modelId: model,
+            remoteId: data.id,
+          }).diagnostics,
+        }
+      ),
+      apiRequestId
     );
   }
 
   if (!data.id) {
-    throw new Error('No task ID returned from API');
+    throw withVideoRequestId(new Error('No task ID returned from API'), apiRequestId);
   }
 
+  onRequestId?.(apiRequestId);
   return data.id;
 }
 
@@ -319,7 +351,10 @@ export async function queryVideoStatus(
   });
 
   if (!response.ok) {
-    throw new Error(`Video status query failed: ${response.status}`);
+    throw await readGenerationApiError(response, 'Video status query failed', {
+      modelId: config.defaultModel,
+      remoteId: videoId,
+    });
   }
 
   const data = await response.json();
@@ -379,8 +414,10 @@ export async function pollVideoUntilComplete(
         );
 
         if (consecutiveErrors >= maxConsecutiveErrors) {
-          throw new Error(
-            `Failed to get video status after ${maxConsecutiveErrors} consecutive errors: ${response.status}`
+          throw await readGenerationApiError(
+            response,
+            `Failed to get video status after ${maxConsecutiveErrors} consecutive errors`,
+            { modelId: config.defaultModel, remoteId: videoId }
           );
         }
 
@@ -419,8 +456,19 @@ export async function pollVideoUntilComplete(
 
       // 检查失败状态 - 业务失败不应重试
       if (status === 'failed' || status === 'error') {
-        throw new VideoGenerationFailedError(
-          parseErrorMessage(data.error) || '视频生成失败'
+        throw withVideoRequestId(
+          Object.assign(
+            new VideoGenerationFailedError(
+              parseErrorMessage(data.error) || '视频生成失败'
+            ),
+            {
+              diagnostics: createGenerationApiError(rawData, response, '视频生成失败', {
+                modelId: config.defaultModel,
+                remoteId: videoId,
+              }).diagnostics,
+            }
+          ),
+          readVideoTaskRequestId(rawData)
         );
       }
 
@@ -472,14 +520,17 @@ export async function generateVideo(
   params: VideoGenerationParams,
   config: VideoApiConfig,
   options: PollingOptions = {},
-  onRemoteId?: (remoteId: string) => void
+  onRemoteId?: (remoteId: string, apiRequestId?: string) => void
 ): Promise<VideoGenerationResult> {
   const { signal } = options;
 
   // 提交任务
   options.onProgress?.(5);
-  const remoteId = await submitVideoGeneration(params, config, signal);
-  onRemoteId?.(remoteId);
+  let apiRequestId: string | undefined;
+  const remoteId = await submitVideoGeneration(params, config, signal, (id) => {
+    apiRequestId = id;
+  });
+  onRemoteId?.(remoteId, apiRequestId);
 
   // 轮询等待完成
   const result = await pollVideoUntilComplete(
@@ -490,7 +541,9 @@ export async function generateVideo(
       params: { ...config.params, ...params.params },
     },
     options
-  );
+  ).catch((error) => {
+    throw error instanceof Error ? withVideoRequestId(error, apiRequestId) : error;
+  });
   const videoUrl =
     extractInlineVideoUrl(result as Record<string, any>) ||
     (shouldDownloadVideoContent(
