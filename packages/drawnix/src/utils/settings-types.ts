@@ -112,6 +112,8 @@ export interface ProviderCatalogManualBinding {
 }
 
 export interface ProviderCatalog {
+  /** App version whose automatic model refresh succeeded. Absent on legacy data. */
+  lastAutoRefreshVersion?: string;
   discoverySource?: 'marketplace' | 'models-endpoint';
   profileId: string;
   discoveredAt: number | null;

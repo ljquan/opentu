@@ -957,6 +957,33 @@ describe('settings-manager', () => {
     expect(module.providerProfilesSettings.get().find(p => p.id === 'manual-test')).toMatchObject({ enabled: false, apiKey: 'manual-test-key' });
   });
 
+  it('round-trips the automatic refresh version through settings restore and reload', async () => {
+    mockSettingsManagerDeps();
+    const { settingsManager, providerCatalogsSettings } = await import('../settings-manager');
+    await settingsManager.waitForInitialization();
+    // Environment restore uses updateSettings, including provider catalogs.
+    await settingsManager.updateSettings({
+      providerProfiles: ['versioned', 'legacy', 'invalid'].map((id) => ({
+        ...settingsManager.getSettings().providerProfiles[0], id, name: id,
+      })),
+      providerCatalogs: [
+        { profileId: 'versioned', discoveredAt: 1, discoveredModels: [], selectedModelIds: [], lastAutoRefreshVersion: ' 1.2.7 ', discoverySource: 'models-endpoint' },
+        { profileId: 'legacy', discoveredAt: 1, discoveredModels: [], selectedModelIds: [] },
+        { profileId: 'invalid', discoveredAt: 1, discoveredModels: [], selectedModelIds: [], lastAutoRefreshVersion: 123 as unknown as string },
+      ],
+    });
+    expect(providerCatalogsSettings.get().find((c) => c.profileId === 'versioned')).toMatchObject({ lastAutoRefreshVersion: '1.2.7', discoverySource: 'models-endpoint' });
+    expect(providerCatalogsSettings.get().find((c) => c.profileId === 'legacy')?.lastAutoRefreshVersion).toBeUndefined();
+    expect(providerCatalogsSettings.get().find((c) => c.profileId === 'invalid')?.lastAutoRefreshVersion).toBeUndefined();
+    vi.resetModules();
+    mockSettingsManagerDeps();
+    const reloaded = await import('../settings-manager');
+    await reloaded.settingsManager.waitForInitialization();
+    expect(reloaded.providerCatalogsSettings.get().find((c) => c.profileId === 'versioned')).toMatchObject({ lastAutoRefreshVersion: '1.2.7', discoverySource: 'models-endpoint' });
+    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    expect(runtimeModelDiscovery.getState('versioned').lastAutoRefreshVersion).toBe('1.2.7');
+  });
+
   it('preserves provider catalog manual bindings after reload', async () => {
     mockSettingsManagerDeps();
 
