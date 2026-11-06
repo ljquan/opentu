@@ -1883,7 +1883,8 @@ export function useAutoInsertToCanvas(
                 board,
                 () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
                 task.params.prompt,
-                buildTaskGenerationMetadata(task, imageAnchor)
+                buildTaskGenerationMetadata(task, imageAnchor),
+                'generated-result'
               );
               if (abortIfCanvasChanged()) {
                 continue promptGroupLoop;
@@ -2003,7 +2004,8 @@ export function useAutoInsertToCanvas(
                 dimensions,
                 metadata,
                 board,
-                () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken)
+                () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
+                ...(type === 'image' ? ['generated-result' as const] : [])
               );
               if (abortIfCanvasChanged()) {
                 continue promptGroupLoop;
@@ -2393,7 +2395,9 @@ export function useAutoInsertToCanvas(
                   imageGroupItems.map((item) => item.dimensions),
                   board,
                   () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
-                  firstInsertTask.params.prompt
+                  firstInsertTask.params.prompt,
+                  undefined,
+                  'generated-result'
                 );
                 if (abortIfCanvasChanged()) {
                   continue promptGroupLoop;

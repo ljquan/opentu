@@ -560,6 +560,8 @@ export async function cacheRemoteUrl(
     extraMetadata?: Record<string, unknown>;
     resultVisibility?: TaskResultVisibility;
     signal?: AbortSignal;
+    /** Canvas insertion can wait for a slow original download without restarting it. */
+    imageDownloadTimeoutMs?: number;
     onCacheWarning?: (warning: CacheWarning) => void;
   }
 ): Promise<string> {
@@ -733,8 +735,11 @@ export async function cacheRemoteUrl(
         mediaType === 'image'
           ? await withImageOperationTimeout(
               download,
-              IMAGE_DOWNLOAD_TIMEOUT_MS,
-              '图片下载超时（30秒），已保留原图地址，可重试插入',
+              options?.imageDownloadTimeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS,
+              `图片下载超时（${Math.round(
+                (options?.imageDownloadTimeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS) /
+                  1000
+              )}秒），已保留原图地址，可重试插入`,
               options?.signal,
               'download'
             )

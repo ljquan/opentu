@@ -18,6 +18,7 @@ import {
   insertImageFromUrl,
   loadImageElementForCanvas,
   buildImage,
+  type ImageLoadOptions,
 } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
 import {
@@ -36,7 +37,10 @@ import {
   getSelectedInsertionFrame,
   insertMediaIntoSelectedFrame,
 } from '../../utils/frame-insertion-utils';
-import { getCanvasBoard as readCanvasBoard } from './canvas-board-ref';
+import {
+  getCanvasBoard as readCanvasBoard,
+  getCanvasBoardBinding,
+} from './canvas-board-ref';
 import {
   CANVAS_INSERTION_LAYOUT as LAYOUT_CONSTANTS,
   createBatchInsertionFlowState,
@@ -66,6 +70,10 @@ import {
 import { withImageOperationTimeout } from '../../utils/image-operation-timeout';
 
 const IMAGE_INSERTION_TIMEOUT_MS = 60_000;
+// Leave time after a slow original download for cache writes and decoding.
+// Each staged image has its own bounded budget; the group still commits atomically.
+const GENERATED_IMAGE_INSERTION_TIMEOUT_MS = 300_000;
+const GENERATED_IMAGE_DOWNLOAD_TIMEOUT_MS = 240_000;
 
 export {
   setCanvasBoard,
@@ -105,6 +113,8 @@ export interface InsertionItem {
  * 画布插入参数
  */
 export interface CanvasInsertionParams {
+  /** Only generated results opt into slow-download handling. */
+  imageInsertionPolicy?: 'generated-result';
   /** 要插入的内容列表 */
   items: InsertionItem[];
   /** 当前画布实例（组件内调用时优先使用，避免依赖全局引用初始化时序） */
@@ -362,7 +372,8 @@ async function insertImageToCanvas(
   dimensions?: { width: number; height: number },
   waitForImageLoad = false,
   boardGuard?: () => boolean,
-  insertWithoutBoardHost = false
+  insertWithoutBoardHost = false,
+  imageOptions?: ImageLoadOptions
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   const size = dimensions || {
     width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
@@ -377,19 +388,31 @@ async function insertImageToCanvas(
   // 图片在写入画布前必须验证可读，避免任务成功但画布留下空节点。
   // skipSelect=true: 自动插入时不选中新图片，避免覆盖用户当前选中状态
   // 提供尺寸时锁定布局，避免批量图片异步放大后互相重叠
-  const elementId = await insertImageFromUrl(
-    board,
-    imageUrl,
-    point,
-    false,
-    size,
-    true,
-    !waitForImageLoad,
-    Boolean(dimensions),
-    true,
-    boardGuard,
-    insertWithoutBoardHost
-  );
+  const insert = (options?: ImageLoadOptions) =>
+    insertImageFromUrl(
+      board,
+      imageUrl,
+      point,
+      false,
+      size,
+      true,
+      !waitForImageLoad,
+      Boolean(dimensions),
+      true,
+      options?.signal
+        ? () => !options.signal?.aborted && (!boardGuard || boardGuard())
+        : boardGuard,
+      insertWithoutBoardHost,
+      ...(options ? [options] : [])
+    );
+  const elementId = imageOptions
+    ? await withImageOperationTimeout(
+        (signal) => insert({ ...imageOptions, signal }),
+        GENERATED_IMAGE_INSERTION_TIMEOUT_MS,
+        '画布插入超时，可重试插入已有结果',
+        imageOptions.signal
+      )
+    : await insert();
   return { elementId, size };
 }
 
@@ -532,7 +555,8 @@ async function insertItemToCanvas(
   point: Point,
   boardGuard?: () => boolean,
   cardWidth?: number,
-  insertWithoutBoardHost = false
+  insertWithoutBoardHost = false,
+  imageOptions?: ImageLoadOptions
 ): Promise<{ elementId?: string; size: { width: number; height: number } }> {
   if (item.type === 'text') {
     return insertTextToCanvas(
@@ -553,7 +577,8 @@ async function insertItemToCanvas(
       item.dimensions,
       item.waitForImageLoad,
       boardGuard,
-      insertWithoutBoardHost
+      insertWithoutBoardHost,
+      imageOptions
     );
   }
 
@@ -601,7 +626,8 @@ async function stageCanvasInsertion(
   sourceBoard: PlaitBoard,
   items: InsertionItem[],
   positions: Point[],
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  imageOptions?: ImageLoadOptions
 ): Promise<StagedCanvasInsertion> {
   const stagingBoard = createBoard([]);
   const cardWidth = getViewportAwareCardWidth(sourceBoard);
@@ -627,7 +653,8 @@ async function stageCanvasInsertion(
       point,
       boardGuard,
       cardWidth,
-      true
+      true,
+      imageOptions
     );
     if (boardGuard && !boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
@@ -702,14 +729,43 @@ export async function executeCanvasInsertion(
   }
 
   try {
+    const generatedResult = params.imageInsertionPolicy === 'generated-result';
+    // Manual generated-result insertion has no hook-supplied guard. Capture the
+    // binding too, since the same Board instance can be reused after navigation.
+    const binding =
+      generatedResult && !params.boardGuard ? getCanvasBoardBinding() : null;
+    const initialBinding =
+      binding?.board === (params.board || readCanvasBoard()) ? binding : null;
+    const boardGuard =
+      params.boardGuard ||
+      (() => {
+        if (!initialBinding) return true;
+        const current = getCanvasBoardBinding();
+        return (
+          current?.board === initialBinding.board &&
+          current.boardId === initialBinding.boardId
+        );
+      });
     return await withImageOperationTimeout(
-      (signal) => executeCanvasInsertionInternal({
-        ...params,
-        // Staging, frame insertion and the final commit all use this guard.
-        // A timed-out operation may finish its I/O but cannot write a result.
-        boardGuard: () => !signal.aborted && (!params.boardGuard || params.boardGuard()),
-      }),
-      IMAGE_INSERTION_TIMEOUT_MS,
+      (signal) =>
+        executeCanvasInsertionInternal(
+          {
+            ...params,
+            // Staging, frame insertion and the final commit all use this guard.
+            // A timed-out operation may finish its I/O but cannot write a result.
+            boardGuard: () => !signal.aborted && boardGuard(),
+          },
+          generatedResult
+            ? {
+                signal,
+                imageDownloadTimeoutMs: GENERATED_IMAGE_DOWNLOAD_TIMEOUT_MS,
+              }
+            : undefined
+        ),
+      generatedResult
+        ? GENERATED_IMAGE_INSERTION_TIMEOUT_MS *
+            params.items.filter((item) => item.type === 'image').length
+        : IMAGE_INSERTION_TIMEOUT_MS,
       '画布插入超时，可重试插入已有结果'
     );
   } catch (error) {
@@ -722,7 +778,8 @@ export async function executeCanvasInsertion(
 }
 
 async function executeCanvasInsertionInternal(
-  params: CanvasInsertionParams
+  params: CanvasInsertionParams,
+  imageOptions?: ImageLoadOptions
 ): Promise<MCPResult> {
   const board = params.board || readCanvasBoard();
 
@@ -758,7 +815,10 @@ async function executeCanvasInsertionInternal(
       // expand an estimated square over an existing image after insertion.
       for (const [index, item] of items.entries()) {
         if (item.type !== 'image' || item.dimensions) continue;
-        const image = await loadImageElementForCanvas(item.content as DataURL);
+        const image = await loadImageElementForCanvas(
+          item.content as DataURL,
+          ...(imageOptions ? [imageOptions] : [])
+        );
         if (params.boardGuard && !params.boardGuard()) {
           throw new Error('画板已切换，取消本次插入');
         }
@@ -787,7 +847,10 @@ async function executeCanvasInsertionInternal(
           item.waitForImageLoad &&
           getSelectedInsertionFrame(board)
         ) {
-          await loadImageElementForCanvas(item.content as DataURL);
+          await loadImageElementForCanvas(
+            item.content as DataURL,
+            ...(imageOptions ? [imageOptions] : [])
+          );
         }
         const inserted = await insertMediaIntoSelectedFrame(
           board,
@@ -914,7 +977,9 @@ async function executeCanvasInsertionInternal(
         item,
         point,
         params.boardGuard,
-        getViewportAwareCardWidth(board)
+        getViewportAwareCardWidth(board),
+        false,
+        imageOptions
       );
       if (params.boardGuard && !params.boardGuard()) {
         throw new Error('画板已切换，取消本次插入');
@@ -971,7 +1036,8 @@ async function executeCanvasInsertionInternal(
       board,
       items,
       gridLayout.positions,
-      params.boardGuard
+      params.boardGuard,
+      imageOptions
     );
     commitStagedCanvasInsertion(board, staged, params.boardGuard);
     const insertedItems = staged.items;
@@ -1032,9 +1098,11 @@ export async function quickInsert(
   dimensions?: { width: number; height: number },
   metadata?: Record<string, unknown>,
   board?: PlaitBoard,
-  boardGuard?: () => boolean
+  boardGuard?: () => boolean,
+  imageInsertionPolicy?: CanvasInsertionParams['imageInsertionPolicy']
 ): Promise<MCPResult> {
   return executeCanvasInsertion({
+    imageInsertionPolicy,
     board,
     items: [
       {
@@ -1062,7 +1130,8 @@ export async function insertImageGroup(
   board?: PlaitBoard,
   boardGuard?: () => boolean,
   prompt?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  imageInsertionPolicy?: CanvasInsertionParams['imageInsertionPolicy']
 ): Promise<MCPResult> {
   const groupId = `img-group-${Date.now()}`;
   const promptMetadata = {
@@ -1072,6 +1141,7 @@ export async function insertImageGroup(
       : {}),
   };
   return executeCanvasInsertion({
+    imageInsertionPolicy,
     board,
     items: imageUrls.map((url, index) => ({
       type: 'image' as ContentType,
@@ -1148,6 +1218,7 @@ export async function insertGeneratedImageFlow(
   return executeCanvasInsertion({
     board,
     items: imageItems,
+    imageInsertionPolicy: 'generated-result',
     startPoint: point,
     boardGuard,
   });
