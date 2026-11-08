@@ -323,6 +323,25 @@ export const Drawnix: React.FC<DrawnixProps> = ({
   currentBoardId,
 }) => {
   useEffect(() => { normalizeLegacyCanvasLocation(); }, []);
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    // Refresh catalogs after initial rendering without waking the tools runtime.
+    const timer = window.setTimeout(() => {
+      void import('./services/version-model-refresh')
+        .then(({ startVersionModelRefresh }) => {
+          if (!disposed) stop = startVersionModelRefresh();
+        })
+        .catch(() => {
+          // A failed optional startup chunk must not prevent using the canvas.
+        });
+    }, 500);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      stop?.();
+    };
+  }, []);
   const options: PlaitBoardOptions = {
     readonly: false,
     hideScrollbar: false,
