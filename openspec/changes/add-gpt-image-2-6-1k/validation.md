@@ -1,6 +1,6 @@
 # GPT Image 2.6 1K 接入验收
 
-本文按时间保留各阶段记录。当前四型号适配范围与提交前检查以文末“GitHub 提交前最终验证（2026-11-08）”为准；前文的“仅 -1k”“未提交”等描述属于对应阶段。
+本文按时间保留各阶段记录。当前四型号适配范围与提交前检查以文末“GitHub 提交前最终验证（2026-11-08）”及“与未合并 PR 的冲突处理（2026-11-08）”为准；前文的“仅 -1k”“未提交”等描述属于对应阶段。
 
 日期：2026-11-05（Asia/Shanghai）。基线：develop `f6a3e0cf`；实现分支：`codex/add-gpt-image-2-6-1k`。
 
@@ -436,3 +436,46 @@ src/services/canvas-operations/canvas-insertion.test.ts
 - 先前授权 Sunburst 实测发送 `frame_count=48`、实际返回 9 帧的结果不变；不能宣称已支持任意帧数或 48 fps。SVG 的分组要求与其他编写模型的可用性仍以渠道为准。
 - 无需新增配置或迁移。非技术验收可在已有供应商配置下选择任一 2.6 型号，查看静态模式背景/格式/压缩入口；切到适用 GIF 模式后确认背景与画质保留，切到 SVG 后确认专用编写模型入口。真正生成与输出透明度应另行进行经授权的渠道验收。
 - QA/DOC 复用本变更目录的 proposal、规格、tasks 和本文件，不新增根目录 QA.md/DOC.md。回滚可撤销本分支的功能提交后重新构建，无数据迁移回滚步骤；远程分支提交不代表已合并或已部署。
+
+## 与未合并 PR 的冲突处理（2026-11-08）
+
+用户明确要求为本轮 2.6 适配创建 PR，并检查与现有未合并 PR 的冲突。本次检查基于 `origin/develop=b742f593` 及以下实际 PR 头提交：
+
+| PR | 功能 | 检查时的头提交 |
+|---|---|---|
+| #326 | 兔子助手下载入口 | `291ade7a` |
+| #327 | 版本更新后自动获取模型 | `adf07d92` |
+| #328 | 慢网下生成图片插入超时修复 | `4c73c726` |
+
+三条现有 PR 各自与 develop 没有文本冲突，但本轮 2.6 分支与 #328 在 `useAutoInsertToCanvas.test.ts` 的同一新增位置发生冲突。双方业务代码可以自动合并。将 2.6 新增的两个测试定义移到原 describe 末尾，完整保留三个媒体格式的表驱动用例、剩余分组结果用例及原断言；没有把 #328 的超时策略代码或其他未合并 PR 功能加入本分支。调整提交为 `622ce659`。
+
+### 实际验证
+
+- 本分支调整后的自动插图测试 **63 项通过**；该文件 ESLint **0 错误、12 警告**。本节没有将该局部结果替代前节完整变更范围的 lint 结果。
+- 已重新显式 fetch 并 merge `origin/develop`，结果 Already up to date，没有冲突。
+- 使用 `git merge-tree --write-tree --name-only` 分别预演 2.6 与 #326、#327、#328，均退出 0；按 2.6 → #326 → #327 → #328 构造的完整组合也全部无冲突。
+- 组合结果仅导出到独立临时源码快照验证，复用已安装依赖；没有修改现有三个 PR 分支，也没有把临时组合提交加入本分支历史。
+- 组合快照相关回归最终 **27 文件、958 项通过**，涵盖前节 18 个文件及下列 9 个文件。第一次在默认 Node 26 启动参数下为 26 文件 952 项通过，资源入口 6 项在 beforeEach 的 `localStorage.removeItem` 处失败；设置子进程 `NODE_OPTIONS=--no-experimental-webstorage` 后，以同一快照和同一 27 文件全部复测通过。该参数仅用于本次测试进程，未修改仓库配置或源码；不能将第一次失败归因于功能冲突。
+- 组合快照 TypeScript 检查 `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过；生产构建 `pnpm exec vite build --config apps/web/vite.config.ts` 通过，37.36 秒，保留既有 Sass/CSS/chunk 提示。
+
+新增纳入组合回归的文件：
+
+```text
+src/data/image.test.ts
+src/services/canvas-operations/canvas-insertion-timeout.test.ts
+src/services/media-executor/fallback-utils.test.ts
+src/services/version-model-refresh.test.ts
+src/utils/__tests__/settings-manager.test.ts
+src/hooks/__tests__/use-runtime-models.test.ts
+src/components/task-queue/TaskQueuePanel.filters.test.tsx
+src/components/ttd-dialog/batch-image-generation.import.test.ts
+src/components/toolbar/canvas-resources-button.test.tsx
+```
+
+QA/DOC 继续更新本记录，无新依赖、环境变量或数据迁移。没有执行页面测试、真实生成或收费调用。此前独立分支的 821 项回归及构建结果仍按前节记录；组合快照通过不代表现有 PR 已经合并，也不代表线上已部署。
+
+### CI 与维护边界
+
+现有 PR 的 GitHub 状态为 MERGEABLE，但检查未全部通过。只读核对 #328 既有 CI 日志，失败步骤为 affected test/build，日志显示 9 个文件、54 项测试失败，包含前节记录过的输入解析器等既有测试；这些日志不能当作本次新 PR 的检查结果。未重跑其他 PR 的 CI 或扩大修复无关问题。
+
+本次 PR 的远程检查以创建后的实际状态为准。文本合并检查与相关组合回归均已完成；未来其他 PR 或 develop 更新后应按新头提交重新核验，不能把当前无冲突结果外推到后续版本。本次授权不包含将任何 PR 合并到 develop。
