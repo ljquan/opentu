@@ -21,7 +21,9 @@ interface DiscoverProviderModelsOptions
 export function usesTuziMarketplace(profile: ProviderProfile): boolean {
   return (
     profile.id.startsWith('tuzi-') ||
-    isTuziCompatibleBaseUrl(profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL) ||
+    isTuziCompatibleBaseUrl(
+      profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL
+    ) ||
     isTuziCompatibleBaseUrl(profile.pricingUrl)
   );
 }
@@ -34,36 +36,33 @@ export async function discoverProviderModels(
   const baseUrl = normalizeModelApiBaseUrl(
     profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL
   );
-  let modelMetadata: RuntimeModelDiscoveryOptions['modelMetadata'];
-
-  if (usesTuziMarketplace(profile)) {
-    const { modelPricingService, resolveProviderPricingConfig } = await import(
-      '../utils/model-pricing-service'
-    );
-    const pricingConfig = resolveProviderPricingConfig(profile);
-    try {
-      if (pricingConfig) {
-        const catalog = await modelPricingService.fetchAndCache(
-          profile.id,
-          pricingConfig.pricingUrl,
-          profile.apiKey.trim(),
-          pricingConfig.pricingGroup,
-          pricingConfig.cnyPerUsd,
-          { force: options.forceMarketplaceRefresh }
-        );
-        modelMetadata = Object.entries(catalog.prices).map(([id, price]) => ({
-          id,
-          description: price.description,
-          ...catalog.modelCatalog?.[id],
-          supported_endpoint_types:
-            catalog.modelCatalog?.[id]?.supported_endpoint_types ||
-            Object.keys(catalog.modelEndpoints?.[id] || {}),
-        }));
-      }
-    } catch {
-      // Pricing is optional metadata; availability comes from the authenticated request.
-    }
-  }
+  const loadModelMetadata: RuntimeModelDiscoveryOptions['loadModelMetadata'] =
+    usesTuziMarketplace(profile)
+      ? async () => {
+          const { modelPricingService, resolveProviderPricingConfig } =
+            await import('../utils/model-pricing-service');
+          const pricingConfig = resolveProviderPricingConfig(profile);
+          if (!pricingConfig) {
+            return [];
+          }
+          const catalog = await modelPricingService.fetchAndCache(
+            profile.id,
+            pricingConfig.pricingUrl,
+            profile.apiKey.trim(),
+            pricingConfig.pricingGroup,
+            pricingConfig.cnyPerUsd,
+            { force: options.forceMarketplaceRefresh }
+          );
+          return Object.entries(catalog.prices).map(([id, price]) => ({
+            id,
+            description: price.description,
+            ...catalog.modelCatalog?.[id],
+            supported_endpoint_types:
+              catalog.modelCatalog?.[id]?.supported_endpoint_types ||
+              Object.keys(catalog.modelEndpoints?.[id] || {}),
+          }));
+        }
+      : undefined;
 
   return runtimeModelDiscovery.discover(
     profile.id,
@@ -75,7 +74,7 @@ export async function discoverProviderModels(
       refreshForVersion: options.refreshForVersion,
       shouldApply: options.shouldApply,
       signal: options.signal,
-      modelMetadata,
+      loadModelMetadata,
     }
   );
 }

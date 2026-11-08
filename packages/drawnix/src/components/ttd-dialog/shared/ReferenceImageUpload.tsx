@@ -69,6 +69,8 @@ interface ReferenceImageUploadProps {
   onError?: (error: string | null) => void;
   /** Additional focus scope allowed to paste images into this uploader */
   pasteScopeRef?: React.RefObject<HTMLElement>;
+  /** Preserve bytes for models whose transparent references must retain alpha. */
+  preserveOriginal?: boolean;
 }
 
 export const ReferenceImageUpload = forwardRef<
@@ -86,6 +88,7 @@ export const ReferenceImageUpload = forwardRef<
     slotLabels,
     onError,
     pasteScopeRef,
+    preserveOriginal = false,
   },
   ref
 ) {
@@ -154,7 +157,7 @@ export const ReferenceImageUpload = forwardRef<
 
   const assetToReferenceImage = useCallback(
     async (asset: Asset): Promise<ReferenceImage> => {
-      const keepOriginal = readKeepOriginalImageEnabled();
+      const keepOriginal = preserveOriginal || readKeepOriginalImageEnabled();
       if (asset.type !== AssetType.IMAGE) {
         throw new Error(`Asset is not an image: ${asset.name}`);
       }
@@ -219,7 +222,7 @@ export const ReferenceImageUpload = forwardRef<
         name: asset.name,
       };
     },
-    []
+    [preserveOriginal]
   );
 
   const applySlotImages = useCallback(
@@ -292,7 +295,7 @@ export const ReferenceImageUpload = forwardRef<
   // Handle file upload
   const handleFiles = useCallback(
     async (files: FileList | File[], targetSlot?: number) => {
-      const keepOriginal = readKeepOriginalImageEnabled();
+      const keepOriginal = preserveOriginal || readKeepOriginalImageEnabled();
       const fileArray = Array.from(files);
       const validFiles = fileArray.filter(validateFile);
 
@@ -431,6 +434,7 @@ export const ReferenceImageUpload = forwardRef<
       slotLabels,
       t,
       validateFile,
+      preserveOriginal,
     ]
   );
 

@@ -45,6 +45,31 @@ vi.mock('../../services/media-executor/llm-api-logger', () => ({
   failLLMApiLog: vi.fn(),
 }));
 
+describe('Seedream Flash native image calls', () => {
+  const modelName = 'doubao-seedream-5-0-flash-260915';
+  const config = { baseUrl: 'https://api.example.com/v1', apiKey: 'test-key', modelName };
+  beforeEach(() => {
+    mocks.providerTransportSend.mockReset();
+    mocks.readProviderResponseJson.mockImplementation((response: Response) => response.json());
+    mocks.providerTransportSend.mockResolvedValue(new Response(JSON.stringify({ data: [{ url: 'https://cdn.example.com/flash.png', size: '832x1248', output_format: 'png' }] })));
+  });
+  it('uses the same strict Flash adapter instead of the generic native request builder', async () => {
+    const result = await generateImageDirect('A cup', { size: '1.5K', quality: '4k',
+      image: 'https://cdn.example.com/reference.png', params: { watermark: 'false', optimize_prompt_mode: 'standard' } }, modelName, undefined, config);
+    expect(mocks.providerTransportSend).toHaveBeenCalledTimes(1);
+    const [provider, transport] = mocks.providerTransportSend.mock.calls[0];
+    expect(provider.baseUrl).toBe(config.baseUrl);
+    expect(transport).toMatchObject({ path: '/api/v3/images/generations', baseUrlStrategy: 'trim-v1' });
+    expect(JSON.parse(transport.body)).toEqual({ model: modelName, prompt: 'A cup', size: '1.5K', response_format: 'url',
+      output_format: 'png', background: 'opaque', watermark: false, image: 'https://cdn.example.com/reference.png', optimize_prompt_options: { mode: 'standard' } });
+    expect(result.data[0].size).toBe('832x1248');
+  });
+  it('normalizes an unset native size to the Flash product default', async () => {
+    await generateImageDirect('A cup', { size: 'auto' }, modelName, undefined, config);
+    expect(JSON.parse(mocks.providerTransportSend.mock.calls[0][1].body).size).toBe('1K');
+  });
+});
+
 describe('normalizeAspectRatio', () => {
   it('preserves canonical Gemini aspect ratio enums', () => {
     expect(normalizeAspectRatio('21x9')).toBe('21:9');

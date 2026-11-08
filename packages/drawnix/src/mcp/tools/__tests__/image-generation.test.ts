@@ -87,6 +87,16 @@ describe('image-generation MCP tool', () => {
     });
   });
 
+  it.each(['async', 'queue'] as const)('preserves Flash tiers and controls in %s mode', async (mode) => {
+    mocks.resolveAdapterForInvocation.mockReturnValue({ kind: 'image', generateImage: mocks.generateImage });
+    mocks.generateImage.mockResolvedValue({ url: 'https://example.com/flash.png' });
+    await imageGenerationTool.execute({ prompt: 'A cup', model: 'doubao-seedream-5-0-flash-260915', size: '1.5K',
+      params: { watermark: 'false', background: 'transparent', output_format: 'png' } }, { mode });
+    expect(mocks.normalizeSize).not.toHaveBeenCalled();
+    const payload = mode === 'queue' ? mocks.createQueueTask.mock.calls[0][2].buildTaskPayload() : mocks.generateImage.mock.calls[0][1];
+    expect(payload).toMatchObject({ size: '1.5K', params: { watermark: 'false', background: 'transparent', output_format: 'png' } });
+  });
+
   it.each(['async', 'queue'] as const)(
     'preserves Flux 3 ratios and resolution in %s mode',
     async (mode) => {

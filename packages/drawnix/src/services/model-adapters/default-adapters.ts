@@ -33,6 +33,7 @@ import { registerHappyHorseAdapter } from './happyhorse-adapter';
 import { registerMJImageAdapter } from './mj-image-adapter';
 import { registerFluxAdapter } from './flux-adapter';
 import { registerSeedreamAdapter } from './seedream-adapter';
+import { registerSeedreamFlashAdapter } from './seedream-flash-adapter';
 import { registerSeedanceAdapter } from './seedance-adapter';
 import {
   registerGPTImageAdapter,
@@ -404,6 +405,7 @@ export function registerDefaultModelAdapters(): void {
   registerKlingAdapter();
   registerMJImageAdapter();
   registerFluxAdapter();
+  registerSeedreamFlashAdapter();
   registerSeedreamAdapter();
   registerSeedanceAdapter();
 }

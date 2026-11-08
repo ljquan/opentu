@@ -91,7 +91,10 @@ import {
   isLyricsTask,
 } from '../utils/lyrics-task-utils';
 import { resolveImageTaskInsertionDimensions } from '../utils/task-utils';
-import { getImageGenerationTaskInsertGroupKey } from '../utils/image-generation-anchor-task';
+import {
+  getImageGenerationTaskInsertGroupKey,
+  isIndependentBatchImageGenerationAnchor,
+} from '../utils/image-generation-anchor-task';
 import { findImageGenerationAnchorForTaskOnBoard } from '../utils/image-generation-anchor-lookup';
 import {
   canInsertCanvasAssociationsOnBoard,
@@ -1427,7 +1430,7 @@ export function useAutoInsertToCanvas(
     /**
      * 执行批量插入
      */
-    async function flushPendingInserts() {
+    async function flushPendingInserts(onlyGroupKey?: string) {
       // console.log('[AutoInsert] flushPendingInserts called');
       const pendingMap = pendingInsertsRef.current;
       if (pendingMap.size === 0) {
@@ -1449,10 +1452,16 @@ export function useAutoInsertToCanvas(
 
       // console.log(`[AutoInsert] flushPendingInserts: ${pendingMap.size} prompt groups to insert`);
 
-      // 复制并清空待插入列表
-      const toInsert = new Map(pendingMap);
-      pendingMap.clear();
-      pendingStartedAtRef.current = null;
+      // Independent slots already reserve their placement. Drain only that
+      // slot so its image I/O cannot hold up other completed slots or reset
+      // the debounce deadline of ordinary grouped results.
+      const toInsert =
+        onlyGroupKey === undefined
+          ? new Map(pendingMap)
+          : new Map([[onlyGroupKey, pendingMap.get(onlyGroupKey) || []]]);
+      if (onlyGroupKey === undefined) pendingMap.clear();
+      else pendingMap.delete(onlyGroupKey);
+      if (pendingMap.size === 0) pendingStartedAtRef.current = null;
 
       promptGroupLoop: for (const [promptKey, bufferedInserts] of toInsert) {
         if (!isActive) {
@@ -3035,7 +3044,20 @@ export function useAutoInsertToCanvas(
       pendingInsertsRef.current.set(promptKey, pendingList);
 
       // 调度 flush
-      if (mergedConfig.groupSimilarTasks) {
+      if (
+        task.type === TaskType.IMAGE &&
+        linkedImageAnchor &&
+        isIndependentBatchImageGenerationAnchor(linkedImageAnchor) &&
+        !getTaskReplaceElementId(task) &&
+        !task.params.targetFrameId
+      ) {
+        void flushPendingInserts(promptKey).catch((error) => {
+          console.error(
+            '[AutoInsert] Failed to insert independent image:',
+            error
+          );
+        });
+      } else if (mergedConfig.groupSimilarTasks) {
         // console.log(`[AutoInsert] Scheduling flush in ${mergedConfig.groupTimeWindow}ms`);
         scheduleFlush();
       } else {

@@ -266,10 +266,10 @@ describe('runtime-model-discovery', () => {
     })]);
   });
 
-  it('通过 Key 认证获取模型并移除未返回的旧模型，广场只补充元数据', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(Response.json({
-      data: [{ id: 'gpt-image-2.5' }],
-    }));
+  it('模型广场只补充已鉴权型号的信息并移除旧型号', async () => {
+    const fetchMock = vi.fn(async () => {
+      return Response.json({ data: [{ id: 'gpt-image-2.5' }] });
+    });
     vi.stubGlobal('fetch', fetchMock);
     vi.doMock('../settings-manager', () => ({
       LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
@@ -317,7 +317,7 @@ describe('runtime-model-discovery', () => {
       'test-key',
       [],
       {
-        modelMetadata: [
+        loadModelMetadata: async () => [
           {
             id: 'gpt-image-2.5',
             description: '模型广场已配置',
@@ -327,7 +327,7 @@ describe('runtime-model-discovery', () => {
       }
     );
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(models.map((model) => model.id)).toEqual(['gpt-image-2.5']);
     expect(
       runtimeModelDiscovery

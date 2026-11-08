@@ -136,6 +136,18 @@ describe('workflow-converter', () => {
   });
 
   describe('convertDirectGenerationToWorkflow', () => {
+    it('keeps Flash controls and reference images across separately expanded batch steps', () => {
+      const workflow = convertDirectGenerationToWorkflow(createMockParams({
+        modelId: 'doubao-seedream-5-0-flash-260915', count: 2, size: '1.5K',
+        extraParams: { background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard' },
+      }), ['https://example.com/alpha.png']);
+      expect(workflow.steps).toHaveLength(2);
+      for (const step of workflow.steps) {
+        expect(step.args).toMatchObject({ model: 'doubao-seedream-5-0-flash-260915', size: '1.5K',
+          referenceImages: ['https://example.com/alpha.png'], params: { background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard' } });
+        expect(step.args.params).not.toHaveProperty('n');
+      }
+    });
     describe('图片生成场景', () => {
       it.each(['gpt-image-2.6', 'gpt-image-2.6-sunburst'])('keeps the output type and format options on each queued %s task', (modelId) => {
         const workflow = convertDirectGenerationToWorkflow(createMockParams({

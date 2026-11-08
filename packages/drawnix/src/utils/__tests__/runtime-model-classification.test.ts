@@ -98,16 +98,14 @@ describe('marketplace output classification', () => {
       { id: 'legacy-video-category', category: '视频', type: 'video' },
       { id: 'legacy-audio-category', category: '音频', type: 'audio' },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
-      data: cases.map(({ id }) => ({ id })),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: cases.map(({ id }) => ({ id })) })));
     const models = await runtimeModelDiscovery.discover(
       profileId,
       'https://api.tu-zi.com/v1',
       'test-key',
       [],
       {
-        modelMetadata: cases.map(({ id, category, endpoints }) => ({
+        loadModelMetadata: async () => cases.map(({ id, category, endpoints }) => ({
           id,
           category,
           supported_endpoint_types: endpoints,
@@ -121,7 +119,7 @@ describe('marketplace output classification', () => {
         id
       ).toMatchObject({ type });
     }
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(
       runtimeModelDiscovery.getPinnedSelectableModel('image', 'gpt-6-astra', {
         profileId,
@@ -131,7 +129,7 @@ describe('marketplace output classification', () => {
   });
 
   it.each(['marketplace', 'models-endpoint'] as const)(
-    'reload of %s catalogs corrects only automatic marketplace classifications from local metadata',
+    'reload of %s catalogs preserves manual models and only verified automatic entries',
     async (discoverySource) => {
       const modelIds = [
         'gpt-6-astra',
@@ -184,23 +182,13 @@ describe('marketplace output classification', () => {
         '../runtime-model-discovery'
       );
       const state = runtimeModelDiscovery.getState(profileId);
-      for (const id of modelIds.slice(0, 2)) {
-        expect(state.models.find((model) => model.id === id)).toMatchObject({
-          type: discoverySource === 'marketplace' ? 'text' : 'image',
-        });
-        if (discoverySource === 'marketplace') {
-          expect(
-            state.models.find((model) => model.id === id)?.imageDefaults
-          ).toBeUndefined();
-        }
+      const expectedIds = discoverySource === 'marketplace' ? ['manual-renderer'] : modelIds;
+      expect(state.selectedModelIds).toEqual(expectedIds);
+      expect(state.models.map((model) => model.id)).toEqual(expectedIds);
+      expect(state.models.find((model) => model.id === 'manual-renderer')?.type).toBe('image');
+      if (discoverySource === 'models-endpoint') {
+        expect(state.models.find((model) => model.id === 'runtime-vision-chat')?.type).toBe('image');
       }
-      expect(
-        state.models.find((model) => model.id === 'manual-renderer')?.type
-      ).toBe('image');
-      expect(
-        state.models.find((model) => model.id === 'without-metadata')?.type
-      ).toBe('image');
-      expect(state.selectedModelIds).toEqual(modelIds);
       expect(fetchMock).not.toHaveBeenCalled();
     }
   );
@@ -233,16 +221,14 @@ describe('marketplace output classification', () => {
       },
       { id: 'gpt-5.1', tags: '图像,推理', type: 'text' },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
-      data: cases.map(({ id }) => ({ id })),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: cases.map(({ id }) => ({ id })) })));
     const models = await runtimeModelDiscovery.discover(
       profileId,
       'https://api.tu-zi.com/v1',
       'test-key',
       [],
       {
-        modelMetadata: cases.map(({ id, tags }) => ({
+        loadModelMetadata: async () => cases.map(({ id, tags }) => ({
           id,
           tags,
           supported_endpoint_types: ['openai'],
@@ -257,12 +243,12 @@ describe('marketplace output classification', () => {
     }
   });
 
-  it('restores cached output tags without changing actual category semantics', async () => {
+  it('restores authenticated output classifications without reapplying price metadata', async () => {
     mockSettings(
       [
         {
           profileId,
-          discoverySource: 'marketplace',
+          discoverySource: 'models-endpoint',
           selectedModelIds: ['tagged-vision', 'categorized-renderer'],
           discoveredModels: ['tagged-vision', 'categorized-renderer'].map(
             (id) =>
@@ -270,7 +256,7 @@ describe('marketplace output classification', () => {
                 id,
                 label: id,
                 shortLabel: id,
-                type: 'image',
+                type: id === 'tagged-vision' ? 'text' : 'image',
                 vendor: 'OTHER',
                 tags: ['runtime'],
               } as ProviderCatalog['discoveredModels'][number])
@@ -315,12 +301,10 @@ describe('marketplace output classification', () => {
       { id: 'new-image-generator', tags: 'NEW', type: 'image', supported_endpoint_types: ['image-generation'] },
       { id: 'image-input-only', tags: '图片,多模态', type: 'text' },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
-      data: cases.map(({ id }) => ({ id })),
-    })));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: cases.map(({ id }) => ({ id })) })));
     const models = await runtimeModelDiscovery.discover(
       profileId, 'https://api.tu-zi.com/v1', 'test-key', [],
-      { modelMetadata: cases }
+      { loadModelMetadata: async () => cases }
     );
     for (const { id, type } of cases) {
       expect(models.find((model) => model.id === id), id).toMatchObject({ type });
@@ -328,7 +312,7 @@ describe('marketplace output classification', () => {
   });
 
   it.each(['marketplace', 'models-endpoint'] as const)(
-    'repairs cached GPT Image 2.6 text metadata from %s while preserving manual entries',
+    'repairs verified GPT Image 2.6 metadata and invalidates %s public entries while preserving manual entries',
     async (source) => {
       const id = 'gpt-image-2.6';
       const savedModel = {
@@ -356,6 +340,12 @@ describe('marketplace output classification', () => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
         const state = runtimeModelDiscovery.getState(profileId);
+        if (source === 'marketplace') {
+          expect(state.models).toEqual([]);
+          expect(state.selectedModelIds).toEqual([]);
+          vi.resetModules();
+          continue;
+        }
         expect(state.models[0]).toMatchObject({
           id, type: 'image', vendor: 'GPT', shortCode: 'gpt26',
           sourceProfileId: profileId,
@@ -409,6 +399,11 @@ describe('marketplace output classification', () => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
         const state = runtimeModelDiscovery.getState(profileId);
+        if (source === 'marketplace') {
+          expect(state.models).toEqual([]);
+          expect(state.selectedModelIds).toEqual([]);
+          continue;
+        }
         expect(state.models[0]).toMatchObject({ id, type });
         expect(state.models[0].imageDefaults).toBeUndefined();
         expect(state.selectedModelIds).toEqual([id]);

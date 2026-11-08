@@ -15,6 +15,7 @@ import { isSunoV2Model, isUnavailableSunoModel } from '../services/suno-v2';
 import { isSunoNativeModel } from '../services/suno-native';
 import { getSunoNativeParams } from '../services/suno-native-params';
 import { getSunoV2Params } from '../services/suno-v2-params';
+import { SEEDREAM_FLASH_MODEL_ID, SEEDREAM_FLASH_SIZES } from './seedream-flash';
 
 /**
  * 模型类型
@@ -797,6 +798,18 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     supportsTools: false,
     imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
     tags: ['seedream', 'new'],
+  },
+  {
+    id: SEEDREAM_FLASH_MODEL_ID,
+    label: 'Seedream 5.0 Flash',
+    shortLabel: 'Seedream Flash',
+    shortCode: 'sd5f',
+    description: 'Seedream 5.0 Flash，支持 1K/1.5K/2K 和透明 PNG 参考图生成',
+    type: 'image',
+    vendor: ModelVendor.DOUBAO,
+    supportsTools: false,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['seedream', 'flash'],
   },
   {
     id: 'gpt-4o-image',
@@ -3364,6 +3377,57 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     modelType: 'image',
   },
+  {
+    id: 'size',
+    label: '输出规模',
+    shortLabel: '尺寸',
+    description: '分辨率档位，实际宽高由模型返回',
+    valueType: 'enum',
+    options: SEEDREAM_FLASH_SIZES.map((value) => ({ value, label: value })),
+    defaultValue: '1K',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'output_format',
+    label: '输出格式',
+    shortLabel: '格式',
+    valueType: 'enum',
+    options: [{ value: 'png', label: 'PNG' }, { value: 'jpeg', label: 'JPEG' }],
+    defaultValue: 'png',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'background',
+    label: '背景',
+    valueType: 'enum',
+    description: '透明背景需要一张带透明通道的 PNG 参考图，并使用 PNG 输出',
+    options: [{ value: 'opaque', label: '不透明' }, { value: 'transparent', label: '透明' }],
+    defaultValue: 'opaque',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'watermark',
+    label: '水印',
+    valueType: 'enum',
+    control: 'switch',
+    options: [{ value: 'false', label: '关闭' }, { value: 'true', label: '开启' }],
+    defaultValue: 'false',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'optimize_prompt_mode',
+    label: '提示词优化',
+    shortLabel: '优化',
+    valueType: 'enum',
+    options: [{ value: 'default', label: '服务默认' }, { value: 'standard', label: '标准优化' }],
+    defaultValue: 'default',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
   // Seedream 图片模型尺寸（支持 8 种宽高比，label 显示具体像素）
   // 实际像素由 adapter 根据 quality(2K/4K) + 宽高比 计算
   {
@@ -3630,6 +3694,11 @@ export function getParamsByModelType(modelType: ModelType): ParamConfig[] {
  * 根据模型 ID 获取兼容的参数列表
  */
 export function getCompatibleParams(modelId: string): ParamConfig[] {
+  if (modelId === SEEDREAM_FLASH_MODEL_ID) {
+    return ALL_PARAMS.filter(
+      (param) => param.compatibleModels.length === 1 && param.compatibleModels[0] === modelId
+    );
+  }
   if (isSunoNativeModel(modelId)) return getSunoNativeParams(modelId);
   if (isUnavailableSunoModel(modelId)) return [];
   if (isSunoV2Model(modelId)) return getSunoV2Params(modelId);
@@ -3665,6 +3734,9 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   const compatibleParams = ALL_PARAMS.filter((param) => {
     // 检查模型类型是否匹配
     if (param.modelType !== modelConfig.type) return false;
+    if (param.compatibleModels.length === 1 && param.compatibleModels[0] === SEEDREAM_FLASH_MODEL_ID) {
+      return false;
+    }
     // 检查标签兼容（可选）
     const tagMatched = param.compatibleTags
       ? param.compatibleTags.some((tag) => modelTags.has(tag.toLowerCase()))

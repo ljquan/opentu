@@ -2375,6 +2375,7 @@ export const SettingsDialog = ({
       });
       setDiscoveryDialogOpen(true);
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       const message = error instanceof Error ? error.message : '模型同步失败';
       analytics.trackUIInteraction({
         area: 'settings',
