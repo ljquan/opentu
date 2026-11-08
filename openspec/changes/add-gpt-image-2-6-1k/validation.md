@@ -1,5 +1,7 @@
 # GPT Image 2.6 1K 接入验收
 
+本文按时间保留各阶段记录。当前四型号适配范围与提交前检查以文末“GitHub 提交前最终验证（2026-11-08）”为准；前文的“仅 -1k”“未提交”等描述属于对应阶段。
+
 日期：2026-11-05（Asia/Shanghai）。基线：develop `f6a3e0cf`；实现分支：`codex/add-gpt-image-2-6-1k`。
 
 ## 实现范围
@@ -374,3 +376,63 @@ QA/DOC 更新现有 proposal、规格、tasks 和本文件，不新增根目录�
 - 没有新增收费生成、原始 GIF 透明度/Alpha 实测、远程 CI 或部署；本地显示与请求字段修复不代表供应商已经返回透明 GIF。原输入解析器 22 项 HEAD 基线失败和未修改文件的历史 lint 状态仍按前文记录。
 
 QA/DOC 更新原 proposal、规格、tasks 和本记录，无新根目录文档、配置或依赖。保留本地改动，未提交或推送。
+
+## GitHub 提交前最终验证（2026-11-08）
+
+### 交付范围与兼容性
+
+- 实现提交：`648aacf9`，`feat(image): 补齐 GPT Image 2.6 输出模式和透明参数`；分支 `dev/gpt-image-26-output-options`。
+- 提交前独立备份全部 26 个修改/新增文件，逐文件 SHA-256 对照归档内容验证成功；源码、测试与已有 OpenSpec 记录均属于本轮 2.6 适配，没有纳入生成图片、凭据或构建产物。
+- 已显式执行 `git fetch origin develop` 和 `git merge --no-edit origin/develop`。远程基线为 `b742f593`，合并结果 Already up to date，没有冲突；最终构建使用同一份实现源码。
+- 注册四个精确型号 `gpt-image-2.6`、`gpt-image-2.6-1k`、`gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`，修正自动发现及历史目录的文本误分类，保留手动配置、供应商和精确模型 ID。
+- 四型号共享背景、静态格式、压缩、画质、参考图保真度及既有审核/用户标识字段；GIF 模式保留适用背景与画质，隔离静态编码。无后缀、Flare、Sunburst 接入参数 GIF/SVG；`-1k` 保留提示词 GIF 和 `b64_json` 契约。
+- SVG 编写模型只推荐渠道示例 `gpt-5.5`，自定义/历史 ID 标记未验证。格式不符明确失败且不自动重发；待插入队列在插入前重新读取任务的手动插图完成状态，避免重复插图。没有将最初 SVG 自动插入卡住的完整根因描述为已确认。
+- 继续复用既有任务参数和 `gif_official` 存储值，无新依赖、环境变量、数据库或存储迁移。本次没有扩展 2K/4K 尺寸或流式预览等额外参数。
+
+### 实际检查结果
+
+环境：macOS，Node.js `26.8.1`，pnpm `10.21.0`，已安装工作区依赖。
+
+| 检查 | 实际结果 |
+|---|---|
+| 相关 Vitest 回归 | **18 文件、821 项通过**；首组 17 文件 701 项，补充供应商路由 1 文件 120 项 |
+| drawnix TypeScript | `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过 |
+| Web 生产构建 | `pnpm exec vite build --config apps/web/vite.config.ts` 通过，33.53 秒；保留 Sass 弃用、CSS 优化及大 chunk 提示 |
+| 全部变更 TS/TSX 的 ESLint | **20 文件、65 错误、81 警告**，不宣称完整 lint 通过；错误基线对照见下文 |
+| 差异与冲突检查 | 暂存差异及 `git diff origin/develop...HEAD --check` 通过，`git ls-files -u` 无输出 |
+| 新增内容凭据检查 | 修改新增行及 3 个新文件未匹配 API Key、GitHub Token、私钥特征；没有读取测试凭据 |
+| OpenSpec 严格校验 | 实际执行 `openspec validate add-gpt-image-2-6-1k --strict`，本机无该命令，退出 127；未安装工具或声称通过 |
+
+ESLint 的 63 条错误位于 `media-executor.test.ts` 的既有空测试桩，另 2 条分别为 `default-adapters.ts` 与 `gpt-image-adapter.ts` 既有静态导入触发的 `@nx/enforce-module-boundaries`。逐文件使用本轮实现前 HEAD 源码经 ESLint stdin 对照，三文件分别仍为 63/1/1 条错误，规则及错误消息完全一致。警告按本轮完整数量记录，没有将历史局部 lint 数量替代当前范围。
+
+相关回归在 `packages/drawnix` 执行 `pnpm exec vitest run --config vitest.config.ts`，文件范围为：
+
+```text
+src/services/__tests__/gpt-image-26-integration.test.ts
+src/services/__tests__/gpt-image-26-output.test.ts
+src/services/__tests__/default-image-adapter.test.ts
+src/components/ai-input-bar/ParametersDropdown.test.tsx
+src/components/ai-input-bar/__tests__/workflow-converter.test.ts
+src/services/__tests__/gpt-image-adapter.test.ts
+src/services/__tests__/tuzi-gpt-image-adapter.test.ts
+src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts
+src/components/ai-input-bar/SvgWriterModelSelect.test.tsx
+src/services/__tests__/media-executor.test.ts
+src/utils/__tests__/runtime-model-classification.test.ts
+src/utils/__tests__/runtime-model-discovery.test.ts
+src/services/provider-model-catalog.test.ts
+src/services/__tests__/provider-routing.test.ts
+src/hooks/__tests__/useAutoInsertToCanvas.test.ts
+src/utils/__tests__/image-generation-anchor-insertion.test.ts
+src/plugins/components/image.loading.test.tsx
+src/services/canvas-operations/canvas-insertion.test.ts
+```
+
+覆盖成功输出、参数验证失败、参考图编辑限制、格式不符不重发、批量透传、基础兼容路由、旧 GPT 型号、自动发现恢复和手动/自动插图竞态。未运行整个仓库测试套件；之前已对照 HEAD 确认的输入解析器 22 项失败及未改动 `image.test.ts` 的 Blob 测试失败继续按原记录保留，本次未扩展修复。Node/localStorage/IndexedDB 测试环境提示不构成真实浏览器存储验收。
+
+### 注意事项与验收边界
+
+- 本轮提交检查没有执行页面交互、收费生成、供应商 Alpha 通道验证、远程 CI 或部署。客户端参数传递通过不等于所有型号/分组均接受这些参数。
+- 先前授权 Sunburst 实测发送 `frame_count=48`、实际返回 9 帧的结果不变；不能宣称已支持任意帧数或 48 fps。SVG 的分组要求与其他编写模型的可用性仍以渠道为准。
+- 无需新增配置或迁移。非技术验收可在已有供应商配置下选择任一 2.6 型号，查看静态模式背景/格式/压缩入口；切到适用 GIF 模式后确认背景与画质保留，切到 SVG 后确认专用编写模型入口。真正生成与输出透明度应另行进行经授权的渠道验收。
+- QA/DOC 复用本变更目录的 proposal、规格、tasks 和本文件，不新增根目录 QA.md/DOC.md。回滚可撤销本分支的功能提交后重新构建，无数据迁移回滚步骤；远程分支提交不代表已合并或已部署。
