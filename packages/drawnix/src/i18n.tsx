@@ -212,8 +212,8 @@ const translations: Record<Language, Translations> = {
   zh: {
     'resources.title': 'OpenTu 资源',
     'resources.close': '关闭 OpenTu 资源',
-    'resources.download': '下载桌面版',
-    'resources.downloadDescription': 'macOS、Windows、Linux 安装包',
+    'resources.download': '下载兔子助手',
+    'resources.downloadDescription': '已集成 OpenTu 桌面版',
     'resources.follow': '关注 @shuidiyuAI',
     'resources.followDescription': '查看 OpenTu 更新和发布动态',
     // Toolbar items
@@ -408,8 +408,8 @@ const translations: Record<Language, Translations> = {
   en: {
     'resources.title': 'OpenTu Resources',
     'resources.close': 'Close OpenTu Resources',
-    'resources.download': 'Download Desktop App',
-    'resources.downloadDescription': 'Installers for macOS, Windows and Linux',
+    'resources.download': 'Download Tuzi Assistant',
+    'resources.downloadDescription': 'Includes OpenTu desktop',
     'resources.follow': 'Follow @shuidiyuAI',
     'resources.followDescription': 'OpenTu updates and release news',
     // Toolbar items

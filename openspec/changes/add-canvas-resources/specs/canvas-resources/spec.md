@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Canvas resources entry
-The canvas SHALL provide an OpenTu resources button above the feedback entry and in the collapsed mobile toolbar. The panel SHALL contain the desktop download URL and X profile URL, opened in a new tab with noopener and noreferrer.
+The canvas SHALL provide an OpenTu resources button above the feedback entry and in the collapsed mobile toolbar. The panel SHALL contain the Tuzi Assistant download URL and X profile URL, opened in a new tab with noopener and noreferrer. The download entry SHALL explain that Tuzi Assistant includes the OpenTu desktop app.
 
 #### Scenario: Open resources
 - **WHEN** the user selects the resources button
-- **THEN** an anchored panel displays links to https://aiw520.github.io/opentuAI/download.html and https://x.com/shuidiyuAI
+- **THEN** an anchored panel displays links to https://tuziapi.github.io/tuzi-switch/#td-r0-downloads and https://x.com/shuidiyuAI
 - **AND** the panel fits the viewport and can be explicitly closed
 
 ### Requirement: First-use announcement
