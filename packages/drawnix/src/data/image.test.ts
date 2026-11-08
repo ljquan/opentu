@@ -279,8 +279,16 @@ describe('insertImageFromUrl', () => {
         'image',
         { sourceUrl }
       );
-      // The native Response mock returns a Node Blob, not a jsdom Blob.
-      const cachedBytes = await mocks.cacheMediaFromBlob.mock.calls[0][1].arrayBuffer();
+      // Response may return a native or jsdom Blob depending on the test runtime.
+      const cachedBlob = mocks.cacheMediaFromBlob.mock.calls[0][1] as Blob;
+      const cachedBytes = typeof cachedBlob.arrayBuffer === 'function'
+        ? await cachedBlob.arrayBuffer()
+        : await new Promise<ArrayBuffer>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as ArrayBuffer);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsArrayBuffer(cachedBlob);
+          });
       expect(new Uint8Array(cachedBytes)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
       expect(mocks.getCachedBlob).toHaveBeenCalledTimes(2);
       expect(revokeObjectURL).toHaveBeenCalledTimes(3);
