@@ -1,3 +1,4 @@
+import { readImageApiError, createImageApiError } from '../../utils/image-error-details';
 import {
   normalizeImageResolutionTier,
   resolveGPTImagePromptAspectRatio,
@@ -6,6 +7,7 @@ import {
 } from './image-size-quality-resolver';
 import {
   imageInputToBlob,
+  formatGPTImageError,
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
@@ -21,10 +23,16 @@ import {
   readProviderResponseText,
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
+import {
+  getGPTImage26OutputFields,
+  normalizeGPTImage26Request,
+  validateGPTImage26Output,
+} from './gpt-image-26-request';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
+  isGPTImage26ModelId,
   isGPTImage2ModelId,
 } from '../../constants/model-config';
 
@@ -122,6 +130,7 @@ export function buildTuziGPTImageRequestOptions(
     request.modelRef?.modelId?.trim() ||
     request.model?.trim() ||
     TUZI_GPT_IMAGE_MODEL_ID;
+  request = normalizeGPTImage26Request(request, model);
   const requestedSize = getStringParam(request.params, 'size') || request.size;
   const useAutomaticRatio =
     GPT_IMAGE_2_MODEL_IDS.includes(model.toLowerCase()) &&
@@ -200,6 +209,10 @@ export function buildTuziGPTImageRequestBody(
   request: ImageGenerationRequest,
   bindingModelId?: string | null
 ): Record<string, unknown> {
+  request = normalizeGPTImage26Request(
+    request,
+    bindingModelId?.trim() || request.modelRef?.modelId?.trim() || request.model
+  );
   const options = buildTuziGPTImageRequestOptions(request, bindingModelId);
   const body: Record<string, unknown> = {
     model: options.model,
@@ -244,8 +257,11 @@ export function buildTuziGPTImageRequestBody(
   if (options.user) {
     body.user = options.user;
   }
+  if (isGPTImage26ModelId(options.model) && request.referenceImages?.length && request.inputFidelity) {
+    body.input_fidelity = request.inputFidelity;
+  }
 
-  return body;
+  return Object.assign(body, getGPTImage26OutputFields(request));
 }
 
 function getTuziMaskImage(request: ImageGenerationRequest): string | undefined {
@@ -261,6 +277,10 @@ export async function buildTuziGPTImageEditFormData(
   fetcher?: typeof fetch,
   signal?: AbortSignal
 ): Promise<FormData> {
+  request = normalizeGPTImage26Request(
+    request,
+    bindingModelId?.trim() || request.modelRef?.modelId?.trim() || request.model
+  );
   const referenceImages = request.referenceImages || [];
   const maskImage = getTuziMaskImage(request);
   if (referenceImages.length === 0) {
@@ -289,7 +309,7 @@ export async function buildTuziGPTImageEditFormData(
     'input_fidelity'
   );
   if (inputFidelity === 'high' || inputFidelity === 'low') {
-    formData.append('input_fidelity', inputFidelity);
+    formData.set('input_fidelity', inputFidelity);
   }
 
   for (const [index, referenceImage] of referenceImages.entries()) {
@@ -312,44 +332,6 @@ export async function buildTuziGPTImageEditFormData(
   return formData;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
-  const rawText = await readProviderResponseText(response).catch(() => '');
-  const data = rawText
-    ? (() => {
-        try {
-          return JSON.parse(rawText);
-        } catch {
-          return null;
-        }
-      })()
-    : null;
-  if (typeof data?.error === 'string') {
-    return data.error;
-  }
-  if (typeof data?.error?.message === 'string') {
-    return data.error.message;
-  }
-  if (typeof data?.message === 'string') {
-    return data.message;
-  }
-
-  const plainText = rawText.trim();
-  if (plainText && !/^<!doctype|^<html/i.test(plainText)) {
-    return plainText.slice(0, 300);
-  }
-
-  let endpoint = '';
-  try {
-    const url = new URL(response.url);
-    endpoint = `${url.hostname}${url.pathname}`;
-  } catch {
-    endpoint = (response.url || '').split(/[?#]/, 1)[0];
-  }
-
-  return `Tuzi GPT Image request failed: ${response.status}${
-    endpoint ? ` (${endpoint})` : ''
-  }`;
-}
 
 export function getTuziGPTImageRequestPath(
   request: ImageGenerationRequest
@@ -398,12 +380,13 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     }
 
     if (!response.ok) {
-      throw Object.assign(new Error(await readErrorMessage(response)), {
-        httpStatus: response.status,
-      });
+      throw formatGPTImageError(await readImageApiError(response, 'Tuzi GPT Image request failed', { modelId: request.model || 'gpt-image-2' }, readProviderResponseText));
     }
 
-    const result = await readProviderResponseJson(response);
+    const result = await readProviderResponseJson<Record<string, any>>(response);
+    if (result.error || result.status === 'failed') {
+      throw formatGPTImageError(createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' }));
+    }
     const responseFormat = getResponseFormat(request);
     const outputFormat = buildTuziGPTImageRequestOptions(
       request,
@@ -411,9 +394,12 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     ).output_format;
 
     return resolveGeneratedImageDimensions(
-      parseGPTImageResponse(
-        result,
-        responseFormat === 'b64_json' ? outputFormat || 'png' : undefined
+      validateGPTImage26Output(
+        { ...request, model: requestModel },
+        parseGPTImageResponse(
+          result,
+          responseFormat === 'b64_json' ? outputFormat || 'png' : undefined
+        )
       ),
       context.signal
     );

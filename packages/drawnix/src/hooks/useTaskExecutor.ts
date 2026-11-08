@@ -6,6 +6,8 @@
  * All tasks are executed directly in the main thread.
  */
 
+import { toImageTaskError } from '../utils/image-error-details';
+
 import { useEffect, useRef } from 'react';
 import { legacyTaskQueueService } from '../services/task-queue';
 import { generationAPIService } from '../services/generation-api-service';
@@ -699,6 +701,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
           code: errorCode,
           message: errorMessage,
           details: {
+            ...toImageTaskError(error, errorCode).details,
             originalError: originalErrorInfo,
             timestamp: Date.now(),
           },
@@ -792,6 +795,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
           error.message ||
           String(error);
         const errorDetails = {
+          ...toImageTaskError(error, errorCode).details,
           originalError: originalErrorInfo,
           timestamp: Date.now(),
         };
@@ -1001,6 +1005,7 @@ export function useTaskExecutor(isTaskStorageReady = true): void {
           error.message ||
           String(error);
         const errorDetails = {
+          ...toImageTaskError(error, errorCode).details,
           originalError: originalErrorInfo,
           timestamp: Date.now(),
         };

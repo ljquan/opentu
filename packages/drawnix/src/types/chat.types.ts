@@ -1,3 +1,4 @@
+import type { TaskError } from '../types/shared/core.types';
 /**
  * Chat Drawer Type Definitions
  *
@@ -71,6 +72,7 @@ export type AgentLogEntry =
       data?: unknown;
       /** 错误信息 */
       error?: string;
+  errorDetails?: TaskError;
       /** 结果类型 */
       resultType?: 'image' | 'video' | 'audio' | 'text' | 'canvas' | 'error';
     }
@@ -106,6 +108,7 @@ export interface WorkflowStepData {
   args: Record<string, unknown>;
   result?: unknown;
   error?: string;
+  errorDetails?: TaskError;
   duration?: number;
   /** 步骤选项（用于重试） */
   options?: WorkflowStepOptions;
@@ -158,6 +161,7 @@ export interface WorkflowMessageData {
   insertedCount?: number;
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
 }
 
 /** 对话消息接口 */
@@ -170,6 +174,7 @@ export interface ChatMessage {
   status: MessageStatus;
   attachments?: Attachment[];
   error?: string;
+  errorDetails?: TaskError;
   /** 工作流数据（当消息包含工作流时） */
   workflow?: WorkflowMessageData;
   /** AI 输入上下文（用于用户消息展示） */
@@ -227,6 +232,7 @@ export interface StreamEvent {
   type: 'content' | 'done' | 'error';
   content?: string;
   error?: string;
+  errorDetails?: TaskError;
 }
 
 // ============================================================================

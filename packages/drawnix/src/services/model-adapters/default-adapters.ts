@@ -15,6 +15,7 @@ import {
   IMAGE_MODEL_VIP_OPTIONS,
   VIDEO_MODELS,
   ModelVendor,
+  isGPTImage26ModelId,
 } from '../../constants/model-config';
 import type { UploadedVideoImage } from '../../types/video.types';
 import type {
@@ -33,8 +34,13 @@ import { registerMJImageAdapter } from './mj-image-adapter';
 import { registerFluxAdapter } from './flux-adapter';
 import { registerSeedreamAdapter } from './seedream-adapter';
 import { registerSeedanceAdapter } from './seedance-adapter';
-import { registerGPTImageAdapter } from './gpt-image-adapter';
-import { registerTuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
+import {
+  registerGPTImageAdapter,
+  parseGPTImageResponse,
+  resolveGeneratedImageDimensions,
+} from './gpt-image-adapter';
+import { normalizeGPTImage26Request, validateGPTImage26Output } from './gpt-image-26-request';
+import { registerTuziGPTImageAdapter, tuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
 import { registerTuziFlux3ImageAdapter } from './tuzi-flux-3-image-adapter';
 import { registerCustomHttpAdapters } from './custom-http-adapter';
 import { registerSeedance2Adapter } from './seedance2-adapter';
@@ -83,7 +89,7 @@ const extractImageUrl = (
         (item: any) =>
           item?.url ||
           (item?.b64_json
-            ? `data:image/png;base64,${item.b64_json}`
+            ? normalizeImageDataUrl(item.b64_json)
             : undefined)
       )
       .filter(Boolean) as string[];
@@ -160,7 +166,19 @@ export const geminiImageAdapter: ImageModelAdapter = {
   supportedModels: imageModelIds,
   defaultModel: DEFAULT_IMAGE_MODEL_ID,
   async generateImage(context, request: ImageGenerationRequest) {
+    request = normalizeGPTImage26Request(
+      request,
+      context.binding?.modelId || request.modelRef?.modelId || request.model
+    );
     const model = request.model || DEFAULT_IMAGE_MODEL_ID;
+    // Use the native-compatible contract for format and image controls that the
+    // basic client cannot forward, preserving the selected provider.
+    if (isGPTImage26ModelId(model) && (
+      request.params?.output_format || request.background || request.inputFidelity ||
+      request.params?.quality || request.params?.moderation || request.params?.user
+    )) {
+      return tuziGPTImageAdapter.generateImage(context, request);
+    }
 
     if (shouldUseAsyncImageEndpoint(context, model)) {
       const result = await asyncImageAPIService.generateWithPolling(
@@ -237,7 +255,12 @@ export const geminiImageAdapter: ImageModelAdapter = {
       imageOptions
     );
 
-    return extractImageUrl(result, request.prompt);
+    return isGPTImage26ModelId(model)
+      ? resolveGeneratedImageDimensions(
+          validateGPTImage26Output(request, parseGPTImageResponse(result)),
+          context.signal
+        )
+      : extractImageUrl(result, request.prompt);
   },
 };
 

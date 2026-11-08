@@ -1,3 +1,4 @@
+import { toGenerationTaskError } from '../../utils/generation-error-details';
 /**
  * Workflow Engine
  *
@@ -295,6 +296,7 @@ export class WorkflowEngine {
 
     // 更新步骤状态为 running
     step.status = 'running';
+    step.errorDetails = undefined;
     workflow.updatedAt = Date.now();
     await workflowStorageWriter.saveWorkflow(workflow);
 
@@ -327,6 +329,11 @@ export class WorkflowEngine {
       // 更新步骤状态为 failed
       step.status = 'failed';
       step.error = error.message || 'Step execution failed';
+      step.errorDetails = toGenerationTaskError(
+        error,
+        error.code || 'STEP_FAILED',
+        typeof step.args.model === 'string' ? step.args.model : undefined
+      );
       step.duration = Date.now() - startTime;
       workflow.updatedAt = Date.now();
       await workflowStorageWriter.saveWorkflow(workflow);
@@ -337,6 +344,7 @@ export class WorkflowEngine {
         stepId: step.id,
         status: 'failed',
         error: step.error,
+        errorDetails: step.errorDetails,
         duration: step.duration,
       });
 
@@ -430,8 +438,19 @@ export class WorkflowEngine {
         });
 
         if (result.task.status === TaskStatus.FAILED) {
-          throw new Error(
-            result.task.error?.message || 'Video generation failed'
+          throw Object.assign(
+            new Error(result.task.error?.message || 'Video generation failed'),
+            {
+              diagnostics: {
+                ...result.task.error?.details,
+                modelId:
+                  result.task.error?.details?.modelId ||
+                  result.task.invocationRoute?.modelId ||
+                  result.task.params.model,
+                remoteId:
+                  result.task.error?.details?.remoteId || result.task.remoteId,
+              },
+            }
           );
         }
 
@@ -594,7 +613,10 @@ export class WorkflowEngine {
         );
 
         if (!toolResult.success) {
-          throw new Error(toolResult.error || `${step.mcp} failed`);
+          throw Object.assign(
+            new Error(toolResult.error || `${step.mcp} failed`),
+            { diagnostics: toolResult.errorDetails?.details }
+          );
         }
 
         step.result = toolResult.result;

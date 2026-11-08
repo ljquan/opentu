@@ -19,6 +19,7 @@ import {
   DEFAULT_TEXT_MODEL_ID,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
+  isGPTImage26ModelId,
   getStaticModelsByType,
   getStaticModelConfig,
   isDefaultModelHidden,
@@ -62,6 +63,7 @@ export interface RemoteModelListItem {
 }
 
 export interface RuntimeModelDiscoveryState {
+  lastAutoRefreshVersion?: string;
   discoverySource?: ProviderCatalog['discoverySource'];
   profileId: string;
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -103,6 +105,10 @@ export interface ManualRuntimeModelInput {
 
 export interface RuntimeModelDiscoveryOptions {
   selectAll?: boolean;
+  /** Version-triggered refresh also selects newly discovered IDs, preserving deselections. */
+  refreshForVersion?: string;
+  /** Recheck saved credentials and provider eligibility before committing a background result. */
+  shouldApply?: () => boolean;
   signal?: AbortSignal;
   /** Supplements returned model IDs without adding models to the authenticated list. */
   modelMetadata?: readonly RemoteModelListItem[];
@@ -150,7 +156,7 @@ function hashString(input: string): string {
 
 export { normalizeModelApiBaseUrl } from './provider-base-url';
 
-function buildDiscoverySignature(baseUrl: string, apiKey: string): string {
+export function buildDiscoverySignature(baseUrl: string, apiKey: string): string {
   return `${normalizeModelApiBaseUrl(baseUrl)}::${hashString(apiKey.trim())}`;
 }
 
@@ -1274,6 +1280,7 @@ function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
     if (
       GPT_IMAGE_25_MODEL_IDS.includes(staticConfig.id) ||
       GPT_IMAGE_2_MODEL_IDS.includes(staticConfig.id) ||
+      isGPTImage26ModelId(staticConfig.id) ||
       staticConfig.id === 'gemini-nano-banana-2.1'
     ) {
       return clonedConfig;
@@ -1380,7 +1387,7 @@ function isProfileEnabled(profileId: string): boolean {
   return profile?.enabled !== false;
 }
 
-function canDiscoverProfileModels(profile: ProviderProfile | null): boolean {
+export function canDiscoverProfileModels(profile: ProviderProfile | null): boolean {
   return Boolean(
     profile &&
       isProfileEnabled(profile.id) &&
@@ -1452,6 +1459,14 @@ function decorateRuntimeModels(
   const marketplaceMetadata = (Array.isArray(pricingCaches) ? pricingCaches : [])
     .find((cache) => cache.profileId === profileId)?.modelCatalog;
   return models.map((model) => {
+    // Refresh known 2.6 image metadata even when an older catalog classified
+    // the model as text. Explicit manual configurations remain authoritative.
+    if (isGPTImage26ModelId(model.id) && !(model.tags || []).includes('manual')) {
+      return attachRuntimeSource(
+        profileId,
+        refreshPersistedModelConfig(model, useRemoteDisplayName)
+      );
+    }
     if (
       (model.tags || []).includes('manual') ||
       discoverySource === 'models-endpoint'
@@ -1519,6 +1534,7 @@ function createStateFromCatalog(
 
   return {
     profileId: catalog.profileId,
+    lastAutoRefreshVersion: catalog.lastAutoRefreshVersion,
     discoverySource: catalog.discoverySource,
     status: catalog.error
       ? 'error'
@@ -1543,6 +1559,7 @@ function createStateFromCatalog(
 function toCatalog(state: RuntimeModelDiscoveryState): ProviderCatalog {
   return {
     profileId: state.profileId,
+    lastAutoRefreshVersion: state.lastAutoRefreshVersion,
     discoverySource: state.discoverySource,
     discoveredAt: state.discoveredAt,
     discoveredModels: state.discoveredModels,
@@ -1603,6 +1620,7 @@ class RuntimeModelDiscoveryStore {
   private catalogStates = new Map<string, RuntimeModelDiscoveryState>();
   private listeners = new Set<() => void>();
   private inFlightDiscoveries = new Map<string, Promise<ModelConfig[]>>();
+  private discoveryRevisions = new Map<string, number>();
   private revision = 0;
 
   constructor() {
@@ -2167,7 +2185,7 @@ class RuntimeModelDiscoveryStore {
 
     const discoveryKey = `${profileId}::${signature}::selectAll=${
       options.selectAll === true ? '1' : '0'
-    }::catalog=${
+    }::version=${options.refreshForVersion || ''}::catalog=${
       options.modelMetadata
         ? hashString(
             options.modelMetadata
@@ -2182,6 +2200,7 @@ class RuntimeModelDiscoveryStore {
       return existingDiscovery;
     }
 
+    const requestRevision = (this.discoveryRevisions.get(profileId) || 0) + 1;
     const discovery = this.discoverInternal(
       profileId,
       normalizedBaseUrl,
@@ -2189,7 +2208,29 @@ class RuntimeModelDiscoveryStore {
       signature,
       fallbackBaseUrls,
       options
-    );
+    ).catch((error: unknown) => {
+      if (
+        options.refreshForVersion &&
+        this.discoveryRevisions.get(profileId) !== requestRevision
+      ) {
+        throw new DOMException('Model discovery was superseded', 'AbortError');
+      }
+      const current = this.getCatalogState(profileId);
+      if (
+        options.refreshForVersion &&
+        current.status === 'loading' &&
+        current.signature === signature &&
+        this.discoveryRevisions.get(profileId) === requestRevision &&
+        this.inFlightDiscoveries.get(discoveryKey) === discovery
+      ) {
+        this.setCatalogState(
+          profileId,
+          { ...current, status: current.discoveredModels.length ? 'ready' : 'idle' },
+          false
+        );
+      }
+      throw error;
+    });
     this.inFlightDiscoveries.set(discoveryKey, discovery);
     const clearInFlight = () => {
       if (this.inFlightDiscoveries.get(discoveryKey) === discovery) {
@@ -2210,11 +2251,19 @@ class RuntimeModelDiscoveryStore {
   ): Promise<ModelConfig[]> {
     const state = this.getCatalogState(profileId);
 
+    if (options.shouldApply?.() === false) {
+      throw new DOMException('Model discovery was superseded', 'AbortError');
+    }
+    const discoveryRevision = (this.discoveryRevisions.get(profileId) || 0) + 1;
+    this.discoveryRevisions.set(profileId, discoveryRevision);
+
     this.setCatalogState(
       profileId,
       {
         ...state,
         status: 'loading',
+        lastAutoRefreshVersion:
+          state.signature === signature ? state.lastAutoRefreshVersion : undefined,
         sourceBaseUrl: normalizedBaseUrl,
         signature,
         error: null,
@@ -2273,17 +2322,38 @@ class RuntimeModelDiscoveryStore {
       throw new Error('模型列表为空');
     }
 
+    if (
+      options.signal?.aborted ||
+      options.shouldApply?.() === false ||
+      (options.refreshForVersion &&
+        this.discoveryRevisions.get(profileId) !== discoveryRevision)
+    ) {
+      throw new DOMException('Model discovery was superseded', 'AbortError');
+    }
+    // Users may change selections or manual bindings while the request is in flight.
+    const latestState = this.getCatalogState(profileId);
+    const selectionState = options.refreshForVersion ? latestState : state;
     const discoveredModels = mergeDiscoveredWithManualModels(
       adaptedModels,
-      state.discoveredModels
+      selectionState.discoveredModels
     );
     const manualModelIds = new Set(
       discoveredModels
         .filter((model) => (model.tags || []).includes('manual'))
         .map((model) => model.id)
     );
+    const previouslyKnownIds = new Set(
+      selectionState.discoveredModels.map((model) => model.id)
+    );
     const selectedModelIds = options.selectAll
       ? discoveredModels.map((model) => model.id)
+      : options.refreshForVersion
+      ? normalizeSelectedModelIds(discoveredModels, [
+          ...selectionState.selectedModelIds,
+          ...adaptedModels
+            .filter((model) => !previouslyKnownIds.has(model.id))
+            .map((model) => model.id),
+        ])
       : state.signature === signature
       ? normalizeSelectedModelIds(discoveredModels, state.selectedModelIds)
       : normalizeSelectedModelIds(
@@ -2294,19 +2364,26 @@ class RuntimeModelDiscoveryStore {
         );
     const models = buildSelectedModels(discoveredModels, selectedModelIds);
 
-    this.setCatalogState(profileId, {
+    this.setCatalogState(
       profileId,
-      status: 'ready',
-      discoverySource: 'models-endpoint',
-      sourceBaseUrl: normalizedBaseUrl,
-      signature,
-      discoveredAt: Date.now(),
-      discoveredModels,
-      selectedModelIds,
-      manualBindings: state.manualBindings,
-      models,
-      error: null,
-    });
+      {
+        profileId,
+        lastAutoRefreshVersion:
+          options.refreshForVersion || latestState.lastAutoRefreshVersion,
+        status: 'ready',
+        discoverySource: 'models-endpoint',
+        sourceBaseUrl: normalizedBaseUrl,
+        signature,
+        discoveredAt: Date.now(),
+        discoveredModels,
+        selectedModelIds,
+        manualBindings: selectionState.manualBindings,
+        models,
+        error: null,
+      },
+      !options.refreshForVersion
+    );
+    if (options.refreshForVersion) await this.persistCatalogs();
 
     return adaptedModels;
   }

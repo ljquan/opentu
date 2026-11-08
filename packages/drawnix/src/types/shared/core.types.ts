@@ -394,6 +394,13 @@ export interface AudioClipResult {
  * Contains the original error information for debugging
  */
 export interface TaskErrorDetails {
+  /** Original video submission ID returned by the API site. */
+  apiRequestId?: string;
+  requestId?: string;
+  apiErrorCode?: string;
+  httpStatus?: number;
+  modelId?: string;
+  remoteId?: string;
   /** Original error message from the API or system */
   originalError?: string;
   /** API response data (sensitive info filtered) */
@@ -470,6 +477,8 @@ export interface Task {
   progress?: number;
   /** Remote task ID from API (e.g., videoId for video generation) */
   remoteId?: string;
+  /** API-site ID of the video submission associated with remoteId. */
+  apiRequestId?: string;
   /** Provider/model route snapshot used to resume async tasks with the original supplier */
   invocationRoute?: TaskInvocationRouteSnapshot;
   /** Current execution phase for recovery support */

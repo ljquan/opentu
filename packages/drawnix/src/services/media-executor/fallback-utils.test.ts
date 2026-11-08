@@ -36,6 +36,16 @@ function mediaBlob(signature: Uint8Array, type: string): Blob {
   return new Blob([signature], { type });
 }
 
+async function readBlobBytes(blob: Blob): Promise<Uint8Array> {
+  if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer());
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
 function mediaResponse(
   signature: Uint8Array,
   type: string,
@@ -212,6 +222,28 @@ describe('pollVideoStatus', () => {
   beforeEach(() => {
     providerSend.mockReset();
   });
+
+  it.each([undefined, 'site-original'])(
+    'keeps only an explicit original submission ID on polling failure: %s',
+    async (originalRequestId) => {
+      providerSend.mockResolvedValue(
+        new Response(JSON.stringify({
+          status: 'failed',
+          original_request_id: originalRequestId,
+          request_id: 'poll-body-id',
+          error: { code: 'task_failed', message: 'Rejected (request id: upstream-id)' },
+        }), { headers: { 'x-oneapi-request-id': 'poll-header-id' } })
+      );
+      const { pollVideoStatus } = await import('./fallback-utils');
+      const error = await pollVideoStatus('remote-video', {
+        apiKey: 'test-key', baseUrl: 'https://example.com',
+      }, vi.fn()).catch((error) => error);
+      expect(error.diagnostics?.apiRequestId).toBe(originalRequestId);
+      expect(error.message).toBe('Rejected (request id: upstream-id)');
+      expect(error.code).toBe('task_failed');
+      expect(providerSend).toHaveBeenCalledOnce();
+    }
+  );
 
   it('stops polling after the execution attempt is replaced', async () => {
     vi.useFakeTimers();
@@ -464,9 +496,28 @@ describe('cacheRemoteUrl', () => {
     expect(result).toMatch(/^\/__aitu_cache__\/image\/content-.*\.jpg$/);
     const blob = cacheMediaFromBlob.mock.calls[0][1] as Blob;
     expect(blob.type).toBe('image/jpeg');
-    const bytes = await blob.arrayBuffer();
-    expect(new Uint8Array(bytes)).toEqual(JPEG_SIGNATURE);
+    expect(await readBlobBytes(blob)).toEqual(JPEG_SIGNATURE);
     expect(warning).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['gif', 'image/gif', 'GIF89a\u0001\u0000\u0001\u0000animation-bytes'],
+    ['svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><circle r="10"/></svg>'],
+  ])('caches inline %s using its actual MIME and unmodified bytes', async (extension, mime, content) => {
+    const original = new TextEncoder().encode(content);
+    const url = `data:${mime};base64,${btoa(content)}`;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(original, {
+      headers: { 'Content-Type': mime },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { cacheRemoteUrl } = await import('./fallback-utils');
+    const result = await cacheRemoteUrl(url, `gpt26-${extension}`, 'image', 'png');
+    expect(result).toMatch(new RegExp(`\\.${extension}$`));
+    const stored = cacheMediaFromBlob.mock.calls[0][1] as Blob;
+    expect(stored.type).toBe(mime);
+    expect(Array.from(await readBlobBytes(stored))).toEqual(Array.from(original));
+    expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('reuses the same cached file for identical base64 payloads across tasks', async () => {

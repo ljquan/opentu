@@ -85,7 +85,7 @@ describe('CanvasResourcesButton', () => {
     await render();
     const links = panel()!.querySelectorAll('a');
     expect(Array.from(links, (link) => link.href)).toEqual([
-      'https://aiw520.github.io/opentuAI/download.html',
+      'https://tuziapi.github.io/tuzi-switch/#td-r0-downloads',
       'https://x.com/shuidiyuAI',
     ]);
     links.forEach((link) => {

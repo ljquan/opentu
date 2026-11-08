@@ -1465,6 +1465,14 @@ export function useAutoInsertToCanvas(
         const inserts: PendingInsert[] = [];
         const deferredInserts: PendingInsert[] = [];
         for (const pendingInsert of bufferedInserts) {
+          // Manual insertion can finish while this older completion snapshot
+          // is waiting in the group buffer. Recheck the store before inserting.
+          const latestTask = getTaskQueueService().getTask(pendingInsert.task.id);
+          if (latestTask?.insertedToCanvas) {
+            releaseTaskInsertion(latestTask.id);
+            rememberInsertedTask(latestTask.id);
+            continue;
+          }
           if (
             canInsertTaskCanvasAssociationsOnCurrentBoard(
               pendingInsert.task,
@@ -1883,7 +1891,8 @@ export function useAutoInsertToCanvas(
                 board,
                 () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
                 task.params.prompt,
-                buildTaskGenerationMetadata(task, imageAnchor)
+                buildTaskGenerationMetadata(task, imageAnchor),
+                'generated-result'
               );
               if (abortIfCanvasChanged()) {
                 continue promptGroupLoop;
@@ -2003,7 +2012,8 @@ export function useAutoInsertToCanvas(
                 dimensions,
                 metadata,
                 board,
-                () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken)
+                () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
+                ...(type === 'image' ? ['generated-result' as const] : [])
               );
               if (abortIfCanvasChanged()) {
                 continue promptGroupLoop;
@@ -2393,7 +2403,9 @@ export function useAutoInsertToCanvas(
                   imageGroupItems.map((item) => item.dimensions),
                   board,
                   () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
-                  firstInsertTask.params.prompt
+                  firstInsertTask.params.prompt,
+                  undefined,
+                  'generated-result'
                 );
                 if (abortIfCanvasChanged()) {
                   continue promptGroupLoop;

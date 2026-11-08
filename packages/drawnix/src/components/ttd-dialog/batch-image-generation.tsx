@@ -2502,6 +2502,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
     try {
       const result = await executeCanvasInsertion({
         board,
+        imageInsertionPolicy: 'generated-result',
         boardGuard: () => {
           const current = getCanvasBoardBinding();
           return (

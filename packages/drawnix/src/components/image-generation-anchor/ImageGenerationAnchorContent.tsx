@@ -1,8 +1,14 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import { ImageGenerationErrorDetails } from './ImageGenerationErrorDetails';
+import React, {
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import classNames from 'classnames';
 import type { PlaitBoard } from '@plait/core';
-import { Copy } from 'lucide-react';
-import { MessagePlugin } from 'tdesign-react';
+import { ImageGenerationCopyButton } from './ImageGenerationCopyButton';
 import { useImageGenerationAnchorController } from '../../hooks/useImageGenerationAnchorController';
 import { taskQueueService } from '../../services/task-queue';
 import { workflowCompletionService } from '../../services/workflow-completion-service';
@@ -31,6 +37,7 @@ interface ImageGenerationAnchorContentProps {
   board: PlaitBoard;
   element: PlaitImageGenerationAnchor;
   selected: boolean;
+  onSizeChange?: (size: { width: number; height: number }) => void;
 }
 
 const PHASE_CENTER_LABELS = {
@@ -52,14 +59,33 @@ const STACK_SLOT_STATUS_LABELS = {
 
 export const ImageGenerationAnchorContent: React.FC<
   ImageGenerationAnchorContentProps
-> = ({ board, element, selected }) => {
+> = ({ board, element, selected, onSizeChange }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card || !onSizeChange) return;
+    const measure = () =>
+      onSizeChange({ width: card.offsetWidth, height: card.offsetHeight });
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      // ResizeObserver reports layout pixels before the canvas zoom transform.
+      const size = entry?.borderBoxSize?.[0];
+      if (size)
+        onSizeChange({ width: size.inlineSize, height: size.blockSize });
+      else measure();
+    });
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [onSizeChange]);
   const { viewModel } = useImageGenerationAnchorController({
     board,
     anchor: element,
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const relatedTasks = useMemo(
-    () => getTasksForImageGenerationAnchor(element, taskQueueService.getAllTasks()),
+    () =>
+      getTasksForImageGenerationAnchor(element, taskQueueService.getAllTasks()),
     [element]
   );
   const resolvedTask = useMemo(
@@ -95,40 +121,6 @@ export const ImageGenerationAnchorContent: React.FC<
       : isRenderingResult
       ? 'loading'
       : 'default';
-  const detailItems = useMemo(
-    () => [
-      {
-        label: '编号',
-        value:
-          resolvedTask?.id ||
-          element.primaryTaskId ||
-          element.taskIds[0] ||
-          element.workflowId,
-        copyable: true,
-      },
-      { label: '阶段', value: viewModel.phaseLabel },
-      { label: '形态', value: viewModel.anchorType },
-      { label: '过渡', value: viewModel.transitionMode },
-      {
-        label: '任务',
-        value: element.primaryTaskId || (element.taskIds[0] ?? '待绑定'),
-        copyable: true,
-      },
-      { label: '工作流', value: element.workflowId, copyable: true },
-      { label: '错误', value: viewModel.error || '无' },
-    ],
-    [
-      resolvedTask?.id,
-      element.primaryTaskId,
-      element.taskIds,
-      element.workflowId,
-      viewModel.anchorType,
-      viewModel.error,
-      viewModel.phaseLabel,
-      viewModel.transitionMode,
-    ]
-  );
-
   const stopEventPropagation = useCallback(
     (event: React.PointerEvent | React.MouseEvent) => {
       event.stopPropagation();
@@ -154,27 +146,6 @@ export const ImageGenerationAnchorContent: React.FC<
     },
     []
   );
-  const copyText = useCallback(
-    async (
-      event: React.PointerEvent | React.MouseEvent,
-      value?: string | null
-    ) => {
-      stopPointer(event);
-      if (!value) {
-        return;
-      }
-
-      try {
-        await navigator.clipboard.writeText(value);
-        MessagePlugin.success('已复制 ID');
-      } catch (error) {
-        console.error('[ImageGenerationAnchor] Failed to copy text:', error);
-        MessagePlugin.error('复制失败');
-      }
-    },
-    [stopPointer]
-  );
-
   const handleAction = useCallback(
     (actionType: ImageGenerationAnchorActionType) => {
       if (actionType === 'none') {
@@ -284,21 +255,10 @@ export const ImageGenerationAnchorContent: React.FC<
                 <span className="image-generation-anchor__error-id-text">
                   ID: {failureIdentifier}
                 </span>
-                <button
-                  type="button"
-                  className="image-generation-anchor__copy-button"
-                  onPointerDown={stopInteractionStart}
-                  onMouseDown={stopInteractionStart}
-                  onPointerUp={stopEventPropagation}
-                  onMouseUp={stopEventPropagation}
-                  onClick={(event) => {
-                    void copyText(event, failureIdentifier);
-                  }}
-                  aria-label="复制 ID"
-                  title="复制 ID"
-                >
-                  <Copy size={12} />
-                </button>
+                <ImageGenerationCopyButton
+                  label="本地任务 ID"
+                  value={failureIdentifier}
+                />
               </span>
             ) : null}
             <button
@@ -430,6 +390,7 @@ export const ImageGenerationAnchorContent: React.FC<
 
   return (
     <div
+      ref={cardRef}
       className={classNames(
         'image-generation-anchor',
         `image-generation-anchor--${viewModel.anchorType}`,
@@ -474,40 +435,14 @@ export const ImageGenerationAnchorContent: React.FC<
       </div>
 
       {detailsOpen ? (
-        <div className="image-generation-anchor__details">
-          {detailItems.map((item) => (
-            <div
-              key={item.label}
-              className="image-generation-anchor__detail-row"
-            >
-              <span className="image-generation-anchor__detail-label">
-                {item.label}
-              </span>
-              <span className="image-generation-anchor__detail-value">
-                <span className="image-generation-anchor__detail-value-text">
-                  {item.value}
-                </span>
-                {item.copyable && item.value ? (
-                  <button
-                    type="button"
-                    className="image-generation-anchor__copy-button image-generation-anchor__copy-button--detail"
-                    onPointerDown={stopInteractionStart}
-                    onMouseDown={stopInteractionStart}
-                    onPointerUp={stopEventPropagation}
-                    onMouseUp={stopEventPropagation}
-                    onClick={(event) => {
-                      void copyText(event, item.value);
-                    }}
-                    aria-label={`复制${item.label}`}
-                    title={`复制${item.label}`}
-                  >
-                    <Copy size={12} />
-                  </button>
-                ) : null}
-              </span>
-            </div>
-          ))}
-        </div>
+        <ImageGenerationErrorDetails
+          phaseLabel={viewModel.phaseLabel}
+          failure={viewModel.failureDetails}
+          localTaskId={element.primaryTaskId || element.taskIds[0] || '待绑定'}
+          workflowId={element.workflowId}
+          anchorType={viewModel.anchorType}
+          transitionMode={viewModel.transitionMode}
+        />
       ) : null}
 
       {showActions ? (

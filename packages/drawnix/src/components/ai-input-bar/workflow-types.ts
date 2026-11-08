@@ -1,3 +1,4 @@
+import type { TaskError } from '../../types/shared/core.types';
 import type {
   ParsedGenerationParams,
   GenerationType,
@@ -43,6 +44,7 @@ export interface WorkflowStep {
   result?: unknown;
   /** 错误信息 */
   error?: string;
+  errorDetails?: TaskError;
   /** 执行时间（毫秒） */
   duration?: number;
 }
@@ -118,4 +120,5 @@ export interface WorkflowDefinition {
   };
   /** 错误信息（失败时） */
   error?: string;
+  errorDetails?: TaskError;
 }

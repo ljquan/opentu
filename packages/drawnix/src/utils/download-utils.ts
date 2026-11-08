@@ -113,6 +113,16 @@ export async function downloadMediaFile(
   const sanitizedPrompt = sanitizeFilename(prompt);
   const filename = `${sanitizedPrompt || fallbackName}.${format}`;
 
+  if (isVirtualMediaUrl(normalizedUrl)) {
+    // Read the original cache directly; a missing service worker may return app HTML.
+    return smartDownload([{
+      url: normalizedUrl,
+      type: fallbackName === 'audio' ? 'audio' : fallbackName === 'video' ? 'video' : 'image',
+      filename,
+      audioMetadata,
+    }]);
+  }
+
   if (fallbackName === 'audio') {
     return runSingleDownloadWithFallback(normalizedUrl, async () => {
       const response = await fetch(normalizedUrl, { referrerPolicy: 'no-referrer' });

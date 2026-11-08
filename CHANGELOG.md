@@ -1,3 +1,40 @@
+## 1.2.7 (2026-11-08)
+
+### 🚀 Features
+
+- 完善 GPT Image 2.6 输出模式与透明参数 (#329) ([98bf15e8](https://github.com/ljquan/opentu/commit/98bf15e8))
+- 版本更新后自动获取新模型 (#327) ([9b2efd2c](https://github.com/ljquan/opentu/commit/9b2efd2c))
+
+### 🩹 Fixes
+
+- bound generated image insertion without premature timeouts (#328) ([aff5a6eb](https://github.com/ljquan/opentu/commit/aff5a6eb))
+- link desktop download to Tuzi Assistant (#326) ([936a4494](https://github.com/ljquan/opentu/commit/936a4494))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- yk1125 <1160314789@qq.com>
+- 李泓震 <3029956183@qq.com>
+
+## 1.2.6 (2026-11-05)
+
+### 🚀 Features
+
+- 完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325) ([25c62552](https://github.com/ljquan/opentu/commit/25c62552))
+- 完善生成错误详情与一键复制，修正视频 Request ID 来源 (#324) ([e3f44544](https://github.com/ljquan/opentu/commit/e3f44544))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+- yk1125 <1160314789@qq.com>
+
+## Unreleased
+
+- OpenTu 更新版本后自动获取已配置渠道的模型，成功后同版本不重复获取；新增模型自动展示，保留原有取消勾选和当前模型选择。
+- 接入 Tuzi `gpt-image-2.6-1k`，隔离尺寸和输出参数，保留实际返回的图片尺寸及 GIF 动画。
+- 补齐 `gpt-image-2.6-1k` 的方形、横竖版及横竖屏尺寸选项，保留所选尺寸请求，不再统一覆盖为自动；实际像素以渠道返回为准。
+- 完善 GIF/SVG 响应识别与原文件下载，明确提示上游仅返回内部文件链接的失败；当前渠道 SVG 生成实测返回 HTTP 400，尚不能宣称可用。
+
 ## 1.2.5 (2026-11-02)
 
 ### 🚀 Features

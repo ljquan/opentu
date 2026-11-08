@@ -7,6 +7,10 @@
 
 import type { VideoAPIConfig, GeminiConfig } from './types';
 import {
+  readVideoTaskRequestId,
+  withVideoRequestId,
+} from '../../utils/video-request-id';
+import {
   calculateBlobChecksum,
   compressImageBlob,
   getFileExtension,
@@ -174,6 +178,7 @@ export async function pollVideoStatus(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     assertPollingActive();
     let data: any;
+    let apiRequestId: string | undefined;
     try {
       const statusPath = resolveVideoPollPathForModel(
         videoId,
@@ -218,6 +223,7 @@ export async function pollVideoStatus(
       }
 
       const rawData = await response.json();
+      apiRequestId = readVideoTaskRequestId(rawData);
       data = isMiniMaxH3
         ? normalizeMiniMaxH3VideoResponse(rawData, videoId)
         : rawData;
@@ -288,7 +294,7 @@ export async function pollVideoStatus(
       if (errCode) {
         (error as any).code = errCode;
       }
-      throw error;
+      throw withVideoRequestId(error, apiRequestId);
     }
 
     // 等待下一次轮询
@@ -554,6 +560,8 @@ export async function cacheRemoteUrl(
     extraMetadata?: Record<string, unknown>;
     resultVisibility?: TaskResultVisibility;
     signal?: AbortSignal;
+    /** Canvas insertion can wait for a slow original download without restarting it. */
+    imageDownloadTimeoutMs?: number;
     onCacheWarning?: (warning: CacheWarning) => void;
   }
 ): Promise<string> {
@@ -727,8 +735,11 @@ export async function cacheRemoteUrl(
         mediaType === 'image'
           ? await withImageOperationTimeout(
               download,
-              IMAGE_DOWNLOAD_TIMEOUT_MS,
-              '图片下载超时（30秒），已保留原图地址，可重试插入',
+              options?.imageDownloadTimeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS,
+              `图片下载超时（${Math.round(
+                (options?.imageDownloadTimeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS) /
+                  1000
+              )}秒），已保留原图地址，可重试插入`,
               options?.signal,
               'download'
             )

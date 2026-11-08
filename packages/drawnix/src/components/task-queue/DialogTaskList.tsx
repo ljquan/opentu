@@ -235,6 +235,7 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
           : [task.result.url];
         const insertionResult = await executeCanvasInsertion({
           board,
+          imageInsertionPolicy: 'generated-result',
           items: urls.map((url) => ({
             type: 'image',
             content: normalizeImageDataUrl(url),

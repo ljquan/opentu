@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { getWorkZoneVisualRectangle } from './workzone-transforms';
+import type { PlaitBoard } from '@plait/core';
+import { getWorkZoneVisualRectangle, setWorkZoneRenderedSize, clearWorkZoneRenderedSize } from './workzone-transforms';
 import type { PlaitWorkZone } from '../types/workzone.types';
 
 function createWorkZone(zoom: number): PlaitWorkZone {
@@ -43,4 +44,15 @@ describe('getWorkZoneVisualRectangle', () => {
       height: 120,
     });
   });
+});
+
+it('measures expanded diagnostics before element scaling and clears stale sizes', () => {
+  const board = {} as PlaitBoard;
+  const zone = createWorkZone(.5);
+  setWorkZoneRenderedSize(board, zone.id, {width:360,height:420});
+  expect(getWorkZoneVisualRectangle(zone, board)).toMatchObject({width:720,height:840});
+  expect(zone.points).toEqual([[10,20],[370,260]]);
+  expect(getWorkZoneVisualRectangle(zone, {} as PlaitBoard).height).toBe(480);
+  clearWorkZoneRenderedSize(board, zone.id);
+  expect(getWorkZoneVisualRectangle(zone, board).height).toBe(480);
 });

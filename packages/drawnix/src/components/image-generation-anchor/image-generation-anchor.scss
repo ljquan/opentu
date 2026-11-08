@@ -497,6 +497,8 @@
 
 .image-generation-anchor__error {
   display: flex;
+  width: 100%;
+  min-width: 0;
   flex-direction: column;
   align-items: center;
   gap: 4px;
@@ -613,11 +615,23 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(226, 232, 240, 0.9);
+  flex: none;
+  user-select: text;
+}
+
+.image-generation-anchor--details-open {
+  height: auto;
+  min-height: 100%;
+
+  .image-generation-anchor__surface {
+    flex: none;
+    min-height: 136px;
+  }
 }
 
 .image-generation-anchor__detail-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   gap: 8px;
   align-items: flex-start;
 }
@@ -634,8 +648,32 @@
   font-size: 11px;
   line-height: 1.45;
   color: rgba(51, 65, 85, 0.84);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.image-generation-anchor__copy-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+
+  > .image-generation-anchor__detail-value {
+    flex: 1;
+  }
+}
+
+.image-generation-anchor__detail-value--id {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.image-generation-anchor__copy-button:focus-visible {
+  outline: 2px solid var(--anchor-accent);
+  outline-offset: 2px;
 }
 
 .image-generation-anchor__detail-value-text {

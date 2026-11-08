@@ -595,6 +595,9 @@ class GenerationAPIService {
         throw error;
       }
       const wrappedError = new Error(error.message || '图片生成失败');
+      if (error.diagnostics) {
+        (wrappedError as any).diagnostics = error.diagnostics;
+      }
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;
       }
@@ -674,6 +677,9 @@ class GenerationAPIService {
       };
     } catch (error: any) {
       const wrappedError = new Error(error.message || '图片生成失败');
+      if (error.diagnostics) {
+        (wrappedError as any).diagnostics = error.diagnostics;
+      }
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;
       }
@@ -785,6 +791,7 @@ class GenerationAPIService {
       console.error('[GenerationAPI] Video generation error:', error);
       if (error instanceof SubmissionPersistenceError) throw error;
       const wrappedError = new Error(error.message || '视频生成失败');
+      if (error.diagnostics) Object.assign(wrappedError, {diagnostics: error.diagnostics});
       if (error.apiErrorBody) {
         (wrappedError as any).apiErrorBody = error.apiErrorBody;
       }

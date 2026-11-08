@@ -610,6 +610,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
           : [taskResult.url];
         const insertionResult = await executeCanvasInsertion({
           board,
+          imageInsertionPolicy: 'generated-result',
           items: urls.map((url) => ({
             type: 'image',
             content: normalizeImageDataUrl(url),

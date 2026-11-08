@@ -69,13 +69,15 @@ export const loadHTMLImageElement = (dataURL: DataURL, crossOrigin = false) => {
   );
 };
 
-const loadHTMLImageElementFromBlob = (blob: Blob) => {
+const loadHTMLImageElementFromBlob = (blob: Blob, signal?: AbortSignal) => {
+  signal?.throwIfAborted();
   const objectUrl = URL.createObjectURL(blob);
   return loadImageElementWithTimeout(
     objectUrl,
     false,
     IMAGE_DECODE_TIMEOUT_MS,
-    '图片解码超时（15秒）'
+    '图片解码超时（15秒）',
+    signal
   ).finally(() => URL.revokeObjectURL(objectUrl));
 };
 
@@ -83,7 +85,8 @@ const loadImageElementWithTimeout = (
   url: string,
   crossOrigin: boolean,
   timeoutMs: number,
-  timeoutMessage: string
+  timeoutMessage: string,
+  upstreamSignal?: AbortSignal
 ): Promise<HTMLImageElement> =>
   withImageOperationTimeout(
     (signal) =>
@@ -134,7 +137,8 @@ const loadImageElementWithTimeout = (
         }
       }),
     timeoutMs,
-    timeoutMessage
+    timeoutMessage,
+    upstreamSignal
   );
 
 const getImageFileName = (file: File): string => {
@@ -175,8 +179,10 @@ export const loadHTMLImageElementWithRetry = (
   dataURL: DataURL,
   crossOrigin = false,
   maxRetries = 3,
-  bypassSWAfterRetries = 1
+  bypassSWAfterRetries = 1,
+  signal?: AbortSignal
 ): Promise<HTMLImageElement> => {
+  signal?.throwIfAborted();
   // 存量数据可能存有原始 base64，先统一转为 data URL
   const normalizedURL = normalizeImageDataUrl(dataURL) as DataURL;
 
@@ -194,19 +200,27 @@ export const loadHTMLImageElementWithRetry = (
           normalizedURL
         ),
       IMAGE_CACHE_TIMEOUT_MS,
-      '图片缓存读取超时（20秒）'
+      '图片缓存读取超时（20秒）',
+      signal
     )
-      .catch(() => null)
+      .catch(() => {
+        signal?.throwIfAborted();
+        return null;
+      })
       .then((blob) => {
         const loadDirect = () =>
           loadHTMLImageElementWithRetryDirect(
             normalizedURL,
             crossOrigin,
             maxRetries,
-            bypassSWAfterRetries
+            bypassSWAfterRetries,
+            signal
           );
         return blob && blob.size > 0
-          ? loadHTMLImageElementFromBlob(blob).catch(loadDirect)
+          ? loadHTMLImageElementFromBlob(blob, signal).catch(() => {
+              signal?.throwIfAborted();
+              return loadDirect();
+            })
           : loadDirect();
       });
   }
@@ -215,7 +229,8 @@ export const loadHTMLImageElementWithRetry = (
     normalizedURL,
     crossOrigin,
     maxRetries,
-    bypassSWAfterRetries
+    bypassSWAfterRetries,
+    signal
   );
 };
 
@@ -223,7 +238,8 @@ const loadHTMLImageElementWithRetryDirect = (
   normalizedURL: DataURL,
   crossOrigin: boolean,
   maxRetries: number,
-  bypassSWAfterRetries: number
+  bypassSWAfterRetries: number,
+  upstreamSignal?: AbortSignal
 ): Promise<HTMLImageElement> => {
   // 外部 URL 不设置 crossOrigin（避免 CORS），不追加参数（避免破坏签名）
   const isExternalUrl =
@@ -336,13 +352,23 @@ const loadHTMLImageElementWithRetryDirect = (
         tryLoad();
       }),
     IMAGE_ELEMENT_LOAD_TIMEOUT_MS,
-    '图片加载超时（5分钟）'
+    '图片加载超时（5分钟）',
+    upstreamSignal
   );
 };
 
+/** Optional policy for generated-result insertion; other callers keep defaults. */
+export interface ImageLoadOptions {
+  signal?: AbortSignal;
+  imageDownloadTimeoutMs?: number;
+}
+
 export async function loadImageElementForCanvas(
-  imageUrl: DataURL
+  imageUrl: DataURL,
+  options?: ImageLoadOptions
 ): Promise<HTMLImageElement> {
+  const signal = options?.signal;
+  signal?.throwIfAborted();
   const canUseServiceWorker =
     typeof navigator !== 'undefined' &&
     'serviceWorker' in navigator &&
@@ -352,18 +378,21 @@ export async function loadImageElementForCanvas(
     const cachedBlob = await withImageOperationTimeout(
       () => unifiedCacheService.getCachedBlob(imageUrl),
       IMAGE_CACHE_TIMEOUT_MS,
-      '图片缓存读取超时（20秒），可重试插入已有结果'
+      '图片缓存读取超时（20秒），可重试插入已有结果',
+      signal
     );
     if (cachedBlob && cachedBlob.size > 0) {
       try {
-        return await loadHTMLImageElementFromBlob(cachedBlob);
+        return await loadHTMLImageElementFromBlob(cachedBlob, signal);
       } catch (cachedError) {
+        signal?.throwIfAborted();
         // Repair the stable URL itself; recovering only image dimensions would
         // still insert an element pointing at the broken cached file.
         const cacheInfo = await withImageOperationTimeout(
           () => unifiedCacheService.getCacheInfo(imageUrl),
           IMAGE_CACHE_TIMEOUT_MS,
-          '图片缓存信息读取超时（20秒），可重试插入已有结果'
+          '图片缓存信息读取超时（20秒），可重试插入已有结果',
+          signal
         );
         const sourceUrl = cacheInfo.metadata?.sourceUrl;
         if (
@@ -388,11 +417,13 @@ export async function loadImageElementForCanvas(
                 signal.throwIfAborted();
                 return blob;
               },
-              IMAGE_DOWNLOAD_TIMEOUT_MS,
-              '原图下载超时，请稍后重试'
+              options?.imageDownloadTimeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS,
+              '原图下载超时，请稍后重试',
+              signal
             );
             if (!blob.size) throw new Error('原图下载内容为空');
-            await loadHTMLImageElementFromBlob(blob).catch(() => {
+            await loadHTMLImageElementFromBlob(blob, signal).catch(() => {
+              signal?.throwIfAborted();
               throw new Error('原图下载完成，但图片解码失败');
             });
             await withImageOperationTimeout(
@@ -407,17 +438,20 @@ export async function loadImageElementForCanvas(
                   }
                 ),
               IMAGE_CACHE_TIMEOUT_MS,
-              '图片缓存写入超时，请稍后重试'
+              '图片缓存写入超时，请稍后重试',
+              signal
             );
             const repairedBlob = await withImageOperationTimeout(
               () => unifiedCacheService.getCachedBlob(imageUrl),
               IMAGE_CACHE_TIMEOUT_MS,
-              '图片缓存读取超时，请稍后重试'
+              '图片缓存读取超时，请稍后重试',
+              signal
             );
             if (!repairedBlob?.size)
               throw new Error('原图下载完成，但本地缓存不可用');
-            return await loadHTMLImageElementFromBlob(repairedBlob);
+            return await loadHTMLImageElementFromBlob(repairedBlob, signal);
           } catch (error) {
+            signal?.throwIfAborted();
             const message =
               error instanceof Error ? error.message : '原图下载或缓存修复失败';
             throw new Error(`图片缓存损坏，恢复失败：${message}`);
@@ -430,19 +464,21 @@ export async function loadImageElementForCanvas(
     // existing thumbnail when the original has been evicted. Use that same
     // readable source for insertion validation instead of waiting on the SW.
     const previewBlob = await withImageOperationTimeout(
-      () => unifiedCacheService.getCachedImageBlobWithThumbnailFallback(imageUrl),
+      () =>
+        unifiedCacheService.getCachedImageBlobWithThumbnailFallback(imageUrl),
       IMAGE_CACHE_TIMEOUT_MS,
-      '图片预览缓存读取超时（20秒），可重试插入已有结果'
+      '图片预览缓存读取超时（20秒），可重试插入已有结果',
+      signal
     );
     if (previewBlob && previewBlob.size > 0) {
-      return loadHTMLImageElementFromBlob(previewBlob);
+      return loadHTMLImageElementFromBlob(previewBlob, signal);
     }
     if (!canUseServiceWorker) {
       throw new Error('图片缓存不可用，请重新生成或上传');
     }
   }
 
-  return loadHTMLImageElementWithRetry(imageUrl, true);
+  return loadHTMLImageElementWithRetry(imageUrl, true, 3, 1, signal);
 }
 
 export const buildImage = (
@@ -629,8 +665,11 @@ export const insertImageFromUrl = async (
   skipSelect?: boolean,
   boardGuard?: () => boolean,
   // 暂存画板没有 DOM 宿主；已有明确坐标时直接构造图片节点
-  insertWithoutBoardHost?: boolean
+  insertWithoutBoardHost?: boolean,
+  options?: ImageLoadOptions
 ): Promise<string | undefined> => {
+  const signal = options?.signal;
+  signal?.throwIfAborted();
   // 插入画布前把临时 Blob、远程签名 URL 和 data URL 固化为稳定本地地址。
   let resolvedUrl = normalizeImageDataUrl(imageUrl);
   if (
@@ -647,11 +686,16 @@ export const insertImageFromUrl = async (
       'image',
       'png',
       undefined,
-      { forceRemoteCache: true, returnLocalCacheUrl: true }
+      {
+        forceRemoteCache: true,
+        returnLocalCacheUrl: true,
+        ...options,
+      }
     );
     if (cachedUrl !== resolvedUrl) {
       resolvedUrl = cachedUrl;
     }
+    signal?.throwIfAborted();
     if (boardGuard && !boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
     }
@@ -704,7 +748,11 @@ export const insertImageFromUrl = async (
   } else {
     // 使用带重试的图片加载函数，支持自动绕过 SW
     // console.log(`[insertImageFromUrl] Loading image with retry...`);
-    const image = await loadImageElementForCanvas(resolvedUrl as DataURL);
+    const image = await loadImageElementForCanvas(
+      resolvedUrl as DataURL,
+      options
+    );
+    signal?.throwIfAborted();
     if (boardGuard && !boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
     }
@@ -757,6 +805,7 @@ export const insertImageFromUrl = async (
     }
   }
 
+  signal?.throwIfAborted();
   if (boardGuard && !boardGuard()) {
     throw new Error('画板已切换，取消本次插入');
   }

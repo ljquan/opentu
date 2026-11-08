@@ -67,6 +67,45 @@ describe('task-storage-writer image attempt guards', () => {
     vi.unstubAllGlobals();
   });
 
+  it('preserves video submission ID across reopening and failure, and clears it for a new remote task', async () => {
+    const task = createVideoTask();
+    await taskStorageWriter.saveTask(task);
+    await taskStorageWriter.updateRemoteId(
+      task.id,
+      'remote-1',
+      undefined,
+      undefined,
+      {
+        apiRequestId: 'site-submit-id',
+      }
+    );
+    taskStorageWriter.close();
+    await taskStorageWriter.updateRemoteId(task.id, 'remote-1');
+    expect((await taskStorageWriter.getTask(task.id))?.apiRequestId).toBe(
+      'site-submit-id'
+    );
+    await taskStorageWriter.failTask(task.id, {
+      code: 'task_failed',
+      message: 'Rejected (request id: upstream-id)',
+      details: { requestId: 'poll-id' },
+    });
+    expect(
+      (await taskStorageWriter.getTask(task.id))?.error?.details
+    ).toMatchObject({
+      apiRequestId: 'site-submit-id',
+      requestId: 'poll-id',
+    });
+    await taskStorageWriter.saveTask({
+      ...task,
+      remoteId: 'remote-1',
+      apiRequestId: 'site-submit-id',
+    });
+    await taskStorageWriter.updateRemoteId(task.id, 'remote-2');
+    expect(
+      (await taskStorageWriter.getTask(task.id))?.apiRequestId
+    ).toBeUndefined();
+  });
+
   it('blocks late writes while still allowing the task store to be cleared', async () => {
     await taskStorageWriter.saveTask(createImageTask('request-current'));
     taskStorageWriter.pauseWrites();

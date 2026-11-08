@@ -1,8 +1,11 @@
 {
-  "version": "1.2.5",
-  "buildTime": "2026-11-02T08:01:35.642Z",
+  "version": "1.2.7",
+  "buildTime": "2026-11-08T07:47:31.641Z",
   "gitCommit": "unknown",
   "changelog": [
-    "完善批量导入、历史筛选及生图结果交付 (#323)"
+    "bound generated image insertion without premature timeouts (#328)",
+    "link desktop download to Tuzi Assistant (#326)",
+    "完善 GPT Image 2.6 输出模式与透明参数 (#329)",
+    "版本更新后自动获取新模型 (#327)"
   ]
 }

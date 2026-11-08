@@ -171,6 +171,18 @@ describe('UnifiedCacheService reference fidelity', () => {
 });
 
 describe('UnifiedCacheService insecure LAN fallback', () => {
+  it.each([
+    ['gif', 'image/gif', 'GIF89a-original-animation-bytes'],
+    ['svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"/>'],
+  ])('restores the original %s MIME and bytes from persistent storage', async (extension, mime, content) => {
+    vi.stubGlobal('caches', undefined);
+    const url = `/__aitu_cache__/image/gpt26-original.${extension}`;
+    await unifiedCacheService.cacheMediaFromBlob(url, new Blob([content], { type: mime }), 'image');
+    const restored = await unifiedCacheService.getCachedBlob(url);
+    expect(restored?.type).toBe(mime);
+    expect(await readBlobAsText(restored)).toBe(content);
+  });
+
   it('persists and reads asset-library media when Cache Storage is unavailable', async () => {
     vi.stubGlobal('caches', undefined);
     const blob = new Blob(['local-image'], { type: 'image/png' });

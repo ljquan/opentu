@@ -674,3 +674,11 @@ describe('callGoogleGenerateContentRaw', () => {
     );
   });
 });
+
+describe('text failure diagnostics', () => {
+  it('captures the provider request ID and model before the API error is wrapped', async () => {
+    sendMock.mockResolvedValue(new Response(JSON.stringify({error:{code:'denied',message:'Access denied (request id: text-provider-id)'}}), {status:403,headers:{'x-request-id':'gateway-id'}}));
+    const error = await callApiRaw({apiKey:'secret',baseUrl:'https://example.com',modelName:'actual-text-model'}, [{role:'user',content:[{type:'text',text:'test'}]}]).catch(error=>error);
+    expect(error.diagnostics).toMatchObject({requestId:'text-provider-id',apiErrorCode:'denied',httpStatus:403,modelId:'actual-text-model'});
+  });
+});

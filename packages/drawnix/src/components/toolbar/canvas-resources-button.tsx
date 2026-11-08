@@ -98,12 +98,12 @@ export const CanvasResourcesButton: React.FC = () => {
         </div>
         <a
           className="canvas-resources__link"
-          href="https://aiw520.github.io/opentuAI/download.html"
+          href="https://tuziapi.github.io/tuzi-switch/#td-r0-downloads"
           target="_blank"
           rel="noopener noreferrer"
         >
-          <span className="canvas-resources__icon canvas-resources__icon--download">
-            <Download size={20} />
+          <span className="canvas-resources__icon canvas-resources__icon--download" aria-hidden="true">
+            <img src={`${import.meta.env.BASE_URL}logo-tuzi.png`} alt="" width={36} height={36} />
           </span>
           <span className="canvas-resources__text">
             <strong>{t('resources.download')}</strong>

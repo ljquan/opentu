@@ -1,6 +1,37 @@
 {
   "versions": [
     {
+      "version": "1.2.7",
+      "date": "2026-11-08",
+      "changes": {
+        "features": [
+          "完善 GPT Image 2.6 输出模式与透明参数 (#329)",
+          "版本更新后自动获取新模型 (#327)"
+        ],
+        "fixes": [
+          "bound generated image insertion without premature timeouts (#328)",
+          "link desktop download to Tuzi Assistant (#326)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "完善 GPT Image 2.6 输出模式与透明参数 (#329)"
+    },
+    {
+      "version": "1.2.6",
+      "date": "2026-11-05",
+      "changes": {
+        "features": [
+          "完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325)",
+          "完善生成错误详情与一键复制，修正视频 Request ID 来源 (#324)"
+        ],
+        "fixes": [],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325)"
+    },
+    {
       "version": "1.2.5",
       "date": "2026-11-02",
       "changes": {
@@ -838,137 +869,6 @@
       "withdrawalReason": "包含有缺陷的供应商 API 路由构建，已从发布服务器移除，禁止部署或回滚到此版本。",
       "type": "patch",
       "highlights": "add pr.opentu.ai prerelease staging with promote workflow"
-    },
-    {
-      "version": "1.0.5",
-      "date": "2026-07-19",
-      "changes": {
-        "features": [
-          "完善图片请求 ID 找回与失败重试体验",
-          "新增 omni-flash 视频模型支持",
-          "画布图片选中状态锁定优化",
-          "供应商设置增加「图片优先使用异步接口」开关",
-          "sync media library batch select functionality across AIInputBar and EnhancedChatInput",
-          "reply to workflow image results",
-          "添加批量插入功能",
-          "为绘图工具添加键盘快捷键调整大小功能",
-          "support AI image mask editing",
-          "优化长提示词输入框展开体验",
-          "add image generate-again prefill",
-          "为视频生成 prompt 添加参考图用途说明",
-          "支持异步图片生成和生成素材重置",
-          "添加目标总时长配置并优化UI与错误处理",
-          "优化价格展示增加Bussiness",
-          "优化视频工作流批量生成",
-          "add image 3d transform panel",
-          "在历史记录中显示创建时间并调整排序",
-          "新增 HappyHorse 视频模型支持并重构工作流外壳",
-          "完善多图生成视觉提示词工作流",
-          "优化多图生成提示词预览",
-          "支持完整环境备份与覆盖恢复",
-          "添加PPT生成参考图片支持并修复React组件卸载问题"
-        ],
-        "fixes": [
-          "stabilize provider endpoints and image generation (#200)",
-          "下线 jsDelivr/npm CDN 发布方案，改用自建服务器直发",
-          "preserve remote media cache URL contract",
-          "支持无分界线拼图智能拆图",
-          "统一图片尺寸计算机制，修复批量插入叠加问题",
-          "修复图片尺寸相关问题（真实尺寸更新、批量插入叠加）",
-          "补修 MCP 路径 lockReferenceDimensions=true，更新完整审计文档",
-          "修复图片生成比例错误和 API 参数兼容性问题 | 修复 buildImageRequestBody 中 size 为比例格式时未转换像素尺寸(所有非1:1比例都生成1:1) | 移除 response_format url 参数(rix API 不支持) | 修复 lockReferenceDimensions 导致非正方形图片被压缩",
-          "修复 MJ 运行时模型参数与调度路由",
-          "修复异步图片接口开关路由",
-          "移除图片接口默认 response_format",
-          "异步接口开关持久化 + 图片任务刷新后恢复轮询",
-          "split batch media action copy by target context",
-          "support bulk media insertion and image generation compatibility",
-          "修复批量导入图片弹窗显示异常",
-          "修复蒙版画笔导出和预览样式问题",
-          "keep send button visible",
-          "resume async image tasks after reload",
-          "优化参考图描述和提示词优先级协议",
-          "allow hand panning while drawing",
-          "address regenerate prefill review findings",
-          "移除生成视频时重复的提示词构建逻辑",
-          "强化爆款视频首尾帧角色一致性",
-          "绑定异步任务供应商路由",
-          "parallelize character reference generation",
-          "pass image transform context to AI",
-          "优化页面卡片布局并修复提示词回填逻辑",
-          "强化历史收藏入口并放宽 AI 并发",
-          "防止复制粘贴事件在可编辑元素中触发",
-          "修正任务队列批量序号显示",
-          "修复多图生成队列参数并记录经验",
-          "优化媒体预览缩放同步",
-          "优化媒体预览自适应展示",
-          "修复 Milkdown 节点上下文注册顺序",
-          "改进部署包关键资源检查逻辑",
-          "修复图片生成完成后画布自动插入卡住",
-          "改进动态导入错误恢复机制并优化错误处理",
-          "guard toImage fetch failures"
-        ],
-        "improvements": [
-          "同步更新web应用版本至1.0.4并更新构建时间",
-          "发布v1.0.3并完成多项优化修复",
-          "同步 1.0.0 前端版本元数据",
-          "更新版本号至0.9.6并同步构建时间",
-          "更新版本号至0.9.2并刷新构建时间",
-          "更新应用版本号至0.6.99并同步构建时间",
-          "补充视频主体引用经验",
-          "更新应用版本号至0.6.95并刷新构建时间",
-          "更新应用版本号至0.6.94并刷新构建时间",
-          "更新应用版本号至0.6.92并同步构建时间",
-          "同步 0.6.91 Web 版本元数据",
-          "更新应用版本号至0.6.89",
-          "添加 mermaid 依赖用于图表渲染",
-          "更新应用版本号至0.6.88并同步构建时间",
-          "更新应用版本号至0.6.87并同步构建时间",
-          "修复 tuzi-api 端点路由兜底",
-          "修复 PR190 合并阻塞问题",
-          "修复 CI pnpm 缺失导致构建失败",
-          "Disable CDN entry asset rewrites",
-          "修复 PR185 硬边界拆图误判风险",
-          "修复 PR188 文本内容数组归一化",
-          "修复多图生成 JSON 解析和默认模型迁移",
-          "修复首帧生图窗口复用状态",
-          "文档：补充模型分类优先级经验",
-          "调整运行时模型分类优先级并补充 category 回归测试",
-          "修复：同步聊天抽屉素材库批量选择",
-          "更新应用版本到 0.9.8",
-          "Refactor canvas batch insertion to viewport flow layout",
-          "修复对话输入框内层描边并抽出共享壳",
-          "聊天抽屉图片预览收口到列表层",
-          "补充首屏壳层与 chunk 守门经验",
-          "修复素材库配色与多选架构，补充UI规范和架构说明",
-          "修复：蒙版预览缓存不进入素材库",
-          "Bump web app version to 0.9.7",
-          "Stop idle-prefetch retries from blocking SW updates",
-          "Refresh docs, CI, and Docker build",
-          "perf(changelog): 限制解析的版本数量以避免内存问题"
-        ]
-      },
-      "type": "patch",
-      "highlights": "完善图片请求 ID 找回与失败重试体验"
-    },
-    {
-      "version": "1.0.4",
-      "date": "2026-07-18",
-      "changes": {
-        "features": [
-          "完善图片请求 ID 找回与失败重试体验"
-        ],
-        "fixes": [
-          "下线 jsDelivr/npm CDN 发布方案，改用自建服务器直发",
-          "preserve remote media cache URL contract"
-        ],
-        "improvements": [
-          "发布v1.0.3并完成多项优化修复",
-          "修复 tuzi-api 端点路由兜底"
-        ]
-      },
-      "type": "patch",
-      "highlights": "完善图片请求 ID 找回与失败重试体验"
     }
   ]
 }

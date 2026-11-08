@@ -965,6 +965,10 @@ class SettingsManager {
 
       result.set(draft.profileId.trim(), {
         profileId: draft.profileId.trim(),
+        lastAutoRefreshVersion:
+          typeof draft.lastAutoRefreshVersion === 'string'
+            ? draft.lastAutoRefreshVersion.trim() || undefined
+            : undefined,
         discoveredAt:
           typeof draft.discoveredAt === 'number' ? draft.discoveredAt : null,
         discoveredModels: Array.isArray(draft.discoveredModels)
@@ -980,9 +984,10 @@ class SettingsManager {
         manualBindings: this.normalizeProviderCatalogManualBindings(
           draft.manualBindings
         ),
-        discoverySource: draft.discoverySource === 'marketplace'
-          ? 'marketplace'
-          : undefined,
+        discoverySource:
+          draft.discoverySource === 'marketplace' || draft.discoverySource === 'models-endpoint'
+            ? draft.discoverySource
+            : undefined,
         sourceBaseUrl:
           typeof draft.sourceBaseUrl === 'string'
             ? draft.sourceBaseUrl
