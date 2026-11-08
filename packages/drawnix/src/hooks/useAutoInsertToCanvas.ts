@@ -1465,6 +1465,14 @@ export function useAutoInsertToCanvas(
         const inserts: PendingInsert[] = [];
         const deferredInserts: PendingInsert[] = [];
         for (const pendingInsert of bufferedInserts) {
+          // Manual insertion can finish while this older completion snapshot
+          // is waiting in the group buffer. Recheck the store before inserting.
+          const latestTask = getTaskQueueService().getTask(pendingInsert.task.id);
+          if (latestTask?.insertedToCanvas) {
+            releaseTaskInsertion(latestTask.id);
+            rememberInsertedTask(latestTask.id);
+            continue;
+          }
           if (
             canInsertTaskCanvasAssociationsOnCurrentBoard(
               pendingInsert.task,

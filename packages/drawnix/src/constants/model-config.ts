@@ -23,6 +23,12 @@ export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
 export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
+export const GPT_IMAGE_26_MODEL_IDS = [
+  'gpt-image-2.6',
+  GPT_IMAGE_26_1K_MODEL_ID,
+  'gpt-image-2.6-flare',
+  'gpt-image-2.6-sunburst',
+];
 export const GPT_IMAGE_26_SIZE_OPTIONS = [
   { value: 'auto', label: '自动（原始尺寸）' },
   { value: '1024x1024', label: '1:1 方形' },
@@ -33,7 +39,7 @@ export const GPT_IMAGE_26_SIZE_OPTIONS = [
 ];
 
 export function isGPTImage26ModelId(modelId?: string | null): boolean {
-  return modelId?.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID;
+  return GPT_IMAGE_26_MODEL_IDS.includes(modelId?.trim().toLowerCase() || '');
 }
 export const FLUX_3_IMAGE_ASPECT_RATIOS = [
   'auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4',
@@ -495,10 +501,46 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     tags: ['new'],
   },
   {
+    id: 'gpt-image-2.6',
+    label: 'gpt-image-2.6',
+    shortLabel: 'GPT Image 2.6',
+    shortCode: 'gpt26',
+    description: 'Tuzi GPT Image 2.6 图片模型；输出格式和编辑能力以所选渠道为准。',
+    type: 'image',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
     id: GPT_IMAGE_26_1K_MODEL_ID,
     label: GPT_IMAGE_26_1K_MODEL_ID,
     shortCode: 'gpt261k',
     description: 'Tuzi 图像生成渠道；提示词写“生成 GIF 图”可生成动图。保留实际输出尺寸，1k 不代表固定 1024×1024。',
+    type: 'image',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-image-2.6-flare',
+    label: 'gpt-image-2.6-flare',
+    shortLabel: 'GPT Image 2.6 Flare',
+    shortCode: 'gpt26f',
+    description: 'Tuzi 图片生成与编辑模型；default 分组可通过提示词或参数请求 GIF，SVG 需官方 / 官方优惠分组。',
+    type: 'image',
+    vendor: ModelVendor.GPT,
+    supportsTools: true,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['new'],
+  },
+  {
+    id: 'gpt-image-2.6-sunburst',
+    label: 'gpt-image-2.6-sunburst',
+    shortLabel: 'GPT Image 2.6 Sunburst',
+    shortCode: 'gpt26s',
+    description: 'Tuzi 图片生成与编辑模型；default 分组可通过提示词或参数请求 GIF，SVG 需官方 / 官方优惠分组。',
     type: 'image',
     vendor: ModelVendor.GPT,
     supportsTools: true,
@@ -2151,7 +2193,7 @@ export function isGPTImage2ModelId(modelId: string): boolean {
 const GPT_IMAGE_MODEL_IDS = [
   ...GPT_IMAGE_2_MODEL_IDS,
   ...GPT_IMAGE_25_MODEL_IDS,
-  GPT_IMAGE_26_1K_MODEL_ID,
+  ...GPT_IMAGE_26_MODEL_IDS,
 ];
 const MJ_IMAGE_MODEL_IDS = ['mj-imagine'];
 const GEMINI_31_FLASH_IMAGE_MODEL_IDS = ['gemini-3.1-flash-image-preview'];
@@ -2994,7 +3036,10 @@ export const IMAGE_PARAMS: ParamConfig[] = [
   ).map((param) => ({
     ...param,
     advanced: true,
-    compatibleModels: GPT_IMAGE_25_ALL_MODEL_IDS,
+    compatibleModels: [
+      ...GPT_IMAGE_25_ALL_MODEL_IDS,
+      ...GPT_IMAGE_26_MODEL_IDS,
+    ],
     modelType: 'image' as const,
   })),
   // GPT Image 2 模型尺寸
@@ -3046,6 +3091,55 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     modelType: 'image',
   },
   {
+    id: 'gpt_image_26_output',
+    label: '输出类型',
+    description: 'GIF 可通过提示词或参数请求，default 分组也可使用参数方式；SVG 需官方 / 官方优惠分组。此选项不会切换分组。',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'gif', label: 'GIF（提示词）' },
+      { value: 'gif_official', label: 'GIF（参数）' },
+      { value: 'svg', label: 'SVG（官方分组）' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== GPT_IMAGE_26_1K_MODEL_ID),
+    modelType: 'image',
+  },
+  {
+    id: 'gpt_image_26_output',
+    label: '输出类型',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'gif', label: 'GIF（提示词）' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'frame_count',
+    label: 'GIF 帧数',
+    description: '仅 GIF（参数）生效；留空使用渠道默认值，实际帧数以返回文件为准。',
+    valueType: 'number',
+    min: 1,
+    step: 1,
+    integer: true,
+    advanced: true,
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== GPT_IMAGE_26_1K_MODEL_ID),
+    modelType: 'image',
+  },
+  {
+    id: 'svg_model',
+    label: 'SVG 编写模型',
+    description: '仅 SVG 生效；渠道示例使用 gpt-5.5，其他模型需确认渠道支持。',
+    valueType: 'string',
+    defaultValue: 'gpt-5.5',
+    advanced: true,
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== GPT_IMAGE_26_1K_MODEL_ID),
+    modelType: 'image',
+  },
+  {
     id: 'size',
     label: '图片尺寸',
     shortLabel: '尺寸',
@@ -3053,7 +3147,36 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: GPT_IMAGE_26_SIZE_OPTIONS,
     defaultValue: 'auto',
-    compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS,
+    modelType: 'image',
+  },
+  {
+    id: 'quality',
+    label: '画质',
+    shortLabel: '画质',
+    description: '图片画质，实际支持情况由所选渠道决定。',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'low', label: '快速' },
+      { value: 'medium', label: '标准' },
+      { value: 'high', label: '高清' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS,
+    modelType: 'image',
+  },
+  {
+    id: 'input_fidelity',
+    label: '参考图保真度',
+    description: '仅参考图编辑生效；高保真度更注重保留原图细节，需渠道支持。',
+    valueType: 'enum',
+    options: [
+      { value: 'low', label: '低' },
+      { value: 'high', label: '高' },
+    ],
+    advanced: true,
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS,
     modelType: 'image',
   },
   // GPT Image 2.5 官方像素尺寸
@@ -3122,7 +3245,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_MODEL_IDS.filter(
       (modelId) =>
-        modelId !== GPT_IMAGE_26_1K_MODEL_ID &&
+        !isGPTImage26ModelId(modelId) &&
         modelId !== 'gpt-image-2.5' &&
         modelId !== 'gpt-image-2.5-vip' &&
         modelId !== 'gpt-image-2.5-sunburst' &&
@@ -3167,6 +3290,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: [
       ...GPT_IMAGE_25_EXTENDED_MODEL_IDS,
       ...GPT_IMAGE_25_MODEL_IDS,
+      ...GPT_IMAGE_26_MODEL_IDS,
     ],
     modelType: 'image',
   },

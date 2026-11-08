@@ -69,6 +69,7 @@ describe('marketplace output classification', () => {
       },
       { id: 'vision-chat', category: 'text,image,video,audio', type: 'text' },
       { id: 'vision-reasoner', category: '图像,推理,代码', type: 'text' },
+      { id: 'gpt-image-2.6', category: '文本', type: 'image' },
       {
         id: 'mixed-image-generator',
         category: '文本,生图',
@@ -325,6 +326,61 @@ describe('marketplace output classification', () => {
       expect(models.find((model) => model.id === id), id).toMatchObject({ type });
     }
   });
+
+  it.each(['marketplace', 'models-endpoint'] as const)(
+    'repairs cached GPT Image 2.6 text metadata from %s while preserving manual entries',
+    async (source) => {
+      const id = 'gpt-image-2.6';
+      const savedModel = {
+        id,
+        label: id,
+        shortCode: 'gi26',
+        type: 'text',
+        vendor: 'GPT',
+        tags: ['runtime'],
+        description: 'GPT 系列兼容文本模型',
+      } as ProviderCatalog['discoveredModels'][number];
+      const catalogs: Partial<ProviderCatalog>[] = [{
+        profileId,
+        discoverySource: source,
+        selectedModelIds: [id],
+        discoveredModels: [savedModel],
+      }];
+      mockSettings(catalogs, [{
+        profileId,
+        modelCatalog: { [id]: { category: '文本' } },
+      }]);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+        const state = runtimeModelDiscovery.getState(profileId);
+        expect(state.models[0]).toMatchObject({
+          id, type: 'image', vendor: 'GPT', shortCode: 'gpt26',
+          sourceProfileId: profileId,
+        });
+        expect(state.models[0].description).toContain('图片模型');
+        expect(state.models[0].imageDefaults).toBeDefined();
+        expect(state.selectedModelIds).toEqual([id]);
+        catalogs[0] = { ...catalogs[0], discoveredModels: state.discoveredModels };
+        vi.resetModules();
+      }
+
+      catalogs[0] = {
+        ...catalogs[0],
+        discoveredModels: [{
+          ...savedModel,
+          type: 'text', tags: ['manual'], description: '用户手动配置',
+        }],
+      };
+      const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+      expect(runtimeModelDiscovery.getState(profileId).models[0]).toMatchObject({
+        id, type: 'text', description: '用户手动配置',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     { type: 'text', source: 'marketplace' },

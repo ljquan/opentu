@@ -14,3 +14,18 @@ The system SHALL expose `gpt-image-2.6-1k` with complete model metadata and chan
 - **WHEN** the updated catalog is loaded
 - **THEN** the saved model and provider selection SHALL remain valid
 - **AND** their existing supported request behavior SHALL be preserved
+
+### Requirement: Recognize the Exact GPT Image 2.6 Model
+The system SHALL register `gpt-image-2.6` as an image model, preserve that exact ID and the selected provider, and resolve it through the existing GPT Image 2.6 parameter and request rules.
+
+#### Scenario: Discover a model with generic text metadata
+- **WHEN** the authenticated model list contains `gpt-image-2.6` with generic text metadata
+- **THEN** automatic discovery SHALL use its registered image classification and image description
+- **AND** SHALL NOT substitute a Flare, Sunburst, or 2.5 model ID
+
+#### Scenario: Restore a previously misclassified catalog entry
+- **GIVEN** an automatically discovered catalog saved `gpt-image-2.6` as a text model
+- **WHEN** that catalog is restored
+- **THEN** the model SHALL receive current registered image metadata without an additional network request
+- **AND** the selected model ID and provider association SHALL be preserved
+- **AND** explicit manual model configurations SHALL remain unchanged

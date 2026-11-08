@@ -39,8 +39,8 @@ import {
   parseGPTImageResponse,
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
-import { normalizeGPTImage26Request } from './gpt-image-26-request';
-import { registerTuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
+import { normalizeGPTImage26Request, validateGPTImage26Output } from './gpt-image-26-request';
+import { registerTuziGPTImageAdapter, tuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
 import { registerTuziFlux3ImageAdapter } from './tuzi-flux-3-image-adapter';
 import { registerCustomHttpAdapters } from './custom-http-adapter';
 import { registerSeedance2Adapter } from './seedance2-adapter';
@@ -171,6 +171,14 @@ export const geminiImageAdapter: ImageModelAdapter = {
       context.binding?.modelId || request.modelRef?.modelId || request.model
     );
     const model = request.model || DEFAULT_IMAGE_MODEL_ID;
+    // Use the native-compatible contract for format and image controls that the
+    // basic client cannot forward, preserving the selected provider.
+    if (isGPTImage26ModelId(model) && (
+      request.params?.output_format || request.background || request.inputFidelity ||
+      request.params?.quality || request.params?.moderation || request.params?.user
+    )) {
+      return tuziGPTImageAdapter.generateImage(context, request);
+    }
 
     if (shouldUseAsyncImageEndpoint(context, model)) {
       const result = await asyncImageAPIService.generateWithPolling(
@@ -249,7 +257,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
 
     return isGPTImage26ModelId(model)
       ? resolveGeneratedImageDimensions(
-          parseGPTImageResponse(result),
+          validateGPTImage26Output(request, parseGPTImageResponse(result)),
           context.signal
         )
       : extractImageUrl(result, request.prompt);

@@ -6,11 +6,109 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParametersDropdown } from './ParametersDropdown';
 import { getEffectiveVideoCompatibleParams } from '../../services/video-binding-utils';
 import { getSunoV2Params } from '../../services/suno-v2-params';
+import { GPT_IMAGE_26_MODEL_IDS } from '../../constants/model-config';
 
 vi.mock('../shared/hover', () => ({
   HoverTip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 afterEach(cleanup);
+
+describe('GPT Image 2.6 output controls', () => {
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-sunburst'])('exposes GIF methods and SVG with a token group explanation for %s', (modelId) => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId={modelId}
+      selectedParams={{ gpt_image_26_output: 'auto' }} onParamChange={onParamChange} />);
+    expect(screen.getByText(/default 分组也可使用参数方式；SVG 需官方/)).toBeTruthy();
+    for (const [name, value] of [['GIF（提示词）', 'gif'], ['GIF（参数）', 'gif_official'], ['SVG（官方分组）', 'svg']]) {
+      fireEvent.click(screen.getByRole('button', { name }));
+      expect(onParamChange).toHaveBeenCalledWith('gpt_image_26_output', value);
+    }
+    expect(screen.getByRole('switch', { name: '高级功能' })).toBeTruthy();
+  });
+
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare'])('shows only the selected format advanced options for %s', (modelId) => {
+    const props = { isOpen: true, modelId, onParamChange: vi.fn() };
+    const { rerender } = render(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'gif_official' }} />);
+    fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+    expect(screen.getByRole('spinbutton', { name: 'GIF 帧数' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '透明' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '高清' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'SVG 编写模型' })).toBeNull();
+    rerender(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'svg' }} />);
+    expect(screen.queryByRole('spinbutton', { name: 'GIF 帧数' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'SVG 编写模型' })).toBeTruthy();
+  });
+
+  it.each(GPT_IMAGE_26_MODEL_IDS)(
+    'offers static parameters for %s and hides incompatible fields in other output modes', (modelId) => {
+      const onParamChange = vi.fn();
+      const props = { isOpen: true, modelId, onParamChange };
+      const { rerender } = render(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'auto', output_format: 'png' }} />);
+      fireEvent.click(screen.getByRole('button', { name: '透明' }));
+      expect(onParamChange).toHaveBeenCalledWith('background', 'transparent');
+      fireEvent.click(screen.getByRole('button', { name: '高清' }));
+      expect(onParamChange).toHaveBeenCalledWith('quality', 'high');
+      fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+      expect(screen.getByRole('button', { name: 'PNG', exact: true })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'WebP' }));
+      expect(onParamChange).toHaveBeenCalledWith('output_format', 'webp');
+      expect(screen.queryByRole('spinbutton', { name: '压缩质量' })).toBeNull();
+      expect(screen.getByText('参考图保真度')).toBeTruthy();
+      rerender(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'auto', output_format: 'webp' }} />);
+      fireEvent.change(screen.getByRole('spinbutton', { name: '压缩质量' }), { target: { value: '0' } });
+      expect(onParamChange).toHaveBeenCalledWith('output_compression', '0', { keepOpen: true });
+      rerender(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'gif', output_format: 'webp' }} />);
+      expect(screen.getByRole('button', { name: '透明' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '高清' })).toBeTruthy();
+      expect(screen.queryByText('输出格式')).toBeNull();
+      expect(screen.queryByText('参考图保真度')).toBeNull();
+      expect(screen.queryByRole('spinbutton', { name: '压缩质量' })).toBeNull();
+      expect(screen.queryByRole('spinbutton', { name: 'GIF 帧数' })).toBeNull();
+    }
+  );
+
+  it.each(GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== 'gpt-image-2.6-1k'))(
+    'lets %s select transparency and quality in parameter GIF with advanced options collapsed', (modelId) => {
+      const onParamChange = vi.fn();
+      const props = { isOpen: true, modelId, onParamChange };
+      const { rerender } = render(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'gif_official' }} />);
+      fireEvent.click(screen.getByRole('button', { name: '透明' }));
+      expect(onParamChange).toHaveBeenCalledWith('background', 'transparent');
+      fireEvent.click(screen.getByRole('button', { name: '高清' }));
+      expect(onParamChange).toHaveBeenCalledWith('quality', 'high');
+      expect(screen.queryByText('输出格式')).toBeNull();
+      fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+      expect(screen.getByRole('spinbutton', { name: 'GIF 帧数' })).toBeTruthy();
+      rerender(<ParametersDropdown {...props} selectedParams={{ gpt_image_26_output: 'svg' }} />);
+      expect(screen.queryByText('图片背景')).toBeNull();
+      expect(screen.queryByRole('button', { name: '高清' })).toBeNull();
+      expect(screen.getByRole('textbox', { name: 'SVG 编写模型' })).toBeTruthy();
+    }
+  );
+
+  it('limits the existing 1k model to its established prompt GIF mode', () => {
+    render(<ParametersDropdown isOpen modelId="gpt-image-2.6-1k" selectedParams={{}} onParamChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'GIF（提示词）' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'SVG（官方分组）' })).toBeNull();
+  });
+
+  it('keeps the parameter menu open after choosing a custom SVG writer', async () => {
+    const onParamChange = vi.fn();
+    const onOpenChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="gpt-image-2.6-sunburst"
+      selectedParams={{ gpt_image_26_output: 'svg', svg_model: 'gpt-5.5' }}
+      onParamChange={onParamChange} onOpenChange={onOpenChange} />);
+    fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+    const input = screen.getByRole('textbox', { name: 'SVG 编写模型' });
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'custom-svg-writer' } });
+    const option = await screen.findByText(/custom-svg-writer/);
+    fireEvent.mouseDown(option);
+    fireEvent.click(option);
+    expect(onParamChange).toHaveBeenCalledWith('svg_model', 'custom-svg-writer', { keepOpen: true });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
 
 describe('Suno v2 parameter controls', () => {
   it('accepts multiple reference URL lines for training instead of an empty multiselect', () => {

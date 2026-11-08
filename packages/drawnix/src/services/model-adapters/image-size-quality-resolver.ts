@@ -320,7 +320,6 @@ export function resolveOfficialGPTImageQuality(
   params?: Record<string, unknown>,
   modelId?: string
 ): OfficialGPTImageQuality | undefined {
-  if (isGPTImage26ModelId(modelId)) return undefined;
   const quality = normalizeOfficialGPTImageQuality(params?.quality);
   if (quality !== 'xhigh' && quality !== 'max') {
     return quality;

@@ -687,10 +687,14 @@ describe('Media Executor Module', () => {
       expect(failTask).not.toHaveBeenCalled();
     }, 15000);
 
-    it('routes Midjourney runtime image models through the MJ adapter', async () => {
+    it.each([
+      ['mj_fast_background_eraser', 'mj-image-adapter'],
+      ['gpt-image-2.6', 'gemini-image-adapter'],
+      ['gpt-image-2.6-sunburst', 'gemini-image-adapter'],
+    ])('routes %s through %s without losing output intent', async (modelId, adapterId) => {
       const executeImageViaAdapter = vi.fn(async () => undefined);
       const resolveAdapterForInvocation = vi.fn(() => ({
-        id: 'mj-image-adapter',
+        id: adapterId,
         kind: 'image',
       }));
 
@@ -759,20 +763,21 @@ describe('Media Executor Module', () => {
       await executor.generateImage({
         taskId: 'task-mj-1',
         prompt: '生成一个兔子',
-        model: 'mj_fast_background_eraser',
+        model: modelId,
         modelRef: {
           profileId: 'tuzi',
-          modelId: 'mj_fast_background_eraser',
+          modelId: modelId,
         },
         resultVisibility: 'internal',
+        params: { gpt_image_26_output: 'svg' },
       });
 
       expect(resolveAdapterForInvocation).toHaveBeenCalledWith(
         'image',
-        'mj_fast_background_eraser',
+        modelId,
         {
           profileId: 'tuzi',
-          modelId: 'mj_fast_background_eraser',
+          modelId: modelId,
         },
         {
           preferredRequestSchema: undefined,
@@ -781,16 +786,17 @@ describe('Media Executor Module', () => {
       expect(executeImageViaAdapter).toHaveBeenCalledWith(
         'task-mj-1',
         expect.objectContaining({
-          id: 'mj-image-adapter',
+          id: adapterId,
           kind: 'image',
         }),
         expect.objectContaining({
-          model: 'mj_fast_background_eraser',
+          model: modelId,
           modelRef: {
             profileId: 'tuzi',
-            modelId: 'mj_fast_background_eraser',
+            modelId: modelId,
           },
           resultVisibility: 'internal',
+          params: { gpt_image_26_output: 'svg' },
         }),
         undefined,
         expect.any(Number)

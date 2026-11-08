@@ -137,6 +137,50 @@ describe('workflow-converter', () => {
 
   describe('convertDirectGenerationToWorkflow', () => {
     describe('图片生成场景', () => {
+      it.each(['gpt-image-2.6', 'gpt-image-2.6-sunburst'])('keeps the output type and format options on each queued %s task', (modelId) => {
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          modelId, count: 2,
+          extraParams: { gpt_image_26_output: 'svg', svg_model: 'gpt-5.5' },
+        }));
+        expect(workflow.steps).toHaveLength(2);
+        for (const step of workflow.steps) {
+          expect(step.args).toMatchObject({
+            model: modelId,
+            params: { gpt_image_26_output: 'svg', svg_model: 'gpt-5.5' },
+          });
+        }
+      });
+
+      it.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])('preserves %s transparent image options on every task in a batch', (modelId) => {
+        const extraParams = {
+          gpt_image_26_output: 'auto', background: 'transparent',
+          output_format: 'webp', output_compression: '80', quality: 'high', input_fidelity: 'high',
+        };
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          modelId, count: 2, extraParams,
+        }));
+        expect(workflow.steps).toHaveLength(2);
+        for (const step of workflow.steps) {
+          expect(step.args).toMatchObject({ model: modelId, params: extraParams });
+          expect(step.args.prompt).toBe('test prompt\n透明图');
+        }
+      });
+
+      it('preserves parameter GIF transparency and quality on every queued task', () => {
+        const extraParams = {
+          gpt_image_26_output: 'gif_official', background: 'transparent',
+          quality: 'high', frame_count: '9',
+        };
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          modelId: 'gpt-image-2.6-flare', count: 2, extraParams,
+        }));
+        expect(workflow.steps).toHaveLength(2);
+        for (const step of workflow.steps) {
+          expect(step.args).toMatchObject({ model: 'gpt-image-2.6-flare', params: extraParams });
+          expect(step.args.prompt).toBe('test prompt\n透明图');
+        }
+      });
+
       it('应该正确转换单张图片生成请求', () => {
         const params = createMockParams({
           generationType: 'image',

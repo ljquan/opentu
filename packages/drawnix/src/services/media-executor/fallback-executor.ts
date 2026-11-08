@@ -29,7 +29,7 @@ import {
   resolveInvocationRoute,
   type ModelRef,
 } from '../../utils/settings-manager';
-import { getDefaultImageModel } from '../../constants/model-config';
+import { getDefaultImageModel, isGPTImage26ModelId } from '../../constants/model-config';
 import { extractCompletionText, fetchTextCompletion, safeTextError, textCompletionPath, textRequestBody } from './text-response';
 import {
   providerTransport,
@@ -406,6 +406,7 @@ export class FallbackMediaExecutor implements IMediaExecutor {
     const shouldUseImageAdapter =
       imageAdapter?.kind === 'image' &&
       (imageAdapter.id !== 'gemini-image-adapter' ||
+        isGPTImage26ModelId(modelName) ||
         imagePlan?.binding.protocol === 'google.generateContent');
     if (shouldUseImageAdapter) {
       return executeImageViaAdapter(
