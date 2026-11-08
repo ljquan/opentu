@@ -3456,6 +3456,7 @@ describe('useAutoInsertToCanvas', () => {
       ...insertedTasks[0],
       insertedToCanvas: false,
     };
+    mocks.taskState.tasks = [oldestTask, ...insertedTasks.slice(1)];
     act(() => {
       emitTaskEvent(oldestTask);
     });
@@ -3473,6 +3474,10 @@ describe('useAutoInsertToCanvas', () => {
       ...insertedTasks[insertedTasks.length - 1],
       insertedToCanvas: false,
     };
+    mocks.taskState.tasks = [
+      ...mocks.taskState.tasks.slice(0, -1),
+      newestTask,
+    ];
     act(() => {
       emitTaskEvent(newestTask);
     });
@@ -3685,6 +3690,74 @@ describe('useAutoInsertToCanvas', () => {
         phase: 'failed',
         error: '任务已丢失，无法重试',
       })
+    );
+  });
+
+  it.each(['svg', 'gif', 'png'])(
+    'skips a queued %s result when manual insertion finishes before the flush',
+    async (format) => {
+      const task = createCompletedImageTask({
+        result: {
+          url: `/__aitu_cache__/image/task-1.${format}`,
+          format,
+          size: 123,
+        },
+      });
+      mocks.board = { children: [] };
+      mocks.taskState.tasks = [task];
+
+      renderHook(() =>
+        useAutoInsertToCanvas({
+          enabled: true,
+          groupSimilarTasks: true,
+          groupTimeWindow: 10,
+        })
+      );
+
+      // Manual insertion updates the store after the completion event has
+      // already buffered an older task object for automatic insertion.
+      mocks.taskState.tasks = [{ ...task, insertedToCanvas: true }];
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+        emitTaskEvent(task);
+        await vi.advanceTimersByTimeAsync(10);
+      });
+
+      expect(mocks.quickInsert).not.toHaveBeenCalled();
+      expect(mocks.insertImageGroup).not.toHaveBeenCalled();
+      expect(mocks.startPostProcessing).not.toHaveBeenCalled();
+      expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    }
+  );
+
+  it('inserts the remaining grouped result after another result was inserted manually', async () => {
+    const manualTask = createCompletedImageTask({ id: 'manual-task' });
+    const remainingTask = createCompletedImageTask({ id: 'remaining-task' });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [manualTask, remainingTask];
+
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        groupSimilarTasks: true,
+        groupTimeWindow: 10,
+      })
+    );
+    mocks.taskState.tasks = [
+      { ...manualTask, insertedToCanvas: true },
+      remainingTask,
+    ];
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.insertImageGroup).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).toHaveBeenCalledExactlyOnceWith(
+      remainingTask.id,
+      'auto_insert'
     );
   });
 });

@@ -23,11 +23,16 @@ import {
   readProviderResponseText,
 } from '../provider-routing';
 import { registerModelAdapter } from './registry';
-import { normalizeGPTImage26Request } from './gpt-image-26-request';
+import {
+  getGPTImage26OutputFields,
+  normalizeGPTImage26Request,
+  validateGPTImage26Output,
+} from './gpt-image-26-request';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
 import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
+  isGPTImage26ModelId,
   isGPTImage2ModelId,
 } from '../../constants/model-config';
 
@@ -204,6 +209,10 @@ export function buildTuziGPTImageRequestBody(
   request: ImageGenerationRequest,
   bindingModelId?: string | null
 ): Record<string, unknown> {
+  request = normalizeGPTImage26Request(
+    request,
+    bindingModelId?.trim() || request.modelRef?.modelId?.trim() || request.model
+  );
   const options = buildTuziGPTImageRequestOptions(request, bindingModelId);
   const body: Record<string, unknown> = {
     model: options.model,
@@ -248,8 +257,11 @@ export function buildTuziGPTImageRequestBody(
   if (options.user) {
     body.user = options.user;
   }
+  if (isGPTImage26ModelId(options.model) && request.referenceImages?.length && request.inputFidelity) {
+    body.input_fidelity = request.inputFidelity;
+  }
 
-  return body;
+  return Object.assign(body, getGPTImage26OutputFields(request));
 }
 
 function getTuziMaskImage(request: ImageGenerationRequest): string | undefined {
@@ -297,7 +309,7 @@ export async function buildTuziGPTImageEditFormData(
     'input_fidelity'
   );
   if (inputFidelity === 'high' || inputFidelity === 'low') {
-    formData.append('input_fidelity', inputFidelity);
+    formData.set('input_fidelity', inputFidelity);
   }
 
   for (const [index, referenceImage] of referenceImages.entries()) {
@@ -382,9 +394,12 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
     ).output_format;
 
     return resolveGeneratedImageDimensions(
-      parseGPTImageResponse(
-        result,
-        responseFormat === 'b64_json' ? outputFormat || 'png' : undefined
+      validateGPTImage26Output(
+        { ...request, model: requestModel },
+        parseGPTImageResponse(
+          result,
+          responseFormat === 'b64_json' ? outputFormat || 'png' : undefined
+        )
       ),
       context.signal
     );

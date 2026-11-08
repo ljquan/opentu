@@ -19,6 +19,7 @@ import {
   DEFAULT_TEXT_MODEL_ID,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
+  isGPTImage26ModelId,
   getStaticModelsByType,
   getStaticModelConfig,
   isDefaultModelHidden,
@@ -1279,6 +1280,7 @@ function adaptRuntimeModel(model: RemoteModelListItem): ModelConfig | null {
     if (
       GPT_IMAGE_25_MODEL_IDS.includes(staticConfig.id) ||
       GPT_IMAGE_2_MODEL_IDS.includes(staticConfig.id) ||
+      isGPTImage26ModelId(staticConfig.id) ||
       staticConfig.id === 'gemini-nano-banana-2.1'
     ) {
       return clonedConfig;
@@ -1457,6 +1459,14 @@ function decorateRuntimeModels(
   const marketplaceMetadata = (Array.isArray(pricingCaches) ? pricingCaches : [])
     .find((cache) => cache.profileId === profileId)?.modelCatalog;
   return models.map((model) => {
+    // Refresh known 2.6 image metadata even when an older catalog classified
+    // the model as text. Explicit manual configurations remain authoritative.
+    if (isGPTImage26ModelId(model.id) && !(model.tags || []).includes('manual')) {
+      return attachRuntimeSource(
+        profileId,
+        refreshPersistedModelConfig(model, useRemoteDisplayName)
+      );
+    }
     if (
       (model.tags || []).includes('manual') ||
       discoverySource === 'models-endpoint'

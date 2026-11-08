@@ -25,6 +25,7 @@ import {
 import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import {
   getCompatibleParams,
+  isGPTImage26ModelId,
   type ParamConfig,
 } from '../../constants/model-config';
 import { Z_INDEX } from '../../constants/z-index';
@@ -32,6 +33,8 @@ import { useControllableState } from '../../hooks/useControllableState';
 import './parameters-dropdown.scss';
 import { KeyboardDropdown, type DropdownPlacement } from './KeyboardDropdown';
 import { HoverTip } from '../shared/hover';
+import { SvgWriterModelSelect } from './SvgWriterModelSelect';
+import { isGPTImage26ParamVisible } from '../../services/model-adapters/gpt-image-26-request';
 
 function getCompactEnumSummaryLabel(
   paramId: string,
@@ -137,12 +140,14 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
 
   // 获取当前模型兼容的所有参数（排除已有专用 UI 的参数）
   const allParams = useMemo(() => {
-    const params = compatibleParamsProp ?? getCompatibleParams(modelId);
+    const params = (compatibleParamsProp ?? getCompatibleParams(modelId)).filter(
+      (param) => !isGPTImage26ModelId(modelId) || isGPTImage26ParamVisible(param.id, selectedParams)
+    );
     if (excludeParamIds && excludeParamIds.length > 0) {
       return params.filter((p) => !excludeParamIds.includes(p.id));
     }
     return params;
-  }, [compatibleParamsProp, modelId, excludeParamIds]);
+  }, [compatibleParamsProp, modelId, excludeParamIds, selectedParams]);
 
   const hasAdvancedParams = allParams.some((param) => param.advanced);
   const compatibleParams = useMemo(() => {
@@ -416,12 +421,19 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                           <div className="parameters-dropdown__section-title">
                             {param.label}
                           </div>
-                          {param.description && (param.advanced || modelId.startsWith('suno/')) && (
+                          {param.description && (param.advanced || modelId.startsWith('suno/') || param.id === 'gpt_image_26_output') && (
                             <div className="parameters-dropdown__section-description">
                               {param.description}
                             </div>
                           )}
-                          {param.control === 'file' ? (
+                          {param.id === 'svg_model' && isGPTImage26ModelId(modelId) ? (
+                            <SvgWriterModelSelect
+                              value={currentValue}
+                              onChange={(value) => handleFieldInput(param.id, value)}
+                              disabled={disabled}
+                              language={language}
+                            />
+                          ) : param.control === 'file' ? (
                             <SunoFileInput label={param.label} value={currentValue} onChange={(value) => handleFieldInput(param.id, value)} />
                           ) : param.control === 'textarea' ? (
                             <textarea

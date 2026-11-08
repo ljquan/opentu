@@ -40,6 +40,7 @@ const staleRequest: ImageGenerationRequest = {
   outputCompression: 40,
   inputFidelity: 'high',
   params: {
+    gpt_image_26_output: 'gif',
     size: '4096x4096',
     resolution: '4k',
     quality: 'max',
@@ -53,12 +54,17 @@ const staleRequest: ImageGenerationRequest = {
   },
 };
 
-describe('GPT Image 2.6 1K integration', () => {
+describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+  'GPT Image 2.6 integration: %s', (model) => {
+  const staleRequestForModel = { ...staleRequest, model };
+  const responseParams = model === 'gpt-image-2.6-1k' ? { response_format: 'b64_json' } : {};
+  const imageParams = { background: 'transparent', moderation: 'low', user: 'old-setting' };
+
   it('keeps the chosen provider while aligning a stale model reference with the binding', () => {
     expect(
       normalizeGPTImage26Request(
         {
-          ...staleRequest,
+          ...staleRequestForModel,
           modelRef: {
             profileId: 'selected-provider',
             modelId: 'gpt-image-2.5',
@@ -68,16 +74,21 @@ describe('GPT Image 2.6 1K integration', () => {
       ).modelRef
     ).toEqual({ profileId: 'selected-provider', modelId: model });
   });
-  it('registers an isolated channel model without changing the default', () => {
+  it('registers the channel model without changing the default', () => {
     expect(getStaticModelConfig(model)).toMatchObject({
       id: model,
       label: model,
-      shortCode: 'gpt261k',
+      shortCode: {
+        'gpt-image-2.6': 'gpt26',
+        'gpt-image-2.6-1k': 'gpt261k',
+        'gpt-image-2.6-flare': 'gpt26f',
+        'gpt-image-2.6-sunburst': 'gpt26s',
+      }[model],
       type: 'image',
       vendor: 'GPT',
     });
     expect(DEFAULT_IMAGE_MODEL_ID).toBe('gpt-image-2.5-sunburst');
-    expect(getCompatibleParams(model)).toEqual([
+    expect(getCompatibleParams(model)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'size',
         defaultValue: 'auto',
@@ -90,14 +101,18 @@ describe('GPT Image 2.6 1K integration', () => {
           { value: '9x16', label: '9:16 竖屏' },
         ],
       }),
-    ]);
+      expect.objectContaining({ id: 'gpt_image_26_output', defaultValue: 'auto' }),
+    ]));
+    expect(getCompatibleParams(model).some((param) => param.id === 'resolution')).toBe(false);
+    for (const id of ['background', 'quality', 'output_format', 'output_compression', 'input_fidelity', 'moderation', 'user']) {
+      expect(getCompatibleParams(model).some((param) => param.id === id), id).toBe(true);
+    }
     expect(isGPTImage26ModelId(` ${model.toUpperCase()} `)).toBe(true);
     expect(isGPTImage2ModelId(model)).toBe(false);
     expect(isGPTImage25ModelId(model)).toBe(false);
     for (const unavailable of [
-      'gpt-image-2.6',
       'gpt-image-2.6-exact',
-      'gpt-image-2.6-flare',
+      'gpt-image-2.6-unknown',
     ]) {
       expect(getStaticModelConfig(unavailable)).toBeUndefined();
       expect(isGPTImage26ModelId(unavailable)).toBe(false);
@@ -106,14 +121,15 @@ describe('GPT Image 2.6 1K integration', () => {
   });
 
   it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])(
-    'sends only verified parameters despite saved settings from other models',
+    'keeps shared image controls without forwarding incompatible saved fields',
     (build) => {
-      expect(build(staleRequest)).toEqual({
+      expect(build(staleRequestForModel)).toEqual({
         model,
         prompt: staleRequest.prompt,
         size: 'auto',
         n: 1,
-        response_format: 'b64_json',
+        ...responseParams,
+        ...imageParams,
       });
     }
   );
@@ -131,7 +147,7 @@ describe('GPT Image 2.6 1K integration', () => {
     ['4096x4096', 'auto'],
   ])('preserves verified size %s across GPT and Tuzi generation routes', (size, expected) => {
     const request = {
-      ...staleRequest,
+      ...staleRequestForModel,
       size: '4096x4096',
       params: { ...staleRequest.params, size },
     };
@@ -141,7 +157,8 @@ describe('GPT Image 2.6 1K integration', () => {
         prompt: request.prompt,
         size: expected,
         n: 1,
-        response_format: 'b64_json',
+        ...responseParams,
+        ...imageParams,
       });
     }
     expect(resolveOfficialGPTImageSize(model, size, { resolution: '4k' })).toBe(expected);
@@ -156,7 +173,7 @@ describe('GPT Image 2.6 1K integration', () => {
 
   it('keeps explicit dimensions in both multipart edit paths without restoring stale output parameters', async () => {
     const request = {
-      ...staleRequest,
+      ...staleRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
       maskImage: `data:image/gif;base64,${gif}`,
       params: { ...staleRequest.params, size: '1024x1536' },
@@ -179,7 +196,7 @@ describe('GPT Image 2.6 1K integration', () => {
     expect(
       buildTuziGPTImageRequestBody(
         {
-          ...staleRequest,
+          ...staleRequestForModel,
           model: 'gpt-image-2.5',
           referenceImages: ['https://example.com/source.png'],
         },
@@ -190,23 +207,27 @@ describe('GPT Image 2.6 1K integration', () => {
       prompt: staleRequest.prompt,
       size: 'auto',
       n: 1,
-      response_format: 'b64_json',
+      ...responseParams,
+      ...imageParams,
       image: ['https://example.com/source.png'],
     });
   });
 
   it('keeps references in multipart edits without inherited quality/output fields', async () => {
     const form = await buildGPTImageEditFormData({
-      ...staleRequest,
+      ...staleRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
     });
     expect([...form.keys()].sort()).toEqual([
+      'background',
       'image[]',
       'model',
+      'moderation',
       'n',
       'prompt',
-      'response_format',
+      ...(model === 'gpt-image-2.6-1k' ? ['response_format'] : []),
       'size',
+      'user',
     ]);
     expect(form.get('model')).toBe(model);
     expect(form.get('size')).toBe('auto');
@@ -307,7 +328,7 @@ describe('GPT Image 2.6 1K integration', () => {
           authType: 'bearer',
           fetcher,
         },
-        staleRequest
+        staleRequestForModel
       );
       expect(fetcher).toHaveBeenCalledOnce();
       expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
@@ -315,7 +336,8 @@ describe('GPT Image 2.6 1K integration', () => {
         prompt: staleRequest.prompt,
         size: 'auto',
         n: 1,
-        response_format: 'b64_json',
+        ...responseParams,
+        ...imageParams,
       });
       expect(result).toMatchObject({ format: 'gif', width: 553, height: 309 });
     }
@@ -341,7 +363,7 @@ describe('GPT Image 2.6 1K integration', () => {
       await expect(
         adapter.generateImage(
           { baseUrl: 'https://api.tu-zi.com/v1', fetcher },
-          staleRequest
+          staleRequestForModel
         )
       ).rejects.toMatchObject({
         httpStatus: 400,

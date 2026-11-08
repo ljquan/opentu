@@ -17,7 +17,11 @@ import {
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson, readProviderResponseText } from '../provider-routing';
 import { registerModelAdapter } from './registry';
-import { normalizeGPTImage26Request } from './gpt-image-26-request';
+import {
+  getGPTImage26OutputFields,
+  normalizeGPTImage26Request,
+  validateGPTImage26Output,
+} from './gpt-image-26-request';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
 import type {
   ImageGenerationRequest,
@@ -215,6 +219,7 @@ export function buildGPTImageGenerationBody(
   }
 
   applyCommonGPTImageOptions(body, request, 'generation');
+  Object.assign(body, getGPTImage26OutputFields(request));
 
   return body;
 }
@@ -648,7 +653,13 @@ export const gptImageAdapter: ImageModelAdapter = {
     if (result.error || result.status === 'failed') {
       throw formatGPTImageError(createImageApiError(result, response, '图片生成失败', { modelId: request.model || 'gpt-image-2' }));
     }
-    return resolveGeneratedImageDimensions(parseGPTImageResponse(result, outputFormat), context.signal);
+    return resolveGeneratedImageDimensions(
+      validateGPTImage26Output(
+        { ...request, model: requestModel },
+        parseGPTImageResponse(result, outputFormat)
+      ),
+      context.signal
+    );
   },
 };
 
