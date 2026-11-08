@@ -12,6 +12,8 @@ import { discoverProviderModels } from './provider-model-catalog';
 import { TUZI_BRIDGE_EVENT } from './tuzi-postmessage-bridge';
 import { TUZI_PROVIDER_REUSE_EVENT } from './tuzi-provider-reuse-state';
 
+declare const __APP_VERSION__: string;
+
 function eligible(profile: ProviderProfile): boolean {
   // The existing discovery transport uses Bearer authentication. Do not send
   // saved credentials to an endpoint requiring a different auth contract.
