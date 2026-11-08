@@ -1,3 +1,21 @@
+## 1.2.7 (2026-11-08)
+
+### 🚀 Features
+
+- 完善 GPT Image 2.6 输出模式与透明参数 (#329) ([98bf15e8](https://github.com/ljquan/opentu/commit/98bf15e8))
+- 版本更新后自动获取新模型 (#327) ([9b2efd2c](https://github.com/ljquan/opentu/commit/9b2efd2c))
+
+### 🩹 Fixes
+
+- bound generated image insertion without premature timeouts (#328) ([aff5a6eb](https://github.com/ljquan/opentu/commit/aff5a6eb))
+- link desktop download to Tuzi Assistant (#326) ([936a4494](https://github.com/ljquan/opentu/commit/936a4494))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- yk1125 <1160314789@qq.com>
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.6 (2026-11-05)
 
 ### 🚀 Features

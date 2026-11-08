@@ -1,9 +1,11 @@
 {
-  "version": "1.2.6",
-  "buildTime": "2026-11-05T08:15:51.458Z",
+  "version": "1.2.7",
+  "buildTime": "2026-11-08T07:47:31.641Z",
   "gitCommit": "unknown",
   "changelog": [
-    "完整接入 gpt-image-2.6-1k 并保留 GIF 原文件 (#325)",
-    "完善生成错误详情与一键复制，修正视频 Request ID 来源 (#324)"
+    "bound generated image insertion without premature timeouts (#328)",
+    "link desktop download to Tuzi Assistant (#326)",
+    "完善 GPT Image 2.6 输出模式与透明参数 (#329)",
+    "版本更新后自动获取新模型 (#327)"
   ]
 }
