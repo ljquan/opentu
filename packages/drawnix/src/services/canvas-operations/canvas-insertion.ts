@@ -52,6 +52,7 @@ import {
   getViewportCanvasMetrics,
   logCanvasInsertionDebug,
   precalculateGroupedGridLayout,
+  precalculateTaskColumnLayout,
 } from '../../utils/canvas-insertion-layout';
 import {
   normalizeSvg,
@@ -101,6 +102,8 @@ export interface InsertionItem {
   label?: string;
   /** 是否为同组内容（相同输入产出，横向排列） */
   groupId?: string;
+  /** Vertical order within a task column; does not reorder result/cache arrays. */
+  columnOrder?: number;
   /** 图片/视频尺寸（可选，用于立即插入不等待加载） */
   dimensions?: { width: number; height: number };
   /** 插入成功前确认图片能够加载（用于用户主动插入） */
@@ -129,6 +132,8 @@ export interface CanvasInsertionParams {
   boardGuard?: () => boolean;
   /** 本地图片处理结果沿来源右侧避让，不重排已有元素。 */
   referenceElementIds?: readonly string[];
+  /** Stack outputs from one task, and place separate tasks in adjacent columns. */
+  imageLayout?: 'task-columns';
 }
 
 export interface CanvasInsertionResultItem {
@@ -796,7 +801,11 @@ async function executeCanvasInsertionInternal(
     verticalGap = LAYOUT_CONSTANTS.DEFAULT_VERTICAL_GAP,
     horizontalGap = LAYOUT_CONSTANTS.DEFAULT_HORIZONTAL_GAP,
   } = params;
-  const items = inputItems?.slice();
+  const items = inputItems?.map(item =>
+    params.imageLayout === 'task-columns' && item.type === 'image'
+      ? { ...item, dimensions: undefined }
+      : item
+  );
 
   if (!items || items.length === 0) {
     return {
@@ -810,7 +819,7 @@ async function executeCanvasInsertionInternal(
     if (params.boardGuard && !params.boardGuard()) {
       throw new Error('画板已切换，取消本次插入');
     }
-    if (params.referenceElementIds?.length) {
+    if (params.referenceElementIds?.length || params.imageLayout === 'task-columns') {
       // Resolve each output before reserving slots, so its aspect ratio cannot
       // expand an estimated square over an existing image after insertion.
       for (const [index, item] of items.entries()) {
@@ -829,7 +838,7 @@ async function executeCanvasInsertionInternal(
           true,
           {
             width: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
-            height: LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
+            height: params.imageLayout ? LAYOUT_CONSTANTS.MEDIA_MAX_SIZE : LAYOUT_CONSTANTS.MEDIA_DEFAULT_SIZE,
           }
         );
         items[index] = { ...item, dimensions: { width, height } };
@@ -925,16 +934,23 @@ async function executeCanvasInsertionInternal(
     );
 
     // 使用分组网格预计算位置：无 groupId 的项纵向推进，同组结果横向排列。
-    const gridLayout = precalculateGroupedGridLayout(
-      startPoint,
-      items,
-      estimatedSizes,
-      {
-        canvasWidth: viewportMetrics.width,
-        horizontalGap,
-        verticalGap,
-      }
-    );
+    const layoutOptions = { canvasWidth: viewportMetrics.width, horizontalGap, verticalGap };
+    const gridLayout = params.imageLayout === 'task-columns'
+      ? precalculateTaskColumnLayout(startPoint, items, estimatedSizes, layoutOptions)
+      : precalculateGroupedGridLayout(startPoint, items, estimatedSizes, layoutOptions);
+    if (params.imageLayout === 'task-columns') {
+      const anchorIds = new Set(items.map(item => readStringMetadata(item.metadata, 'generationAnchorId')));
+      const [origin] = placeImageColumn(
+        { ...board, children: board.children.filter(element => !anchorIds.has(element.id)) },
+        startPoint,
+        [gridLayout.bounds]
+      );
+      gridLayout.positions = gridLayout.positions.map(point => [
+        point[0] + origin[0] - startPoint[0],
+        point[1] + origin[1] - startPoint[1],
+      ]);
+      gridLayout.bounds = { ...gridLayout.bounds, x: origin[0], y: origin[1] };
+    }
     if (params.referenceElementIds?.length) {
       const source = getImageReferenceBounds(board, params.referenceElementIds);
       const origin: Point = source

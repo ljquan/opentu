@@ -19,6 +19,7 @@ import {
   getCanvasBoardBinding,
 } from '../../services/canvas-operations';
 import { resolveImageTaskInsertionDimensions } from '../../utils/task-utils';
+import { usesGPTImage26ResultColumns, getGPTImage26ResultColumnOrder } from '../../utils/gpt-image-26-result-layout';
 import { workspaceService } from '../../services/workspace-service';
 import { InsertToCanvasIcon } from '../icons';
 import { MessagePlugin, Dialog, Button, Checkbox } from 'tdesign-react';
@@ -2497,6 +2498,7 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
       })
     );
     if (!results.length) return;
+    const useTaskColumns = results.some(({ task }) => usesGPTImage26ResultColumns(task));
     insertionLockRef.current = true;
     setIsInserting(true);
     try {
@@ -2514,11 +2516,13 @@ const BatchImageGeneration: React.FC<BatchImageGenerationProps> = ({
         items: results.map(({ task, url }, index) => ({
           type: 'image' as const,
           content: url,
-          groupId: `batch-manual-${Math.floor(index / 5)}`,
+          groupId: useTaskColumns ? task.id : `batch-manual-${Math.floor(index / 5)}`,
+          columnOrder: getGPTImage26ResultColumnOrder(task, url),
           dimensions: resolveImageTaskInsertionDimensions(task),
           waitForImageLoad: true,
           metadata: { prompt: task.params.prompt, generationTaskId: task.id },
         })),
+        imageLayout: useTaskColumns ? 'task-columns' : undefined,
       });
       if (!result.success) throw new Error(result.error || '图片插入失败');
       MessagePlugin.success(

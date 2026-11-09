@@ -15,6 +15,7 @@ import { processSelectedContentForAI } from '../../utils/selection-utils';
 import { prepareImageGenerationReferences, type GenerationReferenceImage } from '../../services/canvas-operations/image-generation-references';
 import { resolveImageLineagePositions } from '../../utils/image-generation-lineage-placement';
 import { resolveImageAnchorInsertionPoint } from '../../utils/image-generation-anchor-insertion';
+import { reservesGPTImage26ResultColumns } from '../../utils/gpt-image-26-result-layout';
 
 // Reuse the existing AST harness convention to check actual submission wiring
 // without starting providers, MCP initialization, or a real paid generation.
@@ -37,6 +38,7 @@ let selectionLoop = '';
 let referencePreparation = '';
 let requestReferences = '';
 let plannedPositions = '';
+let resultColumnReservation = '';
 function visit(node: ts.Node) {
   if (ts.isForOfStatement(node) && node.expression.getText(tree) === 'processedContent.remainingImages') selectionLoop = node.getText(tree);
   if (ts.isFunctionDeclaration(node) && node.name && names.has(node.name.text))
@@ -53,6 +55,8 @@ function visit(node: ts.Node) {
     requestReferences = `const ${node.getText(tree)};`;
   if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'plannedAnchorPositions')
     plannedPositions = `const ${node.getText(tree)};`;
+  if (ts.isVariableDeclaration(node) && ['resultColumns', 'reservedInsertSize'].includes(node.name.getText(tree)))
+    resultColumnReservation += `const ${node.getText(tree)};\n`;
   ts.forEachChild(node, visit);
 }
 visit(tree);
@@ -84,11 +88,13 @@ exports.prepare = async function(submittedBoard, imageItems, enabled) {
   ${referencePreparation}
   return { ...referenceSources, referenceImages };
 };
-exports.plan = function(board, imageSourceIds, enabled, requestedCount) {
+exports.plan = function(board, imageSourceIds, enabled, requestedCount, modelId, output) {
   const anchorTargetFrameId = undefined;
   const targetFrameId = undefined;
   const replacementBoundImageTarget = null;
-  const reservedInsertSize = { width: 400, height: 600 };
+  const anchorSize = { width: 400, height: 400 };
+  const parsedParams = { modelId, extraParams: { gpt_image_26_output: output } };
+  ${resultColumnReservation}
   const viewportCenterX = 200;
   const viewportCenterY = 0;
   const readHorizontalImageBatchEnabled = () => enabled;
@@ -104,7 +110,7 @@ exports.plan = function(board, imageSourceIds, enabled, requestedCount) {
 ).outputText;
 
 const callbacks = {} as {
-  plan: (board: ReturnType<typeof createBoard>, sources: string[], enabled: boolean, count: number) => [number, number][];
+  plan: (board: ReturnType<typeof createBoard>, sources: string[], enabled: boolean, count: number, modelId?: string, output?: string) => [number, number][];
   prepare: (board: ReturnType<typeof createBoard>, images: GenerationReferenceImage[], enabled: boolean) => Promise<{ imageSourceIds: string[]; referenceImages: string[] }>;
   selected: (processed: Awaited<ReturnType<typeof processSelectedContentForAI>>, elements: ReturnType<typeof createBoard>['children']) => GenerationReferenceImage[];
   params: (
@@ -126,11 +132,17 @@ runInNewContext(compiled, {
   buildBoundTargetGenerationParams,
   prepareImageGenerationReferences,
   resolveImageLineagePositions,
+  reservesGPTImage26ResultColumns,
   isVideoUrl: () => false,
   console,
 });
 
 describe('main image generation lineage wiring', () => {
+  it('reserves task columns for 2.6 output pairs before reverse completion, keeping SVG on the chosen layout', () => {
+    const board = createBoard([]);
+    expect(callbacks.plan(board, [], false, 3, 'gpt-image-2.6', 'gif')).toEqual([[0, 0], [440, 0], [880, 0]]);
+    expect(callbacks.plan(board, [], false, 2, 'gpt-image-2.6', 'svg')).toEqual([[0, 0], [0, 640]]);
+  });
   it.each([true, false])('passes the current batch layout into actual placeholder planning: horizontal=%s', (enabled) => {
     const current = createBoard([]);
     const positions = callbacks.plan(current, [], enabled, 5);

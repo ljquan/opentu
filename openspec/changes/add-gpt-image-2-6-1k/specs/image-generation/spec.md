@@ -141,3 +141,18 @@ For all registered GPT Image 2.6 IDs (`gpt-image-2.6`, `gpt-image-2.6-1k`, Flare
 - **THEN** the result SHALL report `IMAGE_OUTPUT_FORMAT_MISMATCH` without another generation submission
 - **AND** actual media bytes SHALL NOT be relabeled to satisfy the request
 - **AND** incompatible legacy resolution tiers, DALL-E style, response-format, and streaming-preview fields SHALL NOT be forwarded by the 2.6 non-streaming request path
+
+### Requirement: Keep GPT Image 2.6 Outputs in Task Columns
+When a registered GPT Image 2.6 task returns multiple images, the system SHALL preserve all outputs and place them in one task column, with identifiable GIFs above static source images. Adjacent tasks SHALL occupy separate columns without changing result-array order or cache associations.
+
+#### Scenario: Automatic insertion and manual insertion
+- **WHEN** one or more completed 2.6 tasks with multiple outputs are inserted automatically, retried, or inserted through a task list or batch selection
+- **THEN** each task's outputs SHALL remain in the same column and GIF positions SHALL precede static image positions
+- **AND** layout SHALL use each image's actual aspect ratio and avoid existing content as a complete group
+- **AND** loading failure or a board switch SHALL NOT commit a partial group or mark an unsuccessful insertion as completed
+
+#### Scenario: Reserve columns before completion
+- **WHEN** a new ordinary non-SVG 2.6 batch is submitted
+- **THEN** tasks SHALL reserve adjacent columns with room for an animation and a source image
+- **AND** reversed completion order SHALL preserve each task's reserved position
+- **AND** existing canvas images SHALL NOT be moved by the change

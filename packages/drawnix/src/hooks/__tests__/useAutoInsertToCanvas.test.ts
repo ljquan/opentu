@@ -3760,4 +3760,72 @@ describe('useAutoInsertToCanvas', () => {
       'auto_insert'
     );
   });
+
+  it.each([false, true])('keeps every output of grouped 2.6 tasks in its own column (prompt=%s)', async (insertPrompt) => {
+    const tasks = ['a', 'b'].map(id => createCompletedImageTask({
+      id, params: { model: 'gpt-image-2.6', prompt: 'animate', autoInsertToCanvas: true },
+      result: { url: `${id}.png`, urls: [`${id}.png`, `${id}.gif`], format: 'png', size: 1 },
+    }));
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = tasks;
+    mocks.executeCanvasInsertion.mockResolvedValueOnce({ success: true, data: {
+      items: tasks.flatMap((task, taskIndex) => [0, 1].map(index => ({
+        type: 'image', elementId: `${task.id}-${index}`, point: [100 + taskIndex * 440, index === 0 ? 550 : 100], size: { width: 400, height: 400 },
+      }))),
+    } });
+    renderHook(() => useAutoInsertToCanvas({ enabled: true, insertPrompt, groupTimeWindow: 10 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledOnce();
+    const input = mocks.executeCanvasInsertion.mock.calls[0][0];
+    expect(input.imageLayout).toBe('task-columns');
+    expect(input.imageInsertionPolicy).toBe('generated-result');
+    expect(input.items.map((item: { content: string; groupId: string; columnOrder: number; metadata: { generationTaskId: string } }) => [item.content, item.groupId, item.columnOrder, item.metadata.generationTaskId])).toEqual([
+      ['a.png', 'a', 1, 'a'], ['a.gif', 'a', 0, 'a'], ['b.png', 'b', 1, 'b'], ['b.gif', 'b', 0, 'b'],
+    ]);
+    expect(mocks.insertImageGroup).not.toHaveBeenCalled();
+    expect(mocks.markAsInserted).toHaveBeenCalledTimes(2);
+    expect(mocks.completePostProcessing).toHaveBeenCalledWith('b', 1, [540, 550], 'b-0', { width: 400, height: 400 });
+  });
+
+  it('uses task columns for a single 2.6 result pair and keeps it retryable after insertion fails', async () => {
+    const task = createCompletedImageTask({
+      params: { model: 'gpt-image-2.6', prompt: 'animate', autoInsertToCanvas: true },
+      result: { url: 'sheet.png', urls: ['sheet.png', 'animation.gif'], format: 'png', size: 1 },
+    });
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [task];
+    mocks.executeCanvasInsertion.mockResolvedValueOnce({ success: false, error: 'unreadable sheet' });
+    renderHook(() => useAutoInsertToCanvas({ enabled: true, groupTimeWindow: 10 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(mocks.executeCanvasInsertion.mock.calls[0][0].imageLayout).toBe('task-columns');
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    expect(mocks.failPostProcessing).toHaveBeenCalledWith(task.id, expect.stringContaining('unreadable sheet'));
+    emitTaskEvent(task);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(mocks.executeCanvasInsertion).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps separate 2.6 output pairs in their reserved task columns when the second task finishes first', async () => {
+    mocks.board = { children: [] };
+    mocks.taskState.tasks = [];
+    renderHook(() => useAutoInsertToCanvas({ enabled: true, groupTimeWindow: 10 }));
+    for (const index of [2, 1]) {
+      const x = 100 + (index - 1) * 440;
+      const task = createCompletedImageTask({
+        id: `pair-${index}`,
+        params: { model: 'gpt-image-2.6', prompt: 'animate', autoInsertToCanvas: true, workflowId: 'wf', batchId: 'batch', batchIndex: index },
+        result: { url: `${index}.gif`, urls: [`${index}.gif`, `${index}.png`], format: 'gif', size: 1 },
+      });
+      mocks.taskState.tasks.push(task);
+      mocks.imageAnchorByTask = {
+        id: `anchor-${index}`, anchorType: 'ghost', workflowId: 'wf', batchId: 'batch', batchIndex: index,
+        taskIds: [task.id], points: [[x, 100], [x + 168, 172]], expectedInsertPosition: [x, 100],
+      };
+      act(() => { emitTaskEvent(task); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    }
+    expect(mocks.executeCanvasInsertion.mock.calls.map(call => call[0].startPoint)).toEqual([[540, 100], [100, 100]]);
+    expect(mocks.executeCanvasInsertion.mock.calls.every(call => call[0].imageLayout === 'task-columns')).toBe(true);
+    expect(mocks.markAsInserted).toHaveBeenCalledTimes(2);
+  });
 });
