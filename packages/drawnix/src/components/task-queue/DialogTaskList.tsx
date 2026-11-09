@@ -15,6 +15,7 @@ import { MessagePlugin, Input, Button } from 'tdesign-react';
 import { SearchIcon, DeleteIcon } from 'tdesign-icons-react';
 import { normalizeImageDataUrl } from '@aitu/utils';
 import { executeCanvasInsertion } from '../../services/canvas-operations';
+import { usesGPTImage26ResultColumns, getGPTImage26ResultColumnOrder } from '../../utils/gpt-image-26-result-layout';
 import {
   getImageTaskResultDimensions,
   resolveImageTaskInsertionDimensions,
@@ -240,9 +241,11 @@ export const DialogTaskList: React.FC<DialogTaskListProps> = ({
             type: 'image',
             content: normalizeImageDataUrl(url),
             groupId: urls.length > 1 ? `task-image-${task.id}` : undefined,
+            columnOrder: getGPTImage26ResultColumnOrder(task, url),
             dimensions: resolveImageTaskInsertionDimensions(task),
             waitForImageLoad: true,
           })),
+          imageLayout: usesGPTImage26ResultColumns(task) ? 'task-columns' : undefined,
         });
         if (!insertionResult.success) {
           throw new Error(insertionResult.error || '图片插入失败');

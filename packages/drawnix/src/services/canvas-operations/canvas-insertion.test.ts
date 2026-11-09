@@ -69,12 +69,14 @@ vi.mock('../../utils/selection-utils', () => ({
   scrollToPointIfNeeded: vi.fn(),
 }));
 
-vi.mock('../../utils/canvas-insertion-layout', () => ({
+vi.mock('../../utils/canvas-insertion-layout', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../utils/canvas-insertion-layout')>(),
   CANVAS_INSERTION_LAYOUT: {
     DEFAULT_VERTICAL_GAP: 50,
     DEFAULT_HORIZONTAL_GAP: 20,
     DEFAULT_POINT: [100, 100],
     MEDIA_DEFAULT_SIZE: 400,
+    MEDIA_MAX_SIZE: 600,
   },
   createBatchInsertionFlowState: vi.fn(() => ({
     startX: 100,
@@ -175,6 +177,55 @@ describe('canvas insertion service metadata binding', () => {
         return element;
       }
     );
+  });
+
+  it('inserts a GIF above its own sheet in adjacent task columns with actual aspect ratios and original cache order', async () => {
+    const board = createBoard();
+    board.getRectangle = element => RectangleClient.getRectangleByPoints(element.points);
+    board.children = [{ id: 'own-anchor', type: 'generation-anchor', points: [[100, 100], [500, 700]] }];
+    const urls = ['sheet-a.png', 'animation-a.gif', 'animation-b.gif', 'sheet-b.png'];
+    const sizes = [{ width: 400, height: 500 }, { width: 400, height: 200 }, { width: 300, height: 600 }, { width: 400, height: 300 }];
+    mocks.loadImage.mockImplementation(async url => ({ url }));
+    mocks.buildImage.mockImplementation(image => sizes[urls.indexOf(image.url)]);
+    mocks.insertImageFromUrl.mockImplementation(async (target, url, point, _drop, dimensions) =>
+      mocks.insertImageNodeAtPoint(target, { url, ...dimensions }, point).id
+    );
+    const result = await executeCanvasInsertion({
+      board, startPoint: [100, 100], imageLayout: 'task-columns',
+      items: urls.map((content, index) => ({
+        type: 'image', content, groupId: index < 2 ? 'a' : 'b',
+        columnOrder: content.endsWith('.gif') ? 0 : 1,
+        dimensions: { width: 512, height: 512 },
+        metadata: { generationTaskId: index < 2 ? 'a' : 'b', generationAnchorId: 'own-anchor' },
+      })),
+    });
+    expect(result.success).toBe(true);
+    const data = result.data as { items: Array<{ point: number[]; size: unknown }> };
+    expect(data.items.map(item => item.point)).toEqual([[100, 350], [100, 100], [520, 100], [520, 750]]);
+    expect(data.items.map(item => item.size)).toEqual(sizes);
+    expect(board.children.slice(1).map(element => element.url)).toEqual(urls);
+    expect(board.children.slice(1).map(element => element.generationTaskId)).toEqual(['a', 'a', 'b', 'b']);
+  });
+
+  it('keeps the whole task column clear of obstacles and commits nothing when an output cannot load', async () => {
+    const board = createBoard();
+    board.getRectangle = element => RectangleClient.getRectangleByPoints(element.points);
+    const obstacle = { id: 'existing', type: 'image', points: [[100, 300], [500, 600]] };
+    board.children = [obstacle];
+    mocks.loadImage.mockResolvedValue({});
+    mocks.buildImage.mockReturnValue({ width: 400, height: 200 });
+    mocks.insertImageFromUrl.mockImplementation(async (target, url, point, _drop, dimensions) =>
+      mocks.insertImageNodeAtPoint(target, { url, ...dimensions }, point).id
+    );
+    const items = ['a.gif', 'a.png'].map(content => ({ type: 'image' as const, content, groupId: 'a' }));
+    const result = await executeCanvasInsertion({ board, startPoint: [100, 100], items, imageLayout: 'task-columns' });
+    expect(result.success).toBe(true);
+    expect((result.data as { items: Array<{ point: number[] }> }).items[0].point[1]).toBeGreaterThanOrEqual(640);
+    const before = [...board.children];
+    mocks.loadImage.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('source sheet unavailable'));
+    const failed = await executeCanvasInsertion({ board, startPoint: [100, 100], items, imageLayout: 'task-columns' });
+    expect(failed.success).toBe(false);
+    expect(board.children).toEqual(before);
   });
 
   afterEach(() => {

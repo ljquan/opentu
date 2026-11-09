@@ -16,6 +16,8 @@ import type { ParsedGenerationParams } from '../../../utils/ai-input-parser';
 import type { CanvasAssociationRef } from '../../../types/task.types';
 import { buildBoundTargetGenerationParams } from '../target-bound-taskbar-state';
 import { initializeMCP } from '../../../mcp';
+import { buildGPTImageGenerationBody } from '../../../services/model-adapters/gpt-image-adapter';
+import { buildTuziGPTImageRequestBody } from '../../../services/model-adapters/tuzi-gpt-image-adapter';
 
 vi.hoisted(() => {
   const storage = new Map<string, string>();
@@ -137,6 +139,31 @@ describe('workflow-converter', () => {
 
   describe('convertDirectGenerationToWorkflow', () => {
     describe('图片生成场景', () => {
+      it.each(['gif', 'gif_official'])('keeps %s hints out of displayed batch prompts while including them in every request and retry', (output) => {
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          modelId: 'gpt-image-2.6', prompt: '生成一张好看的风景图片', count: 2,
+          extraParams: { gpt_image_26_output: output, background: 'transparent', frame_count: '48' },
+        }));
+        for (const step of workflow.steps) {
+          const before = JSON.stringify(step.args);
+          const request = {
+            model: step.args.model as string,
+            prompt: step.args.prompt as string,
+            params: step.args.params as Record<string, unknown>,
+          };
+          for (const build of [buildGPTImageGenerationBody, buildTuziGPTImageRequestBody]) {
+            for (let attempt = 0; attempt < 2; attempt++) {
+              expect(build(request)).toMatchObject({
+                prompt: '生成一张好看的风景图片\n透明图\n生成 GIF 图',
+                background: 'transparent', output_format: 'gif', frame_count: 48,
+              });
+            }
+          }
+          expect(step.args.prompt).toBe('生成一张好看的风景图片');
+          expect(JSON.stringify(step.args)).toBe(before);
+        }
+      });
+
       it.each(['gpt-image-2.6', 'gpt-image-2.6-sunburst'])('keeps the output type and format options on each queued %s task', (modelId) => {
         const workflow = convertDirectGenerationToWorkflow(createMockParams({
           modelId, count: 2,
@@ -162,7 +189,7 @@ describe('workflow-converter', () => {
         expect(workflow.steps).toHaveLength(2);
         for (const step of workflow.steps) {
           expect(step.args).toMatchObject({ model: modelId, params: extraParams });
-          expect(step.args.prompt).toBe('test prompt\n透明图');
+          expect(step.args.prompt).toBe('test prompt');
         }
       });
 
@@ -177,7 +204,7 @@ describe('workflow-converter', () => {
         expect(workflow.steps).toHaveLength(2);
         for (const step of workflow.steps) {
           expect(step.args).toMatchObject({ model: 'gpt-image-2.6-flare', params: extraParams });
-          expect(step.args.prompt).toBe('test prompt\n透明图');
+          expect(step.args.prompt).toBe('test prompt');
         }
       });
 
@@ -255,20 +282,18 @@ describe('workflow-converter', () => {
             expect(workflow.steps[0].args.params).toMatchObject({
               background, resolution: '2k', quality: 'high',
             });
-            expect(workflow.steps[0].args.prompt).toBe(
-              background === 'transparent' ? 'test prompt\n透明图' : 'test prompt'
-            );
+            expect(workflow.steps[0].args.prompt).toBe('test prompt');
           }
         }
       );
 
-      it('appends the transparent suffix even when already present across batch steps', () => {
+      it('preserves user-written transparency text across batch steps', () => {
         const params = createMockParams({
           prompt: '一朵荷花\n透明图', count: 3,
           extraParams: { background: 'transparent' },
         });
         for (const step of convertDirectGenerationToWorkflow(params).steps) {
-          expect(step.args.prompt).toBe('一朵荷花\n透明图\n透明图');
+          expect(step.args.prompt).toBe('一朵荷花\n透明图');
         }
         expect(params.prompt).toBe('一朵荷花\n透明图');
       });

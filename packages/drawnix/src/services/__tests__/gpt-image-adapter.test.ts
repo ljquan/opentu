@@ -187,7 +187,7 @@ describe('gpt-image-adapter', () => {
     });
 
     expect(body.get('model')).toBe('gpt-image-2');
-    expect(body.get('prompt')).toBe('Change the style');
+    expect(body.get('prompt')).toBe('Change the style\n透明图');
     expect(body.has('response_format')).toBe(false);
     expect(body.get('input_fidelity')).toBe('high');
     expect(body.get('size')).toBe('1024x1024');

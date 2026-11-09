@@ -3,8 +3,10 @@ import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
+  getGPTImage26SizeOptions,
+  GPT_IMAGE_26_SIZE_OPTIONS,
+  supportsGPTImage26Resolution,
 } from '../../constants/model-config';
-import { resolveGPTImage26Size } from './gpt-image-26-request';
 
 export type ImageResolutionTier = '1k' | '2k' | '4k';
 export type OfficialGPTImageQuality =
@@ -109,6 +111,80 @@ const GPT_IMAGE_2K_BILLING_SIZES: Record<GPTImageAspectRatioKey, string> = {
   '16x9': '2560x1440',
   '21x9': '2912x1248',
 };
+
+// Preserve the verified 2.6 square request while using existing ratio presets.
+const GPT_IMAGE_26_SIZE_MATRIX = {
+  ...GPT_IMAGE_2_SIZE_MATRIX,
+  '4k': { ...GPT_IMAGE_2_SIZE_MATRIX['4k'], '1x1': '4096x4096' },
+};
+const GPT_IMAGE_26_LEGACY_SIZES: Record<string, GPTImageAspectRatioKey> = {
+  '1024x1024': '1x1',
+  '1024x1536': '2x3',
+  '1536x1024': '3x2',
+};
+
+/** Convert saved pixel choices into independent UI ratio and resolution values. */
+export function normalizeGPTImage26RasterParams(
+  modelId: string,
+  params: Record<string, string>
+): Record<string, string> {
+  if (!supportsGPTImage26Resolution(modelId)) return params;
+  const size = params.size?.trim().toLowerCase().replace(/[:×]/g, 'x');
+  if (!size) return params;
+  if (GPT_IMAGE_26_LEGACY_SIZES[size]) {
+    return { ...params, size: GPT_IMAGE_26_LEGACY_SIZES[size] };
+  }
+  for (const tier of ['1k', '2k', '4k'] as const) {
+    for (const [ratio, pixels] of Object.entries(GPT_IMAGE_26_SIZE_MATRIX[tier])) {
+      if (pixels === size || (size === '2880x2880' && tier === '4k' && ratio === '1x1')) {
+        return { ...params, size: ratio, resolution: normalizeImageResolutionTier(params.resolution) || tier };
+      }
+    }
+  }
+  return params;
+}
+
+/** Resolve 2.6 static tiers locally; only the native size field goes upstream. */
+export function resolveGPTImage26Size(
+  size: unknown,
+  modelId?: string,
+  params?: Record<string, unknown>,
+  prompt = ''
+): string {
+  const normalized = typeof size === 'string'
+    ? size.trim().toLowerCase().replace(/[:×]/g, 'x')
+    : '';
+  const output = params?.gpt_image_26_output || (
+    params?.output_format === 'gif' || params?.output_format === 'svg' ? params.output_format : 'auto'
+  );
+  const staticOutput = supportsGPTImage26Resolution(modelId) && output === 'auto';
+  if (staticOutput) {
+    const restored = normalizeGPTImage26RasterParams(modelId || '', {
+      size: normalized,
+      ...(typeof params?.resolution === 'string' ? { resolution: params.resolution } : {}),
+    });
+    const tier = normalizeImageResolutionTier(restored.resolution);
+    const ratio = restored.size === 'auto' || !restored.size
+      ? tier ? resolveGPTImagePromptAspectRatio(prompt) : undefined
+      : getGPTImage26SizeOptions(modelId).some(({ value }) => value === restored.size)
+        ? restored.size as GPTImageAspectRatioKey
+        : undefined;
+    if (ratio) {
+      // Automatic resolution retains existing explicit legacy size behavior.
+      if (!tier && GPT_IMAGE_26_LEGACY_SIZES[normalized]) return normalized;
+      if (!tier && ['1x1', '2x3', '3x2'].includes(ratio)) {
+        return Object.entries(GPT_IMAGE_26_LEGACY_SIZES).find(([, value]) => value === ratio)?.[0] || 'auto';
+      }
+      if (!tier && (ratio === '16x9' || ratio === '9x16')) return ratio;
+      return GPT_IMAGE_26_SIZE_MATRIX[tier || '1k'][ratio];
+    }
+    return 'auto';
+  }
+  const ratioSizes: Record<string, string> = { '1x1': '1024x1024', '2x3': '1024x1536', '3x2': '1536x1024' };
+  const resolved = ratioSizes[normalized] || normalized;
+  return GPT_IMAGE_26_SIZE_OPTIONS.some(({ value }) => value === resolved)
+    ? resolved : 'auto';
+}
 
 const LEGACY_GPT_IMAGE_SIZE_BY_RATIO: Record<
   LegacyGPTImageAspectRatioKey,
@@ -353,7 +429,7 @@ export function resolveOfficialGPTImageSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
-  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size);
+  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size, modelId, params);
   const normalizedSize = size?.trim().toLowerCase().replace(':', 'x');
   const useExtendedSizing =
     typeof modelId === 'string' &&
@@ -428,7 +504,7 @@ export function resolveOfficialGPTImageEditSize(
   size?: string,
   params?: Record<string, unknown>
 ): string | undefined {
-  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size);
+  if (isGPTImage26ModelId(modelId)) return resolveGPTImage26Size(size, modelId, params);
   if (isGPTImage2Model(modelId) || isGPTImage25Model(modelId)) {
     return resolveOfficialGPTImageSize(modelId, size, params);
   }

@@ -286,7 +286,7 @@ describe('tuzi GPT image adapter', () => {
         };
         expect(buildTuziGPTImageRequestBody(request)).toEqual({
           model: request.model,
-          prompt: 'Test',
+          prompt: background === 'transparent' ? 'Test\n透明图' : 'Test',
           size: '1920x1920',
           quality: 'high',
           background,

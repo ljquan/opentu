@@ -1,0 +1,80 @@
+.svg-tools-panel {
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--aitu-ui-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--aitu-ui-surface, #fff);
+  color: var(--aitu-ui-text-primary, #1e293b);
+  box-shadow: var(--aitu-ui-shadow-popover, 0 8px 24px rgba(0, 0, 0, 0.12));
+  font-size: 13px;
+  line-height: 1.5;
+
+  strong {
+    display: block;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 8px 0;
+    color: var(--aitu-ui-text-secondary, #64748b);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  label {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0;
+    font-size: 12px;
+  }
+
+  input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    padding: 6px 8px;
+    color: inherit;
+    background: var(--aitu-ui-surface, #fff);
+    border: 1px solid var(--aitu-ui-border, #cbd5e1);
+    border-radius: 4px;
+    font: inherit;
+  }
+
+  button {
+    width: 100%;
+    min-height: 34px;
+    margin: 4px 0;
+    padding: 7px 10px;
+    border: 1px solid var(--aitu-ui-border, #cbd5e1);
+    border-radius: 6px;
+    background: var(--aitu-ui-brand-soft, #fef5e7);
+    color: var(--aitu-ui-text-primary, #1e293b);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--aitu-ui-brand, #f39c12);
+    background: var(--aitu-ui-hover-bg, #fffaf0);
+  }
+
+  input:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--aitu-ui-brand, #f39c12);
+    outline-offset: 2px;
+  }
+
+  button:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  [role='alert'] {
+    color: var(--aitu-ui-danger-text, #b91c1c);
+  }
+}

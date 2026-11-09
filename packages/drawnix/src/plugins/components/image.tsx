@@ -32,6 +32,8 @@ import {
 } from '../../utils/image-3d-transform';
 import { RetryImage } from '../../components/retry-image';
 import { registerCanvasImage } from '../../services/canvas-image-readiness';
+import { SvgAnimationOverlay } from '../../components/svg-animation-overlay';
+import { isSvgUrl } from '../../utils/svg-source';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -160,6 +162,8 @@ const isVideoElement = (imageItem: any): boolean => {
 };
 
 export const Image: React.FC<ImageProps> = (props: ImageProps) => {
+  const [svgAnimationVisible, setSvgAnimationVisible] = useState(false);
+  const svgCandidate = isSvgUrl(props.imageItem.url);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const retryImageLoad = useCallback(() => setLoadAttempt((value) => value + 1), []);
   const canvasImageRenderRef = useRef<ReturnType<
@@ -219,6 +223,7 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
   useLayoutEffect(() => {
     currentImageUrlRef.current = props.imageItem.url;
     setResolvedImageUrl(props.imageItem.url);
+    setSvgAnimationVisible(false);
     fallbackAttemptedUrlRef.current = null;
     externalImageRetryAttemptRef.current = 0;
     clearFallbackBlobUrl();
@@ -785,13 +790,13 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         semanticLayerHidden ||
         image3DTransform ||
         shouldContainFrameImage ||
-        showGenerationPrompt
+        showGenerationPrompt || svgCandidate
           ? {
               width: '100%',
               height: '100%',
               display: semanticLayerHidden ? 'none' : undefined,
               overflow: showGenerationPrompt ? 'visible' : undefined,
-              position: showGenerationPrompt ? 'relative' : undefined,
+              position: showGenerationPrompt || svgCandidate ? 'relative' : undefined,
             }
           : undefined
       }
@@ -813,11 +818,16 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
         initialRetryDelay={500}
         bypassSWAfterRetries={1}
         onSourceChange={handleResolvedImageUrlChange}
-        style={imgProps.style}
+        style={{ ...imgProps.style, ...(svgAnimationVisible ? { visibility: 'hidden' } : {}) }}
         onError={handleImageError}
         onLoad={handleImageLoad}
         onLoadFailure={handleImageLoadFailure}
       />
+      {svgCandidate && !image3DTransform && <div style={{ position: 'absolute', inset: 0, opacity: elementOpacity, pointerEvents: 'none' }}>
+        <SvgAnimationOverlay key={props.imageItem.url} board={props.board} elementId={props.element.id} url={props.imageItem.url}
+          playback={elementData.svgPlayback as 'playing' | 'paused' | undefined}
+          onVisibleChange={setSvgAnimationVisible} />
+      </div>}
     </div>
   );
 };

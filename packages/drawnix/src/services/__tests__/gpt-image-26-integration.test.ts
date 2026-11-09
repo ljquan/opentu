@@ -33,7 +33,7 @@ const svg = btoa(
 );
 const staleRequest: ImageGenerationRequest = {
   model,
-  prompt: '生成 GIF 图：小猫挥手',
+  prompt: '小猫挥手',
   size: '4096x4096',
   background: 'transparent',
   outputFormat: 'jpeg',
@@ -58,6 +58,13 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
   'GPT Image 2.6 integration: %s', (model) => {
   const staleRequestForModel = { ...staleRequest, model };
   const responseParams = model === 'gpt-image-2.6-1k' ? { response_format: 'b64_json' } : {};
+  const gifParams = model === 'gpt-image-2.6-1k' ? {} : { output_format: 'gif' };
+  const sentPrompt = `${staleRequest.prompt}\n透明图\n生成 GIF 图`;
+  const staleEditRequestForModel = {
+    ...staleRequestForModel,
+    outputFormat: undefined,
+    params: { ...staleRequest.params, gpt_image_26_output: 'auto', output_format: undefined },
+  };
   const imageParams = { background: 'transparent', moderation: 'low', user: 'old-setting' };
 
   it('keeps the chosen provider while aligning a stale model reference with the binding', () => {
@@ -92,7 +99,19 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       expect.objectContaining({
         id: 'size',
         defaultValue: 'auto',
-        options: [
+        options: model !== 'gpt-image-2.6-1k' ? [
+          { value: 'auto', label: '自动' },
+          { value: '1x1', label: '1:1 方形' },
+          { value: '2x3', label: '2:3 竖版' },
+          { value: '3x2', label: '3:2 横版' },
+          { value: '3x4', label: '3:4 竖版' },
+          { value: '4x3', label: '4:3 横版' },
+          { value: '4x5', label: '4:5 竖版' },
+          { value: '5x4', label: '5:4 横版' },
+          { value: '9x16', label: '9:16 竖版' },
+          { value: '16x9', label: '16:9 横版' },
+          { value: '21x9', label: '21:9 超宽' },
+        ] : [
           { value: 'auto', label: '自动（原始尺寸）' },
           { value: '1024x1024', label: '1:1 方形' },
           { value: '1024x1536', label: '2:3 竖版' },
@@ -103,7 +122,7 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       }),
       expect.objectContaining({ id: 'gpt_image_26_output', defaultValue: 'auto' }),
     ]));
-    expect(getCompatibleParams(model).some((param) => param.id === 'resolution')).toBe(false);
+    expect(getCompatibleParams(model).some((param) => param.id === 'resolution')).toBe(model !== 'gpt-image-2.6-1k');
     for (const id of ['background', 'quality', 'output_format', 'output_compression', 'input_fidelity', 'moderation', 'user']) {
       expect(getCompatibleParams(model).some((param) => param.id === id), id).toBe(true);
     }
@@ -125,27 +144,28 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     (build) => {
       expect(build(staleRequestForModel)).toEqual({
         model,
-        prompt: staleRequest.prompt,
+        prompt: sentPrompt,
         size: 'auto',
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
     }
   );
 
   it.each([
-    ['auto', 'auto'],
-    ['1024x1024', '1024x1024'],
-    ['1024x1536', '1024x1536'],
-    ['1536x1024', '1536x1024'],
-    ['16:9', '16x9'],
-    ['9:16', '9x16'],
-    ['1:1', '1024x1024'],
-    ['2x3', '1024x1536'],
-    [' 1536X1024 ', '1536x1024'],
-    ['4096x4096', 'auto'],
-  ])('preserves verified size %s across GPT and Tuzi generation routes', (size, expected) => {
+    ['auto', 'auto', undefined],
+    ['1024x1024', '1024x1024', '1:1'],
+    ['1024x1536', '1024x1536', '2:3'],
+    ['1536x1024', '1536x1024', '3:2'],
+    ['16:9', '16x9', '16:9'],
+    ['9:16', '9x16', '9:16'],
+    ['1:1', '1024x1024', '1:1'],
+    ['2x3', '1024x1536', '2:3'],
+    [' 1536X1024 ', '1536x1024', '3:2'],
+    ['4096x4096', 'auto', undefined],
+  ])('preserves size %s as a GIF ratio hint or the original 1k request', (size, expected, ratio) => {
     const request = {
       ...staleRequestForModel,
       size: '4096x4096',
@@ -154,15 +174,19 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     for (const build of [buildGPTImageGenerationBody, buildTuziGPTImageRequestBody]) {
       expect(build(request)).toEqual({
         model,
-        prompt: request.prompt,
-        size: expected,
+        prompt: model !== 'gpt-image-2.6-1k' && ratio
+          ? `${staleRequest.prompt}\nGIF 每帧画面比例：${ratio}\n透明图\n生成 GIF 图`
+          : sentPrompt,
+        size: model === 'gpt-image-2.6-1k' ? expected : 'auto',
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
     }
-    expect(resolveOfficialGPTImageSize(model, size, { resolution: '4k' })).toBe(expected);
-    expect(resolveOfficialGPTImageEditSize(model, size, { resolution: '4k' })).toBe(expected);
+    const params = { resolution: '4k', gpt_image_26_output: 'gif' };
+    expect(resolveOfficialGPTImageSize(model, size, params)).toBe(expected);
+    expect(resolveOfficialGPTImageEditSize(model, size, params)).toBe(expected);
   });
 
   it('uses the selected top-level size when no size parameter is provided', () => {
@@ -173,10 +197,10 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
 
   it('keeps explicit dimensions in both multipart edit paths without restoring stale output parameters', async () => {
     const request = {
-      ...staleRequestForModel,
+      ...staleEditRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
       maskImage: `data:image/gif;base64,${gif}`,
-      params: { ...staleRequest.params, size: '1024x1536' },
+      params: { ...staleEditRequestForModel.params, size: '1024x1536', resolution: 'auto' },
     };
     const forms = [
       await buildGPTImageEditFormData(request),
@@ -188,7 +212,7 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       expect(form.has('image[]')).toBe(true);
       expect(form.has('mask')).toBe(true);
       expect(form.has('quality')).toBe(false);
-      expect(form.has('output_format')).toBe(false);
+      expect(form.get('output_format')).toBe('png');
     }
   });
 
@@ -196,7 +220,7 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     expect(
       buildTuziGPTImageRequestBody(
         {
-          ...staleRequestForModel,
+          ...staleEditRequestForModel,
           model: 'gpt-image-2.5',
           referenceImages: ['https://example.com/source.png'],
         },
@@ -204,33 +228,37 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       )
     ).toEqual({
       model,
-      prompt: staleRequest.prompt,
-      size: 'auto',
+      prompt: `${staleRequest.prompt}\n透明图`,
+      size: model === 'gpt-image-2.6-1k' ? 'auto' : '4096x4096',
       n: 1,
       ...responseParams,
       ...imageParams,
+      output_format: 'png',
+      input_fidelity: 'high',
       image: ['https://example.com/source.png'],
     });
   });
 
   it('keeps references in multipart edits without inherited quality/output fields', async () => {
     const form = await buildGPTImageEditFormData({
-      ...staleRequestForModel,
+      ...staleEditRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
     });
     expect([...form.keys()].sort()).toEqual([
       'background',
       'image[]',
+      'input_fidelity',
       'model',
       'moderation',
       'n',
+      'output_format',
       'prompt',
       ...(model === 'gpt-image-2.6-1k' ? ['response_format'] : []),
       'size',
       'user',
     ]);
     expect(form.get('model')).toBe(model);
-    expect(form.get('size')).toBe('auto');
+    expect(form.get('size')).toBe(model === 'gpt-image-2.6-1k' ? 'auto' : '4096x4096');
     expect((form.get('image[]') as File).type).toBe('image/gif');
   });
 
@@ -333,10 +361,11 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       expect(fetcher).toHaveBeenCalledOnce();
       expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
         model,
-        prompt: staleRequest.prompt,
+        prompt: sentPrompt,
         size: 'auto',
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
       expect(result).toMatchObject({ format: 'gif', width: 553, height: 309 });
