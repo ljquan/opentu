@@ -635,3 +635,13 @@ QA/DOC 更新本目录既有 proposal、规格、tasks 和本记录，不新增�
 更新现有 proposal、规格、tasks 和本记录，不新增根目录文档。无依赖、环境变量、数据库或配置迁移。未做页面/浏览器测试、新收费调用、部署、提交或推送；OpenSpec CLI 此前确认不可用，本轮未执行严格校验。本地验证证明客户端不再发出导致截图错误的固定 GIF 像素请求，尚未真实复测 Flare 的该场景，也不承诺所有渠道的 GIF 比例、帧数及透明度均满足要求。
 
 非技术验收：刷新本地页面，在 Flare 的 GIF 模式选 3:2，参数说明应提示自动尺寸和提示词比例。经用户决定重新生成时，请求应为 `size=auto`、`output_format=gif`，提示词含 3:2 比例但前端原始输入保持不变；原来的失败任务不会自动重新提交。实际文件的比例、帧数和透明度需检查返回原图。
+
+## 2026-11-09 最新远程同步与推送前 QA
+
+- 用户授权拉取最新远程、解决冲突并提交修改。先通过基础回归，再将此前 25 个任务文件保存为 `19de3fb0`；包括 2.6 比例/分辨率、GIF 自动尺寸与 SVG 部件点击修复，无无关文件。
+- 首次 fetch 遇到 HTTP/2 framing 错误，改用 HTTP/1.1 后成功；进一步显式 fetch `develop` 与当前功能分支的 refspec，刷新受限的远程跟踪引用。远程 `develop` 为 `65636cbe2203d57b8a1c555f39e41527289cd749`，功能分支为 `fef01196e0923f97e588a49be6ef7e10dcc366c9`，均已包含于本地。随后 `git merge --no-edit origin/develop` 返回 Already up to date，无冲突或合并代码变化。
+- 最终相关回归使用前文 Vitest 命令和 `NODE_OPTIONS=--no-experimental-webstorage`，合并覆盖 2.6 请求/分辨率/GIF、三条适配路径、尺寸解析、参数菜单及 SVG 命中/解析/编辑/媒体/播放：18 文件 703 项通过。图片偏好过滤范围另有 25 项通过、25 项未选中；合计 728 项通过。日志 `/tmp/opentu5-pr331-final-tests.log` 与 `/tmp/opentu5-pr331-final-preferences.log`。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过；`pnpm exec vite build --config apps/web/vite.config.ts` 通过（38.59 秒），保留既有构建提示。17 个本次 TS/TSX 文件 ESLint 为 1 个既有模块边界错误、10 个既有警告，与前述基线结论一致。新 SVG 命中模块没有 lint 问题。
+- `git diff origin/develop...HEAD --check` 通过，未合并索引为空。最终测试与成功同步期间代码没有变化；仅追加本次 QA 记录。未重复执行已知受 JSONC 阻塞的循环脚本或不可用的 OpenSpec CLI，未执行页面、收费生成或部署。
+- PR #331 旧头 `fef01196` 的 CI run `42570180250` 已失败：11 个失败文件、56 项失败，涉及提示词历史/解析、存储初始化、媒体 Blob、视频偏好、工作流及超时等；这些发生在本次提交之前，并非全部已逐项证实为 develop 基线问题。本轮不将相关本地回归通过等同于全仓库 CI 通过。新增提交的远程 CI 以推送后 GitHub 状态为准。
+- QA/DOC 继续复用两个既有 OpenSpec 目录；无新增依赖、环境变量、权限或数据迁移。此前各节的“未提交/未推送”是对应阶段历史状态，本节记录本次推送前验证；远程最终提交与 PR 状态以本次交付及 GitHub 为准。
