@@ -26,7 +26,7 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
   });
 
   it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('keeps the model-specific response format policy in automatic mode', (build) => {
-    expect(build(request)).toEqual({ model, prompt: request.prompt, size: 'auto', n: 1, ...responseParams });
+    expect(build(request)).toEqual({ model, prompt: request.prompt, size: is1k ? 'auto' : '4096x4096', n: 1, ...responseParams });
   });
 
   it('does not duplicate existing hint lines or remove user-written text', () => {
@@ -39,13 +39,13 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
     expect(input.prompt).toBe('图\n透明图\n生成 GIF 图');
   });
 
-  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('preserves static image fields and zero compression without inherited resolution', (build) => {
+  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('preserves static image fields and zero compression with model-specific resolution support', (build) => {
     expect(build({ ...request, params: {
       gpt_image_26_output: 'auto', quality: 'high', background: 'transparent',
       output_format: 'webp', output_compression: '0', moderation: 'auto', user: ' client-1 ',
       resolution: '4k', response_format: 'url',
     } })).toEqual({
-      model, prompt: `${request.prompt}\n透明图`, size: 'auto', n: 1, quality: 'high',
+      model, prompt: `${request.prompt}\n透明图`, size: is1k ? 'auto' : '4096x4096', n: 1, quality: 'high',
       background: 'transparent', output_format: 'webp', output_compression: 0,
       moderation: 'auto', user: 'client-1',
       ...responseParams,

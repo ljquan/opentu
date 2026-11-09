@@ -3,9 +3,11 @@ import type { ImageGenerationRequest } from './types';
 /** Add transport-only hints without changing the prompt stored on the task. */
 export function buildImageRequestPrompt(
   request: Pick<ImageGenerationRequest, 'prompt' | 'background' | 'params'>,
-  gif = false
+  gif = false,
+  gifAspectRatio?: string
 ): string {
   const hints = [
+    ...(gif && gifAspectRatio ? [`GIF 每帧画面比例：${gifAspectRatio}`] : []),
     ...((request.background || request.params?.background) === 'transparent'
       ? ['透明图']
       : []),

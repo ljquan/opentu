@@ -559,3 +559,79 @@ QA/DOC 更新本目录既有 proposal、规格、tasks 和本记录，不新增�
 ### QA/DOC 和未覆盖项
 
 更新本目录已有 proposal、规格、tasks 与本记录，不新增根目录文档。未执行页面自动化、真实生成、收费请求、上游透明度/GIF 参数实测或部署。OpenSpec CLI 仍不可用，未执行 CLI 严格校验；规格保持现有 Requirement / Scenario 格式。
+
+## 2.6 比例与分辨率独立选择（2026-11-09）
+
+### 真实接口证据与最终范围
+
+用户先授权测试无 GIF/SVG 时的 2K / 4K，之后要求适配，并明确 4K 返回 2880×2880 符合预期。最后按截图要求将比例与分辨率分组，范围为 2.6 系列，明确排除 `-1k`。本节以此为最终范围，替代过程中仅提供两个方形按钮的未提交实现。
+
+使用凭据文件中的当前 Key，对 `https://api.tu-zi.com/v1/images/generations` 的精确 `gpt-image-2.6` 各发出一次请求，均为相同静态风景提示词、n=1，未带 GIF/SVG 格式字段。未确认 Key 分组名称，不将两次结果推广为其他型号或所有分组的实测结论。
+
+| 请求 size | API 结果 | 下载原文件实测 | 结论 |
+|---|---|---|---|
+| `2048x2048` | 成功返回图片地址 | PNG，2048×2048，1 帧，7,220,868 字节 | 2K 方形通过 |
+| `4096x4096` | 成功返回图片地址 | PNG，2880×2880，1 帧，12,325,985 字节 | 4K 渠道档位通过，不承诺 4096×4096 |
+
+探针最初把图片下载 403 误记为 API 失败；已核对保存的成功响应、修正独立汇总，并复用原地址以 curl 下载成功。Pillow 检查原文件像素，没有重新 POST、本地放大或向图片主机发送 API 凭据。证据和日志保存在仓库外 `/tmp/opentu5-gpt26-resolution-probe/`，不提交原图或凭据。
+
+### 使用方式与实现边界
+
+- 无后缀、Flare、Sunburst 的静态输出分为“图片比例”和“图片分辨率”。比例为自动及截图中的十种常用比例；分辨率为自动 / 1K / 2K / 4K。不再把 2K / 4K 固定成两个方形按钮。
+- 前端保存 size 比例与 resolution 档位。请求归一化复用项目已有像素预设，将组合转换为上游原有 size 字段；2K 方形请求 2048×2048，4K 方形保留实测通过的 4096×4096 请求值。没有强行发送新的分辨率字段，基础兼容也不把 K 档位转成 quality。
+- 固定 K 档位结合自动比例时，复用已有提示词比例识别，取最后一个有效比例，未给比例时为 1:1；两组都自动时发送 size=auto。分辨率自动时，原有比例沿用旧请求值，新比例使用既有默认像素预设。实际像素、比例和计费由返回结果及渠道决定；非方形和后缀型号的这些组合本轮仅本地验证。
+- 输入栏及图片工具保存并恢复两组选择。旧 2048/4096 方形值迁移为 1:1 与 2K/4K；原有像素比例转成对应比例。旧的无效 quality=4k 不自动升级为分辨率 4K；用户明确选择的 resolution 仍按选择生效。
+- GIF/SVG 隐藏分辨率并使用原有尺寸白名单，残留静态分辨率不参与生成；切回静态可恢复选择。`-1k` 不增加新比例和分辨率选项，不改变其原有按次别名、GIF、返回格式或请求行为。
+- 返回 2880×2880 的 4K 档位图片正常完成，保留原图实际宽高，不因像素不同而放大、报错或重新生成。未改缓存、画布缩放或下载字节。
+- 在既有尺寸解析器集中复用预设与归一化，保留 GPT Image 2/2.5 的请求规则。本次解析器扩至 549 行，作为文件长度规则的局部例外，不扩大为无关的旧模块拆分；新增尺寸测试单独放在 gpt-image-26-resolution.test.ts。
+
+### 最终本地 QA
+
+环境：macOS，Node 26.8.1，pnpm 10.21.0；基线 fef01196，分支 dev/gpt-image-26-result-columns。本节为本地未提交改动，未推送或更新 PR。
+
+| 检查与命令 | 实际结果 |
+|---|---|
+| 在 packages/drawnix 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 gpt-image-26-integration、gpt-image-26-resolution、gpt-image-26-output、gpt-image-adapter、tuzi-gpt-image-adapter、image-size-quality-resolver、ParametersDropdown、default-image-adapter | 8 文件、596 项通过 |
+| 同命令指定 ai-generation-preferences-service，加 `-t 'GPT Image 2.6\|saved GIF\|GPT Image 2.5\|旧 quality'` | 25 项通过，其他 25 项未执行；覆盖三型号的两组选择、旧方形迁移、不升级无效 quality，以及 GPT Image 2/2.5 旧偏好兼容 |
+| `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` | 通过 |
+| `pnpm exec vite build --config apps/web/vite.config.ts` | 通过，42.55 秒；保留既有 Sass、导入及大 chunk 提示 |
+| 对本轮 12 个 TS/TSX 文件执行 ESLint | 1 个既有错误、10 个既有警告；default-adapters.ts 的模块边界错误及该文件和偏好服务的警告已通过 HEAD stdin 对照，其他 6 个警告也与前次 HEAD 对照一致；没有新增 lint 错误或警告 |
+| 原循环检查脚本 | 原脚本使用 JSON.parse，受 tsconfig.base.json 原有尾逗号阻塞；未修改脚本或配置。仓库外探针仅用 TypeScript JSONC 解析替代读取，按改动文件与 HEAD 源码对照，原先 2 个运行时循环、3 个含类型循环的完整结果一致，没有新增循环 |
+| `git diff --check` | 通过 |
+
+合计 9 文件、621 项测试通过，25 项未选中。三型号共覆盖 90 种固定比例与档位组合，均检查 JSON、multipart、重复归一化和内部字段隔离；同时验证自动规则、模式切换、其他 GPT 型号及 -1k 兼容、旧选择和偏好恢复，以及 4K 实际宽高与不重复提交。真实接口证据仅为前表两次无后缀静态生成，不代表所有组合、透明度、编辑或令牌分组均已实测。
+
+### DOC、限制与验收
+
+更新本目录现有 proposal、规格、tasks 和 validation，不新增根目录文档。无依赖、环境变量、存储字段、迁移操作或部署顺序变化，旧偏好按读取规则兼容。未执行页面点击、浏览器自动化、视觉验收、全仓库测试、部署或新增收费生成。OpenSpec CLI 不可用，未执行其严格校验。偏好全文件初轮仍复现既有 Seedance 2.5 迁移断言失败；最终仅执行受影响的图片偏好范围，不修改无关视频行为。
+
+非技术验收：刷新本地页面，依次选择无后缀、Flare、Sunburst，在静态输出中应看到截图形式的比例按钮与独立分辨率按钮，例如同时选 16:9 和 2K，并在刷新后保留；不再出现两个方形 K 选项。切到 GIF/SVG 时隐藏分辨率，`-1k` 仍为原来的尺寸选项。4K 样本保留 2880×2880 原图，不要求放大到 4096×4096。检查菜单和已有样本不需要再次付费生成。
+
+## GIF 雪碧图尺寸超限修复（2026-11-09）
+
+### 证据、修复与使用边界
+
+用户截图显示 `gpt-image-2.6-flare` 返回 HTTP 400：`No supported sheet fits 9 GIF frames at size '1536x1024'. Invalid size '4608x3072'. The longest edge must be less than or equal to 3840.` 代码将 3:2 比例映射成静态像素 1536×1024 后传给参数 GIF，渠道将其作为每帧尺寸，拼接结果超过最长边限制。此错误发生在生成请求阶段，与画布播放帧率无关。
+
+无后缀、Flare、Sunburst 的参数 GIF 现在统一发送 `size=auto`，复用此前 Sunburst 成功请求的尺寸方式，不根据截图猜测所有帧数的排版算法或未验证的自定义像素。所选 1:1、2:3、3:2、16:9、9:16（含旧像素选择）转成请求尾部的 `GIF 每帧画面比例：<比例>`，随后追加适用的透明图和生成 GIF 提示词。实际比例是提示词约束，不能保证渠道严格遵循；参数说明已同步提示这一边界。自动比例与不支持的历史尺寸不新增比例提示。
+
+两种旧 GIF 模式值和原始 `output_format=gif` 都应用此修复；显式帧数继续传递，留空继续省略，不固定为 9 帧，也不将帧数等同于帧率。共享归一化覆盖 GPT、Tuzi、基础兼容路径，多次归一化不重复提示词、不变更源任务输入、供应商和精确型号。透明背景继续使用 GIF，静态分辨率不混入请求。本节替代上一节中参数 GIF 沿用静态像素映射的行为；静态、SVG 和 `-1k` 仍保留已有尺寸协议。
+
+### 本地 QA
+
+环境沿用上一节 macOS / Node 26.8.1 / pnpm 10.21.0，分支 `dev/gpt-image-26-result-columns`。在上一轮未提交的比例/分辨率适配上进行本次局部修复。
+
+- 新增 `gpt-image-26-gif-size.test.ts` 的 18 项用例在修复前全部失败，修复后全部通过。覆盖截图中失败的单帧尺寸、三个型号、旧模式值与原始格式字段、默认/9/48 帧透传、重复归一化、请求提示词去重、源输入保留及单次请求。接口成功响应是本地模拟，不计入真实渠道成功证据。
+- 在 `packages/drawnix` 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 gpt-image-26-gif-size、gpt-image-26-integration、gpt-image-26-resolution、gpt-image-26-output、default-image-adapter、gpt-image-adapter、tuzi-gpt-image-adapter、ParametersDropdown：8 文件、566 项通过。
+- 同命令补充 `src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts`：48 项通过；首次组合命令使用了错误的该文件路径，Vitest 未纳入此文件，因此单独补跑。合计 **9 文件、614 项通过**。包含静态各档位、SVG 尺寸、`-1k`、GIF 帧数非法值、参考图/蒙版拦截、格式不符失败及其他 GPT 型号的回归。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 对本轮 7 个 TS 文件执行 ESLint：0 错误、3 条既有警告（模型配置未使用变量、集成测试非空断言与恶意 URL 夹具），未新增警告。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，42.62 秒，保留既有 Sass、导入及大 chunk 提示。
+- `git diff --check`：通过；最终差异保留上一轮未提交的适配，没有生成产物混入。
+- 日志保存在仓库外 `/tmp/opentu5-gpt26-gif-size-*.log`，没有凭据或真实生成图片；未新增导入依赖，不重复执行既有受 JSONC 解析阻塞的循环检查。
+
+### DOC、限制与验收
+
+更新现有 proposal、规格、tasks 和本记录，不新增根目录文档。无依赖、环境变量、数据库或配置迁移。未做页面/浏览器测试、新收费调用、部署、提交或推送；OpenSpec CLI 此前确认不可用，本轮未执行严格校验。本地验证证明客户端不再发出导致截图错误的固定 GIF 像素请求，尚未真实复测 Flare 的该场景，也不承诺所有渠道的 GIF 比例、帧数及透明度均满足要求。
+
+非技术验收：刷新本地页面，在 Flare 的 GIF 模式选 3:2，参数说明应提示自动尺寸和提示词比例。经用户决定重新生成时，请求应为 `size=auto`、`output_format=gif`，提示词含 3:2 比例但前端原始输入保持不变；原来的失败任务不会自动重新提交。实际文件的比例、帧数和透明度需检查返回原图。

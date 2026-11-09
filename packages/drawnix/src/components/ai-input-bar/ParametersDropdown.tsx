@@ -26,6 +26,7 @@ import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import {
   getCompatibleParams,
   isGPTImage26ModelId,
+  getGPTImage26SizeOptions,
   type ParamConfig,
 } from '../../constants/model-config';
 import { Z_INDEX } from '../../constants/z-index';
@@ -35,6 +36,7 @@ import { KeyboardDropdown, type DropdownPlacement } from './KeyboardDropdown';
 import { HoverTip } from '../shared/hover';
 import { SvgWriterModelSelect } from './SvgWriterModelSelect';
 import { isGPTImage26ParamVisible, resolveGPTImage26OutputMode } from '../../services/model-adapters/gpt-image-26-request';
+import { normalizeGPTImage26RasterParams } from '../../services/model-adapters/image-size-quality-resolver';
 
 function getCompactEnumSummaryLabel(
   paramId: string,
@@ -128,12 +130,13 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   placement = 'auto',
 }) => {
   const selectedParams = useMemo(() => {
-    if (!isGPTImage26ModelId(modelId) || !savedParams.gpt_image_26_output) {
-      return savedParams;
+    const params = normalizeGPTImage26RasterParams(modelId, savedParams);
+    if (!isGPTImage26ModelId(modelId) || !params.gpt_image_26_output) {
+      return params;
     }
     return {
-      ...savedParams,
-      gpt_image_26_output: resolveGPTImage26OutputMode(modelId, savedParams.gpt_image_26_output),
+      ...params,
+      gpt_image_26_output: resolveGPTImage26OutputMode(modelId, params.gpt_image_26_output),
     };
   }, [modelId, savedParams]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
@@ -151,7 +154,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   const allParams = useMemo(() => {
     const params = (compatibleParamsProp ?? getCompatibleParams(modelId)).filter(
       (param) => !isGPTImage26ModelId(modelId) || isGPTImage26ParamVisible(param.id, selectedParams)
-    );
+    ).map((param) => isGPTImage26ModelId(modelId) && param.id === 'size'
+      ? { ...param, options: getGPTImage26SizeOptions(modelId, selectedParams.gpt_image_26_output || 'auto') }
+      : param);
     if (excludeParamIds && excludeParamIds.length > 0) {
       return params.filter((p) => !excludeParamIds.includes(p.id));
     }

@@ -212,8 +212,10 @@ export const geminiImageAdapter: ImageModelAdapter = {
     }
 
     const quality =
-      resolveImageResolutionTier(request.params) ||
-      (isGPTImage2Model(model) ? '1k' : undefined);
+      isGPTImage26ModelId(model) ? undefined : (
+        resolveImageResolutionTier(request.params) ||
+        (isGPTImage2Model(model) ? '1k' : undefined)
+      );
     const thinking = request.params?.thinking;
     if (
       model === 'gemini-nano-banana-2.1' &&

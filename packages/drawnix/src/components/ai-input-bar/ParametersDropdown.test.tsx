@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ParametersDropdown } from './ParametersDropdown';
 import { getEffectiveVideoCompatibleParams } from '../../services/video-binding-utils';
@@ -14,6 +14,34 @@ vi.mock('../shared/hover', () => ({
 afterEach(cleanup);
 
 describe('GPT Image 2.6 output controls', () => {
+  it.each(GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== 'gpt-image-2.6-1k'))('separates %s aspect ratios and resolution, preserving both selections across output modes', (modelId) => {
+    const onParamChange = vi.fn();
+    const props = { isOpen: true, modelId, onParamChange };
+    const { rerender } = render(<ParametersDropdown {...props} selectedParams={{}} />);
+    expect(screen.getByText('图片比例')).toBeTruthy();
+    const resolution = within(screen.getByText('图片分辨率').closest('.parameters-dropdown__section') as HTMLElement);
+    expect(resolution.getAllByRole('button').map((button) => button.textContent?.replace('✓', '').trim()))
+      .toEqual(['自动', '1K', '2K', '4K']);
+    for (const [label, size] of [['16:9 横版', '16x9'], ['3:4 竖版', '3x4'], ['21:9 超宽', '21x9']]) {
+      fireEvent.click(screen.getByRole('button', { name: label, exact: true }));
+      expect(onParamChange).toHaveBeenCalledWith('size', size);
+    }
+    fireEvent.click(resolution.getByRole('button', { name: '2K', exact: true }));
+    expect(onParamChange).toHaveBeenCalledWith('resolution', '2k');
+    rerender(<ParametersDropdown {...props} selectedParams={{ size: '16x9', resolution: '2k' }} />);
+    expect(screen.getByRole('button', { name: '16:9 横版', exact: true, pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '2K', exact: true, pressed: true })).toBeTruthy();
+    for (const output of ['gif', 'gif_official', 'svg']) {
+      rerender(<ParametersDropdown {...props} selectedParams={{ size: '4096x4096', gpt_image_26_output: output }} />);
+      expect(screen.queryByText('图片分辨率')).toBeNull();
+    }
+    rerender(<ParametersDropdown {...props} selectedParams={{ size: '4096x4096', gpt_image_26_output: 'auto' }} />);
+    expect(screen.getByRole('button', { name: '1:1 方形', exact: true, pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '4K', exact: true, pressed: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^2K 方形/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^4K 方形/ })).toBeNull();
+  });
+
   it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])('exposes a single parameter GIF and SVG for %s', (modelId) => {
     const onParamChange = vi.fn();
     render(<ParametersDropdown isOpen modelId={modelId}
@@ -91,6 +119,8 @@ describe('GPT Image 2.6 output controls', () => {
     render(<ParametersDropdown isOpen modelId="gpt-image-2.6-1k" selectedParams={{}} onParamChange={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'GIF', exact: true })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'SVG', exact: true })).toBeNull();
+    expect(screen.queryByText('图片分辨率')).toBeNull();
+    expect(screen.queryByRole('button', { name: '3:4 竖版', exact: true })).toBeNull();
   });
 
   it.each(['gif', 'gif_official'])('shows saved %s as the single selected GIF option', (output) => {

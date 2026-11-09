@@ -47,6 +47,37 @@ The system SHALL preserve actual returned dimensions and verified PNG/JPEG/WebP,
 - **WHEN** the provider returns an unsupported or invalid media payload
 - **THEN** the system SHALL report an actionable failure rather than mark a broken image as successfully generated
 
+### Requirement: Select GPT Image 2.6 Aspect Ratio and Resolution Independently
+The system SHALL expose separate aspect-ratio and resolution controls for `gpt-image-2.6`, Flare, and Sunburst static output, while preserving the existing `gpt-image-2.6-1k` contract. Ratios SHALL include auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, and 21:9; resolution SHALL offer auto, 1K, 2K, and 4K channel tiers without promising fixed returned pixels.
+
+#### Scenario: Combine independent static choices
+- **WHEN** a user selects an aspect ratio and a resolution tier
+- **THEN** the client SHALL combine them into the existing native size field across compatible JSON, multipart, and basic requests
+- **AND** repeated normalization SHALL preserve that intent without forwarding internal resolution metadata as an unverified upstream field or confusing it with quality
+- **AND** saved input-bar and image-tool preferences SHALL retain both values
+
+#### Scenario: Automatic ratio at a fixed resolution
+- **WHEN** automatic ratio is selected with a fixed K tier
+- **THEN** existing prompt ratio detection SHALL select the last supported ratio in the prompt, defaulting to 1:1 when none is found
+- **AND** automatic ratio with automatic resolution SHALL preserve native auto size
+
+#### Scenario: Restore old selections without promoting unsupported quality
+- **WHEN** saved pixel-size choices are restored
+- **THEN** old square 2K or 4K choices SHALL restore to 1:1 and the corresponding tier
+- **AND** supported legacy ratios SHALL remain selectable
+- **AND** previously unsupported quality tier strings SHALL NOT automatically become new resolution choices
+
+#### Scenario: Isolate GIF, SVG, and the 1K alias
+- **WHEN** GIF or SVG is selected
+- **THEN** the resolution control SHALL be hidden, its metadata SHALL be omitted, and the previous media ratio choices SHALL remain available
+- **AND** parameter GIF SHALL use automatic pixel sizing with a transport-only ratio hint, while SVG SHALL retain its existing size mapping
+- **AND** returning to static output SHALL restore retained independent selections
+- **AND** the `-1k` model SHALL keep its previous size choices and SHALL NOT gain the new resolution control
+
+#### Scenario: A 4K tier returns 2880 square pixels
+- **WHEN** a 4K-tier request succeeds with a 2880×2880 image
+- **THEN** the result SHALL retain those actual dimensions without enlarging the original, rejecting the dimensions, or generating again
+
 ### Requirement: Select GPT Image 2.6 Channel Output
 The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model IDs and expose automatic output, one GIF option, and SVG without changing the selected provider, token group, or default image model. Client parameter availability SHALL NOT be presented as proof of provider acceptance for an untested model.
 
@@ -63,10 +94,19 @@ The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model I
 - **AND** both persisted `gif` and `gif_official` mode values SHALL select the same GIF option and parameter request
 - **AND** reference-image and mask editing SHALL fail before submission because the parameter GIF integration confirms text generation only
 
+#### Scenario: Avoid oversized GIF sheets
+- **GIVEN** explicit static dimensions can exceed the channel's sheet limit when used for multiple GIF frames
+- **WHEN** a parameter GIF request uses a supported ratio or a saved legacy pixel choice
+- **THEN** the request SHALL send `size=auto` and express the selected ratio as `GIF 每帧画面比例：<ratio>` in the transport prompt
+- **AND** explicit `frame_count` SHALL remain unchanged, while an absent or empty value SHALL remain omitted
+- **AND** the client SHALL NOT infer a fixed frame count, invent a sheet layout, or automatically retry a failed generation
+- **AND** the UI SHALL explain that the GIF ratio is requested through the prompt and actual dimensions depend on the returned file
+- **AND** static output, SVG, and the `-1k` prompt-only GIF route SHALL retain their existing size behavior
+
 #### Scenario: Keep automatic prompt hints out of task display
 - **WHEN** transparent background or GIF output is selected and a task is created, batched, or retried
 - **THEN** stored task and workflow prompts SHALL preserve the user's original input
-- **AND** `透明图` and `生成 GIF 图` SHALL be appended only during request construction for the applicable modes
+- **AND** transparency, GIF, and GIF aspect-ratio hints SHALL be appended only during request construction for the applicable modes
 - **AND** repeated normalization or retries SHALL NOT duplicate existing hint lines or mutate the source task
 - **AND** user-written occurrences SHALL remain part of the original visible prompt
 - **AND** historical stored prompts SHALL NOT be destructively rewritten to guess which text was automatically added

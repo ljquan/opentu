@@ -1,22 +1,24 @@
 import {
-  GPT_IMAGE_26_SIZE_OPTIONS,
   GPT_IMAGE_26_1K_MODEL_ID,
   isGPTImage26ModelId,
+  supportsGPTImage26Resolution,
 } from '../../constants/model-config';
 import type {
   ImageGenerationRequest,
   ImageGenerationResult,
 } from './types';
 import { buildImageRequestPrompt } from './image-request-prompt';
+import { normalizeImageResolutionTier, resolveGPTImage26Size } from './image-size-quality-resolver';
 
-const supportedSizes = new Set(GPT_IMAGE_26_SIZE_OPTIONS.map(({ value }) => value));
 const rasterFormats = ['png', 'jpeg', 'webp'];
 const imageOptions = ['quality', 'background', 'moderation', 'user'];
 const rasterOptions = ['output_format', 'output_compression', 'input_fidelity'];
-const ratioSizes: Record<string, string> = {
-  '1x1': '1024x1024',
-  '2x3': '1024x1536',
-  '3x2': '1536x1024',
+const gifAspectRatios: Record<string, string> = {
+  '1024x1024': '1:1',
+  '1024x1536': '2:3',
+  '1536x1024': '3:2',
+  '16x9': '16:9',
+  '9x16': '9:16',
 };
 
 /** Keep saved prompt-GIF choices aligned with the single GIF control. */
@@ -32,6 +34,7 @@ export function isGPTImage26ParamVisible(
   params: Record<string, string>
 ): boolean {
   const output = params.gpt_image_26_output || 'auto';
+  if (paramId === 'resolution') return output === 'auto';
   if (paramId === 'frame_count') return output === 'gif_official';
   if (paramId === 'svg_model') return output === 'svg';
   if (imageOptions.includes(paramId) && output === 'svg') return false;
@@ -48,14 +51,6 @@ function allowedString(value: unknown, allowed: readonly string[]): string | und
     : undefined;
 }
 
-export function resolveGPTImage26Size(size: unknown): string {
-  const normalized = typeof size === 'string'
-    ? size.trim().toLowerCase().replace(/[:×]/g, 'x')
-    : '';
-  const resolved = ratioSizes[normalized] || normalized;
-  return supportedSizes.has(resolved) ? resolved : 'auto';
-}
-
 /** Preserve explicit output intent while discarding stale options from other models. */
 export function normalizeGPTImage26Request(
   request: ImageGenerationRequest,
@@ -66,7 +61,7 @@ export function normalizeGPTImage26Request(
   const requestedSize = typeof request.params?.size === 'string' && request.params.size.trim()
     ? request.params.size
     : request.size;
-  const size = resolveGPTImage26Size(requestedSize);
+  const resolvedSize = resolveGPTImage26Size(requestedSize, modelId, request.params, request.prompt);
   const requestedOutput = request.params?.gpt_image_26_output || (
     request.params?.output_format === 'gif' ? 'gif_official' :
     request.params?.output_format === 'svg' ? 'svg' : 'auto'
@@ -75,6 +70,10 @@ export function normalizeGPTImage26Request(
   if (!['auto', 'gif', 'gif_official', 'svg'].includes(String(output))) {
     throw new Error('GPT Image 2.6 输出类型无效，请重新选择');
   }
+  // Explicit static pixels become per-frame dimensions upstream and can make
+  // the GIF sheet exceed its size limit. Let the channel choose safe pixels.
+  const size = output === 'gif_official' ? 'auto' : resolvedSize;
+  const gifAspectRatio = output === 'gif_official' ? gifAspectRatios[resolvedSize] : undefined;
   const usesFormatParameter = output === 'gif_official' || output === 'svg';
   if (usesFormatParameter && modelId.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID) {
     throw new Error('当前 2.6-1k 仅接入提示词 GIF，请使用其他 2.6 型号请求参数 GIF；SVG 还需官方 / 官方优惠分组');
@@ -102,6 +101,9 @@ export function normalizeGPTImage26Request(
 
   const useImageOptions = output !== 'svg';
   const useRasterOptions = output === 'auto';
+  const resolution = supportsGPTImage26Resolution(modelId) && useRasterOptions
+    ? normalizeImageResolutionTier(request.params?.resolution)
+    : undefined;
   const background = useImageOptions
     ? allowedString(request.background || request.params?.background, ['auto', 'transparent', 'opaque']) as ImageGenerationRequest['background']
     : undefined;
@@ -147,7 +149,8 @@ export function normalizeGPTImage26Request(
     size,
     prompt: buildImageRequestPrompt(
       { prompt: request.prompt, background },
-      output === 'gif' || output === 'gif_official'
+      output === 'gif' || output === 'gif_official',
+      gifAspectRatio
     ),
     background,
     outputFormat,
@@ -156,6 +159,7 @@ export function normalizeGPTImage26Request(
     params: {
       size,
       n: 1,
+      ...(resolution ? { resolution } : {}),
       // Flare/Sunburst may route to the official upstream, which rejects this
       // legacy parameter. Only the previously verified 1k channel retains it.
       ...(modelId.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID

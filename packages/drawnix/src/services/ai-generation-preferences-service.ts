@@ -28,7 +28,7 @@ import { isSeedance2ModelId } from '../utils/seedance-model';
 import { matchFrameSizeForModel } from '../utils/frame-size-matcher';
 import { sizeToAspectRatio } from './media-api/utils';
 import { getEffectiveVideoCompatibleParams } from './video-binding-utils';
-import { normalizeGPTImage25ResolutionParams } from './model-adapters/image-size-quality-resolver';
+import { normalizeGPTImage25ResolutionParams, normalizeGPTImage26RasterParams } from './model-adapters/image-size-quality-resolver';
 import { resolveGPTImage26OutputMode } from './model-adapters/gpt-image-26-request';
 
 type PersistedParams = Record<string, string>;
@@ -155,6 +155,10 @@ function migrateLegacyGPTImageQualityParam(
   compatibleParams: ReturnType<typeof getCompatibleParams>,
   persistedParams: PersistedParams
 ): PersistedParams {
+  // Old unsupported 2.6 quality values must not silently select a new K tier.
+  if (compatibleParams.some((param) => param.id === 'gpt_image_26_output')) {
+    return persistedParams;
+  }
   const resolutionParam = compatibleParams.find(
     (param) => param.id === 'resolution'
   );
@@ -210,9 +214,11 @@ function sanitizeSelectedParams(
     try { compatibleParams = getSunoNativeParams(modelId, asRecord(rawParams)); } catch { /* Discard removed actions. */ }
   }
   const excludeParamIds = new Set(options?.excludeParamIds || []);
-  const persistedParams = normalizeGPTImage25ResolutionParams(
-    modelId,
-    migrateLegacyGPTImageQualityParam(compatibleParams, asRecord(rawParams))
+  const persistedParams = normalizeGPTImage26RasterParams(modelId,
+    normalizeGPTImage25ResolutionParams(
+      modelId,
+      migrateLegacyGPTImageQualityParam(compatibleParams, asRecord(rawParams))
+    )
   );
   const nextParams: PersistedParams = {};
 

@@ -138,3 +138,31 @@ Lint 对本次所有已修改 TS/TSX 与新增 SVG TS/TSX 文件执行 ESLint，
 - 隔离目录 `/tmp/opentu5-pr330-compatibility` 仅用于组合验证：同一 41 文件集合共 1131 项通过，类型检查通过。其额外用例来自 #330；这些结果不能代表 #330 的全部测试或线上部署通过。
 - 本任务 30 个 TS/TSX 文件 lint 共 5 错误、190 警告；全部 5 错误的规则与消息逐项对照 `origin/develop` 一致。新增 SVG 与任务排版模块没有 lint 错误。本轮不扩大处理已有模块边界、location 或 import/first 问题。
 - `git diff origin/develop...HEAD --check`、工作区差异检查和未合并索引检查在交付前执行。没有页面自动化、真实生图、额外收费、数据库迁移或生产操作。原有 OpenSpec CLI/循环检查工具限制继续适用，QA/DOC 复用当前两个变更目录。
+
+## 矢量部件点击准确度修复（2026-11-09）
+
+### 问题与范围
+
+用户截图反馈拆分 SVG 后点击不准确。代码确认：副本使用带 `svgVectorPart` 的 image 节点，Plait 默认对整个图片矩形命中；透明边角、路径内部孔洞、离散星点间的空白都会拦截下层图形。本轮针对这一确定的命中缺陷修复，没有读取截图对应的源 SVG 或操作用户画布，因此不将截图中所有位置差异都归因于该缺陷。
+
+新增 `with-svg-vector-hit.ts`，接入 `with-common.tsx` 的现有插件链，在 3D 与锁定覆盖规则之前细化部件命中。仅在图片已按当前 URL 加载、原矩形命中时，从已挂载图片读取非透明像素；没有额外图片请求、SVG DOM 注入、原文件改写、重新生成或画布迁移。使用 WeakMap 按图片 DOM、当前源和原 URL 缓存最长边 512 的位图，每像素 1 位，最大 32 KiB；首次按需读取后不在每次鼠标移动中重复绘制。缩放与移动复用同一缓存；修改/替换源时更新，卸载后可被垃圾回收。
+
+命中坐标跟随原有旋转逆变换、显示宽高及 Frame 的 contain 留白，保留约 2 屏幕像素的细线容差。透明区域允许点到后方部件；实际填充、描边、滤镜和裁切的像素由浏览器加载后的图片提供。既有合成分组仍作为整体选择。选中框/缩放框及框选继续使用矩形，不裁掉光晕或修改图形边界。未加载、DOM 不可用、Canvas 不可用或像素读取被拒绝时仍可按原矩形选择。
+
+### 实际验证
+
+环境：macOS，Node 26.8.1，pnpm 10.21.0；分支 `dev/gpt-image-26-result-columns`，基线 fef01196。保留本轮之前尚未提交的 2.6 参数及 GIF 修复。
+
+- 新增 17 项命中测试通过。使用真实 Plait 图片命中/选择函数和画布就绪注册，显式模拟 Canvas 像素数据；覆盖圆形、三角形、离散星点、孔洞、透明部件、重叠层顺序、框选、移动、缩放、旋转、屏幕容差、Frame 留白、自然显示高度、源替换/撤销、加载与卸载、像素读取失败、普通图片、3D、锁定及缓存上限/复用。初次测试夹具缺少 Plait withOptions，补齐真实插件后通过，没有修改框架或跳过断言。
+- 在 `packages/drawnix` 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 with-svg-vector-hit、svg-canvas-edit、svg-canvas-source、svg-media-persistence、svg-source、image.loading、svg-tools-button、svg-animation-overlay、image-3d-transform：**9 文件、89 项通过**。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 对新增插件、测试和 with-common.tsx 执行 ESLint：0 错误、0 警告。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，41.70 秒；保留既有 Sass、导入与大 chunk 提示。
+- `git diff --check`：通过。新导入关系为 with-common → with-svg-vector-hit → canvas-image-readiness，后者仅有外部类型导入，不引入新的模块循环；未重复执行已知受 JSONC 解析阻塞的循环脚本。
+- 日志位于仓库外 `/tmp/opentu5-svg-vector-hit-*.log`。更新本目录既有 design、spec、tasks 和验证记录，不新增根目录文档。
+
+### 限制与人工验收
+
+未执行真实页面点击、视觉对比、截图对应 SVG 的像素验收、全仓库测试、收费生成、提交/推送或部署。Canvas 像素读取在 jsdom 中为测试桩，不能替代浏览器对具体滤镜/字体的渲染；512 像素采样对极细图形或大倍率放大存在近似误差。OpenSpec CLI 此前确认不可用，本轮未执行其严格校验。无新依赖、环境变量、数据迁移或远程操作。
+
+刷新本地页面后，可直接在已有可编辑副本中验收：先取消整组选择，再分别点击可见月亮/山形/星点；点击部件的透明边角或空洞应能选中其后方图形。移动、缩放和旋转后再点击相同可见部位，选择应跟随图形。框选整张作品仍可选出全部部件，矩形控制框属于缩放操作的既有表现；无需重新生成或重新拆分 SVG。

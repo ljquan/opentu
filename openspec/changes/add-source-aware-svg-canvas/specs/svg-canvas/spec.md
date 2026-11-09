@@ -21,6 +21,14 @@ The system SHALL preserve the original SVG while converting supported source str
 - **AND** support individual selection, movement and applicable color changes
 - **AND** preserve the original SVG for recovery and download
 
+#### Scenario: Select painted SVG parts through transparent regions
+- **WHEN** an already-loaded editable SVG part overlaps another canvas element
+- **THEN** point selection SHALL test its painted pixels within the existing geometry bounds, allowing transparent margins and holes to pass through to lower elements
+- **AND** sampling SHALL account for movement, scale, rotation, frame letterboxing and a small screen-space allowance for thin marks
+- **AND** cached pixel data SHALL be bounded, reused across pointer movement, and invalidated when the displayed source changes
+- **AND** no additional source request, SVG injection, original-media mutation or persistent hit-mask field SHALL be required
+- **AND** an unavailable image or failed pixel read SHALL retain ordinary rectangle selection, while box selection and existing 3D/locked-element rules remain intact
+
 #### Scenario: Unsupported effects or conversion failure
 - **WHEN** the SVG cannot be converted within the supported scope, a resource is missing, or conversion fails
 - **THEN** the original image SHALL remain intact and the system SHALL explain the limitation

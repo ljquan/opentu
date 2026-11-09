@@ -66,11 +66,16 @@ describe('default image adapter compatibility', () => {
         const result = await geminiImageAdapter.generateImage({ baseUrl: 'https://gateway.example.com/v1', fetcher }, {
           model, prompt: '花朵', params: {
             gpt_image_26_output: output, background: 'transparent', quality: 'high',
-            output_format: 'jpeg', output_compression: '80',
+            output_format: 'jpeg', output_compression: '80', size: '1536x1024',
           },
         });
         const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-        expect(body).toMatchObject({ model, prompt: '花朵\n透明图\n生成 GIF 图', background: 'transparent', quality: 'high' });
+        expect(body).toMatchObject({ model,
+          prompt: model === 'gpt-image-2.6-1k' ? '花朵\n透明图\n生成 GIF 图'
+            : '花朵\nGIF 每帧画面比例：3:2\n透明图\n生成 GIF 图',
+          size: model === 'gpt-image-2.6-1k' ? '1536x1024' : 'auto',
+          background: 'transparent', quality: 'high',
+        });
         expect(body.output_format).toBe(model === 'gpt-image-2.6-1k' ? undefined : 'gif');
         expect(body).not.toHaveProperty('output_compression');
         expect(fetcher).toHaveBeenCalledOnce();
@@ -92,16 +97,25 @@ describe('default image adapter compatibility', () => {
     expect(mocks.generateImage).not.toHaveBeenCalled();
     expect(result.format).toBe('svg');
   });
-  it('forwards an explicit GPT Image 2.6 size in basic compatibility mode', async () => {
+  it.each([
+    ['gpt-image-2.6-1k', '1536x1024', 'auto', '1536x1024'],
+    ['gpt-image-2.6', '2048x2048', 'auto', '2048x2048'],
+    ['gpt-image-2.6', '4096x4096', 'auto', '4096x4096'],
+    ['gpt-image-2.6', '16x9', '2k', '2736x1536'],
+    ['gpt-image-2.6', '3x4', '4k', '2480x3312'],
+  ])('forwards %s ratio/size %s at %s in basic compatibility mode', async (model, size, resolution, expected) => {
     const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     mocks.generateImage.mockResolvedValue({ data: [{ b64_json: gif, width: 1, height: 1 }] });
     await geminiImageAdapter.generateImage({ baseUrl: 'https://gateway.example.com/v1' }, {
-      model: 'gpt-image-2.6-1k', prompt: '静态图', size: '4096x4096',
-      params: { size: '1536x1024', quality: '4k', resolution: '4k' },
+      model, prompt: '静态图', size: '1024x1024',
+      params: { size, quality: '4k', resolution },
     });
     expect(mocks.generateImage).toHaveBeenCalledWith('静态图', expect.objectContaining({
-      model: 'gpt-image-2.6-1k', size: '1536x1024', quality: undefined,
-      count: 1, response_format: 'b64_json',
+      model, size: expected, quality: undefined,
+      count: 1,
+      ...(model === 'gpt-image-2.6-1k'
+        ? { response_format: 'b64_json' }
+        : { omitDefaultResponseFormat: true }),
     }));
   });
 
