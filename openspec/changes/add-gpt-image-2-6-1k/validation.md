@@ -1,6 +1,6 @@
 # GPT Image 2.6 1K 接入验收
 
-本文按时间保留各阶段记录。当前四型号适配范围与提交前检查见“GitHub 提交前最终验证（2026-11-08）”及“与未合并 PR 的冲突处理（2026-11-08）”；最新本地排版修复见文末“2.6 多结果按任务分列”。前文的“仅 -1k”“未提交”等描述属于对应阶段。
+本文按时间保留各阶段记录。当前四型号适配范围与提交前检查见“GitHub 提交前最终验证（2026-11-08）”及“与未合并 PR 的冲突处理（2026-11-08）”；排版修复见“2.6 多结果按任务分列”；最新界面和请求提示词调整见文末同名记录。前文的“仅 -1k”“未提交”等描述属于对应阶段。
 
 日期：2026-11-05（Asia/Shanghai）。基线：develop `f6a3e0cf`；实现分支：`codex/add-gpt-image-2-6-1k`。
 
@@ -535,3 +535,27 @@ QA/DOC 更新本目录既有 proposal、规格、tasks 和本记录，不新增�
 任务列排版已形成提交 `ba7883f4`，与本轮 SVG 功能共同提交 PR。显式 fetch/merge 后最新目标仍为 `origin/develop@65636cbe`，本分支已包含目标，没有目标分支冲突。与未合并 #330 的自动插图 import 相邻改动发生文本冲突，通过移动本次新增 import 消除，双方逻辑不变。
 
 本分支 41 文件、1109 项相关测试、类型检查与构建通过；冲突预防调整后自动插图 68 项和类型检查再次通过。隔离组合 #330 的同一 41 文件集合 1131 项及类型检查通过。lint 的 5 个错误逐项与 origin/develop 一致。完整范围、备份、冲突和测试边界见 `../add-source-aware-svg-canvas/validation.md` 的 2026-11-09 记录；不引入 #330 功能或执行页面/收费测试。
+
+## GIF 入口和请求提示词调整（2026-11-09）
+
+### 最终效果和边界
+
+- 输出选项为“自动 / GIF / SVG”；SVG 按钮不再带“官方分组”字样，说明中保留渠道能力限制。
+- 无后缀、Flare、Sunburst 的 GIF 使用 `output_format=gif` 和可选 `frame_count`，同时在请求提示词结尾追加“生成 GIF 图”。两种已有模式值 `gif` / `gif_official` 均映射到该选项和请求，偏好恢复与输入栏参数校验保留选择。
+- `-1k` 仍仅发送已接入的提示词 GIF，不新增格式或帧数字段。其他三型号的参数 GIF 遇到参考图或蒙版会在发送前报错；使用 GIF 参数不代表扩展了编辑协议。
+- 透明图片请求保留 `background=transparent`，并在请求提示词中追加“透明图”。工作流创建时保存原始用户提示词，因此新任务详情、画布来源和再次编辑不再带自动追加的文字。JSON、multipart 和基础兼容路径使用同一追加规则，重复构建和重试不叠加提示行。
+- 用户自己输入的提示行正常保留。历史任务中已保存的自动后缀无法可靠区分于用户原文，本轮不删除或重写历史数据；显示修复适用于新提交任务。
+
+### 实际检查
+
+- macOS，Node 26.8.1，pnpm 10.21.0；分支 `dev/gpt-image-26-result-columns`。本节记录本地验证，后续提交状态以 PR #331 为准。
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 ParametersDropdown、workflow-converter、gpt-image-26-output、gpt-image-26-integration、default-image-adapter、gpt-image-adapter、tuzi-gpt-image-adapter：**7 文件 493 项通过**。
+- 加入 ai-generation-preferences-service 后：**8 文件 535 项，534 通过、1 失败**。新增三型号旧 GIF 偏好恢复测试通过；唯一失败为原有“迁移 Seedance 2.5 的旧组合偏好时移除不受支持的分辨率”，实际 `size=1080p`、原断言预期空字符串。用临时 Vitest load 插件加载 HEAD 版本的偏好服务与对应测试，单独运行同一用例，复现相同失败；未改动该视频行为或断言。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，40.59 秒；保留动态/静态导入和体积警告。
+- 改动 TS/TSX 的 ESLint：**2 错误、45 警告**。错误均为 default-adapters.ts、gpt-image-adapter.ts 已有的 `@nx/enforce-module-boundaries` 静态导入问题；使用 `git show HEAD:<path>` 经 ESLint stdin 对照，两处错误规则及消息完全一致。没有新增 lint 错误。
+- `git diff --check`：通过；7205 服务根地址返回 HTTP 200。
+
+### QA/DOC 和未覆盖项
+
+更新本目录已有 proposal、规格、tasks 与本记录，不新增根目录文档。未执行页面自动化、真实生成、收费请求、上游透明度/GIF 参数实测或部署。OpenSpec CLI 仍不可用，未执行 CLI 严格校验；规格保持现有 Requirement / Scenario 格式。

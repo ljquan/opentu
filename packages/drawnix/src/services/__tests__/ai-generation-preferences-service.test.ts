@@ -15,6 +15,25 @@ vi.hoisted(() => {
 });
 
 describe('ai-generation-preferences-service', () => {
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+    '%s restores both saved GIF mode values to the single parameter GIF option', async (modelId) => {
+      const service = await import('../ai-generation-preferences-service');
+      for (const output of ['gif', 'gif_official']) {
+        const params = { gpt_image_26_output: output, frame_count: '48', background: 'transparent' };
+        expect(service.sanitizeImageToolExtraParams(modelId, params)).toMatchObject({
+          ...params, gpt_image_26_output: 'gif_official',
+        });
+        service.saveAIInputPreferences({ generationType: 'image', selectedModel: modelId,
+          selectedCount: 1, selectedSkillId: '', selectedParams: params });
+        expect(service.loadAIInputPreferences().selectedParams).toMatchObject({
+          ...params, gpt_image_26_output: 'gif_official',
+        });
+      }
+      expect(service.sanitizeImageToolExtraParams('gpt-image-2.6-1k', { gpt_image_26_output: 'gif' }))
+        .toMatchObject({ gpt_image_26_output: 'gif' });
+    }
+  );
+
   it('restores non-default native actions while keeping file bytes out of localStorage preferences', async () => {
     const models = await import('../../constants/model-config');
     const modelSpy = vi.spyOn(models, 'getModelConfig').mockReturnValue({ id: 'suno_act_mp4', type: 'audio' } as ReturnType<typeof models.getModelConfig>);

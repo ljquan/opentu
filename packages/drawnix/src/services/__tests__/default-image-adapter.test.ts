@@ -70,8 +70,8 @@ describe('default image adapter compatibility', () => {
           },
         });
         const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-        expect(body).toMatchObject({ model, background: 'transparent', quality: 'high' });
-        expect(body.output_format).toBe(output === 'gif_official' ? 'gif' : undefined);
+        expect(body).toMatchObject({ model, prompt: '花朵\n透明图\n生成 GIF 图', background: 'transparent', quality: 'high' });
+        expect(body.output_format).toBe(model === 'gpt-image-2.6-1k' ? undefined : 'gif');
         expect(body).not.toHaveProperty('output_compression');
         expect(fetcher).toHaveBeenCalledOnce();
         expect(mocks.generateImage).not.toHaveBeenCalled();

@@ -29,6 +29,7 @@ import { matchFrameSizeForModel } from '../utils/frame-size-matcher';
 import { sizeToAspectRatio } from './media-api/utils';
 import { getEffectiveVideoCompatibleParams } from './video-binding-utils';
 import { normalizeGPTImage25ResolutionParams } from './model-adapters/image-size-quality-resolver';
+import { resolveGPTImage26OutputMode } from './model-adapters/gpt-image-26-request';
 
 type PersistedParams = Record<string, string>;
 
@@ -234,7 +235,9 @@ function sanitizeSelectedParams(
   compatibleParams.forEach((param) => {
     if (excludeParamIds.has(param.id) || param.id === 'size' || param.control === 'file') return;
 
-    const persistedValue = persistedParams[param.id];
+    const persistedValue = param.id === 'gpt_image_26_output'
+      ? resolveGPTImage26OutputMode(modelId, persistedParams[param.id] || '')
+      : persistedParams[param.id];
     const isValidPersistedValue =
       param.control === 'select' || param.control === 'multiselect'
         ? typeof persistedValue === 'string' && persistedValue !== ''

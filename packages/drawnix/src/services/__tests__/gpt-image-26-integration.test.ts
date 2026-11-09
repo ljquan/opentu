@@ -33,7 +33,7 @@ const svg = btoa(
 );
 const staleRequest: ImageGenerationRequest = {
   model,
-  prompt: '生成 GIF 图：小猫挥手',
+  prompt: '小猫挥手',
   size: '4096x4096',
   background: 'transparent',
   outputFormat: 'jpeg',
@@ -58,6 +58,13 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
   'GPT Image 2.6 integration: %s', (model) => {
   const staleRequestForModel = { ...staleRequest, model };
   const responseParams = model === 'gpt-image-2.6-1k' ? { response_format: 'b64_json' } : {};
+  const gifParams = model === 'gpt-image-2.6-1k' ? {} : { output_format: 'gif' };
+  const sentPrompt = `${staleRequest.prompt}\n透明图\n生成 GIF 图`;
+  const staleEditRequestForModel = {
+    ...staleRequestForModel,
+    outputFormat: undefined,
+    params: { ...staleRequest.params, gpt_image_26_output: 'auto', output_format: undefined },
+  };
   const imageParams = { background: 'transparent', moderation: 'low', user: 'old-setting' };
 
   it('keeps the chosen provider while aligning a stale model reference with the binding', () => {
@@ -125,10 +132,11 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     (build) => {
       expect(build(staleRequestForModel)).toEqual({
         model,
-        prompt: staleRequest.prompt,
+        prompt: sentPrompt,
         size: 'auto',
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
     }
@@ -154,10 +162,11 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     for (const build of [buildGPTImageGenerationBody, buildTuziGPTImageRequestBody]) {
       expect(build(request)).toEqual({
         model,
-        prompt: request.prompt,
+        prompt: sentPrompt,
         size: expected,
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
     }
@@ -173,10 +182,10 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
 
   it('keeps explicit dimensions in both multipart edit paths without restoring stale output parameters', async () => {
     const request = {
-      ...staleRequestForModel,
+      ...staleEditRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
       maskImage: `data:image/gif;base64,${gif}`,
-      params: { ...staleRequest.params, size: '1024x1536' },
+      params: { ...staleEditRequestForModel.params, size: '1024x1536' },
     };
     const forms = [
       await buildGPTImageEditFormData(request),
@@ -188,7 +197,7 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       expect(form.has('image[]')).toBe(true);
       expect(form.has('mask')).toBe(true);
       expect(form.has('quality')).toBe(false);
-      expect(form.has('output_format')).toBe(false);
+      expect(form.get('output_format')).toBe('png');
     }
   });
 
@@ -196,7 +205,7 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     expect(
       buildTuziGPTImageRequestBody(
         {
-          ...staleRequestForModel,
+          ...staleEditRequestForModel,
           model: 'gpt-image-2.5',
           referenceImages: ['https://example.com/source.png'],
         },
@@ -204,26 +213,30 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       )
     ).toEqual({
       model,
-      prompt: staleRequest.prompt,
+      prompt: `${staleRequest.prompt}\n透明图`,
       size: 'auto',
       n: 1,
       ...responseParams,
       ...imageParams,
+      output_format: 'png',
+      input_fidelity: 'high',
       image: ['https://example.com/source.png'],
     });
   });
 
   it('keeps references in multipart edits without inherited quality/output fields', async () => {
     const form = await buildGPTImageEditFormData({
-      ...staleRequestForModel,
+      ...staleEditRequestForModel,
       referenceImages: [`data:image/gif;base64,${gif}`],
     });
     expect([...form.keys()].sort()).toEqual([
       'background',
       'image[]',
+      'input_fidelity',
       'model',
       'moderation',
       'n',
+      'output_format',
       'prompt',
       ...(model === 'gpt-image-2.6-1k' ? ['response_format'] : []),
       'size',
@@ -333,10 +346,11 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
       expect(fetcher).toHaveBeenCalledOnce();
       expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
         model,
-        prompt: staleRequest.prompt,
+        prompt: sentPrompt,
         size: 'auto',
         n: 1,
         ...responseParams,
+        ...gifParams,
         ...imageParams,
       });
       expect(result).toMatchObject({ format: 'gif', width: 553, height: 309 });

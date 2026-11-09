@@ -40,6 +40,7 @@ import {
   resolveGeneratedImageDimensions,
 } from './gpt-image-adapter';
 import { normalizeGPTImage26Request, validateGPTImage26Output } from './gpt-image-26-request';
+import { buildImageRequestPrompt } from './image-request-prompt';
 import { registerTuziGPTImageAdapter, tuziGPTImageAdapter } from './tuzi-gpt-image-adapter';
 import { registerTuziFlux3ImageAdapter } from './tuzi-flux-3-image-adapter';
 import { registerCustomHttpAdapters } from './custom-http-adapter';
@@ -170,6 +171,7 @@ export const geminiImageAdapter: ImageModelAdapter = {
       request,
       context.binding?.modelId || request.modelRef?.modelId || request.model
     );
+    request = { ...request, prompt: buildImageRequestPrompt(request) };
     const model = request.model || DEFAULT_IMAGE_MODEL_ID;
     // Use the native-compatible contract for format and image controls that the
     // basic client cannot forward, preserving the selected provider.

@@ -14,12 +14,13 @@ vi.mock('../shared/hover', () => ({
 afterEach(cleanup);
 
 describe('GPT Image 2.6 output controls', () => {
-  it.each(['gpt-image-2.6', 'gpt-image-2.6-sunburst'])('exposes GIF methods and SVG with a token group explanation for %s', (modelId) => {
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])('exposes a single parameter GIF and SVG for %s', (modelId) => {
     const onParamChange = vi.fn();
     render(<ParametersDropdown isOpen modelId={modelId}
       selectedParams={{ gpt_image_26_output: 'auto' }} onParamChange={onParamChange} />);
-    expect(screen.getByText(/default 分组也可使用参数方式；SVG 需官方/)).toBeTruthy();
-    for (const [name, value] of [['GIF（提示词）', 'gif'], ['GIF（参数）', 'gif_official'], ['SVG（官方分组）', 'svg']]) {
+    expect(screen.getByText(/GIF 使用参数请求，default 分组也可使用/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^GIF/ })).toHaveLength(1);
+    for (const [name, value] of [['GIF', 'gif_official'], ['SVG', 'svg']]) {
       fireEvent.click(screen.getByRole('button', { name }));
       expect(onParamChange).toHaveBeenCalledWith('gpt_image_26_output', value);
     }
@@ -63,7 +64,7 @@ describe('GPT Image 2.6 output controls', () => {
       expect(screen.queryByText('输出格式')).toBeNull();
       expect(screen.queryByText('参考图保真度')).toBeNull();
       expect(screen.queryByRole('spinbutton', { name: '压缩质量' })).toBeNull();
-      expect(screen.queryByRole('spinbutton', { name: 'GIF 帧数' })).toBeNull();
+      expect(Boolean(screen.queryByRole('spinbutton', { name: 'GIF 帧数' }))).toBe(modelId !== 'gpt-image-2.6-1k');
     }
   );
 
@@ -88,8 +89,19 @@ describe('GPT Image 2.6 output controls', () => {
 
   it('limits the existing 1k model to its established prompt GIF mode', () => {
     render(<ParametersDropdown isOpen modelId="gpt-image-2.6-1k" selectedParams={{}} onParamChange={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'GIF（提示词）' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'SVG（官方分组）' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'GIF', exact: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'SVG', exact: true })).toBeNull();
+  });
+
+  it.each(['gif', 'gif_official'])('shows saved %s as the single selected GIF option', (output) => {
+    render(<ParametersDropdown isOpen modelId="gpt-image-2.6"
+      selectedParams={{ gpt_image_26_output: output }} onParamChange={vi.fn()} />);
+    expect(screen.getAllByRole('button', { name: /^GIF/, pressed: true })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'GIF', exact: true, pressed: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'GIF（提示词）' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'GIF（参数）' })).toBeNull();
+    fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+    expect(screen.getByRole('spinbutton', { name: 'GIF 帧数' })).toBeTruthy();
   });
 
   it('keeps the parameter menu open after choosing a custom SVG writer', async () => {

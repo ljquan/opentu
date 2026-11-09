@@ -34,7 +34,7 @@ import './parameters-dropdown.scss';
 import { KeyboardDropdown, type DropdownPlacement } from './KeyboardDropdown';
 import { HoverTip } from '../shared/hover';
 import { SvgWriterModelSelect } from './SvgWriterModelSelect';
-import { isGPTImage26ParamVisible } from '../../services/model-adapters/gpt-image-26-request';
+import { isGPTImage26ParamVisible, resolveGPTImage26OutputMode } from '../../services/model-adapters/gpt-image-26-request';
 
 function getCompactEnumSummaryLabel(
   paramId: string,
@@ -116,7 +116,7 @@ export interface ParametersDropdownProps {
  * 参数下拉选择器
  */
 export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
-  selectedParams,
+  selectedParams: savedParams,
   onParamChange,
   compatibleParams: compatibleParamsProp,
   modelId,
@@ -127,6 +127,15 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   excludeParamIds,
   placement = 'auto',
 }) => {
+  const selectedParams = useMemo(() => {
+    if (!isGPTImage26ModelId(modelId) || !savedParams.gpt_image_26_output) {
+      return savedParams;
+    }
+    return {
+      ...savedParams,
+      gpt_image_26_output: resolveGPTImage26OutputMode(modelId, savedParams.gpt_image_26_output),
+    };
+  }, [modelId, savedParams]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,
@@ -514,6 +523,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                                   <button
                                     key={option.value}
                                     type="button"
+                                    aria-pressed={isSelected}
                                     className={`parameters-dropdown__option ${
                                       isSelected
                                         ? 'parameters-dropdown__option--selected'

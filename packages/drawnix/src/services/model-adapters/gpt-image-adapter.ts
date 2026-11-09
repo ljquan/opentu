@@ -23,6 +23,7 @@ import {
   validateGPTImage26Output,
 } from './gpt-image-26-request';
 import { isVirtualMediaUrl } from '../../utils/virtual-media-url';
+import { buildImageRequestPrompt } from './image-request-prompt';
 import type {
   ImageGenerationRequest,
   ImageGenerationResult,
@@ -211,7 +212,7 @@ export function buildGPTImageGenerationBody(
 
   const body: Record<string, unknown> = {
     model: request.model,
-    prompt: request.prompt,
+    prompt: buildImageRequestPrompt(request),
   };
   const responseFormat = getGPTImageResponseFormat(request.params);
   if (responseFormat) {
@@ -318,7 +319,7 @@ export async function buildGPTImageEditFormData(
     getStringParam(params, 'mask_image');
   const fields: Record<string, unknown> = {
     model: request.model,
-    prompt: request.prompt,
+    prompt: buildImageRequestPrompt(request),
   };
   const responseFormat = getGPTImageResponseFormat(params);
   if (responseFormat) {

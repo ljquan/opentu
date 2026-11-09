@@ -48,18 +48,28 @@ The system SHALL preserve actual returned dimensions and verified PNG/JPEG/WebP,
 - **THEN** the system SHALL report an actionable failure rather than mark a broken image as successfully generated
 
 ### Requirement: Select GPT Image 2.6 Channel Output
-The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model IDs and expose automatic output, prompt GIF, parameter GIF, and official-group SVG modes without changing the selected provider, token group, or default image model. Client parameter availability SHALL NOT be presented as proof of provider acceptance for an untested model.
+The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model IDs and expose automatic output, one GIF option, and SVG without changing the selected provider, token group, or default image model. Client parameter availability SHALL NOT be presented as proof of provider acceptance for an untested model.
 
-#### Scenario: Prompt GIF for default or Codex groups
-- **WHEN** the user selects prompt GIF
-- **THEN** the submission prompt SHALL request a GIF exactly once without sending official-only format or frame fields
-- **AND** the existing `-1k` model SHALL retain support for this mode without implying support for official format parameters
+#### Scenario: Preserve the 1K GIF contract
+- **WHEN** the user selects GIF for the existing `-1k` model
+- **THEN** the request prompt SHALL append `生成 GIF 图` without sending unverified format or frame fields
+- **AND** the UI SHALL label this single option `GIF`
 
 #### Scenario: Parameter GIF generation
-- **WHEN** the user selects parameter GIF for `gpt-image-2.6`, Flare, or Sunburst
+- **WHEN** the user selects GIF for `gpt-image-2.6`, Flare, or Sunburst
 - **THEN** the generation request SHALL contain `output_format=gif` and optional positive-integer `frame_count`
+- **AND** the request prompt SHALL append `生成 GIF 图`
 - **AND** the UI SHALL explain that the default group can also use parameter GIF without switching token groups
-- **AND** the existing persisted `gif_official` mode value SHALL remain compatible
+- **AND** both persisted `gif` and `gif_official` mode values SHALL select the same GIF option and parameter request
+- **AND** reference-image and mask editing SHALL fail before submission because the parameter GIF integration confirms text generation only
+
+#### Scenario: Keep automatic prompt hints out of task display
+- **WHEN** transparent background or GIF output is selected and a task is created, batched, or retried
+- **THEN** stored task and workflow prompts SHALL preserve the user's original input
+- **AND** `透明图` and `生成 GIF 图` SHALL be appended only during request construction for the applicable modes
+- **AND** repeated normalization or retries SHALL NOT duplicate existing hint lines or mutate the source task
+- **AND** user-written occurrences SHALL remain part of the original visible prompt
+- **AND** historical stored prompts SHALL NOT be destructively rewritten to guess which text was automatically added
 
 #### Scenario: Official SVG generation
 - **WHEN** the user selects official SVG for `gpt-image-2.6`, Flare, or Sunburst
@@ -98,6 +108,7 @@ For all registered GPT Image 2.6 IDs (`gpt-image-2.6`, `gpt-image-2.6-1k`, Flare
 #### Scenario: Transparent image output
 - **WHEN** a user selects transparent background
 - **THEN** JSON and multipart requests SHALL contain `background=transparent`
+- **AND** applicable raster and GIF request prompts SHALL append `透明图` without changing the stored user prompt
 - **AND** absent an explicit image format, the request SHALL select PNG
 - **AND** explicitly combining transparent background with JPEG SHALL fail before generation submission
 - **AND** WebP SHALL remain available as a transparent-capable requested format

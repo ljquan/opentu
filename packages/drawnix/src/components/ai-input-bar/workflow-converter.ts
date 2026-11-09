@@ -323,10 +323,7 @@ export function convertDirectGenerationToWorkflow(
       // 注意：batchId 等参数直接放在 args 中，确保传输时不会丢失
       const imageArgs: Record<string, unknown> = withKnowledgeContextRefs(
         {
-          prompt:
-            extraParams?.background === 'transparent'
-              ? `${prompt.trimEnd()}\n透明图`
-              : prompt,
+          prompt,
           model: modelId,
           modelRef,
           workflowId,

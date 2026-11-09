@@ -3093,13 +3093,12 @@ export const IMAGE_PARAMS: ParamConfig[] = [
   {
     id: 'gpt_image_26_output',
     label: '输出类型',
-    description: 'GIF 可通过提示词或参数请求，default 分组也可使用参数方式；SVG 需官方 / 官方优惠分组。此选项不会切换分组。',
+    description: 'GIF 使用参数请求，default 分组也可使用；SVG 需官方 / 官方优惠分组。此选项不会切换分组。',
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: 'gif', label: 'GIF（提示词）' },
-      { value: 'gif_official', label: 'GIF（参数）' },
-      { value: 'svg', label: 'SVG（官方分组）' },
+      { value: 'gif_official', label: 'GIF' },
+      { value: 'svg', label: 'SVG' },
     ],
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== GPT_IMAGE_26_1K_MODEL_ID),
@@ -3111,7 +3110,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: 'gif', label: 'GIF（提示词）' },
+      { value: 'gif', label: 'GIF' },
     ],
     defaultValue: 'auto',
     compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
@@ -3120,7 +3119,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
   {
     id: 'frame_count',
     label: 'GIF 帧数',
-    description: '仅 GIF（参数）生效；留空使用渠道默认值，实际帧数以返回文件为准。',
+    description: '仅 GIF 生效；留空使用渠道默认值，实际帧数以返回文件为准。',
     valueType: 'number',
     min: 1,
     step: 1,

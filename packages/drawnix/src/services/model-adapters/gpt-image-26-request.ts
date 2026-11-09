@@ -7,6 +7,7 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResult,
 } from './types';
+import { buildImageRequestPrompt } from './image-request-prompt';
 
 const supportedSizes = new Set(GPT_IMAGE_26_SIZE_OPTIONS.map(({ value }) => value));
 const rasterFormats = ['png', 'jpeg', 'webp'];
@@ -17,6 +18,13 @@ const ratioSizes: Record<string, string> = {
   '2x3': '1024x1536',
   '3x2': '1536x1024',
 };
+
+/** Keep saved prompt-GIF choices aligned with the single GIF control. */
+export function resolveGPTImage26OutputMode(modelId: string, output: string): string {
+  return output === 'gif' && modelId.trim().toLowerCase() !== GPT_IMAGE_26_1K_MODEL_ID
+    ? 'gif_official'
+    : output;
+}
 
 /** Keep image controls in GIF modes without exposing conflicting static encodings. */
 export function isGPTImage26ParamVisible(
@@ -59,10 +67,11 @@ export function normalizeGPTImage26Request(
     ? request.params.size
     : request.size;
   const size = resolveGPTImage26Size(requestedSize);
-  const output = request.params?.gpt_image_26_output || (
+  const requestedOutput = request.params?.gpt_image_26_output || (
     request.params?.output_format === 'gif' ? 'gif_official' :
     request.params?.output_format === 'svg' ? 'svg' : 'auto'
   );
+  const output = resolveGPTImage26OutputMode(modelId, String(requestedOutput));
   if (!['auto', 'gif', 'gif_official', 'svg'].includes(String(output))) {
     throw new Error('GPT Image 2.6 输出类型无效，请重新选择');
   }
@@ -136,9 +145,10 @@ export function normalizeGPTImage26Request(
       ? { ...request.modelRef, modelId }
       : request.modelRef,
     size,
-    prompt: output === 'gif' && !/^\s*生成\s*GIF\s*图/i.test(request.prompt)
-      ? `生成 GIF 图：${request.prompt}`
-      : request.prompt,
+    prompt: buildImageRequestPrompt(
+      { prompt: request.prompt, background },
+      output === 'gif' || output === 'gif_official'
+    ),
     background,
     outputFormat,
     outputCompression,

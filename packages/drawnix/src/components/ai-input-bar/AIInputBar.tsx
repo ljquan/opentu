@@ -21,6 +21,7 @@ import { getSunoNativeParams, buildSunoNativeInputParams, collectSunoNativeResou
  */
 
 import { normalizeGPTImage25ResolutionParams } from '../../services/model-adapters/image-size-quality-resolver';
+import { resolveGPTImage26OutputMode } from '../../services/model-adapters/gpt-image-26-request';
 import React, {
   useState,
   useEffect,
@@ -5014,7 +5015,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       restoredParams.forEach((p) => {
         if (p.id === 'size') return;
-        const prevVal = baseParams[p.id];
+        const prevVal = p.id === 'gpt_image_26_output'
+          ? resolveGPTImage26OutputMode(selectedModel, baseParams[p.id] || '')
+          : baseParams[p.id];
         const prevValIsValid =
           !prevVal ||
           p.valueType !== 'enum' ||
