@@ -529,3 +529,9 @@ QA/DOC 更新本目录既有 proposal、规格、tasks 和本记录，不新增�
 - `pnpm exec vite build --config apps/web/vite.config.ts` 通过，47.23 秒，保留既有构建提示。
 - 本轮 12 个 TS/TSX 文件 ESLint **3 错误、131 警告**。以最新 HEAD 逐文件 stdin 对照，3 条错误规则及消息仍完全一致；前文 130 警告属于旧基线，不能替代此最终数量。
 - `git diff --check` 通过，`git ls-files -u` 无输出；7205 HTTP 200。临时组合快照已清理，当前全部排版修复仍为未提交本地修改。
+
+### 2026-11-09 本任务 PR 提交验证
+
+任务列排版已形成提交 `ba7883f4`，与本轮 SVG 功能共同提交 PR。显式 fetch/merge 后最新目标仍为 `origin/develop@65636cbe`，本分支已包含目标，没有目标分支冲突。与未合并 #330 的自动插图 import 相邻改动发生文本冲突，通过移动本次新增 import 消除，双方逻辑不变。
+
+本分支 41 文件、1109 项相关测试、类型检查与构建通过；冲突预防调整后自动插图 68 项和类型检查再次通过。隔离组合 #330 的同一 41 文件集合 1131 项及类型检查通过。lint 的 5 个错误逐项与 origin/develop 一致。完整范围、备份、冲突和测试边界见 `../add-source-aware-svg-canvas/validation.md` 的 2026-11-09 记录；不引入 #330 功能或执行页面/收费测试。

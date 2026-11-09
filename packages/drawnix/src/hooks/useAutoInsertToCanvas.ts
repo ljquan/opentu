@@ -13,6 +13,11 @@
 
 import { useEffect, useRef } from 'react';
 import {
+  usesGPTImage26ResultColumns,
+  getGPTImage26ResultColumnOrder,
+  GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS,
+} from '../utils/gpt-image-26-result-layout';
+import {
   getViewportOrigination,
   PlaitHistoryBoard,
   PlaitBoard as PlaitBoardApi,
@@ -91,7 +96,6 @@ import {
   isLyricsTask,
 } from '../utils/lyrics-task-utils';
 import { resolveImageTaskInsertionDimensions } from '../utils/task-utils';
-import { usesGPTImage26ResultColumns, getGPTImage26ResultColumnOrder, GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS } from '../utils/gpt-image-26-result-layout';
 import { getImageGenerationTaskInsertGroupKey } from '../utils/image-generation-anchor-task';
 import { findImageGenerationAnchorForTaskOnBoard } from '../utils/image-generation-anchor-lookup';
 import {

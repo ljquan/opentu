@@ -127,3 +127,14 @@ Lint 对本次所有已修改 TS/TSX 与新增 SVG TS/TSX 文件执行 ESLint，
 - `pnpm exec sass --no-source-map packages/drawnix/src/components/toolbar/popup-toolbar/svg-tools-button.scss /tmp/opentu5-svg-panel-style.css` 通过，检查编译结果确认上述浮层声明存在。
 - `pnpm exec vite build --config apps/web/vite.config.ts` 通过，33.13 秒；`git diff --check` 通过；7205 HTTP GET 返回 200。
 - 本次仅样式调整，没有新增重复实现的单元测试，也未重复运行不受影响的完整测试集合。按项目规则未执行页面测试；用户截图证明修复前的问题，修复后实际页面外观仍待刷新验收。
+
+## 2026-11-09 PR 前同步与冲突验证
+
+- 用户授权与上游比较、解决冲突并仅提交本任务修改到 PR。提交范围为 40 文件：2.6 多结果任务列排版 16 文件；SVG 识别、编辑、播放、浮层及 QA/DOC 24 文件。没有依赖、配置、构建产物或其他 PR 功能进入差异。
+- 本轮备份 `/Users/lkj/.codex/backups/opentu5/before-svg-layout-pr-20261109T045519Z` 保存完整归档、SHA-256 清单和补丁，40 个文件逐项校验通过。
+- 分别创建功能提交 `ba7883f4`（2.6 任务列排版）和 `e0d78a05`（SVG 编辑与已有动画播放）。显式执行 `git fetch origin` 后，`origin/develop` 为 `65636cbe2203d57b8a1c555f39e41527289cd749`；`git merge --no-edit origin/develop` 返回 Already up to date，无目标分支冲突。
+- 同时只读获取未合并 #330 的 `457ec074eff0be57077a11637526914152b08471` 进行 `git merge-tree --write-tree` 预演。初次在 `useAutoInsertToCanvas.ts` 相邻 import 处发生文本冲突；将本次新增排版 import 移到独立位置后，组合树 `b7c54cac71bbbdc57a34550828156ad816f407d9` 无文本冲突。没有把 #330 合并到功能分支。
+- 本分支最终相关回归：41 文件、1109 项通过；生产构建通过（45.69 秒）；类型检查通过。import 位置调整后，自动插图 68 项和类型检查再次通过，该文件 lint 0 错误、34 个既有警告。
+- 隔离目录 `/tmp/opentu5-pr330-compatibility` 仅用于组合验证：同一 41 文件集合共 1131 项通过，类型检查通过。其额外用例来自 #330；这些结果不能代表 #330 的全部测试或线上部署通过。
+- 本任务 30 个 TS/TSX 文件 lint 共 5 错误、190 警告；全部 5 错误的规则与消息逐项对照 `origin/develop` 一致。新增 SVG 与任务排版模块没有 lint 错误。本轮不扩大处理已有模块边界、location 或 import/first 问题。
+- `git diff origin/develop...HEAD --check`、工作区差异检查和未合并索引检查在交付前执行。没有页面自动化、真实生图、额外收费、数据库迁移或生产操作。原有 OpenSpec CLI/循环检查工具限制继续适用，QA/DOC 复用当前两个变更目录。
