@@ -13,6 +13,11 @@
 
 import { useEffect, useRef } from 'react';
 import {
+  usesGPTImage26ResultColumns,
+  getGPTImage26ResultColumnOrder,
+  GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS,
+} from '../utils/gpt-image-26-result-layout';
+import {
   getViewportOrigination,
   PlaitHistoryBoard,
   PlaitBoard as PlaitBoardApi,
@@ -1809,6 +1814,24 @@ export function useAutoInsertToCanvas(
                     imageAnchor?.anchorType === 'ghost' ? 'morph' : 'hold',
                 });
               }
+            } else if (type === 'image' && usesGPTImage26ResultColumns(task)) {
+              const insertionResult = await executeCanvasInsertion({
+                board,
+                boardGuard: () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
+                startPoint: resolvedInsertionPoint,
+                ...GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS,
+                items: allUrls.map(content => ({
+                  type: 'image', content, groupId: task.id,
+                  columnOrder: getGPTImage26ResultColumnOrder(task, content),
+                  waitForImageLoad: true,
+                  metadata: buildTaskGenerationMetadata(task, imageAnchor),
+                })),
+              });
+              if (abortIfCanvasChanged()) continue promptGroupLoop;
+              const geometry = getInsertionResultGeometry(insertionResult, resolvedInsertionPoint, targetImageDimensions, ['image']);
+              insertedPoint = geometry.position;
+              insertedElementId = geometry.elementId;
+              insertedSize = geometry.size;
             } else if (
               shouldInsertPromptWithResult(type, mergedConfig) &&
               type !== 'text'
@@ -2337,6 +2360,24 @@ export function useAutoInsertToCanvas(
                   currentHistoryItem.imageUrl
                 );
               }
+            } else if (type === 'image' && inserts.some(({ task }) => usesGPTImage26ResultColumns(task))) {
+              const insertionResult = await executeCanvasInsertion({
+                board,
+                boardGuard: () => isCanvasInsertionBoardTokenCurrent(insertionBoardToken),
+                startPoint: resolvedInsertionPoint,
+                ...GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS,
+                items: imageGroupItems.map(item => ({
+                  type: 'image', content: item.url, groupId: item.task.id,
+                  columnOrder: getGPTImage26ResultColumnOrder(item.task, item.url),
+                  waitForImageLoad: true, metadata: item.metadata,
+                })),
+              });
+              if (abortIfCanvasChanged()) continue promptGroupLoop;
+              insertedResultItems = getInsertionResultItems(insertionResult, 'image');
+              const geometry = getInsertionResultGeometry(insertionResult, resolvedInsertionPoint, groupImageDimensions, ['image']);
+              insertedPoint = geometry.position;
+              insertedElementId = geometry.elementId;
+              insertedSize = geometry.size;
             } else if (
               shouldInsertPromptWithResult(type, mergedConfig) &&
               type !== 'text'

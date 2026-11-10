@@ -26,6 +26,7 @@ import { ATTACHED_ELEMENT_CLASS_NAME } from '@plait/core';
 import {
   getCompatibleParams,
   isGPTImage26ModelId,
+  getGPTImage26SizeOptions,
   type ParamConfig,
 } from '../../constants/model-config';
 import { Z_INDEX } from '../../constants/z-index';
@@ -34,7 +35,8 @@ import './parameters-dropdown.scss';
 import { KeyboardDropdown, type DropdownPlacement } from './KeyboardDropdown';
 import { HoverTip } from '../shared/hover';
 import { SvgWriterModelSelect } from './SvgWriterModelSelect';
-import { isGPTImage26ParamVisible } from '../../services/model-adapters/gpt-image-26-request';
+import { isGPTImage26ParamVisible, resolveGPTImage26OutputMode } from '../../services/model-adapters/gpt-image-26-request';
+import { normalizeGPTImage26RasterParams } from '../../services/model-adapters/image-size-quality-resolver';
 
 function getCompactEnumSummaryLabel(
   paramId: string,
@@ -116,7 +118,7 @@ export interface ParametersDropdownProps {
  * 参数下拉选择器
  */
 export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
-  selectedParams,
+  selectedParams: savedParams,
   onParamChange,
   compatibleParams: compatibleParamsProp,
   modelId,
@@ -127,6 +129,16 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   excludeParamIds,
   placement = 'auto',
 }) => {
+  const selectedParams = useMemo(() => {
+    const params = normalizeGPTImage26RasterParams(modelId, savedParams);
+    if (!isGPTImage26ModelId(modelId) || !params.gpt_image_26_output) {
+      return params;
+    }
+    return {
+      ...params,
+      gpt_image_26_output: resolveGPTImage26OutputMode(modelId, params.gpt_image_26_output),
+    };
+  }, [modelId, savedParams]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,
@@ -142,7 +154,9 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   const allParams = useMemo(() => {
     const params = (compatibleParamsProp ?? getCompatibleParams(modelId)).filter(
       (param) => !isGPTImage26ModelId(modelId) || isGPTImage26ParamVisible(param.id, selectedParams)
-    );
+    ).map((param) => isGPTImage26ModelId(modelId) && param.id === 'size'
+      ? { ...param, options: getGPTImage26SizeOptions(modelId, selectedParams.gpt_image_26_output || 'auto') }
+      : param);
     if (excludeParamIds && excludeParamIds.length > 0) {
       return params.filter((p) => !excludeParamIds.includes(p.id));
     }
@@ -514,6 +528,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
                                   <button
                                     key={option.value}
                                     type="button"
+                                    aria-pressed={isSelected}
                                     className={`parameters-dropdown__option ${
                                       isSelected
                                         ? 'parameters-dropdown__option--selected'

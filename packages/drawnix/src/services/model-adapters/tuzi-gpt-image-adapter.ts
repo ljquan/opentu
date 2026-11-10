@@ -29,6 +29,7 @@ import {
   validateGPTImage26Output,
 } from './gpt-image-26-request';
 import type { ImageGenerationRequest, ImageModelAdapter } from './types';
+import { buildImageRequestPrompt } from './image-request-prompt';
 import {
   GPT_IMAGE_25_EXTENDED_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
@@ -216,7 +217,7 @@ export function buildTuziGPTImageRequestBody(
   const options = buildTuziGPTImageRequestOptions(request, bindingModelId);
   const body: Record<string, unknown> = {
     model: options.model,
-    prompt: request.prompt,
+    prompt: buildImageRequestPrompt(request),
   };
   if (options.response_format) {
     body.response_format = options.response_format;

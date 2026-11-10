@@ -15,24 +15,37 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
     quality: 'max', output_format: 'unsupported', response_format: 'b64_json', resolution: '4k', n: 4,
   } };
 
-  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('uses a prompt GIF once without sending official-only fields', (build) => {
+  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('uses the single GIF mode with a transport-only suffix and model-supported fields', (build) => {
     const input = { ...request, params: { ...request.params, gpt_image_26_output: 'gif', frame_count: 9 } };
     const normalized = normalizeGPTImage26Request(input);
     expect(normalizeGPTImage26Request(normalized)).toEqual(normalized);
-    expect(build(input)).toEqual({ model, prompt: '生成 GIF 图：小猫挥手', size: 'auto', n: 1, ...responseParams });
+    expect(build(input)).toEqual({ model, prompt: '小猫挥手\n生成 GIF 图', size: 'auto', n: 1, ...responseParams,
+      ...(!is1k ? { output_format: 'gif', frame_count: 9 } : {}),
+    });
+    expect(input.prompt).toBe('小猫挥手');
   });
 
   it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('keeps the model-specific response format policy in automatic mode', (build) => {
-    expect(build(request)).toEqual({ model, prompt: request.prompt, size: 'auto', n: 1, ...responseParams });
+    expect(build(request)).toEqual({ model, prompt: request.prompt, size: is1k ? 'auto' : '4096x4096', n: 1, ...responseParams });
   });
 
-  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('preserves static image fields and zero compression without inherited resolution', (build) => {
+  it('does not duplicate existing hint lines or remove user-written text', () => {
+    const input = { model, prompt: '图\n透明图\n生成 GIF 图',
+      params: { background: 'transparent', gpt_image_26_output: 'gif' },
+    };
+    const normalized = normalizeGPTImage26Request(input);
+    expect(normalized.prompt).toBe(input.prompt);
+    expect(normalizeGPTImage26Request(normalized)).toEqual(normalized);
+    expect(input.prompt).toBe('图\n透明图\n生成 GIF 图');
+  });
+
+  it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('preserves static image fields and zero compression with model-specific resolution support', (build) => {
     expect(build({ ...request, params: {
       gpt_image_26_output: 'auto', quality: 'high', background: 'transparent',
       output_format: 'webp', output_compression: '0', moderation: 'auto', user: ' client-1 ',
       resolution: '4k', response_format: 'url',
     } })).toEqual({
-      model, prompt: request.prompt, size: 'auto', n: 1, quality: 'high',
+      model, prompt: `${request.prompt}\n透明图`, size: is1k ? 'auto' : '4096x4096', n: 1, quality: 'high',
       background: 'transparent', output_format: 'webp', output_compression: 0,
       moderation: 'auto', user: 'client-1',
       ...responseParams,
@@ -93,7 +106,7 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
           background: 'transparent', quality: 'high', moderation: 'low', user: 'old',
         });
       }
-      expect(body.output_format).toBe(output === 'gif' ? undefined : output === 'svg' ? 'svg' : 'gif');
+      expect(body.output_format).toBe(is1k ? undefined : output === 'svg' ? 'svg' : 'gif');
     }
   });
 
@@ -104,10 +117,10 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
       } };
       for (const build of [buildGPTImageGenerationBody, buildTuziGPTImageRequestBody]) {
         expect(build(input)).toEqual({
-          model, prompt: output === 'gif' ? '生成 GIF 图：花朵' : '花朵',
+          model, prompt: '花朵\n透明图\n生成 GIF 图',
           size: 'auto', n: 1, ...responseParams,
           background: 'transparent', quality: 'medium',
-          ...(output === 'gif_official' ? { output_format: 'gif' } : {}),
+          ...(!is1k ? { output_format: 'gif' } : {}),
         });
       }
     }
@@ -123,6 +136,7 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
         expect(form.get(key)).toBe(value);
       }
       expect(form.getAll('input_fidelity')).toEqual(['high']);
+      expect(form.get('prompt')).toBe('编辑\n透明图');
       expect(form.has('mask')).toBe(true);
       expect(form.has('image[]')).toBe(true);
       expect(form.get('response_format')).toBe(responseParams.response_format || null);
@@ -145,7 +159,7 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
 
   it.each([buildGPTImageGenerationBody, buildTuziGPTImageRequestBody])('sends official GIF fields and validates optional frames', (build) => {
     const input = { ...request, params: { ...request.params, gpt_image_26_output: 'gif_official', frame_count: '9' } };
-    expect(build(input)).toEqual({ model, prompt: request.prompt, size: 'auto', n: 1,
+    expect(build(input)).toEqual({ model, prompt: `${request.prompt}\n生成 GIF 图`, size: 'auto', n: 1,
       output_format: 'gif', frame_count: 9 });
     expect(normalizeGPTImage26Request(input).params).not.toHaveProperty('response_format');
     expect(build({ ...input, params: { ...input.params, frame_count: '' } })).not.toHaveProperty('frame_count');
@@ -162,6 +176,7 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
     expect(build({ ...input, params: { ...input.params, svg_model: ' custom-writer ' } }).svg).toEqual({ model: 'custom-writer' });
     expect(build({ ...input, params: { output_format: 'svg', svg: { model: 'custom-writer' } } }).svg).toEqual({ model: 'custom-writer' });
     expect(build({ ...input, params: { ...input.params, gpt_image_26_output: 'auto' } })).not.toHaveProperty('svg');
+    expect(build({ ...input, params: { ...input.params, background: 'transparent' } }).prompt).toBe(request.prompt);
   });
 
   it.each([gptImageAdapter, tuziGPTImageAdapter])('$id keeps SVG bytes and does not resubmit after a format mismatch', async (adapter) => {
@@ -181,15 +196,17 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
     const result = await adapter.generateImage({ baseUrl: 'https://api.tu-zi.com/v1', fetcher }, { ...request, params: { gpt_image_26_output: 'gif_official', frame_count: '9' } });
     expect(result.format).toBe('gif');
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toMatchObject({ model, output_format: 'gif', frame_count: 9 });
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toMatchObject({ model, prompt: `${request.prompt}\n生成 GIF 图`, output_format: 'gif', frame_count: 9 });
     expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).not.toHaveProperty('response_format');
   });
 
   it.each([gptImageAdapter, tuziGPTImageAdapter])('$id rejects unverified official format edits before requesting', async (adapter) => {
     const fetcher = vi.fn<typeof fetch>();
-    await expect(adapter.generateImage({ baseUrl: 'https://api.tu-zi.com/v1', fetcher }, {
-      ...request, referenceImages: ['https://example.com/ref.png'], params: { gpt_image_26_output: 'svg' },
-    })).rejects.toThrow('当前仅接入文字生图');
+    for (const output of ['gif', 'gif_official', 'svg']) {
+      await expect(adapter.generateImage({ baseUrl: 'https://api.tu-zi.com/v1', fetcher }, {
+        ...request, referenceImages: ['https://example.com/ref.png'], params: { gpt_image_26_output: output },
+      })).rejects.toThrow('当前仅接入文字生图');
+    }
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

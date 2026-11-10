@@ -22,6 +22,7 @@ import { getSunoNativeParams, buildSunoNativeInputParams, collectSunoNativeResou
  */
 
 import { normalizeGPTImage25ResolutionParams } from '../../services/model-adapters/image-size-quality-resolver';
+import { resolveGPTImage26OutputMode } from '../../services/model-adapters/gpt-image-26-request';
 import React, {
   useState,
   useEffect,
@@ -223,6 +224,7 @@ import { ImageGenerationAnchorTransforms } from '../../plugins/with-image-genera
 import { buildImageGenerationAnchorCreateOptions } from '../../utils/image-generation-anchor-submission';
 import { resolveImageGenerationBatchAnchorPositions } from '../../utils/image-generation-anchor-placement';
 import { resolveImageLineagePositions } from '../../utils/image-generation-lineage-placement';
+import { reservesGPTImage26ResultColumns } from '../../utils/gpt-image-26-result-layout';
 import { prepareImageGenerationReferences } from '../../services/canvas-operations/image-generation-references';
 import {
   buildImageGenerationAnchorPresentationPatch,
@@ -5014,7 +5016,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
       restoredParams.forEach((p) => {
         if (p.id === 'size') return;
-        const prevVal = baseParams[p.id];
+        const prevVal = p.id === 'gpt_image_26_output'
+          ? resolveGPTImage26OutputMode(selectedModel, baseParams[p.id] || '')
+          : baseParams[p.id];
         const prevValIsValid =
           !prevVal ||
           p.valueType !== 'enum' ||
@@ -6201,14 +6205,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               }).size ?? { width: 400, height: 400 };
               // Results fit a 400px width / 600px height envelope. Reserve it
               // while auto aspect ratio is unknown, without stretching the card.
-              const reservedInsertSize = { width: Math.max(400, anchorSize.width), height: Math.max(600, anchorSize.height) };
+              const resultColumns = reservesGPTImage26ResultColumns(parsedParams.modelId, parsedParams.extraParams?.gpt_image_26_output);
+              const reservedInsertSize = { width: Math.max(400, anchorSize.width), height: Math.max(600, anchorSize.height) * (resultColumns ? 2 : 1) + (resultColumns ? 50 : 0) };
               const plannedAnchorPositions = anchorTargetFrameId
                 ? null
                 : !targetFrameId && !replacementBoundImageTarget
                 ? resolveImageLineagePositions(
                     board, imageSourceIds, reservedInsertSize, requestedCount,
                     [viewportCenterX - 200, viewportCenterY],
-                    readHorizontalImageBatchEnabled() ? 'row' : 'column'
+                    resultColumns || readHorizontalImageBatchEnabled() ? 'row' : 'column'
                   )
                 : resolveImageGenerationBatchAnchorPositions(
                     board, [expectedInsertLeftX, expectedInsertY], anchorSize,

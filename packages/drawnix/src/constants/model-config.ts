@@ -38,9 +38,33 @@ export const GPT_IMAGE_26_SIZE_OPTIONS = [
   { value: '16x9', label: '16:9 横屏' },
   { value: '9x16', label: '9:16 竖屏' },
 ];
+const GPT_IMAGE_26_RASTER_SIZE_OPTIONS = [
+  { value: 'auto', label: '自动' },
+  { value: '1x1', label: '1:1 方形' },
+  { value: '2x3', label: '2:3 竖版' },
+  { value: '3x2', label: '3:2 横版' },
+  { value: '3x4', label: '3:4 竖版' },
+  { value: '4x3', label: '4:3 横版' },
+  { value: '4x5', label: '4:5 竖版' },
+  { value: '5x4', label: '5:4 横版' },
+  { value: '9x16', label: '9:16 竖版' },
+  { value: '16x9', label: '16:9 横版' },
+  { value: '21x9', label: '21:9 超宽' },
+];
+
+export function getGPTImage26SizeOptions(modelId?: string | null, output = 'auto') {
+  if (!supportsGPTImage26Resolution(modelId)) return GPT_IMAGE_26_SIZE_OPTIONS;
+  return output === 'auto' ? GPT_IMAGE_26_RASTER_SIZE_OPTIONS
+    : GPT_IMAGE_26_RASTER_SIZE_OPTIONS.filter(({ value }) =>
+      ['auto', '1x1', '2x3', '3x2', '16x9', '9x16'].includes(value));
+}
 
 export function isGPTImage26ModelId(modelId?: string | null): boolean {
   return GPT_IMAGE_26_MODEL_IDS.includes(modelId?.trim().toLowerCase() || '');
+}
+
+export function supportsGPTImage26Resolution(modelId?: string | null): boolean {
+  return isGPTImage26ModelId(modelId) && modelId?.trim().toLowerCase() !== GPT_IMAGE_26_1K_MODEL_ID;
 }
 export const FLUX_3_IMAGE_ASPECT_RATIOS = [
   'auto', '21:9', '2:1', '16:9', '3:2', '7:5', '4:3', '5:4',
@@ -3106,13 +3130,12 @@ export const IMAGE_PARAMS: ParamConfig[] = [
   {
     id: 'gpt_image_26_output',
     label: '输出类型',
-    description: 'GIF 可通过提示词或参数请求，default 分组也可使用参数方式；SVG 需官方 / 官方优惠分组。此选项不会切换分组。',
+    description: 'GIF 使用参数请求，default 分组也可使用；SVG 需官方 / 官方优惠分组。此选项不会切换分组。',
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: 'gif', label: 'GIF（提示词）' },
-      { value: 'gif_official', label: 'GIF（参数）' },
-      { value: 'svg', label: 'SVG（官方分组）' },
+      { value: 'gif_official', label: 'GIF' },
+      { value: 'svg', label: 'SVG' },
     ],
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== GPT_IMAGE_26_1K_MODEL_ID),
@@ -3124,7 +3147,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: [
       { value: 'auto', label: '自动' },
-      { value: 'gif', label: 'GIF（提示词）' },
+      { value: 'gif', label: 'GIF' },
     ],
     defaultValue: 'auto',
     compatibleModels: [GPT_IMAGE_26_1K_MODEL_ID],
@@ -3133,7 +3156,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
   {
     id: 'frame_count',
     label: 'GIF 帧数',
-    description: '仅 GIF（参数）生效；留空使用渠道默认值，实际帧数以返回文件为准。',
+    description: '仅 GIF 生效；留空使用渠道默认值，实际帧数以返回文件为准。',
     valueType: 'number',
     min: 1,
     step: 1,
@@ -3161,6 +3184,22 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     options: GPT_IMAGE_26_SIZE_OPTIONS,
     defaultValue: 'auto',
     compatibleModels: GPT_IMAGE_26_MODEL_IDS,
+    modelType: 'image',
+  },
+  {
+    id: 'resolution',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    description: '与图片比例组合请求；4K 为渠道档位，实际像素以返回原图为准。',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: '1k', label: '1K' },
+      { value: '2k', label: '2K' },
+      { value: '4k', label: '4K' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: GPT_IMAGE_26_MODEL_IDS.filter(supportsGPTImage26Resolution),
     modelType: 'image',
   },
   {
@@ -3773,6 +3812,15 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
         )
     );
     if (geminiSizeParam) compatibleParams.push(geminiSizeParam);
+  }
+
+  if (supportsGPTImage26Resolution(normalizedModelId)) {
+    return compatibleParams.map((param) => param.id === 'size'
+      ? {
+        ...param, label: '图片比例', shortLabel: '比例', options: getGPTImage26SizeOptions(normalizedModelId),
+        description: 'GIF 使用自动尺寸，所选比例通过提示词请求；实际比例和像素以返回文件为准。',
+      }
+      : param);
   }
 
   if (!isSeedance25ModelId(modelId)) {

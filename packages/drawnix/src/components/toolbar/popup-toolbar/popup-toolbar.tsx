@@ -80,6 +80,9 @@ import { PopupBooleanButton } from './boolean-button';
 import { TextPropertyPanel } from './text-property-panel';
 import { PopupImage3DTransformButton } from './image-3d-transform-button';
 import { PopupImageDetailsButton } from './image-details-button';
+import { SvgToolsButton } from './svg-tools-button';
+import { isSvgUrl } from '../../../utils/svg-source';
+import type { SvgImageElement } from '../../../services/svg-canvas-edit';
 import { getCanvasGenerationDetailsSource } from '../../../utils/canvas-generation-details-source';
 import { getCanvasTargetCenteringOrigination } from '../../../utils/canvas-target-centering';
 import {
@@ -492,7 +495,7 @@ export const PopupToolbar = () => {
     const isSvgImage =
       PlaitDrawElement.isDrawElement(imageElement) &&
       PlaitDrawElement.isImage(imageElement) &&
-      imageElement.url?.startsWith('data:image/svg+xml');
+      isSvgUrl(imageElement.url || '');
 
     const hasImageDetails =
       selectedElements.length === 1 &&
@@ -1953,6 +1956,9 @@ export const PopupToolbar = () => {
                 tooltip="AI 视角编辑"
                 onClick={() => setImageToolMode(mode)} />
             ))}
+            {state.hasImageDetails && selectedElements[0] && (
+              <SvgToolsButton key={`svg-tools-${selectedElements[0].id}`} board={board} image={selectedElements[0] as SvgImageElement} language={language} />
+            )}
             {state.hasImageEdit && (
               <ToolButton
                 className="image-edit"

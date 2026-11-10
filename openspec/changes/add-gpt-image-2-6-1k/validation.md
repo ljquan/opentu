@@ -1,6 +1,6 @@
 # GPT Image 2.6 1K 接入验收
 
-本文按时间保留各阶段记录。当前四型号适配范围与提交前检查以文末“GitHub 提交前最终验证（2026-11-08）”及“与未合并 PR 的冲突处理（2026-11-08）”为准；前文的“仅 -1k”“未提交”等描述属于对应阶段。
+本文按时间保留各阶段记录。当前四型号适配范围与提交前检查见“GitHub 提交前最终验证（2026-11-08）”及“与未合并 PR 的冲突处理（2026-11-08）”；排版修复见“2.6 多结果按任务分列”；最新界面和请求提示词调整见文末同名记录。前文的“仅 -1k”“未提交”等描述属于对应阶段。
 
 日期：2026-11-05（Asia/Shanghai）。基线：develop `f6a3e0cf`；实现分支：`codex/add-gpt-image-2-6-1k`。
 
@@ -479,3 +479,169 @@ QA/DOC 继续更新本记录，无新依赖、环境变量或数据迁移。没�
 现有 PR 的 GitHub 状态为 MERGEABLE，但检查未全部通过。只读核对 #328 既有 CI 日志，失败步骤为 affected test/build，日志显示 9 个文件、54 项测试失败，包含前节记录过的输入解析器等既有测试；这些日志不能当作本次新 PR 的检查结果。未重跑其他 PR 的 CI 或扩大修复无关问题。
 
 本次 PR 的远程检查以创建后的实际状态为准。文本合并检查与相关组合回归均已完成；未来其他 PR 或 develop 更新后应按新头提交重新核验，不能把当前无冲突结果外推到后续版本。本次授权不包含将任何 PR 合并到 develop。
+
+## 2.6 多结果按任务分列（2026-11-08，本地修改）
+
+### 问题与最终效果
+
+用户反馈 default 分组的 2.6 一次任务会返回 GIF 与原图，多个任务同时生成时画布位置混杂，并明确选择“按任务分列：GIF 在上、原图在下”。截图与用户反馈作为问题输入，本轮没有追加供应商请求来推断所有渠道的固定返回数量。
+
+代码原来为每个任务预留一个图片位置，任务完成后又将其多结果横向展开；这可能占据邻近任务的预留位置。原始结果数组还可能先给出原图、后给出 GIF，因此不能用数组第一个元素作为上方位置的唯一依据。
+
+- 注册的四个精确 2.6 型号单任务返回多图时，保留全部输出，按任务分列、列内纵排，能从地址/MIME 或主结果格式辨认的 GIF 排在原图上方。未知格式维持稳定顺序，不猜测哪个静态图片是原图。
+- 排序只作用于坐标，不改结果数组、插入返回数组和缓存映射顺序，保持每张图片对应的任务与来源元数据。
+- 新的普通 2.6 非 SVG 请求在提交时按任务横排，并为 GIF 与原图预留最多两张图片及间距的整列；该场景优先采用任务分列，其他型号和 SVG 继续使用既有横排/竖排偏好。单次意外返回更多结果时继续向下排列，按实际完整边界避让。
+- 真正插入时逐图读取尺寸，各自保持比例，按 400×600 显示范围放置。整组避开已有图片及其他占位，仅排除本次要交接的生成占位；失败时不提交半组结果，失败任务仍可重试插入。
+- 自动完成、插入重试、任务队列/弹窗列表手动插入、批量生图所选结果插入均使用同一布局规则。保留原有替换/PPT 专用路径和任务绑定；兼容 #328 识别的 generated-result 慢网策略。
+- 不新增存储字段、依赖、环境变量或收费请求。已有画布图片及已规划的在途任务不自动重排；旧在途任务完成时依原占位和整列避让插入，新提交的普通 2.6 批次才使用新的横向列预留。列数较多时可能需要平移画布查看。
+
+### 实际验证
+
+环境：macOS，Node `26.8.1`，pnpm `10.21.0`。初轮本地基线为已推送的 `89b4b34b`；下表记录迁移前检查，最终基线与结果见本节末尾。本节变更尚未提交或推送。
+
+| 检查 | 结果 |
+|---|---|
+| 本分支相关 Vitest | **25 文件、911 项通过**；包含此前 2.6 参数回归、新排版/预留、自动插入、画布关联、手动入口相关逻辑与原有布局 |
+| 未合并 PR 组合 | 与 #326 `291ade7a`、#327 `adf07d92`、#328 `4c73c726` 的组合预演无文本冲突；独立临时快照 **32 文件、1024 项通过** |
+| TypeScript | 本分支及组合快照的 `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 均通过 |
+| Web 生产构建 | 本分支 `pnpm exec vite build --config apps/web/vite.config.ts` 通过，45.20 秒，保留既有 Sass/CSS/chunk 提示 |
+| ESLint | 本轮 12 个 TS/TSX 文件 **3 错误、130 警告**；错误已逐文件对照本轮修改前 HEAD，规则及消息完全相同 |
+| 差异与本地服务 | `git diff --check` 通过；已有 7205 服务 HTTP 200，未重启其他服务 |
+
+3 个既有 lint 错误分别为 TaskQueuePanel.tsx、DialogTaskList.tsx 中 `@aitu/utils` 静态导入触发的模块边界错误，以及 canvas-insertion.test.ts 原有 import/first。新增布局工具及测试无 lint 错误或警告；未扩大处理现有大文件或历史风格问题。
+
+新用例验证：每任务 GIF 与原图的上下位置、不同自然尺寸下不重叠、窄视口不拆开任务列、原数组及缓存顺序保持、整列避障、读取失败不写入半组、失败可重试、第二个任务先完成仍回到各自占位，以及现有单结果/其他型号/SVG 排版兼容。组合测试使用子进程 `NODE_OPTIONS=--no-experimental-webstorage` 兼容 Node 26 测试环境，没有修改仓库配置；使用正确合并后的 #328 用例验证其慢网策略。临时快照不进入本分支历史，不修改其他 PR。
+
+QA/DOC 更新本目录既有 proposal、规格、tasks 和本记录，不新增根目录文件。没有执行页面点击、视觉截图验收、真实生成、透明度/帧数实测、全仓库测试、远程 CI 或部署；OpenSpec CLI 本机仍不可用。以上为客户端排版和组合回归证据，不能替代正式站实际返回的媒体验证。
+
+非技术验收：在 7205 页面重新提交一次普通 2.6 多图生成；如每任务返回 GIF 和原图，应看到每列上方为 GIF、下方为对应原图，相邻任务各占一列。也可对已有未插入的任务执行手动插入以检查列内顺序，避免重复生成。截图里已经存在的节点保持原位置，需要手动整理或移除后重新插入已有结果；本轮不自动修改用户已有画布。
+
+### 迁移到最新 develop 后的最终验证
+
+收尾时只读核对远程发现 #326—#329 均已合并，最新 develop 已为 `65636cbe` / v1.2.7，#327 的最终头提交也已变化。此前指定头提交的组合检查保留为历史证据，不替代最新代码验证。
+
+先独立归档并逐文件 SHA-256 验证全部 16 个修改/新增文件，再保留包含未跟踪文件的 stash，将本轮修复恢复到基于最新 origin/develop 的本地分支 `dev/gpt-image-26-result-columns`。恢复无冲突，保留已经合入的模型刷新、慢网插图策略及全部原始回归；备份与 stash 均保留。本轮没有创建远程分支、提交或推送。
+
+最终在实际工作区而非临时组合快照执行：
+
+- Vitest **32 文件、1024 项通过**。使用 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，范围为前述 25 文件加 image、canvas-insertion-timeout、fallback-utils、version-model-refresh、settings-manager、use-runtime-models 和 canvas-resources-button。默认 Node 26 参数首次执行时资源入口 6 项仍因 localStorage 初始化失败；兼容参数复测同一范围全部通过，未修改配置来隐藏失败。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过。
+- `pnpm exec vite build --config apps/web/vite.config.ts` 通过，47.23 秒，保留既有构建提示。
+- 本轮 12 个 TS/TSX 文件 ESLint **3 错误、131 警告**。以最新 HEAD 逐文件 stdin 对照，3 条错误规则及消息仍完全一致；前文 130 警告属于旧基线，不能替代此最终数量。
+- `git diff --check` 通过，`git ls-files -u` 无输出；7205 HTTP 200。临时组合快照已清理，当前全部排版修复仍为未提交本地修改。
+
+### 2026-11-09 本任务 PR 提交验证
+
+任务列排版已形成提交 `ba7883f4`，与本轮 SVG 功能共同提交 PR。显式 fetch/merge 后最新目标仍为 `origin/develop@65636cbe`，本分支已包含目标，没有目标分支冲突。与未合并 #330 的自动插图 import 相邻改动发生文本冲突，通过移动本次新增 import 消除，双方逻辑不变。
+
+本分支 41 文件、1109 项相关测试、类型检查与构建通过；冲突预防调整后自动插图 68 项和类型检查再次通过。隔离组合 #330 的同一 41 文件集合 1131 项及类型检查通过。lint 的 5 个错误逐项与 origin/develop 一致。完整范围、备份、冲突和测试边界见 `../add-source-aware-svg-canvas/validation.md` 的 2026-11-09 记录；不引入 #330 功能或执行页面/收费测试。
+
+## GIF 入口和请求提示词调整（2026-11-09）
+
+### 最终效果和边界
+
+- 输出选项为“自动 / GIF / SVG”；SVG 按钮不再带“官方分组”字样，说明中保留渠道能力限制。
+- 无后缀、Flare、Sunburst 的 GIF 使用 `output_format=gif` 和可选 `frame_count`，同时在请求提示词结尾追加“生成 GIF 图”。两种已有模式值 `gif` / `gif_official` 均映射到该选项和请求，偏好恢复与输入栏参数校验保留选择。
+- `-1k` 仍仅发送已接入的提示词 GIF，不新增格式或帧数字段。其他三型号的参数 GIF 遇到参考图或蒙版会在发送前报错；使用 GIF 参数不代表扩展了编辑协议。
+- 透明图片请求保留 `background=transparent`，并在请求提示词中追加“透明图”。工作流创建时保存原始用户提示词，因此新任务详情、画布来源和再次编辑不再带自动追加的文字。JSON、multipart 和基础兼容路径使用同一追加规则，重复构建和重试不叠加提示行。
+- 用户自己输入的提示行正常保留。历史任务中已保存的自动后缀无法可靠区分于用户原文，本轮不删除或重写历史数据；显示修复适用于新提交任务。
+
+### 实际检查
+
+- macOS，Node 26.8.1，pnpm 10.21.0；分支 `dev/gpt-image-26-result-columns`。本节记录本地验证，后续提交状态以 PR #331 为准。
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 ParametersDropdown、workflow-converter、gpt-image-26-output、gpt-image-26-integration、default-image-adapter、gpt-image-adapter、tuzi-gpt-image-adapter：**7 文件 493 项通过**。
+- 加入 ai-generation-preferences-service 后：**8 文件 535 项，534 通过、1 失败**。新增三型号旧 GIF 偏好恢复测试通过；唯一失败为原有“迁移 Seedance 2.5 的旧组合偏好时移除不受支持的分辨率”，实际 `size=1080p`、原断言预期空字符串。用临时 Vitest load 插件加载 HEAD 版本的偏好服务与对应测试，单独运行同一用例，复现相同失败；未改动该视频行为或断言。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，40.59 秒；保留动态/静态导入和体积警告。
+- 改动 TS/TSX 的 ESLint：**2 错误、45 警告**。错误均为 default-adapters.ts、gpt-image-adapter.ts 已有的 `@nx/enforce-module-boundaries` 静态导入问题；使用 `git show HEAD:<path>` 经 ESLint stdin 对照，两处错误规则及消息完全一致。没有新增 lint 错误。
+- `git diff --check`：通过；7205 服务根地址返回 HTTP 200。
+
+### QA/DOC 和未覆盖项
+
+更新本目录已有 proposal、规格、tasks 与本记录，不新增根目录文档。未执行页面自动化、真实生成、收费请求、上游透明度/GIF 参数实测或部署。OpenSpec CLI 仍不可用，未执行 CLI 严格校验；规格保持现有 Requirement / Scenario 格式。
+
+## 2.6 比例与分辨率独立选择（2026-11-09）
+
+### 真实接口证据与最终范围
+
+用户先授权测试无 GIF/SVG 时的 2K / 4K，之后要求适配，并明确 4K 返回 2880×2880 符合预期。最后按截图要求将比例与分辨率分组，范围为 2.6 系列，明确排除 `-1k`。本节以此为最终范围，替代过程中仅提供两个方形按钮的未提交实现。
+
+使用凭据文件中的当前 Key，对 `https://api.tu-zi.com/v1/images/generations` 的精确 `gpt-image-2.6` 各发出一次请求，均为相同静态风景提示词、n=1，未带 GIF/SVG 格式字段。未确认 Key 分组名称，不将两次结果推广为其他型号或所有分组的实测结论。
+
+| 请求 size | API 结果 | 下载原文件实测 | 结论 |
+|---|---|---|---|
+| `2048x2048` | 成功返回图片地址 | PNG，2048×2048，1 帧，7,220,868 字节 | 2K 方形通过 |
+| `4096x4096` | 成功返回图片地址 | PNG，2880×2880，1 帧，12,325,985 字节 | 4K 渠道档位通过，不承诺 4096×4096 |
+
+探针最初把图片下载 403 误记为 API 失败；已核对保存的成功响应、修正独立汇总，并复用原地址以 curl 下载成功。Pillow 检查原文件像素，没有重新 POST、本地放大或向图片主机发送 API 凭据。证据和日志保存在仓库外 `/tmp/opentu5-gpt26-resolution-probe/`，不提交原图或凭据。
+
+### 使用方式与实现边界
+
+- 无后缀、Flare、Sunburst 的静态输出分为“图片比例”和“图片分辨率”。比例为自动及截图中的十种常用比例；分辨率为自动 / 1K / 2K / 4K。不再把 2K / 4K 固定成两个方形按钮。
+- 前端保存 size 比例与 resolution 档位。请求归一化复用项目已有像素预设，将组合转换为上游原有 size 字段；2K 方形请求 2048×2048，4K 方形保留实测通过的 4096×4096 请求值。没有强行发送新的分辨率字段，基础兼容也不把 K 档位转成 quality。
+- 固定 K 档位结合自动比例时，复用已有提示词比例识别，取最后一个有效比例，未给比例时为 1:1；两组都自动时发送 size=auto。分辨率自动时，原有比例沿用旧请求值，新比例使用既有默认像素预设。实际像素、比例和计费由返回结果及渠道决定；非方形和后缀型号的这些组合本轮仅本地验证。
+- 输入栏及图片工具保存并恢复两组选择。旧 2048/4096 方形值迁移为 1:1 与 2K/4K；原有像素比例转成对应比例。旧的无效 quality=4k 不自动升级为分辨率 4K；用户明确选择的 resolution 仍按选择生效。
+- GIF/SVG 隐藏分辨率并使用原有尺寸白名单，残留静态分辨率不参与生成；切回静态可恢复选择。`-1k` 不增加新比例和分辨率选项，不改变其原有按次别名、GIF、返回格式或请求行为。
+- 返回 2880×2880 的 4K 档位图片正常完成，保留原图实际宽高，不因像素不同而放大、报错或重新生成。未改缓存、画布缩放或下载字节。
+- 在既有尺寸解析器集中复用预设与归一化，保留 GPT Image 2/2.5 的请求规则。本次解析器扩至 549 行，作为文件长度规则的局部例外，不扩大为无关的旧模块拆分；新增尺寸测试单独放在 gpt-image-26-resolution.test.ts。
+
+### 最终本地 QA
+
+环境：macOS，Node 26.8.1，pnpm 10.21.0；基线 fef01196，分支 dev/gpt-image-26-result-columns。本节为本地未提交改动，未推送或更新 PR。
+
+| 检查与命令 | 实际结果 |
+|---|---|
+| 在 packages/drawnix 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 gpt-image-26-integration、gpt-image-26-resolution、gpt-image-26-output、gpt-image-adapter、tuzi-gpt-image-adapter、image-size-quality-resolver、ParametersDropdown、default-image-adapter | 8 文件、596 项通过 |
+| 同命令指定 ai-generation-preferences-service，加 `-t 'GPT Image 2.6\|saved GIF\|GPT Image 2.5\|旧 quality'` | 25 项通过，其他 25 项未执行；覆盖三型号的两组选择、旧方形迁移、不升级无效 quality，以及 GPT Image 2/2.5 旧偏好兼容 |
+| `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` | 通过 |
+| `pnpm exec vite build --config apps/web/vite.config.ts` | 通过，42.55 秒；保留既有 Sass、导入及大 chunk 提示 |
+| 对本轮 12 个 TS/TSX 文件执行 ESLint | 1 个既有错误、10 个既有警告；default-adapters.ts 的模块边界错误及该文件和偏好服务的警告已通过 HEAD stdin 对照，其他 6 个警告也与前次 HEAD 对照一致；没有新增 lint 错误或警告 |
+| 原循环检查脚本 | 原脚本使用 JSON.parse，受 tsconfig.base.json 原有尾逗号阻塞；未修改脚本或配置。仓库外探针仅用 TypeScript JSONC 解析替代读取，按改动文件与 HEAD 源码对照，原先 2 个运行时循环、3 个含类型循环的完整结果一致，没有新增循环 |
+| `git diff --check` | 通过 |
+
+合计 9 文件、621 项测试通过，25 项未选中。三型号共覆盖 90 种固定比例与档位组合，均检查 JSON、multipart、重复归一化和内部字段隔离；同时验证自动规则、模式切换、其他 GPT 型号及 -1k 兼容、旧选择和偏好恢复，以及 4K 实际宽高与不重复提交。真实接口证据仅为前表两次无后缀静态生成，不代表所有组合、透明度、编辑或令牌分组均已实测。
+
+### DOC、限制与验收
+
+更新本目录现有 proposal、规格、tasks 和 validation，不新增根目录文档。无依赖、环境变量、存储字段、迁移操作或部署顺序变化，旧偏好按读取规则兼容。未执行页面点击、浏览器自动化、视觉验收、全仓库测试、部署或新增收费生成。OpenSpec CLI 不可用，未执行其严格校验。偏好全文件初轮仍复现既有 Seedance 2.5 迁移断言失败；最终仅执行受影响的图片偏好范围，不修改无关视频行为。
+
+非技术验收：刷新本地页面，依次选择无后缀、Flare、Sunburst，在静态输出中应看到截图形式的比例按钮与独立分辨率按钮，例如同时选 16:9 和 2K，并在刷新后保留；不再出现两个方形 K 选项。切到 GIF/SVG 时隐藏分辨率，`-1k` 仍为原来的尺寸选项。4K 样本保留 2880×2880 原图，不要求放大到 4096×4096。检查菜单和已有样本不需要再次付费生成。
+
+## GIF 雪碧图尺寸超限修复（2026-11-09）
+
+### 证据、修复与使用边界
+
+用户截图显示 `gpt-image-2.6-flare` 返回 HTTP 400：`No supported sheet fits 9 GIF frames at size '1536x1024'. Invalid size '4608x3072'. The longest edge must be less than or equal to 3840.` 代码将 3:2 比例映射成静态像素 1536×1024 后传给参数 GIF，渠道将其作为每帧尺寸，拼接结果超过最长边限制。此错误发生在生成请求阶段，与画布播放帧率无关。
+
+无后缀、Flare、Sunburst 的参数 GIF 现在统一发送 `size=auto`，复用此前 Sunburst 成功请求的尺寸方式，不根据截图猜测所有帧数的排版算法或未验证的自定义像素。所选 1:1、2:3、3:2、16:9、9:16（含旧像素选择）转成请求尾部的 `GIF 每帧画面比例：<比例>`，随后追加适用的透明图和生成 GIF 提示词。实际比例是提示词约束，不能保证渠道严格遵循；参数说明已同步提示这一边界。自动比例与不支持的历史尺寸不新增比例提示。
+
+两种旧 GIF 模式值和原始 `output_format=gif` 都应用此修复；显式帧数继续传递，留空继续省略，不固定为 9 帧，也不将帧数等同于帧率。共享归一化覆盖 GPT、Tuzi、基础兼容路径，多次归一化不重复提示词、不变更源任务输入、供应商和精确型号。透明背景继续使用 GIF，静态分辨率不混入请求。本节替代上一节中参数 GIF 沿用静态像素映射的行为；静态、SVG 和 `-1k` 仍保留已有尺寸协议。
+
+### 本地 QA
+
+环境沿用上一节 macOS / Node 26.8.1 / pnpm 10.21.0，分支 `dev/gpt-image-26-result-columns`。在上一轮未提交的比例/分辨率适配上进行本次局部修复。
+
+- 新增 `gpt-image-26-gif-size.test.ts` 的 18 项用例在修复前全部失败，修复后全部通过。覆盖截图中失败的单帧尺寸、三个型号、旧模式值与原始格式字段、默认/9/48 帧透传、重复归一化、请求提示词去重、源输入保留及单次请求。接口成功响应是本地模拟，不计入真实渠道成功证据。
+- 在 `packages/drawnix` 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts`，指定 gpt-image-26-gif-size、gpt-image-26-integration、gpt-image-26-resolution、gpt-image-26-output、default-image-adapter、gpt-image-adapter、tuzi-gpt-image-adapter、ParametersDropdown：8 文件、566 项通过。
+- 同命令补充 `src/services/model-adapters/__tests__/image-size-quality-resolver.test.ts`：48 项通过；首次组合命令使用了错误的该文件路径，Vitest 未纳入此文件，因此单独补跑。合计 **9 文件、614 项通过**。包含静态各档位、SVG 尺寸、`-1k`、GIF 帧数非法值、参考图/蒙版拦截、格式不符失败及其他 GPT 型号的回归。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 对本轮 7 个 TS 文件执行 ESLint：0 错误、3 条既有警告（模型配置未使用变量、集成测试非空断言与恶意 URL 夹具），未新增警告。
+- `pnpm exec vite build --config apps/web/vite.config.ts`：通过，42.62 秒，保留既有 Sass、导入及大 chunk 提示。
+- `git diff --check`：通过；最终差异保留上一轮未提交的适配，没有生成产物混入。
+- 日志保存在仓库外 `/tmp/opentu5-gpt26-gif-size-*.log`，没有凭据或真实生成图片；未新增导入依赖，不重复执行既有受 JSONC 解析阻塞的循环检查。
+
+### DOC、限制与验收
+
+更新现有 proposal、规格、tasks 和本记录，不新增根目录文档。无依赖、环境变量、数据库或配置迁移。未做页面/浏览器测试、新收费调用、部署、提交或推送；OpenSpec CLI 此前确认不可用，本轮未执行严格校验。本地验证证明客户端不再发出导致截图错误的固定 GIF 像素请求，尚未真实复测 Flare 的该场景，也不承诺所有渠道的 GIF 比例、帧数及透明度均满足要求。
+
+非技术验收：刷新本地页面，在 Flare 的 GIF 模式选 3:2，参数说明应提示自动尺寸和提示词比例。经用户决定重新生成时，请求应为 `size=auto`、`output_format=gif`，提示词含 3:2 比例但前端原始输入保持不变；原来的失败任务不会自动重新提交。实际文件的比例、帧数和透明度需检查返回原图。
+
+## 2026-11-09 最新远程同步与推送前 QA
+
+- 用户授权拉取最新远程、解决冲突并提交修改。先通过基础回归，再将此前 25 个任务文件保存为 `19de3fb0`；包括 2.6 比例/分辨率、GIF 自动尺寸与 SVG 部件点击修复，无无关文件。
+- 首次 fetch 遇到 HTTP/2 framing 错误，改用 HTTP/1.1 后成功；进一步显式 fetch `develop` 与当前功能分支的 refspec，刷新受限的远程跟踪引用。远程 `develop` 为 `65636cbe2203d57b8a1c555f39e41527289cd749`，功能分支为 `fef01196e0923f97e588a49be6ef7e10dcc366c9`，均已包含于本地。随后 `git merge --no-edit origin/develop` 返回 Already up to date，无冲突或合并代码变化。
+- 最终相关回归使用前文 Vitest 命令和 `NODE_OPTIONS=--no-experimental-webstorage`，合并覆盖 2.6 请求/分辨率/GIF、三条适配路径、尺寸解析、参数菜单及 SVG 命中/解析/编辑/媒体/播放：18 文件 703 项通过。图片偏好过滤范围另有 25 项通过、25 项未选中；合计 728 项通过。日志 `/tmp/opentu5-pr331-final-tests.log` 与 `/tmp/opentu5-pr331-final-preferences.log`。
+- `pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 通过；`pnpm exec vite build --config apps/web/vite.config.ts` 通过（38.59 秒），保留既有构建提示。17 个本次 TS/TSX 文件 ESLint 为 1 个既有模块边界错误、10 个既有警告，与前述基线结论一致。新 SVG 命中模块没有 lint 问题。
+- `git diff origin/develop...HEAD --check` 通过，未合并索引为空。最终测试与成功同步期间代码没有变化；仅追加本次 QA 记录。未重复执行已知受 JSONC 阻塞的循环脚本或不可用的 OpenSpec CLI，未执行页面、收费生成或部署。
+- PR #331 旧头 `fef01196` 的 CI run `42570180250` 已失败：11 个失败文件、56 项失败，涉及提示词历史/解析、存储初始化、媒体 Blob、视频偏好、工作流及超时等；这些发生在本次提交之前，并非全部已逐项证实为 develop 基线问题。本轮不将相关本地回归通过等同于全仓库 CI 通过。新增提交的远程 CI 以推送后 GitHub 状态为准。
+- QA/DOC 继续复用两个既有 OpenSpec 目录；无新增依赖、环境变量、权限或数据迁移。此前各节的“未提交/未推送”是对应阶段历史状态，本节记录本次推送前验证；远程最终提交与 PR 状态以本次交付及 GitHub 为准。

@@ -1,3 +1,13 @@
+## 1.2.8 (2026-11-09)
+
+### 🔧 Chores
+
+- 完善 GPT Image 2.6 参数、GIF 排版与 SVG 编辑交互 (#331) ([6099e425](https://github.com/ljquan/opentu/commit/6099e425))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.2.7 (2026-11-08)
 
 ### 🚀 Features

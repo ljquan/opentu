@@ -15,6 +15,65 @@ vi.hoisted(() => {
 });
 
 describe('ai-generation-preferences-service', () => {
+  it.each(['2048x2048', '4096x4096'])(
+    'GPT Image 2.6 migrates legacy square size %s to ratio and resolution across the series', async (size) => {
+      const service = await import('../ai-generation-preferences-service');
+      const selectedParams = { size, gpt_image_26_output: 'auto', background: 'transparent' };
+      service.saveAIInputPreferences({ generationType: 'image', selectedModel: 'gpt-image-2.6',
+        selectedCount: 1, selectedSkillId: '', selectedParams });
+      const expected = { ...selectedParams, size: '1x1', resolution: size === '2048x2048' ? '2k' : '4k' };
+      expect(service.loadAIInputPreferences().selectedParams).toMatchObject(expected);
+      service.saveAIImageToolPreferences({ currentModel: 'gpt-image-2.6',
+        currentSelectionKey: 'provider-a::gpt-image-2.6', extraParams: selectedParams, aspectRatio: '1:1' });
+      expect(service.loadScopedAIImageToolPreferences('gpt-image-2.6', 'provider-a::gpt-image-2.6'))
+        .toMatchObject({ extraParams: expected, aspectRatio: '1:1' });
+      for (const model of ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst']) {
+        expect(service.sanitizeImageToolExtraParams(model, selectedParams)).toMatchObject(expected);
+      }
+      expect(service.sanitizeImageToolExtraParams('gpt-image-2.6-1k', selectedParams).size).toBe('auto');
+    }
+  );
+
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+    'GPT Image 2.6 series does not promote stale %s quality tiers into new resolution selections', async (model) => {
+      const service = await import('../ai-generation-preferences-service');
+      expect(service.sanitizeImageToolExtraParams(model, { size: '16x9', quality: '4k' }))
+        .toMatchObject({ size: '16x9', resolution: 'auto', quality: 'auto' });
+    }
+  );
+
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+    'GPT Image 2.6 series restores %s non-square ratio and resolution in both entry points', async (model) => {
+    const service = await import('../ai-generation-preferences-service');
+    const selectedParams = { size: '3x4', resolution: '4k', gpt_image_26_output: 'auto' };
+    service.saveAIInputPreferences({ generationType: 'image', selectedModel: model,
+      selectedCount: 1, selectedSkillId: '', selectedParams });
+    expect(service.loadAIInputPreferences().selectedParams).toMatchObject(selectedParams);
+    service.saveAIImageToolPreferences({ currentModel: model,
+      currentSelectionKey: `provider-a::${model}`, extraParams: selectedParams, aspectRatio: '3:4' });
+    expect(service.loadScopedAIImageToolPreferences(model, `provider-a::${model}`))
+      .toMatchObject({ extraParams: selectedParams, aspectRatio: '3:4' });
+  });
+
+  it.each(['gpt-image-2.6', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+    '%s restores both saved GIF mode values to the single parameter GIF option', async (modelId) => {
+      const service = await import('../ai-generation-preferences-service');
+      for (const output of ['gif', 'gif_official']) {
+        const params = { gpt_image_26_output: output, frame_count: '48', background: 'transparent' };
+        expect(service.sanitizeImageToolExtraParams(modelId, params)).toMatchObject({
+          ...params, gpt_image_26_output: 'gif_official',
+        });
+        service.saveAIInputPreferences({ generationType: 'image', selectedModel: modelId,
+          selectedCount: 1, selectedSkillId: '', selectedParams: params });
+        expect(service.loadAIInputPreferences().selectedParams).toMatchObject({
+          ...params, gpt_image_26_output: 'gif_official',
+        });
+      }
+      expect(service.sanitizeImageToolExtraParams('gpt-image-2.6-1k', { gpt_image_26_output: 'gif' }))
+        .toMatchObject({ gpt_image_26_output: 'gif' });
+    }
+  );
+
   it('restores non-default native actions while keeping file bytes out of localStorage preferences', async () => {
     const models = await import('../../constants/model-config');
     const modelSpy = vi.spyOn(models, 'getModelConfig').mockReturnValue({ id: 'suno_act_mp4', type: 'audio' } as ReturnType<typeof models.getModelConfig>);

@@ -413,6 +413,36 @@ export function precalculateGroupedGridLayout<T extends { groupId?: string }>(
   };
 }
 
+/** Keep each task's outputs together, with task columns aligned along the top. */
+export function precalculateTaskColumnLayout<T extends { groupId?: string; columnOrder?: number }>(
+  startPoint: Point,
+  items: T[],
+  itemSizes: { width: number; height: number }[],
+  options: { horizontalGap?: number; verticalGap?: number } = {}
+): { positions: Point[]; bounds: FlowBounds } {
+  const horizontalGap = options.horizontalGap ?? CANVAS_INSERTION_LAYOUT.DEFAULT_HORIZONTAL_GAP;
+  const verticalGap = options.verticalGap ?? CANVAS_INSERTION_LAYOUT.DEFAULT_VERTICAL_GAP;
+  const positions: Point[] = [];
+  let bounds: FlowBounds | null = null;
+  let x = startPoint[0];
+  let offset = 0;
+  for (const group of groupInsertionItems(items)) {
+    const indices = group.map((_, index) => offset + index).sort(
+      (left, right) => (items[left].columnOrder ?? 1) - (items[right].columnOrder ?? 1)
+    );
+    let y = startPoint[1];
+    for (const index of indices) {
+      const point: Point = [x, y];
+      positions[index] = point;
+      bounds = mergeFlowBounds(bounds, point, itemSizes[index]);
+      y += itemSizes[index].height + verticalGap;
+    }
+    x += Math.max(...indices.map(index => itemSizes[index].width)) + horizontalGap;
+    offset += group.length;
+  }
+  return { positions, bounds: bounds || { x: startPoint[0], y: startPoint[1], width: 0, height: 0 } };
+}
+
 export function getBatchInsertionFlowCenter(
   state: Pick<BatchInsertionFlowState, 'bounds'>
 ): Point | undefined {

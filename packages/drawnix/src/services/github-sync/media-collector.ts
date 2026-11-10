@@ -94,7 +94,13 @@ function extractMediaFromBoard(
     return items;
   }
 
-  for (const element of board.elements) {
+  const elements = board.elements.flatMap(element => {
+    const svg = element.svgVectorPart as { version?: unknown; sourceUrl?: unknown } | undefined;
+    return svg?.version === 1 && typeof svg.sourceUrl === 'string'
+      ? [element, { ...element, url: svg.sourceUrl }]
+      : [element];
+  });
+  for (const element of elements) {
     const url = (element as any).url;
     if (!url || typeof url !== 'string') {
       continue;

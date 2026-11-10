@@ -47,19 +47,69 @@ The system SHALL preserve actual returned dimensions and verified PNG/JPEG/WebP,
 - **WHEN** the provider returns an unsupported or invalid media payload
 - **THEN** the system SHALL report an actionable failure rather than mark a broken image as successfully generated
 
-### Requirement: Select GPT Image 2.6 Channel Output
-The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model IDs and expose automatic output, prompt GIF, parameter GIF, and official-group SVG modes without changing the selected provider, token group, or default image model. Client parameter availability SHALL NOT be presented as proof of provider acceptance for an untested model.
+### Requirement: Select GPT Image 2.6 Aspect Ratio and Resolution Independently
+The system SHALL expose separate aspect-ratio and resolution controls for `gpt-image-2.6`, Flare, and Sunburst static output, while preserving the existing `gpt-image-2.6-1k` contract. Ratios SHALL include auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, and 21:9; resolution SHALL offer auto, 1K, 2K, and 4K channel tiers without promising fixed returned pixels.
 
-#### Scenario: Prompt GIF for default or Codex groups
-- **WHEN** the user selects prompt GIF
-- **THEN** the submission prompt SHALL request a GIF exactly once without sending official-only format or frame fields
-- **AND** the existing `-1k` model SHALL retain support for this mode without implying support for official format parameters
+#### Scenario: Combine independent static choices
+- **WHEN** a user selects an aspect ratio and a resolution tier
+- **THEN** the client SHALL combine them into the existing native size field across compatible JSON, multipart, and basic requests
+- **AND** repeated normalization SHALL preserve that intent without forwarding internal resolution metadata as an unverified upstream field or confusing it with quality
+- **AND** saved input-bar and image-tool preferences SHALL retain both values
+
+#### Scenario: Automatic ratio at a fixed resolution
+- **WHEN** automatic ratio is selected with a fixed K tier
+- **THEN** existing prompt ratio detection SHALL select the last supported ratio in the prompt, defaulting to 1:1 when none is found
+- **AND** automatic ratio with automatic resolution SHALL preserve native auto size
+
+#### Scenario: Restore old selections without promoting unsupported quality
+- **WHEN** saved pixel-size choices are restored
+- **THEN** old square 2K or 4K choices SHALL restore to 1:1 and the corresponding tier
+- **AND** supported legacy ratios SHALL remain selectable
+- **AND** previously unsupported quality tier strings SHALL NOT automatically become new resolution choices
+
+#### Scenario: Isolate GIF, SVG, and the 1K alias
+- **WHEN** GIF or SVG is selected
+- **THEN** the resolution control SHALL be hidden, its metadata SHALL be omitted, and the previous media ratio choices SHALL remain available
+- **AND** parameter GIF SHALL use automatic pixel sizing with a transport-only ratio hint, while SVG SHALL retain its existing size mapping
+- **AND** returning to static output SHALL restore retained independent selections
+- **AND** the `-1k` model SHALL keep its previous size choices and SHALL NOT gain the new resolution control
+
+#### Scenario: A 4K tier returns 2880 square pixels
+- **WHEN** a 4K-tier request succeeds with a 2880×2880 image
+- **THEN** the result SHALL retain those actual dimensions without enlarging the original, rejecting the dimensions, or generating again
+
+### Requirement: Select GPT Image 2.6 Channel Output
+The system SHALL register the exact `gpt-image-2.6`, Flare, and Sunburst model IDs and expose automatic output, one GIF option, and SVG without changing the selected provider, token group, or default image model. Client parameter availability SHALL NOT be presented as proof of provider acceptance for an untested model.
+
+#### Scenario: Preserve the 1K GIF contract
+- **WHEN** the user selects GIF for the existing `-1k` model
+- **THEN** the request prompt SHALL append `生成 GIF 图` without sending unverified format or frame fields
+- **AND** the UI SHALL label this single option `GIF`
 
 #### Scenario: Parameter GIF generation
-- **WHEN** the user selects parameter GIF for `gpt-image-2.6`, Flare, or Sunburst
+- **WHEN** the user selects GIF for `gpt-image-2.6`, Flare, or Sunburst
 - **THEN** the generation request SHALL contain `output_format=gif` and optional positive-integer `frame_count`
+- **AND** the request prompt SHALL append `生成 GIF 图`
 - **AND** the UI SHALL explain that the default group can also use parameter GIF without switching token groups
-- **AND** the existing persisted `gif_official` mode value SHALL remain compatible
+- **AND** both persisted `gif` and `gif_official` mode values SHALL select the same GIF option and parameter request
+- **AND** reference-image and mask editing SHALL fail before submission because the parameter GIF integration confirms text generation only
+
+#### Scenario: Avoid oversized GIF sheets
+- **GIVEN** explicit static dimensions can exceed the channel's sheet limit when used for multiple GIF frames
+- **WHEN** a parameter GIF request uses a supported ratio or a saved legacy pixel choice
+- **THEN** the request SHALL send `size=auto` and express the selected ratio as `GIF 每帧画面比例：<ratio>` in the transport prompt
+- **AND** explicit `frame_count` SHALL remain unchanged, while an absent or empty value SHALL remain omitted
+- **AND** the client SHALL NOT infer a fixed frame count, invent a sheet layout, or automatically retry a failed generation
+- **AND** the UI SHALL explain that the GIF ratio is requested through the prompt and actual dimensions depend on the returned file
+- **AND** static output, SVG, and the `-1k` prompt-only GIF route SHALL retain their existing size behavior
+
+#### Scenario: Keep automatic prompt hints out of task display
+- **WHEN** transparent background or GIF output is selected and a task is created, batched, or retried
+- **THEN** stored task and workflow prompts SHALL preserve the user's original input
+- **AND** transparency, GIF, and GIF aspect-ratio hints SHALL be appended only during request construction for the applicable modes
+- **AND** repeated normalization or retries SHALL NOT duplicate existing hint lines or mutate the source task
+- **AND** user-written occurrences SHALL remain part of the original visible prompt
+- **AND** historical stored prompts SHALL NOT be destructively rewritten to guess which text was automatically added
 
 #### Scenario: Official SVG generation
 - **WHEN** the user selects official SVG for `gpt-image-2.6`, Flare, or Sunburst
@@ -98,6 +148,7 @@ For all registered GPT Image 2.6 IDs (`gpt-image-2.6`, `gpt-image-2.6-1k`, Flare
 #### Scenario: Transparent image output
 - **WHEN** a user selects transparent background
 - **THEN** JSON and multipart requests SHALL contain `background=transparent`
+- **AND** applicable raster and GIF request prompts SHALL append `透明图` without changing the stored user prompt
 - **AND** absent an explicit image format, the request SHALL select PNG
 - **AND** explicitly combining transparent background with JPEG SHALL fail before generation submission
 - **AND** WebP SHALL remain available as a transparent-capable requested format
@@ -141,3 +192,18 @@ For all registered GPT Image 2.6 IDs (`gpt-image-2.6`, `gpt-image-2.6-1k`, Flare
 - **THEN** the result SHALL report `IMAGE_OUTPUT_FORMAT_MISMATCH` without another generation submission
 - **AND** actual media bytes SHALL NOT be relabeled to satisfy the request
 - **AND** incompatible legacy resolution tiers, DALL-E style, response-format, and streaming-preview fields SHALL NOT be forwarded by the 2.6 non-streaming request path
+
+### Requirement: Keep GPT Image 2.6 Outputs in Task Columns
+When a registered GPT Image 2.6 task returns multiple images, the system SHALL preserve all outputs and place them in one task column, with identifiable GIFs above static source images. Adjacent tasks SHALL occupy separate columns without changing result-array order or cache associations.
+
+#### Scenario: Automatic insertion and manual insertion
+- **WHEN** one or more completed 2.6 tasks with multiple outputs are inserted automatically, retried, or inserted through a task list or batch selection
+- **THEN** each task's outputs SHALL remain in the same column and GIF positions SHALL precede static image positions
+- **AND** layout SHALL use each image's actual aspect ratio and avoid existing content as a complete group
+- **AND** loading failure or a board switch SHALL NOT commit a partial group or mark an unsuccessful insertion as completed
+
+#### Scenario: Reserve columns before completion
+- **WHEN** a new ordinary non-SVG 2.6 batch is submitted
+- **THEN** tasks SHALL reserve adjacent columns with room for an animation and a source image
+- **AND** reversed completion order SHALL preserve each task's reserved position
+- **AND** existing canvas images SHALL NOT be moved by the change
