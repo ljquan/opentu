@@ -132,6 +132,25 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
     expect(getTuziGPTImageRequestPath({ model: 'gpt-image-2.5', prompt: '生成 GIF 图', referenceImages: [png] })).toBe('/images/generations');
   });
 
+  it('does not interpret English words containing gif as animation intent', () => {
+    const request = { model, prompt: 'A gift box with a gifted painter', referenceImages: [png] };
+    expect(getTuziGPTImageRequestPath(request)).toBe('/images/generations');
+    expect(normalizeGPTImage26Request(request).params?.gpt_image_26_output).toBe('auto');
+    expect(getTuziGPTImageRequestPath({ ...request, prompt: 'Create an animated GIF.' })).toBe('/images/edits');
+  });
+
+  it('preserves explicit SVG reference restrictions when the prompt mentions GIF', () => {
+    const request = { model, prompt: 'Convert this GIF into SVG', referenceImages: [png],
+      params: { output_format: 'svg' },
+    };
+    expect(getTuziGPTImageRequestPath(request)).toBe('/images/generations');
+    expect(() => normalizeGPTImage26Request(request)).toThrow();
+    // The dedicated output selector takes precedence over a stale format field.
+    expect(getTuziGPTImageRequestPath({ ...request, params: {
+      output_format: 'svg', gpt_image_26_output: model === 'gpt-image-2.6-1k' ? 'gif' : 'gif_official',
+    } })).toBe('/images/edits');
+  });
+
   it('accepts explicit GIF output for an edit without a GIF keyword', async () => {
     const request = { model, prompt: 'Wave once',
       referenceImages: [png], size: '512x512', params: { output_format: 'gif' },

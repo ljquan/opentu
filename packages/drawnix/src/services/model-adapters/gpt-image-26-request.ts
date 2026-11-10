@@ -56,11 +56,11 @@ export function isGPTImage26GifEditRequest(
   modelId = request.model
 ): boolean {
   if (!isGPTImage26ModelId(modelId) || !request.referenceImages?.length) return false;
-  const output = request.params?.gpt_image_26_output;
+  const output = request.params?.gpt_image_26_output || request.params?.output_format;
   if (output === 'svg') return false;
   return output === 'gif' || output === 'gif_official' ||
     request.params?.output_format === 'gif' ||
-    /gif|动图|循环播放/i.test(request.prompt);
+    /\bgif\b|动图|循环播放/i.test(request.prompt);
 }
 
 export function normalizeGPTImage26Request(
@@ -97,7 +97,7 @@ export function normalizeGPTImage26Request(
     request.params?.maskImage || request.params?.mask_image ||
     request.generationMode === 'image_edit' || request.generationMode === 'image_to_image'
   )) {
-    throw new Error('参数 GIF / SVG 当前仅接入文字生图，请取消参考图和蒙版后生成');
+    throw new Error('SVG 当前仅接入文字生图，请取消参考图和蒙版后生成');
   }
   const frameValue = request.params?.frame_count;
   const frameCount = frameValue === undefined || (typeof frameValue === 'string' && !frameValue.trim())

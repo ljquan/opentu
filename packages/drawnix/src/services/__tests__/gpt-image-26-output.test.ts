@@ -200,9 +200,9 @@ describe.each(GPT_IMAGE_26_MODEL_IDS)('2.6 output contract: %s', (model) => {
     expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).not.toHaveProperty('response_format');
   });
 
-  it.each([gptImageAdapter, tuziGPTImageAdapter])('$id rejects unverified official format edits before requesting', async (adapter) => {
+  it.each([gptImageAdapter, tuziGPTImageAdapter])('$id rejects SVG reference edits before requesting', async (adapter) => {
     const fetcher = vi.fn<typeof fetch>();
-    for (const output of ['gif', 'gif_official', 'svg']) {
+    for (const output of ['svg']) {
       await expect(adapter.generateImage({ baseUrl: 'https://api.tu-zi.com/v1', fetcher }, {
         ...request, referenceImages: ['https://example.com/ref.png'], params: { gpt_image_26_output: output },
       })).rejects.toThrow('当前仅接入文字生图');
