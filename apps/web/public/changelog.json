@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.9",
+      "date": "2026-11-10",
+      "changes": {
+        "features": [],
+        "fixes": [],
+        "improvements": [
+          "修复 GPT Image 2.6 参考图生成 GIF 的编辑接口路由 (#332)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "构建修复与稳定性改进"
+    },
+    {
       "version": "1.2.8",
       "date": "2026-11-09",
       "changes": {
@@ -742,21 +755,6 @@
           "fix restrict API dev proxy to local hosts"
         ]
       },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
-    },
-    {
-      "version": "1.0.7",
-      "date": "2026-07-23",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "fix production provider API routing"
-        ]
-      },
-      "status": "withdrawn",
-      "withdrawalReason": "生产构建仍可能把供应商 API 地址改写到 PR 域名，已由 1.0.8 替代，禁止部署或回滚到此版本。",
       "type": "patch",
       "highlights": "构建修复与稳定性改进"
     }

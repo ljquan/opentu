@@ -1,8 +1,8 @@
 {
-  "version": "1.2.8",
-  "buildTime": "2026-11-09T08:42:35.525Z",
+  "version": "1.2.9",
+  "buildTime": "2026-11-10T10:22:59.439Z",
   "gitCommit": "unknown",
   "changelog": [
-    "完善 GPT Image 2.6 参数、GIF 排版与 SVG 编辑交互 (#331)"
+    "修复 GPT Image 2.6 参考图生成 GIF 的编辑接口路由 (#332)"
   ]
 }

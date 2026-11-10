@@ -1,3 +1,13 @@
+## 1.2.9 (2026-11-10)
+
+### 🔧 Chores
+
+- 修复 GPT Image 2.6 参考图生成 GIF 的编辑接口路由 (#332) ([5de1e4a5](https://github.com/ljquan/opentu/commit/5de1e4a5))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.2.8 (2026-11-09)
 
 ### 🔧 Chores
