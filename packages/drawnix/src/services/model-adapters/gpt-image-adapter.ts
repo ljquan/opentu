@@ -19,6 +19,7 @@ import { readProviderResponseJson, readProviderResponseText } from '../provider-
 import { registerModelAdapter } from './registry';
 import {
   getGPTImage26OutputFields,
+  isGPTImage26GifEditRequest,
   normalizeGPTImage26Request,
   validateGPTImage26Output,
 } from './gpt-image-26-request';
@@ -31,6 +32,7 @@ import type {
 } from './types';
 
 const GPT_IMAGE_OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
+const GPT_IMAGE_GIF_OUTPUT_FORMATS = new Set([...GPT_IMAGE_OUTPUT_FORMATS, 'gif']);
 const GPT_IMAGE_BACKGROUND_VALUES = new Set(['transparent', 'opaque', 'auto']);
 const GPT_IMAGE_MODERATION_VALUES = new Set(['low', 'auto']);
 const GPT_IMAGE_INPUT_FIDELITY_VALUES = new Set(['high', 'low']);
@@ -186,7 +188,9 @@ function applyCommonGPTImageOptions(
     body,
     'output_format',
     outputFormat,
-    GPT_IMAGE_OUTPUT_FORMATS
+    mode === 'edit' && isGPTImage26GifEditRequest(request)
+      ? GPT_IMAGE_GIF_OUTPUT_FORMATS
+      : GPT_IMAGE_OUTPUT_FORMATS
   );
   setAllowedStringValue(
     body,
@@ -333,6 +337,7 @@ export async function buildGPTImageEditFormData(
     GPT_IMAGE_INPUT_FIDELITY_VALUES
   );
   applyCommonGPTImageOptions(fields, request, 'edit');
+  Object.assign(fields, getGPTImage26OutputFields(request));
 
   const formData = new FormData();
   for (const [key, value] of Object.entries(fields)) {
@@ -369,6 +374,9 @@ function isGPTImageEditRequest(
     request.maskImage;
   if (!hasReferenceImages) {
     return false;
+  }
+  if (isGPTImage26GifEditRequest(request)) {
+    return true;
   }
   if (requestSchema === 'openai.image.gpt-edit-form') {
     return true;

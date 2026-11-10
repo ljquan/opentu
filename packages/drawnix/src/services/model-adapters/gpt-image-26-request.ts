@@ -51,18 +51,32 @@ function allowedString(value: unknown, allowed: readonly string[]): string | und
     : undefined;
 }
 
-/** Preserve explicit output intent while discarding stale options from other models. */
+export function isGPTImage26GifEditRequest(
+  request: ImageGenerationRequest,
+  modelId = request.model
+): boolean {
+  if (!isGPTImage26ModelId(modelId) || !request.referenceImages?.length) return false;
+  const output = request.params?.gpt_image_26_output;
+  if (output === 'svg') return false;
+  return output === 'gif' || output === 'gif_official' ||
+    request.params?.output_format === 'gif' ||
+    /gif|动图|循环播放/i.test(request.prompt);
+}
+
 export function normalizeGPTImage26Request(
   request: ImageGenerationRequest,
   modelId = request.model
 ): ImageGenerationRequest {
+  const gifEdit = isGPTImage26GifEditRequest(request, modelId);
   if (!modelId || !isGPTImage26ModelId(modelId)) return request;
 
   const requestedSize = typeof request.params?.size === 'string' && request.params.size.trim()
     ? request.params.size
     : request.size;
   const resolvedSize = resolveGPTImage26Size(requestedSize, modelId, request.params, request.prompt);
-  const requestedOutput = request.params?.gpt_image_26_output || (
+  const requestedOutput = gifEdit
+    ? modelId.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID ? 'gif' : 'gif_official'
+    : request.params?.gpt_image_26_output || (
     request.params?.output_format === 'gif' ? 'gif_official' :
     request.params?.output_format === 'svg' ? 'svg' : 'auto'
   );
@@ -78,7 +92,7 @@ export function normalizeGPTImage26Request(
   if (usesFormatParameter && modelId.trim().toLowerCase() === GPT_IMAGE_26_1K_MODEL_ID) {
     throw new Error('当前 2.6-1k 仅接入提示词 GIF，请使用其他 2.6 型号请求参数 GIF；SVG 还需官方 / 官方优惠分组');
   }
-  if (usesFormatParameter && (
+  if (output === 'svg' && (
     request.referenceImages?.length || request.maskImage ||
     request.params?.maskImage || request.params?.mask_image ||
     request.generationMode === 'image_edit' || request.generationMode === 'image_to_image'
@@ -174,6 +188,7 @@ export function normalizeGPTImage26Request(
       ...(user ? { user } : {}),
       ...(inputFidelity ? { input_fidelity: inputFidelity } : {}),
       ...(usesFormatParameter ? { output_format: output === 'svg' ? 'svg' : 'gif' } : {}),
+      ...(gifEdit && output === 'gif' ? { output_format: 'gif' } : {}),
       ...(output === 'gif_official' && frameCount !== undefined ? { frame_count: frameCount } : {}),
       ...(output === 'svg' ? {
         svg: { model: typeof svgModel === 'string' && svgModel.trim() ? svgModel.trim() : 'gpt-5.5' },

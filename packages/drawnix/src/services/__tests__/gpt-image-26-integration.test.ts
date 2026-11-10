@@ -16,6 +16,7 @@ import {
 import {
   buildTuziGPTImageRequestBody,
   buildTuziGPTImageEditFormData,
+  getTuziGPTImageRequestPath,
   tuziGPTImageAdapter,
 } from '../model-adapters/tuzi-gpt-image-adapter';
 import {
@@ -28,6 +29,7 @@ import { normalizeGPTImage26Request } from '../model-adapters/gpt-image-26-reque
 
 const model = 'gpt-image-2.6-1k';
 const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
 const svg = btoa(
   '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><circle r="10"/></svg>'
 );
@@ -80,6 +82,64 @@ describe.each(['gpt-image-2.6', 'gpt-image-2.6-1k', 'gpt-image-2.6-flare', 'gpt-
         model
       ).modelRef
     ).toEqual({ profileId: 'selected-provider', modelId: model });
+  });
+
+  it('sends reference-guided GIF requests to multipart edits', async () => {
+    const modelId = model;
+    for (const adapter of [gptImageAdapter, tuziGPTImageAdapter]) {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+        JSON.stringify({ data: [{ b64_json: gif, width: 437, height: 389 }] }),
+        { status: 200 }
+      ));
+      const result = await adapter.generateImage({
+        baseUrl: 'https://api.tu-zi.com/v1', fetcher,
+      }, {
+        model: modelId,
+        prompt: '让主体挥手，背景不变',
+        referenceImages: [png],
+        size: 'auto',
+        outputFormat: 'jpeg',
+        outputCompression: 40,
+        params: {
+          gpt_image_26_output: modelId === 'gpt-image-2.6-1k' ? 'gif' : 'gif_official',
+          output_format: 'png',
+          response_format: 'url',
+          frame_count: 5,
+        },
+      });
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0][0]).toContain('/images/edits');
+      const form = fetcher.mock.calls[0][1]?.body as FormData;
+      expect(form).toBeInstanceOf(FormData);
+      expect(form.get('model')).toBe(modelId);
+      expect(form.get('output_format')).toBe('gif');
+      expect(form.get('response_format')).toBe(modelId === 'gpt-image-2.6-1k' ? 'b64_json' : null);
+      expect(form.get('image[]')).toBeInstanceOf(Blob);
+      expect(form.has('mask')).toBe(false);
+      expect(form.has('output_compression')).toBe(false);
+      expect(form.get('frame_count')).toBe(modelId === 'gpt-image-2.6-1k' ? null : '5');
+      expect(result).toMatchObject({ format: 'gif', width: 437, height: 389 });
+    }
+  });
+
+  it('keeps ordinary Tuzi reference edits on the existing JSON route', () => {
+    const request = { model, prompt: '调整颜色', referenceImages: [png] };
+    expect(getTuziGPTImageRequestPath(request)).toBe('/images/generations');
+    expect(buildTuziGPTImageRequestBody(request).image).toEqual([png]);
+    expect(normalizeGPTImage26Request(request).params?.output_format).toBeUndefined();
+    expect(getTuziGPTImageRequestPath({ model, prompt: '生成 GIF 图' })).toBe('/images/generations');
+    expect(getTuziGPTImageRequestPath({ model, prompt: '循环播放', referenceImages: [png] })).toBe('/images/edits');
+    expect(getTuziGPTImageRequestPath({ model: 'gpt-image-2.5', prompt: '生成 GIF 图', referenceImages: [png] })).toBe('/images/generations');
+  });
+
+  it('accepts explicit GIF output for an edit without a GIF keyword', async () => {
+    const request = { model, prompt: 'Wave once',
+      referenceImages: [png], size: '512x512', params: { output_format: 'gif' },
+    };
+    const form = await buildGPTImageEditFormData(request);
+    expect(form.get('output_format')).toBe('gif');
+    expect(form.get('size')).toBe('auto');
+    expect((await buildTuziGPTImageEditFormData(request)).get('size')).toBe('auto');
   });
   it('registers the channel model without changing the default', () => {
     expect(getStaticModelConfig(model)).toMatchObject({
