@@ -168,6 +168,8 @@ export async function executeImageViaAdapter(
       adapter.id === 'tuzi-gpt-image-adapter'
         ? getTuziGPTImageRequestPath({
             prompt: params.prompt,
+            model: requestModel,
+            referenceImages: params.referenceImages,
             maskImage: params.maskImage,
             params: params.params,
           })
