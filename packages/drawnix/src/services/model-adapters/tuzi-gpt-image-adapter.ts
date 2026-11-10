@@ -25,6 +25,7 @@ import {
 import { registerModelAdapter } from './registry';
 import {
   getGPTImage26OutputFields,
+  isGPTImage26GifEditRequest,
   normalizeGPTImage26Request,
   validateGPTImage26Output,
 } from './gpt-image-26-request';
@@ -119,7 +120,7 @@ export function buildTuziGPTImageRequestOptions(
   imageSize?: string;
   resolution?: string;
   background?: ImageGenerationRequest['background'];
-  output_format?: 'png' | 'jpeg' | 'webp';
+  output_format?: 'png' | 'jpeg' | 'webp' | 'gif';
   output_compression?: number;
   moderation?: 'auto' | 'low';
   user?: string;
@@ -147,6 +148,7 @@ export function buildTuziGPTImageRequestOptions(
     request.params,
     'output_format'
   );
+  const gifEdit = isGPTImage26GifEditRequest(request, model);
   const outputCompression = getNumberFieldOrParam(
     request.outputCompression,
     request.params,
@@ -185,8 +187,9 @@ export function buildTuziGPTImageRequestOptions(
         ? background
         : undefined,
     output_format:
-      outputFormat && TUZI_IMAGE_OUTPUT_FORMATS.has(outputFormat)
-        ? (outputFormat as 'png' | 'jpeg' | 'webp')
+      outputFormat && (TUZI_IMAGE_OUTPUT_FORMATS.has(outputFormat) ||
+        (gifEdit && outputFormat === 'gif'))
+        ? (outputFormat as 'png' | 'jpeg' | 'webp' | 'gif')
         : undefined,
     output_compression:
       outputCompression !== undefined &&
@@ -287,7 +290,7 @@ export async function buildTuziGPTImageEditFormData(
   if (referenceImages.length === 0) {
     throw new Error('Tuzi GPT Image 编辑请求缺少参考图片');
   }
-  if (!maskImage) {
+  if (!maskImage && !isGPTImage26GifEditRequest(request, bindingModelId || request.model)) {
     throw new Error('Tuzi GPT Image 编辑请求缺少蒙版');
   }
 
@@ -322,22 +325,27 @@ export async function buildTuziGPTImageEditFormData(
     );
     formData.append('image[]', blob, filename);
   }
-  const { blob, filename } = await imageInputToBlob(
-    maskImage,
-    'mask',
-    fetcher,
-    signal
-  );
-  formData.append('mask', blob, filename);
+  if (maskImage) {
+    const { blob, filename } = await imageInputToBlob(
+      maskImage,
+      'mask',
+      fetcher,
+      signal
+    );
+    formData.append('mask', blob, filename);
+  }
   signal?.throwIfAborted();
   return formData;
 }
 
 
 export function getTuziGPTImageRequestPath(
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest,
+  modelId = request.model
 ): string {
-  return getTuziMaskImage(request) ? '/images/edits' : '/images/generations';
+  return getTuziMaskImage(request) || isGPTImage26GifEditRequest(request, modelId)
+    ? '/images/edits'
+    : '/images/generations';
 }
 
 export const tuziGPTImageAdapter: ImageModelAdapter = {
@@ -353,7 +361,7 @@ export const tuziGPTImageAdapter: ImageModelAdapter = {
   async generateImage(context, request) {
     const requestModel =
       context.binding?.modelId || request.modelRef?.modelId || request.model;
-    const path = getTuziGPTImageRequestPath(request);
+    const path = getTuziGPTImageRequestPath(request, requestModel);
     const isEditRequest = path === '/images/edits';
     const sendRequest = async (modelId?: string | null) => {
       const body = isEditRequest
