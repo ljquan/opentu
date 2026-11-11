@@ -1,3 +1,13 @@
+## 1.2.10 (2026-11-11)
+
+### 🚀 Features
+
+- refine download confirmation and move X link to feedback (#333) ([63fa5343](https://github.com/ljquan/opentu/commit/63fa5343))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.9 (2026-11-10)
 
 ### 🔧 Chores
