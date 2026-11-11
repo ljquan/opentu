@@ -11,10 +11,12 @@ export type Language = 'zh' | 'en';
 
 // Define translation keys and their corresponding values
 export interface Translations {
-  'resources.title': string;
-  'resources.close': string;
   'resources.download': string;
-  'resources.downloadDescription': string;
+  'resources.downloadIncluded': string;
+  'resources.downloadConfirmation': string;
+  'resources.confirmDownload': string;
+  'resources.cancel': string;
+  'resources.community': string;
   'resources.follow': string;
   'resources.followDescription': string;
   // Toolbar items
@@ -210,10 +212,12 @@ export interface Translations {
 // Translation data
 const translations: Record<Language, Translations> = {
   zh: {
-    'resources.title': 'OpenTu 资源',
-    'resources.close': '关闭 OpenTu 资源',
     'resources.download': '下载兔子助手',
-    'resources.downloadDescription': '已集成 OpenTu 桌面版',
+    'resources.downloadIncluded': '内置 OpenTu，让创作延续到桌面',
+    'resources.downloadConfirmation': '即将前往官方下载页，选择适合你系统的版本。',
+    'resources.confirmDownload': '确认下载',
+    'resources.cancel': '取消',
+    'resources.community': '用户反馈与动态',
     'resources.follow': '关注 @shuidiyuAI',
     'resources.followDescription': '查看 OpenTu 更新和发布动态',
     // Toolbar items
@@ -406,10 +410,12 @@ const translations: Record<Language, Translations> = {
     'toolbar.resumeSpeech': '继续朗读',
   },
   en: {
-    'resources.title': 'OpenTu Resources',
-    'resources.close': 'Close OpenTu Resources',
     'resources.download': 'Download Tuzi Assistant',
-    'resources.downloadDescription': 'Includes OpenTu desktop',
+    'resources.downloadIncluded': 'OpenTu built in. Bring your creativity to desktop.',
+    'resources.downloadConfirmation': 'Continue to the official download page to choose the version for your system.',
+    'resources.confirmDownload': 'Confirm download',
+    'resources.cancel': 'Cancel',
+    'resources.community': 'Feedback and updates',
     'resources.follow': 'Follow @shuidiyuAI',
     'resources.followDescription': 'OpenTu updates and release news',
     // Toolbar items

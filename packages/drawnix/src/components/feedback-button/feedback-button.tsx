@@ -1,11 +1,12 @@
 /**
  * FeedbackButton Component
  *
- * A circular feedback button positioned at the bottom-right of the canvas.
- * Shows a QR code image on click for user feedback.
+ * Shows the feedback community QR code and OpenTu X profile in one popover.
  */
 
 import React, { useEffect, useState } from 'react';
+import { ArrowUpRight } from 'lucide-react';
+import { useI18n } from '../../i18n';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover/popover';
 import { useBoard } from '@plait-board/react-board';
 import { PlaitBoard } from '@plait/core';
@@ -15,10 +16,10 @@ import { ToolButton } from '../tool-button';
 import './feedback-button.scss';
 
 const QR_CODE_URL = 'https://tuziai.oss-cn-shenzhen.aliyuncs.com/aitu/AiTu.png';
-const SERVICE_QR_CODE_URL = 'https://tuziai.oss-cn-shenzhen.aliyuncs.com/linkme.png';
 
 export const FeedbackButton: React.FC = () => {
   const board = useBoard();
+  const { t } = useI18n();
   const container = PlaitBoard.getBoardContainer(board);
   const [open, setOpen] = useState(false);
 
@@ -26,8 +27,6 @@ export const FeedbackButton: React.FC = () => {
   useEffect(() => {
     const img1 = new Image();
     img1.src = QR_CODE_URL;
-    const img2 = new Image();
-    img2.src = SERVICE_QR_CODE_URL;
   }, []);
 
   return (
@@ -36,11 +35,12 @@ export const FeedbackButton: React.FC = () => {
         <ToolButton
           type="icon"
           icon={<WeComIcon />}
-          aria-label="用户反馈群"
-          tooltip="用户反馈群"
+          aria-label={t('resources.community')}
+          tooltip={t('resources.community')}
           tooltipPlacement="right"
           selected={open}
           visible={true}
+          data-testid="toolbar-feedback"
           data-track="toolbar_click_feedback"
           onPointerDown={(e) => {
             e.event.stopPropagation();
@@ -59,15 +59,21 @@ export const FeedbackButton: React.FC = () => {
               />
               <div className="feedback-qrcode-text">用户反馈群</div>
             </div>
-            {/* <div className="feedback-qrcode-item">
-              <img
-                src={SERVICE_QR_CODE_URL}
-                alt="客服二维码"
-                className="feedback-qrcode-image"
-              />
-              <div className="feedback-qrcode-text">客服</div>
-            </div> */}
           </div>
+          <a
+            className="feedback-social-link"
+            href="https://x.com/shuidiyuAI"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-track="toolbar_click_follow_x"
+          >
+            <span className="feedback-social-link__icon" aria-hidden="true">X</span>
+            <span className="feedback-social-link__text">
+              <strong>{t('resources.follow')}</strong>
+              <span>{t('resources.followDescription')}</span>
+            </span>
+            <ArrowUpRight size={17} aria-hidden="true" />
+          </a>
         </div>
       </PopoverContent>
     </Popover>
