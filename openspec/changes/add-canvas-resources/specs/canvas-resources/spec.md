@@ -1,33 +1,31 @@
 ## ADDED Requirements
 
-### Requirement: Canvas resources entry
-The canvas SHALL provide an OpenTu resources button above the feedback entry and in the collapsed mobile toolbar. The panel SHALL contain the Tuzi Assistant download URL and X profile URL, opened in a new tab with noopener and noreferrer. The download entry SHALL explain that Tuzi Assistant includes the OpenTu desktop app.
+### Requirement: Canvas download entry
+The canvas SHALL provide a download button above the feedback entry and in the collapsed mobile toolbar. Selecting it SHALL open a confirmation dialog explaining that Tuzi Assistant includes OpenTu desktop and that confirmation opens the official download page. The dialog SHALL provide confirm and cancel actions in the selected language.
 
-#### Scenario: Open resources
-- **WHEN** the user selects the resources button
-- **THEN** an anchored panel displays links to https://tuziapi.github.io/tuzi-switch/#td-r0-downloads and https://x.com/shuidiyuAI
-- **AND** the panel fits the viewport and can be explicitly closed
+#### Scenario: Confirm download
+- **WHEN** the user selects the download button and confirms
+- **THEN** https://tuziapi.github.io/tuzi-switch/#td-r0-downloads opens in a new tab with noopener and noreferrer
+- **AND** the dialog closes
 
-### Requirement: First-use announcement
-The canvas SHALL automatically show the panel on first opening the release containing this announcement. It SHALL record this fixed announcement as shown immediately and SHALL avoid automatically opening it on subsequent launches or future releases. Manual reopening SHALL remain available.
+#### Scenario: Cancel download
+- **WHEN** the user cancels or dismisses the download dialog
+- **THEN** the dialog closes without opening the download page
 
-#### Scenario: Update without acknowledgement
-- **WHEN** a user opens the updated canvas without an acknowledgement for this announcement
-- **THEN** the resources panel opens automatically
-- **AND** the announcement is recorded immediately, while outside clicks and resource navigation do not close it
+### Requirement: Community and updates
+The existing feedback popover SHALL display the feedback QR code and the OpenTu X profile link together, without a Tuzi Assistant download card. It SHALL fit the viewport.
 
-#### Scenario: Reload before closing
-- **WHEN** the user reloads after the first automatic display without explicitly closing it
-- **THEN** the panel does not open automatically again
+#### Scenario: Open community
+- **WHEN** the user selects the feedback button
+- **THEN** the community QR code and a link to https://x.com/shuidiyuAI appear together
+- **AND** the profile link opens in a new tab with noopener and noreferrer
 
-#### Scenario: Acknowledgement and reopening
-- **WHEN** the user closes the resources panel explicitly
-- **THEN** the panel closes
-- **AND** the panel does not automatically open on reload but remains accessible from the toolbar
+### Requirement: Manual entry only
+The canvas SHALL NOT automatically open a resources panel or download dialog, regardless of previous announcement acknowledgement state.
 
-#### Scenario: Unavailable local storage
-- **WHEN** browser local storage is unavailable
-- **THEN** the canvas remains usable and acknowledgement is retained for the current page session
+#### Scenario: First visit or reload
+- **WHEN** the user opens or reloads the canvas with or without the old acknowledgement key
+- **THEN** both the download dialog and feedback popover remain closed until selected
 
 ### Requirement: API Key support QR codes
 The missing API Key dialog SHALL display the supplied original community and support QR images at their original aspect ratios. The dialog SHALL retain its credential persistence and cancellation behavior and fit narrow or short viewports with vertical scrolling when necessary.
