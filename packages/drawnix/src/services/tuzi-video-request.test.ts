@@ -27,7 +27,7 @@ describe('Tuzi video model contracts', () => {
         params
           .find((param) => param.id === 'duration')
           ?.options?.map((option) => option.value)
-      ).toEqual(config.durationOptions.map((option) => option.value));
+      ).toEqual([...config.durationOptions.map((option) => option.value), ...(id === 'wan3.0-video' ? ['-1'] : [])]);
       expect(
         params
           .find((param) => param.id === 'size')
@@ -259,7 +259,7 @@ describe('Tuzi video model contracts', () => {
   });
 
   it('keeps local PNG references and omits unset Kling watermark options', async () => {
-    const resolveImage = vi.fn(async () => 'data:image/png;base64,AQID');
+    const resolveImage = vi.fn(async () => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC');
     const body = await buildTuziVideoRequest(
       {
         model: 'kling-4.0',
@@ -270,7 +270,7 @@ describe('Tuzi video model contracts', () => {
     );
     expect(body?.contents).toEqual([
       { type: 'prompt', text: 'animate' },
-      { type: 'refer_image', url: 'data:image/png;base64,AQID', id: 'image_1' },
+      { type: 'refer_image', url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC', id: 'image_1' },
     ]);
     expect(body).not.toHaveProperty('options');
     expect(resolveImage).toHaveBeenCalledWith('blob:local');
@@ -296,12 +296,12 @@ describe('Tuzi video model contracts', () => {
     const fetchImpl = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input) === 'blob:local-image')
-          return new Response(new Uint8Array([1, 2, 3]), {
+          return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'), (char) => char.charCodeAt(0)), {
             headers: { 'Content-Type': 'image/png' },
           });
         expect(JSON.parse(String(init?.body))).toHaveProperty(
           'first_frame',
-          'data:image/png;base64,AQID'
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
         );
         return new Response(JSON.stringify({ id: 'task', status: 'queued' }));
       }
@@ -394,7 +394,7 @@ describe('Tuzi video model contracts', () => {
       ),
     },
     { model: 'kling-4.0', referenceImages: ['data:image/webp;base64,AQID'] },
-    { model: 'gemini-omni-1.2-flash', referenceImages: ['blob:local-image'] },
+    { model: 'gemini-omni-1.2-flash', params: { video_task: 'extend' } },
   ])('rejects invalid generation input before sending: %j', async (request) => {
     const fetchImpl = vi.fn();
     await expect(

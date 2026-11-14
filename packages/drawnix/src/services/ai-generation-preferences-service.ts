@@ -1,4 +1,4 @@
-import { normalizeKling4VideoParams } from '../constants/tuzi-video-models';
+import { normalizeTuziVideoParams, getTuziVideoModelConfig } from '../constants/tuzi-video-models';
 import { isSunoNativeModel } from './suno-native';
 import { getSunoNativeParams } from './suno-native-params';
 import {
@@ -218,7 +218,7 @@ function sanitizeSelectedParams(
   const persistedParams = normalizeGPTImage26RasterParams(modelId,
     normalizeGPTImage25ResolutionParams(
       modelId,
-      migrateLegacyGPTImageQualityParam(compatibleParams, normalizeKling4VideoParams(modelId, asRecord(rawParams)))
+      migrateLegacyGPTImageQualityParam(compatibleParams, normalizeTuziVideoParams(modelId, asRecord(rawParams)))
     )
   );
   const nextParams: PersistedParams = {};
@@ -336,7 +336,7 @@ function sanitizeVideoToolParams(
   rawParams: unknown,
   selectionKey?: string | null
 ): PersistedParams {
-  const persistedParams = normalizeKling4VideoParams(modelId, asRecord(rawParams));
+  const persistedParams = normalizeTuziVideoParams(modelId, asRecord(rawParams));
   if (isSeedance2ModelId(modelId) && persistedParams.size?.includes('@')) {
     const [resolution, ratio] = persistedParams.size.split('@');
     persistedParams.size = resolution;
@@ -412,7 +412,7 @@ function loadAIInputVideoParams(
     return asRecord(scopedParams);
   }
 
-  if (stored.generationType === 'video' && stored.selectedModel === modelId) {
+  if (stored.generationType === 'video' && stored.selectedModel === modelId && (!getTuziVideoModelConfig(modelId) || !selectionKey)) {
     return asRecord(stored.selectedParams);
   }
 
@@ -430,7 +430,7 @@ function saveAIInputVideoParams(
     ) || {};
   const preferenceKey = getModelPreferenceKey(modelId, selectionKey);
   const currentParams =
-    stored.generationType === 'video' && stored.selectedModel === modelId
+    stored.generationType === 'video' && stored.selectedModel === modelId && (!getTuziVideoModelConfig(modelId) || !selectionKey)
       ? asRecord(stored.selectedParams)
       : {};
   const scopedParams = asRecord(
@@ -795,6 +795,7 @@ export function saveAIVideoToolPreferences(
     {
       ...stored,
       ...preferences,
+      currentSelectionKey: preferences.currentSelectionKey || null,
       ...splitParams,
       scopedPreferences: {
         ...(stored.scopedPreferences || {}),
@@ -826,7 +827,14 @@ export function loadScopedAIInputModelParams(
   const preferenceKey = getModelPreferenceKey(modelId, selectionKey);
   const scopedParams =
     stored.scopedPreferences?.[generationType]?.[preferenceKey];
-  return normalizeKling4VideoParams(modelId, asRecord(scopedParams ?? fallbackParams));
+  const params = asRecord(scopedParams ?? fallbackParams);
+  if (!scopedParams && getTuziVideoModelConfig(modelId)) {
+    // References and continuation identities belong to the original model/profile.
+    delete params.video_media;
+    delete params.previous_interaction_id;
+    if (params.video_task === 'edit' || params.video_task === 'extend') delete params.video_task;
+  }
+  return normalizeTuziVideoParams(modelId, params);
 }
 
 export function saveScopedAIInputModelParams(
@@ -896,13 +904,15 @@ export function loadScopedAIVideoToolPreferences(
   const scoped = stored.scopedPreferences?.[preferenceKey];
   const normalizedModel = normalizeVideoModel(modelId);
   const inputParams = loadAIInputVideoParams(normalizedModel, selectionKey);
+  const canUseUnscoped = !getTuziVideoModelConfig(normalizedModel) ||
+    (stored.currentModel === normalizedModel && getModelPreferenceKey(normalizedModel, stored.currentSelectionKey) === preferenceKey);
   const selectedParams = sanitizeVideoToolParams(
     normalizedModel,
     inputParams ??
       mergeVideoToolParams(
-        scoped?.extraParams ?? stored.extraParams,
-        scoped?.duration ?? stored.duration,
-        scoped?.size ?? stored.size
+        scoped?.extraParams ?? (canUseUnscoped ? stored.extraParams : undefined),
+        scoped?.duration ?? (canUseUnscoped ? stored.duration : undefined),
+        scoped?.size ?? (canUseUnscoped ? stored.size : undefined)
       ),
     selectionKey
   );

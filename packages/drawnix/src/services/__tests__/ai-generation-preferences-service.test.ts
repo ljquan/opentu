@@ -15,6 +15,21 @@ vi.hoisted(() => {
 });
 
 describe('ai-generation-preferences-service', () => {
+  it('restores advanced video fields per model and provider without embedding media bytes', async () => {
+    const service = await import('../ai-generation-preferences-service');
+    const media = JSON.stringify([{ type: 'reference_videos', url: 'https://media.example.test/a.mp4' }]);
+    service.saveAIVideoToolPreferences({ currentModel: 'wan3.0-video', currentSelectionKey: 'p-a::wan3.0-video', duration: '-1', size: '480P',
+      extraParams: { video_media: media, audio: 'false', prompt_extend: 'true', seed: '0', reference_mode: 'mixed' } });
+    expect(service.loadScopedAIVideoToolPreferences('wan3.0-video', 'p-a::wan3.0-video')).toMatchObject({ duration: '-1', size: '480P',
+      extraParams: { video_media: media, audio: 'false', prompt_extend: 'true', seed: '0', reference_mode: 'mixed' } });
+    expect(service.loadScopedAIVideoToolPreferences('kling-4.0', 'p-b::kling-4.0').extraParams).not.toHaveProperty('video_media');
+    expect(service.loadScopedAIInputModelParams('video', 'kling-4.0', 'p-b::kling-4.0', { video_media: media })).not.toHaveProperty('video_media');
+    expect(service.loadScopedAIVideoToolPreferences('wan3.0-video', 'p-b::wan3.0-video').extraParams).not.toHaveProperty('video_media');
+    service.saveAIVideoToolPreferences({ currentModel: 'gemini-omni-1.2-flash', duration: '10', size: '1080x1920',
+      extraParams: { video_task: 'extend', previous_interaction_id: 'task_previous' } });
+    expect(service.loadAIVideoToolPreferences('gemini-omni-1.2-flash')).toMatchObject({ size: '1080p', extraParams: { ratio: '9:16', video_task: 'extend', previous_interaction_id: 'task_previous' } });
+  });
+
   it.each([
     ['1680x720', '720p', '21:9'],
     ['1080x1920', '1080p', '9:16'],

@@ -1,3 +1,4 @@
+import { allowsTuziVideoWithoutPrompt, getTuziVideoModelConfig, normalizeTuziVideoParams } from '../constants/tuzi-video-models';
 /**
  * AI 输入解析工具
  *
@@ -368,7 +369,7 @@ export function parseAIInput(
   } else if (hasSelectedElements && imageCount > 0) {
     // 只有图片，生成默认提示词
     prompt =
-      generationType === 'text'
+      (generationType === 'text' || (generationType === 'video' && allowsTuziVideoWithoutPrompt(modelId, options?.params, new Array(imageCount))))
         ? ''
         : generateDefaultPrompt(hasSelectedElements, [], imageCount);
   } else {
@@ -489,6 +490,15 @@ export function parseAIInput(
       options?.params
     );
     duration = defaults.duration;
+  }
+
+  if (generationType === 'video') {
+    const config = getTuziVideoModelConfig(modelId);
+    if (config) {
+      const normalized = normalizeTuziVideoParams<Record<string, unknown>>(modelId, { ...extraParams, size });
+      size = config.sizeOptions.find((option) => option.value.toLowerCase() === String(normalized.size).toLowerCase())?.value || size;
+      if (normalized.ratio) extraParams = { ...extraParams, ratio: String(normalized.ratio) };
+    }
   }
 
   // 用户指令（去除模型/参数/数量后的纯文本）

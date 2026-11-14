@@ -165,3 +165,181 @@ drawnix TypeScript、Web 类型检查、应用和 Service Worker 构建通过；
 
 
 本轮本地提交范围：Kling 尺寸/比例独立选择、旧组合参数恢复、六个视频模型短代码及名称回退、对应测试和文档。仅本地提交，远程 PR 未更新；NEW 标签的缺失已定位，本轮未增加该标签。
+
+## 全部高级参数与素材输入补齐（2026-11-14，提案确认后）
+
+本节为最新本地实施结果；前文的“本轮提交/推送”与真实测试记录分别属于当时的历史批次。本轮基线为 `f8ff9cd6`，工作分支为 `codex/adapt-tuzi-video-model-parameters`。用户确认 OpenSpec 提案后实施，范围为 OpenTu 客户端；没有修改 Tuzi 后端或渠道配置。
+
+### 环境与前置条件
+
+macOS，Node.js v26.8.1、pnpm 10.21.0，使用已安装依赖。构建/测试命令通过占位的 `NPM_TOKEN=dummy` 满足本地 npmrc 变量解析，不使用真实包服务令牌。单元与组件测试使用模拟的素材地址、内存请求与缓存替身；未读取 Tuzi 密钥文件，未调用真实生成或上传接口。
+
+### 实际验证
+
+| 范围 | 预期 | 结果 |
+| --- | --- | --- |
+| Gemini 图片/视频多模态 | 本地/缓存输入转原始 Base64，保留 MIME；公网输入使用 URI；不混发 prompt/input_reference | 通过主线程和共享路径的实际请求正文断言 |
+| Gemini 输出与续接 | 尺寸/比例独立选择、旧像素尺寸恢复；编辑/延展携带本站 task_ ID，延展不超过 10 秒 | 组件、MCP、请求模拟通过；不代表 1.2 服务已开放 |
+| Gemini 数量及错误 | 10 个媒体可构造，第 11 个、错误 MIME、uri/data 同时填写、非法前序 ID 等拒绝 | 通过；非法请求不发送生成 POST |
+| Wan 全部扩展字段 | 保留混合图/视频/音频、音轨、改写、seed、file/link、时长 -1，保留 false 和 0 | 工作流/MCP/绑定/任务清洗及共享请求断言通过 |
+| Wan 互斥与边界 | 首尾帧完整、两种模式不混用，10 图/5 视频/5 音频边界、file/link 互斥、改写依赖、已知时长预算 | 通过；URL 专属媒体拒绝 blob、缓存和鉴权 content 地址 |
+| Kling 全部素材角色 | 首/中/尾帧、参考图、两种视频、已有主体/音色 ID，唯一素材 ID，输出参数保持原生合同 | 通过；自动 ID 与手工 ID 均进入 contents |
+| Kling 数量与时长 | 10 图/5 视频/7 主体/3 音色及 15 总素材限制，base_video 最多 1，已知输入视频时长合计不超 30 秒 | 上限成功及超限失败通过；未知媒体属性由渠道验证 |
+| HappyHorse I2V | 无文本且有图片时，输入解析、工作流、MCP async/queue、通用任务校验及请求层全部允许 | 通过；T2V 仍要求提示词 |
+| HappyHorse 本地图像 | PNG/JPEG/WebP 格式与大小检查；I2V 300 像素和比例限制；R2V 短边 400 | 用真实 PNG 边界样本验证 299/300、399/400 及非法比例；通用图片头解析未做完整图片解码验收 |
+| 素材表单与偏好 | 可增删角色、地址、ID、本地文件；草稿只保存缓存引用；切换型号/供应商不继承其他素材和前序身份 | 组件和偏好测试通过；缓存失败保留输入并显示错误 |
+| 服务失败 | 保留提供方错误，不自动换型号、静默删参或重复创建生成 | 通过拒绝请求的一次提交模拟 |
+| 旧功能回归 | 既有参数控件、Kling 组合尺寸、工作流、普通视频提交/轮询等 | 见下方联合回归和基线说明 |
+
+最终联合回归命令（11 文件）：
+
+```bash
+NPM_TOKEN=dummy pnpm exec vitest run --config packages/drawnix/vite.config.ts \
+  packages/drawnix/src/components/ai-input-bar/__tests__/tuzi-video-workflow.test.ts \
+  packages/drawnix/src/mcp/tools/tuzi-video-generation.test.ts \
+  packages/drawnix/src/services/video-api-service.test.ts \
+  packages/drawnix/src/services/tuzi-video-advanced.test.ts \
+  packages/drawnix/src/services/tuzi-video-request.test.ts \
+  packages/drawnix/src/services/__tests__/ai-generation-preferences-service.test.ts \
+  packages/drawnix/src/services/__tests__/video-binding-utils.test.ts \
+  packages/drawnix/src/components/ai-input-bar/ParametersDropdown.test.tsx \
+  packages/drawnix/src/components/ai-input-bar/ParametersDropdown.kling.test.tsx \
+  packages/drawnix/src/components/ai-input-bar/__tests__/workflow-converter.test.ts
+```
+
+结果 **333 通过、3 个原有失败，共 336 项**。失败为：Seedance 2.5 旧偏好期望清空 size、Sora web 时长选择、Seedance 2.0 官方 ID/参数预期。从修改前 HEAD 隔离导出到 `/tmp`，使用相同依赖执行，三项均以相同断言失败；没有修改或跳过这些断言。本轮新增的请求、组件、工作流、MCP 与偏好测试全部通过。
+
+调查中还运行过原 `utils/__tests__/ai-input-parser.test.ts`，其中 22 项旧标记解析/旧快照断言失败；与修改前 HEAD 的 22 项逐一匹配。该文件未修改；本次新增的 Tuzi 输入解析用例放在独立 `tuzi-video-workflow.test.ts`，使用实际设置模块，避免原测试不完整的路由 mock 干扰。本次早期新用例暴露的偏好串用与测试 mock 问题已修正，不纳入“原有失败”。
+
+以下检查实际通过：
+
+```bash
+NPM_TOKEN=dummy pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json
+NPM_TOKEN=dummy pnpm exec tsc --noEmit -p apps/web/tsconfig.app.json
+NPM_TOKEN=dummy pnpm exec vite build --config apps/web/vite.config.ts
+npx --yes @fission-ai/openspec validate complete-tuzi-video-model-inputs --strict
+git diff --check
+```
+
+本轮变更的 TS/TSX 文件执行 ESLint：0 errors、64 warnings，包含已有 any、非空断言、未使用变量及 hook 依赖警告；新请求构造、媒体解析和素材控件没有 lint error。生产构建包含应用和 Service Worker，保留既有 Sass/Browserslist/大 chunk 等警告。未运行整库全量测试或依赖审计，也未为消除原有警告修改无关代码。
+
+本地日志：`/tmp/opentu-video-final-tests.log`、`/tmp/opentu-video-final-typecheck.log`、`/tmp/opentu-video-web-typecheck.log`、`/tmp/opentu-video-production-build.log`、`/tmp/opentu-video-full-lint.log`。基线证据：`/tmp/opentu-video-baseline-tests.log`、`/tmp/opentu-video-baseline-binding.log`。
+
+### 未执行项与限制
+
+- 未做页面交互、视觉回归或浏览器端到端测试；表单通过组件逻辑验证，不将其写成页面验收。
+- 未发起真实上传或收费生成，未验证账单、实际分辨率、音轨、真实远程素材时长、主体类型或完整格式矩阵；不复用早先的收费授权扩大本轮测试。
+- Gemini 1.2 公开说明仍标记未开放，研究用后端源码仍只识别 1.1；本地多模态/编辑/延展构造通过不代表生产端已接受该型号或动作。
+- 未确认普通模型密钥可用的通用图片转公网 URL API；Gemini 本地媒体通过文档声明的 Base64 input 接入。Wan/Kling 的视频/音频 URL 要求仍由其合同决定。
+- Wan 智能时长和参考视频需要渠道启用相应计费用量能力；远程图片像素/大小、未知视频时长和权限由后端或上游最终检查。
+- 已更新现有 DOC 和本 QA；无新增依赖、环境变量、迁移、凭据持久化或第三方图床上传。回滚撤回本次客户端功能改动即可，不清理既有素材或任务。
+- 本轮未提交、推送、更新远程 PR 或部署，也未执行上游同步/合并操作。
+
+## 用户要求的本地复测（2026-11-14）
+
+在上一节相同未提交代码上重新执行本地验证，额外加入旧 HappyHorse 适配器和视频参考图片处理测试。本轮仅更新验收记录，没有修改产品代码。
+
+- 13 文件、347 项：**344 通过、3 个原有失败**。覆盖上节的 11 文件，并追加 `services/__tests__/happyhorse-adapter.test.ts`（7 项通过）和 `services/video-reference-image-utils.test.ts`（4 项通过）。新增高级参数相关测试全部通过；三项失败名称与修改前 HEAD 的基线逐项匹配，没有新增失败或跳过断言。
+- drawnix 和 Web TypeScript 检查均通过，日志为空；Vite 生产构建成功，包含应用与 Service Worker，保留已有构建警告。
+- 本任务变更的 TS/TSX 文件 ESLint：0 errors、64 warnings。
+- 额外运行项目 lint 中的 `node packages/drawnix/scripts/check-hover-usage.mjs`：发现 8 个既有原生 title 用法。对隔离基线执行同一脚本，输出完全一致，无新增项。因此不能把本轮所有规范检查统称为全绿。
+- `git diff --check` 通过；本任务变更文件未发现密钥格式字符串。未运行覆盖率统计、整库全量测试或依赖审计。
+- 未执行页面/浏览器端到端测试、真实上传、收费请求、提交、推送或部署；本地测试不证明线上供应商能力已开放。
+
+命令沿用上一节；联合 Vitest 命令末尾追加两个测试路径。复测日志：`/tmp/opentu-video-local-retest-tests.log`、`/tmp/opentu-video-local-retest-drawnix-types.log`、`/tmp/opentu-video-local-retest-web-types.log`、`/tmp/opentu-video-local-retest-build.log`、`/tmp/opentu-video-local-retest-lint.log`、`/tmp/opentu-video-local-retest-hover.log`；hover 基线：`/tmp/opentu-video-local-retest-hover-baseline.log`。
+
+## 浏览器页面与参数验收（2026-11-14，Asia/Shanghai）
+
+用户进一步确认“页面测试和参数测试”，本轮使用 ego-browser 操作实际 `http://localhost:7204`，没有取得额外收费生成授权。新建独立画板“视频参数页面测试（模拟，无费用）”，保留原画板及此前的真实结果。
+
+### 测试方法
+
+通过页面模型选择、参数按钮、素材角色下拉、文件选择器、输入框和发送按钮走真实输入栏/工作流/任务/请求构造链路。在浏览器内存临时强制主线程回退执行，并拦截远程生成 POST：读取最终 JSON 后返回标记为 `LOCAL_PAGE_QA` 的模拟 HTTP 400，避免上传素材或创建收费任务。其他远程 POST 也有阻断。没有读取密钥文件或输出认证头，没有修改持久供应商凭据。初次探测只被阻断未留请求正文，修正捕获方式后完成请求核对；这不是供应商返回的错误。
+
+因开发服务器 HMR 刷新，Gemini 初始单图捕获在刷新前单独核验；刷新后的 **8 份脱敏请求正文**保存在 `/tmp/opentu-video-page-captures.json`，覆盖全部六个型号，另外包含 Gemini 编辑、延展与多模态输入。测试时间/型号摘要在 `/tmp/opentu-video-page-result.json`。Base64 内容只记录长度，示例地址/主体 ID 均为测试占位；不保存密钥或私有素材。
+
+### 页面与实际请求结果
+
+| 场景 | 实际页面操作与检查 | 结果 |
+| --- | --- | --- |
+| Gemini 本地单图 | 通过文件选择器载入真实 400×400 PNG，选择 3 秒/360p/9:16，再点发送 | 最终 JSON 为 input 的 text+image 项，MIME=image/png，原始 Base64 长 1848；size=360x640，无顶层 prompt/input_reference 混发 |
+| Gemini 编辑/延展 | 切换动作，填写测试 task_ ID，点发送 | generation_config.video_config.task 分别为 edit/extend，previous_interaction_id 保留；3 秒延展可构造 |
+| Gemini 多模态 | 页面添加本地图片与公网视频 URL，选择多模态参考 | input 按顺序包含 text、image/png data、video/mp4 uri；不丢素材或 MIME |
+| Wan 高级参数 | 选择智能时长、480P、混合参考，关闭音轨、开启改写，seed=0，填写参考视频和已知时长 | 最终 JSON 包含 duration=-1、audio=false、prompt_extend=true、seed=0、reference_videos；reference_mode 等 UI 字段不混入接口 |
+| Kling 主体/音色 | 选择 720P、21:9，新增 element/voice，填写独立 ID | 最终 contents 包含 prompt、element_id、voice_id 和独立 id；settings 和 watermark options 正确；未带入 Wan 视频素材 |
+| HappyHorse I2V | 上传本地 PNG，清空提示词，选择 3 秒/480P，点发送 | 按钮可用，最终 prompt 为空、单数 image 为 data URI，parameters 不带 ratio |
+| HappyHorse R2V | 上传本地 PNG，选 3 秒/480P/9:16，seed=0 | 最终 images 数组、parameters.ratio/seed 正确 |
+| HappyHorse T2V | 无图选择 3 秒/480P，填写文本后发送 | 最终参数进 parameters，无 image/images |
+| 型号偏好 | Gemini → Wan → Kling → HappyHorse → Gemini 切换 | 无跨型号素材串用；返回 Gemini 可恢复原本地素材的缓存地址和 MIME；Kling 退出重载后仍为 720P/21:9 |
+| 校验失败 | Kling 两条素材填写相同 id；Gemini 延展选 11 秒；Wan 首尾帧模式保留参考视频 | 分别显示唯一 ID、最多 10 秒、请切换混合参考的错误；三次均未新增捕获到的生成 POST |
+
+本轮发现并修复一个实际页面问题：Wan 绑定推导的智能时长显示为“-1秒”，参数摘要也显示为“-1s”。现由时长推导层保留“智能时长”标签，摘要使用该标签；实际发送仍为 duration=-1。已在页面选择并确认新标签，也在推导绑定的现有测试中新增断言。
+
+页面观察：高级菜单可滚动到素材条目；角色、ID、本地文件、MIME 和移除控件可操作。完成截图观察，但没有做移动端、全视口或像素级视觉矩阵。阶段截图保存在 `/tmp/opentu-video-page-gemini-advanced.png`、`/tmp/opentu-video-page-kling-elements.png`；截图中的失败卡片属于本地拦截返回的预期结果，不是远程接口真实失败或生成成功凭据。
+
+### 清理与回归
+
+删除本轮填入的 Gemini/Wan/Kling 测试素材条目和前序占位 ID，恢复 Gemini 自动动作和 Wan 固定 2 秒。保留明确标为模拟的独立验收画板与测试失败记录；不删除已有用户素材或原画板。撤除临时 getter、执行器和 fetch 替换并刷新，确认临时测试 Hook 不存在、活动任务数为 0、供应商设置没有写入占位密钥，然后关闭本轮浏览器任务空间。
+
+修复后本地回归：Tuzi 高级请求、素材组件、参数组件及 Kling 分组选值共 **4 文件 88 项全部通过**；drawnix TypeScript 通过；三个受影响文件 ESLint 0 errors、7 个既有 warnings；`git diff --check` 通过。日志 `/tmp/opentu-video-page-regression.log`、`/tmp/opentu-video-page-types.log`、`/tmp/opentu-video-page-lint.log`。仅修改显示文案与对应断言，未重复生产构建。
+
+本轮 **真实收费生成 0 次、真实素材上传 0 次**。没有验证真实生成、账单、远程 task_ 权限、轮询到成功、结果下载/播放或画布插入；服务端可用性限制仍见上文。代码未提交、推送、更新 PR 或部署。
+
+## 输入栏素材复用修复（2026-11-14）
+
+参考素材不再作为高级参数让用户重复填写。视频生成直接读取输入栏已有的图片、视频和音频：有素材时自动按模型映射为参考输入，没有素材时直接走纯文本生成；输入栏的 Base64 图片仍按请求层规则处理，模型不支持的媒体由提交校验提示。
+
+本地验证：
+
+- `ParametersDropdown.test.tsx`：37 项通过，确认参考素材不再出现在高级参数菜单，其他高级参数仍正常渲染。
+- `pnpm nx run drawnix:typecheck`：通过。
+- 受影响文件 ESLint：0 errors；仅保留仓库既有 warnings。
+
+本次没有页面测试、真实素材上传或收费生成；输入栏素材来自现有前端状态，公网 URL 的可访问性仍由对应 Tuzi 渠道最终校验。
+
+## 自动参考素材页面复测（2026-11-14）
+
+使用本地 `http://localhost:7204` 页面复测最新行为，临时拦截视频生成 POST 并返回 `LOCAL_PAGE_QA_BLOCKED`，未创建真实任务：
+
+- 无素材时，Kling 请求仅包含 `contents[].type=prompt`、`settings` 和 `options`，没有 `video_media` 或参考素材字段。
+- 从输入栏上传 PNG 后，Kling 请求自动包含 `contents[].type=refer_image`，不需要打开高级参数或填写“素材 1”。
+- 打开参数菜单后未发现“参考素材”“添加参考素材”或参考素材高级表单；时长、尺寸、比例和水印仍可用。
+- 临时 fetch 拦截已撤除，页面刷新后确认 Hook 不存在；本地测试失败卡片已删除，未保留临时测试数据。
+
+本次页面验证未执行真实上传到供应商、收费生成、轮询或结果下载；请求中的本地图片内容只用于内存验证，未写入仓库或 QA 文档。
+
+## 真实自动参考素材生成（2026-11-14）
+
+用户明确授权后，在 7204 页面使用 Wan 3.0 做 1 次真实生成，验证输入栏素材自动进入参考生成流程。参数为 2 秒、480P、自适应比例、关闭音轨，上传 768×768 PNG，提示词为“让图案缓慢旋转并保持镜头稳定”。未打开高级参数，未手动填写参考素材，未自动重试。
+
+结果：Tuzi 任务完成并插入画布；结果 MP4 可解码，`readyState=4`，视频尺寸 640×640，时长约 2.02 秒，未发现媒体错误。页面任务队列回到 0，临时测试 Hook 不存在。该结果确认输入栏素材可以直接触发 Wan 参考生成；清晰度档位不等同于固定输出像素。
+
+本次产生 1 次真实供应商请求及相应费用，未核对账单金额。结果页面保留在 7204，未继续提交其他模型或参数组合。
+
+## 三次真实生成验收（2026-11-14，17:32 起，Asia/Shanghai）
+
+用户在页面模拟验收后明确要求“发起真实”。本轮限定 Wan 3.0、Kling 4.0、HappyHorse 1.1 I2V 各一次，使用各自最低时长及清晰度，不自动重试、不扩大到其他型号。使用 ego-browser 实际操作 7204，独立画板为“视频真实验收（3次，不重试）”，原画板与模拟验收画板均保留。
+
+请求使用 Tuzi API Key 文件，密钥只在浏览器内存临时使用，认证仅交给 `https://api.tu-zi.com`。设置了每型号最多一次生成 POST、指定型号与最低参数检查；未使用前一轮模拟返回。实际 **3 次生成 POST 均 HTTP 200、queued 后 completed，无重提**。全部通过应用自身查询流程等待终态、下载缓存、插入画布；未为恢复轮询再次创建生成。
+
+| 型号 | 实际请求 | 结果文件核验 |
+| --- | --- | --- |
+| kling-4.0 | 17:32:44，3 秒/720p/21:9、水印关闭；本地 PNG 经 contents 的 first_frame 角色提交，提示词为独立 prompt 项 | completed；MP4，624052 bytes；1460×624、3.041995 秒；1 条音轨 |
+| wan3.0-video | 17:33:26，2 秒/480P/adaptive；文生视频，audio=false、prompt_extend=false、seed=0、水印关闭 | completed；MP4，1152996 bytes；854×480、2 秒；**0 条音轨**，本样本符合关闭音轨 |
+| happyhorse-1.1-i2v | 17:33:45，3 秒/480P、水印关闭；单张 768×768 本地 PNG、**空提示词**，不传 ratio | completed；MP4，460475 bytes；640×640、3.162667 秒；1 条音轨 |
+
+三项本地持久任务都为 completed，结果 Blob 可从应用缓存读取；浏览器播放器 readyState=4，三个视频均实际启动静音播放并推进超过 0.3 秒，无媒体解码错误。还定位至第 1 秒观察内容：Wan 生成红帆船海面场景，Kling 和 HappyHorse 保留参考图的红船、浅色帆与蓝色海面。随后刷新应用，三个播放器再次加载到有效宽高，活动任务数为 0。
+
+**像素边界**：Kling 的 720p 档位仍返回 1460×624，而不是短边 720；21:9 比例基本吻合。本轮确认 first_frame 原生字段可用，但不能声称像素精确满足 720p。HappyHorse 480P 方形样本返回 640×640，清晰度档位同样不应等同于固定像素。未为了改变像素结果追加生成。
+
+远程任务 ID（仅用于后续同凭据查询）：
+
+- Kling：`task_wxOht7B8iniC3ypfj6aYGVNHStjDYnYv`
+- Wan：`task_N9TkgcTPIOvJE2Kck9X8yq7g6b8aZUv4`
+- HappyHorse：`task_PO4EdpuDUzhCgOz0mNKQc7q4gcLVFXr9`
+
+脱敏提交/状态/媒体摘要：`/tmp/opentu-video-real-advanced-qa-20261114.json`；结果截图：`/tmp/opentu-video-real-advanced-results.png`。音轨数由缓存 MP4 的 moov/trak/mdia/hdlr 解析取得，宽高/时长由浏览器解析缓存 Blob 取得，没有把上游返回的档位当成实际像素。未将密钥、认证头、图片 Base64、结果签名 URL 或账号数据写入该记录。
+
+生成结束后恢复临时 getter、执行器和 fetch 方法，再刷新确认临时测试 Hook 不存在、活动任务为 0。保留结果页面供用户查看。本轮没有产品代码改动、提交、推送、PR 更新或部署。
+
+本次三个样本通过不代表全部参数组合、主体/音色/混合参考视频、智能时长、Gemini 编辑/延展或整个模型目录已真实验证。Wan 的 seed=0 和关闭改写确认已发送并被受理，未通过对照生成证明可复现性或内部改写行为；账单及实际扣费金额未核对。Kling/HappyHorse 的音轨仅核验存在，未验证声音内容。

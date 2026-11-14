@@ -1,3 +1,4 @@
+import { allowsTuziVideoWithoutPrompt } from '../../../constants/tuzi-video-models';
 /**
  * 队列任务创建工具
  *
@@ -114,7 +115,7 @@ export function createQueueTask(
   options: MCPExecuteOptions,
   config: QueueTaskConfig
 ): MCPTaskResult {
-  const promptError = validatePrompt(params.prompt);
+  const promptError = config.resultType === 'video' && allowsTuziVideoWithoutPrompt(params.model, params.params, params.referenceImages) ? null : validatePrompt(params.prompt);
   if (promptError)
     return { ...promptError, taskId: undefined, task: undefined };
 

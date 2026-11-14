@@ -1,4 +1,4 @@
-import { normalizeKling4VideoParams } from '../../constants/tuzi-video-models';
+import { normalizeTuziVideoParams } from '../../constants/tuzi-video-models';
 import { SunoFileInput } from '../shared/SunoFileInput';
 /**
  * 参数下拉选择器组件
@@ -49,7 +49,7 @@ function getCompactEnumSummaryLabel(
   }
 
   if (paramId === 'duration') {
-    return `${value}s`;
+    return value === '-1' ? label : `${value}s`;
   }
 
   if (paramId === 'klingAction2') {
@@ -131,7 +131,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   placement = 'auto',
 }) => {
   const selectedParams = useMemo(() => {
-    const params = normalizeGPTImage26RasterParams(modelId, normalizeKling4VideoParams(modelId, savedParams));
+    const params = normalizeGPTImage26RasterParams(modelId, normalizeTuziVideoParams(modelId, savedParams));
     if (!isGPTImage26ModelId(modelId) || !params.gpt_image_26_output) {
       return params;
     }
@@ -153,9 +153,12 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
 
   // 获取当前模型兼容的所有参数（排除已有专用 UI 的参数）
   const allParams = useMemo(() => {
-    const params = (compatibleParamsProp ?? getCompatibleParams(modelId)).filter(
-      (param) => !isGPTImage26ModelId(modelId) || isGPTImage26ParamVisible(param.id, selectedParams)
-    ).map((param) => isGPTImage26ModelId(modelId) && param.id === 'size'
+    const params = (compatibleParamsProp ?? getCompatibleParams(modelId))
+      .filter((param) => param.control !== 'video-media')
+      .filter((param) => modelId !== 'wan3.0-video' || param.id !== 'reference_mode')
+      .filter(
+        (param) => !isGPTImage26ModelId(modelId) || isGPTImage26ParamVisible(param.id, selectedParams)
+      ).map((param) => isGPTImage26ModelId(modelId) && param.id === 'size'
       ? { ...param, options: getGPTImage26SizeOptions(modelId, selectedParams.gpt_image_26_output || 'auto') }
       : param);
     if (excludeParamIds && excludeParamIds.length > 0) {
@@ -234,6 +237,17 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     [disabled, isOpen, setIsOpen]
   );
 
+  const selectParamValue = useCallback((paramId: string, value: string) => {
+    // Carry the other half of a legacy combined size into the parent's draft.
+    if (paramId === 'size' || paramId === 'ratio') {
+      const other = paramId === 'size' ? 'ratio' : 'size';
+      if (selectedParams[other] && selectedParams[other] !== savedParams[other]) {
+        onParamChange(other, selectedParams[other], { keepOpen: true });
+      }
+    }
+    onParamChange(paramId, value);
+  }, [onParamChange, savedParams, selectedParams]);
+
   const handleOpenKey = useCallback(
     (key: string) => {
       if (key === 'Escape') {
@@ -296,7 +310,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
         // 选中当前高亮的选项
         const option = currentParam?.options?.[highlightedOptionIndex];
         if (option) {
-          onParamChange(currentParam.id, option.value);
+          selectParamValue(currentParam.id, option.value);
         }
         return true;
       }
@@ -309,14 +323,15 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
       highlightedOptionIndex,
       selectedParams,
       onParamChange,
+      selectParamValue,
     ]
   );
 
   const handleValueSelect = useCallback(
     (paramId: string, value: string) => {
-      onParamChange(paramId, value);
+      selectParamValue(paramId, value);
     },
-    [onParamChange]
+    [selectParamValue]
   );
 
   const handleFieldInput = useCallback(

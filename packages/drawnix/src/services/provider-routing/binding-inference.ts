@@ -748,7 +748,7 @@ function inferVideoBindings(
         metadata:
           (tuziConfig ? {
             video: {
-              allowedDurations: tuziConfig.durationOptions.map((option) => option.value),
+              allowedDurations: [...tuziConfig.durationOptions.map((option) => option.value), ...(model.id === 'wan3.0-video' ? ['-1'] : [])],
               defaultDuration: tuziConfig.defaultDuration,
               durationField: model.id === 'wan3.0-video' ? 'duration' : 'seconds',
               strictDurationValidation: true,

@@ -1,3 +1,4 @@
+import { encodeTuziVideoBlob } from './tuzi-video-media';
 import { getTuziVideoModelConfig } from '../constants/tuzi-video-models';
 import { buildTuziVideoRequest } from './tuzi-video-request';
 import { createGenerationApiError, extractGenerationErrorDiagnostics } from '../utils/generation-error-details';
@@ -197,7 +198,7 @@ class VideoAPIService {
     const references = params.inputReferences?.length
       ? [...params.inputReferences].sort((a, b) => a.slot - b.slot)
       : params.inputReference ? [{ slot: 0, url: params.inputReference }] : [];
-    if (getTuziVideoModelConfig(params.model)?.imageUpload.mode === 'frames' &&
+    if (getTuziVideoModelConfig(params.model)?.imageUpload.mode === 'frames' && params.params?.reference_mode !== 'mixed' &&
         references.length && references[0].slot !== 0) {
       throw new Error('尾帧需要同时提供首帧');
     }
@@ -205,7 +206,11 @@ class VideoAPIService {
       model: params.model, prompt: params.prompt, duration: params.seconds,
       size: params.size, params: params.params,
       referenceImages: references.map((image) => image.url),
-    }, async (url) => (await unifiedCacheService.getImageForAI(url)).value);
+    }, async (url) => {
+      const blob = await unifiedCacheService.getCachedBlob(url);
+      if (!blob) throw new Error('本地参考素材读取失败，请重新选择文件');
+      return encodeTuziVideoBlob(blob);
+    });
     const formData = new FormData();
     formData.append('model', submission.model);
     formData.append('prompt', params.prompt);

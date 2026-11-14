@@ -1,3 +1,4 @@
+import { encodeTuziVideoBlob } from '../tuzi-video-media';
 import { HAPPYHORSE_11_MODEL_IDS } from '../../constants/tuzi-video-models';
 import { buildTuziVideoRequest } from '../tuzi-video-request';
 import { notifyTaskSubmitted } from '../submission-persistence';
@@ -308,7 +309,11 @@ export async function submitHappyHorseVideo(
 ): Promise<HappyHorseTaskResponse> {
   const model = request.model || 'happyhorse-1.0-t2v';
   if (HAPPYHORSE_11_MODEL_IDS.includes(model)) {
-    const body = await buildTuziVideoRequest({ ...request, model }, async (url) => (await unifiedCacheService.getImageForAI(url)).value);
+    const body = await buildTuziVideoRequest({ ...request, model }, async (url) => {
+      const blob = await unifiedCacheService.getCachedBlob(url);
+      if (!blob) throw new Error('本地参考素材读取失败，请重新选择文件');
+      return encodeTuziVideoBlob(blob);
+    });
     const response = await sendAdapterRequest(context, {
       path: context.binding?.submitPath || '/videos', method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),

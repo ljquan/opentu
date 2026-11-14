@@ -322,3 +322,28 @@ describe('GPT Image advanced parameters', () => {
     expect(screen.queryByRole('switch', { name: '高级功能' })).toBeNull();
   });
 });
+
+
+describe('Tuzi automatic reference controls', () => {
+  it.each(['gemini-omni-1.2-flash', 'wan3.0-video', 'kling-4.0'])('does not ask for duplicate media in %s', (modelId) => {
+    render(<ParametersDropdown isOpen modelId={modelId} selectedParams={{
+      reference_mode: 'frames', video_media: '[{"type":"refer_image","url":"https://example.test/old.png"}]',
+    }} onParamChange={vi.fn()} />);
+    const advanced = screen.queryByRole('switch', { name: '高级功能' });
+    if (advanced) fireEvent.click(advanced);
+    expect(screen.queryByText('参考素材')).toBeNull();
+    expect(screen.queryByText('参考模式')).toBeNull();
+    expect(screen.queryByText(/素材:1/)).toBeNull();
+    expect(screen.getByText('视频尺寸')).toBeTruthy();
+  });
+  it('restores Gemini legacy resolution and ratio independently', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="gemini-omni-1.2-flash"
+      selectedParams={{ size: '2160x3840' }} onParamChange={onParamChange} />);
+    expect(screen.getByRole('button', { name: '4k', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '9:16', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '720p' }));
+    expect(onParamChange).toHaveBeenCalledWith('ratio', '9:16', { keepOpen: true });
+    expect(onParamChange).toHaveBeenCalledWith('size', '720p');
+  });
+});

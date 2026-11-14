@@ -266,7 +266,7 @@ function buildDurationOptions(
   return allowedDurations.map((value) => ({
     value,
     label:
-      baseLabels.get(value) ||
+      (baseConfig.id === 'wan3.0-video' && value === '-1' ? '智能时长' : baseLabels.get(value)) ||
       `${value}秒${allowedDurations.length === 1 ? '（固定）' : ''}`,
   }));
 }
@@ -628,7 +628,7 @@ export function getEffectiveVideoCompatibleParams(
 
       return {
         ...param,
-        options: effectiveConfig.durationOptions.map((option) => ({
+        options: [...effectiveConfig.durationOptions, ...(modelId === 'wan3.0-video' && !effectiveConfig.durationOptions.some((option) => option.value === '-1') ? [{ value: '-1', label: '智能时长' }] : [])].map((option) => ({
           value: option.value,
           label: option.label,
         })),

@@ -38,17 +38,9 @@ export const TUZI_VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     description: '3–15 秒音视频生成，支持横屏和竖屏',
     durationOptions: durations(3, 15),
     defaultDuration: '10',
-    sizeOptions: [
-      ['360p', '640x360', '360x640'],
-      ['720p', '1280x720', '720x1280'],
-      ['1080p', '1920x1080', '1080x1920'],
-      ['4K', '3840x2160', '2160x3840'],
-    ].flatMap(([label, landscape, portrait]) => [
-      { label: `${label} · 16:9`, value: landscape, aspectRatio: '16:9' },
-      { label: `${label} · 9:16`, value: portrait, aspectRatio: '9:16' },
-    ]),
-    defaultSize: '1280x720',
-    imageUpload: { maxCount: 1, mode: 'reference', labels: ['参考图'] },
+    sizeOptions: resolutions(['360p', '720p', '1080p', '4k']),
+    defaultSize: '720p',
+    imageUpload: { maxCount: 10, mode: 'reference', labels: ['参考图'] },
   },
   'wan3.0-video': {
     id: 'wan3.0-video',
@@ -154,4 +146,79 @@ export function normalizeKling4VideoParams<T extends Record<string, unknown>>(
   return legacy
     ? { ...params, size: legacy.size, ratio: params.ratio || legacy.ratio }
     : params;
+}
+
+export const OMNI_VIDEO_SIZES: Readonly<Record<string, readonly [string, string]>> = {
+  '360p': ['640x360', '360x640'],
+  '720p': ['1280x720', '720x1280'],
+  '1080p': ['1920x1080', '1080x1920'],
+  '4k': ['3840x2160', '2160x3840'],
+};
+
+/** Preserve legacy pixel sizes while presenting resolution and ratio separately. */
+export function normalizeTuziVideoParams<T extends Record<string, unknown>>(model: string, params: T): T {
+  if (model.toLowerCase() !== 'gemini-omni-1.2-flash') return normalizeKling4VideoParams(model, params);
+  for (const [size, pixels] of Object.entries(OMNI_VIDEO_SIZES)) {
+    const index = pixels.indexOf(String(params.size));
+    if (index >= 0) return { ...params, size, ratio: params.ratio || (index ? '9:16' : '16:9') };
+  }
+  return params;
+}
+
+export interface TuziVideoMedia {
+  type: string;
+  url?: string;
+  mime_type?: string;
+  id?: string;
+  element_id?: string;
+  voice_id?: string;
+  /** Known source duration; never used as billing usage. */
+  duration?: number;
+}
+
+/** Composer references come only from its current attachments, not saved media drafts. */
+export function getTuziVideoComposerParams(
+  model: string,
+  params: Record<string, string>
+): Record<string, string> {
+  if (!getTuziVideoModelConfig(model)) return params;
+  return Object.fromEntries(
+    Object.entries(params).filter(([key]) =>
+      key !== 'video_media' && !(model === 'wan3.0-video' && key === 'reference_mode')
+    )
+  );
+}
+
+export const KLING_VIDEO_MEDIA_TYPES = [
+  { value: 'refer_image', label: '参考图' },
+  { value: 'first_frame', label: '首帧' },
+  { value: 'middle_frame', label: '中间帧' },
+  { value: 'last_frame', label: '尾帧' },
+  { value: 'feature_video', label: '参考视频' },
+  { value: 'base_video', label: '待编辑视频' },
+  { value: 'element', label: '主体' },
+  { value: 'voice', label: '音色' },
+];
+
+export function getTuziVideoMediaTypes(model: string) {
+  if (model === 'kling-4.0') return KLING_VIDEO_MEDIA_TYPES;
+  if (model === 'wan3.0-video') return [
+    { value: 'reference_images', label: '参考图' },
+    { value: 'first_frame', label: '首帧' },
+    { value: 'last_frame', label: '尾帧' },
+    { value: 'reference_videos', label: '参考视频' },
+    { value: 'reference_audio', label: '参考音频' },
+  ];
+  return [{ value: 'image', label: '图片' }, { value: 'video', label: '视频' }];
+}
+
+/** Only relax shared prompt checks for these exact media-capable contracts. */
+export function allowsTuziVideoWithoutPrompt(model?: string, params?: Record<string, unknown>, references?: unknown): boolean {
+  if (model === 'happyhorse-1.1-i2v') return Boolean((Array.isArray(references) && references.length) || params?.image);
+  if (model === 'kling-4.0') return Boolean(params?.contents);
+  if (model !== 'gemini-omni-1.2-flash') return false;
+  return Boolean(
+    (Array.isArray(references) && references.length) ||
+    params?.video_media || params?.input || params?.input_reference
+  );
 }

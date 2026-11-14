@@ -1,3 +1,4 @@
+import { encodeTuziVideoBytes } from '../tuzi-video-media';
 import { getTuziVideoModelConfig } from '../../constants/tuzi-video-models';
 import { buildTuziVideoRequest } from '../tuzi-video-request';
 import {
@@ -213,13 +214,7 @@ export async function submitVideoGeneration(
   }, async (url) => {
     const response = await fetchFn(url, { signal });
     if (!response.ok) throw new Error('参考图片读取失败');
-    const mimeType = response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream';
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    let binary = '';
-    for (let offset = 0; offset < bytes.length; offset += 32768) {
-      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-    }
-    return `data:${mimeType};base64,${btoa(binary)}`;
+    return encodeTuziVideoBytes(new Uint8Array(await response.arrayBuffer()), response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream');
   });
 
   // 构建 FormData
