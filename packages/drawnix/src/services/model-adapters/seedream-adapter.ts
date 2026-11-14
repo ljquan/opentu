@@ -7,6 +7,7 @@ import { getFileExtension, normalizeImageDataUrl } from '@aitu/utils';
 import { registerModelAdapter } from './registry';
 import { sendAdapterRequest } from './context';
 import { readProviderResponseJson } from '../provider-routing';
+import { SEEDREAM_55_MODEL_ID } from '../../constants/model-config';
 
 const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';
 const SEEDREAM_MODELS = [
@@ -14,6 +15,7 @@ const SEEDREAM_MODELS = [
   'doubao-seedream-4-5-251128',
   DEFAULT_SEEDREAM_MODEL,
   'doubao-seedream-5-0-pro-260628',
+  SEEDREAM_55_MODEL_ID,
 ];
 
 /**
@@ -109,6 +111,48 @@ const resolveSeedreamSize = (
     : '2048x2048';
 };
 
+const resolveSeedream55Size = (
+  size?: string,
+  aspectRatio?: string
+): string | undefined => {
+  const normalized = size?.trim() || '';
+  if (!normalized && !aspectRatio) return undefined;
+
+  const upper = normalized?.toUpperCase() || '2K';
+  if (upper === '1K' || upper === '1.5K' || upper === '2K') {
+    // Keep native tiers for existing API callers; the UI supplies a separate ratio.
+    if (!aspectRatio) return upper;
+    const ratio = aspectRatio.trim().replace(':', 'x').toLowerCase();
+    const dimensions = ASPECT_RATIO_TO_SIZE_2K[ratio];
+    if (typeof dimensions !== 'string') {
+      throw new Error(`Seedream 5.5 不支持图片比例: ${aspectRatio}`);
+    }
+    const scale = upper === '1K' ? 0.5 : upper === '1.5K' ? 0.75 : 1;
+    return dimensions
+      .split('x')
+      .map((side) => Number(side) * scale)
+      .join('x');
+  }
+  if (upper === 'AUTO') return 'auto';
+  const ratio = normalized.replace(':', 'x').toLowerCase();
+  if (typeof ASPECT_RATIO_TO_SIZE_2K[ratio] === 'string') {
+    return ASPECT_RATIO_TO_SIZE_2K[ratio];
+  }
+  if (/^\d+x\d+$/i.test(normalized)) return normalized.toLowerCase();
+  throw new Error(`Seedream 5.5 不支持图片尺寸: ${size}`);
+};
+
+const readBooleanParam = (value: unknown): boolean | undefined => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+};
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 const resolveBaseUrl = (context: AdapterContext): string => {
   if (!context.baseUrl) {
     throw new Error('Missing baseUrl for Seedream adapter');
@@ -129,14 +173,29 @@ export const seedreamImageAdapter: ImageModelAdapter = {
 
   async generateImage(context, request: ImageGenerationRequest) {
     const model = request.model || DEFAULT_SEEDREAM_MODEL;
+    const isSeedream55 =
+      model.trim().toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase();
     const quality = (request.params?.seedream_quality as string) || '2k';
-    const size = resolveSeedreamSize(request.size, quality);
+    const size = isSeedream55
+      ? resolveSeedream55Size(
+          typeof request.params?.size === 'string'
+            ? request.params.size
+            : request.size,
+          typeof request.params?.aspect_ratio === 'string'
+            ? request.params.aspect_ratio
+            : undefined
+        )
+      : resolveSeedreamSize(request.size, quality);
+
+    if (isSeedream55 && (request.referenceImages?.length || 0) > 10) {
+      throw new Error('Seedream 5.5 最多支持 10 张参考图');
+    }
 
     const body: Record<string, unknown> = {
       model,
       prompt: request.prompt,
-      // Inline bytes can be persisted without fetching a signed, non-CORS URL.
-      response_format: 'b64_json',
+      // Seedream 5.5 returns links to keep the generation response small.
+      response_format: isSeedream55 ? 'url' : 'b64_json',
     };
 
     if (size) {
@@ -151,16 +210,52 @@ export const seedreamImageAdapter: ImageModelAdapter = {
           : request.referenceImages;
     }
 
+    if (isSeedream55) {
+      const background = request.background || request.params?.background;
+      if (background === 'transparent' || background === 'opaque') {
+        body.background = background;
+      }
+
+      const outputFormat = request.outputFormat || request.params?.output_format;
+      if (
+        outputFormat === 'png' ||
+        outputFormat === 'jpeg'
+      ) {
+        body.output_format = outputFormat;
+      }
+
+      body.watermark = readBooleanParam(request.params?.watermark) ?? false;
+
+      const layerDecomposition = readBooleanParam(
+        request.params?.layer_decomposition
+      );
+      if (layerDecomposition !== undefined) {
+        body.layer_decomposition = layerDecomposition;
+      }
+
+      if (isPlainRecord(request.params?.layer_decomposition_options)) {
+        body.layer_decomposition_options =
+          request.params.layer_decomposition_options;
+      }
+    }
+
     const baseUrl = resolveBaseUrl(context);
     const response = await sendAdapterRequest(
       context,
       {
-        path: '/images/generations',
+        path: isSeedream55
+          ? context.binding?.submitPath || '/api/v3/images/generations'
+          : context.binding?.submitPath || '/images/generations',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        ...(isSeedream55
+          ? { baseUrlStrategy: context.binding?.baseUrlStrategy || 'trim-v1' }
+          : context.binding?.baseUrlStrategy
+          ? { baseUrlStrategy: context.binding.baseUrlStrategy }
+          : {}),
       },
       baseUrl
     );
@@ -186,7 +281,9 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     if (result?.data && Array.isArray(result.data) && result.data.length > 0) {
       const urls = result.data
         .map((item: any) => {
-          const rawValue = item.b64_json || item.url;
+          const rawValue = isSeedream55
+            ? item.url || item.b64_json
+            : item.b64_json || item.url;
           if (typeof rawValue === 'string') {
             return normalizeImageDataUrl(rawValue);
           }

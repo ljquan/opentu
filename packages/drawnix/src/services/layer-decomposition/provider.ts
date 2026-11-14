@@ -24,6 +24,10 @@ import type {
 } from './types';
 
 export const SEEDREAM_LAYER_MODEL_ID = 'doubao-seedream-5-0-pro-260628';
+const SEEDREAM_NATIVE_LAYER_MODEL_IDS = new Set([
+  SEEDREAM_LAYER_MODEL_ID,
+  'doubao-seedream-5-5-261028',
+]);
 export const SEEDREAM_LAYER_REQUEST_TIMEOUT_MS = 3 * 60_000;
 
 /** Returned when the selected provider is an ordinary image model. */
@@ -58,7 +62,7 @@ function getLayerCapability(
   const modelId = (requestedModelId || context.binding?.modelId || '')
     .trim()
     .toLowerCase();
-  if (modelId === SEEDREAM_LAYER_MODEL_ID) {
+  if (SEEDREAM_NATIVE_LAYER_MODEL_IDS.has(modelId)) {
     return { enabled: true };
   }
 
@@ -627,12 +631,27 @@ export async function decomposeWithConfiguredImageProvider(
     watermark: false,
   };
   if (request.prompt) payload.prompt = request.prompt;
+  const isSeedream55 =
+    requestedModelId.toLowerCase() === 'doubao-seedream-5-5-261028';
+  if (isSeedream55) {
+    payload.layer_decomposition_options = {
+      max_images: Math.min(100, Math.max(2, request.maxLayers + 1)),
+    };
+  }
   const response = await sendAdapterRequest(context, {
     path:
-      capability.path || context.binding?.submitPath || '/images/generations',
+      capability.path ||
+      (isSeedream55 ? '/api/v3/images/generations' : undefined) ||
+      context.binding?.submitPath ||
+      '/images/generations',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    ...(isSeedream55
+      ? { baseUrlStrategy: context.binding?.baseUrlStrategy || 'trim-v1' }
+      : context.binding?.baseUrlStrategy
+      ? { baseUrlStrategy: context.binding.baseUrlStrategy }
+      : {}),
     signal: options.signal,
     timeoutMs: SEEDREAM_LAYER_REQUEST_TIMEOUT_MS,
   });
@@ -654,7 +673,9 @@ export async function decomposeWithConfiguredImageProvider(
   });
   const result = requireNativeProviderQuality(
     normalizeProviderLayerPayload(await readProviderResponseJson(response), {
-      trustedModel: requestedModelId.toLowerCase() === SEEDREAM_LAYER_MODEL_ID,
+      trustedModel: SEEDREAM_NATIVE_LAYER_MODEL_IDS.has(
+        requestedModelId.toLowerCase()
+      ),
     })
   );
   options.onProgress?.({

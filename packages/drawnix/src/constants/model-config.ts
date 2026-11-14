@@ -22,6 +22,7 @@ import { getSunoV2Params } from '../services/suno-v2-params';
 export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
+export const SEEDREAM_55_MODEL_ID = 'doubao-seedream-5-5-261028';
 export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
 export const GPT_IMAGE_26_MODEL_IDS = [
   'gpt-image-2.6',
@@ -809,6 +810,19 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     supportsTools: false,
     imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
     tags: ['seedream', 'pro'],
+  },
+  {
+    id: SEEDREAM_55_MODEL_ID,
+    label: 'Seedream 5.5',
+    shortLabel: 'Seedream 5.5',
+    shortCode: 'sd55',
+    description:
+      '即梦 Seedream 5.5 图片生成与编辑，支持多参考图、透明输出和原生图层拆分',
+    type: 'image',
+    vendor: ModelVendor.DOUBAO,
+    supportsTools: false,
+    imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
+    tags: ['seedream', 'new'],
   },
   {
     id: 'seedream-v4',
@@ -2174,6 +2188,7 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-4-5-251128',
   'doubao-seedream-5-0-260128',
   'doubao-seedream-5-0-pro-260628',
+  SEEDREAM_55_MODEL_ID,
 ];
 
 /** 支持独立分辨率档位的 GPT Image 2.5 模型。 */
@@ -3080,6 +3095,83 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: [FLUX_3_IMAGE_MODEL_ID],
     modelType: 'image',
   },
+  // Seedream 5.5 将分辨率档位与比例组合为 v3 像素尺寸。
+  {
+    id: 'size',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    description: '与图片比例组合决定输出像素尺寸',
+    valueType: 'enum',
+    options: [
+      { value: '1K', label: '1K（≤261万像素）' },
+      { value: '1.5K', label: '1.5K（≤261万像素）' },
+      { value: '2K', label: '2K（高档）' },
+    ],
+    defaultValue: '2K',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'aspect_ratio',
+    label: '图片比例',
+    shortLabel: '比例',
+    valueType: 'enum',
+    options: [
+      { value: '1x1', label: '1:1 方形' },
+      { value: '16x9', label: '16:9 横版' },
+      { value: '9x16', label: '9:16 竖版' },
+      { value: '3x2', label: '3:2 横版' },
+      { value: '2x3', label: '2:3 竖版' },
+      { value: '4x3', label: '4:3 横版' },
+      { value: '3x4', label: '3:4 竖版' },
+      { value: '21x9', label: '21:9 超宽' },
+    ],
+    defaultValue: '1x1',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'background',
+    label: '图片背景',
+    shortLabel: '背景',
+    description: '支持原生透明输出；透明背景请使用 PNG',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'transparent', label: '透明' },
+      { value: 'opaque', label: '不透明' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'output_format',
+    label: '输出格式',
+    shortLabel: '格式',
+    description: '透明输出请使用 PNG；JPEG 不包含透明通道',
+    valueType: 'enum',
+    options: [
+      { value: 'png', label: 'PNG' },
+      { value: 'jpeg', label: 'JPEG' },
+    ],
+    defaultValue: 'png',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'watermark',
+    label: '图片水印',
+    shortLabel: '水印',
+    valueType: 'enum',
+    options: [
+      { value: 'false', label: '无水印' },
+      { value: 'true', label: '有水印' },
+    ],
+    defaultValue: 'false',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
   {
     id: 'resolution',
     label: '图片分辨率',
@@ -3716,6 +3808,10 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
     if (
       param.id === 'background' &&
+      !param.compatibleModels.some(
+        (compatibleModel) =>
+          compatibleModel.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase()
+      ) &&
       (isGPTImage2ModelId(normalizedModelId) ||
         isGPTImage25ModelId(normalizedModelId))
     ) {
@@ -3726,6 +3822,22 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
     }
     return idMatched || tagMatched;
   });
+
+  // Seedream 5.5 exposes native resolution tiers instead of the legacy
+  // ratio-to-pixel mapping used by the other Seedream models.
+  if (normalizedModelId === SEEDREAM_55_MODEL_ID.toLowerCase()) {
+    const nativeSizeParam = compatibleParams.find(
+      (param) =>
+        param.id === 'size' &&
+        param.compatibleModels.some(
+          (compatibleModel) =>
+            compatibleModel.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase()
+        )
+    );
+    return compatibleParams.filter(
+      (param) => param.id !== 'size' || param === nativeSizeParam
+    );
+  }
 
   if (
     modelConfig.type === 'image' &&

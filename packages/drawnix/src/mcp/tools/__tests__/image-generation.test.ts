@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../constants/model-config', () => ({
   getDefaultImageModel: () => 'gpt-image-2',
   FLUX_3_IMAGE_MODEL_ID: 'flux-3-image',
+  SEEDREAM_55_MODEL_ID: 'doubao-seedream-5-5-261028',
   FLUX_3_IMAGE_ASPECT_RATIOS: ['auto', '1:1', '16:9', '7:5', '9:21'],
   IMAGE_PARAMS: [
     {
@@ -117,6 +118,28 @@ describe('image-generation MCP tool', () => {
         expect(mocks.generateImage).toHaveBeenCalledWith(
           expect.anything(),
           expect.objectContaining({ size: '7x5', params: { resolution: '2k' } })
+        );
+      }
+    }
+  );
+
+  it.each(['async', 'queue'] as const)(
+    'preserves Seedream 5.5 tier and ratio in %s mode', async (mode) => {
+      mocks.resolveAdapterForInvocation.mockReturnValue({
+        kind: 'image', generateImage: mocks.generateImage,
+      });
+      mocks.generateImage.mockResolvedValue({ url: 'https://example.com/output.png' });
+      await imageGenerationTool.execute({
+        prompt: 'A sticker', model: 'doubao-seedream-5-5-261028', size: '1.5K',
+        params: { aspect_ratio: '16x9' },
+      }, { mode });
+      expect(mocks.normalizeSize).not.toHaveBeenCalled();
+      if (mode === 'queue') {
+        expect(mocks.createQueueTask.mock.calls[0][2].buildTaskPayload())
+          .toMatchObject({ size: '1.5K', params: { aspect_ratio: '16x9' } });
+      } else {
+        expect(mocks.generateImage).toHaveBeenCalledWith(
+          expect.anything(), expect.objectContaining({ size: '1.5K', params: { aspect_ratio: '16x9' } })
         );
       }
     }

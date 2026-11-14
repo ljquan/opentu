@@ -15,6 +15,39 @@ vi.hoisted(() => {
 });
 
 describe('ai-generation-preferences-service', () => {
+  it('defaults Seedream 5.5 to no watermark and persists explicit watermark choices', async () => {
+    const service = await import('../ai-generation-preferences-service');
+    const modelId = 'doubao-seedream-5-5-261028';
+    expect(service.sanitizeImageToolExtraParams(modelId, {}).watermark).toBe('false');
+    expect(service.sanitizeImageToolExtraParams(modelId, { watermark: 'invalid' }).watermark).toBe('false');
+    for (const watermark of ['true', 'false']) {
+      service.saveAIInputPreferences({ generationType: 'image', selectedModel: modelId,
+        selectedCount: 1, selectedSkillId: '', selectedParams: { watermark } });
+      expect(service.loadAIInputPreferences().selectedParams.watermark).toBe(watermark);
+      service.saveAIImageToolPreferences({ currentModel: modelId,
+        currentSelectionKey: `provider::${modelId}`, extraParams: { watermark }, aspectRatio: '1:1' });
+      expect(service.loadScopedAIImageToolPreferences(modelId, `provider::${modelId}`).extraParams.watermark)
+        .toBe(watermark);
+    }
+  });
+
+  it('persists Seedream 5.5 ratio and tier and replaces the removed layer-only size', async () => {
+    const service = await import('../ai-generation-preferences-service');
+    const modelId = 'doubao-seedream-5-5-261028';
+    const selectedParams = { size: '1.5K', aspect_ratio: '16x9', background: 'transparent', output_format: 'png' };
+    service.saveAIInputPreferences({ generationType: 'image', selectedModel: modelId,
+      selectedCount: 1, selectedSkillId: '', selectedParams });
+    expect(service.loadAIInputPreferences().selectedParams).toMatchObject(selectedParams);
+    service.saveAIImageToolPreferences({ currentModel: modelId,
+      currentSelectionKey: `provider::${modelId}`, extraParams: selectedParams, aspectRatio: '16:9' });
+    expect(service.loadScopedAIImageToolPreferences(modelId, `provider::${modelId}`).extraParams)
+      .toMatchObject(selectedParams);
+    expect(service.sanitizeImageToolExtraParams(modelId, { size: 'auto' }))
+      .toMatchObject({ size: '2K', aspect_ratio: '1x1' });
+    expect(service.sanitizeImageToolExtraParams(modelId, { size: '1K', aspect_ratio: 'invalid' }))
+      .toMatchObject({ size: '1K', aspect_ratio: '1x1' });
+  });
+
   it.each(['2048x2048', '4096x4096'])(
     'GPT Image 2.6 migrates legacy square size %s to ratio and resolution across the series', async (size) => {
       const service = await import('../ai-generation-preferences-service');
