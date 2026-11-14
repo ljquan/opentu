@@ -58,3 +58,7 @@ Gemini 多模态 input 与 Kling 原生 contents 同样可通过 MCP 的 params 
 拆分前的历史真实验收截图（当前已改为尺寸、比例分组选择）：
 
 ![Kling 4.0 历史参数菜单与已有生成结果](./images/tuzi-video-model-parameters.png)
+
+当前输入栏自动引用版本的菜单及已有 Wan 真实结果（素材表单和参考模式手动选项已移除）：
+
+![输入栏自动引用素材](./images/tuzi-video-auto-reference.png)

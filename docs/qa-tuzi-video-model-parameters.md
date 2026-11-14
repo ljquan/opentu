@@ -304,17 +304,17 @@ git diff --check
 - 无素材时，Kling 请求仅包含 `contents[].type=prompt`、`settings` 和 `options`，没有 `video_media` 或参考素材字段。
 - 从输入栏上传 PNG 后，Kling 请求自动包含 `contents[].type=refer_image`，不需要打开高级参数或填写“素材 1”。
 - 打开参数菜单后未发现“参考素材”“添加参考素材”或参考素材高级表单；时长、尺寸、比例和水印仍可用。
-- 临时 fetch 拦截已撤除，页面刷新后确认 Hook 不存在；本地测试失败卡片已删除，未保留临时测试数据。
+- 临时 fetch 拦截已撤除，页面刷新后确认 Hook 不存在；本地测试失败卡片已删除，未清空素材库或用户数据。
 
 本次页面验证未执行真实上传到供应商、收费生成、轮询或结果下载；请求中的本地图片内容只用于内存验证，未写入仓库或 QA 文档。
 
 ## 真实自动参考素材生成（2026-11-14）
 
-用户明确授权后，在 7204 页面使用 Wan 3.0 做 1 次真实生成，验证输入栏素材自动进入参考生成流程。参数为 2 秒、480P、自适应比例、关闭音轨，上传 768×768 PNG，提示词为“让图案缓慢旋转并保持镜头稳定”。未打开高级参数，未手动填写参考素材，未自动重试。
+用户明确授权后，在 7204 页面使用 Wan 3.0 做 1 次真实生成，验证输入栏素材自动进入参考生成流程。页面基础参数为 2 秒、480P、自适应比例、水印关闭，上传 768×768 PNG，提示词为“让图案缓慢旋转并保持镜头稳定”。未打开高级参数，未手动填写参考素材，未自动重试。
 
 结果：Tuzi 任务完成并插入画布；结果 MP4 可解码，`readyState=4`，视频尺寸 640×640，时长约 2.02 秒，未发现媒体错误。页面任务队列回到 0，临时测试 Hook 不存在。该结果确认输入栏素材可以直接触发 Wan 参考生成；清晰度档位不等同于固定输出像素。
 
-本次产生 1 次真实供应商请求及相应费用，未核对账单金额。结果页面保留在 7204，未继续提交其他模型或参数组合。
+本次点击提交 1 次，未核对账单金额；未留存这次实际请求正文或解析音轨，不能据基础参数摘要中的“关闭”断言 audio=false（该摘要表示水印关闭）。结果页面保留在 7204，未继续提交其他模型或参数组合。
 
 ## 三次真实生成验收（2026-11-14，17:32 起，Asia/Shanghai）
 
@@ -343,3 +343,25 @@ git diff --check
 生成结束后恢复临时 getter、执行器和 fetch 方法，再刷新确认临时测试 Hook 不存在、活动任务为 0。保留结果页面供用户查看。本轮没有产品代码改动、提交、推送、PR 更新或部署。
 
 本次三个样本通过不代表全部参数组合、主体/音色/混合参考视频、智能时长、Gemini 编辑/延展或整个模型目录已真实验证。Wan 的 seed=0 和关闭改写确认已发送并被受理，未通过对照生成证明可复现性或内部改写行为；账单及实际扣费金额未核对。Kling/HappyHorse 的音轨仅核验存在，未验证声音内容。
+
+
+## PR #336 最终交付验证（2026-11-14）
+
+此节描述最终实现，前文素材表单及测试数量属于历史批次。功能提交 `84ad6d83`；显式 `git fetch upstream develop codex/adapt-tuzi-video-model-parameters` 后 `git merge upstream/develop` 显示已同步，上游目标 `develop` 为 `73f6e925`，无内容冲突。
+
+- 普通输入栏直接使用当前图片/视频/音频，忽略保存的 `video_media`；没有素材时，支持文本输入的型号走文生视频。HappyHorse I2V/R2V 缺图仍报错，不自动换型号。
+- Wan 输入栏模式自动确定：一/两张图片为首帧/首尾帧，超过两图或含视频/音频为混合参考；辅助文档/网页与图片组合亦走混合参考。移除输入栏手动参考模式选项，保存过的首尾帧模式不会阻挡视频输入。MCP 明确模式仍保留互斥校验。
+- 高级素材表单已移除。Kling 主体/音色、复杂帧角色通过 MCP/程序调用传入；不宣称这些角色仍有独立页面表单。
+- 合并后 12 文件共 350 项回归：**347 通过、3 个既有失败**。失败为 Seedance 2.5 旧尺寸偏好、Sora web 时长、Seedance 2.0 参数预期，与基线 `f8ff9cd6` 的隔离测试日志一致；未跳过或修改断言。新增 Wan 自动模式的 6 个实际请求断言及 4 个参数菜单/恢复断言全部通过。
+- drawnix 和 Web TypeScript 均通过；应用与 Service Worker 生产构建通过（保留 Sass/Browserslist、动态导入和大 chunk 警告）；本次更新的 TS/TSX 文件 ESLint 为 0 errors、64 warnings；OpenSpec 严格校验与 `git diff --check` 通过。
+- 实际命令：`pnpm exec vitest run --config packages/drawnix/vite.config.ts` 加前述 12 个回归文件；`pnpm exec tsc --noEmit -p packages/drawnix/tsconfig.lib.json`；`pnpm exec tsc --noEmit -p apps/web/tsconfig.app.json`；`pnpm exec vite build --config apps/web/vite.config.ts`；`pnpm exec eslint` 加本次变更 TS/TSX；`npx --yes @fission-ai/openspec validate complete-tuzi-video-model-inputs --strict`。均使用本地占位 `NPM_TOKEN=dummy`。
+- 日志：`/tmp/opentu-pr336-final-tests.log`、`/tmp/opentu-pr336-drawnix-types.log`、`/tmp/opentu-pr336-web-types.log`、`/tmp/opentu-pr336-build.log`、`/tmp/opentu-pr336-lint.log`。
+- PR 准备阶段再次检查 7204 当前 Wan 菜单：无参考素材/参考模式控件，其余高级项可见；截图包含此前生成的测试图案视频。本阶段未新增生成请求。
+
+### 真实测试覆盖边界
+
+最新输入栏自动引用版本仅真实复测 Wan 单图（2 秒/480P，结果 640×640、2.02 秒），Kling 有图/无图完成页面 POST 拦截核对。此前 Kling、Wan、HappyHorse 三型号有成功样本，具体批次见上文；不是全部型号对最新版本的完整真实回归。Gemini 1.2 只有本地/页面模拟参数结果，之前真实接口拒绝型号；没有成功证据。新增 Wan 多图/混合自动判断只完成本地请求回归，未追加收费测试。最新 Wan 单图样本未核验音轨或账单；页面测试曾使用的占位 PNG 预览失败，不能据那次断言图片预览通过，后续真实 PNG 已正常显示。
+
+无新依赖、环境变量、迁移或后端部署；需要在供应商目录启用目标模型。Wan/Kling 视频/音频的公网 URL 要求仍存在，无普通密钥通用上传转换接口证据。PR 未合并、未部署；回滚客户端功能提交即可，不清理用户素材和任务。
+
+![最终参数菜单与已有 Wan 测试结果](./images/tuzi-video-auto-reference.png)

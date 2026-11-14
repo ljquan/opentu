@@ -41,3 +41,5 @@ QA/DOC 已更新：`docs/qa-tuzi-video-model-parameters.md`、`docs/tuzi-video-m
 用户明确要求“发起真实”后，以 ego-browser 限定执行 3 次真实生成：Kling first_frame 3 秒/720p/21:9、Wan 2 秒/480P（audio=false、prompt_extend=false、seed=0）、HappyHorse I2V 单图空提示词 3 秒/480P，均完成、缓存、入画布并播放，刷新后恢复。无重提。Wan 实际无音轨；Kling 输出 1460×624，HappyHorse 为 640×640，档位与固定像素差异保留。临时方法已撤除、活动任务 0，结果页面保留；未核对账单或扩大 Gemini/其他高级组合实测，未提交或推送。详见最新 QA 章节。
 
 用户最终要求直接从输入栏提供素材：已移除高级素材表单，普通提交忽略旧素材草稿。PR 准备阶段补齐 Wan 自动模式（单图/双图首尾帧，更多图片或视频/音频混合参考）并添加请求回归；最新测试、真实样本边界与同步状态见 QA 的 PR 交付章节。用户已授权更新 PR #336，不包含合并或部署。
+
+PR 最终验证：347 通过、3 个相同既有失败；drawnix/Web 类型、生产构建、OpenSpec 校验通过。本次更新文件 ESLint 0 errors、64 warnings；上游 develop=73f6e925，已同步无冲突。最新自动输入版本仅 Wan 单图真实复测；其他型号/高级组合边界见 QA。
