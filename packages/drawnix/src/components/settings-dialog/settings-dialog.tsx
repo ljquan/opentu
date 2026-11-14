@@ -42,9 +42,12 @@ import {
   getDefaultImageModel,
   getDefaultTextModel,
   getDefaultVideoModel,
+  filterModelsByVisibility,
+  normalizeModelVisibilitySettings,
   ModelVendor,
   type ModelConfig,
   type ModelType,
+  type ModelVisibilitySettings,
 } from '../../constants/model-config';
 import {
   useProfilePreferredModels,
@@ -150,6 +153,7 @@ export { VIDEO_MODEL_SELECT_OPTIONS as VIDEO_MODEL_OPTIONS } from '../../constan
 type SettingsView =
   | 'providers'
   | 'presets'
+  | 'model-visibility'
   | 'canvas'
   | 'speech'
   | 'tuzi-account';
@@ -204,6 +208,7 @@ function isTuziManagedProviderProfileId(profileId?: string | null): boolean {
 const VIEW_SECTIONS: Array<{ value: SettingsView; label: string }> = [
   { value: 'providers', label: '供应商' },
   { value: 'presets', label: '模型预设' },
+  { value: 'model-visibility', label: '模型显示' },
   { value: 'canvas', label: '画布显示' },
   { value: 'speech', label: '语音播放' },
 ];
@@ -848,6 +853,7 @@ function createSettingsDraftSignature(params: {
   imageModelName: string;
   videoModelName: string;
   textModelName: string;
+  modelVisibility: ModelVisibilitySettings;
   showWorkZoneCard: boolean;
 }): string {
   return JSON.stringify(params);
@@ -1208,6 +1214,12 @@ export const SettingsDialog = ({
   const [imageModelName, setImageModelName] = useState('');
   const [videoModelName, setVideoModelName] = useState('');
   const [textModelName, setTextModelName] = useState('');
+  const [modelVisibility, setModelVisibility] =
+    useState<ModelVisibilitySettings>(() =>
+      normalizeModelVisibilitySettings(
+        settingsManager.getSetting('modelVisibility')
+      )
+    );
   const [showWorkZoneCard, setShowWorkZoneCard] = useState(true);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [discoveryDialogOpen, setDiscoveryDialogOpen] = useState(false);
@@ -1323,6 +1335,7 @@ export const SettingsDialog = ({
     imageModelName,
     videoModelName,
     textModelName,
+    modelVisibility,
     showWorkZoneCard,
   });
   const hasPendingChanges =
@@ -1496,6 +1509,9 @@ export const SettingsDialog = ({
       invocationPresetsSettings.getActivePresetId() ||
       DEFAULT_INVOCATION_PRESET_ID;
     const persistedGemini = geminiSettings.get();
+    const persistedModelVisibility = normalizeModelVisibilitySettings(
+      settingsManager.getSetting<ModelVisibilitySettings>('modelVisibility')
+    );
     const persistedShowWorkZoneCard = readPersistedWorkZoneCard();
 
     setInitialProfiles(persistedProfiles);
@@ -1511,6 +1527,7 @@ export const SettingsDialog = ({
         videoModelName:
           persistedGemini.videoModelName || getDefaultVideoModel(),
         textModelName: persistedGemini.textModelName || getDefaultTextModel(),
+        modelVisibility: persistedModelVisibility,
         showWorkZoneCard: persistedShowWorkZoneCard,
       })
     );
@@ -1557,6 +1574,9 @@ export const SettingsDialog = ({
       invocationPresetsSettings.getActivePresetId() ||
       DEFAULT_INVOCATION_PRESET_ID;
     const geminiConfig = geminiSettings.get();
+    const nextModelVisibility = normalizeModelVisibilitySettings(
+      settingsManager.getSetting<ModelVisibilitySettings>('modelVisibility')
+    );
     let nextShowWorkZoneCard = true;
     const pendingProviderIntent = readPendingProviderNavigationIntent();
     const nextSelectedProfileId =
@@ -1585,6 +1605,7 @@ export const SettingsDialog = ({
     setImageModelName(geminiConfig.imageModelName || getDefaultImageModel());
     setVideoModelName(geminiConfig.videoModelName || getDefaultVideoModel());
     setTextModelName(geminiConfig.textModelName || getDefaultTextModel());
+    setModelVisibility(nextModelVisibility);
 
     try {
       nextShowWorkZoneCard =
@@ -1613,6 +1634,7 @@ export const SettingsDialog = ({
         imageModelName: geminiConfig.imageModelName || getDefaultImageModel(),
         videoModelName: geminiConfig.videoModelName || getDefaultVideoModel(),
         textModelName: geminiConfig.textModelName || getDefaultTextModel(),
+        modelVisibility: nextModelVisibility,
         showWorkZoneCard: nextShowWorkZoneCard,
       })
     );
@@ -2889,6 +2911,7 @@ export const SettingsDialog = ({
           .filter((catalog) => profileIds.has(catalog.profileId)),
         invocationPresets: normalizedPresets,
         activePresetId: normalizedActivePresetId,
+        modelVisibility,
       });
 
       try {
@@ -2909,6 +2932,7 @@ export const SettingsDialog = ({
       setImageModelName(normalizedImageModel);
       setVideoModelName(normalizedVideoModel);
       setTextModelName(normalizedTextModel);
+      setModelVisibility(cloneValue(modelVisibility));
       setInitialDraftSignature(
         createSettingsDraftSignature({
           profiles: normalizedProfiles,
@@ -2918,6 +2942,7 @@ export const SettingsDialog = ({
           imageModelName: normalizedImageModel,
           videoModelName: normalizedVideoModel,
           textModelName: normalizedTextModel,
+          modelVisibility,
           showWorkZoneCard,
         })
       );
@@ -4538,7 +4563,7 @@ export const SettingsDialog = ({
                 .getState(profile.id)
                 .models.filter((model) => model.type === routeType);
 
-        const uniqueModels = sourceModels.filter(
+        const uniqueModels = filterModelsByVisibility(sourceModels, modelVisibility).filter(
           (model, index, list) =>
             list.findIndex((item) => item.id === model.id) === index
         );
@@ -4797,6 +4822,56 @@ export const SettingsDialog = ({
     </div>
   );
 
+  const renderModelVisibilitySettings = () => (
+    <div className="settings-dialog__workspace settings-dialog__workspace--single">
+      <div className="settings-dialog__content-panel settings-dialog__content-panel--canvas">
+        {isCompactLayout ? (
+          <div className="settings-dialog__compact-stage-header">
+            <div className="settings-dialog__compact-stage-copy">
+              <span className="settings-dialog__compact-stage-eyebrow">
+                模型显示
+              </span>
+              <p className="settings-dialog__compact-stage-text">
+                开启后，代码中指定的模型会从前端模型选择器和模型预设中隐藏。
+              </p>
+            </div>
+          </div>
+        ) : null}
+        <div className="settings-dialog__section settings-dialog__section--canvas-card">
+          <div className="settings-dialog__section-header">
+            <div>
+              <h3 className="settings-dialog__section-title">模型显示配置</h3>
+              <p className="settings-dialog__section-description">
+                开启后隐藏代码中指定的模型；不会删除模型或影响已有任务路由。
+              </p>
+            </div>
+          </div>
+
+          <div className="settings-dialog__preference settings-dialog__preference--panel">
+            <div className="settings-dialog__toggle-copy">
+              <span className="settings-dialog__toggle-title">
+                隐藏代码中指定的模型
+              </span>
+              <span className="settings-dialog__toggle-desc">
+                开启后隐藏代码中配置的 HappyHorse 1.0、Gemini Omni 1.1 Flash、Veo 2、Veo 3 系列及旧模型 ID。
+              </span>
+            </div>
+            <Switch
+              size="small"
+              value={modelVisibility.hideConfiguredModels}
+              onChange={(checked) =>
+                setModelVisibility((current) => ({
+                  ...current,
+                  hideConfiguredModels: checked as boolean,
+                }))
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderSettingsNav = () => {
     return (
       <aside className="settings-dialog__nav">
@@ -4854,6 +4929,9 @@ export const SettingsDialog = ({
           openProviderSelectionRequest={tuziGroupPickerRequest}
         />
       );
+    }
+    if (activeView === 'model-visibility') {
+      return renderModelVisibilitySettings();
     }
     if (activeView === 'canvas') {
       return renderCanvasSettings();

@@ -38,6 +38,7 @@ import {
 import { MessagePlugin } from 'tdesign-react';
 import {
   IMAGE_MODELS,
+  filterModelsByVisibility,
   ModelVendor,
   getModelConfig,
   getStaticModelConfig,
@@ -275,7 +276,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   onSelect,
   onSelectModel,
   language = 'zh',
-  models = IMAGE_MODELS,
+  models: inputModels = IMAGE_MODELS,
   modelType,
   placement = 'auto',
   header,
@@ -293,6 +294,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
 }) => {
   const { setAppState } = useDrawnix();
   useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const models = useMemo(() => filterModelsByVisibility(inputModels), [inputModels]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,

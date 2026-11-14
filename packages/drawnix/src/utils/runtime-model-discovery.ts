@@ -17,13 +17,16 @@ import {
   DEFAULT_AUDIO_MODEL_ID,
   DEFAULT_VIDEO_MODEL_ID,
   DEFAULT_TEXT_MODEL_ID,
+  DEFAULT_MODEL_VISIBILITY_SETTINGS,
+  filterModelsByVisibility,
   GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_IDS,
   isGPTImage26ModelId,
+  normalizeModelVisibilitySettings,
   getStaticModelsByType,
   getStaticModelConfig,
-  isDefaultModelHidden,
   setRuntimeModelConfigs,
+  type ModelVisibilitySettings,
 } from '../constants/model-config';
 import { normalizeModelApiBaseUrl } from './provider-base-url';
 import { isTuziCompatibleBaseUrl } from '../services/provider-routing/tuzi-api-endpoints';
@@ -50,6 +53,17 @@ import type { ProviderPricingCache } from './model-pricing-types';
 
 const LEGACY_CACHE_KEY = 'drawnix-runtime-model-discovery';
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+
+export function getModelVisibilitySettings(): ModelVisibilitySettings {
+  return normalizeModelVisibilitySettings(
+    settingsManager.getSetting<ModelVisibilitySettings>('modelVisibility') ||
+      DEFAULT_MODEL_VISIBILITY_SETTINGS
+  );
+}
+
+export function filterModelsForSelection(models: ModelConfig[]): ModelConfig[] {
+  return filterModelsByVisibility(models, getModelVisibilitySettings());
+}
 
 export interface RemoteModelListItem {
   id: string;
@@ -1646,6 +1660,10 @@ class RuntimeModelDiscoveryStore {
       'activePresetId',
       this.handleActivePresetIdChange
     );
+    settingsManager.addListener(
+      'modelVisibility',
+      this.handleModelVisibilitySettingsChange
+    );
   }
 
   private loadCatalogStatesFromSettings(): Map<
@@ -1727,6 +1745,11 @@ class RuntimeModelDiscoveryStore {
   };
 
   private handleActivePresetIdChange = (): void => {
+    this.syncRuntimeModelConfigs();
+    this.emit();
+  };
+
+  private handleModelVisibilitySettingsChange = (): void => {
     this.syncRuntimeModelConfigs();
     this.emit();
   };
@@ -1852,7 +1875,9 @@ class RuntimeModelDiscoveryStore {
     }
 
     return sortModelsByDisplayPriority(
-      decorateStaticModels(getStaticModelsByType(type))
+      decorateStaticModels(
+        filterModelsForSelection(getStaticModelsByType(type))
+      )
     );
   }
 
@@ -1864,16 +1889,11 @@ class RuntimeModelDiscoveryStore {
       }
       runtimeModels.push(
         ...state.models.filter(
-          (model) =>
-            model.type === type &&
-            !(
-              state.profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
-              isDefaultModelHidden(model.id)
-            )
+          (model) => model.type === type
         )
       );
     }
-    return sortModelsByDisplayPriority(runtimeModels);
+    return sortModelsByDisplayPriority(filterModelsForSelection(runtimeModels));
   }
 
   getPinnedSelectableModel(
@@ -1958,18 +1978,14 @@ class RuntimeModelDiscoveryStore {
     type: ModelType
   ): ModelConfig[] {
     const state = this.getCatalogState(profileId);
-    const runtimeModels = state.models.filter(
-      (model) =>
-        model.type === type &&
-        !(
-          profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID &&
-          isDefaultModelHidden(model.id)
-        )
-    );
+    const runtimeModels = state.models.filter((model) => model.type === type);
     if (canDiscoverProfileModels(getProfileById(profileId))) {
-      return sortModelsByDisplayPriority(runtimeModels);
+      return sortModelsByDisplayPriority(filterModelsForSelection(runtimeModels));
     }
-    return mergeModels(getStaticModelsByType(type), runtimeModels);
+    return mergeModels(
+      filterModelsForSelection(getStaticModelsByType(type)),
+      filterModelsForSelection(runtimeModels)
+    );
   }
 
   invalidateIfConfigChanged(
