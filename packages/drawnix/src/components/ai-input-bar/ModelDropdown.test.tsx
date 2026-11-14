@@ -9,7 +9,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ModelVendor, type ModelConfig } from '../../constants/model-config';
+import { getStaticModelConfig, ModelVendor, type ModelConfig } from '../../constants/model-config';
 import { ModelDropdown } from './ModelDropdown';
 
 const {
@@ -178,6 +178,24 @@ describe('ModelDropdown', () => {
       toJSON: () => ({}),
     });
   }
+
+  it.each([
+    ['gemini-omni-1.2-flash', 'omni12'], ['wan3.0-video', 'wan30'],
+    ['kling-4.0', 'k40'], ['happyhorse-1.1-t2v', 'h11t'],
+    ['happyhorse-1.1-i2v', 'h11i'], ['happyhorse-1.1-r2v', 'h11r'],
+  ])('shows the video model code for %s, including older catalogs', (modelId, code) => {
+    const builtIn = getStaticModelConfig(modelId);
+    expect(builtIn?.shortCode).toBe(code);
+    const model = { ...builtIn, shortCode: undefined } as ModelConfig;
+    const { container } = render(<ModelDropdown selectedModel={modelId} models={[model]} onSelect={vi.fn()} />);
+    expect(container.querySelector('.model-dropdown__code')?.textContent).toBe(code);
+  });
+
+  it('uses a custom video model name when no short code exists', () => {
+    const model: ModelConfig = { id: 'custom-video', label: 'Custom Video', type: 'video', vendor: ModelVendor.OTHER };
+    const { container } = render(<ModelDropdown selectedModel={model.id} models={[model]} onSelect={vi.fn()} />);
+    expect(container.querySelector('.model-dropdown__code')?.textContent).toBe('Custom Video');
+  });
 
   it('hides token input/output prices without hiding the model', () => {
     enableMenuLayout();

@@ -8,6 +8,15 @@ export const HAPPYHORSE_11_MODEL_IDS = [
   'happyhorse-1.1-r2v',
 ];
 
+export const TUZI_VIDEO_MODEL_SHORT_CODES: Readonly<Record<string, string>> = {
+  'gemini-omni-1.2-flash': 'omni12',
+  'wan3.0-video': 'wan30',
+  'kling-4.0': 'k40',
+  'happyhorse-1.1-t2v': 'h11t',
+  'happyhorse-1.1-i2v': 'h11i',
+  'happyhorse-1.1-r2v': 'h11r',
+};
+
 const durations = (min: number, max: number) =>
   Array.from({ length: max - min + 1 }, (_, index) => {
     const value = String(min + index);
@@ -59,36 +68,10 @@ export const TUZI_VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
     description: '3–30 秒，720p / 1080p，使用统一视频任务接口',
     durationOptions: durations(3, 30),
     defaultDuration: '10',
-    sizeOptions: ['1080p', '720p'].flatMap((resolution) => {
-      const height = resolution === '1080p' ? 1080 : 720;
-      return [
-        {
-          label: `${resolution} · 自适应`,
-          value: resolution,
-          aspectRatio: 'adaptive',
-        },
-        {
-          label: `${resolution} · 16:9`,
-          value: `${(height * 16) / 9}x${height}`,
-          aspectRatio: '16:9',
-        },
-        {
-          label: `${resolution} · 9:16`,
-          value: `${height}x${(height * 16) / 9}`,
-          aspectRatio: '9:16',
-        },
-        {
-          label: `${resolution} · 1:1`,
-          value: `${height}x${height}`,
-          aspectRatio: '1:1',
-        },
-        {
-          label: `${resolution} · 21:9`,
-          value: `${(height * 21) / 9}x${height}`,
-          aspectRatio: '21:9',
-        },
-      ];
-    }),
+    sizeOptions: resolutions(['1080p', '720p']).map((option) => ({
+      ...option,
+      label: option.label.toUpperCase(),
+    })),
     defaultSize: '1080p',
     imageUpload: {
       maxCount: 10,
@@ -136,4 +119,39 @@ export function getTuziVideoModelConfig(
   return Object.prototype.hasOwnProperty.call(TUZI_VIDEO_MODEL_CONFIGS, id)
     ? TUZI_VIDEO_MODEL_CONFIGS[id]
     : undefined;
+}
+
+export const KLING_4_RATIO_OPTIONS = [
+  'adaptive',
+  '16:9',
+  '9:16',
+  '1:1',
+  '21:9',
+];
+
+// Exact sizes previously saved by the combined resolution/aspect selector.
+const LEGACY_KLING_4_SIZES = Object.fromEntries(
+  [1080, 720].flatMap((height) => [
+    [`${(height * 16) / 9}x${height}`, { size: `${height}p`, ratio: '16:9' }],
+    [`${height}x${(height * 16) / 9}`, { size: `${height}p`, ratio: '9:16' }],
+    [`${height}x${height}`, { size: `${height}p`, ratio: '1:1' }],
+    [`${(height * 21) / 9}x${height}`, { size: `${height}p`, ratio: '21:9' }],
+  ])
+) as Record<string, { size: string; ratio: string }>;
+
+export function normalizeKling4VideoParams<T extends Record<string, unknown>>(
+  modelId: string,
+  params: T
+): T {
+  if (modelId.toLowerCase() !== 'kling-4.0' || typeof params.size !== 'string')
+    return params;
+  const legacy = Object.prototype.hasOwnProperty.call(
+    LEGACY_KLING_4_SIZES,
+    params.size
+  )
+    ? LEGACY_KLING_4_SIZES[params.size]
+    : undefined;
+  return legacy
+    ? { ...params, size: legacy.size, ratio: params.ratio || legacy.ratio }
+    : params;
 }

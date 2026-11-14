@@ -15,6 +15,23 @@ vi.hoisted(() => {
 });
 
 describe('ai-generation-preferences-service', () => {
+  it.each([
+    ['1680x720', '720p', '21:9'],
+    ['1080x1920', '1080p', '9:16'],
+  ])('restores Kling legacy %s across input and video tool preferences', async (legacy, size, ratio) => {
+    const service = await import('../ai-generation-preferences-service');
+    service.saveAIInputPreferences({ generationType: 'video', selectedModel: 'kling-4.0', selectedCount: 1,
+      selectedSkillId: '', selectedParams: { size: legacy, duration: '3' } });
+    expect(service.loadAIInputPreferences().selectedParams).toMatchObject({ size, ratio, duration: '3' });
+    service.saveScopedAIInputModelParams('video', 'kling-4.0', { size: legacy }, 'provider-k::kling-4.0');
+    expect(service.loadScopedAIInputModelParams('video', 'kling-4.0', 'provider-k::kling-4.0')).toMatchObject({ size, ratio });
+    service.saveAIVideoToolPreferences({ currentModel: 'kling-4.0', currentSelectionKey: 'provider-k::kling-4.0',
+      duration: '3', size: legacy, extraParams: { watermark: 'false' } });
+    expect(service.loadScopedAIVideoToolPreferences('kling-4.0', 'provider-k::kling-4.0'))
+      .toMatchObject({ size, duration: '3', extraParams: { ratio, watermark: 'false' } });
+  });
+
+
   it.each(['2048x2048', '4096x4096'])(
     'GPT Image 2.6 migrates legacy square size %s to ratio and resolution across the series', async (size) => {
       const service = await import('../ai-generation-preferences-service');

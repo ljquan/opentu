@@ -1,3 +1,4 @@
+import { normalizeKling4VideoParams } from '../../constants/tuzi-video-models';
 import type { TaskError } from '../../types/shared/core.types';
 import { toGenerationTaskError } from '../../utils/generation-error-details';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
@@ -4985,7 +4986,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               getSelectionKey(selectedModel, selectedModelRef),
               selectedParamsRef.current
             );
-      const baseParams = { ...loadedParams };
+      const baseParams = normalizeKling4VideoParams(selectedModel, { ...loadedParams });
       if (isSeedance2ModelId(selectedModel) && baseParams.size?.includes('@')) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
         baseParams.size = resolution;

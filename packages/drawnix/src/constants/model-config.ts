@@ -15,7 +15,7 @@ import { isSunoV2Model, isUnavailableSunoModel } from '../services/suno-v2';
 import { isSunoNativeModel } from '../services/suno-native';
 import { getSunoNativeParams } from '../services/suno-native-params';
 import { getSunoV2Params } from '../services/suno-v2-params';
-import { TUZI_VIDEO_MODEL_CONFIGS } from './tuzi-video-models';
+import { KLING_4_RATIO_OPTIONS, TUZI_VIDEO_MODEL_CONFIGS, TUZI_VIDEO_MODEL_SHORT_CODES } from './tuzi-video-models';
 
 /**
  * 模型类型
@@ -1240,6 +1240,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
   },
   ...Object.values(TUZI_VIDEO_MODEL_CONFIGS).map((config): ModelConfig => ({
     id: config.id, label: config.label, description: config.description || config.label,
+    shortCode: TUZI_VIDEO_MODEL_SHORT_CODES[config.id],
     type: 'video',
     vendor: config.provider === 'happyhorse' ? ModelVendor.HAPPYHORSE
       : config.provider === 'kling' ? ModelVendor.KLING
@@ -1247,7 +1248,7 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     videoDefaults: {
       duration: config.defaultDuration, size: config.defaultSize,
       aspectRatio: config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio === 'resolution'
-        ? config.provider === 'wan' ? 'adaptive' : '16:9'
+        ? config.provider === 'wan' || config.provider === 'kling' ? 'adaptive' : '16:9'
         : config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio || '16:9',
     },
   })),
@@ -2925,11 +2926,11 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { ...common, id: 'size', label: '视频尺寸', shortLabel: '尺寸', valueType: 'enum',
         options: config.sizeOptions.map((option) => ({ value: option.value, label: option.label })), defaultValue: config.defaultSize },
     ];
-    if ((config.provider === 'happyhorse' && !config.id.endsWith('-i2v')) || config.provider === 'wan') {
+    if ((config.provider === 'happyhorse' && !config.id.endsWith('-i2v')) || config.provider === 'wan' || config.provider === 'kling') {
       params.push({ ...common, id: 'ratio', label: '视频比例', shortLabel: '比例', valueType: 'enum',
-        options: (config.provider === 'wan' ? ['adaptive', '16:9', '9:16', '1:1', '4:3', '3:4'] : ['16:9', '9:16', '1:1', '4:3', '3:4'])
+        options: (config.provider === 'kling' ? KLING_4_RATIO_OPTIONS : config.provider === 'wan' ? ['adaptive', '16:9', '9:16', '1:1', '4:3', '3:4'] : ['16:9', '9:16', '1:1', '4:3', '3:4'])
           .map((value) => ({ value, label: value === 'adaptive' ? '自适应' : value })),
-        defaultValue: config.provider === 'wan' ? 'adaptive' : '16:9' });
+        defaultValue: config.provider === 'wan' || config.provider === 'kling' ? 'adaptive' : '16:9' });
     }
     if (config.provider === 'kling' || config.provider === 'wan') {
       params.push({ ...common, id: 'watermark', label: '水印', valueType: 'enum',

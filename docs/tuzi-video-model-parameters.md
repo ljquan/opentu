@@ -4,7 +4,7 @@
 
 ## 参数与使用
 
-在供应商模型列表刷新并勾选相应模型，然后在视频生成参数菜单选择时长和尺寸。保留完整请求模型 ID 和供应商身份，不映射成旧型号。
+在供应商模型列表刷新并勾选相应模型，然后在视频生成参数菜单选择时长和尺寸。保留完整请求模型 ID 和供应商身份，不映射成旧型号。模型按钮短代码分别为 omni12、wan30、k40、h11t、h11i、h11r；旧目录缺少短代码时复用对应内置短代码，自定义模型则显示名称，不再回退为 img。
 
 | 模型 | 时长及默认值 | 分辨率 | 图片输入及参数 |
 | --- | --- | --- | --- |
@@ -15,7 +15,7 @@
 | happyhorse-1.1-r2v | 同上 | 同上 | 必需 1–9 张有序 `images`；可用 `[Image 1]` 等指代图片 |
 | kling-4.0 | 3–30 秒，默认 10 | 720p / 1080p，默认 1080p 自适应；21:9、16:9、9:16、1:1、adaptive | 最多 10 张 `contents[].type=refer_image` 参考图，每张带唯一 ID；时长/清晰度/比例使用 `settings`，水印使用 `options.watermark_info.enabled`；不走旧 Kling 接口 |
 
-HappyHorse 的 ratio 提供 16:9、9:16、1:1、4:3、3:4；seed 为 0–2147483647 的整数，0 和显式 false 保留。Wan 提供上述比例和 adaptive。Kling 和 Gemini 的比例与分辨率通过 size 联合选择；固定比例使用像素尺寸，自适应使用分辨率值。Wan 和 Kling 提供水印开关，HappyHorse 沿用现有水印与种子控件；Gemini 不显示水印。
+HappyHorse 的 ratio 提供 16:9、9:16、1:1、4:3、3:4；seed 为 0–2147483647 的整数，0 和显式 false 保留。Wan 提供上述比例和 adaptive。Kling 4.0 的“视频尺寸”单独选择 1080P/720P，“视频比例”单独选择自适应、16:9、9:16、1:1、21:9；修改任意一项会保留另一项，默认 1080P + 自适应。尺寸保存在 size，比例保存在 ratio，提交时分别映射为 settings.resolution/aspect_ratio。旧组合尺寸（如 1680x720）在偏好恢复及旧任务提交时兼容转换为 720p + 21:9，显式 ratio 优先。Gemini 仍沿用组合尺寸选项。Wan 和 Kling 提供水印开关，HappyHorse 沿用现有水印与种子控件；Gemini 不显示水印。
 
 本地或缓存图片由调用入口读取为 data URI；请求构造模块不依赖主线程缓存、FileReader 或 DOM。Gemini 本次仅接通文生视频与公网参考图 URL；本地图片需要后续按多模态 input 合同适配，当前会在提交前提示。
 
@@ -39,4 +39,6 @@ HappyHorse 的 ratio 提供 16:9、9:16、1:1、4:3、3:4；seed 为 0–2147483
 
 验证结果与未执行范围见 [QA 记录](./qa-tuzi-video-model-parameters.md)。
 
-![Kling 4.0 参数菜单与已有生成结果](./images/tuzi-video-model-parameters.png)
+拆分前的历史真实验收截图（当前已改为尺寸、比例分组选择）：
+
+![Kling 4.0 历史参数菜单与已有生成结果](./images/tuzi-video-model-parameters.png)

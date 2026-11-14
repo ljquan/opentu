@@ -93,8 +93,8 @@ describe('VideoAPIService MiniMax-H3 submission', () => {
       new Response(JSON.stringify({ id: 'task', status: 'queued' }))
     );
     await videoAPIService.submitVideoGeneration({
-      model: 'kling-4.0', prompt: 'animate', seconds: '3', size: '1680x720',
-      params: { watermark: 'false' },
+      model: 'kling-4.0', prompt: 'animate', seconds: '3', size: '720p',
+      params: { watermark: 'false', ratio: '21:9' },
       inputReferences: [
         { slot: 1, url: 'https://images.example.test/b.png', name: 'b.png' },
         { slot: 0, url: 'https://images.example.test/a.png', name: 'a.png' },

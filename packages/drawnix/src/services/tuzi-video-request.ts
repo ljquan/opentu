@@ -1,4 +1,8 @@
-import { getTuziVideoModelConfig } from '../constants/tuzi-video-models';
+import {
+  getTuziVideoModelConfig,
+  KLING_4_RATIO_OPTIONS,
+  normalizeKling4VideoParams,
+} from '../constants/tuzi-video-models';
 
 export interface TuziVideoRequest {
   model: string;
@@ -68,7 +72,11 @@ export async function buildTuziVideoRequest(
     Number(config.durationOptions[config.durationOptions.length - 1].value),
     `${model} 视频时长`
   );
-  const size = request.size || String(params.size || config.defaultSize);
+  const outputParams = normalizeKling4VideoParams<Record<string, unknown>>(model, {
+    ...params,
+    size: request.size || params.size || config.defaultSize,
+  });
+  const size = String(outputParams.size);
   const sizeOption = config.sizeOptions.find((option) => option.value === size);
   if (!sizeOption) {
     throw new Error(`${model} 不支持视频尺寸 ${size}`);
@@ -110,11 +118,9 @@ export async function buildTuziVideoRequest(
   );
 
   if (config.id === 'kling-4.0') {
-    const resolution = size.includes('x')
-      ? Math.min(...size.split('x').map(Number)) === 720
-        ? '720p'
-        : '1080p'
-      : size;
+    const ratio = String(outputParams.ratio ?? 'adaptive');
+    if (!KLING_4_RATIO_OPTIONS.includes(ratio))
+      throw new Error('Kling 4.0 不支持该视频比例');
     return {
       model,
       contents: [
@@ -125,7 +131,7 @@ export async function buildTuziVideoRequest(
           id: `image_${index + 1}`,
         })),
       ],
-      settings: { duration, resolution, aspect_ratio: sizeOption.aspectRatio },
+      settings: { duration, resolution: size, aspect_ratio: ratio },
       ...(params.watermark !== undefined
         ? {
             options: {

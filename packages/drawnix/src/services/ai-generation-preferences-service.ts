@@ -1,3 +1,4 @@
+import { normalizeKling4VideoParams } from '../constants/tuzi-video-models';
 import { isSunoNativeModel } from './suno-native';
 import { getSunoNativeParams } from './suno-native-params';
 import {
@@ -217,7 +218,7 @@ function sanitizeSelectedParams(
   const persistedParams = normalizeGPTImage26RasterParams(modelId,
     normalizeGPTImage25ResolutionParams(
       modelId,
-      migrateLegacyGPTImageQualityParam(compatibleParams, asRecord(rawParams))
+      migrateLegacyGPTImageQualityParam(compatibleParams, normalizeKling4VideoParams(modelId, asRecord(rawParams)))
     )
   );
   const nextParams: PersistedParams = {};
@@ -335,7 +336,7 @@ function sanitizeVideoToolParams(
   rawParams: unknown,
   selectionKey?: string | null
 ): PersistedParams {
-  const persistedParams = asRecord(rawParams);
+  const persistedParams = normalizeKling4VideoParams(modelId, asRecord(rawParams));
   if (isSeedance2ModelId(modelId) && persistedParams.size?.includes('@')) {
     const [resolution, ratio] = persistedParams.size.split('@');
     persistedParams.size = resolution;
@@ -825,7 +826,7 @@ export function loadScopedAIInputModelParams(
   const preferenceKey = getModelPreferenceKey(modelId, selectionKey);
   const scopedParams =
     stored.scopedPreferences?.[generationType]?.[preferenceKey];
-  return asRecord(scopedParams ?? fallbackParams);
+  return normalizeKling4VideoParams(modelId, asRecord(scopedParams ?? fallbackParams));
 }
 
 export function saveScopedAIInputModelParams(

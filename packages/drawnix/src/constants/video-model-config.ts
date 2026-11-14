@@ -14,7 +14,7 @@ import type {
 } from '../types/video.types';
 import { getModelConfig, ModelVendor } from './model-config';
 import { SEEDANCE_25_MODEL_ID } from '../utils/seedance-model';
-import { TUZI_VIDEO_MODEL_CONFIGS } from './tuzi-video-models';
+import { normalizeKling4VideoParams, TUZI_VIDEO_MODEL_CONFIGS } from './tuzi-video-models';
 
 const SEEDANCE_ASPECT_RATIO_OPTIONS = [
   { label: '横屏 16:9', aspectRatio: '16:9' },
@@ -833,6 +833,7 @@ export function getValidVideoSize(
   aspectRatio?: string | null
 ): string {
   const config = getConfigOrDefault(model);
+  size = normalizeKling4VideoParams(model, { size }).size;
   if (size && config.sizeOptions.some((option) => option.value === size)) {
     return size;
   }

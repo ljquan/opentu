@@ -1,3 +1,4 @@
+import { normalizeKling4VideoParams } from '../../constants/tuzi-video-models';
 import { SunoFileInput } from '../shared/SunoFileInput';
 /**
  * 参数下拉选择器组件
@@ -130,7 +131,7 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
   placement = 'auto',
 }) => {
   const selectedParams = useMemo(() => {
-    const params = normalizeGPTImage26RasterParams(modelId, savedParams);
+    const params = normalizeGPTImage26RasterParams(modelId, normalizeKling4VideoParams(modelId, savedParams));
     if (!isGPTImage26ModelId(modelId) || !params.gpt_image_26_output) {
       return params;
     }

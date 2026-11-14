@@ -219,29 +219,44 @@ describe('Tuzi video model contracts', () => {
     }
   );
 
-  it.each(getVideoModelConfig('kling-4.0').sizeOptions)(
-    'preserves Kling resolution and ratio for $label',
-    async (option) => {
+  it.each(
+    ['720p', '1080p'].flatMap((size) =>
+      ['adaptive', '16:9', '9:16', '1:1', '21:9'].map((ratio) => ({
+        size,
+        ratio,
+      }))
+    )
+  )(
+    'sends independently selected Kling resolution $size and ratio $ratio',
+    async ({ size, ratio }) => {
       const body = await buildTuziVideoRequest({
         model: 'kling-4.0',
         prompt: 'animate',
-        size: option.value,
-        params: { watermark: true },
+        size,
+        params: { ratio, watermark: true },
       });
       expect(body).toMatchObject({
-        settings: {
-          duration: 10,
-          resolution: option.label.startsWith('720p') ? '720p' : '1080p',
-          aspect_ratio: option.aspectRatio,
-        },
+        settings: { duration: 10, resolution: size, aspect_ratio: ratio },
         options: { watermark_info: { enabled: true } },
       });
-      expect(body).not.toHaveProperty('prompt');
-      expect(body).not.toHaveProperty('size');
-      expect(body).not.toHaveProperty('seconds');
-      expect(body).not.toHaveProperty('input_reference');
+      for (const field of ['prompt', 'size', 'seconds', 'input_reference'])
+        expect(body).not.toHaveProperty(field);
     }
   );
+
+  it('keeps an explicit ratio when a legacy task size is supplied', async () => {
+    const body = await buildTuziVideoRequest({
+      model: 'kling-4.0',
+      prompt: 'animate',
+      size: '1680x720',
+      params: { ratio: '9:16' },
+    });
+    expect(body?.settings).toEqual({
+      duration: 10,
+      resolution: '720p',
+      aspect_ratio: '9:16',
+    });
+  });
 
   it('keeps local PNG references and omits unset Kling watermark options', async () => {
     const resolveImage = vi.fn(async () => 'data:image/png;base64,AQID');
@@ -370,6 +385,7 @@ describe('Tuzi video model contracts', () => {
       referenceImages: ['', 'https://example.test/last.png'],
     },
     { model: 'kling-4.0', size: '3840x2160' },
+    { model: 'kling-4.0', size: '720p', params: { ratio: '4:3' } },
     {
       model: 'kling-4.0',
       referenceImages: Array.from(

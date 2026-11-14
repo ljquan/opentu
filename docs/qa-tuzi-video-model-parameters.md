@@ -144,3 +144,24 @@ git diff --check
 - 按贡献指南附参数页面裁剪截图 [Kling 参数与生成结果](./images/tuzi-video-model-parameters.png)，只记录已有页面状态，没有再生成视频。
 
 日志：`/tmp/opentu-video-pr-basic-tests.log`、`/tmp/opentu-video-pr-final-tests.log`、`/tmp/opentu-video-pr-final-types.log`、`/tmp/opentu-video-pr-final-build.log`、`/tmp/opentu-video-pr-final-lint.log`、`/tmp/opentu-video-pr-final-cycles.log`、`/tmp/opentu-video-pr-baseline-cycles.log`。上述是本地结果；远程 CI、PR 合并与部署状态不能由本地结果推定。
+
+
+## Kling 尺寸与比例分组选择（2026-11-14）
+
+按用户截图要求，将 Kling 4.0 的组合按钮拆成独立两组：视频尺寸为 1080P/720P；视频比例为自适应、16:9、9:16、1:1、21:9。使用既有按钮组件及 aria-pressed 选中状态，切换一项保留另一项。保持接口支持范围，不添加不支持的 480P、4:3 或 3:4。
+
+请求使用 size（720p/1080p）和 ratio 两个参数，分别写入 settings.resolution/aspect_ratio。旧版八种像素组合在参数展示、输入栏与视频工具偏好恢复、尺寸校验和旧任务请求构造时兼容转换；例如 1680x720 转成 720p + 21:9，已有显式 ratio 优先，未知尺寸仍拒绝。不改变其他型号或增加收费请求。
+
+验证：11 文件 402 项通过，1 项原有 Seedance 2.5 偏好断言失败（期望清空 size，原实现保留 1080p）。从修改前 HEAD=f0cb1fac 隔离导出代码后，同一偏好测试文件 49 通过、1 项相同失败，没有修改或跳过断言。新增两项组件测试验证分组按钮内容、独立选值与旧值选中态；请求测试覆盖两档尺寸与五种比例的十种组合、旧任务尺寸兼容、显式比例优先及非法比例；偏好测试覆盖输入栏及按供应商隔离的视频工具恢复。
+
+drawnix TypeScript、Web 类型检查、应用和 Service Worker 构建通过；本次 11 个变更代码/测试文件 ESLint 0 errors、26 warnings；差异检查通过。没有新增页面测试或真实生成，本次分组交互由组件逻辑测试验证。日志：`/tmp/opentu-kling-split-final-tests.log`、`/tmp/opentu-kling-split-baseline-tests.log`、`/tmp/opentu-kling-split-final-types.log`、`/tmp/opentu-kling-split-lint.log`、`/tmp/opentu-kling-split-final-build.log`。以上为提交前验证结果；本轮按用户要求纳入本地提交，未推送或更新远程 PR。
+
+
+## 视频模型按钮误显 img 修复
+
+新增六个视频模型缺少 shortCode，模型按钮又把所有缺省情况回退为 img，造成截图中的误导显示。为六个精确模型补齐 omni12、wan30、k40、h11t、h11i、h11r；组件对旧目录先补内置短代码，自定义模型回退到名称/ID，不变更请求模型 ID。已有分辨率与比例拆分改动保留。
+
+专项 5 文件 181 项通过，包含六个型号旧目录显示、无短代码自定义视频模型、模型配置/发现、请求参数和分组控件回归。drawnix TypeScript、变更四文件 ESLint 和差异检查通过。没有新增页面测试、收费请求或远程 PR 更新；这是本地展示修复，未重复构建。日志 `/tmp/opentu-video-label-tests.log`、`/tmp/opentu-video-label-types.log`、`/tmp/opentu-video-label-lint.log`。
+
+
+本轮本地提交范围：Kling 尺寸/比例独立选择、旧组合参数恢复、六个视频模型短代码及名称回退、对应测试和文档。仅本地提交，远程 PR 未更新；NEW 标签的缺失已定位，本轮未增加该标签。
