@@ -38,3 +38,5 @@ HappyHorse 的 ratio 提供 16:9、9:16、1:1、4:3、3:4；seed 为 0–2147483
 本次不处理 Gemini 多模态 input、任务编辑/延展，Wan 参考视频混合输入，Kling 复杂 contents 输入（首尾帧、参考视频）、视频角色、主体及音色。Wan 音轨、提示词改写沿用服务默认，没有猜测额外请求字段。HappyHorse 图片像素、文件大小与远程图片格式仍由服务端校验；本地构造校验时长、尺寸、比例、种子、水印、图片数量及必需图片。
 
 验证结果与未执行范围见 [QA 记录](./qa-tuzi-video-model-parameters.md)。
+
+![Kling 4.0 参数菜单与已有生成结果](./images/tuzi-video-model-parameters.png)

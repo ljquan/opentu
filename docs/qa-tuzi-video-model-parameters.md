@@ -14,7 +14,7 @@
 | 检查 | 结果 |
 | --- | --- |
 | 新模型请求专项 | 36 项通过 |
-| 10 文件联合回归 | 332 项通过，2 项原有失败；没有跳过或修改失败断言 |
+| PR 前最终 10 文件联合回归 | 349 项通过，2 项原有失败；没有跳过或修改失败断言 |
 | drawnix TypeScript | 通过 |
 | Web 构建 | 通过，含应用、Web 类型检查和 Service Worker |
 | 修改文件 ESLint | 1 个原有错误、29 warnings；无新增 lint error |
@@ -128,3 +128,19 @@ git diff --check
 - 新任务保留在测试画板；旧失败样本保留。本次没有改生产代码、提交、推送或部署。
 
 密钥仅临时用于浏览器内存中的 Tuzi 路由，生成结束后已恢复临时方法，确认持久设置未写入测试密钥。脱敏请求/状态摘要在 `/tmp/opentu-kling4-fixed-real-qa.json`，第 1 秒抽帧在 `/tmp/opentu-kling4-fixed-frame.png`；没有保存认证头、密钥或结果签名 URL。核验应用任务终态使用持久任务读取器；活动队列会在完成后移除任务，活动队列为空不代表结果缺失。
+
+
+## PR 前交付检查
+
+功能提交 `07dca30d`（`feat(video): 适配 Tuzi 新版视频模型参数与 Kling 4.0 请求`）后显式执行 `git fetch upstream develop` 与 `git merge --no-edit upstream/develop`，目标仍为 `73f6e925`，结果 Already up to date。没有内容冲突、合并提交或历史改写。
+
+最终本地验证：
+
+- 10 文件联合回归 349 通过、2 个与上文隔离基线相同的 Sora/Seedance 失败；本次核心 8 文件 310 项通过，没有跳过测试。
+- drawnix TypeScript、Web 类型检查、应用与 Service Worker 构建通过。
+- 13 个变更代码/测试文件 ESLint 为 1 个原有 Nx lazy-library 错误、29 warnings；错误与先前同一基线导入一致，没有新增 error。
+- `pnpm check:cycles` 未能扫描：仓库脚本使用 JSON.parse，无法解析 tsconfig.base.json 的既有尾逗号（line 25）；将上游原脚本和原配置导出到临时目录得到相同异常。脚本及配置不在本次差异中，未为通过检查改动它们。类型检查和构建通过不等价于循环依赖扫描通过。
+- `git diff --check` 通过，无未合并文件；没有夹带凭据、生成产物、私有素材、依赖或锁文件。
+- 按贡献指南附参数页面裁剪截图 [Kling 参数与生成结果](./images/tuzi-video-model-parameters.png)，只记录已有页面状态，没有再生成视频。
+
+日志：`/tmp/opentu-video-pr-basic-tests.log`、`/tmp/opentu-video-pr-final-tests.log`、`/tmp/opentu-video-pr-final-types.log`、`/tmp/opentu-video-pr-final-build.log`、`/tmp/opentu-video-pr-final-lint.log`、`/tmp/opentu-video-pr-final-cycles.log`、`/tmp/opentu-video-pr-baseline-cycles.log`。上述是本地结果；远程 CI、PR 合并与部署状态不能由本地结果推定。
