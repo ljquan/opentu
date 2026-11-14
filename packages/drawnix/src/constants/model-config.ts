@@ -21,6 +21,56 @@ import { getSunoV2Params } from '../services/suno-v2-params';
  */
 export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
+export type ModelVisibilityFamily =
+  | 'happyhorse-1.0'
+  | 'gemini-omni-1.1-flash'
+  | 'veo2'
+  | 'veo3';
+
+export interface ModelVisibilitySettings {
+  hideConfiguredModels: boolean;
+}
+
+export const MODEL_VISIBILITY_FAMILY_META: Readonly<
+  Record<
+    ModelVisibilityFamily,
+    { label: string; description: string; prefixes: readonly string[] }
+  >
+> = {
+  'happyhorse-1.0': {
+    label: 'HappyHorse 1.0 系列',
+    description: '控制 happyhorse-1.0-* 模型是否出现在前端选择器中。',
+    prefixes: ['happyhorse-1.0-'],
+  },
+  'gemini-omni-1.1-flash': {
+    label: 'Gemini Omni 1.1 Flash',
+    description: '控制 gemini-omni-1.1-flash* 模型是否出现在前端选择器中。',
+    prefixes: ['gemini-omni-1.1-flash'],
+  },
+  veo2: {
+    label: 'Veo 2 系列',
+    description: '控制 veo2* 和 veo-2* 模型是否出现在前端选择器中。',
+    prefixes: ['veo2', 'veo-2'],
+  },
+  veo3: {
+    label: 'Veo 3 系列',
+    description: '控制 veo3* 和 veo-3* 模型是否出现在前端选择器中。',
+    prefixes: ['veo3', 'veo-3'],
+  },
+};
+
+export const DEFAULT_MODEL_VISIBILITY_SETTINGS: ModelVisibilitySettings = {
+  hideConfiguredModels: true,
+};
+
+export function normalizeModelVisibilitySettings(
+  settings?: Partial<ModelVisibilitySettings> | null
+): ModelVisibilitySettings {
+  return {
+    hideConfiguredModels: settings?.hideConfiguredModels !== false,
+  };
+}
+
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
 export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
 export const GPT_IMAGE_26_MODEL_IDS = [
@@ -1724,8 +1774,46 @@ export const DEFAULT_HIDDEN_MODEL_IDS = new Set([
   'gpt-5.4-mini',
 ]);
 
+function matchesModelIdPattern(modelId: string, pattern: string): boolean {
+  const normalizedModelId = modelId.trim().toLowerCase();
+  const normalizedPattern = pattern.trim().toLowerCase();
+  return normalizedPattern.endsWith('*')
+    ? normalizedModelId.startsWith(normalizedPattern.slice(0, -1))
+    : normalizedModelId === normalizedPattern;
+}
+
 export function isDefaultModelHidden(modelId: string): boolean {
-  return DEFAULT_HIDDEN_MODEL_IDS.has(modelId.toLowerCase());
+  return Array.from(DEFAULT_HIDDEN_MODEL_IDS).some((pattern) =>
+    matchesModelIdPattern(modelId, pattern)
+  );
+}
+
+export function matchesModelVisibilityFamily(
+  modelId: string,
+  family: ModelVisibilityFamily
+): boolean {
+  return MODEL_VISIBILITY_FAMILY_META[family].prefixes.some((prefix) =>
+    modelId.trim().toLowerCase().startsWith(prefix)
+  );
+}
+
+export function isModelHiddenByVisibility(
+  modelId: string,
+  settings?: Partial<ModelVisibilitySettings> | null
+): boolean {
+  const normalizedSettings = normalizeModelVisibilitySettings(settings);
+  if (!normalizedSettings.hideConfiguredModels) return false;
+  if (isDefaultModelHidden(modelId)) return true;
+  return (Object.keys(MODEL_VISIBILITY_FAMILY_META) as ModelVisibilityFamily[]).some(
+    (family) => matchesModelVisibilityFamily(modelId, family)
+  );
+}
+
+export function filterModelsByVisibility(
+  models: ModelConfig[],
+  settings?: Partial<ModelVisibilitySettings> | null
+): ModelConfig[] {
+  return models.filter((model) => !isModelHiddenByVisibility(model.id, settings));
 }
 
 export const TEXT_MODELS: ModelConfig[] = BUILT_IN_TEXT_MODELS.filter(
