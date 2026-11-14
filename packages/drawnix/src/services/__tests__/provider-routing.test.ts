@@ -25,7 +25,11 @@ import type {
   ProviderModelBinding,
   ProviderProfileSnapshot,
 } from '../provider-routing';
-import { ModelVendor, type ModelConfig } from '../../constants/model-config';
+import {
+  ModelVendor,
+  SEEDREAM_55_MODEL_ID,
+  type ModelConfig,
+} from '../../constants/model-config';
 
 function createRepositories(params: {
   profiles?: ProviderProfileSnapshot[];
@@ -2354,6 +2358,35 @@ describe('provider routing', () => {
     });
     expect(genericBindings[0]?.requestSchema).toBe(
       'openai.image.gpt-generation-json'
+    );
+  });
+
+  it('routes Tuzi Seedream 5.5 through the native v3 image endpoint', () => {
+    const bindings = inferBindingsForProviderModel(
+      {
+        id: 'provider-tuzi',
+        name: 'Tuzi',
+        providerType: 'openai-compatible',
+        baseUrl: 'https://api.tu-zi.com/v1',
+        apiKey: 'tuzi-key',
+        authType: 'bearer',
+      },
+      {
+        id: SEEDREAM_55_MODEL_ID,
+        label: 'Seedream 5.5',
+        type: 'image',
+        vendor: ModelVendor.DOUBAO,
+        tags: ['seedream'],
+      }
+    );
+
+    expect(bindings).toContainEqual(
+      expect.objectContaining({
+        protocol: 'openai.images.generations',
+        requestSchema: 'openai.image.seedream-json',
+        submitPath: '/api/v3/images/generations',
+        baseUrlStrategy: 'trim-v1',
+      })
     );
   });
 

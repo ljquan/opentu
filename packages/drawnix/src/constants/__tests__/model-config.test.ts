@@ -347,6 +347,27 @@ describe('model-config image size options', () => {
     }
   });
 
+  it('为 Seedream 5.5 暴露原生尺寸、透明背景和输出格式参数', () => {
+    const modelId = 'doubao-seedream-5-5-261028';
+    expect(getStaticModelConfig(modelId)).toMatchObject({
+      id: modelId,
+      label: 'Seedream 5.5',
+      type: 'image',
+      vendor: ModelVendor.DOUBAO,
+      tags: ['seedream', 'new'],
+    });
+
+    const params = getCompatibleParams(modelId);
+    expect(params.filter((param) => param.id === 'size')).toHaveLength(1);
+    expect(getSizeOptionsForModel(modelId).map((option) => option.value)).toEqual([
+      '1K', '1.5K', '2K', 'auto',
+    ]);
+    expect(params.find((param) => param.id === 'background')?.options?.map((option) => option.value))
+      .toEqual(['auto', 'transparent', 'opaque']);
+    expect(params.find((param) => param.id === 'output_format')?.options?.map((option) => option.value))
+      .toEqual(['png', 'jpeg']);
+  });
+
 
   it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
     '为 %s 暴露分辨率与最高到 xhigh 的画质选项',

@@ -21,6 +21,7 @@ import {
 import {
   getDefaultImageModel,
   FLUX_3_IMAGE_MODEL_ID,
+  SEEDREAM_55_MODEL_ID,
   FLUX_3_IMAGE_ASPECT_RATIOS,
   IMAGE_PARAMS,
 } from '../../constants/model-config';
@@ -508,7 +509,9 @@ export const imageGenerationTool: MCPTool = {
     // 规范化 size：将不在可用范围内的 size 自动转换为最接近的可用值
     const typedParams: ImageGenerationParams = {
       ...rawParams,
-      size: (rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel()) === FLUX_3_IMAGE_MODEL_ID
+      size: [FLUX_3_IMAGE_MODEL_ID, SEEDREAM_55_MODEL_ID].includes(
+        rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel()
+      )
         ? rawParams.size
         : rawParams.size
         ? normalizeToClosestImageSize(rawParams.size, '1x1')

@@ -2,6 +2,7 @@ import { getSunoNativeAction, isSunoNativeModel } from '../suno-native';
 import {
   isAsyncImageModel,
   ModelVendor,
+  SEEDREAM_55_MODEL_ID,
   type ModelConfig,
 } from '../../constants/model-config';
 import type { PricingEndpointInfo } from '../../utils/model-pricing-types';
@@ -451,12 +452,18 @@ function inferImageBindings(
   }
 
   if (isSeedreamModel(model)) {
+    const useTuziSeedream55V3 =
+      isTuziProfile(profile) &&
+      model.id.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase();
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'openai.images.generations',
         requestSchema: 'openai.image.seedream-json',
         responseSchema: 'openai.image.data',
-        submitPath: '/images/generations',
+        submitPath: useTuziSeedream55V3
+          ? '/api/v3/images/generations'
+          : '/images/generations',
+        ...(useTuziSeedream55V3 ? { baseUrlStrategy: 'trim-v1' } : {}),
         priority: 520,
         confidence: 'high',
         source: 'template',
