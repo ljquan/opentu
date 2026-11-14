@@ -15,6 +15,7 @@ import { isSunoV2Model, isUnavailableSunoModel } from '../services/suno-v2';
 import { isSunoNativeModel } from '../services/suno-native';
 import { getSunoNativeParams } from '../services/suno-native-params';
 import { getSunoV2Params } from '../services/suno-v2-params';
+import { TUZI_VIDEO_MODEL_CONFIGS } from './tuzi-video-models';
 
 /**
  * 模型类型
@@ -1237,6 +1238,19 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     supportsTools: true,
     videoDefaults: KLING_DEFAULT_PARAMS,
   },
+  ...Object.values(TUZI_VIDEO_MODEL_CONFIGS).map((config): ModelConfig => ({
+    id: config.id, label: config.label, description: config.description || config.label,
+    type: 'video',
+    vendor: config.provider === 'happyhorse' ? ModelVendor.HAPPYHORSE
+      : config.provider === 'kling' ? ModelVendor.KLING
+      : config.provider === 'wan' ? ModelVendor.QWEN : ModelVendor.GEMINI,
+    videoDefaults: {
+      duration: config.defaultDuration, size: config.defaultSize,
+      aspectRatio: config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio === 'resolution'
+        ? config.provider === 'wan' ? 'adaptive' : '16:9'
+        : config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio || '16:9',
+    },
+  })),
 ];
 
 /**
@@ -2903,6 +2917,26 @@ export const VIDEO_PARAMS: ParamConfig[] = [
     compatibleModels: ['kling_video'],
     modelType: 'video',
   },
+  ...Object.values(TUZI_VIDEO_MODEL_CONFIGS).flatMap((config): ParamConfig[] => {
+    const common = { compatibleModels: [config.id], modelType: 'video' as const };
+    const params: ParamConfig[] = [
+      { ...common, id: 'duration', label: '视频时长', shortLabel: '时长', valueType: 'enum',
+        options: config.durationOptions.map((option) => ({ value: option.value, label: option.label })), defaultValue: config.defaultDuration },
+      { ...common, id: 'size', label: '视频尺寸', shortLabel: '尺寸', valueType: 'enum',
+        options: config.sizeOptions.map((option) => ({ value: option.value, label: option.label })), defaultValue: config.defaultSize },
+    ];
+    if ((config.provider === 'happyhorse' && !config.id.endsWith('-i2v')) || config.provider === 'wan') {
+      params.push({ ...common, id: 'ratio', label: '视频比例', shortLabel: '比例', valueType: 'enum',
+        options: (config.provider === 'wan' ? ['adaptive', '16:9', '9:16', '1:1', '4:3', '3:4'] : ['16:9', '9:16', '1:1', '4:3', '3:4'])
+          .map((value) => ({ value, label: value === 'adaptive' ? '自适应' : value })),
+        defaultValue: config.provider === 'wan' ? 'adaptive' : '16:9' });
+    }
+    if (config.provider === 'kling' || config.provider === 'wan') {
+      params.push({ ...common, id: 'watermark', label: '水印', valueType: 'enum',
+        options: [{ value: 'false', label: '关闭' }, { value: 'true', label: '开启' }], defaultValue: 'false' });
+    }
+    return params;
+  }),
 ];
 
 /**

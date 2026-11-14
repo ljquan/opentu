@@ -1,3 +1,5 @@
+import { getTuziVideoModelConfig } from '../../constants/tuzi-video-models';
+import { buildTuziVideoRequest } from '../tuzi-video-request';
 import {
   createGenerationApiError,
   readGenerationApiError,
@@ -206,6 +208,19 @@ export async function submitVideoGeneration(
     params.params as Record<string, string> | undefined
   );
   const isMiniMaxH3 = isMiniMaxH3Model(model);
+  const tuziBody = await buildTuziVideoRequest({
+    ...params, model, duration: secondsParam,
+  }, async (url) => {
+    const response = await fetchFn(url, { signal });
+    if (!response.ok) throw new Error('参考图片读取失败');
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream';
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    }
+    return `data:${mimeType};base64,${btoa(binary)}`;
+  });
 
   // 构建 FormData
   const formData = new FormData();
@@ -226,7 +241,7 @@ export async function submitVideoGeneration(
 
   // 处理参考图片（体积控制在 1MB 内，与图片生成一致）
   if (
-    !isMiniMaxH3 &&
+    !isMiniMaxH3 && !tuziBody &&
     params.referenceImages &&
     params.referenceImages.length > 0
   ) {
@@ -265,14 +280,14 @@ export async function submitVideoGeneration(
       )
     : null;
   const submitPath =
-    miniMaxSubmission?.path || config.binding?.submitPath || '/v1/videos';
+    miniMaxSubmission?.path || (getTuziVideoModelConfig(model) ? '/videos' : config.binding?.submitPath || '/v1/videos');
 
   const response = await providerTransport.send(providerContext, {
     path: submitPath,
-    baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : config.binding?.baseUrlStrategy,
+    baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : getTuziVideoModelConfig(model) ? 'ensure-v1' : config.binding?.baseUrlStrategy,
     method: 'POST',
-    headers: isMiniMaxH3 ? { 'Content-Type': 'application/json' } : undefined,
-    body: isMiniMaxH3 ? JSON.stringify(miniMaxSubmission!.body) : formData,
+    headers: isMiniMaxH3 || tuziBody ? { 'Content-Type': 'application/json' } : undefined,
+    body: tuziBody ? JSON.stringify(tuziBody) : isMiniMaxH3 ? JSON.stringify(miniMaxSubmission!.body) : formData,
     signal,
     fetcher: fetchFn,
   });
@@ -344,7 +359,7 @@ export async function queryVideoStatus(
       config.binding,
       config.params
     ),
-    baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : config.binding?.baseUrlStrategy,
+    baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : config.defaultModel && getTuziVideoModelConfig(config.defaultModel) ? 'ensure-v1' : config.binding?.baseUrlStrategy,
     method: 'GET',
     signal,
     fetcher: fetchFn,

@@ -14,6 +14,7 @@ import type {
 } from '../types/video.types';
 import { getModelConfig, ModelVendor } from './model-config';
 import { SEEDANCE_25_MODEL_ID } from '../utils/seedance-model';
+import { TUZI_VIDEO_MODEL_CONFIGS } from './tuzi-video-models';
 
 const SEEDANCE_ASPECT_RATIO_OPTIONS = [
   { label: '横屏 16:9', aspectRatio: '16:9' },
@@ -624,6 +625,7 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
       labels: ['参考图'],
     },
   },
+  ...TUZI_VIDEO_MODEL_CONFIGS,
 };
 
 /**

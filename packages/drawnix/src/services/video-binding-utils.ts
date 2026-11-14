@@ -1,3 +1,4 @@
+import { getTuziVideoModelConfig } from '../constants/tuzi-video-models';
 import {
   getCompatibleParams,
   SORA_MODE_PARAM_ID,
@@ -762,7 +763,7 @@ export function shouldDownloadVideoContent(
   const status = String(payload?.status || payload?.state || '').toLowerCase();
   return (
     !inlineUrl &&
-    isSoraModel(modelId) &&
+    (isSoraModel(modelId) || Boolean(modelId && getTuziVideoModelConfig(modelId))) &&
     (status === 'completed' || status === 'succeeded')
   );
 }
@@ -802,7 +803,7 @@ export async function downloadVideoContentToLocalUrl(params: {
       params.modelId,
       params.binding
     ),
-    baseUrlStrategy: params.binding?.baseUrlStrategy,
+    baseUrlStrategy: params.modelId && getTuziVideoModelConfig(params.modelId) ? 'ensure-v1' : params.binding?.baseUrlStrategy,
     method: 'GET',
     headers: {
       Accept: 'video/*,application/octet-stream',

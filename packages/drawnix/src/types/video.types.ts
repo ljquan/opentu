@@ -23,6 +23,12 @@ export type KnownVideoModel =
   | 'veo3.1-pro-4k'
   | 'omni-flash'
   | 'omni-flash-components'
+  | 'gemini-omni-1.2-flash'
+  | 'wan3.0-video'
+  | 'kling-4.0'
+  | 'happyhorse-1.1-t2v'
+  | 'happyhorse-1.1-i2v'
+  | 'happyhorse-1.1-r2v'
   | 'seedance-1.5-pro'
   | 'seedance-1.0-pro'
   | 'seedance-1.0-pro-fast'
@@ -45,7 +51,8 @@ export type VideoProvider =
   | 'veo'
   | 'kling'
   | 'seedance'
-  | 'happyhorse';
+  | 'happyhorse'
+  | 'wan';
 
 // Image upload mode
 export type ImageUploadMode = 'reference' | 'frames' | 'components';

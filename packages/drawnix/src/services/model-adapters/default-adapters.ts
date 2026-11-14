@@ -1,3 +1,4 @@
+import { getTuziVideoModelConfig } from '../../constants/tuzi-video-models';
 import { defaultGeminiClient } from '../../utils/gemini-api';
 import { asyncImageAPIService } from '../async-image-api-service';
 import {
@@ -274,14 +275,14 @@ export const geminiVideoAdapter: VideoModelAdapter = {
   kind: 'video',
   docsUrl: 'https://tuzi-api.apifox.cn',
   matchProtocols: ['openai.async.video'],
-  matchRequestSchemas: ['openai.video.form-input-reference'],
+  matchRequestSchemas: ['openai.video.form-input-reference', 'tuzi.video.generation-json'],
   matchPredicate(modelConfig) {
     if (modelConfig.type !== 'video') {
       return false;
     }
     const lowerId = modelConfig.id.toLowerCase();
     return (
-      !lowerId.includes('kling') &&
+      (!lowerId.includes('kling') || lowerId === 'kling-4.0') &&
       !lowerId.includes('seedance') &&
       !lowerId.includes('happyhorse')
     );
@@ -305,8 +306,8 @@ export const geminiVideoAdapter: VideoModelAdapter = {
       ? String(request.duration)
       : model?.toString().startsWith('sora')
       ? undefined
-      : '8';
-    const size = request.size || '1280x720';
+      : getTuziVideoModelConfig(model)?.defaultDuration || '8';
+    const size = request.size || getTuziVideoModelConfig(model)?.defaultSize || '1280x720';
     const inputReferences = toUploadedVideoImages(request.referenceImages);
 
     const result = await videoAPIService.generateVideoWithPolling(

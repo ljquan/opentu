@@ -1,3 +1,5 @@
+import { HAPPYHORSE_11_MODEL_IDS } from '../../constants/tuzi-video-models';
+import { buildTuziVideoRequest } from '../tuzi-video-request';
 import { notifyTaskSubmitted } from '../submission-persistence';
 import { unifiedCacheService } from '../unified-cache-service';
 import { ensureBase64ForAI } from '../media-executor/fallback-utils';
@@ -14,6 +16,7 @@ import type {
 } from './types';
 
 const HAPPYHORSE_MODELS = [
+  ...HAPPYHORSE_11_MODEL_IDS,
   'happyhorse-1.0-t2v',
   'happyhorse-1.0-i2v',
   'happyhorse-1.0-r2v',
@@ -304,6 +307,15 @@ export async function submitHappyHorseVideo(
   request: VideoGenerationRequest
 ): Promise<HappyHorseTaskResponse> {
   const model = request.model || 'happyhorse-1.0-t2v';
+  if (HAPPYHORSE_11_MODEL_IDS.includes(model)) {
+    const body = await buildTuziVideoRequest({ ...request, model }, async (url) => (await unifiedCacheService.getImageForAI(url)).value);
+    const response = await sendAdapterRequest(context, {
+      path: context.binding?.submitPath || '/videos', method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`HappyHorse 视频提交失败: ${await readErrorResponse(response)}`);
+    return response.json();
+  }
   const referenceImages = await normalizeImageInputs(request.referenceImages);
   const body: Record<string, unknown> = {
     model,
