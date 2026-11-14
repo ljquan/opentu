@@ -15,13 +15,14 @@ describe('Seedream durable image responses', () => {
     await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
       model: SEEDREAM_55_MODEL_ID, prompt: 'test', params: { watermark },
     });
-    expect(JSON.parse(send.mock.lastCall![1].body).watermark).toBe(expected);
+    expect(JSON.parse(send.mock.lastCall?.[1]?.body).watermark).toBe(expected);
   });
 
   it.each(['1K', '1.5K', '2K'])(
     'combines every selectable ratio with %s within its pixel tier', async (size) => {
       const ratios = getCompatibleParams(SEEDREAM_55_MODEL_ID)
-        .find((param) => param.id === 'aspect_ratio')!.options!;
+        .find((param) => param.id === 'aspect_ratio')?.options || [];
+      expect(ratios).toHaveLength(8);
       for (const { value: aspect_ratio } of ratios) {
         send.mockResolvedValue(new Response(JSON.stringify({
           data: [{ url: 'https://example.test/image.png' }],
@@ -29,7 +30,7 @@ describe('Seedream durable image responses', () => {
         await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
           model: SEEDREAM_55_MODEL_ID, prompt: 'test', size, params: { aspect_ratio },
         });
-        const body = JSON.parse(send.mock.lastCall![1].body);
+        const body = JSON.parse(send.mock.lastCall?.[1]?.body);
         const [width, height] = body.size.split('x').map(Number);
         const [ratioWidth, ratioHeight] = aspect_ratio.split('x').map(Number);
         expect(Number.isInteger(width) && Number.isInteger(height)).toBe(true);
@@ -41,7 +42,7 @@ describe('Seedream durable image responses', () => {
           expect(width).toBe(size === '1K' ? 1024 : size === '1.5K' ? 1536 : 2048);
         }
         expect(body.aspect_ratio).toBeUndefined();
-        expect(send.mock.lastCall![1].path).toBe('/api/v3/images/generations');
+        expect(send.mock.lastCall?.[1]?.path).toBe('/api/v3/images/generations');
       }
     }
   );
@@ -57,7 +58,7 @@ describe('Seedream durable image responses', () => {
     await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
       model: SEEDREAM_55_MODEL_ID, prompt: 'test', size, params: { aspect_ratio },
     });
-    expect(JSON.parse(send.mock.lastCall![1].body).size).toBe(expected);
+    expect(JSON.parse(send.mock.lastCall?.[1]?.body).size).toBe(expected);
   });
 
   it('rejects an unsupported ratio before transport', async () => {
@@ -153,7 +154,7 @@ describe('Seedream durable image responses', () => {
       { baseUrl: 'https://api.example.test/v1' },
       { model: SEEDREAM_55_MODEL_ID, prompt: 'test' }
     );
-    expect(JSON.parse(send.mock.lastCall![1].body).response_format).toBe('url');
+    expect(JSON.parse(send.mock.lastCall?.[1]?.body).response_format).toBe('url');
     expect(result).toMatchObject({ url: urls[0], urls, format: 'png' });
     expect(send).toHaveBeenCalledTimes(1);
   });

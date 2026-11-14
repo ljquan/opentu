@@ -119,3 +119,14 @@ pnpm exec vitest run \
 取自用户提供的本地页面截图，仅保留参数菜单区域；展示比例与分辨率的独立选择。截图拍摄时水印选项尚未补齐，最终水印选项已通过后续页面操作与组件测试验证。
 
 ![Seedream 5.5 比例参数菜单](assets/seedream-55/parameters.png)
+
+## 本次 PR 更新最终验收（2026-11-14）
+
+- PR：`#334`，功能分支 `codex/seedream-55-v3`，目标 `develop`。新增功能先提交为 `d889ea8e`，再显式 fetch 并 merge `origin/develop`；上游最新为 `73f6e925`，已经包含，merge 返回 `Already up to date`，无冲突、未改写历史。
+- 同步后在 jsdom 环境重跑 9 个完整测试文件（模型配置、参数菜单、分层 Provider、传输路由、恢复服务、Seedream 适配器、MCP、任务执行恢复、远程缓存）共 403 项，以及 Seedream 5.5 偏好筛选测试 2 项，共 405 项全部通过。筛选外的 50 项偏好测试未在本次最终验证重跑；前文记录的 Seedance 既有失败未修改。
+- 清理新增测试中的非空断言警告后，重跑对应 2 个文件共 79 项通过，Drawnix 类型检查再次通过。没有修改测试预期或生产行为。
+- Drawnix/Web `tsc --noEmit` 通过；Web 主应用构建通过，输出至 `/tmp/opentu5-seedream55-pr-update-build`，耗时 43.05 秒，保留现有大 chunk 提示。本轮未单独构建生产 SW。
+- 对 PR 全部 14 个 TS/TSX 修改文件，以同一路径 stdin 内容分别对照最新 `origin/develop` 做 ESLint：当前和基线均为 3 个错误、15 个警告，无新增诊断。未宣称仓库 ESLint 全量通过；`git diff --check` 通过。
+- 对用户提供的已有火山图片链接做读取测试：服务器 HTTP 200、PNG、5433857 字节，普通图片元素加载为 1728×1296；响应缺少 `Access-Control-Allow-Origin`，页面 fetch 失败、Canvas 导出报 `SecurityError`。没有重生图，未将签名 URL 或用户任务 ID 写入提交。该限制未在本 PR 修复。
+- 最终效果与兼容方式见本文“使用与实现”。QA 与 DOC 采用此已有文件统一维护，不新增依赖、配置、迁移或服务端变更；比例菜单截图仅含控件区域。分阶段段落中的“未提交/未推送”仅描述当时状态，最终提交与远程状态以 Git/PR 为准。
+- 仍未执行真实收费生图、真实断线恢复或生产部署；页面所见比例恢复偶发现象、队列“未知尺寸”和原图 CORS 限制继续作为已知边界披露。回滚可撤回本 PR，旧任务及已有产物不删除。

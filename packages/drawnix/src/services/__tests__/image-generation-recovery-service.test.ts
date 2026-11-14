@@ -155,8 +155,10 @@ describe('image generation recovery service', () => {
 
     const task = createTask('seedream-task', requestId, Date.now(), plan);
     task.params.model = SEEDREAM_55_MODEL_ID;
-    task.invocationRoute!.modelId = SEEDREAM_55_MODEL_ID;
-    task.invocationRoute!.modelRef!.modelId = SEEDREAM_55_MODEL_ID;
+    const route = task.invocationRoute;
+    if (!route?.modelRef) throw new Error('Expected a persisted model route');
+    route.modelId = SEEDREAM_55_MODEL_ID;
+    route.modelRef.modelId = SEEDREAM_55_MODEL_ID;
     const onSucceeded = vi.fn();
     const onFailed = vi.fn();
     const service = new ImageGenerationRecoveryService({
