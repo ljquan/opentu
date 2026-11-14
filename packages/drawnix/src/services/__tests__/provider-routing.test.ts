@@ -1065,7 +1065,8 @@ describe('provider routing', () => {
     );
   });
 
-  it('marks an interrupted successful image response body as an unknown outcome', async () => {
+  it.each(['/images/generations', '/api/v3/images/generations'])(
+    'marks an interrupted successful image response body from %s as an unknown outcome', async (path) => {
     let emittedPartialBody = false;
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
@@ -1084,7 +1085,8 @@ describe('provider routing', () => {
     );
 
     const response = await sendRecoverableTuzi({
-      path: '/images/generations',
+      path,
+      ...(path.startsWith('/api/v3/') ? { baseUrlStrategy: 'trim-v1' as const } : {}),
       method: 'POST',
       requestId: 'body-stream-task-id',
       fetcher,

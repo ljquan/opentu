@@ -124,21 +124,22 @@ describe('image-generation MCP tool', () => {
   );
 
   it.each(['async', 'queue'] as const)(
-    'preserves Seedream 5.5 native size in %s mode', async (mode) => {
+    'preserves Seedream 5.5 tier and ratio in %s mode', async (mode) => {
       mocks.resolveAdapterForInvocation.mockReturnValue({
         kind: 'image', generateImage: mocks.generateImage,
       });
       mocks.generateImage.mockResolvedValue({ url: 'https://example.com/output.png' });
       await imageGenerationTool.execute({
         prompt: 'A sticker', model: 'doubao-seedream-5-5-261028', size: '1.5K',
+        params: { aspect_ratio: '16x9' },
       }, { mode });
       expect(mocks.normalizeSize).not.toHaveBeenCalled();
       if (mode === 'queue') {
         expect(mocks.createQueueTask.mock.calls[0][2].buildTaskPayload())
-          .toMatchObject({ size: '1.5K' });
+          .toMatchObject({ size: '1.5K', params: { aspect_ratio: '16x9' } });
       } else {
         expect(mocks.generateImage).toHaveBeenCalledWith(
-          expect.anything(), expect.objectContaining({ size: '1.5K' })
+          expect.anything(), expect.objectContaining({ size: '1.5K', params: { aspect_ratio: '16x9' } })
         );
       }
     }

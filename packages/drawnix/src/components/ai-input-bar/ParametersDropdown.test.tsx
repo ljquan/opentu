@@ -182,6 +182,35 @@ describe('Suno v2 parameter controls', () => {
 });
 
 describe('Seedream API parameters', () => {
+  it('lets Seedream 5.5 enable and disable watermark', () => {
+    const onParamChange = vi.fn();
+    const props = { isOpen: true, modelId: 'doubao-seedream-5-5-261028', onParamChange };
+    const { rerender } = render(<ParametersDropdown {...props} selectedParams={{ watermark: 'false' }} />);
+    expect(screen.getByRole('button', { name: '无水印', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '有水印' }));
+    expect(onParamChange).toHaveBeenLastCalledWith('watermark', 'true');
+    rerender(<ParametersDropdown {...props} selectedParams={{ watermark: 'true' }} />);
+    expect(screen.getByRole('button', { name: '有水印', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '无水印' }));
+    expect(onParamChange).toHaveBeenLastCalledWith('watermark', 'false');
+  });
+
+  it('selects Seedream 5.5 ratio independently of its resolution tier', () => {
+    const onParamChange = vi.fn();
+    const props = { isOpen: true, modelId: 'doubao-seedream-5-5-261028', onParamChange };
+    const { rerender } = render(<ParametersDropdown {...props}
+      selectedParams={{ size: '1.5K', aspect_ratio: '1x1' }} />);
+    expect(screen.getByText('图片分辨率')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '16:9 横版' }));
+    expect(onParamChange).toHaveBeenCalledWith('aspect_ratio', '16x9');
+    rerender(<ParametersDropdown {...props} selectedParams={{ size: '1.5K', aspect_ratio: '16x9' }} />);
+    expect(screen.getByRole('button', { name: '1.5K（≤261万像素）', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '16:9 横版', pressed: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '自动（仅图层拆分）' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '2K（高档）' }));
+    expect(onParamChange).toHaveBeenLastCalledWith('size', '2K');
+  });
+
   it.each(['doubao-seedream-5-0-lite-260128', 'seedream-5.0'])(
     'offers size and 2K/3K controls for %s', (modelId) => {
     const onParamChange = vi.fn();

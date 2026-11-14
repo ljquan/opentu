@@ -111,15 +111,33 @@ const resolveSeedreamSize = (
     : '2048x2048';
 };
 
-const resolveSeedream55Size = (size?: string): string | undefined => {
-  const normalized = size?.trim();
-  if (!normalized) return undefined;
+const resolveSeedream55Size = (
+  size?: string,
+  aspectRatio?: string
+): string | undefined => {
+  const normalized = size?.trim() || '';
+  if (!normalized && !aspectRatio) return undefined;
 
-  const upper = normalized.toUpperCase();
-  if (upper === '1K' || upper === '1.5K' || upper === '2K') return upper;
+  const upper = normalized?.toUpperCase() || '2K';
+  if (upper === '1K' || upper === '1.5K' || upper === '2K') {
+    // Keep native tiers for existing API callers; the UI supplies a separate ratio.
+    if (!aspectRatio) return upper;
+    const ratio = aspectRatio.trim().replace(':', 'x').toLowerCase();
+    const dimensions = ASPECT_RATIO_TO_SIZE_2K[ratio];
+    if (typeof dimensions !== 'string') {
+      throw new Error(`Seedream 5.5 不支持图片比例: ${aspectRatio}`);
+    }
+    const scale = upper === '1K' ? 0.5 : upper === '1.5K' ? 0.75 : 1;
+    return dimensions
+      .split('x')
+      .map((side) => Number(side) * scale)
+      .join('x');
+  }
   if (upper === 'AUTO') return 'auto';
   const ratio = normalized.replace(':', 'x').toLowerCase();
-  if (ASPECT_RATIO_TO_SIZE_2K[ratio]) return ASPECT_RATIO_TO_SIZE_2K[ratio];
+  if (typeof ASPECT_RATIO_TO_SIZE_2K[ratio] === 'string') {
+    return ASPECT_RATIO_TO_SIZE_2K[ratio];
+  }
   if (/^\d+x\d+$/i.test(normalized)) return normalized.toLowerCase();
   throw new Error(`Seedream 5.5 不支持图片尺寸: ${size}`);
 };
@@ -162,7 +180,10 @@ export const seedreamImageAdapter: ImageModelAdapter = {
       ? resolveSeedream55Size(
           typeof request.params?.size === 'string'
             ? request.params.size
-            : request.size
+            : request.size,
+          typeof request.params?.aspect_ratio === 'string'
+            ? request.params.aspect_ratio
+            : undefined
         )
       : resolveSeedreamSize(request.size, quality);
 
@@ -173,8 +194,8 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     const body: Record<string, unknown> = {
       model,
       prompt: request.prompt,
-      // Inline bytes can be persisted without fetching a signed, non-CORS URL.
-      response_format: 'b64_json',
+      // Seedream 5.5 returns links to keep the generation response small.
+      response_format: isSeedream55 ? 'url' : 'b64_json',
     };
 
     if (size) {
@@ -203,8 +224,7 @@ export const seedreamImageAdapter: ImageModelAdapter = {
         body.output_format = outputFormat;
       }
 
-      const watermark = readBooleanParam(request.params?.watermark);
-      if (watermark !== undefined) body.watermark = watermark;
+      body.watermark = readBooleanParam(request.params?.watermark) ?? false;
 
       const layerDecomposition = readBooleanParam(
         request.params?.layer_decomposition
@@ -261,7 +281,9 @@ export const seedreamImageAdapter: ImageModelAdapter = {
     if (result?.data && Array.isArray(result.data) && result.data.length > 0) {
       const urls = result.data
         .map((item: any) => {
-          const rawValue = item.b64_json || item.url;
+          const rawValue = isSeedream55
+            ? item.url || item.b64_json
+            : item.b64_json || item.url;
           if (typeof rawValue === 'string') {
             return normalizeImageDataUrl(rawValue);
           }

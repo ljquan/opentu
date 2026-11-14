@@ -7,6 +7,10 @@ import {
 } from '../../types/task.types';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
 import { registerDocumentBatchTaskGuard } from '../media-executor/task-storage-writer';
+import { seedreamImageAdapter } from '../model-adapters/seedream-adapter';
+import { SEEDREAM_55_MODEL_ID } from '../../constants/model-config';
+import { IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE } from '../provider-routing';
+import { withTuziClientChannel } from '../tuzi-client-attribution';
 import {
   ImageGenerationRecoveryService,
   createImageSubmissionParams,
@@ -118,6 +122,62 @@ describe('image generation recovery service', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('recovers a failed Seedream v3 submission through the v1 result GET without resubmitting', async () => {
+    const requestId = 'seedream-v3-submission';
+    const imageUrl = 'https://images.example.com/seedream.png?signature=keep';
+    const plan = createPlan();
+    plan.provider.baseUrl = 'https://api.tu-zi.com/v1';
+    plan.modelRef.modelId = SEEDREAM_55_MODEL_ID;
+    Object.assign(plan.binding, {
+      modelId: SEEDREAM_55_MODEL_ID,
+      requestSchema: 'openai.image.seedream-json',
+      submitPath: '/api/v3/images/generations',
+      baseUrlStrategy: 'trim-v1',
+    });
+    const fetcher = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(Response.json({
+        status: 'succeeded', request_id: requestId, data: [{ url: imageUrl }],
+      }));
+
+    await expect(seedreamImageAdapter.generateImage({
+      baseUrl: plan.provider.baseUrl,
+      provider: plan.provider,
+      binding: plan.binding,
+      operation: 'image',
+      requestId,
+      fetcher,
+    }, {
+      model: SEEDREAM_55_MODEL_ID, prompt: 'landscape', size: '1.5K',
+    })).rejects.toMatchObject({ code: IMAGE_SUBMISSION_OUTCOME_UNKNOWN_CODE });
+
+    const task = createTask('seedream-task', requestId, Date.now(), plan);
+    task.params.model = SEEDREAM_55_MODEL_ID;
+    task.invocationRoute!.modelId = SEEDREAM_55_MODEL_ID;
+    task.invocationRoute!.modelRef!.modelId = SEEDREAM_55_MODEL_ID;
+    const onSucceeded = vi.fn();
+    const onFailed = vi.fn();
+    const service = new ImageGenerationRecoveryService({
+      fetcher, resolveInvocationPlan: vi.fn(() => plan), jitterRatio: 0,
+    });
+    try {
+      getStartedHandle(service.start(task, { onSucceeded, onFailed }));
+      await vi.waitFor(() => expect(onSucceeded).toHaveBeenCalledTimes(1));
+      expect(onSucceeded).toHaveBeenCalledWith(expect.objectContaining({
+        requestId, url: imageUrl, urls: [imageUrl],
+      }), expect.any(AbortSignal));
+      expect(onFailed).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(String(fetcher.mock.calls[0][0])).toBe(withTuziClientChannel('https://api.tu-zi.com/api/v3/images/generations'));
+      expect(fetcher.mock.calls[0][1]?.method).toBe('POST');
+      expect(String(fetcher.mock.calls[1][0])).toBe(withTuziClientChannel(`https://api.tu-zi.com/v1/images/generations/result?request_id=${requestId}`));
+      expect(fetcher.mock.calls[1][1]?.method).toBe('GET');
+      for (const [, init] of fetcher.mock.calls) {
+        expect(new Headers(init?.headers).get('X-Request-Id')).toBe(requestId);
+      }
+    } finally { service.stopAll(); }
   });
 
   it('does not query a document batch from an unbound or revoked account scope', async () => {

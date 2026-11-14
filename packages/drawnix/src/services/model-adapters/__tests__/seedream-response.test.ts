@@ -1,11 +1,72 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { seedreamImageAdapter } from '../seedream-adapter';
+import { getCompatibleParams, SEEDREAM_55_MODEL_ID } from '../../../constants/model-config';
 
 const { send } = vi.hoisted(() => ({ send: vi.fn() }));
 vi.mock('../context', () => ({ sendAdapterRequest: send }));
 afterEach(() => vi.resetAllMocks());
 
 describe('Seedream durable image responses', () => {
+  it.each([
+    [undefined, false], ['false', false], [false, false],
+    ['true', true], [true, true], ['invalid', false],
+  ])('sends Seedream 5.5 watermark %s as boolean %s', async (watermark, expected) => {
+    send.mockResolvedValue(new Response(JSON.stringify({ data: [{ url: 'https://example.test/image.png' }] })));
+    await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
+      model: SEEDREAM_55_MODEL_ID, prompt: 'test', params: { watermark },
+    });
+    expect(JSON.parse(send.mock.lastCall![1].body).watermark).toBe(expected);
+  });
+
+  it.each(['1K', '1.5K', '2K'])(
+    'combines every selectable ratio with %s within its pixel tier', async (size) => {
+      const ratios = getCompatibleParams(SEEDREAM_55_MODEL_ID)
+        .find((param) => param.id === 'aspect_ratio')!.options!;
+      for (const { value: aspect_ratio } of ratios) {
+        send.mockResolvedValue(new Response(JSON.stringify({
+          data: [{ url: 'https://example.test/image.png' }],
+        })));
+        await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
+          model: SEEDREAM_55_MODEL_ID, prompt: 'test', size, params: { aspect_ratio },
+        });
+        const body = JSON.parse(send.mock.lastCall![1].body);
+        const [width, height] = body.size.split('x').map(Number);
+        const [ratioWidth, ratioHeight] = aspect_ratio.split('x').map(Number);
+        expect(Number.isInteger(width) && Number.isInteger(height)).toBe(true);
+        expect(width * ratioHeight).toBe(height * ratioWidth);
+        expect(width * height).toBeGreaterThanOrEqual(921600);
+        expect(width * height).toBeLessThanOrEqual(size === '2K' ? 4630000 : 2610000);
+        if (size === '2K') expect(width * height).toBeGreaterThan(2610000);
+        if (aspect_ratio === '1x1') {
+          expect(width).toBe(size === '1K' ? 1024 : size === '1.5K' ? 1536 : 2048);
+        }
+        expect(body.aspect_ratio).toBeUndefined();
+        expect(send.mock.lastCall![1].path).toBe('/api/v3/images/generations');
+      }
+    }
+  );
+
+  it.each([
+    ['1.5K', '16:9', '1920x1080'],
+    ['2K', '9x16', '1440x2560'],
+    ['1536x1536', '16x9', '1536x1536'],
+    ['auto', '16x9', 'auto'],
+    [undefined, '16x9', '2560x1440'],
+  ])('resolves size %s and ratio %s to %s', async (size, aspect_ratio, expected) => {
+    send.mockResolvedValue(new Response(JSON.stringify({ data: [{ url: 'https://example.test/image.png' }] })));
+    await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
+      model: SEEDREAM_55_MODEL_ID, prompt: 'test', size, params: { aspect_ratio },
+    });
+    expect(JSON.parse(send.mock.lastCall![1].body).size).toBe(expected);
+  });
+
+  it('rejects an unsupported ratio before transport', async () => {
+    await expect(seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
+      model: SEEDREAM_55_MODEL_ID, prompt: 'test', size: '1K', params: { aspect_ratio: '5x0' },
+    })).rejects.toThrow('不支持图片比例');
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['1K', '1K'], ['1.5K', '1.5K'], ['2K', '2K'],
     ['1x1', '2048x2048'], ['16x9', '2560x1440'], ['1536x1536', '1536x1536'],
@@ -48,7 +109,7 @@ describe('Seedream durable image responses', () => {
     expect(JSON.parse(send.mock.calls[0][1].body)).toEqual({
       model: 'doubao-seedream-5-5-261028',
       prompt: 'transparent sticker',
-      response_format: 'b64_json',
+      response_format: 'url',
       size: '1.5K',
       image: [
         'https://example.test/reference-1.png',
@@ -80,6 +141,32 @@ describe('Seedream durable image responses', () => {
       )
     ).rejects.toThrow('最多支持 10 张参考图');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('requests Seedream 5.5 URLs and preserves all signed links for caching', async () => {
+    const urls = ['https://signed.example.test/first.png?signature=test', 'https://signed.example.test/second.png?signature=test'];
+    send.mockResolvedValue(new Response(JSON.stringify({ data: [
+      { url: urls[0], b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' },
+      { url: urls[1] },
+    ] })));
+    const result = await seedreamImageAdapter.generateImage(
+      { baseUrl: 'https://api.example.test/v1' },
+      { model: SEEDREAM_55_MODEL_ID, prompt: 'test' }
+    );
+    expect(JSON.parse(send.mock.lastCall![1].body).response_format).toBe('url');
+    expect(result).toMatchObject({ url: urls[0], urls, format: 'png' });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts inline Seedream 5.5 data when the provider ignores URL response format', async () => {
+    const bytes = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    send.mockResolvedValue(new Response(JSON.stringify({ data: [{ b64_json: bytes }] })));
+    const result = await seedreamImageAdapter.generateImage(
+      { baseUrl: 'https://api.example.test/v1' },
+      { model: SEEDREAM_55_MODEL_ID, prompt: 'test' }
+    );
+    expect(result.url).toBe(`data:image/png;base64,${bytes}`);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -121,6 +208,7 @@ describe('Seedream durable image responses', () => {
         response_format: 'b64_json',
         size: '2304x4096',
       });
+      expect(JSON.parse(send.mock.calls[0][1].body).watermark).toBeUndefined();
       expect(result.url).toBe(`data:image/${format};base64,${bytes}`);
       expect(result.format).toBe(format === 'jpeg' ? 'jpg' : format);
       expect(result.urls).toEqual([result.url]);

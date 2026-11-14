@@ -17,7 +17,7 @@ function trimTrailingSlashes(value: string): string {
 }
 
 const TUZI_IMAGE_SUBMISSION_PATH_PATTERN =
-  /^\/(?:v\d+(?:beta\d*)?\/)?images\/(?:generations|edits)\/?$/i;
+  /^\/(?:(?:v\d+(?:beta\d*)?\/)?images\/(?:generations|edits)|api\/v3\/images\/generations)\/?$/i;
 const TUZI_IMAGE_RECOVERY_PATH_PATTERN =
   /^\/(?:v\d+(?:beta\d*)?\/)?images\/generations\/result\/?$/i;
 

@@ -347,7 +347,7 @@ describe('model-config image size options', () => {
     }
   });
 
-  it('为 Seedream 5.5 暴露原生尺寸、透明背景和输出格式参数', () => {
+  it('为 Seedream 5.5 暴露独立分辨率、比例、透明背景和输出格式参数', () => {
     const modelId = 'doubao-seedream-5-5-261028';
     expect(getStaticModelConfig(modelId)).toMatchObject({
       id: modelId,
@@ -360,12 +360,26 @@ describe('model-config image size options', () => {
     const params = getCompatibleParams(modelId);
     expect(params.filter((param) => param.id === 'size')).toHaveLength(1);
     expect(getSizeOptionsForModel(modelId).map((option) => option.value)).toEqual([
-      '1K', '1.5K', '2K', 'auto',
+      '1K', '1.5K', '2K',
     ]);
+    expect(params.find((param) => param.id === 'aspect_ratio')).toMatchObject({
+      defaultValue: '1x1',
+      options: ['1x1', '16x9', '9x16', '3x2', '2x3', '4x3', '3x4', '21x9']
+        .map((value) => expect.objectContaining({ value })),
+    });
     expect(params.find((param) => param.id === 'background')?.options?.map((option) => option.value))
       .toEqual(['auto', 'transparent', 'opaque']);
     expect(params.find((param) => param.id === 'output_format')?.options?.map((option) => option.value))
       .toEqual(['png', 'jpeg']);
+    expect(params.filter((param) => param.id === 'watermark')).toEqual([
+      expect.objectContaining({
+        defaultValue: 'false',
+        options: [
+          { value: 'false', label: '无水印' },
+          { value: 'true', label: '有水印' },
+        ],
+      }),
+    ]);
   });
 
 
