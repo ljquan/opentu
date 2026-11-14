@@ -1,3 +1,4 @@
+import { getTuziVideoModelConfig, type TuziVideoMedia } from '../../constants/tuzi-video-models';
 import type { TaskError } from '../../types/shared/core.types';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
 /**
@@ -474,7 +475,7 @@ export function convertDirectGenerationToWorkflow(
         videoArgs.boundTargetFollowControlled = true;
       }
       // 透传额外参数（如 ratio）
-      const videoParams: Record<string, unknown> = Object.fromEntries(
+      const videoParams: Record<string, unknown> = getTuziVideoModelConfig(modelId) ? { ...adapterVideoParams } : Object.fromEntries(
         Object.entries(extraParams || {}).filter(
           (entry): entry is [string, string] => typeof entry[1] === 'string'
         )
@@ -507,6 +508,32 @@ export function convertDirectGenerationToWorkflow(
         if (selection?.audios?.length && !videoParams.input_audios) {
           videoParams.input_audios = selection.audios;
         }
+      }
+      if (modelId === 'wan3.0-video' && !videoParams.reference_mode) {
+        videoParams.reference_mode = referenceImages.length > 2 ||
+          selection?.videos?.length || selection?.audios?.length ||
+          videoParams.file || videoParams.link ? 'mixed' : 'frames';
+      }
+      if (getTuziVideoModelConfig(modelId) && (selection?.videos?.length || selection?.audios?.length)) {
+        let entries: TuziVideoMedia[] = [];
+        try {
+          const rawMedia = videoParams.video_media;
+          const saved = typeof rawMedia === 'string' ? JSON.parse(rawMedia || '[]') : rawMedia ?? [];
+          if (!Array.isArray(saved)) throw new Error('参考素材必须是列表');
+          entries = [...saved];
+        } catch { throw new Error('参考素材格式无效'); }
+        if (modelId === 'gemini-omni-1.2-flash') {
+          if (selection?.audios?.length) throw new Error('Gemini Omni 视频入口不支持音频参考');
+          entries.push(...(selection?.videos || []).map((url) => ({ type: 'video', url })));
+        } else if (modelId === 'wan3.0-video') {
+          if (videoParams.reference_mode === 'frames') throw new Error('视频或音频参考需要切换到混合参考模式');
+          videoParams.reference_mode = 'mixed';
+          entries.push(...(selection?.videos || []).map((url) => ({ type: 'reference_videos', url })), ...(selection?.audios || []).map((url) => ({ type: 'reference_audio', url })));
+        } else if (modelId === 'kling-4.0') {
+          if (selection?.audios?.length) throw new Error('Kling 音色参考需要填写已有音色 ID');
+          entries.push(...(selection?.videos || []).map((url) => ({ type: 'feature_video', url })));
+        } else throw new Error('此 HappyHorse 型号不支持视频或音频参考');
+        videoParams.video_media = JSON.stringify(entries);
       }
       if (Object.keys(videoParams).length > 0) {
         videoArgs.params = videoParams;

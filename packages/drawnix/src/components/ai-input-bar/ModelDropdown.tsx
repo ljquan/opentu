@@ -480,8 +480,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   );
   const shouldUseVendorIconInTrigger =
     currentModel?.vendor === ModelVendor.HAPPYHORSE;
-  // 使用 shortCode 或默认简写
-  const shortCode = currentModel?.shortCode || 'img';
+  // Older discovered catalogs may lack the built-in presentation metadata.
+  const shortCode = currentModel?.shortCode ||
+    (currentModel && getStaticModelConfig(currentModel.id)?.shortCode) ||
+    currentModel?.shortLabel || currentModel?.label || currentModel?.id;
   const isSearching = Boolean(searchQuery.trim());
   const effectiveModelType = modelType || currentModel?.type || models[0]?.type;
   const typeLabel = effectiveModelType

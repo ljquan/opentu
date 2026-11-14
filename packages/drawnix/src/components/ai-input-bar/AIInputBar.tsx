@@ -1,3 +1,8 @@
+import {
+  normalizeTuziVideoParams,
+  allowsTuziVideoWithoutPrompt,
+  getTuziVideoComposerParams,
+} from '../../constants/tuzi-video-models';
 import type { TaskError } from '../../types/shared/core.types';
 import { toGenerationTaskError } from '../../utils/generation-error-details';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
@@ -4985,7 +4990,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               getSelectionKey(selectedModel, selectedModelRef),
               selectedParamsRef.current
             );
-      const baseParams = { ...loadedParams };
+      const baseParams = normalizeTuziVideoParams(selectedModel, { ...loadedParams });
       if (isSeedance2ModelId(selectedModel) && baseParams.size?.includes('@')) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
         baseParams.size = resolution;
@@ -5206,8 +5211,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const effectiveSelectedModel = override?.selectedModel ?? selectedModel;
         const effectiveSelectedModelRef =
           override?.selectedModelRef ?? selectedModelRef;
+        const rawSelectedParams = override?.selectedParams ?? selectedParams;
         const effectiveSelectedParams =
-          override?.selectedParams ?? selectedParams;
+          effectiveGenerationType === 'video'
+            ? getTuziVideoComposerParams(effectiveSelectedModel, rawSelectedParams)
+            : rawSelectedParams;
         const effectiveSelectedCount =
           activeBoundImageTarget?.type === 'text' ||
           activeBoundImageTarget?.type === 'audio'
@@ -5370,6 +5378,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         if (
           !trimmedPrompt &&
+          !(effectiveGenerationType === 'video' && allowsTuziVideoWithoutPrompt(effectiveSelectedModel, effectiveSelectedParams)) &&
           !(effectiveGenerationType === 'audio' && (isSunoV2Model(effectiveSelectedModel) || isSunoNativeModel(effectiveSelectedModel))) &&
           baseEffectiveContent.length === 0 &&
           submittedCanvasAssociations.length === 0

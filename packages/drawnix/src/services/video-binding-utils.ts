@@ -1,3 +1,4 @@
+import { getTuziVideoModelConfig } from '../constants/tuzi-video-models';
 import {
   getCompatibleParams,
   SORA_MODE_PARAM_ID,
@@ -265,7 +266,7 @@ function buildDurationOptions(
   return allowedDurations.map((value) => ({
     value,
     label:
-      baseLabels.get(value) ||
+      (baseConfig.id === 'wan3.0-video' && value === '-1' ? '智能时长' : baseLabels.get(value)) ||
       `${value}秒${allowedDurations.length === 1 ? '（固定）' : ''}`,
   }));
 }
@@ -627,7 +628,7 @@ export function getEffectiveVideoCompatibleParams(
 
       return {
         ...param,
-        options: effectiveConfig.durationOptions.map((option) => ({
+        options: [...effectiveConfig.durationOptions, ...(modelId === 'wan3.0-video' && !effectiveConfig.durationOptions.some((option) => option.value === '-1') ? [{ value: '-1', label: '智能时长' }] : [])].map((option) => ({
           value: option.value,
           label: option.label,
         })),
@@ -762,7 +763,7 @@ export function shouldDownloadVideoContent(
   const status = String(payload?.status || payload?.state || '').toLowerCase();
   return (
     !inlineUrl &&
-    isSoraModel(modelId) &&
+    (isSoraModel(modelId) || Boolean(modelId && getTuziVideoModelConfig(modelId))) &&
     (status === 'completed' || status === 'succeeded')
   );
 }
@@ -802,7 +803,7 @@ export async function downloadVideoContentToLocalUrl(params: {
       params.modelId,
       params.binding
     ),
-    baseUrlStrategy: params.binding?.baseUrlStrategy,
+    baseUrlStrategy: params.modelId && getTuziVideoModelConfig(params.modelId) ? 'ensure-v1' : params.binding?.baseUrlStrategy,
     method: 'GET',
     headers: {
       Accept: 'video/*,application/octet-stream',
