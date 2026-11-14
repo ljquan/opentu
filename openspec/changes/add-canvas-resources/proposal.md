@@ -12,3 +12,6 @@ Users need desktop downloads and the OpenTu X account within the canvas. The use
 ## Impact
 - Affected specs: canvas-resources
 - Affected code: canvas toolbar, resources component, i18n, API Key dialog
+
+## Approved interaction revision — 2026-11-11
+The user requested removing the resource cards and confirmed that the X link should share the existing feedback QR popover. The download button now opens a confirmation dialog; confirmation opens the existing official download page. The old automatic announcement is removed. This revises the existing entry layout and reuses the shared confirmation dialog without adding persisted fields or dependencies.

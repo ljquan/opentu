@@ -1,8 +1,8 @@
 {
-  "version": "1.2.9",
-  "buildTime": "2026-11-10T10:22:59.439Z",
+  "version": "1.2.10",
+  "buildTime": "2026-11-11T11:27:58.713Z",
   "gitCommit": "unknown",
   "changelog": [
-    "修复 GPT Image 2.6 参考图生成 GIF 的编辑接口路由 (#332)"
+    "refine download confirmation and move X link to feedback (#333)"
   ]
 }

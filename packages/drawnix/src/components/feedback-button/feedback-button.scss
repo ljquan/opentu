@@ -3,6 +3,11 @@
  */
 
 .feedback-qrcode-content {
+  box-sizing: border-box;
+  width: 292px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -38,3 +43,43 @@
   font-weight: 500;
 }
 
+
+.feedback-social-link {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 4px 4px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-on-surface, #242629);
+  text-decoration: none;
+
+  &:hover { background: var(--color-surface-container, #f5f6f7); }
+  &:focus-visible { outline: 2px solid var(--brand-primary, #f39c12); outline-offset: 2px; }
+  > svg { flex-shrink: 0; }
+
+  &__icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border-radius: 6px;
+    background: #25272a;
+    color: #fff;
+    font-size: 21px;
+  }
+
+  &__text {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    overflow-wrap: anywhere;
+
+    strong { font-size: 14px; font-weight: 500; }
+    > span { font-size: 12px; line-height: 1.5; color: var(--color-on-surface-variant, #777); }
+  }
+}

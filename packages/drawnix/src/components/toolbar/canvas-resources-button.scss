@@ -13,89 +13,104 @@
   min-height: 40px;
 }
 
-.canvas-resources {
+.Dialog.confirm-dialog.canvas-download-dialog {
   box-sizing: border-box;
-  width: 328px;
-  max-width: calc(100vw - 16px);
-  max-height: calc(100dvh - 24px);
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
-  padding: 12px;
-  border: 1px solid var(--color-border, #e5e7eb);
-  border-radius: 8px;
-  background: var(--color-surface, #fff);
-  color: var(--color-on-surface, #242629);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  padding: 32px 28px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  background: linear-gradient(180deg, #fff9f0 0, #fff 150px);
+  box-shadow: 0 24px 80px rgba(43, 32, 18, 0.16), 0 4px 16px rgba(43, 32, 18, 0.04);
   letter-spacing: 0;
 
-  &__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 0 2px 10px 6px;
-
-    h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .confirm-dialog__title {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #29251f;
   }
 
-  &__close {
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
-    display: grid;
-    place-items: center;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
+  .confirm-dialog__description {
+    margin: 10px 0 0;
   }
 
-  &__link {
-    display: flex;
-    align-items: center;
+  .confirm-dialog__footer {
     gap: 12px;
-    padding: 12px 6px;
-    color: inherit;
-    text-decoration: none;
-    border-radius: 4px;
+    margin-top: 24px;
 
-    & + & { border-top: 1px solid var(--color-border-light, #eceef0); }
-    > svg { flex-shrink: 0; color: var(--color-on-surface-variant, #777); }
+    .t-button {
+      height: 44px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .t-button--variant-outline {
+      flex: 0 0 104px;
+      border-color: #e9e6e1;
+      background: #fff;
+      color: #716b63;
+
+      &:hover { border-color: #d8d1c7; background: #faf8f5; }
+    }
+
+    .t-button--theme-primary {
+      flex: 1;
+      border-color: #e8890b;
+      background: #e8890b;
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(232, 137, 11, 0.18);
+
+      &:hover { border-color: #d97b00; background: #d97b00; }
+      &:active { box-shadow: none; }
+    }
   }
+}
 
-  &__link:hover, &__close:hover { background: var(--color-surface-container, #f5f6f7); }
-  &__link:focus-visible, &__close:focus-visible { outline: 2px solid var(--brand-primary, #f39c12); outline-offset: 2px; }
-
+.canvas-download-dialog {
   &__icon {
     display: grid;
     place-items: center;
-    width: 36px;
-    height: 36px;
-    flex: 0 0 36px;
-    border-radius: 6px;
-
-    &--download {
-      overflow: hidden;
-
-      img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-    }
-    &--x { background: #25272a; color: #fff; font-size: 21px; font-weight: 500; }
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 18px;
+    border: 1px solid #fbe2bc;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #fff2da, #ffe5bd);
+    color: #cf7600;
+    box-shadow: 0 3px 8px rgba(201, 131, 37, 0.06), inset 0 1px 0 #fff9ee;
   }
 
-  &__text {
-    display: flex;
-    flex: 1;
-    min-width: 0;
-    flex-direction: column;
-    gap: 4px;
-    overflow-wrap: anywhere;
+  &__subtitle {
+    display: block;
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #898178;
+  }
 
-    strong { font-size: 14px; font-weight: 500; }
-    > span { font-size: 12px; line-height: 1.5; color: var(--color-on-surface-variant, #777); }
+  &__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 22px;
+    padding: 12px 14px;
+    border: 1px solid #efede9;
+    border-radius: 12px;
+    background: #faf9f7;
+    color: #7a746b;
+    font-size: 12px;
+    line-height: 1.7;
+
+    > svg { flex-shrink: 0; margin-top: 2px; color: #a39a8e; }
+  }
+}
+
+@media (max-width: 420px) {
+  .Dialog.confirm-dialog.canvas-download-dialog {
+    padding: 28px 20px 20px;
   }
 }

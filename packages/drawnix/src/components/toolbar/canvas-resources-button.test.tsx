@@ -1,7 +1,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CanvasResourcesButton, CANVAS_RESOURCES_ACK_KEY } from './canvas-resources-button';
+import { CanvasResourcesButton } from './canvas-resources-button';
+import { FeedbackButton } from '../feedback-button/feedback-button';
 
 vi.mock('@plait-board/react-board', () => ({ useBoard: () => ({}) }));
 vi.mock('@plait/core', () => ({
@@ -31,7 +32,7 @@ describe('CanvasResourcesButton', () => {
   let root: Root;
 
   beforeEach(() => {
-    localStorage.removeItem(CANVAS_RESOURCES_ACK_KEY);
+    localStorage.clear();
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -48,83 +49,81 @@ describe('CanvasResourcesButton', () => {
   }
 
   function panel() {
-    return document.querySelector('[data-testid="canvas-resources"]');
+    return document.querySelector('[role="dialog"]');
   }
 
   async function click(selector: string) {
     await act(async () => (document.querySelector(selector) as HTMLButtonElement).click());
   }
 
-  it('announces once, acknowledges explicit close, and supports reopening', async () => {
+  it('never opens automatically, including after remounting without an acknowledgement', async () => {
     await render();
-    expect(panel()).not.toBeNull();
-    expect(localStorage.getItem(CANVAS_RESOURCES_ACK_KEY)).toBe('true');
-    await click('[aria-label="resources.close"]');
     expect(panel()).toBeNull();
-    expect(localStorage.getItem(CANVAS_RESOURCES_ACK_KEY)).toBe('true');
-
+    expect(localStorage.length).toBe(0);
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
     expect(panel()).toBeNull();
+  });
+
+  it('opens a confirmation and visits the official page only after confirmation', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    await render();
     await click('[data-testid="toolbar-resources"]');
-    expect(panel()).not.toBeNull();
-  });
-
-  it('keeps the first automatic announcement open on outside click and Escape', async () => {
-    await render();
-    await act(async () => {
-      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-    expect(panel()).not.toBeNull();
-    expect(localStorage.getItem(CANVAS_RESOURCES_ACK_KEY)).toBe('true');
-  });
-
-  it('opens the approved URLs in isolated new tabs', async () => {
-    await render();
-    const links = panel()!.querySelectorAll('a');
-    expect(Array.from(links, (link) => link.href)).toEqual([
+    expect(panel()?.textContent).toContain('resources.downloadConfirmation');
+    expect(panel()?.querySelector('a')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    const confirm = Array.from(panel()?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent === 'resources.confirmDownload'
+    );
+    await act(async () => confirm?.click());
+    expect(open).toHaveBeenCalledExactlyOnceWith(
       'https://tuziapi.github.io/tuzi-switch/#td-r0-downloads',
-      'https://x.com/shuidiyuAI',
-    ]);
-    links.forEach((link) => {
-      expect(link.target).toBe('_blank');
-      expect(link.rel).toBe('noopener noreferrer');
-    });
+      '_blank',
+      'noopener,noreferrer'
+    );
+    expect(panel()).toBeNull();
   });
 
-  it('does not announce an acknowledged release and dismisses reopened panels', async () => {
-    localStorage.setItem(CANVAS_RESOURCES_ACK_KEY, 'true');
+  it('cancels without navigation and can be reopened and dismissed with Escape', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     await render();
+    await click('[data-testid="toolbar-resources"]');
+    const cancel = Array.from(panel()?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent === 'resources.cancel'
+    );
+    await act(async () => cancel?.click());
     expect(panel()).toBeNull();
     await click('[data-testid="toolbar-resources"]');
+    expect(panel()).not.toBeNull();
     await act(async () => {
-      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(panel()).toBeNull();
-  });
-
-  it('does not announce again after a reload even if the first panel was not closed', async () => {
-    await render();
-    expect(panel()).not.toBeNull();
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    expect(panel()).toBeNull();
+    expect(open).not.toHaveBeenCalled();
   });
 
   it('remains usable when browser storage is blocked', async () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
     await render();
+    expect(panel()).toBeNull();
+    await click('[data-testid="toolbar-resources"]');
     expect(panel()).not.toBeNull();
-    await click('[aria-label="resources.close"]');
-    expect(panel()).toBeNull();
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    expect(panel()).toBeNull();
   });
 
+  it('shows the X profile alongside the feedback QR code, without a download card', async () => {
+    await act(async () => root.render(<FeedbackButton />));
+    expect(document.querySelector('.feedback-qrcode-content')).toBeNull();
+    await click('[data-testid="toolbar-feedback"]');
+    const content = document.querySelector('.feedback-qrcode-content');
+    if (!content) throw new Error('Feedback popover did not open');
+    expect(content.querySelector('img')?.src).toBe('https://tuziai.oss-cn-shenzhen.aliyuncs.com/aitu/AiTu.png');
+    const links = content.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0].href).toBe('https://x.com/shuidiyuAI');
+    expect(links[0].target).toBe('_blank');
+    expect(links[0].rel).toBe('noopener noreferrer');
+    expect(links[0].textContent).toContain('resources.follow');
+  });
 });
