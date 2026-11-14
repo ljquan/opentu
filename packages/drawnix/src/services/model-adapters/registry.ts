@@ -1,4 +1,8 @@
 import { isSunoNativeModel } from '../suno-native';
+import {
+  SEEDREAM_FLASH_MODEL_ID,
+  SEEDREAM_FLASH_REQUEST_SCHEMA,
+} from '../../constants/seedream-flash';
 import type { ModelAdapter, ModelKind } from './types';
 import { getModelConfig, ModelVendor } from '../../constants/model-config';
 import type { ModelType } from '../../constants/model-config';
@@ -60,6 +64,10 @@ export function resolveAdapterForBinding(
   binding: ProviderModelBinding,
   kind: ModelKind
 ): ModelAdapter | undefined {
+  if (kind === 'image' && binding.modelId === SEEDREAM_FLASH_MODEL_ID &&
+      ['openai.images.generations', 'openai.images.edits', 'openai.async.media'].includes(binding.protocol)) {
+    return findImageAdapterBySchema(SEEDREAM_FLASH_REQUEST_SCHEMA);
+  }
   const adapters = listModelAdapters(kind)
     .map((adapter) => ({
       adapter,
@@ -76,6 +84,9 @@ export function resolveAdapterForModel(
   kind: ModelKind
 ): ModelAdapter | undefined {
   const adapters = listModelAdapters(kind);
+  if (kind === 'image' && modelId === SEEDREAM_FLASH_MODEL_ID) {
+    return adapters.find((adapter) => adapter.matchRequestSchemas?.includes(SEEDREAM_FLASH_REQUEST_SCHEMA));
+  }
   const modelConfig = getModelConfig(modelId);
 
   return adapters.find((adapter) => {

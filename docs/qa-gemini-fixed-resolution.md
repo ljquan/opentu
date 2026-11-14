@@ -246,3 +246,35 @@ git diff --check
   不覆盖已合并 PR 的同名历史分支，不强推、不改写历史。
 - 未执行页面交互、真实供应商、Windows 浏览器及生产部署验证；本地结果不代表
   CDN 延迟或上游实际 4K 出图已验收。
+
+## 2026-10-31：批量结果已完成但画布持续显影
+
+用户截图中 `gpt-image-2` 任务列表已完成且有预览，画布对应卡片仍显示“正在显影”。此现象属于通用生成结果插入链路，不能仅凭截图判断为模型生成慢，也不能据缩略图已显示断言原图已经加载。没有取得截图任务的运行时网络与后处理耗时记录。
+
+源码检查确认两项可消除的等待：`useAutoInsertToCanvas` 默认等 5 秒收集分组，同一批 flush 中的不同分组串行等待图片加载。对于已有独立批次占位卡的图片，每个槽位已有自己的位置及插入分组，仍走此缓冲与串行队列会增加无必要的等待。
+
+本轮仅修改该 Hook 的调度：独立批次槽位的普通新图片完成后立即处理自己的分组，不清空其他待插入分组、不重置普通分组的等待截止时间，也不等另一个槽位的图片加载结束。替换现有目标、共享画框、堆叠卡片、无独立槽位的普通分组保留原调度。继续在图片可读及画布渲染就绪后移除显影层，保留画板切换校验、防重复插入、失败与已有结果重试；不调用生成接口、不改缓存、图片像素及布局算法。
+
+实际验证环境为 macOS、Node v26.8.1、现有依赖。命令从 `packages/drawnix` 执行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --maxWorkers=1 \
+  src/hooks/__tests__/useAutoInsertToCanvas.test.ts \
+  src/hooks/__tests__/useImageGenerationAnchorSync.test.ts \
+  src/utils/__tests__/image-generation-anchor-readiness.test.ts \
+  src/utils/__tests__/image-generation-anchor-task.test.ts \
+  src/utils/__tests__/image-generation-anchor-view-model.test.ts \
+  src/plugins/components/image.loading.test.tsx \
+  src/components/retry-image.test.tsx \
+  src/services/canvas-operations/canvas-insertion.test.ts --silent
+```
+
+8 个文件、154 项全部通过。新增 4 项覆盖：第一槽位读取未结束时第二槽位立即插入、插入未完成前不标成功、重复任务通知不重复插入、普通任务原等待截止时间保留、替换目标和共享画框继续缓冲。既有画板切换、插入失败/重试、分组及最大等待、画布图片实际就绪与缓存加载回归通过。新增测试使用假时钟和挂起的插入 Promise，无真实请求。
+
+Drawnix 与 Web TypeScript 检查通过。`apps/web` 中直接执行 `node ../../node_modules/vite/bin/vite.js build` 通过，35.34 秒，保留既有 Sass、Browserslist、混合导入和大 chunk 提示。两修改文件 ESLint 为 0 errors、44 warnings，与 HEAD 原文逐项对照无新增诊断。`git diff --check` 通过。7201 实际提供的 Hook 源码已包含按槽位立即处理分支，无需服务重启。
+
+本文件合并 QA 和维护说明，不新增重复 DOC、依赖、环境配置或数据迁移。工作区其他 Flash、模型发现等改动保留；本轮修改未提交、推送或部署。
+
+未做页面交互、截图/视觉/E2E、真实生成或用户任务的耗时测量。此修复消除已确认的分组等待及独立槽位相互阻塞，不承诺消除原图下载、缓存/解码或其他运行时异常导致的延迟；占位卡完成动画仍保留原本的 1.6 秒移除延迟。
+
+刷新本地页面后对后续完成任务生效，已经标记为后处理中、当前仍挂起的插入 Promise 不会被新代码强制取消。已有完成图片可从任务记录预览并在需要时手动插入，不要为了画布显示再次生成。回滚可只撤回本节对应的 Hook 调度和 4 项新增测试，不清理任务或图片缓存。

@@ -6,6 +6,7 @@ import React, {
   useRef,
 } from 'react';
 import './ttd-dialog.scss';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import './ai-image-generation.scss';
 import { normalizeGPTImage25ResolutionParams } from '../../services/model-adapters/image-size-quality-resolver';
 import { useI18n } from '../../i18n';
@@ -1133,6 +1134,7 @@ const AIImageGeneration = ({
               }
               onError={setError}
               pasteScopeRef={promptPasteScopeRef}
+              preserveOriginal={currentModel === SEEDREAM_FLASH_MODEL_ID}
             />
 
             <PromptInput

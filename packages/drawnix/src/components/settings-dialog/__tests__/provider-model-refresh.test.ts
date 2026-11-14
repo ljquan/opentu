@@ -9,6 +9,7 @@ const discovery = vi.hoisted(() => ({
   discover: vi.fn(),
   applySelection: vi.fn(),
   setError: vi.fn(),
+  getState: vi.fn(),
 }));
 vi.mock('../../../utils/settings-manager', () => ({
   LEGACY_DEFAULT_PROVIDER_PROFILE_ID: 'legacy-default',
@@ -29,7 +30,10 @@ const profile = (overrides: Partial<ProviderProfile> = {}): ProviderProfile =>
   } as ProviderProfile);
 
 describe('provider model refresh after saving credentials', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    discovery.getState.mockReturnValue({ models: [] });
+  });
 
   it('refreshes changed keys and endpoints but ignores names and whitespace', () => {
     const original = profile();
@@ -81,6 +85,20 @@ describe('provider model refresh after saving credentials', () => {
       }),
     ]);
     expect(discovery.discover).not.toHaveBeenCalled();
+  });
+
+  it('preserves selected manual models when enabling the new Key response', async () => {
+    discovery.discover.mockResolvedValue([{ id: 'new-model' }]);
+    discovery.getState.mockReturnValue({ models: [{ id: 'manual-model', tags: ['manual'] }] });
+    await refreshChangedProviderModels([profile({ apiKey: 'new-key' })]);
+    expect(discovery.applySelection).toHaveBeenCalledWith('default', ['new-model', 'manual-model']);
+  });
+
+  it('ignores superseded discoveries without marking the new catalog as failed', async () => {
+    discovery.discover.mockRejectedValue(Object.assign(new Error('superseded'), { name: 'AbortError' }));
+    expect(await refreshChangedProviderModels([profile()])).toEqual([]);
+    expect(discovery.setError).not.toHaveBeenCalled();
+    expect(discovery.applySelection).not.toHaveBeenCalled();
   });
 
   it('reports failure without leaking responses or affecting other providers', async () => {

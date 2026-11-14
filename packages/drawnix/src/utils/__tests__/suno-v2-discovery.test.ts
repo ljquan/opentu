@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pricing = vi.hoisted(() => ({ caches: [] as unknown[], changed: undefined as (() => void) | undefined }));
 
@@ -8,7 +8,8 @@ vi.mock('../settings-manager', () => ({
     get: () => [{ profileId: 'p', discoveredModels: [
       { id: 'suno/music', label: 'chat', type: 'text', vendor: 'OTHER' },
       { id: 'suno_music', label: 'legacy', type: 'audio', vendor: 'SUNO' },
-    ], selectedModelIds: ['suno/music', 'suno_music'] }],
+      { id: 'suno/cover', label: 'old pricing entry', type: 'audio', vendor: 'SUNO', tags: ['pricing-suno-v2'] },
+    ], selectedModelIds: ['suno/music', 'suno_music', 'suno/cover'] }],
     addListener: vi.fn(), update: vi.fn(),
   },
   providerProfilesSettings: { get: () => [{ id: 'p', name: 'Tuzi', enabled: true }], addListener: vi.fn() },
@@ -23,6 +24,7 @@ vi.mock('../settings-manager', () => ({
 vi.mock('../../services/tuzi-embedded-config', () => ({ isTuziEmbeddedMode: () => false }));
 
 describe('Suno v2 discovery', () => {
+  beforeEach(() => { vi.resetModules(); pricing.changed = undefined; });
   afterEach(() => { pricing.caches = []; vi.unstubAllGlobals(); });
   it('restores stale chat catalogs as audio without inventing unlisted channel capabilities', async () => {
     const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
@@ -46,7 +48,7 @@ describe('Suno v2 discovery', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('does not add pricing-only actions during refresh or catalog restoration', async () => {
+  it('does not supplement authenticated or restored catalogs from pricing endpoints', async () => {
     const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
     pricing.caches = [{ profileId: 'p', modelEndpoints: {
       'suno/cover': { native: { path: '/suno/v2/cover', method: 'POST' } },

@@ -984,6 +984,27 @@ describe('settings-manager', () => {
     expect(runtimeModelDiscovery.getState('versioned').lastAutoRefreshVersion).toBe('1.2.7');
   });
 
+  it.each(['marketplace', 'models-endpoint'] as const)(
+    'preserves the %s catalog source across saving and reload', async (discoverySource) => {
+      mockSettingsManagerDeps();
+      const module = await import('../settings-manager');
+      await module.settingsManager.waitForInitialization();
+      const profileId = module.providerProfilesSettings.get()[0].id;
+      await module.providerCatalogsSettings.update([{
+        profileId, discoverySource, discoveredAt: Date.now(),
+        discoveredModels: [], selectedModelIds: [],
+      }]);
+      expect(module.providerCatalogsSettings.get().find((catalog) => catalog.profileId === profileId)?.discoverySource)
+        .toBe(discoverySource);
+      vi.resetModules();
+      mockSettingsManagerDeps();
+      const reloaded = await import('../settings-manager');
+      await reloaded.settingsManager.waitForInitialization();
+      expect(reloaded.providerCatalogsSettings.get().find((catalog) => catalog.profileId === profileId)?.discoverySource)
+        .toBe(discoverySource);
+    }
+  );
+
   it('preserves provider catalog manual bindings after reload', async () => {
     mockSettingsManagerDeps();
 
