@@ -62,3 +62,6 @@ Gemini 多模态 input 与 Kling 原生 contents 同样可通过 MCP 的 params 
 当前输入栏自动引用版本的菜单及已有 Wan 真实结果（素材表单和参考模式手动选项已移除）：
 
 ![输入栏自动引用素材](./images/tuzi-video-auto-reference.png)
+
+
+2026-11-14 新增真实组合验证：Wan 三图自动混合参考（2 秒/480P、audio=false、prompt_extend=false、seed=0）、Kling 双图参考（3 秒/720p/21:9）、HappyHorse R2V 双图（3 秒/480P/9:16、seed=0）均成功，结果已缓存并入画布。Wan 确认无音轨；HappyHorse 开启水印后可见水印。Kling 开启水印字段被受理，但三帧抽查未见可见水印，按用户要求仅记录不处理。单次样本不证明种子复现性，也不代表其他高级组合全部真实验证，详见 QA 最新章节。

@@ -365,3 +365,30 @@ git diff --check
 无新依赖、环境变量、迁移或后端部署；需要在供应商目录启用目标模型。Wan/Kling 视频/音频的公网 URL 要求仍存在，无普通密钥通用上传转换接口证据。PR 未合并、未部署；回滚客户端功能提交即可，不清理用户素材和任务。
 
 ![最终参数菜单与已有 Wan 测试结果](./images/tuzi-video-auto-reference.png)
+
+
+## 新增参数真实组合补测（2026-11-14，18:42–18:48，Asia/Shanghai）
+
+用户授权“真实收费，测试新加的那些参数”。在 7204 新建“视频新增参数实测（3次）”画板，使用三张不同颜色的 768×768 PNG，通过输入栏上传、页面选择参数并发送；每型号最多 1 次生成 POST，不自动重试。浏览器临时保护只放行所选 Tuzi 服务、限定型号和实际参数，脱敏记录最终请求及响应，不更改参数；没有输出认证头、密钥、图片 Base64 或签名 URL。
+
+| 型号 | 真实请求核验 | 结果文件核验 |
+| --- | --- | --- |
+| Wan 3.0 | 3 张图片自动进入 reference_images，无 first_frame/last_frame；2 秒、480P、adaptive；audio=false、prompt_extend=false、seed=0、watermark=false | HTTP 200 → completed；缓存 MP4 711432 bytes；640×640、2 秒；**0 条音轨**，播放正常；画面包含三色参考图案 |
+| Kling 4.0 | 2 张图片进入 refer_image，ID 分别为 image_1/image_2；3 秒、720p、21:9；watermark_info.enabled=true | HTTP 200 → completed；缓存 MP4 1263919 bytes；1460×624、3.041995 秒；1 条音轨，播放正常；保留双色参考图案 |
+| HappyHorse 1.1 R2V | 两张有序 images，提示词用 [Image 1]/[Image 2] 引用；parameters 中 duration=3、resolution=480P、ratio=9:16、seed=0、watermark=true | HTTP 200 → completed；缓存 MP4 389031 bytes；480×848、3.16 秒；1 条音轨，播放正常；上下双色图案，右下角可见 Happy Horse 水印 |
+
+HappyHorse 准备期间，已完成的 Wan 视频被画布自动选中并进入引用列表，首次页面预检阻止了不支持的视频输入，未产生 HappyHorse 远程请求。取消视频选中后，仅携带两张图提交一次成功；这不是重复创建供应商任务。
+
+Kling 水印字段已发送且受理，但在 0.25 秒、1 秒和 2.84 秒原始尺寸帧中未见可见水印；只读查询任务结果也未给出独立水印地址。用户明确表示“如果只有水印，就不用管”，本次仅记录，不更改客户端或追加生成。不能将该项记作可见水印通过。
+
+音轨数通过缓存 MP4 的 moov/trak/mdia/hdlr 解析，尺寸/时长通过浏览器解码实际缓存 Blob 取得。三项均实际播放并推进时间、无媒体错误，已入画布；刷新后仍加载到上述宽高/时长。临时 fetch/执行器已恢复，Hook 不存在，活动任务为 0。恢复本轮修改的水印和 Wan 音轨/改写/种子偏好，保留结果画板。未新增产品代码改动。
+
+远程任务 ID：
+
+- Wan：task_cG3Ue8UoSipTF7kelVrLC3TU3r4U1NZW
+- Kling：task_BY1pMwOwCTeW0RzZjkK1ErZFWn17brm5
+- HappyHorse R2V：task_QH2yZTkLiAyKiX5MARCzOQRnGjD4Hujr
+
+脱敏请求与媒体摘要：`/tmp/opentu-video-params-real-20261114.json`。结果画板 ID：`aa9a6b40-5298-4d5c-a8eb-e90d68a98954`。
+
+本轮共 3 次真实生成 POST，无远程重提；未核对账单金额。seed=0、关闭改写确认被受理，但没有对照生成，不能证明可复现性或内部改写效果。此次不是完整参数矩阵：Gemini、编辑/延展、主体/音色 ID、参考视频/音频、智能时长、辅助文档/网页和其他清晰度/时长组合未追加真实调用。Kling 档位与固定像素仍不同；HappyHorse 9:16 实际为 480×848，约为 9:16。
