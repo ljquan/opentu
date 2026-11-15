@@ -630,7 +630,8 @@ describe('Seedream 5.5 request recovery', () => {
     expect(result?.groupId).toBe(`seedream55-${id}`);
     original.apiKey = 'changed-provider-key';
     original.baseUrl = 'https://other.test';
-    const again = await handle!.recover({});
+    if (!handle) throw new Error('Missing recovery handle');
+    const again = await handle.recover({});
     expect(again.groupId).toBe(result?.groupId);
     expect(
       mocks.send.mock.calls.filter(([, req]) => req.method === 'POST')
