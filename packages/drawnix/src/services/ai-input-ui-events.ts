@@ -27,6 +27,8 @@ export interface AIInputPrefillEventDetail {
   images?: AIInputPrefillImage[];
   model?: string;
   modelRef?: ModelRef | null;
+  /** Continuing an edit must not silently choose a different provider. */
+  requireExactModelRef?: boolean;
   params?: Record<string, string>;
   count?: number;
   knowledgeContextRefs?: KnowledgeContextRef[];

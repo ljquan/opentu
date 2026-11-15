@@ -6,6 +6,8 @@
  */
 
 import { toImageTaskError } from '../../utils/image-error-details';
+import { SEEDREAM_55_MODEL_ID } from '../../constants/model-config';
+import { isPublicHttpMediaUrl, isVirtualMediaUrl } from '../../utils/virtual-media-url';
 
 import type { ModelRef } from '../../utils/settings-manager';
 import type {
@@ -200,6 +202,11 @@ export async function executeImageViaAdapter(
             (adapter.id === 'tuzi-gpt-image-adapter' &&
               !!(params.maskImage?.trim() ||
                 getStringParam(params, ['maskImage', 'mask_image']))) ||
+            // Native Seedream accepts signed URLs directly; fetching them here
+            // fails for display-only CDN responses without CORS headers.
+            (adapter.id === 'seedream-image-adapter' &&
+              requestModel === SEEDREAM_55_MODEL_ID &&
+              isPublicHttpMediaUrl(imgUrl) && !isVirtualMediaUrl(imgUrl)) ||
             (supportsRemoteImageReferences(
               adapterContext.binding?.requestSchema
             ) && /^https?:\/\//i.test(imgUrl)),

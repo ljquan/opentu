@@ -186,6 +186,33 @@ describe('configured image provider layer decomposition', () => {
     });
   });
 
+  it.each([1, 16, 99])('Seedream 5.5 accepts %i foregrounds with OCR without inventing quality measurements', async (maxLayers) => {
+    mocks.getContext.mockReturnValue(context(undefined, 'doubao-seedream-5-5-261028'));
+    const data = Array.from({ length: maxLayers + 1 }, (_, z_index) => ({
+      url: `https://cdn.example.com/${z_index}.png`, z_index, size: '1000x1000',
+      bounding_box: { absolute: [0, 0, 1000, 1000], normalized: [0, 0, 1000, 1000] },
+      ...(z_index ? { text_recognition: { text: 'Hello', lines: [{
+        bounding_box: { absolute: [10, 10, 90, 30], normalized: [10, 10, 90, 30] },
+        runs: [{ text: 'Hello', style: { foreground_color: '#193366', bold: true, similar_font_family: 'unknown', shadow: true } }],
+      }] } } : {}),
+    }));
+    mocks.send.mockResolvedValue(new Response(JSON.stringify({ data })));
+    const result = await decomposeWithConfiguredImageProvider({ ...request(), maxLayers, textRecognition: true }, { modelId: 'doubao-seedream-5-5-261028' });
+    expect(result?.layers).toHaveLength(maxLayers);
+    expect(result?.quality).toBeUndefined();
+    expect(result?.layers.at(-1)?.textRecognition).toMatchObject({ text: 'Hello', lines: [{ runs: [{ style: { shadow: true } }] }] });
+    expect(JSON.parse(mocks.send.mock.calls[0][1].body)).toMatchObject({
+      layer_decomposition_options: { max_images: maxLayers + 1, text_recognition: true }, watermark: false,
+    });
+    expect(mocks.send).toHaveBeenCalledOnce();
+  });
+
+  it.each([0, 100, 1.5, NaN])('rejects invalid native layer count %s before submission', async (maxLayers) => {
+    mocks.getContext.mockReturnValue(context(undefined, 'doubao-seedream-5-5-261028'));
+    await expect(decomposeWithConfiguredImageProvider({ ...request(), maxLayers }, { modelId: 'doubao-seedream-5-5-261028' })).rejects.toThrow('1–99');
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
   it('可以显式指定 Seedream 5.0 Pro，而不依赖当前选中的普通图片模型', async () => {
     mocks.getContext.mockReturnValue(
       context(undefined, 'doubao-seedream-5-0-pro-260628')
@@ -540,5 +567,76 @@ describe('configured image provider layer decomposition', () => {
       inspectGeneratedImageArtifacts('data:image/png;base64,cG5n')
     ).resolves.toBeUndefined();
     expect(mocks.callText).not.toHaveBeenCalled();
+  });
+});
+
+describe('Seedream 5.5 request recovery', () => {
+  it('submits once, recovers metadata, and retains original provider for manual GETs', async () => {
+    vi.clearAllMocks();
+    const original = {
+      ...context(undefined, 'doubao-seedream-5-5-261028'),
+      apiKey: 'test-original',
+      baseUrl: 'https://api.tu-zi.com/v1',
+    };
+    mocks.resolveRoute.mockReturnValue({
+      profileId: 'profile-1',
+      modelId: 'doubao-seedream-5-5-261028',
+    });
+    mocks.getContext.mockReturnValue(original);
+    let handle: import('./recovery').LayerRecoveryHandle | undefined;
+    let id = '';
+    const box = { absolute: [0, 0, 100, 100], normalized: [0, 0, 1000, 1000] };
+    mocks.send.mockImplementation(async (ctx, req) => {
+      if (req.method === 'POST') {
+        id = ctx.requestId;
+        await ctx.onSubmissionAttempt();
+        expect(req.allowImageSubmissionRetry).toBe(false);
+        throw Object.assign(new Error('interrupted'), {
+          code: 'IMAGE_SUBMISSION_OUTCOME_UNKNOWN',
+        });
+      }
+      expect(ctx.apiKey).toBe('test-original');
+      expect(req.query.request_id).toBe(id);
+      return Response.json({
+        status: 'succeeded',
+        request_id: id,
+        data: [
+          { url: 'https://a.test/base', size: '100x100', z_index: 0 },
+          {
+            url: 'https://a.test/text',
+            z_index: 1,
+            bounding_box: box,
+            text_recognition: {
+              text: 'SALE',
+              lines: [
+                {
+                  bounding_box: box,
+                  runs: [{ text: 'SALE', style: { bold: false } }],
+                },
+              ],
+            },
+          },
+        ],
+      });
+    });
+    const result = await decomposeWithConfiguredImageProvider(request(), {
+      modelId: 'doubao-seedream-5-5-261028',
+      onRecoveryAvailable: (value) => {
+        handle = value;
+      },
+    });
+    expect(id).toBeTruthy();
+    expect(result?.layers[0].textRecognition?.text).toBe('SALE');
+    expect(result?.groupId).toBe(`seedream55-${id}`);
+    original.apiKey = 'changed-provider-key';
+    original.baseUrl = 'https://other.test';
+    const again = await handle!.recover({});
+    expect(again.groupId).toBe(result?.groupId);
+    expect(
+      mocks.send.mock.calls.filter(([, req]) => req.method === 'POST')
+    ).toHaveLength(1);
+    expect(
+      mocks.send.mock.calls.filter(([, req]) => req.method === 'GET')
+    ).toHaveLength(2);
   });
 });

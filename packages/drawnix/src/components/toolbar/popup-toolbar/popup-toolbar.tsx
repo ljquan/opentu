@@ -1,6 +1,7 @@
 import { resizeCanvasImage } from '../../../services/canvas-operations/resize-canvas-image';
 import Stack from '../../stack';
 import { ImageToolbarContents } from './image-toolbar-contents';
+import { SeedreamContinueButton } from './seedream-continue-button';
 import type { ImageToolMode } from './canvas-image-tools-dialog';
 import { getCanvasBoardBinding, type CanvasBoardBinding } from '../../../services/canvas-operations/canvas-board-ref';
 import { insertSplitImages } from '../../../services/canvas-operations/insert-split-images';
@@ -109,6 +110,8 @@ import {
   PaintBucket,
   Orbit,
   Ungroup,
+  Layers3,
+  ScanText,
 } from 'lucide-react';
 import { useDrawnix, DialogType } from '../../../hooks/use-drawnix';
 import { useI18n } from '../../../i18n';
@@ -134,6 +137,7 @@ import { splitAndInsertImages } from '../../../utils/image-splitter';
 import {
   LayerDecompositionCorrectionRequiredError,
   startAutomaticLayerDecomposition,
+  getSemanticLayerMetadata,
 } from '../../../services/layer-decomposition';
 import {
   smartDownload,
@@ -196,6 +200,7 @@ import {
 } from '../../../utils/ai-mask-brush';
 
 const CanvasImageToolsDialog = lazy(() => import('./canvas-image-tools-dialog').then(module => ({ default: module.CanvasImageToolsDialog })));
+const Seedream55LayerDialog = lazy(() => import('../../layer-decomposition/Seedream55LayerDialog').then(module => ({ default: module.Seedream55LayerDialog })));
 
 const ImageEditor = lazy(() =>
   import('../../image-editor').then((module) => ({
@@ -251,6 +256,7 @@ export const PopupToolbar = () => {
 
   // 图片编辑器状态
   const [showImageEditor, setShowImageEditor] = useState(false);
+  const [seedreamLayerSource, setSeedreamLayerSource] = useState<{ id: string; url: string } | null>(null);
   const [editingImageBinding, setEditingImageBinding] = useState<CanvasBoardBinding | null>(null);
   const [imageToolMode, setImageToolMode] = useState<ImageToolMode | null>(null);
   const imageToolSelectionKey = selectedElements.map(element => element.id).join(',');
@@ -1949,6 +1955,30 @@ export const PopupToolbar = () => {
                 }}
               />
             )}
+            {state.hasLayerDecomposition && (
+              <ToolButton className="seedream55-layer-decomposition" type="icon" visible
+                icon={<Layers3 size={16} />} aria-label="Seedream 5.5 分层" tooltip="Seedream 5.5 分层与文字识别"
+                onClick={() => {
+                  const image = selectedElements[0];
+                  if (image?.type === 'image' && typeof image.url === 'string') setSeedreamLayerSource({ id: image.id, url: image.url });
+                }} />
+            )}
+            {selectedElements.length === 1 && getSemanticLayerMetadata(selectedElements[0])?.textRecognition && (
+              <ToolButton className="layer-ocr-to-text" type="icon" visible icon={<ScanText size={16} />}
+                aria-label="转换为可编辑文字" tooltip="近似还原文字与样式，保留原图片层，可撤销"
+                onClick={() => {
+                  const binding = getCanvasBoardBinding();
+                  const sourceId = selectedElements[0].id;
+                  const sourceUrl = selectedElements[0].url;
+                  void import('../../../services/layer-decomposition/text-conversion').then(({ convertLayerToEditableText }) => {
+                    const current = getCanvasBoardBinding();
+                    if (!binding || binding.board !== board || current?.board !== board || current.boardId !== binding.boardId) throw new Error('画板已切换，请重新选择图层');
+                    if (!board.children.some((element) => element.id === sourceId && element.url === sourceUrl)) throw new Error('原图片层已变更，请重新选择');
+                    const count = convertLayerToEditableText(board, sourceId);
+                    MessagePlugin.success(`已转换 ${count} 行可编辑文字；字体与字号为近似还原，可撤销恢复原图层`);
+                  }).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : '文字转换失败'));
+                }} />
+            )}
             {state.hasImageEdit && (['angle'] as const).map((mode) => (
               <ToolButton key={`local-image-${mode}`} className={`local-image-${mode}`} type="icon" visible
                 icon={<Orbit size={16} />}
@@ -2669,6 +2699,7 @@ export const PopupToolbar = () => {
                 }
               }}
             />
+            {state.hasRegenerateImage && <SeedreamContinueButton board={board} element={selectedElements[0]} />}
             {state.hasRegenerateImage && (
               <ToolButton
                 className="regenerate-image"
@@ -2750,6 +2781,9 @@ export const PopupToolbar = () => {
         <CanvasImageToolsDialog key={`${selectedElements[0].id}-${imageToolMode}`} board={board} element={selectedElements[0]} mode={imageToolMode} onClose={() => setImageToolMode(null)} />
       </Suspense>}
 
+      {seedreamLayerSource && <Suspense fallback={null}>
+        <Seedream55LayerDialog board={board} source={seedreamLayerSource} onClose={() => setSeedreamLayerSource(null)} />
+      </Suspense>}
       {/* 图片编辑器 */}
       {showImageEditor && editingImageUrl && (
         <Suspense fallback={null}>

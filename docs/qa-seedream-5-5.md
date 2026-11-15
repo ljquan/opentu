@@ -13,7 +13,7 @@
 - 未传独立比例的旧调用仍保留原生档位；旧比例输入仍映射为 2K 像素尺寸，明确像素尺寸优先且不被独立比例覆盖。拆图仍支持程序化 `auto`；已保存的普通生图 `auto` 偏好恢复为 `2K + 1:1`。
 - 支持透明/不透明背景、PNG/JPEG 输出、最多 10 张参考图。透明背景应使用 PNG；该模型不提供 OpenAI mask 编辑能力。
 - 图片水印支持“无水印”（默认）和“有水印”；偏好以字符串 `false`/`true` 保存，v3 请求转换为布尔值 `watermark`。即使调用方没有设置该参数，也明确发送 `watermark: false`；已保存的主动开启设置保留。
-- 原生图层 Provider 识别 5.5，并提交 `layer_decomposition_options.max_images`，兼容不含质量评分的原生响应。本次没有切换现有固定分层模型，没有新增 OCR 排版或 99 层编辑界面。
+- 原生图层 Provider 识别 5.5，并提交 `layer_decomposition_options.max_images`，兼容不含质量评分的原生响应。2026-11-15 新增独立「Seedream 5.5 分层」入口、1–99 个前景图层设置及 OCR 转文字；原「AI 分层」本地优先和 5.0 Pro 回退路径保留。详见本文末尾的新增能力验收。
 - 模型目录和参数位于 `model-config.ts`；路由由 `binding-inference.ts` 产生；请求由 `seedream-adapter.ts` 构造。
 - MCP 图片工具保留该模型的原生尺寸，避免把 `1.5K` 转成通用 `1x1`。
 - 不硬编码价格；价格依赖供应商目录及实际账单。比例组合中 1K/1.5K 不超过 261 万像素，2K 大于 261 万且不超过 463 万像素；拆图不按各图层实际像素逐张定档。
@@ -136,3 +136,139 @@ pnpm exec vitest run \
 - 用户截图中图片详情显示完整：原图 `1728 × 1296 px`，画布 `400 × 300`，均为 `4:3`；图片本身没有裁切。
 - 实际问题是底部参数按钮把 `1.5K（≤261万像素）, 4:3 横版, 透明, PNG, 有水印` 整段放入窄按钮，摘要被截断。现在底栏使用短摘要：`1.5K, 4:3, 透明, PNG, 有水印`，按钮宽度上限从 160px 调整为 220px；展开菜单和悬停提示继续保留完整说明。
 - 组件测试与模型配置测试共 113 项通过，Drawnix TypeScript 检查和 `git diff --check` 通过。页面复核因本地 7205 服务在复核前停止，未重新启动服务；截图已记录在本文前面的参数菜单章节。
+
+## 连续编辑、99 层与富文本 OCR（2026-11-15）
+
+### 用户效果与操作
+
+1. 选中有 Seedream 5.5 历史任务的生成结果，工具栏显示「继续编辑」。点击后自动把所选结果作为首张参考图，再带入去重后的历史参考图，保留原模型、供应商和适用参数。提示词清空，填写本轮修改要求后自行发送；批量数恢复为 1。原「再次生成」仍回填原提示词与原参考图。
+2. 若参考图超过 10 张，全部保留在输入栏并提示用户删除多余历史引用；既有 Seedream 适配器会在发请求前拒绝超过上限的输入，不静默截断。历史模型或供应商不可用时停止回填并提示恢复配置，不自动换供应商。
+3. 选中单张图片，使用独立的「Seedream 5.5 分层」按钮；选择 1–99 个前景图层（默认 16）以及「识别文字与近似样式（OCR）」（默认开启），点击「开始分层」。数量提示包含 1 张底图，默认最多 17 张、最大 100 张，并提示按实际产物计费。此入口直接使用已配置的 5.5 Provider，不调用旧本地优先/5.0 Pro 回退流程。
+4. 分层成功后，选择含有效 OCR 的文字图片层，点击「转换为可编辑文字」。每行转换为应用原生文字节点，保持行内文字、颜色、粗体、斜体、下划线和删除线；坐标按当前图层的缩放、移动及旋转换算。原图片层仍保留，转换后隐藏以避免重叠，一次撤销恢复原图片层；重复转换被拦截。
+5. 图层元数据和 manifest 保存原始识别全文、行框及样式片段。分层组导出继续包含原图片；存在已转换文字时，manifest 增加 `editableTextLayers`，保存当前编辑内容、位置、来源 z-index 与原图片层隐藏状态。
+
+### 协议与实现边界
+
+- 分层请求固定 `POST /api/v3/images/generations`、精确 5.5 模型 ID、单图 JSON `image`、`layer_decomposition=true`、`size=auto`、PNG、URL、`watermark=false`、`stream=false`；`max_images=maxLayers+1`，OCR 开关为布尔值 `text_recognition`。新增原生路径不自动重发或切换收费模型。
+- 原生响应单独允许 99 个前景；本地及旧模型请求/响应仍限制 16 个前景。保留背景、层序、边界框等校验，不把普通多图当分层。
+- 官方字段为 `data[].text_recognition.text`、`lines[].bounding_box`、`lines[].runs[].text/style`；行框使用输出底图坐标。样式支持 `similar_font_family`、`foreground_color` 和六种布尔标记；**官方不返回字号**。字号按行高估算，未知字体回退为 sans-serif。`shadow`、`translucent` 仅保留识别标记，不伪造阴影参数或精确透明度；转换不能保证像素级还原。
+- 可选 OCR 缺失、字段畸形、超出本地长度/数量保护范围时，保留有效图片而不开放文字转换；艺术字未返回 OCR 时保持图片。转换时发现行框超出对应图片层范围则拒绝转换，保留原图片层。
+- 5.5 可信原生结果不再补造 SSIM=1 等质量测量值；源图片在结果准备成功前保持不变。分层取消/源图变化/切换画板时不应用迟到结果。应用失败时遵循原有回滚逻辑，OCR 转换另有部分插入失败回滚。
+- 保持普通生图 URL 返回、透明 PNG、比例及默认无水印行为；没有裁图或恢复已撤回的棋盘格。
+- 官方依据：[Seedream 5.5 文档](https://docs.volcengine.com/docs/ark/seedream-5-5?lang=zh)，2026-11-15 读取。用户提供的 Tuzi 模型说明确认最多 10 张参考图、分层总数 2–100 以及 OCR 请求开关。
+
+### 本地验收
+
+环境：`opentu5`，分支 `codex/seedream-55-v3`。采用模拟传输、jsdom 组件测试、真实 Plait 数据变换及历史撤销；本阶段没有真实收费生成、页面点击测试、提交、推送或部署。
+
+```sh
+pnpm exec vitest run --environment jsdom \
+  packages/drawnix/src/utils/__tests__/image-task-prefill.test.ts \
+  packages/drawnix/src/services/layer-decomposition \
+  packages/drawnix/src/components/layer-decomposition \
+  packages/drawnix/src/components/toolbar/popup-toolbar/seedream-continue-button.test.tsx \
+  packages/drawnix/src/services/model-adapters/__tests__/seedream-response.test.ts \
+  packages/drawnix/src/components/ai-input-bar/ParametersDropdown.test.tsx \
+  packages/drawnix/src/components/ai-input-bar/AIInputBar.prefill-images.test.ts \
+  packages/drawnix/src/components/toolbar/popup-toolbar/image-toolbar-contents.test.tsx
+pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit
+pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
+# 在 apps/web 目录运行，不触发版本号更新脚本：
+../../node_modules/.bin/vite build --outDir /tmp/opentu5-seedream-complete-build
+```
+
+- 17 个测试文件共 **207 项通过**：包括多图中指定结果回填、历史不变、参考图溢出、供应商绑定标识、1/16/99 前景请求、OCR 字段与畸形回退、100 张产物缓存/写入/导出、文字坐标/样式、JSON 序列化保留、编辑后导出、撤销/重做、重复点击、取消/画板切换、源图删除/替换、缓存失败及旧路径回归。
+- Drawnix/Web 类型检查通过；主应用构建通过（39.62 秒），保留原有大 chunk 提示。首次从 apps/web 执行 `pnpm exec` 因该目录没有独立 package 失败，改用仓库内 Vite 可执行文件后成功；未安装项目依赖或修改配置。
+- 对全部变更 TypeScript 文件执行 ESLint：当前 5 个错误与 HEAD 同文件基线一致（3 个既有 Nx 静态/懒加载模块边界、1 个既有 `location` 全局使用、1 个既有 `{}` 类型）。新增文件无 lint 错误或警告；没有宣称全库 lint 通过。
+- `git diff --check` 通过；OpenSpec 方案严格校验通过。测试日志中既有 jsdom/IndexedDB、localStorage 与 `.npmrc` 环境占位符警告不影响上述测试结果。
+
+### 注意事项
+
+- 原生分层目前为直接请求与写入画布，不接入普通生成任务的 Request-ID 自动恢复；网络中断或超时应先核对供应商调用记录，再决定是否重试。取消等待不保证上游停止处理或计费。
+- 真实 99 层返回、OCR 识别质量、字体视觉还原和真实分层 URL 的可访问性未做上游实测；现有跨域/签名链接过期限制没有在本次修复。浏览器页面验收、生产 SW 独立构建及生产部署未执行。
+- 没有新增环境变量、凭据、依赖、数据库迁移或部署顺序要求。QA/DOC 合并更新本文件；方案与任务记录在 `openspec/changes/complete-seedream-55-editing/`。本轮功能修改尚未提交或更新 PR。
+
+## 真实调用与页面验收（2026-11-15）
+
+用户明确授权真实测试后，在已有 7205 服务和 ego-browser 中新建「Seedream 5.5 真实验收 2026-11-15」画板。参考测试海报为本地绘制的 1200×900 PNG（SUMMER SALE、SAVE 20%、蓝色杯子）；继续编辑复用用户已有的干花结果。本阶段没有模拟生成响应。
+
+| 场景 | 实际结果 | 边界 |
+| --- | --- | --- |
+| 99 层设置 | 页面输入 99 时正确显示最多 100 张图片，随后恢复为 3 个前景再提交 | 未进行 100 张真实产物压力测试 |
+| 原生分层直连 | v3 单图、max_images=4、OCR=true、PNG/URL、无水印；后台成功消费、19 秒、4 张产物 | 浏览器 Failed to fetch；按请求 ID 只读取已有结果，未重发此调用 |
+| 连续编辑初次尝试 | 上轮结果 URL 正确回填；本地参考图下载阶段因跨域失败，imageSubmissionAttempted=false，后台无新增消费 | 未真正提交；修复后才重试 |
+| 连续编辑真实提交 | v3 传原始签名 URL，1728×1296、不透明、无水印；后台成功、17 秒、1 张 RGB 图片，干花主体基本保留，布料变为浅蓝色 | 直连响应获取失败，应用最终完成已有结果恢复并自动插入；存在原图缓存失败警告 |
+| 代理分层完整响应 | 经已有本地 Tuzi 代理额外提交一次新验收，16 秒 HTTP 200，1 底图＋3 前景；两层 OCR 分别为 SUMMER SALE、SAVE 20%，4 张图插入画布 | 临时代理仅用于本次原生分层，不能作为生产直连通过的证明 |
+| OCR 文字编辑 | 点击转换后生成原生文字节点并隐藏原图片层；选中文字后 Enter 进入编辑，将 SUMMER SALE 改为 SUMMER DEAL；撤销转换能恢复原图片层 | 字体/字号近似；同组透明图片的矩形命中区可能拦截双击，可选中文字后按 Enter 编辑 |
+
+### 实测发现与修复
+
+- 参考图执行层原先只对 Tuzi GPT 的远程图片保留 URL，Seedream 5.5 虽支持 URL，却会先尝试下载 Base64，遇到火山 CDN 不开放 CORS 即失败。现仅为 Seedream 5.5 专用适配器保留 HTTP(S) 原始参考 URL（包含签名）；本地/虚拟引用仍走原有物化。增加执行层回归用例，确认不读取/压缩这类远程参考图。
+- OCR 原先仅按行高估算字号，实测 SUMMER SALE 换行后被行框截断。现按各片段实际字体、粗斜体测量宽度，扣除 Plait 文字内边距，并按现有 1.4 行高约束字号，向下保留两位小数。修复后完整显示且可编辑，字号栏不再显示长小数。
+- 不收费的无鉴权 v3 POST 诊断取得浏览器 `Network.loadingFailed`，明确为 `MissingAllowOriginHeader`；OPTIONS 则返回允许 localhost:7205。证明错误响应 CORS 不完整，不能只凭预检成功判定可直连。成功生成的直连响应同样未能被页面读取，但该次完整响应头未被浏览器暴露，未将推断写成已抓包证明。
+- `/v1/images/generations/result` 能取回第一条分层的 4 张图片 URL，但当前不返回 z_index、bounding_box 或 text_recognition，不能恢复完整分层/OCR。没有伪造这些元数据。额外一次代理请求用于取得真实完整结构并验证解析、插入和文字编辑。
+
+### 调用数量、清理与验证
+
+- 后台精确模型和本轮时间范围查询最终确认 **3 条成功消费记录，分别输出 4、1、4 张图片**。另有 1 次本地参考图准备失败和 1 次无鉴权诊断，不构成生成消费；没有进行 99 层收费测试。
+- 请求 ID、原始结果（含临时签名链接）、网络诊断和截图保存在仓库外 `/tmp/opentu5-seedream-real-20261115/`，未写入源码或 PR。密钥仅在进程内存用于 Tuzi 只读日志/结果查询，未输出或复制。
+- 临时 fetch 观察/代理转发已移除，CDP Network 监听关闭；保留测试画板供查看。最后确认编辑任务 completed、insertedToCanvas=true，4 张语义图片层和修改后的文字节点仍在画板。
+- 本地修复验证：图片执行、Seedream 适配器、OCR 转换、画布插入/导出 4 个测试文件共 74 项通过。完整回归 18 个文件共 237 项通过；Drawnix/Web 类型检查通过，主应用构建通过（39.45 秒），仍有既有大 chunk 提示。随后补充本地/虚拟参考图物化边界测试，单独复核该执行器与 OCR 模块共 43 项通过；公网 URL 直接传递，本地与虚拟图片仍物化。
+- 仍未修复远端 v3 响应 CORS，未部署生产、未提交或推送；图片链接可能过期，画布存在缓存失败提示。此前“没有真实调用/页面测试”的表述仅针对前一阶段。
+
+## 2026-11-15：GET 恢复分层与 OCR（本地实现）
+
+### 使用与边界
+
+- 可信 Tuzi 的原生 5.5 分层提交携带本地请求 ID。连接中断/超时或服务端 5xx 后只查询 `GET /v1/images/generations/result?request_id=...`，不再次 POST；即使返回明确可重试标记，该入口也不重放提交。
+- 同一弹窗中显示请求 ID；已提交后，“开始分层”切换为“获取已有结果”。数量和 OCR 选项冻结，获取操作复用提交时的地址、凭据和图层数量上限。普通供应商及旧分层路径不启用 Tuzi 专用 GET。
+- 查询总计 15 分钟，每次最多 15 秒，间隔 5 秒；临时网络、429/5xx 可继续查询，401/403/404、业务失败、请求 ID 不匹配、畸形 JSON/缺元数据明确失败。支持取消等待，不自动停止上游任务。
+- 完整结果沿用原有严格分层校验器、缓存、画布绑定检查；保留 z_index、bounding_box 与可选 text_recognition。旧 URL-only 结果不能恢复层位置/OCR；不会猜测边界或重新生图。
+- 恢复句柄仅保留当前弹窗内存，不持久化凭据。关闭/刷新后不支持此弹窗自动续查；请求 ID 可用于已有后台记录查询。源图或画板变化会停止当前插入。
+
+### 后端依赖与注意事项
+
+- 后端补丁位于独立工作树 `/Users/lkj/.codex/worktrees/seedream-layer-result/tu-zi-api`，分支 `codex/seedream-layer-result`；原 `/Users/lkj/Desktop/working/tu-zi-api` 的未提交修改保持原样。
+- Tuzi 在消费日志的 `generated_image_layer_result` 保存最多 2 MiB 的白名单快照，含 2–100 个 URL 图层、位置和有效 OCR；不存 base64、任意上游字段或认证头。普通用户日志列表删除该字段，结果 GET 按用户、令牌或应用令牌鉴权。
+- 修正应用令牌结果查询使用 `app_token_id` 范围：直接 ID 和客户端 ID 别名均保留完整结果，不能越过应用/所属用户范围。
+- 需要先将补丁合入已支持 Seedream 5.5 的 Tuzi 后端。独立工作树基线 `6ed8dd92b` 的 v3 请求校验仍是 Flash 版本，本补丁不包含模型接入，不能直接部署整份旧基线替换现有服务。
+- 无新表、迁移、环境变量或依赖。本轮没有部署、推送、更新 PR、浏览器测试或新增收费生成。线上仍需后端发布后才具备完整 GET 恢复；历史已丢弃的元数据不可补录，签名图片地址仍会过期。
+- 回滚：撤回前端恢复入口及后端快照读写改动；已有快照可留在日志 Other 中，旧代码仍使用原有 URL 字段。本轮补充现有 QA/DOC，不另建前端说明文件。
+
+### 本地验证
+
+执行命令：
+
+```sh
+pnpm exec vitest run --environment jsdom packages/drawnix/src/services/layer-decomposition packages/drawnix/src/components/layer-decomposition/Seedream55LayerDialog.test.tsx packages/drawnix/src/services/__tests__/provider-routing.test.ts packages/drawnix/src/services/__tests__/image-generation-recovery-service.test.ts
+pnpm exec tsc -p packages/drawnix/tsconfig.lib.json --noEmit
+pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
+# apps/web 目录：
+../../node_modules/.bin/vite build --outDir /tmp/opentu5-layer-recovery-build
+```
+
+- 13 个测试文件、307 项通过，包括 GET-only、完整 OCR、供应商配置冻结、权限错误/失败/超时/取消/旧数据、弹窗恢复按钮、源图变化和旧图片恢复行为。组件测试使用 React Testing Library，未操作真实浏览器。
+- Drawnix/Web 类型检查通过；Web 主应用构建通过（56.24 秒），保留原有大 chunk 提示；未另外构建生产 SW。
+- 本轮新增文件和修改的恢复协调器/弹窗/传输实现 ESLint 通过。provider.ts 的 Nx lazy-library 静态导入错误及 provider-routing/types.ts 的 `{}` 类型错误各 1 项，在 HEAD 原文件上复现一致；未宣称全库 lint 通过。
+- 后端 5 个包定向回归通过，114 个测试及子用例；relay/common 快照测试 race 通过；5 个受影响包 go vet 通过。详细记录见后端 QA。
+- 两仓库差异检查通过。未新增收费生成、真实浏览器验收或部署；本地 mock/httptest 验证不等同于线上部署或真实上游验收。
+
+## 2026-11-15：用户授权 GET 恢复真实接口复验
+
+本节追加在前述“无新增收费生成”的本地实现阶段之后。用户要求继续真实测试，本次仅新增 1 次 v3 POST（5.5、max_images=2、OCR=true、size=auto、PNG/URL、watermark=false、stream=false），未重放。
+
+- 请求 ID：`opentu-layer-live-32e9c13f-020a-4662-9bd2-5609bd45dce8`；11.11 秒 HTTP 200，2 张图，z_index=0/1，完整前景位置、文字 SUMMER SALE 及样式。usage.generated_images=2，未核对实际扣款金额。
+- 线上 GET 同 ID 一次成功，仍只有相同的 2 条 URL，没有位置/OCR。因此线上完整分层恢复尚不通过，后端补丁未部署。
+- 两个图片 URL 无凭据下载均 HTTP 200；底图1200×900，前景1719×610且有透明通道。前景通过接口 bounding_box 放置，不能直接按裁剪图像素尺寸放回底图。
+- 实际请求附 Origin=http://localhost:7205：POST 成功响应及图片响应无 Access-Control-Allow-Origin；GET 为 `*`。这只是 HTTP 响应头证据，本次未操作真实浏览器，不宣称页面 fetch/缓存已通过。
+- 本地后端回放此次真实响应：正常交付/断线捕获均保留元数据，隔离数据库入库后结果 GET 的 data[] 完整不变。前端回放该本地 GET 正确解析 OCR、位置和尺寸；回放线上 URL-only GET 明确报缺元数据，2 项通过。此阶段无额外生成、生产数据变更或页面验收。
+- 临时脚本、原始响应、PNG、回放测试与日志位于 `/tmp/opentu5-layer-get-live-20261115/`，测试夹具已移出源码。本轮只更新 QA，未修改业务实现、提交、推送或部署。
+
+
+## 2026-11-15：新 PR 交付范围
+
+- 仅提交 OpenTu；独立 Tuzi API 工作树不纳入此 PR。保留旧 PR #334，新 PR 基于其 `codex/seedream-55-v3` 分支展示增量，先合并 #334 再合并本 PR。
+- 包含未推送的参数摘要完整显示修复，以及连续编辑、原生分层设置、OCR 转文字、分层 GET-only 查询和相关真实验收修复。
+- 本次 PR 不包含此前讨论的同源转发/图片代理方案，也未部署 Tuzi 后端。线上 CORS、URL-only GET 和缓存/导出限制仍存在，不能作为完整线上链路验收通过的声明。
+- 提交前基础验证：21 个文件、429 项测试通过，Drawnix 类型检查通过；测试命令包含整个分层目录、弹窗/工具栏、回填、Seedream 适配器、参数菜单、媒体执行器、provider routing 和图片恢复服务。
+- 无新依赖、迁移、环境变量或生产操作；完整分层 GET 恢复依赖服务端返回元数据，旧记录不可补录。回滚此 PR 的增量即可恢复 #334 的前端行为，已有画板/历史任务不需要删除。

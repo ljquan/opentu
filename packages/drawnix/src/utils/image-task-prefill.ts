@@ -287,3 +287,41 @@ export function buildImageTaskAIInputPrefillData(
     ...(count ? { count } : {}),
   };
 }
+
+/** Continue editing is distinct from regenerating the original inputs. */
+export function buildSeedream55ContinuePrefillData(
+  task: Task,
+  selected: { url: string; id: string }
+): AIInputPrefillEventDetail {
+  const prefill = buildImageTaskAIInputPrefillData(task);
+  if (prefill.model?.toLowerCase() !== 'doubao-seedream-5-5-261028') {
+    throw new Error('继续编辑入口仅适用于 Seedream 5.5 历史任务');
+  }
+  if (!selected.url.trim()) throw new Error('所选图片没有可用地址');
+  const url = normalizeImageTaskDataUrl(selected.url);
+  const images = [
+    { url, name: '上一轮结果', sourceElementId: selected.id },
+    ...getImageTaskReferenceImages(task)
+      .filter((image) => image.url !== url)
+      .map(({ url, name }) => ({ url, name })),
+  ];
+  // Keep overflow visible in the composer; the adapter blocks >10 references
+  // before any request, so users can choose which historical reference to remove.
+  const params = { ...prefill.params };
+  for (const key of [
+    'maskImage',
+    'mask_image',
+    'layer_decomposition',
+    'layer_decomposition_options',
+  ])
+    delete params[key];
+  return {
+    ...prefill,
+    prompt: '',
+    images,
+    params,
+    count: 1,
+    source: 'canvas-toolbar',
+    requireExactModelRef: true,
+  };
+}

@@ -4,6 +4,7 @@ import {
   buildImageTaskAIInputPrefillData,
   buildImageTaskPrefillInitialData,
   getImageTaskReferenceImages,
+  buildSeedream55ContinuePrefillData,
 } from '../image-task-prefill';
 
 function imageTask(overrides: Partial<Task> = {}): Task {
@@ -30,6 +31,32 @@ function imageTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('image-task-prefill', () => {
+  it('continues with the selected result, keeps provider/params, removes stale masks and leaves history unchanged', () => {
+    const task = imageTask({ params: {
+      prompt: '上一轮提示词', model: 'doubao-seedream-5-5-261028',
+      modelRef: { modelId: 'doubao-seedream-5-5-261028', profileId: 'tuzi-custom' },
+      referenceImages: ['https://example.com/source.png', 'https://example.com/second.png'],
+      params: { size: '1.5K', aspect_ratio: '4:3', watermark: 'false', background: 'transparent', mask_image: '/old-mask.png' },
+    } });
+    const before = structuredClone(task);
+    const result = buildSeedream55ContinuePrefillData(task, { id: 'selected', url: 'https://example.com/second.png' });
+    expect(result).toMatchObject({ count: 1, prompt: '', source: 'canvas-toolbar', modelRef: { profileId: 'tuzi-custom' },
+      params: { size: '1.5K', aspect_ratio: '4:3', watermark: 'false', background: 'transparent' } });
+    expect(result.images).toEqual([
+      { url: 'https://example.com/second.png', name: '上一轮结果', sourceElementId: 'selected' },
+      { url: 'https://example.com/source.png', name: '参考图 1' },
+    ]);
+    expect(result.params).not.toHaveProperty('mask_image');
+    expect(task).toEqual(before);
+    expect(buildImageTaskAIInputPrefillData(task).prompt).toBe('上一轮提示词');
+  });
+
+  it('keeps excess references visible for manual removal and refuses other models', () => {
+    const task = imageTask({ params: { prompt: 'edit', model: 'doubao-seedream-5-5-261028',
+      referenceImages: Array.from({ length: 10 }, (_, i) => `https://example.com/${i}.png`) } });
+    expect(buildSeedream55ContinuePrefillData(task, { id: 'result', url: '/result.png' }).images).toHaveLength(11);
+    expect(() => buildSeedream55ContinuePrefillData(imageTask(), { id: 'result', url: '/result.png' })).toThrow('Seedream 5.5');
+  });
   it('重新生成带蒙层的图片任务时应该把原 mask 绑定到参考图', () => {
     const prefill = buildImageTaskAIInputPrefillData(imageTask());
 
