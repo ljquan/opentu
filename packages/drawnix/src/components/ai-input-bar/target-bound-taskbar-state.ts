@@ -332,6 +332,7 @@ export interface BoundTargetTaskbarDraft<
   TKnowledgeContext = unknown
 > {
   prompt: string;
+  inputIntent?: 'restore';
   uploadedContent: TUploadedContent[];
   knowledgeContextRefs: TKnowledgeContext[];
 }
@@ -364,6 +365,7 @@ export function areBoundTargetTaskbarDraftsEqual<TUploaded, TKnowledge>(
 ): boolean {
   return (
     left.prompt === right.prompt &&
+    left.inputIntent === right.inputIntent &&
     areShallowArraysEqual(left.uploadedContent, right.uploadedContent) &&
     areShallowArraysEqual(left.knowledgeContextRefs, right.knowledgeContextRefs)
   );

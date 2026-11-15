@@ -79,6 +79,7 @@ function getVideoSizeOptions(): string[] {
  * 视频生成参数
  */
 export interface VideoGenerationParams {
+  generationNodeId?: string;
   /** 视频描述提示词 */
   prompt: string;
   /** 视频模型 */
@@ -204,6 +205,7 @@ function getVideoQueueConfig(params: VideoGenerationParams) {
     logPrefix: 'VideoGenerationTool',
     buildTaskPayload: () => ({
       prompt: params.prompt,
+        generationNodeId: params.generationNodeId,
       size: params.size || modelConfig.defaultSize,
       duration: parseInt(params.seconds || modelConfig.defaultDuration, 10),
       model,

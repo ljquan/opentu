@@ -94,6 +94,7 @@ function buildGenerationMetadataPatch(
   }
   if (generationTaskId) {
     patch.generationTaskId = generationTaskId;
+    if (typeof metadata?.generationNodeId === 'string') patch.generationNodeId = metadata.generationNodeId;
   }
   if (generationAnchorId) {
     patch.generationAnchorId = generationAnchorId;

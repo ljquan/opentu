@@ -368,6 +368,7 @@ export class WorkflowEngine {
         // 使用独立的图片生成服务
         const result = await generateImage(step.args.prompt as string, {
           model: step.args.model as string | undefined,
+          generationNodeId: step.args.generationNodeId as string | undefined,
           modelRef: (step.args.modelRef as ModelRef | null | undefined) || null,
           size: step.args.size as string | undefined,
           referenceImages: step.args.referenceImages as string[] | undefined,
@@ -417,6 +418,7 @@ export class WorkflowEngine {
         // 使用独立的视频生成服务
         const result = await generateVideo(step.args.prompt as string, {
           model: step.args.model as string | undefined,
+          generationNodeId: step.args.generationNodeId as string | undefined,
           modelRef: (step.args.modelRef as ModelRef | null | undefined) || null,
           duration: (step.args.seconds ?? step.args.duration) as
             | string

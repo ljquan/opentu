@@ -77,9 +77,15 @@ import { analytics } from '../../utils/umami-analytics';
 import { DRAWER_PIN_KEYS } from '../../utils/drawer-pin';
 import {
   buildImageTaskAIInputPrefillData,
+  buildImageRerollPrefillData,
   buildImageTaskPrefillInitialData,
 } from '../../utils/image-task-prefill';
-import { requestAIInputPrefill } from '../../services/ai-input-ui-events';
+import { requestAIInputReroll } from '../../services/ai-input-ui-events';
+import { getCanvasBoardBinding } from '../../services/canvas-operations/canvas-board-ref';
+import {
+  getPreparedImageRecipe,
+  prepareImageGenerationRecipe,
+} from '../../services/image-generation-recipe';
 import './task-queue.scss';
 import { HoverTip } from '../shared';
 import { createMiniMaxH3RegenerationTask } from '../../services/minimax-h3-regeneration-service';
@@ -589,6 +595,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               metadata: {
                 prompt: task.params.prompt,
                 generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
               },
             },
           ],
@@ -606,18 +613,41 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
     try {
       const taskResult = task.result!;
       if (task.type === TaskType.IMAGE) {
+        const binding = getCanvasBoardBinding();
+        const boardGuard = () => {
+          const current = getCanvasBoardBinding();
+          return current?.board === board && current?.boardId === binding?.boardId;
+        };
+        try {
+          await taskQueueService.waitForTaskPersistence?.(task.id);
+          const completeTask = await taskStorageReader.getTask(task.id);
+          if (completeTask) {
+            await prepareImageGenerationRecipe(task, completeTask, board.children);
+          }
+        } catch (error) {
+          console.warn('[TaskQueue] Unable to retain generation inputs:', error);
+        }
+        if (!boardGuard()) return;
+        const recipe = getPreparedImageRecipe(task);
         const urls = taskResult.urls?.length
           ? taskResult.urls
           : [taskResult.url];
         const insertionResult = await executeCanvasInsertion({
           board,
           imageInsertionPolicy: 'generated-result',
+          boardGuard,
           items: urls.map((url) => ({
             type: 'image',
             content: normalizeImageDataUrl(url),
             groupId: urls.length > 1 ? `task-image-${task.id}` : undefined,
             columnOrder: getGPTImage26ResultColumnOrder(task, url),
             dimensions: resolveImageTaskInsertionDimensions(task),
+            metadata: {
+              prompt: task.params.prompt,
+              generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
+              ...(recipe ? { imageGenerationRecipe: recipe } : {}),
+            },
             waitForImageLoad: true,
           })),
           imageLayout: usesGPTImage26ResultColumns(task) ? 'task-columns' : undefined,
@@ -653,6 +683,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               metadata: {
                 prompt: task.params.prompt,
                 generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
               },
             },
           ],
@@ -685,6 +716,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                   tags: getLyricsTags(taskResult),
                   prompt: task.params.prompt,
                   generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                 },
               },
             ],
@@ -716,6 +748,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
             taskResult.clipIds?.[0],
           clipIds: taskResult.clipIds,
           generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
         };
 
         const insertionResult = await executeCanvasInsertion({
@@ -772,6 +805,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               metadata: {
                 prompt: task.params.prompt,
                 generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
               },
             },
           ],
@@ -795,20 +829,26 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
   };
 
   const handleRegenerate = async (taskId: string) => {
-    const task =
-      (await taskStorageReader.getTask(taskId)) ||
-      taskQueueService.getTask(taskId) ||
-      tasks.find((item) => item.id === taskId);
-    if (!task || task.type !== TaskType.IMAGE) {
-      MessagePlugin.warning('未找到可回填的图片任务');
-      return;
-    }
+    try {
+      const binding = getCanvasBoardBinding();
+      const task = await taskStorageReader.getTask(taskId);
+      if (getCanvasBoardBinding()?.boardId !== binding?.boardId) return;
+      if (!task || task.type !== TaskType.IMAGE) {
+        MessagePlugin.warning('未找到可回填的图片任务');
+        return;
+      }
 
-    requestAIInputPrefill({
-      ...buildImageTaskAIInputPrefillData(task),
-      source: 'task-queue',
-    });
-    onTaskAction?.('regenerate', taskId);
+      requestAIInputReroll({
+        ...buildImageRerollPrefillData(buildImageTaskAIInputPrefillData(task)),
+        source: 'task-queue',
+        boardId: binding?.boardId || undefined,
+      });
+      onTaskAction?.('regenerate', taskId);
+    } catch (error) {
+      MessagePlugin.error(
+        error instanceof Error ? error.message : '无法恢复原生成输入'
+      );
+    }
   };
 
   const handleUpgradeTo2K = async (taskId: string) => {
@@ -934,6 +974,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                   : task.result?.duration,
               prompt: task.params.prompt,
               generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
               tags:
                 typeof task.params.tags === 'string'
                   ? task.params.tags
@@ -961,6 +1002,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
                 duration: task.result?.duration,
                 prompt: task.params.prompt,
                 generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                 tags:
                   typeof task.params.tags === 'string'
                     ? task.params.tags
@@ -992,6 +1034,7 @@ export const TaskQueuePanel: React.FC<TaskQueuePanelProps> = ({
               urls.length > 1 ? `${title} (${i + 1}/${urls.length})` : title,
             prompt: task.params.prompt,
             generationTaskId: task.id,
+                ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
           });
         }
       }

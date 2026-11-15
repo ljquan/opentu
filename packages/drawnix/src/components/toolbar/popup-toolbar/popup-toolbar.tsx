@@ -174,8 +174,21 @@ import { isAudioNodeElement } from '../../../types/audio-node.types';
 import { getCanvasAudioPlaybackQueue } from '../../../data/audio';
 import { openMusicPlayerToolAndPlay } from '../../../services/tool-launch-service';
 import { useCanvasAudioPlayback } from '../../../hooks/useCanvasAudioPlayback';
-import { buildImageTaskAIInputPrefillData } from '../../../utils/image-task-prefill';
-import { requestAIInputPrefill } from '../../../services/ai-input-ui-events';
+import {
+  buildImageTaskAIInputPrefillData,
+  buildImageRerollPrefillData,
+} from '../../../utils/image-task-prefill';
+import {
+  CANVAS_IMAGE_EDIT_EVENT,
+  CanvasImageEditDetail,
+  requestAIInputPrefill,
+  requestAIInputReroll,
+} from '../../../services/ai-input-ui-events';
+import {
+  readImageGenerationRecipe,
+  resolveRecipeCanvasSources,
+} from '../../../services/image-generation-recipe';
+import { taskStorageReader } from '../../../services/task-storage-reader';
 import {
   AUDIO_PLAYLIST_CANVAS_AUDIO_ID,
   AUDIO_PLAYLIST_CANVAS_AUDIO_LABEL,
@@ -231,7 +244,7 @@ export const PopupToolbar = () => {
   // 过滤掉 WorkZone 元素，避免点击 WorkZone 时弹出 popup-toolbar
   const allSelectedElements = getSelectedElements(board);
   const selectedElements = allSelectedElements.filter(
-    (element) => !isWorkZoneElement(element)
+    (element) => !isWorkZoneElement(element) && !element.generationNode && !element.generationInput
   );
   const { openDialog } = useDrawnix();
   const { language, t } = useI18n();
@@ -258,6 +271,22 @@ export const PopupToolbar = () => {
   const [editingImageUrl, setEditingImageUrl] = useState('');
   const [editingImageElement, setEditingImageElement] =
     useState<PlaitDrawElement | null>(null);
+
+  useEffect(() => {
+    const openImageEditor = (event: Event) => {
+      const detail = (event as CustomEvent<CanvasImageEditDetail>).detail;
+      const binding = getCanvasBoardBinding();
+      if (!binding || binding.board !== board || (detail.boardId && binding.boardId !== detail.boardId)) return;
+      const source = board.children.find(element => element.id === detail.elementId);
+      if (!source || !PlaitDrawElement.isImage(source) || !source.url) return;
+      setEditingImageUrl(source.url);
+      setEditingImageElement(source);
+      setEditingImageBinding(binding);
+      setShowImageEditor(true);
+    };
+    window.addEventListener(CANVAS_IMAGE_EDIT_EVENT, openImageEditor);
+    return () => window.removeEventListener(CANVAS_IMAGE_EDIT_EVENT, openImageEditor);
+  }, [board]);
 
   // 属性面板状态
   const [showPropertyPanel, setShowPropertyPanel] = useState(false);
@@ -365,7 +394,7 @@ export const PopupToolbar = () => {
   const { refs, floatingStyles } = useFloating({
     placement: popupToolbarPlacement,
     middleware: [
-      offset(12), // Close to reference point
+      offset(selectedElements.length === 1 && PlaitDrawElement.isImage(selectedElements[0]) ? 44 : 12), // Leave room for image connection buttons.
       shift({ padding: 16 }), // Ensure it stays within screen bounds
       flip({
         // 输入框下方的图片优先将工具栏固定到图片下方，避免 flip 又翻回输入框上方。
@@ -870,43 +899,94 @@ export const PopupToolbar = () => {
     }
   };
 
-  const prefillSelectedImageTaskToAIInput = useCallback(async () => {
-    const imageElement = selectedElements[0];
-    if (
-      selectedElements.length !== 1 ||
-      !PlaitDrawElement.isDrawElement(imageElement) ||
-      !PlaitDrawElement.isImage(imageElement) ||
-      !imageElement.url
-    ) {
-      return;
-    }
-
-    try {
-      const task = await taskQueueService.findImageTaskByResultUrl(
-        imageElement.url
-      );
-      if (!task) {
-        MessagePlugin.warning(
-          language === 'zh'
-            ? '未找到该图片的历史生成任务'
-            : 'No historical generation task found for this image'
-        );
+  const imageGenerationActionPending = useRef(false);
+  const prefillSelectedImageTaskToAIInput = useCallback(
+    async (action: 'reroll' | 'restore' | 'edit' = 'restore') => {
+      const imageElement = selectedElements[0];
+      if (
+        selectedElements.length !== 1 ||
+        !PlaitDrawElement.isDrawElement(imageElement) ||
+        !PlaitDrawElement.isImage(imageElement) ||
+        !imageElement.url
+      ) {
         return;
       }
 
-      requestAIInputPrefill({
-        ...buildImageTaskAIInputPrefillData(task),
-        source: 'canvas-toolbar',
-      });
-    } catch (error) {
-      console.error('[PopupToolbar] Failed to prefill image generation:', error);
-      MessagePlugin.error(
-        language === 'zh'
-          ? '回填失败，请稍后重试'
-          : 'Failed to load generation inputs, please try again'
-      );
-    }
-  }, [language, selectedElements]);
+      if (imageGenerationActionPending.current) return;
+      imageGenerationActionPending.current = true;
+      const binding = getCanvasBoardBinding();
+      try {
+        if (action === 'edit') {
+          requestAIInputPrefill({
+            intent: 'edit',
+            source: 'canvas-toolbar',
+            boardId: binding?.boardId || undefined,
+            generationType: 'image',
+            prompt: '',
+            count: 1,
+            images: [
+              {
+                url: imageElement.url,
+                name: '当前图片',
+                sourceElementId: imageElement.id,
+              },
+            ],
+          });
+          return;
+        }
+        const record = imageElement as typeof imageElement & {
+          generationTaskId?: string;
+        };
+        const savedInput = readImageGenerationRecipe(imageElement);
+        const matchedTask = savedInput
+          ? undefined
+          : (record.generationTaskId
+              ? await taskStorageReader.getTask(record.generationTaskId)
+              : undefined) ||
+            (await taskQueueService.findImageTaskByResultUrl(imageElement.url));
+        const task = matchedTask
+          ? await taskStorageReader.getTask(matchedTask.id)
+          : undefined;
+        if (getCanvasBoardBinding()?.boardId !== binding?.boardId) return;
+        if (!savedInput && !task) {
+          MessagePlugin.warning(
+            language === 'zh'
+              ? '原生成记录已缺失，无法恢复原参考图；可使用“以此图修改”'
+              : 'No historical generation task found for this image'
+          );
+          return;
+        }
+
+        const input = resolveRecipeCanvasSources(
+          savedInput || buildImageTaskAIInputPrefillData(task!),
+          board.children
+        );
+        const detail = {
+          ...input,
+          boardId: binding?.boardId || undefined,
+          source: 'canvas-toolbar',
+        } as const;
+        if (action === 'reroll')
+          requestAIInputReroll(buildImageRerollPrefillData(detail));
+        else requestAIInputPrefill(detail);
+      } catch (error) {
+        console.error(
+          '[PopupToolbar] Failed to prefill image generation:',
+          error
+        );
+        MessagePlugin.error(
+          language === 'zh'
+            ? error instanceof Error
+              ? error.message
+              : '恢复原输入失败，请稍后重试'
+            : 'Failed to load generation inputs, please try again'
+        );
+      } finally {
+        imageGenerationActionPending.current = false;
+      }
+    },
+    [board, language, selectedElements]
+  );
 
   const openAIImageGenerationDialog = useCallback(() => {
     const selectedFrame =
@@ -2222,7 +2302,7 @@ export const PopupToolbar = () => {
                         // 检查是否为外部 URL
                         try {
                           const urlObj = new URL(url);
-                          return urlObj.origin !== location.origin;
+                          return urlObj.origin !== window.location.origin;
                         } catch {
                           return false;
                         }
@@ -2670,6 +2750,7 @@ export const PopupToolbar = () => {
               }}
             />
             {state.hasRegenerateImage && (
+              <>
               <ToolButton
                 className="regenerate-image"
                 key="regenerate-image"
@@ -2678,15 +2759,26 @@ export const PopupToolbar = () => {
                 visible={true}
                 tooltip={
                   language === 'zh'
-                    ? '以当前提示词再次生成'
-                    : 'Generate again with the current prompt'
+                    ? '使用原提示词和原参考图，立即重新生成一张'
+                    : 'Generate one new image using the original inputs'
                 }
                 aria-label={language === 'zh' ? '再次生成' : 'Generate again'}
-                data-track="toolbar_click_regenerate_image_prefill"
+                data-track="toolbar_click_regenerate_image"
                 onPointerUp={() => {
-                  void prefillSelectedImageTaskToAIInput();
+                  void prefillSelectedImageTaskToAIInput('reroll');
                 }}
               />
+              <ToolButton type="icon" icon={<Pencil size={15} />} visible={true}
+                tooltip={language === 'zh' ? '调整后生成：恢复原提示词和参考图' : 'Restore inputs for editing'}
+                aria-label={language === 'zh' ? '调整后生成' : 'Edit original inputs'}
+                data-track="toolbar_click_regenerate_image_prefill"
+                onPointerUp={() => void prefillSelectedImageTaskToAIInput('restore')} />
+              <ToolButton type="icon" icon={<AIImageIcon />} visible={true}
+                tooltip={language === 'zh' ? '以此图修改：使用当前图片作为参考' : 'Use this image as a reference'}
+                aria-label={language === 'zh' ? '以此图修改' : 'Edit this image'}
+                data-track="toolbar_click_edit_image_input"
+                onPointerUp={() => void prefillSelectedImageTaskToAIInput('edit')} />
+              </>
             )}
             <ToolButton
               className="trash"

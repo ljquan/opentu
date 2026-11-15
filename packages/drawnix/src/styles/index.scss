@@ -854,3 +854,9 @@
     display: none !important;
   }
 }
+
+// Keep native resize/rotation behavior while matching the reference controls.
+.active-host-g:has([data-image-reference-ports]) {
+  .selection-rectangle path { stroke: #a394d8; stroke-width: 1.5; }
+  .resize-handle path[stroke]:not([stroke="none"]) { stroke: #a394d8; }
+}

@@ -6,6 +6,7 @@ import {
 } from '../useAutoInsertToCanvas';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
 import { IMAGE_GENERATION_ANCHOR_RETRY_EVENT } from '../../types/image-generation-anchor.types';
+import { getPreparedImageRecipe, prepareImageGenerationRecipe } from '../../services/image-generation-recipe';
 import { STORAGE_LIMITS } from '../../constants/TASK_CONSTANTS';
 
 const mocks = vi.hoisted(() => {
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => {
     completionListeners,
     workspaceListeners,
     taskState,
+    getStoredTask: vi.fn(),
     quickInsert: vi.fn(),
     executeCanvasInsertion: vi.fn(),
     insertGeneratedImageFlow: vi.fn(),
@@ -119,6 +121,10 @@ vi.mock('../../services/task-queue', () => {
     taskQueueService,
   };
 });
+
+vi.mock('../../services/task-storage-reader', () => ({
+  taskStorageReader: { getTask: mocks.getStoredTask },
+}));
 
 vi.mock('../../services/workflow-completion-service', () => ({
   workflowCompletionService: {
@@ -324,6 +330,8 @@ describe('useAutoInsertToCanvas', () => {
     vi.useFakeTimers();
     clearInsertedTaskIds();
     mocks.board = null;
+    mocks.getStoredTask.mockReset();
+    mocks.getStoredTask.mockResolvedValue(null);
     mocks.taskListeners.length = 0;
     mocks.completionListeners.length = 0;
     mocks.workspaceListeners.length = 0;
@@ -1737,6 +1745,8 @@ describe('useAutoInsertToCanvas', () => {
 
   it('recovers completed uninserted tasks that already exist before subscribing', async () => {
     const task = createCompletedImageTask({ id: 'task-restored' });
+    mocks.getStoredTask.mockResolvedValue(task);
+    await prepareImageGenerationRecipe(task);
     mocks.board = { children: [] };
     mocks.taskState.tasks = [task];
 
@@ -1763,11 +1773,13 @@ describe('useAutoInsertToCanvas', () => {
         aiPrompt: '生成一张图',
         generationPrompt: '生成一张图',
         generationTaskId: 'task-restored',
+        imageGenerationRecipe: getPreparedImageRecipe(task),
       }),
       mocks.board,
       expect.any(Function),
       'generated-result'
     );
+    expect(getPreparedImageRecipe(task)?.input.prompt).toBe('生成一张图');
     expect(mocks.insertGeneratedImageFlow).not.toHaveBeenCalled();
     expect(mocks.markAsInserted).toHaveBeenCalledWith(task.id, 'auto_insert');
   });

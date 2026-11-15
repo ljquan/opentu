@@ -7,6 +7,7 @@ export interface ImageGenerationReferenceImage {
   url: string;
   name: string;
   maskImage?: string;
+  sourceElementId?: string;
 }
 
 export interface ImageGenerationInitialData {
@@ -84,8 +85,19 @@ function readStringParams(value: unknown): Record<string, string> {
   return Object.entries(value as Record<string, unknown>).reduce<
     Record<string, string>
   >((acc, [key, item]) => {
-    if (typeof item === 'string' && item.trim()) {
-      acc[key] = item;
+    if (
+      /api.?key|authorization|password|secret|access.?token|base.?url/i.test(
+        key
+      )
+    ) {
+      return acc;
+    }
+    if (
+      (typeof item === 'string' && item.trim()) ||
+      typeof item === 'boolean' ||
+      (typeof item === 'number' && Number.isFinite(item))
+    ) {
+      acc[key] = String(item);
     }
     return acc;
   }, {});
@@ -148,28 +160,13 @@ function normalizeReferenceImage(
   return {
     url: normalizeImageTaskDataUrl(url),
     name: readString(record.name) || `${labelPrefix} ${index + 1}`,
+    ...(readString(record.maskImage)
+      ? { maskImage: readString(record.maskImage) }
+      : {}),
+    ...(readString(record.sourceElementId)
+      ? { sourceElementId: readString(record.sourceElementId) }
+      : {}),
   };
-}
-
-function appendReferenceImages(
-  target: ImageGenerationReferenceImage[],
-  seenUrls: Set<string>,
-  values: unknown,
-  labelPrefix: string
-): void {
-  if (!Array.isArray(values)) {
-    return;
-  }
-
-  values.forEach((value, index) => {
-    const image = normalizeReferenceImage(value, index, labelPrefix);
-    if (!image || seenUrls.has(image.url)) {
-      return;
-    }
-
-    seenUrls.add(image.url);
-    target.push(image);
-  });
 }
 
 export function getImageTaskKnowledgeContextRefs(
@@ -194,31 +191,19 @@ export function getImageTaskReferenceImages(
   task: Pick<Task, 'params'>
 ): ImageGenerationReferenceImage[] {
   const params = task.params as Record<string, unknown>;
-  const images: ImageGenerationReferenceImage[] = [];
-  const seenUrls = new Set<string>();
-
-  appendReferenceImages(images, seenUrls, params.uploadedImages, '参考图');
-
-  const uploadedImage = normalizeReferenceImage(
-    params.uploadedImage,
-    images.length,
-    '参考图'
-  );
-  if (uploadedImage && !seenUrls.has(uploadedImage.url)) {
-    seenUrls.add(uploadedImage.url);
-    images.push(uploadedImage);
-  }
-
-  appendReferenceImages(images, seenUrls, params.referenceImages, '参考图');
-
-  const inputReference = normalizeReferenceImage(
-    params.inputReference,
-    images.length,
-    '参考图'
-  );
-  if (inputReference && !seenUrls.has(inputReference.url)) {
-    images.push(inputReference);
-  }
+  // These are alternate representations of the same inputs, not extra attachments.
+  // Preserve order and repeated pixels: distinct canvas sources may share a URL.
+  const values =
+    Array.isArray(params.referenceImages) && params.referenceImages.length
+      ? params.referenceImages
+      : Array.isArray(params.uploadedImages) && params.uploadedImages.length
+      ? params.uploadedImages
+      : [params.uploadedImage || params.inputReference].filter(Boolean);
+  const images = values
+    .map((value, index) => normalizeReferenceImage(value, index, '参考图'))
+    .filter((image): image is ImageGenerationReferenceImage => image !== null);
+  if (images.length !== values.length)
+    throw new Error('历史参考图记录不完整，请重新添加缺失的参考图');
 
   const maskImage =
     readString(params.maskImage) || readString(params.mask_image);
@@ -264,7 +249,12 @@ export function buildImageTaskAIInputPrefillData(
 ): AIInputPrefillEventDetail {
   const params = task.params as Record<string, unknown>;
   const nestedParams = readStringParams(params.params);
-  const size = readString(params.size) || readString(params.aspectRatio);
+  const size =
+    readString(params.size) ||
+    readString(params.aspectRatio) ||
+    (readFiniteNumber(params.width) && readFiniteNumber(params.height)
+      ? `${params.width}x${params.height}`
+      : undefined);
   const routeModel = resolveTaskInvocationRouteModel(task);
   const modelRef = typeof routeModel === 'string' ? null : routeModel;
   const model =
@@ -272,18 +262,79 @@ export function buildImageTaskAIInputPrefillData(
     (typeof routeModel === 'string' ? routeModel : readString(params.model));
   const count = readPositiveInteger(params.batchTotal);
   const knowledgeContextRefs = getImageTaskKnowledgeContextRefs(task);
+  const inputParams = readStringParams(
+    Object.fromEntries(
+      [
+        'width',
+        'height',
+        'quality',
+        'resolution',
+        'generationMode',
+        'inputFidelity',
+        'background',
+        'outputFormat',
+        'outputCompression',
+        'seed',
+      ].map((key) => [key, params[key]])
+    )
+  );
+  for (const [field, parameter] of [
+    ['inputFidelity', 'input_fidelity'],
+    ['outputFormat', 'output_format'],
+    ['outputCompression', 'output_compression'],
+  ]) {
+    if (inputParams[field] !== undefined) {
+      inputParams[parameter] = inputParams[field];
+      delete inputParams[field];
+    }
+  }
+  const images = getImageTaskReferenceImages(task);
+  if (
+    !images.length &&
+    (params.generationMode === 'image_edit' ||
+      params.generationMode === 'image_to_image' ||
+      params.maskImage ||
+      (Array.isArray(params.canvasAssociations) &&
+        params.canvasAssociations.some(
+          (ref: { kind?: string }) => ref?.kind === 'image'
+        )))
+  ) {
+    throw new Error(
+      '原任务的参考图已缺失，无法恢复；请重新添加原参考图，或使用“以此图修改”'
+    );
+  }
 
   return {
+    intent: 'restore',
+    sourceTaskId: task.id,
     generationType: 'image',
     prompt: readString(params.prompt) || '',
-    images: getImageTaskReferenceImages(task),
+    images,
     ...(model ? { model } : {}),
     modelRef: modelRef || readModelRef(params.modelRef),
     ...(knowledgeContextRefs.length > 0 ? { knowledgeContextRefs } : {}),
     params: {
       ...nestedParams,
+      ...inputParams,
+      sourceTaskId: task.id,
       ...(size ? { size: size.replace(':', 'x').toLowerCase() } : {}),
     },
     ...(count ? { count } : {}),
   };
+}
+
+/** A result-level reroll produces one new sample, even if its source was a batch. */
+export function buildImageRerollPrefillData(
+  input: AIInputPrefillEventDetail
+): AIInputPrefillEventDetail {
+  const params = { ...input.params };
+  for (const key of Object.keys(params)) {
+    if (
+      /(^|_)seed$/i.test(key) ||
+      ['n', 'count', 'batch_size', 'batchTotal'].includes(key)
+    ) {
+      delete params[key];
+    }
+  }
+  return { ...input, intent: 'restore', count: 1, params };
 }
