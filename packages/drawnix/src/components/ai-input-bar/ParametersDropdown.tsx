@@ -43,12 +43,16 @@ function getCompactEnumSummaryLabel(
   value: string,
   label: string
 ): string {
-  if (paramId === 'size') {
+  if (paramId === 'size' || /万像素|high tier/i.test(label)) {
     return label.split('(')[0].trim();
   }
 
   if (paramId === 'duration') {
     return `${value}s`;
+  }
+
+  if (paramId === 'aspect_ratio') {
+    return label.split(' ')[0] || value.replace(':', '×');
   }
 
   if (paramId === 'klingAction2') {
@@ -194,7 +198,11 @@ export const ParametersDropdown: React.FC<ParametersDropdownProps> = ({
     compatibleParams.forEach((param) => {
       const value = selectedParams[param.id];
       if (value) {
-        if (param.control === 'multiselect') {
+        if (param.id === 'size') {
+          summaryParts.push(value);
+        } else if (param.id === 'aspect_ratio') {
+          summaryParts.push(value.replace('x', ':'));
+        } else if (param.control === 'multiselect') {
           try {
             const values: unknown = JSON.parse(value);
             if (Array.isArray(values)) {

@@ -32,7 +32,7 @@ $text-dark: #1f2937;
     font-size: 13px;
     font-weight: 500;
     white-space: nowrap;
-    max-width: clamp(72px, 18vw, 160px);
+    max-width: clamp(96px, 24vw, 220px);
     min-width: 0;
 
     &:hover:not(:disabled) {

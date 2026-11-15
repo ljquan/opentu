@@ -207,6 +207,7 @@ describe('Seedream API parameters', () => {
     expect(screen.getByRole('button', { name: '1.5K（≤261万像素）', pressed: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: '16:9 横版', pressed: true })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '自动（仅图层拆分）' })).toBeNull();
+    expect(screen.getByRole('button', { name: /1\.5K, 16:9/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '2K（高档）' }));
     expect(onParamChange).toHaveBeenLastCalledWith('size', '2K');
   });
