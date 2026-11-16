@@ -77,7 +77,7 @@ import {
   type ModelRef,
   type ProviderProfile,
 } from '../../utils/settings-manager';
-import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
+import { runtimeModelDiscovery, filterModelsForSelection } from '../../utils/runtime-model-discovery';
 import {
   queueProviderSettingsNavigation,
   TUZI_GROUPS_ADDED_EVENT,
@@ -276,7 +276,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   onSelect,
   onSelectModel,
   language = 'zh',
-  models = IMAGE_MODELS,
+  models: inputModels = IMAGE_MODELS,
   modelType,
   placement = 'auto',
   header,
@@ -293,7 +293,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   strictModelList = false,
 }) => {
   const { setAppState } = useDrawnix();
-  useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const modelRevision = useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const models = useMemo(() => filterModelsForSelection(inputModels), [inputModels, modelRevision]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,

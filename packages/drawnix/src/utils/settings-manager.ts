@@ -42,11 +42,13 @@ import {
   type TtsSettings,
 } from './settings-types';
 import {
+  DEFAULT_MODEL_VISIBILITY_SETTINGS,
   getDefaultAudioModel,
   getDefaultImageModel,
   getModelConfig,
   getDefaultTextModel,
   getDefaultVideoModel,
+  type ModelVisibilitySettings,
   type ModelConfig,
   type ModelType,
 } from '../constants/model-config';
@@ -117,6 +119,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     volume: 1,
     voicesByLanguage: {},
   },
+  modelVisibility: DEFAULT_MODEL_VISIBILITY_SETTINGS,
   providerProfiles: [],
   providerCatalogs: [],
   providerPricingCache: [],
@@ -409,6 +412,16 @@ class SettingsManager {
         migrations.legacyDefaultImageApiCompatibilityV1 === true,
       legacyDefaultImageModelV1: migrations.legacyDefaultImageModelV1 === true,
       compatibilityDefaultModelsV2: migrations.compatibilityDefaultModelsV2 === true,
+    };
+  }
+
+  private normalizeModelVisibility(value: unknown): ModelVisibilitySettings {
+    const draft =
+      value && typeof value === 'object'
+        ? (value as Partial<ModelVisibilitySettings>)
+        : {};
+    return {
+      hideConfiguredModels: draft.hideConfiguredModels !== false,
     };
   }
 
@@ -1091,6 +1104,9 @@ class SettingsManager {
           mergedSettings.tts?.voicesByLanguage
         ),
       },
+      modelVisibility: this.normalizeModelVisibility(
+        mergedSettings.modelVisibility
+      ),
       providerProfiles: this.normalizeProviderProfiles(
         mergedSettings.providerProfiles
       ),

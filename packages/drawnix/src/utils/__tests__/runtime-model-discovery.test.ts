@@ -191,7 +191,7 @@ describe('runtime-model-discovery', () => {
       handleProfileSettingsChange?.();
 
       expect(getConfiguredSelectableModels('video')).toEqual([]);
-      expect(getSelectableModels('video').map((model) => model.id)).toContain(
+      expect(getSelectableModels('video').map((model) => model.id)).not.toContain(
         'veo3-fast-frames'
       );
       expect(runtimeModelDiscovery.getRevision()).toBeGreaterThan(0);

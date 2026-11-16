@@ -16,7 +16,6 @@ import React, {
 } from 'react';
 import { Bot, Check, Image, Video } from 'lucide-react';
 import {
-  IMAGE_VIDEO_MODELS,
   getModelConfig,
   type ModelConfig,
   type ModelType,
@@ -29,8 +28,10 @@ import { ModelVendorMark } from '../shared/ModelVendorBrand';
 import { ModelSourceIcon } from '../shared/ModelSourceIcon';
 import { HoverTip } from '../shared/hover';
 import { useProviderProfiles } from '../../hooks/use-provider-profiles';
+import { useSelectableModels } from '../../hooks/use-runtime-models';
 import { groupModelsByProvider } from '../../utils/model-grouping';
 import { sortModelsByDisplayPriority } from '../../utils/model-sort';
+import { filterModelsForSelection } from '../../utils/runtime-model-discovery';
 
 export interface ModelSelectorProps {
   /** 是否可见 */
@@ -62,13 +63,23 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   onSelect,
   onClose,
   language = 'zh',
-  models = IMAGE_VIDEO_MODELS,
+  models,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [activeVendor, setActiveVendor] = useState<string | null>(null);
   const providerProfiles = useProviderProfiles();
+  const imageModels = useSelectableModels('image');
+  const videoModels = useSelectableModels('video');
+  const availableModels = useMemo(
+    () => models || [...imageModels, ...videoModels],
+    [imageModels, models, videoModels]
+  );
+  const visibleModels = useMemo(
+    () => filterModelsForSelection(availableModels),
+    [availableModels]
+  );
 
   // 检查是否两种模型都已选择
   const allModelsSelected = !!selectedImageModel && !!selectedVideoModel;
@@ -76,12 +87,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   // 按类型过滤后的模型
   const typeFilteredModels = useMemo(() => {
     if (allModelsSelected) return [];
-    return models.filter((model) => {
+    return visibleModels.filter((model) => {
       if (model.type === 'image' && selectedImageModel) return false;
       if (model.type === 'video' && selectedVideoModel) return false;
       return true;
     });
-  }, [models, selectedImageModel, selectedVideoModel, allModelsSelected]);
+  }, [visibleModels, selectedImageModel, selectedVideoModel, allModelsSelected]);
 
   // 三级分组
   const providerGroups = useMemo(
