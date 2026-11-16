@@ -1,3 +1,4 @@
+import { allowsTuziVideoWithoutPrompt } from '../constants/tuzi-video-models';
 /**
  * Validation Utilities
  * 
@@ -39,9 +40,10 @@ export function validateGenerationParams(
   const errors: string[] = [];
   
   // Validate required fields
-  if (!params.prompt || typeof params.prompt !== 'string') {
+  const optionalVideoPrompt = type === TaskType.VIDEO && allowsTuziVideoWithoutPrompt(params.model, params.params as Record<string, unknown>, params.referenceImages || params.uploadedImages);
+  if ((params.prompt != null && typeof params.prompt !== 'string') || (!optionalVideoPrompt && !params.prompt)) {
     errors.push('Prompt is required and must be a string');
-  } else if (params.prompt.trim().length === 0) {
+  } else if (!optionalVideoPrompt && params.prompt.trim().length === 0) {
     errors.push('Prompt cannot be empty');
   }
   
@@ -64,7 +66,7 @@ export function validateGenerationParams(
   
   // Validate video-specific fields
   if (type === TaskType.VIDEO && params.duration !== undefined) {
-    if (typeof params.duration !== 'number' || params.duration <= 0) {
+    if (typeof params.duration !== 'number' || (params.duration <= 0 && !(params.model === 'wan3.0-video' && params.duration === -1))) {
       errors.push('Duration must be a positive number');
     } else if (params.duration > 60) {
       errors.push('Duration must not exceed 60 seconds');
@@ -165,6 +167,7 @@ export function sanitizeGenerationParams(params: GenerationParams): GenerationPa
     sanitized.height = Math.min(params.height, 4096);
   }
 
+  if (params.model === 'wan3.0-video' && params.duration === -1) sanitized.duration = -1;
   if (params.duration && typeof params.duration === 'number' && params.duration > 0) {
     sanitized.duration = Math.min(params.duration, 60);
   }

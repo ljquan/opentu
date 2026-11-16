@@ -1,3 +1,4 @@
+import { allowsTuziVideoWithoutPrompt, getTuziVideoModelConfig, normalizeTuziVideoParams } from '../../constants/tuzi-video-models';
 /**
  * 视频生成 MCP 工具
  *
@@ -51,7 +52,7 @@ export function getCurrentVideoModel(): string {
  * 获取所有可用的视频时长选项（去重）
  */
 function getVideoDurationOptions(): string[] {
-  const durations = new Set<string>();
+  const durations = new Set<string>(['-1']);
   [
     ...Object.values(VIDEO_MODEL_CONFIGS),
     getVideoModelConfig('MiniMax-H3'),
@@ -131,7 +132,7 @@ async function executeAsync(params: VideoGenerationParams): Promise<MCPResult> {
     params: extraParams,
   } = params;
 
-  const promptError = validatePrompt(prompt);
+  const promptError = allowsTuziVideoWithoutPrompt(model, extraParams, referenceImages) ? null : validatePrompt(prompt);
   if (promptError) return promptError;
 
   try {
@@ -256,7 +257,7 @@ export const videoGenerationTool: MCPTool = {
       prompt: {
         type: 'string',
         description:
-          '视频描述提示词，详细描述想要生成的视频内容、动作、场景、风格等',
+          '视频描述提示词。HappyHorse 1.1 I2V 有首帧时可省略；Gemini 有多模态 input 时将文本放入 input；其他型号必填',
       },
       model: {
         type: 'string',
@@ -265,7 +266,7 @@ export const videoGenerationTool: MCPTool = {
       },
       seconds: {
         type: 'string',
-        description: '视频时长（秒），可选值和默认值按模型决定',
+        description: '视频时长（秒），按模型决定；仅 Wan 3.0 支持 -1 智能时长',
         enum: getVideoDurationOptions(),
       },
       size: {
@@ -283,8 +284,37 @@ export const videoGenerationTool: MCPTool = {
       params: {
         type: 'object',
         description:
-          '额外模型参数，Kling 可用字段包括 model_name、klingAction2、mode、cfg_scale、negative_prompt 与 camera_*；其中 cfg_scale 取值 0 到 1，camera_* 取值 -10 到 10 且需为整数',
+          '型号专属参数：Gemini 支持 video_media 或原生 input、video_task、previous_interaction_id；Wan 支持 reference_mode、video_media、reference_images/videos/audio、audio、prompt_extend、seed、file/link；Kling 4.0 支持 video_media 或原生 contents，以及 ratio/watermark。video_media 为素材对象列表或其 JSON 字符串；禁止混用互斥输入。旧 Kling 的 model_name/camera_* 保留。',
         properties: {
+          video_media: {
+            type: 'array',
+            description: '有序素材列表。Gemini: image/video；Wan: first_frame/last_frame/reference_images/reference_videos/reference_audio；Kling 4.0: first_frame/middle_frame/last_frame/refer_image/feature_video/base_video/element/voice。',
+            items: { type: 'object', properties: {
+              type: { type: 'string' }, url: { type: 'string' }, mime_type: { type: 'string' },
+              id: { type: 'string' }, element_id: { type: 'string' }, voice_id: { type: 'string' },
+              duration: { type: 'number', description: '已知的输入视频时长（秒），仅用于限制校验。' },
+            }, required: ['type'] },
+          },
+          video_task: { type: 'string', enum: ['auto', 'text_to_video', 'image_to_video', 'reference_to_video', 'edit', 'extend'] },
+          previous_interaction_id: { type: 'string', description: '本人可访问的已完成本站 task_ 任务 ID；仅 Gemini 编辑/延展使用。' },
+          input: { type: 'array', items: { type: 'object', properties: {
+            type: { type: 'string', enum: ['text', 'image', 'video'] }, text: { type: 'string' },
+            mime_type: { type: 'string' }, uri: { type: 'string' }, data: { type: 'string' },
+          }, required: ['type'] }, description: 'Gemini 原生内容数组，与顶层 prompt 及参考素材互斥。媒体 uri/data 二选一；data 为原始 Base64。' },
+          contents: { type: 'array', items: { type: 'object', properties: {
+            type: { type: 'string' }, text: { type: 'string' }, url: { type: 'string' }, id: { type: 'string' },
+            element_id: { type: 'string' }, voice_id: { type: 'string' },
+          }, required: ['type'] }, description: 'Kling 4.0 原生内容数组，提示词放在 type=prompt 项中。' },
+          reference_mode: { type: 'string', enum: ['frames', 'mixed'] },
+          reference_images: { type: 'array', items: { type: 'string' } },
+          reference_videos: { type: 'array', items: { type: 'string' } },
+          reference_audio: { type: 'array', items: { type: 'string' } },
+          first_frame: { type: 'string' }, last_frame: { type: 'string' },
+          audio: { type: 'boolean' }, prompt_extend: { type: 'boolean' },
+          seed: { type: 'number', description: 'HappyHorse 0–2147483647；Wan -1–2147483647。' },
+          watermark: { type: 'boolean' }, ratio: { type: 'string' },
+          file: { type: 'string', description: 'Wan 辅助文档公网 URL，与 link 互斥，不能关闭 prompt_extend。' },
+          link: { type: 'string', description: 'Wan 辅助网页公网 URL，与 file 互斥，不能关闭 prompt_extend。' },
           model_name: {
             type: 'string',
             enum: [
@@ -345,7 +375,7 @@ export const videoGenerationTool: MCPTool = {
         default: 1,
       },
     },
-    required: ['prompt'],
+    required: [],
   },
 
   supportedModes: ['async', 'queue'],
@@ -434,7 +464,8 @@ export const videoGenerationTool: MCPTool = {
     const model = (rawParams.model || 'veo3') as VideoModel;
     const modelConfig = getVideoModelConfig(model);
     const validSizes = modelConfig.sizeOptions.map((opt) => opt.value);
-    const normalizedSize = normalizeToClosestVideoSize(
+    const tuziParams = normalizeTuziVideoParams<Record<string, unknown>>(model, { ...rawParams.params, size: rawParams.size || modelConfig.defaultSize });
+    const normalizedSize = getTuziVideoModelConfig(model) ? String(tuziParams.size) : normalizeToClosestVideoSize(
       rawParams.size || modelConfig.defaultSize,
       validSizes,
       modelConfig.defaultSize
@@ -442,6 +473,8 @@ export const videoGenerationTool: MCPTool = {
     const typedParams: VideoGenerationParams = {
       ...rawParams,
       size: normalizedSize,
+      params: getTuziVideoModelConfig(model) ? { ...rawParams.params, ...(tuziParams.ratio ? { ratio: tuziParams.ratio } : {}) } : rawParams.params,
+      prompt: rawParams.prompt ?? '',
       seconds: rawParams.seconds || modelConfig.defaultDuration,
     };
 

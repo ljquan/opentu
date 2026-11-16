@@ -1,3 +1,4 @@
+import { getTuziVideoModelConfig } from '../../constants/tuzi-video-models';
 import { getSunoNativeAction, isSunoNativeModel } from '../suno-native';
 import {
   SEEDREAM_FLASH_MODEL_ID,
@@ -146,7 +147,7 @@ function isKlingO1Model(model: ModelConfig): boolean {
 }
 
 function isStandardKlingVideoModel(model: ModelConfig): boolean {
-  if (model.type !== 'video' || isKlingO1Model(model)) {
+  if (model.type !== 'video' || isKlingO1Model(model) || model.id.toLowerCase() === 'kling-4.0') {
     return false;
   }
 
@@ -634,6 +635,7 @@ function inferVideoBindings(
   model: ModelConfig
 ): ProviderModelBinding[] {
   const bindings: ProviderModelBinding[] = [];
+  const tuziConfig = getTuziVideoModelConfig(model.id);
 
   if (isStandardKlingVideoModel(model)) {
     bindings.push(
@@ -684,6 +686,7 @@ function inferVideoBindings(
   if (isHappyHorseModel(model)) {
     bindings.push(
       buildBinding(profile, model, {
+        baseUrlStrategy: tuziConfig ? 'ensure-v1' : undefined,
         protocol: 'happyhorse.video',
         requestSchema: 'happyhorse.video.json',
         responseSchema: 'happyhorse.video.task',
@@ -757,15 +760,25 @@ function inferVideoBindings(
 
     bindings.push(
       buildBinding(profile, model, {
+        baseUrlStrategy: tuziConfig ? 'ensure-v1' : undefined,
         protocol: 'openai.async.video',
-        requestSchema: isSeedance2Model(model)
+        requestSchema: tuziConfig ? 'tuzi.video.generation-json'
+          : isSeedance2Model(model)
           ? 'doubao.seedance-2.video.content-json'
           : 'openai.video.form-input-reference',
         responseSchema: 'openai.async.task',
         submitPath: '/videos',
         pollPathTemplate: '/videos/{taskId}',
         metadata:
-          seedance2Metadata ||
+          (tuziConfig ? {
+            video: {
+              allowedDurations: [...tuziConfig.durationOptions.map((option) => option.value), ...(model.id === 'wan3.0-video' ? ['-1'] : [])],
+              defaultDuration: tuziConfig.defaultDuration,
+              durationField: model.id === 'wan3.0-video' ? 'duration' : 'seconds',
+              strictDurationValidation: true,
+              downloadPathTemplate: '/videos/{taskId}/content',
+            },
+          } : undefined) || seedance2Metadata ||
           (isSoraModel(model) && isOfficialOpenAIProfile(profile)
             ? {
                 video: {
