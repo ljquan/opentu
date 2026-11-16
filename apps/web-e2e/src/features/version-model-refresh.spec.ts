@@ -66,6 +66,10 @@ test('an app upgrade fetches models once and adds the new model without changing
         providerCatalogs: [
           {
             profileId: 'upgrade-test',
+            // A previously authenticated catalog must match the saved provider.
+            // Unsigned catalogs are rediscovered after credential validation.
+            signature: 'https://model-refresh.example.test/v1::3352a2d0',
+            discoverySource: 'models-endpoint',
             lastAutoRefreshVersion: '0.0.1',
             discoveredAt: 1,
             discoveredModels: models,
