@@ -333,3 +333,4 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - Drawnix/Web 类型检查均通过；Web 主应用构建通过（53.56 秒，`/tmp/opentu340-conflict-build`），沿用既有 Sass、大 chunk 和混合静态/动态导入提示。OpenSpec 严格校验与差异空白检查通过。本轮未重跑全仓 lint、全仓测试或生产 SW 独立构建。
 - 已读取更新前 CI `43841904954` 的失败日志：Drawnix 全量测试有 9 个文件失败、388 个通过、1 个跳过，另有 AI Chat 包体积超过 1 MB 上限 9.27 kB。失败涉及漫画导出、提示词历史、视频参数/路由、工作区存储、备份加密、输入解析和工作流导出；本轮没有证明这些失败与 PR 的归因，未通过提高体积阈值或修改无关功能规避检查。相关本地回归通过不代表远程 CI 全绿，更新提交后以新检查结果为准。
 - QA 更新本文件；DOC 在 `seedream-image-cache.md` 补充预发布/生产实际配置核对和发布顺序。Nginx 模板已经包含固定图片转发规则，但现有上传脚本仍指向旧的 `aitu-releases.conf`，不能假定覆盖生效站点；需部署时检查 `nginx -T`，备份实际配置、加入 location、`nginx -t`、reload，再发布前端。无新增环境变量、依赖、迁移或 Tuzi API 改动；未连接线上服务器、部署或合并 PR。
+- `2550d5a5` 推送后 GitHub 已显示 MERGEABLE；再次显式 fetch 发现上游新增 `f7e25e6b`（1.2.12 版本发布），继续 merge 无冲突。新增上游差异只有 package.json 版本号和三份更新日志/版本文件，业务源码、测试、依赖和构建配置与上述验证时完全一致。解析三份 JSON 并验证版本号一致为 1.2.12；同步后的 Web 主应用构建再次通过（45.04 秒，`/tmp/opentu340-version-build`）。未重复执行未受影响的 640 项测试与类型检查；上述结果仍对应同一份业务代码。

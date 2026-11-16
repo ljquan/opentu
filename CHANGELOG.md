@@ -1,3 +1,13 @@
+## 1.2.12 (2026-11-16)
+
+### 🩹 Fixes
+
+- expose generation card editing and deletion actions ([debc11bc](https://github.com/ljquan/opentu/commit/debc11bc))
+
+### ❤️  Thank You
+
+- 2040725155-star <2040725155@qq.com>
+
 ## 1.2.11 (2026-11-16)
 
 ### 🚀 Features

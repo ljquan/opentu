@@ -1,18 +1,8 @@
 {
-  "version": "1.2.11",
-  "buildTime": "2026-11-16T04:10:26.722Z",
+  "version": "1.2.12",
+  "buildTime": "2026-11-16T09:48:37.100Z",
   "gitCommit": "unknown",
   "changelog": [
-    "improve canvas generation references and reroll flows",
-    "适配 Tuzi 新版视频模型参数与 Kling 4.0 请求",
-    "接入 Seedream Flash 并修复模型发现及画布回填",
-    "完善 Seedream 5.5 参数与 v3 结果恢复",
-    "接入 Seedream 5.5 原生 v3 生图接口",
-    "补齐 Tuzi 视频参数并自动引用输入栏素材",
-    "拆分 Kling 尺寸比例选择并修正模型显示",
-    "整合图片编辑缩放并修复视角回填与连线样式",
-    "修复选图预览与模型获取并更新兼容默认模型",
-    "支持删除关联线并统一图片工具栏勾选样式",
-    "修复画布已选中但输入栏预览未显示的竞态"
+    "expose generation card editing and deletion actions"
   ]
 }
