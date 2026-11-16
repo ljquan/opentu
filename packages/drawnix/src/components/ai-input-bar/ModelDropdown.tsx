@@ -38,7 +38,6 @@ import {
 import { MessagePlugin } from 'tdesign-react';
 import {
   IMAGE_MODELS,
-  filterModelsByVisibility,
   ModelVendor,
   getModelConfig,
   getStaticModelConfig,
@@ -78,7 +77,7 @@ import {
   type ModelRef,
   type ProviderProfile,
 } from '../../utils/settings-manager';
-import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
+import { runtimeModelDiscovery, filterModelsForSelection } from '../../utils/runtime-model-discovery';
 import {
   queueProviderSettingsNavigation,
   TUZI_GROUPS_ADDED_EVENT,
@@ -293,8 +292,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   strictModelList = false,
 }) => {
   const { setAppState } = useDrawnix();
-  useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
-  const models = useMemo(() => filterModelsByVisibility(inputModels), [inputModels]);
+  const modelRevision = useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const models = useMemo(() => filterModelsForSelection(inputModels), [inputModels, modelRevision]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,
