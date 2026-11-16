@@ -9,6 +9,7 @@
  */
 
 import { geminiSettings, type ModelRef } from './settings-manager';
+import { SEEDREAM_FLASH_MODEL_ID } from '../constants/seedream-flash';
 import {
   getDefaultAudioModel as getSystemDefaultAudioModel,
   getModelConfig,
@@ -452,7 +453,7 @@ export function parseAIInput(
     const modelConfig = getModelConfig(modelId);
     if (modelConfig?.type === 'image' && modelConfig.imageDefaults) {
       // 图片模型使用默认尺寸
-      size = '1x1'; // 默认正方形
+      size = modelId === SEEDREAM_FLASH_MODEL_ID ? '1K' : '1x1';
     } else if (modelConfig?.type === 'video' && modelConfig.videoDefaults) {
       const defaults = getEffectiveVideoDefaultParams(
         modelId,

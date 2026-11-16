@@ -138,6 +138,7 @@ function ensureProviderModels(
       );
     })
     .catch((error) => {
+      if (error instanceof Error && error.name === 'AbortError') return;
       const message =
         error instanceof Error ? error.message : '模型列表获取失败';
       runtimeModelDiscovery.setError(profile.id, message);

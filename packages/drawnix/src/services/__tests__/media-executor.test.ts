@@ -380,7 +380,17 @@ describe('Media Executor Module', () => {
         referenceImage: 'data:image/png;base64,' + 'AAAA'.repeat(400_000),
         maskImage: 'data:image/png;base64,mask',
       },
-    ])('preserves $label for the Tuzi adapter without reference compression', async ({ referenceImage, maskImage }) => {
+      ...[
+        '/__aitu_cache__/image/alpha.png',
+        'data:image/png;base64,' + 'AAAA'.repeat(400_000),
+        'https://cdn.example.com/alpha.png',
+      ].map((referenceImage, index) => ({
+        label: `Flash alpha reference ${index + 1}`,
+        model: 'doubao-seedream-5-0-flash-260915',
+        referenceImage,
+        maskImage: undefined,
+      })),
+    ])('preserves $label for the Tuzi adapter without reference compression', async ({ referenceImage, maskImage, model = 'gpt-image-2' }) => {
       const getImageForAI = vi.fn();
       const startLLMApiLog = vi.fn(() => 'log-id');
       vi.doMock('../media-executor/llm-api-logger', () => ({
@@ -428,7 +438,7 @@ describe('Media Executor Module', () => {
         '../media-executor/fallback-adapter-routes'
       );
       const adapter: ImageModelAdapter = {
-        id: 'tuzi-gpt-image-adapter',
+        id: model === 'gpt-image-2' ? 'tuzi-gpt-image-adapter' : 'seedream-flash-image-adapter',
         label: 'Tuzi GPT Image',
         kind: 'image',
         generateImage: vi.fn(async () => ({
@@ -438,7 +448,7 @@ describe('Media Executor Module', () => {
       };
       await executeImageViaAdapter('task-remote-reference', adapter, {
         prompt: 'Edit this',
-        model: 'gpt-image-2',
+        model,
         referenceImages: [referenceImage],
         generationMode: 'image_edit',
         maskImage,
@@ -450,7 +460,7 @@ describe('Media Executor Module', () => {
       );
       expect(getImageForAI).not.toHaveBeenCalled();
       expect(startLLMApiLog).toHaveBeenCalledWith(expect.objectContaining({
-        endpoint: maskImage ? '/images/edits' : '/images/generations',
+        endpoint: model === 'gpt-image-2' ? (maskImage ? '/images/edits' : '/images/generations') : 'adapter:seedream-flash-image-adapter',
       }));
     }, 15000);
 

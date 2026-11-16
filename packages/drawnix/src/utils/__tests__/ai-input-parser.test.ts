@@ -35,6 +35,11 @@ const createSelection = (
 });
 
 describe('ai-input-parser', () => {
+  it('uses the Flash tier default and preserves its selected tier through input parsing', () => {
+    const modelId = 'doubao-seedream-5-0-flash-260915';
+    expect(parseAIInput('A cup', createSelection(), { modelId, generationType: 'image' }).size).toBe('1K');
+    expect(parseAIInput('A cup', createSelection(), { modelId, generationType: 'image', params: { size: '1.5K' } }).size).toBe('1.5k');
+  });
   describe('generateDefaultPrompt', () => {
     it('应该在有选中文字时返回合并的文字', () => {
       const result = generateDefaultPrompt(true, ['Hello', 'World'], 0);
