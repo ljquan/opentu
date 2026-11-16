@@ -313,3 +313,14 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - Vercel JSON 与 Netlify TOML 均由解析器检查且固定上游映射一致。用现有 `nginx:1.27-alpine` 镜像、隔离网络，对两份模板提取的新增 location 执行 nginx -t，均通过；没有运行真实生产配置或发布规则。
 - 最终 Drawnix/Web TypeScript 检查通过，Web 主应用构建通过（58.77 秒，产物 `/tmp/opentu337-cache-web-build`）；保留既有 Sass/大 chunk 提示。7 个修改或新增 TS 文件的 ESLint 与 HEAD 逐文件对照无新增诊断，仍有 `fallback-utils.ts` 的 3 项既有错误；Nx 模块边界规则因缺少缓存 ProjectGraph 被跳过，不宣称全量 lint 通过。最终差异空白检查通过。
 - 尚未部署或验证 Vercel/Netlify/生产 Nginx 运行环境。已过期且无缓存的历史图片无法恢复；未进行新的付费生成、99 层压力测试、生产 SW 独立构建或全仓测试。GET 分层元数据缺失仍是独立未修复项。
+
+## 2026-11-16：提交 develop 的最终验证
+
+- 本次完整交付包含未合并的连续编辑、分层/OCR、GET-only 恢复，以及分辨率保持和原图缓存修复。目标为 `origin/develop`；当前工作分支 `Jerry-George-Liang/low-airbus-7727890f`。创建 PR 前已备份并核验 17 个未提交文件，随后提交修复为 `4f8e40f2`。
+- 显式 fetch 最新 `origin/develop` 为 `08b1b83e`（1.2.11），执行 merge 返回 Already up to date；当前分支已包含全部目标分支提交，本轮无新增冲突。此前合并的 4 处冲突已在完整回归中覆盖，未机械替换一方代码。
+- 合并后最终运行相关目录与测试：27 个文件、636 项通过，命令前缀为 `node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，范围包含整个分层目录、分层弹窗、连续编辑按钮、工具栏详情、输入栏恢复/重抽、参数菜单、图片回填与生成配方、媒体执行器、provider routing、结果恢复、Seedream/Flash 适配器、下载映射与统一缓存。附加 `--maxWorkers=2 --minWorkers=1`。日志：`/tmp/opentu337-pr-final-tests.log`。
+- Drawnix/Web TypeScript 检查均通过；Web 主应用构建通过（48.32 秒，`/tmp/opentu337-pr-final-build`）。完整增量 38 个 TS/TSX 文件与 `origin/develop` 原路径逐文件对照 ESLint，双方均有 68 项既有错误、无新增诊断；Nx 模块边界规则因缺少 ProjectGraph 缓存被跳过，不宣称全仓 lint 通过。OpenSpec 严格校验及差异空白检查通过。
+- 本次准备 PR 未新增页面、视觉回归或收费测试，使用本轮此前的真实页面证据：3 次生成 POST 成功、4 张产物，OCR 文字可编辑并撤销/重做，连续编辑蓝杯改橙杯；两张原图修复后缓存字节校验一致，刷新断网后能读取并解码。未核对账户实际扣款金额；截图用于展示 OCR 编辑效果，不作为生产部署或字体精确还原的证明。
+- QA 更新本文件；DOC 更新原图缓存发布说明及现有 OpenSpec 方案/任务。生产需先配置固定图片下载转发规则，再发布前端；无新依赖、环境变量或迁移。未部署、未合并。分层 GET 的完整恢复仍依赖服务端元数据，已过期且没有本地缓存的图片不能恢复；99 层真实压力、生产 SW 独立构建、远程 CI 结果不在本地验证结论内。
+
+![真实 OCR 文字从 SUMMER SALE 编辑为 SUMMER DEAL](./images/seedream-55-ocr-editing.png)

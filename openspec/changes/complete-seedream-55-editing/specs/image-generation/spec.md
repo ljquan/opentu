@@ -13,3 +13,22 @@ The system SHALL provide an explicit continue-edit action that prioritizes the s
 #### Scenario: History is unavailable
 - **WHEN** the selected result has no resolvable historical task
 - **THEN** the application SHALL explain the missing history and SHALL NOT fabricate a model binding or submit generation
+
+#### Scenario: Saved resolution tier uses lowercase K
+- **WHEN** a Seedream 5.5 history record stores a supported resolution tier with lowercase k
+- **THEN** restore, reroll and continue-edit SHALL retain the same tier using the selectable UI value
+- **AND** the serialized image request SHALL preserve the original tier's pixel dimensions
+
+### Requirement: Cache Seedream 5.5 Original Image Bytes
+The system SHALL use a fixed same-origin download mapping for the supported Seedream 5.5 storage host to persist readable original image bytes without forwarding application credentials.
+
+#### Scenario: Storage response cannot be read through browser CORS
+- **WHEN** a generated image belongs to the supported HTTPS storage host and model path
+- **THEN** cache downloads SHALL preserve its signed query parameters through the fixed storage mapping
+- **AND** successful cache writes SHALL preserve original bytes for offline reads
+- **AND** unrelated or untrusted origins SHALL NOT be routed through this mapping
+
+#### Scenario: Cache download is unavailable
+- **WHEN** the download returns an expired-link error, HTML, or cannot be persisted
+- **THEN** the application SHALL retain the original result and the existing cache failure warning
+- **AND** it SHALL NOT submit a new generation request to repair the cache
