@@ -72,7 +72,7 @@ exports.submit = async function(triggerOrOverride = 'button') {
     .join('\n')}
   return { content: baseEffectiveContent, activeBoundImageTarget, restoreOriginalInputs };
 };
-exports.model = function(detail, modelsForType) {
+exports.model = async function(detail, modelsForType) {
   const restoredInput = detail.intent === 'restore';
   const nextGenerationType = 'image';
   const ${nextModelDeclaration};
@@ -111,7 +111,7 @@ function harness(intent?: 'restore') {
   const setSelectedContent = vi.fn();
   const setUploadedContent = vi.fn();
   const callbacks = {} as {
-    model: (detail: unknown, models: unknown[]) => unknown;
+    model: (detail: unknown, models: unknown[]) => Promise<unknown>;
     modelRef: (override: unknown, selected: unknown) => unknown;
     submit: (override?: unknown) => Promise<{
       content: typeof references;
@@ -144,6 +144,10 @@ function harness(intent?: 'restore') {
     pinBoundTargetReferenceContent,
     findExactSelectableModel,
     findMatchingSelectableModel,
+    // Provider discovery is covered by restore-generation-model.test; this VM
+    // exercises the actual async prefill boundary and provider isolation.
+    resolveSavedGenerationModel: async (_type: string, models: Parameters<typeof findExactSelectableModel>[0], id: string, ref: Parameters<typeof findExactSelectableModel>[2]) =>
+      (ref ? findExactSelectableModel : findMatchingSelectableModel)(models, id, ref),
     selectedContentFromBoundTarget: (target: unknown) => target,
     currentBoardId: 'board',
     resetBoundTaskbarDraftsForBoard: vi.fn(),
@@ -159,7 +163,7 @@ function harness(intent?: 'restore') {
 }
 
 describe('reroll submission isolation', () => {
-  it('does not silently replace an unavailable original channel with the same model on another channel', () => {
+  it('does not silently replace an unavailable original channel with the same model on another channel', async () => {
     const { callbacks } = harness();
     const original = {
       intent: 'restore',
@@ -167,9 +171,9 @@ describe('reroll submission isolation', () => {
       modelRef: { modelId: 'gpt-image-2', profileId: 'original-channel' },
     };
     const other = { id: 'gpt-image-2', sourceProfileId: 'another-channel' };
-    expect(callbacks.model(original, [other])).toBeUndefined();
+    expect(await callbacks.model(original, [other])).toBeUndefined();
     const expected = { ...other, sourceProfileId: 'original-channel' };
-    expect(callbacks.model(original, [other, expected])).toBe(expected);
+    expect(await callbacks.model(original, [other, expected])).toBe(expected);
   });
   it('a legacy reroll without a channel does not inherit the current input bar channel', () => {
     const { callbacks } = harness();

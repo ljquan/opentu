@@ -6,6 +6,7 @@ Base: `origin/develop` at `215bae8c` (fetched again before submission).
 
 - 88 tests passed across generation-node-lifecycle, image-generation-recipe, restore-generation-model, with-generation-node, canvas-association, canvas-association-line, ImageGenerationAnchorContent and WorkZoneContent.
 - 88 existing tests passed across useAutoInsertToCanvas, useImageGenerationAnchorSync, useWorkflowSubmission and DrawnixDeferredRuntime PPT recovery.
+- 54 existing input-bar tests passed across reroll isolation, image lineage, prefill mapping, canvas clicks, selection and toolbar drafts (including the new in-place planning branch). AST harnesses were updated for the async model restore boundary and new draft context. Total: 230 tests.
 - Drawnix library and web app TypeScript checks passed (`--noEmit`).
 - Vite production build passed. Existing Sass deprecation / large chunk warnings remain.
 - `git diff --check` passed.
