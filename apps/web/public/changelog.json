@@ -1,6 +1,23 @@
 {
   "versions": [
     {
+      "version": "1.2.13",
+      "date": "2026-11-16",
+      "changes": {
+        "features": [
+          "补齐连续编辑、原生分层与 OCR 恢复"
+        ],
+        "fixes": [
+          "撤回需服务器转发的原图缓存修复",
+          "保留编辑分辨率并修复原图缓存",
+          "完整显示 Seedream 参数摘要"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "补齐连续编辑、原生分层与 OCR 恢复"
+    },
+    {
       "version": "1.2.12",
       "date": "2026-11-16",
       "changes": {
@@ -753,19 +770,6 @@
       },
       "type": "patch",
       "highlights": "增加网站本地数据清理入口 (#212)"
-    },
-    {
-      "version": "1.0.11",
-      "date": "2026-08-03",
-      "changes": {
-        "features": [],
-        "fixes": [
-          "展示上游图片实际尺寸 (#207)"
-        ],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "展示上游图片实际尺寸 (#207)"
     }
   ]
 }

@@ -1,3 +1,28 @@
+## 1.2.13 (2026-11-16)
+
+### 🚀 Features
+
+- 补齐连续编辑、原生分层与 OCR 恢复 ([a4011903](https://github.com/ljquan/opentu/commit/a4011903))
+
+### 🩹 Fixes
+
+- 撤回需服务器转发的原图缓存修复 ([92ee1b00](https://github.com/ljquan/opentu/commit/92ee1b00))
+- 保留编辑分辨率并修复原图缓存 ([4f8e40f2](https://github.com/ljquan/opentu/commit/4f8e40f2))
+- 完整显示 Seedream 参数摘要 ([4a90d593](https://github.com/ljquan/opentu/commit/4a90d593))
+
+### 🔧 Chores
+
+- docs(qa): 更新撤回缓存后的 PR 交付范围 ([5cc6ca74](https://github.com/ljquan/opentu/commit/5cc6ca74))
+- docs(qa): 记录缓存撤回后的真实生图验收 ([84ac057a](https://github.com/ljquan/opentu/commit/84ac057a))
+- docs(qa): 记录上游与本地必要差异核对 ([7c2ef856](https://github.com/ljquan/opentu/commit/7c2ef856))
+- docs(qa): 完成 Seedream 5.5 交付验证与部署说明 ([b5781294](https://github.com/ljquan/opentu/commit/b5781294))
+- docs(qa): record develop merge validation ([97369e22](https://github.com/ljquan/opentu/commit/97369e22))
+- docs(qa): 明确前端交付范围并记录最终验证 ([170e0d08](https://github.com/ljquan/opentu/commit/170e0d08))
+
+### ❤️  Thank You
+
+- Jerry-George-Liang <205779645+Jerry-George-Liang@users.noreply.github.com>
+
 ## 1.2.12 (2026-11-16)
 
 ### 🩹 Fixes
