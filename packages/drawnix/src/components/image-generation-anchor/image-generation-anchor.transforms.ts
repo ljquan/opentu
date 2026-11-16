@@ -145,9 +145,10 @@ export const ImageGenerationAnchorTransforms = {
       return;
     }
 
-    PlaitHistoryBoard.withoutSaving(board, () => {
-      Transforms.removeNode(board, [index]);
-    });
+    const remove = () => Transforms.removeNode(board, [index]);
+    if (board.children[index].generationOrigin)
+      PlaitHistoryBoard.withNewBatch(board, remove);
+    else PlaitHistoryBoard.withoutSaving(board, remove);
   },
 
   getAnchorById(

@@ -446,7 +446,7 @@ export function useWorkflowSubmission(
               // Queued tasks will be handled by useAutoInsertToCanvas when they complete AND are inserted
               if (!hasQueuedTasks) {
                 setTimeout(() => {
-                  WorkZoneTransforms.removeWorkZone(board, workZoneId);
+                  WorkZoneTransforms.removeWorkZone(board, workZoneId, { automatic: true });
                 }, 1500);
               } else {
                 // 检查是否所有队列任务的后处理已经完成（可能在工作流完成前就已经插入了）
@@ -471,7 +471,7 @@ export function useWorkflowSubmission(
 
                 if (allPostProcessingFinished) {
                   setTimeout(() => {
-                    WorkZoneTransforms.removeWorkZone(board, workZoneId);
+                    WorkZoneTransforms.removeWorkZone(board, workZoneId, { automatic: true });
                   }, 1500);
                 }
               }

@@ -1,3 +1,14 @@
+import {
+  isCanvasAssociationLine,
+  retargetCanvasAssociationLines,
+} from './canvas-association';
+import {
+  draftFromGenerationProgress,
+  markGenerationProgressHistoryRestore,
+  isGenerationProgress,
+  readGenerationOrigin,
+  remapGenerationOrigin,
+} from '../services/generation-node-lifecycle';
 import { bindGenerationThumbnail } from '../services/generation-node-thumbnail';
 import { requestAIInputFocus } from '../services/ai-input-ui-events';
 import { insertClipboardData } from '@plait/common';
@@ -494,6 +505,70 @@ export const withGenerationNode: PlaitPlugin = (board) => {
   let initialized = false;
   const affected = new Set<string>();
   board.apply = (operation) => {
+    let completedTarget:
+      | { progressId: string; resultId: string; taskId?: string }
+      | undefined;
+    if (
+      operation.type === 'insert_node' &&
+      isGenerationProgress(operation.node as PlaitElement) &&
+      PlaitHistoryBoard.isSaving(board) === false
+    ) {
+      const progress = operation.node as PlaitElement;
+      markGenerationProgressHistoryRestore(
+        board,
+        progress.id,
+        progress.phase === 'completed' ||
+          progress.workflow?.status === 'completed'
+      );
+    }
+    // Store the immutable inputs on every output, including manual/frame inserts.
+    // Never look at selection: multiple workflows may finish on the same board.
+    if (operation.type === 'insert_node' || operation.type === 'set_node') {
+      const value =
+        operation.type === 'insert_node'
+          ? operation.node
+          : operation.newProperties;
+      const metadata = value as PlaitElement;
+      const nodeId = metadata.generationNodeId;
+      const taskId = metadata.generationTaskId;
+      if ((nodeId || taskId) && !metadata.generationOrigin) {
+        const progress = board.children.filter(isGenerationProgress);
+        const owner =
+          progress.find(
+            (element) =>
+              taskId &&
+              (element.taskIds?.includes(taskId) ||
+                element.workflow?.steps?.some(
+                  (step: { result?: { taskId?: string } }) =>
+                    step.result?.taskId === taskId
+                ))
+          ) ||
+          progress.find(
+            (element) =>
+              nodeId && readGenerationOrigin(element)?.draft.id === nodeId
+          );
+        const origin = readGenerationOrigin(owner);
+        if (origin && owner) {
+          const patch = {
+            ...value,
+            generationNodeId: origin.draft.id,
+            generationOrigin: structuredClone(origin),
+          };
+          completedTarget = {
+            progressId: owner.id,
+            resultId:
+              operation.type === 'insert_node'
+                ? metadata.id
+                : board.children[operation.path[0]]?.id,
+            taskId,
+          };
+          operation =
+            operation.type === 'insert_node'
+              ? { ...operation, node: patch as PlaitElement }
+              : { ...operation, newProperties: patch };
+        }
+      }
+    }
     if (
       !reconciling &&
       ['insert_node', 'remove_node', 'set_node'].includes(operation.type)
@@ -534,6 +609,25 @@ export const withGenerationNode: PlaitPlugin = (board) => {
       return;
     }
     apply(operation);
+    if (completedTarget?.resultId) {
+      const target = completedTarget;
+      const links = board.children
+        .filter(isCanvasAssociationLine)
+        .filter(
+          (line) => line.canvasAssociation.resultElementId === target.progressId
+        );
+      for (const line of links) {
+        const metadata = line.canvasAssociation;
+        retargetCanvasAssociationLines(board, {
+          boardId: metadata.boardId,
+          sourceElementIds: [metadata.sourceElementId],
+          workflowId: metadata.workflowId,
+          taskId: target.taskId,
+          previousResultElementId: target.progressId,
+          resultElementId: target.resultId,
+        });
+      }
+    }
   };
   board.afterChange = () => {
     afterChange();
@@ -575,13 +669,20 @@ export const withGenerationNode: PlaitPlugin = (board) => {
   board.insertFragment = (data, point, operationType) => {
     if (
       !data?.elements?.some(
-        (element) => isGenerationNode(element) || element.generationNodeId
+        (element) =>
+          isGenerationNode(element) ||
+          element.generationNodeId ||
+          readGenerationOrigin(element)
       )
     )
       return insertFragment(data, point, operationType);
-    const elements = structuredClone(data.elements).filter(
-      (el: PlaitElement) => !isGenerationInputLine(el)
-    );
+    const elements = structuredClone(data.elements)
+      .filter((el: PlaitElement) => !isGenerationInputLine(el))
+      .map((el: PlaitElement) =>
+        isGenerationProgress(el)
+          ? { ...draftFromGenerationProgress(el), id: el.id }
+          : el
+      );
     const drawElements = elements.filter(PlaitDrawElement.isDrawElement);
     insertClipboardData(board, drawElements, point, (element, ids) => {
       if (isGenerationNode(element))
@@ -591,6 +692,12 @@ export const withGenerationNode: PlaitPlugin = (board) => {
         );
       if (element.generationNodeId)
         element.generationNodeId = ids[element.generationNodeId];
+      const origin = readGenerationOrigin(element);
+      if (origin)
+        element.generationOrigin = remapGenerationOrigin(
+          origin,
+          new Map(Object.entries(ids))
+        );
     });
     const remaining = elements.filter(
       (el) => !PlaitDrawElement.isDrawElement(el)
