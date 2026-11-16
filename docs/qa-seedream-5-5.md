@@ -293,3 +293,23 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - 首次使用独立 `vitest.config.ts` 因缺少 `@aitu/utils` 路径映射失败，改用项目 Vite 配置后通过；新旧逻辑合并后调整精确模型查询为按需执行，通过原有回填测试。jsdom 中 IndexedDB 缺失等诊断未影响断言结果。
 - `node_modules/.bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 未通过：现有依赖目录缺少包文件/锁文件已声明的 `pptx-glimpse`、`fast-xml-parser`，导致 3 项模块缺失与 1 项派生隐式 any 错误。涉及的 PPTX/XLSX 文件与合并前及远程均无差异；未改动这些文件或安装依赖，不能宣称完整类型检查通过。
 - 差异空白检查通过。未运行页面、真实收费接口、全仓测试或构建；未启动服务、推送、创建 PR 或部署。本次同步无需另建 DOC，验证记录更新本 QA。
+
+## 2026-11-16：继续编辑保留分辨率档位
+
+- 修复范围：Seedream 5.5 历史参数回填。此前任务保存的 `1.5k` 与 UI 选项 `1.5K` 大小写不一致，菜单校验后回退默认 `2K`；现将已知的 1K、1.5K、2K 档位统一为菜单使用的大写 K，覆盖顶层及嵌套历史参数。
+- 共享回填入口同时用于继续编辑、再次生成和任务恢复；保留其他模型及像素尺寸/比例的原有格式，不改全局枚举校验，不迁移已有任务。
+- 新增回归先在修复前复现 3 项失败（1k、1.5k、2k）。修复后覆盖大小写与两种历史存储位置，并串联真实回填函数、菜单合法值与适配器请求序列化：`1.5k + 4x3` 保持为 `1.5K`，请求尺寸为 `1728x1296`，不会升至 `2304x1728`。请求传输由 mock 接管，没有真实付费调用；原历史对象不被改写。
+- 实际运行 `node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，选择 `image-task-prefill.test.ts`、`seedream-response.test.ts`、`seedream-continue-button.test.tsx`、`AIInputBar.reroll.test.ts`、`AIInputBar.prefill-images.test.ts`、`AIInputBar.toolbar-draft.test.ts`、`image-generation-recipe.test.ts`、`ParametersDropdown.test.tsx`，附加 `--maxWorkers=2 --minWorkers=1`：8 个文件、128 项通过。日志：`/tmp/opentu337-size-green.log`。
+- Drawnix/Web 类型检查均通过：`node_modules/.bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、`node_modules/.bin/tsc -p apps/web/tsconfig.app.json --noEmit`。3 个修改的 TS 文件 ESLint 无错误或告警；Nx 缺少缓存 ProjectGraph，模块边界规则被工具跳过，不宣称该规则通过。差异空白检查通过。
+- 本轮未重新执行页面测试、付费生成、全仓测试或构建。缓存失败及 GET 缺少分层/OCR 元数据仍是独立未修复项。无新依赖、配置、接口或运行方式变化，更新本 QA，无需新增 DOC；未提交、推送或部署。
+
+## 2026-11-16：修复 Seedream 5.5 原图缓存
+
+- 在 `97369e22` 及上节分辨率本地修复基础上实施，保留已有未提交改动。浏览器直接 GET 本次橙杯原图时，CDP 记录上游 HTTP 200、Content-Type=image/png、Content-Length=3829578，但缺少 Access-Control-Allow-Origin，随后 Network.loadingFailed 明确报 MissingAllowOriginHeader；确认是字节读取受 CORS 阻止，不能因图片可显示而声称已缓存。
+- 下载修复采用项目既有同源转发模式：仅映射已验证的 HTTPS 火山存储域名及 Seedream 5.5 图片路径，保留签名参数，剥离认证/Cookie；同步 Vite、Vercel、Netlify 与生产/预发布 Nginx 模板。统一缓存和生成结果缓存使用该路径；不将任意域名改写为代理，也不将错误 HTML 写为图片。配置及发布顺序见 [原图缓存说明](./seedream-image-cache.md)。
+- 使用 ego-browser 复用 `19f2ad02-7d96-43a3-a056-a5f7a6b7502c` 和 `6862a09d-aad5-440a-b17e-5e092ba6782f` 的真实结果，未新增生成 POST。结果缓存调用返回 `/__aitu_cache__/image/cachefix-existing-orange.png`，无缓存警告；随后对两张原始结果执行已有缓存方法均成功，isCached=true。
+- 两张缓存文件分别为 2438732 与 3829578 字节，与此前下载原图的 SHA-256 完全一致。刷新页面后模拟断网，从持久化缓存读取并成功解码为 1728×1296、2304×1728，证明保存了完整可用原图；验证后恢复网络、关闭 Network 监听并保留测试画板。证据：`/tmp/opentu337-cache-browser.json`、`/tmp/opentu337-cache-offline.json`。
+- 回归命令：`node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，选择 `seedream-image-download.test.ts`、`fallback-utils.test.ts`、`unified-cache-service.test.ts`、`media-executor.test.ts`、`canvas-ocr.test.ts`、`seedream55.test.ts`、`image-task-prefill.test.ts`、`seedream-response.test.ts`，附加 `--maxWorkers=2 --minWorkers=1`：8 文件、179 项通过。覆盖签名编码、域名/协议/凭据边界、HTML 拒绝、成功缓存、403 过期降级、重试警告清除、断网读回、旧缓存给 AI 读取及前一轮分辨率修复。初次新增缓存单测遇到 Node Response 与 jsdom Blob 构造器不兼容，使用测试内临时原生 Blob 后通过，生产逻辑不受影响。
+- Vercel JSON 与 Netlify TOML 均由解析器检查且固定上游映射一致。用现有 `nginx:1.27-alpine` 镜像、隔离网络，对两份模板提取的新增 location 执行 nginx -t，均通过；没有运行真实生产配置或发布规则。
+- 最终 Drawnix/Web TypeScript 检查通过，Web 主应用构建通过（58.77 秒，产物 `/tmp/opentu337-cache-web-build`）；保留既有 Sass/大 chunk 提示。7 个修改或新增 TS 文件的 ESLint 与 HEAD 逐文件对照无新增诊断，仍有 `fallback-utils.ts` 的 3 项既有错误；Nx 模块边界规则因缺少缓存 ProjectGraph 被跳过，不宣称全量 lint 通过。最终差异空白检查通过。
+- 尚未部署或验证 Vercel/Netlify/生产 Nginx 运行环境。已过期且无缓存的历史图片无法恢复；未进行新的付费生成、99 层压力测试、生产 SW 独立构建或全仓测试。GET 分层元数据缺失仍是独立未修复项。

@@ -2,6 +2,7 @@ import type { KnowledgeContextRef, Task } from '../types/task.types';
 import type { ModelRef } from './settings-manager';
 import type { AIInputPrefillEventDetail } from '../services/ai-input-ui-events';
 import { resolveTaskInvocationRouteModel } from '../services/task-invocation-route';
+import { SEEDREAM_55_MODEL_ID } from '../constants/model-config';
 
 export interface ImageGenerationReferenceImage {
   url: string;
@@ -260,6 +261,14 @@ export function buildImageTaskAIInputPrefillData(
   const model =
     modelRef?.modelId ||
     (typeof routeModel === 'string' ? routeModel : readString(params.model));
+  const restoredSize = size?.replace(':', 'x').toLowerCase() || nestedParams.size;
+  // Saved tiers are lowercased by task serialization; the UI uses uppercase K.
+  const prefillSize =
+    model === SEEDREAM_55_MODEL_ID &&
+    restoredSize &&
+    /^(1|1\.5|2)k$/i.test(restoredSize)
+      ? restoredSize.toUpperCase()
+      : restoredSize;
   const count = readPositiveInteger(params.batchTotal);
   const knowledgeContextRefs = getImageTaskKnowledgeContextRefs(task);
   const inputParams = readStringParams(
@@ -317,7 +326,7 @@ export function buildImageTaskAIInputPrefillData(
       ...nestedParams,
       ...inputParams,
       sourceTaskId: task.id,
-      ...(size ? { size: size.replace(':', 'x').toLowerCase() } : {}),
+      ...(prefillSize ? { size: prefillSize } : {}),
     },
     ...(count ? { count } : {}),
   };

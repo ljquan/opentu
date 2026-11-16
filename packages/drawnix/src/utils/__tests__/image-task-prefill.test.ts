@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
+import { SEEDREAM_55_MODEL_ID } from '../../constants/model-config';
 import {
   buildImageTaskAIInputPrefillData,
   buildImageTaskPrefillInitialData,
@@ -32,6 +33,31 @@ function imageTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('image-task-prefill', () => {
+  it.each(['1k', '1.5k', '2k', '1K', '1.5K', '2K'])(
+    'restores Seedream tier %s from top-level or nested history for every prefill action', (size) => {
+      for (const savedSize of [{ size }, { params: { size } }]) {
+        const task = imageTask({ params: {
+          prompt: 'blue cup', model: SEEDREAM_55_MODEL_ID, ...savedSize,
+        } });
+        const restored = buildImageTaskAIInputPrefillData(task);
+        const continued = buildSeedream55ContinuePrefillData(task, { id: 'result', url: '/result.png' });
+        const rerolled = buildImageRerollPrefillData(restored);
+        for (const input of [restored, continued, rerolled]) {
+          expect(input.params?.size).toBe(size.toUpperCase());
+        }
+      }
+    }
+  );
+
+  it.each([
+    [SEEDREAM_55_MODEL_ID, '1536X1024', '1536x1024'],
+    ['gpt-image-2', '3:4', '3x4'],
+    ['gemini-3-pro-image-preview', '1.5K', '1.5k'],
+  ])('keeps size normalization for %s / %s as %s', (model, size, expected) => {
+    const task = imageTask({ params: { prompt: 'test', model, size } });
+    expect(buildImageTaskAIInputPrefillData(task).params?.size).toBe(expected);
+  });
+
   it('continues with the selected result, keeps provider/params, removes stale masks and leaves history unchanged', () => {
     const task = imageTask({ params: {
       prompt: '上一轮提示词', model: 'doubao-seedream-5-5-261028',

@@ -38,6 +38,7 @@
 - [Top 50 媒体模型参数交付](./top50-media-model-parameters.md)：本地参数实现、精确 ID、渠道支持声明和条件工作包；[QA 记录](./qa-top50-media-model-parameters.md)。
 - [文档批量生成](./document-batch-generation.md)：Excel/PDF 导入、批次队列、恢复与使用边界；[QA 记录](./qa-document-batch-generation.md)。
 - [统一缓存设计](./UNIFIED_CACHE_DESIGN.md)：缓存模型、存储和清理策略。
+- [Seedream 5.5 原图缓存](./seedream-image-cache.md)：固定存储域名的同源下载、部署配置和历史结果边界。
 - [统一缓存实现总结](./UNIFIED_CACHE_IMPLEMENTATION_SUMMARY.md)：落地细节和验证要点。
 - [网站数据清理交接文档](./2026-08-04-网站数据清理-交接文档.md)：桌面清理入口、两档清理范围、配置保留、迟到写回防护与失败恢复。
 - [素材库插入经验](./MEDIA_LIBRARY_INSERTION_LESSONS.md)：素材插入、选择和画布联动。
