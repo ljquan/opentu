@@ -283,3 +283,13 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - 最终 21 个文件、429 项测试通过；Drawnix/Web TypeScript 检查通过；Web 主应用构建通过（39.79 秒），产物在 `/tmp/opentu5-new-pr-final-build`。未额外执行生产 SW 构建或新的页面/收费测试。
 - 对完整增量的 30 个 TS/TSX 文件执行 ESLint 并与 PR 基线逐文件对照：当前及基线均有 69 项既有错误；本轮新增的 1 项测试非空断言警告已修复。新增实现文件无 lint 报错，不宣称全仓库 lint 通过。
 - OpenSpec 严格校验与差异检查通过。QA/DOC 更新本文件及原方案进度；后端实验补丁已撤回，后端工作树干净。
+
+
+## 2026-11-16：合并 develop 1.2.11
+
+- 工作分支 `Jerry-George-Liang/low-airbus-7727890f` 从 `170e0d08` 合并显式 fetch 的 `origin/develop`（`08b1b83e`）；合并前工作区干净。解决 AIInputBar、媒体执行器测试、图片回填及其测试共 4 个文件的冲突，保留本地连续编辑、分层/OCR 及远程恢复、重抽和 Flash 逻辑。
+- Node.js v26.8.1；临时链接主检出已有依赖，无安装或锁文件改动，验证后移除链接。测试命令前缀为 `node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，并加 `--maxWorkers=2 --minWorkers=1`。
+- 第一组选择 `image-task-prefill.test.ts`、`media-executor.test.ts`、`AIInputBar.reroll.test.ts`、`AIInputBar.prefill-images.test.ts`、`AIInputBar.toolbar-draft.test.ts`：5 文件、70 项通过。第二组选择 `ParametersDropdown.test.tsx`、`seedream-continue-button.test.tsx`、`image-details-button.test.tsx`、`Seedream55LayerDialog.test.tsx`、`src/services/layer-decomposition` 目录、`seedream-response.test.ts`、`provider-routing.test.ts`、`image-generation-recovery-service.test.ts`、`seedream-flash-adapter.test.ts`：18 文件、468 项通过。上述文件位于 `packages/drawnix/src` 对应目录，合计 23 文件、538 项通过。
+- 首次使用独立 `vitest.config.ts` 因缺少 `@aitu/utils` 路径映射失败，改用项目 Vite 配置后通过；新旧逻辑合并后调整精确模型查询为按需执行，通过原有回填测试。jsdom 中 IndexedDB 缺失等诊断未影响断言结果。
+- `node_modules/.bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit` 未通过：现有依赖目录缺少包文件/锁文件已声明的 `pptx-glimpse`、`fast-xml-parser`，导致 3 项模块缺失与 1 项派生隐式 any 错误。涉及的 PPTX/XLSX 文件与合并前及远程均无差异；未改动这些文件或安装依赖，不能宣称完整类型检查通过。
+- 差异空白检查通过。未运行页面、真实收费接口、全仓测试或构建；未启动服务、推送、创建 PR 或部署。本次同步无需另建 DOC，验证记录更新本 QA。
