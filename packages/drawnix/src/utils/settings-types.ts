@@ -1,4 +1,8 @@
-import type { ModelConfig, ModelType } from '../constants/model-config';
+import type {
+  ModelConfig,
+  ModelType,
+  ModelVisibilitySettings,
+} from '../constants/model-config';
 import type { ProviderPricingCache } from './model-pricing-types';
 
 export interface GeminiSettings {
@@ -162,6 +166,7 @@ export interface TtsSettings {
 export interface AppSettings {
   gemini: GeminiSettings;
   tts: TtsSettings;
+  modelVisibility: ModelVisibilitySettings;
   providerProfiles: ProviderProfile[];
   providerCatalogs: ProviderCatalog[];
   providerPricingCache: ProviderPricingCache[];

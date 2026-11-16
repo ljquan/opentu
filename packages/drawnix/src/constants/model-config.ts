@@ -15,6 +15,7 @@ import { isSunoV2Model, isUnavailableSunoModel } from '../services/suno-v2';
 import { isSunoNativeModel } from '../services/suno-native';
 import { getSunoNativeParams } from '../services/suno-native-params';
 import { getSunoV2Params } from '../services/suno-v2-params';
+import { SEEDREAM_FLASH_MODEL_ID, SEEDREAM_FLASH_SIZES } from './seedream-flash';
 import { KLING_4_RATIO_OPTIONS, TUZI_VIDEO_MODEL_CONFIGS, TUZI_VIDEO_MODEL_SHORT_CODES } from './tuzi-video-models';
 
 /**
@@ -22,7 +23,58 @@ import { KLING_4_RATIO_OPTIONS, TUZI_VIDEO_MODEL_CONFIGS, TUZI_VIDEO_MODEL_SHORT
  */
 export type ModelType = 'image' | 'video' | 'text' | 'audio';
 
+export type ModelVisibilityFamily =
+  | 'happyhorse-1.0'
+  | 'gemini-omni-1.1-flash'
+  | 'veo2'
+  | 'veo3';
+
+export interface ModelVisibilitySettings {
+  hideConfiguredModels: boolean;
+}
+
+export const MODEL_VISIBILITY_FAMILY_META: Readonly<
+  Record<
+    ModelVisibilityFamily,
+    { label: string; description: string; prefixes: readonly string[] }
+  >
+> = {
+  'happyhorse-1.0': {
+    label: 'HappyHorse 1.0 系列',
+    description: '控制 happyhorse-1.0-* 模型是否出现在前端选择器中。',
+    prefixes: ['happyhorse-1.0-'],
+  },
+  'gemini-omni-1.1-flash': {
+    label: 'Gemini Omni 1.1 Flash',
+    description: '控制 gemini-omni-1.1-flash* 模型是否出现在前端选择器中。',
+    prefixes: ['gemini-omni-1.1-flash'],
+  },
+  veo2: {
+    label: 'Veo 2 系列',
+    description: '控制 veo2* 和 veo-2* 模型是否出现在前端选择器中。',
+    prefixes: ['veo2', 'veo-2'],
+  },
+  veo3: {
+    label: 'Veo 3 系列',
+    description: '控制 veo3* 和 veo-3* 模型是否出现在前端选择器中。',
+    prefixes: ['veo3', 'veo-3'],
+  },
+};
+
+export const DEFAULT_MODEL_VISIBILITY_SETTINGS: ModelVisibilitySettings = {
+  hideConfiguredModels: true,
+};
+
+export function normalizeModelVisibilitySettings(
+  settings?: Partial<ModelVisibilitySettings> | null
+): ModelVisibilitySettings {
+  return {
+    hideConfiguredModels: settings?.hideConfiguredModels !== false,
+  };
+}
+
 export const FLUX_3_IMAGE_MODEL_ID = 'flux-3-image';
+export const SEEDREAM_55_MODEL_ID = 'doubao-seedream-5-5-261028';
 export const GPT_IMAGE_26_1K_MODEL_ID = 'gpt-image-2.6-1k';
 export const GPT_IMAGE_26_MODEL_IDS = [
   'gpt-image-2.6',
@@ -346,10 +398,8 @@ function applyBuiltInRecommendedScores(models: ModelConfig[]): ModelConfig[] {
   });
 }
 
-// ============================================
-// 模型颜色配置
-// ============================================
-
+// =====================================// 模型颜色配置
+// =====================================
 /**
  * 模型类型对应的颜色
  */
@@ -360,10 +410,8 @@ export const MODEL_TYPE_COLORS = {
   audio: '#1E88E5', // 蓝色
 } as const;
 
-// ============================================
-// 图片模型配置
-// ============================================
-
+// =====================================// 图片模型配置
+// =====================================
 /** 图片模型通用默认参数 */
 const IMAGE_DEFAULT_PARAMS: ImageModelDefaults = {
   aspectRatio: 'auto',
@@ -812,6 +860,19 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     tags: ['seedream', 'pro'],
   },
   {
+    id: SEEDREAM_55_MODEL_ID,
+    label: 'Seedream 5.5',
+    shortLabel: 'Seedream 5.5',
+    shortCode: 'sd55',
+    description:
+      '即梦 Seedream 5.5 图片生成与编辑，支持多参考图、透明输出和原生图层拆分',
+    type: 'image',
+    vendor: ModelVendor.DOUBAO,
+    supportsTools: false,
+    imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
+    tags: ['seedream', 'new'],
+  },
+  {
     id: 'seedream-v4',
     label: 'Seedream V4',
     shortLabel: 'Seedream V4',
@@ -822,6 +883,18 @@ export const IMAGE_MODEL_MORE_OPTIONS: ModelConfig[] = [
     supportsTools: false,
     imageDefaults: IMAGE_2K_DEFAULT_PARAMS,
     tags: ['seedream', 'new'],
+  },
+  {
+    id: SEEDREAM_FLASH_MODEL_ID,
+    label: 'Seedream 5.0 Flash',
+    shortLabel: 'Seedream Flash',
+    shortCode: 'sd5f',
+    description: 'Seedream 5.0 Flash，支持 1K/1.5K/2K 和透明 PNG 参考图生成',
+    type: 'image',
+    vendor: ModelVendor.DOUBAO,
+    supportsTools: false,
+    imageDefaults: IMAGE_DEFAULT_PARAMS,
+    tags: ['seedream', 'flash'],
   },
   {
     id: 'gpt-4o-image',
@@ -878,10 +951,8 @@ export const IMAGE_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
   ...IMAGE_MODEL_MORE_OPTIONS,
 ]);
 
-// ============================================
-// 视频模型配置
-// ============================================
-
+// =====================================// 视频模型配置
+// =====================================
 /** Veo 模型默认参数（8秒） */
 const VEO_DEFAULT_PARAMS: VideoModelDefaults = {
   duration: '8',
@@ -1359,10 +1430,8 @@ export const VIDEO_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
   ...BUILT_IN_VIDEO_MODELS,
 ]);
 
-// ============================================
-// 文本模型配置
-// ============================================
-
+// =====================================// 文本模型配置
+// =====================================
 /**
  * 文本/Agent 模型配置
  */
@@ -1739,8 +1808,46 @@ export const DEFAULT_HIDDEN_MODEL_IDS = new Set([
   'gpt-5.4-mini',
 ]);
 
+function matchesModelIdPattern(modelId: string, pattern: string): boolean {
+  const normalizedModelId = modelId.trim().toLowerCase();
+  const normalizedPattern = pattern.trim().toLowerCase();
+  return normalizedPattern.endsWith('*')
+    ? normalizedModelId.startsWith(normalizedPattern.slice(0, -1))
+    : normalizedModelId === normalizedPattern;
+}
+
 export function isDefaultModelHidden(modelId: string): boolean {
-  return DEFAULT_HIDDEN_MODEL_IDS.has(modelId.toLowerCase());
+  return Array.from(DEFAULT_HIDDEN_MODEL_IDS).some((pattern) =>
+    matchesModelIdPattern(modelId, pattern)
+  );
+}
+
+export function matchesModelVisibilityFamily(
+  modelId: string,
+  family: ModelVisibilityFamily
+): boolean {
+  return MODEL_VISIBILITY_FAMILY_META[family].prefixes.some((prefix) =>
+    modelId.trim().toLowerCase().startsWith(prefix)
+  );
+}
+
+export function isModelHiddenByVisibility(
+  modelId: string,
+  settings?: Partial<ModelVisibilitySettings> | null
+): boolean {
+  const normalizedSettings = normalizeModelVisibilitySettings(settings);
+  if (!normalizedSettings.hideConfiguredModels) return false;
+  if (isDefaultModelHidden(modelId)) return true;
+  return (Object.keys(MODEL_VISIBILITY_FAMILY_META) as ModelVisibilityFamily[]).some(
+    (family) => matchesModelVisibilityFamily(modelId, family)
+  );
+}
+
+export function filterModelsByVisibility(
+  models: ModelConfig[],
+  settings?: Partial<ModelVisibilitySettings> | null
+): ModelConfig[] {
+  return models.filter((model) => !isModelHiddenByVisibility(model.id, settings));
 }
 
 export const TEXT_MODELS: ModelConfig[] = BUILT_IN_TEXT_MODELS.filter(
@@ -1766,10 +1873,8 @@ export const AUDIO_MODELS: ModelConfig[] = applyBuiltInRecommendedScores([
   },
 ]);
 
-// ============================================
-// 所有模型
-// ============================================
-
+// =====================================// 所有模型
+// =====================================
 /**
  * 图片和视频模型（用于 ModelSelector）
  */
@@ -1869,10 +1974,8 @@ export function getAllBuiltInModelConfigs(): ModelConfig[] {
   ]);
 }
 
-// ============================================
-// 辅助函数
-// ============================================
-
+// =====================================// 辅助函数
+// =====================================
 /**
  * 根据类型获取模型列表
  */
@@ -1984,10 +2087,8 @@ export function getVendorOrder(models: ModelConfig[]): ModelVendor[] {
   return order;
 }
 
-// ============================================
-// 兼容旧格式的导出（用于 Select 组件）
-// ============================================
-
+// =====================================// 兼容旧格式的导出（用于 Select 组件）
+// =====================================
 /**
  * 图片模型选项（用于 Select 组件）
  */
@@ -2103,10 +2204,8 @@ export function getDefaultAudioModel(): string {
   return DEFAULT_AUDIO_MODEL_ID;
 }
 
-// ============================================
-// 参数配置（用于 SmartSuggestionPanel）
-// ============================================
-
+// =====================================// 参数配置（用于 SmartSuggestionPanel）
+// =====================================
 /** Veo 系列模型 ID（标清，只支持 8 秒） */
 const VEO_MODEL_IDS = [
   'veo3',
@@ -2189,6 +2288,7 @@ const SEEDREAM_IMAGE_MODEL_IDS = [
   'doubao-seedream-4-5-251128',
   'doubao-seedream-5-0-260128',
   'doubao-seedream-5-0-pro-260628',
+  SEEDREAM_55_MODEL_ID,
 ];
 
 /** 支持独立分辨率档位的 GPT Image 2.5 模型。 */
@@ -3137,6 +3237,83 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     compatibleModels: [FLUX_3_IMAGE_MODEL_ID],
     modelType: 'image',
   },
+  // Seedream 5.5 将分辨率档位与比例组合为 v3 像素尺寸。
+  {
+    id: 'size',
+    label: '图片分辨率',
+    shortLabel: '分辨率',
+    description: '与图片比例组合决定输出像素尺寸',
+    valueType: 'enum',
+    options: [
+      { value: '1K', label: '1K（≤261万像素）' },
+      { value: '1.5K', label: '1.5K（≤261万像素）' },
+      { value: '2K', label: '2K（高档）' },
+    ],
+    defaultValue: '2K',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'aspect_ratio',
+    label: '图片比例',
+    shortLabel: '比例',
+    valueType: 'enum',
+    options: [
+      { value: '1x1', label: '1:1 方形' },
+      { value: '16x9', label: '16:9 横版' },
+      { value: '9x16', label: '9:16 竖版' },
+      { value: '3x2', label: '3:2 横版' },
+      { value: '2x3', label: '2:3 竖版' },
+      { value: '4x3', label: '4:3 横版' },
+      { value: '3x4', label: '3:4 竖版' },
+      { value: '21x9', label: '21:9 超宽' },
+    ],
+    defaultValue: '1x1',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'background',
+    label: '图片背景',
+    shortLabel: '背景',
+    description: '支持原生透明输出；透明背景请使用 PNG',
+    valueType: 'enum',
+    options: [
+      { value: 'auto', label: '自动' },
+      { value: 'transparent', label: '透明' },
+      { value: 'opaque', label: '不透明' },
+    ],
+    defaultValue: 'auto',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'output_format',
+    label: '输出格式',
+    shortLabel: '格式',
+    description: '透明输出请使用 PNG；JPEG 不包含透明通道',
+    valueType: 'enum',
+    options: [
+      { value: 'png', label: 'PNG' },
+      { value: 'jpeg', label: 'JPEG' },
+    ],
+    defaultValue: 'png',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'watermark',
+    label: '图片水印',
+    shortLabel: '水印',
+    valueType: 'enum',
+    options: [
+      { value: 'false', label: '无水印' },
+      { value: 'true', label: '有水印' },
+    ],
+    defaultValue: 'false',
+    compatibleModels: [SEEDREAM_55_MODEL_ID],
+    modelType: 'image',
+  },
   {
     id: 'resolution',
     label: '图片分辨率',
@@ -3460,6 +3637,57 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     ],
     modelType: 'image',
   },
+  {
+    id: 'size',
+    label: '输出规模',
+    shortLabel: '尺寸',
+    description: '分辨率档位，实际宽高由模型返回',
+    valueType: 'enum',
+    options: SEEDREAM_FLASH_SIZES.map((value) => ({ value, label: value })),
+    defaultValue: '1K',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'output_format',
+    label: '输出格式',
+    shortLabel: '格式',
+    valueType: 'enum',
+    options: [{ value: 'png', label: 'PNG' }, { value: 'jpeg', label: 'JPEG' }],
+    defaultValue: 'png',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'background',
+    label: '背景',
+    valueType: 'enum',
+    description: '透明背景需要一张带透明通道的 PNG 参考图，并使用 PNG 输出',
+    options: [{ value: 'opaque', label: '不透明' }, { value: 'transparent', label: '透明' }],
+    defaultValue: 'opaque',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'watermark',
+    label: '水印',
+    valueType: 'enum',
+    control: 'switch',
+    options: [{ value: 'false', label: '关闭' }, { value: 'true', label: '开启' }],
+    defaultValue: 'false',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
+  {
+    id: 'optimize_prompt_mode',
+    label: '提示词优化',
+    shortLabel: '优化',
+    valueType: 'enum',
+    options: [{ value: 'default', label: '服务默认' }, { value: 'standard', label: '标准优化' }],
+    defaultValue: 'default',
+    compatibleModels: [SEEDREAM_FLASH_MODEL_ID],
+    modelType: 'image',
+  },
   // Seedream 图片模型尺寸（支持 8 种宽高比，label 显示具体像素）
   // 实际像素由 adapter 根据 quality(2K/4K) + 宽高比 计算
   {
@@ -3726,6 +3954,11 @@ export function getParamsByModelType(modelType: ModelType): ParamConfig[] {
  * 根据模型 ID 获取兼容的参数列表
  */
 export function getCompatibleParams(modelId: string): ParamConfig[] {
+  if (modelId === SEEDREAM_FLASH_MODEL_ID) {
+    return ALL_PARAMS.filter(
+      (param) => param.compatibleModels.length === 1 && param.compatibleModels[0] === modelId
+    );
+  }
   if (isSunoNativeModel(modelId)) return getSunoNativeParams(modelId);
   if (isUnavailableSunoModel(modelId)) return [];
   if (isSunoV2Model(modelId)) return getSunoV2Params(modelId);
@@ -3761,6 +3994,9 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
   const compatibleParams = ALL_PARAMS.filter((param) => {
     // 检查模型类型是否匹配
     if (param.modelType !== modelConfig.type) return false;
+    if (param.compatibleModels.length === 1 && param.compatibleModels[0] === SEEDREAM_FLASH_MODEL_ID) {
+      return false;
+    }
     // 检查标签兼容（可选）
     const tagMatched = param.compatibleTags
       ? param.compatibleTags.some((tag) => modelTags.has(tag.toLowerCase()))
@@ -3773,6 +4009,10 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
       (param.compatibleModels.length === 0 && !param.compatibleTags?.length);
     if (
       param.id === 'background' &&
+      !param.compatibleModels.some(
+        (compatibleModel) =>
+          compatibleModel.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase()
+      ) &&
       (isGPTImage2ModelId(normalizedModelId) ||
         isGPTImage25ModelId(normalizedModelId))
     ) {
@@ -3783,6 +4023,22 @@ export function getCompatibleParams(modelId: string): ParamConfig[] {
     }
     return idMatched || tagMatched;
   });
+
+  // Seedream 5.5 exposes native resolution tiers instead of the legacy
+  // ratio-to-pixel mapping used by the other Seedream models.
+  if (normalizedModelId === SEEDREAM_55_MODEL_ID.toLowerCase()) {
+    const nativeSizeParam = compatibleParams.find(
+      (param) =>
+        param.id === 'size' &&
+        param.compatibleModels.some(
+          (compatibleModel) =>
+            compatibleModel.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase()
+        )
+    );
+    return compatibleParams.filter(
+      (param) => param.id !== 'size' || param === nativeSizeParam
+    );
+  }
 
   if (
     modelConfig.type === 'image' &&

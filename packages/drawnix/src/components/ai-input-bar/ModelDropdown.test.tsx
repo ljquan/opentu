@@ -13,6 +13,7 @@ import { getStaticModelConfig, ModelVendor, type ModelConfig } from '../../const
 import { ModelDropdown } from './ModelDropdown';
 
 const {
+  visibilityState,
   discoverMock,
   applySelectionMock,
   setErrorMock,
@@ -24,6 +25,7 @@ const {
   useModelPriceMock,
   useModelPriceTextMock,
 } = vi.hoisted(() => ({
+  visibilityState: { hideConfiguredModels: true, revision: 0 },
   discoverMock: vi.fn(),
   applySelectionMock: vi.fn(),
   setErrorMock: vi.fn(),
@@ -37,10 +39,12 @@ const {
 }));
 
 vi.mock('../../utils/runtime-model-discovery', () => ({
+  filterModelsForSelection: (models: ModelConfig[]) => models.filter(model =>
+    !visibilityState.hideConfiguredModels || !model.id.startsWith('veo3')),
   runtimeModelDiscovery: {
     getState: getStateMock,
     subscribe: () => () => undefined,
-    getRevision: () => 0,
+    getRevision: () => visibilityState.revision,
     getInFlightDiscovery: () => null,
     discover: discoverMock,
     applySelection: applySelectionMock,
@@ -124,6 +128,8 @@ vi.mock('../shared/ModelBenchmarkBadge', () => ({
 
 describe('ModelDropdown', () => {
   beforeEach(() => {
+    visibilityState.hideConfiguredModels = true;
+    visibilityState.revision = 0;
     useModelPriceMock.mockClear();
     useModelPriceTextMock.mockClear();
     useModelPriceMock.mockReturnValue(null);
@@ -195,6 +201,23 @@ describe('ModelDropdown', () => {
     const model: ModelConfig = { id: 'custom-video', label: 'Custom Video', type: 'video', vendor: ModelVendor.OTHER };
     const { container } = render(<ModelDropdown selectedModel={model.id} models={[model]} onSelect={vi.fn()} />);
     expect(container.querySelector('.model-dropdown__code')?.textContent).toBe('Custom Video');
+  });
+
+  it('restores hidden models when visibility changes with the same input list', () => {
+    enableMenuLayout();
+    const hidden = { ...baseModel, id: 'veo3', label: 'Veo 3', type: 'video' as const };
+    const models = [baseModel, hidden];
+    const props = { selectedModel: baseModel.id, models, onSelect: vi.fn(), isOpen: true };
+    const { rerender } = render(<ModelDropdown {...props} />);
+    expect(screen.queryByRole('option', { name: /Veo 3/ })).toBeNull();
+    visibilityState.hideConfiguredModels = false;
+    visibilityState.revision++;
+    rerender(<ModelDropdown {...props} />);
+    expect(screen.getByRole('option', { name: /Veo 3/ })).toBeTruthy();
+    visibilityState.hideConfiguredModels = true;
+    visibilityState.revision++;
+    rerender(<ModelDropdown {...props} />);
+    expect(screen.queryByRole('option', { name: /Veo 3/ })).toBeNull();
   });
 
   it('hides token input/output prices without hiding the model', () => {

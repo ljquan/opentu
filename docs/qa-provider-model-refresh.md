@@ -1,5 +1,97 @@
 # Provider Model Refresh QA
 
+## 2026-11-08：同步 v1.2.7 并解决本地恢复冲突
+
+工作区 `/Users/lkj/Desktop/working/opentu1`，当前分支 `dev/fix-selected-previews-and-model-discovery`。显式 fetch 后，`origin/develop` 从 `f6a3e0cf` 更新到 `65636cbe2203d57b8a1c555f39e41527289cd749`（v1.2.7），包含 8 个新提交：GPT Image 2.6 接入及输出/透明参数、GIF 原文件保留、版本更新自动获取模型、生图结果插入有界超时、错误详情与视频 Request ID、桌面下载链接。远程当前功能分支仍为 `19a163f7`。
+
+执行 `git merge --no-edit origin/develop` 产生本地合并提交 `52484794908ec4cb5f129ed6b62eadbe11440b23`。上游合并本身无冲突，提交树与本次获取的 develop 完全一致；`HEAD...origin/develop` 为 `12 0`，上游祖先检查通过，保留本地历史。最终再次使用 `git ls-remote` 核对远程 develop 仍为上述 SHA，没有推送或修改远程分支。
+
+### 备份与冲突处理
+
+操作前归档 57 个本地修改/新增文件，保存 SHA-256 清单、暂存/未暂存补丁、状态和 HEAD bundle：`/Users/lkj/.codex/backups/opentu1-before-sync-20261108-170945/`。stash 为 `b4af1324ecf0d0550d6b7ee4773f95cfe440dc0a`，全部原文件已逐项校验与 stash 内容一致后才合并；此次及之前 stash 均保留。
+
+恢复 stash 出现 5 个文件冲突，均已解决：
+
+- `data/image.test.ts`：双方都是 Node/jsdom Blob 双路径兼容，采用上游带类型的等价实现，保留图片缓存字节断言及所有测试。
+- `media-executor/fallback-utils.test.ts`：采用上游已有 `readBlobBytes` 辅助函数，覆盖原本 FileReader 意图，不重复实现。
+- `settings-manager.ts`：双方都保留 `models-endpoint` 来源，采用上游等价写法，并保留新增 `lastAutoRefreshVersion` 规范化。
+- `settings-manager.test.ts`：保留双方的版本标记存取/环境恢复和模型来源保存/重载测试。
+- `runtime-model-discovery.ts`：保留上游自动刷新版本标记、后台资格核验、刷新时读取最新选择/手工绑定、只自动勾选新增型号和 GPT Image 2.6 分类纠正；将本地过期查询保护接到上游 revision 上，换 Key、清空目录、更新配置和取消均使旧结果失效。保留本地先认证后加载可选价格、认证元数据优先、错误脱敏与旧公共目录失效策略。
+
+自动合并的 AI 输入栏、参数/工作流、模型配置、Flash 路由和原图保留、独立槽位调度已核对；上游 `generated-result` 插入超时策略与本地按槽位立即处理逻辑均保留。本地 Flash、同源代理和尺寸实现继续存在，没有清理无关改动。
+
+57 个原文件均可定位且无遗漏：整合完成、补充本节之前有 41 个与备份逐字节一致、16 个叠加上游内容；本节更新后为 40 个逐字节一致、17 个整合/说明更新。3 个原本有本地差异的文件现与上游完全一致，属于上游已吸收的等价修复，并非丢弃。明细与最终 refs 在备份目录 `restoration-audit.json`。工作区修改恢复为未暂存状态，未提交本地功能修复。
+
+### 合并后验证
+
+macOS、Node v26.8.1，现有依赖。冲突涉及核心模型发现与图片交付，执行定向集成验证；从 `packages/drawnix` 运行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --maxWorkers=1 \
+  src/services/provider-model-catalog.test.ts \
+  src/services/version-model-refresh.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/utils/__tests__/runtime-model-classification.test.ts \
+  src/utils/__tests__/settings-manager.test.ts \
+  src/data/image.test.ts \
+  src/services/media-executor/fallback-utils.test.ts \
+  src/hooks/__tests__/useAutoInsertToCanvas.test.ts \
+  src/services/canvas-operations/canvas-insertion-timeout.test.ts \
+  src/services/__tests__/seedream-flash-adapter.test.ts \
+  src/services/__tests__/gpt-image-26-integration.test.ts \
+  src/services/__tests__/gpt-image-26-output.test.ts \
+  src/components/ai-input-bar/ParametersDropdown.test.tsx \
+  src/components/ai-input-bar/__tests__/workflow-converter.test.ts \
+  src/services/__tests__/media-executor.test.ts \
+  src/utils/gemini-api/services.test.ts \
+  src/utils/__tests__/suno-v2-discovery.test.ts \
+  src/services/__tests__/seedream-flash-dimensions.test.ts \
+  src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  src/mcp/tools/__tests__/image-generation.test.ts --silent
+```
+
+- 20 文件、715 项全部通过，包含双方模型发现、版本自动刷新、GPT Image 2.6 分类/参数/输出、Flash 参数/代理/尺寸、GIF/原图引用、插入超时和独立槽位、MCP/工作流及执行器回归。
+- 初次 12 文件运行有 1 项旧 `marketplace` 目录期望不符：上游将 GPT Image 2.6 旧公共条目转成图片，本地既定规则会先移除未认证的公共自动条目。整合后的测试分别检查公共自动条目失效、已认证 2.6 缓存纠正及两种来源的手工条目保留；随后完整定向运行全部通过。
+- 根目录 `node node_modules/typescript/bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 对手动整合的 runtime-model-discovery、分类测试、settings-manager 测试执行 ESLint，并对照当前合并 HEAD 原文：双方均为 0 errors、1 warning，无新增诊断。
+- TS/TSX 语法解析无错误；最终 `git diff --check` 通过，无未解决冲突、无暂存改动。
+
+日志 `/tmp/opentu1-sync-20261108-tests.log`、`/tmp/opentu1-sync-20261108-types.log`、`/tmp/opentu1-sync-20261108-eslint.json`。测试初次从根目录配合包内 include 路径运行曾出现 No test files found，改用上述包目录后执行有效测试，不把未发现测试当作通过。
+
+本次不安装依赖、不执行构建、不启动或重启服务；未做 Web 独立类型检查、全仓库测试、页面/浏览器/E2E、真实 API 或收费生成，不声称线上已部署或运行时已验收。QA/DOC 沿用本文件，不新增独立文档、配置或迁移。已保存模型和画板无需清空，运行新版后的版本自动刷新按上游规则执行。
+
+
+## 2026-11-02：同步最新 develop 并保留本地修复
+
+工作区 `/Users/lkj/Desktop/working/opentu1`，功能分支 `dev/fix-selected-previews-and-model-discovery`。显式 fetch `origin/develop` 与当前远程功能分支后，将 develop 从 `5ef5e7da` 更新至 `f6a3e0cf1b1e1a66d271ceb57eb4bbf6bd029114`（v1.2.5）。远程功能分支仍为 `19a163f7`。随后执行 `git merge --no-edit origin/develop`，产生本地合并提交 `8471ed26`；提交树与本次获取的 develop 完全一致，历史保留而未重置。最终 `HEAD...origin/develop` 为 `11 0`，上游已完整包含；`git ls-remote` 再次核对远程 develop 仍为上述 SHA。
+
+同步前将 57 个已修改/新增文件、SHA-256 清单、暂存/未暂存补丁、状态和 HEAD bundle 保存至 `/Users/lkj/.codex/backups/opentu1-before-sync-20261102-192521/`，并建立 stash `54efba7a4b457da9c8ab68859c27ef474f4415a6`。逐项验证 stash 中的原文件与备份哈希一致后才合并。stash 及之前恢复记录均保留。
+
+上游提交本身自动合并成功；恢复 stash 时 9 个文件冲突，已整合双方意图：
+
+- 模型目录始终由当前 Key 的认证响应决定；保留上游“认证元数据优先、重新加载保留已发现分类和能力”的规则。同时保留本地先鉴权后按需读取价格、旧公共自动目录失效、换 Key 签名核验、防迟到请求覆盖、取消和错误脱敏。
+- 兼容上游 `modelMetadata` 输入与本地 `loadModelMetadata` 加载方式，不重建另一条发现路径。模型发现、分类、Suno 和缺少价格配置等双方用例保留；旧测试预期按最终分类来源规则调整。
+- 图片缓存测试兼容 Node Blob 的 `arrayBuffer()` 和 jsdom Blob 的 FileReader 两种读取方式，保留上游缩略图尺寸回退用例与本地既有字节校验。
+- 合并历史 QA、分类说明和 README；AI 输入栏保留上游批量/关联改进及本地 Flash 原图不压缩条件。Flash 适配、代理、尺寸和独立槽位调度等本地文件完整保留。
+
+恢复后的原始 57 文件无遗漏：48 个逐字节一致，9 个为上述整合或说明更新；明细在备份目录 `restoration-audit.json`。所有本地修改恢复为未暂存状态，本轮仅产生同步所需的本地 merge commit，没有提交这些修复、推送或新建 PR。
+
+本次按同步任务控制范围；因恢复冲突而做最小集成验证。macOS、Node v26.8.1，从 `packages/drawnix` 执行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --maxWorkers=1 \
+  src/services/provider-model-catalog.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/utils/__tests__/runtime-model-classification.test.ts \
+  src/utils/__tests__/suno-v2-discovery.test.ts \
+  src/data/image.test.ts --silent
+```
+
+5 个文件、70 项全部通过。初次运行发现一项旧重载测试依赖价格重新分类，与上游保留认证结果的规则冲突；将其样本调整为实际已分类的认证缓存后重跑全部 70 项通过，其他来源优先及重复重载回归保留。TypeScript 语法解析检查覆盖 41 个本地修改 TS/TSX 文件，无语法错误；最终 `git diff --check` 通过，无未解决冲突。日志 `/tmp/opentu1-sync-20261102-conflict-tests.log`。
+
+没有安装依赖、执行构建、完整类型检查/全仓库测试、页面验收、真实接口调用或启动/重启服务。既有各功能 QA 仍是当时测试记录，不能当作本次合并后的全部验收。QA/DOC 沿用本文件及分类/端点维护说明，无新增配置、迁移或独立文档；现有未提交修复继续在本地等待后续交付。
+
+
 ## 2026-10-31：提交 PR 前的最终验证
 
 功能分支 `dev/restore-api-key-model-discovery`，目标 `ljquan/opentu:develop`。本次只包含按当前 API Key 认证获取模型的代码、回归测试与两份既有说明，共 8 个文件。实现提交为 `fba37c0e`。
@@ -67,6 +159,61 @@ git diff --check
 - 最终差异检查通过。维护说明更新到已有 `MODEL_CATEGORY_PRIORITY_LESSONS.md`，不新增独立 DOC。
 
 未执行完整仓库测试、页面交互、Windows 验证、真实供应商请求或收费生成，未部署。非技术验收：加载新版本后，分别用两个模型权限不同的 Key 获取并确认模型，检查列表随权限变化；无效 Key 应显示错误；相同权限 Key 可以返回相同列表。只切换价格分组不应扩大认证接口返回的模型范围。
+
+## 2026-10-27：按当前 Key 获取模型，价格目录仅作补充
+
+本地目录 `/Users/lkj/Desktop/working/opentu1`，分支 `dev/fix-selected-previews-and-model-discovery`，基线 `c77b3b6e`。保留现有 Flash、图片尺寸及其他未提交改动。本轮只修复模型发现、设置持久化和相关入口的过期请求处理，没有提交、推送、PR 或部署。
+
+### 最终行为与兼容策略
+
+- 自动型号列表始终取自当前地址和当前 Key 的 `/models` 响应；Tuzi 模型广场在该请求成功后，才补充同名型号的价格、描述、分类及厂商元数据。未定价的返回型号保留，公共目录不能增加型号。
+- 无效 Key、非法 JSON、缺少 `data` 和空列表会失败；错误回显的当前 Key 会脱敏。价格失败和空价格分组不阻断有效模型列表，公开价格接口原有匿名认证规则不变。
+- 缓存按供应商及地址/Key 签名核验。换 Key 或地址时移除旧自动条目，保留手工型号、已选手工型号和调用绑定；旧请求成功、失败或元数据迟到都不能覆盖新目录。取消中的查询可结束加载状态，调用方不会把过期查询标记为新目录失败。
+- 设置保存和重载均保留 `models-endpoint` 来源标记。旧 `marketplace` 自动目录以及 `pricing-suno-v2` 补充条目不再视为经 Key 核验的目录；手工条目不受此过滤影响。`/models` 实际返回的 Suno 原生/v2 型号继续按音频分类，不再根据价格端点虚构其他型号。
+- 本节为本地首次修复记录。2026-11-02 合入上游后，认证响应已有元数据优先，已核验自动条目重载保留发现结果，不再由价格刷新覆盖分类和能力；本地过期请求保护及旧公共目录失效策略继续保留。
+
+### 实际验证
+
+macOS、Node v26.8.1、pnpm 10.21.0、Vitest 3.2.4，使用现有依赖与模拟接口。从 `packages/drawnix` 执行：
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts \
+  src/services/provider-model-catalog.test.ts \
+  src/utils/__tests__/runtime-model-discovery.test.ts \
+  src/utils/__tests__/runtime-model-classification.test.ts \
+  src/utils/__tests__/suno-v2-discovery.test.ts \
+  src/utils/__tests__/model-pricing-service.test.ts \
+  src/utils/__tests__/settings-manager.test.ts \
+  src/components/settings-dialog/__tests__/provider-model-refresh.test.ts \
+  src/services/__tests__/tuzi-managed-provider-models.test.ts \
+  src/services/__tests__/tuzi-managed-providers.test.ts \
+  src/services/__tests__/tuzi-session-provider-sync.test.ts \
+  src/services/__tests__/tuzi-provider-reuse.test.ts \
+  src/services/__tests__/tuzi-provider-selection.test.ts \
+  src/services/__tests__/settings-repository.test.ts \
+  src/services/__tests__/provider-routing.test.ts \
+  src/components/ai-input-bar/ModelDropdown.test.tsx \
+  src/hooks/__tests__/use-runtime-models.test.ts --silent
+```
+
+16 个文件、290 项全部通过。覆盖同一公共价格下不同 Key 的独立列表、未定价型号、供应商隔离、无效 Key 与错误脱敏、价格故障/空目录、相同查询并发去重、旧请求成功/失败/元数据迟到、带取消信号的请求、手工条目/选择/调用绑定保留、旧公共目录失效、Suno 分类、来源标记保存与重载，以及账户同步、路由与选择器组件逻辑回归。
+
+其他实际检查：
+
+- 根目录 `node node_modules/typescript/bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- 根目录 `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.app.json --noEmit`：通过。
+- `apps/web` 中执行 `node ../../node_modules/vite/bin/vite.js build`：通过，37.45 秒；使用不写版本号的直接构建方式。既有 Sass、Browserslist、混合导入及大 chunk 提示保留。
+- 对本轮 13 个 TS/TSX 文件执行 ESLint，并逐文件对比 `git show HEAD:<path>` 的结果：修改后和基线均为 0 errors、34 warnings，没有新增诊断；未修改规则。
+- `git diff --check`：通过；没有未解决冲突。7201 原开发服务仍在监听，未重启其他服务。
+
+### 验收、限制与维护
+
+未执行真实页面、浏览器/视觉/E2E、真实 Key 查询、收费生成或全仓库测试。组件测试是模拟环境逻辑验证，不是页面验收。此前其他任务记录的基线失败不在本次通过范围内。
+
+手工验收：刷新 `http://localhost:7201`，在“设置 → 供应商 → 获取模型”重新获取，并勾选需要的型号。旧版公共目录的自动选择需要按新目录重新确认，无需清空画板或其他设置。若两个 Key 的服务端响应本来相同，列表仍可相同；此修复保证来源正确，不证明服务端权限不同或生成必定可用。
+
+更新本文件作为 QA，并更新已有端点设置与分类维护说明作为 DOC，不新增重复文档。没有新增依赖、环境变量或后端迁移；回滚可撤回本轮本地代码差异，但不会自动恢复用户随后保存的模型选择，必要时重新获取和勾选。
+
 
 ## 2026-10-22：PR 最终集成验证
 

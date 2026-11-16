@@ -17,6 +17,7 @@ import type { ExecutionOptions } from './types';
 import { taskStorageWriter } from './task-storage-writer';
 import { SubmissionPersistenceError } from '../submission-persistence';
 import { createTaskInvocationRouteSnapshot } from '../task-invocation-route';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import {
   startLLMApiLog,
   completeLLMApiLog,
@@ -196,6 +197,8 @@ export async function executeImageViaAdapter(
         {
           ...options,
           preserveUrl: (imgUrl) =>
+            // Flash validates/materializes its own references without lossy compression.
+            requestModel === SEEDREAM_FLASH_MODEL_ID ||
             // Mask coordinates require the original image dimensions.
             (adapter.id === 'tuzi-gpt-image-adapter' &&
               !!(params.maskImage?.trim() ||
@@ -220,6 +223,8 @@ export async function executeImageViaAdapter(
         onResponse: (response) => {
           recoveryRequestId =
             readImageRecoveryRequestId(response) || recoveryRequestId;
+          // Keep diagnostic IDs, but Flash has no documented v1 recovery endpoint.
+          if (requestModel === SEEDREAM_FLASH_MODEL_ID) return;
           recoveryUrl =
             buildImageRecoveryUrl(
               adapterContext.baseUrl,
@@ -295,8 +300,9 @@ export async function executeImageViaAdapter(
     await taskStorageWriter.updateImageRecovery(taskId, {
       requestId: recoveryRequestId || submissionRequestId,
       url:
-        recoveryUrl ||
-        buildImageRecoveryUrl(adapterContext.baseUrl, submissionRequestId),
+        requestModel === SEEDREAM_FLASH_MODEL_ID
+          ? undefined
+          : recoveryUrl || buildImageRecoveryUrl(adapterContext.baseUrl, submissionRequestId),
       status: 'succeeded',
       urls: allUrls,
       checkedAt: Date.now(),

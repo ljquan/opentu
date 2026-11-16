@@ -755,6 +755,198 @@ describe('useAutoInsertToCanvas', () => {
     });
     expect(mocks.insertImageGroup).toHaveBeenCalledTimes(1);
   });
+
+  it('inserts a completed independent batch slot immediately while another slot is loading', async () => {
+    const tasks = [0, 1].map((index) =>
+      createCompletedImageTask({
+        id: `slot-task-${index}`,
+        params: {
+          prompt: 'batch',
+          autoInsertToCanvas: true,
+          size: '1:1',
+          workflowId: 'slot-workflow',
+          batchId: 'slot-batch',
+          batchIndex: index,
+        },
+      })
+    );
+    const anchors = tasks.map((task, index) => ({
+      id: `slot-anchor-${index}`,
+      type: 'generation-anchor',
+      anchorType: 'ratio',
+      workflowId: 'slot-workflow',
+      batchId: 'slot-batch',
+      batchIndex: index,
+      taskIds: [task.id],
+      points: [
+        [index * 600, 0],
+        [index * 600 + 512, 512],
+      ],
+      expectedInsertPosition: [index * 600, 0],
+      zoom: 1,
+      transitionMode: 'hold',
+    }));
+    mocks.board = { children: anchors };
+    let finishFirst!: (value: unknown) => void;
+    mocks.quickInsert.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFirst = resolve;
+        })
+    );
+    const firstResult = {
+      success: true,
+      data: {
+        insertedCount: 1,
+        items: [
+          {
+            type: 'image',
+            point: [0, 0],
+            elementId: 'slot-image-0',
+            size: { width: 512, height: 512 },
+          },
+        ],
+      },
+    };
+
+    renderHook(() =>
+      useAutoInsertToCanvas({ enabled: true, insertPrompt: false })
+    );
+    await act(async () => {
+      mocks.imageAnchorByTask = anchors[0];
+      emitTaskEvent(tasks[0]);
+      await Promise.resolve();
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.markAsInserted).not.toHaveBeenCalled();
+    await act(async () => {
+      mocks.imageAnchorByTask = anchors[1];
+      emitTaskEvent(tasks[1]);
+      await Promise.resolve();
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.completePostProcessing.mock.calls.some(([id]) => id === tasks[1].id)
+    ).toBe(true);
+    expect(
+      mocks.completePostProcessing.mock.calls.some(([id]) => id === tasks[0].id)
+    ).toBe(false);
+    await act(async () => {
+      emitTaskEvent(tasks[0]);
+      finishFirst(firstResult);
+      await Promise.resolve();
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.completePostProcessing.mock.calls.some(([id]) => id === tasks[0].id)
+    ).toBe(true);
+  });
+
+  it('keeps the ordinary grouping deadline when an independent slot completes', async () => {
+    const ordinary = createCompletedImageTask({ id: 'ordinary-buffered' });
+    const slot = createCompletedImageTask({
+      id: 'independent-fast',
+      params: {
+        prompt: 'batch',
+        autoInsertToCanvas: true,
+        workflowId: 'w',
+        batchId: 'b',
+        batchIndex: 0,
+      },
+    });
+    const anchor = {
+      id: 'independent-anchor',
+      type: 'generation-anchor',
+      anchorType: 'ratio',
+      workflowId: 'w',
+      batchId: 'b',
+      batchIndex: 0,
+      taskIds: [slot.id],
+      points: [
+        [600, 0],
+        [1112, 512],
+      ],
+      expectedInsertPosition: [600, 0],
+      zoom: 1,
+    };
+    mocks.board = { children: [anchor] };
+    renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        insertPrompt: false,
+        groupTimeWindow: 100,
+        maxGroupWait: 250,
+      })
+    );
+    await act(async () => {
+      emitTaskEvent(ordinary);
+      await vi.advanceTimersByTimeAsync(50);
+      mocks.imageAnchorByTask = anchor;
+      emitTaskEvent(slot);
+      await Promise.resolve();
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    mocks.imageAnchorByTask = null;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(49);
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mocks.quickInsert).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.completePostProcessing.mock.calls.some(([id]) => id === ordinary.id)
+    ).toBe(true);
+  });
+  it.each([
+    { replaceElementId: 'shared-target' },
+    { targetFrameId: 'shared-frame' },
+  ])('keeps shared target insertion buffered: %j', async (target) => {
+    const task = createCompletedImageTask({
+      id: 'shared-target-task',
+      params: {
+        prompt: 'batch',
+        autoInsertToCanvas: true,
+        workflowId: 'w',
+        batchId: 'b',
+        batchIndex: 0,
+        ...target,
+      },
+    });
+    const anchor = {
+      id: 'shared-target-anchor',
+      type: 'generation-anchor',
+      anchorType: 'ratio',
+      workflowId: 'w',
+      batchId: 'b',
+      batchIndex: 0,
+      taskIds: [task.id],
+      points: [
+        [600, 0],
+        [1112, 512],
+      ],
+      expectedInsertPosition: [600, 0],
+      zoom: 1,
+    };
+    mocks.board = { children: [anchor] };
+    mocks.imageAnchorByTask = anchor;
+    const { unmount } = renderHook(() =>
+      useAutoInsertToCanvas({
+        enabled: true,
+        insertPrompt: false,
+        groupTimeWindow: 100,
+      })
+    );
+    await act(async () => {
+      emitTaskEvent(task);
+      await vi.advanceTimersByTimeAsync(99);
+    });
+    expect(mocks.quickInsert).not.toHaveBeenCalled();
+    expect(mocks.startPostProcessing).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('defers associated results until their source board becomes active', async () => {
     const task = createCompletedImageTask({
       id: 'task-cross-board',
