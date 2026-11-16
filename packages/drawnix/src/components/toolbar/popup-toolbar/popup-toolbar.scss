@@ -1,6 +1,36 @@
 @import '../../../styles/z-index.scss';
 @import './size-input.scss';
 
+.generation-node-actions {
+    display: flex;
+    gap: 4px;
+
+    button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 36px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-primary-color, #303342);
+        font: inherit;
+        font-size: 13px;
+        white-space: nowrap;
+        cursor: pointer;
+
+        &:hover { background: var(--color-surface-high, #f3f1fa); }
+        &:focus-visible { outline: 2px solid #8270c7; outline-offset: -2px; }
+    }
+
+    .generation-node-actions__delete {
+        color: #c33b42;
+        &:hover { background: rgba(195, 59, 66, 0.09); }
+    }
+}
+
 .popup-toolbar {
     z-index: $z-popup-toolbar;
     .property-button {
