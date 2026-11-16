@@ -3952,7 +3952,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             : nextGenerationType === 'text' || nextGenerationType === 'agent'
             ? textModels
             : imageModels;
+        const exactModel = detail.requireExactModelRef
+          ? findExactSelectableModel(modelsForType, detail.model, detail.modelRef)
+          : undefined;
+        if (detail.requireExactModelRef && !exactModel) {
+          MessagePlugin.warning('历史模型或供应商当前不可用，请先恢复配置后继续编辑');
+          return;
+        }
         const nextModel =
+          (detail.requireExactModelRef ? exactModel : undefined) ||
           (restoredInput && detail.modelRef
             ? findExactSelectableModel
             : findMatchingSelectableModel)(

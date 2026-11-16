@@ -1938,6 +1938,35 @@ describe('provider routing', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('supports disabling even pre-acceptance POST failover for layer recovery', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {},
+        {
+          status: 429,
+          headers: {
+            'X-Tuzi-Request-Accepted': 'false',
+            'X-Tuzi-Request-Retryable': 'true',
+          },
+        }
+      )
+    );
+    const response = await sendTuzi({
+      path: '/api/v3/images/generations',
+      baseUrlStrategy: 'trim-v1',
+      method: 'POST',
+      requestId: 'layer-recovery',
+      body: '{}',
+      allowImageSubmissionRetry: false,
+      fetcher,
+    });
+    expect(response.status).toBe(429);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(
+      new Headers(fetcher.mock.calls[0][1]?.headers).get('X-Request-Id')
+    ).toBe('layer-recovery');
+  });
+
   it('switches nodes only when the API explicitly reports the image POST was not accepted', async () => {
     vi.stubGlobal(
       'fetch',

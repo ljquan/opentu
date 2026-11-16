@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { TaskStatus, TaskType, type Task } from '../../types/task.types';
+import { SEEDREAM_55_MODEL_ID } from '../../constants/model-config';
 import {
   buildImageTaskAIInputPrefillData,
   buildImageTaskPrefillInitialData,
   getImageTaskReferenceImages,
+  buildSeedream55ContinuePrefillData,
   buildImageRerollPrefillData,
 } from '../image-task-prefill';
 
@@ -31,6 +33,58 @@ function imageTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('image-task-prefill', () => {
+  it.each(['1k', '1.5k', '2k', '1K', '1.5K', '2K'])(
+    'restores Seedream tier %s from top-level or nested history for every prefill action', (size) => {
+      for (const savedSize of [{ size }, { params: { size } }]) {
+        const task = imageTask({ params: {
+          prompt: 'blue cup', model: SEEDREAM_55_MODEL_ID, ...savedSize,
+        } });
+        const restored = buildImageTaskAIInputPrefillData(task);
+        const continued = buildSeedream55ContinuePrefillData(task, { id: 'result', url: '/result.png' });
+        const rerolled = buildImageRerollPrefillData(restored);
+        for (const input of [restored, continued, rerolled]) {
+          expect(input.params?.size).toBe(size.toUpperCase());
+        }
+      }
+    }
+  );
+
+  it.each([
+    [SEEDREAM_55_MODEL_ID, '1536X1024', '1536x1024'],
+    ['gpt-image-2', '3:4', '3x4'],
+    ['gemini-3-pro-image-preview', '1.5K', '1.5k'],
+  ])('keeps size normalization for %s / %s as %s', (model, size, expected) => {
+    const task = imageTask({ params: { prompt: 'test', model, size } });
+    expect(buildImageTaskAIInputPrefillData(task).params?.size).toBe(expected);
+  });
+
+  it('continues with the selected result, keeps provider/params, removes stale masks and leaves history unchanged', () => {
+    const task = imageTask({ params: {
+      prompt: '上一轮提示词', model: 'doubao-seedream-5-5-261028',
+      modelRef: { modelId: 'doubao-seedream-5-5-261028', profileId: 'tuzi-custom' },
+      referenceImages: ['https://example.com/source.png', 'https://example.com/second.png'],
+      params: { size: '1.5K', aspect_ratio: '4:3', watermark: 'false', background: 'transparent', mask_image: '/old-mask.png' },
+    } });
+    const before = structuredClone(task);
+    const result = buildSeedream55ContinuePrefillData(task, { id: 'selected', url: 'https://example.com/second.png' });
+    expect(result).toMatchObject({ count: 1, prompt: '', source: 'canvas-toolbar', modelRef: { profileId: 'tuzi-custom' },
+      params: { size: '1.5K', aspect_ratio: '4:3', watermark: 'false', background: 'transparent' } });
+    expect(result.images).toEqual([
+      { url: 'https://example.com/second.png', name: '上一轮结果', sourceElementId: 'selected' },
+      { url: 'https://example.com/source.png', name: '参考图 1' },
+    ]);
+    expect(result.params).not.toHaveProperty('mask_image');
+    expect(task).toEqual(before);
+    expect(buildImageTaskAIInputPrefillData(task).prompt).toBe('上一轮提示词');
+  });
+
+  it('keeps excess references visible for manual removal and refuses other models', () => {
+    const task = imageTask({ params: { prompt: 'edit', model: 'doubao-seedream-5-5-261028',
+      referenceImages: Array.from({ length: 10 }, (_, i) => `https://example.com/${i}.png`) } });
+    expect(buildSeedream55ContinuePrefillData(task, { id: 'result', url: '/result.png' }).images).toHaveLength(11);
+    expect(() => buildSeedream55ContinuePrefillData(imageTask(), { id: 'result', url: '/result.png' })).toThrow('Seedream 5.5');
+  });
+
   it('restores only original references and keeps duplicate pixels in their input order', () => {
     const task = imageTask({ params: {
       prompt: '合成', referenceImages: ['/a.png', '/a.png', '/c.png'],

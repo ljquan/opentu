@@ -9,6 +9,11 @@ import type {
 function cloneManifestItem(artifact: LayerArtifact): LayerManifestItem {
   return {
     ...artifact,
+    ...(artifact.textRecognition
+      ? {
+          textRecognition: structuredClone(artifact.textRecognition),
+        }
+      : {}),
     kind: artifact.zIndex === 0 ? 'background' : 'foreground',
     boundingBox: {
       absolute: [...artifact.boundingBox.absolute],

@@ -2,6 +2,7 @@ import type { KnowledgeContextRef, Task } from '../types/task.types';
 import type { ModelRef } from './settings-manager';
 import type { AIInputPrefillEventDetail } from '../services/ai-input-ui-events';
 import { resolveTaskInvocationRouteModel } from '../services/task-invocation-route';
+import { SEEDREAM_55_MODEL_ID } from '../constants/model-config';
 
 export interface ImageGenerationReferenceImage {
   url: string;
@@ -260,6 +261,14 @@ export function buildImageTaskAIInputPrefillData(
   const model =
     modelRef?.modelId ||
     (typeof routeModel === 'string' ? routeModel : readString(params.model));
+  const restoredSize = size?.replace(':', 'x').toLowerCase() || nestedParams.size;
+  // Saved tiers are lowercased by task serialization; the UI uses uppercase K.
+  const prefillSize =
+    model === SEEDREAM_55_MODEL_ID &&
+    restoredSize &&
+    /^(1|1\.5|2)k$/i.test(restoredSize)
+      ? restoredSize.toUpperCase()
+      : restoredSize;
   const count = readPositiveInteger(params.batchTotal);
   const knowledgeContextRefs = getImageTaskKnowledgeContextRefs(task);
   const inputParams = readStringParams(
@@ -317,9 +326,47 @@ export function buildImageTaskAIInputPrefillData(
       ...nestedParams,
       ...inputParams,
       sourceTaskId: task.id,
-      ...(size ? { size: size.replace(':', 'x').toLowerCase() } : {}),
+      ...(prefillSize ? { size: prefillSize } : {}),
     },
     ...(count ? { count } : {}),
+  };
+}
+
+/** Continue editing is distinct from regenerating the original inputs. */
+export function buildSeedream55ContinuePrefillData(
+  task: Task,
+  selected: { url: string; id: string }
+): AIInputPrefillEventDetail {
+  const prefill = buildImageTaskAIInputPrefillData(task);
+  if (prefill.model?.toLowerCase() !== 'doubao-seedream-5-5-261028') {
+    throw new Error('继续编辑入口仅适用于 Seedream 5.5 历史任务');
+  }
+  if (!selected.url.trim()) throw new Error('所选图片没有可用地址');
+  const url = normalizeImageTaskDataUrl(selected.url);
+  const images = [
+    { url, name: '上一轮结果', sourceElementId: selected.id },
+    ...getImageTaskReferenceImages(task)
+      .filter((image) => image.url !== url)
+      .map(({ url, name }) => ({ url, name })),
+  ];
+  // Keep overflow visible in the composer; the adapter blocks >10 references
+  // before any request, so users can choose which historical reference to remove.
+  const params = { ...prefill.params };
+  for (const key of [
+    'maskImage',
+    'mask_image',
+    'layer_decomposition',
+    'layer_decomposition_options',
+  ])
+    delete params[key];
+  return {
+    ...prefill,
+    prompt: '',
+    images,
+    params,
+    count: 1,
+    source: 'canvas-toolbar',
+    requireExactModelRef: true,
   };
 }
 

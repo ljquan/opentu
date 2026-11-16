@@ -390,6 +390,7 @@ async function shouldRetryTuziResponse(
   response: Response
 ): Promise<boolean> {
   return (
+    request.allowImageSubmissionRetry !== false &&
     isRecoverableTuziImageSubmission(context, request) &&
     response.headers.get('X-Tuzi-Request-Accepted')?.trim().toLowerCase() ===
       'false' &&

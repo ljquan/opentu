@@ -40,6 +40,7 @@ export interface SemanticLayerMetadata {
   boundingBox: LayerArtifact['boundingBox'];
   confidence?: number;
   hidden?: boolean;
+  textRecognition?: LayerArtifact['textRecognition'];
 }
 
 export interface SemanticLayerGroupMetadata {
@@ -121,6 +122,9 @@ function createLayerElement(
       absolute: [...artifact.boundingBox.absolute],
       normalized: [...artifact.boundingBox.normalized],
     },
+    ...(artifact.textRecognition
+      ? { textRecognition: structuredClone(artifact.textRecognition) }
+      : {}),
     ...(artifact.confidence === undefined
       ? {}
       : { confidence: artifact.confidence }),
@@ -179,7 +183,7 @@ async function cacheArtifactsSequentially(
     // stable local copy, while allowing a verified remote URL to keep the
     // native layer result usable. The service worker still gets a chance to
     // retain the opaque response under its original URL.
-    await loadImageElementForCanvas(url as any);
+    await loadImageElementForCanvas(url as DataURL, { signal: options.signal });
     cached.push({ ...artifact, url });
   }
   return cached;
@@ -240,6 +244,25 @@ export async function exportSemanticLayerGroup(
   if (layers.length === 0) throw new Error('语义分层组没有可导出的图层');
 
   const manifest = group.metadata?.semanticLayerGroup?.manifest;
+  const editableTextLayers = board.children
+    .filter(
+      (element) =>
+        element.groupId === group.id &&
+        element.metadata?.semanticText?.providerGroupId === providerGroupId
+    )
+    .map((element) => ({
+      id: element.id,
+      points: element.points,
+      angle: element.angle,
+      text: element.text,
+      sourceElementId: element.metadata.semanticText.sourceElementId,
+      sourceZIndex: element.metadata.semanticText.zIndex,
+      sourceRasterHidden:
+        layers.find(
+          ({ element: raster }) =>
+            raster.id === element.metadata.semanticText.sourceElementId
+        )?.metadata?.hidden === true,
+    }));
   const items: BatchDownloadItem[] = layers.map(
     ({ element, metadata }, index) => ({
       url: element.url,
@@ -257,7 +280,14 @@ export async function exportSemanticLayerGroup(
       ? [
           {
             filename: 'manifest.json',
-            content: JSON.stringify(manifest, null, 2),
+            content: JSON.stringify(
+              {
+                ...manifest,
+                ...(editableTextLayers.length ? { editableTextLayers } : {}),
+              },
+              null,
+              2
+            ),
           },
         ]
       : undefined

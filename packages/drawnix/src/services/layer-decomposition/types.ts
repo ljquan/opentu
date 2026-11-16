@@ -5,6 +5,26 @@ export interface LayerBoundingBox {
   normalized: LayerBoundingBoxTuple;
 }
 
+/** Native Seedream OCR styles are approximate; the API does not return font size. */
+export interface LayerTextStyle {
+  similar_font_family?: string;
+  foreground_color?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  shadow?: boolean;
+  translucent?: boolean;
+}
+
+export interface LayerTextRecognition {
+  text: string;
+  lines: Array<{
+    boundingBox: LayerBoundingBox;
+    runs: Array<{ text: string; style: LayerTextStyle }>;
+  }>;
+}
+
 export interface LayerArtifact {
   groupId: string;
   url: string;
@@ -13,6 +33,7 @@ export interface LayerArtifact {
   name: string;
   description: string;
   confidence?: number;
+  textRecognition?: LayerTextRecognition;
 }
 
 export interface LayerDecompositionRequest {
@@ -20,6 +41,7 @@ export interface LayerDecompositionRequest {
   prompt?: string;
   mode?: Exclude<LayerDecompositionMode, 'bbox'>;
   maxLayers: number;
+  textRecognition?: boolean;
 }
 
 export interface LayerDecompositionRequestPayload {
@@ -90,6 +112,7 @@ export interface LayerArtifactPayload {
   name: string;
   description: string;
   confidence?: number;
+  text_recognition?: unknown;
 }
 
 export interface LayerDecompositionResponsePayload {

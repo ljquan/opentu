@@ -5,9 +5,12 @@ import type {
   LayerDecompositionRequest,
   LayerDecompositionRequestPayload,
   LayerDecompositionResponse,
+  LayerTextRecognition,
+  LayerTextStyle,
 } from './types';
 
 export const MAX_DECOMPOSITION_FOREGROUND_LAYERS = 16;
+export const MAX_SEEDREAM_55_FOREGROUND_LAYERS = 99;
 export const DEFAULT_DECOMPOSITION_FOREGROUND_LAYERS = 16;
 export const MAX_DECOMPOSITION_PROMPT_LENGTH = 4_096;
 
@@ -138,6 +141,75 @@ function parseBoundingBox(value: unknown, path: string): LayerBoundingBox {
   };
 }
 
+/** Optional OCR must never invalidate otherwise usable image artifacts. */
+export function parseLayerTextRecognition(
+  value: unknown
+): LayerTextRecognition | undefined {
+  if (!isRecord(value)) return undefined;
+  try {
+    const text = requireString(value.text, 'text_recognition.text', 32_000);
+    if (
+      !Array.isArray(value.lines) ||
+      !value.lines.length ||
+      value.lines.length > 256
+    )
+      return undefined;
+    let characters = 0;
+    const lines = value.lines.map((raw) => {
+      const line = requireRecord(raw, 'text_recognition.lines');
+      const boundingBox = parseBoundingBox(
+        line.bounding_box,
+        'text_recognition.lines.bounding_box'
+      );
+      if (
+        !Array.isArray(line.runs) ||
+        !line.runs.length ||
+        line.runs.length > 256
+      )
+        throw new Error('Invalid OCR runs');
+      const runs = line.runs.map((entry) => {
+        const run = requireRecord(entry, 'text_recognition.runs');
+        if (typeof run.text !== 'string' || /[\r\n]/.test(run.text))
+          throw new Error('Invalid OCR text');
+        characters += run.text.length;
+        if (characters > 32_000) throw new Error('OCR text too long');
+        const source = isRecord(run.style) ? run.style : {};
+        const style: LayerTextStyle = {};
+        if (
+          typeof source.similar_font_family === 'string' &&
+          source.similar_font_family.length <= 128
+        ) {
+          style.similar_font_family = source.similar_font_family;
+        }
+        if (
+          typeof source.foreground_color === 'string' &&
+          /^#[0-9a-f]{6}$/i.test(source.foreground_color)
+        ) {
+          style.foreground_color = source.foreground_color.toUpperCase();
+        }
+        for (const key of [
+          'bold',
+          'italic',
+          'underline',
+          'strikethrough',
+          'shadow',
+          'translucent',
+        ] as const) {
+          const flag = source[key];
+          if (typeof flag === 'boolean') style[key] = flag;
+        }
+        return { text: run.text, style };
+      });
+      if (!runs.some((run) => run.text.trim()))
+        throw new Error('Empty OCR line');
+      return { boundingBox, runs };
+    });
+    return { text, lines };
+  } catch {
+    return undefined;
+  }
+}
+
 function validatePromptBoundingBoxes(prompt: string): void {
   NORMALIZED_BBOX_PROMPT_PATTERN.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -237,6 +309,7 @@ function parseArtifact(
     invalid(`${path}.confidence`, 'must be within 0..1');
   }
 
+  const textRecognition = parseLayerTextRecognition(item.text_recognition);
   return {
     groupId,
     url: requireImageLocation(item.url, `${path}.url`),
@@ -250,11 +323,13 @@ function parseArtifact(
       true
     ),
     ...(confidence === undefined ? {} : { confidence }),
+    ...(textRecognition ? { textRecognition } : {}),
   };
 }
 
 export function parseLayerDecompositionResponse(
-  value: unknown
+  value: unknown,
+  options: { maxForegroundLayers?: 16 | 99 } = {}
 ): LayerDecompositionResponse {
   const response = requireRecord(value, 'response');
   const groupId = requireString(
@@ -269,6 +344,14 @@ export function parseLayerDecompositionResponse(
     );
   }
 
+  const maxLayers =
+    options.maxForegroundLayers ?? MAX_DECOMPOSITION_FOREGROUND_LAYERS;
+  if (response.data.length > maxLayers + 1) {
+    invalid(
+      'response.data',
+      `must not contain more than ${maxLayers} foreground layers`
+    );
+  }
   const artifacts = response.data.map((item, index) =>
     parseArtifact(item, `response.data[${index}]`, groupId)
   );
@@ -291,10 +374,10 @@ export function parseLayerDecompositionResponse(
     );
   }
   const layers = artifacts.filter((artifact) => artifact.zIndex !== 0);
-  if (layers.length > MAX_DECOMPOSITION_FOREGROUND_LAYERS) {
+  if (layers.length > maxLayers) {
     invalid(
       'response.data',
-      `must not contain more than ${MAX_DECOMPOSITION_FOREGROUND_LAYERS} foreground layers`
+      `must not contain more than ${maxLayers} foreground layers`
     );
   }
   const zIndexes = new Set<number>();

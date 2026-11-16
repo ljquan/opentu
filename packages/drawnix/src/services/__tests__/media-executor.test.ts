@@ -366,6 +366,29 @@ describe('Media Executor Module', () => {
 
     it.each([
       {
+        label: 'Seedream 5.5 signed remote references',
+        referenceImage: 'https://ark.example.test/result.png?signature=preserve',
+        maskImage: undefined,
+        adapterId: 'seedream-image-adapter',
+        model: 'doubao-seedream-5-5-261028',
+      },
+      {
+        label: 'Seedream local reference materialization',
+        referenceImage: 'http://localhost:7205/__aitu_cache__/image/reference.png',
+        maskImage: undefined,
+        adapterId: 'seedream-image-adapter',
+        model: 'doubao-seedream-5-5-261028',
+        materialized: true,
+      },
+      {
+        label: 'Seedream virtual reference materialization',
+        referenceImage: 'https://opentu.ai/__aitu_cache__/image/reference.png',
+        maskImage: undefined,
+        adapterId: 'seedream-image-adapter',
+        model: 'doubao-seedream-5-5-261028',
+        materialized: true,
+      },
+      {
         label: 'unmasked remote references',
         referenceImage: 'https://apioss28.sydney-ai.com/img/generated-reference.png',
         maskImage: undefined,
@@ -387,11 +410,15 @@ describe('Media Executor Module', () => {
       ].map((referenceImage, index) => ({
         label: `Flash alpha reference ${index + 1}`,
         model: 'doubao-seedream-5-0-flash-260915',
+        adapterId: 'seedream-flash-image-adapter',
         referenceImage,
         maskImage: undefined,
       })),
-    ])('preserves $label for the Tuzi adapter without reference compression', async ({ referenceImage, maskImage, model = 'gpt-image-2' }) => {
-      const getImageForAI = vi.fn();
+    ])('preserves $label without reference compression', async (testCase) => {
+      const { referenceImage, maskImage } = testCase;
+      const adapterId = 'adapterId' in testCase ? testCase.adapterId : 'tuzi-gpt-image-adapter';
+      const model = 'model' in testCase ? testCase.model : 'gpt-image-2';
+      const getImageForAI = vi.fn().mockResolvedValue({ type: 'base64', value: 'data:image/png;base64,cG5n' });
       const startLLMApiLog = vi.fn(() => 'log-id');
       vi.doMock('../media-executor/llm-api-logger', () => ({
         startLLMApiLog,
@@ -427,7 +454,7 @@ describe('Media Executor Module', () => {
             apiKey: 'test-key',
             authType: 'bearer',
             binding: {
-              requestSchema: 'tuzi.image.gpt-edit-json',
+              requestSchema: adapterId === 'seedream-image-adapter' ? 'openai.image.seedream-json' : 'tuzi.image.gpt-edit-json',
               submitPath: '/images/generations',
             },
           })),
@@ -438,7 +465,7 @@ describe('Media Executor Module', () => {
         '../media-executor/fallback-adapter-routes'
       );
       const adapter: ImageModelAdapter = {
-        id: model === 'gpt-image-2' ? 'tuzi-gpt-image-adapter' : 'seedream-flash-image-adapter',
+        id: adapterId,
         label: 'Tuzi GPT Image',
         kind: 'image',
         generateImage: vi.fn(async () => ({
@@ -456,11 +483,14 @@ describe('Media Executor Module', () => {
 
       expect(adapter.generateImage).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.objectContaining({ referenceImages: [referenceImage], maskImage })
+        expect.objectContaining({ referenceImages: ['materialized' in testCase ? 'data:image/png;base64,cG5n' : referenceImage], maskImage })
       );
-      expect(getImageForAI).not.toHaveBeenCalled();
+      if ('materialized' in testCase) expect(getImageForAI).toHaveBeenCalledWith(referenceImage, expect.any(Object));
+      else expect(getImageForAI).not.toHaveBeenCalled();
       expect(startLLMApiLog).toHaveBeenCalledWith(expect.objectContaining({
-        endpoint: model === 'gpt-image-2' ? (maskImage ? '/images/edits' : '/images/generations') : 'adapter:seedream-flash-image-adapter',
+        endpoint: adapterId === 'tuzi-gpt-image-adapter'
+          ? (maskImage ? '/images/edits' : '/images/generations')
+          : `adapter:${adapterId}`,
       }));
     }, 15000);
 

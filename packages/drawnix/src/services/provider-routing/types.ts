@@ -266,6 +266,8 @@ export interface ProviderTransportRequest {
   requestId?: string;
   /** 是否允许同步图片请求在网络结果未知时进入 Request ID 恢复。 */
   allowImageSubmissionOutcomeRecovery?: boolean;
+  /** Disable even explicit pre-acceptance POST failover for GET-only recovery flows. */
+  allowImageSubmissionRetry?: boolean;
   /** 响应体将通过 provider transport 的有界 reader 读取。 */
   controlledResponseBody?: boolean;
   /** Observe the final response before its body is consumed. */

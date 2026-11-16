@@ -1,12 +1,43 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { seedreamImageAdapter } from '../seedream-adapter';
 import { getCompatibleParams, SEEDREAM_55_MODEL_ID } from '../../../constants/model-config';
+import { buildSeedream55ContinuePrefillData } from '../../../utils/image-task-prefill';
+import { TaskStatus, TaskType, type Task } from '../../../types/task.types';
 
 const { send } = vi.hoisted(() => ({ send: vi.fn() }));
 vi.mock('../context', () => ({ sendAdapterRequest: send }));
 afterEach(() => vi.resetAllMocks());
 
 describe('Seedream durable image responses', () => {
+  it.each([
+    ['1k', '1K', '1152x864'],
+    ['1.5k', '1.5K', '1728x1296'],
+    ['2k', '2K', '2304x1728'],
+  ])('retains saved tier %s through continuation and request serialization', async (size, tier, pixels) => {
+    const task: Task = {
+      id: 'continued-task', type: TaskType.IMAGE, status: TaskStatus.COMPLETED,
+      createdAt: 1, updatedAt: 1,
+      params: { prompt: 'blue cup', model: SEEDREAM_55_MODEL_ID, size,
+        params: { aspect_ratio: '4x3', watermark: 'false' } },
+    };
+    const input = buildSeedream55ContinuePrefillData(task, {
+      id: 'selected-result', url: 'https://example.test/blue-cup.png',
+    });
+    const sizeOptions = getCompatibleParams(SEEDREAM_55_MODEL_ID)
+      .find((param) => param.id === 'size')?.options;
+    expect(input.params?.size).toBe(tier);
+    expect(sizeOptions?.some((option) => option.value === input.params?.size)).toBe(true);
+    send.mockResolvedValue(Response.json({ data: [{ url: 'https://example.test/orange-cup.png' }] }));
+    await seedreamImageAdapter.generateImage({ baseUrl: 'https://api.example.test/v1' }, {
+      model: input.model, prompt: 'change blue to orange', params: input.params,
+      referenceImages: input.images?.map((image) => image.url),
+    });
+    expect(JSON.parse(send.mock.lastCall?.[1]?.body)).toMatchObject({
+      size: pixels, image: 'https://example.test/blue-cup.png', watermark: false,
+    });
+    expect(task.params.size).toBe(size);
+  });
+
   it.each([
     [undefined, false], ['false', false], [false, false],
     ['true', true], [true, true], ['invalid', false],

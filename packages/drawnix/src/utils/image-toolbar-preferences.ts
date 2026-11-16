@@ -7,6 +7,8 @@ export const IMAGE_TOOLBAR_OPTIONS = [
   { id: 'ai-video', label: 'AI视频生成' },
   { id: 'split-image', label: '智能拆图' },
   { id: 'ai-layer-decomposition', label: 'AI分层' },
+  { id: 'seedream55-layer-decomposition', label: 'Seedream 5.5 分层' },
+  { id: 'layer-ocr-to-text', label: '转换为可编辑文字' },
   { id: 'local-image-angle', label: 'AI视角编辑' },
   { id: 'image-edit', label: '编辑图片' },
   { id: 'download', label: '下载' },
