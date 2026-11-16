@@ -317,6 +317,7 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 ## 2026-11-16：提交 develop 的最终验证
 
 - 本次完整交付包含未合并的连续编辑、分层/OCR、GET-only 恢复，以及分辨率保持和原图缓存修复。目标为 `origin/develop`；当前工作分支 `Jerry-George-Liang/low-airbus-7727890f`。创建 PR 前已备份并核验 17 个未提交文件，随后提交修复为 `4f8e40f2`。
+- 按用户追加要求，推送前再次逐项对比最新上游与本地：PR 三点差异与 `origin/develop` 到 HEAD 的实际双点差异完全一致，上游提交全部已包含。增量为 51 个文件（23 实现、15 测试、5 站点配置、8 文档/验收）；均属于上述交付范围。已由上游包含的 5.5 基础接入、Flash 和画布功能没有重复列入增量，未纳入临时依赖链接、构建目录或其他仓库改动。
 - 显式 fetch 最新 `origin/develop` 为 `08b1b83e`（1.2.11），执行 merge 返回 Already up to date；当前分支已包含全部目标分支提交，本轮无新增冲突。此前合并的 4 处冲突已在完整回归中覆盖，未机械替换一方代码。
 - 合并后最终运行相关目录与测试：27 个文件、636 项通过，命令前缀为 `node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，范围包含整个分层目录、分层弹窗、连续编辑按钮、工具栏详情、输入栏恢复/重抽、参数菜单、图片回填与生成配方、媒体执行器、provider routing、结果恢复、Seedream/Flash 适配器、下载映射与统一缓存。附加 `--maxWorkers=2 --minWorkers=1`。日志：`/tmp/opentu337-pr-final-tests.log`。
 - Drawnix/Web TypeScript 检查均通过；Web 主应用构建通过（48.32 秒，`/tmp/opentu337-pr-final-build`）。完整增量 38 个 TS/TSX 文件与 `origin/develop` 原路径逐文件对照 ESLint，双方均有 68 项既有错误、无新增诊断；Nx 模块边界规则因缺少 ProjectGraph 缓存被跳过，不宣称全仓 lint 通过。OpenSpec 严格校验及差异空白检查通过。
