@@ -7,11 +7,6 @@ import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import { visualizer } from 'rollup-plugin-visualizer';
-import {
-  SEEDREAM_IMAGE_ORIGIN,
-  SEEDREAM_IMAGE_PATH,
-  SEEDREAM_IMAGE_PROXY_PATH,
-} from '../../packages/drawnix/src/utils/seedream-image-download';
 
 const require = createRequire(import.meta.url);
 const workspaceRoot = path.resolve(__dirname, '../..');
@@ -1104,26 +1099,6 @@ export default defineConfig({
     port: DEV_SERVER_PORT,
     host: process.env.OPENTU_HOST || 'localhost',
     proxy: {
-      [SEEDREAM_IMAGE_PROXY_PATH]: {
-        target: SEEDREAM_IMAGE_ORIGIN,
-        changeOrigin: true,
-        secure: true,
-        rewrite: (requestPath: string) =>
-          SEEDREAM_IMAGE_PATH + requestPath.slice(SEEDREAM_IMAGE_PROXY_PATH.length),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (request) => {
-            request.removeHeader('authorization');
-            request.removeHeader('cookie');
-            request.removeHeader('origin');
-            request.removeHeader('referer');
-          });
-          proxy.on('proxyRes', (response) => {
-            delete response.headers['set-cookie'];
-            response.headers['content-security-policy'] = "default-src 'none'; sandbox";
-            response.headers['x-content-type-options'] = 'nosniff';
-          });
-        },
-      },
       '/__opentu_tuzi_proxy__/api/': {
         target: 'https://api.tu-zi.com',
         changeOrigin: true,

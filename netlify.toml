@@ -80,18 +80,6 @@
     Cache-Control = "public, max-age=0, must-revalidate"
 
 # 部署上下文配置
-[[headers]]
-  for = "/__opentu_seedream_images__/*"
-  [headers.values]
-    Content-Security-Policy = "default-src 'none'; sandbox"
-    X-Content-Type-Options = "nosniff"
-
-[[redirects]]
-  from = "/__opentu_seedream_images__/*"
-  to = "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/:splat"
-  status = 200
-  force = true
-
 [context.production]
   command = "pnpm install && pnpm nx reset && pnpm run build:web"
 

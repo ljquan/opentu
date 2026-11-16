@@ -3,20 +3,7 @@
   "outputDirectory": "dist/apps/web",
   "installCommand": "pnpm install",
   "framework": null,
-  "headers": [
-    {
-      "source": "/__opentu_seedream_images__/:path*",
-      "headers": [
-        { "key": "Content-Security-Policy", "value": "default-src 'none'; sandbox" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
-    }
-  ],
   "rewrites": [
-    {
-      "source": "/__opentu_seedream_images__/:path*",
-      "destination": "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/:path*"
-    },
     {
       "source": "/__opentu_tuzi_proxy__/api/:path*",
       "destination": "https://api.tu-zi.com/:path*"

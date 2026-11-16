@@ -2,6 +2,8 @@
 
 日期：2026-11-14。模型：`doubao-seedream-5-5-261028`。
 
+当前范围更新（2026-11-16）：用户因需要修改 Nginx 而撤回“原图缓存失败修复”。同源下载工具、缓存消费方改动及对应测试、Vite/Vercel/Netlify/Nginx 新增规则和专用部署文档均已移除；缓存行为恢复为上游实现。保留连续编辑、分辨率档位修复、分层/OCR 与 GET-only 查询。以下缓存修复、部署步骤及原图离线验收属于撤回前历史记录，不作为当前交付结论；当前无需为这些保留功能新增 Nginx 配置，跨域读取和分层 GET 缺元数据仍是已知限制。PR #340 已关闭，用户随后授权本地复测并提交；不推送或重新打开 PR。
+
 ## 使用与实现
 
 - 在供应商设置中获取模型，选择该模型后使用图片生成入口。
@@ -303,10 +305,10 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - Drawnix/Web 类型检查均通过：`node_modules/.bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit`、`node_modules/.bin/tsc -p apps/web/tsconfig.app.json --noEmit`。3 个修改的 TS 文件 ESLint 无错误或告警；Nx 缺少缓存 ProjectGraph，模块边界规则被工具跳过，不宣称该规则通过。差异空白检查通过。
 - 本轮未重新执行页面测试、付费生成、全仓测试或构建。缓存失败及 GET 缺少分层/OCR 元数据仍是独立未修复项。无新依赖、配置、接口或运行方式变化，更新本 QA，无需新增 DOC；未提交、推送或部署。
 
-## 2026-11-16：修复 Seedream 5.5 原图缓存
+## 2026-11-16：修复 Seedream 5.5 原图缓存（历史实现，已撤回）
 
 - 在 `97369e22` 及上节分辨率本地修复基础上实施，保留已有未提交改动。浏览器直接 GET 本次橙杯原图时，CDP 记录上游 HTTP 200、Content-Type=image/png、Content-Length=3829578，但缺少 Access-Control-Allow-Origin，随后 Network.loadingFailed 明确报 MissingAllowOriginHeader；确认是字节读取受 CORS 阻止，不能因图片可显示而声称已缓存。
-- 下载修复采用项目既有同源转发模式：仅映射已验证的 HTTPS 火山存储域名及 Seedream 5.5 图片路径，保留签名参数，剥离认证/Cookie；同步 Vite、Vercel、Netlify 与生产/预发布 Nginx 模板。统一缓存和生成结果缓存使用该路径；不将任意域名改写为代理，也不将错误 HTML 写为图片。配置及发布顺序见 [原图缓存说明](./seedream-image-cache.md)。
+- 当时下载修复采用项目既有同源转发模式：仅映射已验证的 HTTPS 火山存储域名及 Seedream 5.5 图片路径，保留签名参数，剥离认证/Cookie；同步 Vite、Vercel、Netlify 与生产/预发布 Nginx 模板。统一缓存和生成结果缓存使用该路径；不将任意域名改写为代理，也不将错误 HTML 写为图片。该实现及原图缓存专用部署说明现已撤回，不适用于当前代码。
 - 使用 ego-browser 复用 `19f2ad02-7d96-43a3-a056-a5f7a6b7502c` 和 `6862a09d-aad5-440a-b17e-5e092ba6782f` 的真实结果，未新增生成 POST。结果缓存调用返回 `/__aitu_cache__/image/cachefix-existing-orange.png`，无缓存警告；随后对两张原始结果执行已有缓存方法均成功，isCached=true。
 - 两张缓存文件分别为 2438732 与 3829578 字节，与此前下载原图的 SHA-256 完全一致。刷新页面后模拟断网，从持久化缓存读取并成功解码为 1728×1296、2304×1728，证明保存了完整可用原图；验证后恢复网络、关闭 Network 监听并保留测试画板。证据：`/tmp/opentu337-cache-browser.json`、`/tmp/opentu337-cache-offline.json`。
 - 回归命令：`node_modules/.bin/vitest run --config packages/drawnix/vite.config.ts --environment jsdom`，选择 `seedream-image-download.test.ts`、`fallback-utils.test.ts`、`unified-cache-service.test.ts`、`media-executor.test.ts`、`canvas-ocr.test.ts`、`seedream55.test.ts`、`image-task-prefill.test.ts`、`seedream-response.test.ts`，附加 `--maxWorkers=2 --minWorkers=1`：8 文件、179 项通过。覆盖签名编码、域名/协议/凭据边界、HTML 拒绝、成功缓存、403 过期降级、重试警告清除、断网读回、旧缓存给 AI 读取及前一轮分辨率修复。初次新增缓存单测遇到 Node Response 与 jsdom Blob 构造器不兼容，使用测试内临时原生 Blob 后通过，生产逻辑不受影响。
@@ -334,3 +336,18 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - 已读取更新前 CI `43841904954` 的失败日志：Drawnix 全量测试有 9 个文件失败、388 个通过、1 个跳过，另有 AI Chat 包体积超过 1 MB 上限 9.27 kB。失败涉及漫画导出、提示词历史、视频参数/路由、工作区存储、备份加密、输入解析和工作流导出；本轮没有证明这些失败与 PR 的归因，未通过提高体积阈值或修改无关功能规避检查。相关本地回归通过不代表远程 CI 全绿，更新提交后以新检查结果为准。
 - QA 更新本文件；DOC 在 `seedream-image-cache.md` 补充预发布/生产实际配置核对和发布顺序。Nginx 模板已经包含固定图片转发规则，但现有上传脚本仍指向旧的 `aitu-releases.conf`，不能假定覆盖生效站点；需部署时检查 `nginx -T`，备份实际配置、加入 location、`nginx -t`、reload，再发布前端。无新增环境变量、依赖、迁移或 Tuzi API 改动；未连接线上服务器、部署或合并 PR。
 - `2550d5a5` 推送后 GitHub 已显示 MERGEABLE；再次显式 fetch 发现上游新增 `f7e25e6b`（1.2.12 版本发布），继续 merge 无冲突。新增上游差异只有 package.json 版本号和三份更新日志/版本文件，业务源码、测试、依赖和构建配置与上述验证时完全一致。解析三份 JSON 并验证版本号一致为 1.2.12；同步后的 Web 主应用构建再次通过（45.04 秒，`/tmp/opentu340-version-build`）。未重复执行未受影响的 640 项测试与类型检查；上述结果仍对应同一份业务代码。
+
+## 2026-11-16：按用户要求撤回原图缓存修复
+
+- 起点为干净的 `c224d1a4`；PR #340 已关闭。用户明确因需修改 Nginx 而取消图片缓存修复。本轮只撤回缓存部分，保留同一提交中的分辨率档位修复、连续编辑、分层/OCR、GET-only 查询及上游生成卡片操作；未整笔撤回混合提交。
+- `fallback-utils.ts`、`unified-cache-service.ts` 及对应测试恢复为已同步的 `origin/develop` 实现；移除固定下载工具及测试。Vite、Vercel、Netlify、预发布/生产 Nginx 配置与上游无差异；移除原图缓存专用部署文档和目录链接。源码与站点配置已搜索确认没有同源图片代理残留；分辨率实现与测试相对 HEAD 无差异。
+- 使用上述 Vitest 命令与范围，去除已删除的 `seedream-image-download.test.ts`，附加 `--maxWorkers=2 --minWorkers=1`：27 个文件、622 项通过。覆盖保留的功能和恢复后的缓存行为，日志 `/tmp/opentu340-cache-withdraw-tests.log`。Drawnix/Web TypeScript 检查均通过；Web 主应用构建通过（1 分 4 秒，`/tmp/opentu340-cache-withdraw-build`），保留既有 Sass、大 chunk 和混合静态/动态导入提示。OpenSpec 严格校验、差异空白检查通过。
+- 当前无新增 Nginx、环境变量、依赖、迁移或服务端改动；缓存失败恢复为原有已知限制，不能把历史同源转发版本的离线验收当作当前已修复。分层 GET 缺元数据及已过期无缓存图片仍不能恢复。未运行新的页面、收费测试、全仓 lint/测试或生产 SW 独立构建。
+- QA 更新本节及顶部当前范围；DOC 更新已有 OpenSpec 方案、任务与验收要求，删除撤回功能专用说明。仅本地未提交改动；未推送、部署或重新打开 PR。
+
+### 本地提交前复测
+
+- 用户随后明确要求“本地再测试一下，再提交”。重新执行本节同一 Vitest 命令及范围：27 文件、622 项通过，耗时 16.49 秒，日志 `/tmp/opentu340-local-commit-tests.log`。
+- 重新执行 Drawnix/Web 的 `tsc --noEmit` 均通过；Web 主应用构建通过（43.99 秒，`/tmp/opentu340-local-commit-build`），仍有既有 Sass、大 chunk、混合静态/动态导入提示。OpenSpec 严格校验与 `git diff --check` 通过。
+- 最终核对缓存实现、对应测试与五份站点配置均与已同步的 `origin/develop` 无差异，源码无已移除代理残留；分辨率修复实现及其测试相对 `c224d1a4` 未改变。只提交本任务 17 个文件，QA/DOC 已同步当前范围；不推送、部署或重新打开 PR。
+- 本轮未做页面交互、收费调用、全仓 lint/测试或生产 SW 独立构建；跨域缓存失败与 GET 缺元数据继续作为已知限制。

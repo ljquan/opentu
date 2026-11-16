@@ -27,7 +27,6 @@ import {
 } from '../../utils/virtual-media-url';
 import type { TaskResultVisibility } from '../../types/task.types';
 import type { CacheWarning } from '../../types/cache-warning.types';
-import { fetchImageForCache } from '../../utils/seedream-image-download';
 import {
   IMAGE_CACHE_TIMEOUT_MS,
   IMAGE_DOWNLOAD_TIMEOUT_MS,
@@ -720,7 +719,7 @@ export async function cacheRemoteUrl(
       }
 
       const download = async (signal?: AbortSignal) => {
-        const response = await (mediaType === 'image' ? fetchImageForCache : fetch)(normalizedUrl, {
+        const response = await fetch(normalizedUrl, {
           credentials: 'omit',
           cache: 'no-store',
           ...(mediaType === 'image' ? { headers: { Accept: 'image/*' } } : {}),

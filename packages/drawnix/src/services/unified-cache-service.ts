@@ -23,7 +23,6 @@ import type {
 } from '../types/cache-warning.types';
 import type { TaskResultVisibility } from '../types/task.types';
 import { readKeepOriginalImageEnabled } from './reference-image-settings';
-import { fetchImageForCache } from '../utils/seedream-image-download';
 
 // ==================== 常量定义 ====================
 
@@ -969,9 +968,12 @@ class UnifiedCacheService {
           throw new Error(`Virtual URL not found in cache: ${url}`);
         }
       } else {
-        // 已缓存的原图优先，不能依赖已经过期的远程签名链接。
-        blob = await this.getCachedBlob(url);
-        if (!blob) throw new Error('Cached image bytes are unavailable');
+        // 普通 URL：通过 fetch 获取
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image: ${response.status}`);
+        }
+        blob = await response.blob();
       }
 
       // 7. 如果图片过大，进行压缩
@@ -1136,7 +1138,7 @@ class UnifiedCacheService {
 
     try {
       // 触发缓存（通过 fetch）
-      const response = await fetchImageForCache(url);
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
       }
@@ -1148,8 +1150,6 @@ class UnifiedCacheService {
       const now = Date.now();
 
       const mimeType = blob.type || 'image/png';
-      const cachedMetadata = { ...existing?.metadata, ...metadata };
-      delete cachedMetadata.cacheWarning;
       const item: CachedMedia = {
         url: normalizedUrl,
         type: 'image',
@@ -1157,7 +1157,10 @@ class UnifiedCacheService {
         size: blob.size,
         cachedAt: existing?.cachedAt || now,
         lastUsed: now,
-        metadata: cachedMetadata,
+        metadata: {
+          ...existing?.metadata,
+          ...metadata,
+        },
       };
 
       if (typeof caches !== 'undefined') {
@@ -1729,7 +1732,7 @@ class UnifiedCacheService {
         return null;
       }
 
-      const response = await fetchImageForCache(url, { referrerPolicy: 'no-referrer' });
+      const response = await fetch(url, { referrerPolicy: 'no-referrer' });
       if (!response.ok) {
         return null;
       }

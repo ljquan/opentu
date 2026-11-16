@@ -382,37 +382,6 @@ describe('pollVideoStatus', () => {
 });
 
 describe('cacheRemoteUrl', () => {
-  it('caches Seedream original bytes through the fixed route while keeping the source identity', async () => {
-    const remoteUrl = 'https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/key/image.png?X-Tos-Signature=a%2Fb';
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(mediaResponse(PNG_SIGNATURE, 'image/png'));
-    vi.stubGlobal('fetch', fetchMock);
-    const { cacheRemoteUrl } = await import('./fallback-utils');
-    const warning = vi.fn();
-    const result = await cacheRemoteUrl(remoteUrl, 'seedream-cached', 'image', 'png', undefined, {
-      forceRemoteCache: true, returnLocalCacheUrl: true, onCacheWarning: warning,
-    });
-    expect(result).toBe('/__aitu_cache__/image/seedream-cached.png');
-    expect(fetchMock).toHaveBeenCalledWith('/__opentu_seedream_images__/key/image.png?X-Tos-Signature=a%2Fb',
-      expect.objectContaining({ credentials: 'omit', referrerPolicy: 'no-referrer' }));
-    expect(cacheMediaFromBlob).toHaveBeenCalledWith(result, blobLike, 'image',
-      expect.objectContaining({ sourceUrl: remoteUrl, taskId: 'seedream-cached' }));
-    expect(warning).not.toHaveBeenCalled();
-  });
-
-  it('retains a Seedream result and warns when its signed image URL expires', async () => {
-    const remoteUrl = 'https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/key/expired.png';
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('Expired', { status: 403 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const { cacheRemoteUrl } = await import('./fallback-utils');
-    const warning = vi.fn();
-    await expect(cacheRemoteUrl(remoteUrl, 'expired', 'image', 'png', undefined, {
-      forceRemoteCache: true, returnLocalCacheUrl: true, onCacheWarning: warning,
-    })).resolves.toBe(remoteUrl);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cacheMediaFromBlob).not.toHaveBeenCalled();
-    expect(warning).toHaveBeenCalledWith(expect.objectContaining({ reasonCode: 'http_error' }));
-  });
-
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();

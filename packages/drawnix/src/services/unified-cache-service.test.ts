@@ -134,49 +134,6 @@ afterAll(() => {
 });
 
 describe('UnifiedCacheService reference fidelity', () => {
-  it('uses an old cached original for AI without downloading its expired signed URL', async () => {
-    const url = 'https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/old.png?signature=expired';
-    vi.spyOn(unifiedCacheService, 'getCacheInfo').mockResolvedValue({ isCached: true, cachedAt: Date.now() - 2 * 86400000 });
-    const cached = vi.spyOn(unifiedCacheService, 'getCachedBlob').mockResolvedValue(new Blob(['original'], { type: 'image/png' }));
-    const fetchMock = vi.fn().mockRejectedValue(new Error('offline'));
-    vi.stubGlobal('fetch', fetchMock);
-    expect(await unifiedCacheService.getImageForAI(url, { keepOriginal: true })).toEqual({
-      type: 'base64', value: 'data:image/png;base64,b3JpZ2luYWw=',
-    });
-    expect(cached).toHaveBeenCalledWith(url);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('retries a failed Seedream cache through the fixed route and reads the recovered bytes offline', async () => {
-    // Node's Response constructor needs its native Blob, not jsdom's Blob.
-    const { Blob: NativeBlob } = await import('node:buffer');
-    const originalBlob = globalThis.Blob;
-    vi.stubGlobal('Blob', NativeBlob);
-    try {
-      const { cache } = createMemoryCache();
-      vi.stubGlobal('caches', { open: vi.fn(async () => cache) });
-      const url = 'https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-5/retry/image.png?X-Tos-Signature=a%2Fb';
-      const fetchMock = vi.fn<typeof fetch>()
-        .mockResolvedValueOnce(new Response('Expired', { status: 403 }))
-        .mockResolvedValueOnce(new Response('original-png-bytes', { headers: { 'Content-Type': 'image/png' } }));
-      vi.stubGlobal('fetch', fetchMock);
-      expect(await unifiedCacheService.cacheImage(url)).toBe(false);
-      expect((await unifiedCacheService.getCacheInfo(url)).cacheWarning).toBeDefined();
-      expect(await unifiedCacheService.cacheImage(url)).toBe(true);
-      expect(fetchMock).toHaveBeenLastCalledWith('/__opentu_seedream_images__/retry/image.png?X-Tos-Signature=a%2Fb',
-        expect.objectContaining({ credentials: 'omit' }));
-      const info = await unifiedCacheService.getCacheInfo(url);
-      expect(info.isCached).toBe(true);
-      expect(info.metadata?.cacheWarning).toBeUndefined();
-      fetchMock.mockRejectedValue(new Error('offline'));
-      const blob = await unifiedCacheService.getCachedBlob(url, { allowNetwork: false });
-      expect(await blob?.text()).toBe('original-png-bytes');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.stubGlobal('Blob', originalBlob);
-    }
-  });
-
   it.each([true, false])('uses the shared keepOriginal=%s preference for large local originals', async (keepOriginal) => {
     fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(keepOriginal);
     const content = 'texture'.repeat(310_000);
