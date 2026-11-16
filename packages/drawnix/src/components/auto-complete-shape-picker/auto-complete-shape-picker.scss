@@ -29,3 +29,28 @@
     transform: translateY(0);
   }
 }
+
+.auto-complete-shape-picker--generation {
+  width: 248px;
+  .Island { padding: 6px; border: 1px solid var(--color-border, #e9e7ef); border-radius: 14px; box-shadow: 0 8px 30px rgba(30, 25, 50, .12); }
+  .generation-actions { width: 234px; }
+  .generation-actions__heading { padding: 8px 10px; font-size: 11px; color: var(--text-secondary, #93919c); }
+  .generation-choice {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    text-align: left;
+    background: transparent;
+    color: var(--text-primary, #535160);
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    span { display: flex; flex-direction: column; gap: 3px; }
+    strong { font-size: 13px; font-weight: 500; }
+    small { font-size: 11px; color: var(--text-secondary, #93919c); }
+    &:hover, &:focus-visible { background: #f3f0fb; color: #7660b5; outline: none; }
+    &:last-child { border-top: 1px solid var(--color-border, #eeedf2); border-radius: 0 0 8px 8px; margin-top: 4px; }
+  }
+}

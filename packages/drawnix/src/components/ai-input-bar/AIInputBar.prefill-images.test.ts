@@ -55,6 +55,7 @@ const compiled = ts.transpileModule(
   `
 ${functions.join('\n')}
 exports.resolve = function(detail, selectedContent, boundTargetContent, boundTargetGenerationContent) {
+  const inputIntent = detail.intent;
   ${declarations.get('nextUploadedContent')}
   const uploadedContent = nextUploadedContent;
   ${declarations.get('allContent')}
@@ -78,7 +79,7 @@ type Image = {
 };
 const callbacks = {} as {
   resolve: (
-    detail: { images: Image[] },
+    detail: { images: Image[]; intent?: 'restore' },
     selected: Image[],
     bound: Image | null,
     generation: Image | null
@@ -98,6 +99,21 @@ const image: Image = {
 };
 
 describe('canvas toolbar prefill reference identity', () => {
+  it('uses only A/B/C when restoring D, even if selection and binding still publish D', () => {
+    const references = ['a', 'b', 'c'].map((id) => ({ ...image, sourceElementId: id, url: `/${id}.png` }));
+    const output = { ...image, sourceElementId: 'd', url: '/d.png' };
+    const result = callbacks.resolve({ images: references, intent: 'restore' }, [output], output, output);
+    expect(result.displayContent.map((item) => item.url)).toEqual(['/a.png', '/b.png', '/c.png']);
+    expect(result.generationContent.map((item) => item.url)).toEqual(['/a.png', '/b.png', '/c.png']);
+    const removed = callbacks.resolve({ images: [references[0], references[2]], intent: 'restore' }, [references[1], output], output, output);
+    expect(removed.displayContent.map((item) => item.url)).toEqual(['/a.png', '/c.png']);
+    expect(removed.generationContent.map((item) => item.url)).toEqual(['/a.png', '/c.png']);
+  });
+  it('keeps zero-reference generations empty when their output remains selected', () => {
+    const result = callbacks.resolve({ images: [], intent: 'restore' }, [image], image, image);
+    expect(result.displayContent).toEqual([]);
+    expect(result.generationContent).toEqual([]);
+  });
   it('shows and submits one image after selecting it and confirming angle editing', () => {
     const result = callbacks.resolve({ images: [image] }, [], image, image);
     expect(result.displayContent).toHaveLength(1);

@@ -165,6 +165,32 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
     }
   }
 
+  &__restore-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--td-text-color-secondary, #6b7280);
+
+    button {
+      flex-shrink: 0;
+      padding: 4px 8px;
+      border: 1px solid var(--td-component-stroke, #e5e7eb);
+      border-radius: 6px;
+      color: var(--td-text-color-primary, #1f2937);
+      cursor: pointer;
+
+      &:hover {
+        background: var(--td-bg-color-container-hover, #f3f4f6);
+      }
+
+      &:focus-visible {
+        outline: 2px solid $orange-primary;
+        outline-offset: 2px;
+      }
+    }
+  }
+
   &__bound-dismiss-actions {
     display: flex;
     flex-direction: column;
@@ -3108,5 +3134,57 @@ $ai-input-small-expanded-max-height: $ai-input-small-line-height * 6 +
 
   .skill-dropdown__item-badge {
     background: rgba($orange-primary, 0.2);
+  }
+}
+
+.ai-input-bar__generation-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 12px 8px;
+  font-size: 12px;
+  label { display: flex; align-items: center; gap: 6px; }
+  select { padding: 4px; border: 1px solid #d8d2ea; border-radius: 6px; background: transparent; color: inherit; }
+}
+
+
+// The draft editor follows its selected card without animated lag while dragging.
+.ai-input-bar.ai-input-bar--generation-editor {
+  padding: 0;
+  max-width: 440px;
+  transition: none;
+  .ai-input-composer-shell--canvas {
+    border: 1px solid #dcd5ef;
+    border-radius: 16px;
+    box-shadow: 0 8px 30px rgba(45, 36, 75, .10);
+  }
+  .ai-input-bar__restore-status {
+    margin-bottom: 8px;
+    color: #777080;
+    font-size: 12px;
+    button {
+      display: flex;
+      padding: 4px;
+      border-radius: 6px;
+      &:hover { background: #f0ecfa; }
+    }
+  }
+  .ai-input-bar__input { font-size: 14px; }
+}
+
+.ai-input-bar.ai-input-bar--generation-editor {
+  .ai-input-composer-shell--canvas { transition: none; }
+  .ai-input-composer-shell__input-area--expanded { max-height: 300px; transition: none; }
+  .ai-input-composer-shell__bottom-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+  .ai-input-composer-shell__bottom-start { grid-column: 1 / -1; }
+  .ai-input-composer-shell__bottom-controls {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+    gap: 4px;
   }
 }

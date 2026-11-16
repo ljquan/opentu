@@ -26,7 +26,7 @@ export interface GenerationReferenceImage {
   sourceElementId?: string;
 }
 
-function imageKey(url: string): string {
+export function imageKey(url: string): string {
   let normalized = url.trim();
   try {
     const parsed = new URL(normalized, window.location.origin);

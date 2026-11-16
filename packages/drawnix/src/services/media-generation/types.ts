@@ -21,6 +21,7 @@ export type {
  * 图片生成选项
  */
 export interface ImageGenerationOptions {
+  generationNodeId?: string;
   model?: string;
   modelRef?: ModelRef | null;
   size?: string;
@@ -54,6 +55,7 @@ export interface ImageGenerationOptions {
  * 视频生成选项
  */
 export interface VideoGenerationOptions {
+  generationNodeId?: string;
   model?: string;
   modelRef?: ModelRef | null;
   duration?: number | string;

@@ -1,10 +1,15 @@
+import { getImageReferencePorts, hitImageReferencePort, IMAGE_REFERENCE_CONNECTIONS, IMAGE_REFERENCE_PORT_RADIUS } from '../services/image-reference-ports';
+import { addGenerationReference, generationConnectionSides, generationInputPort, isGenerationNode, isGenerationSource } from '../services/generation-node';
 import {
   PlaitBoard,
+  PlaitHistoryBoard,
   PlaitElement,
   PlaitPointerType,
   BoardTransforms,
   rotateAntiPointsByElement,
   toActivePoint,
+  toHostPoint,
+  toViewBoxPoint,
   Transforms,
   Direction,
   rotatePointsByElement,
@@ -28,6 +33,7 @@ import {
   ArrowLineMarkerType,
   getHitConnection,
   GeometryShapes,
+  drawArrowLine,
 } from '@plait/draw';
 import { getDirectionByIndex } from '@plait/common';
 
@@ -69,6 +75,7 @@ const initialState: AutoCompleteShapeState = {
 
 // WeakMap 存储每个 board 的状态
 const BOARD_TO_AUTO_COMPLETE_STATE = new WeakMap<PlaitBoard, AutoCompleteShapeState>();
+const BOARD_TO_PENDING_PREVIEW = new WeakMap<PlaitBoard, SVGGElement>();
 const BOARD_TO_STATE_CALLBACK = new WeakMap<PlaitBoard, (state: AutoCompleteShapeState) => void>();
 
 /**
@@ -106,6 +113,8 @@ export function registerAutoCompleteStateCallback(
  * 重置自动完成状态
  */
 export function resetAutoCompleteState(board: PlaitBoard): void {
+  BOARD_TO_PENDING_PREVIEW.get(board)?.remove();
+  BOARD_TO_PENDING_PREVIEW.delete(board);
   setAutoCompleteState(board, initialState);
 }
 
@@ -405,13 +414,18 @@ export function createShapeForArrowLine(
  * 4. 在箭头线拖拽完成后，如果终点未连接形状，显示形状选择器
  */
 export const withArrowLineAutoCompleteExtend = (board: PlaitBoard) => {
-  const { pointerMove, pointerLeave, globalPointerUp } = board;
+  const { pointerMove, pointerLeave, pointerDown, pointerCancel, globalPointerUp } = board;
   
   let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
   let lastHitIndex = -1;
   
   // 记录上一次 children 的长度，用于检测新插入的箭头线
-  let lastChildrenLength = board.children.length;
+  let gestureIds: Set<string> | null = null;
+  board.pointerDown = event => {
+    gestureIds = new Set(board.children.map(element => element.id));
+    pointerDown(event);
+  };
+  board.pointerCancel = event => { gestureIds = null; pointerCancel(event); };
   // 记录鼠标位置
   let lastMousePosition = { x: 0, y: 0 };
 
@@ -458,6 +472,9 @@ export const withArrowLineAutoCompleteExtend = (board: PlaitBoard) => {
       return;
     }
 
+    // Image ports open the action menu on click/drop, never on a 50ms hover.
+    // This also avoids the native provisional shape while connecting references.
+    if (isGenerationSource(originElement)) return;
     const activePoint = toActivePoint(board, event.x, event.y);
     const points = getAutoCompletePoints(board, originElement, true);
     const rotatedPoint = rotateAntiPointsByElement(board, activePoint, originElement, true) || activePoint;
@@ -527,50 +544,213 @@ export const withArrowLineAutoCompleteExtend = (board: PlaitBoard) => {
     // 先调用原始的 globalPointerUp
     globalPointerUp(event);
     
-    // 检查是否有新插入的箭头线
-    const currentChildrenLength = board.children.length;
-    if (currentChildrenLength > lastChildrenLength) {
-      // 获取新插入的元素（最后一个）
-      const newElement = board.children[currentChildrenLength - 1];
-      
-      // 检查是否是箭头线
-      if (PlaitDrawElement.isArrowLine(newElement)) {
-        const arrowLine = newElement as PlaitElement & {
-          target?: { boundId?: string };
-          points?: Point[];
-        };
-        
-        // 检查箭头线的终点是否连接到了形状
-        const targetBoundId = arrowLine.target?.boundId;
-        
-        if (!targetBoundId) {
-          // 终点未连接形状，显示形状选择器
-          const arrowPoints = arrowLine.points || [];
-          if (arrowPoints.length >= 2) {
-            const endPoint = arrowPoints[arrowPoints.length - 1];
-            
-            // 使用延迟确保 UI 状态已更新
-            setTimeout(() => {
-              setAutoCompleteState(board, {
-                visible: true,
-                position: { x: lastMousePosition.x - 140, y: lastMousePosition.y + 20 },
-                sourceElement: null,
-                currentShape: BasicShapes.rectangle,
-                hitIndex: -1,
-                hitPoint: null,
-                mode: 'arrowLine',
-                arrowLineElement: newElement,
-                arrowLineEndPoint: endPoint,
-              });
-            }, 50);
-          }
+    const before = gestureIds;
+    gestureIds = null;
+    if (!before) return;
+    const newLines = board.children.filter(element => !before.has(element.id) && PlaitDrawElement.isArrowLine(element) && !element.canvasAssociation && !element.generationInput);
+    if (newLines.length !== 1) return;
+    const line = newLines[0];
+    const source = board.children.find(element => element.id === line.source?.boundId);
+
+    if (!line.points?.length) return;
+    const endPoint = line.points[line.points.length - 1];
+    const node = board.children.find(element => isGenerationNode(element) && (element.id === line.target?.boundId || board.isHit(element, endPoint)));
+    if (isGenerationSource(source) && source && isGenerationNode(node)) {
+      PlaitHistoryBoard.withMerging(board, () => {
+        Transforms.removeNode(board, [board.children.findIndex(element => element.id === line.id)]);
+        addGenerationReference(board, node, source);
+      });
+      resetAutoCompleteState(board);
+      return;
+    }
+    if (line.target?.boundId) return;
+    setAutoCompleteState(board, {
+      visible: true,
+      position: { x: event.clientX - 140, y: event.clientY + 20 },
+      sourceElement: source || null,
+      currentShape: BasicShapes.rectangle,
+      hitIndex: -1, hitPoint: null, mode: 'arrowLine',
+      arrowLineElement: line, arrowLineEndPoint: endPoint,
+    });
+  };
+
+  return withImageReferenceGesture(board);
+};
+
+
+/** A reference drag is a transient preview; only dropping records a history entry. */
+function withImageReferenceGesture(board: PlaitBoard): PlaitBoard {
+  const { pointerDown, pointerMove, globalPointerMove, globalPointerUp, pointerCancel, keyDown, afterChange } = board;
+  let gesture: { source: PlaitElement; start: Point; pointerStart: Point; hitIndex: number; sourceConnection: Point; preview: SVGGElement; target?: PlaitElement; line?: ReturnType<typeof createArrowLineElement> } | null = null;
+  let portsGroup: SVGGElement | null = null;
+  let portsKey = '';
+  let hoveredPort = -1;
+  const renderPorts = () => {
+    const selected = getSelectedDrawElements(board);
+    const source = selected.length === 1 && isGenerationSource(selected[0]) ? selected[0] : undefined;
+    if (!source || !PlaitBoard.isPointer(board, PlaitPointerType.selection) || PlaitBoard.isReadonly(board)) {
+      portsGroup?.remove(); portsGroup = null; portsKey = ''; return;
+    }
+    const ref = PlaitElement.getElementRef(source) as { getGenerator?: (key: string) => ArrowLineAutoCompleteGenerator } | undefined;
+    const generator = ref?.getGenerator?.(ArrowLineAutoCompleteGenerator.key);
+    if (generator?.g) generator.g.style.visibility = 'hidden';
+    const points = getImageReferencePorts(board, source);
+    const key = JSON.stringify([source.id, points, source.angle, hoveredPort]);
+    if (portsGroup?.isConnected && portsKey === key) return;
+    portsGroup?.remove(); portsKey = key;
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-image-reference-ports', source.id);
+    group.setAttribute('pointer-events', 'none');
+    const center = [(points[0][0] + points[2][0]) / 2, (points[1][1] + points[3][1]) / 2];
+    group.setAttribute('transform', `rotate(${(source.angle || 0) * 180 / Math.PI} ${center[0]} ${center[1]})`);
+    points.forEach(([x, y], index) => {
+      const button = document.createElementNS(group.namespaceURI, 'g');
+      button.setAttribute('data-image-reference-port', String(index));
+      const title = document.createElementNS(group.namespaceURI, 'title');
+      title.textContent = '拖动添加参考，点击选择操作'; button.appendChild(title);
+      const circle = document.createElementNS(group.namespaceURI, 'circle');
+      Object.entries({ cx: x, cy: y, r: IMAGE_REFERENCE_PORT_RADIUS, fill: hoveredPort === index ? '#8270c7' : '#fff', stroke: '#a394d8', 'stroke-width': 1.5 }).forEach(([name, value]) => circle.setAttribute(name, String(value)));
+      const plus = document.createElementNS(group.namespaceURI, 'path');
+      plus.setAttribute('d', `M${x - 4} ${y}h8 M${x} ${y - 4}v8`);
+      plus.setAttribute('stroke', hoveredPort === index ? '#fff' : '#8270c7');
+      plus.setAttribute('stroke-width', '1.5'); plus.setAttribute('stroke-linecap', 'round');
+      button.append(circle, plus); group.appendChild(button);
+    });
+    PlaitBoard.getActiveHost(board).appendChild(group); portsGroup = group;
+  };
+  board.afterChange = () => { afterChange(); queueMicrotask(() => { if (PlaitBoard.isAlive(board)) renderPorts(); }); };
+  const hoverPorts = (event: PointerEvent) => {
+    const selected = getSelectedDrawElements(board);
+    const source = selected.length === 1 && isGenerationSource(selected[0]) ? selected[0] : undefined;
+    const point = toActivePoint(board, event.clientX, event.clientY);
+    const index = source ? hitImageReferencePort(rotateAntiPointsByElement(board, point, source, true) || point, getImageReferencePorts(board, source)) : -1;
+    if (index !== hoveredPort) { hoveredPort = index; renderPorts(); }
+  };
+  let highlight: Element | null = null;
+  let previewFrame: number | null = null;
+  const clearHighlight = () => {
+    highlight?.setAttribute('stroke', '#dcdbe5');
+    highlight?.setAttribute('stroke-width', '1');
+    highlight = null;
+  };
+  const cleanup = () => {
+    if (previewFrame !== null) cancelAnimationFrame(previewFrame);
+    previewFrame = null;
+    gesture?.preview.remove();
+    gesture = null;
+    clearHighlight();
+  };
+  const update = (event: PointerEvent) => {
+    if (!gesture) return;
+    const point = toViewBoxPoint(board, toHostPoint(board, event.clientX, event.clientY));
+    const padding = 20 / board.viewport.zoom;
+    const target = [...board.children].reverse().find(element => {
+      if (!isGenerationNode(element)) return false;
+      const rect = RectangleClient.getRectangleByPoints(element.points);
+      const local = rotateAntiPointsByElement(board, point, element) || point;
+      return local[0] >= rect.x - padding && local[0] <= rect.x + rect.width + padding && local[1] >= rect.y - padding && local[1] <= rect.y + rect.height + padding;
+    });
+    if (target?.id !== gesture.target?.id) {
+      clearHighlight();
+      if (target) {
+        highlight = PlaitElement.getElementG(target)?.querySelector('[data-generation-card-body]') || null;
+        highlight?.setAttribute('stroke', '#8c76d1');
+        highlight?.setAttribute('stroke-width', '2.5');
+      }
+    }
+    gesture.target = target;
+    let end = point;
+    let start = gesture.start;
+    let sourceConnection = gesture.sourceConnection;
+    let connection: Point | undefined;
+    if (isGenerationNode(target)) {
+      const rect = RectangleClient.getRectangleByPoints(target.points);
+      const refs = target.generationNode.references;
+      const existing = refs.findIndex(ref => ref.sourceElementId === gesture!.source.id);
+      const sourceRect = RectangleClient.getRectangleByPoints(gesture.source.points!);
+      const sides = generationConnectionSides(sourceRect, rect);
+      sourceConnection = [sides.sourceX, 0.5];
+      const sourcePoint: Point = [sourceRect.x + sourceRect.width * sides.sourceX, sourceRect.y + sourceRect.height / 2];
+      start = rotatePointsByElement(sourcePoint, gesture.source) || sourcePoint;
+      connection = generationInputPort(existing >= 0 ? existing : refs.length, existing >= 0 ? refs.length : refs.length + 1, rect.height);
+      connection[0] = sides.targetX;
+      const targetPoint: Point = [rect.x + rect.width * sides.targetX, rect.y + rect.height * connection[1]];
+      end = rotatePointsByElement(targetPoint, target) || targetPoint;
+    }
+    gesture.line = createArrowLineElement(ArrowLineShape.curve, [start, end],
+      { boundId: gesture.source.id, connection: sourceConnection, marker: ArrowLineMarkerType.none },
+      { boundId: target?.id, connection, marker: ArrowLineMarkerType.none }, [],
+      { strokeColor: target ? '#8c76d1' : '#aaa0cf', strokeWidth: target ? 2 : 1.5 });
+    gesture.preview.replaceChildren(drawArrowLine(board, gesture.line));
+  };
+  const schedule = (event: PointerEvent) => {
+    if (previewFrame !== null) cancelAnimationFrame(previewFrame);
+    previewFrame = requestAnimationFrame(() => { previewFrame = null; update(event); });
+  };
+  board.pointerDown = event => {
+    if (!PlaitBoard.isReadonly(board) && PlaitBoard.isPointer(board, PlaitPointerType.selection) && event.button === 0) {
+      const selected = getSelectedDrawElements(board);
+      const source = selected.length === 1 ? selected[0] : undefined;
+      if (source && PlaitDrawElement.isImage(source) && isGenerationSource(source)) {
+        const point = toActivePoint(board, event.clientX, event.clientY);
+        const index = hitImageReferencePort(rotateAntiPointsByElement(board, point, source, true) || point, getImageReferencePorts(board, source));
+        if (index >= 0) {
+          event.preventDefault();
+          resetAutoCompleteState(board);
+          const rect = RectangleClient.getRectangleByPoints(source.points);
+          const sourceConnection = IMAGE_REFERENCE_CONNECTIONS[index];
+          const edgePoint: Point = [rect.x + rect.width * sourceConnection[0], rect.y + rect.height * sourceConnection[1]];
+          const start = rotatePointsByElement(edgePoint, source) || edgePoint;
+          const preview = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          preview.setAttribute('pointer-events', 'none');
+          preview.setAttribute('data-generation-connection-preview', '');
+          PlaitBoard.getElementTopHost(board).appendChild(preview);
+          gesture = { source, start, pointerStart: [event.clientX, event.clientY], hitIndex: index, sourceConnection, preview };
+          return;
         }
       }
     }
-    
-    // 更新记录的长度
-    lastChildrenLength = board.children.length;
+    pointerDown(event);
   };
-
+  board.pointerMove = event => { if (gesture) { schedule(event); return; } pointerMove(event); hoverPorts(event); };
+  board.globalPointerMove = event => { if (gesture) { schedule(event); return; } globalPointerMove(event); };
+  board.pointerCancel = event => { cleanup(); pointerCancel(event); };
+  board.keyDown = event => {
+    if (event.key === 'Escape' && gesture) { event.preventDefault(); cleanup(); return; }
+    keyDown(event);
+  };
+  board.globalPointerUp = event => {
+    if (!gesture) { globalPointerUp(event); return; }
+    update(event);
+    const { source, target, line, start, pointerStart, hitIndex } = gesture;
+    cleanup();
+    if (isGenerationNode(target)) {
+      PlaitHistoryBoard.withNewBatch(board, () => {
+        addGenerationReference(board, target, source);
+        clearSelectedElement(board);
+        addSelectedElement(board, board.children.find(element => element.id === target.id)!);
+      });
+      return;
+    }
+    if (!line) return;
+    const point = line.points[line.points.length - 1];
+    const clicked = Math.hypot(event.clientX - pointerStart[0], event.clientY - pointerStart[1]) <= 6;
+    if (!clicked && board.children.some(element => element.id !== source.id && !PlaitDrawElement.isArrowLine(element) && board.isHit(element, point))) return;
+    if (!clicked) {
+      // A menu awaiting a choice is a preview, not a saved canvas operation.
+      const preview = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      preview.setAttribute('pointer-events', 'none');
+      preview.setAttribute('data-generation-connection-preview', '');
+      preview.appendChild(drawArrowLine(board, line));
+      PlaitBoard.getElementTopHost(board).appendChild(preview);
+      BOARD_TO_PENDING_PREVIEW.set(board, preview);
+    }
+    setAutoCompleteState(board, {
+      visible: true, position: { x: event.clientX + 12, y: event.clientY + 12 }, sourceElement: source,
+      currentShape: BasicShapes.rectangle, hitIndex, hitPoint: start,
+      mode: clicked ? 'hover' : 'arrowLine', arrowLineElement: clicked ? null : line,
+      arrowLineEndPoint: clicked ? null : point,
+    });
+  };
   return board;
-};
+}

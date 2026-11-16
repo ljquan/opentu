@@ -284,8 +284,8 @@ describe('canvas association', () => {
     );
     const line = board.children.find(isCanvasAssociationLine);
 
-    expect(line?.strokeColor).toBe('#9ca3af');
-    expect(line?.strokeWidth).toBe(1.5);
+    expect(line?.strokeColor).toBe('#7f7aa8');
+    expect(line?.strokeWidth).toBe(2.5);
     expect(line?.shape).toBe(ArrowLineShape.curve);
     expect(line?.locked).toBe(false);
     expect(board.history.undos).toHaveLength(0);
@@ -322,8 +322,8 @@ describe('canvas association', () => {
     board.children = loadedChildren;
     const line = board.children.find(isCanvasAssociationLine);
 
-    expect(line?.strokeColor).toBe('#9ca3af');
-    expect(line?.strokeWidth).toBe(1.5);
+    expect(line?.strokeColor).toBe('#7f7aa8');
+    expect(line?.strokeWidth).toBe(2.5);
     expect(line?.locked).toBe(false);
     expect(board.history.undos).toHaveLength(0);
   });
@@ -395,8 +395,8 @@ describe('canvas association', () => {
     expect(board.children).toContain(line);
     expect(isCanvasAssociationLine(line)).toBe(true);
     expect(line.locked).toBe(false);
-    expect(line.strokeColor).toBe('#9ca3af');
-    expect(line.strokeWidth).toBe(1.5);
+    expect(line.strokeColor).toBe('#7f7aa8');
+    expect(line.strokeWidth).toBe(2.5);
     expect(line.shape).toBe(ArrowLineShape.curve);
     expect(line.source.boundId).toBeUndefined();
     expect(line.target.boundId).toBeUndefined();
@@ -559,7 +559,7 @@ describe('canvas association', () => {
     ).toBe(false);
     expect(
       persistedLines.every(
-        (line) => line.strokeColor === '#9ca3af' && line.strokeWidth === 1.5
+        (line) => line.strokeColor === '#7f7aa8' && line.strokeWidth === 2.5
       )
     ).toBe(true);
   });

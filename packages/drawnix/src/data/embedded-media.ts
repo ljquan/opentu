@@ -38,7 +38,7 @@ const extractVirtualUrls = (elements: PlaitElement[]): Set<string> => {
 
     const record = obj as Record<string, unknown>;
 
-    const urlFields = ['url', 'imageUrl', 'videoUrl', 'poster', 'src', 'sourceUrl'];
+    const urlFields = ['url', 'imageUrl', 'videoUrl', 'poster', 'src', 'sourceUrl', 'maskImage'];
     for (const field of urlFields) {
       if (typeof record[field] === 'string' && isVirtualUrl(record[field] as string)) {
         urls.add(record[field] as string);

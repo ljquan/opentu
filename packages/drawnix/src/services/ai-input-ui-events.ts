@@ -14,6 +14,8 @@ export interface AIInputPrefillImage {
   url: string;
   name: string;
   sourceElementId?: string;
+  /** Version of the source on the canvas when the snapshot was recorded. */
+  sourceElementUrl?: string;
   width?: number;
   height?: number;
   maskImage?: string;
@@ -22,6 +24,10 @@ export interface AIInputPrefillImage {
 export type AIInputPrefillSource = 'canvas-toolbar' | 'task-queue' | 'dialog';
 
 export interface AIInputPrefillEventDetail {
+  /** Restoring original inputs must not inherit the currently selected output. */
+  intent?: 'restore' | 'edit';
+  sourceTaskId?: string;
+  boardId?: string;
   generationType: GenerationType;
   prompt: string;
   images?: AIInputPrefillImage[];
@@ -37,6 +43,7 @@ export interface AIInputPrefillEventDetail {
 
 export const AI_INPUT_FOCUS_EVENT = 'aitu:ai-input-focus';
 export const AI_INPUT_PREFILL_EVENT = 'aitu:ai-input-prefill';
+export const AI_INPUT_REROLL_EVENT = 'aitu:ai-input-reroll';
 
 export function resolvePptExplainerFrameIds(
   orderedFrameIds: readonly string[],
@@ -78,4 +85,19 @@ export function requestAIInputPrefill(detail: AIInputPrefillEventDetail): void {
   }
 
   window.dispatchEvent(new CustomEvent(AI_INPUT_PREFILL_EVENT, { detail }));
+}
+
+export function requestAIInputReroll(detail: AIInputPrefillEventDetail): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AI_INPUT_REROLL_EVENT, { detail }));
+}
+
+
+export const CANVAS_IMAGE_EDIT_EVENT = 'aitu:canvas-image-edit';
+export interface CanvasImageEditDetail {
+  elementId: string;
+  boardId?: string;
+}
+export function requestCanvasImageEdit(detail: CanvasImageEditDetail): void {
+  window.dispatchEvent(new CustomEvent(CANVAS_IMAGE_EDIT_EVENT, { detail }));
 }

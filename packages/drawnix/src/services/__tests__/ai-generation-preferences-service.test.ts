@@ -48,6 +48,38 @@ describe('ai-generation-preferences-service', () => {
       .toMatchObject({ size: '1K', aspect_ratio: '1x1' });
   });
 
+  it('restores advanced video fields per model and provider without embedding media bytes', async () => {
+    const service = await import('../ai-generation-preferences-service');
+    const media = JSON.stringify([{ type: 'reference_videos', url: 'https://media.example.test/a.mp4' }]);
+    service.saveAIVideoToolPreferences({ currentModel: 'wan3.0-video', currentSelectionKey: 'p-a::wan3.0-video', duration: '-1', size: '480P',
+      extraParams: { video_media: media, audio: 'false', prompt_extend: 'true', seed: '0', reference_mode: 'mixed' } });
+    expect(service.loadScopedAIVideoToolPreferences('wan3.0-video', 'p-a::wan3.0-video')).toMatchObject({ duration: '-1', size: '480P',
+      extraParams: { video_media: media, audio: 'false', prompt_extend: 'true', seed: '0', reference_mode: 'mixed' } });
+    expect(service.loadScopedAIVideoToolPreferences('kling-4.0', 'p-b::kling-4.0').extraParams).not.toHaveProperty('video_media');
+    expect(service.loadScopedAIInputModelParams('video', 'kling-4.0', 'p-b::kling-4.0', { video_media: media })).not.toHaveProperty('video_media');
+    expect(service.loadScopedAIVideoToolPreferences('wan3.0-video', 'p-b::wan3.0-video').extraParams).not.toHaveProperty('video_media');
+    service.saveAIVideoToolPreferences({ currentModel: 'gemini-omni-1.2-flash', duration: '10', size: '1080x1920',
+      extraParams: { video_task: 'extend', previous_interaction_id: 'task_previous' } });
+    expect(service.loadAIVideoToolPreferences('gemini-omni-1.2-flash')).toMatchObject({ size: '1080p', extraParams: { ratio: '9:16', video_task: 'extend', previous_interaction_id: 'task_previous' } });
+  });
+
+  it.each([
+    ['1680x720', '720p', '21:9'],
+    ['1080x1920', '1080p', '9:16'],
+  ])('restores Kling legacy %s across input and video tool preferences', async (legacy, size, ratio) => {
+    const service = await import('../ai-generation-preferences-service');
+    service.saveAIInputPreferences({ generationType: 'video', selectedModel: 'kling-4.0', selectedCount: 1,
+      selectedSkillId: '', selectedParams: { size: legacy, duration: '3' } });
+    expect(service.loadAIInputPreferences().selectedParams).toMatchObject({ size, ratio, duration: '3' });
+    service.saveScopedAIInputModelParams('video', 'kling-4.0', { size: legacy }, 'provider-k::kling-4.0');
+    expect(service.loadScopedAIInputModelParams('video', 'kling-4.0', 'provider-k::kling-4.0')).toMatchObject({ size, ratio });
+    service.saveAIVideoToolPreferences({ currentModel: 'kling-4.0', currentSelectionKey: 'provider-k::kling-4.0',
+      duration: '3', size: legacy, extraParams: { watermark: 'false' } });
+    expect(service.loadScopedAIVideoToolPreferences('kling-4.0', 'provider-k::kling-4.0'))
+      .toMatchObject({ size, duration: '3', extraParams: { ratio, watermark: 'false' } });
+  });
+
+
   it.each(['2048x2048', '4096x4096'])(
     'GPT Image 2.6 migrates legacy square size %s to ratio and resolution across the series', async (size) => {
       const service = await import('../ai-generation-preferences-service');
@@ -302,6 +334,20 @@ describe('ai-generation-preferences-service', () => {
         'provider-b::suno_music'
       )
     ).toMatchObject({ sunoAction: 'lyrics' });
+  });
+
+  it('persists Flash tiers and controls per provider without legacy Seedream parameters', async () => {
+    const { loadScopedAIImageToolPreferences, saveAIImageToolPreferences } = await import('../ai-generation-preferences-service');
+    const modelId = 'doubao-seedream-5-0-flash-260915';
+    saveAIImageToolPreferences({ currentModel: modelId, currentSelectionKey: `provider-a::${modelId}`, aspectRatio: 'auto',
+      extraParams: { size: '1.5K', background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard', seedream_quality: '3k' } });
+    const stored = loadScopedAIImageToolPreferences(modelId, `provider-a::${modelId}`).extraParams;
+    expect(stored).toMatchObject({ size: '1.5K', background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard' });
+    expect(stored).not.toHaveProperty('seedream_quality');
+    saveAIImageToolPreferences({ currentModel: modelId, currentSelectionKey: `provider-b::${modelId}`, aspectRatio: 'auto',
+      extraParams: { size: '2K', background: 'opaque', watermark: 'true' } });
+    expect(loadScopedAIImageToolPreferences(modelId, `provider-b::${modelId}`).extraParams).toMatchObject({ size: '2K', background: 'opaque', watermark: 'true' });
+    expect(loadScopedAIImageToolPreferences(modelId, `provider-a::${modelId}`).extraParams).toMatchObject({ size: '1.5K', background: 'transparent', watermark: 'false' });
   });
 
   it.each([

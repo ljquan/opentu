@@ -61,10 +61,10 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('image details popover', () => {
-  it('shows decoded Gemini pixels when the task has no recorded result dimensions', async () => {
+  it.each(['gemini-image', 'doubao-seedream-5-0-flash-260915'])('shows decoded %s pixels when the task has no recorded result dimensions', async (model) => {
     vi.mocked(taskQueueService.getCompleteTask).mockResolvedValue({
       ...task,
-      params: { ...task.params, model: 'gemini-image', size: '2048x1152' },
+      params: { ...task.params, model, size: model === 'gemini-image' ? '2048x1152' : '1.5K' },
     });
     dimensionMocks.resolve.mockResolvedValue({
       id: 'gemini',
@@ -81,7 +81,7 @@ describe('image details popover', () => {
     );
     expect(await screen.findByText('2752 × 1536 px')).toBeTruthy();
     expect(screen.queryByText('2048 × 1152 px')).toBeNull();
-    expect(await screen.findByText('gemini-image')).toBeTruthy();
+    expect(await screen.findByText(model)).toBeTruthy();
   });
 
   it('shows downscaled output and a scale below one without calling it enlargement', async () => {

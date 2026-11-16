@@ -13,6 +13,11 @@
 
 import { useEffect, useRef } from 'react';
 import {
+  getPreparedImageRecipe,
+  prepareImageGenerationRecipe,
+  copyPreparedImageRecipe,
+} from '../services/image-generation-recipe';
+import {
   usesGPTImage26ResultColumns,
   getGPTImage26ResultColumnOrder,
   GPT_IMAGE_26_COLUMN_INSERTION_OPTIONS,
@@ -96,7 +101,10 @@ import {
   isLyricsTask,
 } from '../utils/lyrics-task-utils';
 import { resolveImageTaskInsertionDimensions } from '../utils/task-utils';
-import { getImageGenerationTaskInsertGroupKey } from '../utils/image-generation-anchor-task';
+import {
+  getImageGenerationTaskInsertGroupKey,
+  isIndependentBatchImageGenerationAnchor,
+} from '../utils/image-generation-anchor-task';
 import { findImageGenerationAnchorForTaskOnBoard } from '../utils/image-generation-anchor-lookup';
 import {
   canInsertCanvasAssociationsOnBoard,
@@ -308,11 +316,10 @@ function resolveTaskForCanvasInsertion(
   }
 
   const { replaceElementId, targetElementId, ...params } = task.params;
+  const insertionTask = { ...task, params };
+  copyPreparedImageRecipe(task, insertionTask);
   return {
-    task: {
-      ...task,
-      params,
-    },
+    task: insertionTask,
     replacementSuppressed: Boolean(replaceElementId || targetElementId),
   };
 }
@@ -340,6 +347,8 @@ function buildTaskGenerationMetadata(
   return {
     ...(prompt ? { prompt } : {}),
     generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
+    ...(getPreparedImageRecipe(task) ? { imageGenerationRecipe: getPreparedImageRecipe(task) } : {}),
     ...(generationAnchorId ? { generationAnchorId } : {}),
   };
 }
@@ -460,6 +469,7 @@ function buildImageGenerationElementPatch(
   return {
     ...(prompt ? { prompt } : {}),
     generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
     ...(generationAnchorId ? { generationAnchorId } : {}),
   };
 }
@@ -472,6 +482,7 @@ function buildTaskGenerationElementPatch(
   const prompt =
     typeof metadata.prompt === 'string' ? metadata.prompt.trim() : '';
   return {
+    ...(metadata.imageGenerationRecipe ? { imageGenerationRecipe: metadata.imageGenerationRecipe } : {}),
     ...(prompt
       ? {
           aiPrompt: prompt,
@@ -480,6 +491,7 @@ function buildTaskGenerationElementPatch(
         }
       : {}),
     generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
     ...(typeof metadata.generationAnchorId === 'string'
       ? { generationAnchorId: metadata.generationAnchorId }
       : {}),
@@ -1432,7 +1444,7 @@ export function useAutoInsertToCanvas(
     /**
      * 执行批量插入
      */
-    async function flushPendingInserts() {
+    async function flushPendingInserts(onlyGroupKey?: string) {
       // console.log('[AutoInsert] flushPendingInserts called');
       const pendingMap = pendingInsertsRef.current;
       if (pendingMap.size === 0) {
@@ -1454,10 +1466,16 @@ export function useAutoInsertToCanvas(
 
       // console.log(`[AutoInsert] flushPendingInserts: ${pendingMap.size} prompt groups to insert`);
 
-      // 复制并清空待插入列表
-      const toInsert = new Map(pendingMap);
-      pendingMap.clear();
-      pendingStartedAtRef.current = null;
+      // Independent slots already reserve their placement. Drain only that
+      // slot so its image I/O cannot hold up other completed slots or reset
+      // the debounce deadline of ordinary grouped results.
+      const toInsert =
+        onlyGroupKey === undefined
+          ? new Map(pendingMap)
+          : new Map([[onlyGroupKey, pendingMap.get(onlyGroupKey) || []]]);
+      if (onlyGroupKey === undefined) pendingMap.clear();
+      else pendingMap.delete(onlyGroupKey);
+      if (pendingMap.size === 0) pendingStartedAtRef.current = null;
 
       promptGroupLoop: for (const [promptKey, bufferedInserts] of toInsert) {
         if (!isActive) {
@@ -1558,6 +1576,19 @@ export function useAutoInsertToCanvas(
         }
 
         try {
+          for (const { task } of inserts) {
+            if (task.type !== TaskType.IMAGE) continue;
+            try {
+              await getTaskQueueService().waitForTaskPersistence?.(task.id);
+              const completeTask = await taskStorageReader.getTask(task.id);
+              if (!completeTask) throw new Error('完整任务记录尚不可用');
+              await prepareImageGenerationRecipe(task, completeTask, board.children);
+            } catch (error) {
+              // A reference-cache failure must not discard an already generated result.
+              console.warn('[AutoInsert] Unable to retain generation inputs:', error);
+            }
+          }
+          if (abortIfCanvasChanged()) continue promptGroupLoop;
           if (inserts.length === 1) {
             // 单个任务，直接插入
             const { task: queuedTask } = inserts[0];
@@ -1703,6 +1734,7 @@ export function useAutoInsertToCanvas(
                 ? {
                     ...audioMetadata,
                     generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                   }
                 : generationMetadata;
             const targetImageDimensions =
@@ -1839,6 +1871,7 @@ export function useAutoInsertToCanvas(
                       ? {
                           ...audioMetadata,
                           generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                           title:
                             task.result?.clips?.[index]?.title ||
                             (allUrls.length > 1
@@ -1977,6 +2010,7 @@ export function useAutoInsertToCanvas(
                   metadata: {
                     ...audioMetadata,
                     generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                     title:
                       task.result?.clips?.[index]?.title ||
                       (allUrls.length > 1
@@ -2150,6 +2184,7 @@ export function useAutoInsertToCanvas(
                       metadata: {
                         ...taskBaseMetadata,
                         generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                         title:
                           task.result?.clips?.[index]?.title ||
                           (taskUrls.length > 1
@@ -2483,6 +2518,7 @@ export function useAutoInsertToCanvas(
                     metadata: {
                       prompt: task.params.prompt,
                       generationTaskId: task.id,
+    ...(task.params.generationNodeId ? { generationNodeId: task.params.generationNodeId } : {}),
                     },
                   })),
                   startPoint: resolvedInsertionPoint,
@@ -3006,6 +3042,7 @@ export function useAutoInsertToCanvas(
                   metadata: {
                     prompt: insertionTask.params.prompt,
                     generationTaskId: insertionTask.id,
+    ...(insertionTask.params.generationNodeId ? { generationNodeId: insertionTask.params.generationNodeId } : {}),
                   },
                 },
               ],
@@ -3076,7 +3113,20 @@ export function useAutoInsertToCanvas(
       pendingInsertsRef.current.set(promptKey, pendingList);
 
       // 调度 flush
-      if (mergedConfig.groupSimilarTasks) {
+      if (
+        task.type === TaskType.IMAGE &&
+        linkedImageAnchor &&
+        isIndependentBatchImageGenerationAnchor(linkedImageAnchor) &&
+        !getTaskReplaceElementId(task) &&
+        !task.params.targetFrameId
+      ) {
+        void flushPendingInserts(promptKey).catch((error) => {
+          console.error(
+            '[AutoInsert] Failed to insert independent image:',
+            error
+          );
+        });
+      } else if (mergedConfig.groupSimilarTasks) {
         // console.log(`[AutoInsert] Scheduling flush in ${mergedConfig.groupTimeWindow}ms`);
         scheduleFlush();
       } else {

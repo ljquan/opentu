@@ -88,6 +88,8 @@ function harness(initialSelection = [first, second]) {
     setCapabilitiesBoard: vi.fn(),
     gridImageService: { setBoard: vi.fn() },
     flushDeferredCanvasAssociationLines: vi.fn(),
+    getAutoCompleteState: () => ({}),
+    isGenerationNode: () => false,
     getSelectedElements: () => selected,
     clearSelectedElement: () => {
       selected = [];

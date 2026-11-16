@@ -89,6 +89,7 @@ function buildStoredImageTaskParams(
     count: options.count,
     assetMetadata: options.assetMetadata,
     promptMeta: options.promptMeta,
+    generationNodeId: options.generationNodeId,
     resultVisibility: options.resultVisibility,
     autoInsertToCanvas: options.autoInsertToCanvas,
     params: buildStoredImageAdapterParams(options),

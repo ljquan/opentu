@@ -1,3 +1,44 @@
+## 1.2.11 (2026-11-16)
+
+### 🚀 Features
+
+- improve canvas generation references and reroll flows ([5ea9eec5](https://github.com/ljquan/opentu/commit/5ea9eec5))
+- 补齐 Tuzi 视频参数并自动引用输入栏素材 ([84ad6d83](https://github.com/ljquan/opentu/commit/84ad6d83))
+- 完善 Seedream 5.5 参数与 v3 结果恢复 ([d889ea8e](https://github.com/ljquan/opentu/commit/d889ea8e))
+- 适配 Tuzi 新版视频模型参数与 Kling 4.0 请求 ([07dca30d](https://github.com/ljquan/opentu/commit/07dca30d))
+- add configured model visibility switch ([bbb8983f](https://github.com/ljquan/opentu/commit/bbb8983f))
+- 接入 Seedream 5.5 原生 v3 生图接口 ([28f8d23e](https://github.com/ljquan/opentu/commit/28f8d23e))
+- 接入 Seedream Flash 并修复模型发现及画布回填 ([457ec074](https://github.com/ljquan/opentu/commit/457ec074))
+- 整合图片编辑缩放并修复视角回填与连线样式 ([8c8fc387](https://github.com/ljquan/opentu/commit/8c8fc387))
+
+### 🩹 Fixes
+
+- honor persisted model visibility in dropdown ([5108d71d](https://github.com/ljquan/opentu/commit/5108d71d))
+- 拆分 Kling 尺寸比例选择并修正模型显示 ([f8ff9cd6](https://github.com/ljquan/opentu/commit/f8ff9cd6))
+- 支持删除关联线并统一图片工具栏勾选样式 ([c3c4071c](https://github.com/ljquan/opentu/commit/c3c4071c))
+- 修复画布已选中但输入栏预览未显示的竞态 ([e749cb8e](https://github.com/ljquan/opentu/commit/e749cb8e))
+- 修复选图预览与模型获取并更新兼容默认模型 ([9348964c](https://github.com/ljquan/opentu/commit/9348964c))
+
+### 🔧 Chores
+
+- docs: record 1.2.11 integration review and validation ([ca53be18](https://github.com/ljquan/opentu/commit/ca53be18))
+- test: update canvas generation integration fixtures ([3ec22068](https://github.com/ljquan/opentu/commit/3ec22068))
+- test: cover Seedream recovery with development proxy ([7781ee1a](https://github.com/ljquan/opentu/commit/7781ee1a))
+- docs(video): 记录三型号新增参数真实补测 ([cfce2616](https://github.com/ljquan/opentu/commit/cfce2616))
+- docs(video): 更新最终验收与真实测试覆盖边界 ([c1c2366b](https://github.com/ljquan/opentu/commit/c1c2366b))
+- test(image): 完成 Seedream 5.5 PR 最终验证 ([97adfa33](https://github.com/ljquan/opentu/commit/97adfa33))
+- docs(video): 记录最终回归与真实生成验收结果 ([f0cb1fac](https://github.com/ljquan/opentu/commit/f0cb1fac))
+- docs(qa): 记录 Seedream 5.5 同步上游与最终验证 ([432b2006](https://github.com/ljquan/opentu/commit/432b2006))
+- docs(qa): 记录上游同步与最终回归结果 ([3ca800b5](https://github.com/ljquan/opentu/commit/3ca800b5))
+- docs: 更新选区预览 PR 同步与最终回归记录 ([b532337f](https://github.com/ljquan/opentu/commit/b532337f))
+- docs: 记录 PR 上游同步与最终验证结果 ([b8e36274](https://github.com/ljquan/opentu/commit/b8e36274))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+- 2040725155-star <2040725155@qq.com>
+- Jerry-George-Liang <205779645+Jerry-George-Liang@users.noreply.github.com>
+
 ## 1.2.10 (2026-11-11)
 
 ### 🚀 Features

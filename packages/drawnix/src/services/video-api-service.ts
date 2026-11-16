@@ -1,3 +1,6 @@
+import { encodeTuziVideoBlob } from './tuzi-video-media';
+import { getTuziVideoModelConfig } from '../constants/tuzi-video-models';
+import { buildTuziVideoRequest } from './tuzi-video-request';
 import { createGenerationApiError, extractGenerationErrorDiagnostics } from '../utils/generation-error-details';
 import { notifyTaskSubmitted } from './submission-persistence';
 /**
@@ -175,7 +178,7 @@ class VideoAPIService {
     const isMiniMaxH3 = isMiniMaxH3Model(params.model);
     const submitPath = isMiniMaxH3
       ? resolveMiniMaxH3InitialSubmitPath(params.params)
-      : binding?.submitPath || '/videos';
+      : getTuziVideoModelConfig(params.model) ? '/videos' : binding?.submitPath || '/videos';
     const logId = startLLMApiLog({
       endpoint: submitPath,
       model: params.model,
@@ -192,6 +195,22 @@ class VideoAPIService {
       params.params as Record<string, string> | undefined
     );
 
+    const references = params.inputReferences?.length
+      ? [...params.inputReferences].sort((a, b) => a.slot - b.slot)
+      : params.inputReference ? [{ slot: 0, url: params.inputReference }] : [];
+    if (getTuziVideoModelConfig(params.model)?.imageUpload.mode === 'frames' && params.params?.reference_mode !== 'mixed' &&
+        references.length && references[0].slot !== 0) {
+      throw new Error('尾帧需要同时提供首帧');
+    }
+    const tuziBody = await buildTuziVideoRequest({
+      model: params.model, prompt: params.prompt, duration: params.seconds,
+      size: params.size, params: params.params,
+      referenceImages: references.map((image) => image.url),
+    }, async (url) => {
+      const blob = await unifiedCacheService.getCachedBlob(url);
+      if (!blob) throw new Error('本地参考素材读取失败，请重新选择文件');
+      return encodeTuziVideoBlob(blob);
+    });
     const formData = new FormData();
     formData.append('model', submission.model);
     formData.append('prompt', params.prompt);
@@ -207,7 +226,7 @@ class VideoAPIService {
     // For veo3.1, multiple images can be passed with same field name (first frame, last frame)
     // console.log('[VideoAPI] Processing inputReferences:', params.inputReferences);
     if (
-      !isMiniMaxH3 &&
+      !isMiniMaxH3 && !tuziBody &&
       params.inputReferences &&
       params.inputReferences.length > 0
     ) {
@@ -261,7 +280,7 @@ class VideoAPIService {
       }
     }
     // Legacy single image support
-    else if (!isMiniMaxH3 && params.inputReference) {
+    else if (!isMiniMaxH3 && !tuziBody && params.inputReference) {
       // 处理图片：虚拟路径和远程 URL 都需要转换为 base64/blob
       // 使用 getImageForAI 统一处理，它会自动处理虚拟路径和远程 URL
       const imageData = await unifiedCacheService.getImageForAI(
@@ -344,10 +363,10 @@ class VideoAPIService {
 
     const response = await providerTransport.send(providerContext, {
       path: miniMaxSubmission?.path || submitPath,
-      baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : binding?.baseUrlStrategy,
+      baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : getTuziVideoModelConfig(params.model) ? 'ensure-v1' : binding?.baseUrlStrategy,
       method: 'POST',
-      headers: isMiniMaxH3 ? { 'Content-Type': 'application/json' } : undefined,
-      body: isMiniMaxH3
+      headers: isMiniMaxH3 || tuziBody ? { 'Content-Type': 'application/json' } : undefined,
+      body: tuziBody ? JSON.stringify(tuziBody) : isMiniMaxH3
         ? JSON.stringify(miniMaxSubmission!.body)
         : formData,
     });
@@ -432,7 +451,7 @@ class VideoAPIService {
         binding,
         params
       ),
-      baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : binding?.baseUrlStrategy,
+      baseUrlStrategy: isMiniMaxH3 ? 'trim-v1' : routeModelId && getTuziVideoModelConfig(routeModelId) ? 'ensure-v1' : binding?.baseUrlStrategy,
       method: 'GET',
     });
 

@@ -403,6 +403,17 @@ describe('Media Executor Module', () => {
         referenceImage: 'data:image/png;base64,' + 'AAAA'.repeat(400_000),
         maskImage: 'data:image/png;base64,mask',
       },
+      ...[
+        '/__aitu_cache__/image/alpha.png',
+        'data:image/png;base64,' + 'AAAA'.repeat(400_000),
+        'https://cdn.example.com/alpha.png',
+      ].map((referenceImage, index) => ({
+        label: `Flash alpha reference ${index + 1}`,
+        model: 'doubao-seedream-5-0-flash-260915',
+        adapterId: 'seedream-flash-image-adapter',
+        referenceImage,
+        maskImage: undefined,
+      })),
     ])('preserves $label without reference compression', async (testCase) => {
       const { referenceImage, maskImage } = testCase;
       const adapterId = 'adapterId' in testCase ? testCase.adapterId : 'tuzi-gpt-image-adapter';
@@ -477,7 +488,9 @@ describe('Media Executor Module', () => {
       if ('materialized' in testCase) expect(getImageForAI).toHaveBeenCalledWith(referenceImage, expect.any(Object));
       else expect(getImageForAI).not.toHaveBeenCalled();
       expect(startLLMApiLog).toHaveBeenCalledWith(expect.objectContaining({
-        endpoint: adapterId === 'seedream-image-adapter' ? 'adapter:seedream-image-adapter' : maskImage ? '/images/edits' : '/images/generations',
+        endpoint: adapterId === 'tuzi-gpt-image-adapter'
+          ? (maskImage ? '/images/edits' : '/images/generations')
+          : `adapter:${adapterId}`,
       }));
     }, 15000);
 

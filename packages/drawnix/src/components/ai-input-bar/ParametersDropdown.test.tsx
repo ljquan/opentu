@@ -182,6 +182,21 @@ describe('Suno v2 parameter controls', () => {
 });
 
 describe('Seedream API parameters', () => {
+  it('offers Flash tiers, PNG/JPEG, background and a boolean watermark control', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="doubao-seedream-5-0-flash-260915"
+      selectedParams={{ size: '1K', watermark: 'false', background: 'opaque' }} onParamChange={onParamChange} />);
+    fireEvent.click(screen.getByRole('button', { name: '1.5K' }));
+    expect(onParamChange).toHaveBeenCalledWith('size', '1.5K');
+    fireEvent.click(screen.getByRole('button', { name: '透明' }));
+    expect(onParamChange).toHaveBeenCalledWith('background', 'transparent');
+    fireEvent.click(screen.getByRole('switch', { name: '水印' }));
+    expect(onParamChange).toHaveBeenCalledWith('watermark', 'true');
+    expect(screen.queryByRole('button', { name: '3K' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '4K' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'JPEG' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '标准优化' })).toBeTruthy();
+  });
   it('lets Seedream 5.5 enable and disable watermark', () => {
     const onParamChange = vi.fn();
     const props = { isOpen: true, modelId: 'doubao-seedream-5-5-261028', onParamChange };
@@ -350,5 +365,30 @@ describe('GPT Image advanced parameters', () => {
       />
     );
     expect(screen.queryByRole('switch', { name: '高级功能' })).toBeNull();
+  });
+});
+
+
+describe('Tuzi automatic reference controls', () => {
+  it.each(['gemini-omni-1.2-flash', 'wan3.0-video', 'kling-4.0'])('does not ask for duplicate media in %s', (modelId) => {
+    render(<ParametersDropdown isOpen modelId={modelId} selectedParams={{
+      reference_mode: 'frames', video_media: '[{"type":"refer_image","url":"https://example.test/old.png"}]',
+    }} onParamChange={vi.fn()} />);
+    const advanced = screen.queryByRole('switch', { name: '高级功能' });
+    if (advanced) fireEvent.click(advanced);
+    expect(screen.queryByText('参考素材')).toBeNull();
+    expect(screen.queryByText('参考模式')).toBeNull();
+    expect(screen.queryByText(/素材:1/)).toBeNull();
+    expect(screen.getByText('视频尺寸')).toBeTruthy();
+  });
+  it('restores Gemini legacy resolution and ratio independently', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="gemini-omni-1.2-flash"
+      selectedParams={{ size: '2160x3840' }} onParamChange={onParamChange} />);
+    expect(screen.getByRole('button', { name: '4k', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '9:16', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '720p' }));
+    expect(onParamChange).toHaveBeenCalledWith('ratio', '9:16', { keepOpen: true });
+    expect(onParamChange).toHaveBeenCalledWith('size', '720p');
   });
 });

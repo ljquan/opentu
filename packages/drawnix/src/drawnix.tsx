@@ -1,3 +1,5 @@
+import { isGenerationSource } from './services/generation-node';
+import { withGenerationNode } from './plugins/with-generation-node';
 import { Board, BoardChangeData, Wrapper } from '@plait-board/react-board';
 import {
   PlaitBoard,
@@ -809,6 +811,7 @@ export const Drawnix: React.FC<DrawnixProps> = ({
     withToolResize, // 工具缩放功能 - 拖拽缩放手柄
     withToolFocus, // 工具焦点管理 - 双击编辑
     withImageGenerationAnchor, // 生图锚点 - 结果对象化反馈的独立画布元素
+    withGenerationNode,
     withWorkZone, // 工作区元素 - 在画布上显示工作流进度
     withArrowLineAutoCompleteExtend, // 自动完成形状选择 - hover 中点时选择下一个节点形状
     withFlowchartShortcut, // 流程图快速创建 - 方向键创建连接节点，Tab 导航
@@ -1477,6 +1480,7 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
     state: autoCompleteState,
     selectShape: selectAutoCompleteShape,
     closePicker: closeAutoCompletePicker,
+    selectGeneration,
   } = useAutoCompleteShapePicker(board);
 
   // 浮动文本输入：自动聚焦
@@ -1897,6 +1901,8 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
             <Suspense fallback={null}>
               <AutoCompleteShapePicker
                 visible={autoCompleteState.visible}
+                generationOptions={isGenerationSource(autoCompleteState.sourceElement || undefined)}
+                onSelectGeneration={selectGeneration}
                 position={autoCompleteState.position}
                 currentShape={autoCompleteState.currentShape || undefined}
                 onSelectShape={selectAutoCompleteShape}

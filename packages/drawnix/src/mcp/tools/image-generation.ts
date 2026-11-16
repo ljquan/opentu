@@ -26,6 +26,7 @@ import {
   IMAGE_PARAMS,
 } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import { normalizeToClosestImageSize } from '../../services/media-api/utils';
 import { generateTaskId } from '../../utils/task-utils';
 import {
@@ -68,6 +69,7 @@ function getImageSizeOptions(): string[] {
  * 图片生成参数
  */
 export interface ImageGenerationParams {
+  generationNodeId?: string;
   /** 图片描述提示词 */
   prompt: string;
   /** 图片尺寸，格式如 '1x1', '16x9', '9x16' */
@@ -198,7 +200,7 @@ async function executeAsync(
   if (promptError) return promptError;
 
   try {
-    const requestedModel = params.model || getCurrentImageModel();
+    const requestedModel = modelRef?.modelId || params.model || getCurrentImageModel();
     const preferredRequestSchema = shouldUseEditSchema(params)
       ? GPT_IMAGE_EDIT_REQUEST_SCHEMAS
       : undefined;
@@ -235,7 +237,7 @@ async function executeAsync(
         prompt,
         model: requestedModel,
         modelRef: modelRef || null,
-        size: size || '1x1',
+        size: size || (requestedModel === SEEDREAM_FLASH_MODEL_ID ? '1K' : '1x1'),
         generationMode:
           params.generationMode ||
           (isGPTImageEditRequestSchema(preferredRequestSchema)
@@ -294,6 +296,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
       const adapterParams = buildQueueAdapterParams(params);
       return {
         prompt: params.prompt,
+        generationNodeId: params.generationNodeId,
         size: params.size || '1x1',
         uploadedImages:
           uploadedImages && uploadedImages.length > 0
@@ -509,7 +512,7 @@ export const imageGenerationTool: MCPTool = {
     // 规范化 size：将不在可用范围内的 size 自动转换为最接近的可用值
     const typedParams: ImageGenerationParams = {
       ...rawParams,
-      size: [FLUX_3_IMAGE_MODEL_ID, SEEDREAM_55_MODEL_ID].includes(
+      size: [FLUX_3_IMAGE_MODEL_ID, SEEDREAM_FLASH_MODEL_ID, SEEDREAM_55_MODEL_ID].includes(
         rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel()
       )
         ? rawParams.size

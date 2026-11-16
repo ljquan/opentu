@@ -203,6 +203,19 @@ describe('ReferenceImageUpload media library selection', () => {
     }
   });
 
+  it('preserves model-required PNG bytes even when the global original-image preference is off', async () => {
+    const original = new Blob(['alpha-png-bytes'], { type: 'image/png' });
+    Object.defineProperty(original, 'size', { value: 11 * 1024 * 1024 });
+    cacheMocks.getCachedBlob.mockResolvedValue(original);
+    const onImagesChange = vi.fn();
+    render(<ReferenceImageUpload images={[]} onImagesChange={onImagesChange} preserveOriginal />);
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }));
+    fireEvent.click(screen.getByRole('button', { name: '使用测试素材' }));
+    await waitFor(() => expect(onImagesChange).toHaveBeenCalledOnce());
+    expect(fidelityMocks.compressImageBlob).not.toHaveBeenCalled();
+    expect(onImagesChange.mock.calls[0][0][0].url).toBe(`data:image/png;base64,${btoa('alpha-png-bytes')}`);
+  });
+
   it('still rejects files over 25MiB when keeping originals', () => {
     fidelityMocks.readKeepOriginalImageEnabled.mockReturnValue(true);
     const onImagesChange = vi.fn();

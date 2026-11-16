@@ -122,9 +122,11 @@ describe('image generation recovery service', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it('recovers a failed Seedream v3 submission through the v1 result GET without resubmitting', async () => {
+  it.each([false, true])('recovers a failed Seedream v3 submission without resubmitting (DEV=%s)', async (dev) => {
+    vi.stubEnv('DEV', dev);
     const requestId = 'seedream-v3-submission';
     const imageUrl = 'https://images.example.com/seedream.png?signature=keep';
     const plan = createPlan();
@@ -172,7 +174,9 @@ describe('image generation recovery service', () => {
       }), expect.any(AbortSignal));
       expect(onFailed).not.toHaveBeenCalled();
       expect(fetcher).toHaveBeenCalledTimes(2);
-      expect(String(fetcher.mock.calls[0][0])).toBe(withTuziClientChannel('https://api.tu-zi.com/api/v3/images/generations'));
+      expect(String(fetcher.mock.calls[0][0])).toBe(withTuziClientChannel(dev
+        ? `${window.location.origin}/__opentu_tuzi_proxy__/api/api/v3/images/generations${new URL(withTuziClientChannel("https://api.tu-zi.com/api/v3/images/generations")).search}`
+        : 'https://api.tu-zi.com/api/v3/images/generations'));
       expect(fetcher.mock.calls[0][1]?.method).toBe('POST');
       expect(String(fetcher.mock.calls[1][0])).toBe(withTuziClientChannel(`https://api.tu-zi.com/v1/images/generations/result?request_id=${requestId}`));
       expect(fetcher.mock.calls[1][1]?.method).toBe('GET');
