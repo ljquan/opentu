@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.12",
+      "date": "2026-11-16",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "expose generation card editing and deletion actions"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "expose generation card editing and deletion actions"
+    },
+    {
       "version": "1.2.11",
       "date": "2026-11-16",
       "changes": {
@@ -753,19 +766,6 @@
       },
       "type": "patch",
       "highlights": "展示上游图片实际尺寸 (#207)"
-    },
-    {
-      "version": "1.0.10",
-      "date": "2026-07-30",
-      "changes": {
-        "features": [
-          "图片请求中断后按 Request ID 自动恢复轮询 (#206)"
-        ],
-        "fixes": [],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "图片请求中断后按 Request ID 自动恢复轮询 (#206)"
     }
   ]
 }
