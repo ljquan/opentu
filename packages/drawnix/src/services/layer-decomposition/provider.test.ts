@@ -146,6 +146,46 @@ describe('configured image provider layer decomposition', () => {
     expect(mocks.send.mock.calls[0][1].timeoutMs).toBe(180_000);
   });
 
+  it('Seedream 5.5 发送原生图层数量限制', async () => {
+    mocks.getContext.mockReturnValue(
+      context(undefined, 'doubao-seedream-5-5-261028')
+    );
+    mocks.send.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            { url: 'https://cdn.example.com/background.png', z_index: 0 },
+            {
+              url: 'https://cdn.example.com/subject.png',
+              z_index: 1,
+              bounding_box: {
+                absolute: [10, 10, 90, 90],
+                normalized: [100, 100, 900, 900],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    await expect(
+      decomposeWithConfiguredImageProvider(request(), {
+        modelId: 'doubao-seedream-5-5-261028',
+      })
+    ).resolves.toMatchObject({ layers: [{ zIndex: 1 }] });
+
+    expect(JSON.parse(mocks.send.mock.calls[0][1].body)).toMatchObject({
+      model: 'doubao-seedream-5-5-261028',
+      layer_decomposition: true,
+      layer_decomposition_options: { max_images: 17 },
+    });
+    expect(mocks.send.mock.calls[0][1]).toMatchObject({
+      path: '/api/v3/images/generations',
+      baseUrlStrategy: 'trim-v1',
+    });
+  });
+
   it('可以显式指定 Seedream 5.0 Pro，而不依赖当前选中的普通图片模型', async () => {
     mocks.getContext.mockReturnValue(
       context(undefined, 'doubao-seedream-5-0-pro-260628')
