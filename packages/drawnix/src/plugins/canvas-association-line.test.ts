@@ -125,7 +125,7 @@ describe('managed association line drawing', () => {
     ).toBe('');
   });
 
-  it('draws a crisp gray SVG path with rounded caps and stable screen width', () => {
+  it('draws a clear SVG path with rounded caps and stable screen width', () => {
     const line = createArrowLineElement(
       ArrowLineShape.curve,
       [
@@ -138,8 +138,8 @@ describe('managed association line drawing', () => {
     const snapshot = structuredClone(line);
     const group = drawCanvasAssociationLine(line);
     const path = group.querySelector('path');
-    expect(path?.getAttribute('stroke')).toBe('#9ca3af');
-    expect(path?.getAttribute('stroke-width')).toBe('1.5');
+    expect(path?.getAttribute('stroke')).toBe('#7f7aa8');
+    expect(path?.getAttribute('stroke-width')).toBe('2.5');
     expect(path?.getAttribute('stroke-linecap')).toBe('round');
     expect(path?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
     expect(group.querySelectorAll('path')).toHaveLength(1);

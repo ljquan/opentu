@@ -190,6 +190,9 @@ function buildGenerationMetadataPatch(
     explicitGenerationPrompt ||
     (generationTaskId || generationAnchorId ? prompt : undefined);
   const patch: Record<string, unknown> = {};
+  if (metadata?.imageGenerationRecipe) {
+    patch.imageGenerationRecipe = metadata.imageGenerationRecipe;
+  }
 
   if (prompt) {
     patch.prompt = prompt;
@@ -200,6 +203,7 @@ function buildGenerationMetadataPatch(
   }
   if (generationTaskId) {
     patch.generationTaskId = generationTaskId;
+    if (typeof metadata?.generationNodeId === 'string') patch.generationNodeId = metadata.generationNodeId;
   }
   if (generationAnchorId) {
     patch.generationAnchorId = generationAnchorId;

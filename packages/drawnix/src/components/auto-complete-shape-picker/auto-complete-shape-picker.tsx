@@ -1,3 +1,4 @@
+import { Type, Image, Video, Pencil, ArrowRight } from 'lucide-react';
 import React, { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import classNames from 'classnames';
@@ -36,6 +37,8 @@ const SHAPES: ShapeOption[] = [
 export interface AutoCompleteShapePickerProps {
   /** 是否显示 */
   visible: boolean;
+  generationOptions?: boolean;
+  onSelectGeneration?: (type: 'image' | 'video' | 'text' | 'edit' | 'line') => void;
   /** 位置 */
   position: { x: number; y: number };
   /** 当前源元素的形状（用于高亮默认选项） */
@@ -50,6 +53,8 @@ export interface AutoCompleteShapePickerProps {
 
 export const AutoCompleteShapePicker: React.FC<AutoCompleteShapePickerProps> = ({
   visible,
+  generationOptions,
+  onSelectGeneration,
   position,
   currentShape,
   onSelectShape,
@@ -70,20 +75,23 @@ export const AutoCompleteShapePicker: React.FC<AutoCompleteShapePickerProps> = (
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     };
 
-    // 延迟添加监听器，避免立即触发
+    document.addEventListener('keydown', handleKeyDown, true);
+    // 延迟添加点击监听器，避免立即触发
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
+
     }, 50);
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [visible, onClose]);
 
@@ -99,8 +107,8 @@ export const AutoCompleteShapePicker: React.FC<AutoCompleteShapePickerProps> = (
     x: isNaN(position.x) ? 0 : position.x,
     y: isNaN(position.y) ? 0 : position.y,
   };
-  const pickerWidth = 200;
-  const pickerHeight = 80;
+  const pickerWidth = generationOptions ? 248 : 200;
+  const pickerHeight = generationOptions ? 322 : 80;
   
   if (typeof window !== 'undefined') {
     if (adjustedPosition.x + pickerWidth > window.innerWidth) {
@@ -111,10 +119,13 @@ export const AutoCompleteShapePicker: React.FC<AutoCompleteShapePickerProps> = (
     }
   }
 
+  adjustedPosition.x = Math.max(10, adjustedPosition.x);
+  adjustedPosition.y = Math.max(10, adjustedPosition.y);
+
   const content = (
     <div
       ref={pickerRef}
-      className={classNames('auto-complete-shape-picker', ATTACHED_ELEMENT_CLASS_NAME)}
+      className={classNames('auto-complete-shape-picker', ATTACHED_ELEMENT_CLASS_NAME, { 'auto-complete-shape-picker--generation': generationOptions })}
       style={{
         left: adjustedPosition.x,
         top: adjustedPosition.y,
@@ -123,7 +134,21 @@ export const AutoCompleteShapePicker: React.FC<AutoCompleteShapePickerProps> = (
       <Island padding={1}>
         <Stack.Col gap={1}>
           <Stack.Row gap={1}>
-            {SHAPES.map((shape, index) => (
+            {generationOptions ? <div className="generation-actions" role="menu" aria-label="引用此图片">
+              <div className="generation-actions__heading">引用此图片</div>
+              {([
+                { type: 'text', title: '文本', description: '看图描述、提取内容与创作', icon: Type },
+                { type: 'image', title: '图片', description: '以此图为参考生成图片', icon: Image },
+                { type: 'video', title: '视频', description: '用参考图创作视频', icon: Video },
+                { type: 'edit', title: '快捷编辑', description: '打开图片编辑器', icon: Pencil },
+                { type: 'line', title: '普通连线', description: '仅连接画布，不作为参考', icon: ArrowRight },
+              ] as const).map(({ type, title, description, icon: Icon }) => (
+                <button key={type} role="menuitem" aria-label={title} className="generation-choice" onPointerDown={event => event.stopPropagation()} onClick={() => onSelectGeneration?.(type)}>
+                  <Icon size={17} strokeWidth={1.7} />
+                  <span><strong>{title}</strong><small>{description}</small></span>
+                </button>
+              ))}
+            </div> : SHAPES.map((shape, index) => (
               <ToolButton
                 key={index}
                 className={classNames('shape-button', {

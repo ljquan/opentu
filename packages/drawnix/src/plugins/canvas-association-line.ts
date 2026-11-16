@@ -15,8 +15,8 @@ import {
   readImageToolbarPreferences,
 } from '../utils/image-toolbar-preferences';
 
-export const ASSOCIATION_STROKE_COLOR = '#9ca3af';
-export const ASSOCIATION_STROKE_WIDTH = 1.5;
+export const ASSOCIATION_STROKE_COLOR = '#7f7aa8';
+export const ASSOCIATION_STROKE_WIDTH = 2.5;
 
 /** Keep horizontal/vertical departure and arrival with a shared short lead. */
 function getCanvasAssociationGeometry(

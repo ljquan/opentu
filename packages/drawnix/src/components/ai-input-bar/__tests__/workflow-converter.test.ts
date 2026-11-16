@@ -15,6 +15,8 @@ import {
 import type { ParsedGenerationParams } from '../../../utils/ai-input-parser';
 import type { CanvasAssociationRef } from '../../../types/task.types';
 import { buildBoundTargetGenerationParams } from '../target-bound-taskbar-state';
+import { buildImageTaskAIInputPrefillData, buildImageRerollPrefillData } from '../../../utils/image-task-prefill';
+import { TaskType, TaskStatus } from '../../../types/task.types';
 import { initializeMCP } from '../../../mcp';
 import { buildGPTImageGenerationBody } from '../../../services/model-adapters/gpt-image-adapter';
 import { buildTuziGPTImageRequestBody } from '../../../services/model-adapters/tuzi-gpt-image-adapter';
@@ -151,6 +153,21 @@ describe('workflow-converter', () => {
       }
     });
     describe('图片生成场景', () => {
+      it('preserves original inputs and output parameters through reroll workflow construction', () => {
+        const input = buildImageRerollPrefillData(buildImageTaskAIInputPrefillData({
+          id: 'source-task', type: TaskType.IMAGE, status: TaskStatus.COMPLETED, createdAt: 1, updatedAt: 1,
+          params: { prompt: 'original', model: 'gpt-image-2', referenceImages: ['/a.png', '/b.png', '/c.png'],
+            batchTotal: 4, outputFormat: 'webp', outputCompression: 0, background: 'transparent', params: { seed: 123 } },
+        }));
+        const workflow = convertDirectGenerationToWorkflow(createMockParams({
+          modelId: input.model!, prompt: input.prompt, count: input.count!, extraParams: input.params,
+        }), input.images!.map((image) => image.url));
+        expect(workflow.steps).toHaveLength(1);
+        expect(workflow.steps[0].args).toMatchObject({ referenceImages: ['/a.png', '/b.png', '/c.png'], sourceTaskId: 'source-task' });
+        const body = buildGPTImageGenerationBody({ model: 'gpt-image-2', prompt: 'original', params: workflow.steps[0].args.params as Record<string, unknown> });
+        expect(body).toMatchObject({ background: 'transparent', output_format: 'webp', output_compression: 0 });
+        expect(workflow.steps[0].args.params).not.toHaveProperty('seed');
+      });
       it.each(['gif', 'gif_official'])('keeps %s hints out of displayed batch prompts while including them in every request and retry', (output) => {
         const workflow = convertDirectGenerationToWorkflow(createMockParams({
           modelId: 'gpt-image-2.6', prompt: '生成一张好看的风景图片', count: 2,

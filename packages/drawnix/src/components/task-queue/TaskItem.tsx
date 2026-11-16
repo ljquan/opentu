@@ -982,7 +982,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(
                   )}
 
                   {canRegenerateTask && (
-                    <HoverTip content="以当前提示词再次生成">
+                    <HoverTip content="使用原提示词和原参考图，立即重新生成一张">
                       <Button
                         size="small"
                         variant="text"

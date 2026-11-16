@@ -69,6 +69,7 @@ function getImageSizeOptions(): string[] {
  * 图片生成参数
  */
 export interface ImageGenerationParams {
+  generationNodeId?: string;
   /** 图片描述提示词 */
   prompt: string;
   /** 图片尺寸，格式如 '1x1', '16x9', '9x16' */
@@ -295,6 +296,7 @@ function getImageQueueConfig(params: ImageGenerationParams) {
       const adapterParams = buildQueueAdapterParams(params);
       return {
         prompt: params.prompt,
+        generationNodeId: params.generationNodeId,
         size: params.size || '1x1',
         uploadedImages:
           uploadedImages && uploadedImages.length > 0

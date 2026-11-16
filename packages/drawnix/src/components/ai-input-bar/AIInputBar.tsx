@@ -3,6 +3,10 @@ import {
   allowsTuziVideoWithoutPrompt,
   getTuziVideoComposerParams,
 } from '../../constants/tuzi-video-models';
+import { getAutoCompleteState } from '../../plugins/with-arrow-line-auto-complete-extend';
+import { useGenerationNodeDraft } from '../../hooks/useGenerationNodeDraft';
+import { GenerationNodeData, GenerationNodeReference, isGenerationNode, snapshotGenerationReferences, validateGenerationNode } from '../../services/generation-node';
+
 import type { TaskError } from '../../types/shared/core.types';
 import { toGenerationTaskError } from '../../utils/generation-error-details';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
@@ -64,6 +68,7 @@ import { PromptOptimizeButton } from '../shared/PromptOptimizeButton';
 import { KnowledgeNoteContextSelector } from '../shared/KnowledgeNoteContextSelector';
 import {
   getSelectedElements,
+  idCreator,
   addSelectedElement,
   clearSelectedElement,
   ATTACHED_ELEMENT_CLASS_NAME,
@@ -267,10 +272,12 @@ import {
 import {
   AI_INPUT_FOCUS_EVENT,
   AI_INPUT_PREFILL_EVENT,
+  AI_INPUT_REROLL_EVENT,
   type AIInputFocusEventDetail,
   type AIInputPrefillEventDetail,
 } from '../../services/ai-input-ui-events';
 import { normalizeKnowledgeContextRefs } from '../../services/generation-context-service';
+import { validateRestoredImageReferences } from '../../services/image-generation-recipe';
 import { isAssetLibraryUrl } from '../../utils/virtual-media-url';
 import {
   buildSemanticReplacementGenerationPrompt,
@@ -769,6 +776,8 @@ if (!mcpInitialized) {
 type SelectedContentType = 'image' | 'video' | 'audio' | 'graphics' | 'text';
 
 interface SelectedContent {
+  referenceId?: string;
+  role?: GenerationNodeReference['role'];
   type: SelectedContentType;
   url?: string; // 图片/视频/图形的 URL
   maskImage?: string; // 单图局部编辑蒙版 URL
@@ -780,6 +789,7 @@ interface SelectedContent {
 }
 
 interface GenerationRequestOverride {
+  intent?: 'restore';
   prompt: string;
   content: SelectedContent[];
   generationType: GenerationType;
@@ -789,6 +799,7 @@ interface GenerationRequestOverride {
   selectedCount: number;
   appendToCurrentChatSession?: boolean;
   targetSessionId?: string | null;
+  knowledgeContextRefs?: KnowledgeContextRef[];
 }
 
 function filterExecutablePptModels(
@@ -1427,6 +1438,13 @@ const SelectionWatcher: React.FC<{
           }
           return;
         }
+        const pendingConnectionId = getAutoCompleteState(currentBoard).arrowLineElement?.id;
+        if (selectedElements.length && selectedElements.every(element => isGenerationNode(element) || element.generationInput || element.id === pendingConnectionId)) {
+          onSelectionChangeRef.current([]);
+          onBoundImageTargetChangeRef.current?.(null);
+          onFrameSelectedRef.current?.(null);
+          return;
+        }
         const suppressedSelectionIds =
           suppressedCanvasAssociationSelectionIdsRef.current;
         if (
@@ -2036,6 +2054,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const [boundTargetFollowEnabled, setBoundTargetFollowEnabled] = useState(
       () => readBoundTargetFollowEnabled()
     );
+    const [inputIntent, setInputIntent] = useState<'restore' | undefined>();
+    const inputIntentRef = useRef<'restore' | undefined>();
+    const restoredModelSelectionRef = useRef<{ type: GenerationType; model: string; modelRef: ModelRef | null } | null>(null);
+    const inputPrefillSequenceRef = useRef(0);
     const [centerImageOnClickEnabled, setCenterImageOnClickEnabled] =
       useState(() => readCenterImageOnClickEnabled());
     const [horizontalImageBatchEnabled, setHorizontalImageBatchEnabled] =
@@ -2414,11 +2436,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const readCurrentTaskbarDraft = useCallback((): BoundImageInputDraft => {
       return {
         prompt: promptRef.current,
+        inputIntent: inputIntentRef.current,
         uploadedContent: [...uploadedContentRef.current],
         knowledgeContextRefs: [...knowledgeContextRefsRef.current],
       };
     }, []);
     const applyTaskbarDraft = useCallback((draft: BoundImageInputDraft) => {
+      inputIntentRef.current = draft.inputIntent;
+      setInputIntent(draft.inputIntent);
       promptRef.current = draft.prompt;
       uploadedContentRef.current = draft.uploadedContent;
       knowledgeContextRefsRef.current = draft.knowledgeContextRefs;
@@ -2503,6 +2528,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         if (activeDraftElementIdRef.current === null) {
           unboundTaskbarDraftRef.current = readCurrentTaskbarDraft();
+        }
+        if (unboundTaskbarDraftRef.current.inputIntent === 'restore') {
+          unboundTaskbarDraftRef.current = {
+            ...unboundTaskbarDraftRef.current,
+            uploadedContent: unboundTaskbarDraftRef.current.uploadedContent.map((item) => ({ ...item, sourceElementId: undefined })),
+          };
         }
         activeTaskbarBoardIdRef.current = nextBoardId;
         boundTargetDraftsRef.current.clear();
@@ -2611,12 +2642,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
     const boundTargetContent = useMemo(
       () =>
-        selectedContentFromBoundTarget(
-          boundImageTarget,
-          language,
-          effectiveBoundTargetMode === 'reference'
-        ),
-      [boundImageTarget, effectiveBoundTargetMode, language]
+        inputIntent === 'restore'
+          ? null
+          : selectedContentFromBoundTarget(
+              boundImageTarget,
+              language,
+              effectiveBoundTargetMode === 'reference'
+            ),
+      [boundImageTarget, effectiveBoundTargetMode, inputIntent, language]
     );
     const boundTargetGenerationContent = useMemo(
       () =>
@@ -2634,7 +2667,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       boundImageTargetMode === 'follow' ? boundImageTarget : null;
     const displayContent = useMemo(
       () =>
-        boundTargetContent
+        inputIntent === 'restore'
+          ? uploadedContent
+          : boundTargetContent
           ? [
               ...uploadedContent,
               ...(isUploadedCanvasReference(boundTargetContent, uploadedContent)
@@ -2642,11 +2677,13 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 : [boundTargetContent]),
             ]
           : allContent,
-      [allContent, boundTargetContent, uploadedContent]
+      [allContent, boundTargetContent, inputIntent, uploadedContent]
     );
     const generationContent = useMemo(
       () =>
-        boundTargetGenerationContent
+        inputIntent === 'restore'
+          ? uploadedContent
+          : boundTargetGenerationContent
           ? [
               ...(isUploadedCanvasReference(
                 boundTargetGenerationContent,
@@ -2657,7 +2694,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               ...uploadedContent,
             ]
           : allContent,
-      [allContent, boundTargetGenerationContent, uploadedContent]
+      [allContent, boundTargetGenerationContent, inputIntent, uploadedContent]
     );
     const localImageMessages = useMemo(
       () => ({
@@ -2708,9 +2745,12 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         selectedModel,
         selectedModelRef
       );
-      const nextModelConfig =
-        currentModelConfig ||
-        resolvePreferredModelSelection(generationType, modelsForType);
+      const restored = restoredModelSelectionRef.current;
+      const preserveRestoredSelection = inputIntentRef.current === 'restore' && restored?.type === generationType &&
+        getSelectionKey(restored.model, restored.modelRef) === getSelectionKey(selectedModel, selectedModelRef);
+      const nextModelConfig = preserveRestoredSelection
+        ? findExactSelectableModel(modelsForType, selectedModel, selectedModelRef)
+        : currentModelConfig || resolvePreferredModelSelection(generationType, modelsForType);
 
       if (nextModelConfig) {
         const currentSelectionKey = getSelectionKey(
@@ -3395,6 +3435,138 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     // 保存 board 引用供后处理完成后使用
     const SelectionWatcherBoardRef = useRef<any>(null);
+    const beforeGenerationNodeRef = useRef<{
+      draft: BoundImageInputDraft;
+      type: GenerationType;
+      model: string;
+      modelRef: ModelRef | null;
+      params: Record<string, string>;
+      count: number;
+      associations: CanvasAssociationRef[];
+    } | null>(null);
+    const generationReferenceIds = useRef(new WeakMap<object, string>());
+    const generationReferenceId = (item: SelectedContent): string => {
+      if (item.referenceId) return item.referenceId;
+      let id = generationReferenceIds.current.get(item);
+      if (!id) {
+        id = `upload:${idCreator()}`;
+        generationReferenceIds.current.set(item, id);
+      }
+      return id;
+    };
+    const generationDraftValue: GenerationNodeData = {
+      version: 1,
+      generationType: generationType === 'video' ? 'video' : 'image',
+      prompt,
+      model: selectedModel,
+      modelRef: selectedModelRef,
+      params: selectedParams,
+      count: selectedCount,
+      references: uploadedContent
+        .filter((item) => item.type === 'image' && item.url)
+        .map((item, index) => ({
+          ...item,
+          url: item.url!,
+          name: item.name,
+          referenceId: generationReferenceId(item),
+          role: item.role || 'reference',
+        })),
+    };
+    const generationNodeEditor = useGenerationNodeDraft(
+      SelectionWatcherBoardRef,
+      currentBoardId,
+      {
+        read: () => generationDraftValue,
+        unsupported: () =>
+          MessagePlugin.warning(
+            '此生成框版本不受支持或数据不完整，已保留原数据，请更新应用后重试'
+          ),
+        load: (data, starting) => {
+          ++inputPrefillSequenceRef.current;
+          if (starting)
+            beforeGenerationNodeRef.current = {
+              draft: readCurrentTaskbarDraft(),
+              type: generationType,
+              model: selectedModel,
+              modelRef: selectedModelRef,
+              params: selectedParams,
+              count: selectedCount,
+              associations: [...canvasAssociationRefsRef.current],
+            };
+          detachTaskbarDraft(true);
+          selectedFrameRef.current = null;
+          inputIntentRef.current = 'restore';
+          setInputIntent('restore');
+          promptRef.current = data.prompt;
+          setPrompt(data.prompt);
+          const content = data.references.map((ref) => ({
+            ...ref,
+            type: 'image' as const,
+          }));
+          uploadedContentRef.current = content;
+          setUploadedContent(content);
+          setSelectedContent([]);
+          selectedContentRef.current = [];
+          applyCanvasAssociationRefs([]);
+          setKnowledgeContextRefs([]);
+          knowledgeContextRefsRef.current = [];
+          setGenerationType(data.generationType);
+          const models =
+            data.generationType === 'video' ? videoModels : imageModels;
+          const model = data.model
+            ? findExactSelectableModel(models, data.model, data.modelRef)
+            : resolvePreferredModelSelection(data.generationType, models);
+          const modelId = data.model || model?.id || '';
+          const modelRef = data.model
+            ? data.modelRef || null
+            : getModelRefFromConfig(model);
+          restoredModelSelectionRef.current = {
+            type: data.generationType,
+            model: modelId,
+            modelRef,
+          };
+          setSelectedModel(modelId);
+          setSelectedModelRef(modelRef);
+          setSelectedParams(data.params);
+          selectedParamsRef.current = data.params;
+          selectedParamScopeRef.current = `${
+            data.generationType
+          }:${getSelectionKey(modelId, modelRef)}`;
+          setSelectedCount(data.count);
+        },
+        detach: (boardChanged) => {
+          const previous = beforeGenerationNodeRef.current;
+          beforeGenerationNodeRef.current = null;
+          if (previous && !boardChanged) {
+            unboundTaskbarDraftRef.current = previous.draft;
+            unboundCanvasAssociationDraftRef.current = previous.associations;
+            applyTaskbarDraft(previous.draft);
+            setGenerationType(previous.type);
+            setSelectedModel(previous.model);
+            setSelectedModelRef(previous.modelRef);
+            setSelectedParams(previous.params);
+            selectedParamsRef.current = previous.params;
+            setSelectedCount(previous.count);
+            selectedParamScopeRef.current = `${previous.type}:${getSelectionKey(
+              previous.model,
+              previous.modelRef
+            )}`;
+            applyCanvasAssociationRefs(previous.associations);
+            return;
+          }
+          unboundTaskbarDraftRef.current = { prompt: '', uploadedContent: [], knowledgeContextRefs: [] };
+          unboundCanvasAssociationDraftRef.current = [];
+          inputIntentRef.current = undefined;
+          setInputIntent(undefined);
+          promptRef.current = '';
+          setPrompt('');
+          uploadedContentRef.current = [];
+          setUploadedContent([]);
+        },
+      },
+      generationDraftValue
+    );
+
 
     // 使用工作流提交 Hook
     const { submitWorkflow: submitWorkflowToSW } = useWorkflowSubmission({
@@ -3638,6 +3810,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       };
     }, [cancelCanvasAssociationPicking, canvasAssociationTrigger]);
 
+    useEffect(() => {
+      if (!generationNodeEditor.activeId || uploadedContent.every(item => item.type === 'image')) return;
+      const images = uploadedContent.filter(item => item.type === 'image');
+      uploadedContentRef.current = images;
+      setUploadedContent(images);
+      MessagePlugin.warning('生成框当前支持图片参考，请使用图片素材');
+    }, [generationNodeEditor.activeId, uploadedContent]);
+
     // 使用自定义 hook 处理文本选择和复制，同时阻止事件冒泡
     useTextSelection(inputRef, {
       enableCopy: true,
@@ -3752,9 +3932,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         event: Event | CustomEvent<AIInputPrefillEventDetail>
       ) => {
         const detail = (event as CustomEvent<AIInputPrefillEventDetail>).detail;
-        if (!detail || !(await confirmOverwriteInputIfNeeded(detail.source))) {
+        const sequence = ++inputPrefillSequenceRef.current;
+        const boardId = activeTaskbarBoardIdRef.current;
+        const isCurrent = () => sequence === inputPrefillSequenceRef.current &&
+          boardId === activeTaskbarBoardIdRef.current;
+        if (!detail || !(await confirmOverwriteInputIfNeeded(detail.source)) || !isCurrent()) {
           return;
         }
+        if (detail.boardId && detail.boardId !== activeTaskbarBoardIdRef.current) return;
+        if (generationNodeEditor.activeId) generationNodeEditor.end();
+        const restoredInput = detail.intent === 'restore';
 
         const nextGenerationType = detail.generationType;
         const modelsForType =
@@ -3766,29 +3953,60 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             ? textModels
             : imageModels;
         const nextModel =
-          findMatchingSelectableModel(
+          (restoredInput && detail.modelRef
+            ? findExactSelectableModel
+            : findMatchingSelectableModel)(
             modelsForType,
             detail.model,
             detail.modelRef || null
           ) ||
-          findMatchingSelectableModel(modelsForType, detail.model, null) ||
-          resolvePreferredModelSelection(nextGenerationType, modelsForType);
+          (!restoredInput &&
+            (findMatchingSelectableModel(modelsForType, detail.model, null) ||
+              resolvePreferredModelSelection(nextGenerationType, modelsForType))) ||
+          undefined;
+        if (restoredInput && !nextModel) {
+          MessagePlugin.warning(language === 'zh' ? '原模型或渠道不可用，请先恢复模型配置' : 'Restore the original model/provider before continuing');
+          return;
+        }
         const nextModelRef = getModelRefFromConfig(nextModel);
         const nextModelId = nextModel?.id || detail.model || selectedModel;
+        restoredModelSelectionRef.current = restoredInput ? { type: nextGenerationType, model: nextModelId, modelRef: nextModelRef } : null;
         const nextScopeKey = getSelectionKey(nextModelId, nextModelRef);
         const nextParams =
           nextGenerationType === 'agent'
             ? {}
             : {
-                ...loadScopedAIInputModelParams(
-                  nextGenerationType,
-                  nextModelId,
-                  nextScopeKey
-                ),
+                ...(!restoredInput
+                  ? loadScopedAIInputModelParams(
+                      nextGenerationType,
+                      nextModelId,
+                      nextScopeKey
+                    )
+                  : {}),
                 ...(detail.params || {}),
               };
 
-        if (detail.source === 'canvas-toolbar') {
+        if (restoredInput || detail.intent === 'edit') {
+          detachTaskbarDraft(true);
+          selectedFrameRef.current = null;
+        }
+        inputIntentRef.current = restoredInput ? 'restore' : undefined;
+        setInputIntent(inputIntentRef.current);
+        if (detail.intent === 'edit') {
+          const editBoard = SelectionWatcherBoardRef.current as PlaitBoard | null;
+          const sourceId = detail.images?.[0]?.sourceElementId;
+          const source = editBoard?.children.find((element) => element.id === sourceId);
+          const target = editBoard && source ? await resolveBoundImageTarget(editBoard, [source]) : null;
+          if (!isCurrent()) return;
+          boundImageTargetRef.current = target;
+          setBoundImageTarget(target);
+          setBoundImageTargetMode('follow');
+          canvasToolbarPrefillElementIdRef.current = sourceId || null;
+          selectedContentRef.current = [];
+          setSelectedContent([]);
+        }
+
+        if (detail.source === 'canvas-toolbar' && !restoredInput) {
           const suppressedUrls = selectedContentRef.current
             .filter(
               (content): content is SelectedContent & { url: string } =>
@@ -3828,6 +4046,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           detail.knowledgeContextRefs
         );
         if (
+          !restoredInput &&
           detail.source === 'canvas-toolbar' &&
           boundImageTargetRef.current?.type === 'image' &&
           nextUploadedContent.some(
@@ -3854,9 +4073,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           nextGenerationType === 'agent'
             ? 'agent'
             : `${nextGenerationType}:${nextScopeKey}`;
-        if (typeof detail.count === 'number' && detail.count > 0) {
-          setSelectedCount(detail.count);
-        }
+        setSelectedCount(typeof detail.count === 'number' && detail.count > 0 ? detail.count : 1);
         MessagePlugin.success(
           language === 'zh'
             ? '已回填到底部输入框，请手动发送'
@@ -4338,6 +4555,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
     // 处理选择变化的回调（由 SelectionWatcher 调用）
     const handleSelectionChange = useCallback((content: SelectedContent[]) => {
+      if (inputIntentRef.current === 'restore') return;
       const suppressedUrls = suppressSelectionContentUrlsRef.current;
       if (suppressedUrls.size === 0) {
         setSelectedContent(content);
@@ -4402,6 +4620,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     const handleBoundImageTargetChange = useCallback(
       (target: BoundImageTarget | null) => {
         resetBoundTaskbarDraftsForBoard(currentBoardId ?? null);
+        if (inputIntentRef.current === 'restore') return;
         if (canvasToolbarPrefillElementIdRef.current) {
           if (
             target?.elementId === canvasToolbarPrefillElementIdRef.current
@@ -4664,7 +4883,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
 
     const chatDrawerContent =
-      effectiveBoundTargetMode === 'reference' ? generationContent : allContent;
+      inputIntent === 'restore' || effectiveBoundTargetMode === 'reference'
+        ? generationContent
+        : allContent;
 
     // 仅作参考模式与生成请求使用同一份内容，确保目标图不会在抽屉中丢失。
     useEffect(() => {
@@ -5004,7 +5225,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         try { restoredParams = getSunoNativeParams(selectedModel, baseParams, collectSunoNativeResources(parameterTasks, sunoParameterProfileId)); }
         catch { /* Restore the default action if a saved action was removed. */ }
       }
-      const nextParams: Record<string, string> = {};
+      // A recovered draft may contain valid adapter parameters without a UI control.
+      // Keep them until the user explicitly switches model scope.
+      const nextParams: Record<string, string> = inputIntentRef.current === 'restore' && selectedParamScopeRef.current === currentScopeKey
+        ? { ...baseParams } : {};
 
       const sizeParam = restoredParams.find((p) => p.id === 'size');
       const prevSize = baseParams.size;
@@ -5134,12 +5358,16 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const trigger =
           typeof triggerOrOverride === 'string' ? triggerOrOverride : 'button';
         const effectivePrompt = override?.prompt ?? prompt;
+        const restoreOriginalInputs =
+          override?.intent === 'restore' ||
+          (!override && inputIntentRef.current === 'restore');
         const submittedBoard =
           (SelectionWatcherBoardRef.current as
             | (PlaitBoard & { host?: HTMLElement })
             | null) ?? null;
         const canUseActiveBoundTarget =
           !override &&
+          !restoreOriginalInputs &&
           shouldUseBoundTargetForSubmission(
             generationType,
             effectiveBoundTargetMode
@@ -5197,21 +5425,34 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               }
             : activeBoundTargetContent;
         const baseEffectiveContent = override
-          ? pinBoundTargetReferenceContent(
-              override.content,
-              boundTargetContent,
-              effectiveBoundTargetMode
-            )
+          ? override.intent === 'restore'
+            ? override.content
+            : pinBoundTargetReferenceContent(
+                override.content,
+                boundTargetContent,
+                effectiveBoundTargetMode
+              )
           : activeBoundTargetGenerationContent
           ? [activeBoundTargetGenerationContent, ...uploadedContent]
           : generationContent;
+        const submittedGenerationNode = !override && generationNodeEditor.activeRef.current
+          ? structuredClone({ id: generationNodeEditor.activeRef.current.id, data: generationDraftValue }) : null;
         let effectiveContent = baseEffectiveContent;
+        if (submittedGenerationNode && submittedBoard) {
+          if (generationType !== 'image' && generationType !== 'video') { MessagePlugin.error('生成框仅支持图片和视频，请切换生成类型'); return; }
+          const videoConfig = submittedGenerationNode.data.generationType === 'video'
+            ? getEffectiveVideoModelConfigForSelection(selectedModel, selectedModelRef || selectedModel, selectedParams).imageUpload : undefined;
+          const errors = validateGenerationNode(submittedGenerationNode.data, submittedBoard.children, videoConfig);
+          if (errors.length) { MessagePlugin.error(errors.join('；')); return; }
+          effectiveContent = snapshotGenerationReferences(submittedGenerationNode.data, submittedBoard.children).map(ref => ({ ...ref, type: 'image' as const }));
+        }
         const effectiveGenerationType = activeBoundImageTarget
           ? activeBoundImageTarget.type
           : override?.generationType ?? generationType;
         const effectiveSelectedModel = override?.selectedModel ?? selectedModel;
-        const effectiveSelectedModelRef =
-          override?.selectedModelRef ?? selectedModelRef;
+        const effectiveSelectedModelRef = override
+          ? override.selectedModelRef ?? null
+          : selectedModelRef;
         const rawSelectedParams = override?.selectedParams ?? selectedParams;
         const effectiveSelectedParams =
           effectiveGenerationType === 'video'
@@ -5225,7 +5466,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const appendToCurrentChatSession =
           override?.appendToCurrentChatSession ?? false;
         const targetChatSessionId = override?.targetSessionId ?? null;
-        const shouldClearLocalInput = !override && !activeBoundImageTarget;
+        const shouldClearLocalInput = !override && !activeBoundImageTarget && !generationNodeEditor.activeRef.current;
         const submittedTaskbarDraft = override
           ? null
           : readCurrentTaskbarDraft();
@@ -5241,6 +5482,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             ]);
         let resolvedCanvasAssociations = submittedCanvasAssociations;
         const finalizeSubmittedBoundDraft = (clearSubmittedInput: boolean) => {
+          if (submittedGenerationNode) return true;
           if (!submittedDraftElementId || !submittedTaskbarDraft) return false;
           if (activeTaskbarBoardIdRef.current !== submittedDraftBoardId) {
             return true;
@@ -5364,7 +5606,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           setSelectedContent([]);
         };
         const effectiveKnowledgeContextRefs = override
-          ? []
+          ? override.knowledgeContextRefs || []
           : knowledgeContextRefs;
         const trimmedPrompt = effectivePrompt.trim();
 
@@ -5384,6 +5626,15 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           baseEffectiveContent.length === 0 &&
           submittedCanvasAssociations.length === 0
         ) {
+          return;
+        }
+        if (restoreOriginalInputs && (effectiveGenerationType === 'image' || effectiveGenerationType === 'video') &&
+            !(effectiveSelectedModelRef ? findExactSelectableModel : findMatchingSelectableModel)(
+              effectiveGenerationType === 'video' ? videoModels : imageModels, effectiveSelectedModel, effectiveSelectedModelRef
+            )) {
+          MessagePlugin.warning(language === 'zh'
+            ? '原模型或渠道不可用，请先恢复模型配置'
+            : 'Restore the original model/provider before continuing');
           return;
         }
         if (submitLockRef.current || isSubmitting) {
@@ -5441,7 +5692,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         };
         const abortIfSubmittedBoardChanged = (stage: string): boolean => {
           if (
-            override ||
+            (override && !restoreOriginalInputs) ||
             isSubmittedBoardCurrent(
               submittedBoard,
               submittedDraftBoardId,
@@ -5586,6 +5837,10 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           }
 
           // 引用预检通过后再请求凭据，避免无效引用触发无意义的 API Key 弹窗。
+          if (effectiveGenerationType === 'image' && restoreOriginalInputs) {
+            await validateRestoredImageReferences(effectiveContent.filter((item) => item.type === 'image'));
+            if (abortIfSubmittedBoardChanged('restored_references_ready')) return;
+          }
           if (effectiveContent.some((item) => item.type === 'video')) {
             const errors = validateCanvasAssociationCapability({
               generationType: effectiveGenerationType,
@@ -5611,7 +5866,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           // Resolve before the credential handoff so the deferred request keeps the mask.
           const maskSubmission = await prepareImageMaskSubmission(
             submittedBoard,
-            activeBoundImageTarget || boundImageTarget,
+            restoreOriginalInputs
+              ? null : activeBoundImageTarget || boundImageTarget,
             effectiveGenerationType,
             effectiveContent
           );
@@ -6040,6 +6296,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           } else {
             workflow = convertToWorkflow(parsedParams, referenceImages);
           }
+          if (submittedGenerationNode) {
+            for (const step of workflow.steps) {
+              if (step.mcp === 'generate_image' || step.mcp === 'generate_video') step.args.generationNodeId = submittedGenerationNode.id;
+            }
+          }
           if (abortIfSubmittedBoardChanged('workflow_conversion')) return;
 
           const board = submittedBoard;
@@ -6159,7 +6420,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
             // 如果选中了 Frame，将 Frame 信息传递给 WorkZone
             // 生成完成后媒体将插入到 Frame 内部并缩放到 Frame 尺寸
-            const frameInfo = selectedFrameRef.current;
+            const frameInfo = restoreOriginalInputs ? null : selectedFrameRef.current;
             let targetFrameId: string | undefined;
             let targetFrameDimensions:
               | { width: number; height: number }
@@ -6975,8 +7236,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           });
         } catch (error) {
           console.error('Failed to create generation task:', error);
-          if (effectiveGenerationType === 'audio') {
-            MessagePlugin.error(error instanceof Error ? error.message : '创建音频任务失败');
+          if (effectiveGenerationType === 'audio' || restoreOriginalInputs) {
+            MessagePlugin.error(error instanceof Error ? error.message : '创建生成任务失败');
           }
           trackSubmitStatus('failed', {
             submitMode: 'setup',
@@ -6996,11 +7257,14 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       },
       [
         prompt,
+        generationDraftValue,
+        videoModels,
         boundImageTarget,
         boundImageTargetMode,
         boundTargetContent,
         effectiveBoundTargetMode,
         generationContent,
+        imageModels,
         isSubmitting,
         selectedModel,
         selectedModelRef,
@@ -7026,8 +7290,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
     );
 
     useEffect(() => {
+      const reroll = (event: Event) => {
+        const detail = (event as CustomEvent<AIInputPrefillEventDetail>).detail;
+        if (!detail || detail.generationType !== 'image' ||
+            (detail.boardId && detail.boardId !== activeTaskbarBoardIdRef.current)) return;
+        void handleGenerate({
+          intent: 'restore',
+          prompt: detail.prompt,
+          content: (detail.images || []).map((image) => ({ ...image, type: 'image' as const })),
+          generationType: 'image',
+          selectedModel: detail.modelRef?.modelId || detail.model || '',
+          selectedModelRef: detail.modelRef,
+          selectedParams: detail.params || {},
+          selectedCount: 1,
+          knowledgeContextRefs: detail.knowledgeContextRefs,
+        });
+      };
+      window.addEventListener(AI_INPUT_REROLL_EVENT, reroll);
+      return () => window.removeEventListener(AI_INPUT_REROLL_EVENT, reroll);
+    }, [handleGenerate]);
+
+    useEffect(() => {
       const submitFromDrawer = async (params: DrawerGenerationSubmitParams) => {
         await handleGenerate({
+          intent: inputIntentRef.current,
           prompt: params.prompt,
           content: params.selectedContent.map((item) => ({
             type: item.type,
@@ -8074,6 +8360,30 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       // Viewport events from SelectionWatcher invalidate these measurements.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [boundInputLayoutTick]);
+    const generationEditorPosition = useMemo(() => {
+      const rect = generationNodeEditor.rect;
+      const board = SelectionWatcherBoardRef.current;
+      if (!rect || !board) return null;
+      const host = (board.host || PlaitBoard.getBoardContainer(board)).getBoundingClientRect();
+      const zoom = board.viewport.zoom;
+      const origin = getViewportOrigination(board) || [0, 0];
+      const x = host.left + (rect.x - origin[0]) * zoom;
+      const y = host.top + (rect.y - origin[1]) * zoom;
+      const right = x + rect.width * zoom;
+      const bottom = y + rect.height * zoom;
+      const width = Math.min(440, inputViewport.width - 24);
+      const height = containerRef.current?.getBoundingClientRect().height || 300;
+      const margin = 12;
+      const maxRight = Math.min(host.right, inputViewport.left + inputViewport.width) - margin;
+      const maxBottom = Math.min(host.bottom, inputViewport.top + inputViewport.height) - margin;
+      // Prefer beside the card. On narrow viewports use the space below it.
+      const beside = right + 16 + width <= maxRight;
+      const left = Math.max(inputViewport.left + margin, Math.min(beside ? right + 16 : x, maxRight - width));
+      const preferredTop = beside ? y : bottom + 12;
+      const top = Math.max(inputViewport.top + margin, Math.min(preferredTop, maxBottom - height));
+      return { left, top, width };
+    }, [generationNodeEditor.rect, boundInputLayoutTick, inputViewport]);
+
     const boundInputPosition = useMemo(() => {
       if (!positionedBoundImageTarget) return null;
 
@@ -8124,7 +8434,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         estimatedHeight,
         inputViewport.height,
         viewportMargin,
-        8,
+        positionedBoundImageTarget.type === 'image' ? 44 : 8,
         inputViewport.top
       );
 
@@ -8404,7 +8714,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       </Popup>
     );
 
-    const boundInputStyle = {
+    const boundInputStyle: React.CSSProperties & Record<`--${string}`, string> = {
       '--ai-input-viewport-width': `${inputViewport.width}px`,
       '--ai-input-viewport-height': `${inputViewport.height}px`,
       '--ai-input-viewport-center': `${inputViewport.left + inputViewport.width / 2}px`,
@@ -8412,20 +8722,22 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         0,
         window.innerHeight - inputViewport.top - inputViewport.height
       )}px`,
-      ...(boundInputPosition
+      ...(generationEditorPosition
+        ? { left: `${generationEditorPosition.left}px`, top: `${generationEditorPosition.top}px`, bottom: 'auto', width: `${generationEditorPosition.width}px`, transform: 'none' }
+        : boundInputPosition
         ? {
             left: `${boundInputPosition.left}px`,
             top: `${boundInputPosition.top}px`,
             bottom: 'auto',
           }
         : {}),
-    } as React.CSSProperties;
+    };
 
     const selectedContentPreview =
       displayContent.length > 0 ? (
         <BoundImageContentPreview
           board={SelectionWatcherBoardRef.current}
-          target={boundImageTarget}
+          target={inputIntent === 'restore' ? null : boundImageTarget}
           items={displayContent}
           language={language}
           enableHoverPreview={true}
@@ -8433,7 +8745,46 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
           removableStartIndex={uploadedContent.length}
         />
       ) : null;
-    const inputContentPreview = selectedContentPreview;
+    const inputContentPreview = (
+      <>
+        {inputIntent === 'restore' && (
+          <div className="ai-input-bar__bound-status ai-input-bar__restore-status" role="status">
+            <span>
+              {language === 'zh'
+                ? generationNodeEditor.activeId ? `${generationType === 'video' ? '视频' : '图片'}生成 · 自动保存` : '使用原生成输入，画布选中项不会自动加入参考'
+                : 'Using original inputs; canvas selection will not add references'}
+            </span>
+            <button
+              type="button"
+              aria-label={generationNodeEditor.activeId ? '收起生成卡片编辑器' : undefined}
+              title={generationNodeEditor.activeId ? '点击画布空白处也可收起' : undefined}
+              onClick={() => {
+                if (generationNodeEditor.activeId) { generationNodeEditor.end(); return; }
+                inputIntentRef.current = undefined;
+                setInputIntent(undefined);
+                lastBoundImageTargetKeyRef.current = null;
+                handleBoundImageTargetChange(null);
+              }}
+            >
+              {generationNodeEditor.activeId ? <X size={15} /> : language === 'zh' ? '结束调整' : 'Finish editing'}
+            </button>
+          </div>
+        )}
+        {generationNodeEditor.activeId && generationNodeEditor.missingReferences && <div className="ai-input-bar__bound-status ai-input-bar__bound-status--failed" role="alert">{generationNodeEditor.missingReferences} 的来源已删除，请移除或重新连接后生成</div>}
+        {selectedContentPreview}
+        {generationNodeEditor.activeId && generationType === 'video' && (
+          <div className="ai-input-bar__generation-roles">
+            {generationDraftValue.references.map((ref, index) => (
+              <label key={ref.referenceId}>参考图 {index + 1}
+                <select aria-label={`参考图 ${index + 1} 角色`} value={ref.role} onChange={event => generationNodeEditor.setRole(ref.referenceId, event.target.value as GenerationNodeReference['role'])}>
+                  <option value="reference">普通参考</option><option value="first-frame">首帧</option><option value="last-frame">尾帧</option>
+                </select>
+              </label>
+            ))}
+          </div>
+        )}
+      </>
+    );
     const composerPreview = boundTargetError ? (
       <>
         <div className="ai-input-bar__bound-status ai-input-bar__bound-status--failed">
@@ -8485,7 +8836,8 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
             className,
             {
               'ai-input-bar--with-inspiration': showInspirationBoard,
-              'ai-input-bar--bound-image': Boolean(boundInputPosition),
+              'ai-input-bar--bound-image': Boolean(boundInputPosition) && !generationNodeEditor.activeId,
+              'ai-input-bar--generation-editor': Boolean(generationNodeEditor.activeId),
               'ai-input-bar--canvas-association-picking': Boolean(
                 canvasAssociationTrigger
               ),
