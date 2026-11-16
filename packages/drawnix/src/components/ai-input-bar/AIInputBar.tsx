@@ -1,9 +1,16 @@
+import {
+  normalizeTuziVideoParams,
+  allowsTuziVideoWithoutPrompt,
+  getTuziVideoComposerParams,
+} from '../../constants/tuzi-video-models';
 import { getAutoCompleteState } from '../../plugins/with-arrow-line-auto-complete-extend';
 import { useGenerationNodeDraft } from '../../hooks/useGenerationNodeDraft';
 import { GenerationNodeData, GenerationNodeReference, isGenerationNode, snapshotGenerationReferences, validateGenerationNode } from '../../services/generation-node';
+
 import type { TaskError } from '../../types/shared/core.types';
 import { toGenerationTaskError } from '../../utils/generation-error-details';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import { getSunoNativeParams, buildSunoNativeInputParams, collectSunoNativeResources } from '../../services/suno-native-params';
 /**
  * AI Input Bar Component
@@ -4429,7 +4436,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
             let processedBlob: Blob = file;
 
-            if (!keepOriginal && file.size > 10 * 1024 * 1024) {
+            if (!keepOriginal && selectedModel !== SEEDREAM_FLASH_MODEL_ID && file.size > 10 * 1024 * 1024) {
               const { compressImageBlob, getCompressionStrategy } =
                 await import('@aitu/utils');
               const strategy = getCompressionStrategy(
@@ -5205,7 +5212,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               getSelectionKey(selectedModel, selectedModelRef),
               selectedParamsRef.current
             );
-      const baseParams = { ...loadedParams };
+      const baseParams = normalizeTuziVideoParams(selectedModel, { ...loadedParams });
       if (isSeedance2ModelId(selectedModel) && baseParams.size?.includes('@')) {
         const [resolution, legacyRatio] = baseParams.size.split('@');
         baseParams.size = resolution;
@@ -5446,8 +5453,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
         const effectiveSelectedModelRef = override
           ? override.selectedModelRef ?? null
           : selectedModelRef;
+        const rawSelectedParams = override?.selectedParams ?? selectedParams;
         const effectiveSelectedParams =
-          override?.selectedParams ?? selectedParams;
+          effectiveGenerationType === 'video'
+            ? getTuziVideoComposerParams(effectiveSelectedModel, rawSelectedParams)
+            : rawSelectedParams;
         const effectiveSelectedCount =
           activeBoundImageTarget?.type === 'text' ||
           activeBoundImageTarget?.type === 'audio'
@@ -5611,6 +5621,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
         if (
           !trimmedPrompt &&
+          !(effectiveGenerationType === 'video' && allowsTuziVideoWithoutPrompt(effectiveSelectedModel, effectiveSelectedParams)) &&
           !(effectiveGenerationType === 'audio' && (isSunoV2Model(effectiveSelectedModel) || isSunoNativeModel(effectiveSelectedModel))) &&
           baseEffectiveContent.length === 0 &&
           submittedCanvasAssociations.length === 0

@@ -77,7 +77,7 @@ import {
   type ModelRef,
   type ProviderProfile,
 } from '../../utils/settings-manager';
-import { runtimeModelDiscovery } from '../../utils/runtime-model-discovery';
+import { runtimeModelDiscovery, filterModelsForSelection } from '../../utils/runtime-model-discovery';
 import {
   queueProviderSettingsNavigation,
   TUZI_GROUPS_ADDED_EVENT,
@@ -138,6 +138,7 @@ function ensureProviderModels(
       );
     })
     .catch((error) => {
+      if (error instanceof Error && error.name === 'AbortError') return;
       const message =
         error instanceof Error ? error.message : '模型列表获取失败';
       runtimeModelDiscovery.setError(profile.id, message);
@@ -275,7 +276,7 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   onSelect,
   onSelectModel,
   language = 'zh',
-  models = IMAGE_MODELS,
+  models: inputModels = IMAGE_MODELS,
   modelType,
   placement = 'auto',
   header,
@@ -292,7 +293,8 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   strictModelList = false,
 }) => {
   const { setAppState } = useDrawnix();
-  useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const modelRevision = useSyncExternalStore(subscribeToModelDiscovery, getModelDiscoveryRevision);
+  const models = useMemo(() => filterModelsForSelection(inputModels), [inputModels, modelRevision]);
   const { value: isOpen, setValue: setIsOpen } = useControllableState({
     controlledValue: controlledIsOpen,
     defaultValue: false,
@@ -480,8 +482,10 @@ export const ModelDropdown: React.FC<ModelDropdownProps> = ({
   );
   const shouldUseVendorIconInTrigger =
     currentModel?.vendor === ModelVendor.HAPPYHORSE;
-  // 使用 shortCode 或默认简写
-  const shortCode = currentModel?.shortCode || 'img';
+  // Older discovered catalogs may lack the built-in presentation metadata.
+  const shortCode = currentModel?.shortCode ||
+    (currentModel && getStaticModelConfig(currentModel.id)?.shortCode) ||
+    currentModel?.shortLabel || currentModel?.label || currentModel?.id;
   const isSearching = Boolean(searchQuery.trim());
   const effectiveModelType = modelType || currentModel?.type || models[0]?.type;
   const typeLabel = effectiveModelType

@@ -1,7 +1,14 @@
+import { getTuziVideoModelConfig } from '../../constants/tuzi-video-models';
 import { getSunoNativeAction, isSunoNativeModel } from '../suno-native';
+import {
+  SEEDREAM_FLASH_MODEL_ID,
+  SEEDREAM_FLASH_PATH,
+  SEEDREAM_FLASH_REQUEST_SCHEMA,
+} from '../../constants/seedream-flash';
 import {
   isAsyncImageModel,
   ModelVendor,
+  SEEDREAM_55_MODEL_ID,
   type ModelConfig,
 } from '../../constants/model-config';
 import type { PricingEndpointInfo } from '../../utils/model-pricing-types';
@@ -140,7 +147,7 @@ function isKlingO1Model(model: ModelConfig): boolean {
 }
 
 function isStandardKlingVideoModel(model: ModelConfig): boolean {
-  if (model.type !== 'video' || isKlingO1Model(model)) {
+  if (model.type !== 'video' || isKlingO1Model(model) || model.id.toLowerCase() === 'kling-4.0') {
     return false;
   }
 
@@ -406,6 +413,18 @@ function inferImageBindings(
     (isTuziProfile(profile) && isTuziGPTImageAlias(model.id));
   const isNanoBanana21 = model.id === 'gemini-nano-banana-2.1';
 
+  if (model.id === SEEDREAM_FLASH_MODEL_ID) {
+    return [buildBinding(profile, model, {
+      protocol: 'openai.images.generations',
+      requestSchema: SEEDREAM_FLASH_REQUEST_SCHEMA,
+      responseSchema: 'openai.image.data',
+      submitPath: SEEDREAM_FLASH_PATH,
+      baseUrlStrategy: 'trim-v1',
+      metadata: { image: { action: 'generation', maxImageCount: 10, supportsMask: false } },
+      priority: 630, confidence: 'high', source: 'template',
+    })];
+  }
+
   if (isTuziProfile(profile) && model.id === 'flux-3-image') {
     return [buildBinding(profile, model, {
       protocol: 'openai.images.generations',
@@ -451,12 +470,18 @@ function inferImageBindings(
   }
 
   if (isSeedreamModel(model)) {
+    const useTuziSeedream55V3 =
+      isTuziProfile(profile) &&
+      model.id.toLowerCase() === SEEDREAM_55_MODEL_ID.toLowerCase();
     bindings.push(
       buildBinding(profile, model, {
         protocol: 'openai.images.generations',
         requestSchema: 'openai.image.seedream-json',
         responseSchema: 'openai.image.data',
-        submitPath: '/images/generations',
+        submitPath: useTuziSeedream55V3
+          ? '/api/v3/images/generations'
+          : '/images/generations',
+        ...(useTuziSeedream55V3 ? { baseUrlStrategy: 'trim-v1' } : {}),
         priority: 520,
         confidence: 'high',
         source: 'template',
@@ -610,6 +635,7 @@ function inferVideoBindings(
   model: ModelConfig
 ): ProviderModelBinding[] {
   const bindings: ProviderModelBinding[] = [];
+  const tuziConfig = getTuziVideoModelConfig(model.id);
 
   if (isStandardKlingVideoModel(model)) {
     bindings.push(
@@ -660,6 +686,7 @@ function inferVideoBindings(
   if (isHappyHorseModel(model)) {
     bindings.push(
       buildBinding(profile, model, {
+        baseUrlStrategy: tuziConfig ? 'ensure-v1' : undefined,
         protocol: 'happyhorse.video',
         requestSchema: 'happyhorse.video.json',
         responseSchema: 'happyhorse.video.task',
@@ -733,15 +760,25 @@ function inferVideoBindings(
 
     bindings.push(
       buildBinding(profile, model, {
+        baseUrlStrategy: tuziConfig ? 'ensure-v1' : undefined,
         protocol: 'openai.async.video',
-        requestSchema: isSeedance2Model(model)
+        requestSchema: tuziConfig ? 'tuzi.video.generation-json'
+          : isSeedance2Model(model)
           ? 'doubao.seedance-2.video.content-json'
           : 'openai.video.form-input-reference',
         responseSchema: 'openai.async.task',
         submitPath: '/videos',
         pollPathTemplate: '/videos/{taskId}',
         metadata:
-          seedance2Metadata ||
+          (tuziConfig ? {
+            video: {
+              allowedDurations: [...tuziConfig.durationOptions.map((option) => option.value), ...(model.id === 'wan3.0-video' ? ['-1'] : [])],
+              defaultDuration: tuziConfig.defaultDuration,
+              durationField: model.id === 'wan3.0-video' ? 'duration' : 'seconds',
+              strictDurationValidation: true,
+              downloadPathTemplate: '/videos/{taskId}/content',
+            },
+          } : undefined) || seedance2Metadata ||
           (isSoraModel(model) && isOfficialOpenAIProfile(profile)
             ? {
                 video: {
@@ -860,6 +897,7 @@ function shouldUseDiscoveredEndpointHintForModel(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
 ): boolean {
+  if (model.id === SEEDREAM_FLASH_MODEL_ID) return false;
   if (isSunoNativeModel(model.id)) return false;
   if (isSunoV2Model(model.id)) {
     const action = getSunoV2Action(model.id);

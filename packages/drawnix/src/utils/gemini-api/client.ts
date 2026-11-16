@@ -62,6 +62,7 @@ export class GeminiClient {
       quality?: '1k' | '2k' | '4k';
       thinking?: 'minimal' | 'medium' | 'high';
       count?: number;
+      params?: Record<string, unknown>;
       model?: string; // 支持指定模型
       modelRef?: ModelRef | null;
       requestId?: string;

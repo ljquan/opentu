@@ -1,3 +1,8 @@
+import {
+  SEEDREAM_FLASH_MODEL_ID,
+  SEEDREAM_FLASH_PATH,
+  SEEDREAM_FLASH_REQUEST_SCHEMA,
+} from '../../constants/seedream-flash';
 import type {
   InvocationPlan,
   InvocationPlanRequest,
@@ -156,6 +161,23 @@ export class InvocationPlanner {
     );
     const bindings = this.repositories
       .getModelBindings(targetModelRef, request.operation)
+      .map((binding): ProviderModelBinding => {
+        // Older discovery may have persisted a v1 or asynchronous Flash route.
+        if (
+          binding.modelId !== SEEDREAM_FLASH_MODEL_ID || binding.operation !== 'image' ||
+          !['openai.images.generations', 'openai.images.edits', 'openai.async.media'].includes(binding.protocol)
+        ) return binding;
+        return {
+          ...binding,
+          protocol: 'openai.images.generations',
+          requestSchema: SEEDREAM_FLASH_REQUEST_SCHEMA,
+          responseSchema: 'openai.image.data',
+          submitPath: SEEDREAM_FLASH_PATH,
+          baseUrlStrategy: 'trim-v1',
+          pollPathTemplate: undefined,
+          metadata: { ...binding.metadata, image: { action: 'generation', maxImageCount: 10, supportsMask: false } },
+        };
+      })
       .filter(
         (binding) =>
           binding.profileId === targetModelRef.profileId &&
