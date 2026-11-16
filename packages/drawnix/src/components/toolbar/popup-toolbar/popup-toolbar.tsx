@@ -2,6 +2,7 @@ import { resizeCanvasImage } from '../../../services/canvas-operations/resize-ca
 import Stack from '../../stack';
 import { ImageToolbarContents } from './image-toolbar-contents';
 import { SeedreamContinueButton } from './seedream-continue-button';
+import { GenerationNodeActions } from './generation-node-actions';
 import type { ImageToolMode } from './canvas-image-tools-dialog';
 import { getCanvasBoardBinding, type CanvasBoardBinding } from '../../../services/canvas-operations/canvas-board-ref';
 import { insertSplitImages } from '../../../services/canvas-operations/insert-split-images';
@@ -248,6 +249,8 @@ export const PopupToolbar = () => {
   const board = useBoard();
   // 过滤掉 WorkZone 元素，避免点击 WorkZone 时弹出 popup-toolbar
   const allSelectedElements = getSelectedElements(board);
+  const generationSelection = allSelectedElements.length > 0 &&
+    allSelectedElements.every((element) => element.generationNode || element.generationInput);
   const selectedElements = allSelectedElements.filter(
     (element) => !isWorkZoneElement(element) && !element.generationNode && !element.generationInput
   );
@@ -395,7 +398,7 @@ export const PopupToolbar = () => {
   }, [board, speechSelectionKey, movingOrDragging]);
 
   // popup-toolbar 的显示逻辑
-  const open = selectedElements.length > 0 && !isSelectionMoving(board);
+  const open = (selectedElements.length > 0 || generationSelection) && !isSelectionMoving(board);
   const { viewport, selection, children } = board;
   const { refs, floatingStyles } = useFloating({
     placement: popupToolbarPlacement,
@@ -457,7 +460,7 @@ export const PopupToolbar = () => {
   } = {
     fill: 'red',
   };
-  if (open && !movingOrDragging) {
+  if (open && !movingOrDragging && !generationSelection) {
     const hasFill =
       selectedElements.some((value) => hasFillProperty(board, value)) &&
       !PlaitBoard.hasBeenTextEditing(board);
@@ -1440,6 +1443,9 @@ export const PopupToolbar = () => {
           data-testid="popup-toolbar"
         >
           <Stack.Row gap={1}>
+            {generationSelection ? (
+              <GenerationNodeActions board={board} elements={allSelectedElements} language={language} />
+            ) : (
             <ImageToolbarContents enabled={!!state.hasImageEdit} container={PlaitBoard.getBoardContainer(board)}>
             {/* ========== 左侧：公共属性图标（样式相关，位置相对固定） ========== */}
             {state.hasFill && (
@@ -2838,6 +2844,7 @@ export const PopupToolbar = () => {
               />
             )}
             </ImageToolbarContents>
+            )}
           </Stack.Row>
         </Island>
       )}

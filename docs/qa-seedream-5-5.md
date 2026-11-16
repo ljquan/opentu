@@ -325,3 +325,11 @@ pnpm exec tsc -p apps/web/tsconfig.app.json --noEmit
 - QA 更新本文件；DOC 更新原图缓存发布说明及现有 OpenSpec 方案/任务。生产需先配置固定图片下载转发规则，再发布前端；无新依赖、环境变量或迁移。未部署、未合并。分层 GET 的完整恢复仍依赖服务端元数据，已过期且没有本地缓存的图片不能恢复；99 层真实压力、生产 SW 独立构建、远程 CI 结果不在本地验证结论内。
 
 ![真实 OCR 文字从 SUMMER SALE 编辑为 SUMMER DEAL](./images/seedream-55-ocr-editing.png)
+
+## 2026-11-16：PR #340 冲突解决与部署核对
+
+- 合并前工作区干净，功能分支与远程均为 `7c2ef856`；显式 fetch 后合并 `origin/develop`（`037a6eab`，包含 #339 生成卡片编辑/删除操作）。唯一冲突在 `popup-toolbar.tsx` 的相邻 import，保留 `SeedreamContinueButton` 和 `GenerationNodeActions` 两个导入。审查自动合并的选中判断、工具栏显示及 JSX 分支，保留上游生成卡片操作和本 PR 普通图片的连续编辑、分层/OCR 操作。
+- 使用上节相同 Vitest 命令与范围，增加 `src/components/toolbar/popup-toolbar/generation-node-actions.test.tsx`：28 个文件、640 项通过，覆盖上游编辑/删除操作及原有 Seedream/Flash、缓存与恢复回归。日志 `/tmp/opentu340-conflict-tests.log`。未增加页面交互或收费调用。
+- Drawnix/Web 类型检查均通过；Web 主应用构建通过（53.56 秒，`/tmp/opentu340-conflict-build`），沿用既有 Sass、大 chunk 和混合静态/动态导入提示。OpenSpec 严格校验与差异空白检查通过。本轮未重跑全仓 lint、全仓测试或生产 SW 独立构建。
+- 已读取更新前 CI `43841904954` 的失败日志：Drawnix 全量测试有 9 个文件失败、388 个通过、1 个跳过，另有 AI Chat 包体积超过 1 MB 上限 9.27 kB。失败涉及漫画导出、提示词历史、视频参数/路由、工作区存储、备份加密、输入解析和工作流导出；本轮没有证明这些失败与 PR 的归因，未通过提高体积阈值或修改无关功能规避检查。相关本地回归通过不代表远程 CI 全绿，更新提交后以新检查结果为准。
+- QA 更新本文件；DOC 在 `seedream-image-cache.md` 补充预发布/生产实际配置核对和发布顺序。Nginx 模板已经包含固定图片转发规则，但现有上传脚本仍指向旧的 `aitu-releases.conf`，不能假定覆盖生效站点；需部署时检查 `nginx -T`，备份实际配置、加入 location、`nginx -t`、reload，再发布前端。无新增环境变量、依赖、迁移或 Tuzi API 改动；未连接线上服务器、部署或合并 PR。
