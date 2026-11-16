@@ -1,5 +1,10 @@
 import { getSunoNativeAction, isSunoNativeModel } from '../suno-native';
 import {
+  SEEDREAM_FLASH_MODEL_ID,
+  SEEDREAM_FLASH_PATH,
+  SEEDREAM_FLASH_REQUEST_SCHEMA,
+} from '../../constants/seedream-flash';
+import {
   isAsyncImageModel,
   ModelVendor,
   type ModelConfig,
@@ -405,6 +410,18 @@ function inferImageBindings(
     isGptImageModel(model) ||
     (isTuziProfile(profile) && isTuziGPTImageAlias(model.id));
   const isNanoBanana21 = model.id === 'gemini-nano-banana-2.1';
+
+  if (model.id === SEEDREAM_FLASH_MODEL_ID) {
+    return [buildBinding(profile, model, {
+      protocol: 'openai.images.generations',
+      requestSchema: SEEDREAM_FLASH_REQUEST_SCHEMA,
+      responseSchema: 'openai.image.data',
+      submitPath: SEEDREAM_FLASH_PATH,
+      baseUrlStrategy: 'trim-v1',
+      metadata: { image: { action: 'generation', maxImageCount: 10, supportsMask: false } },
+      priority: 630, confidence: 'high', source: 'template',
+    })];
+  }
 
   if (isTuziProfile(profile) && model.id === 'flux-3-image') {
     return [buildBinding(profile, model, {
@@ -860,6 +877,7 @@ function shouldUseDiscoveredEndpointHintForModel(
   profile: ProviderProfileSnapshot,
   model: ModelConfig
 ): boolean {
+  if (model.id === SEEDREAM_FLASH_MODEL_ID) return false;
   if (isSunoNativeModel(model.id)) return false;
   if (isSunoV2Model(model.id)) {
     const action = getSunoV2Action(model.id);

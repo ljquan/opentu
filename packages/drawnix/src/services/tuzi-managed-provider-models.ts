@@ -23,6 +23,7 @@ export async function discoverAndUseAllTuziProviderModels(
     ).discoveredModels;
     return allModels.length;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
     const message = error instanceof Error ? error.message : '模型同步失败';
     runtimeModelDiscovery.setError(provider.id, message);
     throw error;

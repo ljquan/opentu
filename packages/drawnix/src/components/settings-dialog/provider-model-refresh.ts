@@ -49,12 +49,16 @@ export async function refreshChangedProviderModels(
               profile.baseUrl || TUZI_PROVIDER_DEFAULT_BASE_URL,
               profile.apiKey.trim()
             );
-        runtimeModelDiscovery.applySelection(
-          profile.id,
-          models.map((model) => model.id)
-        );
+        runtimeModelDiscovery.applySelection(profile.id, [
+          ...models.map((model) => model.id),
+          ...runtimeModelDiscovery
+            .getState(profile.id)
+            .models.filter((model) => model.tags?.includes('manual'))
+            .map((model) => model.id),
+        ]);
         return null;
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return null;
         // Do not expose gateway responses that might contain credentials.
         runtimeModelDiscovery.setError(
           profile.id,

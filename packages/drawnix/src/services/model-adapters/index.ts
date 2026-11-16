@@ -9,6 +9,7 @@ export * from './mj-image-adapter';
 export * from './flux-adapter';
 export * from './gpt-image-adapter';
 export * from './seedream-adapter';
+export * from './seedream-flash-adapter';
 export * from './seedance-adapter';
 export * from './tuzi-gpt-image-adapter';
 export * from './custom-http-adapter';

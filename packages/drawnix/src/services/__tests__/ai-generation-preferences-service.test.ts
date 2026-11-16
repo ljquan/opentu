@@ -271,6 +271,20 @@ describe('ai-generation-preferences-service', () => {
     ).toMatchObject({ sunoAction: 'lyrics' });
   });
 
+  it('persists Flash tiers and controls per provider without legacy Seedream parameters', async () => {
+    const { loadScopedAIImageToolPreferences, saveAIImageToolPreferences } = await import('../ai-generation-preferences-service');
+    const modelId = 'doubao-seedream-5-0-flash-260915';
+    saveAIImageToolPreferences({ currentModel: modelId, currentSelectionKey: `provider-a::${modelId}`, aspectRatio: 'auto',
+      extraParams: { size: '1.5K', background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard', seedream_quality: '3k' } });
+    const stored = loadScopedAIImageToolPreferences(modelId, `provider-a::${modelId}`).extraParams;
+    expect(stored).toMatchObject({ size: '1.5K', background: 'transparent', output_format: 'png', watermark: 'false', optimize_prompt_mode: 'standard' });
+    expect(stored).not.toHaveProperty('seedream_quality');
+    saveAIImageToolPreferences({ currentModel: modelId, currentSelectionKey: `provider-b::${modelId}`, aspectRatio: 'auto',
+      extraParams: { size: '2K', background: 'opaque', watermark: 'true' } });
+    expect(loadScopedAIImageToolPreferences(modelId, `provider-b::${modelId}`).extraParams).toMatchObject({ size: '2K', background: 'opaque', watermark: 'true' });
+    expect(loadScopedAIImageToolPreferences(modelId, `provider-a::${modelId}`).extraParams).toMatchObject({ size: '1.5K', background: 'transparent', watermark: 'false' });
+  });
+
   it.each([
     ['doubao-seedream-4-5-251128', '4k'],
     ['doubao-seedream-5-0-lite-260128', '3k'],

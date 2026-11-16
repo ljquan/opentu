@@ -25,6 +25,7 @@ import {
   IMAGE_PARAMS,
 } from '../../constants/model-config';
 import { geminiSettings, type ModelRef } from '../../utils/settings-manager';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import { normalizeToClosestImageSize } from '../../services/media-api/utils';
 import { generateTaskId } from '../../utils/task-utils';
 import {
@@ -197,7 +198,7 @@ async function executeAsync(
   if (promptError) return promptError;
 
   try {
-    const requestedModel = params.model || getCurrentImageModel();
+    const requestedModel = modelRef?.modelId || params.model || getCurrentImageModel();
     const preferredRequestSchema = shouldUseEditSchema(params)
       ? GPT_IMAGE_EDIT_REQUEST_SCHEMAS
       : undefined;
@@ -234,7 +235,7 @@ async function executeAsync(
         prompt,
         model: requestedModel,
         modelRef: modelRef || null,
-        size: size || '1x1',
+        size: size || (requestedModel === SEEDREAM_FLASH_MODEL_ID ? '1K' : '1x1'),
         generationMode:
           params.generationMode ||
           (isGPTImageEditRequestSchema(preferredRequestSchema)
@@ -508,7 +509,7 @@ export const imageGenerationTool: MCPTool = {
     // 规范化 size：将不在可用范围内的 size 自动转换为最接近的可用值
     const typedParams: ImageGenerationParams = {
       ...rawParams,
-      size: (rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel()) === FLUX_3_IMAGE_MODEL_ID
+      size: [FLUX_3_IMAGE_MODEL_ID, SEEDREAM_FLASH_MODEL_ID].includes(rawParams.modelRef?.modelId || rawParams.model || getCurrentImageModel())
         ? rawParams.size
         : rawParams.size
         ? normalizeToClosestImageSize(rawParams.size, '1x1')
