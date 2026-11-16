@@ -112,6 +112,14 @@ export interface RuntimeModelDiscoveryOptions {
   signal?: AbortSignal;
   /** Supplements returned model IDs without adding models to the authenticated list. */
   modelMetadata?: readonly RemoteModelListItem[];
+  loadModelMetadata?: () => Promise<readonly RemoteModelListItem[]>;
+}
+
+class ModelDiscoverySupersededError extends Error {
+  constructor() {
+    super('模型查询已被新的配置或查询替代');
+    this.name = 'AbortError';
+  }
 }
 
 function isAbortSignal(value: unknown): value is AbortSignal {
@@ -1517,13 +1525,27 @@ function createPinnedRuntimeModel(
 function createStateFromCatalog(
   catalog: ProviderCatalog
 ): RuntimeModelDiscoveryState {
+  // Public marketplace catalogs never verified the current Key's model list.
+  const profile = getProfileById(catalog.profileId);
+  const credentialsChanged = Boolean(
+    catalog.signature &&
+      profile &&
+      typeof profile.apiKey === 'string' &&
+      catalog.signature !==
+        buildDiscoverySignature(profile.baseUrl || '', profile.apiKey)
+  );
+  const cachedModels = (
+    Array.isArray(catalog.discoveredModels) ? catalog.discoveredModels : []
+  ).filter(
+    (model) =>
+      model.tags?.includes('manual') ||
+      (!credentialsChanged &&
+        catalog.discoverySource !== 'marketplace' &&
+        !model.tags?.includes('pricing-suno-v2'))
+  );
   const discoveredModels = decorateRuntimeModels(
     catalog.profileId,
-    Array.isArray(catalog.discoveredModels)
-      ? catalog.discoveredModels.filter((model) =>
-          !model.tags?.includes('pricing-suno-v2') || model.tags.includes('manual')
-        )
-      : [],
+    cachedModels,
     catalog.discoverySource
   );
   const selectedModelIds = normalizeSelectedModelIds(
@@ -1640,7 +1662,10 @@ class RuntimeModelDiscoveryStore {
 
     providerCatalogsSettings.addListener(this.handleCatalogSettingsChange);
     providerProfilesSettings.addListener(this.handleProfileSettingsChange);
-    settingsManager.addListener('providerPricingCache', this.handlePricingSettingsChange);
+    settingsManager.addListener(
+      'providerPricingCache',
+      this.handlePricingSettingsChange
+    );
     invocationPresetsSettings.addListener(this.handlePresetSettingsChange);
     settingsManager.addListener(
       'activePresetId',
@@ -1718,12 +1743,24 @@ class RuntimeModelDiscoveryStore {
   };
 
   private handleProfileSettingsChange = (): void => {
+    for (const profile of providerProfilesSettings.get()) {
+      this.invalidateIfConfigChanged(
+        profile.id,
+        profile.baseUrl || '',
+        profile.apiKey || ''
+      );
+    }
     this.syncRuntimeModelConfigs();
     this.emit();
   };
 
   private handlePricingSettingsChange = (): void => {
-    this.handleCatalogSettingsChange(providerCatalogsSettings.get());
+    for (const [profileId, state] of this.catalogStates) {
+      const refreshed = createStateFromCatalog(toCatalog(state));
+      this.catalogStates.set(profileId, { ...refreshed, status: state.status });
+    }
+    this.syncRuntimeModelConfigs();
+    this.emit();
   };
 
   private handleActivePresetIdChange = (): void => {
@@ -1801,7 +1838,11 @@ class RuntimeModelDiscoveryStore {
 
   getInFlightDiscovery(profileId: string): Promise<ModelConfig[]> | null {
     for (const [key, discovery] of this.inFlightDiscoveries) {
-      if (key.startsWith(`${profileId}::`)) {
+      if (
+        key.startsWith(
+          `${profileId}::${this.getCatalogState(profileId).signature}::`
+        )
+      ) {
         return discovery;
       }
     }
@@ -1982,7 +2023,22 @@ class RuntimeModelDiscoveryStore {
     if (!state.signature || state.signature === signature) {
       return;
     }
-    this.clear(profileId);
+    this.discoveryRevisions.set(
+      profileId,
+      (this.discoveryRevisions.get(profileId) || 0) + 1
+    );
+    const manualModels = state.discoveredModels.filter((model) =>
+      model.tags?.includes('manual')
+    );
+    this.setCatalogState(profileId, {
+      ...createDefaultState(profileId),
+      discoveredModels: manualModels,
+      selectedModelIds: normalizeSelectedModelIds(
+        manualModels,
+        state.selectedModelIds
+      ),
+      manualBindings: state.manualBindings,
+    });
   }
 
   applySelection(
@@ -2131,6 +2187,10 @@ class RuntimeModelDiscoveryStore {
   }
 
   clear(profileId = LEGACY_DEFAULT_PROVIDER_PROFILE_ID): void {
+    this.discoveryRevisions.set(
+      profileId,
+      (this.discoveryRevisions.get(profileId) || 0) + 1
+    );
     this.setCatalogState(profileId, createDefaultState(profileId));
     if (profileId === LEGACY_DEFAULT_PROVIDER_PROFILE_ID) {
       removeLegacyPersistedState();
@@ -2196,7 +2256,10 @@ class RuntimeModelDiscoveryStore {
         : 'models-endpoint'
     }`;
     const existingDiscovery = this.inFlightDiscoveries.get(discoveryKey);
-    if (existingDiscovery) {
+    if (
+      existingDiscovery &&
+      this.getCatalogState(profileId).signature === signature
+    ) {
       return existingDiscovery;
     }
 
@@ -2225,7 +2288,10 @@ class RuntimeModelDiscoveryStore {
       ) {
         this.setCatalogState(
           profileId,
-          { ...current, status: current.discoveredModels.length ? 'ready' : 'idle' },
+          {
+            ...current,
+            status: current.discoveredModels.length ? 'ready' : 'idle',
+          },
           false
         );
       }
@@ -2250,12 +2316,29 @@ class RuntimeModelDiscoveryStore {
     options: RuntimeModelDiscoveryOptions
   ): Promise<ModelConfig[]> {
     const state = this.getCatalogState(profileId);
+    const retainedModels =
+      state.signature === signature
+        ? state.discoveredModels
+        : state.discoveredModels.filter((model) =>
+            model.tags?.includes('manual')
+          );
 
     if (options.shouldApply?.() === false) {
       throw new DOMException('Model discovery was superseded', 'AbortError');
     }
     const discoveryRevision = (this.discoveryRevisions.get(profileId) || 0) + 1;
     this.discoveryRevisions.set(profileId, discoveryRevision);
+    const assertCurrent = () => {
+      if (
+        this.discoveryRevisions.get(profileId) !== discoveryRevision ||
+        options.shouldApply?.() === false
+      ) {
+        throw new ModelDiscoverySupersededError();
+      }
+      if (options.signal?.aborted) {
+        throw new DOMException('模型查询已取消', 'AbortError');
+      }
+    };
 
     this.setCatalogState(
       profileId,
@@ -2263,129 +2346,168 @@ class RuntimeModelDiscoveryStore {
         ...state,
         status: 'loading',
         lastAutoRefreshVersion:
-          state.signature === signature ? state.lastAutoRefreshVersion : undefined,
+          state.signature === signature
+            ? state.lastAutoRefreshVersion
+            : undefined,
         sourceBaseUrl: normalizedBaseUrl,
         signature,
+        discoveredModels: retainedModels,
+        selectedModelIds: normalizeSelectedModelIds(
+          retainedModels,
+          state.selectedModelIds
+        ),
         error: null,
       },
       false
     );
 
-    const rawText = await fetchRemoteModelListWithFallback(
-      normalizedBaseUrl,
-      trimmedApiKey,
-      fallbackBaseUrls,
-      options.signal,
-      profileId.startsWith('tuzi-managed-') ||
-        profileId.startsWith('tuzi-token-')
-    );
-
-    let parsed: unknown;
     try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      throw new Error('模型列表接口未返回有效 JSON');
-    }
+      const rawText = await fetchRemoteModelListWithFallback(
+        normalizedBaseUrl,
+        trimmedApiKey,
+        fallbackBaseUrls,
+        options.signal,
+        profileId.startsWith('tuzi-managed-') ||
+          profileId.startsWith('tuzi-token-')
+      );
 
-    const data = (parsed as { data?: unknown }).data;
-    if (!Array.isArray(data)) {
-      throw new Error('模型列表接口缺少 data 数组');
-    }
-    const metadataById = new Map(
-      options.modelMetadata?.map((model) => [model.id, model])
-    );
-
-    const adaptedModels: ModelConfig[] = [];
-    const seen = new Set<string>();
-    const useRemoteDisplayName = isTuziCompatibleBaseUrl(normalizedBaseUrl);
-    for (const item of data) {
-      const remoteModel = {
-        ...metadataById.get(item?.id),
-        ...item,
-      } as RemoteModelListItem;
-      const adapted = adaptRuntimeModel(remoteModel);
-      if (!adapted || seen.has(adapted.id)) {
-        continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        throw new Error('模型列表接口未返回有效 JSON');
       }
-      if (useRemoteDisplayName) {
-        adapted.label = remoteModel.id;
-        adapted.shortLabel = remoteModel.id;
+
+      const parsedData = (parsed as { data?: unknown } | null)?.data;
+      if (!Array.isArray(parsedData)) {
+        throw new Error('模型列表接口缺少 data 数组');
       }
-      if (remoteModel.description?.trim()) {
-        adapted.description = remoteModel.description.trim();
+      assertCurrent();
+      let metadata: readonly RemoteModelListItem[] =
+        options.modelMetadata || [];
+      try {
+        metadata = (await options.loadModelMetadata?.()) || metadata;
+      } catch {
+        // Pricing and classification are optional; they cannot grant model access.
       }
-      seen.add(adapted.id);
-      adaptedModels.push(attachRuntimeSource(profileId, adapted));
-    }
+      assertCurrent();
+      const metadataById = new Map(metadata.map((model) => [model.id, model]));
 
-    if (adaptedModels.length === 0) {
-      throw new Error('模型列表为空');
-    }
+      const adaptedModels: ModelConfig[] = [];
+      const seen = new Set<string>();
+      const useRemoteDisplayName = isTuziCompatibleBaseUrl(normalizedBaseUrl);
+      for (const item of parsedData) {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string')
+          continue;
+        const remoteModel = {
+          ...metadataById.get(item.id),
+          ...item,
+          id: item.id,
+        } as RemoteModelListItem;
+        const adapted = adaptRuntimeModel(remoteModel);
+        if (!adapted || seen.has(adapted.id)) {
+          continue;
+        }
+        if (useRemoteDisplayName) {
+          adapted.label = remoteModel.id;
+          adapted.shortLabel = remoteModel.id;
+        }
+        if (remoteModel.description?.trim()) {
+          adapted.description = remoteModel.description.trim();
+        }
+        seen.add(adapted.id);
+        adaptedModels.push(attachRuntimeSource(profileId, adapted));
+      }
 
-    if (
-      options.signal?.aborted ||
-      options.shouldApply?.() === false ||
-      (options.refreshForVersion &&
-        this.discoveryRevisions.get(profileId) !== discoveryRevision)
-    ) {
-      throw new DOMException('Model discovery was superseded', 'AbortError');
-    }
-    // Users may change selections or manual bindings while the request is in flight.
-    const latestState = this.getCatalogState(profileId);
-    const selectionState = options.refreshForVersion ? latestState : state;
-    const discoveredModels = mergeDiscoveredWithManualModels(
-      adaptedModels,
-      selectionState.discoveredModels
-    );
-    const manualModelIds = new Set(
-      discoveredModels
-        .filter((model) => (model.tags || []).includes('manual'))
-        .map((model) => model.id)
-    );
-    const previouslyKnownIds = new Set(
-      selectionState.discoveredModels.map((model) => model.id)
-    );
-    const selectedModelIds = options.selectAll
-      ? discoveredModels.map((model) => model.id)
-      : options.refreshForVersion
-      ? normalizeSelectedModelIds(discoveredModels, [
-          ...selectionState.selectedModelIds,
-          ...adaptedModels
-            .filter((model) => !previouslyKnownIds.has(model.id))
-            .map((model) => model.id),
-        ])
-      : state.signature === signature
-      ? normalizeSelectedModelIds(discoveredModels, state.selectedModelIds)
-      : normalizeSelectedModelIds(
-          discoveredModels,
-          state.selectedModelIds.filter((modelId) =>
-            manualModelIds.has(modelId)
-          )
-        );
-    const models = buildSelectedModels(discoveredModels, selectedModelIds);
+      if (adaptedModels.length === 0) {
+        throw new Error('模型列表为空');
+      }
 
-    this.setCatalogState(
-      profileId,
-      {
+      if (
+        options.signal?.aborted ||
+        options.shouldApply?.() === false ||
+        (options.refreshForVersion &&
+          this.discoveryRevisions.get(profileId) !== discoveryRevision)
+      ) {
+        throw new DOMException('Model discovery was superseded', 'AbortError');
+      }
+      // Users may change selections or manual bindings while the request is in flight.
+      const latestState = this.getCatalogState(profileId);
+      const selectionState = options.refreshForVersion ? latestState : state;
+      const discoveredModels = mergeDiscoveredWithManualModels(
+        adaptedModels,
+        selectionState.discoveredModels
+      );
+      const manualModelIds = new Set(
+        discoveredModels
+          .filter((model) => (model.tags || []).includes('manual'))
+          .map((model) => model.id)
+      );
+      const previouslyKnownIds = new Set(
+        selectionState.discoveredModels.map((model) => model.id)
+      );
+      const selectedModelIds = options.selectAll
+        ? discoveredModels.map((model) => model.id)
+        : options.refreshForVersion
+        ? normalizeSelectedModelIds(discoveredModels, [
+            ...selectionState.selectedModelIds,
+            ...adaptedModels
+              .filter((model) => !previouslyKnownIds.has(model.id))
+              .map((model) => model.id),
+          ])
+        : state.signature === signature
+        ? normalizeSelectedModelIds(discoveredModels, state.selectedModelIds)
+        : normalizeSelectedModelIds(
+            discoveredModels,
+            state.selectedModelIds.filter((modelId) =>
+              manualModelIds.has(modelId)
+            )
+          );
+      const models = buildSelectedModels(discoveredModels, selectedModelIds);
+
+      this.setCatalogState(
         profileId,
-        lastAutoRefreshVersion:
-          options.refreshForVersion || latestState.lastAutoRefreshVersion,
-        status: 'ready',
-        discoverySource: 'models-endpoint',
-        sourceBaseUrl: normalizedBaseUrl,
-        signature,
-        discoveredAt: Date.now(),
-        discoveredModels,
-        selectedModelIds,
-        manualBindings: selectionState.manualBindings,
-        models,
-        error: null,
-      },
-      !options.refreshForVersion
-    );
-    if (options.refreshForVersion) await this.persistCatalogs();
+        {
+          profileId,
+          lastAutoRefreshVersion:
+            options.refreshForVersion || latestState.lastAutoRefreshVersion,
+          status: 'ready',
+          discoverySource: 'models-endpoint',
+          sourceBaseUrl: normalizedBaseUrl,
+          signature,
+          discoveredAt: Date.now(),
+          discoveredModels,
+          selectedModelIds,
+          manualBindings: selectionState.manualBindings,
+          models,
+          error: null,
+        },
+        !options.refreshForVersion
+      );
+      if (options.refreshForVersion) await this.persistCatalogs();
 
-    return adaptedModels;
+      return adaptedModels;
+    } catch (error) {
+      if (
+        options.signal?.aborted &&
+        this.discoveryRevisions.get(profileId) === discoveryRevision
+      ) {
+        const currentState = this.getCatalogState(profileId);
+        this.setCatalogState(
+          profileId,
+          {
+            ...currentState,
+            status: currentState.discoveredModels.length > 0 ? 'ready' : 'idle',
+          },
+          false
+        );
+      }
+      assertCurrent();
+      if (error instanceof Error) {
+        error.message = error.message.split(trimmedApiKey).join('[REDACTED]');
+      }
+      throw error;
+    }
   }
 
   setError(

@@ -1,4 +1,5 @@
 import { withTuziClientChannel } from '../tuzi-client-attribution';
+import { SEEDREAM_FLASH_PATH } from '../../constants/seedream-flash';
 import type {
   PreparedProviderTransportRequest,
   ProviderBaseUrlStrategy,
@@ -77,6 +78,38 @@ function joinUrl(baseUrl: string, path: string): string {
   }
 
   return `${normalizedBase}${normalizedPath}`;
+}
+
+function resolveLocalFlashProxyUrl(url: string, method?: string): string {
+  if (
+    !import.meta.env.DEV ||
+    typeof window === 'undefined' ||
+    (method || 'GET').toUpperCase() !== 'POST'
+  )
+    return url;
+
+  try {
+    const local = new URL(window.location.origin);
+    const target = new URL(url);
+    if (
+      !['http:', 'https:'].includes(local.protocol) ||
+      !['localhost', '127.0.0.1', '[::1]'].includes(local.hostname) ||
+      target.origin !== 'https://api.tu-zi.com' ||
+      target.username ||
+      target.password ||
+      target.pathname !== SEEDREAM_FLASH_PATH
+    )
+      return url;
+
+    // The existing Vite proxy has a fixed Tuzi upstream. Keep auth checks and
+    // client attribution on the original URL before changing browser transport.
+    return new URL(
+      `/__opentu_tuzi_proxy__/api${target.pathname}${target.search}`,
+      local.origin
+    ).href;
+  } catch {
+    return url;
+  }
 }
 
 function isAmbiguousNetworkError(error: unknown): boolean {
@@ -671,9 +704,10 @@ export class ProviderTransport {
     )
       ? context
       : { ...context, apiKey: '', extraHeaders: undefined };
-    const url = withTuziClientChannel(`${requestUrl}${buildQueryString(
+    const directUrl = withTuziClientChannel(`${requestUrl}${buildQueryString(
       applyAuthQuery(credentialContext, request.query || {})
     )}`);
+    const url = resolveLocalFlashProxyUrl(directUrl, request.method);
     const mergedHeaders = mergeHeaders(
       credentialContext.extraHeaders,
       request.headers
@@ -696,7 +730,7 @@ export class ProviderTransport {
         headers: finalHeaders,
         body: request.body,
         signal: request.signal,
-        credentials: request.credentials,
+        credentials: url !== directUrl ? 'omit' : request.credentials,
       },
     };
   }

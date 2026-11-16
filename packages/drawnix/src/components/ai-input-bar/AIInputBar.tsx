@@ -1,6 +1,7 @@
 import type { TaskError } from '../../types/shared/core.types';
 import { toGenerationTaskError } from '../../utils/generation-error-details';
 import { isSunoNativeModel, getSunoNativeAction } from '../../services/suno-native';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import { getSunoNativeParams, buildSunoNativeInputParams, collectSunoNativeResources } from '../../services/suno-native-params';
 /**
  * AI Input Bar Component
@@ -4213,7 +4214,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
 
             let processedBlob: Blob = file;
 
-            if (!keepOriginal && file.size > 10 * 1024 * 1024) {
+            if (!keepOriginal && selectedModel !== SEEDREAM_FLASH_MODEL_ID && file.size > 10 * 1024 * 1024) {
               const { compressImageBlob, getCompressionStrategy } =
                 await import('@aitu/utils');
               const strategy = getCompressionStrategy(

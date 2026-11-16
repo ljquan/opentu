@@ -36,6 +36,7 @@ import {
   type ProviderAuthStrategy,
 } from '../../services/provider-routing';
 import { IMAGE_GENERATION_TIMEOUT_MS } from '../../constants/TASK_CONSTANTS';
+import { SEEDREAM_FLASH_MODEL_ID } from '../../constants/seedream-flash';
 import { validateAndEnsureConfig } from './auth';
 import {
   startLLMApiLog,
@@ -204,6 +205,7 @@ export async function generateImageWithGemini(
     quality?: '1k' | '2k' | '4k';
     thinking?: 'minimal' | 'medium' | 'high';
     count?: number;
+    params?: Record<string, unknown>;
     model?: string; // 支持指定模型
     modelRef?: ModelRef | null;
     requestId?: string;
@@ -241,6 +243,7 @@ export async function generateImageDirect(
     quality?: '1k' | '2k' | '4k';
     thinking?: 'minimal' | 'medium' | 'high';
     count?: number;
+    params?: Record<string, unknown>;
     model?: string;
     modelRef?: ModelRef | null;
     requestId?: string;
@@ -289,6 +292,41 @@ export async function generateImageDirect(
 
   try {
     const validatedConfig = await validateAndEnsureConfig(runtimeConfig);
+    if (modelName === SEEDREAM_FLASH_MODEL_ID) {
+      const { seedreamFlashImageAdapter } = await import(
+        '../../services/model-adapters/seedream-flash-adapter'
+      );
+      const result = await seedreamFlashImageAdapter.generateImage(
+        {
+          ...validatedConfig,
+          provider: buildProviderContextFromConfig(validatedConfig),
+          operation: 'image',
+          fetcher: options.fetcher,
+          signal: options.signal,
+          requestId: options.requestId,
+          onSubmissionAttempt: options.onSubmissionAttempt,
+          onResponse: options.onResponse,
+        },
+        {
+          model: modelName,
+          prompt,
+          size: options.size === 'auto' ? undefined : options.size,
+          referenceImages,
+          params: {
+            ...options.params,
+            ...(options.response_format ? { response_format: options.response_format } : {}),
+            ...(options.count !== undefined ? { n: options.count } : {}),
+          },
+        }
+      );
+      completeLLMApiLog(logId, {
+        httpStatus: 200,
+        duration: Date.now() - startTime,
+        resultType: 'image',
+        resultCount: 1,
+      });
+      return result.raw;
+    }
     const imageQuality = resolveImageQuality(options.quality, modelName);
 
     if (validatedConfig.protocol === 'google.generateContent') {
