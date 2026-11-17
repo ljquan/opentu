@@ -31,8 +31,9 @@
   border: 1px solid var(--anchor-border);
   box-shadow: 0 16px 36px var(--anchor-shadow),
     0 2px 6px rgba(255, 255, 255, 0.72) inset;
-  transition: box-shadow 220ms ease, border-color 220ms ease,
-    background 260ms ease, opacity 220ms ease, transform 260ms ease;
+  // Keep large SVG foreignObject surfaces static while generation is pending.
+  // Only the small shared progress indicator needs continuous animation.
+  transition: opacity 220ms ease, transform 260ms ease;
   transform-origin: center;
   // Keep descendant hit testing aligned inside transformed SVG foreignObjects.
   transform: translateZ(0);
@@ -190,18 +191,6 @@
   transform: translateX(-60%) rotate(9deg);
 }
 
-.image-generation-anchor__stack-slot--index-1::before {
-  animation-delay: 120ms;
-}
-
-.image-generation-anchor__stack-slot--index-2::before {
-  animation-delay: 240ms;
-}
-
-.image-generation-anchor__stack-slot--index-3::before {
-  animation-delay: 360ms;
-}
-
 .image-generation-anchor__stack-slot-noise,
 .image-generation-anchor__stack-slot-image,
 .image-generation-anchor__stack-slot-meta,
@@ -227,10 +216,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transform: scale(1.04);
-  filter: blur(14px) saturate(0.96) brightness(1.02);
-  transition: opacity 320ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 220ms ease;
 }
 
 .image-generation-anchor__stack-slot-meta {
@@ -253,7 +239,6 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  backdrop-filter: blur(10px);
 }
 
 .image-generation-anchor__stack-slot-index {
@@ -354,7 +339,6 @@
 .image-generation-anchor__stack-slot--failed
   .image-generation-anchor__stack-slot-image {
   opacity: 0.32;
-  filter: blur(12px) saturate(0.82);
 }
 
 .image-generation-anchor__surface-shell,
@@ -389,9 +373,7 @@
       rgba(255, 244, 214, 0.22),
       rgba(250, 231, 174, 0.28)
     );
-  transition: background 280ms ease,
-    transform 480ms cubic-bezier(0.22, 1, 0.36, 1), opacity 280ms ease,
-    filter 480ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 220ms ease;
 }
 
 .image-generation-anchor__surface-image-noise,
@@ -421,10 +403,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transform: scale(1.04);
-  filter: blur(18px) saturate(0.95) brightness(1.02);
-  transition: opacity 340ms ease, transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 220ms ease;
 }
 
 .image-generation-anchor__surface-image-sheen {
@@ -469,7 +448,6 @@
     rgba(0, 0, 0, 1) 86%,
     rgba(0, 0, 0, 0.9) 100%
   );
-  will-change: opacity, background-position, filter;
 }
 
 .image-generation-anchor__surface-core {
@@ -786,26 +764,12 @@
     0 20px 42px rgba(15, 23, 42, 0.1);
 }
 
-.image-generation-anchor--phase-submitted,
-.image-generation-anchor--phase-queued,
-.image-generation-anchor--phase-generating {
-  animation: image-generation-anchor-card-pulse 2.6s ease-in-out infinite;
-}
-
 .image-generation-anchor--phase-submitted
   .image-generation-anchor__surface-refresh,
 .image-generation-anchor--phase-queued
   .image-generation-anchor__surface-refresh {
   inset: 0;
   opacity: 0.48;
-  animation: image-generation-anchor-shimmer 1.95s linear infinite,
-    image-generation-anchor-refresh-breathe 3.2s ease-in-out infinite;
-}
-
-.image-generation-anchor--phase-submitted .image-generation-anchor__glow,
-.image-generation-anchor--phase-queued .image-generation-anchor__glow {
-  animation: image-generation-anchor-background-flicker 2.9s ease-in-out
-    infinite;
 }
 
 .image-generation-anchor--phase-submitted
@@ -813,7 +777,6 @@
 .image-generation-anchor--phase-queued
   .image-generation-anchor__stack-slot::before {
   opacity: 0.8;
-  animation: image-generation-anchor-slot-shimmer 2.15s linear infinite;
 }
 
 .image-generation-anchor--phase-submitted
@@ -821,26 +784,17 @@
 .image-generation-anchor--phase-queued
   .image-generation-anchor__surface-image-sheen {
   opacity: 0;
-  animation: none;
-}
-
-.image-generation-anchor--phase-generating .image-generation-anchor__glow {
-  animation: image-generation-anchor-background-flicker 2.1s ease-in-out
-    infinite;
 }
 
 .image-generation-anchor--phase-generating
   .image-generation-anchor__surface-refresh {
   inset: 0;
   opacity: 0.66;
-  animation: image-generation-anchor-shimmer 1.55s linear infinite,
-    image-generation-anchor-refresh-breathe 2.4s ease-in-out infinite;
 }
 
 .image-generation-anchor--phase-generating
   .image-generation-anchor__stack-slot::before {
   opacity: 0.96;
-  animation: image-generation-anchor-slot-shimmer 1.55s linear infinite;
 }
 
 .image-generation-anchor--phase-generating
@@ -854,13 +808,11 @@
 .image-generation-anchor--phase-generating
   .image-generation-anchor__stack-slot--failed::before {
   opacity: 0;
-  animation: none;
 }
 
 .image-generation-anchor--phase-generating
   .image-generation-anchor__surface-image-sheen {
   opacity: 0;
-  animation: none;
 }
 
 .image-generation-anchor--phase-generating
@@ -880,14 +832,11 @@
 .image-generation-anchor--phase-developing
   .image-generation-anchor__surface-refresh {
   opacity: 0.3;
-  animation: image-generation-anchor-tone-pulse 3.6s ease-in-out infinite,
-    image-generation-anchor-sheen 2.2s linear infinite;
 }
 
 .image-generation-anchor--phase-developing
   .image-generation-anchor__stack-slot::before {
   opacity: 0.42;
-  animation: image-generation-anchor-slot-shimmer 2s linear infinite;
 }
 
 .image-generation-anchor--phase-developing
@@ -895,48 +844,38 @@
 .image-generation-anchor--phase-developing
   .image-generation-anchor__stack-slot--failed::before {
   opacity: 0;
-  animation: none;
 }
 
 .image-generation-anchor--phase-developing
   .image-generation-anchor__surface-image-actual {
   opacity: 0.42;
-  transform: scale(1.02);
-  filter: blur(14px) saturate(0.98) brightness(1.04);
 }
 
 .image-generation-anchor--phase-developing
   .image-generation-anchor__surface-image-sheen {
   opacity: 0.38;
-  animation: image-generation-anchor-sheen 1.8s linear infinite;
 }
 
 .image-generation-anchor--phase-developing
   .image-generation-anchor__stack-slot--preview
   .image-generation-anchor__stack-slot-image {
   opacity: 0.7;
-  transform: scale(1.02);
-  filter: blur(10px) saturate(0.98) brightness(1.03);
 }
 
 .image-generation-anchor--phase-developing
   .image-generation-anchor__stack-slot--preview
   .image-generation-anchor__stack-slot-sheen {
   opacity: 0.34;
-  animation: image-generation-anchor-sheen 1.8s linear infinite;
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__surface-refresh {
   opacity: 0.26;
-  animation: image-generation-anchor-tone-pulse 3.4s ease-in-out infinite,
-    image-generation-anchor-sheen 1.6s linear infinite;
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__stack-slot::before {
   opacity: 0.28;
-  animation: image-generation-anchor-slot-shimmer 1.65s linear infinite;
 }
 
 .image-generation-anchor--phase-inserting
@@ -944,35 +883,28 @@
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__stack-slot--failed::before {
   opacity: 0;
-  animation: none;
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__surface-image-actual {
   opacity: 0.78;
-  transform: scale(1.01);
-  filter: blur(6px) saturate(1.01);
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__surface-image-sheen {
   opacity: 0.28;
-  animation: image-generation-anchor-sheen 1.45s linear infinite;
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__stack-slot--preview
   .image-generation-anchor__stack-slot-image {
   opacity: 0.88;
-  transform: scale(1.01);
-  filter: blur(4px) saturate(1.01);
 }
 
 .image-generation-anchor--phase-inserting
   .image-generation-anchor__stack-slot--preview
   .image-generation-anchor__stack-slot-sheen {
   opacity: 0.24;
-  animation: image-generation-anchor-sheen 1.45s linear infinite;
 }
 
 .image-generation-anchor--phase-completed
@@ -1003,8 +935,6 @@
 .image-generation-anchor--phase-completed
   .image-generation-anchor__surface-image-actual {
   opacity: 1;
-  transform: scale(1);
-  filter: blur(0) saturate(1);
 }
 
 .image-generation-anchor--phase-completed
@@ -1016,15 +946,12 @@
   .image-generation-anchor__stack-slot--preview
   .image-generation-anchor__stack-slot-image {
   opacity: 1;
-  transform: scale(1);
-  filter: blur(0) saturate(1);
 }
 
 .image-generation-anchor--phase-completed
   .image-generation-anchor__stack-slot--failed
   .image-generation-anchor__stack-slot-image {
   opacity: 0.3;
-  filter: blur(10px) saturate(0.82);
 }
 
 .image-generation-anchor--phase-completed
@@ -1047,8 +974,6 @@
 .image-generation-anchor--phase-failed
   .image-generation-anchor__surface-image-actual {
   opacity: 0.5;
-  transform: scale(1.01);
-  filter: blur(10px) saturate(0.84);
 }
 
 .image-generation-anchor--phase-failed .image-generation-anchor__surface-image {
@@ -1058,91 +983,6 @@
       rgba(252, 165, 165, 0.18)
     ),
     linear-gradient(180deg, rgba(255, 243, 210, 0.14), rgba(250, 228, 166, 0.2));
-}
-
-@keyframes image-generation-anchor-tone-pulse {
-  0%,
-  100% {
-    opacity: 0.56;
-    transform: scale(0.985);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1.028);
-  }
-}
-
-@keyframes image-generation-anchor-background-flicker {
-  0%,
-  100% {
-    opacity: 0.58;
-    filter: saturate(1) brightness(1);
-  }
-
-  50% {
-    opacity: 0.92;
-    filter: saturate(1.08) brightness(1.04);
-  }
-}
-
-@keyframes image-generation-anchor-refresh-breathe {
-  0%,
-  100% {
-    opacity: 0.38;
-    filter: saturate(0.98) brightness(0.99);
-  }
-
-  50% {
-    opacity: 0.82;
-    filter: saturate(1.04) brightness(1.03);
-  }
-}
-
-@keyframes image-generation-anchor-shimmer {
-  0% {
-    background-position: 200% 0, 0 0;
-  }
-
-  100% {
-    background-position: -200% 0, 0 0;
-  }
-}
-
-@keyframes image-generation-anchor-sheen {
-  0% {
-    transform: translateX(-42%) rotate(10deg);
-  }
-
-  100% {
-    transform: translateX(42%) rotate(10deg);
-  }
-}
-
-@keyframes image-generation-anchor-card-pulse {
-  0%,
-  100% {
-    border-color: rgba(233, 197, 106, 0.32);
-    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08),
-      0 2px 6px rgba(255, 255, 255, 0.72) inset;
-  }
-
-  50% {
-    border-color: rgba(245, 158, 11, 0.46);
-    box-shadow: 0 0 0 1px rgba(255, 213, 128, 0.26),
-      0 0 24px rgba(255, 218, 121, 0.18), 0 22px 48px rgba(245, 158, 11, 0.16),
-      0 2px 6px rgba(255, 255, 255, 0.76) inset;
-  }
-}
-
-@keyframes image-generation-anchor-slot-shimmer {
-  0% {
-    transform: translateX(-60%) rotate(9deg);
-  }
-
-  100% {
-    transform: translateX(60%) rotate(9deg);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
