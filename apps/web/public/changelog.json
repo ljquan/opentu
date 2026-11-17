@@ -1,6 +1,21 @@
 {
   "versions": [
     {
+      "version": "1.2.15",
+      "date": "2026-11-17",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "bound Gemini Omni requests to 1 MiB (#343)"
+        ],
+        "improvements": [
+          "perf(canvas): reduce interaction persistence overhead (#344)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "bound Gemini Omni requests to 1 MiB (#343)"
+    },
+    {
       "version": "1.2.14",
       "date": "2026-11-17",
       "changes": {
@@ -742,30 +757,6 @@
       },
       "type": "patch",
       "highlights": "图片预览显示实际尺寸 (#225)"
-    },
-    {
-      "version": "1.0.13",
-      "date": "2026-08-10",
-      "changes": {
-        "features": [
-          "支持在 AI 生图描述框粘贴参考图"
-        ],
-        "fixes": [],
-        "improvements": [
-          "修复图片请求中断恢复与任务执行生命周期竞态",
-          "修复：恢复任务栏历史提示词虚化复用 (#222)",
-          "修复选中图片 Delete/Backspace 删除能力 (#218)",
-          "修复：支持 AI 生成素材导入参考图",
-          "文档：记录 PR 基线检查结果",
-          "功能：增加 AI 任务栏跟随永久开关",
-          "修复 AI 任务栏未发送草稿误触丢失 (#214)",
-          "功能：支持 AI 任务栏单图永久仅作参考 (#217)",
-          "功能：刷新默认模型并对齐 Seedance 2.0 官方接口 (#216)",
-          "修复：按图片保留任务栏草稿并增强图片插入可靠性 (#215)"
-        ]
-      },
-      "type": "patch",
-      "highlights": "支持在 AI 生图描述框粘贴参考图"
     }
   ]
 }
