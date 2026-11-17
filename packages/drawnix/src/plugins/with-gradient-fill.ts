@@ -20,6 +20,10 @@ const elementIndexes = new WeakMap<
   { children: PlaitElement[]; byId: Map<string, PlaitElement> }
 >();
 
+const ELEMENT_GROUP_SELECTOR = 'g[plait-data-id], g[id]';
+const readElementId = (element: Element): string | null =>
+  element.getAttribute('plait-data-id') || element.getAttribute('id');
+
 const fillObservers = new WeakMap<
   PlaitBoard,
   { host: Element; observer: MutationObserver }
@@ -42,7 +46,7 @@ function findElementG(board: PlaitBoard, element: PlaitElement): SVGGElement | n
   if (element?.id) {
     const host = PlaitBoard.getElementHost(board);
     if (host) {
-      const g = host.querySelector(`g[id="${element.id}"]`) as SVGGElement;
+      const g = host.querySelector(`g[plait-data-id="${element.id}"], g[id="${element.id}"]`) as SVGGElement;
       if (g) return g;
     }
   }
@@ -230,9 +234,9 @@ function handleDOMMutation(board: PlaitBoard, mutations: MutationRecord[]): void
       const fillValue = target.getAttribute('fill');
       
       // 先找到元素，再检查是否需要修复
-      const gElement = target.closest('g[id]') as SVGGElement;
+      const gElement = target.closest(ELEMENT_GROUP_SELECTOR) as SVGGElement;
       if (gElement) {
-        const elementId = gElement.getAttribute('id');
+        const elementId = readElementId(gElement);
         if (elementId) {
           const element = findElementById(board, elementId);
           const fillConfig = element ? getElementFillConfig(element) : null;
@@ -247,8 +251,8 @@ function handleDOMMutation(board: PlaitBoard, mutations: MutationRecord[]): void
     // 监听子节点变化（元素被重新渲染）
     if (mutation.type === 'childList') {
       mutation.addedNodes.forEach((node) => {
-        if (node instanceof SVGGElement && node.hasAttribute('id')) {
-          const elementId = node.getAttribute('id');
+        if (node instanceof SVGGElement && readElementId(node)) {
+          const elementId = readElementId(node);
           if (elementId) {
             const element = findElementById(board, elementId);
             const fillConfig = element ? getElementFillConfig(element) : null;
@@ -260,9 +264,9 @@ function handleDOMMutation(board: PlaitBoard, mutations: MutationRecord[]): void
         
         // 也检查添加的子元素（可能是 path 等形状元素）
         if (node instanceof Element) {
-          const gElement = node.closest('g[id]') as SVGGElement;
+          const gElement = node.closest(ELEMENT_GROUP_SELECTOR) as SVGGElement;
           if (gElement) {
-            const elementId = gElement.getAttribute('id');
+            const elementId = readElementId(gElement);
             if (elementId) {
               const element = findElementById(board, elementId);
               const fillConfig = element ? getElementFillConfig(element) : null;
@@ -325,9 +329,9 @@ function scanAndFixIncorrectFills(board: PlaitBoard): void {
     const fillValue = target.getAttribute('fill');
     
     // 先找到元素，再检查是否需要修复
-    const gElement = target.closest('g[id]') as SVGGElement;
+    const gElement = target.closest(ELEMENT_GROUP_SELECTOR) as SVGGElement;
     if (gElement) {
-      const elementId = gElement.getAttribute('id');
+      const elementId = readElementId(gElement);
       if (elementId) {
         const element = findElementById(board, elementId);
         const fillConfig = element ? getElementFillConfig(element) : null;
@@ -518,7 +522,7 @@ export const withGradientFill = (board: PlaitBoard): PlaitBoard => {
 
     // Node property/size edits only need their own fill reapplied. Structural,
     // theme and snapshot changes retain the full repair path as a fallback.
-    if (!isFirstRender && !hostChanged && operations.length > 0 && operations.every(
+    if (!isFirstRender && !hostChanged && operations.some((operation) => operation.type === 'set_node') && operations.every(
       (operation) => ['set_node', 'set_selection', 'set_viewport'].includes(operation.type)
     )) {
       const changed = new Set<PlaitElement>();

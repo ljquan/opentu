@@ -798,6 +798,8 @@ export function App() {
       // Selection is transient; viewport has its own debounced persistence path.
       // Keep empty/legacy batches and mixed content/theme edits on the save path.
       if (
+        data.children === latestBoardDataRef.current?.children &&
+        data.theme === latestBoardDataRef.current?.theme &&
         data.operations?.length &&
         data.operations.every(
           (operation) =>

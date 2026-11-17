@@ -1,8 +1,8 @@
 {
-  "version": "1.2.14",
-  "buildTime": "2026-11-17T02:31:06.481Z",
+  "version": "1.2.15",
+  "buildTime": "2026-11-17T07:16:46.061Z",
   "gitCommit": "unknown",
   "changelog": [
-    "replace generation drafts with progress and results in place"
+    "bound Gemini Omni requests to 1 MiB (#343)"
   ]
 }

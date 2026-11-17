@@ -120,6 +120,17 @@ describe('gradient fill interaction regressions', () => {
     expect(h.paths[0].getAttribute('fill')).toBe('url(#fill-a)');
   });
 
+  it.each(['set_selection', 'set_viewport'])(
+    'repairs replaced canvas content accompanied by %s', async (type) => {
+      const h = await scene();
+      const replacement = element('imported', gradient);
+      const path = mount(replacement);
+      h.change([{ type }], [replacement]);
+      expect(path.getAttribute('fill')).toBe('url(#fill-imported)');
+      expect(document.getElementById('fill-imported')).not.toBeNull();
+    }
+  );
+
   it('restores fill changes in both directions for undo/redo', async () => {
     const h = await scene();
     for (const config of [image, gradient, image]) {
@@ -135,6 +146,22 @@ describe('gradient fill interaction regressions', () => {
     h.paths[0].setAttribute('fill', '#fff');
     observerCallback([{ type: 'attributes', attributeName: 'fill', target: h.paths[0] } as unknown as MutationRecord], {} as MutationObserver);
     expect(h.paths[0].getAttribute('fill')).toBe('url(#fill-a)');
+  });
+
+  it('repairs real Plait groups identified by plait-data-id after renderer reset', async () => {
+    const h = await scene();
+    const group = h.paths[0].parentElement!;
+    group.removeAttribute('id');
+    group.setAttribute('plait-data-id', 'a');
+    h.change([{ type: 'set_selection' }]);
+    h.paths[0].setAttribute('fill', '#fff');
+    observerCallback([{ type: 'attributes', attributeName: 'fill', target: h.paths[0] } as unknown as MutationRecord], {} as MutationObserver);
+    expect(h.paths[0].getAttribute('fill')).toBe('url(#fill-a)');
+    const replacement = document.createElementNS(ns, 'path');
+    replacement.setAttribute('fill', '#fff');
+    h.paths[0].replaceWith(replacement);
+    observerCallback([{ type: 'childList', addedNodes: [replacement] } as unknown as MutationRecord], {} as MutationObserver);
+    expect(replacement.getAttribute('fill')).toBe('url(#fill-a)');
   });
 
   it('repairs replacement SVG nodes after a renderer update', async () => {

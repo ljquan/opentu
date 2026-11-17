@@ -1,3 +1,19 @@
+## 1.2.15 (2026-11-17)
+
+### 🩹 Fixes
+
+- 修复导入画板仅触发选区或视口操作时渐变未恢复、内容未持久化的问题，并支持实际 Plait DOM 标识下的填充修复。
+- bound Gemini Omni requests to 1 MiB (#343) ([eb0b0104](https://github.com/ljquan/opentu/commit/eb0b0104))
+
+### 🔧 Chores
+
+- perf(canvas): reduce interaction persistence overhead (#344) ([b82316ac](https://github.com/ljquan/opentu/commit/b82316ac))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.14 (2026-11-17)
 
 ### 🚀 Features
