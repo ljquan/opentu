@@ -1,3 +1,4 @@
+import { readGenerationOrigin } from '../services/generation-node-lifecycle';
 import {
   getElementById,
   getRectangleByElements,
@@ -84,13 +85,27 @@ function isHorizontalAssociation(
   );
 }
 
+/** Explicit draft wires stay visible as their target becomes progress/result. */
+export function isCanvasAssociationVisible(
+  board: PlaitBoard,
+  element: PlaitCanvasAssociationLine
+): boolean {
+  return (
+    readImageToolbarPreferences().referenceLines ||
+    !!readGenerationOrigin(
+      getElementById(board, element.canvasAssociation.resultElementId) ||
+        undefined
+    )
+  );
+}
+
 /** Hit test the same smooth curve that is drawn, using Plait's hit tolerance. */
 export function isHitCanvasAssociationLine(
   board: PlaitBoard,
   element: PlaitCanvasAssociationLine,
   point: Point
 ): boolean {
-  if (!readImageToolbarPreferences().referenceLines) return false;
+  if (!isCanvasAssociationVisible(board, element)) return false;
   const geometry = getCanvasAssociationGeometry(
     element.points,
     isHorizontalAssociation(board, element)
@@ -137,7 +152,10 @@ export function drawCanvasAssociationLine(
 /** Reuse Plait's element lifecycle, replacing only the managed line's drawing. */
 export class CanvasAssociationLineComponent extends ArrowLineComponent {
   private syncVisibility = () => {
-    const visible = readImageToolbarPreferences().referenceLines;
+    const visible = isCanvasAssociationVisible(
+      this.board,
+      this.element as PlaitCanvasAssociationLine
+    );
     this.getElementG().style.display = visible ? '' : 'none';
     if (!visible) this.activeGenerator.destroy();
   };
@@ -152,14 +170,23 @@ export class CanvasAssociationLineComponent extends ArrowLineComponent {
     window.addEventListener('storage', this.syncVisibility);
   }
 
+  onContextChanged(
+    ...args: Parameters<ArrowLineComponent['onContextChanged']>
+  ): void {
+    super.onContextChanged(...args);
+    this.syncVisibility();
+  }
+
   initializeGenerator(): void {
     super.initializeGenerator();
     const canDrawActive = this.activeGenerator.canDraw.bind(
       this.activeGenerator
     );
     this.activeGenerator.canDraw = (element, data) =>
-      readImageToolbarPreferences().referenceLines &&
-      canDrawActive(element, data);
+      isCanvasAssociationVisible(
+        this.board,
+        element as PlaitCanvasAssociationLine
+      ) && canDrawActive(element, data);
     this.shapeGenerator.draw = (element) => {
       return drawCanvasAssociationLine(
         element,

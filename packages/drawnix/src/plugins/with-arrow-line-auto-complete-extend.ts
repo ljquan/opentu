@@ -53,8 +53,8 @@ export interface AutoCompleteShapeState {
   hitIndex: number;
   /** hover 的连接点坐标 (viewBox 坐标，用于创建元素) */
   hitPoint: [number, number] | null;
-  /** 模式：hover 表示 hover 连接点触发，arrowLine 表示箭头线创建完成触发 */
-  mode: 'hover' | 'arrowLine';
+  /** 点击菜单保持打开；只有 hover 菜单随鼠标离开关闭。 */
+  mode: 'hover' | 'click' | 'arrowLine';
   /** 箭头线模式下的箭头线元素 */
   arrowLineElement?: PlaitElement | null;
   /** 箭头线模式下的终点位置 */
@@ -748,7 +748,7 @@ function withImageReferenceGesture(board: PlaitBoard): PlaitBoard {
     setAutoCompleteState(board, {
       visible: true, position: { x: event.clientX + 12, y: event.clientY + 12 }, sourceElement: source,
       currentShape: BasicShapes.rectangle, hitIndex, hitPoint: start,
-      mode: clicked ? 'hover' : 'arrowLine', arrowLineElement: clicked ? null : line,
+      mode: clicked ? 'click' : 'arrowLine', arrowLineElement: clicked ? null : line,
       arrowLineEndPoint: clicked ? null : point,
     });
   };

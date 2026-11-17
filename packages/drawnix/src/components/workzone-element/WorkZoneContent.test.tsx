@@ -32,6 +32,27 @@ const workflow: WorkflowMessageData = {
 };
 
 describe('WorkZoneContent actions', () => {
+  it.each(['failed', 'cancelled'] as const)(
+    'restores editing from %s without starting a canvas drag',
+    (status) => {
+      const onRestoreDraft = vi.fn();
+      const onPointerDown = vi.fn();
+      render(
+        <div onPointerDown={onPointerDown}>
+          <WorkZoneContent
+            workflow={{ ...workflow, status }}
+            onRestoreDraft={onRestoreDraft}
+          />
+        </div>
+      );
+      const button = screen.getByRole('button', { name: '恢复编辑' });
+      fireEvent.pointerDown(button);
+      expect(onPointerDown).not.toHaveBeenCalled();
+      fireEvent.click(button);
+      expect(onRestoreDraft).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it('runs delete from click instead of pointerup', () => {
     const onDelete = vi.fn();
     render(<WorkZoneContent workflow={workflow} onDelete={onDelete} />);

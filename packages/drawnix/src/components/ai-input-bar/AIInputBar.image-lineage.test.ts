@@ -1,3 +1,5 @@
+import { isGenerationNode } from '../../services/generation-node';
+import { getGenerationSlotPositions } from '../../services/generation-node-lifecycle';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -88,7 +90,7 @@ exports.prepare = async function(submittedBoard, imageItems, enabled) {
   ${referencePreparation}
   return { ...referenceSources, referenceImages };
 };
-exports.plan = function(board, imageSourceIds, enabled, requestedCount, modelId, output) {
+exports.plan = function(board, imageSourceIds, enabled, requestedCount, modelId, output, submittedDraftElement) {
   const anchorTargetFrameId = undefined;
   const targetFrameId = undefined;
   const replacementBoundImageTarget = null;
@@ -110,7 +112,7 @@ exports.plan = function(board, imageSourceIds, enabled, requestedCount, modelId,
 ).outputText;
 
 const callbacks = {} as {
-  plan: (board: ReturnType<typeof createBoard>, sources: string[], enabled: boolean, count: number, modelId?: string, output?: string) => [number, number][];
+  plan: (board: ReturnType<typeof createBoard>, sources: string[], enabled: boolean, count: number, modelId?: string, output?: string, draft?: ReturnType<typeof createBoard>['children'][number]) => [number, number][];
   prepare: (board: ReturnType<typeof createBoard>, images: GenerationReferenceImage[], enabled: boolean) => Promise<{ imageSourceIds: string[]; referenceImages: string[] }>;
   selected: (processed: Awaited<ReturnType<typeof processSelectedContentForAI>>, elements: ReturnType<typeof createBoard>['children']) => GenerationReferenceImage[];
   params: (
@@ -132,12 +134,21 @@ runInNewContext(compiled, {
   buildBoundTargetGenerationParams,
   prepareImageGenerationReferences,
   resolveImageLineagePositions,
+  isGenerationNode,
+  getGenerationSlotPositions,
   reservesGPTImage26ResultColumns,
   isVideoUrl: () => false,
   console,
 });
 
 describe('main image generation lineage wiring', () => {
+  it('plans draft results at the draft origin independently of the ordinary batch preference', () => {
+    const draft = { id: 'draft', type: 'geometry', shape: 'roundRectangle', points: [[900, 200], [1244, 424]], generationNode: { version: 1, generationType: 'image', prompt: 'same', model: 'model', params: {}, count: 2, references: [] } };
+    const board = createBoard([draft]);
+    board.getRectangle = element => RectangleClient.getRectangleByPoints(element.points || []);
+    expect(callbacks.plan(board, [], false, 2, 'gpt-image-1', undefined, draft)).toEqual([[900, 200], [1340, 200]]);
+  });
+
   it('reserves task columns for 2.6 output pairs before reverse completion, keeping SVG on the chosen layout', () => {
     const board = createBoard([]);
     expect(callbacks.plan(board, [], false, 3, 'gpt-image-2.6', 'gif')).toEqual([[0, 0], [440, 0], [880, 0]]);

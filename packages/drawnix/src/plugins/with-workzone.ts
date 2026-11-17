@@ -1,4 +1,8 @@
 import {
+  readGenerationOrigin,
+  restoreGenerationDraft,
+} from '../services/generation-node-lifecycle';
+import {
   setWorkZoneRenderedSize,
   clearWorkZoneRenderedSize,
 } from './workzone-transforms';
@@ -178,7 +182,7 @@ export class WorkZoneComponent extends CommonElementFlavour<
     error?: string
   ): void => {
     // 失败的工作流直接删除 WorkZone，避免残留无用卡片
-    if (status === 'failed') {
+    if (status === 'failed' && !readGenerationOrigin(this.element)) {
       setTimeout(() => {
         WorkZoneTransforms.removeWorkZone(this.board, this.element.id);
       }, 1500);
@@ -213,7 +217,10 @@ export class WorkZoneComponent extends CommonElementFlavour<
 
   private handleVisibilityChange = (): void => {
     if (!this.container) return;
-    this.container.style.display = isWorkZoneCardVisible() ? '' : 'none';
+    this.container.style.display =
+      readGenerationOrigin(this.element) || isWorkZoneCardVisible()
+        ? ''
+        : 'none';
   };
 
   /**
@@ -262,7 +269,10 @@ export class WorkZoneComponent extends CommonElementFlavour<
     if (!this.container) return;
 
     // 根据设置控制初始可见性
-    this.container.style.display = isWorkZoneCardVisible() ? '' : 'none';
+    this.container.style.display =
+      readGenerationOrigin(this.element) || isWorkZoneCardVisible()
+        ? ''
+        : 'none';
 
     // 创建 React root
     this.reactRoot = createRoot(this.container);
@@ -276,7 +286,12 @@ export class WorkZoneComponent extends CommonElementFlavour<
           onDelete: this.handleDelete,
           onWorkflowStateChange: this.handleWorkflowStateChange,
           onRetry: this.handleRetry,
-          onHideForever: this.handleHideForever,
+          onHideForever: readGenerationOrigin(this.element)
+            ? undefined
+            : this.handleHideForever,
+          onRestoreDraft: readGenerationOrigin(this.element)
+            ? () => restoreGenerationDraft(this.board, this.element.id)
+            : undefined,
         })
       )
     );
@@ -305,7 +320,12 @@ export class WorkZoneComponent extends CommonElementFlavour<
               onDelete: this.handleDelete,
               onWorkflowStateChange: this.handleWorkflowStateChange,
               onRetry: this.handleRetry,
-              onHideForever: this.handleHideForever,
+              onHideForever: readGenerationOrigin(this.element)
+                ? undefined
+                : this.handleHideForever,
+              onRestoreDraft: readGenerationOrigin(this.element)
+                ? () => restoreGenerationDraft(this.board, this.element.id)
+                : undefined,
             })
           )
         );
