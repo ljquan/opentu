@@ -92,7 +92,7 @@ function createHarness() {
     viewport: {},
     updatedAt: 1,
   };
-  let value: Snapshot = { children: [] };
+  let value: Snapshot = { children: board.elements };
   const persistence = new PendingPersistence();
   const save = vi.fn(async (data: Snapshot) => {
     board = { ...board, elements: data.children, viewport: data.viewport || {} };
@@ -194,12 +194,24 @@ describe('App tab-sync insertion safety', () => {
     const h = createHarness();
     const value = h.value;
     for (let index = 0; index < 120; index++) {
-      h.callbacks.handleBoardChange({ children: [], operations: [{ type: 'set_selection' }] });
+      h.callbacks.handleBoardChange({ children: value.children, operations: [{ type: 'set_selection' }] });
     }
     expect(h.save).not.toHaveBeenCalled();
     expect(h.value).toBe(value);
     expect(h.persistence.hasPending).toBe(false);
   });
+
+  it.each(['set_selection', 'set_viewport'])(
+    'persists imported content accompanied only by %s', async (type) => {
+      const h = createHarness();
+      const children = [{ id: 'imported-image' }];
+      h.callbacks.handleBoardChange({ children, operations: [{ type }] });
+      expect(h.save).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ children }));
+      expect(h.value.children).toBe(children);
+      await Promise.resolve();
+      expect(h.persistence.hasPending).toBe(false);
+    }
+  );
 
   it('coalesces viewport-only changes and saves the final view with existing content', async () => {
     const h = createHarness();
