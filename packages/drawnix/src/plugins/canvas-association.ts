@@ -17,12 +17,12 @@ import {
   type PlaitArrowLine,
 } from '@plait/draw';
 import type { CanvasAssociationRef } from '../types/shared/core.types';
-import { readImageToolbarPreferences } from '../utils/image-toolbar-preferences';
 import {
   ASSOCIATION_STROKE_COLOR,
   ASSOCIATION_STROKE_WIDTH,
   CanvasAssociationLineComponent,
   isHitCanvasAssociationLine,
+  isCanvasAssociationVisible,
 } from './canvas-association-line';
 
 export const CANVAS_ASSOCIATION_VERSION = 1 as const;
@@ -978,7 +978,7 @@ export const withCanvasAssociation: PlaitPlugin = (board) => {
       : isHit(element, point, ...rest);
   board.isRectangleHit = (element, selection) =>
     isCanvasAssociationLine(element) &&
-    !readImageToolbarPreferences().referenceLines
+    !isCanvasAssociationVisible(board, element)
       ? false
       : isRectangleHit(element, selection);
   board.drawElement = (context) =>

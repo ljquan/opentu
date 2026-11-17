@@ -1,3 +1,7 @@
+import {
+  readGenerationOrigin,
+  restoreGenerationDraft,
+} from '../../services/generation-node-lifecycle';
 import { ImageGenerationErrorDetails } from './ImageGenerationErrorDetails';
 import React, {
   useCallback,
@@ -447,6 +451,20 @@ export const ImageGenerationAnchorContent: React.FC<
 
       {showActions ? (
         <div className="image-generation-anchor__actions">
+          {viewModel.phase === 'failed' && readGenerationOrigin(element) && (
+            <button
+              type="button"
+              className="image-generation-anchor__action"
+              onPointerDown={stopInteractionStart}
+              onPointerUp={stopEventPropagation}
+              onClick={(event) => {
+                stopPointer(event);
+                restoreGenerationDraft(board, element.id);
+              }}
+            >
+              恢复编辑
+            </button>
+          )}
           <button
             type="button"
             className="image-generation-anchor__action"

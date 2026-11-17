@@ -126,8 +126,8 @@ export function useAutoCompleteShapePicker(board: PlaitBoard | null) {
       else PlaitHistoryBoard.withNewBatch(board, create);
     } else if (pending.arrowLineElement && !board.children.some(element => element.id === pending.arrowLineElement?.id)) {
       PlaitHistoryBoard.withNewBatch(board, () => Transforms.insertNode(board, pending.arrowLineElement!, [board.children.length]));
-    } else if (pending.mode === 'hover' && pending.hitPoint && pending.hitIndex >= 0) {
-      // Preserve the existing ordinary shape connection action from hover.
+    } else if ((pending.mode === 'hover' || pending.mode === 'click') && pending.hitPoint && pending.hitIndex >= 0) {
+      // Clicking an image port retains the ordinary shape connection action.
       createAutoCompleteElements(board, source as PlaitDrawElement, (pending.hitIndex + 1) % 4, pending.hitPoint, pending.currentShape || BasicShapes.rectangle);
     }
     resetAutoCompleteState(board);

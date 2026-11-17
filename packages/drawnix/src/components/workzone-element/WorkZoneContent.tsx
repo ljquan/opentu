@@ -41,6 +41,7 @@ interface WorkZoneContentProps {
   className?: string;
   onSizeChange?: (size: { width: number; height: number }) => void;
   onDelete?: () => void;
+  onRestoreDraft?: () => void;
   /** 当 SW 中找不到工作流或工作流状态变更时的回调 */
   onWorkflowStateChange?: (
     workflowId: string,
@@ -58,6 +59,7 @@ export const WorkZoneContent: React.FC<WorkZoneContentProps> = ({
   className = '',
   onSizeChange,
   onDelete,
+  onRestoreDraft,
   onWorkflowStateChange,
   onRetry,
   onHideForever,
@@ -269,8 +271,11 @@ export const WorkZoneContent: React.FC<WorkZoneContentProps> = ({
     const failedSteps = steps.filter((s) => s.status === 'failed').length;
     const runningSteps = steps.filter((s) => s.status === 'running').length;
 
-    let status: 'pending' | 'running' | 'completed' | 'failed' = 'pending';
-    if (failedSteps > 0 || workflow.status === 'failed') {
+    let status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' =
+      'pending';
+    if (workflow.status === 'cancelled') {
+      status = 'cancelled';
+    } else if (failedSteps > 0 || workflow.status === 'failed') {
       status = 'failed';
     } else if (completedSteps === totalSteps && totalSteps > 0) {
       status = 'completed';
@@ -294,6 +299,7 @@ export const WorkZoneContent: React.FC<WorkZoneContentProps> = ({
       running: '执行中',
       completed: '已完成',
       failed: '执行失败',
+      cancelled: '已取消',
     };
     return labels[workflowStatus.status];
   }, [workflowStatus.status]);
@@ -397,6 +403,21 @@ export const WorkZoneContent: React.FC<WorkZoneContentProps> = ({
             </button>
           </HoverTip>
         )}
+        {onRestoreDraft &&
+          ['failed', 'cancelled'].includes(workflowStatus.status) && (
+            <button
+              type="button"
+              className="workzone-content__retry-btn"
+              onPointerDown={stopWorkZonePressEvent}
+              onPointerUp={stopWorkZonePressEvent}
+              onClick={(event) => {
+                handleWorkZoneButtonClick(event);
+                onRestoreDraft();
+              }}
+            >
+              恢复编辑
+            </button>
+          )}
         {/* 删除按钮 - 始终显示（如果有 onDelete 回调） */}
         {onDelete && (
           <HoverTip content="删除" showArrow={false}>

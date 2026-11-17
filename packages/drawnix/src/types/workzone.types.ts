@@ -1,3 +1,4 @@
+import type { GenerationOrigin } from '../services/generation-node-lifecycle';
 /**
  * WorkZone 类型定义
  *
@@ -13,6 +14,7 @@ import type { WorkflowMessageData } from './chat.types';
  */
 export interface PlaitWorkZone extends PlaitElement {
   type: 'workzone';
+  generationOrigin?: GenerationOrigin;
   /** 两个点定义矩形区域 [左上角, 右下角] */
   points: [Point, Point];
   /** 旋转角度 */

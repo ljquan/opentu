@@ -1,3 +1,21 @@
+## 1.2.14 (2026-11-17)
+
+### 🚀 Features
+
+- replace generation drafts with progress and results in place ([91a4a252](https://github.com/ljquan/opentu/commit/91a4a252))
+
+### 🩹 Fixes
+
+- keep clicked image reference menu open ([ac719253](https://github.com/ljquan/opentu/commit/ac719253))
+
+### 🔧 Chores
+
+- test(canvas): cover async restore and in-place input planning ([c02f0e50](https://github.com/ljquan/opentu/commit/c02f0e50))
+
+### ❤️  Thank You
+
+- 2040725155-star <2040725155@qq.com>
+
 ## 1.2.13 (2026-11-16)
 
 ### 🚀 Features

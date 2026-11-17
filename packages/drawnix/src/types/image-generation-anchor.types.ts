@@ -1,3 +1,4 @@
+import type { GenerationOrigin } from '../services/generation-node-lifecycle';
 import type { PlaitElement, Point } from '@plait/core';
 
 export type ImageGenerationAnchorType = 'frame' | 'ratio' | 'ghost' | 'stack';
@@ -126,6 +127,7 @@ export interface ImageGenerationAnchorCreateOptions
 
 export interface PlaitImageGenerationAnchor extends PlaitElement {
   type: 'generation-anchor';
+  generationOrigin?: GenerationOrigin;
   reservedInsertSize?: { width: number; height: number };
   points: [Point, Point];
   angle: number;

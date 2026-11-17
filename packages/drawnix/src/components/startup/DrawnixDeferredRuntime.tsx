@@ -238,7 +238,7 @@ export function DrawnixDeferredRuntime({
             currentWorkflow.status === 'completed' &&
             !hasPendingOrRunningSteps
           ) {
-            WorkZoneTransforms.removeWorkZone(board, workzone.id);
+            WorkZoneTransforms.removeWorkZone(board, workzone.id, { automatic: true });
             continue;
           }
 

@@ -94,6 +94,7 @@ describe('generation recipes stored with canvas results', () => {
     cache.set(url, new Blob(['reference'], { type: 'image/png' }));
     cache.set(mask, new Blob(['mask'], { type: 'image/png' }));
     const elements = [{ id: 'node', type: 'geometry', generationNode: { version: 1, generationType: 'image', prompt: 'saved', params: {}, count: 1, references: [{ referenceId: 'a', role: 'reference', url, maskImage: mask, name: 'A' }] } }];
+    elements.push({ id: 'progress', type: 'generation-anchor', generationOrigin: { version: 1, draft: structuredClone(elements[0]) } } as any);
     const exported = JSON.parse(JSON.stringify(elements));
     const embedded = await collectEmbeddedMediaFromElements(exported);
     expect(embedded).toHaveLength(2);

@@ -1,11 +1,8 @@
 {
-  "version": "1.2.13",
-  "buildTime": "2026-11-16T10:45:59.129Z",
+  "version": "1.2.14",
+  "buildTime": "2026-11-17T02:31:06.481Z",
   "gitCommit": "unknown",
   "changelog": [
-    "补齐连续编辑、原生分层与 OCR 恢复",
-    "完整显示 Seedream 参数摘要",
-    "撤回需服务器转发的原图缓存修复",
-    "保留编辑分辨率并修复原图缓存"
+    "replace generation drafts with progress and results in place"
   ]
 }

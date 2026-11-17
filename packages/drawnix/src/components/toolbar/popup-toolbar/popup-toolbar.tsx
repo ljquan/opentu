@@ -1,3 +1,4 @@
+import { generationOriginInput } from '../../../services/generation-node-lifecycle';
 import { resizeCanvasImage } from '../../../services/canvas-operations/resize-canvas-image';
 import Stack from '../../stack';
 import { ImageToolbarContents } from './image-toolbar-contents';
@@ -249,7 +250,9 @@ const cancelPopupToolbarFrame = (frameId: number) => {
 export const PopupToolbar = () => {
   const board = useBoard();
   // 过滤掉 WorkZone 元素，避免点击 WorkZone 时弹出 popup-toolbar
-  const allSelectedElements = getSelectedElements(board);
+  const allSelectedElements = getSelectedElements(board).map(
+    (selected) => board.children.find((element) => element.id === selected.id) || selected
+  );
   const generationSelection = allSelectedElements.length > 0 &&
     allSelectedElements.every((element) => element.generationNode || element.generationInput);
   const selectedElements = allSelectedElements.filter(
@@ -947,7 +950,7 @@ export const PopupToolbar = () => {
         const record = imageElement as typeof imageElement & {
           generationTaskId?: string;
         };
-        const savedInput = readImageGenerationRecipe(imageElement);
+        const savedInput = readImageGenerationRecipe(imageElement) || generationOriginInput(imageElement);
         const matchedTask = savedInput
           ? undefined
           : (record.generationTaskId
@@ -2786,6 +2789,18 @@ export const PopupToolbar = () => {
                 }
               }}
             />
+            {selectedElements.length === 1 && isVideoElement(selectedElements[0]) && generationOriginInput(selectedElements[0]) && (
+              <ToolButton type="icon" icon={<Pencil size={15} />} visible={true}
+                tooltip={language === 'zh' ? '调整后生成：恢复原视频输入' : 'Edit original video inputs'}
+                aria-label={language === 'zh' ? '调整后生成' : 'Edit original inputs'}
+                onPointerUp={() => {
+                  const input = generationOriginInput(selectedElements[0]);
+                  if (input) requestAIInputPrefill({
+                    ...resolveRecipeCanvasSources(input, board.children),
+                    boardId: getCanvasBoardBinding()?.boardId || undefined, source: 'canvas-toolbar',
+                  });
+                }} />
+            )}
             {state.hasRegenerateImage && <SeedreamContinueButton board={board} element={selectedElements[0]} />}
             {state.hasRegenerateImage && (
               <>

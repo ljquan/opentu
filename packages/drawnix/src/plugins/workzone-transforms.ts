@@ -1,3 +1,7 @@
+import {
+  readGenerationOrigin,
+  wasGenerationProgressRestored,
+} from '../services/generation-node-lifecycle';
 import type { PlaitBoard } from '@plait/core';
 import { PlaitHistoryBoard, RectangleClient, Transforms } from '@plait/core';
 import type {
@@ -125,13 +129,39 @@ export const WorkZoneTransforms = {
     });
   },
 
-  removeWorkZone(board: PlaitBoard, elementId: string): void {
+  removeWorkZone(
+    board: PlaitBoard,
+    elementId: string,
+    options?: { automatic?: boolean }
+  ): void {
     const index = board.children.findIndex((el: any) => el.id === elementId);
     if (index < 0) return;
 
-    PlaitHistoryBoard.withoutSaving(board, () => {
-      Transforms.removeNode(board, [index]);
-    });
+    const element = board.children[index] as PlaitWorkZone;
+    if (options?.automatic && readGenerationOrigin(element)) {
+      const tasks = element.workflow.steps.flatMap((step) => {
+        const taskId = (step.result as { taskId?: string } | undefined)?.taskId;
+        return taskId ? [taskId] : [];
+      });
+      if (
+        wasGenerationProgressRestored(board, element.id) ||
+        element.workflow.status === 'failed' ||
+        element.workflow.status === 'cancelled' ||
+        !tasks.length ||
+        !tasks.every((taskId) =>
+          board.children.some(
+            (output) =>
+              output.generationTaskId === taskId &&
+              !!readGenerationOrigin(output)
+          )
+        )
+      )
+        return;
+    }
+    const remove = () => Transforms.removeNode(board, [index]);
+    if (board.children[index].generationOrigin)
+      PlaitHistoryBoard.withNewBatch(board, remove);
+    else PlaitHistoryBoard.withoutSaving(board, remove);
   },
 
   getWorkZoneById(board: PlaitBoard, elementId: string): PlaitWorkZone | null {
