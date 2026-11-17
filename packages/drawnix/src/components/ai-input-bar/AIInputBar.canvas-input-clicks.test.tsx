@@ -97,6 +97,7 @@ function harness(initialSelection = [first, second]) {
     document,
     window,
     Element,
+    Date,
     console,
     setTimeout,
     clearTimeout,
@@ -123,6 +124,7 @@ function harness(initialSelection = [first, second]) {
     targetChanged,
     canvasPointer,
     viewportChanged,
+    replaceChildren: () => { board.children = [...board.children]; },
     select: (elements: typeof selected) => {
       selected = elements;
     },
@@ -182,6 +184,7 @@ describe('AIInputBar canvas versus input clicks', () => {
     await flush();
     const target = { elementId: first.id };
     h.resolveTarget.mockResolvedValue(target);
+    h.replaceChildren();
     h.targetChanged.mockClear();
     await moveViewport('pointermove');
     expect(h.targetChanged).toHaveBeenLastCalledWith(target);

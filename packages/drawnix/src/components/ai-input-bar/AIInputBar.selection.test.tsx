@@ -64,7 +64,7 @@ function processed(elements = [first, second]) {
 
 function harness(initialSelection = [first, second]) {
   let selected = initialSelection;
-  let board = { children: [first, second] };
+  let board = { children: [first, second], viewport: { zoom: 1, origination: [0, 0] } };
   const processContent = vi.fn().mockResolvedValue(processed(initialSelection));
   const resolveTarget = vi.fn().mockResolvedValue(null);
   const selectionChanged = vi.fn();
@@ -105,6 +105,7 @@ function harness(initialSelection = [first, second]) {
     document,
     window,
     Element,
+    Date,
     console,
     setTimeout,
     clearTimeout,
@@ -131,11 +132,13 @@ function harness(initialSelection = [first, second]) {
     targetChanged,
     viewportChanged,
     canvasPointer,
+    replaceChildren: () => { board.children = [...board.children]; },
+    moveView: (zoom: number, x = 0) => { board.viewport = { zoom, origination: [x, 0] }; },
     select: (elements: typeof selected) => {
       selected = elements;
     },
     switchBoard: () => {
-      board = { children: [first, second] };
+      board = { children: [first, second], viewport: { zoom: 1, origination: [0, 0] } };
     },
     update: (next: Record<string, unknown>) =>
       view.rerender(<exports.Watcher {...props} {...next} />),
@@ -160,6 +163,113 @@ async function moveViewport(event: string) {
 }
 
 describe('AIInputBar canvas selection publication', () => {
+  it('reuses bound metadata across hover, wheel and resize while preserving positioning updates', async () => {
+    const h = harness([first]);
+    await flush();
+    const target = { elementId: first.id, rect: { x: 10 } };
+    h.resolveTarget.mockResolvedValue(target);
+    await act(async () => { document.dispatchEvent(new Event('test-selection-refresh')); });
+    h.resolveTarget.mockClear();
+    h.targetChanged.mockClear();
+    h.viewportChanged.mockClear();
+    for (let index = 0; index < 120; index++) await moveViewport('pointermove');
+    expect(h.viewportChanged).toHaveBeenCalledOnce();
+    await moveViewport('wheel');
+    await moveViewport('resize');
+    expect(h.viewportChanged).toHaveBeenCalledTimes(3);
+    expect(h.resolveTarget).not.toHaveBeenCalled();
+    expect(h.targetChanged).not.toHaveBeenCalled();
+    // An explicit click still refreshes the source prompt, even on the same image.
+    await act(async () => {
+      document.body.dispatchEvent(new Event('pointerup', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(h.resolveTarget).toHaveBeenCalledOnce();
+    expect(h.targetChanged).toHaveBeenLastCalledWith(target);
+  });
+
+  it('shares an in-flight lookup without cancelling selection publication', async () => {
+    const h = harness([first]);
+    await flush();
+    const pending = deferred<{ elementId: string }>();
+    h.resolveTarget.mockReturnValueOnce(pending.promise);
+    await act(async () => { document.dispatchEvent(new Event('test-selection-refresh')); });
+    h.resolveTarget.mockClear();
+    await moveViewport('pointermove');
+    await moveViewport('wheel');
+    expect(h.resolveTarget).not.toHaveBeenCalled();
+    await act(async () => { pending.resolve({ elementId: first.id }); });
+    expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: first.id });
+  });
+
+  it('refreshes follow positioning on pan and zoom without reloading metadata', async () => {
+    const h = harness([first]);
+    await flush();
+    h.resolveTarget.mockResolvedValue({ elementId: first.id, rect: { x: 10 } });
+    await act(async () => { document.dispatchEvent(new Event('test-selection-refresh')); });
+    await moveViewport('pointermove');
+    h.resolveTarget.mockClear();
+    h.viewportChanged.mockClear();
+    h.moveView(2);
+    await moveViewport('pointermove');
+    h.moveView(2, 100);
+    await moveViewport('pointermove');
+    expect(h.viewportChanged).toHaveBeenCalledTimes(2);
+    expect(h.resolveTarget).not.toHaveBeenCalled();
+  });
+
+  it('retries missing metadata after the short cache expires', async () => {
+    const h = harness([first]);
+    await flush();
+    await moveViewport('pointermove');
+    h.resolveTarget.mockResolvedValue({ elementId: first.id });
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    await moveViewport('pointermove');
+    expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: first.id });
+  });
+
+  it('does not swallow a resize queued behind an unchanged pointer move', async () => {
+    const h = harness([first]);
+    await flush();
+    await moveViewport('pointermove');
+    h.viewportChanged.mockClear();
+    await act(async () => {
+      document.dispatchEvent(new Event('pointermove'));
+      window.dispatchEvent(new Event('resize'));
+      await vi.advanceTimersByTimeAsync(16);
+    });
+    expect(h.viewportChanged).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates cached geometry and metadata when canvas children change', async () => {
+    const h = harness([first]);
+    await flush();
+    h.replaceChildren();
+    h.resolveTarget.mockResolvedValue({ elementId: first.id, rect: { x: 40 } });
+    await moveViewport('pointermove');
+    expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: first.id, rect: { x: 40 } });
+    h.replaceChildren();
+    h.resolveTarget.mockResolvedValue({ elementId: first.id, rect: { x: 80 } });
+    await moveViewport('pointermove');
+    expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: first.id, rect: { x: 80 } });
+  });
+
+  it('retries a failed lookup on the next viewport refresh', async () => {
+    const h = harness([first]);
+    await flush();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      h.replaceChildren();
+      h.resolveTarget.mockRejectedValueOnce(new Error('history unavailable'));
+      await moveViewport('wheel');
+      h.resolveTarget.mockResolvedValue({ elementId: first.id });
+      await moveViewport('wheel');
+      expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: first.id });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it.each(['Dialog-overlay', 'ai-input-bar'])(
     'does not treat a click inside %s as a click on the canvas image',
     async (className) => {
@@ -189,6 +299,7 @@ describe('AIInputBar canvas selection publication', () => {
     await flush();
     const target = { elementId: first.id };
     h.resolveTarget.mockResolvedValue(target);
+    h.replaceChildren();
     h.targetChanged.mockClear();
     await moveViewport('pointermove');
     expect(h.targetChanged).toHaveBeenLastCalledWith(target);
@@ -249,6 +360,7 @@ describe('AIInputBar canvas selection publication', () => {
     await flush();
     const oldTarget = deferred<{ elementId: string }>();
     h.resolveTarget.mockReturnValueOnce(oldTarget.promise);
+    h.replaceChildren();
     await moveViewport('pointermove');
     h.select([first, second]);
     await act(async () => {
@@ -269,11 +381,14 @@ describe('AIInputBar canvas selection publication', () => {
     h.resolveTarget
       .mockReturnValueOnce(older.promise)
       .mockReturnValueOnce(newer.promise);
+    h.replaceChildren();
     await moveViewport('pointermove');
+    h.replaceChildren();
     await moveViewport('wheel');
     await act(async () => {
       newer.resolve({ elementId: 'first', rect: { x: 20 } });
     });
+    expect(h.targetChanged).toHaveBeenLastCalledWith({ elementId: 'first', rect: { x: 20 } });
     h.targetChanged.mockClear();
     await act(async () => {
       older.resolve({ elementId: 'first', rect: { x: 10 } });

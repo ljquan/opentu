@@ -30,6 +30,7 @@
 
 ## 关键能力
 
+- [画布交互性能优化 QA](./qa-canvas-interaction-performance.md)：重复保存、填充增量修复和输入栏查询复用的验证结果与兼容边界。
 - [Tuzi 新版视频模型参数](./tuzi-video-model-parameters.md)：Gemini Omni 1.2、Wan 3.0、HappyHorse 1.1 和 Kling 4.0 的参数、请求与开放边界；[QA](./qa-tuzi-video-model-parameters.md)。
 - [任务队列日期筛选 QA](./qa-task-queue-date-filter.md)：当前与历史任务的日期/关键词组合查询、归档分页、时区及异步切换回归；用法见 [任务队列手册](./user-manual/content/advanced/task-queue.mdx)。
 - [图片预发布修复与 QA](./qa-prerelease-fixes-20261026.md)：Seedream 字节缓存、缩放/拆分避让、工具栏文字和原图像素；含真实接口与页面复测。

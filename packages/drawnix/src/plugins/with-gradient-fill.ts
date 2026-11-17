@@ -15,12 +15,15 @@ import { isClosedElement } from '../utils/property';
 
 // 存储已处理的元素和它们的填充定义 ID
 const processedFillDefs = new WeakMap<PlaitElement, string>();
+const elementIndexes = new WeakMap<
+  PlaitBoard,
+  { children: PlaitElement[]; byId: Map<string, PlaitElement> }
+>();
 
-// MutationObserver 实例
-let observer: MutationObserver | null = null;
-
-// 存储 board 引用，用于 MutationObserver 回调
-let boardRef: PlaitBoard | null = null;
+const fillObservers = new WeakMap<
+  PlaitBoard,
+  { host: Element; observer: MutationObserver }
+>();
 
 /**
  * 查找元素对应的 SVG 组元素
@@ -150,7 +153,15 @@ function applyFillConfig(
  * 根据元素 ID 查找 board.children 中的元素
  */
 function findElementById(board: PlaitBoard, id: string): PlaitElement | null {
-  return board.children.find((el) => el.id === id) || null;
+  let index = elementIndexes.get(board);
+  if (!index || index.children !== board.children) {
+    index = {
+      children: board.children,
+      byId: new Map(board.children.map((element) => [element.id, element])),
+    };
+    elementIndexes.set(board, index);
+  }
+  return index.byId.get(id) || null;
 }
 
 /**
@@ -209,9 +220,7 @@ function needsFillFix(fillValue: string | null, element?: PlaitElement | null): 
 /**
  * 处理 DOM 变化，修复被 Plait 重新渲染的元素
  */
-function handleDOMMutation(mutations: MutationRecord[]): void {
-  if (!boardRef) return;
-
+function handleDOMMutation(board: PlaitBoard, mutations: MutationRecord[]): void {
   const elementsToFix = new Set<PlaitElement>();
 
   mutations.forEach((mutation) => {
@@ -225,10 +234,10 @@ function handleDOMMutation(mutations: MutationRecord[]): void {
       if (gElement) {
         const elementId = gElement.getAttribute('id');
         if (elementId) {
-          const element = findElementById(boardRef!, elementId);
+          const element = findElementById(board, elementId);
           const fillConfig = element ? getElementFillConfig(element) : null;
           // 传入 element 以便检查是否有渐变/图片配置
-          if (element && fillConfig && isClosedElement(boardRef!, element) && needsFillFix(fillValue, element)) {
+          if (element && fillConfig && isClosedElement(board, element) && needsFillFix(fillValue, element)) {
             elementsToFix.add(element);
           }
         }
@@ -241,9 +250,9 @@ function handleDOMMutation(mutations: MutationRecord[]): void {
         if (node instanceof SVGGElement && node.hasAttribute('id')) {
           const elementId = node.getAttribute('id');
           if (elementId) {
-            const element = findElementById(boardRef!, elementId);
+            const element = findElementById(board, elementId);
             const fillConfig = element ? getElementFillConfig(element) : null;
-            if (element && fillConfig && isClosedElement(boardRef!, element)) {
+            if (element && fillConfig && isClosedElement(board, element)) {
               elementsToFix.add(element);
             }
           }
@@ -255,9 +264,9 @@ function handleDOMMutation(mutations: MutationRecord[]): void {
           if (gElement) {
             const elementId = gElement.getAttribute('id');
             if (elementId) {
-              const element = findElementById(boardRef!, elementId);
+              const element = findElementById(board, elementId);
               const fillConfig = element ? getElementFillConfig(element) : null;
-              if (element && fillConfig && isClosedElement(boardRef!, element)) {
+              if (element && fillConfig && isClosedElement(board, element)) {
                 elementsToFix.add(element);
               }
             }
@@ -272,7 +281,7 @@ function handleDOMMutation(mutations: MutationRecord[]): void {
     elementsToFix.forEach((element) => {
       const fillConfig = getElementFillConfig(element);
       if (fillConfig) {
-        applyFillConfig(boardRef!, element, fillConfig);
+        applyFillConfig(board, element, fillConfig);
       }
     });
   }
@@ -282,22 +291,23 @@ function handleDOMMutation(mutations: MutationRecord[]): void {
  * 设置 MutationObserver
  * 同步处理 fill 属性变化，避免黑色闪烁
  */
-function setupMutationObserver(board: PlaitBoard): void {
-  if (observer) return;
-
+function setupMutationObserver(board: PlaitBoard): boolean {
   const host = PlaitBoard.getElementHost(board);
-  if (!host) return;
-
-  boardRef = board;
+  if (!host) return false;
+  const previous = fillObservers.get(board);
+  if (previous?.host === host) return false;
+  previous?.observer.disconnect();
 
   // 使用同步处理，立即修复错误的 fill 值
-  observer = new MutationObserver(handleDOMMutation);
+  const observer = new MutationObserver((mutations) => handleDOMMutation(board, mutations));
   observer.observe(host, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['fill'],
   });
+  fillObservers.set(board, { host, observer });
+  return true;
 }
 
 /**
@@ -335,8 +345,12 @@ function scanAndFixIncorrectFills(board: PlaitBoard): void {
  * @param board - Plait Board 实例
  * @param immediate - 是否立即同步处理（不使用 requestAnimationFrame）
  */
-function processAllFillRendering(board: PlaitBoard, immediate = false): void {
-  board.children.forEach((element) => {
+function processAllFillRendering(
+  board: PlaitBoard,
+  immediate = false,
+  elements = board.children
+): void {
+  elements.forEach((element) => {
     const fillConfig = getElementFillConfig(element);
     
     // 只处理有 FillConfig 的元素
@@ -354,13 +368,10 @@ function processAllFillRendering(board: PlaitBoard, immediate = false): void {
   });
   
   // 额外扫描并修复任何显示不正确的元素
-  if (immediate) {
+  if (immediate && elements === board.children) {
     scanAndFixIncorrectFills(board);
   }
 }
-
-// 标记是否为首次渲染（用于优化初始加载）
-let isFirstRender = true;
 
 // 已设置重试的 board 实例
 const retriedBoards = new WeakSet<PlaitBoard>();
@@ -486,14 +497,42 @@ function scheduleRetryFillRendering(board: PlaitBoard): void {
  */
 export const withGradientFill = (board: PlaitBoard): PlaitBoard => {
   const { afterChange } = board;
+  let isFirstRender = true;
+  let lastChildren = board.children;
 
   board.afterChange = () => {
     // 先调用原始的 afterChange
     afterChange();
 
     // 设置 MutationObserver（只需一次）
-    setupMutationObserver(board);
+    const hostChanged = setupMutationObserver(board);
+
+    const operations = board.operations;
+    const onlyTransientChanges = operations.length > 0 && operations.every(
+      (operation) => operation.type === 'set_selection' || operation.type === 'set_viewport'
+    );
+    if (!isFirstRender && !hostChanged && onlyTransientChanges && lastChildren === board.children) {
+      return;
+    }
+    lastChildren = board.children;
+
+    // Node property/size edits only need their own fill reapplied. Structural,
+    // theme and snapshot changes retain the full repair path as a fallback.
+    if (!isFirstRender && !hostChanged && operations.length > 0 && operations.every(
+      (operation) => ['set_node', 'set_selection', 'set_viewport'].includes(operation.type)
+    )) {
+      const changed = new Set<PlaitElement>();
+      for (const operation of operations) {
+        if (operation.type === 'set_node') {
+          const element = board.children[operation.path[0]];
+          if (element) changed.add(element);
+        }
+      }
+      processAllFillRendering(board, true, [...changed]);
+      return;
+    }
     
+    elementIndexes.delete(board);
     // 预先准备渐变定义
     prepareGradientDefs(board);
 

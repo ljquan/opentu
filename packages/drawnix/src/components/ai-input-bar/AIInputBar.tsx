@@ -1406,6 +1406,53 @@ const SelectionWatcher: React.FC<{
     currentBoardIdRef.current = currentBoardId;
 
     useEffect(() => {
+      // Share metadata/history lookups across viewport frames for one selection.
+      // Explicit selection/prompt refreshes always bypass this cache.
+      let targetCache: {
+        board: PlaitBoard;
+        children: PlaitElement[];
+        selected: PlaitElement[];
+        prompt: string | undefined;
+        promise: Promise<BoundImageTarget | null>;
+        expiresAt: number;
+      } | null = null;
+      let publishedTarget: BoundImageTarget | null | undefined;
+      const resolveTarget = (
+        currentBoard: PlaitBoard,
+        selected: PlaitElement[],
+        refresh = false
+      ) => {
+        const prompt = semanticEditPromptRef.current;
+        const previous = targetCache;
+        if (
+          !refresh && previous && previous.board === currentBoard &&
+          previous.children === currentBoard.children &&
+          previous.prompt === prompt && Date.now() < previous.expiresAt &&
+          previous.selected.length === selected.length &&
+          selected.every((element, index) => previous.selected[index] === element)
+        ) {
+          return previous.promise;
+        }
+        const cache = {
+          board: currentBoard,
+          children: currentBoard.children,
+          selected,
+          prompt,
+          promise: resolveBoundImageTarget(currentBoard, selected, prompt),
+          expiresAt: Infinity,
+        };
+        targetCache = cache;
+        void cache.promise.then(
+          (target) => {
+            // A missing task/prompt may arrive later without replacing children.
+            if (!target) cache.expiresAt = Date.now() + 500;
+          },
+          () => {
+            if (targetCache === cache) targetCache = null;
+          }
+        );
+        return cache.promise;
+      };
       const handleSelectionChange = async (
         canvasAssociationPickElements?: PlaitElement[]
       ) => {
@@ -1463,10 +1510,10 @@ const SelectionWatcher: React.FC<{
         if (selectedElements.length === 0) {
           suppressedCanvasAssociationSelectionIdsRef.current = new Set();
         }
-        const boundImageTarget = await resolveBoundImageTarget(
+        const boundImageTarget = await resolveTarget(
           currentBoard,
           selectedElements,
-          semanticEditPromptRef.current
+          true
         );
         if (
           runId !== selectionRunIdRef.current ||
@@ -1475,6 +1522,7 @@ const SelectionWatcher: React.FC<{
           return;
         }
         if (boundTargetRunId === boundTargetRunIdRef.current) {
+          publishedTarget = boundImageTarget;
           onBoundImageTargetChangeRef.current?.(boundImageTarget);
         }
 
@@ -1632,31 +1680,62 @@ const SelectionWatcher: React.FC<{
       };
       refreshSelectionRef.current = handleSelectionRefresh;
       let viewportRaf: number | null = null;
-      const handleViewportChange = () => {
+      let lastPointerSnapshot: unknown[] = [];
+      let forceViewportRefresh = false;
+      const handleViewportChange = (event: Event) => {
+        forceViewportRefresh ||= event.type !== 'pointermove';
         if (viewportRaf !== null) return;
         viewportRaf = requestAnimationFrame(() => {
           viewportRaf = null;
-          onBoundInputViewportChangeRef.current?.();
-          if (canvasAssociationPickingRef.current) return;
+          const forceRefresh = forceViewportRefresh;
+          forceViewportRefresh = false;
           const currentBoard = boardRef.current;
           if (!currentBoard) return;
+          const selected = getSelectedElements(currentBoard);
+          const viewport = currentBoard.viewport;
+          const container = PlaitBoard.getBoardContainer(currentBoard);
+          const snapshot = [
+            currentBoard,
+            currentBoard.children,
+            ...selected,
+            viewport?.zoom,
+            viewport?.origination?.[0],
+            viewport?.origination?.[1],
+            viewport?.offsetX,
+            viewport?.offsetY,
+            container.scrollLeft,
+            container.scrollTop,
+            semanticEditPromptRef.current,
+          ];
+          if (
+            !forceRefresh &&
+            snapshot.length === lastPointerSnapshot.length &&
+            snapshot.every((value, index) => value === lastPointerSnapshot[index]) &&
+            targetCache && Date.now() < targetCache.expiresAt
+          ) {
+            return;
+          }
+          lastPointerSnapshot = snapshot;
+          onBoundInputViewportChangeRef.current?.();
+          if (canvasAssociationPickingRef.current) return;
           const selectionBoardId = currentBoardIdRef.current;
           // Moving/zooming only refreshes the bound target's position. It must
           // not cancel content still being extracted for the same selection.
           const runId = selectionRunIdRef.current;
           const boundTargetRunId = ++boundTargetRunIdRef.current;
-          void resolveBoundImageTarget(
-            currentBoard,
-            getSelectedElements(currentBoard),
-            semanticEditPromptRef.current
-          ).then((target) => {
+          void resolveTarget(currentBoard, selected).then((target) => {
             if (
               runId === selectionRunIdRef.current &&
               boundTargetRunId === boundTargetRunIdRef.current &&
               selectionBoardId === currentBoardIdRef.current
             ) {
-              onBoundImageTargetChangeRef.current?.(target);
+              if (target !== publishedTarget) {
+                publishedTarget = target;
+                onBoundImageTargetChangeRef.current?.(target);
+              }
             }
+          }).catch((error) => {
+            console.warn('Failed to refresh bound target:', error);
           });
         });
       };

@@ -28,6 +28,7 @@ import {
 import type {
   PlaitBoard,
   PlaitElement,
+  PlaitOperation,
   PlaitTheme,
   Viewport,
 } from '@plait/core';
@@ -602,6 +603,10 @@ export function App() {
   const handleBoardSwitch = useCallback(
     async (board: Board, skipUrlUpdate: boolean = false) => {
       try {
+        if (viewportSaveTimerRef.current) {
+          clearTimeout(viewportSaveTimerRef.current);
+          viewportSaveTimerRef.current = null;
+        }
         // 立即更新 URL 和 sessionStorage，确保刷新页面时能恢复到正确的画板
         // 必须在任何异步操作之前执行，避免刷新时丢失画板选择
         if (!skipUrlUpdate) {
@@ -789,7 +794,19 @@ export function App() {
 
   // Handle board changes (auto-save)
   const handleBoardChange = useCallback(
-    (data: BoardChangeData) => {
+    (data: BoardChangeData & { operations?: PlaitOperation[] }) => {
+      // Selection is transient; viewport has its own debounced persistence path.
+      // Keep empty/legacy batches and mixed content/theme edits on the save path.
+      if (
+        data.operations?.length &&
+        data.operations.every(
+          (operation) =>
+            operation.type === 'set_selection' ||
+            operation.type === 'set_viewport'
+        )
+      ) {
+        return;
+      }
       setValue(data);
       // 同步更新最新 viewport
       latestViewportRef.current = data.viewport;
@@ -824,6 +841,10 @@ export function App() {
         return;
       }
 
+      if (viewportSaveTimerRef.current) {
+        clearTimeout(viewportSaveTimerRef.current);
+        viewportSaveTimerRef.current = null;
+      }
       updateLatestBoardData(currentBoard.id, data);
 
       workspaceService
@@ -864,6 +885,11 @@ export function App() {
         return;
       }
 
+      if (!isDataReadyRef.current) return;
+      const workspaceService = WorkspaceService.getInstance();
+      const boardId = workspaceService.getCurrentBoard()?.id;
+      if (!boardId) return;
+      localDirtyRef.current = true;
       const persistenceRevision = pendingPersistence.begin();
 
       // 防抖保存
@@ -871,6 +897,7 @@ export function App() {
         clearTimeout(viewportSaveTimerRef.current);
       }
       viewportSaveTimerRef.current = setTimeout(() => {
+        viewportSaveTimerRef.current = null;
         // 再次检查同步状态
         if (
           isSyncingRef.current &&
@@ -879,9 +906,8 @@ export function App() {
           return;
         }
 
-        const workspaceService = WorkspaceService.getInstance();
         const currentBoard = workspaceService.getCurrentBoard();
-        if (currentBoard) {
+        if (currentBoard?.id === boardId) {
           // 只保存 viewport，不影响其他数据
           workspaceService
             .saveCurrentBoard({
@@ -893,6 +919,7 @@ export function App() {
               if (pendingPersistence.complete(persistenceRevision)) {
                 clearBoardCloseSnapshot(currentBoard.id);
               }
+              markTabSyncVersion(currentBoard.id);
             })
             .catch((err: Error) => {
               console.error('[App] Failed to save viewport:', err);
