@@ -101,6 +101,7 @@ import {
 } from '../../icons';
 import {
   Pencil,
+  FilePenLine,
   Presentation,
   Copy,
   Play,
@@ -2805,7 +2806,7 @@ export const PopupToolbar = () => {
                   void prefillSelectedImageTaskToAIInput('reroll');
                 }}
               />
-              <ToolButton type="icon" icon={<Pencil size={15} />} visible={true}
+              <ToolButton type="icon" icon={<FilePenLine size={15} aria-hidden="true" />} visible={true}
                 tooltip={language === 'zh' ? '调整后生成：恢复原提示词和参考图' : 'Restore inputs for editing'}
                 aria-label={language === 'zh' ? '调整后生成' : 'Edit original inputs'}
                 data-track="toolbar_click_regenerate_image_prefill"

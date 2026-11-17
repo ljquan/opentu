@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pencil } from 'lucide-react';
+import { ImagePlus } from 'lucide-react';
 import type { PlaitBoard, PlaitElement } from '@plait/core';
 import { MessagePlugin } from 'tdesign-react';
 import type { Task } from '../../../types/task.types';
@@ -49,7 +49,7 @@ export function SeedreamContinueButton({
       type="icon"
       visible
       className="continue-image"
-      icon={<Pencil size={15} />}
+      icon={<ImagePlus size={15} aria-hidden="true" />}
       aria-label="继续编辑"
       tooltip="以这张结果继续编辑（Seedream 5.5）"
       onClick={() => {
