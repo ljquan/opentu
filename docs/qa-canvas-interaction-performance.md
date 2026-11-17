@@ -106,11 +106,15 @@ NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.c
 
 本轮修复前已有两次用户授权的 Seedream 5.5 真实请求（各 1 张、1.5K）完成并插入测试板：重新生成蓝杯、调整提示词生成红杯。另一次“继续编辑”因历史模型配置不可用被前置校验阻止，未提交；该问题未混入本次 CSS 修复。修复后没有再次发送收费请求，完整真实生成期间的操作流畅度仍需后续验证。
 
-### 本轮本地回归
+### 上游同步与最终本地回归
 
-- 生成卡片内容、占位同步、自动插入、视图模型与图片就绪：5 个文件、112 项通过。
-- Web Vite 生产构建通过，耗时 50.41 秒；既有 Sass、Browserslist、混合导入及大 chunk 提示仍存在。
-- `git diff --check` 通过。SCSS 修复未改变 TypeScript；未重复运行全仓库测试或 lint。
+在功能分支显式 fetch、merge `origin/develop` 至 `3c5dc76d`（v1.2.15）。前序 PR 使用压缩合并，且上游已补充导入保存和渐变修复，产生 5 个文件冲突。逐项比较后，App、填充插件及其测试完整保留上游版本；QA 合并上游浏览器复核和本轮记录。最终相对上游仅占位卡 SCSS 和本 QA 两个文件有差异，无未解决冲突。
+
+- 合并前生成卡片内容、占位同步、自动插入、视图模型与图片就绪：5 个文件、112 项通过。合并后追加填充回归，最终 6 个文件、130 项通过。
+- 合并后 App 保存及同步回归：2 个文件、24 项通过；Web / Drawnix 生产源码 TypeScript 均通过。
+- Web Vite 生产构建通过：合并前 50.41 秒，合并后最终 44.40 秒；既有 Sass、Browserslist、混合导入及大 chunk 提示仍存在。
+- `git diff origin/develop...HEAD --check` 通过。未运行全仓库测试或 lint。浏览器回放在合并前完成，占位卡 SCSS 在同步中没有变化。
+- PR #344 历史 CI main 存在 TypeScript 声明生成错误 TS2742 / TS4094；本轮生产源码类型检查及 Vite 构建通过，不代表全量 CI 已通过，也未扩展修复这些声明生成问题。
 
 在 `packages/drawnix` 执行：
 
@@ -120,7 +124,8 @@ NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.c
   src/hooks/__tests__/useImageGenerationAnchorSync.test.ts \
   src/hooks/__tests__/useAutoInsertToCanvas.test.ts \
   src/utils/__tests__/image-generation-anchor-view-model.test.ts \
-  src/utils/__tests__/image-generation-anchor-readiness.test.ts
+  src/utils/__tests__/image-generation-anchor-readiness.test.ts \
+  src/plugins/with-gradient-fill.test.ts
 ```
 
 构建命令同前。人工补验可在原有大画板生成期间拖动画布、缩放和选择元素，直到结果显示后数秒，确认响应保持正常；本轮没有宣称该场景已完全消除卡顿。回滚本轮修复只需恢复占位卡 SCSS，无需删除图片、任务、缓存或其他数据。
