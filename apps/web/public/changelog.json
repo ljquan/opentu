@@ -1,6 +1,21 @@
 {
   "versions": [
     {
+      "version": "1.2.14",
+      "date": "2026-11-17",
+      "changes": {
+        "features": [
+          "replace generation drafts with progress and results in place"
+        ],
+        "fixes": [
+          "keep clicked image reference menu open"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "replace generation drafts with progress and results in place"
+    },
+    {
       "version": "1.2.13",
       "date": "2026-11-16",
       "changes": {
@@ -751,25 +766,6 @@
       },
       "type": "patch",
       "highlights": "支持在 AI 生图描述框粘贴参考图"
-    },
-    {
-      "version": "1.0.12",
-      "date": "2026-08-04",
-      "changes": {
-        "features": [
-          "增加网站本地数据清理入口 (#212)"
-        ],
-        "fixes": [],
-        "improvements": [
-          "功能：任务栏历史提示词按需复用 (#213)",
-          "修复任务栏多图生成覆盖原图 (#210)",
-          "功能：刷新默认模型目录并接入 Seedance 2.0 (#211)",
-          "修复 AI 任务栏跟随尺寸与局域网图片插入 (#209)",
-          "功能：支持关闭图片任务栏跟随并生成新图片 (#208)"
-        ]
-      },
-      "type": "patch",
-      "highlights": "增加网站本地数据清理入口 (#212)"
     }
   ]
 }
