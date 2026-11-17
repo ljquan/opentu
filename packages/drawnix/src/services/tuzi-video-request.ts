@@ -14,6 +14,7 @@ import {
   validateHappyHorseImage,
   type TuziMediaResolver,
 } from './tuzi-video-media';
+import { fitGeminiOmniRequest } from './gemini-omni-request-budget';
 
 export interface TuziVideoRequest {
   model: string;
@@ -460,7 +461,7 @@ export async function buildTuziVideoRequest(
     if (task === 'extend' && duration > 10)
       throw new Error('Gemini 每次延展最多 10 秒');
     const input = await omniInput(prompt, references, media, params, resolve);
-    return {
+    return fitGeminiOmniRequest({
       model,
       ...input,
       seconds: String(duration),
@@ -469,7 +470,7 @@ export async function buildTuziVideoRequest(
         ? { generation_config: { video_config: { task } } }
         : {}),
       ...(previous ? { previous_interaction_id: previous } : {}),
-    };
+    });
   }
   if (model === 'kling-4.0') {
     const ratio = choice(
