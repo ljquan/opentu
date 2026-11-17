@@ -86,7 +86,7 @@ describe('Midjourney parameter submission', () => {
   it('converts every structured MJ parameter into provider prompt flags', async () => {
     const body = await captureSubmission('An architectural drawing', {
       mj_ar: '16:9',
-      mj_v: '7',
+      mj_v: '8.2',
       mj_style: 'raw',
       mj_s: 100,
       mj_q: '2',
@@ -96,7 +96,7 @@ describe('Midjourney parameter submission', () => {
     expect(body).toEqual({
       botType: 'MID_JOURNEY',
       prompt:
-        'An architectural drawing --ar 16:9 --v 7 --style raw --s 100 --q 2 --seed 0',
+        'An architectural drawing --ar 16:9 --v 8.2 --style raw --s 100 --q 2 --seed 0',
       base64Array: ['YQ=='],
     });
   });

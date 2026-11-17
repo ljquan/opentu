@@ -3811,6 +3811,7 @@ export const IMAGE_PARAMS: ParamConfig[] = [
     valueType: 'enum',
     options: [
       { value: 'default', label: '默认 (V7)' },
+      { value: '8.2', label: 'V8.2' },
       { value: '8.1', label: 'V8.1' },
       { value: '8', label: 'V8' },
       { value: '7', label: 'V7' },

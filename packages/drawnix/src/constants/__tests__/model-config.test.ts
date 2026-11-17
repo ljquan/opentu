@@ -481,12 +481,13 @@ describe('model-config image size options', () => {
     ]);
   });
 
-  it('为 Midjourney 暴露 V8 和 V8.1 版本参数', () => {
+  it('为 Midjourney 暴露 V8、V8.1 和 V8.2 版本参数', () => {
     const params = getCompatibleParams('mj-imagine');
     const versionParam = params.find((param) => param.id === 'mj_v');
 
     expect(versionParam?.options?.map((option) => option.value)).toEqual([
       'default',
+      '8.2',
       '8.1',
       '8',
       '7',
