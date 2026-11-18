@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "1.2.16",
+      "date": "2026-11-18",
+      "changes": {
+        "features": [
+          "新增 V8.2 版本选项 (#346)"
+        ],
+        "fixes": [
+          "allow reference image payloads through apioss route"
+        ],
+        "improvements": [
+          "接入 Vidu Q3/Q4 视频模型并支持 Mix 输入框参考音频 (#347)",
+          "降低生图期间占位卡渲染开销 (#345)"
+        ]
+      },
+      "type": "patch",
+      "highlights": "新增 V8.2 版本选项 (#346)"
+    },
+    {
       "version": "1.2.15",
       "date": "2026-11-17",
       "changes": {
@@ -743,21 +761,6 @@
       },
       "type": "patch",
       "highlights": "统一跨媒体 AI 任务栏目标控制 (#227)"
-    },
-    {
-      "version": "1.0.16",
-      "date": "2026-08-10",
-      "changes": {
-        "features": [
-          "图片预览显示实际尺寸 (#225)"
-        ],
-        "fixes": [
-          "修复 Gemini 3.1 图片渲染失败 (#224)"
-        ],
-        "improvements": []
-      },
-      "type": "patch",
-      "highlights": "图片预览显示实际尺寸 (#225)"
     }
   ]
 }

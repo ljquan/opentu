@@ -1,3 +1,23 @@
+## 1.2.16 (2026-11-18)
+
+### 🚀 Features
+
+- 新增 V8.2 版本选项 (#346) ([d888ffed](https://github.com/ljquan/opentu/commit/d888ffed))
+
+### 🩹 Fixes
+
+- allow reference image payloads through apioss route ([1d42120f](https://github.com/ljquan/opentu/commit/1d42120f))
+
+### 🔧 Chores
+
+- 接入 Vidu Q3/Q4 视频模型并支持 Mix 输入框参考音频 (#347) ([c26db35e](https://github.com/ljquan/opentu/commit/c26db35e))
+- 降低生图期间占位卡渲染开销 (#345) ([942a3e18](https://github.com/ljquan/opentu/commit/942a3e18))
+
+### ❤️  Thank You
+
+- gongchengtu <1817063960@qq.com>
+- Liang <13642533686@163.com>
+
 ## 1.2.15 (2026-11-17)
 
 ### 🩹 Fixes

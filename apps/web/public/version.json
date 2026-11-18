@@ -1,8 +1,11 @@
 {
-  "version": "1.2.15",
-  "buildTime": "2026-11-17T07:16:46.061Z",
+  "version": "1.2.16",
+  "buildTime": "2026-11-18T10:22:40.170Z",
   "gitCommit": "unknown",
   "changelog": [
-    "bound Gemini Omni requests to 1 MiB (#343)"
+    "allow reference image payloads through apioss route",
+    "接入 Vidu Q3/Q4 视频模型并支持 Mix 输入框参考音频 (#347)",
+    "降低生图期间占位卡渲染开销 (#345)",
+    "新增 V8.2 版本选项 (#346)"
   ]
 }
