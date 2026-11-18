@@ -13,6 +13,52 @@ vi.mock('../shared/hover', () => ({
 }));
 afterEach(cleanup);
 
+describe('Vidu video parameter controls', () => {
+  it('exposes Mix framing and optional reference-video controls', () => {
+    const onParamChange = vi.fn();
+    render(<ParametersDropdown isOpen modelId="viduq3-mix" selectedParams={{}} onParamChange={onParamChange} />);
+    fireEvent.click(screen.getByRole('button', { name: '9:16', exact: true }));
+    expect(onParamChange).toHaveBeenCalledWith('aspect_ratio', '9:16');
+    fireEvent.click(screen.getByRole('switch', { name: '高级功能' }));
+    fireEvent.click(screen.getByRole('button', { name: '水印关闭' }));
+    expect(onParamChange).toHaveBeenCalledWith('watermark', 'false');
+    expect(screen.getByLabelText('随机种子')).toBeTruthy();
+    expect(screen.getByLabelText('参考音频 URL')).toBeTruthy();
+    expect(screen.getByLabelText('回调地址')).toBeTruthy();
+    expect(screen.queryByText('生成音轨')).toBeNull();
+  });
+  it('updates Turbo duration choices when reference mode is selected', () => {
+    function Menu() {
+      const [params, setParams] = React.useState<Record<string, string>>({});
+      return <ParametersDropdown isOpen modelId="viduq3-turbo" selectedParams={params}
+        compatibleParams={getEffectiveVideoCompatibleParams('viduq3-turbo', 'viduq3-turbo', params, null)}
+        onParamChange={(id, value) => setParams((previous) => ({ ...previous, [id]: value }))} />;
+    }
+    render(<Menu />);
+    expect(screen.getByRole('button', { name: '1秒', exact: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '参考生视频', exact: true }));
+    expect(screen.getByRole('button', { name: '参考生视频', exact: true, pressed: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '1秒', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: '16秒', exact: true })).toBeNull();
+    expect(screen.getByRole('button', { name: '3秒', exact: true })).toBeTruthy();
+    expect(screen.queryByText('视频比例')).toBeNull();
+    expect(screen.queryByText('水印')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '文生视频', exact: true }));
+    expect(screen.getByRole('button', { name: '1秒', exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '16秒', exact: true })).toBeTruthy();
+  });
+
+  it('does not offer unsupported modes or controls for the reference-only Ad model', () => {
+    render(<ParametersDropdown isOpen modelId="viduq3-ad" selectedParams={{}} onParamChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '720p', exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '1080p', exact: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '540p', exact: true })).toBeNull();
+    expect(screen.queryByText('视频模式')).toBeNull();
+    expect(screen.queryByText('视频比例')).toBeNull();
+    expect(screen.queryByText('高级功能')).toBeNull();
+  });
+});
+
 describe('GPT Image 2.6 output controls', () => {
   it.each(GPT_IMAGE_26_MODEL_IDS.filter((id) => id !== 'gpt-image-2.6-1k'))('separates %s aspect ratios and resolution, preserving both selections across output modes', (modelId) => {
     const onParamChange = vi.fn();

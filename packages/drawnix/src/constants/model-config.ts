@@ -17,6 +17,7 @@ import { getSunoNativeParams } from '../services/suno-native-params';
 import { getSunoV2Params } from '../services/suno-v2-params';
 import { SEEDREAM_FLASH_MODEL_ID, SEEDREAM_FLASH_SIZES } from './seedream-flash';
 import { KLING_4_RATIO_OPTIONS, TUZI_VIDEO_MODEL_CONFIGS, TUZI_VIDEO_MODEL_SHORT_CODES } from './tuzi-video-models';
+import { getViduVideoContract, VIDU_ACTION_LABELS, VIDU_MIX_MODEL, VIDU_MIX_RATIOS } from './vidu-video-models';
 
 /**
  * 模型类型
@@ -152,6 +153,7 @@ export enum ModelVendor {
   GOOGLE = 'GOOGLE',
   DOUBAO = 'DOUBAO',
   HAPPYHORSE = 'HAPPYHORSE',
+  VIDU = 'VIDU',
   OTHER = 'OTHER',
 }
 
@@ -182,6 +184,7 @@ export const VENDOR_NAMES: Record<ModelVendor, string> = {
   [ModelVendor.GOOGLE]: 'Google',
   [ModelVendor.DOUBAO]: '即梦',
   [ModelVendor.HAPPYHORSE]: 'HappyHorse',
+  [ModelVendor.VIDU]: 'Vidu',
   [ModelVendor.OTHER]: '其它',
 };
 
@@ -1315,11 +1318,12 @@ const BUILT_IN_VIDEO_MODELS: ModelConfig[] = [
     type: 'video',
     vendor: config.provider === 'happyhorse' ? ModelVendor.HAPPYHORSE
       : config.provider === 'kling' ? ModelVendor.KLING
-      : config.provider === 'wan' ? ModelVendor.QWEN : ModelVendor.GEMINI,
+      : config.provider === 'wan' ? ModelVendor.QWEN
+      : config.provider === 'vidu' ? ModelVendor.VIDU : ModelVendor.GEMINI,
     videoDefaults: {
       duration: config.defaultDuration, size: config.defaultSize,
       aspectRatio: config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio === 'resolution'
-        ? config.provider === 'wan' || config.provider === 'kling' ? 'adaptive' : '16:9'
+        ? config.provider === 'wan' || config.provider === 'kling' || config.provider === 'vidu' ? 'adaptive' : '16:9'
         : config.sizeOptions.find((option) => option.value === config.defaultSize)?.aspectRatio || '16:9',
     },
   })),
@@ -3026,6 +3030,33 @@ export const VIDEO_PARAMS: ParamConfig[] = [
       { ...common, id: 'size', label: '视频尺寸', shortLabel: '尺寸', valueType: 'enum',
         options: config.sizeOptions.map((option) => ({ value: option.value, label: option.label })), defaultValue: config.defaultSize },
     ];
+    const vidu = getViduVideoContract(config.id);
+    if (vidu) {
+      if (config.id === VIDU_MIX_MODEL) {
+        const advanced = { ...common, advanced: true };
+        params.push(
+          { ...common, id: 'aspect_ratio', label: '视频画幅', shortLabel: '画幅', valueType: 'enum', defaultValue: '16:9',
+            options: VIDU_MIX_RATIOS.map((value) => ({ value, label: value === 'auto' ? '自动' : value })) },
+          { ...advanced, id: 'seed', label: '随机种子', valueType: 'number', step: 1, integer: true },
+          { ...advanced, id: 'vidu_sound_urls', label: '参考音频 URL', valueType: 'string', control: 'textarea',
+            description: '每行一个公网音频地址，和音频附件合计最多 3 段。' },
+          { ...advanced, id: 'watermark', label: '水印', valueType: 'enum', control: 'switch',
+            options: [{ value: 'true', label: '开启' }, { value: 'false', label: '关闭' }] },
+          { ...advanced, id: 'wm_position', label: '水印位置', valueType: 'enum', control: 'select',
+            options: ['左上', '右上', '右下', '左下'].map((label, index) => ({ value: String(index + 1), label })) },
+          { ...advanced, id: 'wm_url', label: '水印图片 URL', valueType: 'string' },
+          { ...advanced, id: 'meta_data', label: '视频元数据（JSON）', valueType: 'string', control: 'textarea' },
+          { ...advanced, id: 'payload', label: '透传文本', valueType: 'string', control: 'textarea' },
+          { ...advanced, id: 'callback_url', label: '回调地址', valueType: 'string' },
+        );
+      }
+      if (vidu.actions.length > 1) params.push({
+        ...common, id: 'vidu_action', label: '视频模式', shortLabel: '模式', valueType: 'enum', defaultValue: 'auto',
+        options: [{ value: 'auto', label: '按图片自动判断' }, ...vidu.actions.map((action) => ({ value: action, label: VIDU_ACTION_LABELS[action] }))],
+        description: '无图文生、单图图生、两图首尾帧，多图参考；仅使用当前型号支持的模式。',
+      });
+      return params;
+    }
     if (config.id === 'gemini-omni-1.2-flash' || (config.provider === 'happyhorse' && !config.id.endsWith('-i2v')) || config.provider === 'wan' || config.provider === 'kling') {
       params.push({ ...common, id: 'ratio', label: '视频比例', shortLabel: '比例', valueType: 'enum',
         options: (config.provider === 'kling' ? KLING_4_RATIO_OPTIONS : config.id === 'gemini-omni-1.2-flash' ? ['16:9', '9:16'] : config.provider === 'wan' ? ['adaptive', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] : ['16:9', '9:16', '1:1', '4:3', '3:4'])

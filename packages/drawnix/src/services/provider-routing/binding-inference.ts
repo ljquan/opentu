@@ -774,7 +774,7 @@ function inferVideoBindings(
             video: {
               allowedDurations: [...tuziConfig.durationOptions.map((option) => option.value), ...(model.id === 'wan3.0-video' ? ['-1'] : [])],
               defaultDuration: tuziConfig.defaultDuration,
-              durationField: model.id === 'wan3.0-video' ? 'duration' : 'seconds',
+              durationField: model.id === 'wan3.0-video' || tuziConfig.provider === 'vidu' ? 'duration' : 'seconds',
               strictDurationValidation: true,
               downloadPathTemplate: '/videos/{taskId}/content',
             },

@@ -15,6 +15,7 @@ import {
   type TuziMediaResolver,
 } from './tuzi-video-media';
 import { fitGeminiOmniRequest } from './gemini-omni-request-budget';
+import { getViduDurationOptions, getViduVideoContract, resolveViduVideoAction, VIDU_MIX_MODEL, VIDU_MIX_RATIOS } from '../constants/vidu-video-models';
 
 export interface TuziVideoRequest {
   model: string;
@@ -134,7 +135,12 @@ async function imageInput(
   resolve?: TuziMediaResolver
 ): Promise<string> {
   const image = await resolveTuziVideoMedia(value, resolve);
-  if (isPublicVideoMediaUrl(image)) return image;
+  if (isPublicVideoMediaUrl(image)) {
+    const mime = mediaMimeFromUrl(image);
+    if (getViduVideoContract(model) && mime && !['image/png', 'image/jpeg', 'image/webp'].includes(mime))
+      throw new Error('Vidu 参考图片需要 PNG、JPEG 或 WebP 格式');
+    return image;
+  }
   const { mime, data, bytes } = parseVideoMediaData(image);
   const allowed =
     model === 'kling-4.0'
@@ -379,6 +385,88 @@ async function klingContents(
   return contents;
 }
 
+async function buildViduMixRequest(
+  request: TuziVideoRequest,
+  resolve?: TuziMediaResolver
+): Promise<Record<string, unknown>> {
+  const params = request.params ?? {};
+  const metadata = params.metadata === undefined ? {} : record(params.metadata, 'Vidu Mix metadata');
+  const controls = { ...params, ...metadata };
+  for (const key of ['audio', 'generate_audio', 'include_audio', 'bgm', 'movement_amplitude', 'is_rec',
+    'subjects', 'auto_subjects', 'video', 'videos', 'video_url', 'input_video', 'input_videos',
+    'source_task_id', 'source_video_id', 'previous_interaction_id', 'mode', 'video_task', 'task_type']) {
+    if (controls[key] !== undefined) throw new Error(`Vidu Mix 不支持参数 ${key}`);
+  }
+  if (controls.off_peak !== undefined && boolean(controls.off_peak, 'off_peak'))
+    throw new Error('Vidu Mix 不支持错峰生成');
+  const action = metadata.action ?? params.vidu_action ?? params.action ?? 'auto';
+  if (!['auto', '', 'generate', 'referenceGenerate'].includes(String(action)))
+    throw new Error('Vidu Mix 仅支持参考生视频');
+
+  const prompt = request.prompt;
+  if (typeof prompt !== 'string' || !prompt.trim() || [...prompt].length > 5000)
+    throw new Error('Vidu Mix 提示词需要 1–5000 个字符');
+  const media = mediaEntries(VIDU_MIX_MODEL, params);
+  const references = request.referenceImages?.length ? request.referenceImages
+    : params.images ?? params.image ?? params.input_reference ?? [];
+  const images = [
+    ...(Array.isArray(references) ? references : [references]),
+    ...media.filter((item) => item.type === 'image').map((item) => item.url),
+  ];
+  if (images.length < 1 || images.length > 7) throw new Error('Vidu Mix 需要 1–7 张参考图');
+
+  const typedSounds = params.vidu_sound_urls;
+  if (typedSounds !== undefined && typeof typedSounds !== 'string')
+    throw new Error('参考音频 URL 需要每行填写一个地址');
+  const sounds = metadata.sounds !== undefined
+    ? array(metadata.sounds, 'Vidu Mix 参考音频')
+    : [
+        ...array(params.sounds, 'Vidu Mix 参考音频'),
+        ...(typedSounds || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+        ...media.filter((item) => item.type === 'audio').map((item) => item.url),
+      ];
+  if (sounds.length > 3) throw new Error('Vidu Mix 最多支持 3 段参考音频');
+
+  const duration = metadata.duration !== undefined ? metadata.duration
+    : request.duration ?? params.duration ?? controls.seconds ?? 5;
+  const resolution = controls.resolution !== undefined ? controls.resolution
+    : request.size ?? params.size ?? '720p';
+  const ratio = controls.aspect_ratio !== undefined ? controls.aspect_ratio : controls.ratio ?? '16:9';
+  const body: Record<string, unknown> = {
+    model: VIDU_MIX_MODEL, prompt, metadata: { action: 'referenceGenerate' },
+    duration: integer(duration, 3, 15, 'Vidu Mix 视频时长'),
+    resolution: choice(typeof resolution === 'string' ? resolution.trim().toLowerCase() : resolution, ['720p', '1080p'], 'Vidu Mix 分辨率'),
+    aspect_ratio: choice(ratio, VIDU_MIX_RATIOS, 'Vidu Mix 画幅'),
+  };
+  if (sounds.length) body.sounds = sounds.map((item) => url(item, 'Vidu Mix 参考音频'));
+  if (controls.seed !== undefined && controls.seed !== '')
+    body.seed = integer(controls.seed, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '随机种子');
+  if (controls.watermark !== undefined && controls.watermark !== '')
+    body.watermark = boolean(controls.watermark, '水印');
+  if (controls.wm_position !== undefined && controls.wm_position !== '')
+    body.wm_position = integer(controls.wm_position, 1, 4, '水印位置');
+  for (const key of ['wm_url', 'callback_url']) {
+    if (controls[key] !== undefined && controls[key] !== '') body[key] = url(controls[key], key);
+  }
+  if (controls.meta_data !== undefined && controls.meta_data !== '') {
+    if (typeof controls.meta_data !== 'string') throw new Error('视频元数据必须是 JSON 字符串');
+    try { JSON.parse(controls.meta_data); } catch { throw new Error('视频元数据必须是有效的 JSON'); }
+    body.meta_data = controls.meta_data;
+  }
+  if (controls.payload !== undefined) {
+    if (typeof controls.payload !== 'string' || [...controls.payload].length > 1048576)
+      throw new Error('透传文本必须是最多 1048576 个字符的字符串');
+    body.payload = controls.payload;
+  }
+  const maxBytes = 20 * 1024 * 1024;
+  if (images.reduce((length: number, image) => length + (typeof image === 'string' ? image.length : 0), 0) > maxBytes)
+    throw new Error('Vidu Mix 请求不能超过 20 MiB');
+  body.images = await Promise.all(images.map((image) => imageInput(image, VIDU_MIX_MODEL, resolve)));
+  if (new TextEncoder().encode(JSON.stringify(body)).byteLength > maxBytes)
+    throw new Error('Vidu Mix 请求不能超过 20 MiB');
+  return body;
+}
+
 /** Single native contract used by main-thread, worker and model adapters. */
 export async function buildTuziVideoRequest(
   request: TuziVideoRequest,
@@ -386,6 +474,7 @@ export async function buildTuziVideoRequest(
 ): Promise<Record<string, unknown> | null> {
   const config = getTuziVideoModelConfig(request.model);
   if (!config) return null;
+  if (config.id === VIDU_MIX_MODEL) return buildViduMixRequest(request, resolve);
   const { model } = request;
   const params = normalizeTuziVideoParams<Record<string, unknown>>(model, {
     ...request.params,
@@ -415,13 +504,14 @@ export async function buildTuziVideoRequest(
   const prompt = request.prompt ?? '';
   let references: string[] = request.referenceImages || [];
   const hh = config.provider === 'happyhorse';
+  const vidu = getViduVideoContract(model);
   const i2v = hh && model.endsWith('-i2v');
   const r2v = hh && model.endsWith('-r2v');
   if (!references.length) {
     const input = i2v
       ? params.image
-      : r2v
-      ? params.images
+      : r2v || vidu
+      ? params.images ?? params.input_reference
       : params.input_reference;
     if (input !== undefined && input !== '')
       references = Array.isArray(input) ? input : [input as string];
@@ -433,6 +523,35 @@ export async function buildTuziVideoRequest(
     !(model === 'kling-4.0' && params.contents)
   )
     throw new Error(`${model} 需要提示词`);
+  if (vidu) {
+    if ([...prompt].length > 20000) throw new Error('Vidu 提示词最多 20000 个字符');
+    const inputs = [...references, ...media.filter((entry) => entry.type === 'image').map((entry) => entry.url)];
+    // Reject oversized raw input before URL parsing or Base64 decoding allocates copies.
+    if (inputs.reduce((length, value) => length + (typeof value === 'string' ? value.length : 0), prompt.length) >= 20 * 1024 * 1024)
+      throw new Error('Vidu 请求总大小必须小于 20 MB，请减少本地图片或使用公网 URL');
+    const metadata = params.metadata === undefined ? {} : record(params.metadata, 'Vidu metadata');
+    if (Object.keys(metadata).some((key) => key !== 'action'))
+      throw new Error('Vidu 请通过时长和尺寸参数设置生成规格');
+    const action = resolveViduVideoAction(model, params.vidu_action ?? params.action ?? metadata.action, inputs.length);
+    const options = getViduDurationOptions(model, action);
+    integer(duration, Number(options[0].value), Number(options[options.length - 1].value), `${model} ${action} 时长`);
+    const expectedImages = action === 'textGenerate' ? 0 : action === 'generate' ? 1 : action === 'firstTailGenerate' ? 2 : undefined;
+    if (expectedImages !== undefined && inputs.length !== expectedImages)
+      throw new Error(`Vidu ${action} 需要 ${expectedImages} 张图片`);
+    if (action === 'referenceGenerate' && (!inputs.length || inputs.length > vidu.maxImages))
+      throw new Error(`${model} 参考模式需要 1–${vidu.maxImages} 张图片`);
+    const sounds = [...array(params.sounds, 'Vidu 参考音频'), ...media.filter((entry) => entry.type === 'audio').map((entry) => entry.url)];
+    if (sounds.length)
+      throw new Error('只有 Vidu Q3 Mix 支持最多 3 段参考音频');
+    const images = await Promise.all(inputs.map((value) => imageInput(value, model, resolve)));
+    const body = {
+      model, prompt, duration, size, metadata: { action },
+      ...(images.length ? { images } : {}),
+    };
+    if (new TextEncoder().encode(JSON.stringify(body)).byteLength >= 20 * 1024 * 1024)
+      throw new Error('Vidu 请求总大小必须小于 20 MB，请减少本地图片或使用公网 URL');
+    return body;
+  }
   if (omni) {
     const ratio = choice(
       params.ratio ?? '16:9',

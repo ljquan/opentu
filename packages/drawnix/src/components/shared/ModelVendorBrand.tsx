@@ -21,6 +21,7 @@ export const DISCOVERY_VENDOR_ORDER: ModelVendor[] = [
   ModelVendor.HUNYUAN,
   ModelVendor.STEPFUN,
   ModelVendor.HAPPYHORSE,
+  ModelVendor.VIDU,
   ModelVendor.FLUX,
   ModelVendor.MIDJOURNEY,
   ModelVendor.SUNO,
@@ -36,6 +37,12 @@ type VendorPalette = {
 };
 
 const MODEL_VENDOR_BRANDS: Record<ModelVendor, VendorPalette> = {
+  [ModelVendor.VIDU]: {
+    label: 'Vidu',
+    accent: '#2563eb',
+    surface: '#eff6ff',
+    border: 'rgba(37, 99, 235, 0.14)',
+  },
   [ModelVendor.DEEPSEEK]: {
     label: 'DeepSeek',
     accent: '#4d6bfe',

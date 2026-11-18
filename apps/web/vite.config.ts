@@ -122,6 +122,8 @@ const TUZI_LOCAL_GATEWAY_TARGET =
   process.env.VITE_TUZI_LOCAL_GATEWAY_TARGET || 'http://127.0.0.1:4173';
 const TUZI_SESSION_PROXY_TARGET =
   process.env.VITE_TUZI_SESSION_PROXY_TARGET || 'https://api.tu-zi.com';
+const TUZI_APIOOSS_PROXY_TARGET =
+  process.env.VITE_TUZI_APIOOSS_PROXY_TARGET || 'https://apioss.tu-zi.com';
 const LAYER_DECOMPOSER_PROXY_TARGET =
   process.env.VITE_LAYER_DECOMPOSER_PROXY_TARGET || 'http://127.0.0.1:8090';
 
@@ -1099,6 +1101,14 @@ export default defineConfig({
     port: DEV_SERVER_PORT,
     host: process.env.OPENTU_HOST || 'localhost',
     proxy: {
+      '/__opentu_tuzi_apioss__/': {
+        target: TUZI_APIOOSS_PROXY_TARGET,
+        changeOrigin: true,
+        secure: true,
+        headers: { Cookie: 'apioss_port=3105' },
+        rewrite: (requestPath: string) =>
+          requestPath.replace(/^\/__opentu_tuzi_apioss__/, ''),
+      },
       '/__opentu_tuzi_proxy__/api/': {
         target: 'https://api.tu-zi.com',
         changeOrigin: true,

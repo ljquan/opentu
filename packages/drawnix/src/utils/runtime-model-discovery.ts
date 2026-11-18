@@ -597,6 +597,7 @@ function inferVendorByKeywords(modelId: string): ModelVendor {
   if (lowerId.includes('deepseek')) return ModelVendor.DEEPSEEK;
   if (lowerId.includes('kling')) return ModelVendor.KLING;
   if (lowerId.includes('happyhorse')) return ModelVendor.HAPPYHORSE;
+  if (lowerId.startsWith('vidu')) return ModelVendor.VIDU;
   if (lowerId.includes('veo')) return ModelVendor.VEO;
   if (lowerId.includes('sora')) return ModelVendor.SORA;
   if (lowerId.includes('suno') || lowerId.includes('chirp')) {
@@ -726,6 +727,7 @@ function inferVendor(model: RemoteModelListItem): ModelVendor {
   if (owner === 'happyhorse' || owner.includes('happyhorse')) {
     return ModelVendor.HAPPYHORSE;
   }
+  if (owner === 'vidu' || owner.includes('shengshu')) return ModelVendor.VIDU;
   if (owner === 'google' || owner.includes('google')) {
     return keywordVendor !== ModelVendor.OTHER
       ? keywordVendor
@@ -853,6 +855,7 @@ function inferModelType(model: RemoteModelListItem): ModelType {
     case ModelVendor.SORA:
     case ModelVendor.VEO:
     case ModelVendor.HAPPYHORSE:
+    case ModelVendor.VIDU:
       return 'video';
     case ModelVendor.RUNWAY:
       if (

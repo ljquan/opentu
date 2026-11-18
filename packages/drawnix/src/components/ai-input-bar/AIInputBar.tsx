@@ -1,4 +1,6 @@
 import { resolveSavedGenerationModel } from '../../utils/restore-generation-model';
+import { VIDU_MIX_MODEL } from '../../constants/vidu-video-models';
+import { isPublicVideoMediaUrl, mediaMimeFromUrl } from '../../services/tuzi-video-media';
 import { consumeGenerationDraft, getGenerationSlotPositions } from '../../services/generation-node-lifecycle';
 import {
   normalizeTuziVideoParams,
@@ -838,6 +840,7 @@ const AI_INPUT_LONG_TEXT_MAX_HEIGHT = 680;
 const AI_INPUT_LINE_HEIGHT = 1.5;
 const AI_INPUT_IMAGE_ASSET_TYPES = [AssetType.IMAGE] as const;
 const AI_INPUT_VIDEO_ASSET_TYPES = [AssetType.IMAGE, AssetType.VIDEO] as const;
+const MIX_REFERENCE_ASSET_TYPES = [AssetType.IMAGE, AssetType.AUDIO] as const;
 type AIInputResizeMode = 'collapsed' | 'expanded' | 'long-text';
 type AIInputSubmitTrigger = 'button' | 'keyboard';
 
@@ -4988,16 +4991,11 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       );
     }, [chatDrawerContent]);
 
-    // 处理粘贴图片，仅在 AIInputBar 处于激活状态时接管
+    // 输入栏支持粘贴图片，Mix 提示词框也接受独立的公网 MP3 链接。
     useEffect(() => {
       const handlePaste = (e: ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items || items.length === 0) return;
-
-        const hasImage = Array.from(items).some((item) =>
-          item.type.startsWith('image/')
-        );
-        if (!hasImage) return;
 
         const activeElement = document.activeElement;
         const container = containerRef.current;
@@ -5009,6 +5007,33 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
                 activeElement?.tagName === 'BODY')));
 
         if (!isInputBarActive) return;
+
+        if (
+          activeElement === inputRef.current &&
+          generationType === 'video' &&
+          selectedModel === VIDU_MIX_MODEL
+        ) {
+          const link = e.clipboardData?.getData('text/plain').trim() || '';
+          if (
+            mediaMimeFromUrl(link) === 'audio/mpeg' &&
+            !/\s/.test(link) &&
+            isPublicVideoMediaUrl(link)
+          ) {
+            e.preventDefault();
+            const current = uploadedContentRef.current;
+            if (!current.some((item) => item.type === 'audio' && item.url === link)) {
+              const audio: SelectedContent = {
+                type: 'audio',
+                url: link,
+                name: new URL(link).pathname.split('/').pop() || '参考音频',
+              };
+              const next = [...current, audio];
+              uploadedContentRef.current = next;
+              setUploadedContent(next);
+            }
+            return;
+          }
+        }
 
         const imageFiles: File[] = [];
         for (const item of Array.from(items)) {
@@ -5030,7 +5055,7 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
       return () => {
         document.removeEventListener('paste', handlePaste);
       };
-    }, [importLocalImages, isFocused]);
+    }, [importLocalImages, isFocused, generationType, selectedModel]);
 
     // 清除输入框中的触发符号
     const clearTriggerSymbol = useCallback(() => {
@@ -9464,9 +9489,9 @@ export const AIInputBar: React.FC<AIInputBarProps> = React.memo(
               onClose={() => setShowMediaLibrary(false)}
               mode={SelectionMode.SELECT}
               allowedTypes={
-                generationType === 'video'
-                  ? AI_INPUT_VIDEO_ASSET_TYPES
-                  : AI_INPUT_IMAGE_ASSET_TYPES
+                generationType !== 'video' ? AI_INPUT_IMAGE_ASSET_TYPES :
+                selectedModel === VIDU_MIX_MODEL ? MIX_REFERENCE_ASSET_TYPES :
+                AI_INPUT_VIDEO_ASSET_TYPES
               }
               onSelect={handleMediaLibrarySelect}
               onSelectMultiple={handleMediaLibrarySelectMultiple}

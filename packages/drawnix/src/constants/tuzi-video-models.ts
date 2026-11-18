@@ -1,4 +1,5 @@
 import type { VideoModelConfig } from '../types/video.types';
+import { getViduVideoContract, VIDU_VIDEO_CONTRACTS, VIDU_VIDEO_MODEL_CONFIGS } from './vidu-video-models';
 
 // Exact contracts from Tuzi's public /api/pricing catalog (2026-11-14).
 // Keep future versions out of these contracts until their parameters are known.
@@ -15,6 +16,7 @@ export const TUZI_VIDEO_MODEL_SHORT_CODES: Readonly<Record<string, string>> = {
   'happyhorse-1.1-t2v': 'h11t',
   'happyhorse-1.1-i2v': 'h11i',
   'happyhorse-1.1-r2v': 'h11r',
+  ...Object.fromEntries(Object.entries(VIDU_VIDEO_CONTRACTS).map(([id, contract]) => [id, contract.shortCode])),
 };
 
 const durations = (min: number, max: number) =>
@@ -31,6 +33,7 @@ const resolutions = (values: string[]) =>
   }));
 
 export const TUZI_VIDEO_MODEL_CONFIGS: Record<string, VideoModelConfig> = {
+  ...VIDU_VIDEO_MODEL_CONFIGS,
   'gemini-omni-1.2-flash': {
     id: 'gemini-omni-1.2-flash',
     label: 'Gemini Omni 1.2 Flash',
@@ -185,6 +188,7 @@ export function getTuziVideoComposerParams(
   return Object.fromEntries(
     Object.entries(params).filter(([key]) =>
       key !== 'video_media' && !(model === 'wan3.0-video' && key === 'reference_mode')
+      && !(getViduVideoContract(model) && ['images', 'sounds', 'input_reference'].includes(key))
     )
   );
 }
@@ -201,6 +205,10 @@ export const KLING_VIDEO_MEDIA_TYPES = [
 ];
 
 export function getTuziVideoMediaTypes(model: string) {
+  if (getViduVideoContract(model)) return [
+    { value: 'image', label: '图片' },
+    ...(model === 'viduq3-mix' ? [{ value: 'audio', label: '参考音频' }] : []),
+  ];
   if (model === 'kling-4.0') return KLING_VIDEO_MEDIA_TYPES;
   if (model === 'wan3.0-video') return [
     { value: 'reference_images', label: '参考图' },

@@ -11,7 +11,7 @@
 
 import React, { useState, useCallback } from 'react';
 import ReactDOM from 'react-dom';
-import { Image as ImageIcon, RotateCcw, Video, Play, Type, X } from 'lucide-react';
+import { Image as ImageIcon, Music, RotateCcw, Video, Play, Type, X } from 'lucide-react';
 import type { SelectedContentItem } from '../../types/chat.types';
 import { HoverTip } from './hover';
 import { RetryImage } from '../retry-image';
@@ -195,6 +195,7 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
       {/* Hover preview - large content (rendered to body via portal) */}
       {enableHoverPreview &&
         hoveredContent &&
+        hoveredContent.type !== 'audio' &&
         ReactDOM.createPortal(
           <div
             className={`selected-content-preview__hover selected-content-preview__hover--${hoveredContent.type}`}
@@ -277,6 +278,15 @@ export const SelectedContentPreview: React.FC<SelectedContentPreviewProps> = ({
                       ? `${item.text.substring(0, 20)}...`
                       : item.text}
                   </span>
+                </div>
+              ) : item.type === 'audio' ? (
+                <div
+                  className="selected-content-preview__video-placeholder"
+                  role="img"
+                  aria-label={item.name}
+                  title={item.name}
+                >
+                  <Music size={20} aria-hidden="true" />
                 </div>
               ) : item.type === 'video' ? (
                 // Video preview with icon placeholder

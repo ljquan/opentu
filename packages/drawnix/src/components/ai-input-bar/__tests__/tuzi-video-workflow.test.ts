@@ -20,6 +20,36 @@ const createSelection = (
 });
 
 describe('Tuzi input to workflow', () => {
+  it('does not reintroduce hidden native Vidu media when composing from current attachments', async () => {
+    const saved = { size: '720p', vidu_action: 'referenceGenerate', images: '["https://old.example.test/a.png"]', sounds: '["https://old.example.test/a.mp3"]', input_reference: 'https://old.example.test/b.png', video_media: '[{"type":"audio","url":"https://old.example.test/b.mp3"}]' };
+    const params = getTuziVideoComposerParams('viduq3-mix', saved);
+    expect(params).toEqual({ size: '720p', vidu_action: 'referenceGenerate' });
+    expect(await buildTuziVideoRequest({ model: 'viduq3-mix', prompt: 'animate', referenceImages: ['https://current.example.test/a.png'], params })).toEqual({ model: 'viduq3-mix', prompt: 'animate', duration: 5, resolution: '720p', aspect_ratio: '16:9', metadata: { action: 'referenceGenerate' }, images: ['https://current.example.test/a.png'] });
+  });
+  it('passes current Vidu images and an explicit action through the workflow', async () => {
+    const selection = { ...createSelection(), images: ['https://images.example.test/a.png', 'https://images.example.test/b.png'] };
+    const parsed = parseAIInput('animate', selection, { modelId: 'viduq3-turbo', generationType: 'video', params: { duration: '3', size: '540p', vidu_action: 'referenceGenerate' } });
+    const args = convertDirectGenerationToWorkflow(parsed, selection.images).steps[0].args;
+    expect(await buildTuziVideoRequest({ model: String(args.model), prompt: String(args.prompt), duration: String(args.seconds), size: args.size as string, referenceImages: args.referenceImages as string[], params: args.params as Record<string, unknown> })).toEqual({
+      model: 'viduq3-turbo', prompt: expect.any(String), duration: 3, size: '540p', images: selection.images, metadata: { action: 'referenceGenerate' },
+    });
+  });
+
+  it('uses current Mix audio attachments and rejects audio or video for other Vidu models', async () => {
+    const selection = { ...createSelection([], 1), audios: ['https://media.example.test/a.mp3'] };
+    const typedSound = 'https://media.example.test/b.mp3';
+    const parsed = parseAIInput('animate', selection, { modelId: 'viduq3-mix', generationType: 'video',
+      params: getTuziVideoComposerParams('viduq3-mix', { vidu_sound_urls: typedSound, aspect_ratio: '9:16', seed: '0', watermark: 'false' }) });
+    const args = convertDirectGenerationToWorkflow(parsed, selection.images).steps[0].args;
+    expect(await buildTuziVideoRequest({ model: String(args.model), prompt: String(args.prompt), referenceImages: args.referenceImages as string[], params: args.params as Record<string, unknown> })).toMatchObject({
+      sounds: [typedSound, ...selection.audios], aspect_ratio: '9:16', seed: 0, watermark: false,
+    });
+    const ad = parseAIInput('animate', selection, { modelId: 'viduq3-ad', generationType: 'video' });
+    expect(() => convertDirectGenerationToWorkflow(ad, selection.images)).toThrow('音频参考');
+    const videoSelection = { ...createSelection([], 1), videos: ['https://media.example.test/a.mp4'] };
+    const q4 = parseAIInput('animate', videoSelection, { modelId: 'viduq4-preview', generationType: 'video' });
+    expect(() => convertDirectGenerationToWorkflow(q4, videoSelection.images)).toThrow('视频参考');
+  });
   it('keeps native Tuzi resolution enums and smart duration during input parsing', () => {
     const parsed = parseAIInput('animate', createSelection(), {
       modelId: 'wan3.0-video',

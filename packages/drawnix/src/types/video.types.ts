@@ -29,6 +29,14 @@ export type KnownVideoModel =
   | 'happyhorse-1.1-t2v'
   | 'happyhorse-1.1-i2v'
   | 'happyhorse-1.1-r2v'
+  | 'viduq3-ad'
+  | 'viduq3-drama'
+  | 'viduq3'
+  | 'viduq3-turbo'
+  | 'viduq3-pro-fast'
+  | 'viduq3-pro'
+  | 'viduq4-preview'
+  | 'viduq3-mix'
   | 'seedance-1.5-pro'
   | 'seedance-1.0-pro'
   | 'seedance-1.0-pro-fast'
@@ -52,7 +60,8 @@ export type VideoProvider =
   | 'kling'
   | 'seedance'
   | 'happyhorse'
-  | 'wan';
+  | 'wan'
+  | 'vidu';
 
 // Image upload mode
 export type ImageUploadMode = 'reference' | 'frames' | 'components';

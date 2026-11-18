@@ -49,6 +49,15 @@ describe('marketplace output classification', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps runtime Vidu models classified as Vidu video models', async () => {
+    mockSettings();
+    const { runtimeModelDiscovery } = await import('../runtime-model-discovery');
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: [{ id: 'viduq3-ad', owned_by: 'custom' }, { id: 'viduq4-preview', owned_by: 'custom' }] })));
+    const models = await runtimeModelDiscovery.discover(profileId, 'https://apioss.tu-zi.com/v1', 'test-key', []);
+    expect(models.find((model) => model.id === 'viduq3-ad')).toMatchObject({ type: 'video', vendor: 'VIDU', shortCode: 'q3ad' });
+    expect(models.find((model) => model.id === 'viduq4-preview')).toMatchObject({ type: 'video', vendor: 'VIDU', shortCode: 'q4p' });
+  });
+
   it('does not treat multimodal text tags as image output or lose explicit generation tags', async () => {
     mockSettings();
     const { runtimeModelDiscovery } = await import(
