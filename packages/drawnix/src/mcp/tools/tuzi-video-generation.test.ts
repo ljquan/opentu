@@ -22,6 +22,19 @@ vi.mock('../../services/model-adapters', () => ({
 afterEach(() => vi.clearAllMocks());
 
 describe('Tuzi MCP video generation', () => {
+  it.each(['async', 'queue'] as const)('preserves Vidu size, action and ordered images through the %s entry', async (mode) => {
+    mocks.generate.mockResolvedValue({ url: 'https://media.example.test/result.mp4' });
+    mocks.create.mockImplementation((params, type) => {
+      expect(validateGenerationParams(params, type).valid).toBe(true);
+      return { id: 'local_task', params };
+    });
+    const referenceImages = ['https://images.example.test/a.png', 'https://images.example.test/b.png'];
+    const params = { vidu_action: 'referenceGenerate' };
+    const result = await videoGenerationTool.execute({ model: 'viduq3-turbo', prompt: 'animate', seconds: '3', size: '540p', referenceImages, params }, { mode });
+    expect(result.success).toBe(true);
+    const submitted = mode === 'async' ? mocks.generate.mock.calls[0][1] : mocks.create.mock.calls[0][0];
+    expect(submitted).toMatchObject({ model: 'viduq3-turbo', duration: 3, size: '540p', referenceImages, params });
+  });
   it.each(['async', 'queue'] as const)(
     'allows image-only I2V through the %s tool entry',
     async (mode) => {

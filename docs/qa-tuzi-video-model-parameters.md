@@ -392,3 +392,141 @@ Kling 水印字段已发送且受理，但在 0.25 秒、1 秒和 2.84 秒原始
 脱敏请求与媒体摘要：`/tmp/opentu-video-params-real-20261114.json`。结果画板 ID：`aa9a6b40-5298-4d5c-a8eb-e90d68a98954`。
 
 本轮共 3 次真实生成 POST，无远程重提；未核对账单金额。seed=0、关闭改写确认被受理，但没有对照生成，不能证明可复现性或内部改写效果。此次不是完整参数矩阵：Gemini、编辑/延展、主体/音色 ID、参考视频/音频、智能时长、辅助文档/网页和其他清晰度/时长组合未追加真实调用。Kling 档位与固定像素仍不同；HappyHorse 9:16 实际为 480×848，约为 9:16。
+
+
+## 2026-11-17 Vidu Q3 / Q4 系列接入验收
+
+### 范围与环境
+
+- 基础提交：`3c5dc76d`；当前工作分支 `Jerry-George-Liang/global-building-7e5a064f`。
+- 用户确认接入方案及测试 API 基址 `https://apioss.tu-zi.com/v1`。未改全局 API 默认值、用户供应商配置或新增素材转存。
+- 来源：同站 `/v1/models` 实际密钥可见性、`/api/pricing` 的八个精确型号及 Vidu 官方各动作的素材限制。
+- Node v26.8.1；pnpm 10.21.0；Vitest v3.2.4。worktree 通过忽略的根目录及 drawnix 包 node_modules 符号链接复用已有依赖，锁文件相同，未安装或升级依赖。
+- 真实请求体由本次 `buildTuziVideoRequest` 打包执行后生成，通过 apioss 页面环境的原生 fetch 提交及查询。主线程、共享提交、工作流和 MCP 的参数/路由由本地模拟请求和逻辑测试覆盖；未做真实 OpenTu 页面交互、画布插入或刷新恢复验收。
+
+### 本地检查
+
+- `node node_modules/vitest/vitest.mjs run --config packages/drawnix/vite.config.ts`，显式选取下列十个文件：
+  - `services/vidu-video-request.test.ts`
+  - `services/tuzi-video-request.test.ts`
+  - `services/tuzi-video-advanced.test.ts`
+  - `services/video-api-service.test.ts`
+  - `services/__tests__/video-binding-utils.test.ts`
+  - `components/ai-input-bar/ParametersDropdown.test.tsx`
+  - `components/ai-input-bar/__tests__/tuzi-video-workflow.test.ts`
+  - `utils/__tests__/runtime-model-classification.test.ts`
+  - `utils/__tests__/runtime-model-discovery.test.ts`
+  - `mcp/tools/tuzi-video-generation.test.ts`
+- 最终结果：311 项中 309 通过、2 失败；9 文件通过，1 文件包含既有失败。Vidu 请求专项 49 项、菜单模式切换、主线程八型号 JSON、结果提取、附件工作流、运行时分类、MCP 两种入口均通过。
+- 两项失败均在未修改的 `3c5dc76d` 隔离 worktree 复现：`video binding utils > keeps sora frontend durations on web mode when selected`、`video binding utils > routes Seedance 2.0 with official IDs and confirmed controls`。基线同文件为 17 通过 / 2 失败。未修改这些旧测试来掩盖失败。
+- `node node_modules/typescript/bin/tsc -p packages/drawnix/tsconfig.lib.json --noEmit`：通过。
+- `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.app.json --noEmit`：通过。
+- `node node_modules/vite/bin/vite.js build --config apps/web/vite.config.ts`：最终通过，43.91 秒；直接构建避免版本更新脚本。存在既有 Sass 废弃提示、较大分块和 CSS 优化警告，不代表部署完成。
+- 对全部本轮 18 个 TS/TSX 文件执行 ESLint：0 errors / 19 个既有宽松类型、未使用项等 warnings。初次检查缺少 Nx 图缓存；通过 `nx show project drawnix --json` 生成当前 worktree 图后已重跑，最终未跳过模块边界规则。
+- OpenSpec 使用本机已有 CLI 缓存执行 `validate add-vidu-video-models --strict`；最终差异执行 `git diff --check`。
+
+### 成功、失败与兼容路径
+
+- 各精确型号的时长、清晰度、默认值、Vidu 厂商及短代码、JSON 绑定；未知后缀不继承原生合同。
+- 自动文生、单图图生、两图首尾帧、多图参考及显式动作优先；图片顺序与主线程 slot 排序保留。
+- 恢复历史任务后，输入栏过滤隐藏的 images/sounds/input_reference/video_media，实际素材仅取当前附件；MCP 和程序调用仍可显式提供原生素材字段。
+- Q3 参考最多 7 图，Q4 最多 15 图；无图、数量不符、动作/尺寸不支持、非整数时长、Turbo 参考 1/16 秒均在发送前失败。
+- 本地缓存图片转 data URI，公网 URL 保留；不支持格式、视频参考、其他型号音频、Mix 超过三段或受保护音频 URL、请求超过 20 MiB 等边界覆盖。Mix 音频仅本地逻辑验证。
+- 完成任务提取 metadata.url；完成但无 URL 时保留原下载回退。in_progress 即使带 completed_at 也继续查询；供应商失败保留错误且不创建新任务。
+- 既有 Gemini/Wan/HappyHorse/Kling 参数和请求回归通过；Sora/Seedance 两个已复现的原有失败不计为通过。
+
+### 真实接口结果
+
+本轮每型号一次最低有效规格生成，共 8 次 POST，全部 HTTP 200、最终 completed，并通过返回地址 HTTP 200 下载 MP4。所有文件均为 24 fps、1 条音轨，分别成功解码抽查 0 秒、中间和接近结尾的 3 帧。音轨存在不等于已听检或验证音频质量。
+
+| 模型 | 实际动作 | 提交规格 | MP4 实际尺寸 | 播放时长 | 实际扣费（元） |
+| --- | --- | --- | --- | --- | --- |
+| viduq3-ad | 参考 | 3 秒 / 720p | 1276×722 | 3.042 秒 | 1.323 |
+| viduq3-drama | 参考 | 2 秒 / 720p | 720×1280 | 2.042 秒 | 0.882 |
+| viduq3 | 参考 | 3 秒 / 540p | 960×528 | 3.042 秒 | 0.462 |
+| viduq3-turbo | 文生 | 1 秒 / 540p | 960×528 | 1.042 秒 | 0.154 |
+| viduq3-pro-fast | 图生 | 1 秒 / 720p | 800×1152 | 1.042 秒 | 0.266 |
+| viduq3-pro | 文生 | 1 秒 / 540p | 960×528 | 1.042 秒 | 0.196 |
+| viduq4-preview | 图生 | 3 秒 / 540p | 600×862 | 3.042 秒 | 0.590625 |
+| viduq3-mix | 参考 | 3 秒 / 720p | 1276×722 | 3.042 秒 | 1.323 |
+
+八个账单均按精确模型名和本次 public_task_id 匹配，状态为 call_status=success、billing_status=charged、billing_settlement_status=applied，refund_quota=0。总扣费 **¥5.196625**：按实际 quota / 500000 × 当前页面货币系数 0.7 换算；不能将内部名为 amount_usd 的数值直接当成人民币。此总额不包含适配前单独执行的那次 Ad 测试。
+
+任务 ID：
+
+- `viduq3-ad`：`task_qfjEkmXxY6O6fgCH3MXMoaiSFYBuiRod`
+- `viduq3-drama`：`task_UmV9YPHqJQmUDSIrdG7lKzBU0pVzAu89`
+- `viduq3`：`task_Szolzo3vvQcBJBsn23mPfezQNiQ8Mgxl`
+- `viduq3-turbo`：`task_hIGhwkuViKyGWq1hWSrEsTt1UjC48wTX`
+- `viduq3-pro-fast`：`task_MITdXx91Vw435IVialI0ZtdFhNJH0V2t`
+- `viduq3-pro`：`task_IqM1Piwx8mgxFCneAf2t9b7a4eITqHIo`
+- `viduq4-preview`：`task_EIPnSk3KfyyDcPzcoP1P9mywVTCQMbRv`
+- `viduq3-mix`：`task_qgQ8eZvWUVTbECPeVtpFaMQ4egkR1g4B`
+
+文件、逐任务请求/响应及账单摘要保存于 `~/Downloads/opentu-vidu-series-20261117-2012/`，包括各型号 MP4、抽帧、`all-models-preview.png` 和 `test-results.json`；不提交生成视频或临时测试脚本。API Key 仅从指定私密文件读入进程，未写入仓库、日志或产物。
+
+### 限制、风险与人工验收
+
+- 每个型号只验证一个最小规格；首尾帧、多图参考、Turbo 显式参考、Mix 参考音频、Q4 2K/4K、长时长及失败退款均未追加收费组合测试。本地边界通过不证明所有上游组合均可用。
+- 实测清晰度档位不等于固定像素；比例使用供应商默认值，图片输入不会强制统一输出画幅。生成结果约多一帧/音轨容器尾部，不以播放时长重新计算费用。
+- 未执行页面点击、跨浏览器、真实画布插入/刷新恢复、音频听检或主观质量对照，不将接口成功写成页面验收成功。
+- 人工验收：在需要的供应商配置中选择 apioss 地址并刷新勾选 Vidu 模型，选择模式/时长/清晰度，按需上传图片；确认缺图或不匹配时有错误提示，合法提交能从原任务恢复并插入视频。人工点击生成会另计费用，不属于本轮已完成的页面测试。
+- 无运行时新依赖、环境变量、后端或数据迁移；回滚时撤回本轮文件改动即可，保留已有用户配置和已完成任务。
+
+### 页面验收追加（2026-11-17）
+
+- 使用当前 worktree 启动 `OPENTU_PORT=7206 pnpm start`，通过 `http://localhost:7206` 打开真实页面。
+- 在设置中把 default 分组 API 地址改为 `https://apioss.tu-zi.com/v1`，填写已有 Tuzi Key，通过页面“获取模型”发现 555 个模型；Vidu 分组显示 8 个视频模型，选择 `viduq3-ad` 后模型选择器、Vidu 模式、3–15 秒参数、720p/1080p 选项和参考图上传控件均正常显示。
+- 页面上传参考图、填写广告提示词并提交一次后，本地任务显示“生成失败 / Failed to fetch”。同一浏览器上下文对 `https://apioss.tu-zi.com/v1/models` 的无计费 GET 也被浏览器拒绝，错误明确为从 `http://localhost:7206` 发往 apioss 的 CORS `Failed to fetch`；未获得远程 task ID，未产生新的供应商请求或扣费。
+- 因此本轮页面验收通过了模型发现、参数菜单、上传控件和任务错误呈现，未通过跨域后的真实页面提交、进度轮询、结果回填或画布插入。解决页面直连需给 apioss 配置允许 OpenTu 来源的 CORS，或在开发/部署网关提供同源代理；本轮未扩大到 Tuzi API 服务或 Nginx 改动。
+
+### apioss_port Cookie 路由复核（2026-11-17）
+
+- 按用户提供的方法访问 `https://apioss.tu-zi.com`，执行 `document.cookie = "apioss_port=3105; path=/"` 并刷新；页面同源 Cookie 可见为 `apioss_port=3105`（浏览器已有同名 Cookie，显示为重复值）。
+- 在该 apioss 同源页面使用同一账号 Key 调用 `/v1/models`，返回 HTTP 200，证明端口 Cookie 路由本身可用。
+- 再回到 OpenTu 本地页面 `http://localhost:7206` 重试 `viduq3-ad`，任务仍显示 `Failed to fetch`。从 localhost 对 `https://apioss.tu-zi.com/v1/models` 的无计费 GET 仍被浏览器 CORS 拦截；Cookie 不会改变跨源响应的 CORS 许可。
+- 本次重试没有取得远程 task ID。随后在 apioss 同源页面查询最近 30 分钟 `viduq3-ad` 使用记录，返回空记录，因此没有发现由本次页面重试产生的计费记录。
+- 结论：`apioss_port=3105` 已验证解决 apioss 自身站点/API 的端口路由；OpenTu 页面直连仍需要 apioss 允许 OpenTu 来源的 CORS，或由同源开发/部署代理转发。未修改 Tuzi API、CORS 或 Nginx。
+
+### OpenTu apioss 同源代理配置（2026-11-17）
+
+- 新增本地开发代理 `/__opentu_tuzi_apioss__/`：仅当浏览器当前为 localhost/127.0.0.1/[::1] 且供应商地址精确为 `https://apioss.tu-zi.com` 时，OpenTu 请求改写到该同源路径；Vite 代理目标为 apioss，并注入 `Cookie: apioss_port=3105`。
+- 生产和预发布 Nginx 配置增加同名 location，反向代理到 apioss 并注入同一 Cookie；普通 `api.tu-zi.com` 请求保持原有路径和行为。静态 `_redirects` 不增加该路由，因为 Netlify 重定向无法可靠注入端口 Cookie。
+- 可通过 `VITE_TUZI_APIOOSS_PROXY_TARGET` 覆盖本地代理目标；默认仍为 `https://apioss.tu-zi.com`。这项配置解决 OpenTu 页面跨域传输，未改变用户保存的 API 地址。
+- 验证：`provider-routing.test.ts` 125 项通过；本地 Vite 代理对 `/__opentu_tuzi_apioss__/v1/models` 使用现有 Key 返回 HTTP 200。此前直接使用 `https://apioss.tu-zi.com/v1` 的页面请求会被浏览器 CORS 拦截；代理路径绕过该浏览器跨域限制。
+
+### OpenTu apioss 代理页面复测（2026-11-17）
+
+- 在本地 Vite 代理中启用 `/__opentu_tuzi_apioss__/`，目标为 `https://apioss.tu-zi.com`，代理请求固定注入 `Cookie: apioss_port=3105`；provider transport 仅对本地页面且配置地址精确为 apioss 时改写，普通 Tuzi 地址不改写。
+- 通过 `http://localhost:7206` 的 OpenTu 页面重试此前失败的 `viduq3-ad` 任务，页面进度从 10% 到 30% 后显示“已完成”，页面显示视频链接，点击“插入”后提示“视频已插入到白板”。本次页面链路覆盖模型、参考图、参数、提交、轮询、结果回填和白板插入。
+- 本次远程任务 ID：`task_m4oncwEflFvcL9Bml8TKDyXQ4wXzfRNK`；接口账单查询显示 `call_status=success`、`billing_status=charged`、`billing_settlement_status=applied`，匹配标准 720p ¥0.63/秒，quota 945000，按当前换算扣费 ¥1.323。
+- 本地代理直接请求 `/__opentu_tuzi_apioss__/v1/models` 在已有 Key 下返回 HTTP 200；provider-routing 125 项、Vidu 49 项及相关工作流测试均通过。未部署或重载 Nginx；生产/预发布配置已写入对应 conf，需部署后再做线上页面验收。
+
+## 2026-11-18 · Vidu Q3 Mix 参数补齐
+
+本轮在回退后的基础版本上核对 Mix 专用适配器，并读取主域名公开目录。目录中 `viduq3-mix` 只声明 `openai-video` 和参考生视频。
+
+本地运行 Drawnix 的 Vidu 请求、Tuzi 请求、视频主线程、输入栏工作流、参数菜单和 MCP 六个测试文件，共 228 项通过。验证了有序参考图、附件与手填音频地址、画幅、可选水印、种子 0、metadata 同名覆盖以及最终 POST 的 JSON。无图、非法模式、水印位置越界、非法 JSON 和不兼容参数在发送前报错。其他七个型号的既有基础请求断言通过。
+
+参数适配阶段的 Drawnix 和 Web 类型检查、Web 构建、OpenSpec 严格校验通过。修改文件 ESLint 为 0 个错误、2 个既有警告。
+
+### Mix 输入框参考音频真实收费测试（2026-11-18）
+
+在 `http://localhost:7205` 选择 `viduq3-mix`，附上一张香水瓶参考图，把一段约 5 秒的公网 MP3 链接单独粘贴到提示词输入框，高级功能里的参考音频地址留空。提示词为“按参考音频的节奏缓慢推进镜头，保持参考香水瓶的外形与标签，柔和灯光。” [参考 MP3](https://raw.githubusercontent.com/web-platform-tests/wpt/master/media/sound_5.mp3)
+
+| 核对项 | 实测结果 |
+| --- | --- |
+| 页面发出的请求 | 向 `https://api.tu-zi.com/v1/videos` 提交 1 次。请求含 1 张图，`sounds` 恰好含粘贴的 1 个地址。参数为 `duration=3`、`resolution=720p`、`aspect_ratio=9:16`、`metadata.action=referenceGenerate`。 |
+| 任务与播放 | 提交返回 HTTP 200。任务 `task_4taW927Ajr2TbNnKQgRw2NFkrVHkktu5` 轮询至 `completed`、进度 100%，页面视频加载完成。 |
+| 成片检查 | 下载的 MP4 为 722×1276、3.042 秒。解码得到 1 条音轨，16 位 PCM 绝对峰值为 11046，确认有非静音信号。 |
+| 扣费 | 按任务 ID 查到标准 720p 账单，已扣费并结算，实际扣除 945,000 额度，退款额度为 0。按站点换算（945000 ÷ 500000 × 0.7）约 ¥1.323。 |
+
+本次覆盖输入框粘贴公网 MP3、参考音频随请求发送及带声成片。参考音频对镜头节奏的影响、本地音频文件和其他高级参数的实际效果未做对照验证。测试时发现音频附件曾误显“图片预览加载失败”，已改为用音符图标标识附件，悬停可查看文件名。
+
+修复后复跑请求构造、工作流、参数菜单、MCP、视频服务和附件预览测试，7 个文件共 232 项通过。Drawnix 与 Web 的 TypeScript 检查均通过。
+
+### PR 提交前回归（2026-11-18）
+
+同步 `origin/develop`（`3c5dc76d`）后，模型发现与分类、供应商路由、视频请求、参数菜单、工作流、MCP 及附件预览等 11 个测试文件共 434 项通过。另跑视频绑定测试，17 项通过，Sora web 时长、Seedance 2.0 官方型号两项失败，与同一基础提交的记录一致。合计 451 项通过、2 项既有失败。
+
+Drawnix 和 Web 类型检查、Web 构建、OpenSpec 严格校验及 Git 差异格式检查通过。改动的 TypeScript 文件 ESLint 为 0 个错误、43 个警告。本次 PR 复核复用上述付费样本，截图取自 7205 页面的 Mix 参数面板。

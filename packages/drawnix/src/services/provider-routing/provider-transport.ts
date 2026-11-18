@@ -84,7 +84,9 @@ function resolveLocalFlashProxyUrl(url: string, method?: string): string {
   if (
     !import.meta.env.DEV ||
     typeof window === 'undefined' ||
-    (method || 'GET').toUpperCase() !== 'POST'
+    !['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(
+      (method || 'GET').toUpperCase()
+    )
   )
     return url;
 
@@ -94,9 +96,21 @@ function resolveLocalFlashProxyUrl(url: string, method?: string): string {
     if (
       !['http:', 'https:'].includes(local.protocol) ||
       !['localhost', '127.0.0.1', '[::1]'].includes(local.hostname) ||
-      target.origin !== 'https://api.tu-zi.com' ||
       target.username ||
-      target.password ||
+      target.password
+    )
+      return url;
+
+    if (target.origin === 'https://apioss.tu-zi.com') {
+      return new URL(
+        `/__opentu_tuzi_apioss__${target.pathname}${target.search}`,
+        local.origin
+      ).href;
+    }
+
+    if (
+      target.origin !== 'https://api.tu-zi.com' ||
+      (method || 'GET').toUpperCase() !== 'POST' ||
       target.pathname !== SEEDREAM_FLASH_PATH
     )
       return url;

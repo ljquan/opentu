@@ -411,7 +411,7 @@ export async function pollVideoUntilComplete(
         ),
         baseUrlStrategy: isMiniMaxH3
           ? 'trim-v1'
-          : config.binding?.baseUrlStrategy,
+          : config.defaultModel && getTuziVideoModelConfig(config.defaultModel) ? 'ensure-v1' : config.binding?.baseUrlStrategy,
         signal,
         fetcher: fetchFn,
       });

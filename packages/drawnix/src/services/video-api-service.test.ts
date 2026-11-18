@@ -112,6 +112,28 @@ describe('VideoAPIService MiniMax-H3 submission', () => {
     });
   });
 
+  it.each(['viduq3-ad', 'viduq3-drama', 'viduq3', 'viduq3-turbo', 'viduq3-pro-fast', 'viduq3-pro', 'viduq4-preview', 'viduq3-mix'])('submits native Vidu JSON from the main thread for %s', async (model) => {
+    const send = vi.spyOn(providerTransport, 'send').mockResolvedValue(Response.json({ id: 'task_vidu', status: 'queued' }));
+    await videoAPIService.submitVideoGeneration({ model, prompt: 'animate', seconds: '3', size: '720p', inputReferences: [{ slot: 1, url: 'https://images.example.test/b.png', name: 'b.png' }, { slot: 0, url: 'https://images.example.test/a.png', name: 'a.png' }] });
+    const request = send.mock.calls[0][1];
+    expect(request).toMatchObject({ path: '/videos', baseUrlStrategy: 'ensure-v1', headers: { 'Content-Type': 'application/json' } });
+    expect(JSON.parse(String(request.body))).toEqual({ model, prompt: 'animate', duration: 3,
+      ...(model === 'viduq3-mix' ? { resolution: '720p', aspect_ratio: '16:9' } : { size: '720p' }),
+      images: ['https://images.example.test/a.png', 'https://images.example.test/b.png'],
+      metadata: { action: ['viduq3-turbo', 'viduq3-pro-fast', 'viduq3-pro'].includes(model) ? 'firstTailGenerate' : 'referenceGenerate' } });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('recovers a completed Vidu metadata URL through the main-thread polling path', async () => {
+    const send = vi.spyOn(providerTransport, 'send')
+      .mockResolvedValueOnce(Response.json({ id: 'task_vidu', status: 'queued' }))
+      .mockResolvedValueOnce(Response.json({ id: 'task_vidu', status: 'completed', model: '', metadata: { url: 'https://video.example.test/out.mp4' } }));
+    const result = await videoAPIService.generateVideoWithPolling({ model: 'viduq3-ad', prompt: 'animate', inputReference: 'https://images.example.test/a.png' }, { interval: 1, maxAttempts: 2 });
+    expect(result.url).toBe('https://video.example.test/out.mp4');
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][1].path).toBe('/videos/task_vidu');
+  });
+
   it('reads an original cached Gemini image and submits native Base64 from the main thread', async () => {
     const encoded = 'iVBORw0KGgoAAAANSUhEUgAAAZAAAAGQCAIAAAAP3aGbAAAFMElEQVR4nO3UMQ0AMAzAsPIn3VLYN0WyEeTKLEDE/A4AeGVYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARmGBWQYFpBhWECGYQEZhgVkGBaQYVhAhmEBGYYFZBgWkGFYQIZhARkHfD8adYB8frcAAAAASUVORK5CYII=';
     const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));

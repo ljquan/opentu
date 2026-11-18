@@ -47,7 +47,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('selected content image previews', () => {
+describe('selected content previews', () => {
+  it('使用文件名标记音频附件，悬停时也不尝试加载图片', () => {
+    const audio = { type: 'audio' as const, url: '/asset-library/beat.mp3', name: 'beat.mp3' };
+    render(<SelectedContentPreview items={[audio]} />);
+    fireEvent.mouseEnter(screen.getByRole('img', { name: 'beat.mp3' }));
+    expect(screen.getByTitle('beat.mp3')).toBeTruthy();
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(readCache).not.toHaveBeenCalled();
+  });
+
   it('两图独立加载，失败后重试只恢复对应图片且不提交表单', async () => {
     const submit = vi.fn((event: React.FormEvent) => event.preventDefault());
     render(

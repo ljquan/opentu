@@ -532,6 +532,10 @@ export function convertDirectGenerationToWorkflow(
         } else if (modelId === 'kling-4.0') {
           if (selection?.audios?.length) throw new Error('Kling 音色参考需要填写已有音色 ID');
           entries.push(...(selection?.videos || []).map((url) => ({ type: 'feature_video', url })));
+        } else if (getTuziVideoModelConfig(modelId)?.provider === 'vidu') {
+          if (selection?.videos?.length) throw new Error('Vidu 当前不支持视频参考');
+          if (modelId !== 'viduq3-mix') throw new Error('此 Vidu 型号当前不支持音频参考');
+          entries.push(...(selection?.audios || []).map((url) => ({ type: 'audio', url })));
         } else throw new Error('此 HappyHorse 型号不支持视频或音频参考');
         videoParams.video_media = JSON.stringify(entries);
       }
