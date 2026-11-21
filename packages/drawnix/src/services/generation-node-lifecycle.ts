@@ -84,8 +84,9 @@ export function consumeGenerationDraft(
   );
   if (!progress.length || progress.some((element) => !element))
     throw new Error('未能创建生成进度框');
+  const { generationOrigin: _generationOrigin, ...draftWithoutOrigin } = draft;
   const snapshot = structuredClone({
-    ...draft,
+    ...draftWithoutOrigin,
     generationNode: {
       ...data,
     },
