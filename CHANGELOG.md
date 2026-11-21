@@ -1,3 +1,13 @@
+## 1.2.17 (2026-11-21)
+
+### 🩹 Fixes
+
+- 修复恢复编辑后生成卡片栈溢出 (#348) ([c7045a10](https://github.com/ljquan/opentu/commit/c7045a10))
+
+### ❤️  Thank You
+
+- Liang <13642533686@163.com>
+
 ## 1.2.16 (2026-11-18)
 
 ### 🚀 Features

@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.17",
+      "date": "2026-11-21",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "修复恢复编辑后生成卡片栈溢出 (#348)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "修复恢复编辑后生成卡片栈溢出 (#348)"
+    },
+    {
       "version": "1.2.16",
       "date": "2026-11-18",
       "changes": {
@@ -746,21 +759,6 @@
       },
       "type": "patch",
       "highlights": "构建修复与稳定性改进"
-    },
-    {
-      "version": "1.0.17",
-      "date": "2026-08-12",
-      "changes": {
-        "features": [
-          "统一跨媒体 AI 任务栏目标控制 (#227)"
-        ],
-        "fixes": [],
-        "improvements": [
-          "功能：增加画布联想引用与平滑连线 (#228)"
-        ]
-      },
-      "type": "patch",
-      "highlights": "统一跨媒体 AI 任务栏目标控制 (#227)"
     }
   ]
 }
