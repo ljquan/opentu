@@ -128,6 +128,45 @@ describe('in-place draft lifecycle', () => {
     expect(board.children.filter((el) => el.id === anchor.id)).toHaveLength(1);
   });
 
+  it('does not nest a previous generation origin when consuming a restored draft', async () => {
+    const { board, draft, makeAnchor } = fixture();
+    await flush();
+    const firstAnchor = makeAnchor();
+    consumeGenerationDraft(
+      board,
+      draft.id,
+      draft.generationNode,
+      [firstAnchor.id],
+      'board'
+    );
+    await flush();
+
+    const previousOrigin = readGenerationOrigin(
+      board.children.find((element) => element.id === firstAnchor.id)
+    );
+    const restoredDraft = {
+      ...draft,
+      id: 'restored-draft',
+      generationOrigin: previousOrigin,
+    } as GenerationNodeElement;
+    Transforms.insertNode(board, restoredDraft, [board.children.length]);
+    const secondAnchor = makeAnchor();
+
+    consumeGenerationDraft(
+      board,
+      restoredDraft.id,
+      restoredDraft.generationNode,
+      [secondAnchor.id],
+      'board'
+    );
+
+    expect(
+      readGenerationOrigin(
+        board.children.find((element) => element.id === secondAnchor.id)
+      )?.draft.generationOrigin
+    ).toBeUndefined();
+  });
+
   it('retains original inputs on inserted outputs and restores history after terminal progress removal', async () => {
     const { board, draft, makeAnchor } = fixture();
     await flush();
