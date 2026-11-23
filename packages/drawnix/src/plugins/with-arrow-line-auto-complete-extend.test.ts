@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestingBoard, PlaitBoard, withHistory } from '@plait/core';
-import { getSelectedDrawElements } from '@plait/draw';
+import {
+  addSelectedElement,
+  createTestingBoard,
+  fakeNodeWeakMap,
+  getSelectedElements,
+  PlaitBoard,
+  PlaitElement,
+  RectangleClient,
+  withHistory,
+  withOptions,
+  withSelection,
+} from '@plait/core';
+import { getSelectedDrawElements, PlaitDrawElement } from '@plait/draw';
 import {
   getAutoCompleteState,
   resetAutoCompleteState,
@@ -26,11 +37,12 @@ vi.mock('@plait/draw', async (importOriginal) => ({
     document.createElementNS('http://www.w3.org/2000/svg', 'g'),
 }));
 
-const pointer = (x: number, y: number) =>
+const pointer = (x: number, y: number, buttons = 0) =>
   new MouseEvent('pointermove', {
     clientX: x,
     clientY: y,
     button: 0,
+    buttons,
   }) as PointerEvent;
 
 function setup() {
@@ -66,6 +78,92 @@ afterEach(() => {
 });
 
 describe('image reference menu gestures', () => {
+  it.each([false, true])(
+    'selects both images in the marquee (initial selection: %s)',
+    async (initialSelection) => {
+      const container = document.createElement('div');
+      const host = document.createElementNS(
+        'http://www.w3.org/2000/svg',
+        'svg'
+      );
+      Object.defineProperty(host, 'viewBox', {
+        value: { baseVal: { x: 0, y: 0 } },
+      });
+      vi.spyOn(PlaitBoard, 'getHost').mockReturnValue(host);
+      vi.spyOn(PlaitBoard, 'getBoardContainer').mockReturnValue(container);
+      const makeGroup = () =>
+        document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      vi.spyOn(PlaitBoard, 'getActiveHost').mockReturnValue(makeGroup());
+      vi.spyOn(PlaitBoard, 'getRoughSVG').mockReturnValue({
+        rectangle: makeGroup,
+      } as ReturnType<typeof PlaitBoard.getRoughSVG>);
+      vi.spyOn(PlaitBoard, 'isAlive').mockReturnValue(true);
+      vi.spyOn(PlaitElement, 'getElementRef').mockReturnValue(
+        {} as ReturnType<typeof PlaitElement.getElementRef>
+      );
+      vi.mocked(getSelectedDrawElements).mockImplementation((board) =>
+        getSelectedElements(board).filter(PlaitDrawElement.isDrawElement)
+      );
+
+      const image = (id: string, x: number): PlaitElement => ({
+        id,
+        type: 'image',
+        url: `/${id}.png`,
+        points: [
+          [x, 20],
+          [x + 60, 80],
+        ],
+      });
+      const first = image('first', 20);
+      const second = image('second', 120);
+      const outside = image('outside', 220);
+      const board = createTestingBoard(
+        [
+          withOptions,
+          (board) => {
+            board.getRectangle = (element) =>
+              element.points
+                ? RectangleClient.getRectangleByPoints(element.points)
+                : null;
+            board.isRectangleHit = (element, { anchor, focus }) => {
+              const rectangle = board.getRectangle(element);
+              return (
+                rectangle !== null &&
+                RectangleClient.isHit(
+                  rectangle,
+                  RectangleClient.getRectangleByPoints([anchor, focus])
+                )
+              );
+            };
+            board.drawSelectionRectangle = makeGroup;
+            return board;
+          },
+          withSelection,
+          withArrowLineAutoCompleteExtend,
+        ],
+        [first, second, outside]
+      );
+      fakeNodeWeakMap(board);
+      if (initialSelection) addSelectedElement(board, first);
+
+      board.pointerDown(pointer(5, 5, 1));
+      board.pointerMove(pointer(95, 95, 1));
+      await vi.advanceTimersByTimeAsync(20);
+      expect(getSelectedElements(board)).toEqual([first]);
+
+      board.pointerMove(pointer(195, 95, 1));
+      board.pointerUp(pointer(195, 95));
+      board.globalPointerUp(pointer(195, 95));
+      await vi.advanceTimersByTimeAsync(20);
+      expect(
+        getSelectedElements(board)
+          .map(({ id }) => id)
+          .sort()
+      ).toEqual(['first', 'second']);
+      expect(getAutoCompleteState(board).visible).toBe(false);
+    }
+  );
+
   it.each([
     [124, 50],
     [50, 124],

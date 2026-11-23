@@ -555,8 +555,20 @@ function createDeployPackage() {
           );
         const offlineStaticAssetsCount =
           idlePrefetchGroupCounts['offline-static-assets'] || 0;
+        const toolWindowsEntries = idlePrefetchManifest?.groups?.['tool-windows'];
+        const toolWindowsScripts = Array.isArray(toolWindowsEntries)
+          ? toolWindowsEntries
+              .map((entry) => normalizeEntryAssetPath(entry?.url))
+              .filter((asset) => asset.startsWith('assets/') && asset.endsWith('.js'))
+          : [];
+        const packageRootDir = path.posix.dirname(rootIndexEntry || 'web/index.html');
+        const missingToolWindowsScripts = toolWindowsScripts.filter(
+          (asset) => !fileSet.has(path.posix.join(packageRootDir, asset))
+        );
+        const hasToolWindowsGroup = toolWindowsScripts.length > 0;
         const usesCurrentToolChunkLayout =
           hasToolWindowsJs ||
+          hasToolWindowsGroup ||
           hasRuntimeStaticAssetsGroup ||
           idlePrefetchDefaults.includes('tool-windows');
         const usesLegacyToolChunkLayout =
@@ -567,8 +579,9 @@ function createDeployPackage() {
         if (!hasEntryCss) missingCriticalGroups.push('entry stylesheet');
         missingCriticalGroups.push(...missingEntryAssets);
         if (usesCurrentToolChunkLayout) {
-          if (!hasToolWindowsJs)
-            missingCriticalGroups.push('tool-windows-*.js');
+          if (!hasToolWindowsJs && !hasToolWindowsGroup)
+            missingCriticalGroups.push('tool-windows(group)');
+          missingCriticalGroups.push(...missingToolWindowsScripts);
           if (!hasRuntimeStaticAssetsGroup) {
             missingCriticalGroups.push('runtime-static-assets(group)');
           }
@@ -605,7 +618,11 @@ function createDeployPackage() {
         );
         if (usesCurrentToolChunkLayout) {
           console.log(
-            `     - tool-windows-*.js: ${hasToolWindowsJs ? '✅' : '❌'}`
+            `     - tool-windows: ${
+              hasToolWindowsGroup
+                ? `${missingToolWindowsScripts.length === 0 ? '✅' : '❌'} (${toolWindowsScripts.length} JS entries)`
+                : hasToolWindowsJs ? '✅ (named chunk)' : '❌'
+            }`
           );
           console.log(
             `     - tool-windows-*.css: ${

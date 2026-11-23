@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DIST_DIR = path.resolve(__dirname, '../dist/apps/web');
-const INDEX_HTML = path.join(DIST_DIR, 'index.html');
+const BUNDLE_MANIFEST = path.join(DIST_DIR, '.vite/manifest.json');
 const IDLE_MANIFEST = path.join(DIST_DIR, 'idle-prefetch-manifest.json');
 const DISALLOWED_PREFIXES = [
   'diagram-engines-',
@@ -10,149 +10,59 @@ const DISALLOWED_PREFIXES = [
   'external-skills-',
 ];
 const MAX_STARTUP_ASSET_BYTES = 500 * 1024;
-const STATIC_IMPORT_RE =
-  /(?:\bimport\s*(?:[^"'`]*?\bfrom\s*)?|\bexport\s*[^"'`]*?\bfrom\s*)["']\.\/([^"']+)["']/g;
-const DYNAMIC_IMPORT_RE = /\bimport\(["']\.\/([^"']+)["']\)/g;
 
 function fail(message) {
   console.error(`[startup-validate] ${message}`);
   process.exit(1);
 }
 
-if (!fs.existsSync(INDEX_HTML)) {
-  fail('dist/apps/web/index.html 不存在，请先构建 web 应用');
+if (!fs.existsSync(BUNDLE_MANIFEST)) {
+  fail('缺少 Vite 构建清单，请先构建 web 应用');
 }
 
-const html = fs.readFileSync(INDEX_HTML, 'utf8');
-const scriptMatches = Array.from(
-  html.matchAll(/<script[^>]+src="\.\/([^"]+)"[^>]*><\/script>/g)
-).map((match) => match[1]);
-const styleMatches = Array.from(
-  html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="\.\/([^"]+)"[^>]*>/g)
-).map((match) => match[1]);
+const manifest = JSON.parse(fs.readFileSync(BUNDLE_MANIFEST, 'utf8'));
+const entry = manifest['index.html'];
+if (!entry?.isEntry) {
+  fail('Vite 构建清单缺少 Web 入口');
+}
+const directAssets = [entry.file, ...(entry.css || [])];
+const idleManifest = fs.existsSync(IDLE_MANIFEST)
+  ? JSON.parse(fs.readFileSync(IDLE_MANIFEST, 'utf8'))
+  : { groups: {} };
 
-const directAssets = [...scriptMatches, ...styleMatches].filter((asset) =>
-  asset.startsWith('assets/')
-);
-
-if (directAssets.length === 0) {
-  fail('入口 HTML 没有直接引用任何 assets 资源');
+function collectStaticAssets(key, visited = new Set(), assets = new Set()) {
+  if (visited.has(key)) return assets;
+  visited.add(key);
+  const chunk = manifest[key];
+  if (!chunk) fail(`构建清单缺少依赖：${key}`);
+  assets.add(chunk.file);
+  for (const css of chunk.css || []) assets.add(css);
+  for (const importedKey of chunk.imports || []) {
+    collectStaticAssets(importedKey, visited, assets);
+  }
+  return assets;
 }
 
-const directScriptAssets = scriptMatches.filter((asset) =>
-  asset.startsWith('assets/')
-);
-
-// 运行时分组样式允许直接注入 HTML，避免首次展示时额外请求 CSS。
-// 这里仅阻止分组 JS 重新回流到首屏入口链。
-const invalidDirectAssets = directScriptAssets.filter((asset) =>
-  DISALLOWED_PREFIXES.some((prefix) => path.basename(asset).startsWith(prefix))
-);
-
-if (invalidDirectAssets.length > 0) {
-  fail(`重模块重新回流到入口 HTML：${invalidDirectAssets.join(', ')}`);
-}
-
-let idleManifest = { groups: {} };
-if (fs.existsSync(IDLE_MANIFEST)) {
-  idleManifest = JSON.parse(fs.readFileSync(IDLE_MANIFEST, 'utf8'));
-}
-
-function collectStaticImports(entryAsset, visited = new Set()) {
-  if (visited.has(entryAsset)) {
-    return visited;
+function getBootstrapImport(key) {
+  const imports = manifest[key]?.dynamicImports || [];
+  if (imports.length !== 1) {
+    fail(`启动入口应包含一个立即执行的动态导入：${key}`);
   }
-  visited.add(entryAsset);
-
-  const fullPath = path.join(DIST_DIR, entryAsset);
-  if (!fs.existsSync(fullPath) || !entryAsset.endsWith('.js')) {
-    return visited;
-  }
-
-  const source = fs.readFileSync(fullPath, 'utf8');
-  STATIC_IMPORT_RE.lastIndex = 0;
-  let match;
-
-  while ((match = STATIC_IMPORT_RE.exec(source))) {
-    const imported = path.posix.normalize(
-      path.posix.join(path.posix.dirname(entryAsset), match[1])
-    );
-    if (!visited.has(imported)) {
-      collectStaticImports(imported, visited);
-    }
-  }
-
-  return visited;
-}
-
-function collectDirectDynamicImports(entryAsset) {
-  const dynamicImports = new Set();
-  const fullPath = path.join(DIST_DIR, entryAsset);
-  if (!fs.existsSync(fullPath) || !entryAsset.endsWith('.js')) {
-    return dynamicImports;
-  }
-
-  const source = fs.readFileSync(fullPath, 'utf8');
-  DYNAMIC_IMPORT_RE.lastIndex = 0;
-  let match;
-
-  while ((match = DYNAMIC_IMPORT_RE.exec(source))) {
-    dynamicImports.add(
-      path.posix.normalize(
-        path.posix.join(path.posix.dirname(entryAsset), match[1])
-      )
-    );
-  }
-
-  return dynamicImports;
-}
-
-function collectStaticImportAssets(entryAsset) {
-  const imports = new Set();
-  const fullPath = path.join(DIST_DIR, entryAsset);
-  if (!fs.existsSync(fullPath) || !entryAsset.endsWith('.js')) {
-    return imports;
-  }
-
-  const source = fs.readFileSync(fullPath, 'utf8');
-  STATIC_IMPORT_RE.lastIndex = 0;
-  let match;
-
-  while ((match = STATIC_IMPORT_RE.exec(source))) {
-    imports.add(
-      path.posix.normalize(
-        path.posix.join(path.posix.dirname(entryAsset), match[1])
-      )
-    );
-  }
-
-  return imports;
-}
-
-function collectJsAssets() {
-  const assetsDir = path.join(DIST_DIR, 'assets');
-  if (!fs.existsSync(assetsDir)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(assetsDir)
-    .filter((fileName) => fileName.endsWith('.js'))
-    .map((fileName) => path.posix.join('assets', fileName));
+  return imports[0];
 }
 
 function buildStaticChunkGraph() {
-  const jsAssets = collectJsAssets();
-  const jsAssetSet = new Set(jsAssets);
   const graph = new Map();
-
-  for (const asset of jsAssets) {
-    const imports = Array.from(collectStaticImportAssets(asset)).filter(
-      (importedAsset) => jsAssetSet.has(importedAsset)
+  for (const chunk of Object.values(manifest)) {
+    if (!chunk.file.endsWith('.js')) continue;
+    graph.set(
+      chunk.file,
+      (chunk.imports || []).map((key) => {
+        if (!manifest[key]) fail(`构建清单缺少依赖：${key}`);
+        return manifest[key].file;
+      })
     );
-    graph.set(asset, imports);
   }
-
   return graph;
 }
 
@@ -209,22 +119,22 @@ function findStronglyConnectedComponents(graph) {
   return components.sort((a, b) => b.length - a.length);
 }
 
-const entryScripts = scriptMatches.filter(
-  (asset) => asset.startsWith('assets/') && asset.endsWith('.js')
-);
-
-const entryDependencyGraph = new Set();
-entryScripts.forEach((asset) => {
-  collectStaticImports(asset, entryDependencyGraph);
-  for (const dynamicAsset of collectDirectDynamicImports(asset)) {
-    collectStaticImports(dynamicAsset, entryDependencyGraph);
-  }
-});
+// index.html runs main.tsx, which immediately loads bootstrap.tsx. Subsequent
+// dynamic imports can depend on user state or open optional features.
+const mainKey = getBootstrapImport('index.html');
+const bootstrapKey = getBootstrapImport(mainKey);
+const entryDependencyGraph = new Set([
+  ...collectStaticAssets('index.html'),
+  ...collectStaticAssets(mainKey),
+  ...collectStaticAssets(bootstrapKey),
+]);
 
 const invalidStaticDeps = Array.from(entryDependencyGraph).filter(
   (asset) =>
-    asset !== undefined &&
-    DISALLOWED_PREFIXES.some((prefix) => path.basename(asset).startsWith(prefix))
+    asset.endsWith('.js') &&
+    DISALLOWED_PREFIXES.some((prefix) =>
+      path.basename(asset).startsWith(prefix)
+    )
 );
 
 if (invalidStaticDeps.length > 0) {
@@ -239,15 +149,13 @@ if (chunkCycles.length > 0) {
   fail(`构建产物存在静态 chunk 循环依赖：\n${formattedCycles}`);
 }
 
-const startupAssetGraph = new Set([
-  ...directAssets,
-  ...entryDependencyGraph,
-]);
+const startupAssetGraph = new Set([...directAssets, ...entryDependencyGraph]);
 const startupBudgetReport = Array.from(startupAssetGraph)
   .filter((asset) => asset && (asset.endsWith('.js') || asset.endsWith('.css')))
   .map((asset) => {
     const fullPath = path.join(DIST_DIR, asset);
-    const size = fs.existsSync(fullPath) ? fs.statSync(fullPath).size : 0;
+    if (!fs.existsSync(fullPath)) fail(`首屏资源不存在：${asset}`);
+    const size = fs.statSync(fullPath).size;
     return {
       asset,
       size,
@@ -262,8 +170,7 @@ if (oversizedStartupAssets.length > 0) {
   fail(
     `首屏依赖链存在超过 500KB 的资源：\n${oversizedStartupAssets
       .map(
-        ({ asset, size, limit }) =>
-          `- ${asset}: ${size} bytes > ${limit} bytes`
+        ({ asset, size, limit }) => `- ${asset}: ${size} bytes > ${limit} bytes`
       )
       .join('\n')}`
   );

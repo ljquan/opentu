@@ -317,14 +317,6 @@ export function App() {
     }
   }, [initError, isLoading, showCrashDialog]);
 
-  useEffect(() => {
-    if (showCrashDialog || initError || isLoading) {
-      return;
-    }
-
-    requestServiceWorkerIdlePrefetch(['offline-static-assets']);
-  }, [initError, isLoading, showCrashDialog]);
-
   // Initialize workspace and handle migration
   useEffect(() => {
     const initialize = async () => {
@@ -1085,6 +1077,7 @@ export function App() {
           afterInit={(board) => {
             // 保存 board 引用，用于手动触发边界更新
             boardRef.current = board;
+            requestServiceWorkerIdlePrefetch(['offline-static-assets']);
 
             (
               window as unknown as {

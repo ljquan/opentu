@@ -66,7 +66,6 @@ type OutputChunk = {
   modules: Record<string, unknown>;
   referencedFiles: string[];
   imports: string[];
-  dynamicImports: string[];
 };
 type OutputBundle = Record<string, OutputAsset | OutputChunk>;
 type ViteOutputChunk = OutputChunk & {
@@ -622,10 +621,9 @@ function collectIdlePrefetchGroupEntriesFromBundle(
       }
     });
 
-    for (const importedFileName of [
-      ...chunk.imports,
-      ...chunk.dynamicImports,
-    ]) {
+    // Dynamic entries are discovered by their own group membership. Walking
+    // them here would pull unrelated features in through shared app modules.
+    for (const importedFileName of chunk.imports) {
       const normalizedImportedFileName =
         normalizeBundleFileName(importedFileName);
       const importedGroup = getNamedIdlePrefetchGroupForFile(
@@ -795,75 +793,6 @@ function resolveIdlePrefetchGroup(id: string): IdlePrefetchGroup | undefined {
   }
 
   return undefined;
-}
-
-function isStartupRuntimeModule(id: string): boolean {
-  const normalizedId = normalizePathForChunking(id);
-  return (
-    normalizedId.includes('vite/preload-helper') ||
-    normalizedId.includes('commonjs-dynamic-modules') ||
-    normalizedId.includes('commonjsHelpers')
-  );
-}
-
-interface ManualChunkModuleInfo {
-  importers: readonly string[];
-}
-
-interface ManualChunkContext {
-  getModuleInfo: (id: string) => ManualChunkModuleInfo | null;
-}
-
-function isWebMainEntry(id: string): boolean {
-  const normalizedId = normalizePathForChunking(id);
-  return (
-    normalizedId.endsWith('/apps/web/src/main.tsx') ||
-    normalizedId.endsWith('/src/main.tsx')
-  );
-}
-
-function isStaticallyReachableFromWebMain(
-  id: string,
-  getModuleInfo: ManualChunkContext['getModuleInfo'],
-  visited = new Set<string>()
-): boolean {
-  if (visited.has(id)) {
-    return false;
-  }
-  visited.add(id);
-
-  if (isWebMainEntry(id)) {
-    return true;
-  }
-
-  const moduleInfo = getModuleInfo(id);
-  if (!moduleInfo) {
-    return false;
-  }
-
-  return moduleInfo.importers.some((importerId) =>
-    isStaticallyReachableFromWebMain(importerId, getModuleInfo, visited)
-  );
-}
-
-function resolveManualChunk(
-  id: string,
-  context?: ManualChunkContext
-): string | undefined {
-  if (isStartupRuntimeModule(id)) {
-    return 'startup-runtime';
-  }
-
-  const group = resolveIdlePrefetchGroup(id);
-  if (
-    (group === undefined || group === 'tool-windows') &&
-    context &&
-    isStaticallyReachableFromWebMain(id, context.getModuleInfo)
-  ) {
-    return 'startup-app';
-  }
-
-  return group;
 }
 
 /**
@@ -1177,17 +1106,9 @@ export default defineConfig({
     // watch 模式下不清空输出目录，避免 index.html 丢失导致 serve 失败
     emptyOutDir: !isWatchMode,
     reportCompressedSize: true,
-    // 首屏只注入壳层资源，懒加载分组改由运行时按需拉取/空闲预取。
-    modulePreload: false,
+    manifest: true,
     commonjsOptions: {
       transformMixedEsModules: true,
-    },
-    rollupOptions: {
-      output: {
-        manualChunks(id, context) {
-          return resolveManualChunk(id, context);
-        },
-      },
     },
   },
 });

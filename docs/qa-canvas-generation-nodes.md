@@ -48,3 +48,9 @@
 - macOS、Node 26.8.1、Playwright 与系统 Chrome。使用独立浏览器上下文注入带历史来源的模拟失败卡片，点击“查看详情”和“恢复编辑”，确认提示词保留。随后在当前画布调用实际草稿提交生命周期，确认新快照没有嵌套来源，模拟失败状态仍可显示，页面未抛出栈溢出。页面定向用例 1/1，主画布与抽屉冒烟 2/2。
 - 在 `packages/drawnix` 运行 `NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run --config vitest.config.ts src/services/generation-node-lifecycle.test.ts src/services/__tests__/image-generation-recovery-metadata.test.ts src/services/layer-decomposition/seedream55.test.ts`，23/23 通过，覆盖撤销重做、失败槽位恢复和图片元数据。Drawnix `tsc` 与 `git diff --check` 通过，定向 ESLint 为 0 错误、23 条已有警告。
 - 人工验收可从已有的失败卡片打开详情并恢复编辑，检查提示词、模型和参考图。页面定向测试拦截外部请求，真实供应商提交及其他浏览器留待验证。修复会在创建新快照时生效，历史画板数据无需迁移。
+
+## 图片框选回归（2026-11-23）
+
+- 在 macOS、Node 26.8.1 和 Vitest/jsdom 下复现同一个选框先扫过一张图，再扫过第二张图时只选中第一张的情况。修复图片连接点插件拦截框选移动事件的问题。
+- 从空白处开始拖框，分别覆盖起框前无选中元素和已选中一张图。松开后两张框内图片均选中，第三张框外图片未选中，连接菜单未打开。连接点点击和拖线用例通过。
+- 使用 `NODE_OPTIONS=--no-experimental-webstorage` 运行 `with-arrow-line-auto-complete-extend.test.ts`、`image-reference-ports.test.ts`、`with-generation-node.test.ts` 和 `generation-node-lifecycle.test.ts`，4 个文件共 30 项通过。`pnpm typecheck`、`pnpm exec nx build web` 和定向 ESLint 通过。浏览器手动操作和触摸手势未验证。

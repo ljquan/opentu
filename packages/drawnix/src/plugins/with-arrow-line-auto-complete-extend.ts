@@ -12,6 +12,7 @@ import {
   toViewBoxPoint,
   Transforms,
   Direction,
+  isSelectionMoving,
   rotatePointsByElement,
   RectangleClient,
   clearSelectedElement,
@@ -472,9 +473,14 @@ export const withArrowLineAutoCompleteExtend = (board: PlaitBoard) => {
       return;
     }
 
-    // Image ports open the action menu on click/drop, never on a 50ms hover.
-    // This also avoids the native provisional shape while connecting references.
-    if (isGenerationSource(originElement)) return;
+    // Image ports have their own click and drag gesture. A marquee can pass
+    // through a one-image selection while it is still expanding.
+    if (isGenerationSource(originElement)) {
+      if (isSelectionMoving(board) || (event.buttons & 1) !== 0) {
+        pointerMove(event);
+      }
+      return;
+    }
     const activePoint = toActivePoint(board, event.x, event.y);
     const points = getAutoCompletePoints(board, originElement, true);
     const rotatedPoint = rotateAntiPointsByElement(board, activePoint, originElement, true) || activePoint;
