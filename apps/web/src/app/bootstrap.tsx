@@ -4,6 +4,7 @@ import App from './app';
 import { ErrorBoundary } from './ErrorBoundary';
 import { initCrashLogger } from '../crash-logger';
 import {
+  analytics,
   initWebVitals,
   initPageReport,
   initPreventPinchZoom,
@@ -16,7 +17,6 @@ import {
   swChannelClient,
   safeReload,
 } from '@drawnix/drawnix/runtime';
-import { analytics } from '@drawnix/drawnix';
 import { initSWConsoleCapture } from '../utils/sw-console-capture';
 
 function isLocalDevelopmentHost(hostname: string): boolean {

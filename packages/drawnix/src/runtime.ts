@@ -12,10 +12,14 @@ export type {
   CrashRecoveryState,
   CrashInfo,
 } from './services/crash-recovery-service';
-export { safeReload } from './utils/active-tasks';
+export async function safeReload(): Promise<boolean> {
+  const { safeReload } = await import('./utils/active-tasks');
+  return safeReload();
+}
 export { useDocumentTitle } from './hooks/useDocumentTitle';
 export { markTabSyncVersion } from './hooks/useTabSync';
 
+export { analytics } from './utils/umami-analytics';
 export { initWebVitals } from './services/web-vitals-service';
 export { initPageReport } from './services/page-report-service';
 export { initPreventPinchZoom } from './services/prevent-pinch-zoom-service';
