@@ -10,6 +10,7 @@
 - Ego Chromium 正式站复测。沿用原浏览器资料，在该标签页禁用 HTTP 缓存并绕过 Service Worker。第 83.7 秒仍停在 82%，提示“正在加载工作台…”。聊天脚本耗时 71.8 秒，办公组件脚本耗时 60.7 秒，二者有重叠。启动遮罩在第 115.6 秒结束，画布在第 118.6 秒挂载。
 - Ego Chromium 本地对照。两份生产构建通过回环地址提供，禁用 HTTP 缓存和 Service Worker，下载限速 350 KB/s，模拟延迟 80 ms。修复前后画布挂载分别为 20.05 秒和 10.60 秒，两版均通过缩小按钮从 100% 到 90% 的交互验证。两份本地构建的 HTML 版本标签均沿用源码中的 `1.0.10`，以 `f67b1673` 和实际构建资源识别测试版本。
 - 本地修复尚未部署。正式站修复后的冷启动耗时，以及启用 Service Worker 的离线启动与升级待验证。
+- PR 前复核基于 `origin/develop@f67b1673`，上游同步无冲突。两项修复合计运行 10 个定向测试文件，78 项通过。`pnpm typecheck`、`pnpm exec nx build web --skip-nx-cache`、`pnpm verify:startup`、`pnpm size` 和 `node scripts/create-deploy-package.js --no-upload` 均通过。打包核对 `tool-windows` 预取清单中的 185 个 JS 文件并完成解压验证。体积检查改为跟踪当前构建入口和代表性分块，启动全依赖继续由 `verify:startup` 校验。
 
 ## 2026-10-11 普通画布图片加载回退
 

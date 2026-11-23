@@ -1,49 +1,55 @@
 [
   {
-    "name": "Startup App",
-    "path": "dist/apps/web/assets/startup-app-*.js",
+    "name": "Web Bootstrap",
+    "path": "dist/apps/web/assets/bootstrap-*.js",
     "limit": "820 kB",
     "gzip": true,
     "running": false
   },
   {
-    "name": "Startup Runtime",
-    "path": "dist/apps/web/assets/startup-runtime-*.js",
+    "name": "Startup Loader",
+    "path": "dist/apps/web/assets/main-*.js",
     "limit": "5 kB",
     "gzip": true,
     "running": false
   },
   {
-    "name": "AI Chat",
-    "path": "dist/apps/web/assets/ai-chat-*.js",
+    "name": "Chat Drawer Entry",
+    "path": "dist/apps/web/assets/ChatDrawer-*.js",
     "limit": "1 MB",
     "gzip": true,
     "running": false
   },
   {
-    "name": "Diagram Engines",
-    "path": "dist/apps/web/assets/diagram-engines-*.js",
+    "name": "Mermaid Entry",
+    "path": "dist/apps/web/assets/mermaid.core-*.js",
     "limit": "950 kB",
     "gzip": true,
     "running": false
   },
   {
     "name": "Office Data",
-    "path": "dist/apps/web/assets/office-data-*.js",
+    "path": [
+      "dist/apps/web/assets/xlsx-*.js",
+      "!dist/apps/web/assets/xlsx-embedded-images-*.js",
+      "!dist/apps/web/assets/xlsx-image-export-*.js",
+      "dist/apps/web/assets/pptxgen.es-*.js",
+      "dist/apps/web/assets/jszip.min-*.js"
+    ],
     "limit": "300 kB",
     "gzip": true,
     "running": false
   },
   {
-    "name": "Editor Engines",
-    "path": "dist/apps/web/assets/editor-engines-*.js",
+    "name": "Knowledge Base Editor Entry",
+    "path": "dist/apps/web/assets/KnowledgeBaseContent-*.js",
     "limit": "870 kB",
     "gzip": true,
     "running": false
   },
   {
     "name": "Media Viewer",
-    "path": "dist/apps/web/assets/media-viewer-*.js",
+    "path": "dist/apps/web/assets/viewer.esm-*.js",
     "limit": "20 kB",
     "gzip": true,
     "running": false
