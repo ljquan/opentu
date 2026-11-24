@@ -13,7 +13,7 @@ import {
   DEFAULT_ORIGINAL_VERSION_ID,
   appendVersionToRecord,
   switchVersionInRecord,
-} from '../shared/workflow';
+} from '../shared/workflow/versioned-record';
 import { formatMusicBriefPromptBlock, type MusicBrief } from './music-brief';
 
 export function readStoredModelSelection(

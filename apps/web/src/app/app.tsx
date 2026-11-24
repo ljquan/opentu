@@ -39,7 +39,7 @@ import { PendingPersistence } from './pending-persistence';
 importLocalTuziCredentials();
 
 const Drawnix = lazy(() =>
-  import('@drawnix/drawnix').then((module) => ({
+  import('@drawnix/drawnix/canvas').then((module) => ({
     default: module.Drawnix,
   }))
 );
@@ -210,6 +210,7 @@ function clearBoardCloseSnapshot(boardId?: string | null): void {
 
 export function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
   const [isDataReady, setIsDataReady] = useState(false);
   // 使用 ref 跟踪 isDataReady，避免 handleBoardChange 因闭包捕获旧值导致保存被跳过
   // Wrapper 中 BOARD_TO_AFTER_CHANGE 的 effect 只依赖 [board]，不会因为 onChange 变化而更新
@@ -312,10 +313,15 @@ export function App() {
       return;
     }
 
-    if (showCrashDialog || initError || !isLoading) {
+    if (isCanvasReady) {
+      performance.mark('opentu:canvas-ready');
       bootController.markReady();
+    } else if (showCrashDialog || initError) {
+      bootController.markReady();
+    } else if (!isLoading) {
+      updateBootStatus({ progress: 90, tip: '正在加载画布组件...' });
     }
-  }, [initError, isLoading, showCrashDialog]);
+  }, [initError, isLoading, isCanvasReady, showCrashDialog]);
 
   // Initialize workspace and handle migration
   useEffect(() => {
@@ -1077,6 +1083,7 @@ export function App() {
           afterInit={(board) => {
             // 保存 board 引用，用于手动触发边界更新
             boardRef.current = board;
+            setIsCanvasReady(true);
             requestServiceWorkerIdlePrefetch(['offline-static-assets']);
 
             (

@@ -13,7 +13,8 @@ permissions:
 jobs:
   # PR 时运行：lint、test、build 和冒烟测试
   main:
-    runs-on: ubuntu-latest
+    # Playwright 1.57 in the lockfile supports Ubuntu 24.04; avoid runner drift.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -61,7 +62,9 @@ jobs:
       - run: npx nx affected -t lint --exclude=drawnix --base=${{ steps.affected-base.outputs.base }} --verbose
       - name: Verify startup bundle
         if: steps.affected-web.outputs.affected == 'true'
-        run: pnpm verify:startup
+        run: |
+          node --test scripts/validate-startup-bundle.test.js
+          pnpm verify:startup
 
       # PR 时运行冒烟测试（快速，约2分钟）
       - name: Run Smoke Tests
@@ -98,7 +101,8 @@ jobs:
 
   # 发布前运行：完整 E2E 测试 + 生成用户手册
   release-e2e:
-    runs-on: ubuntu-latest
+    # Playwright 1.57 in the lockfile supports Ubuntu 24.04; avoid runner drift.
+    runs-on: ubuntu-24.04
     # 仅在 main 分支 push 或手动触发时运行
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:

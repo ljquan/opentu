@@ -9,8 +9,6 @@ import {
   useState,
 } from 'react';
 import { Video } from './video';
-import { generateImage } from '../../mcp/tools/image-generation';
-import { getImageRegion } from '../../services/ppt';
 import {
   insertMediaIntoFrame,
   removePPTImagePlaceholder,
@@ -651,6 +649,10 @@ export const Image: React.FC<ImageProps> = (props: ImageProps) => {
     setFramePPTImageStatus(props.board, pptFrameId, 'loading');
 
     try {
+      const [{ generateImage }, { getImageRegion }] = await Promise.all([
+        import('../../mcp/tools/image-generation'),
+        import('../../services/ppt/ppt-layout-engine'),
+      ]);
       const result = await generateImage({
         prompt: pptPrompt,
         size: '16x9',

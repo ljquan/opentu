@@ -31,7 +31,6 @@ import {
   type SWTask,
 } from './media-executor/task-storage-writer';
 import { taskStorageReader } from './task-storage-reader';
-import { executorFactory, waitForTaskCompletion } from './media-executor';
 import {
   createModelRef,
   hasInvocationRouteCredentials,
@@ -40,11 +39,6 @@ import {
 } from '../utils/settings-manager';
 import { DEFAULT_AUDIO_MODEL_ID } from '../constants/model-config';
 import { analytics } from '../utils/umami-analytics';
-import {
-  getAdapterContextFromSettings,
-  resolveAdapterForInvocation,
-} from './model-adapters';
-import { cacheRemoteUrl } from './media-executor/fallback-utils';
 import {
   IMAGE_GENERATION_TIMEOUT_MS,
   STORAGE_LIMITS,
@@ -95,6 +89,18 @@ import {
 } from './image-generation-recovery-service';
 import { isImageSubmissionOutcomeUnknownError } from './provider-routing';
 import { SubmissionPersistenceError } from './submission-persistence';
+
+// Keep queue state synchronous; load media implementation only during execution.
+async function cacheRemoteUrl(
+  ...args: Parameters<
+    typeof import('./media-executor/fallback-utils').cacheRemoteUrl
+  >
+) {
+  const { cacheRemoteUrl: cache } = await import(
+    './media-executor/fallback-utils'
+  );
+  return cache(...args);
+}
 
 const VIDEO_ANALYZER_SIMULATED_DURATION_MS = 10 * 60 * 1000;
 const VIDEO_ANALYZER_SIMULATED_INTERVAL_MS = 5000;
@@ -952,6 +958,9 @@ class TaskQueueService {
       }
 
       if (task.type === TaskType.AUDIO) {
+        const { getAdapterContextFromSettings, resolveAdapterForInvocation } =
+          await import('./model-adapters');
+        if (!isCurrentExecutionAttempt()) return;
         const audioRouteModel = resolveTaskInvocationRouteModel(task);
         const requestedModelRef =
           typeof audioRouteModel === 'string' ? null : audioRouteModel;
@@ -1193,7 +1202,11 @@ class TaskQueueService {
       }
 
       // Get executor
+      const { executorFactory, waitForTaskCompletion } = await import(
+        './media-executor'
+      );
       const executor = await executorFactory.getExecutor();
+      if (!isCurrentExecutionAttempt()) return;
 
       // 实时进度回调：executor 执行期间同步更新内存中的 task 状态
       // 注意：必须创建新对象存入 Map，不能原地修改旧对象

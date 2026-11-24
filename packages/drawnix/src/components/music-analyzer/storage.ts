@@ -7,7 +7,7 @@ import {
   saveRecordsByKey,
   updateRecordById,
   type WorkflowRecordStorageOptions,
-} from '../shared/workflow';
+} from '../shared/workflow/record-storage';
 import type { MusicAnalysisRecord } from './types';
 import { normalizeMusicBrief } from './music-brief';
 

@@ -86,7 +86,6 @@ import {
 } from './contexts/ChatDrawerContext';
 import { useWorkspace } from './hooks/useWorkspace';
 import { Board as WorkspaceBoard } from './types/workspace.types';
-import { toolTestHelper } from './utils/tool-test-helper';
 import { ViewNavigation } from './components/view-navigation';
 import { AssetProvider } from './contexts/AssetContext';
 import { AudioPlaylistProvider } from './contexts/AudioPlaylistContext';
@@ -1761,7 +1760,13 @@ const DrawnixContent: React.FC<DrawnixContentProps> = ({
               (window as any).__drawnixBoard = board;
               // 设置测试助手的 board 实例（仅开发环境）
               if (process.env.NODE_ENV === 'development') {
-                toolTestHelper.setBoard(board);
+                void import('./utils/tool-test-helper')
+                  .then(({ toolTestHelper }) => {
+                    toolTestHelper.setBoard(board);
+                  })
+                  .catch((error) =>
+                    console.warn('Failed to load tool test helper:', error)
+                  );
               }
 
               afterInit && afterInit(board);

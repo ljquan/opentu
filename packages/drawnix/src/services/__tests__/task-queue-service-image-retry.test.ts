@@ -610,6 +610,42 @@ describe('task-queue-service image edit retry persistence', () => {
     expect(mocks.generateImage).not.toHaveBeenCalled();
   });
 
+  it.each(['cancelled', 'deleted'] as const)(
+    'does not submit when a task is %s while its executor is loading',
+    async (transition) => {
+      const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
+        TaskStatus.COMPLETED,
+      ]);
+      const { executorFactory } = await import('../media-executor');
+      let finishLoading!: () => void;
+      const loading = new Promise<void>((resolve) => { finishLoading = resolve; });
+      vi.mocked(executorFactory.getExecutor).mockImplementationOnce(async () => {
+        await loading;
+        return {
+          generateImage: mocks.generateImage,
+          generateVideo: mocks.generateVideo,
+          generateText: mocks.generateText,
+        } as any;
+      });
+      const task = taskQueueService.createTask(
+        { prompt: 'First generation', model: 'gpt-image-2', size: '1x1' },
+        TaskType.IMAGE
+      );
+      await vi.waitFor(() => expect(executorFactory.getExecutor).toHaveBeenCalledTimes(1));
+      if (transition === 'cancelled') taskQueueService.cancelTask(task.id);
+      else taskQueueService.deleteTask(task.id);
+      finishLoading();
+      await flushAsyncWork();
+      expect(mocks.generateImage).not.toHaveBeenCalled();
+      expect(mocks.waitForTaskCompletion).not.toHaveBeenCalled();
+      if (transition === 'cancelled') {
+        expect(taskQueueService.getTask(task.id)?.status).toBe(TaskStatus.CANCELLED);
+      } else {
+        expect(taskQueueService.getTask(task.id)).toBeUndefined();
+      }
+    }
+  );
+
   it('reports only a live in-page execution as active', async () => {
     const { taskQueueService, mocks } = await setupTaskQueueServiceHarness([
       TaskStatus.COMPLETED,
