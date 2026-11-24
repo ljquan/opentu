@@ -118,3 +118,6 @@ node scripts/validate-startup-bundle.js /tmp/<候选产物>
 2026-11-24，用户授权提交、推送分支并创建 PR。重新 fetch 后确认远程 `develop` 仍为 `794a3fc0`，与本地基线一致。再次执行 Drawnix / Web 类型检查、启动预算的 7 项测试及候选完整画布预算，均通过。生产构建、191 项定向测试及两轮浏览器结果沿用上文已通过记录，生产代码自最后一次构建和浏览器实测后未变更。
 
 本 PR 未新增持久化字段、数据库结构或依赖，已有两份文档删除不包含在本 PR 中。基线已存在的 4 项 App ESLint error 仍需在上线流程中考虑；本 PR 不声称全仓 lint 或全部 GitHub CI 已通过。提交 PR 后核对远程检查结果，未执行合并或部署。
+
+
+PR #350 首次 GitHub CI 在安装 Playwright 时失败，日志明确为 `Playwright does not support chromium on ubuntu26.04-x64`，尚未执行构建或测试。已将两个 CI job 的 runner 从浮动 `ubuntu-latest` 固定为 `ubuntu-24.04`，兼容锁文件中的 Playwright 1.57，避免扩大依赖升级范围。该调整不影响应用生产代码。
