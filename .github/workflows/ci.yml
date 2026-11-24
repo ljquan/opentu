@@ -61,7 +61,9 @@ jobs:
       - run: npx nx affected -t lint --exclude=drawnix --base=${{ steps.affected-base.outputs.base }} --verbose
       - name: Verify startup bundle
         if: steps.affected-web.outputs.affected == 'true'
-        run: pnpm verify:startup
+        run: |
+          node --test scripts/validate-startup-bundle.test.js
+          pnpm verify:startup
 
       # PR 时运行冒烟测试（快速，约2分钟）
       - name: Run Smoke Tests

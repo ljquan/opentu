@@ -17,6 +17,7 @@
     "baseUrl": ".",
     "paths": {
       "@drawnix/drawnix": ["packages/drawnix/src/index.ts"],
+      "@drawnix/drawnix/canvas": ["packages/drawnix/src/canvas.ts"],
       "@drawnix/drawnix/runtime": ["packages/drawnix/src/runtime.ts"],
       "@aitu/utils": ["packages/utils/src/index.ts"],
       "tdesign-react": ["packages/drawnix/src/utils/tdesign.ts"],

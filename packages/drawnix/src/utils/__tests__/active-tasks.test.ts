@@ -9,12 +9,18 @@ import {
 const mocks = vi.hoisted(() => ({
   migrateFromLegacyDB: vi.fn(),
   getAllTasks: vi.fn(),
+  getInMemoryTasks: vi.fn(() => [] as Task[]),
+  getRunningWorkflows: vi.fn(() => [] as unknown[]),
 }));
 
 vi.mock('../../services/task-queue', () => ({
   taskQueueService: {
-    getAllTasks: vi.fn(() => []),
+    getAllTasks: mocks.getInMemoryTasks,
   },
+}));
+
+vi.mock('../../services/workflow-submission-service', () => ({
+  workflowSubmissionService: { getRunningWorkflows: mocks.getRunningWorkflows },
 }));
 
 vi.mock('../../services/app-database', () => ({
@@ -81,5 +87,43 @@ describe('persisted recoverable task detection', () => {
     const { hasPersistedRecoverableTasks } = await import('../active-tasks');
 
     await expect(hasPersistedRecoverableTasks()).resolves.toBe(false);
+  });
+});
+
+
+describe('active task navigation protection', () => {
+  beforeEach(() => {
+    mocks.getInMemoryTasks.mockReset().mockReturnValue([]);
+    mocks.getRunningWorkflows.mockReset().mockReturnValue([]);
+  });
+
+  it.each([TaskStatus.PENDING, TaskStatus.PROCESSING])(
+    'synchronously detects a %s task without loading its executor',
+    async (status) => {
+      mocks.getInMemoryTasks.mockReturnValue([createTask({ status })]);
+      const { hasActiveLLMTasksSync } = await import('../active-tasks');
+      expect(hasActiveLLMTasksSync()).toBe(true);
+    }
+  );
+
+  it('keeps cached workflow state available to synchronous unload protection', async () => {
+    const { hasActiveLLMTasks, hasActiveLLMTasksSync } = await import('../active-tasks');
+    expect(await hasActiveLLMTasks()).toBe(false);
+    mocks.getRunningWorkflows.mockReturnValue([{}]);
+    expect(hasActiveLLMTasksSync()).toBe(true);
+    mocks.getRunningWorkflows.mockReturnValue([]);
+    expect(hasActiveLLMTasksSync()).toBe(false);
+  });
+
+  it('lets the user cancel a reload while tasks are active', async () => {
+    mocks.getInMemoryTasks.mockReturnValue([createTask({})]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      const { safeReload } = await import('../active-tasks');
+      expect(await safeReload()).toBe(false);
+      expect(confirm).toHaveBeenCalledTimes(1);
+    } finally {
+      confirm.mockRestore();
+    }
   });
 });

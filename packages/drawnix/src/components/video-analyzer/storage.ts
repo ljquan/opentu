@@ -11,7 +11,7 @@ import {
   loadRecordsByKey,
   saveRecordsByKey,
   updateRecordById,
-} from '../shared/workflow';
+} from '../shared/workflow/record-storage';
 import type { AnalysisRecord } from './types';
 
 const STORAGE_KEY = 'video-analyzer:records';

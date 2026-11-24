@@ -53,7 +53,7 @@ import { SelectionMode, Asset, AssetType } from '../../types/asset.types';
 import { insertImageFromUrl } from '../../data/image';
 import { insertVideoFromUrl } from '../../data/video';
 import { insertAudioFromUrl } from '../../data/audio';
-import { executeCanvasInsertion } from '../../services/canvas-operations';
+import { getCanvasBoardBinding } from '../../services/canvas-operations/canvas-board-ref';
 import { logCanvasInsertionDebug } from '../../utils/canvas-insertion-layout';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover/popover';
 import { FreehandShape } from '../../plugins/freehand/type';
@@ -327,39 +327,52 @@ export const CreationToolbar: React.FC<ToolbarSectionProps> = ({
         zoom: (board as any)?.viewport?.zoom || 1,
       });
 
-      const insertionResult = await executeCanvasInsertion({
-        items: assets.map((asset) => {
-          if (asset.type === AssetType.IMAGE) {
-            return { type: 'image' as const, content: asset.url };
-          }
+      const binding = getCanvasBoardBinding();
+      try {
+        const { executeCanvasInsertion } = await import(
+          '../../services/canvas-operations/canvas-insertion'
+        );
+        const boardGuard = () => getCanvasBoardBinding() === binding;
+        if (!boardGuard()) return;
+        const insertionResult = await executeCanvasInsertion({
+          board,
+          boardGuard,
+          items: assets.map((asset) => {
+            if (asset.type === AssetType.IMAGE) {
+              return { type: 'image' as const, content: asset.url };
+            }
 
-          if (asset.type === AssetType.VIDEO) {
-            return { type: 'video' as const, content: asset.url };
-          }
+            if (asset.type === AssetType.VIDEO) {
+              return { type: 'video' as const, content: asset.url };
+            }
 
-          return {
-            type: 'audio' as const,
-            content: asset.url,
-            metadata: {
-              title: asset.name,
-              duration: asset.duration,
-              previewImageUrl: asset.thumbnail,
-              prompt: asset.prompt,
-              mv: asset.modelName,
-              clipId: asset.clipId,
-              providerTaskId: asset.providerTaskId,
-            },
-          };
-        }),
-      });
+            return {
+              type: 'audio' as const,
+              content: asset.url,
+              metadata: {
+                title: asset.name,
+                duration: asset.duration,
+                previewImageUrl: asset.thumbnail,
+                prompt: asset.prompt,
+                mv: asset.modelName,
+                clipId: asset.clipId,
+                providerTaskId: asset.providerTaskId,
+              },
+            };
+          }),
+        });
 
-      if (insertionResult.success) {
-        const insertedCount =
-          (insertionResult.data as { insertedCount?: number } | undefined)
-            ?.insertedCount ?? assets.length;
-        MessagePlugin.success(`已成功插入 ${insertedCount} 个素材到画板`);
-      } else {
-        MessagePlugin.error(insertionResult.error || '插入素材失败');
+        if (insertionResult.success) {
+          const insertedCount =
+            (insertionResult.data as { insertedCount?: number } | undefined)
+              ?.insertedCount ?? assets.length;
+          MessagePlugin.success(`已成功插入 ${insertedCount} 个素材到画板`);
+        } else {
+          MessagePlugin.error(insertionResult.error || '插入素材失败');
+        }
+      } catch (error) {
+        console.error('Failed to load canvas insertion:', error);
+        MessagePlugin.error('插入素材失败，请重试');
       }
     },
     [board]
@@ -907,12 +920,7 @@ export const CreationToolbar: React.FC<ToolbarSectionProps> = ({
 
   // 渲染带拖拽和右键菜单功能的按钮
   const renderDraggableButton = useCallback(
-    (
-      buttonId: string,
-      index: number,
-      isVisible = true,
-      visibleIndex = -1
-    ) => {
+    (buttonId: string, index: number, isVisible = true, visibleIndex = -1) => {
       const buttonElement = renderButtonById(buttonId, index);
       if (!buttonElement) return null;
 

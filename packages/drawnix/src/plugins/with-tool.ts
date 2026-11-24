@@ -28,7 +28,6 @@ import {
 import { PlaitTool } from '../types/toolbox.types';
 import { ToolCommunicationService, ToolCommunicationHelper } from '../services/tool-communication-service';
 import { ToolMessageType, GenerateImagePayload, GenerateImageResponse, InsertImagePayload } from '../types/tool-communication.types';
-import { taskQueueService } from '../services/task-queue';
 import { TaskType } from '../types/task.types';
 import { geminiSettings } from '../utils/settings-manager';
 import { insertImageFromUrlAndSelect } from '../data/image';
@@ -193,6 +192,7 @@ function setupCommunicationHandlers(
       generateParams.model = settings.imageModelName || 'gemini-2.5-flash-image-vip';
 
       // 通过 taskQueueService 创建任务（这样任务会出现在全局任务队列中）
+      const { taskQueueService } = await import('../services/task-queue');
       const task = taskQueueService.createTask(generateParams, TaskType.IMAGE);
 
       if (!task) {

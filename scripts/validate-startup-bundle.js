@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const { gzipSync } = require('zlib');
 
-const DIST_DIR = path.resolve(__dirname, '../dist/apps/web');
+// An explicit output directory also supports isolated baseline/candidate builds.
+const DIST_DIR = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(__dirname, '../dist/apps/web');
 const BUNDLE_MANIFEST = path.join(DIST_DIR, '.vite/manifest.json');
 const IDLE_MANIFEST = path.join(DIST_DIR, 'idle-prefetch-manifest.json');
 const DISALLOWED_PREFIXES = [
@@ -10,6 +14,11 @@ const DISALLOWED_PREFIXES = [
   'external-skills-',
 ];
 const MAX_STARTUP_ASSET_BYTES = 500 * 1024;
+// The canvas includes the drawing engine. Bound both its largest asset and the
+// full JS/CSS closure so moving code into shared chunks cannot hide a regression.
+const MAX_CANVAS_ASSET_BYTES = 700 * 1024;
+const MAX_CANVAS_TOTAL_BYTES = 3 * 1024 * 1024;
+const MAX_CANVAS_GZIP_BYTES = 900 * 1024;
 
 function fail(message) {
   console.error(`[startup-validate] ${message}`);
@@ -129,6 +138,31 @@ const entryDependencyGraph = new Set([
   ...collectStaticAssets(bootstrapKey),
 ]);
 
+const canvasKeys = (manifest[bootstrapKey].dynamicImports || []).filter(
+  (key) => manifest[key]?.name === 'canvas'
+);
+if (canvasKeys.length !== 1) {
+  fail('启动清单应包含唯一的 canvas 动态入口，不能跳过画布预算');
+}
+const canvasDependencyGraph = new Set([
+  ...entryDependencyGraph,
+  ...collectStaticAssets(canvasKeys[0]),
+]);
+
+// Check every lazy chunk too: first use must not fail because deployment omitted it.
+for (const [key, chunk] of Object.entries(manifest)) {
+  for (const imported of [
+    ...(chunk.imports || []),
+    ...(chunk.dynamicImports || []),
+  ]) {
+    if (!manifest[imported]) fail(`构建清单缺少依赖：${key} -> ${imported}`);
+  }
+  for (const asset of [chunk.file, ...(chunk.css || [])]) {
+    if (!fs.existsSync(path.join(DIST_DIR, asset)))
+      fail(`构建资源不存在：${asset}`);
+  }
+}
+
 const invalidStaticDeps = Array.from(entryDependencyGraph).filter(
   (asset) =>
     asset.endsWith('.js') &&
@@ -176,6 +210,40 @@ if (oversizedStartupAssets.length > 0) {
   );
 }
 
+const canvasBudgetReport = Array.from(canvasDependencyGraph)
+  .filter((asset) => /\.(js|css)$/.test(asset))
+  .map((asset) => {
+    const content = fs.readFileSync(path.join(DIST_DIR, asset));
+    return { asset, size: content.length, gzipSize: gzipSync(content).length };
+  })
+  .sort((a, b) => b.size - a.size);
+const canvasTotalBytes = canvasBudgetReport.reduce(
+  (sum, asset) => sum + asset.size,
+  0
+);
+const canvasGzipBytes = canvasBudgetReport.reduce(
+  (sum, asset) => sum + asset.gzipSize,
+  0
+);
+const oversizedCanvasAssets = canvasBudgetReport.filter(
+  ({ size }) => size > MAX_CANVAS_ASSET_BYTES
+);
+if (oversizedCanvasAssets.length > 0) {
+  fail(
+    `画布存在超过 700KB 的资源：${oversizedCanvasAssets
+      .map(({ asset, size }) => `${asset}: ${size}`)
+      .join(', ')}`
+  );
+}
+if (
+  canvasTotalBytes > MAX_CANVAS_TOTAL_BYTES ||
+  canvasGzipBytes > MAX_CANVAS_GZIP_BYTES
+) {
+  fail(
+    `画布依赖总量超出预算：${canvasTotalBytes}/${MAX_CANVAS_TOTAL_BYTES} bytes，gzip ${canvasGzipBytes}/${MAX_CANVAS_GZIP_BYTES} bytes`
+  );
+}
+
 const sizeReport = directAssets.map((asset) => {
   const fullPath = path.join(DIST_DIR, asset);
   const size = fs.existsSync(fullPath) ? fs.statSync(fullPath).size : 0;
@@ -191,6 +259,17 @@ console.log(
       directAssets: sizeReport,
       entryDependencyGraph: Array.from(entryDependencyGraph).sort(),
       startupBudget: startupBudgetReport,
+      canvasEntry: canvasKeys[0],
+      canvasBudget: {
+        assets: canvasBudgetReport,
+        totalBytes: canvasTotalBytes,
+        gzipBytes: canvasGzipBytes,
+        limits: {
+          assetBytes: MAX_CANVAS_ASSET_BYTES,
+          totalBytes: MAX_CANVAS_TOTAL_BYTES,
+          gzipBytes: MAX_CANVAS_GZIP_BYTES,
+        },
+      },
       chunkCycles: [],
       idlePrefetchGroups: Object.keys(idleManifest.groups || {}),
     },

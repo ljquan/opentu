@@ -17,17 +17,23 @@ import { getVideoModelConfig } from '../../constants/video-model-config';
 import {
   DEFAULT_ORIGINAL_VERSION_ID,
   appendVersionToRecord,
+  switchVersionInRecord,
+} from '../shared/workflow/versioned-record';
+import {
   buildCharacterReferencePrompt,
   buildVideoReferenceImageDescriptions,
   buildVideoPrompt,
   buildFramePrompt,
+} from '../shared/workflow/prompt-builders';
+import {
   formatCreativeBriefPromptBlock,
   type CreativeBrief,
+} from '../shared/workflow/creative-brief';
+import {
   readStoredModelSelection,
-  switchVersionInRecord,
   writeStoredModelSelection,
-  updateActiveVersionShotsInRecord,
-} from '../shared/workflow';
+} from '../shared/workflow/model-selection-storage';
+import { updateActiveVersionShotsInRecord } from '../shared/workflow/versioned-shots';
 
 export {
   buildVideoPrompt,

@@ -184,6 +184,12 @@ export const ErrorFallbackUI: React.FC<ErrorFallbackProps> = (props) => {
   } = props;
   const [showDetail, setShowDetail] = React.useState(false);
   const cfg = VARIANT_CONFIG[variant];
+  React.useEffect(() => {
+    // A failed lazy canvas must reveal the recovery UI under the boot overlay.
+    (
+      window as Window & { __OPENTU_BOOT__?: { markReady: () => void } }
+    ).__OPENTU_BOOT__?.markReady();
+  }, []);
 
   const displayTitle = title || cfg.defaultTitle;
   const displayDesc = description || cfg.defaultDesc;
