@@ -1,3 +1,13 @@
+## 1.2.19 (2026-11-24)
+
+### 🔧 Chores
+
+- perf: 优化画布首次加载并补齐启动资源预算 (#350) ([7ccee328](https://github.com/ljquan/opentu/commit/7ccee328))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.18 (2026-11-23)
 
 ### 🔧 Chores
