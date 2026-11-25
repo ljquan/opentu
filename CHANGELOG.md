@@ -1,3 +1,13 @@
+## 1.2.20 (2026-11-25)
+
+### 🩹 Fixes
+
+- default to Vidu Q4 Preview while preserving saved selections (#351) ([8aa9f5ba](https://github.com/ljquan/opentu/commit/8aa9f5ba))
+
+### ❤️  Thank You
+
+- 李泓震 <3029956183@qq.com>
+
 ## 1.2.19 (2026-11-24)
 
 ### 🔧 Chores

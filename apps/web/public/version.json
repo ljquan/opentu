@@ -1,8 +1,8 @@
 {
-  "version": "1.2.19",
-  "buildTime": "2026-11-24T07:15:53.656Z",
+  "version": "1.2.20",
+  "buildTime": "2026-11-25T09:25:40.985Z",
   "gitCommit": "unknown",
   "changelog": [
-    "perf: 优化画布首次加载并补齐启动资源预算 (#350)"
+    "default to Vidu Q4 Preview while preserving saved selections (#351)"
   ]
 }

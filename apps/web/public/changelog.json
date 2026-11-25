@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.2.20",
+      "date": "2026-11-25",
+      "changes": {
+        "features": [],
+        "fixes": [
+          "default to Vidu Q4 Preview while preserving saved selections (#351)"
+        ],
+        "improvements": []
+      },
+      "type": "patch",
+      "highlights": "default to Vidu Q4 Preview while preserving saved selections (#351)"
+    },
+    {
       "version": "1.2.19",
       "date": "2026-11-24",
       "changes": {
@@ -745,19 +758,6 @@
       },
       "type": "minor",
       "highlights": "适配 Seedance 2.5 视频模型 (#239)"
-    },
-    {
-      "version": "1.0.20",
-      "date": "2026-08-21",
-      "changes": {
-        "features": [],
-        "fixes": [],
-        "improvements": [
-          "修复：任务队列多结果无法插入画布 (#236)"
-        ]
-      },
-      "type": "patch",
-      "highlights": "构建修复与稳定性改进"
     }
   ]
 }
