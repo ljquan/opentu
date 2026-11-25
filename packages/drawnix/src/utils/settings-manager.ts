@@ -506,8 +506,6 @@ class SettingsManager {
       ...gemini,
       imageModelName: ['gpt-image-2', 'gpt-image-2-vip'].includes(gemini.imageModelName || '')
         ? getDefaultImageModel() : gemini.imageModelName,
-      videoModelName: gemini.videoModelName === 'seedance-1.5-pro'
-        ? getDefaultVideoModel() : gemini.videoModelName,
       textModelName: gemini.textModelName === 'gpt-5.5'
         ? getDefaultTextModel() : gemini.textModelName,
       chatModel: gemini.chatModel === 'gpt-5.5'
