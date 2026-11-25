@@ -2164,7 +2164,7 @@ export function getDefaultImageModel(): string {
 /**
  * 默认视频模型 ID
  */
-export const DEFAULT_VIDEO_MODEL_ID = SEEDANCE_25_MODEL_ID;
+export const DEFAULT_VIDEO_MODEL_ID = 'viduq4-preview';
 
 /**
  * 获取默认视频模型 ID
